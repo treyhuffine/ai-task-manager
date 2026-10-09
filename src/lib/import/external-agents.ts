@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { assertPersonalCapability } from '@/lib/home/authority';
 import path from 'node:path';
 import type { HistoryCheckpoint } from '@agentex/agent';
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
@@ -163,6 +164,8 @@ function realpathOr(folder: string): string {
 }
 
 export async function discoverExternalAgentSessions(): Promise<ExternalAgentDiscovery> {
+  // A team space imports no one's history (docs/homes-spec.md §9.2, P6.3).
+  assertPersonalCapability('Chat import');
   const { candidates, available, completed } = await discoverCandidatesInternal();
   const db = getDb();
   const scannedAt = new Date().toISOString();
@@ -887,6 +890,7 @@ export async function syncAllImportedSessions(): Promise<{
   replayed: number;
   errors: number;
 }> {
+  assertPersonalCapability('Chat import');
   const db = getDb();
   const ledgers = db
     .select({ ledger: externalSessionImports })

@@ -1,3 +1,4 @@
+import { assertPersonalCapability, isTeamAuthority } from '@/lib/home/authority';
 import { createHash } from 'crypto';
 import { embed } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -56,6 +57,7 @@ function truncate(text: string): string {
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
+  assertPersonalCapability('Embeddings');
   const result = await embed({
     model: openai.embedding('text-embedding-3-small'),
     value: truncate(text),
@@ -74,6 +76,9 @@ export async function upsertEmbedding(
   // isn't set. Hybrid search already handles the missing-embedding case by
   // falling back to FTS.
   if (textContent.trim() && !process.env.OPENAI_API_KEY) return;
+  // A team space runs no AI, an ambient key included: its search is keyword
+  // search (docs/homes-spec.md §9.2).
+  if (isTeamAuthority()) return;
 
   try {
     const db = getRawDb();

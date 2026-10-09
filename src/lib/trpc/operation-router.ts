@@ -262,7 +262,7 @@ import * as operation213 from "@/lib/server/operations/workspaces/[id]/tree";
 import * as operation246 from "@/lib/server/operations/workspaces/detect-stack";
 import * as operation247 from "@/lib/server/operations/workspaces/preview-files";
 import * as operation248 from "@/lib/server/operations/workspaces/reorder";
-import { viewerProcedure as p, router } from './init';
+import { viewerProcedure as p, sharedProcedure as sp, router } from './init';
 
 export const taskProcedures = {
   continueTargetsGet: p.input(operation208.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation208.GET(input, operationContext(ctx.request, input, "/tasks/[id]/continue-targets")))),
@@ -350,8 +350,8 @@ export const internalRouters = {
     create: p.input(operation43.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation43.POST(input, operationContext(ctx.request, input, "/entity-brief")))),
   }),
   entityVersions: router({
-    list: p.input(operation44.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation44.GET(input, operationContext(ctx.request, input, "/entity-versions")))),
-    revertPost: p.input(operation45.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation45.POST(input, operationContext(ctx.request, input, "/entity-versions/[id]/revert")))),
+    list: sp.input(operation44.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation44.GET(input, operationContext(ctx.request, input, "/entity-versions")))),
+    revertPost: sp.input(operation45.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation45.POST(input, operationContext(ctx.request, input, "/entity-versions/[id]/revert")))),
   }),
   executions: router({
     notifyScopeChangePost: p.input(operation46.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation46.POST(input, operationContext(ctx.request, input, "/executions/[id]/notify-scope-change")))),
@@ -460,7 +460,7 @@ export const internalRouters = {
     statsGet: p.input(operation108.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation108.GET(input, operationContext(ctx.request, input, "/runs/stats")))),
   }),
   search: router({
-    list: p.input(operation109.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation109.GET(input, operationContext(ctx.request, input, "/search")))),
+    list: sp.input(operation109.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation109.GET(input, operationContext(ctx.request, input, "/search")))),
   }),
   service: router({
     list: p.input(operation110.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation110.GET(input, operationContext(ctx.request, input, "/service")))),

@@ -1,4 +1,5 @@
 import { getRawDb } from '@/lib/db';
+import { isTeamAuthority } from '@/lib/home/authority';
 import { generateEmbedding } from './embed';
 import { toFtsMatchQuery, normalizeFtsRank } from './fts-query';
 
@@ -140,6 +141,8 @@ export async function hybridSearch(
   query: string,
   { limit = 20, vectorWeight = 0.7 }: { limit?: number; vectorWeight?: number } = {},
 ): Promise<SearchHit[]> {
+  // A team space searches by keyword only: it runs no AI (docs/homes-spec.md §9.2).
+  if (isTeamAuthority()) return ftsSearch(query, limit);
   const bm25Weight = 1 - vectorWeight;
 
   // Run both searches in parallel. The vector half needs OPENAI_API_KEY to

@@ -11,7 +11,7 @@ export class RequestBodyTooLargeError extends Error {
  * it can be absent or false on a public webhook request.
  */
 export async function readLimitedRequestBody(
-  request: Request,
+  request: Pick<Request, 'body'>,
   maxBytes: number,
 ): Promise<ArrayBuffer> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {

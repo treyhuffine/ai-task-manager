@@ -21,6 +21,7 @@
  * now" and hands work off.
  */
 
+import { assertPersonalCapability } from '@/lib/home/authority';
 import { withActivity, MaintenanceError } from '@/lib/service/maintenance';
 import { perfScope } from '@/lib/perf/recorder';
 import { localAppsEnabled } from '@/lib/config/features';
@@ -100,6 +101,8 @@ function installSchedulerShutdownHooks(): void {
  * `tickCount` so tests can wait for a known number of ticks.
  */
 export function startScheduler(): void {
+  // A team space has no schedules (docs/homes-spec.md §9.2).
+  assertPersonalCapability('Schedules');
   installSchedulerShutdownHooks();
   if (state.interval) return;
   // Boot recovery: any `runs` row left in `running` from a prior process

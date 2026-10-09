@@ -9,6 +9,7 @@
  * deliberately — the only OpenAI API use in the app is embeddings.
  */
 
+import { assertPersonalCapability } from '@/lib/home/authority';
 import { managedSpeech, speechPreferences } from './managed/manager';
 import { getVoiceProvider, getVoiceModelName, isKnownVoiceModel } from '@/constants/voice-models';
 
@@ -75,6 +76,8 @@ export async function transcribe(
   voiceModel: string,
   signal?: AbortSignal,
 ): Promise<string> {
+  // A team space runs no AI, speech-to-text included (docs/homes-spec.md §9.2).
+  assertPersonalCapability('Speech to text');
   const provider = getVoiceProvider(voiceModel);
   const modelName = getVoiceModelName(voiceModel);
 

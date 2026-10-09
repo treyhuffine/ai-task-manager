@@ -7,6 +7,7 @@ import {
   type ProviderRuntimeContext,
   type ProviderRuntimeReport,
 } from '@agentex/agent';
+import { assertPersonalCapability } from '@/lib/home/authority';
 import { HARNESS_REGISTRY, type HarnessCapabilities, type HarnessId } from './registry';
 import { openCursorApiKey } from './credentials';
 import { registerHarnessRuntimeSecret } from './redaction';
@@ -149,6 +150,8 @@ export async function getHarnessRuntime(
   harness: HarnessId,
   options: { cwd?: string; refresh?: boolean } = {},
 ): Promise<HarnessRuntimeView> {
+  // A team space looks for no harness (docs/homes-spec.md §9.2, P6.3).
+  assertPersonalCapability('Harness discovery');
   const command = commandFor(harness) ?? '';
   const key = JSON.stringify([harness, options.cwd ?? '', command]);
   const cached = cache.get(key);

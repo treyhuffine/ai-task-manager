@@ -48,6 +48,11 @@ function closeConnection(): void {
   }
 }
 
+/** Whether a connection to this database is already open. Never opens one. */
+export function isDatabaseOpen(dbPath: string = getDefaultDbPath()): boolean {
+  return connection.current?.path === dbPath && fs.existsSync(dbPath);
+}
+
 export function getDefaultDbPath(): string {
   return getDbPath();
 }
@@ -137,6 +142,7 @@ END;
 
 -- The one-shot backfill of chat_events_fts runs from ensureChatSearchBackfill,
 -- only when the index is empty.
+
 
 -- Entity-links projection spine (docs/entity-links-spec.md §5.1).
 -- Pure-SQL revision triggers: bump source_revision whenever link-bearing

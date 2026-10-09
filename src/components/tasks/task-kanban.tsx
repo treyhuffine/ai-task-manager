@@ -24,7 +24,7 @@ import { useTasks, useCreateTask, useTaskAttention } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { useAreas } from '@/hooks/use-areas';
 import { tasksApi } from '@/lib/api/tasks';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useOptionalDashboard } from '@/contexts/dashboard-context';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -53,7 +53,7 @@ import { Tip } from '@/components/ui/tip';
  * ends refresh it sooner (src/lib/query/invalidate-tasks.ts). */
 const BOARD_POLL_MS = 15_000;
 
-type AreaMode = 'all' | 'none' | string; // 'all', 'none', or an area id
+export type AreaMode = 'all' | 'none' | string; // 'all', 'none', or an area id
 
 /** One draggable card. */
 function KanbanCard({
@@ -64,6 +64,7 @@ function KanbanCard({
   onOpen,
   onOpenAgent,
   showArea,
+  meta,
 }: {
   task: TaskListDTO;
   areaName?: string | null;
@@ -73,6 +74,8 @@ function KanbanCard({
   onOpen: (id: string) => void;
   onOpenAgent: (sessionId: string) => void;
   showArea: boolean;
+  /** More about the card from its host, e.g. who a team task is assigned to. */
+  meta?: ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
@@ -113,6 +116,7 @@ function KanbanCard({
         {(task.subtaskCount ?? 0) > 0 && (
           <span className="text-[10px] text-muted-foreground">{task.subtaskCount} sub</span>
         )}
+        {meta}
       </div>
       {showAgentRow && (
         <div className="mt-1.5 flex items-center gap-1.5">
@@ -222,6 +226,7 @@ function KanbanColumn({
   onOpenAgent,
   showArea,
   onCreate,
+  cardMeta,
 }: {
   lane: TaskLane;
   tasks: TaskListDTO[];
@@ -232,6 +237,7 @@ function KanbanColumn({
   onOpenAgent: (sessionId: string) => void;
   showArea: boolean;
   onCreate: (lane: TaskLane, title: string) => void;
+  cardMeta?: (task: TaskListDTO) => ReactNode;
 }) {
   const def = LANE_BY_KEY[lane];
   const { setNodeRef, isOver } = useDroppable({ id: `col:${lane}`, data: { lane } });
@@ -262,6 +268,7 @@ function KanbanColumn({
                 onOpen={onOpen}
                 onOpenAgent={onOpenAgent}
                 showArea={showArea}
+                meta={cardMeta?.(t)}
               />
             ))
           )}
@@ -281,18 +288,45 @@ export function TaskKanban({
   leading,
   trailing,
   onOpenAgent,
+  onOpenTask,
+  agents = true,
+  assigneeMemberId = null,
+  cardMeta,
+  createDefaults,
+  areaFilter,
+  onAreaFilterChange,
 }: {
   leading: ReactNode;
   trailing?: ReactNode;
   /** Open an agent's execution from a card. Defaults to navigating there. */
   onOpenAgent?: (sessionId: string) => void;
+  /** Open a task. Defaults to the dashboard's slideout. */
+  onOpenTask?: (id: string) => void;
+  /**
+   * Whether cards show what agents are doing on them. A team's board runs no
+   * agents (docs/homes-spec.md §9.2), so its host turns this off.
+   */
+  agents?: boolean;
+  /** Only the tasks assigned to this team member (a team's Assigned to me). */
+  assigneeMemberId?: string | null;
+  /** More on each card from the host, e.g. who a team task is assigned to. */
+  cardMeta?: (task: TaskListDTO) => ReactNode;
+  /** Fields a task added from a column starts with, e.g. its assignee on Assigned to me. */
+  createDefaults?: Record<string, unknown>;
+  /** The Area filter, when the host keeps it (a team's rail filters its board and notes alike). */
+  areaFilter?: AreaMode;
+  onAreaFilterChange?: (mode: AreaMode) => void;
 }) {
   const qc = useQueryClient();
-  const { openTask, openExecution } = useDashboard();
+  const dashboard = useOptionalDashboard();
+  const openTask = onOpenTask ?? dashboard?.openTask ?? (() => {});
+  const openExecution = dashboard?.openExecution ?? (() => {});
   const lifecycle = useTaskLifecycle();
   const createTask = useCreateTask();
   const { data: areas } = useAreas();
-  const [areaMode, setAreaMode] = useState<AreaMode>('all');
+  const [ownAreaMode, setOwnAreaMode] = useState<AreaMode>('all');
+  const areaMode = areaFilter ?? ownAreaMode;
+  const setAreaMode = onAreaFilterChange ?? setOwnAreaMode;
   const [showArchived, setShowArchived] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -309,6 +343,7 @@ export function TaskKanban({
         title: trimmed,
         rawInput: trimmed,
         status,
+        ...createDefaults,
         ...(areaMode !== 'all' && areaMode !== 'none' ? { areaId: areaMode } : {}),
       } as Parameters<typeof createTask.mutateAsync>[0]);
       if (!created?.id) return;
@@ -316,18 +351,19 @@ export function TaskKanban({
       else if (lane === 'done') lifecycle.complete(created.id);
       else if (lane === 'archived') lifecycle.archive(created.id);
     },
-    [createTask, areaMode, lifecycle],
+    [createTask, areaMode, lifecycle, createDefaults],
   );
 
   const columns: TaskLane[] = showArchived ? [...KANBAN_COLUMNS, 'archived'] : KANBAN_COLUMNS;
 
   // One query per column, ordered by the shared sort contract.
   const live = { refetchInterval: BOARD_POLL_MS };
-  const consider = useTasks({ status: 'consider', orderBy: 'sortKey' }, live);
-  const todo = useTasks({ status: 'todo', orderBy: 'sortKey' }, live);
-  const current = useTasks({ status: 'in_progress', orderBy: 'sortKey' }, live);
-  const done = useTasks({ status: 'done', orderBy: 'sortKey' }, live);
-  const archived = useTasks({ status: 'archived', orderBy: 'sortKey' }, showArchived ? live : {});
+  const scope = assigneeMemberId ? { assigneeMemberId } : {};
+  const consider = useTasks({ status: 'consider', orderBy: 'sortKey', ...scope }, live);
+  const todo = useTasks({ status: 'todo', orderBy: 'sortKey', ...scope }, live);
+  const current = useTasks({ status: 'in_progress', orderBy: 'sortKey', ...scope }, live);
+  const done = useTasks({ status: 'done', orderBy: 'sortKey', ...scope }, live);
+  const archived = useTasks({ status: 'archived', orderBy: 'sortKey', ...scope }, showArchived ? live : {});
 
   const byLane: Record<TaskLane, TaskListDTO[]> = useMemo(() => {
     const inArea = (t: TaskListDTO) =>
@@ -355,7 +391,7 @@ export function TaskKanban({
 
   // What the agents on work underway are doing: Working, an Update to review,
   // Stalled, and which chat to open. Polls, and refreshes on every turn edge.
-  const { data: attention } = useTaskAttention(byLane.current.map((t) => t.id));
+  const { data: attention } = useTaskAttention(agents ? byLane.current.map((t) => t.id) : []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -380,7 +416,7 @@ export function TaskKanban({
       const nextId = idx < orderedIds.length - 1 ? orderedIds[idx + 1] : null;
       // Optimistic: show the dropped order immediately (the server's canonical
       // keys land on the settle invalidate below).
-      const qkey = entityKeys.tasks.list({ status: laneStatus(lane), orderBy: 'sortKey' });
+      const qkey = entityKeys.tasks.list({ status: laneStatus(lane), orderBy: 'sortKey', ...(assigneeMemberId ? { assigneeMemberId } : {}) });
       qc.setQueryData<TaskListDTO[]>(qkey, (rows) => {
         if (!rows) return rows;
         const byId = new Map(rows.map((r) => [r.id, r]));
@@ -395,7 +431,7 @@ export function TaskKanban({
       }
       qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
     },
-    [qc],
+    [qc, assigneeMemberId],
   );
 
   const onDragEnd = useCallback(
@@ -516,6 +552,7 @@ export function TaskKanban({
                 onOpenAgent={onOpenAgent ?? openExecution}
                 showArea={areaMode === 'all'}
                 onCreate={handleColumnCreate}
+                cardMeta={cardMeta}
               />
             ))}
           </div>

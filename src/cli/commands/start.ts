@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import { teamHasOwner } from '@/lib/db/queries';
 import nodeTls from 'node:tls';
 import { intro, outro, log, spinner, select, isCancel, confirm } from '@clack/prompts';
 import pc from 'picocolors';
@@ -242,9 +243,13 @@ async function startForegroundCommand(opts: StartOptions) {
   const info = ensureLocalToken();
   // A root whose data came from another device doesn't act as the home
   // until someone claims it (docs/homes-spec.md §10.3).
+  // A team space starts only its server: no skills, setup wizard, harness
+  // checks or voice, which belong to a person's home (docs/homes-spec.md §9.2).
+  let team = false;
   try {
     const identity = ensureHomeIdentity();
-    if (identity.created) log.success(`Created your home on ${identity.device.name}`);
+    team = identity.home.kind === 'team';
+    if (identity.created) log.success(team ? `Created the team ${identity.home.name} on ${identity.device.name}` : `Created your home on ${identity.device.name}`);
   } catch (err) {
     s.stop('Not starting');
     // A retired home in this folder: say what happened, never open a new one.
@@ -255,7 +260,7 @@ async function startForegroundCommand(opts: StartOptions) {
     }
     throw err;
   }
-  try {
+  if (!team) try {
     const projectSkillCleanup = process.env.RI_DESKTOP === '1'
       ? { removed: 0, errors: 0 } : await cleanupKnownProjectSkillLinks();
     if (projectSkillCleanup.removed > 0) {
@@ -275,7 +280,7 @@ async function startForegroundCommand(opts: StartOptions) {
   // Keep the app-root skill available for sessions opened in the data home.
   // Maintain the user-level install only after the user explicitly opts in.
   // Both operations are idempotent and non-blocking for startup.
-  try {
+  if (!team) try {
     const appRootResult = await installAppRootSkills();
     if (appRootResult.installed > 0) {
       log.success(`Installed ${appRootResult.installed} skill symlink(s) in the app data dir`);
@@ -306,7 +311,7 @@ async function startForegroundCommand(opts: StartOptions) {
       outro('Left the running instance unchanged');
       return;
     }
-    const url = buildPairingUrl(info.plaintext, live.publicBaseUrl);
+    const url = team ? live.publicBaseUrl : buildPairingUrl(info.plaintext, live.publicBaseUrl);
     log.success(`Already running at ${live.publicBaseUrl}`);
     if (opts.open) await openBrowser(url);
     outro(opts.open ? 'Opened in browser' : `Open: ${url}`);
@@ -322,7 +327,7 @@ async function startForegroundCommand(opts: StartOptions) {
   if (await isOurServerRunning(probeUrl)) {
     // Build the pairing URL against the URL we just confirmed is live, not the
     // token's baked-in default (which predates port binding).
-    const url = buildPairingUrl(info.plaintext, probeUrl);
+    const url = team ? probeUrl : buildPairingUrl(info.plaintext, probeUrl);
     log.success(`Already running at ${probeUrl}`);
     if (opts.open) await openBrowser(url);
     outro(opts.open ? 'Opened in browser' : `Open: ${url}`);
@@ -333,7 +338,7 @@ async function startForegroundCommand(opts: StartOptions) {
   // onboarded and we're attached to a real terminal. Headless invocations
   // (smoke tests, CI, scripted starts) skip silently — `ri onboard` is
   // available later if they want to configure interactively.
-  if (!getIsOnboarded()) {
+  if (!team && !getIsOnboarded()) {
     if (process.stdin.isTTY) {
       await runWizard();
       markOnboarded();
@@ -345,13 +350,15 @@ async function startForegroundCommand(opts: StartOptions) {
 
   // Diagnostics preflight — surface misconfiguration before we start anything
   // that depends on it (voice, server). Non-blocking: warnings are informational.
-  const diagnostics = await runDoctorChecks();
-  printDoctorChecks(diagnostics, { compact: true });
+  if (!team) {
+    const diagnostics = await runDoctorChecks();
+    printDoctorChecks(diagnostics, { compact: true });
+  }
 
   // Voice: start the Parakeet sidecar before Next so transcription is
   // available the moment the UI loads. Voice startup is non-fatal — if
   // Docker is down or the container fails, we warn and proceed.
-  const voiceWanted = opts.voice ?? getVoiceEnabled();
+  const voiceWanted = !team && (opts.voice ?? getVoiceEnabled());
   let voiceStarted = false;
   if (voiceWanted) {
     voiceStarted = await bringUpVoice(s);
@@ -527,7 +534,11 @@ async function startForegroundCommand(opts: StartOptions) {
     });
   }
 
-  const url = buildPairingUrl(info.plaintext);
+  // A team's address opens its sign-in. Its host's key is never a link.
+  const url = team ? publicBaseUrl : buildPairingUrl(info.plaintext);
+  if (team && !teamHasOwner()) {
+    log.info(`This team has no owner yet. Run \`${APP_SHORT_ID} team setup-link\` here and open the link to name it and become its owner.`);
+  }
   if (opts.open) {
     await openBrowser(url);
     log.success(`Opened ${url}`);

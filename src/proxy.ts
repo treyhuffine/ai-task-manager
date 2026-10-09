@@ -10,9 +10,13 @@ import {
   API_KEY_SCOPE_HEADER,
   CALLER_LOCATION_HEADER,
   FORWARDED_KEY_HEADERS,
+  MEMBER_ID_HEADER,
+  MEMBER_ROLE_HEADER,
   SESSION_CHAT_HEADER,
   WORKER_DEVICE_HEADER,
 } from '@/lib/auth/request-key';
+import { isTeamAuthority } from '@/lib/home/authority';
+import { hostMayReach, isTeamPublicPath, memberMayReach, teamCallerFor, teamSessionCookieName } from '@/lib/team/credential';
 import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/session-token';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { permitsCookieMutation } from '@/lib/auth/request-origin';
@@ -82,6 +86,61 @@ function nextWithoutKeyHeaders(request: NextRequest) {
   return NextResponse.next({ request: { headers } });
 }
 
+/**
+ * A team space's boundary (docs/homes-spec.md §9.1, §9.2, P6.3). Its own
+ * session cookie, so a team and a personal Ri on one computer never sign
+ * each other out. Grants are their own credential on the public team
+ * routes. Otherwise a key is a member's, reaching only the team's shared
+ * work, or the host's own, reaching only installation administration.
+ * Every personal route answers as if it weren't there.
+ */
+function teamProxy(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  if (isTeamPublicPath(pathname)) return nextWithoutKeyHeaders(request);
+
+  const cookieName = teamSessionCookieName();
+  if (request.cookies.get(cookieName)?.value && !permitsCookieMutation(request)) {
+    return NextResponse.json({ error: 'request origin is not allowed' }, { status: 403 });
+  }
+  const header = request.headers.get('authorization');
+  const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  const token = bearer || request.cookies.get(cookieName)?.value || null;
+  if (!token || isSessionToken(token)) return unauthorized();
+  const found = lookupApiToken(token);
+  if (!found) return unauthorized();
+  const caller = teamCallerFor(found.key, found.tokenHash);
+  if (!caller) return unauthorized();
+
+  if (!hasIndependentProtocol(pathname) && pathname !== '/api/version') {
+    const mismatch = apiCompatibilityIssue(request.headers.get(API_PROTOCOL_HEADER), CURRENT_COMPATIBILITY.apiProtocols);
+    if (mismatch) return NextResponse.json(mismatch, { status: 426, headers: { 'Cache-Control': 'no-store' } });
+  }
+  if (caller.scope === 'host' && !hostMayReach(pathname)) {
+    return forbidden('host_key', "The host's key looks after this installation. Sign in as a member to use the team.");
+  }
+  if (caller.scope === 'member' && !memberMayReach(pathname)) {
+    return NextResponse.json({ error: 'not_in_team', message: "That isn't part of a team space." }, { status: 404 });
+  }
+  try {
+    touchApiKey(found.key.id, {
+      ip: request.headers.get('x-forwarded-for') ?? null,
+      userAgent: request.headers.get('user-agent') ?? null,
+    });
+  } catch (err) {
+    console.error('[auth] touchApiKey failed:', err);
+  }
+  const headers = new Headers(request.headers);
+  for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+  headers.set(API_KEY_ID_HEADER, found.key.id);
+  headers.set(CALLER_LOCATION_HEADER, caller.scope === 'host' ? 'home' : 'elsewhere');
+  headers.set(API_KEY_SCOPE_HEADER, caller.scope);
+  if (caller.scope === 'member') {
+    headers.set(MEMBER_ID_HEADER, caller.member.id);
+    headers.set(MEMBER_ROLE_HEADER, caller.member.role);
+  }
+  return NextResponse.next({ request: { headers } });
+}
+
 export function proxy(request: NextRequest) {
   if (process.env.NODE_ENV === 'production' &&
       /^\/api\/(dev|playground|benchmark)(\/|$)/.test(request.nextUrl.pathname)) {
@@ -108,8 +167,21 @@ export function proxy(request: NextRequest) {
     );
   }
 
+  // A team space has members and its host, nothing personal, so it has its
+  // own boundary (docs/homes-spec.md §9.1, P6.1/P6.3).
+  let team: boolean;
+  try {
+    team = isTeamAuthority();
+  } catch (err) {
+    return NextResponse.json(
+      { error: 'authority_conflict', message: err instanceof Error ? err.message : 'This folder is marked as a team, but its data is a personal Ri.' },
+      { status: 503 },
+    );
+  }
+  if (team) return teamProxy(request);
+
   // Local app broker credentials are verified by this narrow protocol adapter.
-  if (localAppsEnabled() && /^\/api\/local-apps\/broker\/v1\/(capabilities|call)$/.test(request.nextUrl.pathname)) return nextWithoutKeyHeaders(request);
+  if (localAppsEnabled() &&/^\/api\/local-apps\/broker\/v1\/(capabilities|call)$/.test(request.nextUrl.pathname)) return nextWithoutKeyHeaders(request);
 
   if (request.nextUrl.pathname.startsWith('/api/webhooks/')) {
     return nextWithoutKeyHeaders(request);

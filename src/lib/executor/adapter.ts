@@ -1,4 +1,5 @@
 import { localApps } from '@/lib/local-apps/service';
+import { assertPersonalCapability } from '@/lib/home/authority';
 import { localAppsEnabled } from '@/lib/config/features';
 /**
  * The home's executor API (docs/homes-build.md, "P2.1 The runner split").
@@ -277,6 +278,8 @@ export async function dispatch(
   userMessage: string,
   options: DispatchOptions = {},
 ): Promise<void> {
+  // A team space runs no agents (docs/homes-spec.md §9.2).
+  assertPersonalCapability('Agents');
   // Admitted only while the service isn't preparing an update (desktop
   // maintenance): an update waits for the sends already in, and refuses new ones.
   return withActivity(async () => {

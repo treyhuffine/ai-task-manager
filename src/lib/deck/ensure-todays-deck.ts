@@ -8,6 +8,7 @@
  * heartbeat lands (Phase 3), passing `origin: 'morning'`.
  */
 
+import { assertPersonalCapability } from '@/lib/home/authority';
 import type { DeckRecord, DeckOrigin } from '@/db/types';
 import type { DeckGenerationContext } from '@/lib/ai/deck-generation';
 import { getActiveDeckForDate } from '@/lib/db/queries';
@@ -32,6 +33,8 @@ export interface EnsureTodaysDeckOpts {
  * errors propagate — callers (the GET route) decide how to degrade.
  */
 export async function ensureTodaysDeck(opts: EnsureTodaysDeckOpts = {}): Promise<DeckRecord> {
+  // A team has no personal Deck (docs/homes-spec.md §3.2).
+  assertPersonalCapability('The Deck');
   const today = todayLocalDate();
 
   const existing = getActiveDeckForDate(today);

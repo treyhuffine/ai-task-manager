@@ -28,6 +28,10 @@ const protocolRoutes = new Set([
   '/workers/enroll', '/workers/grants', '/workers/me/associations', '/workers/me/attachments/[fileName]', '/workers/me/commands/[id]/ack',
   '/workers/me/events', '/workers/me/heartbeat', '/workers/me/requests/[id]/result', '/workers/me', '/workers/me/stream',
   '/workers/me/terminals/output', '/workspaces/[id]/terminals/[terminalId]/stream',
+  // A team's grants are their own credential, like enrollment, and its host's
+  // installation administration takes only the host's key (src/lib/team/admission.ts).
+  '/team/public/info', '/team/public/preview', '/team/public/join', '/team/public/sign-in', '/team/public/setup',
+  '/team/host/owner', '/team/host/setup-link', '/team/host/status',
 ]);
 
 describe('complete UI migration coverage', () => {

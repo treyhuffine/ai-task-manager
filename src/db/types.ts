@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, members, teamGrants, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, workResults, workResultTasks, workResultDecisions, workResultAiReviews,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -215,6 +215,15 @@ export type ReviewCheckoutRecord = InferSelectModel<typeof reviewCheckouts>;
 export type WorkspaceSetupRecord = InferSelectModel<typeof workspaceSetups>;
 export type WorkspaceSetupStatus = WorkspaceSetupRecord['status'];
 export type FolderLinkRecord = InferSelectModel<typeof folderLinks>;
+
+// ─── Team members ─────────────────────────────────────────────
+// docs/homes-spec.md §9.1. Only a team space has members.
+
+export type MemberRecord = InferSelectModel<typeof members>;
+export type MemberRole = MemberRecord['role'];
+export type MemberStatus = MemberRecord['status'];
+export type TeamGrantRecord = InferSelectModel<typeof teamGrants>;
+export type TeamGrantKind = TeamGrantRecord['kind'];
 
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
 export type ApiKeyRole = ApiKeyRecord['role'];
@@ -519,6 +528,8 @@ export interface TaskFilter {
   workspaceId?: string | null;
   parentId?: string | null;
   energy?: Energy;
+  /** In a team space: the member the tasks are assigned to. */
+  assigneeMemberId?: string | null;
   q?: string;
   limit?: number;
   offset?: number;

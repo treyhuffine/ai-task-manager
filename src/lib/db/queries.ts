@@ -7,11 +7,12 @@ import { createHash, randomBytes } from 'node:crypto';
 import nodePath from 'node:path';
 import os from 'node:os';
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
-import { getDb, getRawDb } from '@/lib/db';
+import { registerHomeKindReader } from '@/lib/home/authority';
+import { getDb, getRawDb, isDatabaseOpen } from '@/lib/db';
 import { processState } from '@/lib/process-state';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, devices, deviceGrants, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
+  home, devices, deviceGrants, members, teamGrants, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -39,6 +40,7 @@ import type {
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   HomeRecord, HomeKind, DeviceRecord, CreateDeviceInput, UpdateDeviceInput,
   DeviceGrantRecord, DeviceGrantKind, DeviceKind, WorkerReportedState, WorkerHarnessReport,
+  MemberRecord, MemberRole, TeamGrantRecord, TeamGrantKind,
   WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord,
   WorkspaceSetupRecord, SetupReferenceReport, FolderLinkRecord,
   Attachment,
@@ -185,6 +187,7 @@ export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
   if (filter.areaId) conditions.push(eq(tasks.areaId, filter.areaId));
   if (filter.workspaceId) conditions.push(eq(tasks.workspaceId, filter.workspaceId));
   if (filter.parentId) conditions.push(eq(tasks.parentId, filter.parentId));
+  if (filter.assigneeMemberId) conditions.push(eq(tasks.assigneeMemberId, filter.assigneeMemberId));
   if (filter.energy) conditions.push(eq(tasks.energy, filter.energy));
   if (filter.q) conditions.push(sql`${tasks.title} LIKE ${'%' + filter.q + '%'}`);
 
@@ -715,7 +718,16 @@ export function rebuildAllEntityLinks(): { sources: number; pruned: number } {
   }, true);
 }
 
-export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput?: string }, identity?: {id: string}): TaskRecord {
+/**
+ * `createdBy`, when given, records who made it as the task's first version:
+ * a team's history starts with "Trey added this" (docs/homes-spec.md §9.1).
+ * A personal home's history starts at the first change, as it always has.
+ */
+export function createTask(
+  input: Omit<CreateTaskInput, 'rawInput'> & { rawInput?: string },
+  identity?: { id: string },
+  createdBy?: EntityVersionMeta,
+): TaskRecord {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -771,6 +783,7 @@ export function createTask(input: Omit<CreateTaskInput, 'rawInput'> & { rawInput
   });
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
   void syncEntity('task', row.id);
+  if (createdBy) recordCreatedVersion('task', row.id, taskSnapshot(normalizeTaskRow(row)), createdBy, now);
   return normalizeTaskRow(row);
 }
 
@@ -781,7 +794,32 @@ const CONSIDER_FIELD_LABELS: Record<(typeof CONSIDER_FORBIDDEN_FIELDS)[number], 
   reminderAt: 'a reminder',
 };
 
-export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersionMeta): TaskRecord | null {
+/**
+ * A body write may name the body revision it edited (docs/homes-spec.md
+ * §9.3, P6.4). When the body moved on since, the write is refused whole with
+ * the current body, never applied over it. Without one, the last write wins,
+ * as a personal home always has.
+ */
+export interface BodyWriteGuard {
+  expectedBodyRevision?: number;
+}
+
+export class BodyRevisionConflictError extends Error {
+  readonly code = 'body_conflict';
+  constructor(
+    readonly entityType: 'task' | 'note',
+    readonly current: { id: string; body: string; bodyRevision: number; updatedAt: string },
+  ) {
+    super('Someone else changed this while you were editing. Your text is kept: compare and choose which to keep.');
+    this.name = 'BodyRevisionConflictError';
+  }
+}
+
+export function isBodyRevisionConflict(error: unknown): error is BodyRevisionConflictError {
+  return error instanceof Error && (error as Partial<BodyRevisionConflictError>).code === 'body_conflict';
+}
+
+export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersionMeta, guard: BodyWriteGuard = {}): TaskRecord | null {
   const db = getDb();
 
   const existingRaw = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
@@ -844,22 +882,36 @@ export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersi
     }
     delete (rest as { status?: unknown }).status;
   }
+  // The body moves only when its text does: the revision counts real
+  // changes, and a write that names a revision is checked in the same
+  // statement, so two writers can't both pass.
+  const bodyMoves = bodyChanged && (input.body ?? null) !== (existing.body ?? null);
+  const checked = bodyMoves && guard.expectedBodyRevision !== undefined;
   const row = inEntityTx(() => {
-    const updated = hydrateRow(db
+    const raw = db
       .update(tasks)
       .set({
         ...rest,
         ...(attachments !== undefined ? { attachments: dehydrateAttachments(attachments) ?? [] } : {}),
+        ...(bodyMoves ? { bodyRevision: sql`${tasks.bodyRevision} + 1` } : {}),
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(tasks.id, id))
+      .where(checked ? and(eq(tasks.id, id), eq(tasks.bodyRevision, guard.expectedBodyRevision!)) : eq(tasks.id, id))
       .returning()
-      .get());
+      .get();
+    if (!raw) {
+      const current = db.select({ id: tasks.id, body: tasks.body, bodyRevision: tasks.bodyRevision, updatedAt: tasks.updatedAt })
+        .from(tasks).where(eq(tasks.id, id)).get();
+      if (!current) return null;
+      throw new BodyRevisionConflictError('task', { ...current, body: current.body ?? '' });
+    }
+    const updated = hydrateRow(raw);
     if (bodyChanged || descriptionChanged) {
       projectEntityLinksInline('task', updated.id, [updated.description, updated.body]);
     }
     return updated;
   });
+  if (!row) return null;
   void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
   void syncEntity('task', row.id);
   captureEntityVersion('task', row.id, taskSnapshot(existing), taskSnapshot(normalizeTaskRow(row)), meta, existing.updatedAt);
@@ -1028,6 +1080,8 @@ export async function reorderTasksToTop(input: { areaId: string; taskIds: string
 /** Provenance threaded from the mutation caller onto the lifecycle ledger. */
 export interface LifecycleActorMeta {
   source: EntityVersionSource; // required — never silently guessed. 'human' | 'ai' | 'system'
+  /** In a team space, the member who made the change, or whose agent did. */
+  actorMemberId?: string | null;
   actorSessionId?: string | null;
   executionId?: string | null;
   runId?: string | null;
@@ -1180,6 +1234,7 @@ function recordLifecycleCommand(
       toStatus: to,
       statusChangedCount,
       actorSource: meta.source,
+      actorMemberId: meta.actorMemberId ?? null,
       actorSessionId: meta.actorSessionId ?? null,
       executionId: meta.executionId ?? null,
       runId: meta.runId ?? null,
@@ -2128,7 +2183,7 @@ export function markTaskViewed(id: string): void {
   getDb().update(tasks).set({ lastViewedAt: new Date().toISOString() }).where(eq(tasks.id, id)).run();
 }
 
-export function createNote(input: CreateNoteInput, identity?: {id: string}): NoteRecord {
+export function createNote(input: CreateNoteInput, identity?: {id: string}, createdBy?: EntityVersionMeta): NoteRecord {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -2158,10 +2213,11 @@ export function createNote(input: CreateNoteInput, identity?: {id: string}): Not
   });
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
   void syncEntity('note', row.id);
+  if (createdBy) recordCreatedVersion('note', row.id, noteSnapshot(row), createdBy, now);
   return row;
 }
 
-export function updateNote(id: string, input: UpdateNoteInput, meta: EntityVersionMeta): NoteRecord | null {
+export function updateNote(id: string, input: UpdateNoteInput, meta: EntityVersionMeta, guard: BodyWriteGuard = {}): NoteRecord | null {
   const db = getDb();
 
   const existing = hydrateRow(db.select().from(notes).where(eq(notes.id, id)).get());
@@ -2179,22 +2235,33 @@ export function updateNote(id: string, input: UpdateNoteInput, meta: EntityVersi
       : undefined;
 
   const rest = withoutAttachments(input);
+  const bodyMoves = bodyChanged && (input.body ?? '') !== existing.body;
+  const checked = bodyMoves && guard.expectedBodyRevision !== undefined;
   const row = inEntityTx(() => {
-    const updated = hydrateRow(db
+    const raw = db
       .update(notes)
       .set({
         ...rest,
         ...(attachments !== undefined ? { attachments: dehydrateAttachments(attachments) ?? [] } : {}),
+        ...(bodyMoves ? { bodyRevision: sql`${notes.bodyRevision} + 1` } : {}),
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(notes.id, id))
+      .where(checked ? and(eq(notes.id, id), eq(notes.bodyRevision, guard.expectedBodyRevision!)) : eq(notes.id, id))
       .returning()
-      .get());
+      .get();
+    if (!raw) {
+      const current = db.select({ id: notes.id, body: notes.body, bodyRevision: notes.bodyRevision, updatedAt: notes.updatedAt })
+        .from(notes).where(eq(notes.id, id)).get();
+      if (!current) return null;
+      throw new BodyRevisionConflictError('note', current);
+    }
+    const updated = hydrateRow(raw);
     if (bodyChanged) {
       projectEntityLinksInline('note', updated.id, [updated.body]);
     }
     return updated;
   });
+  if (!row) return null;
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
   void syncEntity('note', row.id);
   captureEntityVersion('note', row.id, noteSnapshot(existing), noteSnapshot(row), meta, existing.updatedAt);
@@ -2261,6 +2328,8 @@ export interface EntityVersionMeta {
   /** Who authored the change. Required so authorship is never silently guessed
    *  (see docs/schema-defaults.md, item 9). 'human' | 'ai' | 'system'. */
   source: EntityVersionSource;
+  /** In a team space, the member who made the change, or whose agent did. */
+  actorMemberId?: string | null;
   /** The content chat session whose turn made the edit, when known. */
   actorSessionId?: string | null;
   /** Short human label for the change. */
@@ -2287,6 +2356,9 @@ function taskSnapshot(t: TaskRecord): EntityVersionSnapshot {
     blockedOn: t.blockedOn ?? null,
     outcome: t.outcome ?? null,
     userContext: t.userContext ?? null,
+    // Only a team's tasks are assigned. Left out when nobody is, so a
+    // personal task's snapshots are unchanged by its existence.
+    ...(t.assigneeMemberId ? { assigneeMemberId: t.assigneeMemberId } : {}),
   };
 }
 
@@ -2348,6 +2420,7 @@ function captureEntityVersion(
         entityId,
         snapshot: after,
         source: meta.source,
+        actorMemberId: meta.actorMemberId ?? null,
         actorSessionId: meta.actorSessionId ?? null,
         summary: meta.summary ?? null,
         revertedFromVersionId: meta.revertedFromVersionId ?? null,
@@ -2356,6 +2429,34 @@ function captureEntityVersion(
       .run();
   } catch (err) {
     console.error(`[queries] failed to capture version for ${entityType} ${entityId}:`, err);
+  }
+}
+
+/** An entity's first version, made with it, naming who made it. Best-effort, like every version. */
+function recordCreatedVersion(
+  entityType: EntityVersionEntityType,
+  entityId: string,
+  snapshot: EntityVersionSnapshot,
+  meta: EntityVersionMeta,
+  createdAt: string,
+): void {
+  try {
+    getDb()
+      .insert(entityVersions)
+      .values({
+        id: uuidv7(),
+        entityType,
+        entityId,
+        snapshot,
+        source: meta.source,
+        actorMemberId: meta.actorMemberId ?? null,
+        actorSessionId: meta.actorSessionId ?? null,
+        summary: meta.summary ?? 'Created',
+        createdAt,
+      })
+      .run();
+  } catch (err) {
+    console.error(`[queries] failed to record the first version of ${entityType} ${entityId}:`, err);
   }
 }
 
@@ -2431,20 +2532,24 @@ function snapshotToNoteInput(snap: EntityVersionSnapshot): UpdateNoteInput {
  */
 export function revertEntityTo(
   versionId: string,
+  by: { actorMemberId?: string | null } = {},
+  guard: BodyWriteGuard = {},
 ): { entityType: EntityVersionEntityType; entityId: string; record: TaskRecord | NoteRecord } | null {
   const version = getEntityVersion(versionId);
   if (!version) return null;
   const snap = version.snapshot;
   const meta: EntityVersionMeta = {
     source: 'system',
+    // In a team, who asked for the restore (docs/homes-spec.md §9.1).
+    actorMemberId: by.actorMemberId ?? null,
     summary: 'Reverted to an earlier version',
     revertedFromVersionId: versionId,
   };
   if (version.entityType === 'task') {
-    const record = updateTask(version.entityId, snapshotToTaskInput(snap), meta);
+    const record = updateTask(version.entityId, snapshotToTaskInput(snap), meta, guard);
     return record ? { entityType: 'task', entityId: version.entityId, record } : null;
   }
-  const record = updateNote(version.entityId, snapshotToNoteInput(snap), meta);
+  const record = updateNote(version.entityId, snapshotToNoteInput(snap), meta, guard);
   return record ? { entityType: 'note', entityId: version.entityId, record } : null;
 }
 
@@ -4484,6 +4589,11 @@ export function getHome(): HomeRecord | null {
   return getDb().select().from(home).get() ?? null;
 }
 
+// The authority check reads the home row's kind through this, so it never
+// imports the database itself (src/lib/home/authority.ts), and only from a
+// database already open: checking is never what opens one.
+registerHomeKindReader(() => (isDatabaseOpen() ? (getHome()?.kind ?? null) : null));
+
 /**
  * Create this home and the device it runs on, together. Refuses when a
  * home already exists: a database holds exactly one. The ids come from the
@@ -5056,6 +5166,514 @@ export function redeemAssociateGrant(input: { secret: string; apiKeyId: string }
       .run();
     return device;
   }, { behavior: 'immediate' });
+}
+
+// ─── Team members and grants (docs/homes-spec.md §9.1, P6.1) ──
+//
+// Only a team space has members. Each member signs in on any number of
+// clients, each with its own key (`api_keys.member_id`) on a device row for
+// that client, revocable on its own. Grants admit people: `setup` makes the
+// owner of a team provisioned on a server, `invite` admits a new member, and
+// `sign_in` adds a client for an existing one. Membership never touches
+// device pairing or worker enrollment.
+
+export const TEAM_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const TEAM_SIGN_IN_TTL_MS = 15 * 60 * 1000;
+export const TEAM_SETUP_TTL_MS = 24 * 60 * 60 * 1000;
+export const MEMBER_NAME_MAX = 80;
+
+export type TeamErrorCode = 'invalid' | 'expired' | 'used' | 'revoked' | 'not_allowed' | 'conflict' | 'not_found';
+
+export class TeamError extends Error {
+  constructor(
+    readonly code: TeamErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'TeamError';
+  }
+}
+
+export function isTeamError(error: unknown): error is TeamError {
+  return error instanceof Error && error.name === 'TeamError' && typeof (error as TeamError).code === 'string';
+}
+
+/** A member's name as they gave it, trimmed. Refuses an empty or overlong one. */
+export function normalizeMemberName(name: string | null | undefined): string {
+  const trimmed = (name ?? '').replace(/\s+/g, ' ').trim();
+  if (!trimmed) throw new TeamError('invalid', 'Enter your name.');
+  if (trimmed.length > MEMBER_NAME_MAX) throw new TeamError('invalid', `A name can be at most ${MEMBER_NAME_MAX} characters.`);
+  return trimmed;
+}
+
+type TeamTx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
+
+function assertTeamHome(tx: Pick<ReturnType<typeof getDb>, 'select'>): HomeRecord {
+  const row = tx.select().from(home).get();
+  if (!row || row.kind !== 'team') throw new TeamError('not_allowed', 'Only a team space has members.');
+  return row;
+}
+
+export function getMember(id: string): MemberRecord | null {
+  return getDb().select().from(members).where(eq(members.id, id)).get() ?? null;
+}
+
+export function listMembers(options: { includeRemoved?: boolean } = {}): MemberRecord[] {
+  const q = getDb().select().from(members);
+  return (options.includeRemoved ? q : q.where(eq(members.status, 'active'))).orderBy(asc(members.createdAt)).all();
+}
+
+export function teamHasOwner(): boolean {
+  return !!getDb()
+    .select({ id: members.id })
+    .from(members)
+    .where(and(eq(members.role, 'owner'), eq(members.status, 'active')))
+    .get();
+}
+
+/**
+ * The member a key signs in as: an active key of an active member. Null for
+ * any other key, the host's own included, which is never a member.
+ */
+export function memberForApiKey(apiKeyId: string): MemberRecord | null {
+  const row = getDb()
+    .select({ member: members, key: apiKeys })
+    .from(apiKeys)
+    .innerJoin(members, eq(members.id, apiKeys.memberId))
+    .where(eq(apiKeys.id, apiKeyId))
+    .get();
+  if (!row) return null;
+  if (row.key.revokedAt || row.key.role !== 'sign_in') return null;
+  if (row.key.expiresAt && new Date(row.key.expiresAt).getTime() <= Date.now()) return null;
+  return row.member.status === 'active' ? row.member : null;
+}
+
+/** A new client for a member: its device row and its key, together. */
+function signInMemberIn(
+  tx: TeamTx,
+  member: MemberRecord,
+  device: { name: string; kind: DeviceKind; platform?: string | null },
+): { key: ApiKeyRecord; token: GeneratedToken; device: DeviceRecord } {
+  const now = new Date().toISOString();
+  const row = tx
+    .insert(devices)
+    .values({
+      id: uuidv7(),
+      name: device.name.slice(0, 120) || `${member.name}'s device`,
+      kind: device.kind,
+      platform: device.platform ?? null,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+  const { key, token } = insertApiKey(tx, {
+    name: `${member.name} on ${row.name}`.slice(0, 160),
+    deviceId: row.id,
+    role: 'sign_in',
+    memberId: member.id,
+  });
+  return { key, token, device: row };
+}
+
+function insertMember(tx: TeamTx, input: { name: string; role: MemberRole; creationId?: string | null }): MemberRecord {
+  const now = new Date().toISOString();
+  return tx
+    .insert(members)
+    .values({
+      id: uuidv7(),
+      name: normalizeMemberName(input.name),
+      role: input.role,
+      status: 'active',
+      creationId: input.creationId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+}
+
+export interface TeamSignIn {
+  member: MemberRecord;
+  key: ApiKeyRecord;
+  token: GeneratedToken;
+  device: DeviceRecord;
+}
+
+/**
+ * The team's first owner, made by the trusted local creation flow (the
+ * desktop's Create a team, or `ri team create`). Retry-safe by
+ * `creationId`: the same creation finds the owner it made and signs it in
+ * again, and no other creation can make a second owner.
+ */
+export function createTeamOwner(input: {
+  creationId: string;
+  name: string;
+  device: { name: string; kind: DeviceKind; platform?: string | null };
+}): TeamSignIn & { created: boolean } {
+  return getDb().transaction((tx) => {
+    assertTeamHome(tx);
+    const existing = tx.select().from(members).where(eq(members.creationId, input.creationId)).get();
+    if (existing) {
+      if (existing.status !== 'active') throw new TeamError('not_allowed', 'That owner was removed from the team.');
+      return { member: existing, ...signInMemberIn(tx, existing, input.device), created: false };
+    }
+    const owner = tx.select({ id: members.id }).from(members).where(eq(members.role, 'owner')).get();
+    if (owner) throw new TeamError('conflict', 'This team already has an owner.');
+    const member = insertMember(tx, { name: input.name, role: 'owner', creationId: input.creationId });
+    return { member, ...signInMemberIn(tx, member, input.device), created: true };
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Issue a team grant. Returns the secret once: only its hash is kept.
+ * `sign_in` names an active member. `invite` admits a new member with
+ * `role`. `setup` is only for a team that has no owner yet.
+ */
+export function createTeamGrant(input: {
+  kind: TeamGrantKind;
+  memberId?: string | null;
+  role?: MemberRole | null;
+  createdByMemberId: string | null;
+  ttlMs?: number;
+}): { grant: TeamGrantRecord; secret: string } {
+  return getDb().transaction((tx) => {
+    assertTeamHome(tx);
+    if (input.kind === 'sign_in') {
+      const member = input.memberId ? tx.select().from(members).where(eq(members.id, input.memberId)).get() : undefined;
+      if (!member || member.status !== 'active') throw new TeamError('not_found', 'That member is not in the team.');
+    } else if (input.memberId) {
+      throw new TeamError('invalid', 'Only a sign-in link names a member.');
+    }
+    if (input.kind === 'setup') {
+      const owner = tx.select({ id: members.id }).from(members).where(eq(members.role, 'owner')).get();
+      if (owner) throw new TeamError('conflict', 'This team already has an owner.');
+    }
+    const ttl =
+      input.ttlMs ?? (input.kind === 'invite' ? TEAM_INVITE_TTL_MS : input.kind === 'sign_in' ? TEAM_SIGN_IN_TTL_MS : TEAM_SETUP_TTL_MS);
+    const secret = `rtg_${randomBytes(24).toString('base64url')}`;
+    const now = new Date();
+    const grant = tx
+      .insert(teamGrants)
+      .values({
+        id: uuidv7(),
+        kind: input.kind,
+        hash: hashGrantSecret(secret),
+        memberId: input.kind === 'sign_in' ? input.memberId! : null,
+        role: input.kind === 'invite' ? (input.role ?? 'member') : null,
+        createdByMemberId: input.createdByMemberId,
+        expiresAt: new Date(now.getTime() + ttl).toISOString(),
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      })
+      .returning()
+      .get();
+    return { grant, secret };
+  }, { behavior: 'immediate' });
+}
+
+export type TeamGrantState = 'valid' | 'expired' | 'used' | 'revoked' | 'unknown';
+
+/** What a grant's secret finds, without using it. */
+export function inspectTeamGrant(secret: string, kind: TeamGrantKind): { grant: TeamGrantRecord | null; state: TeamGrantState } {
+  const grant = getDb().select().from(teamGrants).where(eq(teamGrants.hash, hashGrantSecret(secret.trim()))).get();
+  if (!grant || grant.kind !== kind) return { grant: null, state: 'unknown' };
+  return { grant, state: teamGrantState(grant) };
+}
+
+function teamGrantState(grant: TeamGrantRecord): TeamGrantState {
+  if (grant.revokedAt) return 'revoked';
+  if (grant.redeemedAt) return 'used';
+  if (new Date(grant.expiresAt).getTime() <= Date.now()) return 'expired';
+  return 'valid';
+}
+
+const TEAM_GRANT_REFUSALS: Record<Exclude<TeamGrantState, 'valid'>, Record<TeamGrantKind, [TeamErrorCode, string]>> = {
+  unknown: {
+    invite: ['invalid', "That invitation isn't valid. Ask the team's owner for a new link."],
+    sign_in: ['invalid', "That sign-in link isn't valid. Make a new one from a device you're signed in on."],
+    setup: ['invalid', "That setup link isn't valid. Make a new one on the computer that hosts the team."],
+  },
+  expired: {
+    invite: ['expired', "That invitation has expired. Ask the team's owner for a new link."],
+    sign_in: ['expired', "That sign-in link has expired. Make a new one from a device you're signed in on."],
+    setup: ['expired', 'That setup link has expired. Make a new one on the computer that hosts the team.'],
+  },
+  used: {
+    invite: ['used', "That invitation was already used. Ask the team's owner for a new link."],
+    sign_in: ['used', 'That sign-in link was already used. Make a new one.'],
+    setup: ['used', 'That setup link was already used.'],
+  },
+  revoked: {
+    invite: ['revoked', "That invitation was withdrawn. Ask the team's owner for a new link."],
+    sign_in: ['revoked', 'That sign-in link was withdrawn. Make a new one.'],
+    setup: ['revoked', 'That setup link was withdrawn.'],
+  },
+};
+
+function usableTeamGrant(tx: Pick<ReturnType<typeof getDb>, 'select'>, secret: string, kind: TeamGrantKind): TeamGrantRecord {
+  const grant = tx.select().from(teamGrants).where(eq(teamGrants.hash, hashGrantSecret(secret.trim()))).get();
+  const state = grant && grant.kind === kind ? teamGrantState(grant) : 'unknown';
+  if (state === 'valid') return grant!;
+  const [code, message] = TEAM_GRANT_REFUSALS[state][kind];
+  throw new TeamError(code, message);
+}
+
+function markTeamGrantUsed(tx: TeamTx, grantId: string, memberId: string, apiKeyId: string): void {
+  const now = new Date().toISOString();
+  tx.update(teamGrants)
+    .set({ redeemedAt: now, memberId, redeemedByApiKeyId: apiKeyId, updatedAt: now })
+    .where(eq(teamGrants.id, grantId))
+    .run();
+}
+
+/** A setup retry proves both the original link and a private client attempt. */
+function setupRetryMember(tx: Pick<ReturnType<typeof getDb>, 'select'>, grant: TeamGrantRecord, attemptId?: string): MemberRecord | null {
+  if (!attemptId || grant.kind !== 'setup' || !grant.redeemedAt || grant.revokedAt || Date.parse(grant.expiresAt) <= Date.now()) return null;
+  const member = grant.memberId ? tx.select().from(members).where(eq(members.id, grant.memberId)).get() : null;
+  const key = grant.redeemedByApiKeyId ? tx.select().from(apiKeys).where(eq(apiKeys.id, grant.redeemedByApiKeyId)).get() : null;
+  const creationId = `setup:${hashGrantSecret(`${grant.id}:${attemptId}`)}`;
+  return member?.status === 'active' && member.role === 'owner' && member.creationId === creationId && key && !key.revokedAt ? member : null;
+}
+
+export function canRetryTeamSetup(grant: TeamGrantRecord, attemptId?: string): boolean {
+  return setupRetryMember(getDb(), grant, attemptId) !== null;
+}
+
+/** An address probe can only preview this random id, never admit a member. */
+export function createTeamAddressProbe(): { id: string; secret: string } {
+  return getDb().transaction((tx) => {
+    assertTeamHome(tx);
+    const id = randomBytes(24).toString('base64url');
+    const secret = `rtg_${randomBytes(24).toString('base64url')}`;
+    const now = new Date();
+    tx.insert(teamGrants).values({
+      id, kind: 'invite', hash: hashGrantSecret(secret), role: 'member',
+      memberId: null, createdByMemberId: null,
+      createdAt: now.toISOString(), updatedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+      revokedAt: now.toISOString(),
+    }).run();
+    return { id, secret };
+  }, { behavior: 'immediate' });
+}
+
+export function deleteTeamAddressProbe(id: string): void {
+  getDb().delete(teamGrants).where(and(eq(teamGrants.id, id), isNotNull(teamGrants.revokedAt), isNull(teamGrants.createdByMemberId), isNull(teamGrants.redeemedAt))).run();
+}
+
+/** Join with an invitation: a new member, signed in on this client. */
+export function redeemTeamInvite(input: {
+  secret: string;
+  name: string;
+  device: { name: string; kind: DeviceKind; platform?: string | null };
+}): TeamSignIn {
+  return getDb().transaction((tx) => {
+    assertTeamHome(tx);
+    const grant = usableTeamGrant(tx, input.secret, 'invite');
+    const member = insertMember(tx, { name: input.name, role: grant.role ?? 'member' });
+    const signedIn = signInMemberIn(tx, member, input.device);
+    markTeamGrantUsed(tx, grant.id, member.id, signedIn.key.id);
+    return { member, ...signedIn };
+  }, { behavior: 'immediate' });
+}
+
+/** Sign an existing member in on another client. */
+export function redeemTeamSignIn(input: {
+  secret: string;
+  device: { name: string; kind: DeviceKind; platform?: string | null };
+}): TeamSignIn {
+  return getDb().transaction((tx) => {
+    assertTeamHome(tx);
+    const grant = usableTeamGrant(tx, input.secret, 'sign_in');
+    const member = grant.memberId ? tx.select().from(members).where(eq(members.id, grant.memberId)).get() : undefined;
+    if (!member || member.status !== 'active') throw new TeamError('not_allowed', 'That member is no longer in the team.');
+    const signedIn = signInMemberIn(tx, member, input.device);
+    markTeamGrantUsed(tx, grant.id, member.id, signedIn.key.id);
+    return { member, ...signedIn };
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * Finish a team its operator provisioned on a server: the person with the
+ * setup link names the team and becomes its owner. Only once, and only while
+ * the team has no owner, so a stranger at the address can never claim it.
+ */
+export function redeemTeamSetup(input: {
+  secret: string;
+  attemptId?: string;
+  teamName: string;
+  ownerName: string;
+  device: { name: string; kind: DeviceKind; platform?: string | null };
+}): TeamSignIn & { team: HomeRecord } {
+  return getDb().transaction((tx) => {
+    const team = assertTeamHome(tx);
+    const prior = tx.select().from(teamGrants).where(eq(teamGrants.hash, hashGrantSecret(input.secret.trim()))).get();
+    const retryMember = prior && setupRetryMember(tx, prior, input.attemptId);
+    if (retryMember && prior) {
+      // Replace the potentially lost reply's sign-in. A revoked sign-in can
+      // never be recovered this way, and retrying never renames the team.
+      tx.update(apiKeys).set({ revokedAt: new Date().toISOString() }).where(eq(apiKeys.id, prior.redeemedByApiKeyId!)).run();
+      const signedIn = signInMemberIn(tx, retryMember, input.device);
+      markTeamGrantUsed(tx, prior.id, retryMember.id, signedIn.key.id);
+      return { member: retryMember, ...signedIn, team };
+    }
+    const grant = usableTeamGrant(tx, input.secret, 'setup');
+    const owner = tx.select({ id: members.id }).from(members).where(eq(members.role, 'owner')).get();
+    if (owner) throw new TeamError('conflict', 'This team already has an owner.');
+    const name = normalizeTeamDisplayName(input.teamName);
+    const now = new Date().toISOString();
+    const renamed = tx.update(home).set({ name, updatedAt: now }).where(eq(home.id, team.id)).returning().get();
+    const member = insertMember(tx, { name: input.ownerName, role: 'owner', creationId: input.attemptId ? `setup:${hashGrantSecret(`${grant.id}:${input.attemptId}`)}` : null });
+    const signedIn = signInMemberIn(tx, member, input.device);
+    markTeamGrantUsed(tx, grant.id, member.id, signedIn.key.id);
+    return { member, ...signedIn, team: renamed };
+  }, { behavior: 'immediate' });
+}
+
+function normalizeTeamDisplayName(name: string | null | undefined): string {
+  const trimmed = (name ?? '').replace(/\s+/g, ' ').trim();
+  if (!trimmed) throw new TeamError('invalid', 'Enter a team name.');
+  if (trimmed.length > 80) throw new TeamError('invalid', 'A team name can be at most 80 characters.');
+  return trimmed;
+}
+
+/** Rename the team. Its name is what people see, never its identity. */
+export function renameTeam(name: string): HomeRecord {
+  return getDb().transaction((tx) => {
+    const team = assertTeamHome(tx);
+    return tx.update(home).set({ name: normalizeTeamDisplayName(name), updatedAt: new Date().toISOString() }).where(eq(home.id, team.id)).returning().get();
+  }, { behavior: 'immediate' });
+}
+
+export function renameMember(id: string, name: string): MemberRecord {
+  const row = getDb()
+    .update(members)
+    .set({ name: normalizeMemberName(name), updatedAt: new Date().toISOString() })
+    .where(and(eq(members.id, id), eq(members.status, 'active')))
+    .returning()
+    .get();
+  if (!row) throw new TeamError('not_found', 'That member is not in the team.');
+  return row;
+}
+
+/**
+ * Remove a member: every sign-in they have stops working at once, and their
+ * unused sign-in links are withdrawn. Their past changes keep their name.
+ * The last owner can't be removed, so a team always has someone to run it.
+ */
+export function removeMember(id: string): MemberRecord {
+  return getDb().transaction((tx) => {
+    assertTeamHome(tx);
+    const member = tx.select().from(members).where(eq(members.id, id)).get();
+    if (!member || member.status !== 'active') throw new TeamError('not_found', 'That member is not in the team.');
+    if (member.role === 'owner') {
+      const owners = tx
+        .select({ id: members.id })
+        .from(members)
+        .where(and(eq(members.role, 'owner'), eq(members.status, 'active')))
+        .all();
+      if (owners.length <= 1) throw new TeamError('not_allowed', "A team's last owner can't be removed.");
+    }
+    const now = new Date().toISOString();
+    const removed = tx
+      .update(members)
+      .set({ status: 'removed', removedAt: now, updatedAt: now })
+      .where(eq(members.id, id))
+      .returning()
+      .get();
+    tx.update(apiKeys)
+      .set({ revokedAt: now, revokedReason: 'Removed from the team', updatedAt: now })
+      .where(and(eq(apiKeys.memberId, id), isNull(apiKeys.revokedAt)))
+      .run();
+    tx.update(teamGrants)
+      .set({ revokedAt: now, updatedAt: now })
+      .where(and(eq(teamGrants.memberId, id), eq(teamGrants.kind, 'sign_in'), isNull(teamGrants.redeemedAt), isNull(teamGrants.revokedAt)))
+      .run();
+    return removed;
+  }, { behavior: 'immediate' });
+}
+
+export interface MemberSignInView {
+  keyId: string;
+  deviceName: string;
+  deviceKind: DeviceKind | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+/** A member's sign-ins that still work, newest first. */
+export function listMemberSignIns(memberId: string): MemberSignInView[] {
+  return getDb()
+    .select({ key: apiKeys, device: devices })
+    .from(apiKeys)
+    .leftJoin(devices, eq(devices.id, apiKeys.deviceId))
+    .where(and(eq(apiKeys.memberId, memberId), isNull(apiKeys.revokedAt)))
+    .orderBy(desc(apiKeys.createdAt))
+    .all()
+    .map(({ key, device }) => ({
+      keyId: key.id,
+      deviceName: device?.name ?? key.name,
+      deviceKind: device?.kind ?? null,
+      createdAt: key.createdAt,
+      lastUsedAt: key.lastUsedAt,
+    }));
+}
+
+/** Sign a member out on one client. Only their own key. */
+export function revokeMemberSignIn(memberId: string, keyId: string): void {
+  const now = new Date().toISOString();
+  const row = getDb()
+    .update(apiKeys)
+    .set({ revokedAt: now, revokedReason: 'Signed out', updatedAt: now })
+    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.memberId, memberId), isNull(apiKeys.revokedAt)))
+    .returning({ id: apiKeys.id })
+    .get();
+  if (!row) throw new TeamError('not_found', 'That sign-in was not found.');
+}
+
+export interface TeamInvitationView {
+  id: string;
+  role: MemberRole;
+  state: TeamGrantState;
+  createdAt: string;
+  expiresAt: string;
+  createdBy: string | null;
+  joinedAs: string | null;
+}
+
+/** Invitations made in the last month, newest first, with where each stands. */
+export function listTeamInvitations(): TeamInvitationView[] {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const rows = getDb()
+    .select()
+    .from(teamGrants)
+    .where(and(eq(teamGrants.kind, 'invite'), gte(teamGrants.createdAt, since)))
+    .orderBy(desc(teamGrants.createdAt))
+    .all();
+  const names = new Map(listMembers({ includeRemoved: true }).map((m) => [m.id, m.name]));
+  return rows.map((grant) => ({
+    id: grant.id,
+    role: grant.role ?? 'member',
+    state: teamGrantState(grant),
+    createdAt: grant.createdAt,
+    expiresAt: grant.expiresAt,
+    createdBy: grant.createdByMemberId ? (names.get(grant.createdByMemberId) ?? null) : null,
+    joinedAs: grant.redeemedAt && grant.memberId ? (names.get(grant.memberId) ?? null) : null,
+  }));
+}
+
+/** Withdraw a grant before it's used. A used one stays as it is. */
+export function revokeTeamGrant(id: string): void {
+  const now = new Date().toISOString();
+  const row = getDb()
+    .update(teamGrants)
+    .set({ revokedAt: now, updatedAt: now })
+    .where(and(eq(teamGrants.id, id), isNull(teamGrants.redeemedAt), isNull(teamGrants.revokedAt)))
+    .returning({ id: teamGrants.id })
+    .get();
+  if (!row) throw new TeamError('not_found', 'That invitation was already used or withdrawn.');
 }
 
 /** An active worker key's device, while that device is active. Null for any other key. */

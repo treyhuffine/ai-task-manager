@@ -18,6 +18,7 @@
     "desktop:dev-viewer-smoke": "pnpm desktop:build && tsx desktop/dev-viewer-smoke.ts",
     "desktop:dev-smoke": "pnpm cli:build && tsx desktop/dev-service-smoke.ts",
     "desktop:smoke": "pnpm desktop:build && tsx desktop/smoke.ts",
+    "desktop:team-smoke": "pnpm desktop:build && tsx desktop/team-smoke.ts",
     "start": "tsx scripts/serve.ts",
     "ts": "tsc --noEmit",
     "lint": "eslint",

@@ -10,6 +10,7 @@
  * product.
  */
 
+import { readTeamIntent } from '@/lib/home/team-intent';
 import path from 'node:path';
 import { getBrainDir } from '@/lib/config/paths';
 import { APP_SHORT_ID } from '@/constants/app';
@@ -28,6 +29,10 @@ export type EntityType = 'task' | 'note' | 'area' | 'stream';
 export const ENTITY_TYPES: EntityType[] = ['task', 'note', 'area', 'stream'];
 
 export function isMirrorEnabled(): boolean {
+  // A team space keeps no markdown export: it is a person's own view of
+  // their home (docs/homes-spec.md §9.2). Read from the team mark, since
+  // this runs on every write and must not reach the database.
+  if (readTeamIntent()) return false;
   return process.env[MIRROR_DISABLED_ENV] !== '1';
 }
 

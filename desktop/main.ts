@@ -44,6 +44,9 @@ import { signInDesktopSession } from './session-auth';
 import { connectionFailure } from './connection-failure';
 import { DesktopConnection } from './connection-state';
 import type { DesktopNotificationAction } from '../src/lib/notifications/desktop-contract';
+import { teamsFile } from './teams';
+import { teamFlow } from './team-flow';
+import { teamWindows } from './team-window';
 
 const repo = app.isPackaged ? path.join(process.resourcesPath, 'server') : process.env.RI_DESKTOP_REPO || path.resolve(__dirname, '../..');
 // An explicit state directory isolates saved installation choices as well as
@@ -141,7 +144,7 @@ let menuActions: Parameters<typeof desktopMenuCommands>[0] | undefined;
 let refreshApplicationMenu: (() => void) | undefined;
 let activityPresentation = '';
 const pendingLinks: string[] = [];
-let setupView: 'auto' | 'settings' | 'connect' = 'auto';
+let setupView: 'auto' | 'settings' | 'connect' | 'create-team' = 'auto';
 const desktopConnection = new DesktopConnection({
   hasViewer: () => !!viewerTransitions.current,
   publish: state => {
@@ -196,11 +199,11 @@ function detectedInstallation() {
   };
   return discovery.result;
 }
-function setupPageOptions(view: 'auto' | 'settings' | 'connect' = 'auto') {
+function setupPageOptions(view: 'auto' | 'settings' | 'connect' | 'create-team' = 'auto') {
   return { ...localStyleOptions(), view };
 }
 
-async function showSetup(view: 'auto' | 'settings' | 'connect' = 'auto') {
+async function showSetup(view: 'auto' | 'settings' | 'connect' | 'create-team' = 'auto') {
   setupView = view;
   await startupVisibility.showLocal(() => companion.show(setupPageOptions(view)));
 }
@@ -411,8 +414,55 @@ const maintenance = maintenanceWindow({
   },
 }, localSurface);
 
-function connectionRequest<T>(request: ConnectionSetupRequest) {
-  return setupRequest<T>(process.env.RI_DESKTOP_NODE!, repo, { ...env, RI_DESKTOP_SETUP_DEVELOPMENT: !app.isPackaged && mode === 'development' ? '1' : '' }, request);
+function connectionRequest<T>(request: ConnectionSetupRequest, options: { root?: string; timeoutMs?: number } = {}) {
+  const setupEnv: NodeJS.ProcessEnv = { ...env, RI_DESKTOP_SETUP_DEVELOPMENT: !app.isPackaged && mode === 'development' ? '1' : '' };
+  // A team's own root: its own data, config, work folder and service, never
+  // the personal installation's (docs/homes-spec.md §9.1).
+  if (options.root) {
+    Object.assign(setupEnv, { RI_ROOT: options.root, RI_DESKTOP_ROOT: options.root, RI_DB_PATH: '', RI_CONFIG_DIR: '', RI_WORK_DIR: '', RI_DESKTOP_ASSOCIATED: '' });
+    if (mode === 'development') setupEnv.NEXT_DIST_DIR = '.next-desktop-team-dev';
+  }
+  return setupRequest<T>(process.env.RI_DESKTOP_NODE!, repo, setupEnv, request, options.timeoutMs);
+}
+
+// Teams this desktop joined or hosts (desktop/team-flow.ts), each in its own window.
+const teamsPath = teamsFile(desktopState);
+let teams: ReturnType<typeof teamFlow> | undefined;
+let teamWindowSet: ReturnType<typeof teamWindows> | undefined;
+let teamOpenedOnLaunch = false;
+
+/** The Window menu's teams: each one by name, then joining or creating another. */
+function teamMenuItems(): Electron.MenuItemConstructorOptions[] {
+  const saved = (() => { try { return teams?.status().teams ?? []; } catch { return []; } })();
+  return [
+    { type: 'separator' },
+    ...saved.map(team => ({ label: team.name, click: () => void teams?.open(team.id).catch(error => dialog.showErrorBox(team.name, error instanceof Error ? error.message : String(error))) })),
+    { label: 'Join a Team…', click: () => { showWindow(); void showSetup('connect'); } },
+    { label: 'Create a Team…', click: () => { showWindow(); void showSetup('create-team'); } },
+  ];
+}
+
+/** After a team opens in its own window: a desktop with no personal Ri tucks
+ * its welcome away, and one with a personal Ri uncovers it, behind the team. */
+function afterTeamOpened(id: string) {
+  if (!appOrigin) { void hideWindow(); return; }
+  if (viewerTransitions.current) startupVisibility.showViewer();
+  teamWindowSet?.focus(id);
+}
+
+/** A desktop with no personal Ri opens the team it used last (docs/homes-spec.md §3.1). */
+async function openSavedTeamOnLaunch(): Promise<boolean> {
+  if (teamOpenedOnLaunch || !teams) return false;
+  const last = (() => { try { return teams.lastOpened(); } catch { return null; } })();
+  if (!last) return false;
+  teamOpenedOnLaunch = true;
+  try {
+    await teams.open(last.id);
+    return true;
+  } catch (error) {
+    console.warn('[desktop] could not open a saved team:', error instanceof Error ? error.message : error);
+    return false;
+  }
 }
 
 async function runLocalServiceCommand(action: 'install' | 'uninstall') {
@@ -469,7 +519,8 @@ const companion = companionWindow(async (action, value) => {
     const discover = setup.role === 'first-run' && !setup.homeSelected;
     if (discover) void detectedInstallation();
     const update = service ? await serviceRequest<{ update: unknown }>('/update').catch(() => null) : null;
-    return { ...setup, desktop: app.getVersion(), service, worker: service?.worker, update: update?.update, connectionError: selectionError, connection: desktopConnection.snapshot(), connecting, hasViewer: !!viewerTransitions.current,
+    const teamStatus = (() => { try { return teams?.status(); } catch { return undefined; } })();
+    return { ...setup, ...teamStatus, desktop: app.getVersion(), service, worker: service?.worker, update: update?.update, connectionError: selectionError, connection: desktopConnection.snapshot(), connecting, hasViewer: !!viewerTransitions.current,
       detectedInstallation: discover ? discovered : null,
       login: { enabled: hasLoginSupervision() }, preferences: captureShortcut ? { shortcut: captureShortcut.status(), login: desktopLogin.status() } : null,
       notifications: notifications ? await notifications.action('status').catch(() => ({ supported: Notification.isSupported(), enabled: notificationPermission?.enabled() ?? false, error: 'Waiting for your Home to reconnect.' })) : null };
@@ -506,6 +557,42 @@ const companion = companionWindow(async (action, value) => {
       }
     }
     await refreshRole();
+    return {};
+  }
+  if (action === 'inspect-link') {
+    if (!value || typeof value !== 'object' || typeof (value as { link?: unknown }).link !== 'string') throw new Error('Paste a Ri link.');
+    return connectionRequest({ action: 'inspect-link', link: (value as { link: string }).link });
+  }
+  if (action === 'join-team') {
+    const input = value as { link?: unknown; name?: unknown } | undefined;
+    if (!teams || typeof input?.link !== 'string') throw new Error('Paste a team link.');
+    // A team connection never replaces this desktop's personal Ri, its worker or its drafts.
+    const joined = await teams.join(input.link, typeof input.name === 'string' ? input.name : undefined);
+    refreshApplicationMenu?.();
+    afterTeamOpened(joined.id);
+    return joined;
+  }
+  if (action === 'create-team') {
+    if (!teams) throw new Error('Ri is still starting. Try again in a moment.');
+    const input = value as { teamName?: unknown; ownerName?: unknown; root?: unknown; port?: unknown; resume?: unknown } | undefined;
+    const created = input?.resume === true
+      ? await teams.create({ resume: true })
+      : await teams.create({
+        teamName: typeof input?.teamName === 'string' ? input.teamName : '',
+        ownerName: typeof input?.ownerName === 'string' ? input.ownerName : '',
+        root: typeof input?.root === 'string' && input.root ? input.root : undefined,
+        port: typeof input?.port === 'number' && Number.isInteger(input.port) ? input.port : undefined,
+      });
+    refreshApplicationMenu?.();
+    afterTeamOpened(created.id);
+    return created;
+  }
+  if (action === 'cancel-team-creation') { teams?.cancel(); return {}; }
+  if (action === 'open-team') {
+    const id = (value as { id?: unknown } | undefined)?.id;
+    if (!teams || typeof id !== 'string') throw new Error('Choose a team to open.');
+    await teams.open(id);
+    afterTeamOpened(id);
     return {};
   }
   if (action === 'enable-worker') {
@@ -955,6 +1042,12 @@ async function start() {
     return notifications.action(action as DesktopNotificationAction);
   });
   await localSurface.show({ id: 'loading', html: startingPage(randomUUID().replaceAll('-', ''), localStyleOptions()) });
+  teams = teamFlow({
+    teamsPath,
+    stateDir: desktopState,
+    setup: (request, options) => connectionRequest(request as ConnectionSetupRequest, options),
+    windows: teamWindowSet = teamWindows({ icon, background: () => appearance.get() === 'dark' ? '#09090b' : '#ffffff' }),
+  });
   const actions = {
     show: showWindow, hide: hideWindow, quit: () => { void quit(); },
     capture: requestQuickCapture,
@@ -984,6 +1077,8 @@ async function start() {
     { role: 'editMenu' }, { role: 'viewMenu' },
     { label: 'Window', role: 'windowMenu', submenu: [
       { role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, commands.show,
+      // Teams open in windows of their own (desktop/team-window.ts).
+      ...teamMenuItems(),
       { ...commands.hide, accelerator: 'CmdOrCtrl+W', click: (_item, focused) => (focused ?? BrowserWindow.getFocusedWindow() ?? window)?.close() },
       ...(process.platform === 'darwin' ? [{ type: 'separator' as const }, { role: 'front' as const }] : []),
     ] },
@@ -1032,7 +1127,11 @@ function startConnection() {
     if (message.type === 'setup') {
       connecting = false; clearTimeout(startupTimer);
       if (viewerTransitions.current) fail(message.status.reason ?? 'Review this computer’s connection in Desktop Settings.');
-      else { desktopConnection.reset(); void showSetup(); }
+      else {
+        desktopConnection.reset(); void showSetup();
+        // No personal Ri here yet: a team this desktop uses opens directly.
+        if (message.status.role === 'first-run') void openSavedTeamOnLaunch().then(opened => { if (opened && !appOrigin) void hideWindow(); });
+      }
     }
     if (message.type === 'status') {
       const changed = JSON.stringify(localService) !== JSON.stringify(message.status);

@@ -14,9 +14,11 @@ interface AreaSelectProps {
   value: string | null;
   onChange: (areaId: string | null) => void;
   className?: string;
+  /** Offer New area… at the end of the list. */
+  onNewArea?: () => void;
 }
 
-export function AreaSelect({ value, onChange, className }: AreaSelectProps) {
+export function AreaSelect({ value, onChange, className, onNewArea }: AreaSelectProps) {
   const { data: areas } = useAreas();
   const selected = areas?.find(a => a.id === value);
 
@@ -52,6 +54,14 @@ export function AreaSelect({ value, onChange, className }: AreaSelectProps) {
             {area.name}
           </DropdownMenuItem>
         ))}
+        {onNewArea && (
+          <>
+            {areas && areas.length > 0 && <DropdownMenuSeparator />}
+            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onNewArea(); }} className="text-xs">
+              New area…
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -21,6 +21,7 @@ import { APP_SHORT_ID } from '@/constants/app';
 import { getInstallationRole } from '@/lib/config/role';
 import { readConnection } from '@/lib/connection/config';
 import { describeRetired, retiredHomes } from '@/lib/home/retired';
+import { readTeamIntent } from '@/lib/home/team-intent';
 
 /** Top-level commands that read or write a home's data. */
 const DATA_COMMANDS = new Set([
@@ -48,6 +49,14 @@ const DATA_COMMANDS = new Set([
  */
 export const ROUTED_WHEN_CONNECTED = new Set(['attachment', 'agent', 'trigger', 'runs', 'run', 'spend', 'setup']);
 
+function isTeamFolder(): boolean {
+  try {
+    return readTeamIntent() !== null;
+  } catch {
+    return true;
+  }
+}
+
 export class RoleGuardError extends Error {
   constructor(message: string) {
     super(message);
@@ -62,7 +71,17 @@ function topLevelName(command: Command): string {
 }
 
 /** Why `commandName` (and its subcommand) can't run in this root, or null when it can. */
+/**
+ * What a team space's folder runs: its own commands and the server's
+ * lifecycle. Everything personal (agents, triggers, the browser, pairing,
+ * setup, snapshots) belongs to a person's home (docs/homes-spec.md §9.2).
+ */
+const TEAM_COMMANDS = new Set(['team', 'start', 'stop', 'status', 'service', 'update', 'tls', 'perf', 'help']);
+
 export function refusalFor(commandName: string, subcommand?: string): string | null {
+  if (isTeamFolder() && !TEAM_COMMANDS.has(commandName) && !(commandName === 'home' && subcommand === 'show')) {
+    return `This folder holds a team. \`${APP_SHORT_ID} ${commandName}\` is part of a personal Ri. Use \`${APP_SHORT_ID} team\` here.`;
+  }
   if (!DATA_COMMANDS.has(commandName)) return null;
   const role = getInstallationRole();
   if (role === 'home') return null;

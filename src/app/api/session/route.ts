@@ -14,6 +14,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildExpiredSessionCookie, buildSessionCookie } from '@/lib/auth/session';
 import { hashToken } from '@/lib/auth/tokens';
 import { findApiKeyByHash } from '@/lib/db/queries';
+import { isTeamAuthority } from '@/lib/home/authority';
+import { teamCallerFor, teamSessionCookieName } from '@/lib/team/credential';
 
 function isSecureRequest(request: NextRequest): boolean {
   if (request.nextUrl.protocol === 'https:') return true;
@@ -44,7 +46,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'expired token' }, { status: 401 });
   }
 
+  // A team's cookie is its own, and only a member's sign-in gets one: the
+  // host's key administers the installation from its own computer.
+  const team = isTeamAuthority();
+  if (team && teamCallerFor(key, hashToken(token))?.scope !== 'member') {
+    return NextResponse.json({ error: 'invalid token' }, { status: 401 });
+  }
   const cookie = buildSessionCookie(token, isSecureRequest(request));
+  if (team) cookie.name = teamSessionCookieName();
   const res = NextResponse.json({ ok: true });
   res.cookies.set(cookie);
   return res;
@@ -52,6 +61,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   const cookie = buildExpiredSessionCookie(isSecureRequest(request));
+  if (isTeamAuthority()) cookie.name = teamSessionCookieName();
   const res = NextResponse.json({ ok: true });
   res.cookies.set(cookie);
   return res;

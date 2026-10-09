@@ -36,6 +36,7 @@ import {
   type McpServerConfig,
   type StreamEvent,
 } from '@agentex/agent';
+import { assertPersonalCapability } from '@/lib/home/authority';
 import type { z } from 'zod';
 import { backgroundHarnessUnavailableReason } from '@/lib/executor/harness';
 import { cheapModelFor } from '@/lib/harness/model-discovery';
@@ -131,6 +132,8 @@ export function runHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShot
 }
 
 async function executeHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneShotResult> {
+  // A team space runs no AI, whatever asks (docs/homes-spec.md §9.2).
+  assertPersonalCapability('AI');
   const providerType = resolveBackgroundHarness();
   if (opts.requiredHarness && providerType !== opts.requiredHarness) {
     throw new Error(`[${opts.label}] This workflow requires the configured ${opts.requiredHarness} harness.`);

@@ -2,7 +2,9 @@ import { TRPCError } from '@trpc/server';
 import { lookupApiToken } from '@/lib/auth/api-token';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { permitsCookieMutation } from '@/lib/auth/request-origin';
-import { API_KEY_ID_HEADER, API_KEY_SCOPE_HEADER, CALLER_LOCATION_HEADER, FORWARDED_KEY_HEADERS } from '@/lib/auth/request-key';
+import { API_KEY_ID_HEADER, API_KEY_SCOPE_HEADER, CALLER_LOCATION_HEADER, FORWARDED_KEY_HEADERS, MEMBER_ID_HEADER, MEMBER_ROLE_HEADER } from '@/lib/auth/request-key';
+import { isTeamAuthority } from '@/lib/home/authority';
+import { teamCallerFor, teamSessionCookieName } from '@/lib/team/credential';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 import { isSessionToken } from '@/lib/auth/session-token';
 import { isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
@@ -23,8 +25,18 @@ export function permitsWebSocketOrigin(request: Request): boolean {
 }
 
 function cookieToken(headers: Headers): string | null {
-  const raw = headers.get('cookie')?.split(';').map(part => part.trim()).find(part => part.startsWith(`${SESSION_COOKIE_NAME}=`));
-  try { return raw ? decodeURIComponent(raw.slice(SESSION_COOKIE_NAME.length + 1)) : null; } catch { return null; }
+  // A team's session cookie has its own name (src/lib/team/credential.ts).
+  const name = isTeamAuthority() ? teamSessionCookieName() : SESSION_COOKIE_NAME;
+  const raw = headers.get('cookie')?.split(';').map(part => part.trim()).find(part => part.startsWith(`${name}=`));
+  try { return raw ? decodeURIComponent(raw.slice(name.length + 1)) : null; } catch { return null; }
+}
+
+/** In a team, only a member's sign-in opens a connection, and it acts as that member. */
+function teamMember(found: { key: { id: string }; tokenHash: string }) {
+  if (!isTeamAuthority()) return null;
+  const caller = teamCallerFor(found.key, found.tokenHash);
+  if (caller?.scope !== 'member') throw new TRPCError({ code: 'UNAUTHORIZED' });
+  return caller.member;
 }
 
 export function createWebSocketContext(request: Request, params: Record<string, string | undefined> | null) {
@@ -42,21 +54,34 @@ export function createWebSocketContext(request: Request, params: Record<string, 
     if (!isHomeActive() || process.env.RI_SERVICE_VALIDATING === '1' || readMaintenance()?.phase === 'offline') {
       throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Home is preparing an update. Please retry shortly.' });
     }
-    return found;
+    return { ...found, member: teamMember(found) };
   };
-  const { key, tokenHash } = validate();
+  const { key, tokenHash, member } = validate();
   const headers = new Headers(request.headers);
   // Some operations require an explicit credential as well as the verified
   // key, including connected-computer notification ownership.
   headers.set('authorization', `Bearer ${token}`);
   for (const name of FORWARDED_KEY_HEADERS) headers.delete(name);
   headers.set(API_KEY_ID_HEADER, key.id);
-  headers.set(API_KEY_SCOPE_HEADER, 'viewer');
-  headers.set(CALLER_LOCATION_HEADER, isHostKeyHash(tokenHash) ? 'home' : 'elsewhere');
+  if (member) {
+    headers.set(API_KEY_SCOPE_HEADER, 'member');
+    headers.set(MEMBER_ID_HEADER, member.id);
+    headers.set(MEMBER_ROLE_HEADER, member.role);
+    headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
+  } else {
+    headers.set(API_KEY_SCOPE_HEADER, 'viewer');
+    headers.set(CALLER_LOCATION_HEADER, isHostKeyHash(tokenHash) ? 'home' : 'elsewhere');
+  }
   try { touchApiKey(key.id, { ip: headers.get('x-forwarded-for'), userAgent: headers.get('user-agent') }); } catch { /* telemetry is best effort */ }
   const ctx = createTRPCContext(new Request(request.url, { headers, signal: request.signal }));
   return { ...ctx, authorize: () => {
     const current = validate();
+    if (current.member) {
+      // A member removed or demoted while connected: the role follows, and
+      // removal closes the connection (validate throws).
+      ctx.key!.memberRole = current.member.role;
+      return;
+    }
     const location = isHostKeyHash(current.tokenHash) ? 'home' : 'elsewhere';
     ctx.key!.location = location;
     ctx.request.headers.set(CALLER_LOCATION_HEADER, location);

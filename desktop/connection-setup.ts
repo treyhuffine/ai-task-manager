@@ -14,6 +14,8 @@ import { acquireWorkerLock } from '../src/lib/worker/lock';
 import { exclusiveDatabaseAccess } from '../src/lib/service/maintenance';
 import { WORKER_PROTOCOL } from '../src/lib/workers/protocol';
 import { runtimeReleaseIdentity, runtimePeerRelease } from '../src/lib/releases/runtime-identity';
+import path from 'node:path';
+import { createTeamHere, inspectTeamLink, joinTeamWithLink, parseDesktopTeamLink, startTeamHere, type HostedTeam, type JoinedTeam, type TeamLinkSummary } from './team-setup';
 
 const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('inspect') }).strict(),
@@ -21,6 +23,18 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('connect'), pairingLink: z.string().min(1).max(8192) }).strict(),
   z.object({ action: z.literal('enable-worker'), consent: z.literal(true) }).strict(),
   z.object({ action: z.literal('session') }).strict(),
+  // Teams (desktop/team-setup.ts). Reading and joining touch nothing here.
+  // Creating and starting a team run with that team's own root.
+  z.object({ action: z.literal('inspect-link'), link: z.string().min(1).max(8192) }).strict(),
+  z.object({ action: z.literal('join-team'), link: z.string().min(1).max(8192), name: z.string().max(200).optional() }).strict(),
+  z.object({
+    action: z.literal('create-team'),
+    creationId: z.string().regex(/^[A-Za-z0-9_-]{8,80}$/),
+    teamName: z.string().max(200),
+    ownerName: z.string().max(200),
+    port: z.number().int().min(1024).max(65535).optional(),
+  }).strict(),
+  z.object({ action: z.literal('start-team') }).strict(),
 ]);
 export type ConnectionSetupRequest = z.infer<typeof requestSchema>;
 export interface ConnectionSetupStatus {
@@ -35,7 +49,10 @@ export interface ConnectionSetupStatus {
 export interface ConnectedViewerSession {
   homeUrl: string; homeId: string; homeName: string; deviceId: string | null; signInKey: string;
 }
-export type ConnectionSetupResult = ConnectionSetupStatus | ConnectedViewerSession;
+/** A pairing link's destination, verified, before anything is saved. */
+export interface PersonalLinkSummary { kind: 'personal'; origin: string; name: string; hostName: string | null }
+export type ConnectionSetupResult = ConnectionSetupStatus | ConnectedViewerSession | PersonalLinkSummary | TeamLinkSummary
+  | JoinedTeam | Omit<HostedTeam, 'origin'> | { origin: string; certificate: string };
 export type ConnectionSetupReply = { ok: true; result: ConnectionSetupResult } | { ok: false; error: string };
 
 /** Desktop accepts only a trusted HTTPS origin, or an explicitly enabled loopback development origin. */
@@ -196,6 +213,20 @@ export async function connectionSetup(raw: unknown, options: { development?: boo
   const request = parsed.data;
   const development = options.development === true;
   if (request.action === 'inspect') return inspect();
+  if (request.action === 'inspect-link') {
+    if (parseDesktopTeamLink(request.link, development)) return inspectTeamLink(request.link, development);
+    const link = parseDesktopPairingLink(request.link, development);
+    const candidate: ConnectionConfig = { version: 1, homeId: '', homeName: 'your Ri', homeUrl: link.homeUrl, homeHostName: null, credential: link.token, connectedAt: new Date().toISOString(), deviceId: null };
+    const home = await verifiedHome(candidate, development);
+    return { kind: 'personal', origin: link.homeUrl, name: home.name, hostName: home.host.name };
+  }
+  if (request.action === 'join-team') return joinTeamWithLink(request.link, request.name, development);
+  if (request.action === 'start-team') {
+    return startTeamHere({ repo: process.env.RI_RUNTIME_REPO ?? path.resolve(__dirname, '../..'), node: process.execPath });
+  }
+  // Making a team opens its new database, so it takes no exclusive access
+  // lock: it's retry-safe by its creation id instead (desktop/team-setup.ts).
+  if (request.action === 'create-team') return createTeamHere(request);
   if (request.action === 'session') {
     if (getInstallationRole() !== 'connected') throw new Error('This installation is not connected to a Home.');
     const connection = readConnection()!;

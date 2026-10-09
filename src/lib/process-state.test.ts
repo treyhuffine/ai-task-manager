@@ -65,6 +65,8 @@ const PER_COPY: Record<string, string> = {
   'src/lib/home/machine-fingerprint.ts:override': 'test seam',
   'src/lib/home/portable.ts:cached': 'cache: a filesystem probe',
   'src/lib/home/identity.ts:verified': 'cache: re-verified when the database path changes',
+  'src/lib/home/authority.ts:cached': "cache: re-read when the database path changes, and a root's kind never changes",
+  'src/lib/team/credential.ts:cookieCache': "cache: keyed by the database path, and a team's id never changes",
   'src/lib/integrations/runtime.ts:mcpStoreCached': 'cache: a file-backed store, interchangeable per copy',
   'src/lib/integrations/storage.ts:ready': 'cache: directories already created',
   'src/lib/notifications/web-push/vapid.ts:cached': 'cache: keys read from disk',

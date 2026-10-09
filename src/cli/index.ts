@@ -27,6 +27,7 @@ import { registerUpdateCommand } from './commands/update';
 import { registerServiceCommand } from './commands/service';
 import { registerPerfCommand } from './commands/perf';
 import { registerAttachmentCommand } from './commands/attachment';
+import { registerTeamCommand } from './commands/team';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -127,6 +128,7 @@ registerServiceCommand(program);
 registerPerfCommand(program);
 registerUpdateCommand(program);
 registerAttachmentCommand(program);
+registerTeamCommand(program);
 installRoleGuard(program);
 
 program.parseAsync(process.argv).catch((err) => {

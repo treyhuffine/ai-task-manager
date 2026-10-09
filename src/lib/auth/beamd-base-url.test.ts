@@ -4,7 +4,24 @@ import {
   defaultBeamdTunnelName,
   normalizeTunnelName,
   resolveBeamdTunnelName,
+  teamBeamdTunnelName,
 } from './beamd-base-url';
+
+describe('teamBeamdTunnelName', () => {
+  it("names a team's address after its first name and its creation, never the personal default", () => {
+    const name = teamBeamdTunnelName({ name: 'Family', creationId: '6f1c2d3e-aa10-4b6e-9d2f-0c4b5e7a9f3a' });
+    expect(name).toBe('ri-family-9f3a');
+    expect(name).not.toBe(defaultBeamdTunnelName('production'));
+    expect(isValidPreviewLabel(name)).toBe(true);
+  });
+
+  it('keeps two teams with one name apart, and any name valid for beamd', () => {
+    expect(teamBeamdTunnelName({ name: 'Acme', creationId: 'a-0001' })).not.toBe(teamBeamdTunnelName({ name: 'Acme', creationId: 'b-0002' }));
+    const long = teamBeamdTunnelName({ name: 'The Very Long Name Of A Neighborhood Gardening Club & Friends', creationId: 'x'.repeat(36) });
+    expect(long.length).toBeLessThanOrEqual(MAX_LABEL_LENGTH);
+    expect(isValidPreviewLabel(long)).toBe(true);
+  });
+});
 
 describe('defaultBeamdTunnelName', () => {
   it('uses the app short id as the stable production tunnel name', () => {

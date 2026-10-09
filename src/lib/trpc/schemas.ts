@@ -39,7 +39,7 @@ const pagination = { limit: z.number().int().nonnegative().optional(), offset: z
 const statusFilter = z.enum([...TASK_STATUSES, 'active']);
 export const taskFilterSchema = z.object({
   status: z.union([statusFilter, z.array(statusFilter)]).optional(),
-  areaId: foreignId, workspaceId: foreignId, parentId: foreignId,
+  areaId: foreignId, workspaceId: foreignId, parentId: foreignId, assigneeMemberId: foreignId,
   energy: z.enum(['deep', 'light']).optional(), q: z.string().optional(), ...pagination,
 }).strict() satisfies z.ZodType<TaskFilter>;
 export const noteFilterSchema = z.object({

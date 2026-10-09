@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { assertPersonalCapability } from '@/lib/home/authority';
 import {
   customModelOption,
   explicitHarnessSelection,
@@ -57,6 +58,7 @@ async function modelDiscoveryContext(
   providerId: ProviderId,
   options: { cwd?: string; refresh?: boolean },
 ): Promise<ModelDiscoveryContext> {
+  assertPersonalCapability('Harness discovery');
   const { getProvider } = await import('@agentex/agent');
   const provider = getProvider(providerId);
   const [runtime, report] = await Promise.all([
@@ -166,6 +168,7 @@ async function discoverModels(
   context: ModelDiscoveryContext,
   options: { cwd?: string; refresh?: boolean } = {},
 ): Promise<HarnessModelsResponse> {
+  assertPersonalCapability('Harness discovery');
   const { getProvider } = await import('@agentex/agent');
   const provider = getProvider(providerId);
   if (provider.listModels) {

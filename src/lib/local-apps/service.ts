@@ -1,4 +1,5 @@
 import { localAppMetadata } from './metadata';
+import { assertPersonalCapability, isTeamAuthority } from '@/lib/home/authority';
 import { localAppsEnabled } from '@/lib/config/features';
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -168,6 +169,8 @@ export class LocalAppsService {
     await this.resume();
   }
   private async startServices() {
+    // Apps never run in a team space, whoever resumes them (docs/homes-spec.md §9.2).
+    if (isTeamAuthority()) return;
     for (const instance of this.store
       .read()
       .instances.filter(
@@ -244,6 +247,8 @@ export class LocalAppsService {
 
   initialize() {
     requireLocalApps();
+    // Apps run in a person's home, never a team space (docs/homes-spec.md §9.2).
+    assertPersonalCapability('Local apps');
     return (this.started ??= (async () => {
       await this.store.initialize();
       await this.store.recover();
@@ -1969,7 +1974,7 @@ export class LocalAppsService {
   }
   /** Called by the existing scheduler while it owns its tick lock. */
   async tick(at: Date) {
-    if (!localAppsEnabled() || this.paused) return;
+    if (!localAppsEnabled() || this.paused || isTeamAuthority()) return;
     if (!this.store.read().schedules.some(job=>job.enabled && job.nextRunAt <= at.toISOString())) return;
     const jobs: AppSchedule[] = [];
     const claimed = new Set<string>();

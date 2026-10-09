@@ -63,6 +63,25 @@ function migrationsBeforeWorkResults() {
   return { folder, count: entries.length };
 }
 
+/**
+ * The release journal through the work result migration. Later migrations
+ * (0011 team spaces onward) are not this test's subject, so the upgrade it
+ * checks ends where 0010 does.
+ */
+function throughWorkResults(): string {
+  const journal = releaseJournal();
+  const index = journal.entries.findIndex((entry) => entry.tag === workResultMigration);
+  const entries = journal.entries.slice(0, index + 1);
+  const folder = path.join(dir, 'through-work-results');
+  if (fs.existsSync(folder)) return folder;
+  fs.mkdirSync(path.join(folder, 'meta'), { recursive: true });
+  fs.writeFileSync(path.join(folder, 'meta', '_journal.json'), JSON.stringify({ ...journal, entries }));
+  for (const entry of entries) {
+    fs.copyFileSync(path.join(migrationsFolder, `${entry.tag}.sql`), path.join(folder, `${entry.tag}.sql`));
+  }
+  return folder;
+}
+
 function insert(table: string, row: SqlRow) {
   const columns = Object.keys(row).map((column) => `"${column}"`).join(', ');
   const placeholders = Object.keys(row).map(() => '?').join(', ');
@@ -94,7 +113,7 @@ function upgradedHome() {
   insert('chat_events', { id: 'source-event', session_id: 'event-source', role: 'assistant', source: 'harness', content: 'Retained outcome' });
   insert('chat_events', { id: 'feedback-message', session_id: 'feedback', role: 'user', source: 'human', content: 'Please preserve this feedback' });
   insert('tasks', { id: 'task', raw_input: 'Verify migration', title: 'Verify migration', status: 'todo' });
-  expect(runMigrations(sqlite, migrationsFolder)).toEqual({ applied: 1 });
+  expect(runMigrations(sqlite, throughWorkResults())).toEqual({ applied: 1 });
 
   const attachment = {
     file_name: '0199d70b-9b00-7000-8000-000000000001.md', original_name: 'inspection.md',
@@ -173,9 +192,9 @@ describe('work result migration', () => {
     const ownerKeysBefore = foreignKeys('user_state');
     const agentKeysBefore = foreignKeys('workspaces');
     const journalBefore = journalRows();
-    expect(inspectMigrationHistory(sqlite, migrationsFolder).pending).toHaveLength(1);
+    expect(inspectMigrationHistory(sqlite, throughWorkResults()).pending).toHaveLength(1);
 
-    expect(runMigrations(sqlite, migrationsFolder)).toEqual({ applied: 1 });
+    expect(runMigrations(sqlite, throughWorkResults())).toEqual({ applied: 1 });
 
     expect(rows('user_state')).toEqual(ownerBefore.map((r) => ({ ...(r as SqlRow), work_result_guidance: null })));
     expect(rows('workspaces')).toEqual(agentBefore.map((r) => ({
@@ -192,7 +211,7 @@ describe('work result migration', () => {
     const journal = journalRows();
     expect(journal.slice(0, journalBefore.length)).toEqual(journalBefore);
     expect(journal).toHaveLength(journalBefore.length + 1);
-    expect(inspectMigrationHistory(sqlite, migrationsFolder).pending).toEqual([]);
+    expect(inspectMigrationHistory(sqlite, throughWorkResults()).pending).toEqual([]);
   });
 
   it('keeps work result rows, sparse rowids, all 15 foreign keys and indexes when migrations run again', () => {
@@ -201,7 +220,7 @@ describe('work result migration', () => {
     const journalBefore = journalRows();
     expect(before.reduce((count, table) => count + table.foreignKeys.length, 0)).toBe(15);
 
-    expect(runMigrations(sqlite, migrationsFolder)).toEqual({ applied: 0 });
+    expect(runMigrations(sqlite, throughWorkResults())).toEqual({ applied: 0 });
 
     for (const [index, name] of fixtureTables.entries()) {
       expect(rows(name)).toEqual(before[index].rows);
@@ -213,7 +232,7 @@ describe('work result migration', () => {
     assertWorkResultIndexes();
     expect(sqlite.pragma('foreign_key_check')).toEqual([]);
     expect(journalRows()).toEqual(journalBefore);
-    expect(inspectMigrationHistory(sqlite, migrationsFolder).pending).toEqual([]);
+    expect(inspectMigrationHistory(sqlite, throughWorkResults()).pending).toEqual([]);
   });
 
   it('preserves SET NULL provenance and feedback plus task-association CASCADE behavior', () => {
@@ -289,7 +308,7 @@ describe('work result migration', () => {
   // Deleting a session's chat_events checks this foreign key once per event,
   // so a long chat would scan work_results once for every event it held.
   it('finds the work results that cite a deleted chat event by index', () => {
-    runMigrations(sqlite, migrationsFolder);
+    runMigrations(sqlite, throughWorkResults());
     const plan = (sqlite.prepare('EXPLAIN QUERY PLAN SELECT 1 FROM work_results WHERE source_event_id = ?').all('event') as { detail: string }[])
       .map((step) => step.detail);
     expect(plan).toEqual(['SEARCH work_results USING COVERING INDEX idx_work_results_source_event (source_event_id=?)']);

@@ -29,7 +29,7 @@ import { SlashCommands } from './slash-commands'
 import { EntityLinkNode } from './entity-link-node'
 import { FileLinkNode } from './file-link-node'
 import { EntityLinkMenuExtension } from './entity-link-menu/extension'
-import { useCallback, useEffect, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea'
 import type { Editor } from '@tiptap/core'
 import type { Attachment } from '@/db/types'
@@ -38,6 +38,8 @@ import { insertUploadedFiles } from './upload-files'
 const lowlight = createLowlight(common)
 
 export interface RichEditorProps {
+  /** Shared editors acknowledge a revision only with the synchronous text replacement. */
+  applyExternalContent?: (content: string, apply: () => void) => void
   /** Initial content as markdown string */
   content?: string
   /** Called when content changes, with markdown string */
@@ -77,7 +79,10 @@ export function RichEditor({
   onAttachment,
   foldedHeadings,
   onFoldedHeadingsChange,
+  applyExternalContent,
 }: RichEditorProps) {
+  const externalContentRef = useRef(applyExternalContent)
+  externalContentRef.current = applyExternalContent
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
 
@@ -185,7 +190,7 @@ export function RichEditor({
       AutoJoiner,
     ],
     content: initialContentRef.current,
-    ...(initialContentRef.current ? { contentType: 'markdown' as any } : {}),
+    ...(initialContentRef.current ? { contentType: 'markdown' as const } : {}),
     editorProps: {
       attributes: {
         class: 'rich-editor-body outline-none',
@@ -247,7 +252,7 @@ export function RichEditor({
     onUpdate: ({ editor }) => {
       // During external syncs, suppress onChange to avoid re-saving stale content
       if (isSyncingRef.current) return
-      const md = (editor as any).getMarkdown?.() ?? ''
+      const md = editor.getMarkdown()
       prevContentRef.current = md
       onChangeRef.current?.(md)
     },
@@ -276,32 +281,32 @@ export function RichEditor({
   useEffect(() => {
     if (!editor || content === prevContentRef.current) return
     if (editor.isFocused) return
-    prevContentRef.current = content
-
-    const currentMd = (editor as any).getMarkdown?.() ?? ''
-    if (currentMd === content) return
-
     // Capture values for the deferred callback
     const markdownToSet = content
+    let cancelled = false
     queueMicrotask(() => {
-      // Editor may have been destroyed by the time this runs
-      if (editor.isDestroyed) return
+      // Focus or local text may have changed since React scheduled this sync.
+      if (cancelled || editor.isDestroyed || editor.isFocused) return
+      const jsonContent = editor.markdown?.parse(markdownToSet)
+      if (!jsonContent) return
       isSyncingRef.current = true
       try {
-        const jsonContent = editor.markdown?.parse(markdownToSet)
-        if (jsonContent) {
+        const apply = () => {
           const { from } = editor.state.selection
           editor.commands.setContent(jsonContent, { emitUpdate: false })
           const maxPos = editor.state.doc.content.size
           editor.commands.setTextSelection(Math.min(from, maxPos))
+          prevContentRef.current = markdownToSet
+          applyFoldedHeadingIds(editor, foldedRef.current)
         }
+        if (externalContentRef.current) externalContentRef.current(markdownToSet, apply)
+        else if (editor.getMarkdown() !== markdownToSet) apply()
+        else prevContentRef.current = markdownToSet
       } finally {
         isSyncingRef.current = false
       }
-      // Markdown round-trips strip the fold bit (parseMarkdown sets collapsed:false),
-      // so reapply after every external sync.
-      applyFoldedHeadingIds(editor, foldedRef.current)
     })
+    return () => { cancelled = true }
   }, [editor, content])
 
   // Apply initial folds once after the editor mounts. Keyed only on `editor`
@@ -377,6 +382,7 @@ export function RichEditor({
 }
 
 export interface NoteEditorProps {
+  applyExternalContent?: RichEditorProps['applyExternalContent']
   title?: string
   body?: string
   onTitleChange?: (title: string) => void
@@ -408,6 +414,7 @@ export function NoteEditor({
   onAttachment,
   foldedHeadings,
   onFoldedHeadingsChange,
+  applyExternalContent,
 }: NoteEditorProps) {
   const { ref: attachTitle, element: titleRef, resize: resizeTitle } = useAutosizeTextarea()
 
@@ -471,6 +478,7 @@ export function NoteEditor({
       <div className="mt-6">
         <RichEditor
           content={body}
+          applyExternalContent={applyExternalContent}
           onChange={onBodyChange}
           editable={!disabled}
           autoFocus={autoFocusTitle ? false : 'start'}

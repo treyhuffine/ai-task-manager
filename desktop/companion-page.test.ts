@@ -14,14 +14,18 @@ const viewer = {
   service: { phase: 'running' }, desktop: '1.0', login: { enabled: false },
 };
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
+const personalLink = { kind: 'personal', origin: 'https://home.example', name: 'My Ri', hostName: 'Mac Mini' };
+/** A Ri link is checked before it's used: these answer the check as a personal Ri. */
+const asPersonal = (then?: (name: string, value?: unknown) => unknown) => (name: string, value?: unknown) =>
+  name === 'inspect-link' ? personalLink : then?.(name, value);
 
-async function renderPage(initial: Record<string, unknown>, options: CompanionPageOptions = {}, action?: (name: string, value?: unknown) => unknown) {
+async function renderPage(initial: Record<string, unknown>, options: CompanionPageOptions = {}, action?: (name: string, value?: unknown) => unknown, statusCheck?: () => Promise<Record<string, unknown>> | undefined) {
   let status = initial;
   const { document } = parseHTML(companionPage('test123', options));
-  const request = vi.fn(async (name: string, value?: unknown) => name === 'status' ? status : action?.(name, value) ?? {});
+  const request = vi.fn(async (name: string, value?: unknown) => name === 'status' ? (statusCheck?.() ?? status) : action?.(name, value) ?? {});
   let poll!: () => Promise<void>;
   vm.runInNewContext(document.querySelector('script')!.textContent!, {
-    document, window: { riCompanion: { request } }, setInterval: (callback: () => Promise<void>) => { poll = callback; },
+    document, window: { riCompanion: { request } }, setInterval: (callback: () => Promise<void>) => { poll = callback; }, setTimeout, clearTimeout,
   });
   await flush();
   const element = (id: string) => document.getElementById(id)!;
@@ -45,23 +49,35 @@ describe('desktop welcome and connection flow', () => {
     expect(ui.element('heading').textContent).toBe('Welcome to Ri');
     expect(ui.visible('create-home')).toBe(true);
     expect(ui.visible('choose-connect')).toBe(true);
+    expect(ui.element('choose-connect').textContent).toBe('Connect to Ri');
+    expect(ui.visible('choose-create-team')).toBe(true);
     expect(ui.visible('help-link')).toBe(true);
-    for (const id of ['connect', 'settings', 'preferences', 'notifications', 'service', 'updates', 'device']) expect(ui.visible(id), id).toBe(false);
+    for (const id of ['connect', 'create-team', 'saved-teams', 'pending-team', 'settings', 'preferences', 'notifications', 'service', 'updates', 'device']) expect(ui.visible(id), id).toBe(false);
     expect(ui.element('advanced').hasAttribute('open')).toBe(false);
     expect(ui.request.mock.calls.every(([name]) => name === 'status')).toBe(true);
   });
 
-  it('requires choosing Connect before pairing, and local agents require explicit opt-in', async () => {
-    const ui = await renderPage(fresh);
+  it('requires choosing Connect before pairing, checks the link first, and local agents require explicit opt-in', async () => {
+    const ui = await renderPage(fresh, {}, asPersonal());
     await ui.click('choose-connect');
     expect(ui.visible('welcome')).toBe(false);
     expect(ui.visible('connect')).toBe(true);
+    expect(ui.element('heading').textContent).toBe('Connect to Ri');
     expect(ui.input('run-work').checked).toBe(false);
+    // Nothing about local agents until the link is known to be a personal Ri.
+    expect(ui.visible('run-work-label')).toBe(false);
     ui.input('pairing').value = 'https://home.example/#token=fixture';
+    await ui.click('connect-home');
+    expect(ui.request).toHaveBeenCalledWith('inspect-link', { link: 'https://home.example/#token=fixture' });
+    expect(ui.request.mock.calls.some(([name]) => name === 'connect')).toBe(false);
+    expect(ui.element('link-destination').textContent).toBe('Pairing link for My Ri, on Mac Mini');
+    expect(ui.visible('run-work-label')).toBe(true);
+    expect(ui.element('connect-home').textContent).toBe('Connect');
     await ui.click('connect-home');
     expect(ui.request).toHaveBeenCalledWith('connect', { pairingLink: 'https://home.example/#token=fixture', runWork: false });
     await ui.click('choose-connect');
     ui.input('pairing').value = 'https://home.example/#token=fixture';
+    await ui.click('connect-home');
     ui.input('run-work').checked = true;
     await ui.click('connect-home');
     expect(ui.request).toHaveBeenLastCalledWith('status', undefined);
@@ -80,9 +96,10 @@ describe('desktop welcome and connection flow', () => {
   });
 
   it('keeps a rejected pairing visible with its input intact and does not create a Home', async () => {
-    const ui = await renderPage(fresh, {}, name => name === 'connect' ? { error: 'This pairing key is no longer valid.' } : {});
+    const ui = await renderPage(fresh, {}, asPersonal(name => name === 'connect' ? { error: 'This pairing key is no longer valid.' } : {}));
     await ui.click('choose-connect');
     ui.input('pairing').value = 'https://home.example/#token=rejected';
+    await ui.click('connect-home');
     await ui.click('connect-home');
     await ui.refresh();
     expect(ui.visible('connect')).toBe(true);
@@ -92,13 +109,14 @@ describe('desktop welcome and connection flow', () => {
   });
 
   it('keeps a successful connection usable when optional local execution enrollment fails', async () => {
-    const ui = await renderPage(fresh, {}, name => {
+    const ui = await renderPage(fresh, {}, asPersonal(name => {
       if (name !== 'connect') return {};
       ui.setStatus({ ...viewer, connecting: false });
       return { executionError: 'This computer could not finish enrollment.' };
-    });
+    }));
     await ui.click('choose-connect');
     ui.input('pairing').value = 'https://home.example/#token=accepted';
+    await ui.click('connect-home');
     ui.input('run-work').checked = true;
     await ui.click('connect-home');
     expect(ui.visible('connect')).toBe(false);
@@ -121,12 +139,13 @@ describe('desktop welcome and connection flow', () => {
   });
 
   it('proceeds directly to connection progress after pairing and local execution both succeed', async () => {
-    const ui = await renderPage(fresh, {}, name => {
+    const ui = await renderPage(fresh, {}, asPersonal(name => {
       if (name === 'connect') ui.setStatus({ ...viewer, role: 'worker', connecting: true, hasViewer: false });
       return {};
-    });
+    }));
     await ui.click('choose-connect');
     ui.input('pairing').value = 'https://home.example/#token=accepted';
+    await ui.click('connect-home');
     ui.input('run-work').checked = true;
     await ui.click('connect-home');
     expect(ui.visible('starting')).toBe(true);
@@ -341,4 +360,121 @@ it('keeps installation paths behind deliberate disclosure and provides a native 
   expect(request).toHaveBeenCalledWith('back', undefined);
   const opened = parseHTML(maintenancePage('test123', { chooseInstallation: true })).document;
   expect(opened.getElementById('choose-installation')!.hasAttribute('open')).toBe(true);
+});
+
+describe('teams from the desktop welcome', () => {
+  const invite = { kind: 'team', origin: 'https://acme.example', link: 'invite', state: 'valid', teamName: 'Acme', memberName: null };
+
+  it('joins a team from a pasted invitation: its name first, your name, never local agents or pairing', async () => {
+    const ui = await renderPage(fresh, {}, name => (name === 'inspect-link' ? invite : {}));
+    await ui.click('choose-connect');
+    ui.input('pairing').value = 'https://acme.example/join#invite=rtg_fixture';
+    await ui.click('connect-home');
+    expect(ui.element('link-destination').textContent).toBe('Invitation to join Acme');
+    expect(ui.visible('join-name')).toBe(true);
+    expect(ui.visible('run-work-label')).toBe(false);
+    expect(ui.element('connect-home').textContent).toBe('Join team');
+    ui.input('member-name').value = 'Maya';
+    await ui.click('connect-home');
+    expect(ui.request).toHaveBeenCalledWith('join-team', { link: 'https://acme.example/join#invite=rtg_fixture', name: 'Maya' });
+    expect(ui.request.mock.calls.some(([name]) => name === 'connect' || name === 'enable-worker' || name === 'create-home')).toBe(false);
+  });
+
+  it('joins a team from a computer that holds a personal Ri, which stays as it was', async () => {
+    const home = { role: 'home', homeSelected: true, home: { name: 'My Ri', hostName: 'Mac Mini' }, preferences, desktop: '1.0', service: { phase: 'running' } };
+    let answer: object = invite;
+    const ui = await renderPage({ ...home, hasViewer: true }, { view: 'connect' }, (name) => (name === 'inspect-link' ? answer : {}));
+    expect(ui.visible('connect')).toBe(true);
+    expect(ui.element('heading').textContent).toBe('Join a team');
+    // Opened from the menu over Ri: one way back, to Ri.
+    expect(ui.visible('return-to-app')).toBe(true);
+    expect(ui.visible('back')).toBe(false);
+    expect(ui.element('pairing-hint').textContent).toBe('Paste a team invitation or sign-in link.');
+    ui.input('pairing').value = 'https://acme.example/join#invite=rtg_fixture';
+    await ui.click('connect-home');
+    expect(ui.element('link-destination').textContent).toBe('Invitation to join Acme');
+    ui.input('member-name').value = 'Maya';
+    await ui.click('connect-home');
+    expect(ui.request).toHaveBeenCalledWith('join-team', { link: 'https://acme.example/join#invite=rtg_fixture', name: 'Maya' });
+
+    // A personal pairing link is explained there, and never used.
+    answer = personalLink;
+    ui.request.mockClear();
+    await ui.refresh();
+    ui.input('pairing').value = 'https://home.example/#token=fixture';
+    await ui.click('connect-home');
+    expect(ui.element('link-destination').textContent).toBe('This is a pairing link for My Ri. This computer already holds your own Ri, so use it on another computer.');
+    expect(ui.visible('run-work-label')).toBe(false);
+    expect((ui.element('connect-home') as HTMLButtonElement).disabled).toBe(true);
+    await ui.click('connect-home');
+    expect(ui.request.mock.calls.some(([name]) => name === 'connect' || name === 'enable-worker')).toBe(false);
+  });
+
+  it('explains an invitation that can no longer be used, and offers nothing to join', async () => {
+    const ui = await renderPage(fresh, {}, name => (name === 'inspect-link' ? { ...invite, state: 'expired', teamName: 'Acme' } : {}));
+    await ui.click('choose-connect');
+    ui.input('pairing').value = 'https://acme.example/join#invite=rtg_old';
+    await ui.click('connect-home');
+    expect(ui.element('link-destination').textContent).toContain('expired');
+    expect(ui.visible('join-name')).toBe(false);
+    expect(ui.input('connect-home').disabled).toBe(true);
+  });
+
+  it('shows a link it cannot read as an error, keeping what was pasted', async () => {
+    const ui = await renderPage(fresh, {}, name => (name === 'inspect-link' ? { error: "That isn't a Ri link." } : {}));
+    await ui.click('choose-connect');
+    ui.input('pairing').value = 'https://example.com/whatever';
+    await ui.click('connect-home');
+    expect(ui.element('error').textContent).toBe("That isn't a Ri link.");
+    expect(ui.input('pairing').value).toBe('https://example.com/whatever');
+  });
+
+  it('creates a team hosted here from the quiet action, asking only for names', async () => {
+    const ui = await renderPage({ ...fresh, suggestedName: 'Trey' });
+    await ui.click('choose-create-team');
+    expect(ui.element('heading').textContent).toBe('Create a team');
+    expect(ui.visible('create-team')).toBe(true);
+    expect(ui.input('owner-name').value).toBe('Trey');
+    expect(ui.element('create-team').textContent).toContain('Hosted on this computer');
+    expect(ui.element('create-team').textContent).toContain('Keep this computer awake and online so your team can use Ri.');
+    expect(ui.element('team-advanced').hasAttribute('open')).toBe(false);
+    ui.input('team-name').value = 'Acme';
+    await ui.click('create-team-button');
+    expect(ui.request).toHaveBeenCalledWith('create-team', { teamName: 'Acme', ownerName: 'Trey', root: undefined, port: undefined });
+    expect(ui.request.mock.calls.some(([name]) => name === 'create-home' || name === 'connect')).toBe(false);
+  });
+
+  it('lists the teams this desktop uses, and offers to finish a creation that was interrupted', async () => {
+    const ui = await renderPage({ ...fresh, teams: [{ id: 'team-1', name: 'Acme', memberName: 'Maya', role: 'member', hosted: false }], pendingTeam: { teamName: 'Family' } });
+    expect(ui.visible('saved-teams')).toBe(true);
+    expect(ui.visible('team-issue')).toBe(false);
+    const open = ui.element('team-list').querySelector('button')!;
+    expect(open.textContent).toBe('Open Acme');
+    await (open as HTMLButtonElement).onclick!(new Event('click') as PointerEvent);
+    await flush();
+    expect(ui.request).toHaveBeenCalledWith('open-team', { id: 'team-1' });
+    expect(ui.visible('pending-team')).toBe(true);
+    expect(ui.element('pending-team-text').textContent).toContain('Creating Family didn’t finish');
+    await ui.click('resume-team');
+    expect(ui.request).toHaveBeenCalledWith('create-team', { resume: true });
+  });
+
+  it('is usable as soon as it has its status, while a follow-up check is still out', async () => {
+    let checks = 0;
+    const slow = new Promise<Record<string, unknown>>(() => {});
+    const ui = await renderPage({ ...fresh, teams: [{ id: 'team-1', name: 'Acme', memberName: 'Maya', role: 'member', hosted: false }] }, {}, undefined,
+      () => (checks++ === 0 ? undefined : slow));
+    const open = ui.element('team-list').querySelector('button') as HTMLButtonElement;
+    expect(open.textContent).toBe('Open Acme');
+    expect(open.disabled).toBe(false);
+    expect((ui.element('choose-connect') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("says why a saved team didn't open, beside the way to open it again", async () => {
+    const message = "Couldn't reach Acme. The computer hosting it may be asleep or offline. Try again.";
+    const ui = await renderPage({ ...fresh, teams: [{ id: 'team-1', name: 'Acme', memberName: 'Maya', role: 'member', hosted: false }], teamIssue: { id: 'team-1', message } });
+    expect(ui.visible('team-issue')).toBe(true);
+    expect(ui.element('team-issue').textContent).toBe(message);
+    expect(ui.element('team-list').querySelector('button')!.textContent).toBe('Open Acme');
+  });
 });

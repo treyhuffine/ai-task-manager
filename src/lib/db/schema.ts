@@ -504,8 +504,18 @@ export const tasks = sqliteTable(
     lastSurfacedAt: text(),
     completedAt: text(),
     lastViewedAt: text(),
+    // In a team space, the member the task is assigned to (docs/homes-spec.md
+    // §9.1). Null when nobody is, and always in a personal home. Members are
+    // marked removed, never deleted, so their references keep pointing at them.
+    assigneeMemberId: text().references((): AnySQLiteColumn => members.id),
+    // Counts changes to `body`. `updateTask` bumps it in the same statement
+    // that changes the body, the only place a body is written. A write may
+    // name the revision it edited, and is refused when the body moved on
+    // since (docs/homes-spec.md §9.3, P6.4).
+    bodyRevision: integer().notNull().default(0),
   },
   (table) => [
+    index('idx_tasks_assignee').on(table.assigneeMemberId),
     index('idx_tasks_status').on(table.status),
     index('idx_tasks_area_id').on(table.areaId),
     index('idx_tasks_workspace_id').on(table.workspaceId),
@@ -579,6 +589,10 @@ export const taskStatusChanges = sqliteTable(
     statusChangedCount: integer().notNull(),
     // Who authored it: human (UI / trusted CLI), ai (agent via MCP), system.
     actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull(),
+    // In a team space, the member who made the change, or whose agent did.
+    // No delete rule: deleting a member who has history is refused, so who did
+    // what is never quietly erased.
+    actorMemberId: text().references((): AnySQLiteColumn => members.id),
     // Optional provenance, attributed when known.
     actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, {
       onDelete: 'set null',
@@ -736,10 +750,15 @@ export const apiKeys = sqliteTable(
     // a key never gains the authority to run work from its device.
     deviceId: text().references((): AnySQLiteColumn => devices.id, { onDelete: 'set null' }),
     role: text({ enum: API_KEY_ROLES }).notNull(),
+    // In a team space, the member this sign-in belongs to (docs/homes-spec.md
+    // §9.1). A member has one per client, each revocable on its own. A team
+    // key without one is the host's own key, which is never a member.
+    memberId: text().references((): AnySQLiteColumn => members.id),
   },
   (table) => [
     index('idx_api_keys_hash').on(table.hash),
     index('idx_api_keys_device').on(table.deviceId),
+    index('idx_api_keys_member').on(table.memberId),
     index('idx_api_keys_prefix').on(table.prefix),
     index('idx_api_keys_revoked').on(table.revokedAt),
     // One worker per device: enrolling again revokes the earlier key first.
@@ -1043,6 +1062,74 @@ export const home = sqliteTable('home', {
     .notNull()
     .references(() => devices.id),
 });
+
+// ─── Team members and grants ──────────────────────────────────
+// docs/homes-spec.md §9.1. Only a team space has members: a personal home's
+// tables stay empty. A member is a person with a stable id, whatever clients
+// they sign in on (each an `api_keys` row with `member_id`). Membership is
+// separate from device pairing and worker enrollment: a member's key never
+// runs work, and a personal key is never a member's.
+//
+// Roles and status are policy, so they have no schema default: the query
+// layer sets them (docs/schema-defaults.md).
+
+export const MEMBER_ROLES = ['owner', 'member'] as const;
+export const MEMBER_STATUSES = ['active', 'removed'] as const;
+
+export const members = sqliteTable(
+  'members',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    // What the team calls them. Editable, and never identity.
+    name: text().notNull(),
+    role: text({ enum: MEMBER_ROLES }).notNull(),
+    status: text({ enum: MEMBER_STATUSES }).notNull(),
+    removedAt: text(),
+    // The team creation that made this member its owner, so a retried
+    // creation finds the same owner instead of making a second.
+    creationId: text(),
+  },
+  (table) => [
+    index('idx_members_status').on(table.status),
+    uniqueIndex('uniq_members_creation').on(table.creationId).where(sql`${table.creationId} IS NOT NULL`),
+  ],
+);
+
+// A team grant is a single-use secret that admits someone (§9.1, §3.1):
+//
+// - `setup`: finishes a team provisioned on a server by its operator. The
+//   person who opens it names the team and becomes its owner.
+// - `invite`: admits a new member, who confirms their name. Expires, and an
+//   owner can revoke it before it's used.
+// - `sign_in`: signs an existing member in on another client.
+//
+// Only the secret's hash is stored, as for device grants.
+export const TEAM_GRANT_KINDS = ['setup', 'invite', 'sign_in'] as const;
+
+export const teamGrants = sqliteTable(
+  'team_grants',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    kind: text({ enum: TEAM_GRANT_KINDS }).notNull(),
+    hash: text().notNull().unique(),
+    // `sign_in`: the member it signs in. `invite` and `setup`: the member it
+    // made, once used.
+    memberId: text().references((): AnySQLiteColumn => members.id, { onDelete: 'cascade' }),
+    // `invite`: the role the new member gets.
+    role: text({ enum: MEMBER_ROLES }),
+    createdByMemberId: text().references((): AnySQLiteColumn => members.id, { onDelete: 'set null' }),
+    expiresAt: text().notNull(),
+    redeemedAt: text(),
+    redeemedByApiKeyId: text().references((): AnySQLiteColumn => apiKeys.id, { onDelete: 'set null' }),
+    revokedAt: text(),
+  },
+  (table) => [
+    index('idx_team_grants_kind').on(table.kind, table.redeemedAt, table.revokedAt),
+    index('idx_team_grants_member').on(table.memberId),
+  ],
+);
 
 // ─── Workspace setups ─────────────────────────────────────────
 // An agent's folder on each device it runs on (docs/homes-spec.md §4.1,
@@ -2064,6 +2151,12 @@ export const entityVersions = sqliteTable(
     //   system — a revert or other automated process
     source: text({ enum: ['human', 'ai', 'system'] }).notNull(),
 
+    // In a team space, the member who made the change, or whose agent did
+    // (`source` says which). "Trey changed this" or "Trey's agent changed
+    // this" (docs/homes-spec.md §9.1). No delete rule: deleting a member who
+    // has history is refused, so who did what is never quietly erased.
+    actorMemberId: text().references((): AnySQLiteColumn => members.id),
+
     // The chat session whose turn produced this version, when known (the
     // in-document `type='content'` session). Lets the transcript link a
     // tool-call event to its diff. SET NULL if the session is later deleted —
@@ -2111,6 +2204,8 @@ export interface EntityVersionSnapshot {
   blockedOn?: string | null;
   outcome?: string | null;
   userContext?: string | null;
+  // Task-only, in a team space: who it's assigned to. Absent when nobody is.
+  assigneeMemberId?: string | null;
   // Note-only.
   url?: string | null;
 }
@@ -2136,6 +2231,8 @@ export const notes = sqliteTable(
     status: text({ enum: ['active', 'archived'] }).notNull(),
     contextTags: text({ mode: 'json' }).$type<string[]>().default([]),
     lastViewedAt: text(),
+    // Counts changes to `body`, as on tasks.
+    bodyRevision: integer().notNull().default(0),
   },
   (table) => [
     index('idx_notes_area_id').on(table.areaId),

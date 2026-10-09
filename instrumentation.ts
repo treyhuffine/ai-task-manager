@@ -27,8 +27,12 @@ export async function register() {
   try {
     const info = ensureLocalToken();
     const baseUrl = getLocalBaseUrl();
-
-    if (info.created) {
+    // A team's host token administers the installation. It's never a pairing
+    // link and never a member's sign-in (docs/homes-spec.md §9.1).
+    const { authorityKind } = await import('@/lib/home/authority');
+    if (authorityKind() === 'team') {
+      console.log(`[team] ready at ${baseUrl}`);
+    } else if (info.created) {
       console.log('\n[auth] First-time pairing');
       console.log(`[auth] Pairing URL: ${info.pairingUrl}`);
       console.log('[auth] Run `pnpm auth:pair` to reprint this URL.\n');
@@ -47,7 +51,15 @@ export async function register() {
   try {
     const { ensureHomeIdentity } = await import('@/lib/home/identity');
     const identity = ensureHomeIdentity();
-    if (identity.created) console.log(`[home] created home ${identity.home.id} on ${identity.device.name}`);
+    if (identity.created) console.log(`[home] created ${identity.home.kind === 'team' ? 'team' : 'home'} ${identity.home.id} on ${identity.device.name}`);
+    // A team space starts only what a team uses (docs/homes-spec.md §9.2,
+    // P6.3): no harness, schedule, import, embedding, app runtime or other
+    // personal work, from its very first start. Everything below is personal.
+    if (identity.home.kind === 'team') {
+      const { startTeamSpace } = await import('@/lib/team/startup');
+      await startTeamSpace();
+      return;
+    }
   } catch (err) {
     console.error(`[home] not acting as the home: ${err instanceof Error ? err.message : String(err)}`);
     return;

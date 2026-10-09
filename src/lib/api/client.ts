@@ -170,8 +170,26 @@ function defaultOnUnauthorized(): void {
   // fails, the cookie will just fail middleware on next use anyway, it can't
   // grant access.
   fetch('/api/session', { method: 'DELETE' }).catch(() => {});
+  // A team signs in through its own links, never pairing: back to its
+  // signed-out page, which says how (docs/homes-spec.md §3.1).
+  if (isTeamDocument()) {
+    if (window.location.pathname === '/' || window.location.pathname === '/join') {
+      window.dispatchEvent(new Event(TEAM_SIGNED_OUT_EVENT));
+      return;
+    }
+    window.location.assign('/');
+    return;
+  }
   if (window.location.pathname === '/pair') return;
   window.location.assign('/pair');
+}
+
+/** Fired when a team's sign-in stops working on its own page, so it shows how to sign in again. */
+export const TEAM_SIGNED_OUT_EVENT = 'ri:team-signed-out';
+
+/** Whether this page is a team space's, as its server rendered it. */
+export function isTeamDocument(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.dataset.riAuthority === 'team';
 }
 
 // ─── Client ─────────────────────────────────────────────────────

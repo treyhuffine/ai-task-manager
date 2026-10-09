@@ -284,6 +284,15 @@ clones/
 snapshots/
 `;
 
+/**
+ * Whether this root is marked as a team space (src/lib/home/team-intent.ts).
+ * The mark's presence only: these helpers run before any database, and the
+ * mark itself is validated where a team starts.
+ */
+function isTeamRoot(): boolean {
+  return fs.existsSync(path.join(getConfigDir(), 'team.json'));
+}
+
 export function ensureAppRoot(): string {
   const dir = getAppRoot();
   if (!fs.existsSync(dir)) {
@@ -298,9 +307,10 @@ export function ensureAppRoot(): string {
 
   // Orient any agent that opens a session in the home. Written once — never
   // overwritten — so users can edit freely. The orchestrator brief's managed
-  // block is regenerated separately (installInstructions).
+  // block is regenerated separately (installInstructions). A team space runs
+  // no orchestrator, so it gets none.
   const agentsMdPath = path.join(dir, 'AGENTS.md');
-  if (!fs.existsSync(agentsMdPath)) {
+  if (!isTeamRoot() && !fs.existsSync(agentsMdPath)) {
     fs.writeFileSync(agentsMdPath, renderAppRootAgentsMd(), { mode: 0o600 });
   }
 
@@ -326,6 +336,9 @@ export function ensureAppRoot(): string {
  */
 export function ensureBrainDir(): string {
   const dir = ensureAppRoot();
+  // A team space has no persona or memory: those belong to a person's home
+  // (docs/homes-spec.md §2.3, §9.2).
+  if (isTeamRoot()) return dir;
 
   const seed = (filename: string, render: () => string) => {
     const p = path.join(dir, filename);

@@ -12,26 +12,40 @@ export interface ViewerLifecycleOptions {
   acknowledgedExecutionIds?: string[];
 }
 
+/**
+ * In a team space, the member changing the task's status. A team runs no
+ * agents, so there's no workstream to coordinate, and the change is
+ * recorded as theirs (docs/homes-spec.md §9.1).
+ */
+export interface TeamLifecycleActor {
+  memberId: string;
+}
+
 /** Shared REST/tRPC behavior. Validate before touching a running workstream,
  * and never coordinate again when an idempotent command is replayed. */
-export async function completeTaskForViewer(id: string, opts: ViewerLifecycleOptions & { note?: string }) {
+export async function completeTaskForViewer(id: string, opts: ViewerLifecycleOptions & { note?: string }, member?: TeamLifecycleActor) {
   const task = getTask(id);
   if (!task) throw new TaskLifecycleError('not_found', 'Task not found');
   const pre = lifecyclePreflight({ taskId: id, command: 'complete', ...opts });
-  if (!pre.replay) await coordinateLifecycleChange({
+  if (!pre.replay && !member) await coordinateLifecycleChange({
     taskId: id, kind: 'displace', choice: opts.runtimeChoice,
     change: { taskId: id, taskTitle: task.title ?? '', action: 'completed' },
     acknowledgedExecutionIds: opts.acknowledgedExecutionIds, runtime: inProcessWorkstreamRuntime,
   });
-  const result = completeTask(id, { ...opts, meta: { source: 'human' } });
+  const result = completeTask(id, { ...opts, meta: { source: 'human', actorMemberId: member?.memberId ?? null } });
   if (!result) throw new TaskLifecycleError('not_found', 'Task not found');
   return result;
 }
 
-export async function transitionTaskForViewer(id: string, command: TransitionCommand, opts: ViewerLifecycleOptions & { reason?: string }) {
+export async function transitionTaskForViewer(
+  id: string,
+  command: TransitionCommand,
+  opts: ViewerLifecycleOptions & { reason?: string },
+  member?: TeamLifecycleActor,
+) {
   const idempotencyKey = opts.idempotencyKey ?? uuidv7();
   const pre = lifecyclePreflight({ taskId: id, command, ...opts, idempotencyKey });
-  if (!pre.replay && (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider')) {
+  if (!pre.replay && !member && (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider')) {
     const task = getTask(id);
     const change: ScopeChange | undefined = command === 'archive'
       ? { taskId: id, taskTitle: task?.title ?? '', action: 'archived' }
@@ -42,5 +56,8 @@ export async function transitionTaskForViewer(id: string, command: TransitionCom
       runtime: inProcessWorkstreamRuntime,
     });
   }
-  return transitionTask({ taskId: id, command, ...opts, idempotencyKey, meta: { source: 'human', reason: opts.reason ?? null } });
+  return transitionTask({
+    taskId: id, command, ...opts, idempotencyKey,
+    meta: { source: 'human', actorMemberId: member?.memberId ?? null, reason: opts.reason ?? null },
+  });
 }

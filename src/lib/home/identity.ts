@@ -39,6 +39,7 @@ import {
 } from '@/lib/db/queries';
 import type { DeviceRecord, HomeKind, HomeRecord } from '@/db/types';
 import { thisDeviceFacts } from './device-name';
+import { readTeamIntent } from './team-intent';
 
 export { defaultDeviceName } from './device-name';
 
@@ -154,13 +155,17 @@ export function resolveHomeIdentity(opts: ResolveOptions = {}): HomeIdentityStat
   const machine = readMachineIdentity();
 
   if (!current) {
+    // A root marked as a team is made a team from the outset, never a
+    // personal home patched afterwards (docs/homes-spec.md §9.1).
+    const team = readTeamIntent();
+    if (team && opts.kind === 'personal') throw new Error('This folder is marked as a team. A personal Ri was not made here.');
     const ids =
       machine ?? writeMachineIdentityOnce({ homeId: uuidv7(), deviceId: uuidv7(), createdAt: new Date().toISOString() });
     try {
       const made = createHomeIdentity({
         homeId: ids.homeId,
-        kind: opts.kind ?? 'personal',
-        name: opts.name ?? 'My Ri',
+        kind: team ? 'team' : (opts.kind ?? 'personal'),
+        name: team ? team.name : (opts.name ?? 'My Ri'),
         host: { id: ids.deviceId, kind: 'computer', ...thisDeviceFacts() },
       });
       return { state: 'active', home: made.home, device: made.device, created: true };

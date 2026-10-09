@@ -4,9 +4,9 @@ import { companionPage } from './companion-page';
 import type { LocalPageStyleOptions } from './local-page-style';
 import type { LocalWindow } from './local-window';
 
-export const companionActions = ['status', 'preferences', 'create-home', 'use-detected', 'connect', 'enable-worker', 'stop-worker', 'resume-worker', 'login', 'open', 'return-to-app', 'updates', 'update-check', 'update-download', 'update-apply', 'update-later', 'recovery', 'notification-enable', 'notification-disable', 'notification-test'] as const;
+export const companionActions = ['status', 'preferences', 'create-home', 'use-detected', 'connect', 'inspect-link', 'join-team', 'create-team', 'cancel-team-creation', 'open-team', 'enable-worker', 'stop-worker', 'resume-worker', 'login', 'open', 'return-to-app', 'updates', 'update-check', 'update-download', 'update-apply', 'update-later', 'recovery', 'notification-enable', 'notification-disable', 'notification-test'] as const;
 export type CompanionAction = typeof companionActions[number];
-export interface CompanionViewOptions extends LocalPageStyleOptions { view?: 'auto' | 'settings' | 'connect' | 'help' }
+export interface CompanionViewOptions extends LocalPageStyleOptions { view?: 'auto' | 'settings' | 'connect' | 'help' | 'create-team' }
 
 /** Only this local view may operate on this computer. A Home page never
  * receives this bridge or shares the companion's cookie/session partition. */

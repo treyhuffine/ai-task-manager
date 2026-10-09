@@ -17,6 +17,7 @@
  */
 
 import { hasDesktopHomeIntent } from './desktop-role-intent';
+import { readTeamIntent } from '@/lib/home/team-intent';
 import { getInstallationRole, RoleConflictError } from '@/lib/config/role';
 import { readConnection } from '@/lib/connection/config';
 import { describeRetired, retiredHomes } from '@/lib/home/retired';
@@ -57,9 +58,13 @@ export function resolveServiceRole(): ServiceRole {
   return { role: 'viewer', home };
 }
 
-/** Whether the service starts the home's own server for this role. */
+/**
+ * Whether the service starts the home's own server for this role. A fresh
+ * root marked as a team starts its team's server: the mark is the explicit
+ * choice, written by the trusted creation flow (src/lib/home/team-intent.ts).
+ */
 export function servesHome(role: ServiceRole): boolean {
-  return role.role === 'home' || (role.role === 'first-run' && hasDesktopHomeIntent());
+  return role.role === 'home' || (role.role === 'first-run' && (hasDesktopHomeIntent() || readTeamIntent() !== null));
 }
 
 /** Why the service doesn't start the home's server here, for its status. */

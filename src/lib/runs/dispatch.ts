@@ -14,6 +14,7 @@
  * docs/executions-spec.md §6. No `session_strategy` enum.
  */
 
+import { assertPersonalCapability } from '@/lib/home/authority';
 import { existsSync as fsExistsSync } from 'node:fs';
 import { uuidv7 } from 'uuidv7';
 import { getDb } from '@/lib/db';
@@ -81,6 +82,8 @@ export interface DispatchedRunResult {
  * subprocess has been spawned.
  */
 export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunResult> {
+  // A team space has no schedules or triggers (docs/homes-spec.md §9.2).
+  assertPersonalCapability('Schedules');
   const { trigger, triggerKind, triggerPayload = null, scheduledFor = null } = args;
 
   // 0. Budget guard. Block + auto-pause scheduled fires at 100%. The
