@@ -30,6 +30,8 @@ export type FlyoutEvent =
   | { type: 'leave' }
   /** The button was clicked (or pressed with Enter or Space). */
   | { type: 'click'; keyboard: boolean }
+  /** Right arrow enters the flyout without changing the trigger's click destination. */
+  | { type: 'keyboard' }
   /** The pointer pressed somewhere inside the flyout. */
   | { type: 'press' }
   /** Esc, a click outside, or the view changed. */
@@ -44,7 +46,9 @@ export function nextFlyoutState(state: FlyoutState, event: FlyoutEvent): FlyoutS
     case 'click':
       if (!state) return { mode: 'held', keyboard: event.keyboard };
       // Clicking a peek keeps it, the way pressing inside one does.
-      return state.mode === 'peek' ? { ...state, mode: 'held' } : null;
+      return state.mode === 'peek' ? { mode: 'held', keyboard: state.keyboard || event.keyboard } : null;
+    case 'keyboard':
+      return { mode: 'held', keyboard: true };
     case 'press':
       return state?.mode === 'peek' ? { ...state, mode: 'held' } : state;
     case 'dismiss':

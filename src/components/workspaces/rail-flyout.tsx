@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode, type Ref, type RefObject } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -13,6 +13,13 @@ import { RailIconButton } from './rail-icon-button';
 const OPEN_DELAY_MS = 150;
 /** How long a peek survives the pointer leaving, to cross into it. */
 const CLOSE_DELAY_MS = 200;
+
+const RailFlyoutDismissContext = createContext<(() => void) | null>(null);
+
+/** A row selection closes its nearest chooser even when that chat is already open. */
+export function useDismissRailFlyout() {
+  return useContext(RailFlyoutDismissContext);
+}
 
 /**
  * A rail button whose list floats over the page beside the rail (Agents in
@@ -43,14 +50,17 @@ export function RailFlyout({
   contentLabel,
   trigger,
   onClick,
+  hoverTarget,
   anchor = 'rail',
   children,
 }: {
   /** The flyout's accessible name. */
   contentLabel: string;
-  trigger: (props: { ref: RefObject<HTMLButtonElement | null>; open: boolean }) => ReactElement;
+  trigger: (props: { ref: Ref<HTMLButtonElement>; open: boolean }) => ReactElement;
   /** Where a click goes, when it doesn't hold the flyout. */
   onClick?: () => void;
+  /** Hover the whole row while keeping its name button as the accessible trigger. */
+  hoverTarget?: RefObject<HTMLElement | null>;
   anchor?: 'rail' | 'trigger';
   children: ReactNode;
 }) {
@@ -76,9 +86,45 @@ export function RailFlyout({
     [cancel, dispatch],
   );
   useEffect(() => cancel, [cancel]);
+  const dismiss = useCallback(() => {
+    cancel();
+    dispatch({ type: 'dismiss' });
+  }, [cancel, dispatch]);
+
+  useEffect(() => {
+    const target = hoverTarget?.current;
+    if (!target) return;
+    const enter = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') return;
+      if (e.relatedTarget instanceof Node && target.contains(e.relatedTarget)) return;
+      if (open) cancel();
+      else after({ type: 'hover' }, OPEN_DELAY_MS);
+    };
+    const leave = (e: PointerEvent) => {
+      if (e.relatedTarget instanceof Node && target.contains(e.relatedTarget)) return;
+      if (e.pointerType === 'mouse') after({ type: 'leave' }, CLOSE_DELAY_MS);
+    };
+    // Clicking an action or starting a drag cancels any pending hover.
+    const press = () => {
+      cancel();
+      dispatch({ type: 'dismiss' });
+    };
+    // These run before React synthesizes the content's pointerenter from
+    // pointerout. Native pointerleave runs after it and would rearm a close
+    // that entering the flyout just cancelled.
+    target.addEventListener('pointerover', enter);
+    target.addEventListener('pointerout', leave);
+    target.addEventListener('pointerdown', press);
+    return () => {
+      target.removeEventListener('pointerover', enter);
+      target.removeEventListener('pointerout', leave);
+      target.removeEventListener('pointerdown', press);
+    };
+  }, [hoverTarget, open, cancel, after, dispatch]);
 
   // Going anywhere closes it: what you picked is on screen now.
   const view = viewKey(activeView);
+  useEffect(() => cancel(), [view, cancel]);
   const [shownOn, setShownOn] = useState(view);
   if (shownOn !== view) {
     setShownOn(view);
@@ -93,12 +139,13 @@ export function RailFlyout({
   }, [state]);
 
   const button = useRef<HTMLButtonElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   // The anchor is measured when Radix asks, so one stable object for the
   // whole life of the flyout: the rail's edge, at the rail's height or the
   // trigger's. `anchor` doesn't change for a given trigger.
   const [railEdge] = useState(() => ({
     getBoundingClientRect: () => {
-      const rail = (button.current?.closest('aside') ?? button.current)?.getBoundingClientRect();
+      const rail = (button.current?.closest('[data-rail-flyout], aside') ?? button.current)?.getBoundingClientRect();
       if (!rail) return new DOMRect();
       if (anchor === 'rail') return rail;
       const row = button.current?.getBoundingClientRect() ?? rail;
@@ -131,12 +178,22 @@ export function RailFlyout({
           dispatch({ type: 'click', keyboard: e.detail === 0 });
         }}
         onPointerEnter={(e) => {
+          if (hoverTarget) return;
           if (e.pointerType !== 'mouse') return;
           if (open) cancel();
           else after({ type: 'hover' }, OPEN_DELAY_MS);
         }}
         onPointerLeave={(e) => {
+          if (hoverTarget) return;
           if (e.pointerType === 'mouse') after({ type: 'leave' }, CLOSE_DELAY_MS);
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== 'ArrowRight') return;
+          e.preventDefault();
+          e.stopPropagation();
+          cancel();
+          dispatch({ type: 'keyboard' });
+          content.current?.querySelector<HTMLElement>('button, [tabindex="0"], a[href]')?.focus();
         }}
       >
         {trigger({ ref: button, open })}
@@ -149,12 +206,14 @@ export function RailFlyout({
       <PopoverPrimitive.Anchor virtualRef={{ current: railEdge }} />
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
+          ref={content}
           side="right"
           align="start"
           sideOffset={0}
           avoidCollisions={anchor === 'trigger'}
           collisionPadding={8}
           aria-label={contentLabel}
+          data-rail-flyout=""
           onOpenAutoFocus={(e) => {
             if (!state?.keyboard) e.preventDefault();
           }}
@@ -175,6 +234,10 @@ export function RailFlyout({
             cancel();
             dispatch({ type: 'press' });
           }}
+          // Portals still bubble through the agent's draggable header.
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
           className={cn(
             'z-50 flex w-[256px] flex-col bg-background shadow-xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-left-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
             anchor === 'rail'
@@ -182,7 +245,9 @@ export function RailFlyout({
               : 'max-h-[min(70vh,520px)] rounded-r-xl border border-l-0 border-border',
           )}
         >
-          {children}
+          <RailFlyoutDismissContext.Provider value={dismiss}>
+            {children}
+          </RailFlyoutDismissContext.Provider>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>

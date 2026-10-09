@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { ChevronRight, ChevronsDownUp, ChevronsUpDown, MoreHorizontal, Plus, SlidersHorizontal } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -28,6 +28,8 @@ import { SessionRow } from './session-row';
 import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
 import { Tip } from '@/components/ui/tip';
+import { AgentChatsFlyout } from './agent-chats-flyout';
+import { useWorkspaceSelection } from './workspace-selection-context';
 
 interface AgentRailRowProps {
   workspace: WorkspaceWithCounts;
@@ -91,6 +93,8 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   const { isInactive } = useInactivity();
   const isActive = activeView.kind === 'agent' && activeView.id === workspace.id;
   const expanded = !workspace.collapsed;
+  const header = useRef<HTMLDivElement>(null);
+  const selecting = useWorkspaceSelection()?.selecting ?? false;
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: workspace.id });
 
@@ -144,6 +148,40 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   const open = () => (opensView ? openAgent(workspace.id) : toggleThreads());
   const stop = (e: React.PointerEvent | React.MouseEvent) => e.stopPropagation();
 
+  const threads = (
+    <div className="space-y-px">
+      {sessions.map((s) => (
+        <SessionRow
+          key={s.id}
+          session={s}
+          density="compact"
+          workspaceIsGit={workspace.isGit}
+          onOpenWorkspaceSettings={onOpenSettings}
+          onOpenLauncher={onOpenLauncher}
+          inactive={isInactive(s)}
+        />
+      ))}
+      <InactiveFold
+        sectionId={`agent:${workspace.id}`}
+        count={inactive.length}
+        className="pl-[28px]"
+        rowClassName={THREAD_FOLD_ROW}
+      >
+        {inactive.map((s) => (
+          <SessionRow
+            key={s.id}
+            session={s}
+            density="compact"
+            workspaceIsGit={workspace.isGit}
+            onOpenWorkspaceSettings={onOpenSettings}
+            onOpenLauncher={onOpenLauncher}
+            inactive
+          />
+        ))}
+      </InactiveFold>
+    </div>
+  );
+
   return (
     <div
       ref={setNodeRef}
@@ -151,6 +189,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       className={cn(isDragging && 'opacity-60')}
     >
       <div
+        ref={header}
         {...attributes}
         {...listeners}
         className={cn(
@@ -176,30 +215,42 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
             )}
           </button>
         </Tip>
-        <Tip label={voice ? `${workspace.name}: ${voice.text}` : workspace.name} onlyWhenTextHidden>
-          <button
-            onClick={open}
-            className="flex-1 min-w-0 text-left"
-          >
-            <span
-              className={cn(
-                'block truncate text-[12.5px] leading-tight',
-                wantsYou ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
-              )}
-            >
-              {workspace.name}
-            </span>
-            {voice && (
-              <span className={cn('mt-0.5 block truncate text-[10.5px] leading-tight', VOICE_TONE[voice.tone])}>
-                {voice.text}
-              </span>
-            )}
-          </button>
-        </Tip>
+        <AgentChatsFlyout
+          name={workspace.name}
+          enabled={hasThreads && !expanded && !isDragging && !selecting}
+          hoverTarget={header}
+          onClick={open}
+          onNewChat={() => onOpenLauncher(workspace.id)}
+          trigger={({ ref, open: flyoutOpen, onClick }) => (
+            <Tip label={flyoutOpen ? undefined : voice ? `${workspace.name}: ${voice.text}` : workspace.name} onlyWhenTextHidden>
+              <button
+                ref={ref}
+                onClick={onClick}
+                className="flex-1 min-w-0 text-left"
+              >
+                <span
+                  className={cn(
+                    'block truncate text-[12.5px] leading-tight',
+                    wantsYou ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
+                  )}
+                >
+                  {workspace.name}
+                </span>
+                {voice && (
+                  <span className={cn('mt-0.5 block truncate text-[10.5px] leading-tight', VOICE_TONE[voice.tone])}>
+                    {voice.text}
+                  </span>
+                )}
+              </button>
+            </Tip>
+          )}
+        >
+          {threads}
+        </AgentChatsFlyout>
 
         {/* Takes no room until you hover, so at rest the name and its line
             get the full width. Stays while its menu is open. */}
-        <div className="hidden group-hover:flex has-[[data-state=open]]:flex items-center gap-0.5 flex-shrink-0">
+        <div className="hidden group-hover:flex group-focus-within:flex has-[[data-state=open]]:flex items-center gap-0.5 flex-shrink-0">
           {hasThreads && (
             <Tip label={expanded ? 'Hide chats' : 'Show chats'}>
               <button
@@ -256,26 +307,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         // Inset a little, no guide line: each dot sits under the agent's icon,
         // and size and weight carry the rest of the hierarchy.
         <div className="mt-0.5 mb-1.5 space-y-px">
-          {sessions.map((s) => (
-            <SessionRow
-              key={s.id}
-              session={s}
-              density="compact"
-              workspaceIsGit={workspace.isGit}
-              inactive={isInactive(s)}
-            />
-          ))}
-          {/* The one fold: inactive work, thread-height, indented to the thread labels. */}
-          <InactiveFold
-            sectionId={`agent:${workspace.id}`}
-            count={inactive.length}
-            className="pl-[28px]"
-            rowClassName={THREAD_FOLD_ROW}
-          >
-            {inactive.map((s) => (
-              <SessionRow key={s.id} session={s} density="compact" workspaceIsGit={workspace.isGit} inactive />
-            ))}
-          </InactiveFold>
+          {threads}
         </div>
       )}
 

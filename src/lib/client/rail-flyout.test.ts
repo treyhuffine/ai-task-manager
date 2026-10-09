@@ -32,6 +32,13 @@ describe('nextFlyoutState', () => {
     expect(nextFlyoutState(null, { type: 'click', keyboard: true })).toEqual({ mode: 'held', keyboard: true });
   });
 
+  it('enters from the keyboard whether closed, peeking or already held', () => {
+    for (const state of [null, PEEK, HELD]) {
+      expect(nextFlyoutState(state, { type: 'keyboard' })).toEqual({ mode: 'held', keyboard: true });
+    }
+    expect(nextFlyoutState(PEEK, { type: 'click', keyboard: true })).toEqual({ mode: 'held', keyboard: true });
+  });
+
   it('does not reopen or change a held flyout on hover', () => {
     expect(nextFlyoutState(HELD, { type: 'hover' })).toBe(HELD);
   });

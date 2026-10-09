@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { ArrowUpRight, ChevronRight, Plus } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -16,6 +16,8 @@ import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
 import { Tip } from '@/components/ui/tip';
 import { AgentIcon } from '@/components/agents/agent-icon';
+import { AgentChatsFlyout } from './agent-chats-flyout';
+import { useWorkspaceSelection } from './workspace-selection-context';
 
 interface WorkspaceRowProps {
   workspace: WorkspaceWithCounts;
@@ -54,6 +56,8 @@ export function WorkspaceRow({
   const isActive = activeView.kind === 'agent' && activeView.id === workspace.id;
   const updateWs = useUpdateWorkspace();
   const expanded = !workspace.collapsed;
+  const header = useRef<HTMLDivElement>(null);
+  const selecting = useWorkspaceSelection()?.selecting ?? false;
   // Child rows are sourced from the shared rail query below, not a per-workspace
   // `/sessions` fetch. `listRailSessions` is `listWorkspaceExecutions` scoped
   // wider (same joins, same primary-chat dedup, same order), and the rail is
@@ -138,6 +142,32 @@ export function WorkspaceRow({
   const toggleCollapse = () => {
     updateWs.mutate({ id: workspace.id, collapsed: expanded });
   };
+  const open = () => (opensView ? openAgent(workspace.id) : toggleCollapse());
+  const chats = (
+    <div className="space-y-0.5">
+      {activeChildren.map((s) => (
+        <SessionRow
+          key={s.id}
+          session={s}
+          workspaceIsGit={workspace.isGit}
+          onOpenWorkspaceSettings={onOpenSettings}
+          onOpenLauncher={onOpenLauncher}
+        />
+      ))}
+      <InactiveFold sectionId={`agent:${workspace.id}`} count={inactiveChildren.length} className="pl-8">
+        {inactiveChildren.map((s) => (
+          <SessionRow
+            key={s.id}
+            session={s}
+            workspaceIsGit={workspace.isGit}
+            onOpenWorkspaceSettings={onOpenSettings}
+            onOpenLauncher={onOpenLauncher}
+            inactive
+          />
+        ))}
+      </InactiveFold>
+    </div>
+  );
 
   return (
     <div ref={setNodeRef} style={style} className={cn(isDragging && 'opacity-60')}>
@@ -145,6 +175,7 @@ export function WorkspaceRow({
           Inner action buttons stop pointerdown so clicking + or ⋮ never
           initiates a drag, even on slow clicks. */}
       <div
+        ref={header}
         {...attributes}
         {...listeners}
         className={cn(
@@ -172,14 +203,26 @@ export function WorkspaceRow({
               />
             </button>
           </Tip>
-          <Tip label={workspace.name} onlyWhenTextHidden>
-            <button
-              onClick={() => (opensView ? openAgent(workspace.id) : toggleCollapse())}
-              className="flex-1 min-w-0 text-left text-[11.5px] font-semibold truncate text-foreground"
-            >
-              {workspace.name}
-            </button>
-          </Tip>
+          <AgentChatsFlyout
+            name={workspace.name}
+            enabled={!expanded && childSessions.length > 0 && !isDragging && !selecting}
+            hoverTarget={header}
+            onClick={open}
+            onNewChat={() => onOpenLauncher(workspace.id)}
+            trigger={({ ref, open: flyoutOpen, onClick }) => (
+              <Tip label={flyoutOpen ? undefined : workspace.name} onlyWhenTextHidden>
+                <button
+                  ref={ref}
+                  onClick={onClick}
+                  className="flex-1 min-w-0 text-left text-[11.5px] font-semibold truncate text-foreground"
+                >
+                  {workspace.name}
+                </button>
+              </Tip>
+            )}
+          >
+            {chats}
+          </AgentChatsFlyout>
         </div>
         {/* Action buttons + status dots share the same horizontal slot.
             At rest the dots are visible and the buttons are invisible
@@ -232,32 +275,10 @@ export function WorkspaceRow({
         <div className="space-y-0.5 mt-0.5 mb-1">
           {childSessions.length === 0 ? (
             <div className="pl-5 py-1 text-[10px] italic text-muted-foreground/50">
-              No sessions yet
+              No chats yet
             </div>
           ) : (
-            <>
-              {activeChildren.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  workspaceIsGit={workspace.isGit}
-                  onOpenWorkspaceSettings={onOpenSettings}
-                  onOpenLauncher={onOpenLauncher}
-                />
-              ))}
-              <InactiveFold sectionId={`agent:${workspace.id}`} count={inactiveChildren.length} className="pl-8">
-                {inactiveChildren.map((s) => (
-                  <SessionRow
-                    key={s.id}
-                    session={s}
-                    workspaceIsGit={workspace.isGit}
-                    onOpenWorkspaceSettings={onOpenSettings}
-                    onOpenLauncher={onOpenLauncher}
-                    inactive
-                  />
-                ))}
-              </InactiveFold>
-            </>
+            chats
           )}
         </div>
       )}

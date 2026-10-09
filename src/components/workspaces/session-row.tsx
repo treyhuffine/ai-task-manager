@@ -15,6 +15,7 @@ import { useSessionRowHover } from './session-hover-context';
 import { SessionRowMenu } from './session-row-menu';
 import { useWorkspaceSelection } from './workspace-selection-context';
 import { Tip } from '@/components/ui/tip';
+import { useDismissRailFlyout } from './rail-flyout';
 
 interface SessionRowProps {
   session: ChatSessionWithExecution;
@@ -87,6 +88,7 @@ export function SessionRow({
 }: SessionRowProps) {
   const { activeSessionId, activeExecutionId, setActiveView } = useDashboard();
   const { rowRef, onMouseEnter, onMouseLeave, closeNow } = useSessionRowHover(session.id);
+  const dismissFlyout = useDismissRailFlyout();
 
   // Multi-select for bulk archive lives only on the canonical tree row;
   // the needs-review duplicate stays plain navigation so a session can't
@@ -125,6 +127,7 @@ export function SessionRow({
       return;
     }
     closeNow();
+    dismissFlyout?.();
     setActiveView(executionView(session.id));
   };
 
@@ -355,4 +358,3 @@ function InactiveQuickActions({ sessionId, label, isPinned }: { sessionId: strin
     </span>
   );
 }
-

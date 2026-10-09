@@ -25,6 +25,8 @@ Neither verb takes the brand color: the chat composer is the main input on every
 
 **Your apps** peek beside the rail from the Apps row, the same flyout the collapsed strip's Agents button uses (`RailFlyout`, `rail-flyout.tsx`), on hover only: rest on the row for 150ms and it shows, move off the row and the flyout and it hides, and a click on the row opens the library instead of holding it. It runs the rail's full height beside it, as the Agents flyout does, and has the same shape: a header (APPS, with New app at its right as the Agents header has New agent), then All apps (the library) and each installed app by name with its lettered tile, an amber dot when it waits on you (`src/components/local-apps/apps-rail-list.tsx`). The rail stays the same height at any number of apps, and nothing persists that could leave it stuck in an apps state. ⌘K has Open apps and one Open <app> per installed app.
 
+**Collapsed agent chats** peek beside the rail when you rest on an agent's header for 150ms, in either agent row style. The chooser starts level with that agent, lists its chats in the same order and with the same status as the expanded list, and keeps inactive chats behind the same Show toggle. Choosing a chat opens it without unfolding the agent. The header has New chat. Leaving both the header and the chooser closes the peek after 200ms, and navigation, Esc or a click outside dismisses it. A chat's menu is a nested layer. Chat previews stay off inside this chooser. Empty agents, dragging and bulk archive selection do not open it. The chooser also works inside the collapsed strip's Agents flyout, anchored beside that flyout's edge. Right arrow on an agent's name opens the chooser with focus inside, and Esc returns focus to the name. Clicking the name keeps its existing behavior.
+
 ## Collapsed rail
 
 44px of icons in the same order as the wide rail: home, expand, New chat, Search chats, Apps (an amber dot while an app waits on you), Task Board, Calendar, Schedules (a dot while runs are active), then **one Agents button**, and Settings at the foot. Connect accounts needs its words, so the collapsed rail leaves it to Settings.
@@ -69,7 +71,7 @@ New chat and Search chats each exist twice. The rail's are the agent side (a new
 - `src/components/workspaces/rail.tsx`: the rail, wide or collapsed, and the wide layout.
 - `src/components/workspaces/rail-nav.tsx`: verbs and places, as rows and as icons. `src/components/local-apps/use-app-places.tsx` adds Apps, from the pure `app-places.ts`.
 - `src/components/workspaces/rail-list.tsx`: the list header (the switch, the actions, the selection toolbar) and the list, shared by the wide rail and the flyout.
-- `src/components/workspaces/rail-flyout.tsx`: the flyout both rails use. `rail-strip.tsx`: the collapsed strip and its Agents flyout.
+- `src/components/workspaces/rail-flyout.tsx`: the flyout both rails use. `agent-chats-flyout.tsx`: the collapsed agent's chat chooser. `rail-strip.tsx`: the collapsed strip and its Agents flyout.
 - `src/components/workspaces/rail-home.tsx`, `rail-footer.tsx`: top and bottom.
 - `src/components/dashboard/top-hud.tsx`, `rail-status-pills.tsx`: the header.
 - `src/lib/client/rail-tab.ts`, `rail-flyout.ts`: the tab choice and the flyout rules.
