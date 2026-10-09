@@ -1,16 +1,45 @@
 import type { NextConfig } from "next";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 const distDir = process.env.NEXT_DIST_DIR || ".next";
 const typeScriptConfigs: Record<string, string> = {
+  ".next": "tsconfig.json",
   ".next-desktop": "tsconfig.desktop.json",
   ".next-desktop-dev": "tsconfig.desktop-dev.json",
   ".next-smoke": "tsconfig.smoke.json",
 };
 
+/** Keep custom builds from appending their route caches to the root tsconfig. */
+export function typeScriptConfigPath(outputDir: string, root = process.cwd()): string {
+  if (typeScriptConfigs[outputDir]) return typeScriptConfigs[outputDir];
+
+  // Keep this file beside tsconfig.json so inherited paths and Next's generated
+  // include globs resolve from the repository root. It must also survive Next
+  // clearing the output folder at the beginning of a build.
+  const key = createHash("sha256").update(outputDir).digest("hex").slice(0, 16);
+  const name = `tsconfig.next-${key}.json`;
+  const file = path.join(root, name);
+  const content = JSON.stringify({
+    extends: "./tsconfig.json",
+    include: [
+      "**/*.ts", "**/*.tsx", "**/*.mts",
+      `${outputDir}/types/**/*.ts`, `${outputDir}/dev/types/**/*.ts`,
+    ],
+  }, null, 2) + "\n";
+  if (!existsSync(file) || readFileSync(file, "utf8") !== content) {
+    const temporary = `${file}.${process.pid}.tmp`;
+    writeFileSync(temporary, content);
+    renameSync(temporary, file);
+  }
+  return name;
+}
+
 const nextConfig: NextConfig = {
   // Each build checks its own generated routes. Sharing one tsconfig lets
   // Next append every output folder, including stale routes from other builds.
-  typescript: { tsconfigPath: typeScriptConfigs[distDir] ?? "tsconfig.json" },
+  typescript: { tsconfigPath: typeScriptConfigPath(distDir) },
   // Match the bounded multipart reader so attachments and app archives can
   // reach their handlers without the proxy truncating them at its 10 MiB default.
   experimental: { proxyClientMaxBodySize: 51 * 1024 * 1024 },

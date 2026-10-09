@@ -30,6 +30,13 @@ The same goes for the rest of the setup (search tables, triggers, backfills): on
 
 What can still change production before a restart: rebuilding the app (`pnpm build`) replaces the files the running server serves, so pages can misbehave until you restart.
 
+Build route types stay with their output folder. The root `tsconfig.json` includes
+only `.next` route types. Desktop and smoke builds use their existing dedicated
+configs, and any other `NEXT_DIST_DIR` gets a generated, gitignored
+`tsconfig.next-<key>.json`. This keeps old routes in trial build caches from
+breaking production after a pull. Production builds do not need trial caches
+deleted after a route moves.
+
 ### Backups
 
 `~/ri` is backed up every night at 03:30 into `~/ri-backups/daily`, keeping the newest 7.
