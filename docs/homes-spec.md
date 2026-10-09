@@ -1,6 +1,6 @@
 # One Ri: build specification
 
-**Status:** build contract. Updated 2026-09-26.
+**Status:** build contract. Team onboarding and navigation updated 2026-10-09 against the current desktop welcome, main-chat onboarding, and rail. P6/P7 remain unbuilt.
 
 **Product promise:** Open Ri anywhere and return to the same work. Use the device that fits the work without managing separate Ri lives.
 
@@ -61,13 +61,13 @@ The home runs its own execution code in-process through the same execution contr
 | Personal tasks, notes, agent purpose/instructions, executions, Ri conversation history | Home |
 | Shared tasks, notes, team Areas and their record associations, assignments, published output, membership | Owning team space |
 | Personal Areas, private organization and context attached to shared work, saved shared references, personal agent/execution links | Personal home |
-| Agent-to-folder associations and connected-folder paths on a device | Local project configuration on that device |
-| Setup availability and reported paths shown in the UI | Home's observed index of worker reports |
+| Agent-to-folder associations and linked-folder paths on each device | Personal home's database, as specified in section 4 |
+| Setup availability shown in the UI | Device checks reported to the home |
 | Working files, toolchains, local environment, native harness resume files | Executing device |
 | USER.md, SOUL.md, and personal MEMORY.md | Personal home |
 | Schedule evaluation and main personal orchestration | Personal home |
 
-The home can index a local setup without owning its configuration. There is one editable authority for each value.
+The home owns configured folder associations, and each device checks whether those folders are usable there. Generated runtime manifests are readable instructions, not another editable authority.
 
 ### 2.4 Release boundaries
 
@@ -81,9 +81,59 @@ Team execution infrastructure, offline collaborative editing, granular per-item 
 
 ### 3.1 First run and connection
 
-First run offers Start using Ri and Connect to existing Ri. It does not ask the person to choose a database topology.
+#### Desktop entry
 
-Starting creates one home. Connecting saves that home's ID, address, and a scoped credential. A connected installation must fail with a useful connection state rather than silently create a new home.
+Keep the current welcome's hierarchy: one primary button, one secondary button, and one quiet text action below them. Do not add a Personal / Team mode picker or a third large card.
+
+| Control | Result |
+| --- | --- |
+| **Start a new Ri** (primary) | Create a personal home on this computer and open its dashboard |
+| **Connect to Ri** (secondary) | Open an existing personal Ri or join a team using a link |
+| **Create a team** (text action below the buttons) | Set up a new, separate shared space, as described below |
+
+Use **Connect to Ri** in place of today's **Connect to an existing remote Ri**. The connection form labels its input **Ri link**, with the hint **Paste a pairing link or a team invitation.** Verify the pasted link inline and show the destination's name before confirmation, without another kind-selection screen. An authenticated response establishes which kind of Ri it is. A personal connection retains the existing unchecked **Run agents on this computer** option, shown only once the destination is verified as personal. A team connection never offers local execution or consumes a personal pairing/enrollment grant. A bare address can open that Ri's sign-in page, but is not an invitation or proof of membership.
+
+Personal setup already happens in the main chat, not a welcome wizard. Preserve that journey, including the assistant's name/look, harness discovery and optional steps described in [main-chat-onboarding.md](main-chat-onboarding.md). Team creation and joining bypass the personal dashboard and all of that onboarding, including its background harness checks and history discovery. Do not mount it and then merely skip its visible cards.
+
+A saved connection opens directly on subsequent launches. Failed connection or sign-in retains it and offers recovery. Never create a replacement personal home or team as a fallback. Existing-installation detection, the offline help, and collapsed Advanced recovery remain available.
+
+#### Creating a team
+
+**Create a team** describes an additional shared place, never a conversion of private data. The short form asks for **Team name** and **Your name**, prefilling the latter when known. Team name is editable later and is not its identity. Do not ask for Areas, agents, models, repositories, connectors, an organization hierarchy, or an AI preference.
+
+In the desktop app, say **Hosted on this computer** and **Keep this computer awake and online so your team can use Ri.** Use the installed runtime to prepare an independent root, service, free port and credentials. Show paths and port overrides only in Advanced. **Create team** creates the space and its first owner once, then opens its Task Board. The team is usable locally immediately. A quiet **Invite people** action then reuses remote-address setup if needed, followed by a copyable invitation link. Do not require an invitation, connector or first Area before someone can create a task or note.
+
+The person who wants an always-on server sets up the team on that server and connects to it. Offer **Host on another computer** as help from the creation form, using the existing installation/service flow. Creating on the laptop must not imply automatic cloud hosting or availability while it sleeps. A team may share hardware with personal Ri, but its creation must not replace the selected personal home, stop its worker, or copy any of its data or credentials.
+
+Persist pending creation so an interrupted response, double click or restart resumes the same team rather than creating another. Cancelling before creation leaves the selected Ri unchanged. If creation succeeded but address setup failed, reopen that team and retry its address setup. Do not roll back useful team work or claim that invitations are reachable before verification succeeds.
+
+#### Browser and phone entry
+
+A browser opens a Ri that is already hosted somewhere. Do not copy the desktop's **Start a new Ri** button into a team URL and imply that the browsing phone will host it.
+
+| Arrival | What opens |
+| --- | --- |
+| Existing personal Ri | Its normal sign-in or dashboard, with personal first-run conversation only when applicable |
+| New server explicitly provisioned for a team, with its operator's setup grant | The same Team name / Your name form, identifying the actual host, then the team's Task Board |
+| Team invitation | **Join Acme**, with the team name, the person's name if needed, and **Join team** |
+| Existing team membership | The requested shared record or last team view, without onboarding again |
+| Team address without membership | Sign-in or invitation instructions, never an owner-creation form |
+
+Provisioning a web-hosted team is an explicit operator action against a new root before personal startup. It is not an unauthenticated first-visitor claim. An existing personal web session offers **Create a team** through Settings, Teams, but it leads to desktop/server setup for a separate space. It does not provision another service on that personal server through a member-facing API. Existing personal homes keep their current dashboard-first onboarding.
+
+#### Joining and returning
+
+An invitation is the normal member journey. Opening it in a browser works without an app download, personal home or AI. An optional **Open in Ri** action can hand the same invitation to the installed desktop app. Pasting it into **Connect to Ri** gives the same result. Desktop team-only viewing stores the member connection without creating a personal task database or worker.
+
+Joining confirms the team and member identity, then opens the linked shared record when one is present, otherwise the team's Task Board. Redeeming an invitation once and reopening its link while signed in must return to the team, not create a duplicate member. Expired or revoked invitations explain the problem and offer a new link from the owner. An unreachable team preserves the entered link and offers Retry, without treating the attempt as a successful join.
+
+Inside an existing personal Ri, **Settings, Teams** offers **Join a team** and **Create a team**, along with connected teams. Joining there connects the team to that personal home after showing **Your assigned tasks will appear in My Ri. Your personal work stays private.** Joining directly on a team website establishes membership only. Offer **Connect to My Ri** afterward, as an optional action that uses the same member identity and explicitly authorizes the chosen personal home (section 9.3). Never discover or connect a personal home silently. This personal connection is P7, not a prerequisite for P6's standalone team.
+
+When an invitation opens in a desktop app already connected to personal Ri, use that in-app joining flow and disclosure. Preserve its personal connection, worker and pending drafts. Do not treat the team invitation as a request to replace the desktop's personal Home connection. A fresh desktop with no personal connection simply joins as a team viewer.
+
+#### Personal device connection
+
+Connecting to a personal home saves its ID, address, and a scoped credential. A connected installation must fail with a useful connection state rather than silently create a new home. Team membership credentials use the separate boundary in section 9.1.
 
 Pair a phone through the existing QR/link flow. Explain once that a laptop-hosted Ri must be awake and reachable for phone access. No Ri cloud account is required. An optional remote-access provider may require its own login.
 
@@ -97,7 +147,9 @@ The existing Electron app is the desktop companion. It supplies the Home viewer,
 
 ### 3.2 Navigation
 
-Keep the primary navigation about the deck, tasks, notes, and agents. The default space is My Ri, which gathers the person's work across sources. The space selector lists My Ri and connected teams by name, such as Acme and Family. Do not call the combined view Personal or add a second All space. A private-only filter may narrow My Ri, but is not another home or space.
+Preserve the current personal shell in [rail.md](rail.md): the assistant's named home row, chat actions, places, agent/recent list, and Settings. My Ri names the combined personal work context. It does not rename the assistant or replace the home row's single-click navigation with a menu.
+
+Once a personal home has a connected team, add one compact space selector in the rail footer, above the existing Settings / Connect accounts row. It lists **My Ri** and teams by name, such as Acme and Family, plus **Join a team** and **Create a team**. Use the same selector in the phone's navigation and keep it accessible in the collapsed rail. Show the current team name persistently while browsing a team. A person with no teams keeps today's personal chrome and discovers teams through Settings, Teams. Do not add another rail column, Agents / Apps / Teams mode tabs, or an All space. A private-only filter may narrow My Ri, but is not another home or space.
 
 | My Ri | A team space, such as Acme |
 | --- | --- |
@@ -111,7 +163,13 @@ Keep a shared item's team label visible in My Ri, regardless of its personal Are
 
 Selecting a team changes browsing context only. It never stops or relocates personal executions or changes their control targets. Opening a team on the phone must not navigate the laptop away from its execution. Filters, panels, scroll, and focus belong to the viewing surface. Task state and review state belong to the shared work.
 
-An agent appears once in the personal rail regardless of how many devices have its folder or which team's tasks it helps with. Setup lists the available devices and gaps. Team-only participants see useful shared work without empty agent/execution setup. A connected personal user can choose Work with agent on a shared task without exposing personal agents as team-owned resources.
+An agent appears once in the personal rail regardless of how many devices have its folder or which team's tasks it helps with. Setup lists the available devices and gaps. A connected personal user can choose Work with agent on a shared task without exposing personal agents as team-owned resources.
+
+In a team, the home row is the team name and opens its Task Board. Provide Task Board, Notes, shared Areas as ordinary organization/filtering, shared search, and team settings. Create and capture actions in that context create shared tasks or notes with the team audience visible before submission. Do not route them through personal Quick Capture or an AI composer. The default board shows shared tasks, with **Assigned to me** as a filter. An empty team offers **New task**, **New note**, and, for the owner, **Invite people**. Areas are optional, not a prerequisite.
+
+The team shell omits the personal main chat, Deck, chat/agent inventory, local Apps, personal Calendar, Schedules and Triggers, and model or worker setup. Those personal capabilities keep running when their owner browses team work. A standalone team member sees the team name without a fictitious My Ri entry. A single team needs no always-visible switcher, and Settings retains connection actions. Team settings contain shared preferences and the owner-only People, invitations and later connector administration. Desktop Settings remains a separate local device surface.
+
+Search, create defaults, selection, caches and recoverable drafts are scoped to the selected authority and member. A private draft never becomes a shared draft merely because the person switches spaces. Use existing save/draft guards when changing views, and preserve each space's navigation. Reuse shared task/note components with explicit context rather than mounting a personal dashboard and hiding some buttons.
 
 ### 3.3 Starting and replying
 
@@ -429,7 +487,13 @@ A team space uses the same application with a separate shared authority and memb
 Create a new space with its own data root. Do not turn an existing personal home into a team by flipping a flag over private data.
 
 The space runs on a deliberately chosen host using the existing Ri server and remote-address setup. It can share a physical device with a personal home, but uses its own root, process, free port, credentials, and configured address. Teammates connect to that address. This does not require a new hosting platform or make the space a replacement personal home.
-A teammate can join in a browser or on a phone without a personal home, worker, repository, harness, or model subscription. The team UI has no personal deck and no empty agent/execution setup.
+A teammate can join in the desktop app, a browser or on a phone without a personal home, worker, repository, harness, or model subscription. The team UI has no personal deck and no empty agent/execution setup. Section 3.1 defines creation and invitation entry, and section 3.2 defines the team shell.
+
+Reuse the existing `home.kind` (`personal | team`) and stable home/host identity machinery. Persist the explicit team creation intent before normal startup, then create the identity as `team` from the outset. Do not first boot a personal home and patch its kind afterward. Startup must resolve the authority kind before starting personal schedulers, main chats, harness discovery, import discovery, embeddings or app runtimes. A failed or unfinished team setup stays in team setup/recovery and cannot fall through to personal initialization. Creating the first member/owner must be retry-safe and restricted to the trusted local creation flow or a single-use operator setup grant for that new root. There is no public claim-an-unowned-team endpoint.
+
+Team membership is distinct from personal device pairing and worker enrollment. A member has a stable ID and can have separately revocable sign-ins on several clients. Invitations create or admit that member, while signing in on another device authorizes the existing member rather than creating another one. Use member-bound grants for that sign-in. Neither a shared team URL nor matching display names prove identity. Personal-home connections act as that member using a credential scoped to that team. Do not reuse a personal device/host key as a membership credential.
+
+The team owner administers membership and shared data. Running or updating the hosting service remains an installation-owner capability. A team member or owner session never inherits a personal native bridge, worker permission, filesystem browser, terminal, or host update capability, including when the team is hosted on the same computer as personal Ri. Reuse the desktop's isolated trusted setup/settings surface for local host administration. Keep team viewer credentials, cookies, caches and local drafts separate from personal viewer state.
 
 Initial roles are:
 
@@ -446,7 +510,7 @@ Preserve human/agent/system attribution for changes inside Ri, whether initiated
 
 ### 9.2 AI and integrations
 
-The initial team product runs without AI. Disable model-dependent onboarding, background model dispatch, embeddings, AI triage, and AI schedules at the execution boundary. An ambient API key must not override this setting. Keyword search and ordinary CRUD continue to work.
+The initial team product runs without AI. Disable model-dependent onboarding, background model dispatch, embeddings, AI triage, and AI schedules at the execution boundary, from the first startup and first page load. Ambient API keys or already signed-in subscription harnesses must not override this setting. Keyword search and ordinary CRUD continue to work. Personal chat import, local apps and app/skill builders are not team capabilities in this release, and must not start through hidden personal hooks or reused routes.
 
 Team-hosted agents and execution are not part of this release. Personal agents may read and update authorized team records through membership-scoped actions. They still run under their personal home's authority.
 
@@ -463,6 +527,8 @@ The connection is explicitly for shared use. Credentials stay on the space host.
 ### 9.3 Connect a personal home
 
 A personal home connects to the space as a member. The space receives no credential for the personal home.
+
+**Join a team** initiated inside My Ri combines accepting membership and authorizing this personal home. **Connect to My Ri** from an existing team session authorizes the home for the same member. Bind the result to that home, space and member, and make reconnect/retry idempotent. Store the team credential and shared-work cache at the personal home. Its other clients see the connection without joining again. A direct team-only browser/desktop sign-in stores only that client's membership session until the person chooses this connection. If they have no personal home, continuing to use the team is complete onboarding, not an unfinished setup state.
 
 Assigned shared tasks appear automatically in My Ri. A person can also choose Add to my work on a shared task, including one that is unassigned. This saves a reference for personal planning without duplicating the shared task, changing its assignment, or dispatching an agent. Removing an explicitly added reference does not delete the team task or hide an obligation still assigned to the person.
 
@@ -576,6 +642,8 @@ Rehearse consolidation, migrations, retirement, and rollback on isolated copies.
 
 Build the phases in order. Each gate must demonstrate the stated behavior before the next dependent phase. Record test results and a short real-use observation beside completed tasks. Do not mark an unimplemented behavior complete because a design was written.
 
+For the next team build, start with P6.0 below against the current personal implementation. The remaining personal packaging and physical-device qualification gates stay open but do not block isolated P6 development. P7 depends on a working P6 team, not on completing connector support.
+
 Since computers became devices (2026-09-29, [build notes](homes-build.md#devices)), the homes build's schema is one migration, `0002`, and the notes below keep the build's history: their migration numbers are the ones each step added then, and `worker_enrollments` became the key's own role (`api_keys.role`, `worker`).
 
 ### P0. Recovery and implementation foundation
@@ -659,25 +727,28 @@ Passed on 2026-09-25 with the real MacBook and iPhone against the dev home. Ther
 
 ### P6. A standalone team without AI
 
-- [ ] P6.1 Add space/member identity, owner/member authorization, invitations, revocation, assignment, and actor-attributed history. Host the space with the existing server/address setup and an independent data root.
-- [ ] P6.2 Build shared tasks, notes, team Areas, keyword search, attachments, and first-run UI without a personal home or harness requirement. Reuse Areas for shared organization without per-Area permissions. Team views browse all authorized shared work and published results, with no empty personal Deck or agent/execution setup.
-- [ ] P6.3 Enforce AI-disabled behavior across automatic dispatch, embeddings, background jobs, and model setup. Keep execution/host-command routes unavailable to the team surface.
+- [ ] P6.0 Record the current integration points in `homes-build.md` before implementation: desktop welcome/connection handling (`desktop/companion-page.ts`, `desktop/connection-setup.ts`), pre-DB role intent and `home.kind`, startup/background work, dashboard/main-chat onboarding, rail/phone navigation, auth, shared query operations and tRPC. Reuse these foundations. Do not restore the old `/welcome` wizard, add a second task store, or treat the kind column alone as an implemented team boundary. Implement and dogfood in a dedicated worktree with separate personal/team development roots, credentials and ports, as in section 10.4.
+- [ ] P6.1 Add space/member identity, owner/member authorization, invitations, member sign-in/revocation, assignment, and actor-attributed history. Create a team with the existing identity/server/address machinery and an independent root, with protected owner bootstrap and retry-safe creation. Persist team intent before startup and preserve any existing personal installation. Local service administration remains separate from membership.
+- [ ] P6.2 Build the section 3.1 desktop entry, quiet Create a team action, desktop/browser creation form, invitation landing and saved team-only connection. Build shared tasks, notes, team Areas, keyword search and attachments in the section 3.2 team shell. Land on shared work without a personal home, harness, agent or Area requirement. Reuse Areas without per-Area permissions. Team views browse all authorized shared work and published results. Use the current shared task/note operations and UI components with explicit team context.
+- [ ] P6.3 Enforce AI-disabled behavior before startup work and page hooks run, as well as at dispatch and API boundaries. Cover subscription harness discovery, automatic dispatch, embeddings, personal imports, local app runtimes, background jobs and model setup. Keep execution/worker/host-command routes unavailable to member sessions. Team-only clients get no personal native privileges or local worker, even on the host computer.
 - [ ] P6.4 Add atomic content-revision checks to shared-body writes, ordered autosaves, retained drafts, and explicit conflict resolution in the direct team UI and agent actions. Reuse version history, without presence locks or live co-editing.
-- [ ] P6.5 Test invitation expiry/reuse, removal, forged actors, attachment access, simultaneous edits, and zero model calls with an ambient API key present. Verify member and human/agent attribution for local and remote changes.
+- [ ] P6.5 Test creation cancellation/retry/restart, owner-claim races, invitation expiry/reuse, existing-member sign-in on another device, removal, forged actors, attachment access and simultaneous edits. Test zero model calls and zero personal discovery/import work with both ambient API keys and signed-in harnesses present. Verify member and human/agent attribution for local and remote changes. Exercise fresh desktop, team-only desktop, direct browser/phone invitation, saved-session restart and unreachable team. Confirm personal data, services and pending drafts are unchanged and team-only viewing creates no personal DB.
 
-**Dogfood gate D:** a Family or small-team development space includes a non-AI participant doing real shared work from a phone. They do not encounter worker, harness, or workspace setup. Shared tasks and notes are useful before adding integrations.
+**Build order within P6:** protect team initialization and no-AI boundaries first (P6.1/P6.3), then finish the creation, invitation and work surfaces (P6.2), conflict handling (P6.4), and regression/journey checks (P6.5). Do not expose Create a team on a build that still starts personal automation for that root.
+
+**Dogfood gate D:** an owner creates a Family or small-team development space from the desktop, makes its invitation reachable, and shares the link with a non-AI participant on a phone. That person joins, creates a task, edits a note and returns later without architectural coaching, installing Ri, or encountering worker, harness, agent or Area setup. Repeat joining in a fresh desktop app without a personal home. Observe whether people confuse Create a team with joining one, can find the creation link, understand who can see their edits, and understand the hosting computer's availability. Fix observed friction before adding more setup choices. Shared tasks and notes must be useful before integrations or P7.
 
 - [ ] P6.6 After that pilot, expose the bounded non-AI task-source browsing/attachment flow with owner-managed credentials and member-scoped operations.
 - [ ] P6.7 Verify integration administration boundaries, credential isolation, published-source access, and zero model calls in the integration flow.
 
 ### P7. Shared obligations inside personal Ri
 
-- [ ] P7.1 Connect as a space member without granting access back into the personal home. Add the My Ri / named-team space selector and persistent source labels. My Ri is the combined personal work view. Context changes never move or stop executions or navigate another device, and joining asks for no Area or agent mapping.
+- [ ] P7.1 Implement Settings, Teams, joining from My Ri and optional Connect to My Ri after direct team joining. Preserve the existing member identity and store a scoped connection at the personal home without granting access back into it. Add the compact My Ri / named-team selector and persistent source labels from section 3.2, preserving the assistant's home row and current rail grammar. Context changes never move or stop executions or navigate another device, and joining asks for no Area or agent mapping. Existing personal users see no new mandatory setup step.
 - [ ] P7.2 Implement assignment projections in the home database, stable source identity, freshness, private overlays, and reassignment/deletion handling. Add explicit Add to my work references without changing assignment or duplicating the source task. Keep team Areas separate from optional personal Area organization, with no automatic copying, name-based merging, or mapping system.
 - [ ] P7.3 Implement online shared-field commands with idempotency and the same content-revision checks, ordered autosaves, conflict comparison, and draft preservation as the direct team UI. Every entry point opens the same shared task. Show its team audience and separate Only you planning and Organize for me controls without adding routine confirmation dialogs.
 - [ ] P7.4 Make assigned and explicitly selected shared work eligible for the Deck under its existing rules, without automatic placement on today's Deck. Provide team browsing/search of tasks, notes and Areas, source filtering in My Ri, and saved shared-note references. Browsing does not import everything or require an agent.
 - [ ] P7.5 Implement Work with agent using an existing personal agent and its normal device default, keeping the task/execution link private. Preserve one personal agent identity across team work. Implement deliberate result publication with audience selection and no implicit transcript sharing or task completion.
-- [ ] P7.6 Test membership revocation, source outages, competing edits, unknown command outcomes, private subtasks, and incoming team content that requests personal execution. Verify no duplicate task across views, no imported Area tree, independent team/personal Area edits, Add to my work without assignment changes, saved-note identity, and no personal agent/execution exposure in team views.
+- [ ] P7.6 Test membership revocation, source outages, competing edits, unknown command outcomes, private subtasks, and incoming team content that requests personal execution. Verify no duplicate task across views or member after reconnect, no imported Area tree, independent team/personal Area edits, Add to my work without assignment changes, saved-note identity, and no personal agent/execution exposure in team views. Exercise pending private/shared drafts while switching spaces, contextual create/search, collapsed rail and phone navigation, and a direct team session later connected to an existing personal home.
 
 **Gate:** dogfood the five-step journey in section 9.5 with one teammate who uses no AI. They assign shared work, the person handles it from My Ri with private planning and a personal agent, then deliberately publishes a result and updates shared status. Neither maintains a second task or organization system. Verify that opening the same task in either view stays consistent, unrelated team Areas never enter personal navigation, and no private context or personal-worker authority reaches the team.
 
@@ -696,6 +767,9 @@ These questions do not block the build above. Each has a specified initial behav
 | Is explicit default selection too much work? | One-off Run on does not change the saved default | Repeated intentional choices, weighed against unexpected dispatch after changing screens |
 | Is home-unavailable access a substantial problem? | Retain drafts, show last received data where already available, no independent writes | Measured interruption during ordinary laptop/phone use before adding bounded offline support |
 | Do local review and remote previews cover the loop? | Published Git versions, safe existing preview support, local editor opening | Repeated transfers whose only purpose is a missing review capability |
+| Can people find team creation without burdening personal first run? | Two desktop buttons and a quiet Create a team link. Joining uses a connection/invitation link | Owners repeatedly miss the link, or members choose creation when they mean to join |
+| Does the compact space selector fit the current rail? | One footer control after a team is connected, preserving the assistant's home row | Collapsed-rail or phone users lose track of the audience or cannot return to their personal work |
+| Does self-hosted team setup need another hosting option? | Explicit desktop/server hosting and the existing reachable-address flow | Pilot owners repeatedly fail to make invitations reachable or cannot provide an available host. This warrants a separate hosting proposal, not a hidden dependency of team CRUD |
 
 Do not turn these questions into speculative backlog checkboxes. Record the problem, the smallest change, and its acceptance case before extending scope.
 
@@ -707,8 +781,7 @@ Do not turn these questions into speculative backlog checkboxes. Record the prob
 | Same work opened on another screen | Same identities/history, no execution move or forced navigation |
 | Connected CLI creates/updates a task | One mutation at the intended home, no local database fallback |
 | Different source/reference layouts | Correct local cwd and references, including generated worktrees |
-| Local configuration edited while setup UI is open | Revision conflict handled without silently overwriting the file |
-| Local configuration deleted | Confirmed restoration verifies current identity and paths, never silently runs from cached setup |
+| Configured project or linked folder moves on a device | The home retains its association and the device reports it missing. Choosing its new path updates that device's association and verifies it before work starts |
 | Home or worker loses contact | Honest availability and delivery state, no automatic reassignment |
 | Laptop-hosted home sleeps with a Mini worker connected | Home remains on the laptop and is shown unavailable. Connecting the Mini did not imply automatic relocation |
 | Selected laptop terminal history is imported | Read-only, correctly attributed to that device, deduplicated, with no upload of unselected sessions |
@@ -724,7 +797,15 @@ Do not turn these questions into speculative backlog checkboxes. Record the prob
 | Continue here with owned background tools or a preview | Source processes are confirmed stopped before publication and ownership changes. Unrelated processes stay running |
 | Transfer fails at any stage | One clear owner, preserved code/history, safe retry/resume |
 | Persona changes at home | Applied on a new/explicitly refreshed personal session, no independent replica |
-| No-AI team has no harness and an API key in its environment | Task/note/Area CRUD and search work with zero model calls before integrations are added. The later integration slice meets the same no-AI requirement |
+| Fresh personal desktop or personal web home | Current personal onboarding still works. No required team decision, and the assistant's named home row retains its behavior |
+| Owner creates a team from the desktop | Separate root, identity, port and credentials, no personal conversion or disruption. Task Board opens without AI, followed by optional invitation/address setup |
+| Team creation is cancelled, interrupted or retried | Before creation, current Ri is unchanged. After creation, resume the same team, with no duplicate authority or owner and no personal fallback |
+| Fresh team server is opened in a browser | Only its authorized operator can finish owner setup. A stranger at the URL cannot claim it, and the browsing device is never presented as the host |
+| New member follows an invitation on a phone or fresh desktop | Confirm team/name and enter shared work, without a personal DB, harness, import scan, worker or AI call. Returning opens the same membership |
+| Invitation is expired, reused, revoked, or temporarily unreachable | Honest recovery with no new member or fallback home. An already signed-in member can reopen their team after successful redemption |
+| Team runs on a laptop that then sleeps | Members see the team unavailable and retain drafts. No promise that creating it supplied cloud hosting |
+| No-AI team has an API key and signed-in harnesses on its host | First startup, first page load, task/note/Area CRUD and search produce zero model calls or personal discovery/import work. The later integration slice meets the same no-AI requirement |
+| Existing team member connects to My Ri | Same member and one scoped connection at the chosen home, visible to its other clients. No credential or private data flows back into the team |
 | Person joins a team with many Areas | Assigned work enters My Ri with team labels. No personal Areas or agents are created, and no mapping is required |
 | Same shared task opens from My Ri and its team | One shared identity and consistent shared edits, with private planning visible only to its owner |
 | Person organizes Acme / Engineering under personal Work | Team Area stays unchanged. Renaming either Area does not rename or merge the other |
@@ -732,6 +813,7 @@ Do not turn these questions into speculative backlog checkboxes. Record the prob
 | Person browses a team and saves a note reference | All authorized shared work is browsable without AI or bulk import. The saved note retains its source and shared editing destination |
 | Person chooses Work with agent | One existing personal agent and a linked private execution use the normal device default. Team views expose only deliberately published output |
 | Person switches spaces on one screen | Other screens keep their navigation and running work keeps its owner and terminal |
+| Person switches with a private draft or uses Create in a team | Drafts retain their original owner and audience. The team creates shared records through ordinary CRUD, without a personal capture/chat side effect |
 | Two clients or agents edit a shared body | Stale revision rejected, local draft retained, autosave paused, explicit resolution available in direct team and personal views |
 | A member or their agent changes shared work | History identifies the member and human/agent actor on local and remote paths without publishing private session contents |
 | Shared content contains instructions to run personal commands | No direct dispatch or authority expansion |
