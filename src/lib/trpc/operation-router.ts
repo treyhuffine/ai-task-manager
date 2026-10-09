@@ -385,6 +385,7 @@ export const internalRouters = {
     cursorKeyDelete: p.input(operation66.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation66.DELETE(input, operationContext(ctx.request, input, "/harness/cursor/key")))),
     harnessesGet: p.input(operation67.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation67.GET(input, operationContext(ctx.request, input, "/harness/harnesses")))),
     rateLimitsGet: p.input(operation262.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation262.GET(input, operationContext(ctx.request, input, "/harness/rate-limits")))),
+    rateLimitsPost: p.input(operation262.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation262.POST(input, operationContext(ctx.request, input, "/harness/rate-limits")))),
     modelsGet: p.input(operation68.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation68.GET(input, operationContext(ctx.request, input, "/harness/models")))),
     modelsCustomPost: p.input(operation69.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation69.POST(input, operationContext(ctx.request, input, "/harness/models/custom")))),
     modelsCustomDelete: p.input(operation69.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation69.DELETE(input, operationContext(ctx.request, input, "/harness/models/custom")))),

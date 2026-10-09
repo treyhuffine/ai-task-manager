@@ -5,6 +5,13 @@
  * never added together or collapsed into one reset (docs/telemetry.md in
  * @agentex/agent), so a 5-hour window, a weekly window and a weekly Opus
  * window each show their own percentage and reset.
+ *
+ * What each harness actually reports (live reads, 2026-10-09) shaped three
+ * rules: Claude Code's usage read lists every allowance twice, as named
+ * windows and again in a `limits` collection, so the collection is left out
+ * when the named windows are there. A pool with no name (Claude's
+ * "iguana_necktie" credit) shows once it's in use. Extra usage is one line of
+ * state, never a percentage bar.
  */
 import type { StoredRateLimitBucket } from './rate-limits';
 
@@ -33,7 +40,17 @@ const WINDOW_NAMES: Record<string, string> = {
   seven_day_sonnet: 'Weekly',
 };
 
-const BLOCKING = new Set(['exceeded', 'blocked', 'limited', 'throttled', 'rejected']);
+const BLOCKING = new Set(['exceeded', 'blocked', 'limited', 'throttled', 'rejected', 'rate_limit_reached']);
+
+/** An explicit `allowed` wins: Codex marks its pool allowed while credits carry on past a full window. */
+function isBlocked(bucket: StoredRateLimitBucket): boolean {
+  const { allowed, status } = bucket.enforcement ?? {};
+  if (allowed !== undefined) return !allowed;
+  return BLOCKING.has((status ?? '').toLowerCase());
+}
+
+/** Claude Code's repeat of its named windows (see the module comment). */
+const REPEATED_COLLECTION = 'limits';
 
 function durationName(ms: number): string {
   if (ms < DAY) return `${Math.round(ms / HOUR)}-hour`;
@@ -70,7 +87,7 @@ function poolOf(bucket: StoredRateLimitBucket): string | undefined {
 
 function windowLabel(bucket: StoredRateLimitBucket, prefixPool: boolean): string {
   if (bucket.credits) return 'Credits';
-  if (bucket.overage && bucket.usedPercent === undefined) return 'Extra usage';
+  if (bucket.overage) return 'Extra usage';
   const base = bucket.durationMs !== undefined
     ? durationName(bucket.durationMs)
     : WINDOW_NAMES[bucket.id] ?? bucket.label ?? humanize(bucket.id);
@@ -81,7 +98,8 @@ function windowLabel(bucket: StoredRateLimitBucket, prefixPool: boolean): string
 
 /** "resets 3:40 PM", "resets Mon 9 AM", "resets Oct 14". */
 export function resetLabel(resetAt: string, now = new Date()): string {
-  const at = new Date(resetAt);
+  // Providers report a reset a few milliseconds either side of the minute.
+  const at = new Date(Math.round(Date.parse(resetAt) / 60_000) * 60_000);
   if (at.getTime() <= now.getTime()) return 'reset since';
   const time = at.toLocaleTimeString([], { hour: 'numeric', minute: at.getMinutes() ? '2-digit' : undefined });
   if (at.toDateString() === now.toDateString()) return `resets ${time}`;
@@ -103,21 +121,30 @@ const KNOWN_DURATIONS: Record<string, number> = { five_hour: 5 * HOUR, seven_day
 /** Shared windows, then model windows, then credits, then extra usage. Shortest first within each. */
 function rank(bucket: StoredRateLimitBucket): [number, number] {
   const group = bucket.credits ? 2
-    : bucket.overage && bucket.usedPercent === undefined ? 3
+    : bucket.overage ? 3
       : bucket.applicability.kind === 'model_family' || bucket.collectionId ? 1 : 0;
   return [group, bucket.durationMs ?? KNOWN_DURATIONS[bucket.id] ?? Number.MAX_SAFE_INTEGER];
 }
 
+function unnamedPool(bucket: StoredRateLimitBucket): boolean {
+  return bucket.applicability.kind === 'provider_pool' && !bucket.label && bucket.durationMs === undefined
+    && !WINDOW_NAMES[bucket.id] && !bucket.collectionId && !bucket.credits && !bucket.overage;
+}
+
 /** The rows for one harness, shortest window first. */
 export function rateLimitRows(buckets: StoredRateLimitBucket[], now = new Date()): RateLimitRow[] {
-  const pools = new Set(buckets.filter((b) => b.durationMs !== undefined).map(poolOf).filter(Boolean));
+  const named = buckets.some((b) => !b.collectionId && !b.overage && !b.credits && b.usedPercent !== undefined);
+  // Chat events and reads name extra usage differently. Keep the newest.
+  const extra = buckets.filter((b) => b.overage).sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt))[0];
+  const shown = buckets.filter((b) => (!named || b.collectionId !== REPEATED_COLLECTION) && (!b.overage || b === extra));
+  const pools = new Set(shown.filter((b) => b.durationMs !== undefined).map(poolOf).filter(Boolean));
   const rows: RateLimitRow[] = [];
-  const sorted = [...buckets].sort((a, b) => {
+  const sorted = [...shown].sort((a, b) => {
     const [ga, da] = rank(a), [gb, db] = rank(b);
     return ga - gb || da - db;
   });
   for (const bucket of sorted) {
-    const blocked = bucket.enforcement?.allowed === false || BLOCKING.has((bucket.enforcement?.status ?? '').toLowerCase());
+    const blocked = isBlocked(bucket);
     const expired = bucket.resetAt !== undefined && Date.parse(bucket.resetAt) <= now.getTime();
     const label = windowLabel(bucket, pools.size > 1);
     if (bucket.credits) {
@@ -126,14 +153,15 @@ export function rateLimitRows(buckets: StoredRateLimitBucket[], now = new Date()
       if (detail) rows.push({ key: bucket.id, label, detail, blocked: false });
       continue;
     }
-    if (bucket.overage && bucket.usedPercent === undefined) {
+    if (bucket.overage) {
       // Extra usage is what runs after a window fills. Its state is context,
       // never an alarm: "out of credits" while the windows have room is fine.
       const { reason, isUsing, enabled } = bucket.overage;
-      const detail = isUsing ? 'In use' : reason ? sentence(reason) : enabled === false ? 'Off' : enabled ? 'On' : undefined;
+      const detail = isUsing ? 'In use' : enabled === false ? 'Off' : reason ? sentence(reason) : enabled ? 'On' : undefined;
       if (detail) rows.push({ key: bucket.id, label, detail, blocked: false });
       continue;
     }
+    if (unnamedPool(bucket) && !((bucket.usedPercent ?? 0) > 0) && !blocked) continue;
     if (bucket.usedPercent === undefined) {
       // An allowance without a measurement shows only when the provider says it blocks.
       if (blocked) rows.push({ key: bucket.id, label, detail: 'Limit reached', blocked, ...(bucket.resetAt && !expired ? { reset: resetLabel(bucket.resetAt, now) } : {}) });

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { HoverCard as HoverCardPrimitive } from 'radix-ui';
-import { Gauge } from 'lucide-react';
+import { Gauge, Loader2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
 import { ageLabel, rateLimitRows, type RateLimitRow } from '@/lib/harness/rate-limit-display';
 import { cn } from '@/lib/utils';
@@ -11,16 +11,28 @@ import { cn } from '@/lib/utils';
 // Top-HUD rate limits, beside the status pills. A quiet icon that shows each
 // harness account's limits on hover. Limits belong to the account, so every
 // chat on Claude Code shares the Claude windows listed here. They come from
-// the last chat that ran on each harness, nothing is polled
-// (src/lib/harness/rate-limits.ts), so each block says how old it is.
+// chats as they run, and when the card opens on numbers more than a minute
+// old the server reads fresh ones outside any chat, at most once a minute
+// (src/lib/harness/rate-limits.ts). Nothing happens without a hover: the
+// stored numbers show at once, marked Updating until the read returns.
 
 export function RateLimitsPill() {
   const [open, setOpen] = useState(false);
-  const { data, isPending } = useQuery({
-    ...trpc.harness.rateLimitsGet.queryOptions({}),
-    enabled: open,
-    staleTime: 15_000,
-  });
+  const queryClient = useQueryClient();
+  const limits = trpc.harness.rateLimitsGet;
+  const { data, isPending } = useQuery({ ...limits.queryOptions({}), enabled: open, staleTime: 15_000 });
+  const { mutate: readNow, isPending: updating } = useMutation(trpc.harness.rateLimitsPost.mutationOptions({
+    onSuccess: (result) => queryClient.setQueryData(limits.queryKey({}), result),
+  }));
+  // One read per opening, and only when the server says the numbers are due.
+  const readThisOpen = useRef(false);
+  useEffect(() => {
+    if (!open) { readThisOpen.current = false; return; }
+    if (data?.stale && !readThisOpen.current) {
+      readThisOpen.current = true;
+      readNow({});
+    }
+  }, [open, data?.stale, readNow]);
   const harnesses = data?.harnesses ?? [];
 
   return (
@@ -44,15 +56,24 @@ export function RateLimitsPill() {
           sideOffset={6}
           className="z-50 w-72 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-md outline-none"
         >
-          <p className="pb-2 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Rate limits</p>
+          <div className="flex items-center justify-between gap-2 pb-2">
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Rate limits</p>
+            {updating && (
+              <span className="flex items-center gap-1 text-[10.5px] text-muted-foreground" role="status">
+                <Loader2 size={10} className="animate-spin" /> Updating
+              </span>
+            )}
+          </div>
           {isPending ? (
             <p className="text-xs text-muted-foreground">Loading</p>
           ) : harnesses.length === 0 ? (
             <p className="text-xs leading-normal text-muted-foreground">
-              None reported yet. Limits show here after a Claude Code or Codex chat runs.
+              {updating
+                ? 'Reading your plan limits.'
+                : 'No plan limits to show. Claude Code and Codex report them when signed in with a subscription.'}
             </p>
           ) : (
-            <div className="space-y-3">
+            <div className={cn('space-y-3 transition-opacity', updating && 'opacity-60')}>
               {harnesses.map((entry) => (
                 <section key={entry.harness} className="space-y-1.5">
                   <div className="flex items-baseline justify-between gap-2">

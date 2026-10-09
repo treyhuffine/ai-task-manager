@@ -63,6 +63,68 @@ describe('rateLimitRows', () => {
   });
 });
 
+// Sessionless reads on 2026-10-09 (agentex 0.0.44), trimmed to the fields Ri keeps.
+const pool = (name: string) => ({ kind: 'provider_pool' as const, pool: name });
+const claudeRead = (resetFive: string, resetWeek: string): StoredRateLimitBucket[] => [
+  bucket('five_hour', { usedPercent: 15, resetAt: resetFive }),
+  bucket('seven_day', { usedPercent: 93, resetAt: resetWeek }),
+  bucket('iguana_necktie', { applicability: pool('iguana_necktie'), usedPercent: 0, used: 0, limit: 250, unit: 'USD', resetAt: at(600) }),
+  bucket('extra_usage', { applicability: pool('extra_usage'), usedPercent: 0, overage: { enabled: false }, used: 0, limit: 10000, unit: 'USD:minor', enforcement: { reason: 'out_of_credits' } }),
+  bucket('limits:%5B%22session%22%2C%22session%22%2Cnull%5D', { applicability: pool('limits:session'), collectionId: 'limits', usedPercent: 15, resetAt: resetFive, enforcement: { status: 'normal' } }),
+  bucket('limits:%5B%22weekly_all%22%2C%22weekly%22%2Cnull%5D', { applicability: pool('limits:weekly'), collectionId: 'limits', usedPercent: 93, resetAt: resetWeek, enforcement: { status: 'critical' } }),
+  bucket('limits:fable', { applicability: pool('limits:fable'), collectionId: 'limits', label: 'Fable', usedPercent: 88, resetAt: resetWeek, enforcement: { status: 'warning' } }),
+  bucket('model_scoped:Fable', { applicability: pool('model_scoped:Fable'), collectionId: 'model_scoped', label: 'Fable', usedPercent: 88, resetAt: resetWeek }),
+];
+
+describe('real harness reads', () => {
+  it('shows Claude Code\'s named windows once, its model window, and extra usage as state', () => {
+    const rows = rateLimitRows(claudeRead(at(4), at(54)), NOW);
+    expect(rows.map(({ key, label, percent, detail }) => ({ key, label, percent, detail }))).toEqual([
+      { key: 'five_hour', label: '5-hour', percent: 15, detail: undefined },
+      { key: 'seven_day', label: 'Weekly', percent: 93, detail: undefined },
+      { key: 'model_scoped:Fable', label: 'Fable', percent: 88, detail: undefined },
+      { key: 'extra_usage', label: 'Extra usage', percent: undefined, detail: 'Off' },
+    ]);
+    expect(rows.every((row) => !row.blocked)).toBe(true);
+  });
+
+  it('shows an unnamed pool once it is in use, and the repeated collection when nothing else names the windows', () => {
+    const inUse = claudeRead(at(4), at(54)).map((b) => (b.id === 'iguana_necktie' ? { ...b, usedPercent: 12 } : b));
+    expect(rateLimitRows(inUse, NOW).map((row) => row.label)).toContain('Iguana necktie');
+    const onlyCollection = claudeRead(at(4), at(54)).filter((b) => b.collectionId === 'limits');
+    expect(rateLimitRows(onlyCollection, NOW)).toHaveLength(3);
+  });
+
+  it('keeps the newest extra usage when chat events and reads both reported it', () => {
+    const rows = rateLimitRows([
+      bucket('overage', { observedAt: at(-2), applicability: pool('overage'), overage: { reason: 'out_of_credits', enabled: true } }),
+      bucket('extra_usage', { observedAt: at(-0.1), applicability: pool('extra_usage'), usedPercent: 0, overage: { enabled: false } }),
+    ], NOW);
+    expect(rows).toEqual([{ key: 'extra_usage', label: 'Extra usage', detail: 'Off', blocked: false }]);
+  });
+
+  it('marks a full Codex window as reached, while the pool stays allowed on credits', () => {
+    const codex = pool('codex');
+    const rows = rateLimitRows([
+      bucket('codex:primary', { applicability: codex, usedPercent: 100, durationMs: 604_800_000, resetAt: at(100), enforcement: { reason: 'rate_limit_reached', status: 'rate_limit_reached' } }),
+      bucket('codex:credits', { applicability: codex, credits: { hasCredits: true, unlimited: false, balance: '48592.1613725000' }, unit: 'credits', enforcement: { reason: 'rate_limit_reached', status: 'rate_limit_reached' } }),
+      bucket('codex:enforcement', { applicability: codex, enforcement: { status: 'rate_limit_reached', reason: 'rate_limit_reached', allowed: true } }),
+    ], NOW);
+    expect(rows.map(({ label, percent, detail, blocked }) => ({ label, percent, detail, blocked }))).toEqual([
+      { label: 'Weekly', percent: 100, detail: undefined, blocked: true },
+      { label: 'Credits', percent: undefined, detail: (48592.16).toLocaleString([], { maximumFractionDigits: 2 }), blocked: false },
+    ]);
+  });
+});
+
+describe('resetLabel', () => {
+  it('rounds a reset reported just before the minute', () => {
+    const sixThirty = new Date(2026, 9, 9, 18, 30, 0);
+    expect(resetLabel(new Date(sixThirty.getTime() - 40).toISOString(), NOW)).toBe(resetLabel(sixThirty.toISOString(), NOW));
+    expect(resetLabel(new Date(sixThirty.getTime() - 40).toISOString(), NOW)).toMatch(/:30/);
+  });
+});
+
 describe('ageLabel', () => {
   it.each([
     [-0.005, 'just now'],
