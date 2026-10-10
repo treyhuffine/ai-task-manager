@@ -26,6 +26,16 @@ export interface RateLimitRow {
   reset?: string;
   /** The provider says this allowance is used up or blocking. */
   blocked: boolean;
+  /** How close to the limit: normal (blue), warn from 80% (yellow), critical from 90% or when blocked (red). */
+  tone: RateLimitTone;
+}
+
+export type RateLimitTone = 'normal' | 'warn' | 'critical';
+
+/** Usage counts up toward the limit, so the color rises with it. */
+export function rateLimitTone(percent: number | undefined, blocked: boolean): RateLimitTone {
+  if (blocked || (percent ?? 0) >= 90) return 'critical';
+  return (percent ?? 0) >= 80 ? 'warn' : 'normal';
 }
 
 const HOUR = 3_600_000;
@@ -138,7 +148,7 @@ export function rateLimitRows(buckets: StoredRateLimitBucket[], now = new Date()
   const extra = buckets.filter((b) => b.overage).sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt))[0];
   const shown = buckets.filter((b) => (!named || b.collectionId !== REPEATED_COLLECTION) && (!b.overage || b === extra));
   const pools = new Set(shown.filter((b) => b.durationMs !== undefined).map(poolOf).filter(Boolean));
-  const rows: RateLimitRow[] = [];
+  const rows: Omit<RateLimitRow, 'tone'>[] = [];
   const sorted = [...shown].sort((a, b) => {
     const [ga, da] = rank(a), [gb, db] = rank(b);
     return ga - gb || da - db;
@@ -174,5 +184,5 @@ export function rateLimitRows(buckets: StoredRateLimitBucket[], now = new Date()
         ...(bucket.resetAt ? { reset: resetLabel(bucket.resetAt, now) } : {}),
       });
   }
-  return rows;
+  return rows.map((row) => ({ ...row, tone: rateLimitTone(row.percent, row.blocked) }));
 }

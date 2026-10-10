@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageLabel, rateLimitRows, resetLabel } from './rate-limit-display';
+import { ageLabel, rateLimitRows, rateLimitTone, resetLabel } from './rate-limit-display';
 import type { StoredRateLimitBucket } from './rate-limits';
 
 const NOW = new Date(2026, 9, 9, 14, 0, 0);
@@ -38,23 +38,23 @@ describe('rateLimitRows', () => {
       bucket('quiet', { enforcement: { allowed: true } }),
     ], NOW);
     expect(rows).toEqual([
-      { key: 'five_hour', label: '5-hour', detail: 'Reset since last report', blocked: false },
+      { key: 'five_hour', label: '5-hour', detail: 'Reset since last report', blocked: false, tone: 'normal' },
       expect.objectContaining({ key: 'seven_day', percent: 101, blocked: true }),
       expect.objectContaining({ key: 'codex:enforcement', detail: 'Limit reached', blocked: true }),
-      { key: 'codex:credits', label: 'Credits', detail: (12.5).toLocaleString([], { maximumFractionDigits: 2 }), blocked: false },
+      { key: 'codex:credits', label: 'Credits', detail: (12.5).toLocaleString([], { maximumFractionDigits: 2 }), blocked: false, tone: 'normal' },
     ]);
   });
 
   it('shows extra usage only when it says something, and never as a blocked window', () => {
     expect(rateLimitRows([bucket('extra_usage', { overage: { isUsing: true } })], NOW))
-      .toEqual([{ key: 'extra_usage', label: 'Extra usage', detail: 'In use', blocked: false }]);
+      .toEqual([{ key: 'extra_usage', label: 'Extra usage', detail: 'In use', blocked: false, tone: 'normal' }]);
     expect(rateLimitRows([bucket('overage', { overage: {} })], NOW)).toEqual([]);
     // Claude Code's real report on 2026-10-09: extra usage enabled, out of credits.
     expect(rateLimitRows([bucket('overage', {
       applicability: { kind: 'provider_pool', pool: 'overage' },
       overage: { status: 'rejected', reason: 'out_of_credits', isUsing: false, enabled: true },
       enforcement: { status: 'rejected' },
-    })], NOW)).toEqual([{ key: 'overage', label: 'Extra usage', detail: 'Out of credits', blocked: false }]);
+    })], NOW)).toEqual([{ key: 'overage', label: 'Extra usage', detail: 'Out of credits', blocked: false, tone: 'normal' }]);
   });
 
   it('formats a long credit balance', () => {
@@ -100,7 +100,7 @@ describe('real harness reads', () => {
       bucket('overage', { observedAt: at(-2), applicability: pool('overage'), overage: { reason: 'out_of_credits', enabled: true } }),
       bucket('extra_usage', { observedAt: at(-0.1), applicability: pool('extra_usage'), usedPercent: 0, overage: { enabled: false } }),
     ], NOW);
-    expect(rows).toEqual([{ key: 'extra_usage', label: 'Extra usage', detail: 'Off', blocked: false }]);
+    expect(rows).toEqual([{ key: 'extra_usage', label: 'Extra usage', detail: 'Off', blocked: false, tone: 'normal' }]);
   });
 
   it('marks a full Codex window as reached, while the pool stays allowed on credits', () => {
@@ -114,6 +114,20 @@ describe('real harness reads', () => {
       { label: 'Weekly', percent: 100, detail: undefined, blocked: true },
       { label: 'Credits', percent: undefined, detail: (48592.16).toLocaleString([], { maximumFractionDigits: 2 }), blocked: false },
     ]);
+  });
+});
+
+describe('rateLimitTone', () => {
+  it.each([
+    [0, false, 'normal'], [79.9, false, 'normal'], [80, false, 'warn'], [89, false, 'warn'],
+    [90, false, 'critical'], [101, false, 'critical'], [12, true, 'critical'], [undefined, true, 'critical'], [undefined, false, 'normal'],
+  ] as const)('%s%% used, blocked %s, is %s', (percent, blocked, tone) => {
+    expect(rateLimitTone(percent, blocked)).toBe(tone);
+  });
+
+  it('colors the real reads: Claude 5-hour blue, Fable yellow, weekly and a reached Codex window red', () => {
+    const tones = Object.fromEntries(rateLimitRows(claudeRead(at(4), at(54)), NOW).map((row) => [row.label, row.tone]));
+    expect(tones).toMatchObject({ '5-hour': 'normal', Fable: 'warn', Weekly: 'critical', 'Extra usage': 'normal' });
   });
 });
 
