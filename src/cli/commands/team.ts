@@ -4,7 +4,7 @@
  * For hosting a team on a server, or any computer, from a terminal:
  *
  *   ri team create --root ~/acme-team --name Acme   marks a new, empty folder as a team
- *   RI_ROOT=~/acme-team ri start --port 4300        starts its server, a team from the first start
+ *   RI_ROOT=~/acme-team ri service start           starts its background server and returns
  *   RI_ROOT=~/acme-team ri team setup-link          a single-use link that names the team and makes its owner
  *
  * The desktop's Create a team does the same through the installed runtime.
@@ -42,11 +42,13 @@ export function registerTeamCommand(program: Command) {
       try {
         const intent = writeTeamIntent({ creationId: randomBytes(12).toString('base64url'), name: opts.name });
         const root = getAppRoot();
+        const rootEnv = `RI_ROOT='${root.replaceAll("'", "'\\''")}'`;
         console.log(`${pc.bold(intent.name)} is set up as a team in ${root}.`);
         console.log('');
-        console.log('Next:');
-        console.log(`  ${pc.cyan(`RI_ROOT=${root} ${APP_SHORT_ID} start --port <free port>`)}   start the team's server`);
-        console.log(`  ${pc.cyan(`RI_ROOT=${root} ${APP_SHORT_ID} team setup-link`)}           open the link it prints to become the owner`);
+        console.log('Next, in this terminal:');
+        console.log(`  ${pc.cyan(`${rootEnv} ${APP_SHORT_ID} service start`)}     start in the background`);
+        console.log(`  ${pc.cyan(`${rootEnv} ${APP_SHORT_ID} team setup-link`)}   open the link it prints to become the owner`);
+        console.log('The service chooses a free port and keeps running after you close this terminal.');
       } catch (err) {
         fail(err instanceof TeamIntentError ? err.message : String(err));
       }

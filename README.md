@@ -91,20 +91,19 @@ ri --help                 # confirm the command is available
 
 For a source installation, run `ri start` from the repository directory so it can find the server build. On macOS, put pnpm's global bin directory before `/usr/bin` on `PATH`, since `/usr/bin/ri` is Ruby's documentation command.
 
-To host a team alongside your personal Home, give it a separate folder and port:
+To host a team alongside your personal Home, give it a separate folder and start its background service. Run these commands in the same terminal, from the repository:
 
 ```bash
 ri team create --root "$HOME/family-team" --name "Family"
-RI_ROOT="$HOME/family-team" ri start --port 4300
-```
-
-`team create` writes the team's declaration before its database exists. `start` reads that declaration before first-run setup, so a team skips the personal setup and connection chooser. Keep the server terminal open, then run this from the repository in another terminal and open the printed link to become the owner:
-
-```bash
+RI_ROOT="$HOME/family-team" ri service start
 RI_ROOT="$HOME/family-team" ri team setup-link
 ```
 
-If startup was cancelled after `team create`, run `start` again. The team declaration is already saved, so there is no need to recreate the folder. Your personal Home at `~/ri` stays separate.
+The service chooses a free HTTPS port, returns to the shell when ready, and keeps running after Terminal closes. Open the setup link to become the owner. A browser using the generated local certificate needs trust configured once with `RI_ROOT="$HOME/family-team" ri tls trust`. The command may ask for OS authorization. A configured, trusted remote HTTPS address needs no local certificate installation.
+
+`team create` writes the team's declaration before its database exists, so the service starts it as a team. If startup was cancelled after creation, run `service start` again without recreating the folder. If a foreground `ri start` still runs for this team, stop it with Ctrl-C first. Your personal Home at `~/ri` stays separate.
+
+Closing Terminal and restarting the computer are different: automatic start at login requires a staged packaged runtime and `ri service install`, described in [Desktop and background service](docs/desktop.md). For foreground development or debugging, `RI_ROOT="$HOME/family-team" ri start --port 4300` remains available.
 
 ## Two ways to run dev
 
