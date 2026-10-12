@@ -437,7 +437,21 @@ function teamMenuItems(): Electron.MenuItemConstructorOptions[] {
   return [
     { type: 'separator' },
     ...saved.map(team => ({ label: team.name, click: () => void teams?.open(team.id).catch(error => dialog.showErrorBox(team.name, error instanceof Error ? error.message : String(error))) })),
-    { label: 'Join a Team…', click: () => { showWindow(); void showSetup('connect'); } },
+    // With a personal Ri here, joining happens inside it: the team connects
+    // to My Ri, with its disclosure (docs/homes-spec.md §3.1). Without one,
+    // the team opens on its own.
+    {
+      label: 'Join a Team…',
+      click: () => {
+        if (appOrigin && viewerTransitions.current) {
+          showAppWindow();
+          void navigateSafely(`${appOrigin}/?settings=teams`);
+        } else {
+          showWindow();
+          void showSetup('connect');
+        }
+      },
+    },
     { label: 'Create a Team…', click: () => { showWindow(); void showSetup('create-team'); } },
   ];
 }
@@ -1013,6 +1027,8 @@ async function start() {
         } catch (error) { fail(error); }
       }
     } else if (action === 'settings' || action === 'connect') await showSetup(action);
+    // Settings, Teams in My Ri: a team made on this computer (docs/homes-spec.md §3.1).
+    else if (action === 'create-team') await showSetup('create-team');
     else throw new Error('Invalid connection action');
     return desktopConnection.snapshot();
   });

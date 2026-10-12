@@ -6,7 +6,7 @@ import type { Attachment, TaskFilter, NoteFilter, AreaFilter } from '@/db/types'
 
 // Drizzle owns entity fields. JSON columns need their hydrated, camelCase
 // shape at this boundary, rather than drizzle-zod's generic JSON validator.
-const attachment = z.object({
+export const attachment = z.object({
   fileName: z.string().min(1), originalName: z.string(), mimeType: z.string(),
   size: z.number().int().nonnegative(), uploadedAt: z.string(),
 }) satisfies z.ZodType<Attachment>;
@@ -16,8 +16,9 @@ const jsonFields = {
   foldedHeadings: z.array(z.string()).nullable().optional(),
 };
 const immutable = { id: true, createdAt: true, updatedAt: true } as const;
+const projection = { sourceTeamId: true, sourceState: true, source: true } as const;
 const taskFields = createInsertSchema(tasks).omit({
-  ...immutable, statusChangedCount: true, statusChangedAt: true,
+  ...immutable, ...projection, sourceTaskId: true, bodyRevision: true, statusChangedCount: true, statusChangedAt: true,
   completedAt: true, nextRecurrenceAt: true,
 }).extend(jsonFields);
 export const createTaskSchema = taskFields.extend({
@@ -25,7 +26,7 @@ export const createTaskSchema = taskFields.extend({
   status: z.enum(['consider', 'todo']).optional(),
 }).strict();
 export const updateTaskSchema = taskFields.omit({ status: true }).partial().strict();
-const noteFields = createInsertSchema(notes).omit(immutable).extend(jsonFields);
+const noteFields = createInsertSchema(notes).omit({ ...immutable, ...projection, sourceNoteId: true, bodyRevision: true }).extend(jsonFields);
 export const createNoteSchema = noteFields.extend({ status: noteFields.shape.status.optional() }).strict();
 export const updateNoteSchema = createNoteSchema.partial().strict();
 const areaFields = createInsertSchema(areas).omit(immutable).extend({ attachments: jsonFields.attachments });
@@ -39,7 +40,7 @@ const pagination = { limit: z.number().int().nonnegative().optional(), offset: z
 const statusFilter = z.enum([...TASK_STATUSES, 'active']);
 export const taskFilterSchema = z.object({
   status: z.union([statusFilter, z.array(statusFilter)]).optional(),
-  areaId: foreignId, workspaceId: foreignId, parentId: foreignId, assigneeMemberId: foreignId,
+  areaId: foreignId, workspaceId: foreignId, parentId: foreignId, assigneeMemberId: foreignId, source: foreignId,
   energy: z.enum(['deep', 'light']).optional(), q: z.string().optional(), ...pagination,
 }).strict() satisfies z.ZodType<TaskFilter>;
 export const noteFilterSchema = z.object({
@@ -48,6 +49,14 @@ export const noteFilterSchema = z.object({
 }).strict() satisfies z.ZodType<NoteFilter>;
 export const areaFilterSchema = z.object({ status: z.enum([...areaFields.shape.status.options, 'all']).optional() }).strict() satisfies z.ZodType<AreaFilter>;
 export const entityIdSchema = z.object({ id: z.string().min(1) }).strict();
+/** A member's chosen result for a team task (src/lib/team/published-results.ts). */
+export const publishTaskResultSchema = z.object({
+  taskId: z.string().min(1).max(100),
+  requestId: z.string().min(1).max(200),
+  summary: z.string().max(20_000).nullable().optional(),
+  links: z.array(z.object({ label: z.string().max(200), url: z.string().max(2000) }).strict()).max(5).optional(),
+  attachments: z.array(attachment).max(10).optional(),
+}).strict();
 export const lifecycleOptionsSchema = z.object({
   idempotencyKey: z.string().min(1).optional(), expectedStatusChangedCount: z.number().int().nonnegative().optional(),
   runtimeChoice: z.enum(['keep_running', 'stop_running_agent']).optional(),

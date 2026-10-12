@@ -7,6 +7,7 @@
  */
 
 import { api } from '@/lib/api/client';
+import { currentSpaceId, spaceApiBase } from '@/lib/spaces/document';
 import type { Attachment } from '@/db/types';
 
 /** Upload a single file. Throws `ApiError` on non-2xx responses. */
@@ -21,7 +22,9 @@ export async function uploadAttachment(file: File | Blob, name?: string): Promis
   }
   if (name) formData.append('originalName', name);
 
-  return api.upload<Attachment>('/attachments', formData);
+  // In a team's space in My Ri, the file goes to the team, through this home.
+  const space = currentSpaceId();
+  return api.upload<Attachment>(space ? `${spaceApiBase(space).replace(/^\/api/, '')}/attachments` : '/attachments', formData);
 }
 
 /** Upload many files in parallel. Preserves input order. Rejects on the first

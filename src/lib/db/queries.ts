@@ -10,9 +10,10 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { registerHomeKindReader } from '@/lib/home/authority';
 import { getDb, getRawDb, isDatabaseOpen } from '@/lib/db';
 import { processState } from '@/lib/process-state';
+import { teamContentChanged } from '@/lib/spaces/generation';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, devices, deviceGrants, members, teamGrants, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
+  home, devices, deviceGrants, members, teamGrants, teamConnections, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -40,7 +41,7 @@ import type {
   ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
   HomeRecord, HomeKind, DeviceRecord, CreateDeviceInput, UpdateDeviceInput,
   DeviceGrantRecord, DeviceGrantKind, DeviceKind, WorkerReportedState, WorkerHarnessReport,
-  MemberRecord, MemberRole, TeamGrantRecord, TeamGrantKind,
+  MemberRecord, MemberRole, TeamGrantRecord, TeamGrantKind, TeamConnectionRecord, TeamConnectionStatus, SharedTaskSource, SharedNoteSource, SharedSourceState,
   WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord,
   WorkspaceSetupRecord, SetupReferenceReport, FolderLinkRecord,
   Attachment,
@@ -82,7 +83,7 @@ import {
   type ActivityReason,
 } from '@/lib/sessions/activity';
 import type { ReferencePage, ReferenceRow, ReferenceSection } from '@/lib/sessions/contracts';
-import { generateToken, type GeneratedToken } from '@/lib/auth/tokens';
+import { generateToken, teamAdmissionToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import { assertSupportedPermissionMode } from '@/lib/executor/permission-map';
 import { DEFAULT_FILES_TO_COPY } from '@/lib/workspaces/defaults';
@@ -188,6 +189,7 @@ export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
   if (filter.workspaceId) conditions.push(eq(tasks.workspaceId, filter.workspaceId));
   if (filter.parentId) conditions.push(eq(tasks.parentId, filter.parentId));
   if (filter.assigneeMemberId) conditions.push(eq(tasks.assigneeMemberId, filter.assigneeMemberId));
+  if (filter.source) conditions.push(taskSourceCondition(filter.source));
   if (filter.energy) conditions.push(eq(tasks.energy, filter.energy));
   if (filter.q) conditions.push(sql`${tasks.title} LIKE ${'%' + filter.q + '%'}`);
 
@@ -233,9 +235,15 @@ export function getTask(id: string): TaskRecord | undefined {
  * Count of tasks by canonical status, optionally within an area. Legacy `active`
  * bytes fold into `todo`. Powers the lane count badges. Missing statuses are 0.
  */
-export function getTaskStatusCounts(opts: { areaId?: string | null } = {}): Record<LifecycleTaskStatus, number> {
+/** My Ri's own tasks (`personal`), or one connected team's. */
+function taskSourceCondition(source: string): SQL {
+  return source === 'personal' ? isNull(tasks.sourceTeamId) : eq(tasks.sourceTeamId, source);
+}
+
+export function getTaskStatusCounts(opts: { areaId?: string | null; source?: string | null } = {}): Record<LifecycleTaskStatus, number> {
   const conditions: SQL[] = [];
   if (opts.areaId) conditions.push(eq(tasks.areaId, opts.areaId));
+  if (opts.source) conditions.push(taskSourceCondition(opts.source));
   const rows = getDb()
     .select({ status: tasks.status, c: sql<number>`count(*)` })
     .from(tasks)
@@ -728,6 +736,7 @@ export function createTask(
   identity?: { id: string },
   createdBy?: EntityVersionMeta,
 ): TaskRecord {
+  assertNoProjectionFields(input);
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -820,11 +829,14 @@ export function isBodyRevisionConflict(error: unknown): error is BodyRevisionCon
 }
 
 export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersionMeta, guard: BodyWriteGuard = {}): TaskRecord | null {
+  assertNoProjectionFields(input);
   const db = getDb();
 
   const existingRaw = hydrateRow(db.select().from(tasks).where(eq(tasks.id, id)).get());
   if (!existingRaw) return null;
   const existing = normalizeTaskRow(existingRaw);
+  // A shared task's shared fields are its team's (docs/homes-spec.md §9.4).
+  if (existing.sourceTeamId) assertPrivateTaskPatch(input);
 
   // Reject a parent assignment that would create a cycle, at the query boundary
   // so no surface can build one.
@@ -920,6 +932,10 @@ export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersi
 
 export function deleteTask(id: string): boolean {
   const db = getDb();
+  // A shared task stays while it's this person's: they remove it from their
+  // work, or its team archives it. Deleting it here would only lose the
+  // private planning beside it.
+  assertNotSharedTask(id, 'removal');
   const result = inEntityTx(() => {
     // Completion history belongs to the task. Unlike the status ledger, its
     // original FK has no cascade. Keep cleanup and deletion atomic so a
@@ -1253,6 +1269,14 @@ function priorLifecycleCommand(taskId: string, idempotencyKey: string) {
     .get();
 }
 
+/** Read-only reconciliation, before rejecting a caller's stale cached count. */
+export function hasLifecycleCommand(taskId: string, idempotencyKey: string, command: LifecycleCommand): boolean {
+  const prior = priorLifecycleCommand(taskId, idempotencyKey);
+  if (!prior) return false;
+  if (prior.command !== command) throw new TaskLifecycleError('conflict', `Idempotency key already used for "${prior.command}".`);
+  return true;
+}
+
 export interface LifecyclePreflightInput {
   taskId: string;
   command: TransitionCommand | 'complete';
@@ -1338,6 +1362,7 @@ export function lifecyclePreflight(input: LifecyclePreflightInput): { replay: bo
  */
 export function transitionTask(input: TransitionTaskInput): LifecycleOutcome {
   const { taskId, command, idempotencyKey } = input;
+  assertNotSharedTask(taskId, 'status');
   return inEntityTx(() => {
     // 1. Idempotent replay — a retry of this exact command returns the original
     //    result even if the task has since moved elsewhere. Reusing the SAME key
@@ -1464,6 +1489,7 @@ export interface CompleteTaskInput {
  * {@link TaskLifecycleError} on an illegal completion or a stale revision.
  */
 export function completeTask(id: string, input: CompleteTaskInput): LifecycleOutcome | null {
+  assertNotSharedTask(id, 'status');
   const idempotencyKey = input.idempotencyKey ?? uuidv7();
   return inEntityTx(() => completeTaskInTx(id, idempotencyKey, input), true);
 }
@@ -2184,6 +2210,7 @@ export function markTaskViewed(id: string): void {
 }
 
 export function createNote(input: CreateNoteInput, identity?: {id: string}, createdBy?: EntityVersionMeta): NoteRecord {
+  assertNoProjectionFields(input);
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -2218,10 +2245,13 @@ export function createNote(input: CreateNoteInput, identity?: {id: string}, crea
 }
 
 export function updateNote(id: string, input: UpdateNoteInput, meta: EntityVersionMeta, guard: BodyWriteGuard = {}): NoteRecord | null {
+  assertNoProjectionFields(input);
   const db = getDb();
 
   const existing = hydrateRow(db.select().from(notes).where(eq(notes.id, id)).get());
   if (!existing) return null;
+  // A saved team note's own content is the team's (§9.3).
+  if (existing.sourceTeamId) assertPrivateNotePatch(input);
 
   const bodyChanged = Object.prototype.hasOwnProperty.call(input, 'body');
   const attachmentsHint = input.attachments;
@@ -2270,6 +2300,8 @@ export function updateNote(id: string, input: UpdateNoteInput, meta: EntityVersi
 
 export function deleteNote(id: string): boolean {
   const db = getDb();
+  const sourced = db.select({ sourceTeamId: notes.sourceTeamId }).from(notes).where(eq(notes.id, id)).get();
+  if (sourced?.sourceTeamId) throw new TeamError('not_allowed', 'A saved team note stays the team\'s. Remove it from your notes instead.');
   const result = db.delete(notes).where(eq(notes.id, id)).run();
   if (result.changes === 0) return false;
   deleteEmbedding('note', id);
@@ -2341,9 +2373,10 @@ export interface EntityVersionMeta {
 function taskSnapshot(t: TaskRecord): EntityVersionSnapshot {
   return {
     title: t.title ?? null,
-    body: t.body ?? '',
+    // Shared text is a revocable cache, not this home's version history.
+    body: t.sourceTeamId ? '' : t.body ?? '',
     areaId: t.areaId ?? null,
-    description: t.description ?? null,
+    description: t.sourceTeamId ? null : t.description ?? null,
     // Recorded for history/diff only, normalized so no snapshot preserves a
     // legacy `active`. Lifecycle is NOT restored on revert (see
     // snapshotToTaskInput) — reverting text never moves a task between lanes.
@@ -2354,7 +2387,7 @@ function taskSnapshot(t: TaskRecord): EntityVersionSnapshot {
     resurfaceAfter: t.resurfaceAfter ?? null,
     recurrence: t.recurrence ?? null,
     blockedOn: t.blockedOn ?? null,
-    outcome: t.outcome ?? null,
+    outcome: t.sourceTeamId ? null : t.outcome ?? null,
     userContext: t.userContext ?? null,
     // Only a team's tasks are assigned. Left out when nobody is, so a
     // personal task's snapshots are unchanged by its existence.
@@ -2365,9 +2398,9 @@ function taskSnapshot(t: TaskRecord): EntityVersionSnapshot {
 function noteSnapshot(n: NoteRecord): EntityVersionSnapshot {
   return {
     title: n.title ?? null,
-    body: n.body,
+    body: n.sourceTeamId ? '' : n.body,
     areaId: n.areaId ?? null,
-    url: n.url ?? null,
+    url: n.sourceTeamId ? null : n.url ?? null,
     status: n.status,
   };
 }
@@ -3349,6 +3382,11 @@ function executeDecisionWithin(
           `Task ${target.id} changed since the proposal was made (expected updated_at ${draft.expectedTargetUpdatedAt}, now ${target.updatedAt}). Re-review with fresh state.`,
         );
       }
+      // A shared task's text is its team's: a private capture never goes
+      // into it (docs/homes-spec.md §9.4). A subtask under it stays private.
+      if (target.sourceTeamId && !draft.asSubtask) {
+        throw new TriageError('invalid_params', `Task ${target.id} is shared with a team, and its text is the team's. Merge as a subtask, or promote the capture on its own.`);
+      }
       if (draft.asSubtask) {
         const subtask = createTask({
           rawInput: joinedRaw,
@@ -3377,6 +3415,9 @@ function executeDecisionWithin(
     case 'merge_note': {
       const target = getNote(decision.targetId!);
       if (!target) throw new TriageError('not_found', `Merge target note not found: ${decision.targetId}`);
+      if (target.sourceTeamId) {
+        throw new TriageError('invalid_params', `Note ${target.id} is saved from a team, and its text is the team's. Promote the capture as its own note.`);
+      }
       if (draft.expectedTargetUpdatedAt && draft.expectedTargetUpdatedAt !== target.updatedAt) {
         throw new TriageError(
           'conflict',
@@ -5253,6 +5294,7 @@ function signInMemberIn(
   tx: TeamTx,
   member: MemberRecord,
   device: { name: string; kind: DeviceKind; platform?: string | null },
+  suppliedToken?: GeneratedToken,
 ): { key: ApiKeyRecord; token: GeneratedToken; device: DeviceRecord } {
   const now = new Date().toISOString();
   const row = tx
@@ -5273,7 +5315,7 @@ function signInMemberIn(
     deviceId: row.id,
     role: 'sign_in',
     memberId: member.id,
-  });
+  }, suppliedToken);
   return { key, token, device: row };
 }
 
@@ -5441,6 +5483,24 @@ export function canRetryTeamSetup(grant: TeamGrantRecord, attemptId?: string): b
   return setupRetryMember(getDb(), grant, attemptId) !== null;
 }
 
+/** Replay only with both secrets, while the grant, member and issued key remain valid. */
+function retryTeamAdmission(tx: Pick<ReturnType<typeof getDb>, 'select'>, secret: string, kind: 'invite' | 'sign_in', attemptId?: string): TeamSignIn | null {
+  if (!attemptId) return null;
+  const grant = tx.select().from(teamGrants).where(eq(teamGrants.hash, hashGrantSecret(secret.trim()))).get();
+  if (!grant || grant.kind !== kind || !grant.redeemedAt || grant.revokedAt || Date.parse(grant.expiresAt) <= Date.now()) return null;
+  const key = grant.redeemedByApiKeyId ? tx.select().from(apiKeys).where(eq(apiKeys.id, grant.redeemedByApiKeyId)).get() : null;
+  if (!key || key.revokedAt || (key.expiresAt && Date.parse(key.expiresAt) <= Date.now())) return null;
+  const token = teamAdmissionToken(secret, attemptId, key.env);
+  if (token.hash !== key.hash) return null;
+  const member = grant.memberId ? tx.select().from(members).where(eq(members.id, grant.memberId)).get() : null;
+  const device = key.deviceId ? tx.select().from(devices).where(eq(devices.id, key.deviceId)).get() : null;
+  return member?.status === 'active' && device?.status === 'active' ? { member, key, token, device } : null;
+}
+
+export function canRetryTeamAdmission(secret: string, kind: 'invite' | 'sign_in', attemptId?: string): boolean {
+  return retryTeamAdmission(getDb(), secret, kind, attemptId) !== null;
+}
+
 /** An address probe can only preview this random id, never admit a member. */
 export function createTeamAddressProbe(): { id: string; secret: string } {
   return getDb().transaction((tx) => {
@@ -5466,14 +5526,17 @@ export function deleteTeamAddressProbe(id: string): void {
 /** Join with an invitation: a new member, signed in on this client. */
 export function redeemTeamInvite(input: {
   secret: string;
+  attemptId?: string;
   name: string;
   device: { name: string; kind: DeviceKind; platform?: string | null };
 }): TeamSignIn {
   return getDb().transaction((tx) => {
     assertTeamHome(tx);
+    const retry = retryTeamAdmission(tx, input.secret, 'invite', input.attemptId);
+    if (retry) return retry;
     const grant = usableTeamGrant(tx, input.secret, 'invite');
     const member = insertMember(tx, { name: input.name, role: grant.role ?? 'member' });
-    const signedIn = signInMemberIn(tx, member, input.device);
+    const signedIn = signInMemberIn(tx, member, input.device, input.attemptId ? teamAdmissionToken(input.secret, input.attemptId) : undefined);
     markTeamGrantUsed(tx, grant.id, member.id, signedIn.key.id);
     return { member, ...signedIn };
   }, { behavior: 'immediate' });
@@ -5482,14 +5545,17 @@ export function redeemTeamInvite(input: {
 /** Sign an existing member in on another client. */
 export function redeemTeamSignIn(input: {
   secret: string;
+  attemptId?: string;
   device: { name: string; kind: DeviceKind; platform?: string | null };
 }): TeamSignIn {
   return getDb().transaction((tx) => {
     assertTeamHome(tx);
+    const retry = retryTeamAdmission(tx, input.secret, 'sign_in', input.attemptId);
+    if (retry) return retry;
     const grant = usableTeamGrant(tx, input.secret, 'sign_in');
     const member = grant.memberId ? tx.select().from(members).where(eq(members.id, grant.memberId)).get() : undefined;
     if (!member || member.status !== 'active') throw new TeamError('not_allowed', 'That member is no longer in the team.');
-    const signedIn = signInMemberIn(tx, member, input.device);
+    const signedIn = signInMemberIn(tx, member, input.device, input.attemptId ? teamAdmissionToken(input.secret, input.attemptId) : undefined);
     markTeamGrantUsed(tx, grant.id, member.id, signedIn.key.id);
     return { member, ...signedIn };
   }, { behavior: 'immediate' });
@@ -5545,6 +5611,363 @@ export function renameTeam(name: string): HomeRecord {
     const team = assertTeamHome(tx);
     return tx.update(home).set({ name: normalizeTeamDisplayName(name), updatedAt: new Date().toISOString() }).where(eq(home.id, team.id)).returning().get();
   }, { behavior: 'immediate' });
+}
+
+// ─── Team connections (a personal home's) ─────────────────────
+// docs/homes-spec.md §9.3, P7.1. Which teams this personal home is a member
+// of, where they are and who this person is there. Their keys are sealed
+// under `<config>/teams` (src/lib/spaces/credentials.ts), never here.
+
+export function listTeamConnections(): TeamConnectionRecord[] {
+  return getDb().select().from(teamConnections).orderBy(asc(teamConnections.name)).all();
+}
+
+export function getTeamConnection(id: string): TeamConnectionRecord | null {
+  return getDb().select().from(teamConnections).where(eq(teamConnections.id, id)).get() ?? null;
+}
+
+/**
+ * Connect, or reconnect, a team as one member. The same team keeps its row,
+ * so its shared tasks and private planning stay attached across reconnects.
+ */
+export function saveTeamConnection(input: {
+  id: string;
+  name: string;
+  address: string;
+  memberId: string;
+  memberName: string;
+  role: MemberRole;
+}): TeamConnectionRecord {
+  teamContentChanged();
+  const now = new Date().toISOString();
+  const fields = {
+    name: input.name,
+    address: input.address,
+    memberId: input.memberId,
+    memberName: input.memberName,
+    role: input.role,
+    status: 'active' as const,
+    lastError: null,
+    lastErrorAt: null,
+    updatedAt: now,
+  };
+  return getDb()
+    .insert(teamConnections)
+    .values({ id: input.id, ...fields })
+    .onConflictDoUpdate({ target: teamConnections.id, set: fields })
+    .returning()
+    .get();
+}
+
+/** Record what the last exchange with a team found. */
+export function updateTeamConnection(
+  id: string,
+  patch: Partial<{
+    name: string;
+    memberName: string;
+    role: MemberRole;
+    status: TeamConnectionStatus;
+    lastSyncedAt: string | null;
+    lastError: string | null;
+    lastErrorAt: string | null;
+  }>,
+): TeamConnectionRecord | null {
+  const current = getTeamConnection(id);
+  if (current && Object.entries(patch).some(([key, value]) => key !== 'lastSyncedAt' && current[key as keyof TeamConnectionRecord] !== value)) teamContentChanged();
+  return (
+    getDb()
+      .update(teamConnections)
+      .set({ ...patch, updatedAt: new Date().toISOString() })
+      .where(eq(teamConnections.id, id))
+      .returning()
+      .get() ?? null
+  );
+}
+
+// ─── Shared work in My Ri ─────────────────────────────────────
+// docs/homes-spec.md §9.3-§9.4, P7.2. A shared task this person has
+// (assigned, or added deliberately) is a row of `tasks` carrying its team and
+// the team's own id for it, so the Deck, Areas, subtasks, chats and search
+// work on it as on any task. Its shared fields cache the team's and change
+// only here, from what the team says. The rest of the row is the person's
+// private planning, which nothing in this section touches.
+
+export interface SharedTaskFields {
+  title: string;
+  description: string | null;
+  body: string | null;
+  outcome: string | null;
+  hardDeadline: string | null;
+  status: TaskStatus;
+}
+
+/**
+ * What only a shared task's team changes (§9.4): its shared fields and its
+ * status. My Ri changes them through the team (src/lib/spaces/commands.ts),
+ * and then its row from what the team says. A shared task's status comes
+ * from the team, so it carries no personal recurrence, and it isn't made a
+ * subtask of a personal task. Everything else on the row is private planning.
+ */
+export const SHARED_TASK_FIELDS = ['title', 'description', 'body', 'outcome', 'hardDeadline', 'attachments', 'status', 'rawInput'] as const;
+const PROJECTION_FIELDS = ['sourceTeamId', 'sourceTaskId', 'sourceNoteId', 'sourceState', 'source'] as const;
+function assertNoProjectionFields(input: Record<string, unknown>): void {
+  if (PROJECTION_FIELDS.some((field) => input[field] !== undefined)) {
+    throw new TeamError('not_allowed', 'Shared source references are managed by the team connection. Add or save the team record instead.');
+  }
+}
+const NOT_ON_SHARED_TASKS = ['recurrence', 'nextRecurrenceAt', 'parentId', 'sourceTeamId', 'sourceTaskId', 'sourceState', 'source'] as const;
+
+export class SharedTaskFieldError extends TeamError {
+  constructor(fields: string[]) {
+    super('not_allowed', `${fields.join(', ')} of a shared task ${fields.length > 1 ? 'belong' : 'belongs'} to its team. Change ${fields.length > 1 ? 'them' : 'it'} there, or through the shared part of the task.`);
+  }
+}
+
+export function assertPrivateTaskPatch(input: Record<string, unknown>): void {
+  const refused = Object.keys(input).filter(
+    (key) => input[key] !== undefined && ((SHARED_TASK_FIELDS as readonly string[]).includes(key) || (NOT_ON_SHARED_TASKS as readonly string[]).includes(key)),
+  );
+  if (refused.length) throw new SharedTaskFieldError(refused);
+}
+
+function assertNotSharedTask(id: string, what: string): void {
+  const row = getDb().select({ sourceTeamId: tasks.sourceTeamId }).from(tasks).where(eq(tasks.id, id)).get();
+  if (row?.sourceTeamId) throw new TeamError('not_allowed', `A shared task's ${what} belongs to its team. Change it there, or through the shared part of the task.`);
+}
+
+export function getTaskProjection(teamId: string, sourceTaskId: string): TaskRecord | null {
+  const row = getDb().select().from(tasks).where(and(eq(tasks.sourceTeamId, teamId), eq(tasks.sourceTaskId, sourceTaskId))).get();
+  return row ? normalizeTaskRow(hydrateRow(row)) : null;
+}
+
+export function listTaskProjections(teamId: string): TaskRecord[] {
+  return getDb().select().from(tasks).where(eq(tasks.sourceTeamId, teamId)).all().map((row) => normalizeTaskRow(hydrateRow(row)));
+}
+
+/**
+ * Create or refresh a shared task in My Ri from what its team says. One row
+ * per team task, ever. While it's this person's (`active`) its status is
+ * the team's. Once it leaves their work it rests archived, its private
+ * planning kept.
+ */
+export function saveTaskProjection(input: {
+  teamId: string;
+  sourceTaskId: string;
+  fields: SharedTaskFields;
+  source: SharedTaskSource;
+  state: SharedSourceState;
+}): TaskRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const status: TaskStatus = input.state === 'active' ? normalizeTaskStatus(input.fields.status) : 'archived';
+  const shared = {
+    title: input.fields.title,
+    description: input.fields.description,
+    body: input.fields.body,
+    outcome: input.fields.outcome,
+    hardDeadline: input.fields.hardDeadline,
+  };
+  const row = inEntityTx(() => {
+    const existing = db.select().from(tasks).where(and(eq(tasks.sourceTeamId, input.teamId), eq(tasks.sourceTaskId, input.sourceTaskId))).get();
+    if (existing?.source && existing.source.updatedAt > input.source.updatedAt) return hydrateRow(existing);
+    if (!existing) {
+      const created = hydrateRow(db
+        .insert(tasks)
+        .values({
+          id: uuidv7(),
+          ...shared,
+          rawInput: input.fields.title,
+          status,
+          statusChangedAt: now,
+          completedAt: status === 'done' ? now : null,
+          contextTags: [],
+          attachments: [],
+          timesDeferred: 0,
+          createdAt: now,
+          updatedAt: now,
+          sourceTeamId: input.teamId,
+          sourceTaskId: input.sourceTaskId,
+          sourceState: input.state,
+          source: input.source,
+        })
+        .returning()
+        .get());
+      projectEntityLinksInline('task', created.id, [created.description, created.body]);
+      return created;
+    }
+    const statusMoves = existing.status !== status;
+    const textMoves = existing.description !== shared.description || existing.body !== shared.body;
+    const updated = hydrateRow(db
+      .update(tasks)
+      .set({
+        ...shared,
+        ...(statusMoves
+          ? { status, statusChangedAt: now, statusChangedCount: sql`${tasks.statusChangedCount} + 1`, completedAt: status === 'done' ? now : null }
+          : {}),
+        sourceState: input.state,
+        source: input.source,
+        updatedAt: now,
+      })
+      .where(eq(tasks.id, existing.id))
+      .returning()
+      .get());
+    if (textMoves) projectEntityLinksInline('task', updated.id, [updated.description, updated.body]);
+    return updated;
+  });
+  teamContentChanged();
+  void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
+  void syncEntity('task', row.id);
+  return normalizeTaskRow(row);
+}
+
+// ─── Saved shared notes (§9.3) ─────────────────────────────────
+// A team note saved alongside personal notes is a reference, not a second
+// editable copy: its title, body and link are the team's, cached here and
+// edited at the team. Organizing it (Area, tags, links to tasks) is private.
+
+export interface SharedNoteFields {
+  title: string | null;
+  body: string;
+  url: string | null;
+}
+
+export const SHARED_NOTE_FIELDS = ['title', 'body', 'url', 'attachments', 'status'] as const;
+const NOT_ON_SHARED_NOTES = ['sourceTeamId', 'sourceNoteId', 'sourceState', 'source'] as const;
+
+export class SharedNoteFieldError extends TeamError {
+  constructor(fields: string[]) {
+    super('not_allowed', `${fields.join(', ')} of a saved team note ${fields.length > 1 ? 'belong' : 'belongs'} to its team. Edit it in the team.`);
+  }
+}
+
+export function assertPrivateNotePatch(input: Record<string, unknown>): void {
+  const refused = Object.keys(input).filter(
+    (key) => input[key] !== undefined && ((SHARED_NOTE_FIELDS as readonly string[]).includes(key) || (NOT_ON_SHARED_NOTES as readonly string[]).includes(key)),
+  );
+  if (refused.length) throw new SharedNoteFieldError(refused);
+}
+
+export function getNoteProjection(teamId: string, sourceNoteId: string): NoteRecord | null {
+  const row = getDb().select().from(notes).where(and(eq(notes.sourceTeamId, teamId), eq(notes.sourceNoteId, sourceNoteId))).get();
+  return row ? hydrateRow(row) : null;
+}
+
+export function listNoteProjections(teamId: string): NoteRecord[] {
+  return getDb().select().from(notes).where(eq(notes.sourceTeamId, teamId)).all().map((row) => hydrateRow(row));
+}
+
+/**
+ * Save or refresh a team note in My Ri from what its team says, one row per
+ * team note. Once it's no longer saved (removed, or gone at the team) it
+ * rests archived with its title and private organization, and none of the
+ * team's text.
+ */
+export function saveNoteProjection(input: {
+  teamId: string;
+  sourceNoteId: string;
+  fields: SharedNoteFields;
+  source: SharedNoteSource;
+  state: SharedSourceState;
+}): NoteRecord {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const kept = input.state === 'active';
+  const shared = { title: input.fields.title, body: kept ? input.fields.body : '', url: kept ? input.fields.url : null };
+  const row = inEntityTx(() => {
+    const existing = db.select().from(notes).where(and(eq(notes.sourceTeamId, input.teamId), eq(notes.sourceNoteId, input.sourceNoteId))).get();
+    if (existing?.source && existing.source.updatedAt > input.source.updatedAt) return hydrateRow(existing);
+    const saved = existing
+      ? db.update(notes)
+        .set({ ...shared, status: kept ? 'active' : 'archived', sourceState: input.state, source: input.source, updatedAt: now })
+        .where(eq(notes.id, existing.id))
+        .returning()
+        .get()
+      : db.insert(notes)
+        .values({
+          id: uuidv7(),
+          ...shared,
+          status: kept ? 'active' : 'archived',
+          attachments: [],
+          contextTags: [],
+          createdAt: now,
+          updatedAt: now,
+          sourceTeamId: input.teamId,
+          sourceNoteId: input.sourceNoteId,
+          sourceState: input.state,
+          source: input.source,
+        })
+        .returning()
+        .get();
+    projectEntityLinksInline('note', saved.id, [saved.body]);
+    return hydrateRow(saved);
+  });
+  teamContentChanged();
+  void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
+  void syncEntity('note', row.id);
+  return row;
+}
+
+/**
+ * A team this home can no longer read (its key refused, or the person
+ * disconnected it): its shared content cached here goes, and the private
+ * planning stays, labelled source unavailable (§9.4). Each task keeps its
+ * title so its private planning still says what it was for.
+ */
+export function releaseTeamContent(teamId: string): void {
+  teamContentChanged();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const taskIds = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.sourceTeamId, teamId)).all();
+  for (const { id } of taskIds) {
+    const row = inEntityTx(() => {
+      const current = db.select({ status: tasks.status }).from(tasks).where(eq(tasks.id, id)).get();
+      if (!current) return null;
+      const updated = hydrateRow(db
+        .update(tasks)
+        .set({
+          description: null,
+          body: null,
+          outcome: null,
+          attachments: [],
+          sourceState: 'unavailable',
+          ...(current.status !== 'archived' ? { status: 'archived' as const, statusChangedAt: now, statusChangedCount: sql`${tasks.statusChangedCount} + 1` } : {}),
+          updatedAt: now,
+        })
+        .where(eq(tasks.id, id))
+        .returning()
+        .get());
+      projectEntityLinksInline('task', id, [null, null]);
+      // Older builds captured cached team text when private planning changed.
+      // Clear just that text, retaining titles and private planning history.
+      db.update(entityVersions)
+        .set({ snapshot: sql`json_set(${entityVersions.snapshot}, '$.body', '', '$.description', NULL, '$.outcome', NULL)` })
+        .where(and(eq(entityVersions.entityType, 'task'), eq(entityVersions.entityId, id)))
+        .run();
+      return updated;
+    });
+    if (!row) continue;
+    void upsertEmbedding('task', row.id, buildEmbeddingText('task', row));
+    void syncEntity('task', row.id);
+  }
+  const noteIds = db.select({ id: notes.id }).from(notes).where(eq(notes.sourceTeamId, teamId)).all();
+  for (const { id } of noteIds) {
+    const row = inEntityTx(() => {
+      const updated = hydrateRow(db
+        .update(notes)
+        .set({ body: '', url: null, attachments: [], sourceState: sql`CASE WHEN ${notes.sourceState} = 'released' THEN 'released' ELSE 'unavailable' END`, status: 'archived', updatedAt: now })
+        .where(eq(notes.id, id))
+        .returning()
+        .get());
+      projectEntityLinksInline('note', id, ['']);
+      db.update(entityVersions)
+        .set({ snapshot: sql`json_set(${entityVersions.snapshot}, '$.body', '', '$.url', NULL)` })
+        .where(and(eq(entityVersions.entityType, 'note'), eq(entityVersions.entityId, id)))
+        .run();
+      return updated;
+    });
+    void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
+    void syncEntity('note', row.id);
+  }
 }
 
 export function renameMember(id: string, name: string): MemberRecord {
@@ -7136,12 +7559,13 @@ export function moveFolderRecords(): { setups: number; links: number; settled: s
 function insertApiKey(
   tx: Pick<ReturnType<typeof getDb>, 'insert'>,
   input: CreateApiKeyInput,
+  suppliedToken?: GeneratedToken,
 ): { key: ApiKeyRecord; token: GeneratedToken } {
   const now = new Date().toISOString();
   // Defer to getTokenEnv() (env-aware: 'test' only under AUTH_TOKEN_ENV=test,
   // else 'live') rather than hardcoding 'live', which would mislabel keys minted
   // in a test environment. An explicit input.env still wins.
-  const token = generateToken(input.env);
+  const token = suppliedToken ?? generateToken(input.env);
   const key = tx
     .insert(apiKeys)
     .values({
@@ -8766,11 +9190,15 @@ export function createExecutionWithChat(params: {
     // and association together — never an orphan or a taskless launch.
     if (params.startTask) {
       const { taskId, idempotencyKey } = params.startTask;
-      const t = tx.select({ status: tasks.status, count: tasks.statusChangedCount }).from(tasks).where(eq(tasks.id, taskId)).get();
+      const t = tx.select({ status: tasks.status, count: tasks.statusChangedCount, sourceTeamId: tasks.sourceTeamId }).from(tasks).where(eq(tasks.id, taskId)).get();
       if (!t) throw new TaskLifecycleError('not_found', `Task ${taskId} not found.`);
       const status = normalizeTaskStatus(t.status);
       const already = tx.select({ id: executionTasks.id }).from(executionTasks).where(and(eq(executionTasks.executionId, executionId), eq(executionTasks.taskId, taskId))).get();
       if (!already) tx.insert(executionTasks).values({ id: uuidv7(), executionId, taskId }).run();
+      // A shared task's status is its team's: starting work with an agent
+      // links the chat here, privately, and moves nothing at the team
+      // (docs/homes-spec.md §9.5). The person updates shared status deliberately.
+      if (t.sourceTeamId) return { execution, session };
       if (status !== 'in_progress') {
         if (status !== 'consider' && status !== 'todo') {
           throw new TaskLifecycleError('conflict', `Task ${taskId} is ${status}; it cannot be started.`, { from: status });

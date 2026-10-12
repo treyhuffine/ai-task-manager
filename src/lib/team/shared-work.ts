@@ -16,7 +16,8 @@
  */
 
 import type { RequestKey } from '@/lib/auth/request-key';
-import { getMember, TeamError, type EntityVersionMeta, type LifecycleActorMeta } from '@/lib/db/queries';
+import { getApiKey, getDevice, getMember, TeamError, type EntityVersionMeta, type LifecycleActorMeta } from '@/lib/db/queries';
+import type { EntityVersionSource } from '@/db/types';
 import { isTeamAuthority } from '@/lib/home/authority';
 
 /** Who is acting on shared work: the owner of a personal home, or a team member. */
@@ -31,8 +32,22 @@ export function sharedCaller(key: RequestKey | null): SharedCaller {
 }
 
 /** Provenance for a version: a person acting through the app. */
-export function versionMeta(caller: SharedCaller): EntityVersionMeta {
-  return caller.team ? { source: 'human', actorMemberId: caller.memberId } : { source: 'human' };
+export function versionMeta(caller: SharedCaller, source: EntityVersionSource = 'human'): EntityVersionMeta {
+  return caller.team ? { source, actorMemberId: caller.memberId } : { source: 'human' };
+}
+
+/**
+ * A connected personal home relays its authenticated actor's source, without
+ * disclosing an agent or session identity. Only a member's service sign-in
+ * can relay it. The wire has no option to override a known agent as human.
+ */
+export function teamWriteSource(key: RequestKey | null, source?: Exclude<EntityVersionSource, 'human'>): EntityVersionSource {
+  if (source === undefined) return 'human';
+  if (!sharedCaller(key).team || !key) throw new TeamError('not_allowed', 'Only a connected personal home can relay an actor source.');
+  const apiKey = getApiKey(key.apiKeyId);
+  const device = apiKey?.deviceId ? getDevice(apiKey.deviceId) : null;
+  if (!apiKey || apiKey.memberId !== key.memberId || device?.kind !== 'service') throw new TeamError('not_allowed', 'Only a connected personal home can relay an actor source.');
+  return source;
 }
 
 export function lifecycleMeta(caller: SharedCaller, base: Omit<LifecycleActorMeta, 'source' | 'actorMemberId'> = {}): LifecycleActorMeta {

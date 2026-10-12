@@ -237,6 +237,42 @@ describe('combine', () => {
   });
 });
 
+describe('merging into shared team work', () => {
+  it("never writes a capture into a team's text, and still allows a private subtask", async () => {
+    const { q } = await setup();
+    q.saveTeamConnection({ id: 'team-1', name: 'Acme', address: 'https://acme.example', memberId: 'm-1', memberName: 'Maya', role: 'member' });
+    const now = new Date().toISOString();
+    const task = q.saveTaskProjection({
+      teamId: 'team-1', sourceTaskId: 'team-task',
+      fields: { title: 'Fix the login loop', description: null, body: 'Team text.', outcome: null, hardDeadline: null, status: 'todo' },
+      source: { assigned: true, addedAt: null, bodyRevision: 1, statusChangedCount: 0, updatedAt: now, syncedAt: now, area: null, assignee: null },
+      state: 'active',
+    });
+    const note = q.saveNoteProjection({
+      teamId: 'team-1', sourceNoteId: 'team-note', fields: { title: 'Launch plan', body: 'Team note.', url: null },
+      source: { addedAt: now, bodyRevision: 1, updatedAt: now, syncedAt: now, area: null }, state: 'active',
+    });
+    const item = q.createStream({ rawText: 'my private hunch about the login loop' });
+
+    expect(() => q.recordTriageDecisionAndApply(
+      { disposition: 'merge_task', streamItemIds: [item.id], targetType: 'task', targetId: task.id, actor: 'agent' }, 'executed',
+    )).toThrowError(/shared with a team/);
+    expect(() => q.recordTriageDecisionAndApply(
+      { disposition: 'merge_note', streamItemIds: [item.id], targetType: 'note', targetId: note.id, actor: 'agent' }, 'executed',
+    )).toThrowError(/saved from a team/);
+    expect(q.getTask(task.id)!.body).toBe('Team text.');
+    expect(q.getNote(note.id)!.body).toBe('Team note.');
+
+    const sub = q.recordTriageDecisionAndApply(
+      { disposition: 'merge_task', streamItemIds: [item.id], targetType: 'task', targetId: task.id, draft: { asSubtask: true }, actor: 'agent' }, 'executed',
+    );
+    const subtasks = q.listTasks({ parentId: task.id });
+    expect(subtasks).toHaveLength(1);
+    expect(subtasks[0].sourceTeamId).toBeNull();
+    expect(sub).toBeTruthy();
+  });
+});
+
 describe('merge concurrency guard', () => {
   it('rejects a stale expectedTargetUpdatedAt with conflict', async () => {
     const { q } = await setup();

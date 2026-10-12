@@ -1,3 +1,4 @@
+import '@/test/fixtures/offline-local-apps';
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

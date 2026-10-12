@@ -97,6 +97,7 @@ export interface DeckItem {
   subtasks?: SubtaskItem[];
   continuityContext?: string; // "Last session: got OAuth working"
   manuallyAdded?: boolean;    // True when user added via quick-add
+  sourceTeamId?: string | null; // A shared task's team (docs/homes-spec.md §3.2)
 }
 
 /** An item the AI surfaced on radar */
@@ -130,6 +131,7 @@ export interface AlternativeItem {
   effort?: string;
   reason: string;             // Why it wasn't included
   taskId: string;
+  sourceTeamId?: string | null; // A shared task's team (docs/homes-spec.md §3.2)
 }
 
 /**

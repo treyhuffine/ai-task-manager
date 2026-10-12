@@ -5,6 +5,7 @@ import { useTasks, useTaskAttention } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { TaskBadges } from '@/components/tasks/task-badges';
+import { TeamLabel } from '@/components/spaces/team-label';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button';
 import type { TaskAttentionSignals } from '@/db/types';
@@ -58,6 +59,7 @@ export function CurrentWorkSection() {
             <button onClick={() => openTask(task.id)} className="min-w-0 flex-1 text-left">
               <span className="block truncate text-[12px] font-medium text-foreground">{task.title || 'Untitled'}</span>
               <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                <TeamLabel teamId={task.sourceTeamId} />
                 <TaskBadges signals={attention?.[task.id]} size="xs" />
                 {task.parentId && (
                   <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground">

@@ -22,6 +22,8 @@ import { useTeamMembers } from './use-team';
 import { MemberAvatar } from './member-avatar';
 import { SaveStatus, SharedBodyState, useSharedBody } from './shared-body-editor';
 import { TeamAreaSelect } from './team-areas';
+import { MyWorkControl, SaveNoteControl } from '@/components/spaces/my-work-control';
+import { TeamPublishedResults } from '@/components/spaces/published-results';
 
 /** A shared task or note, open beside the board or list. */
 export function TeamDetail() {
@@ -69,6 +71,7 @@ function TeamTaskPanel({ id }: { id: string }) {
         <Audience />
         <div className="flex-1" />
         <SaveStatus status={shared.status} />
+        <MyWorkControl taskId={task.id} />
         <HistoryButton kind="task" id={task.id} bodyRevision={task.bodyRevision} />
         <MoreMenu
           canDelete={member.role === 'owner'}
@@ -135,6 +138,9 @@ function TeamTaskPanel({ id }: { id: string }) {
             }
           />
         )}
+        <div className="mt-6">
+          <TeamPublishedResults taskId={task.id} />
+        </div>
       </div>
     </div>
   );
@@ -156,6 +162,7 @@ function TeamNotePanel({ id }: { id: string }) {
         <Audience />
         <div className="flex-1" />
         <SaveStatus status={shared.status} />
+        <SaveNoteControl noteId={note.id} />
         <HistoryButton kind="note" id={note.id} bodyRevision={note.bodyRevision} />
         <MoreMenu
           canDelete={member.role === 'owner'}

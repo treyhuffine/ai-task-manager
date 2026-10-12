@@ -15,6 +15,7 @@ import { NextRequest } from 'next/server';
 import { getAttachmentsDir } from '@/lib/config/paths';
 import { resolveMime } from '@/lib/attachments/mime';
 import { withCompression } from '@/lib/api/compression';
+import { UNTRUSTED_DOCUMENT_HEADERS } from '@/lib/attachments/delivery';
 
 /** Reject anything that isn't a bare `<uuid>.<ext>` filename. */
 const SAFE_FILENAME_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/;
@@ -63,10 +64,7 @@ async function handleGET(
         'Content-Length': String(bytes.byteLength),
         // Uploaded documents never inherit the application's script authority.
         // SVG still renders as an image, including its own inline styles.
-        'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'",
-        'X-Content-Type-Options': 'nosniff',
-        'Referrer-Policy': 'no-referrer',
-        'Cross-Origin-Resource-Policy': 'same-origin',
+        ...UNTRUSTED_DOCUMENT_HEADERS,
         // UUIDv7 filenames are content-stable; safe to cache aggressively.
         'Cache-Control': 'private, max-age=31536000, immutable',
       },

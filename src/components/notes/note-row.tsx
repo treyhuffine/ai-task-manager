@@ -1,8 +1,10 @@
 "use client";
 
 import {
-  ExternalLink, Archive, MoreHorizontal,
+  ExternalLink, Archive, MoreHorizontal, X,
 } from 'lucide-react';
+import { TeamLabel } from '@/components/spaces/team-label';
+import { removeFromMyNotes } from '@/components/spaces/my-work';
 import { NoteIcon } from '@/components/shared/note-icon';
 import {
   DropdownMenu,
@@ -84,6 +86,7 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
 
         {/* Metadata row */}
         <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+          <TeamLabel teamId={note.sourceTeamId} />
           <AreaSelect
             value={note.areaId}
             onChange={(areaId) => onUpdate(note.id, 'areaId', areaId)}
@@ -123,7 +126,7 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
               <MoreHorizontal size={14} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-36">
+          <DropdownMenuContent align="end" className="w-48">
             {note.url && (
               <DropdownMenuItem asChild className="text-xs">
                 <a href={note.url} target="_blank" rel="noopener noreferrer">
@@ -132,12 +135,22 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
               </DropdownMenuItem>
             )}
             {note.url && <DropdownMenuSeparator />}
-            <DropdownMenuItem
-              onClick={() => onArchive(note.id)}
-              className="text-xs text-destructive"
-            >
-              <Archive size={12} className="mr-2" /> Archive
-            </DropdownMenuItem>
+            {/* A saved team note is the team's: it leaves your notes, not the team. */}
+            {note.sourceTeamId && note.sourceNoteId ? (
+              <DropdownMenuItem
+                onClick={(e) => { e.stopPropagation(); void removeFromMyNotes(note.sourceTeamId!, note.sourceNoteId!); }}
+                className="text-xs"
+              >
+                <X size={12} className="mr-2" /> Remove from my notes
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                onClick={() => onArchive(note.id)}
+                className="text-xs text-destructive"
+              >
+                <Archive size={12} className="mr-2" /> Archive
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

@@ -15,6 +15,8 @@ import { WebAppBootstrap } from '@/components/settings/phone-install';
 import { QuickCaptureHost } from '@/components/dashboard/quick-capture-host';
 import { TeamRoot } from '@/components/team/team-root';
 import { isTeamPage } from '@/lib/team/page-authority';
+import { spacePage } from '@/lib/spaces/page';
+import { SpaceRoot } from '@/components/spaces/space-root';
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -35,14 +37,29 @@ export default async function RootLayout({
   // chrome, capture or personal banners, which all reach personal routes
   // (docs/homes-spec.md §3.2, §9.2).
   const team = await isTeamPage();
+  // A team's space inside My Ri (`/space/<team>`, P7.1) is the team's own
+  // app, its API reached through this home, so nothing personal mounts in
+  // it either.
+  const space = team ? null : await spacePage();
   return (
-    <html lang="en" className={`${inter.variable} dark`} data-ri-authority={team ? 'team' : 'personal'}>
+    <html
+      lang="en"
+      className={`${inter.variable} dark`}
+      data-ri-authority={team ? 'team' : space ? 'space' : 'personal'}
+      {...(space ? { 'data-ri-space': space.id } : {})}
+    >
       <body className="antialiased">
         <QueryProvider>
           {team ? (
             <TipProvider>
               <ConfirmProvider>
                 <TeamRoot>{children}</TeamRoot>
+              </ConfirmProvider>
+            </TipProvider>
+          ) : space ? (
+            <TipProvider>
+              <ConfirmProvider>
+                <SpaceRoot space={space}>{children}</SpaceRoot>
               </ConfirmProvider>
             </TipProvider>
           ) : (

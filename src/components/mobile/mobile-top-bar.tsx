@@ -2,6 +2,7 @@
 
 import { Search, Zap } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { SpaceSelector } from '@/components/spaces/space-selector';
 
 export function MobileTopBar() {
   const { setQuickCaptureOpen } = useDashboard();
@@ -14,6 +15,8 @@ export function MobileTopBar() {
       className="flex-shrink-0 px-3 pb-2 bg-background flex items-center gap-2"
       style={{ paddingTop: 'max(env(safe-area-inset-top), 0.75rem)' }}
     >
+      {/* My Ri and its teams, once one is connected (docs/homes-spec.md §3.2). */}
+      <SpaceSelector variant="collapsed" />
       <button
         onClick={() => document.dispatchEvent(new CustomEvent('open-search'))}
         className="flex-1 h-10 flex items-center gap-2.5 px-3.5 rounded-lg border border-border text-muted-foreground active:bg-muted/60 transition-colors"

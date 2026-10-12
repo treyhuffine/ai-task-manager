@@ -50,8 +50,8 @@ function handleFor(cwd: string) {
 
 const sync = (cwd: string) => readBranchSync(cwd, { baseBranch: 'main', remoteName: null });
 
-beforeEach(() => {
-  resetRefreshThrottle();
+beforeEach(async () => {
+  await resetRefreshThrottle();
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'branch-sync-'));
   remote = path.join(root, 'remote.git');
   git(root, 'init', '-q', '--bare', '-b', 'main', remote);
@@ -67,7 +67,8 @@ beforeEach(() => {
   clone(other);
 }, TIMEOUT_MS);
 
-afterEach(() => {
+afterEach(async () => {
+  await resetRefreshThrottle();
   fs.rmSync(root, { recursive: true, force: true });
 }, TIMEOUT_MS);
 

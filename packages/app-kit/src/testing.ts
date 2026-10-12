@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import {createRequire} from 'node:module';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {build} from 'esbuild';
 import path from "node:path";
 import { AppError, publicError, type AppContract, type AppManifest } from "./contract.js";
@@ -8,8 +10,10 @@ import {
   NativeNodeDriver,
   type HostServices,
   type RuntimeEvent,
+  runtimeEnvironment,
 } from "./runtime.js";
-import { validateArtifact,prepareHtml } from "./build.js";
+import { validateArtifact,prepareHtml,appKitToolchain,type buildPackage } from "./build.js";
+import {writeAppTemplate} from './templates.js';
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -20,6 +24,46 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { InstalledArtifact } from "./runtime.js";
+
+/**
+ * Host lifecycle fixtures share the production template, compiler and SDK.
+ * They use checkout dependencies and run the compiler directly. Dependency
+ * installation and build-owner containment remain separate kit-boundary tests.
+ * Production createAppTemplate/buildPackage retain their installer and runner.
+ */
+export async function createOfflineAppTemplate(dir: string, profile: 'react' | 'html' | 'static', id: string) {
+  await writeAppTemplate(dir, profile, id, '0.1.0');
+}
+
+export async function buildOfflineAppFixture(options: Parameters<typeof buildPackage>[0]) {
+  const {packageDir: kit} = appKitToolchain();
+  const require = createRequire(path.join(kit, 'package.json'));
+  const modules = path.join(options.packageDir, 'node_modules');
+  fs.mkdirSync(path.join(modules, '@ri'), {recursive: true});
+  for (const [name, target] of [
+    ['@ri/app-kit', kit],
+    ...['zod', 'react', 'react-dom'].map(name => [name, path.dirname(require.resolve(`${name}/package.json`))]),
+  ]) {
+    const link = path.join(modules, name);
+    if (!fs.existsSync(link)) fs.symlinkSync(target, link, 'dir');
+  }
+  const node = (options.driver as {nodeExecutable?: string}).nodeExecutable;
+  if (!node) throw new Error('The fixture needs the build driver’s pinned Node');
+  try {
+    const result = await promisify(execFile)(node, [
+      path.join(kit, 'dist/build-worker.js'), options.packageDir, JSON.stringify(options.workflows ?? []),
+    ], {
+      cwd: options.packageDir, env: runtimeEnvironment(node, options.packageDir),
+      signal: options.signal, timeout: 30_000, maxBuffer: 1024 * 1024,
+    });
+    options.onOutput?.(result.stdout + result.stderr);
+  } catch (error) {
+    options.onOutput?.((error as {stderr?: string}).stderr ?? String(error));
+    throw error;
+  }
+  return validateArtifact(options.packageDir);
+}
+
 /** Network-free guest shared by real browser and Electron containment qualification. */
 export async function containmentViewFixture() {
   const require=createRequire(import.meta.url);

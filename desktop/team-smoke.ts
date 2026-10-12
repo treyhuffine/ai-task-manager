@@ -16,10 +16,11 @@
  *      the welcome, and the team hosted here still opens from it.
  *
  * With --personal, a desktop that already holds a personal Ri, with an
- * unsaved draft open in it, creates a team from the Window menu (and with
- * --join, joins one there too). The team opens in its own window, the setup
- * page steps aside, and the personal Ri's page, draft, data, Home choice and
- * service are exactly as they were.
+ * unsaved draft open in it, creates a team from the Window menu: it opens in
+ * its own window, the setup page steps aside, and the personal Ri's page,
+ * draft, data, Home choice and service are exactly as they were. With --join,
+ * Join a Team… joins inside My Ri, in Settings, Teams, which adds the team's
+ * connection and moves nothing else personal.
  *
  * Every service it started is stopped at the end.
  *
@@ -319,31 +320,30 @@ async function runPersonal() {
   if (joinOrigin) {
     const invite = process.env.RI_TEAM_SMOKE_INVITE;
     assert.ok(invite, 'Set RI_TEAM_SMOKE_INVITE to an invitation link from the --join team');
+    // With a personal Ri here, Join a Team… joins inside it, in Settings,
+    // Teams, so the team's work comes to My Ri (docs/homes-spec.md §3.1, P7.1).
     await menu('Join a Team…');
-    const join = await companion();
-    await join.until(`!document.getElementById('connect').hidden`, 10_000, 'the link form');
-    assert.equal(await join.evaluate<string>(`document.getElementById('heading').textContent`), 'Join a team');
+    await app.until(`location.search.includes('settings=teams') && ${text('Paste an invitation')}`, 60_000, 'Settings, Teams in My Ri');
+    const typeInto = (selector: string, entered: string) =>
+      `(() => { const el = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(entered)}); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`;
+    await app.evaluate(typeInto('input[placeholder^="https://"]', invite));
     if (refusesPlainHttp) {
-      await refusedPlainHttp(join, invite);
-      await untouched('refusing a link');
-      join.close();
+      await app.until(text(PLAIN_HTTP_REFUSED), 30_000, 'the plain HTTP refusal');
+      passed('a production Ri refuses a plain HTTP invitation and says why');
       app.close();
       return;
     }
-    await join.evaluate(value('pairing', invite));
-    await join.until(`!document.getElementById('link-destination').hidden`, 30_000, "the invitation's destination");
-    assert.equal(await join.evaluate<boolean>(`document.getElementById('run-work-label').hidden`), true);
-    await join.evaluate(value('member-name', 'Bo'));
-    await join.screenshot(path.join(fixture.base, 'personal-join-team.png'));
-    await join.evaluate(click('connect-home'));
-    const joined = await teamRenderer((url) => url.origin === new URL(joinOrigin).origin);
-    await joined.until(text('Task Board'), 120_000, "the joined team's Task Board");
-    join.close();
-    await setupStepsAside();
-    passed('joined a team from Join a Team…, beside the personal Ri');
-    await untouched('joining a team');
-    passed('the personal Ri is still as it was');
-    joined.close();
+    await app.until(text('Invitation to join'), 30_000, "the invitation's destination");
+    await app.until(text('Your assigned tasks will appear in My Ri. Your personal work stays private.'), 10_000, 'what joining means');
+    await app.evaluate(typeInto('input[autocomplete="name"]', 'Bo'));
+    await app.screenshot(path.join(fixture.base, 'personal-join-team.png'));
+    await app.evaluate(`([...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Join team').click(), true)`);
+    await app.until(text('You are Bo, a member.'), 60_000, 'the team connected to My Ri');
+    passed('joined a team inside My Ri from Join a Team…');
+    // Joining adds the team's connection and nothing else personal moves.
+    assert.equal(await app.evaluate<string>(`localStorage.getItem('ri:document-draft:v1:team-smoke')`), 'Unsaved words');
+    assert.equal(await personalState(), before, 'The personal Ri changed after joining a team');
+    passed('its tasks, notes, devices, keys, Home choice, service and draft are as they were');
   }
   app.close();
 }

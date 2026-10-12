@@ -3,6 +3,7 @@ import { completeTask, getTask, lifecyclePreflight, transitionTask } from '@/lib
 import { coordinateLifecycleChange, type RuntimeChoice, type ScopeChange } from '@/lib/sessions/workstream';
 import { inProcessWorkstreamRuntime } from '@/lib/sessions/workstream-runtime';
 import { TaskLifecycleError, type TransitionCommand } from './lifecycle';
+import type { EntityVersionSource } from '@/db/types';
 
 export interface ViewerLifecycleOptions {
   idempotencyKey?: string;
@@ -19,6 +20,7 @@ export interface ViewerLifecycleOptions {
  */
 export interface TeamLifecycleActor {
   memberId: string;
+  source?: EntityVersionSource;
 }
 
 /** Shared REST/tRPC behavior. Validate before touching a running workstream,
@@ -32,7 +34,7 @@ export async function completeTaskForViewer(id: string, opts: ViewerLifecycleOpt
     change: { taskId: id, taskTitle: task.title ?? '', action: 'completed' },
     acknowledgedExecutionIds: opts.acknowledgedExecutionIds, runtime: inProcessWorkstreamRuntime,
   });
-  const result = completeTask(id, { ...opts, meta: { source: 'human', actorMemberId: member?.memberId ?? null } });
+  const result = completeTask(id, { ...opts, meta: { source: member?.source ?? 'human', actorMemberId: member?.memberId ?? null } });
   if (!result) throw new TaskLifecycleError('not_found', 'Task not found');
   return result;
 }
@@ -58,6 +60,6 @@ export async function transitionTaskForViewer(
   }
   return transitionTask({
     taskId: id, command, ...opts, idempotencyKey,
-    meta: { source: 'human', actorMemberId: member?.memberId ?? null, reason: opts.reason ?? null },
+    meta: { source: member?.source ?? 'human', actorMemberId: member?.memberId ?? null, reason: opts.reason ?? null },
   });
 }

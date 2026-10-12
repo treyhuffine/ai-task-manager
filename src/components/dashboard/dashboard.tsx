@@ -29,6 +29,7 @@ import { useRailContextHydrate } from '@/hooks/use-rail-context-hydrate';
 import { useGlobalSessionStream } from '@/hooks/use-global-session-stream';
 import { cn } from '@/lib/utils';
 import { useViewportTier } from '@/hooks/use-viewport-tier';
+import { useTeamRefresh } from '@/components/spaces/use-team-refresh';
 
 function DashboardShell() {
   const {
@@ -58,6 +59,8 @@ function DashboardShell() {
   // background sessions, with the rail poll as a safety net.
   useRailContextHydrate();
   useGlobalSessionStream();
+  // Connected teams' work, read again when someone comes back (P7.2).
+  useTeamRefresh();
 
   // Keep a ref so the keyboard handler can read `isExecutionView`
   // without re-binding on every navigation.

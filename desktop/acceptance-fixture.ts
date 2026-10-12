@@ -128,6 +128,17 @@ export class AcceptanceFixture {
     // Empty values prevent Next from filling provider secrets back from a
     // source checkout's .env.local during isolated acceptance.
     for (const key of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GROQ_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'CODEX_API_KEY', 'BEAMD_API_KEY']) this.env[key] = '';
+    if (options.development) {
+      // These are functional acceptance checks, not typography checks. Keep
+      // Next's development compiler independent of the Google Fonts CDN.
+      // Packaged acceptance still uses the real font embedded by its build.
+      const fonts = path.join(this.base, 'font-responses.cjs');
+      fs.writeFileSync(fonts, `module.exports = ${JSON.stringify({
+        'https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap':
+          '@font-face { font-family: "Inter"; src: local("Arial"); font-style: normal; font-weight: 100 900; font-display: swap; }',
+      })};\n`);
+      this.env.NEXT_FONT_GOOGLE_MOCKED_RESPONSES = fonts;
+    }
     if (this.source) this.env.RI_DESKTOP_NODE = process.execPath;
     const manifest = layout && !this.source ? JSON.parse(fs.readFileSync(path.join(layout.resources, 'runtime-manifest.json'), 'utf8')) : undefined;
     this.report = {

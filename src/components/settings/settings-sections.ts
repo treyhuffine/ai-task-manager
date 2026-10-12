@@ -12,6 +12,7 @@ import {
   ListChecks,
   Download,
   HeartPulse,
+  Users,
   type LucideIcon,
 } from 'lucide-react';
 import { APP_NAME } from '@/constants/app';
@@ -35,6 +36,7 @@ export type SectionId =
   | 'plugins'
   | 'notifications'
   | 'devices'
+  | 'teams'
   | 'imports'
   | 'remote-preview'
   | 'updates';
@@ -67,6 +69,14 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     icon: MonitorSmartphone,
     title: 'Devices',
     description: 'Remote access URL, paired devices, and host-machine settings.',
+  },
+  {
+    // Teams this Ri works with (docs/homes-spec.md §3.1, §9.3).
+    id: 'teams',
+    label: 'Teams',
+    icon: Users,
+    title: 'Teams',
+    description: 'Shared work with other people. Your personal work stays private.',
   },
   {
     id: 'general',

@@ -160,6 +160,7 @@ async function resolveBaseTrackingRef(
 export const REFRESH_EVERY_MS = 90_000;
 // One per process, so a worktree refreshes once per interval whichever bundle asks.
 const lastRefresh = processState('workspaces.branch-refresh', () => new Map<string, number>());
+const activeRefreshes = processState('workspaces.branch-refresh-active', () => new Set<Promise<unknown>>());
 
 /**
  * Fetch the given remote-tracking refs, fire and forget. Never prompts for
@@ -179,11 +180,13 @@ function refreshInBackground(worktreePath: string, remotes: string[], refs: (str
     specsByRemote.set(split.remote, specs);
   }
   for (const [remote, specs] of specsByRemote) {
-    execFileAsync('git', ['fetch', '--quiet', '--no-tags', remote, ...specs], {
+    const refresh = execFileAsync('git', ['fetch', '--quiet', '--no-tags', remote, ...specs], {
       cwd: worktreePath,
       timeout: 30_000,
       env: sanitizeChildEnv({ GIT_TERMINAL_PROMPT: '0' }),
     }).catch(() => {});
+    activeRefreshes.add(refresh);
+    void refresh.finally(() => activeRefreshes.delete(refresh));
   }
 }
 
@@ -217,7 +220,8 @@ export async function pullUpstreamInto(
   await handle.git.mergeFrom(upstream, { strategy: opts.strategy });
 }
 
-/** Test seam: forget when each worktree was last refreshed. */
-export function resetRefreshThrottle(): void {
+/** Test seam: finish background writes before removing a fixture repository. */
+export async function resetRefreshThrottle(): Promise<void> {
+  await Promise.all(activeRefreshes);
   lastRefresh.clear();
 }

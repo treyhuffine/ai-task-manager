@@ -448,6 +448,46 @@ export const streamLinks = sqliteTable(
 
 // ─── Tasks ────────────────────────────────────────────────────
 
+/**
+ * Where a shared task or note in My Ri stands at its team. `active`: it's this
+ * person's to work on (assigned, or added deliberately). `released`: no
+ * longer assigned and never added, so it left their work. `unavailable`:
+ * deleted at the team, or the team can't be read any more. Private planning
+ * stays in every state.
+ */
+export const SHARED_SOURCE_STATES = ['active', 'released', 'unavailable'] as const;
+
+/** What the home last read of a shared task at its team. */
+export interface SharedTaskSource {
+  /** Assigned to this person at the last read. */
+  assigned: boolean;
+  /** When this person chose Add to my work, or null. */
+  addedAt: string | null;
+  /** The team's revision of the cached body, for revision-checked writes. */
+  bodyRevision: number;
+  /** The team's count of status changes, for status commands. */
+  statusChangedCount: number;
+  /** The team record's own last change. */
+  updatedAt: string;
+  /** When this home last read it. */
+  syncedAt: string;
+  area: { id: string; name: string } | null;
+  assignee: { id: string; name: string } | null;
+  /** When the team said the record no longer exists. A pass stops asking for it. */
+  goneAt?: string | null;
+}
+
+/** What the home last read of a shared note it saved. */
+export interface SharedNoteSource {
+  addedAt: string;
+  bodyRevision: number;
+  updatedAt: string;
+  syncedAt: string;
+  area: { id: string; name: string } | null;
+  /** When the team said the note no longer exists. A pass stops asking for it. */
+  goneAt?: string | null;
+}
+
 export const tasks = sqliteTable(
   'tasks',
   {
@@ -513,9 +553,19 @@ export const tasks = sqliteTable(
     // name the revision it edited, and is refused when the body moved on
     // since (docs/homes-spec.md §9.3, P6.4).
     bodyRevision: integer().notNull().default(0),
+    // A shared task in My Ri (docs/homes-spec.md §9.3, P7.2): its team and
+    // the team's own id for it, one row per pair. Its shared fields (title,
+    // description, body, outcome, status, deadline, attachments) cache the
+    // team's and change only through the team. The rest of the row is this
+    // person's private planning. Null for a personal task.
+    sourceTeamId: text().references((): AnySQLiteColumn => teamConnections.id),
+    sourceTaskId: text(),
+    sourceState: text({ enum: SHARED_SOURCE_STATES }),
+    source: text({ mode: 'json' }).$type<SharedTaskSource>(),
   },
   (table) => [
     index('idx_tasks_assignee').on(table.assigneeMemberId),
+    uniqueIndex('uniq_tasks_source').on(table.sourceTeamId, table.sourceTaskId).where(sql`${table.sourceTeamId} IS NOT NULL`),
     index('idx_tasks_status').on(table.status),
     index('idx_tasks_area_id').on(table.areaId),
     index('idx_tasks_workspace_id').on(table.workspaceId),
@@ -1095,6 +1145,40 @@ export const members = sqliteTable(
     uniqueIndex('uniq_members_creation').on(table.creationId).where(sql`${table.creationId} IS NOT NULL`),
   ],
 );
+
+// ─── Team connections (a personal home's view of its teams) ───
+// A personal home connects to a team space as one of its members
+// (docs/homes-spec.md §9.3, P7). The team is the authority for its shared
+// work. The home keeps which team, where it is and who this person is
+// there, plus a cache of the shared tasks and notes this person has, with
+// their private planning beside them. The key the home signs in with is
+// sealed under `<config>/teams`, never in this database. Always empty in a
+// team.
+//
+// Status is policy, so it has no schema default: the query layer sets it.
+
+export const TEAM_CONNECTION_STATUSES = ['active', 'revoked', 'disconnected'] as const;
+
+export const teamConnections = sqliteTable('team_connections', {
+  // The team's own home id: stable across its addresses and renames.
+  id: text().primaryKey(),
+  ...timestamps,
+  name: text().notNull(),
+  // Where the home reaches it (HTTPS).
+  address: text().notNull(),
+  // This person's member id there. Joining from My Ri and connecting an
+  // existing team sign-in both keep the same member.
+  memberId: text().notNull(),
+  memberName: text().notNull(),
+  role: text({ enum: MEMBER_ROLES }).notNull(),
+  // `revoked`: the team stopped accepting this home's key (removal or sign
+  // out), so nothing is fetched or written. `disconnected`: this person
+  // chose to stop. Either way the private planning stays.
+  status: text({ enum: TEAM_CONNECTION_STATUSES }).notNull(),
+  lastSyncedAt: text(),
+  lastError: text(),
+  lastErrorAt: text(),
+});
 
 // A team grant is a single-use secret that admits someone (§9.1, §3.1):
 //
@@ -2233,8 +2317,16 @@ export const notes = sqliteTable(
     lastViewedAt: text(),
     // Counts changes to `body`, as on tasks.
     bodyRevision: integer().notNull().default(0),
+    // A shared note this person saved in My Ri (docs/homes-spec.md §9.3,
+    // P7.4): a reference, never a second editable copy. Its body caches the
+    // team's, and edits go to the team. Null for a personal note.
+    sourceTeamId: text().references((): AnySQLiteColumn => teamConnections.id),
+    sourceNoteId: text(),
+    sourceState: text({ enum: SHARED_SOURCE_STATES }),
+    source: text({ mode: 'json' }).$type<SharedNoteSource>(),
   },
   (table) => [
+    uniqueIndex('uniq_notes_source').on(table.sourceTeamId, table.sourceNoteId).where(sql`${table.sourceTeamId} IS NOT NULL`),
     index('idx_notes_area_id').on(table.areaId),
     index('idx_notes_task_id').on(table.taskId),
     index('idx_notes_workspace_id').on(table.workspaceId),

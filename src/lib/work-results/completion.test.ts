@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { getDb, getRawDb, resetDb } from '@/lib/db';
 import { chatSessions, workResultDecisions, workResultTasks, taskCompletions, taskStatusChanges } from '@/lib/db/schema';
 import { attachExecutionToTask, createChatSession, createExecution, createTask, createWorkspace,
-  getTask, transitionTask } from '@/lib/db/queries';
+  getTask, saveTaskProjection, saveTeamConnection, transitionTask } from '@/lib/db/queries';
 import type { WorkResultActor, WorkResultCodeRevision } from '@/db/types';
 import { createWorkResult, createWorkResultDecision, getWorkResult } from './queries';
 import { setWorkResultCapabilities } from './capabilities';
@@ -108,6 +108,19 @@ describe('atomic exact-result acceptance and task completion', () => {
     const ideaResult = createWorkResult(human, { requestId: 'idea', body: 'An option to consider.', taskIds: [idea.id] }).result;
     expect(getWorkResultCompletionOptions(ideaResult.id).choices).toEqual([]);
     expect(() => acceptWorkResultAndCompleteTask(human, { ...input, resultId: ideaResult.id })).toThrow(/eligible linked task/);
+    // A task shared with a team completes at its team, never by accepting a personal result.
+    saveTeamConnection({ id: 'team-1', name: 'Acme', address: 'https://acme.example', memberId: 'm-1', memberName: 'Maya', role: 'member' });
+    const now = new Date().toISOString();
+    const shared = saveTaskProjection({
+      teamId: 'team-1', sourceTaskId: 'team-task',
+      fields: { title: 'Fix the login loop', description: null, body: null, outcome: null, hardDeadline: null, status: 'todo' },
+      source: { assigned: true, addedAt: null, bodyRevision: 1, statusChangedCount: 0, updatedAt: now, syncedAt: now, area: null, assignee: null },
+      state: 'active',
+    });
+    const sharedResult = createWorkResult(human, { requestId: 'shared', body: 'Fixed it.', taskIds: [shared.id] }).result;
+    expect(getWorkResultCompletionOptions(sharedResult.id).choices).toEqual([]);
+    expect(() => acceptWorkResultAndCompleteTask(human, { ...input, resultId: sharedResult.id })).toThrow(/eligible linked task/);
+    expect(getTask(shared.id)?.status).toBe('todo');
     expect(getDb().select().from(workResultDecisions).all()).toEqual([]);
     expect(getDb().select().from(taskCompletions).all()).toEqual([]);
   });

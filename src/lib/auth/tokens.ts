@@ -54,3 +54,10 @@ export function generateToken(env: TokenEnv = getTokenEnv()): GeneratedToken {
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
+
+/** A grant plus a private, high-entropy attempt can reproduce only its own sign-in. */
+export function teamAdmissionToken(secret: string, attemptId: string, env: TokenEnv = getTokenEnv()): GeneratedToken {
+  const random = createHash('sha256').update(JSON.stringify([APP_SHORT_ID, 'team-admission-v1', secret.trim(), attemptId])).digest('hex');
+  const plaintext = `${APP_SHORT_ID}_${env}_${random}`;
+  return { plaintext, prefix: random.slice(0, 6), suffix: random.slice(-4), hash: hashToken(plaintext), env };
+}

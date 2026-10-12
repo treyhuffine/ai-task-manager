@@ -33,7 +33,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea'
 import type { Editor } from '@tiptap/core'
 import type { Attachment } from '@/db/types'
-import { insertUploadedFiles } from './upload-files'
+import { insertUploadedFiles, type AttachmentStore } from './upload-files'
 
 const lowlight = createLowlight(common)
 
@@ -59,6 +59,8 @@ export interface RichEditorProps {
    *  server can populate attachment metadata (originalName, mimeType, size)
    *  on the entity's manifest without a cross-entity lookup. */
   onAttachment?: (attachment: Attachment) => void
+  /** Where dropped, pasted and picked files go, when not this Ri's own attachments. */
+  attachmentStore?: AttachmentStore
   /** Heading IDs that should be folded on initial render. Identity is `${ordinal}:${text}`
    *  — see collapsible-heading.tsx. Survives reorders/inserts; lost on rename or
    *  level change (toggle to re-set). */
@@ -77,6 +79,7 @@ export function RichEditor({
   autoFocus = false,
   hideFooter = false,
   onAttachment,
+  attachmentStore,
   foldedHeadings,
   onFoldedHeadingsChange,
   applyExternalContent,
@@ -88,6 +91,8 @@ export function RichEditor({
 
   const onAttachmentRef = useRef(onAttachment)
   onAttachmentRef.current = onAttachment
+  const attachmentStoreRef = useRef(attachmentStore)
+  attachmentStoreRef.current = attachmentStore
 
   const onFoldedChangeRef = useRef(onFoldedHeadingsChange)
   onFoldedChangeRef.current = onFoldedHeadingsChange
@@ -130,7 +135,7 @@ export function RichEditor({
       ToggleContent,
       Markdown,
       EntityLinkNode,
-      FileLinkNode,
+      FileLinkNode.configure({ getAttachmentUrl: (name) => attachmentStoreRef.current?.url(name) }),
       EntityLinkMenuExtension,
       Placeholder.configure({
         placeholder: ({ node, pos, editor }) => {
@@ -181,6 +186,7 @@ export function RichEditor({
       CharacterCount,
       SlashCommands.configure({
         getAttachmentHandler: () => onAttachmentRef.current,
+        getAttachmentStore: () => attachmentStoreRef.current,
       }),
       ListKeymap,
       DragHandle.configure({
@@ -234,7 +240,7 @@ export function RichEditor({
           top: (event as DragEvent).clientY,
         })
         const pos = coords?.pos ?? view.state.selection.to
-        void insertUploadedFiles(editor, files, pos, onAttachmentRef.current)
+        void insertUploadedFiles(editor, files, pos, onAttachmentRef.current, attachmentStoreRef.current)
         return true
       },
       handlePaste: (view, event) => {
@@ -245,7 +251,7 @@ export function RichEditor({
         if (files.length === 0) return false
         event.preventDefault()
         const pos = view.state.selection.to
-        void insertUploadedFiles(editor, files, pos, onAttachmentRef.current)
+        void insertUploadedFiles(editor, files, pos, onAttachmentRef.current, attachmentStoreRef.current)
         return true
       },
     },
@@ -397,6 +403,8 @@ export interface NoteEditorProps {
   metadata?: React.ReactNode
   /** Forwarded to the inner RichEditor — see RichEditorProps.onAttachment. */
   onAttachment?: (attachment: Attachment) => void
+  /** Forwarded to the inner RichEditor: where its files go. */
+  attachmentStore?: AttachmentStore
   /** See RichEditorProps.foldedHeadings / onFoldedHeadingsChange. */
   foldedHeadings?: readonly string[]
   onFoldedHeadingsChange?: (folded: string[]) => void
@@ -412,6 +420,7 @@ export function NoteEditor({
   disabled = false,
   metadata,
   onAttachment,
+  attachmentStore,
   foldedHeadings,
   onFoldedHeadingsChange,
   applyExternalContent,
@@ -484,6 +493,7 @@ export function NoteEditor({
           autoFocus={autoFocusTitle ? false : 'start'}
           hideFooter={hideFooter}
           onAttachment={onAttachment}
+          attachmentStore={attachmentStore}
           foldedHeadings={foldedHeadings}
           onFoldedHeadingsChange={onFoldedHeadingsChange}
         />

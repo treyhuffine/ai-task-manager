@@ -80,6 +80,20 @@ const ROUTES: RouteEntry[] = [
     params: ['id'],
     load: () => import('@/app/api/devices/[id]/harnesses/route') as Promise<RouteModule>,
   },
+  // The typed API, and a team's own routes for a team served this way
+  // (team-process.ts).
+  { pattern: /^\/api\/trpc\/(.+)$/, params: ['trpc'], load: () => import('@/app/api/trpc/[trpc]/route') as Promise<RouteModule> },
+  { pattern: /^\/api\/session$/, load: () => import('@/app/api/session/route') as Promise<RouteModule> },
+  { pattern: /^\/api\/team\/public\/info$/, load: () => import('@/app/api/team/public/info/route') as Promise<RouteModule> },
+  { pattern: /^\/api\/team\/public\/preview$/, load: () => import('@/app/api/team/public/preview/route') as Promise<RouteModule> },
+  { pattern: /^\/api\/team\/public\/join$/, load: () => import('@/app/api/team/public/join/route') as Promise<RouteModule> },
+  { pattern: /^\/api\/team\/public\/sign-in$/, load: () => import('@/app/api/team/public/sign-in/route') as Promise<RouteModule> },
+  { pattern: /^\/api\/attachments$/, load: () => import('@/app/api/attachments/route') as Promise<RouteModule> },
+  {
+    pattern: /^\/api\/attachments\/([^/]+)$/,
+    params: ['fileName'],
+    load: () => import('@/app/api/attachments/[fileName]/route') as Promise<RouteModule>,
+  },
 ];
 
 export interface HomeServer {
@@ -134,7 +148,7 @@ export async function startHomeServer(opts: { port?: number } = {}): Promise<Hom
     const controller = new AbortController();
     res.on('close', () => controller.abort());
     try {
-      const url = `http://127.0.0.1${req.url ?? '/'}`;
+      const url = `http://${req.headers.host ?? '127.0.0.1'}${req.url ?? '/'}`;
       const method = req.method ?? 'GET';
       const body = await readBody(req);
       const headers = new Headers();

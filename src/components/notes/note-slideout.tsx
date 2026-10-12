@@ -9,6 +9,8 @@ import { LinkedReferences } from '@/components/shared/linked-references'
 import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes'
 import { HOTKEYS, matchesHotkey } from '@/constants/commands'
 import { AreaSelect } from '@/components/shared/area-select'
+import { SharedNoteBody } from '@/components/spaces/shared-note-body'
+import { removeFromMyNotes } from '@/components/spaces/my-work'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -55,7 +57,10 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   // pref decides the starting view, the header toggle flips it for this note.
   const { agentFirst } = useEntityViewMode()
   const [viewOverride, setViewOverride] = useState<{ id: string; view: EntityViewMode } | null>(null)
-  const view = resolveEntityView(agentFirst, viewOverride, noteId)
+  // A saved team note (docs/homes-spec.md §9.3) is the team's to edit: it
+  // opens as a reference, with no document chat writing it.
+  const shared = !!note?.sourceTeamId
+  const view = shared ? 'editor' : resolveEntityView(agentFirst, viewOverride, noteId)
   const setView = useCallback(
     (next: EntityViewMode) => { if (noteId) setViewOverride({ id: noteId, view: next }) },
     [noteId],
@@ -244,8 +249,8 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
             </div>
 
             <div className="flex min-w-0 items-center gap-3">
-              {agentFirst && <EntityViewToggle value={view} onChange={setView} compact={width < 700} />}
-              {noteId && <EntityHistoryButton entityType="note" entityId={noteId} />}
+              {agentFirst && !shared && <EntityViewToggle value={view} onChange={setView} compact={width < 700} />}
+              {noteId && !shared && <EntityHistoryButton entityType="note" entityId={noteId} />}
               {noteId && <ReferencingSessionsButton entityType="note" entityId={noteId} />}
               <a
                 href={noteId ? `/note/${noteId}` : '#'}
@@ -280,12 +285,25 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                       <DropdownMenuSeparator />
                     </>
                   )}
-                  <DropdownMenuItem onClick={handleArchive} className="text-xs">
-                    <Archive size={12} className="mr-2" /> Archive
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
-                    <Trash2 size={12} className="mr-2" /> Delete
-                  </DropdownMenuItem>
+                  {shared ? (
+                    note?.sourceTeamId && note.sourceNoteId && (
+                      <DropdownMenuItem
+                        onClick={() => void removeFromMyNotes(note.sourceTeamId!, note.sourceNoteId!).then(onClose)}
+                        className="text-xs"
+                      >
+                        <X size={12} className="mr-2" /> Remove from my notes
+                      </DropdownMenuItem>
+                    )
+                  ) : (
+                    <>
+                      <DropdownMenuItem onClick={handleArchive} className="text-xs">
+                        <Archive size={12} className="mr-2" /> Archive
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
+                        <Trash2 size={12} className="mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -305,7 +323,9 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
           <div className="flex-1 flex overflow-hidden relative">
             {/* Main content */}
             <div className="flex-1 overflow-y-auto min-w-0 relative">
-              {note ? (
+              {note && shared ? (
+                <SharedNoteBody note={note} />
+              ) : note ? (
                 <>
                   <EntityChangeBanner entityType="note" entityId={note.id} />
                   <div className="px-4 md:px-12 py-0 flex items-center gap-2">
@@ -360,13 +380,13 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
             </div>
 
             {/* AI Chat panel / bubble */}
-            <SlideoutChat
+            {!shared && <SlideoutChat
               slideoutWidth={width}
               collapseThreshold={740}
               contextLabel="this note"
               chat={chat}
               disabled={!note}
-            />
+            />}
           </div>
           )}
         </div>

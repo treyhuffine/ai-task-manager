@@ -2,7 +2,7 @@
 
 import { use, useEffect, useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, Trash2, MoreHorizontal, ExternalLink, Archive } from 'lucide-react';
+import { ChevronLeft, Trash2, MoreHorizontal, ExternalLink, Archive, X } from 'lucide-react';
 import { NoteEditor } from '@/components/editor/rich-editor';
 import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
@@ -13,6 +13,8 @@ import { ENTITY_HEADER } from '@/components/entities/entity-header';
 import { EntityAgentView } from '@/components/entities/entity-agent-view';
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { AreaSelect } from '@/components/shared/area-select';
+import { SharedNoteBody } from '@/components/spaces/shared-note-body';
+import { removeFromMyNotes } from '@/components/spaces/my-work';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -39,7 +41,10 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
   // mount so the server render never disagrees with localStorage.
   const { agentFirst } = useEntityViewMode();
   const [viewOverride, setViewOverride] = useState<{ id: string; view: EntityViewMode } | null>(null);
-  const view = resolveEntityView(agentFirst, viewOverride, noteId);
+  // A saved team note (docs/homes-spec.md §9.3) is the team's to edit: it
+  // opens as a reference, with no document chat writing it.
+  const shared = !!note?.sourceTeamId;
+  const view = shared ? 'editor' : resolveEntityView(agentFirst, viewOverride, noteId);
   const setView = useCallback((next: EntityViewMode) => setViewOverride({ id: noteId, view: next }), [noteId]);
 
   const [wordCount, setWordCount] = useState(0);
@@ -147,8 +152,8 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
           </button>
 
           <div className="flex items-center gap-3 min-w-0 overflow-x-auto no-scrollbar [&>*]:shrink-0">
-            {agentFirst && <EntityViewToggle value={view} onChange={setView} />}
-            {note && <EntityHistoryButton entityType="note" entityId={note.id} />}
+            {agentFirst && !shared && <EntityViewToggle value={view} onChange={setView} />}
+            {note && !shared && <EntityHistoryButton entityType="note" entityId={note.id} />}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
@@ -166,12 +171,25 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
                     <DropdownMenuSeparator />
                   </>
                 )}
-                <DropdownMenuItem onClick={handleArchive} className="text-xs">
-                  <Archive size={12} className="mr-2" /> Archive
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
-                  <Trash2 size={12} className="mr-2" /> Delete
-                </DropdownMenuItem>
+                {shared ? (
+                  note?.sourceTeamId && note.sourceNoteId && (
+                    <DropdownMenuItem
+                      onClick={() => void removeFromMyNotes(note.sourceTeamId!, note.sourceNoteId!).then(() => router.push('/'))}
+                      className="text-xs"
+                    >
+                      <X size={12} className="mr-2" /> Remove from my notes
+                    </DropdownMenuItem>
+                  )
+                ) : (
+                  <>
+                    <DropdownMenuItem onClick={handleArchive} className="text-xs">
+                      <Archive size={12} className="mr-2" /> Archive
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
+                      <Trash2 size={12} className="mr-2" /> Delete
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -197,7 +215,11 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
         <div className="flex-1 overflow-y-auto min-w-0">
           <div className="max-w-3xl mx-auto px-6">
             {header}
-            {note ? (
+            {note && shared ? (
+              <div className="-mx-4 md:-mx-12">
+                <SharedNoteBody note={note} />
+              </div>
+            ) : note ? (
               <>
                 <EntityChangeBanner entityType="note" entityId={note.id} />
                 <div className="pt-6 flex items-center gap-2">
@@ -256,7 +278,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
           </div>
         </div>
 
-        <SlideoutChat slideoutWidth={9999} contextLabel="this note" chat={chat} disabled={!note} />
+        {!shared && <SlideoutChat slideoutWidth={9999} contextLabel="this note" chat={chat} disabled={!note} />}
         </>
         )}
       </div>

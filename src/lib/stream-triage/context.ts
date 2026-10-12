@@ -99,13 +99,13 @@ async function candidatesForItem(
         if (hit.entityType === 'task') {
           const task = getTask(hit.entityId);
           // A stream item merges into an OPEN task (Consider/Todo/In progress),
-          // never a terminal one.
-          if (task && task.status !== 'done' && task.status !== 'archived') {
+          // never a terminal one, and never into a team's text (a shared task).
+          if (task && !task.sourceTeamId && task.status !== 'done' && task.status !== 'archived') {
             merge.push({ entityType: 'task', entityId: task.id, title: task.title, score: round2(hit.score), updatedAt: task.updatedAt });
           }
         } else {
           const note = getNote(hit.entityId);
-          if (note && note.status === 'active') {
+          if (note && !note.sourceTeamId && note.status === 'active') {
             merge.push({ entityType: 'note', entityId: note.id, title: note.title, score: round2(hit.score), updatedAt: note.updatedAt });
           }
         }

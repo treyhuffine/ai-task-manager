@@ -2,7 +2,7 @@
 
 import { useEffect, type ReactNode } from 'react';
 import { FileText, KanbanSquare, Plus, Search, Settings } from 'lucide-react';
-import { apiErrorStatus } from '@/lib/api/client';
+import { apiErrorCode, apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { useAreas } from '@/hooks/use-areas';
 import { useCreateNote } from '@/hooks/use-notes';
 import { useCreateTask } from '@/hooks/use-tasks';
@@ -17,6 +17,8 @@ import { TeamDetail } from './team-detail';
 import { TeamSettings } from './team-settings';
 import { TeamSearch } from './team-search';
 import { GateButton, TeamGate } from './team-gate';
+import { SpaceSelector } from '@/components/spaces/space-selector';
+import { useSpace } from '@/components/spaces/space-root';
 
 /**
  * A team's shell (docs/homes-spec.md §3.2): the team's name as the home row,
@@ -31,6 +33,18 @@ export function TeamShell() {
     // A sign-in that stopped working signs this browser out on its own
     // (src/lib/api/client.ts). Anything else is the team being unreachable.
     if (apiErrorStatus(me.error) === 401) return null;
+    // Inside My Ri, the team can refuse this Ri's sign-in (docs/homes-spec.md §9.4).
+    if (apiErrorCode(me.error) === 'team_signed_out') {
+      return (
+        <TeamGate title="This team no longer accepts this Ri">
+          <p>{apiErrorText(me.error)} Your private planning for its work is kept in My Ri.</p>
+          {/* A whole page: My Ri is its own document (src/lib/spaces/document.ts). */}
+          <button type="button" onClick={() => window.location.assign('/?settings=teams')} className="inline-flex h-9 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">
+            Open Settings, Teams
+          </button>
+        </TeamGate>
+      );
+    }
     return (
       <TeamGate title="This team can't be reached">
         <p>The computer hosting it may be asleep or offline. Nothing you wrote is lost.</p>
@@ -116,6 +130,7 @@ function RailRow({ icon: Icon, label, active, onClick, trailing }: { icon: typeo
 function TeamRail() {
   const { team, member } = useTeam();
   const nav = useTeamNav();
+  const space = useSpace();
   const { data: areas } = useAreas();
   const go = (view: TeamView) => {
     nav.show(view);
@@ -166,7 +181,12 @@ function TeamRail() {
         </div>
       )}
       <div className="flex-1" />
-      <footer className="flex flex-shrink-0 items-center gap-1.5 border-t border-border/40 px-2 py-2">
+      {space && (
+        <div className="flex-shrink-0 border-t border-border/40 px-2 pt-2">
+          <SpaceSelector variant="wide" />
+        </div>
+      )}
+      <footer className={cn('flex flex-shrink-0 items-center gap-1.5 px-2 py-2', !space && 'border-t border-border/40')}>
         <Tip label="Settings">
           <button
             type="button"
@@ -194,10 +214,19 @@ function TeamRail() {
 function PhoneTopBar() {
   const { team } = useTeam();
   const nav = useTeamNav();
+  const space = useSpace();
   return (
     <header className="flex items-center gap-2 border-b border-border px-3 py-2 md:hidden">
-      <TeamMark name={team.name} size="sm" />
-      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{team.name}</span>
+      {space ? (
+        <div className="min-w-0 flex-1">
+          <SpaceSelector variant="phone" />
+        </div>
+      ) : (
+        <>
+          <TeamMark name={team.name} size="sm" />
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{team.name}</span>
+        </>
+      )}
       <button type="button" onClick={() => nav.openPanel('search')} aria-label="Search" className="rounded-md p-2 text-muted-foreground hover:bg-muted/50">
         <Search size={16} />
       </button>

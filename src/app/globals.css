@@ -525,6 +525,12 @@ html[data-ri-desktop='darwin'] .desktop-drag-fallback button {
   outline: none;
 }
 
+/* A shared task's body in My Ri: room to click into, without pushing
+   its Only you section out of sight. */
+.shared-task-editor .rich-editor-body {
+  min-height: 8rem;
+}
+
 /* Paragraphs */
 .rich-editor-body p {
   margin: 0.25em 0;

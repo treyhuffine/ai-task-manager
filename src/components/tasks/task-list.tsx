@@ -50,6 +50,7 @@ import { TaskViewToggle, type TaskView } from './task-view';
 import { TaskRow } from './task-row';
 import { todayLocalDate } from '@/lib/deck/date';
 import type { Energy } from '@/db/types';
+import { useConnectedTeams } from '@/components/spaces/space-selector';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
 type SortOption = 'sortKey' | 'lastViewedAt' | 'hardDeadline' | 'createdAt' | 'updatedAt';
@@ -72,6 +73,12 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
   const [laneFilter, setLaneFilter] = useState<LaneFilter>('current');
   const [energyFilter, setEnergyFilter] = useState<Energy | 'all'>('all');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
+  // Where tasks come from (docs/homes-spec.md §9.3): My Ri's own, or a
+  // connected team's. Offered once a team is connected.
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'personal' | string>('all');
+  const { data: teams } = useConnectedTeams();
+  const sourceTeams = teams ?? [];
+  const source = sourceFilter === 'all' || (sourceFilter !== 'personal' && !sourceTeams.some((t) => t.id === sourceFilter)) ? null : sourceFilter;
   const [sortBy, setSortBy] = useState<SortOption>('sortKey');
   const [switchedFromSort, setSwitchedFromSort] = useState<SortOption | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -97,13 +104,14 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
     ...(statusFilter ? { status: statusFilter } : {}),
     ...(energyFilter !== 'all' ? { energy: energyFilter as Energy } : {}),
     ...(areaFilter !== 'all' ? { areaId: areaFilter } : {}),
+    ...(source ? { source } : {}),
     orderBy: sortBy,
   };
 
   const queryClient = useQueryClient();
   const { data: tasks, isLoading, error } = useTasks(filter);
   const { data: areas } = useAreas();
-  const { data: counts } = useTaskCounts(areaFilter !== 'all' ? areaFilter : null);
+  const { data: counts } = useTaskCounts(areaFilter !== 'all' ? areaFilter : null, source);
   const updateTask = useUpdateTask();
   const createTask = useCreateTask();
   const lifecycle = useTaskLifecycle();
@@ -117,8 +125,11 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
   // creates a possibility, Todo commits, Current Work creates a Todo then Starts
   // it (so lifecycle history stays valid). Active adds to Todo. Done/Archived/All
   // do not offer creation.
+  // A team's tasks are created in its own space, so a team's list offers none.
   const quickCreateLane: TaskLane | null =
-    laneFilter === 'active'
+    source && source !== 'personal'
+      ? null
+      : laneFilter === 'active'
       ? 'todo'
       : laneFilter !== 'all' && laneFilter !== 'done' && laneFilter !== 'archived'
         ? (laneFilter as TaskLane)
@@ -145,14 +156,17 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
       : areas?.find((a) => a.id === areaFilter)?.name ?? 'All Areas';
   const queryKey = entityKeys.tasks.list(filter);
 
-  // Filter menu holds Area + Energy; the trigger flags when either narrows the list.
-  const filterActive = areaFilter !== 'all' || energyFilter !== 'all';
+  // Filter menu holds Source, Area and Energy. The trigger flags when any narrows the list.
+  const sourceLabel = source === 'personal' ? 'My Ri' : source ? sourceTeams.find((t) => t.id === source)?.name ?? 'Team' : null;
+  const filterActive = areaFilter !== 'all' || energyFilter !== 'all' || !!source;
   const filterSummary =
-    areaFilter !== 'all'
-      ? areaLabel
-      : energyFilter !== 'all'
-        ? energyFilter === 'deep' ? 'Deep' : 'Light'
-        : 'Filter';
+    sourceLabel
+      ? sourceLabel
+      : areaFilter !== 'all'
+        ? areaLabel
+        : energyFilter !== 'all'
+          ? energyFilter === 'deep' ? 'Deep' : 'Light'
+          : 'Filter';
   // Status is the primary selector; its trigger shows the active lane + count.
   const activeCount = (counts?.consider ?? 0) + (counts?.todo ?? 0) + (counts?.in_progress ?? 0);
   const laneLabel =
@@ -355,6 +369,21 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
             {filterActive && <ToolbarActiveDot />}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
+            {sourceTeams.length > 0 && (
+              <>
+                <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Source</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={source ?? 'all'} onValueChange={(v) => { setSourceFilter(v); dismissSwitchBanner(); }}>
+                  <DropdownMenuRadioItem value="all" className="text-xs">All sources</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="personal" className="text-xs">My Ri</DropdownMenuRadioItem>
+                  {sourceTeams.map((team) => (
+                    <DropdownMenuRadioItem key={team.id} value={team.id} className="text-xs">
+                      {team.name}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Energy</DropdownMenuLabel>
             <DropdownMenuRadioGroup
               value={energyFilter}

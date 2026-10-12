@@ -13,8 +13,6 @@ import {
   Check,
   Clock,
   Timer,
-  Flame,
-  Zap,
   Lock,
   Repeat,
   Pencil,
@@ -41,6 +39,9 @@ import { RichEditor } from '@/components/editor/rich-editor';
 import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { LinkedReferences } from '@/components/shared/linked-references';
 import { SubtaskSection } from './subtask-section';
+import { EFFORT_OPTIONS, ENERGY_OPTIONS } from './task-options';
+import { SharedTaskBody } from '@/components/spaces/shared-task-body';
+import { removeFromMyWork } from '@/components/spaces/my-work';
 import { TaskResults } from '@/components/results/task-results';
 import { AreaSelect } from '@/components/shared/area-select';
 import {
@@ -60,24 +61,12 @@ import { EntityAgentView } from '@/components/entities/entity-agent-view';
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { cn } from '@/lib/utils';
 import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
-import type { Energy, Effort, Attachment } from '@/db/types';
+import type { Attachment } from '@/db/types';
 
 const DEFAULT_WIDTH = 1200;
 const MIN_WIDTH = 420;
 const MAX_WIDTH = 1400;
 
-const ENERGY_OPTIONS: { value: Energy; label: string; icon: typeof Flame; color: string }[] = [
-  { value: 'deep', label: 'Deep', icon: Flame, color: 'text-orange-500' },
-  { value: 'light', label: 'Light', icon: Zap, color: 'text-sky-400' },
-];
-
-const EFFORT_OPTIONS: { value: Effort; label: string }[] = [
-  { value: 'trivial', label: 'XS: Trivial' },
-  { value: 'small', label: 'S: Small' },
-  { value: 'medium', label: 'M: Medium' },
-  { value: 'large', label: 'L: Large' },
-  { value: 'epic', label: 'XL: Epic' },
-];
 
 interface TaskSlideoutProps {
   taskId: string | null;
@@ -104,7 +93,11 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   // pref decides the starting view, the header toggle flips it for this task.
   const { agentFirst } = useEntityViewMode();
   const [viewOverride, setViewOverride] = useState<{ id: string; view: EntityViewMode } | null>(null);
-  const view = resolveEntityView(agentFirst, viewOverride, taskId);
+  // A shared task (docs/homes-spec.md §9.4) has its own body: the team's
+  // part and Only you. Its document chat stays off: its agent would be
+  // writing the team's text.
+  const shared = !!task?.sourceTeamId;
+  const view = shared ? 'editor' : resolveEntityView(agentFirst, viewOverride, taskId);
   const setView = useCallback(
     (next: EntityViewMode) => { if (taskId) setViewOverride({ id: taskId, view: next }); },
     [taskId],
@@ -401,8 +394,8 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
               </div>
 
               <div className="flex min-w-0 items-center gap-2">
-                {agentFirst && <EntityViewToggle value={view} onChange={setView} compact={width < 700} />}
-                {taskId && <EntityHistoryButton entityType="task" entityId={taskId} />}
+                {agentFirst && !shared && <EntityViewToggle value={view} onChange={setView} compact={width < 700} />}
+                {taskId && !shared && <EntityHistoryButton entityType="task" entityId={taskId} />}
                 {taskId && <ReferencingSessionsButton entityType="task" entityId={taskId} />}
                 <a
                   href={taskId ? `/task/${taskId}` : '#'}
@@ -447,13 +440,24 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                       <MoreHorizontal size={16} />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuContent align="end" className="w-48">
                     <DropdownMenuItem onClick={handleArchive} className="text-xs">
-                      <Archive size={12} className="mr-2" /> Archive
+                      <Archive size={12} className="mr-2" /> {shared ? 'Archive for the team' : 'Archive'}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
-                      <Trash2 size={12} className="mr-2" /> Delete
-                    </DropdownMenuItem>
+                    {shared ? (
+                      task?.source?.addedAt && task.sourceTeamId && task.sourceTaskId && (
+                        <DropdownMenuItem
+                          onClick={() => void removeFromMyWork(task.sourceTeamId!, task.sourceTaskId!).then(onClose)}
+                          className="text-xs"
+                        >
+                          <X size={12} className="mr-2" /> Remove from my work
+                        </DropdownMenuItem>
+                      )
+                    ) : (
+                      <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
+                        <Trash2 size={12} className="mr-2" /> Delete
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -474,7 +478,9 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
             <div className="flex-1 flex overflow-hidden relative">
               {/* Main content */}
               <div className="flex-1 overflow-y-auto min-w-0 relative">
-                {task ? (
+                {task && shared ? (
+                  <SharedTaskBody task={task} onOpenTask={openTask} />
+                ) : task ? (
                   <div className="space-y-0">
                     <EntityChangeBanner entityType="task" entityId={task.id} />
                     {/* Type label + area / parent breadcrumb */}
@@ -773,13 +779,13 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
               </div>
 
               {/* AI Chat panel / bubble */}
-              <SlideoutChat
+              {!shared && <SlideoutChat
                 slideoutWidth={width}
                 collapseThreshold={740}
                 contextLabel="this task"
                 chat={chat}
                 disabled={!task}
-              />
+              />}
             </div>
             )}
           </div>

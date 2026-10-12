@@ -33,6 +33,15 @@ import type { Attachment } from '@/db/types';
  */
 const ATTACHMENT_REF_RE = /\/api\/attachments\/([A-Za-z0-9_-]+\.[A-Za-z0-9]+)|\[\[file:([A-Za-z0-9_-]+\.[A-Za-z0-9]+)\]\]/g;
 
+/** Translate only file references, preserving surrounding prose and markup. */
+export function replaceAttachmentReferences(body: string, names: ReadonlyMap<string, string>): string {
+  return body.replace(ATTACHMENT_REF_RE, (match, urlName: string | undefined, markerName: string | undefined) => {
+    const name = urlName ?? markerName!;
+    const replacement = names.get(name);
+    return replacement ? match.replace(name, replacement) : match;
+  });
+}
+
 /**
  * Collect every fileName referenced by `/api/attachments/<file>` or
  * `[[file:<file>]]` inside the given body. Dedupes by fileName, first occurrence wins. Returns the

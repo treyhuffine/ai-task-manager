@@ -71,7 +71,9 @@ export function getWorkResultCompletionOptions(resultId: string, userId = 'local
       eq(taskStatusChanges.reason, `Accepted saved result ${resultId}`))).all().map((row) => row.taskId);
   const choices = detail.reviewTargetId ? [] : detail.taskIds.flatMap((id) => {
     const task = getTask(id);
-    if (!task || completedTaskIds.includes(id) || !canApply('complete', normalizeTaskStatus(task.status))) return [];
+    // A task shared with a team completes at its team, deliberately, from the
+    // shared task (docs/homes-spec.md §9.5), never as a side effect here.
+    if (!task || task.sourceTeamId || completedTaskIds.includes(id) || !canApply('complete', normalizeTaskStatus(task.status))) return [];
     return [{ id: task.id, title: task.title, status: task.status,
       statusChangedCount: task.statusChangedCount, recurrence: task.recurrence }];
   });

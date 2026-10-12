@@ -23,6 +23,7 @@ import { calendarDaysUntil, formatLocalDate, parseLocalDate } from '@/lib/dates'
 import { useDashboard } from '@/contexts/dashboard-context';
 import { RowActionsMenu, type RowAction } from '@/components/shared/row-actions-menu';
 import type { DeckItem, SubtaskItem } from '@/types/dashboard';
+import { TeamLabel } from '@/components/spaces/team-label';
 import { Tip } from '@/components/ui/tip';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -312,6 +313,7 @@ function SortableDeckItemCard({
               You added
             </span>
           )}
+          <TeamLabel teamId={item.sourceTeamId} />
           {item.areaName && <Pill>{item.areaName}</Pill>}
           {item.effort && <Pill>{item.effort}</Pill>}
           {deadline && <DeadlinePill urgent={urgent}>{deadline}</DeadlinePill>}

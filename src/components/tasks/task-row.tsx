@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from 'react';
+import { TeamLabel } from '@/components/spaces/team-label';
 import {
   Check, Circle, Clock, Repeat, Lock,
   MoreHorizontal, Archive, Timer, GripVertical,
@@ -210,6 +211,7 @@ export function TaskRow({
           <span onClick={(e) => e.stopPropagation()}>
             <LifecycleStatusControl taskId={task.id} status={task.status} size="xs" />
           </span>
+          <TeamLabel teamId={task.sourceTeamId} />
 
           {/* Derived attention badges (In progress) */}
           <TaskBadges signals={signals} size="xs" />

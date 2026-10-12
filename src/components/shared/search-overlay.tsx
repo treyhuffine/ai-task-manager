@@ -46,6 +46,7 @@ import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useResultCapabilities } from '@/hooks/use-results';
+import { TeamLabel } from '@/components/spaces/team-label';
 
 // ── Icon lookup for palette commands ─────────────────────────
 
@@ -454,6 +455,7 @@ function SearchResultItem({
           <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">
             {result.entityType}
           </span>
+          {'sourceTeamId' in result && <TeamLabel teamId={result.sourceTeamId} />}
           <span className="text-[8px] text-muted-foreground/60">
             {new Date(result.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </span>

@@ -1,6 +1,7 @@
 'use client';
 
 import { entityKeys } from '@/lib/query/entity-keys';
+import { TeamLabel } from '@/components/spaces/team-label';
 
 import { useMemo, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import {
@@ -107,6 +108,7 @@ function KanbanCard({
       )}
       <div className="line-clamp-3 font-medium text-foreground">{task.title || 'Untitled'}</div>
       <div className="mt-1 flex items-center gap-2">
+        <TeamLabel teamId={task.sourceTeamId} />
         {showArea && areaName && (
           <span className="rounded bg-muted px-1 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{areaName}</span>
         )}
@@ -227,9 +229,12 @@ function KanbanColumn({
   showArea,
   onCreate,
   cardMeta,
+  loading = false,
 }: {
   lane: TaskLane;
   tasks: TaskListDTO[];
+  /** Its tasks haven't arrived yet: say nothing rather than that it's empty. */
+  loading?: boolean;
   areaName: (id: string | null) => string | null;
   parentTitleFor: (id: string | null) => string | null;
   attention?: Record<string, TaskAttentionSignals>;
@@ -245,7 +250,7 @@ function KanbanColumn({
     <div className="flex h-full min-h-0 min-w-[240px] flex-1 flex-col">
       <div className="mb-2 flex items-center justify-between px-1">
         <span className={cn('text-[10px] font-bold uppercase tracking-wider', STATUS_COLOR[def.status])}>{def.label}</span>
-        <span className="text-[10px] text-muted-foreground">{tasks.length}</span>
+        <span className="text-[10px] text-muted-foreground">{loading ? '' : tasks.length}</span>
       </div>
       <div
         ref={setNodeRef}
@@ -255,7 +260,12 @@ function KanbanColumn({
         )}
       >
         <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-          {tasks.length === 0 ? (
+          {tasks.length === 0 && loading ? (
+            <div aria-busy="true" aria-label={`Loading ${def.label}`} className="space-y-1.5">
+              <div className="h-12 animate-pulse rounded-md bg-muted/60" />
+              <div className="h-12 animate-pulse rounded-md bg-muted/40" />
+            </div>
+          ) : tasks.length === 0 ? (
             <p className="px-1 py-6 text-center text-[11px] text-muted-foreground">{def.empty}</p>
           ) : (
             tasks.map((t) => (
@@ -376,6 +386,13 @@ export function TaskKanban({
       archived: (archived.data ?? []).filter(inArea),
     };
   }, [consider.data, todo.data, current.data, done.data, archived.data, areaMode]);
+  const lanePending: Record<TaskLane, boolean> = {
+    consider: consider.isPending,
+    todo: todo.isPending,
+    current: current.isPending,
+    done: done.isPending,
+    archived: archived.isPending && showArchived,
+  };
 
   const areaName = useCallback(
     (id: string | null) => (id ? areas?.find((a) => a.id === id)?.name ?? null : null),
@@ -553,6 +570,7 @@ export function TaskKanban({
                 showArea={areaMode === 'all'}
                 onCreate={handleColumnCreate}
                 cardMeta={cardMeta}
+                loading={lanePending[lane]}
               />
             ))}
           </div>

@@ -48,9 +48,9 @@ export function useTask(id: string | null) {
  */
 /** Task counts by canonical status (for lane count badges), optionally scoped
  * to an area. Kept fresh as tasks move between lanes. */
-export function useTaskCounts(areaId?: string | null) {
+export function useTaskCounts(areaId?: string | null, source?: string | null) {
   return useQuery({
-    ...trpc.tasks.counts.queryOptions({ areaId: areaId ?? null }),
+    ...trpc.tasks.counts.queryOptions({ areaId: areaId ?? null, ...(source ? { source } : {}) }),
     staleTime: 5_000,
   });
 }

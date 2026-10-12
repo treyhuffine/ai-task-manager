@@ -13,7 +13,6 @@ export async function createAppTemplate(
 ) {
   const {packageDir: kit, pnpm} = appKitToolchain();
   await fs.mkdir(path.join(dir, "vendor"), { recursive: true });
-  await fs.mkdir(path.join(dir, "src"));
   await exec(
     process.execPath,
     [pnpm, "pack", "--pack-destination", path.join(dir, "vendor")],
@@ -23,6 +22,30 @@ export async function createAppTemplate(
       maxBuffer: 1024 * 1024,
     },
   );
+  const tarball = (await fs.readdir(path.join(dir, "vendor"))).find((file) =>
+    file.endsWith(".tgz"),
+  )!;
+  await writeAppTemplate(dir, profile, id, `file:vendor/${tarball}`);
+  await exec(
+    process.execPath,
+    [pnpm, "install", "--lockfile-only", "--ignore-scripts"],
+    {
+      cwd: dir,
+      env: runtimeEnvironment(process.execPath, dir),
+      timeout: 120_000,
+      maxBuffer: 1024 * 1024,
+    },
+  );
+}
+
+/** The source template shared by production packaging and offline SDK fixtures. */
+export async function writeAppTemplate(
+  dir: string,
+  profile: "react" | "html" | "static",
+  id: string,
+  kitDependency: string,
+) {
+  await fs.mkdir(path.join(dir, "src"), { recursive: true });
   const packageId = `local-app-${id.slice(-8)}`,
     uri = `ui://${packageId}/main.html`;
   const manifest = {
@@ -68,9 +91,6 @@ export async function createAppTemplate(
       },
     },
   };
-  const tarball = (await fs.readdir(path.join(dir, "vendor"))).find((file) =>
-    file.endsWith(".tgz"),
-  )!;
   await fs.writeFile(
     path.join(dir, "plugin.json"),
     JSON.stringify(manifest, null, 2),
@@ -85,7 +105,7 @@ export async function createAppTemplate(
         type: "module",
         packageManager: "pnpm@10.33.0",
         dependencies: {
-          "@ri/app-kit": `file:vendor/${tarball}`,
+          "@ri/app-kit": kitDependency,
           zod: "3.25.76",
           react: "19.2.3",
           "react-dom": "19.2.3",
@@ -136,14 +156,4 @@ export async function createAppTemplate(
             "\n})().catch(console.error);",
     );
   }
-  await exec(
-    process.execPath,
-    [pnpm, "install", "--lockfile-only", "--ignore-scripts"],
-    {
-      cwd: dir,
-      env: runtimeEnvironment(process.execPath, dir),
-      timeout: 120_000,
-      maxBuffer: 1024 * 1024,
-    },
-  );
 }

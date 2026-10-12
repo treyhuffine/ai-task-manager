@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { apiErrorCode, apiErrorDetails, apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { entityKeys } from '@/lib/query/entity-keys';
 import type { Attachment } from '@/db/types';
+import { bodyForDocument, bodyForTeam, currentSpaceId } from '@/lib/spaces/document';
 import { SharedBodySaver, sharedDraftKey, type SharedBody, type SharedBodyStatus, type WriteFailure } from '@/lib/team/shared-body';
 import { trpcClient } from '@/lib/trpc/client';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -26,47 +27,63 @@ function readFailure(error: unknown): WriteFailure {
 
 const SAVED: SharedBodyStatus = { status: 'saved' };
 
+/** Where a shared body is saved, and how its text shows in the editor. */
+export interface SharedBodyTarget {
+  /** One per team, member and record, so a draft keeps its owner and audience. */
+  draftKey: string;
+  /** Save against the revision the text was edited from. Returns what the shared record now holds, in the editor's form. */
+  write(input: { body: string; expectedBodyRevision: number; attachments: Attachment[] }): Promise<SharedBody>;
+  /** The editor's form of the shared record's text. */
+  toEditor(body: string): string;
+}
+
+type SharedRecord = { id: string; body: string | null; bodyRevision: number };
+
 /**
- * A shared body in an editor (docs/homes-spec.md §9.3, P6.4): autosaved
+ * A shared body in an editor (docs/homes-spec.md §9.3, P6.4, P7.3): autosaved
  * against the revision it edited and kept through a conflict. An idle editor
  * may follow shared text, acknowledging its revision with the replacement.
  * `editorKey` changes on explicit conflict resolution, so a focused editor
- * is never rewritten underneath someone typing.
+ * is never rewritten underneath someone typing. The same editor serves the
+ * team's own app and a shared task in My Ri, by its target.
  */
-export function useSharedBody(kind: Kind, record: { id: string; body: string | null; bodyRevision: number } | undefined) {
-  const { team, member } = useTeam();
-  const qc = useQueryClient();
+export function useSharedBodyFor(record: SharedRecord | undefined, target: SharedBodyTarget | null) {
   const [saver, setSaver] = useState<SharedBodySaver | null>(null);
   const [editorKey, setEditorKey] = useState(0);
   const [initial, setInitial] = useState('');
   // Files dropped into the editor, sent with the next save so the body's
   // record of them keeps their names and types.
   const uploads = useRef<Attachment[]>([]);
+  const targetRef = useRef(target);
+  useEffect(() => {
+    targetRef.current = target;
+  }, [target]);
   const id = record?.id;
+  const draftKey = target?.draftKey;
 
   useEffect(() => {
-    if (!record) return;
-    uploads.current = [];
+    if (!record || !target) return;
+    // A saver can finish another queued write after this component switches
+    // documents. Bind its destination and upload queue to this document.
+    const pending: Attachment[] = [];
+    uploads.current = pending;
     const writer = async (input: { body: string; expectedBodyRevision: number }): Promise<SharedBody> => {
-      const sent = uploads.current;
-      const patch = { body: input.body, ...(sent.length > 0 ? { attachments: sent } : {}) };
-      const saved = kind === 'task'
-        ? await trpcClient.tasks.update.mutate({ id: record.id, patch, expectedBodyRevision: input.expectedBodyRevision })
-        : await trpcClient.notes.update.mutate({ id: record.id, patch, expectedBodyRevision: input.expectedBodyRevision });
-      uploads.current = uploads.current.filter((a) => !sent.includes(a));
-      // Only the revision goes into the cache: the editor already shows the
-      // body it sent, and a server echo must never rewrite an open editor.
-      const revise = <T extends object>(current: T | undefined): T | undefined =>
-        current ? { ...current, body: input.body, bodyRevision: saved.bodyRevision } : current;
-      if (kind === 'task') qc.setQueryData(entityKeys.tasks.detail(record.id), revise);
-      else qc.setQueryData(entityKeys.notes.detail(record.id), revise);
-      return { body: saved.body ?? input.body, bodyRevision: saved.bodyRevision };
+      const sent = pending.slice();
+      const saved = await target.write({ ...input, attachments: sent });
+      for (const attachment of sent) {
+        const index = pending.indexOf(attachment);
+        if (index !== -1) pending.splice(index, 1);
+      }
+      return saved;
     };
     const next = new SharedBodySaver(
-      sharedDraftKey({ teamId: team.id, memberId: member.id }, kind, record.id),
-      { body: record.body ?? '', bodyRevision: record.bodyRevision },
+      target.draftKey,
+      { body: target.toEditor(record.body ?? ''), bodyRevision: record.bodyRevision },
       writer,
-      readFailure,
+      (err) => {
+        const failure = readFailure(err);
+        return failure.conflict ? { ...failure, conflict: { ...failure.conflict, body: target.toEditor(failure.conflict.body) } } : failure;
+      },
       () => window.localStorage,
     );
     const draft = next.draft();
@@ -80,14 +97,14 @@ export function useSharedBody(kind: Kind, record: { id: string; body: string | n
     };
     // A new saver per document, made once its record first loads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, kind, team.id, member.id]);
+  }, [id, draftKey]);
 
   // Offer the shared record to the editor. Its revision advances only when
   // the editor actually applies the text, never merely on a cache refresh.
   const revision = record?.bodyRevision;
   useEffect(() => {
-    if (!saver || !record || revision === undefined) return;
-    if (saver.status().status === 'saved' && revision > saver.revision()) setInitial(record.body ?? '');
+    if (!saver || !record || revision === undefined || !targetRef.current) return;
+    if (saver.status().status === 'saved' && revision > saver.revision()) setInitial(targetRef.current.toEditor(record.body ?? ''));
   }, [saver, record, revision]);
 
   const subscribe = useCallback((listener: () => void) => (saver ? saver.subscribe(listener) : () => {}), [saver]);
@@ -114,11 +131,12 @@ export function useSharedBody(kind: Kind, record: { id: string; body: string | n
       status,
       edit: (body: string) => saver?.edit(body),
       applyExternalContent: (body: string, apply: () => void) => {
-        if (!record || body !== (record.body ?? '')) return;
+        const toEditor = targetRef.current?.toEditor;
+        if (!record || !toEditor || body !== toEditor(record.body ?? '')) return;
         saver?.observe({ body, bodyRevision: record.bodyRevision }, apply);
       },
       onAttachment: (attachment: Attachment) => {
-        uploads.current = [...uploads.current, attachment];
+        uploads.current.push(attachment);
       },
       useTheirs: () => {
         if (!saver) return;
@@ -130,6 +148,37 @@ export function useSharedBody(kind: Kind, record: { id: string; body: string | n
     }),
     [saver, editorKey, initial, status, record],
   );
+}
+
+/** A shared task or note's body in the team's own app, or a team's space in My Ri. */
+export function useSharedBody(kind: Kind, record: SharedRecord | undefined) {
+  const { team, member } = useTeam();
+  const qc = useQueryClient();
+  // Inside My Ri, the team's files are reached through this home
+  // (src/lib/spaces/document.ts). The team itself always gets its own form.
+  const space = currentSpaceId();
+  const recordId = record?.id;
+  const target = useMemo<SharedBodyTarget | null>(() => {
+    if (!recordId) return null;
+    return {
+      draftKey: sharedDraftKey({ teamId: team.id, memberId: member.id }, kind, recordId),
+      toEditor: (body) => bodyForDocument(body, space),
+      write: async ({ body, expectedBodyRevision, attachments }) => {
+        const patch = { body: bodyForTeam(body, space), ...(attachments.length > 0 ? { attachments } : {}) };
+        const saved = kind === 'task'
+          ? await trpcClient.tasks.update.mutate({ id: recordId, patch, expectedBodyRevision })
+          : await trpcClient.notes.update.mutate({ id: recordId, patch, expectedBodyRevision });
+        // Only the revision goes into the cache: the editor already shows the
+        // body it sent, and a server echo must never rewrite an open editor.
+        const revise = <T extends object>(current: T | undefined): T | undefined =>
+          current ? { ...current, body: bodyForTeam(body, space), bodyRevision: saved.bodyRevision } : current;
+        if (kind === 'task') qc.setQueryData(entityKeys.tasks.detail(recordId), revise);
+        else qc.setQueryData(entityKeys.notes.detail(recordId), revise);
+        return { body: saved.body != null ? bodyForDocument(saved.body, space) : body, bodyRevision: saved.bodyRevision };
+      },
+    };
+  }, [recordId, kind, team.id, member.id, space, qc]);
+  return useSharedBodyFor(record, target);
 }
 
 /** Where the shared text stands, quietly, and the choice when it conflicts. */

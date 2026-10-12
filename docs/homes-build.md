@@ -1815,7 +1815,7 @@ Verification ran only in disposable roots through `pnpm iso`, with no production
 - Real Chromium against an isolated team on port 42393: lost setup reply followed by reload and recovery as the same owner, focused editor refetch followed by a safe conflict, two conflict reloads with more typing, explicit resolution, and idle editor adoption followed by a successful save. The host owner-recovery command was also exercised against that team.
 - Typecheck passed. Changed-file ESLint has no errors and two pre-existing query-layer warnings. Drizzle reports no schema changes. No migration history was rewritten.
 
-The human owner-and-phone pilot below is still required before P6.6, P6.7 or P7.
+The human owner-and-phone pilot below is still required before P6.6 and P6.7. P7 was built before it at the owner's direction (see P7 below), and the pilot is still required.
 
 ## Dogfood gate D: running it
 
@@ -1835,3 +1835,201 @@ Not yet observed. The automated checks above don't replace it, and P6.6, P6.7 an
 **Watch for:** whether anyone confuses Create a team with joining one, whether the owner finds the invitation link, whether people understand who sees their edits, and whether everyone understands that the team is only there while the host computer is awake and online. Record friction here before adding setup choices.
 
 **Afterwards:** stop the team with `pnpm iso $HOME/ri-team-dogfood/teams/<team> --port 42279 -- pnpm -s cli:dev service stop` (any free port), and delete `~/ri-team-dogfood*` when you're done.
+
+## P7 Shared obligations inside personal Ri, as built
+
+Built on branch `ai-task-manager/teams-p7` from main after the P6 merge, 2026-10-09. **P7 was started before dogfood gate D at the owner's direction.** Gate D is still unobserved and stays unticked, and so does P7's own gate below. Everything here was built and checked in disposable roots through `pnpm iso` (a personal dev home on 42301 and a team on 42302), never against production, `~/ri` or real credentials.
+
+### How a team reaches My Ri (P7.1)
+
+- **Settings, Teams** lists connected teams and takes an invitation or a sign-in link. Pasting one names where it leads before anything is joined (`spaces.inspectLink`), then joining says **Your assigned tasks will appear in My Ri. Your personal work stays private.** Create a team opens the desktop's creation form, or explains where to make one in a browser.
+- **One member, one sign-in.** `connectTeam` (`src/lib/spaces/connect.ts`) joins with an invitation or signs in with a sign-in link as a `service` sign-in named "My Ri on <computer>", checks `/api/home`, and seals the member key in `<config>/teams/credentials.json` (its own AES-GCM key file, 0600), never the database. Reconnecting signs the old key out at its saved team address, so the member keeps one My Ri sign-in. Admission must match the preview's team and member before an existing key is read. Setup links, a second member for a team already here, and an invitation already used by another attempt are refused before anything is joined. If admission succeeds but its reply is lost, the same home can retry the same link with its private attempt proof and recover that sign-in while the grant and sign-in remain valid. The team gets nothing that reaches back into My Ri.
+- **Connect to My Ri** in a team's own Settings makes a sign-in link for the same member and hands it to My Ri, so a direct browser or desktop member connects their existing personal home later.
+- **A team inside My Ri is its own page**, `/space/<team>`. The proxy marks it, the root layout renders `data-ri-authority="space"` around `SpaceRoot`, and the page is the team's own app. Its typed API and files go through `/api/space/<team>/...` (`src/app/api/space/[teamId]/[...path]/route.ts`), which takes only the personal owner's requests, only to the team's tRPC and attachments, and sends them with the member key and nothing personal. A key the team refuses ends the connection (`team_signed_out`), an unreachable team is an outage (`team_unreachable`), and an unknown team is `team_unavailable`. Body image paths are translated both ways (`bodyForDocument` / `bodyForTeam`), so the team always stores its own paths. Being a separate document keeps caches, drafts and the query client apart from My Ri's.
+- **The space selector** (`src/components/spaces/space-selector.tsx`) shows only once a team is connected: in the wide rail footer, the collapsed rail and the phone top bar, in My Ri and in every team. Switching returns to where that space was last left on this screen. It moves no execution, stops nothing and navigates no other device. The desktop's **Join a Team…** opens Settings, Teams in the personal app when there is one.
+
+### Shared work in My Ri (P7.2)
+
+- **Projections are task rows.** A team task assigned to this person, or added with **Add to my work**, is one `tasks` row with `sourceTeamId`, `sourceTaskId`, `sourceState` (`active`, `released`, `unavailable`) and `source` (team revision and status count, assignment, when it was added, team Area and assignee names). A unique index on `(source_team_id, source_task_id)` keeps one row per team task, whoever opens it and however often the home reconnects. Shared fields cache the team's values. Everything else on the row is private planning.
+- **Reading the team** (`src/lib/spaces/sync.ts`): at startup, every two minutes, and when someone comes back to My Ri (`spaces.refresh`, shared by requests within 20 s). Open windows poll a cheap counter every minute that moves when a pass changes anything, so a pass nobody asked for still reaches open lists. A pass reads the assigned list, reads in full only what's new or changed (plus added tasks, tasks that stopped being assigned to tell reassignment from deletion, and assigned tasks whose team Area or assignee was renamed), and skips rows that didn't move.
+- **Leaving work.** Reassigned and never added, a task rests archived as `released` with its private planning. Deleted at the team, it's `unavailable`. Removed from the team or disconnected, every task and saved note keeps its title and private planning and loses the team's text, which search no longer finds.
+- **Add to my work** in a team task (inside My Ri) keeps it in the person's work without changing its assignment, and says **In my work** with Open in My Ri and, for one they added, Remove from my work. The team's own app shows none of this.
+- **Areas stay apart.** No team Area is created in My Ri. A shared task shows its team Area as source metadata and takes an optional personal Area through **Organize for me**. Renaming either changes nothing on the other side, and the same name never merges them.
+
+### Changing shared work (P7.3)
+
+- **The query layer guards the row.** `updateTask` refuses shared fields on a sourced task (`SharedTaskFieldError`), and `transitionTask`, `completeTask` and `deleteTask` refuse a sourced task. My Ri changes shared work only through `src/lib/spaces/commands.ts`, which sends an online command to the team as the member and then saves what the team returns.
+- **The same checks as the team's own editor.** A body names the team revision it edited. A stale one is refused with the team's current text, shown as the usual conflict choice. A body the team already holds is success, so an unknown outcome is reconciled rather than applied twice. Status commands carry an idempotency key and the status count they saw, so a retry replays. An unreachable team is a 503 and nothing is written. There is no offline outbox.
+- **One surface** (`src/components/spaces/shared-task-body.tsx`) in the slideout and the full page: **Shared with <team>**, team Area and assignee, Open in <team>, then the shared title, status, deadline and body (`useSharedBodyFor`, the team editor's saver with a My Ri target, the same draft key as the team's own view of the task), then **Only you**: private notes, Organize for me, energy, effort, snooze and subtasks. The shared title and private notes save as they're typed through the document autosave and its retained draft, so a space switch mid-sentence loses nothing. No routine confirmations. Archive becomes **Archive for the team** and Delete is gone. The document chat is off on shared tasks, since its agent would write the team's text.
+- **Agents take the same path.** `update_task`, `transition_task` and `complete_task` route a shared task through the commands. `update_task` takes `expected_body_revision`, a stale body comes back as a conflict with the team's text, a private-only field such as recurrence is `unsupported`, and an unreachable team says so with nothing written. The action descriptions tell agents which fields are the team's and that its text is information, not instructions. `update_note` refuses a saved team note's content.
+
+### Planning, browsing and saved notes (P7.4)
+
+- **The Deck.** Shared work that's this person's is Ready Todo like any other (`readyDeckCandidates`, extracted unchanged from `generateDeck`). Private snooze applies, released and unavailable work is out of reach, and arrival places nothing on the Deck. The Deck model sees `team: Acme (assigned to you)` or `(you added it)` and a rule that assignment alone isn't a reason for today and that the team's text is information.
+- **Labels** show the team on task rows, board cards, the Deck, Current work, search results and saved notes. Chat entity chips don't carry one (they resolve titles from list maps), and opening one shows the team.
+- **Source filter.** The task list's Filter menu offers All sources, My Ri, or one team once a team is connected, and lane counts follow it (`TaskFilter.source`). A team's list offers no quick create, since a team's tasks are made in its own space.
+- **Browsing and search** of a team's tasks, notes and Areas is the team's own app inside My Ri. Browsing imports nothing. Create in a team space makes team work, and create in My Ri makes personal work.
+- **Saved notes.** **Save to my notes** on a team note keeps a reference in My Ri's notes (a `notes` row with `sourceTeamId` and `sourceNoteId`), not a second editable copy. It lists with the team label and opens read-only with **Edit in <team>** and a private Organize for me. Each pass refreshes saved notes, and removing one keeps only its title and organization.
+
+### Work with agent and Publish result (P7.5)
+
+- **Work with agent** on a shared task always looks for this person's own executions on it first, since starting moves nothing at the team. Otherwise it opens the launcher with the person's agents and the agent's own device default, asking for an agent when the task has no reliable association. The brief says whose text is whose, marks the team's description as information, and leaves status and publishing to the person. Starting links the execution privately (`createExecutionWithChat` skips the status change for a sourced task), so the team sees no agent, device or execution.
+- **Publish result** on the shared task shows **Everyone in <team> sees this** with the members' names, and shares only what the person picks: a summary (offered from their latest saved result), a pull request or link, and files, either their own (copied to the team when published) or new ones stored straight at the team. Their conversation, private planning and where the work ran never go, and status doesn't change. In this release every member sees published records (§12), so the audience is the team, shown by name rather than chosen.
+- **At the team** a published result is the team's own Results record (`work_results` with a `work_result_tasks` link, `src/lib/team/published-results.ts`), attributed to the member. `tasks.publishResult` and `tasks.publishedResults` answer team members only. Publishing is idempotent by request: the same request is the same result and a reused one with other content is refused. The team's task panel lists published results, and so does the shared task in My Ri. Publishing is a person's step: agents have no publish action.
+
+### Coverage (P7.6)
+
+| P7.6 asks for | Shown by |
+| --- | --- |
+| Membership revocation | `acceptance.test.ts`: a removed member's next pass ends the connection, clears the team's text from tasks and saved notes, keeps private planning and refuses changes. `connect.test.ts`, `forward.test.ts`: a refused key revokes, a space says so. |
+| Source outages | `acceptance.test.ts`: an unreachable team keeps what was last read, records when, and refuses a status change with nothing written. `shared-agent.test.ts`: an agent's edit to an unreachable team says so and writes nothing. |
+| Competing edits | `shared-work.test.ts`: a stale body is refused with the teammate's text. `shared-agent.test.ts`: the same for an agent, with the current text in the conflict. |
+| Unknown command outcomes | `shared-work.test.ts`: a repeated body that already landed is success, and a status command replays by its key. `shared-agent.test.ts`: a repeated publish is the same result. |
+| Private subtasks | `shared-work.test.ts`: completing a shared task leaves its private subtask open. |
+| Team content requesting personal execution | `acceptance.test.ts`: team tasks and notes that ask for executions, messages and commands start no execution, chat, run or trigger. Deck and Work with agent mark team text as information. |
+| No duplicates across views or after reconnect | `shared-work.test.ts`: a reconnect keeps one row. `acceptance.test.ts`: My Ri, the team space and Add to my work reach the same row. |
+| No imported Area tree, independent Area edits | `shared-work.test.ts`, `acceptance.test.ts`: no Area arrives, and team and personal Area renames don't cross. This found and fixed renamed team Areas not reaching assigned tasks. |
+| Add to my work without assignment changes | `shared-work.test.ts`, and in the browser. |
+| Saved-note identity | `shared-work.test.ts`: saving twice is one reference, saving again after removal is the same row. |
+| No personal agent or execution exposure in team views | `shared-agent.test.ts`: Work with agent links privately and the team's task carries no execution or agent. Published results carry no home path. |
+| Drafts while switching spaces | Browser: private notes typed and left at once for a team space are there on return. The shared body uses the team view's own draft key. |
+| Contextual create and search | Browser: a task made in the Acme space exists only at the team, and one made in My Ri only in My Ri. |
+| Collapsed rail and phone navigation | Browser: the selector switches My Ri to Acme and back from the phone top bar and the collapsed rail. |
+| Direct team session later connected | `connect.test.ts`: Connect to My Ri connects a browser member as the same member. Browser: the team lists "My Ri on AI Mac Mini". |
+
+Also covered: `deck-eligibility.test.ts` (Deck rules and no placement), `source-filter.test.ts` (lists and counts by source), `deck-generation.test.ts` (the team line in the Deck prompt).
+
+### Decisions made while building
+
+- A team inside My Ri is a separate page, not a mode of the dashboard, so its caches, drafts and typed client never mix with My Ri's.
+- A saved team note is read-only in My Ri and edited in the team. Tasks are edited in place because they're the person's obligations.
+- Published results reuse the team's Results table rather than a new one, so no migration was needed and the team's attachment cleanup keeps their files.
+- Agents edit shared fields and status through the same checks as people, and can't publish.
+- The board's columns now show a placeholder while loading instead of an empty message, which a team reached through My Ri made visible.
+- Nothing personal completes or writes into team work as a side effect. Accepting a personal result never offers to complete a shared task (`getWorkResultCompletionOptions` skips it), so shared status changes only at the team. Stream triage never offers a shared task or saved team note as a merge target and refuses a merge into one, so a private capture never lands in the team's text. Merging as a subtask still works, since the subtask is private.
+
+### Not built, or found along the way
+
+- A desktop-created team doesn't connect itself to My Ri, since §3.1 never connects a personal home silently. Connect it from the team's Settings.
+- Changes from a team arrive by polling and refresh on focus, not pushed.
+- Fixed after the build: Start with agent and Work with agent on the standalone task page (`/task/<id>`), where the launcher had nowhere to open, now open it in the dashboard with the task. A refused plain HTTP team link now reads "Use the team's HTTPS link. Plain HTTP works only for local development." in My Ri as on the desktop's own form.
+
+### Verification
+
+In disposable roots only, 2026-10-09:
+
+- Full app suite: 657 files passed, 6,043 tests passed, 37 skipped. The P7 suites (`src/lib/spaces/*.test.ts`, 39 tests) run against a real team in its own process over HTTP. A production build (`next build`) compiles.
+- Desktop suite: 50 files, 510 tests passed. Electron smoke `--personal`: the personal Ri, its page, draft, data, Home choice and service are unchanged by creating a team.
+- Typecheck passed. ESLint over the 80 changed files reports the same 12 errors main already has and none new. No schema change after P7.1's migration.
+- Real Chromium against a personal dev home and a team: connecting from Settings, Teams and from the team's Connect to My Ri, the selector in all three forms, editing a shared body and private notes from My Ri (the edit reached the team at the next revision, the notes never did), Add to my work and Open in My Ri from the space, Save to my notes and the read-only reference, Publish result with the audience named and the team's panel showing it, Work with agent opening the launcher with the task, a private draft surviving a space switch, contextual create, and phone and collapsed navigation.
+
+### Running the P7 gate
+
+Not yet observed, and it follows gate D. One person who uses Ri and one teammate who uses no AI:
+
+1. The owner creates a team as in gate D, invites the teammate, and connects their own My Ri from **Settings, Teams** with an invitation, or from the team's Settings with **Connect to My Ri**.
+2. The teammate assigns **Fix the login loop** to the owner.
+3. In My Ri the task appears with the team's label, without an import or organizing step. The owner reads the shared description and adds **Try the smaller fix first** under **Only you**, optionally organizing it in a personal Area.
+4. **Work with agent** starts a linked execution with a personal agent on its usual device.
+5. The owner reviews the work, uses **Publish result** to share the pull request or a summary, and updates the shared status. The teammate sees both, and nothing private.
+
+Watch whether the owner keeps a second task list, whether team Areas ever appear in personal navigation, whether the same task reads the same in both views, and whether anyone is unsure what the team can see.
+
+## P7 review corrections, 2026-10-09
+
+Reviewed `ai-task-manager/teams-p7` at `9ea890dc` against the P7 specification and the review brief. The locations below name the original review commit, before the fixes moved lines. All eleven confirmed findings are fixed on this branch. The previously recorded follow-ups remain as listed above.
+
+### Ranked findings
+
+1. **P1: An impostor endpoint could receive an existing team's member key.** `src/lib/spaces/connect.ts:167` and `:177`. An endpoint previews a new team, then returns the ID of a team already connected to My Ri during admission and `/api/home`. The old-key lookup used the admitted ID, while the sign-out destination fell back to the supplied origin, sending the existing key to the impostor. **Reproduced** with a mock HTTPS endpoint and a disposable real team key, observing that key in the outgoing authorization header. Fixed by comparing admitted identity with the preview before credential lookup and sending an old key only to its saved issuing address. Regression: `connect.test.ts`. Commit `8eaf6788`.
+
+2. **P1: A queued autosave could write one document's text into another.** `src/components/team/shared-body-editor.tsx:67`. With one save for task A in flight, type again in A, then switch the reused editor to B. The old saver consulted the mutable target reference when sending its queued edit, so A's text was sent to B. **Reproduced** in Chromium with the real React hook and effects. Fixed by binding each saver, upload queue and conflict conversion to its original target. Regression: `shared-body-editor.browser.test.ts`. Commit `0dc5a767`.
+
+3. **P1: A delayed sync could restore team text after disconnect.** `src/lib/spaces/sync.ts:129`. Disconnect clears cached team content while a task read is in flight. When the response arrives, the old pass saves it as active again. **Reproduced** against a real isolated team by delaying the task response until after disconnect. Fixed with credential-version checks after remote reads and before projection writes, also used by commands and the forwarder. Disconnect removes local authority before awaiting remote sign-out, and failures from an old credential cannot revoke a newer connection. Projection writes also refuse older source snapshots and reread private reference state after awaits. Regression: `review-regressions.test.ts`. Commit `65989f48`.
+
+4. **P2: Losing an admission reply consumed the link without a recovery path.** `src/lib/spaces/connect.ts:130`. The team admits a member, but the response is lost before My Ri saves the key. Retrying the invitation or sign-in link fails as already used. **Reproduced** for both link kinds against the isolated team. Fixed with a stable private attempt proof bound to this home and exact link, allowing recovery of the same member and sign-in. Recovery still requires an unexpired, unrevoked grant and active member, device and key. Other attempts and retries after sign-out are refused. Regression: `connect.test.ts`. Commit `8eaf6788`.
+
+5. **P2: A successful status command could be refused on retry.** `src/lib/spaces/commands.ts:175` and `:200`. The team applies a command and My Ri saves its result, but the caller loses the reply. Retrying with the same idempotency key and original status count fails the local stale-count guard before reaching the team's ledger. **Reproduced** for transition and completion. Fixed by checking whether that exact command was recorded before refusing a stale local count, preserving the original transition in the replay result. A new command with a stale count is still refused. Regression: `review-regressions.test.ts`. Commit `3c41613c`.
+
+6. **P2: Reconnecting left explicitly saved tasks and notes unavailable.** `src/lib/spaces/sync.ts:120` and `:160`. Disconnect marks references unavailable. Reconnect restores assigned tasks, but an explicitly added unassigned task and saved note are skipped forever. **Reproduced** with both reference types. Sync now retries retained references, preserves their row identity and keeps deliberately removed notes released. Releasing a note also clears its team URL. Regression: `review-regressions.test.ts`, including a removed note that must not reappear. Commit `65989f48`.
+
+7. **P2: Open viewers could retain revoked content and stale saved notes.** `src/lib/spaces/sync.ts:367` and `src/components/spaces/use-team-refresh.ts:32`. Membership loss clears server rows but returns a zero change count, leaving the viewer generation unchanged. Successful note syncs also invalidate only tasks, and Settings uses a different connection cache key from the selector. **Reproduced** the unchanged generation after actual membership removal. The note and selector invalidation gaps were confirmed by inspection and covered with a QueryClient regression, rather than a full browser journey. Projection and connection writers now advance a shared process-state generation, and viewers invalidate tasks, notes and the same connection query used by Settings. Regressions: `review-regressions.test.ts`, `client-cache.test.ts`. Commits `65989f48`, `2ee6e0d6`.
+
+8. **P2: Generic writes could manufacture a shared source identity.** `src/lib/db/queries.ts:829` and `:2235`. A personal task or note accepts source IDs through its generic update path, bypassing the connection-managed projection writer and associating private content with a remote record. The derived tRPC schemas also exposed those fields. **Reproduced** by attaching a source identity to a personal row. Generic task and note creates and updates now reject projection fields, and API schemas omit them and the server-owned body revision. Regression: `projection-guards.test.ts`, covering both entities and both write paths. Commit `041e0cef`.
+
+9. **P2: Inline files in shared work used the personal attachment endpoint.** `src/components/editor/file-link-node.tsx:66`. Opening a shared task or saved note inside My Ri renders `[[file:...]]` through the personal document's default attachment URL, so team files fail to load or download. **Reproduced** in Chromium using the real Tiptap node view. FileLinkNode now uses the editor's attachment store, which resolves shared files through the team forwarder. Regression: `shared-body-editor.browser.test.ts`. Commit `0dc5a767`.
+
+10. **P2: Publishing a summary with a selected inline personal file failed.** `src/lib/spaces/commands.ts:263`. Publishing copies the selected file into the team under a new name, but sends the summary's old personal filename unchanged. Team validation then rejects its missing attachment reference. **Reproduced** with an inline file marker. Publishing now validates selected personal uploads and translates selected attachment references to their copied team names. The regression also retries the same publication after another upload copy. Regression: `review-regressions.test.ts`. Commit `58573e59`.
+
+11. **P2: Publish idempotency treated different file contents as identical.** `src/lib/team/published-results.ts:100`. Reusing a request ID with a different file of the same name, MIME type and size silently returns the previous publication, since the intent hash included only metadata. **Reproduced** with two distinct five-byte files. Intent hashing now streams the file bytes through SHA-256 and canonicalizes inline references by content identity, so unchanged reuploads replay and changed content conflicts. Hashing happens before the synchronous database transaction. Regression: `review-regressions.test.ts`. Commit `58573e59`.
+
+### Review verification
+
+All checks ran through `pnpm iso` with disposable state and credentials. Production, `~/ri` and the original checkout were not modified. The seven fix commits are `8eaf6788`, `65989f48`, `3c41613c`, `041e0cef`, `58573e59`, `0dc5a767` and `2ee6e0d6`. No schema or migration history changed during this review.
+
+- `pnpm ts`: passed after the final changes.
+- `pnpm -s vitest run src/lib/spaces --maxWorkers=4`: 10 files, 50 tests passed after the final changes. These suites include real isolated team processes over HTTP.
+- `pnpm -s vitest run --maxWorkers=4`: 660 files passed, 4 skipped, 6,054 tests passed and 39 skipped. The first full run had a timeout in unchanged `runtime-job-lifecycle.test.ts` and a temporary-directory cleanup race in unchanged `branch-sync.test.ts`. The full rerun with four workers passed. The final replay-result refinement and cache-test typing correction were subsequently rechecked by the focused suite and typecheck above.
+- `pnpm desktop:test`: 50 files, 510 tests passed.
+- `pnpm desktop:team-smoke --personal`: passed. Creating a team in its own Electron window left the isolated personal page, unsaved draft, data, Home choice and service unchanged. The smoke also built the CLI and checked its plain-Node boot graph.
+- Chromium regression run: 2 tests passed with `RI_SPACES_BROWSER_TEST=1` and `RI_REVIEW_CHROMIUM` pointing to the installed headless Chromium. These exercise the real React editor saver and Tiptap file node. They are opt-in and skipped by the ordinary full suite.
+- ESLint on review-changed TypeScript files: no errors, two pre-existing unused-variable warnings in `queries.ts`. The final changed command and test files also passed ESLint. `git diff --check` passed.
+
+No confirmed review finding remains unfixed. The branch has not been merged or pushed. Dogfood gate D and the P7 human gate remain unobserved and unticked. Automated and isolated browser checks do not mark either gate complete.
+
+### Checking the review, 2026-10-09
+
+Each of the seven fix commits was read against its finding. All hold, and the focused suites and typecheck pass on them. Two gaps remained and are fixed:
+
+- **P2: a link from another address could still take over a connected team.** Finding 1's fix refuses an endpoint that changes the team it claims between preview and admission. One that claims the connected team and its member from the first answer passed every check, rewrote the connection's address to its own origin, and signed the real key out at the real team. My Ri then synced its content as that team's and sent shared edits and published results there. **Reproduced** in `connect.test.ts` (without the fix the takeover returns a saved connection). A link for an active connection from a different address is now refused before anything past the preview is sent. A team that moved is disconnected and connected again, which restores saved references. Commit `4f680dc3`.
+- **Minor: deleted saved work was re-read forever.** Finding 6's fix retries unavailable references after a reconnect, which also re-read every added task and saved note the team had deleted, on every pass. A record the team says is gone is now marked `goneAt` and skipped, while one cleared by a disconnect is still restored on reconnect. Regression in `review-regressions.test.ts`, which fails on the earlier code. Commit `49b273d1`.
+
+Full app suite after both: 660 files passed, 6,056 tests passed, 39 skipped. Typecheck passed. The P7 suites (10 files, 52 tests) pass against a real team process.
+
+### Follow-ups closed, 2026-10-10
+
+- The standalone task page's Start with agent and Work with agent now open the launcher in the dashboard with the task (commit `1e0e089e`, checked in Chromium on a disposable home).
+- One wording for a refused plain HTTP team link (commit `50d8bc11`, `connect.test.ts`).
+- Electron smokes on this branch, against a disposable team: `--personal --join` (development) joins inside My Ri and leaves the personal Ri's tasks, notes, devices, keys, Home choice, service and draft unchanged. `--personal --production --join` and `--production --join` refuse the plain HTTP invitation in that wording.
+- Desktop suite 510 tests passed. The reviewer's opt-in Chromium regressions passed (2). Full app suite: 6,054 passed with two unrelated load timeouts (`daily-backup.test.ts`, `local-apps/service.test.ts`) that pass alone, and the branch doesn't touch either area. Typecheck passed.
+
+### Second review, 2026-10-12
+
+Reviewed the full P7 boundary again at `3abf76c2`, including the six commits since the first review. The locations below refer to that starting commit. Six additional findings were reproduced and fixed in separate commits:
+
+1. **P1: Forwarded team files could execute script on the personal origin.** `src/app/api/space/[teamId]/[...path]/route.ts:24` and `:76`. The forwarder kept the content type but discarded the sandbox and other safety headers on uploaded documents. Opening a team member's active SVG through My Ri therefore ran its script with the personal origin's authority. **Reproduced in Chromium:** the SVG read a disposable value from the personal origin's local storage. The forwarder now enforces its own sandbox, MIME-sniffing, referrer and resource policies on every upstream response, including an upstream that sends HTML or permissive headers. It also uses `no-store` so a cached response cannot bypass a later membership check. Direct attachments reuse the same policy. Regressions: `forward.test.ts`, including an opt-in Chromium case. Commit `d04f3205`.
+
+2. **P2: An earlier reconnect could undo a completed disconnect.** `src/lib/spaces/connect.ts:188`. A reconnect waits on the team's home response, the person disconnects, and the delayed response then saves a fresh key and marks the connection active again. **Reproduced** with a delayed response from a real isolated team. Admission now compares the local connection identity from before its preview with the identity immediately before committing the sealed key and connection. A competing change rejects the stale admission and signs out its unused key. Concurrent retries of the same admission keep their shared winning credential. Disconnect also checks for a changed credential after decrypting it. Regressions: `review-regressions.test.ts`, `connect.test.ts`. Commit `c39a8151`.
+
+3. **P2: Local version history retained shared text after revocation or disconnect.** `src/lib/db/queries.ts:2373` and `:5915`. Editing private planning or organizing a saved note recorded a full snapshot of its cached team body. Releasing the team cleared the live rows but left these automatic copies in history. **Reproduced** for task body, description and outcome, and note body and URL. New personal history snapshots exclude that shared text. Release also scrubs those fields from older snapshots while preserving titles, private planning and personal organization. The regression seeds legacy snapshots as well as checking new history. Regression: `review-regressions.test.ts`. Commit `7e948593`.
+
+4. **P2: Assignments beyond the first 500 rows never appeared.** `src/lib/spaces/sync.ts:92`. Sync always requested the same first page, including completed and archived assignments. An older unfinished obligation beyond that page was permanently omitted. **Reproduced** with 501 assignments: the oldest one had no projection. Sync now reads bounded pages in creation order, deduplicates the results, checks the connection between pages and refuses a non-progressing repeated page. Regression: `review-regressions.test.ts`. Commit `b264dd6c`.
+
+5. **P2: Agent changes were attributed to a human at the team.** `src/lib/spaces/commands.ts:159`, `src/lib/tasks/viewer-lifecycle.ts:35` and `:61`. The agent surface knew its authenticated actor source, but the remote mutation dropped it and the team hardcoded human attribution. **Reproduced** through the real orchestrator action and team version history. Task edits, transitions and completion now relay only the actor source through the member's service sign-in. The team still derives member identity from the credential, refuses browser sign-ins using the relay field, and accepts no explicit human override. No personal agent or session ID is sent. Regressions: `shared-agent.test.ts`, checking both version and status ledgers and rejected source claims. Commit `d357c2d5`.
+
+6. **P2: Published summaries resolved inline files against the personal store.** `src/components/spaces/published-results.tsx:44`. A publication could succeed with team attachment references, but its summary's Markdown image still requested `/api/attachments/...` on My Ri. File markers also appeared as raw text. **Reproduced in Chromium** with the real result renderer. Summaries now resolve relative attachment URLs through their result's file store and reuse the existing file chips for markers. Ordinary chat chips keep their existing store. Regression: `shared-body-editor.browser.test.ts`, checking the image URL and a text chip's actual team-file request. Commit `ef060189`.
+
+All review work used disposable homes through `pnpm iso`, with synthetic credentials. Production, `~/ri` and the original checkout were untouched. No migrations or schema changed. The branch remains unmerged and unpushed. Dogfood gate D and the P7 human gate remain unobserved and unticked.
+
+Verification for this pass:
+
+- Focused P7, team, attachment and Chromium checks: 13 files, 88 tests passed. Four are real Chromium cases, including the active SVG, shared autosave destination, shared-editor file URL and published inline files.
+- Typecheck passed. ESLint over review-changed TypeScript reported no errors and the two existing unused-variable warnings in `queries.ts`. `git diff --check` passed.
+- `pnpm desktop:test --maxWorkers=4`: 50 files, 510 tests passed. An initial concurrent run timed out in the unchanged five-second AppImage reader test. The complete rerun passed.
+- `pnpm desktop:team-smoke --personal`: passed in real Electron. Creating a team opened its own window and left the personal page, unsaved draft, data, Home choice and service unchanged. The CLI build and plain-Node boot-graph check also passed.
+- Full app suite: 657 files passed, 4 skipped, 3 failed. There were 6,059 passing tests, 41 skipped and 3 failures, all 180-second timeouts in unchanged `local-apps/approval-lifecycle.test.ts`, `local-apps/backup.test.ts` and `local-apps/service.test.ts`. A single-worker rerun reproduced all three failures at draft preparation's 120-second `pnpm install --lockfile-only --ignore-scripts` limit. A direct public npm-registry download also stalled after a partial response. Neither P7 nor this review changes those tests or the app-kit template builder. This pass therefore does not claim a clean full-suite result. Logs are under `/private/tmp/ri-p7-rereview.c5IB3I` (`full.log`, `app-retry.log`, `focused-final.log`, `desktop-retry.log`, `smoke.log`).
+
+No confirmed P7 finding remains unfixed. The unrelated dependency-setup failures remain an explicit verification limit.
+
+### Merge preparation, 2026-10-12
+
+The owner requested the remaining failures be fixed and P7 squash-merged to main. The branch incorporates main at `51e509ba`. All six second-review fixes remain included.
+
+- The three local-app lifecycle suites now share the production template and compile against the checkout's installed SDK, React and Zod. They still run the generated SDK processes, approvals, activation, recovery and backup assertions. Dependency installation and build-owner containment stay at the app-kit boundary. The production installer and owned build runner are unchanged. This removes registry availability from the host lifecycle checks (`fc714226`).
+- The full run also exposed a fixture cleanup race: `readBranchSync` returned while its background Git fetch still wrote into the temporary repository. Teardown now drains the tracked refresh promises before removing that repository (`c2c1184c`).
+- Full app suite with all four P7 Chromium regressions enabled: **661 files passed, 3 skipped, 6,076 tests passed, 37 skipped**. No failures. This supersedes the second review's full-suite verification limit.
+- Typecheck and changed-file ESLint passed. The app-kit build passed. Desktop suite: **50 files, 510 tests passed**. `git diff --check` passed.
+- The real Electron personal-home smoke passed, including creating the team in its own window and preserving the personal page, draft, data, Home choice and service. A first attempt hit a Google Fonts CDN failure during development compilation. Development acceptance now uses Next's font-response fixture with a system font, so functional checks need no font download. Production fonts and packaged acceptance are unchanged.
+- Main's pre-existing uncommitted work was rehearsed with the P7 changes in a separate checkout. The combined source passed typecheck and **512 desktop tests**. Conflict resolutions preserve the newer P8 spec, notifications, image previews and attachment thumbnails, including preview providers in team views. Those edits remain outside the P7 squash commit.
+
+All runtime checks used disposable homes through `pnpm iso`. Gate D and the P7 human gate remain unobserved and unticked. No production service restart or production database migration is part of the merge.

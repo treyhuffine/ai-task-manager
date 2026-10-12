@@ -34,8 +34,8 @@ const deviceInput = z
 
 const attemptId = z.string().regex(/^[A-Za-z0-9_-]{32,80}$/).optional();
 export const previewInput = z.object({ secret, kind: z.enum(['invite', 'sign-in', 'setup']), attemptId }).strict();
-export const joinInput = z.object({ secret, name: z.string().max(200), device: deviceInput }).strict();
-export const signInInput = z.object({ secret, device: deviceInput }).strict();
+export const joinInput = z.object({ secret, attemptId, name: z.string().max(200), device: deviceInput }).strict();
+export const signInInput = z.object({ secret, attemptId, device: deviceInput }).strict();
 export const setupInput = z.object({ secret, attemptId, teamName: z.string().max(200), ownerName: z.string().max(200), device: deviceInput }).strict();
 export const ownerInput = z
   .object({
@@ -80,12 +80,13 @@ const KIND: Record<z.infer<typeof previewInput>['kind'], 'invite' | 'sign_in' | 
 };
 
 export interface GrantPreview {
+  retry?: boolean;
   grantId?: string;
   kind: 'team';
   state: q.TeamGrantState;
   team: { id: string; name: string } | null;
   /** For a sign-in link: whose it is. */
-  member: { name: string } | null;
+  member: { id: string; name: string } | null;
   expiresAt: string | null;
 }
 
@@ -98,22 +99,24 @@ export function previewGrant(input: z.infer<typeof previewInput>): GrantPreview 
   if (!grant) return { kind: 'team', state, team: null, member: null, expiresAt: null };
   const summary = teamSummary();
   const member = grant.kind === 'sign_in' && grant.memberId ? q.getMember(grant.memberId) : null;
+  const retry = input.kind !== 'setup' && q.canRetryTeamAdmission(input.secret, input.kind === 'invite' ? 'invite' : 'sign_in', input.attemptId);
   return {
     kind: 'team',
     grantId: grant.id,
-    state: input.kind === 'setup' && q.canRetryTeamSetup(grant, input.attemptId) ? 'valid' : state,
+    state: retry || (input.kind === 'setup' && q.canRetryTeamSetup(grant, input.attemptId)) ? 'valid' : state,
+    retry,
     team: { id: summary.id, name: summary.name },
-    member: member ? { name: member.name } : null,
+    member: member ? { id: member.id, name: member.name } : null,
     expiresAt: grant.expiresAt,
   };
 }
 
 export function join(input: z.infer<typeof joinInput>, userAgent: string | null): Admitted {
-  return admitted(q.redeemTeamInvite({ secret: input.secret, name: input.name, device: clientDevice(input.device, userAgent) }));
+  return admitted(q.redeemTeamInvite({ secret: input.secret, attemptId: input.attemptId, name: input.name, device: clientDevice(input.device, userAgent) }));
 }
 
 export function signIn(input: z.infer<typeof signInInput>, userAgent: string | null): Admitted {
-  return admitted(q.redeemTeamSignIn({ secret: input.secret, device: clientDevice(input.device, userAgent) }));
+  return admitted(q.redeemTeamSignIn({ secret: input.secret, attemptId: input.attemptId, device: clientDevice(input.device, userAgent) }));
 }
 
 export function finishSetup(input: z.infer<typeof setupInput>, userAgent: string | null): Admitted {

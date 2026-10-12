@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { Archive, Check, Copy, FolderPlus, Globe, LogOut, RotateCcw, Smartphone, UserMinus, UserPlus } from 'lucide-react';
+import { Archive, Check, Copy, FolderPlus, Globe, House, LogOut, RotateCcw, Smartphone, UserMinus, UserPlus } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { apiErrorText } from '@/lib/api/client';
@@ -14,6 +14,7 @@ import { useTeam, useTeamNav } from './team-context';
 import { useTeamMembers } from './use-team';
 import { MemberAvatar } from './member-avatar';
 import { NewAreaDialog } from './team-areas';
+import { useSpace } from '@/components/spaces/space-root';
 import { useAreas, useUpdateArea } from '@/hooks/use-areas';
 
 /**
@@ -334,7 +335,18 @@ function YouSection() {
   const { member } = useTeam();
   const qc = useQueryClient();
   const signIns = useQuery(trpc.team.signIns.list.queryOptions());
-  const [link, setLink] = useState<string | null>(null);
+  // Shown inside My Ri, this page's sign-in is My Ri's own: signing it out or
+  // connecting My Ri again belongs in My Ri's Settings, Teams.
+  const space = useSpace();
+  // A sign-in link, for another device or for the person's own Ri.
+  const [link, setLink] = useState<{ value: string; forHome: boolean } | null>(null);
+  const makeLink = async (forHome: boolean) => {
+    try {
+      setLink({ value: (await trpcClient.team.signIns.create.mutate()).link, forHome });
+    } catch (err) {
+      toast.error(apiErrorText(err));
+    }
+  };
   return (
     <Section title="You">
       <NameField
@@ -349,7 +361,7 @@ function YouSection() {
       <ul className="divide-y divide-border/60 rounded-md border border-border">
         {(signIns.data ?? []).map((s) => (
           <li key={s.keyId} className="flex items-center gap-2 px-3 py-2 text-xs">
-            <Smartphone size={13} className="text-muted-foreground" />
+            {s.deviceKind === 'service' ? <House size={13} className="text-muted-foreground" /> : <Smartphone size={13} className="text-muted-foreground" />}
             <span className="min-w-0 flex-1 truncate">
               {s.deviceName}
               {s.current && <span className="text-muted-foreground"> (this one)</span>}
@@ -370,32 +382,47 @@ function YouSection() {
         ))}
       </ul>
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={rowButton()}
-          onClick={async () => {
-            try {
-              setLink((await trpcClient.team.signIns.create.mutate()).link);
-            } catch (err) {
-              toast.error(apiErrorText(err));
-            }
-          }}
-        >
+        <button type="button" className={rowButton()} onClick={() => void makeLink(false)}>
           <Smartphone size={13} /> Sign in on another device
         </button>
-        <button
-          type="button"
-          className={rowButton('danger')}
-          onClick={async () => {
-            await trpcClient.team.signIns.signOut.mutate().catch(() => {});
-            forgetTeamSignIn();
-            window.location.assign('/');
-          }}
-        >
-          <LogOut size={13} /> Sign out here
-        </button>
+        {!space && (
+          <>
+            <button type="button" className={rowButton()} onClick={() => void makeLink(true)}>
+              <House size={13} /> Connect to My Ri
+            </button>
+            <button
+              type="button"
+              className={rowButton('danger')}
+              onClick={async () => {
+                await trpcClient.team.signIns.signOut.mutate().catch(() => {});
+                forgetTeamSignIn();
+                window.location.assign('/');
+              }}
+            >
+              <LogOut size={13} /> Sign out here
+            </button>
+          </>
+        )}
       </div>
-      {link && <CopyLink link={link} note="Open it on the other device within 15 minutes. It signs you in there once." />}
+      {space && (
+        <p className="text-xs text-muted-foreground">
+          Connected to My Ri. To disconnect it, use My Ri&apos;s{' '}
+          <button type="button" className="underline" onClick={() => window.location.assign('/?settings=teams')}>
+            Settings, Teams
+          </button>
+          .
+        </p>
+      )}
+      {link && (
+        <CopyLink
+          link={link.value}
+          note={
+            link.forHome
+              ? 'If you use Ri yourself, paste it in your own Ri under Settings, Teams, within 15 minutes. Work assigned to you then appears there too, and nothing personal comes to the team.'
+              : 'Open it on the other device within 15 minutes. It signs you in there once.'
+          }
+        />
+      )}
     </Section>
   );
 }

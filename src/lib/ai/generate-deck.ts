@@ -28,7 +28,7 @@ import type { DeckItem, DeckChange, DeckOrigin } from '@/lib/db/schema';
 import type { DeckRecord } from '@/db/types';
 import { eq, and, or, desc, sql, isNull, isNotNull, gte, lte, inArray } from 'drizzle-orm';
 import { isReady, normalizeTaskStatus } from '@/lib/tasks/lifecycle';
-import { getLatestDeck, supersedeAndInsertDeck, getUserState } from '@/lib/db/queries';
+import { getLatestDeck, supersedeAndInsertDeck, getUserState, listTeamConnections } from '@/lib/db/queries';
 import { todayLocalDate } from '@/lib/deck/date';
 import {
   getCalendarEventsForDay,
@@ -129,28 +129,22 @@ function renderSearchHits(results: Record<string, unknown>[]): string {
 
 // ─── Pipeline ───────────────────────────────────────────────────
 
-export async function generateDeck(
-  generationContext: DeckGenerationContext,
-  opts: { origin?: DeckOrigin } = {},
-): Promise<DeckRecord> {
-  const db = getDb();
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-  const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString();
-  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-
-  // ═══════════════════════════════════════════════════════════════
-  // Phase 1: Deterministic context (DB queries)
-  // ═══════════════════════════════════════════════════════════════
-
+/**
+ * The tasks today's generated Deck may draw from: Ready Todo, by the one
+ * eligibility rule. A shared task from a team is one of them like any other
+ * while it's this person's (docs/homes-spec.md §9.3), and rests archived,
+ * out of reach, once it isn't.
+ */
+export function readyDeckCandidates(now: Date) {
   // The generated daily stack draws only from READY TODO: status = todo, no
   // unresolved blocker, and not snoozed past `now`. In progress work is
   // deliberately excluded here — it belongs in Current Work, not the generated
   // stack (see the Deck/attention contract). Recurrence readiness is the
   // next-occurrence-due check below.
+  const db = getDb();
   const nowIso = now.toISOString();
+  const todayStr = now.toISOString().slice(0, 10);
+  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   // SQL PREFILTER — cheap and loose. The authoritative Ready check is the
   // canonical `isReady` predicate applied in JS below, so blocker-resolution
   // (only a Done blocker resolves) and recurrence-due are decided in exactly one
@@ -208,7 +202,7 @@ export async function generateDeck(
       blockerStatus.set(b.id, b.status);
     }
   }
-  const allTasks = candidates.filter((t) =>
+  return candidates.filter((t) =>
     isReady({
       status: normalizeTaskStatus(t.status),
       hasUnresolvedBlocker: !!t.blockedOn && blockerStatus.get(t.blockedOn) !== 'done',
@@ -218,6 +212,22 @@ export async function generateDeck(
       now: nowIso,
     }),
   );
+}
+
+export async function generateDeck(
+  generationContext: DeckGenerationContext,
+  opts: { origin?: DeckOrigin } = {},
+): Promise<DeckRecord> {
+  const db = getDb();
+  const now = new Date();
+  const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString();
+
+  // ═══════════════════════════════════════════════════════════════
+  // Phase 1: Deterministic context (DB queries)
+  // ═══════════════════════════════════════════════════════════════
+
+  const allTasks = readyDeckCandidates(now);
+  const taskMap = new Map(allTasks.map((t) => [t.id, t]));
 
   const parentIds = allTasks.map((t) => t.id);
   const allSubtasks =
@@ -304,6 +314,7 @@ export async function generateDeck(
 
   const parentTitleMap = new Map<string, string>();
   for (const t of allTasks) parentTitleMap.set(t.id, t.title);
+  const teamNames = new Map(listTeamConnections().map((c) => [c.id, c.name]));
 
   const promptTasks = allTasks.map((t) => ({
     id: t.id,
@@ -321,6 +332,7 @@ export async function generateDeck(
     blockedOn: t.blockedOn,
     userContext: t.userContext,
     subtasks: subtasksByParent.get(t.id),
+    team: t.sourceTeamId ? { name: teamNames.get(t.sourceTeamId) ?? 'a team', assigned: !!t.source?.assigned } : null,
   }));
 
   const promptAreas = activeAreas.map((a) => ({

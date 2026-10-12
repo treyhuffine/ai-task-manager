@@ -7,8 +7,9 @@ import { completeTaskForViewer, transitionTaskForViewer } from '@/lib/tasks/view
 import { TRPCError, type inferRouterInputs, type inferRouterOutputs } from '@trpc/server';
 import { z } from 'zod/v4';
 import { viewerProcedure as p, sharedProcedure as sp, router } from './init';
-import { assertTeamAreaPatch, assertTeamNotePatch, assertTeamTaskPatch, requireBodyRevision, sharedCaller, versionMeta } from '@/lib/team/shared-work';
+import { assertTeamAreaPatch, assertTeamNotePatch, assertTeamTaskPatch, requireBodyRevision, sharedCaller, teamWriteSource, versionMeta } from '@/lib/team/shared-work';
 import { teamRouter } from '@/lib/team/router';
+import { listTaskPublishedResults, publishTaskResult } from '@/lib/team/published-results';
 import { internalRouters, taskProcedures } from './operation-router';
 import * as s from './schemas';
 import { terminalSubscriptions } from './terminal-subscription';
@@ -21,6 +22,9 @@ import { accountEvaluationCatalog, accountEvaluationRpc, accountRpcSchema, endAc
 import { MAX_WORK_DAYS, getWorkRange, saveWorkReport } from '@/lib/work/service';
 import { ONBOARDING_REPLY_MAX, ONBOARDING_STEPS } from '@/lib/onboarding/progress';
 import { resultsRouter } from './results-router';
+import { spacesRouter } from '@/lib/spaces/router';
+import { completeSharedTask, transitionSharedTask, updateTaskWithShared } from '@/lib/spaces/commands';
+import { LIFECYCLE_COMMANDS } from '@/lib/tasks/lifecycle';
 
 /** A run of days for the work view (docs/work-view.md). */
 const workRangeInput = z.object({
@@ -29,6 +33,8 @@ const workRangeInput = z.object({
 }).strict();
 
 const onboardingStep = z.enum(ONBOARDING_STEPS);
+// Relayed only by a connected home, derived from its authenticated actor.
+const actorSource = z.enum(['ai', 'system']).optional();
 const chatId = z.string().min(1).max(64);
 
 function required<T>(value: T | null | undefined, entity: string): T {
@@ -36,11 +42,19 @@ function required<T>(value: T | null | undefined, entity: string): T {
   return value;
 }
 
+/** A shared task in My Ri (it has a team), or null. */
+function sharedTaskIn(id: string) {
+  const task = q.getTask(id);
+  return task?.sourceTeamId ? task : null;
+}
+
 export const appRouter = router({
   localApps: localAppsRouter,
   chatSources: chatSourcesRouter,
   ...internalRouters,
   results: resultsRouter,
+  // A personal home's teams (docs/homes-spec.md §9.3, P7).
+  spaces: spacesRouter,
   // How the client reaches the server: every signed-in caller's, a team's members included.
   transport: router({
     capabilities: sp.query(() => ({ websocket: hasWebSocketRuntime() })),
@@ -88,11 +102,16 @@ export const appRouter = router({
       assertTeamTaskPatch(input, 'create');
       return q.createTask(input, undefined, versionMeta(caller));
     }),
-    update: sp.input(s.entityIdSchema.extend({ patch: s.updateTaskSchema, expectedBodyRevision: z.number().int().nonnegative().optional() })).mutation(({ input, ctx }) => {
+    update: sp.input(s.entityIdSchema.extend({ patch: s.updateTaskSchema, expectedBodyRevision: z.number().int().nonnegative().optional(), actorSource })).mutation(async ({ input, ctx }) => {
       const caller = sharedCaller(ctx.key);
+      const source = teamWriteSource(ctx.key, input.actorSource);
+      // A shared task in My Ri: its shared fields go to its team, the rest
+      // is private planning written here (docs/homes-spec.md §9.4, P7.3).
+      const shared = caller.team ? null : sharedTaskIn(input.id);
+      if (shared) return updateTaskWithShared(shared, input.patch, versionMeta(caller), { expectedBodyRevision: input.expectedBodyRevision });
       if (caller.team) assertTeamTaskPatch(input.patch, 'update');
       requireBodyRevision(caller, input.patch, input.expectedBodyRevision);
-      return required(q.updateTask(input.id, input.patch, versionMeta(caller), { expectedBodyRevision: input.expectedBodyRevision }), 'Task');
+      return required(q.updateTask(input.id, input.patch, versionMeta(caller, source), { expectedBodyRevision: input.expectedBodyRevision }), 'Task');
     }),
     delete: sp.input(s.entityIdSchema).mutation(({ input, ctx }) => {
       const caller = sharedCaller(ctx.key);
@@ -100,17 +119,37 @@ export const appRouter = router({
       if (caller.team && caller.role !== 'owner') throw new TRPCError({ code: 'FORBIDDEN', message: "Archive it instead. Only the team's owner can delete shared work." });
       if (!q.deleteTask(input.id)) throw new TRPCError({ code: 'NOT_FOUND', message: 'Task not found' });
     }),
-    complete: sp.input(s.completeSchema).mutation(({ input: { id, ...opts }, ctx }) => {
+    complete: sp.input(s.completeSchema.extend({ actorSource })).mutation(({ input: { id, actorSource, ...opts }, ctx }) => {
       const caller = sharedCaller(ctx.key);
-      return completeTaskForViewer(id, opts, caller.team ? { memberId: caller.memberId } : undefined);
+      const source = teamWriteSource(ctx.key, actorSource);
+      const shared = caller.team ? null : sharedTaskIn(id);
+      if (shared) return completeSharedTask(shared, opts);
+      return completeTaskForViewer(id, opts, caller.team ? { memberId: caller.memberId, source } : undefined);
     }),
-    transition: sp.input(s.transitionSchema).mutation(({ input: { id, command, ...opts }, ctx }) => {
+    commandRecorded: sp.input(z.object({ id: z.string().min(1), idempotencyKey: z.string().min(1), command: z.enum(LIFECYCLE_COMMANDS) }).strict()).query(({ input, ctx }) => {
+      if (!sharedCaller(ctx.key).team) throw new TRPCError({ code: 'FORBIDDEN' });
+      return q.hasLifecycleCommand(input.id, input.idempotencyKey, input.command);
+    }),
+    transition: sp.input(s.transitionSchema.extend({ actorSource })).mutation(({ input: { id, command, actorSource, ...opts }, ctx }) => {
       const caller = sharedCaller(ctx.key);
-      return transitionTaskForViewer(id, command, opts, caller.team ? { memberId: caller.memberId } : undefined);
+      const source = teamWriteSource(ctx.key, actorSource);
+      const shared = caller.team ? null : sharedTaskIn(id);
+      if (shared) return transitionSharedTask(shared, command, opts);
+      return transitionTaskForViewer(id, command, opts, caller.team ? { memberId: caller.memberId, source } : undefined);
     }),
     reorder: sp.input(s.entityIdSchema.extend({ prevId: z.string().nullable().optional(), nextId: z.string().nullable().optional() })).mutation(({ input }) => q.reorderTaskInLane(input.id, input.prevId ?? null, input.nextId ?? null)),
     executions: p.input(s.entityIdSchema).query(({ input }) => q.getTaskExecutions(input.id).map(({ id, label, status }) => ({ id, label, status }))),
-    counts: sp.input(z.object({ areaId: z.string().nullable().optional() }).strict().optional()).query(({ input }) => q.getTaskStatusCounts({ areaId: input?.areaId || undefined })),
+    // A team's published results (docs/homes-spec.md §9.5): a member shares
+    // a chosen summary, link or files. A personal home has none.
+    publishResult: sp.input(s.publishTaskResultSchema).mutation(({ input, ctx }) => {
+      const caller = sharedCaller(ctx.key);
+      if (!caller.team) throw new TRPCError({ code: 'FORBIDDEN', message: 'Results are published to a team.' });
+      return publishTaskResult({ ...input, memberId: caller.memberId });
+    }),
+    publishedResults: sp.input(z.object({ taskId: z.string().min(1).max(100) }).strict()).query(({ input, ctx }) =>
+      sharedCaller(ctx.key).team ? listTaskPublishedResults(input.taskId) : [],
+    ),
+    counts: sp.input(z.object({ areaId: z.string().nullable().optional(), source: z.string().nullable().optional() }).strict().optional()).query(({ input }) => q.getTaskStatusCounts({ areaId: input?.areaId || undefined, source: input?.source || undefined })),
     attention: p.input(z.object({ ids: z.array(z.string().min(1)).max(200) }).strict()).query(({ input }) => q.getTasksAttentionSignals(input.ids, new Set(listRunningSessions()))),
     deadlines: p.input(z.object({ withinDays: z.number().int().min(0).max(60).optional() }).strict().optional()).query(({ input }) => q.getDeadlineTasks(input)),
   }),

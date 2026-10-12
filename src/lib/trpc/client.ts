@@ -4,6 +4,7 @@ import { createTRPCClient, httpLink } from '@trpc/client';
 import { createTRPCOptionsProxy } from '@trpc/tanstack-react-query';
 import type { AppRouter } from './router';
 import { createTransportLink } from './transport-link';
+import { currentSpaceId, spaceApiBase } from '@/lib/spaces/document';
 import type { TransportMode } from './transport-state';
 
 export function createAppTRPCClient({ url = '/api/trpc', transport = api, getMode, WebSocket, websocketOnly }: { url?: string; transport?: ApiClient; getMode?: () => TransportMode; WebSocket?: typeof globalThis.WebSocket; websocketOnly?: boolean } = {}) {
@@ -45,7 +46,16 @@ export function createAppTRPCClient({ url = '/api/trpc', transport = api, getMod
   const client = createTRPCClient<AppRouter>({ links: [trial.link] });
   return new Proxy(client, { get: (target, key) => key === 'closeTransport' ? trial.close : Reflect.get(target, key) }) as typeof client & { closeTransport(): Promise<void> };
 }
-export const trpcClient = createAppTRPCClient();
+/**
+ * In a team's space document inside My Ri, the typed API is the team's,
+ * reached through this home over HTTP (docs/homes-spec.md §3.2,
+ * src/lib/spaces/document.ts). Everywhere else it's this server's own.
+ */
+function documentClientOptions(): Parameters<typeof createAppTRPCClient>[0] {
+  const space = currentSpaceId();
+  return space ? { url: `${spaceApiBase(space)}/trpc`, getMode: () => 'http' } : {};
+}
+export const trpcClient = createAppTRPCClient(documentClientOptions());
 /** Terminal traffic remains bidirectional even when ordinary API calls use HTTP. */
 export const terminalTRPCClient = createAppTRPCClient({ websocketOnly: true });
 export const trpc = createTRPCOptionsProxy<AppRouter>({ client: trpcClient, queryClient: getQueryClient });

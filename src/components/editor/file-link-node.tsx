@@ -20,13 +20,17 @@ import { Tip } from '@/components/ui/tip';
 
 export const FILE_LINK_NAME = 'fileLink';
 
-export const FileLinkNode = Node.create({
+interface FileLinkOptions { getAttachmentUrl?: (fileName: string) => string | undefined }
+
+export const FileLinkNode = Node.create<FileLinkOptions>({
   name: FILE_LINK_NAME,
   group: 'inline',
   inline: true,
   atom: true,
   selectable: true,
   draggable: false,
+
+  addOptions() { return { getAttachmentUrl: undefined }; },
 
   addAttributes() {
     return { fileName: { default: '' } };
@@ -61,9 +65,9 @@ export const FileLinkNode = Node.create({
   },
 });
 
-function FileLinkView({ node, selected }: NodeViewProps) {
+function FileLinkView({ node, selected, extension }: NodeViewProps) {
   const fileName = (node.attrs.fileName as string) ?? '';
-  const url = attachmentUrl(fileName);
+  const url = (extension.options as FileLinkOptions).getAttachmentUrl?.(fileName) ?? attachmentUrl(fileName);
   const isImage = resolveMime(null, fileName).startsWith('image/');
   const [broken, setBroken] = useState(false);
 

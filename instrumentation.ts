@@ -172,6 +172,16 @@ export async function register() {
     console.warn('[notifier] drain init failed', err);
   }
 
+  // Shared work from connected teams (docs/homes-spec.md §9.3, P7.2): the
+  // tasks assigned to this person, and the ones they added, read now and
+  // every two minutes. A viewer coming back to the window asks again.
+  try {
+    const { startTeamSync } = await import('@/lib/spaces/sync');
+    startTeamSync();
+  } catch (err) {
+    console.warn('[teams] sync init failed', err);
+  }
+
   // Periodic background health check over the small set of sessions
   // currently marked running. Catches missed-`result`-event stalls
   // even if the user never opens the session — without it, a wedged

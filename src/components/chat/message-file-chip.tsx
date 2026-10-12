@@ -12,6 +12,8 @@ interface MessageFileChipProps {
   attachment: Attachment;
   /** Layout density. `inline` for chips embedded in a sentence; `block` for their own line. */
   variant?: 'inline' | 'block';
+  /** Shared work in My Ri resolves files through its team's store. */
+  fileUrl?: (fileName: string) => string;
 }
 
 /**
@@ -25,12 +27,12 @@ interface MessageFileChipProps {
  * Distinct from the editor's `FileChipNode`, which is interactive and
  * lives inside Tiptap.
  */
-export function MessageFileChip({ attachment, variant = 'inline' }: MessageFileChipProps) {
+export function MessageFileChip({ attachment, variant = 'inline', fileUrl = attachmentUrl }: MessageFileChipProps) {
   const { fileName, originalName, mimeType, size } = attachment;
   const display = originalName || fileName;
   const isImage = mimeType.startsWith('image/');
   const isText = mimeType.startsWith('text/');
-  const url = attachmentUrl(fileName);
+  const url = fileUrl(fileName);
 
   if (isImage) {
     return <ImageThumb url={url} display={display} variant={variant} size={size} />;

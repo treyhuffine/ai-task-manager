@@ -15,6 +15,7 @@ import {
   Zap,
   Lock,
   Repeat,
+  X,
 } from 'lucide-react';
 import { useTask, useUpdateTask, useDeleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
@@ -31,6 +32,8 @@ import { RichEditor } from '@/components/editor/rich-editor';
 import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { SubtaskSection } from '@/components/tasks/subtask-section';
 import { TaskResults } from '@/components/results/task-results';
+import { SharedTaskBody } from '@/components/spaces/shared-task-body';
+import { removeFromMyWork } from '@/components/spaces/my-work';
 import { AreaSelect } from '@/components/shared/area-select';
 import {
   DropdownMenu,
@@ -72,7 +75,10 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   // mount so the server render never disagrees with localStorage.
   const { agentFirst } = useEntityViewMode();
   const [viewOverride, setViewOverride] = useState<{ id: string; view: EntityViewMode } | null>(null);
-  const view = resolveEntityView(agentFirst, viewOverride, taskId);
+  // A shared task (docs/homes-spec.md §9.4) has its own body, the team's
+  // part and Only you, and no document chat writing the team's text.
+  const shared = !!task?.sourceTeamId;
+  const view = shared ? 'editor' : resolveEntityView(agentFirst, viewOverride, taskId);
   const setView = useCallback((next: EntityViewMode) => setViewOverride({ id: taskId, view: next }), [taskId]);
 
   const [editingDeadline, setEditingDeadline] = useState(false);
@@ -216,8 +222,8 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
           </button>
 
           <div className="flex items-center gap-2 min-w-0 overflow-x-auto no-scrollbar [&>*]:shrink-0">
-            {agentFirst && <EntityViewToggle value={view} onChange={setView} />}
-            {task && <EntityHistoryButton entityType="task" entityId={task.id} />}
+            {agentFirst && !shared && <EntityViewToggle value={view} onChange={setView} />}
+            {task && !shared && <EntityHistoryButton entityType="task" entityId={task.id} />}
             {task && task.status !== 'done' && task.status !== 'archived' && (
               <StartWithAgentButton task={task} />
             )}
@@ -247,13 +253,24 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
                   <MoreHorizontal size={16} />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem onClick={handleArchive} className="text-xs">
-                  <Archive size={12} className="mr-2" /> Archive
+                  <Archive size={12} className="mr-2" /> {shared ? 'Archive for the team' : 'Archive'}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
-                  <Trash2 size={12} className="mr-2" /> Delete
-                </DropdownMenuItem>
+                {shared ? (
+                  task?.source?.addedAt && task.sourceTeamId && task.sourceTaskId && (
+                    <DropdownMenuItem
+                      onClick={() => void removeFromMyWork(task.sourceTeamId!, task.sourceTaskId!).then(() => router.push('/'))}
+                      className="text-xs"
+                    >
+                      <X size={12} className="mr-2" /> Remove from my work
+                    </DropdownMenuItem>
+                  )
+                ) : (
+                  <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
+                    <Trash2 size={12} className="mr-2" /> Delete
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -280,7 +297,11 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
         <div className="flex-1 overflow-y-auto min-w-0">
           <div className="max-w-3xl mx-auto px-6">
             {header}
-            {task ? (
+            {task && shared ? (
+              <div className="-mx-4 md:-mx-12">
+                <SharedTaskBody task={task} onOpenTask={(id) => router.push(`/task/${id}`)} />
+              </div>
+            ) : task ? (
               <div className="space-y-0">
                 <EntityChangeBanner entityType="task" entityId={task.id} />
                 {/* Type label + area / parent breadcrumb */}
@@ -534,7 +555,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
           </div>
         </div>
 
-        <SlideoutChat slideoutWidth={9999} contextLabel="this task" chat={chat} disabled={!task} />
+        {!shared && <SlideoutChat slideoutWidth={9999} contextLabel="this task" chat={chat} disabled={!task} />}
         </>
         )}
       </div>

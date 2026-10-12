@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, members, teamGrants, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, members, teamGrants, teamConnections, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, workResults, workResultTasks, workResultDecisions, workResultAiReviews,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -224,6 +224,13 @@ export type MemberRole = MemberRecord['role'];
 export type MemberStatus = MemberRecord['status'];
 export type TeamGrantRecord = InferSelectModel<typeof teamGrants>;
 export type TeamGrantKind = TeamGrantRecord['kind'];
+
+// ─── Team connections ─────────────────────────────────────────
+// docs/homes-spec.md §9.3. Only a personal home connects to teams.
+export type TeamConnectionRecord = InferSelectModel<typeof teamConnections>;
+export type TeamConnectionStatus = TeamConnectionRecord['status'];
+export type SharedSourceState = NonNullable<TaskRecord['sourceState']>;
+export type { SharedTaskSource, SharedNoteSource } from '@/lib/db/schema';
 
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
 export type ApiKeyRole = ApiKeyRecord['role'];
@@ -530,6 +537,8 @@ export interface TaskFilter {
   energy?: Energy;
   /** In a team space: the member the tasks are assigned to. */
   assigneeMemberId?: string | null;
+  /** In My Ri: `personal` for its own tasks only, or a connected team's id for that team's (docs/homes-spec.md §9.3). */
+  source?: string | null;
   q?: string;
   limit?: number;
   offset?: number;

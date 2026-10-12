@@ -1,4 +1,5 @@
 import { API_PROTOCOL_HEADER, apiCompatibilityIssue, hasIndependentProtocol } from '@/lib/releases/api-contract';
+import { SPACE_HEADER, SPACE_PATH_PREFIX, spaceIdFromPath } from '@/lib/spaces/document';
 import { CURRENT_COMPATIBILITY } from '@/lib/releases/compatibility';
 import { NextResponse, type NextRequest } from 'next/server';
 import { lookupApiToken } from '@/lib/auth/api-token';
@@ -23,7 +24,8 @@ import { permitsCookieMutation } from '@/lib/auth/request-origin';
 import { localAppsEnabled } from '@/lib/config/features';
 
 export const config = {
-  matcher: ['/api/:path*'],
+  // `/space/*` is a page: the proxy only marks which team it shows (below).
+  matcher: ['/api/:path*', '/space/:path*'],
 };
 
 function unauthorized() {
@@ -142,6 +144,17 @@ function teamProxy(request: NextRequest) {
 }
 
 export function proxy(request: NextRequest) {
+  // A team's space in My Ri (docs/homes-spec.md §3.2, P7.1) is a page of its
+  // own. Pages aren't authenticated here: its API calls are, through
+  // `/api/space/<team>`. The layout learns which team from this header,
+  // which only the proxy sets.
+  if (request.nextUrl.pathname.startsWith(SPACE_PATH_PREFIX)) {
+    const headers = new Headers(request.headers);
+    const id = spaceIdFromPath(request.nextUrl.pathname);
+    if (id) headers.set(SPACE_HEADER, id);
+    else headers.delete(SPACE_HEADER);
+    return NextResponse.next({ request: { headers } });
+  }
   if (process.env.NODE_ENV === 'production' &&
       /^\/api\/(dev|playground|benchmark)(\/|$)/.test(request.nextUrl.pathname)) {
     return NextResponse.json({ error: 'not found' }, { status: 404 });

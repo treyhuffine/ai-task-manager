@@ -5,6 +5,7 @@ import { openSettings } from '@/components/settings/settings-store';
 import { INTEGRATION_ICONS } from '@/components/integrations/integration-icon-data';
 import { cn } from '@/lib/utils';
 import { Tip } from '@/components/ui/tip';
+import { SpaceSelector } from '@/components/spaces/space-selector';
 
 // The bottom of the rail: what you set up rather than visit. Settings, and
 // connecting accounts (where agents can act). Both are occasional, so they
@@ -51,7 +52,9 @@ function AppTile({ id, className }: { id: (typeof APPS)[number]; className?: str
 export function RailFooter({ collapsed }: { collapsed: boolean }) {
   if (collapsed) {
     return (
-      <footer className="flex flex-shrink-0 justify-center border-t border-border/40 py-1.5">
+      <footer className="flex flex-shrink-0 flex-col items-center gap-1 border-t border-border/40 py-1.5">
+        {/* My Ri and its teams, once one is connected (docs/homes-spec.md §3.2). */}
+        <SpaceSelector variant="collapsed" />
         <Tip label="Settings">
           <button
             type="button"
@@ -66,7 +69,10 @@ export function RailFooter({ collapsed }: { collapsed: boolean }) {
     );
   }
   return (
-    <footer className="flex flex-shrink-0 items-stretch gap-1.5 px-2 py-2 border-t border-border/40">
+    <footer className="flex flex-shrink-0 flex-col gap-1.5 px-2 py-2 border-t border-border/40">
+      {/* My Ri and its teams, once one is connected (docs/homes-spec.md §3.2). */}
+      <SpaceSelector variant="wide" />
+      <div className="flex items-stretch gap-1.5">
       <Tip label="Settings">
         <button
           type="button"
@@ -91,6 +97,7 @@ export function RailFooter({ collapsed }: { collapsed: boolean }) {
           ))}
         </span>
       </button>
+      </div>
     </footer>
   );
 }

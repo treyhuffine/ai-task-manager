@@ -20,7 +20,7 @@ import {
   Link2,
 } from 'lucide-react'
 import type { Attachment } from '@/db/types'
-import { insertUploadedFiles } from './upload-files'
+import { insertUploadedFiles, type AttachmentStore } from './upload-files'
 
 // --- Command definitions ---
 
@@ -35,6 +35,8 @@ interface SlashCommandsBuildContext {
   /** Called when an image is uploaded so the parent can include its metadata
    *  in the next save payload. */
   getAttachmentHandler: () => ((a: Attachment) => void) | undefined
+  /** Where the files go, when not this Ri's own attachments. */
+  getAttachmentStore: () => AttachmentStore | undefined
 }
 
 /** Open the system file picker and insert the chosen images at `insertAt`. */
@@ -42,6 +44,7 @@ function pickAndInsertImages(
   editor: any,
   insertAt: number,
   onAttachment?: (a: Attachment) => void,
+  store?: AttachmentStore,
 ) {
   const input = document.createElement('input')
   input.type = 'file'
@@ -50,7 +53,7 @@ function pickAndInsertImages(
   input.addEventListener('change', () => {
     const files = Array.from(input.files ?? []).filter((f) => f.type.startsWith('image/'))
     if (files.length === 0) return
-    void insertUploadedFiles(editor, files, insertAt, onAttachment)
+    void insertUploadedFiles(editor, files, insertAt, onAttachment, store)
   })
   input.click()
 }
@@ -78,7 +81,7 @@ function buildSlashCommands(ctx: SlashCommandsBuildContext): SlashCommandItem[] 
       // shrunken document after async work is still safe.
       editor.chain().focus().deleteRange(range).run()
       const insertAt = editor.state.selection.to
-      pickAndInsertImages(editor, insertAt, ctx.getAttachmentHandler())
+      pickAndInsertImages(editor, insertAt, ctx.getAttachmentHandler(), ctx.getAttachmentStore())
     },
   },
   {
@@ -378,6 +381,7 @@ interface SlashCommandsOptions {
    *  extension always sees the latest callback even though its options are
    *  frozen at editor-create time. */
   getAttachmentHandler?: () => ((a: Attachment) => void) | undefined
+  getAttachmentStore?: () => AttachmentStore | undefined
 }
 
 export const SlashCommands = Extension.create<SlashCommandsOptions>({
@@ -386,12 +390,14 @@ export const SlashCommands = Extension.create<SlashCommandsOptions>({
   addOptions() {
     return {
       getAttachmentHandler: undefined,
+      getAttachmentStore: undefined,
     }
   },
 
   addProseMirrorPlugins() {
     const buildCtx: SlashCommandsBuildContext = {
       getAttachmentHandler: () => this.options.getAttachmentHandler?.(),
+      getAttachmentStore: () => this.options.getAttachmentStore?.(),
     }
     const suggestion: Partial<SuggestionOptions<SlashCommandItem, SlashCommandItem>> = {
       char: '/',

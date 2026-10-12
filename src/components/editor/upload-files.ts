@@ -17,17 +17,27 @@ import type { Attachment } from '@/db/types'
  * upload resolves so the editor doesn't show placeholder gaps or
  * broken-image icons pointing at not-yet-saved files.
  */
+/**
+ * Where an editor's files go, when not this Ri's own attachments: a shared
+ * task in My Ri stores them at its team (docs/homes-spec.md §9.4).
+ */
+export interface AttachmentStore {
+  upload(file: File): Promise<Attachment>
+  url(fileName: string): string
+}
+
 export async function insertUploadedFiles(
   editor: Editor,
   files: File[],
   startPos: number,
   onAttachment?: (a: Attachment) => void,
+  store?: AttachmentStore,
 ): Promise<void> {
   let pos = startPos
   for (const file of files) {
     try {
-      const attachment = await uploadAttachment(file)
-      const src = attachmentUrl(attachment.fileName)
+      const attachment = store ? await store.upload(file) : await uploadAttachment(file)
+      const src = store ? store.url(attachment.fileName) : attachmentUrl(attachment.fileName)
       // Clamp each iteration: the document may have grown or shrunk as
       // earlier files in the batch were inserted, and the cursor is a
       // safer landing spot than a stale absolute position.
