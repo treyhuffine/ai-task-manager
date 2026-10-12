@@ -253,7 +253,7 @@ async function copyToTeam(team: NonNullable<Awaited<ReturnType<typeof teamFor>>>
   }
   const form = new FormData();
   form.append('file', new Blob([new Uint8Array(bytes)], { type: file.mimeType }), file.originalName);
-  const res = await teamRequest(`${team.connection.address}/api/attachments`, { method: 'POST', body: form, token: team.token, teamName: team.connection.name });
+  const res = await teamRequest(`${team.connection.url}/api/attachments`, { method: 'POST', body: form, token: team.token, teamName: team.connection.name });
   if (!res.ok) {
     const error = ((await res.json().catch(() => null)) as { error?: string } | null)?.error;
     throw new q.TeamError('invalid', error ? `${team.connection.name} didn't take ${file.originalName}: ${error}` : `${team.connection.name} didn't take ${file.originalName}.`);

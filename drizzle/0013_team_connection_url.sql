@@ -1,0 +1,1 @@
+ALTER TABLE `team_connections` RENAME COLUMN "address" TO "url";

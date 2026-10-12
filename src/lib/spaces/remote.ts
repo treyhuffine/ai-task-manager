@@ -84,11 +84,11 @@ export async function teamRequest(url: string, init: TeamRequestInit = {}): Prom
 }
 
 /** The team's own tRPC API, called as this home's member. */
-export function teamTRPC(address: string, token: string, teamName?: string) {
+export function teamTRPC(url: string, token: string, teamName?: string) {
   return createTRPCClient<AppRouter>({
     links: [
       httpLink({
-        url: `${address}/api/trpc`,
+        url: `${url}/api/trpc`,
         fetch: (url, init) => teamRequest(String(url), { ...(init as RequestInit), token, teamName }),
       }),
     ],

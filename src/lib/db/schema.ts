@@ -1164,8 +1164,8 @@ export const teamConnections = sqliteTable('team_connections', {
   id: text().primaryKey(),
   ...timestamps,
   name: text().notNull(),
-  // Where the home reaches it (HTTPS).
-  address: text().notNull(),
+  // The team's HTTPS URL, independent of its stable id.
+  url: text().notNull(),
   // This person's member id there. Joining from My Ri and connecting an
   // existing team sign-in both keep the same member.
   memberId: text().notNull(),

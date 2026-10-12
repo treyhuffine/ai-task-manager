@@ -6,7 +6,7 @@ afterEach(async () => { await home.cleanup(); });
 
 it('never lets generic task or note writes manufacture a shared reference', async () => {
   const q = await import('@/lib/db/queries');
-  q.saveTeamConnection({ id: 'team-123', name: 'Team', address: 'https://team.test', memberId: 'member', memberName: 'Me', role: 'member' });
+  q.saveTeamConnection({ id: 'team-123', name: 'Team', url: 'https://team.test', memberId: 'member', memberName: 'Me', role: 'member' });
   const source = { sourceTeamId: 'team-123', sourceState: 'active' as const };
   const task = q.createTask({ title: 'Private task', rawInput: 'Private task' });
   const note = q.createNote({ title: 'Private note', body: 'Private text' });

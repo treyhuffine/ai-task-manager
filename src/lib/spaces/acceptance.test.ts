@@ -82,7 +82,7 @@ describe('when membership ends or the team is away', () => {
     const task = await o.tasks.create.mutate({ title: 'Kept while away', rawInput: 'Kept while away', body: 'Last read text', assigneeMemberId: me.memberId });
     await sync(me.id);
     const q = await import('@/lib/db/queries');
-    q.saveTeamConnection({ id: me.id, name: me.name, address: 'https://127.0.0.1:1', memberId: me.memberId, memberName: me.memberName, role: me.role });
+    q.saveTeamConnection({ id: me.id, name: me.name, url: 'https://127.0.0.1:1', memberId: me.memberId, memberName: me.memberName, role: me.role });
 
     const pass = await sync(me.id);
     expect(pass).toMatchObject({ ok: false, problem: expect.stringContaining("can't be reached") });

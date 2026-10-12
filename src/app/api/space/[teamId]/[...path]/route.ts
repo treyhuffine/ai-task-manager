@@ -54,7 +54,7 @@ async function forward(request: NextRequest, { params }: Context): Promise<Respo
   const accept = request.headers.get('accept');
   if (accept) headers.accept = accept;
 
-  const url = `${team.connection.address}/api/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`;
+  const url = `${team.connection.url}/api/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`;
   try {
     const res = await teamRequest(url, {
       method: request.method,

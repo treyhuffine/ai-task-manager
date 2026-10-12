@@ -60,7 +60,7 @@ function parse(raw: string): ParsedLink {
   } catch (err) {
     // A pasted link says the same as the desktop's own form does (desktop/team-setup.ts).
     if (parsed.origin.startsWith('http:')) throw new q.TeamError('invalid', PLAIN_HTTP_LINK_REFUSED);
-    throw new q.TeamError('invalid', err instanceof Error ? err.message : "That team's address can't be used.");
+    throw new q.TeamError('invalid', err instanceof Error ? err.message : "That team's URL can't be used.");
   }
   return { origin, kind: parsed.kind, secret: parsed.secret };
 }
@@ -140,12 +140,12 @@ export async function connectTeam(input: { link: string; name?: string }): Promi
     if (existing && existing.status === 'active') {
       // A team is reached where it was connected. A link from anywhere else
       // can't take over that connection, whatever the endpoint says it is:
-      // nothing proves an address belongs to a team except the address My Ri
+      // nothing proves a URL belongs to a team except the URL My Ri
       // already uses. A team that moved is disconnected and connected again.
-      if (existing.address !== link.origin) {
+      if (existing.url !== link.origin) {
         throw new q.TeamError(
           'conflict',
-          `This link reaches ${existing.name} somewhere other than ${existing.address}, where this Ri connects to it. If the team moved, disconnect it in Settings, Teams, then connect again with this link.`,
+          `This link reaches ${existing.name} somewhere other than ${existing.url}, where this Ri connects to it. If the team moved, disconnect it in Settings, Teams, then connect again with this link.`,
         );
       }
       if (link.kind === 'invite' && !found.retry) {
@@ -183,7 +183,7 @@ export async function connectTeam(input: { link: string; name?: string }): Promi
     );
     if (home?.kind !== 'team' || home.id !== admitted.team.id) {
       await signOutKey(link.origin, admitted.token);
-      throw new q.TeamError('invalid', "That address isn't the team the link names.");
+      throw new q.TeamError('invalid', "That URL isn't the team the link names.");
     }
 
     const unchanged = () => {
@@ -197,7 +197,7 @@ export async function connectTeam(input: { link: string; name?: string }): Promi
         assertCurrent: unchanged,
         onSaved: () => {
           saved = q.saveTeamConnection({
-            id: admitted.team!.id, name: admitted.team!.name, address: link.origin,
+            id: admitted.team!.id, name: admitted.team!.name, url: link.origin,
             memberId: admitted.member!.id, memberName: admitted.member!.name, role: admitted.member!.role,
           });
         },
@@ -208,13 +208,13 @@ export async function connectTeam(input: { link: string; name?: string }): Promi
         const current = q.getTeamConnection(admitted.team.id);
         // Two retries of one admission may share the very same credential.
         // Never sign out the winning request's key while rejecting a loser.
-        if (current?.status === 'active' && current.address === link.origin && current.memberId === admitted.member.id && key?.token === admitted.token && key.version === teamKeyVersion(current.id)) return current;
+        if (current?.status === 'active' && current.url === link.origin && current.memberId === admitted.member.id && key?.token === admitted.token && key.version === teamKeyVersion(current.id)) return current;
         if (key?.token !== admitted.token) await signOutKey(link.origin, admitted.token);
       }
       throw err;
     }
-    // An old key goes only to the address that issued it, never the new link.
-    if (priorConnection && previous && previous.token !== admitted.token) await signOutKey(priorConnection.address, previous.token);
+    // An old key goes only to the URL that issued it, never the new link.
+    if (priorConnection && previous && previous.token !== admitted.token) await signOutKey(priorConnection.url, previous.token);
     return saved;
   } catch (err) {
     asTeamError(err);
@@ -223,12 +223,12 @@ export async function connectTeam(input: { link: string; name?: string }): Promi
 
 /** Ignore background freshness writes, but include every part of local authority. */
 function connectionIdentity(row: TeamConnectionRecord | null): string | null {
-  return row ? JSON.stringify([row.status, row.address, row.memberId, teamKeyVersion(row.id)]) : null;
+  return row ? JSON.stringify([row.status, row.url, row.memberId, teamKeyVersion(row.id)]) : null;
 }
 
-async function signOutKey(address: string, token: string): Promise<void> {
+async function signOutKey(url: string, token: string): Promise<void> {
   try {
-    await teamTRPC(address, token).team.signIns.signOut.mutate();
+    await teamTRPC(url, token).team.signIns.signOut.mutate();
   } catch {
     // Best effort: a key the team already refuses is signed out anyway.
   }
@@ -249,7 +249,7 @@ export async function disconnectTeam(id: string): Promise<TeamConnectionRecord> 
   forgetTeamKey(id);
   q.releaseTeamContent(id);
   const disconnected = q.updateTeamConnection(id, { status: 'disconnected' }) ?? row;
-  if (key) await signOutKey(row.address, key.token);
+  if (key) await signOutKey(row.url, key.token);
   return disconnected;
 }
 
@@ -268,7 +268,7 @@ export class TeamConnectionChangedError extends q.TeamError {
 export function isCurrentTeam(team: ConnectedTeam): boolean {
   const current = q.getTeamConnection(team.connection.id);
   return current?.status === 'active' && current.memberId === team.connection.memberId &&
-    current.address === team.connection.address && teamKeyVersion(current.id) === team.keyVersion;
+    current.url === team.connection.url && teamKeyVersion(current.id) === team.keyVersion;
 }
 
 export function assertCurrentTeam(team: ConnectedTeam): void {
@@ -281,7 +281,7 @@ export async function teamFor(id: string): Promise<ConnectedTeam | null> {
   if (!connection || connection.status !== 'active') return null;
   const key = await readTeamKey(id);
   if (!key || key.memberId !== connection.memberId) return null;
-  const team = { connection, client: teamTRPC(connection.address, key.token, connection.name), token: key.token, keyVersion: key.version };
+  const team = { connection, client: teamTRPC(connection.url, key.token, connection.name), token: key.token, keyVersion: key.version };
   return isCurrentTeam(team) ? team : null;
 }
 

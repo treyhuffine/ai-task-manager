@@ -5633,7 +5633,7 @@ export function getTeamConnection(id: string): TeamConnectionRecord | null {
 export function saveTeamConnection(input: {
   id: string;
   name: string;
-  address: string;
+  url: string;
   memberId: string;
   memberName: string;
   role: MemberRole;
@@ -5642,7 +5642,7 @@ export function saveTeamConnection(input: {
   const now = new Date().toISOString();
   const fields = {
     name: input.name,
-    address: input.address,
+    url: input.url,
     memberId: input.memberId,
     memberName: input.memberName,
     role: input.role,

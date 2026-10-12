@@ -165,7 +165,7 @@ describe("the person's agent on shared work", () => {
     const { row } = await assigned(me, 'Unreachable');
     const q = await import('@/lib/db/queries');
     // The team's computer is off: nothing answers where it was.
-    q.saveTeamConnection({ id: me.id, name: me.name, address: 'https://127.0.0.1:1', memberId: me.memberId, memberName: me.memberName, role: me.role });
+    q.saveTeamConnection({ id: me.id, name: me.name, url: 'https://127.0.0.1:1', memberId: me.memberId, memberName: me.memberName, role: me.role });
     const result = await action('update_task', { id: row.id, title: 'Lost?', userContext: 'Also not written' });
     expect(result).toMatchObject({ ok: false, error: { code: 'conflict', details: { reason: 'team_unreachable' } } });
     expect(q.getTask(row.id)).toMatchObject({ title: 'Unreachable', userContext: null });

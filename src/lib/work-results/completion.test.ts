@@ -109,7 +109,7 @@ describe('atomic exact-result acceptance and task completion', () => {
     expect(getWorkResultCompletionOptions(ideaResult.id).choices).toEqual([]);
     expect(() => acceptWorkResultAndCompleteTask(human, { ...input, resultId: ideaResult.id })).toThrow(/eligible linked task/);
     // A task shared with a team completes at its team, never by accepting a personal result.
-    saveTeamConnection({ id: 'team-1', name: 'Acme', address: 'https://acme.example', memberId: 'm-1', memberName: 'Maya', role: 'member' });
+    saveTeamConnection({ id: 'team-1', name: 'Acme', url: 'https://acme.example', memberId: 'm-1', memberName: 'Maya', role: 'member' });
     const now = new Date().toISOString();
     const shared = saveTaskProjection({
       teamId: 'team-1', sourceTaskId: 'team-task',

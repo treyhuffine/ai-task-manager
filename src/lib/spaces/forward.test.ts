@@ -157,7 +157,7 @@ describe('a team space reaching its team through My Ri', () => {
   it('says when the team is out of reach, and keeps the connection', async () => {
     const connection = await connected('Cy');
     const q = await import('@/lib/db/queries');
-    q.saveTeamConnection({ ...connection, address: 'http://127.0.0.1:9' });
+    q.saveTeamConnection({ ...connection, url: 'http://127.0.0.1:9' });
     const res = await viaHome(connection.id, 'trpc/team.me?input=%7B%7D');
     expect(res.status).toBe(502);
     expect(await res.json()).toMatchObject({ error: 'team_unreachable' });

@@ -110,7 +110,11 @@ describe('joining from My Ri', () => {
     expect(await inspectTeamLink(link)).toMatchObject({ link: 'invite', state: 'valid', team: { name: 'Acme' }, connected: null });
 
     const connection = await connectTeam({ link, name: 'Maya' });
-    expect(connection).toMatchObject({ name: 'Acme', memberName: 'Maya', role: 'member', status: 'active', address: team.url });
+    expect(connection).toMatchObject({ name: 'Acme', memberName: 'Maya', role: 'member', status: 'active', url: team.url });
+    const { teamConnectionView } = await import('./router');
+    const view = teamConnectionView(connection);
+    expect(view).toMatchObject({ id: connection.id, url: team.url });
+    expect(view).not.toHaveProperty('address');
 
     const { readTeamKey } = await import('./credentials');
     const key = await readTeamKey(connection.id);
@@ -203,7 +207,7 @@ describe('Connect to My Ri', () => {
     // Nothing past the preview reached it, and the connection still points at the team.
     expect(calls).toEqual(['/api/team/public/preview']);
     const q = await import('@/lib/db/queries');
-    expect(q.getTeamConnection(saved.id)).toMatchObject({ address: saved.address, status: 'active' });
+    expect(q.getTeamConnection(saved.id)).toMatchObject({ url: saved.url, status: 'active' });
     expect((await readTeamKey(saved.id))!.token).toBe(original);
     // The real key still works at the real team: it wasn't signed out.
     const { teamTRPC } = await import('./remote');
@@ -266,13 +270,13 @@ describe('leaving', () => {
     const q = await import('@/lib/db/queries');
 
     // The computer hosting the team is asleep: nothing is revoked or cleared.
-    q.saveTeamConnection({ ...connection, address: 'http://127.0.0.1:9' });
+    q.saveTeamConnection({ ...connection, url: 'http://127.0.0.1:9' });
     const asleep = await teamFor(connection.id);
     const outage = await asleep!.client.team.me.query().catch((err: unknown) => err);
     expect(recordTeamFailure(connection.id, outage)?.problem).toBe('unreachable');
     expect(q.getTeamConnection(connection.id)).toMatchObject({ status: 'active', lastError: expect.stringContaining("can't be reached") });
 
-    q.saveTeamConnection({ ...connection, address: team.url });
+    q.saveTeamConnection({ ...connection, url: team.url });
     await (await owner()).team.removeMember.mutate({ id: connection.memberId });
     const removed = await (await teamFor(connection.id))!.client.team.me.query().catch((err: unknown) => err);
     expect(recordTeamFailure(connection.id, removed)?.problem).toBe('signed_out');

@@ -240,7 +240,7 @@ describe('combine', () => {
 describe('merging into shared team work', () => {
   it("never writes a capture into a team's text, and still allows a private subtask", async () => {
     const { q } = await setup();
-    q.saveTeamConnection({ id: 'team-1', name: 'Acme', address: 'https://acme.example', memberId: 'm-1', memberName: 'Maya', role: 'member' });
+    q.saveTeamConnection({ id: 'team-1', name: 'Acme', url: 'https://acme.example', memberId: 'm-1', memberName: 'Maya', role: 'member' });
     const now = new Date().toISOString();
     const task = q.saveTaskProjection({
       teamId: 'team-1', sourceTaskId: 'team-task',

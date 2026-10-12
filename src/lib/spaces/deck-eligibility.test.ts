@@ -31,7 +31,7 @@ function fields(title: string, status: TaskStatus = 'todo') {
 describe('the Deck and shared work', () => {
   it('draws from assigned and added team work by its usual rules, never from work that left', async () => {
     const q = await import('@/lib/db/queries');
-    q.saveTeamConnection({ id: 'team-1', name: 'Acme', address: 'https://acme.example', memberId: 'm-1', memberName: 'Maya', role: 'member' });
+    q.saveTeamConnection({ id: 'team-1', name: 'Acme', url: 'https://acme.example', memberId: 'm-1', memberName: 'Maya', role: 'member' });
     const personal = q.createTask({ title: 'Personal', rawInput: 'Personal' });
     const assigned = q.saveTaskProjection({ teamId: 'team-1', sourceTaskId: 'a', fields: fields('Assigned'), source: source(), state: 'active' });
     const added = q.saveTaskProjection({ teamId: 'team-1', sourceTaskId: 'b', fields: fields('Added'), source: source({ assigned: false, addedAt: new Date().toISOString() }), state: 'active' });
@@ -51,7 +51,7 @@ describe('the Deck and shared work', () => {
 
   it('places nothing on the Deck when work arrives', async () => {
     const q = await import('@/lib/db/queries');
-    q.saveTeamConnection({ id: 'team-1', name: 'Acme', address: 'https://acme.example', memberId: 'm-1', memberName: 'Maya', role: 'member' });
+    q.saveTeamConnection({ id: 'team-1', name: 'Acme', url: 'https://acme.example', memberId: 'm-1', memberName: 'Maya', role: 'member' });
     expect(q.getLatestDeck()).toBeFalsy();
     q.saveTaskProjection({ teamId: 'team-1', sourceTaskId: 'a', fields: fields('Assigned'), source: source(), state: 'active' });
     expect(q.getLatestDeck()).toBeFalsy();

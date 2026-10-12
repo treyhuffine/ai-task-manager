@@ -25,7 +25,7 @@ describe('source filter', () => {
   it("narrows lists and counts to My Ri's own tasks or one team's", async () => {
     const q = await import('@/lib/db/queries');
     for (const [id, name] of [['acme', 'Acme'], ['family', 'Family']]) {
-      q.saveTeamConnection({ id, name, address: `https://${id}.example`, memberId: `m-${id}`, memberName: 'Maya', role: 'member' });
+      q.saveTeamConnection({ id, name, url: `https://${id}.example`, memberId: `m-${id}`, memberName: 'Maya', role: 'member' });
     }
     const mine = q.createTask({ title: 'Mine', rawInput: 'Mine' });
     const acme = q.saveTaskProjection({ teamId: 'acme', sourceTaskId: 'a1', fields: fields('From Acme'), source, state: 'active' });

@@ -43,25 +43,16 @@ function sharedTask(id: string) {
 
 const teamNoteInput = z.object({ teamId: z.string().min(1).max(100), noteId: z.string().min(1).max(100) }).strict();
 
-export interface TeamConnectionView {
-  id: string;
-  name: string;
-  address: string;
-  memberId: string;
-  memberName: string;
-  role: TeamConnectionRecord['role'];
-  status: TeamConnectionRecord['status'];
-  connectedAt: string;
-  lastSyncedAt: string | null;
-  lastError: string | null;
-  lastErrorAt: string | null;
-}
+export type TeamConnectionView = Pick<TeamConnectionRecord,
+  'id' | 'name' | 'url' | 'memberId' | 'memberName' | 'role' | 'status' |
+  'lastSyncedAt' | 'lastError' | 'lastErrorAt'
+> & { connectedAt: TeamConnectionRecord['createdAt'] };
 
 export function teamConnectionView(row: TeamConnectionRecord): TeamConnectionView {
   return {
     id: row.id,
     name: row.name,
-    address: row.address,
+    url: row.url,
     memberId: row.memberId,
     memberName: row.memberName,
     role: row.role,
