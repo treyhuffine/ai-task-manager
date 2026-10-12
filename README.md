@@ -83,11 +83,28 @@ If you want a real `ri` binary on your PATH (still from this repo, no npm publis
 
 ```bash
 pnpm cli:build            # bundle the CLI to ./dist/cli/index.mjs (also runs on install via `prepare`)
-pnpm link --global        # symlink the `ri` bin from this repo
-ri start                  # works from anywhere
+pnpm link                 # expose this repo's `ri` command globally (pnpm 10)
+ri --help                 # confirm the command is available
 ```
 
 `./dist` is a build artifact, not source, so it is gitignored and never committed. The `prepare` hook rebuilds it on every `pnpm install`, so a fresh clone gets a working binary automatically. Re-run `pnpm cli:build` after CLI changes to refresh the bundle the symlink points at. To undo the link: `pnpm unlink --global ri`.
+
+For a source installation, run `ri start` from the repository directory so it can find the server build. On macOS, put pnpm's global bin directory before `/usr/bin` on `PATH`, since `/usr/bin/ri` is Ruby's documentation command.
+
+To host a team alongside your personal Home, give it a separate folder and port:
+
+```bash
+ri team create --root "$HOME/family-team" --name "Family"
+RI_ROOT="$HOME/family-team" ri start --port 4300
+```
+
+`team create` writes the team's declaration before its database exists. `start` reads that declaration before first-run setup, so a team skips the personal setup and connection chooser. Keep the server terminal open, then run this from the repository in another terminal and open the printed link to become the owner:
+
+```bash
+RI_ROOT="$HOME/family-team" ri team setup-link
+```
+
+If startup was cancelled after `team create`, run `start` again. The team declaration is already saved, so there is no need to recreate the folder. Your personal Home at `~/ri` stays separate.
 
 ## Two ways to run dev
 

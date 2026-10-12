@@ -16,6 +16,7 @@ import {
   buildPairingUrl,
 } from '@/lib/auth/bootstrap';
 import { ensureHomeIdentity, HomeIdentityError } from '@/lib/home/identity';
+import { declaredAuthorityKind } from '@/lib/home/authority';
 import { describeRetired, RetiredHomeError, retiredHomes } from '@/lib/home/retired';
 import { getInstallationRole, type InstallationRole } from '@/lib/config/role';
 import { runConnected } from './connected';
@@ -146,8 +147,10 @@ async function startForegroundCommand(opts: StartOptions) {
   // connected device keeps no data: it opens the home, and never starts a
   // server or a database here.
   let role: InstallationRole;
+  let teamDeclared: boolean;
   try {
     role = getInstallationRole();
+    teamDeclared = declaredAuthorityKind() === 'team';
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;
@@ -158,9 +161,10 @@ async function startForegroundCommand(opts: StartOptions) {
     return;
   }
   // First run: start a home here, or connect to the Ri this person already
-  // has. Asked in terms of use, not topology (§3.1). Without a terminal, keep
-  // starting a home, and say how to connect instead.
-  if (role === 'fresh') {
+  // has. A newly declared team has no database yet, but its choice was
+  // already made by `team create`. Validate its mark before any prompt.
+  // Without a terminal, keep starting a home, and say how to connect instead.
+  if (role === 'fresh' && !teamDeclared) {
     // This folder's home was retired: its work lives in another home now, so
     // the only way on from here is connecting to it (or undoing the retirement).
     const retired = retiredHomes()[0];
