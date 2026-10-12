@@ -6,6 +6,7 @@ import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { ensureHomeIdentity } from '@/lib/home/identity';
 import { readTeamIntent, teamIntentPath } from '@/lib/home/team-intent';
 import { createTeamOwner, getHome, inspectTeamGrant, teamHasOwner } from '@/lib/db/queries';
+import { finishSetup } from '@/lib/team/admission';
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(), open: vi.fn(), confirm: vi.fn(), inspectTrust: vi.fn(), installTrust: vi.fn(),
@@ -144,13 +145,14 @@ it('refuses a damaged declaration without starting anything', async () => {
   expect(fs.existsSync(home.dbPath)).toBe(false);
 });
 
-it('keeps the team running when certificate consent is declined', async () => {
-  mocks.confirm.mockResolvedValue(false);
+it.each([false, Symbol('canceled')])('opens setup without installing trust when certificate consent is skipped: %s', async (answer) => {
+  mocks.confirm.mockResolvedValue(answer);
   await create();
   expect(process.exitCode).toBe(0);
   expect(getHome()?.kind).toBe('team');
   expect(mocks.installTrust).not.toHaveBeenCalled();
-  expect(mocks.open).not.toHaveBeenCalled();
+  expect(mocks.open).toHaveBeenCalledWith(expect.stringContaining(`${origin}/join#setup=`));
+  expect(console.log).toHaveBeenCalledWith(expect.stringContaining('certificate warning'));
 });
 
 it('never changes native trust implicitly in a noninteractive shell', async () => {
@@ -158,29 +160,56 @@ it('never changes native trust implicitly in a noninteractive shell', async () =
   await create();
   expect(mocks.confirm).not.toHaveBeenCalled();
   expect(mocks.installTrust).not.toHaveBeenCalled();
-  expect(mocks.open).not.toHaveBeenCalled();
+  expect(mocks.open).toHaveBeenCalledOnce();
   await create('--trust-local');
   expect(mocks.installTrust).toHaveBeenCalledOnce();
-  expect(mocks.open).toHaveBeenCalledOnce();
+  expect(mocks.open).toHaveBeenCalledTimes(2);
 });
 
-it('explains pending owner setup after a certificate failure and resumes the same team on retry', async () => {
+it('allows owner setup after a certificate failure and retries trust on the same team', async () => {
   mocks.installTrust.mockResolvedValue({ results: [{ label: 'System trust', outcome: 'permission-denied' }] });
   await create();
-  expect(process.exitCode).toBe(1);
-  expect(mocks.open).not.toHaveBeenCalled();
+  expect(process.exitCode).toBe(0);
+  expect(mocks.open).toHaveBeenCalledOnce();
   expect(getHome()?.kind).toBe('team');
   expect(teamHasOwner()).toBe(false);
-  expect(console.log).toHaveBeenCalledWith(expect.stringContaining('browser was not opened'));
-  expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Owner setup is still pending'));
+  expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Continuing in your browser'));
+  const link = new URL(mocks.open.mock.calls[0][0]);
+  const secret = new URLSearchParams(link.hash.slice(1)).get('setup')!;
+  expect(inspectTeamGrant(secret, 'setup').state).toBe('valid');
+  const admitted = finishSetup({ secret, teamName: 'Acme', ownerName: 'Owner' }, null);
+  expect(admitted.member.role).toBe('owner');
+  expect(teamHasOwner()).toBe(true);
   const id = getHome()?.id;
-  process.exitCode = 0;
   mocks.installTrust.mockResolvedValue({ results: [{ label: 'System trust', outcome: 'installed' }] });
   await create();
   expect(getHome()?.id).toBe(id);
   expect(process.exitCode).toBe(0);
-  const link = new URL(mocks.open.mock.calls[0][0]);
-  expect(inspectTeamGrant(new URLSearchParams(link.hash.slice(1)).get('setup')!, 'setup').state).toBe('valid');
+  expect(mocks.open).toHaveBeenLastCalledWith(origin);
+});
+
+it.each(['install', 'inspect'])('opens setup even when certificate %s throws unexpectedly', async (step) => {
+  if (step === 'install') mocks.installTrust.mockRejectedValueOnce(new Error('Certificate storage unavailable'));
+  else mocks.inspectTrust.mockImplementationOnce(() => { throw new Error('Certificate storage unavailable'); });
+  await create();
+  expect(process.exitCode).toBe(0);
+  expect(mocks.open).toHaveBeenCalledWith(expect.stringContaining(`${origin}/join#setup=`));
+  expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Certificate storage unavailable'));
+});
+
+it.each(['missing-tool', 'unsupported', 'error'])('opens setup when certificate installation reports %s', async (outcome) => {
+  mocks.installTrust.mockResolvedValue({ results: [{ label: 'System trust', outcome }] });
+  await create();
+  expect(process.exitCode).toBe(0);
+  expect(mocks.open).toHaveBeenCalledWith(expect.stringContaining(`${origin}/join#setup=`));
+});
+
+it('still reports a browser launch failure and leaves the setup link available', async () => {
+  mocks.open.mockRejectedValueOnce(new Error('No browser available'));
+  await create();
+  expect(process.exitCode).toBe(1);
+  expect(console.error).toHaveBeenCalledWith(expect.stringContaining('No browser available'));
+  expect(console.log).toHaveBeenCalledWith(expect.stringContaining(`${origin}/join#setup=`));
 });
 
 it('reports an optional browser trust failure without blocking a successfully configured system browser', async () => {

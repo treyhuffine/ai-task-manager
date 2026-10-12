@@ -32,39 +32,37 @@ export function selectTeamRoot(root?: string): void {
   for (const key of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR']) delete process.env[key];
 }
 
-async function openTeam(link: string, trustLocal: boolean, hasOwner: boolean): Promise<void> {
-  const url = new URL(link);
-  const { isLoopbackTeamAddress } = await import('@/lib/team/address');
-  if (url.protocol === 'https:' && isLoopbackTeamAddress(link)) {
+/** Trust installation is optional. Its failure must not hide the setup link. */
+async function offerLocalCertificateTrust(trustLocal: boolean): Promise<void> {
+  try {
     const { inspectTrust, installTrust } = await import('@/lib/config/tls-trust');
     const trust = inspectTrust();
     const recorded = trust.caCertPath && trust.detected.length > 0
       && trust.detected.every(({ target }) => trust.recorded.includes(target));
     if (trustLocal || !recorded) {
       const answer = trustLocal || (process.stdin.isTTY && await confirm({
-        message: "Allow Ri to trust this team's local HTTPS certificate? Your OS may ask for an administrator password.",
+        message: "Trust this team's local HTTPS certificate? Choose No to skip. Your OS may ask for an administrator password.",
         initialValue: true,
       }));
       if (!answer || isCancel(answer)) {
-        console.log('The team is running. Local certificate trust was left unchanged.');
-        console.log('Run this create command again to finish local browser setup, or open the link from a browser that already trusts this team.');
-        return;
+        console.log('Local certificate trust was skipped.');
+      } else {
+        const result = await installTrust();
+        const incomplete = result.results.filter(({ outcome }) => outcome !== 'installed' && outcome !== 'already-present');
+        for (const entry of incomplete) console.error(`${entry.label}: ${entry.detail || entry.outcome}`);
+        if (result.results.length > 0 && incomplete.length === 0) return;
+        console.log('Local certificate trust did not finish for every browser.');
       }
-      const result = await installTrust();
-      const incomplete = result.results.filter(({ outcome }) => outcome !== 'installed' && outcome !== 'already-present');
-      for (const entry of incomplete) console.error(`${entry.label}: ${entry.detail || entry.outcome}`);
-      if (!result.results.some(({ outcome }) => outcome === 'installed' || outcome === 'already-present')) {
-        console.log('The team is running. Certificate trust did not finish, so the browser was not opened.');
-        if (!hasOwner) console.log('Owner setup is still pending. The team address will show "This team is being set up" until you finish the form at the full /join#setup= link above.');
-        console.log('Run this same create command again and approve certificate authorization to continue.');
-        process.exitCode = 1;
-        return;
-      }
-      if (incomplete.length) {
-        console.log('Certificate trust needs attention in the browsers listed above. Retry this command after resolving the errors.');
-      }
-    }
+    } else return;
+  } catch (err) {
+    console.error(`Could not install local certificate trust: ${err instanceof Error ? err.message : String(err)}`);
   }
+  console.log('Continuing in your browser. It may show a certificate warning for this local address. You can retry certificate trust later with this same command.');
+}
+
+async function openTeam(link: string, trustLocal: boolean): Promise<void> {
+  const { isLoopbackTeamAddress } = await import('@/lib/team/address');
+  if (new URL(link).protocol === 'https:' && isLoopbackTeamAddress(link)) await offerLocalCertificateTrust(trustLocal);
   await openBrowser(link);
 }
 
@@ -113,7 +111,7 @@ export function registerTeamCommand(program: Command) {
         console.log('');
         console.log(hasOwner ? 'Open your team:' : 'Open this single-use link yourself to become the owner:');
         console.log(`  ${link}`);
-        if (opts.open) await openTeam(link, opts.trustLocal === true, hasOwner);
+        if (opts.open) await openTeam(link, opts.trustLocal === true);
       } catch (err) {
         console.error(pc.red(err instanceof Error ? err.message : String(err)));
         process.exitCode = 1;

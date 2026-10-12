@@ -88,7 +88,9 @@ process ownership), `src/cli/lib/server.ts` (loopback bind for Next),
   the native administrator dialog when `/usr/bin/security` reports a permission
   failure. Only that keychain command runs elevated. Certificate paths travel as
   arguments and are shell-quoted by AppleScript, and Ri never reads the password.
-  Canceling leaves setup pending and safe to retry. Removal uses the same
+  Declining or failing trust installation does not block team creation from
+  opening the owner setup link. The browser may still show a certificate
+  warning, and trust can be retried later. Removal uses the same
   authorization path and retains its ownership record on failure.
 - **Linux system stores are not auto-elevated.** Writing to the Debian/Fedora
   anchor directories needs root. The app is never run elevated and never captures
