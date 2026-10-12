@@ -86,7 +86,7 @@ async function staticAccount() {
 }
 
 describe('hosted multi-account runtime discovery', () => {
-  it('limits a burst across runtime refreshes to three upstream calls per account', async () => {
+  it('dispatches all fourteen calls concurrently and admits more across runtime refreshes', async () => {
     const research = await staticAccount();
     const now = Date.now();
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -99,18 +99,16 @@ describe('hosted multi-account runtime discovery', () => {
       finish.push(() => { active--; resolve({ content: [] }); });
     }));
     const calls = Array.from({ length: 14 }, () => old.runAction('dataforseo.api_request', {}));
-    await vi.waitFor(() => expect(finish).toHaveLength(3));
+    await vi.waitFor(() => expect(finish).toHaveLength(14));
     clock.mockReturnValue(now + MCP_DISCOVERY_MAX_AGE_MS + 1);
     const fresh = await getIntegrationRuntime();
     expect(fresh).not.toBe(old);
     calls.push(fresh.runAction('dataforseo.api_request', {}));
     expect(research.state.closes).not.toHaveBeenCalled();
-    for (let i = 0; i < 15; i++) {
-      finish[i]!();
-      await vi.waitFor(() => expect(finish).toHaveLength(Math.min(i + 4, 15)));
-    }
+    await vi.waitFor(() => expect(finish).toHaveLength(15));
+    expect(peak).toBe(15);
+    finish.forEach(resolve => resolve());
     expect((await Promise.all(calls)).every(result => result.ok)).toBe(true);
-    expect(peak).toBe(3);
     await vi.waitFor(() => expect(research.state.closes).toHaveBeenCalledOnce());
   });
 
@@ -133,7 +131,7 @@ describe('hosted multi-account runtime discovery', () => {
     expect(metadata.healthHistory?.at(-1)?.lastRequestError).toEqual(metadata.lastRequestError);
   });
 
-  it.each(['protocol', 'http'] as const)('cancels queued paid calls through the %s signal without sending or invalidating discovery', async source => {
+  it.each(['protocol', 'http'] as const)('cancels paid calls before dispatch through the %s signal without invalidating discovery', async source => {
     const research = await staticAccount();
     const runtime = await getIntegrationRuntime();
     const finish: (() => void)[] = [];
@@ -143,10 +141,10 @@ describe('hosted multi-account runtime discovery', () => {
     let handler!: Parameters<McpToolRegistrar['registerTool']>[2];
     const controller = new AbortController();
     serveMcp({ registerTool(name, _config, run) { if (name === 'dataforseo__api_request') handler = run; } }, runtime, source === 'http' ? { signal: controller.signal } : {});
-    const queued = handler({}, source === 'protocol' ? { signal: controller.signal } : undefined);
-    // The signal travels through the engine even when cancellation races admission.
+    const cancelled = handler({}, source === 'protocol' ? { signal: controller.signal } : undefined);
+    // The signal travels through the engine even when cancellation races dispatch.
     controller.abort();
-    const result = await queued;
+    const result = await cancelled;
     expect(JSON.parse(result.content[0]!.text)).toMatchObject({ code: 'denied' });
     expect(await getIntegrationRuntime()).toBe(runtime);
     expect(research.state.closes).not.toHaveBeenCalled();
@@ -155,7 +153,7 @@ describe('hosted multi-account runtime discovery', () => {
     expect(research.state.calls).toHaveBeenCalledTimes(3);
   });
 
-  it('stops queued sends when an established transport closes while allowing other sent requests to finish', async () => {
+  it('stops new sends when an established transport closes while allowing concurrent sent requests to finish', async () => {
     const research = await staticAccount();
     const runtime = await getIntegrationRuntime();
     const finish: (() => void)[] = [];
@@ -165,47 +163,46 @@ describe('hosted multi-account runtime discovery', () => {
       finish.push(() => resolve({ content: [] }));
     }));
     const calls = Array.from({ length: 6 }, () => runtime.runAction('dataforseo.api_request', {}));
-    await vi.waitFor(() => expect(finish).toHaveLength(3));
+    await vi.waitFor(() => expect(finish).toHaveLength(6));
     fail();
     await vi.waitFor(() => expect(getMcpServerStore().get(research.entry.id)?.lastStatus).toBe('unreachable'));
+    expect(await runtime.runAction('dataforseo.api_request', {})).toMatchObject({ code: 'tools_changed' });
     finish.forEach(resolve => resolve());
     const results = await Promise.all(calls);
-    expect(results.filter(result => result.ok)).toHaveLength(2);
+    expect(results.filter(result => result.ok)).toHaveLength(5);
     expect(results.filter(result => !result.ok && result.reason === 'error' && result.code === 'provider_unavailable')).toEqual([expect.objectContaining({ indeterminate: true })]);
-    expect(results.filter(result => !result.ok && result.reason === 'error' && result.code === 'tools_changed')).toHaveLength(3);
-    expect(research.state.calls).toHaveBeenCalledTimes(3);
+    expect(research.state.calls).toHaveBeenCalledTimes(6);
     await vi.waitFor(() => expect(research.state.closes).toHaveBeenCalledOnce());
   });
 
-  it('rejects queued work before sending when tool access changes', async () => {
+  it('rejects new requests when tool access changes while allowing sent requests to finish', async () => {
     const research = await staticAccount();
     const runtime = await getIntegrationRuntime();
     const finish: (() => void)[] = [];
     research.state.calls.mockImplementation(() => new Promise(resolve => { finish.push(() => resolve({ content: [] })); }));
     const calls = Array.from({ length: 4 }, () => runtime.runAction('dataforseo.api_request', {}));
-    await vi.waitFor(() => expect(finish).toHaveLength(3));
+    await vi.waitFor(() => expect(finish).toHaveLength(4));
     await getMcpServerStore().update(research.entry.id, { toolOverrides: { api_request: { enabled: false } } });
+    expect(await runtime.runAction('dataforseo.api_request', {})).toMatchObject({ reason: 'auth_required' });
     finish.forEach(resolve => resolve());
     const results = await Promise.all(calls);
-    expect(results.filter(result => result.ok)).toHaveLength(3);
-    const rejected = results.find(result => !result.ok);
-    expect(rejected).toMatchObject({ code: 'tools_changed' });
-    expect(rejected).not.toHaveProperty('indeterminate', true);
-    expect(research.state.calls).toHaveBeenCalledTimes(3);
+    expect(results.every(result => result.ok)).toBe(true);
+    expect(research.state.calls).toHaveBeenCalledTimes(4);
   });
 
-  it('rejects queued work before sending when the account loses authorization', async () => {
+  it('rejects new requests when the account loses authorization while allowing sent requests to finish', async () => {
     const research = await staticAccount();
     const runtime = await getIntegrationRuntime();
     const finish: (() => void)[] = [];
     research.state.calls.mockImplementation(() => new Promise(resolve => { finish.push(() => resolve({ content: [] })); }));
     const calls = Array.from({ length: 4 }, () => runtime.runAction('dataforseo.api_request', {}));
-    await vi.waitFor(() => expect(finish).toHaveLength(3));
+    await vi.waitFor(() => expect(finish).toHaveLength(4));
     await getIntegrationConnectionStore().setStatus(research.connectionId, 'needs_reauth');
+    expect(await runtime.runAction('dataforseo.api_request', {})).toMatchObject({ reason: 'auth_required' });
     finish.forEach(resolve => resolve());
     const results = await Promise.all(calls);
-    expect(results.filter(result => !result.ok)).toEqual([expect.objectContaining({ reason: 'auth_required' })]);
-    expect(research.state.calls).toHaveBeenCalledTimes(3);
+    expect(results.every(result => result.ok)).toBe(true);
+    expect(research.state.calls).toHaveBeenCalledTimes(4);
   });
 
   it('lets an already-started paid request finish across the five-minute refresh', async () => {

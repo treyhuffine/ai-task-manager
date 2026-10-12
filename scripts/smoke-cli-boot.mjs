@@ -21,6 +21,12 @@ try {
     assert.match(output, /Usage: ri/);
   }
   assert.deepEqual(fs.readdirSync(root), [], 'CLI help must not initialize a Home');
+  const teamRoot = path.join(root, 'team root');
+  execFileSync(process.execPath, [path.join(repo, 'dist/cli/index.mjs'), 'team', 'create', '--root', teamRoot,
+    '--name', 'CLI fixture', '--no-start'], { cwd: repo, env, encoding: 'utf8', timeout: 30_000 });
+  assert.deepEqual(fs.readdirSync(root), ['team root'], 'explicit team target must be selected before CLI activity writes');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(teamRoot, '.config/team.json'), 'utf8')).kind, 'team');
+  assert(!fs.existsSync(path.join(teamRoot, 'data.db')), 'provision-only creation must not open a database or service');
   console.info('Compiled CLI boot graph resolves under plain Node.');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

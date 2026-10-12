@@ -2,7 +2,8 @@ import path from 'node:path';
 import { Command } from 'commander';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { APP_ROOT_ENV, getAppRoot, getDevAppRoot } from '@/lib/config/paths';
-const mocks = vi.hoisted(() => ({ ensure: vi.fn(), installed: vi.fn(), status: vi.fn(), request: vi.fn(), awake: vi.fn() }));
+const mocks = vi.hoisted(() => ({ ensure: vi.fn(), installed: vi.fn(), status: vi.fn(), request: vi.fn(), awake: vi.fn(), live: vi.fn() }));
+vi.mock('@/lib/server-runtime/record', () => ({ readLiveServerRuntime: mocks.live }));
 vi.mock('@/lib/service/client', () => ({ ensureServiceStatus: mocks.ensure, serviceStatus: mocks.status, serviceRequest: mocks.request, stopService: vi.fn() }));
 vi.mock('@/lib/service/awake', () => ({ readAwakePreferences: mocks.awake }));
 vi.mock('@/lib/service/runtime', () => ({ installedRuntime: mocks.installed, createRuntimeManifest: vi.fn(), stageRuntime: vi.fn(), verifyRuntime: vi.fn() }));
@@ -14,6 +15,7 @@ beforeEach(() => {
   vi.spyOn(console, 'info').mockImplementation(() => {});
   mocks.installed.mockReturnValue(null);
   mocks.status.mockResolvedValue(null);
+  mocks.live.mockReturnValue(null);
   mocks.awake.mockReturnValue({ enabled: false });
   mocks.ensure.mockImplementation(async () => ({ origin: 'https://localhost:42242', identity: { root: getAppRoot() } }));
 });
@@ -70,4 +72,10 @@ it('refreshes an existing connected controller after CLI enrollment without star
   await run('start');
   expect(mocks.request).toHaveBeenCalledWith('/role/refresh', 'POST', 200_000);
   expect(mocks.ensure).toHaveBeenCalledOnce();
+});
+
+it('explains an existing foreground launcher instead of starting a competing controller', async () => {
+  mocks.live.mockReturnValue({ publicBaseUrl: 'http://localhost:4300' });
+  await expect(run('start')).rejects.toThrow('Stop it with Ctrl-C');
+  expect(mocks.ensure).not.toHaveBeenCalled();
 });

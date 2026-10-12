@@ -27,7 +27,7 @@ import { registerUpdateCommand } from './commands/update';
 import { registerServiceCommand } from './commands/service';
 import { registerPerfCommand } from './commands/perf';
 import { registerAttachmentCommand } from './commands/attachment';
-import { registerTeamCommand } from './commands/team';
+import { registerTeamCommand, selectTeamRoot } from './commands/team';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -42,6 +42,7 @@ program
 
 let releaseCommand: (() => void) | undefined;
 program.hook('preAction', (_program, action) => {
+  if (action.name() === 'create' && action.parent?.name() === 'team') selectTeamRoot(action.opts().root);
   // These commands only read local inputs and call the running server. The
   // server owns persistence, including reports from a read-only reviewer.
   if (['report_result', 'report_result_review'].includes(action.name())

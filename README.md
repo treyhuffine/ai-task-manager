@@ -91,17 +91,17 @@ ri --help                 # confirm the command is available
 
 For a source installation, run `ri start` from the repository directory so it can find the server build. On macOS, put pnpm's global bin directory before `/usr/bin` on `PATH`, since `/usr/bin/ri` is Ruby's documentation command.
 
-To host a team alongside your personal Home, give it a separate folder and start its background service. Run these commands in the same terminal, from the repository:
+To host a team alongside your personal Home, run one command from the repository:
 
 ```bash
 ri team create --root "$HOME/family-team" --name "Family"
-RI_ROOT="$HOME/family-team" ri service start
-RI_ROOT="$HOME/family-team" ri team setup-link
 ```
 
-The service chooses a free HTTPS port, returns to the shell when ready, and keeps running after Terminal closes. Open the setup link to become the owner. A browser using the generated local certificate needs trust configured once with `RI_ROOT="$HOME/family-team" ri tls trust`. The command may ask for OS authorization. A configured, trusted remote HTTPS address needs no local certificate installation.
+The command prepares the team folder, starts its background service on a free HTTPS port and opens owner setup in your browser. It asks before installing local certificate trust, and the OS may ask for authorization. Name yourself in the browser, then invite people from the team's Settings. The team keeps running after Terminal closes.
 
-`team create` writes the team's declaration before its database exists, so the service starts it as a team. If startup was cancelled after creation, run `service start` again without recreating the folder. If a foreground `ri start` still runs for this team, stop it with Ctrl-C first. Your personal Home at `~/ri` stays separate.
+Retrying the same command resumes an interrupted setup with the same team and data. Once the team has an owner, it opens the existing team instead of offering another owner setup. Your personal Home at `~/ri` stays separate. If a foreground `ri start` still runs for this team, stop it with Ctrl-C first.
+
+For automation, `--no-open` prints the link without opening a browser or changing trust. `--no-start` keeps the provisioning-only operation. `--trust-local` explicitly allows certificate trust installation without the interactive question. The lower-level `service start`, `team setup-link` and `tls trust` commands remain available for administration. A local link opens only on the hosting computer until the team has a reachable HTTPS address.
 
 Closing Terminal and restarting the computer are different: automatic start at login requires a staged packaged runtime and `ri service install`, described in [Desktop and background service](docs/desktop.md). For foreground development or debugging, `RI_ROOT="$HOME/family-team" ri start --port 4300` remains available.
 

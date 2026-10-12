@@ -10,6 +10,27 @@ import { beginActivity } from '@/lib/service/maintenance';
 import { saveEnvironment, environmentStatus } from '@/lib/service/environment';
 import { installService, uninstallService } from '@/lib/service/install';
 import { allowMigrations } from '@/lib/db/migrate';
+import { readLiveServerRuntime } from '@/lib/server-runtime/record';
+
+/** Shared by explicit service startup and the team's first-run command. */
+export async function startBackgroundService(options: { dev?: boolean; home?: boolean } = {}) {
+  if (options.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
+  allowMigrations();
+  if (options.home && (await import('@/lib/service/role')).resolveServiceRole().role !== 'home') {
+    (await import('@/lib/service/desktop-role-intent')).writeDesktopHomeIntent();
+  }
+  const installed = installedRuntime();
+  const repo = installed?.repo ?? process.env.RI_RUNTIME_REPO ?? process.env.RI_DESKTOP_REPO ?? process.cwd();
+  const existing = await serviceStatus();
+  if (!existing && readLiveServerRuntime()) {
+    throw new Error('Ri is running in a foreground terminal for this folder. Stop it with Ctrl-C there, then retry this command to run it in the background.');
+  }
+  if (existing && existing.phase !== 'starting' && !existing.origin && existing.role !== 'home') {
+    await serviceRequest('/role/refresh', 'POST', 200_000);
+  }
+  return ensureServiceStatus({ repo, node: installed?.node ?? process.execPath,
+    env: { ...process.env, ...(installed ? { NEXT_DIST_DIR: '.next-desktop', RI_DESKTOP: '1' } : {}), RI_DESKTOP_MODE: options.dev ? 'development' : 'production' } });
+}
 
 export function registerServiceCommand(program: Command) {
   const service = program.command('service').description('Manage the local background backend shared by desktop and CLI')
@@ -22,22 +43,7 @@ export function registerServiceCommand(program: Command) {
     .option('--dev', 'use the development server')
     .option('--home', 'choose this new installation as a Home before starting')
     .action(async (options: { dev?: boolean; home?: boolean }) => {
-      // Resolve the identity before runtime lookup or service discovery, just
-      // as the foreground `start --dev` command does.
-      if (options.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
-      // Starting is when a home's database may change (src/lib/db/migrate.ts).
-      allowMigrations();
-      if (options.home && (await import('@/lib/service/role')).resolveServiceRole().role !== 'home') {
-        (await import('@/lib/service/desktop-role-intent')).writeDesktopHomeIntent();
-      }
-      const installed = installedRuntime();
-      const repo = installed?.repo ?? process.env.RI_RUNTIME_REPO ?? process.env.RI_DESKTOP_REPO ?? process.cwd();
-      const existing = await serviceStatus();
-      if (existing && existing.phase !== 'starting' && !existing.origin && existing.role !== 'home') {
-        await serviceRequest('/role/refresh', 'POST', 200_000);
-      }
-      const ready = await ensureServiceStatus({ repo, node: installed?.node ?? process.execPath,
-        env: { ...process.env, ...(installed ? { NEXT_DIST_DIR: '.next-desktop', RI_DESKTOP: '1' } : {}), RI_DESKTOP_MODE: options.dev ? 'development' : 'production' } });
+      const ready = await startBackgroundService(options);
       console.info(ready.origin ? `Ri is running at ${ready.origin}\nData: ${ready.identity.root}` : `Ri service: ${ready.role ?? ready.phase}\n${ready.home ? `Home: ${ready.home.url}\n` : ''}Local folder: ${ready.identity.root}`);
     });
   service.command('worker <action>').description('Stop or resume local execution without stopping your Home or viewer')

@@ -98,7 +98,7 @@ afterEach(async () => {
 async function createTeam() {
   const program = new Command().exitOverride();
   registerTeamCommand(program);
-  await program.parseAsync(['node', 'ri', 'team', 'create', '--root', home.root, '--name', 'Acme']);
+  await program.parseAsync(['node', 'ri', 'team', 'create', '--root', home.root, '--name', 'Acme', '--no-start']);
   expect(fs.existsSync(home.dbPath)).toBe(false);
 }
 

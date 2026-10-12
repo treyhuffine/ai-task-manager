@@ -3,9 +3,11 @@
  *
  * For hosting a team on a server, or any computer, from a terminal:
  *
- *   ri team create --root ~/acme-team --name Acme   marks a new, empty folder as a team
- *   RI_ROOT=~/acme-team ri service start           starts its background server and returns
- *   RI_ROOT=~/acme-team ri team setup-link          a single-use link that names the team and makes its owner
+ *   ri team create --root ~/acme-team --name Acme
+ *
+ * Declares the team, starts its background service and opens owner setup.
+ * Retrying resumes the same folder. --no-start only provisions the folder,
+ * and --no-open prints the setup link without opening a local browser.
  *
  * The desktop's Create a team does the same through the installed runtime.
  * A team never starts personal work, and its host's key is never a member.
@@ -16,9 +18,53 @@ import path from 'node:path';
 import pc from 'picocolors';
 import { Command } from 'commander';
 import { randomBytes } from 'node:crypto';
+import { confirm, isCancel } from '@clack/prompts';
 import { APP_SHORT_ID } from '@/constants/app';
 import { getAppRoot, getDbPath } from '@/lib/config/paths';
 import { readTeamIntent, writeTeamIntent, TeamIntentError } from '@/lib/home/team-intent';
+import { startBackgroundService } from './service';
+import { openBrowser } from '../lib/browser';
+
+/** Resolve the explicit target before CLI environment and activity hooks run. */
+export function selectTeamRoot(root?: string): void {
+  if (!root) return;
+  process.env.RI_ROOT = path.resolve(root.replace(/^~(?=$|\/)/, process.env.HOME ?? '~'));
+  for (const key of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR']) delete process.env[key];
+}
+
+async function openTeam(link: string, trustLocal: boolean): Promise<void> {
+  const url = new URL(link);
+  const { isLoopbackTeamAddress } = await import('@/lib/team/address');
+  if (url.protocol === 'https:' && isLoopbackTeamAddress(link)) {
+    const { inspectTrust, installTrust } = await import('@/lib/config/tls-trust');
+    const trust = inspectTrust();
+    const recorded = trust.caCertPath && trust.detected.length > 0
+      && trust.detected.every(({ target }) => trust.recorded.includes(target));
+    if (trustLocal || !recorded) {
+      const answer = trustLocal || (process.stdin.isTTY && await confirm({
+        message: "Allow Ri to trust this team's local HTTPS certificate? Your OS may ask for authorization.",
+        initialValue: true,
+      }));
+      if (!answer || isCancel(answer)) {
+        console.log('The team is running. Local certificate trust was left unchanged.');
+        console.log('Run this create command again to finish local browser setup, or open the link from a browser that already trusts this team.');
+        return;
+      }
+      const result = await installTrust();
+      const incomplete = result.results.filter(({ outcome }) => outcome !== 'installed' && outcome !== 'already-present');
+      for (const entry of incomplete) console.error(`${entry.label}: ${entry.detail || entry.outcome}`);
+      if (incomplete.length) {
+        console.log('Certificate trust needs attention in the browsers listed above. Retry this command with --trust-local after resolving the errors.');
+      }
+      if (!result.results.some(({ outcome }) => outcome === 'installed' || outcome === 'already-present')) {
+        console.log('The team is running, but local browser certificate setup did not finish.');
+        process.exitCode = 1;
+        return;
+      }
+    }
+  }
+  await openBrowser(link);
+}
 
 function fail(message: string): never {
   console.error(pc.red(message));
@@ -30,27 +76,45 @@ export function registerTeamCommand(program: Command) {
 
   team
     .command('create')
-    .description('Mark a new, empty folder as a team space')
+    .description('Create a team, start it in the background and open setup')
     .option('--root <dir>', 'the folder for the team (default: this root)')
     .option('--name <name>', "the team's name, editable later")
-    .action((opts: { root?: string; name?: string }) => {
-      if (opts.root) {
-        const root = path.resolve(opts.root.replace(/^~(?=$|\/)/, process.env.HOME ?? '~'));
-        process.env.RI_ROOT = root;
-        for (const key of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR']) delete process.env[key];
-      }
+    .option('--no-start', 'only prepare the team folder, without starting its service')
+    .option('--no-open', 'print the setup link without opening a browser or changing certificate trust')
+    .option('--trust-local', 'allow installation of this team’s local HTTPS certificate trust')
+    .action(async (opts: { root?: string; name?: string; start: boolean; open: boolean; trustLocal?: boolean }) => {
+      selectTeamRoot(opts.root);
       try {
-        const intent = writeTeamIntent({ creationId: randomBytes(12).toString('base64url'), name: opts.name });
+        const intent = readTeamIntent() ?? writeTeamIntent({ creationId: randomBytes(12).toString('base64url'), name: opts.name });
         const root = getAppRoot();
-        const rootEnv = `RI_ROOT='${root.replaceAll("'", "'\\''")}'`;
-        console.log(`${pc.bold(intent.name)} is set up as a team in ${root}.`);
+        if (!opts.start) {
+          console.log(`${pc.bold(intent.name)} is prepared in ${root}. Run this command without --no-start to finish setup.`);
+          return;
+        }
+        console.log(`Starting ${pc.bold(intent.name)} in the background…`);
+        const service = await startBackgroundService();
+        if (!service.origin) throw new Error("The team's service has no address. Check its service logs and retry this command.");
+        // The service owns schema changes. Attaching to an older running
+        // service must not let this CLI migrate its database underneath it.
+        const { allowMigrations } = await import('@/lib/db/migrate');
+        allowMigrations(false);
+        const { ensureHomeIdentity } = await import('@/lib/home/identity');
+        const identity = ensureHomeIdentity();
+        if (identity.home.kind !== 'team') throw new TeamIntentError('This folder holds a personal Ri, not a team.');
+        const { teamHasOwner } = await import('@/lib/db/queries');
+        const hasOwner = teamHasOwner();
+        const link = hasOwner
+          ? (await (await import('@/lib/team/address')).teamLinkAddress()).base
+          : (await (await import('@/lib/team/admission')).createSetupLink()).link;
+        console.log(`${pc.bold(identity.home.name)} is running at ${service.origin}\nData: ${root}`);
+        console.log('You can close this terminal. The team keeps running.');
         console.log('');
-        console.log('Next, in this terminal:');
-        console.log(`  ${pc.cyan(`${rootEnv} ${APP_SHORT_ID} service start`)}     start in the background`);
-        console.log(`  ${pc.cyan(`${rootEnv} ${APP_SHORT_ID} team setup-link`)}   open the link it prints to become the owner`);
-        console.log('The service chooses a free port and keeps running after you close this terminal.');
+        console.log(hasOwner ? 'Open your team:' : 'Open this single-use link yourself to become the owner:');
+        console.log(`  ${link}`);
+        if (opts.open) await openTeam(link, opts.trustLocal === true);
       } catch (err) {
-        fail(err instanceof TeamIntentError ? err.message : String(err));
+        console.error(pc.red(err instanceof Error ? err.message : String(err)));
+        process.exitCode = 1;
       }
     });
 
