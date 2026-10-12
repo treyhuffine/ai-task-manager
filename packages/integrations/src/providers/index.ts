@@ -46,6 +46,7 @@ export interface ProviderCatalogEntry {
 
 /** Static description of every first-party provider and how it connects. */
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
+  { id: 'onepassword', displayName: '1Password', method: 'mcp' },
   { id: 'google', displayName: 'Google', method: 'oauth2' },
   { id: 'slack', displayName: 'Slack', method: 'mcp' },
   { id: 'notion', displayName: 'Notion', method: 'mcp' },

@@ -2,10 +2,9 @@
 import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 import { SourceText, SourceMetadataProvider } from '@/components/chat/source-chip';
 
-import { EntityAwareText } from '@/components/ai-elements/entity-reference';
 import {AppOpenControl} from '@/components/local-apps/open-control';
-import { rewriteLocalImages } from '@/lib/sessions/reply-image-urls';
-import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
+import { Message, MessageContent } from '@/components/ai-elements/message';
+import { AgentResponse } from '@/components/chat/agent-response';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
 import { MessageEntityChip, type EntityLookup } from '@/components/chat/message-entity-chip';
 import { MessageFileChip } from '@/components/chat/message-file-chip';
@@ -136,7 +135,7 @@ interface ExecutionEventProps {
  *   - tool_call / tool_result — collapsible cards, paired visually.
  *   - system / result / background_task / recap / rate_limit / error / unknown — bespoke.
  */
-export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, voiceSent, clientStatus, resultByCallId, subagentEventsByCallId, nestedAncestorCallIds, approvalGroup, handoffActions = true }: ExecutionEventProps) {
+export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent, clientStatus, resultByCallId, subagentEventsByCallId, nestedAncestorCallIds, approvalGroup, handoffActions = true }: ExecutionEventProps) {
   hot(`render ExecutionEvent[${event.source}]`);
   const [expanded, setExpanded] = useState(false);
 
@@ -202,24 +201,7 @@ export function ExecutionEvent({ event, sessionId, isLast, isLatestUnresolved, v
         <div className="group flex flex-col">
           <Message from="assistant">
             <MessageContent className="text-[12.5px] leading-relaxed">
-              {/* EntityAwareText lifts [[task:id]] / [[note:id]] / [[area:id]] /
-                  [[deck:id]] markers out of the prose and renders them as
-                  interactive chips — the contract the orchestrator brief
-                  teaches harness sessions. Plain markdown flows through
-                  MessageResponse unchanged. */}
-              <EntityAwareText
-                // Local image paths in the reply load through this chat's
-                // reply-image route (src/lib/sessions/reply-image-urls.ts).
-                text={rewriteLocalImages(event.content ?? '', sessionId)}
-                renderMarkdown={(text, key) => (
-                  <MessageResponse
-                    key={key}
-                    className="text-[12.5px] [&_p]:text-[12.5px] [&_li]:text-[12.5px] [&_code]:text-[11px]"
-                  >
-                    {text}
-                  </MessageResponse>
-                )}
-              />
+              <AgentResponse text={event.content ?? ''} sessionId={sessionId} />
             </MessageContent>
           </Message>
           {event.content && (

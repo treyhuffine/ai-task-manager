@@ -336,6 +336,14 @@ These checks cover S15-S19 on `ai-task-manager/session-ca52f4`. Hardware evidenc
 
 Publication still requires the actual publisher key/feed, platform signing and notarization, review of the exact speech distribution, and signed installer qualification. Experimental Home/worker/Teams integration remains a separate product decision and implementation. None of those gates is represented as complete by unit tests or by an unsigned local package.
 
+### Desktop notification setup
+
+Settings, Notifications starts with this computer's desktop status, separate from shared channel enablement. Off and unknown setup states have a prominent enable action. Enabled status includes the reminder to keep Ri running in the menu bar. Read and native presentation failures show Needs attention instead of On.
+
+On a connected computer, the action opens the trusted local view with Notifications on this computer expanded and focused. That view owns enable, disable and test. The Home renderer receives only a read-only `notificationStatus()` bridge, which includes the computer's saved consent as well as the Home channel preference. A Home-side channel toggle cannot override local refusal. The existing local Home desktop retains its direct enable and disable buttons. Older shells without the status bridge show Check setup and open their existing device settings rather than infer permission from shared channels.
+
+The local test button is available after notifications are enabled. If no alert appears, allow Ri in the operating system's notification settings. Channel status and OS presentation remain separate, and shared channels are labeled as enabled rather than claiming this computer is active.
+
 ### Browser notification recovery and delivery history
 
 This follow-up builds on the shared notifier without changing its dispatcher or adding a retry worker. The Homes branch at `cbbd90c` already separates transaction-time queueing from delivery and adds a drain for stranded pending notifications. Its eventual integration must preserve the desktop adapter's deferred result, so native alerts stay pending until Electron claims and acknowledges them.

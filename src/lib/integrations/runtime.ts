@@ -143,7 +143,7 @@ export interface ProviderStatus extends ProviderCatalogEntry {
   /** OAuth providers: client configured in env. API-key/custom: always true (paste at connect). */
   configured: boolean;
   desktopCallback?: { kind: 'loopback' | 'relay'; redirectUri?: string };
-  mcp?: { serverId?: string; status?: 'ok' | 'unreachable' | 'error'; error?: string; requiresAuth: boolean; authKind?: 'oauth' | 'bearer' | 'none'; tokenAuth?: { label: string; helpUrl: string }; credentialLabel?: string; helpUrl?: string; endpointConfig?: HostedMcpEndpointSetup; oauthRegistration?: 'dynamic' | 'registered'; authConfigId?: string; redirectUri?: string; accounts: HostedAccountStatus[] };
+  mcp?: { serverId?: string; status?: 'ok' | 'unreachable' | 'error'; error?: string; requiresAuth: boolean; local?: boolean; authKind?: 'oauth' | 'bearer' | 'none'; tokenAuth?: { label: string; helpUrl: string }; credentialLabel?: string; helpUrl?: string; endpointConfig?: HostedMcpEndpointSetup; oauthRegistration?: 'dynamic' | 'registered'; authConfigId?: string; redirectUri?: string; accounts: HostedAccountStatus[] };
 }
 
 /**
@@ -200,6 +200,7 @@ export async function getProviderStatuses(nativeDesktop = false): Promise<Provid
         const unhealthy = accounts.find(account => account.status && account.status !== 'ok');
         return { ...entry, configured, ...(auth.kind === 'bearer' ? { credentialFields: ['token'] } : {}), mcp: {
           accounts,
+          ...(definition.localCommand ? { local: true } : {}),
           ...(single ? { serverId: single.serverId } : {}),
           ...(accounts.length ? { status: unhealthy?.status ?? 'ok', error: unhealthy?.error } : {}),
           authKind: auth.kind,
@@ -663,7 +664,13 @@ async function build(): Promise<Built> {
     try {
       const hosted = hostedMcpDefinition(entry);
       let sessionToken = 'mcp-session';
-      if (entry.auth.kind === 'oauth') {
+      if (hosted?.localCommand) {
+        // The executable comes only from our catalog. A custom URL can never launch a process.
+        client = await withTimeout(
+          connectMcpClient({ command: hosted.localCommand, name: entry.slug, onToolsChanged }),
+          MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
+        );
+      } else if (entry.auth.kind === 'oauth') {
         const state = await mcpStore.getOAuthState(entry.id);
         if (state) registerMcpSecrets(redactor, state as McpOAuthState);
         if (!state?.tokens) {
@@ -704,7 +711,10 @@ async function build(): Promise<Built> {
       prepared.push(candidate);
     } catch (error) {
       await client?.close().catch(() => {});
-      await recordFailure(entry, error, candidate.discoveryStarted ? 'discover' : 'connect');
+      const local = getHostedMcpProvider(entry.providerId ?? '')?.localCommand;
+      await recordFailure(entry, local && (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+        ? new Error('1Password MCP was not found. Install 1Password Desktop on the computer running Ri and enable its local MCP server in Settings > Labs and Settings > Developer. Then reconnect.')
+        : error, candidate.discoveryStarted ? 'discover' : 'connect');
       await restoreCachedDefinitions(entry);
     }
   }

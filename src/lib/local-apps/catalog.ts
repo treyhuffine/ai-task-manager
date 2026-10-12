@@ -16,8 +16,8 @@ export async function archiveDigest(file:string){
   const stat=await fs.lstat(file);if(!stat.isFile()||stat.size>512*1024*1024)throw new AppError('invalid_input','Invalid catalog artifact');
   const hash=createHash('sha256');for await(const chunk of createReadStream(file))hash.update(chunk);return hash.digest('hex');
 }
-export async function listCatalog(){
-  const root=getBundledLocalAppsCatalogDir(), files=await fs.readdir(root).catch(error=>{if(error.code==='ENOENT')return [];throw error;});
+export async function listCatalog(root=getBundledLocalAppsCatalogDir()){
+  const files=await fs.readdir(root).catch(error=>{if(error.code==='ENOENT')return [];throw error;});
   if(files.filter(file=>file.endsWith('.json')).length>20)throw new AppError('invalid_input','The included app catalog exceeds its limit');
   const entries:z.infer<typeof catalogEntrySchema>[]=[];
   for(const file of files.filter(file=>file.endsWith('.json')).sort()){
@@ -29,10 +29,10 @@ export async function listCatalog(){
   }
   return entries;
 }
-export async function catalogArtifact(packageId:string){
-  const entry=(await listCatalog()).find(entry=>entry.packageId===packageId);
+export async function catalogArtifact(packageId:string,root=getBundledLocalAppsCatalogDir()){
+  const entry=(await listCatalog(root)).find(entry=>entry.packageId===packageId);
   if(!entry)throw new AppError('not_found','This included app is unavailable');
-  const file=path.join(getBundledLocalAppsCatalogDir(),entry.packageId+'.tar.gz');
+  const file=path.join(root,entry.packageId+'.tar.gz');
   if(await archiveDigest(file)!==entry.archiveDigest)throw new AppError('invalid_input','The included app artifact changed. Reinstall the runtime catalog');
   return {entry,file};
 }

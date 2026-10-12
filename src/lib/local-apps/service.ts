@@ -305,6 +305,12 @@ export class LocalAppsService {
   draftDir(id: string) {
     return path.join(getAppDraftsDir(), this.draft(id).id, "package");
   }
+  retry(id: string, draft = false) {
+    this.admitted();
+    if (draft) this.draft(id);
+    else this.instance(id);
+    this.engine.retry(id);
+  }
   private installed(
     id: string,
     artifact: ValidatedArtifact,

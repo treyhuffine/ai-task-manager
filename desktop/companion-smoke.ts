@@ -85,12 +85,21 @@ async function remoteNotificationConsent(page: Page, deviceId: string) {
     Notification.prototype.show = function () { shown.push(this); queueMicrotask(() => this.emit('show')); };
   });
   const shown = () => connected.app!.evaluate(() => (globalThis as NotificationFixtureGlobal).companionAlerts.map(alert => ({ id: alert.id, title: alert.title })));
-  const controls = await openCompanion(connected);
-  await controls.locator('#notifications > summary').click();
-  const consent = controls.locator('#native-notifications');
+  await connected.navigate('/?settings=notifications');
+  const deviceCard = page.getByRole('region', { name: 'Desktop notifications on this computer', exact: true });
+  await deviceCard.getByRole('status').filter({ hasText: 'Off' }).waitFor();
+  const viewerIdentity = await page.evaluate(() => performance.timeOrigin);
+  await deviceCard.getByRole('button', { name: 'Enable desktop notifications', exact: true }).click();
+  let controls = await localPage(connected.app!, 'companion');
+  let consent = controls.locator('#native-notifications');
+  await consent.waitFor();
+  assert.equal(await controls.locator('#notifications').evaluate(element => element.hasAttribute('open')), true);
+  assert.equal(await page.evaluate(() => performance.timeOrigin), viewerIdentity);
+  await eventually(() => consent.evaluate(element => document.activeElement === element), 'notification consent control focused');
   assert.equal(await consent.isChecked(), false);
+  assert.equal(await controls.getByRole('button', { name: 'Send test notification', exact: true }).isEnabled(), false);
   await consent.check();
-  const test = controls.getByRole('button', { name: 'Send test notification', exact: true });
+  let test = controls.getByRole('button', { name: 'Send test notification', exact: true });
   await test.click();
   await eventually(async () => remoteDeliveries(deviceId).length === 1 && remoteDeliveries(deviceId)[0].status === 'sent', 'remote native claim and acknowledgement');
   const first = remoteDeliveries(deviceId)[0];
@@ -98,17 +107,29 @@ async function remoteNotificationConsent(page: Page, deviceId: string) {
   assert.deepEqual(await shown(), [{ id: `desktop:device:${deviceId}:${first.id}`, title: 'Ri notifications are ready' }]);
   passed('Local companion opt-in uses the Home per-device outbox, real claim and acknowledgement, and native presentation');
 
+  await controls.getByRole('button', { name: 'Back to Ri', exact: true }).click();
+  await deviceCard.getByRole('status').filter({ hasText: 'On' }).waitFor();
+  await deviceCard.getByRole('button', { name: 'Open notification settings', exact: true }).click();
+  controls = await localPage(connected.app!, 'companion');
+  consent = controls.locator('#native-notifications');
+  test = controls.getByRole('button', { name: 'Send test notification', exact: true });
+  await consent.waitFor();
+  passed('Notification settings show effective status and open focused local controls without reloading the viewer');
+
   await consent.uncheck();
   await eventually(async () => !(await consent.isChecked()) && await consent.isEnabled(), 'local notification consent disabled');
   // A Home-side routing change must never override this computer's consent.
   const channel = `desktop:device:${deviceId}`;
   await api(page, `/api/notifications/channels/${encodeURIComponent(channel)}`, 'PATCH', { enabled: true });
-  await test.click();
-  await eventually(async () => remoteDeliveries(deviceId).length === 2 && await test.isEnabled(), 'queued alert while local consent is disabled');
+  assert.equal(await test.isEnabled(), false);
+  await api(page, `/api/notifications/channels/${encodeURIComponent(channel)}/test`, 'POST', {});
+  await eventually(async () => remoteDeliveries(deviceId).length === 2, 'queued alert while local consent is disabled');
   assert.equal(remoteDeliveries(deviceId)[1].status, 'pending');
   assert.equal(remoteDeliveries(deviceId)[1].attempts, 0);
   assert.equal((await shown()).length, 1);
   assert.equal(await consent.isChecked(), false);
+  await controls.getByRole('button', { name: 'Back to Ri', exact: true }).click();
+  await deviceCard.getByRole('status').filter({ hasText: 'Off' }).waitFor();
   passed('Home channel re-enable cannot override local native notification refusal');
 }
 async function consentToExecution(fixture: AcceptanceFixture) {

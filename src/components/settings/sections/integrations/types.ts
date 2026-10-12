@@ -50,6 +50,7 @@ export interface ProviderStatus {
     status?: 'ok' | 'unreachable' | 'error';
     error?: string;
     requiresAuth: boolean;
+    local?: boolean;
     authKind?: 'oauth' | 'bearer' | 'none';
     tokenAuth?: { label: string; helpUrl: string };
     credentialLabel?: string;

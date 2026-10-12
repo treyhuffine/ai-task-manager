@@ -1,6 +1,7 @@
 'use client';
 
 import { trpcClient } from '@/lib/trpc/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { rpcQuery } from '@/lib/trpc/request-options';
 /**
  * Notifications settings (docs/integrations-email-and-notifier-spec.md §2.6/§2.11).
@@ -25,7 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { NotificationChannelRecord } from '@/db/types';
-import { isDesktopNotificationChannel, type DesktopNotificationStatus } from '@/lib/notifications/desktop-contract';
+import { isDesktopNotificationChannel, type DesktopNotificationAction } from '@/lib/notifications/desktop-contract';
 import { EVENT_CATALOG } from '@/lib/notifications/events';
 import { removeDesktopWebPushSubscription } from '@/lib/notifications/web-push-client';
 import { cn } from '@/lib/utils';
@@ -46,6 +47,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { BrowserNotifications } from './browser-notifications';
+import { DesktopNotifications } from './desktop-notifications';
 import { NotificationHistory } from './notification-history';
 import { Tip } from '@/components/ui/tip';
 
@@ -81,7 +83,34 @@ export function NotificationsSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [desktopViewer, setDesktopViewer] = useState(false);
-  const [desktopStatus, setDesktopStatus] = useState<DesktopNotificationStatus | null>(null);
+  const queryClient = useQueryClient();
+  const desktopQuery = useQuery({
+    queryKey: ['desktop-notifications'],
+    queryFn: () => window.riDesktop?.notificationStatus?.() ?? window.riDesktop?.notifications?.('status') ?? null,
+    enabled: desktopViewer,
+    staleTime: 0,
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
+  const desktopStatus = desktopQuery.data ?? null;
+  const refreshDesktopStatus = desktopQuery.refetch;
+
+  useEffect(() => {
+    if (!desktopViewer) return;
+    const check = () => { void refreshDesktopStatus(); };
+    // The local settings view preserves the Home renderer. Recheck as soon
+    // as focus returns so an enable/disable is visible without waiting on a poll.
+    window.addEventListener('focus', check);
+    return () => window.removeEventListener('focus', check);
+  }, [desktopViewer, refreshDesktopStatus]);
+
+  const desktopAction = async (action: DesktopNotificationAction) => {
+    await queryClient.cancelQueries({ queryKey: ['desktop-notifications'] });
+    const status = await window.riDesktop!.notifications!(action);
+    queryClient.setQueryData(['desktop-notifications'], status);
+    return status;
+  };
 
   // Telegram add flow
   const [addTgOpen, setAddTgOpen] = useState(false);
@@ -115,23 +144,14 @@ export function NotificationsSection() {
     setDigests(dg.digests);
     setBaseUrls(bu);
     setHistoryRefresh(value => value + 1);
-    setDesktopViewer(!!window.riDesktop);
-    if (window.riDesktop?.notifications) setDesktopStatus(await window.riDesktop.notifications!('status'));
   }, []);
 
   useEffect(() => {
+    setDesktopViewer(!!window.riDesktop);
     refresh()
       .catch((e) => setError(errMsg(e)))
       .finally(() => setIsLoading(false));
   }, [refresh]);
-
-  useEffect(() => {
-    if (!window.riDesktop?.notifications) return;
-    const timer = setInterval(() => {
-      void window.riDesktop!.notifications!('status').then(setDesktopStatus).catch(() => {});
-    }, 5000);
-    return () => clearInterval(timer);
-  }, []);
 
   const run = useCallback(
     async (fn: () => Promise<void>) => {
@@ -162,7 +182,7 @@ export function NotificationsSection() {
     run(async () => {
       if (isDesktopNotificationChannel(channel) && window.riDesktop?.notifications && channel.id === desktopStatus?.channelId) {
         if (!channel.enabled) await removeDesktopWebPushSubscription();
-        setDesktopStatus(await window.riDesktop.notifications!(channel.enabled ? 'disable' : 'enable'));
+        await desktopAction(channel.enabled ? 'disable' : 'enable');
       } else await trpcClient.notifications.channelsPatch.mutate({params: {id: channel.id}, body: { enabled: !channel.enabled }});
     });
 
@@ -176,8 +196,7 @@ export function NotificationsSection() {
     setError(null);
     try {
       if (id === desktopStatus?.channelId && window.riDesktop?.notifications) {
-        const status = await window.riDesktop.notifications!('test');
-        setDesktopStatus(status);
+        const status = await desktopAction('test');
         setTestResults(p => ({ ...p, [id]: status.error ? { status: 'error', error: status.error } : { status: 'queued' } }));
         return;
       }
@@ -346,7 +365,29 @@ export function NotificationsSection() {
         </div>
       )}
 
-      {/* 1. Status */}
+      {desktopViewer && (
+        <DesktopNotifications
+          status={desktopStatus}
+          checking={desktopQuery.isPending && desktopQuery.isFetching}
+          error={desktopQuery.error ? errMsg(desktopQuery.error) : null}
+          busy={busy}
+          localControls={!!window.riDesktop?.notifications}
+          canOpenSettings={!!window.riDesktop?.connection}
+          onToggle={() => void run(async () => {
+            if (!desktopStatus?.enabled) await removeDesktopWebPushSubscription();
+            await desktopAction(desktopStatus?.enabled ? 'disable' : 'enable');
+          })}
+          onOpenSettings={() => void run(async () => {
+            // Older shells can still open device settings. New shells focus
+            // the notification controls without granting the Home consent.
+            await window.riDesktop!.connection!(window.riDesktop?.notificationStatus ? 'notifications' : 'settings');
+            await desktopQuery.refetch();
+          })}
+          onCheck={() => void desktopQuery.refetch()}
+        />
+      )}
+
+      {/* 1. Shared channel status, not this computer's permission */}
       {channels.length === 0 ? (
         <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4">
           <div className="rounded-lg bg-muted/70 p-2 text-muted-foreground">
@@ -373,7 +414,7 @@ export function NotificationsSection() {
             <span className="font-medium">
               {enabledChannels.length > 0 ? (
                 <>
-                  Active · {enabledChannels.length} {enabledChannels.length === 1 ? 'channel' : 'channels'} · routing{' '}
+                  {enabledChannels.length} {enabledChannels.length === 1 ? 'channel enabled' : 'channels enabled'} · routing{' '}
                   {routedEventCount} of {MATRIX.length} event types
                 </>
               ) : (
@@ -399,31 +440,14 @@ export function NotificationsSection() {
 
       {/* 2. Add a channel */}
       <div className="space-y-3">
-        {desktopStatus && (
-          <div className="space-y-3 rounded-xl border border-border bg-card/30 p-4">
-            <div className="flex items-center gap-3">
-              <Monitor size={18} className="shrink-0 text-muted-foreground" />
-              <div className="flex-1 space-y-1">
-                <h3 className="text-sm font-semibold">Desktop notifications</h3>
-                <p className="text-xs text-muted-foreground">Get alerts on this computer while Ri is running. Closing the window keeps alerts active. Choosing Quit Ri stops desktop alerts, even when its background service is running.</p>
-              </div>
-              <Button variant="outline" size="sm" disabled={busy || (!desktopStatus.enabled && !desktopStatus.supported)} onClick={() => run(async () => {
-                if (!desktopStatus.enabled) await removeDesktopWebPushSubscription();
-                setDesktopStatus(await window.riDesktop!.notifications!(desktopStatus.enabled ? 'disable' : 'enable'));
-              })}>{desktopStatus.enabled ? 'Disable desktop notifications' : 'Enable desktop notifications'}</Button>
-            </div>
-            {!desktopStatus.supported && <p className="text-xs text-muted-foreground">Native notifications are unavailable on this computer.</p>}
-            {desktopStatus.error && <p role="alert" className="text-xs text-destructive">{desktopStatus.error}</p>}
-            <p className="text-[11px] text-muted-foreground">Allow Ri in your computer&apos;s notification settings. Recent queued alerts can appear when you reopen Ri. Choose event types below.</p>
-          </div>
-        )}
         <h2 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Add a channel</h2>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {/* Web push */}
-          {desktopStatus ? (
-            <div className="rounded-xl border border-border p-3 text-[11px] text-muted-foreground">For alerts on your phone, enable browser push from Ri on that device.</div>
-          ) : desktopViewer ? (
-            <div className="rounded-xl border border-border p-3 text-[11px] text-muted-foreground">To enable alerts on this computer, choose Ri on This Device from the app menu. Keep Ri running in the menu bar to receive them. For phone alerts, enable browser push on your phone.</div>
+          {desktopViewer ? (
+            <div className="rounded-xl border border-border p-3">
+              <div className="text-xs font-semibold">Phone notifications</div>
+              <p className="mt-1 text-[11px] text-muted-foreground">Open Ri on your phone to enable browser push there.</p>
+            </div>
           ) : (
             <BrowserNotifications channel={channels.find(channel => channel.kind === 'web_push') ?? null} onChanged={refresh} />
           )}

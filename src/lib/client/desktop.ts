@@ -12,6 +12,8 @@ export interface RiDesktop {
   connection?(action: DesktopConnectionAction): Promise<DesktopConnectionState>;
   onConnectionChange?(callback: (state: DesktopConnectionState) => void): () => void;
   settings?(action: DesktopSettingsAction): Promise<DesktopSettingsStatus>;
+  /** Read-only status for this computer, including its local consent. */
+  notificationStatus?(): Promise<DesktopNotificationStatus>;
   notifications?(action: DesktopNotificationAction): Promise<DesktopNotificationStatus>;
 }
 

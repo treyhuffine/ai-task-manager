@@ -1,5 +1,5 @@
 /**
- * A real MCP client over Streamable HTTP, adapted to `McpClientLike` for
+ * A real MCP client over Streamable HTTP or local stdio, adapted to `McpClientLike` for
  * `ingestMcpServer`. The `@modelcontextprotocol/sdk` import is **dynamic**, so this
  * module loads without the SDK present — a host that ingests with its own client
  * never pays for it. Typed loosely (the SDK is an optional peer) to avoid coupling
@@ -8,10 +8,16 @@
 import type { McpClientLike, McpToolDef } from './ingest';
 import { IntegrationError, NeedsReauthError } from '../core/errors';
 
-export interface ConnectMcpOptions {
-  url: string;
+interface CommonMcpOptions {
   name?: string;
   version?: string;
+  /** Advisory server notification. The host should refresh discovery and invalidate cached tool policy. */
+  onToolsChanged?: () => void | Promise<void>;
+}
+
+export type ConnectMcpOptions = CommonMcpOptions & ({
+  url: string;
+  command?: never;
   headers?: Record<string, string>;
   /**
    * The SDK's `OAuthClientProvider` for an OAuth-protected server. When set, the transport uses any
@@ -20,9 +26,14 @@ export interface ConnectMcpOptions {
    * is an optional peer); the host supplies a typed implementation.
    */
   authProvider?: unknown;
-  /** Advisory server notification. The host should refresh discovery and invalidate cached tool policy. */
-  onToolsChanged?: () => void | Promise<void>;
-}
+} | {
+  /** Trusted host configuration only. Never take a command from model or remote tool input. */
+  command: string;
+  args?: string[];
+  url?: never;
+  headers?: never;
+  authProvider?: never;
+});
 
 export interface ConnectedMcpClient extends McpClientLike {
   readResource(params: { uri: string }): Promise<{ contents: Array<{ uri: string; mimeType?: string; text?: string; blob?: string; _meta?: Record<string, unknown> }> }>;
@@ -69,10 +80,16 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
     // and publication. This does not trust new tools or bypass host lifecycle checks.
     client.setNotificationHandler(ToolListChangedNotificationSchema, async () => { await opts.onToolsChanged?.(); });
   }
-  const transport = new httpMod.StreamableHTTPClientTransport(new URL(opts.url), {
-    ...(opts.authProvider ? { authProvider: opts.authProvider } : {}),
-    ...(opts.headers ? { requestInit: { headers: opts.headers } } : {}),
-  });
+  const transport = opts.command !== undefined
+    ? new (await import('@modelcontextprotocol/sdk/client/stdio.js')).StdioClientTransport({
+      command: opts.command, args: opts.args ?? [], stderr: 'pipe',
+    })
+    : new httpMod.StreamableHTTPClientTransport(new URL(opts.url), {
+      ...(opts.authProvider ? { authProvider: opts.authProvider } : {}),
+      ...(opts.headers ? { requestInit: { headers: opts.headers } } : {}),
+    });
+  // Drain diagnostics without putting subprocess output into Ri's logs or blocking a full pipe.
+  if (opts.command !== undefined) transport.stderr?.resume();
   try {
     await client.connect(transport);
   } catch (error) {

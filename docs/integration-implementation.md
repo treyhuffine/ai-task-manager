@@ -4,6 +4,12 @@ Started September 28, 2026 from the [ranked audit](integration-audit/README.md).
 
 **Current direction:** Build a broadly useful integration catalog across personal and business services. The user explicitly broadened the scope beyond productivity tools and endorsed the ten candidates below. Rank additions by useful capabilities, likely use, incremental coverage and integration effort. Prefer vendor-maintained hosted MCP where available. QuickBooks remains paused at the user's request. Do not pursue its setup or live account acceptance until the user resumes it.
 
+## Local 1Password addition
+
+Added the official 1Password Environments desktop MCP as a named connector, bringing the catalog to **68 providers: 58 external MCP and 10 native**. Ri launches the catalog-pinned `1password-mcp` command and reuses tool discovery, agent selection, approval and disconnect. There is no new SDK dependency, credential form, schema migration or custom secret broker. The first version uses Claude Code's existing scoped connector route and does not implement per-agent vault or Environment restrictions.
+
+The [setup and scope guide](integrations-onepassword.md) records the desktop prerequisites and authorization model. Real subprocess fixtures cover tool discovery and calls, agent exclusion, mutation approval, missing installation, command selection and disconnect cleanup. Live desktop authorization remains untested because `1password-mcp` is unavailable on this host.
+
 ## Eighth delivery wave
 
 The user asked to add DataForSEO, which publishes an official hosted MCP server, so agents can research keywords, search results and competitors.
@@ -76,7 +82,7 @@ Public sources, exact profiles and acceptance limits are recorded for [Robinhood
 
 ## Next integration queue
 
-This supersedes the original audit's productivity-first ranking. The first four and monday.com are delivered, while five candidates require vendor qualification or admission. The seventh wave also delivered Webflow, WordPress.com, Smartsheet and Fibery, and the eighth added DataForSEO. The current catalog contains 67 providers. An app-specific task picker is not a prerequisite for adding a hosted integration. Account access is needed for live acceptance, and sometimes to discover undocumented contracts for a fixed app feature, but it is not a general prerequisite for writing integration setup code.
+This supersedes the original audit's productivity-first ranking. The first four and monday.com are delivered, while five candidates require vendor qualification or admission. The seventh wave also delivered Webflow, WordPress.com, Smartsheet and Fibery, the eighth added DataForSEO, and the local desktop addition added 1Password. The current catalog contains 68 providers. An app-specific task picker is not a prerequisite for adding a hosted integration. Account access is needed for live acceptance, and sometimes to discover undocumented contracts for a fixed app feature, but it is not a general prerequisite for writing integration setup code.
 
 | Order | Integration | Added capability | Integration path and next step |
 | --- | --- | --- | --- |

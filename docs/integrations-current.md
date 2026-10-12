@@ -1,12 +1,12 @@
 # Current integration catalog
 
-After the eighth delivery wave: **67 integrations, comprising 57 external MCP integrations and 10 native integrations.** Reconciled against the TypeScript catalog on October 8, 2026. Implementation and validation details are in the [delivery tracker](integration-implementation.md).
+After the eighth delivery wave and the local 1Password addition: **68 integrations, comprising 58 external MCP integrations and 10 native integrations.** The external entries include 57 remote services and one local desktop service. Reconciled against the TypeScript catalog on October 9, 2026. Implementation and validation details are in the [delivery tracker](integration-implementation.md) and [1Password guide](integrations-onepassword.md).
 
 **Hosted/external MCP** means the service supplies tool names, schemas and execution. We maintain connection setup, encrypted credentials, permissions and any typed app consumers. n8n connects to the user-selected instance, which may be self-hosted. **Native** means our code implements operations against the service API. Native does not imply the same tool surface Claude exposes.
 
 The eight registered-app integrations use official services of the kind exposed through Claude, with our own client registration. Hosted service adoption does not transfer Claude's app admission, account permissions or commercial terms. Generic client endpoints may differ from Claude-specific endpoints. No integration compatibility aliases remain.
 
-These entries are implemented and fixture-tested. They are not a claim that all 67 have passed real-account sign-in and workflow acceptance.
+These entries are implemented and fixture-tested. They are not a claim that all 68 have passed real-account sign-in and workflow acceptance.
 
 ## Hosted MCP with browser sign-in (42)
 
@@ -77,6 +77,14 @@ These entries are implemented and fixture-tested. They are not a claim that all 
 | Smartsheet | Choose United States, Europe or Australia, then supply that region's API token |
 | Wrike | `https://mcp.wrike.com/v2` |
 | Zapier | `https://mcp.zapier.com/api/v1/connect` |
+
+## Local desktop MCP (1)
+
+| Integration | Endpoint or setup |
+| --- | --- |
+| 1Password | Install 1Password Desktop on Ri's host and enable `1password-mcp`. See the [setup and scope guide](integrations-onepassword.md). |
+
+1Password authorizes access in its desktop app. This connector manages Environments and local `.env` mounts, with existing per-agent tool selection. It does not implement per-agent vault or Environment restrictions.
 
 ## Hosted MCP without an account (2)
 

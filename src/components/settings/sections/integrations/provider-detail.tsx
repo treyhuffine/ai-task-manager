@@ -263,7 +263,14 @@ export function ConnectPanel(props: ProviderDetailProps) {
 
   if (hosted && authKind === 'none') {
     return <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">{p.displayName} does not require an account or a token.</p>
+      {p.mcp?.local ? <div className="space-y-2 text-xs text-muted-foreground">
+        <p>Connect to {p.displayName} Desktop on the computer running Ri. Authorize access in {p.displayName} when a chat needs an Environment.</p>
+        {meta.setup && <ol className="list-decimal space-y-1 pl-4">{meta.setup.map(step => <li key={step}>{step}</li>)}</ol>}
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
+          {meta.docsUrl && <a href={meta.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Setup guide <ExternalLink size={11} /></a>}
+          {meta.helpLinks?.map(link => <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">{link.label} <ExternalLink size={11} /></a>)}
+        </div>
+      </div> : <p className="text-xs text-muted-foreground">{p.displayName} does not require an account or a token.</p>}
       <Button size="sm" onClick={() => props.onConnectDirect()} disabled={busy || !endpointReady || props.connectDisabled} className="text-xs font-semibold">
         <Plus size={14} /> {again ? 'Reconnect' : `Connect ${p.displayName}`}
       </Button>

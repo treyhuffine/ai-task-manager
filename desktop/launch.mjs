@@ -30,6 +30,9 @@ function run(executable, args, childEnv) {
 }
 
 try {
+  if ((env.RI_LOCAL_APPS ?? '1') === '1') {
+    await run('pnpm', ['apps:catalog', '--if-missing', '--compatible'], env);
+  }
   if (!dev && !process.argv.includes('--skip-build')) {
     console.info('Building the production app for the Electron demo…');
     const buildEnv = { ...env, RI_ROOT: root, NEXT_DIST_DIR: '.next-desktop', NODE_ENV: 'production' };

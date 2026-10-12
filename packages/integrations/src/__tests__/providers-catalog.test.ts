@@ -11,6 +11,12 @@ describe('provider catalog', () => {
     for (const provider of HOSTED_MCP_PROVIDERS) {
       expect(Boolean(provider.url)).not.toBe(Boolean(provider.endpoint));
       const urls = provider.url ? [provider.url] : provider.endpoint?.kind === 'region' ? provider.endpoint.options.map((option) => option.url) : [];
+      if (provider.localCommand) {
+        expect(provider.url).toBe(`stdio:${provider.localCommand}`);
+        expect(provider.auth).toEqual({ kind: 'none' });
+        expect(provider.endpoint).toBeUndefined();
+        continue;
+      }
       for (const value of urls) {
         const url = new URL(value);
         expect(url.protocol).toBe('https:');

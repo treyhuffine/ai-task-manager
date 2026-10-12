@@ -1,5 +1,6 @@
 import { sameOrigin } from './trust';
 import type { BackendReady } from './config';
+import type { DesktopNotificationAction } from '../src/lib/notifications/desktop-contract';
 
 /** The viewer URL never establishes local privilege. Only a pinned local
  * service session may supply its private native capability. */
@@ -9,6 +10,13 @@ export function isLocalViewer(ready: BackendReady) {
 
 export function trustedViewerFrame(input: { senderId: number; windowId?: number; mainFrame: boolean; url: string; origin?: string }) {
   return input.senderId === input.windowId && input.mainFrame && !!input.origin && sameOrigin(input.url, input.origin);
+}
+
+/** Connected renderers may inspect effective consent, never grant it. */
+export function viewerNotificationAction(action: unknown, local: boolean): DesktopNotificationAction {
+  if (!local && action !== 'status') throw new Error('Open this computer’s notification settings to make changes.');
+  if (typeof action !== 'string' || !['status', 'enable', 'disable', 'test'].includes(action)) throw new Error('Invalid notification action');
+  return action as DesktopNotificationAction;
 }
 
 export function remoteViewerOrigin(raw: string, development = false) {

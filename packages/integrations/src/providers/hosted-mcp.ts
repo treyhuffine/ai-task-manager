@@ -11,8 +11,10 @@ export type HostedMcpEndpointSetup =
 export interface HostedMcpProvider {
   id: string;
   displayName: string;
-  /** Fixed service URL. Configurable services require an explicit endpoint selection instead. */
+  /** Fixed service URL or local stdio identity. Configurable services require an explicit endpoint selection instead. */
   url?: string;
+  /** Fixed executable supplied by a desktop app. Its URL is a persisted stdio identity, not an HTTP endpoint. */
+  localCommand?: string;
   endpoint?: HostedMcpEndpoint;
   /** Omitted for existing catalog entries, which use public OAuth discovery. */
   auth?: {
@@ -38,6 +40,8 @@ export interface HostedMcpProvider {
 }
 
 export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
+  { id: 'onepassword', displayName: '1Password', url: 'stdio:1password-mcp', localCommand: '1password-mcp',
+    auth: { kind: 'none' }, defaultMutationRisk: 'high' },
   { id: 'slack', displayName: 'Slack', url: 'https://mcp.slack.com/mcp',
     auth: { kind: 'oauth', registration: 'registered', tokenEndpointAuthMethod: 'client_secret_post' }, defaultMutationRisk: 'high' },
   { id: 'notion', displayName: 'Notion', url: 'https://mcp.notion.com/mcp' },

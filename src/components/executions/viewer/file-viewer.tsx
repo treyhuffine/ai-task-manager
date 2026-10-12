@@ -41,6 +41,7 @@ import { FileView, type FileViewHandle } from './file-view';
 import { DiffView } from './diff-view';
 import { ConflictView } from './conflict-view';
 import { MarkdownView } from './markdown-view';
+import { HtmlView } from './html-view';
 import { Tip } from '@/components/ui/tip';
 
 interface FileViewerProps {
@@ -61,10 +62,8 @@ interface FileViewerProps {
 type Mode = 'conflict' | 'diff' | 'current' | 'render';
 
 /**
- * Whether the file should expose the Render toggle. Markdown is the
- * only format we route through Streamdown for now; keep the matcher
- * narrow so unknown extensions don't accidentally render as markdown
- * (and lose meaningful whitespace).
+ * Render only known document formats. HTML uses an isolated iframe,
+ * while Markdown uses Streamdown.
  */
 function isMarkdownPath(path: string): boolean {
   return /\.(md|mdx|markdown)$/i.test(path);
@@ -82,7 +81,14 @@ function isMarkdownPath(path: string): boolean {
  * gets confusing fast. Save/Discard and editing only happen in Current
  * mode; the toggle is the user's "I want to edit this" gesture.
  */
-export function FileViewer({
+export function FileViewer(props: FileViewerProps) {
+  const id = props.source.kind === 'session' ? props.source.sessionId : props.source.workspaceId;
+  // A new file gets fresh mode and edit state, without an effect resetting
+  // the previous file's state after the new file has already rendered.
+  return <SelectedFileViewer key={`${props.source.kind}:${id}:${props.selectedPath}`} {...props} />;
+}
+
+function SelectedFileViewer({
   source,
   selectedPath,
   onClose,
@@ -96,8 +102,8 @@ export function FileViewer({
   // on `useWorktreeScope` resolving the session row, which `isFetching`
   // alone would miss (a disabled query never fetches).
   const treeLoading = !tree && (treeQuery.isPending || treeQuery.isFetching);
-  // A file chip can open a file outside the folder, one the agent read or
-  // wrote (a screenshot in /tmp). It has no tree entry and opens read only.
+  // Files the agent read/wrote, and HTML artifacts it shared, can be outside
+  // the folder. They have no tree entry and open read only.
   const outside = !!selectedPath && isOutsideFolderPath(selectedPath);
 
   // Look up the selected entry — drives Diff/Current toggle availability.
@@ -110,29 +116,12 @@ export function FileViewer({
   // Resolving conflicts writes files, so a read-only folder shows the diff instead.
   const isConflict = writable && entry?.status === 'conflict';
   const isMarkdown = !!selectedPath && isMarkdownPath(selectedPath);
+  const isHtml = !!selectedPath && /\.html?$/i.test(selectedPath);
 
-  // Always land in Current when navigating to a new file. Sticky-on-Diff
-  // turned out to be just as bad as auto-switch-to-diff: the user bounces
-  // between changed files mid-edit and gets dropped in the read-only
-  // diff every time. Per-file Diff is a click away when wanted. Same
-  // logic for Render — landing in source keeps editing as the default
-  // gesture for any file the user opens.
-  //
-  // Conflicts are the exception: they need action, so we auto-open the
-  // resolver once the tree entry for this path resolves. `autoModePathRef`
-  // makes that a one-shot per file so it never fights a manual toggle.
-  const [mode, setMode] = useState<Mode>('current');
-  const autoModePathRef = useRef<string | null>(null);
-  useEffect(() => {
-    setMode('current');
-    autoModePathRef.current = null;
-  }, [selectedPath]);
-  useEffect(() => {
-    if (!selectedPath || !entry) return;
-    if (autoModePathRef.current === selectedPath) return;
-    autoModePathRef.current = selectedPath;
-    if (entry.status === 'conflict') setMode('conflict');
-  }, [selectedPath, entry]);
+  // HTML opens as a preview, conflicts as a resolver, and everything else
+  // as source. A user's mode choice takes precedence as the tree refreshes.
+  const [chosenMode, setMode] = useState<Mode | null>(null);
+  const mode = chosenMode ?? (isConflict ? 'conflict' : isHtml ? 'render' : 'current');
 
   // Dirty / save plumbing. The FileView owns the buffer; we just hold
   // a ref to its imperative surface so the header buttons can read the
@@ -175,13 +164,6 @@ export function FileViewer({
     setDirty(false);
   }, []);
 
-  // Reset dirty when the user navigates away from the file (FileView
-  // also fires this on unmount, but resetting eagerly keeps the header
-  // pill from blinking during the cross-fade).
-  useEffect(() => {
-    setDirty(false);
-  }, [selectedPath]);
-
   if (!selectedPath) {
     // Nothing will open on its own, but the pane shouldn't answer
     // "nothing here" before the worktree has even been read — during the
@@ -195,14 +177,14 @@ export function FileViewer({
 
   // Fall back to Current when the selected mode doesn't apply to this
   // file — Conflicts only when unmerged, Diff only when there's a git
-  // status, Render only for markdown. Keeps the toggle "sticky" across
+  // status, Render only for Markdown or HTML. Keeps the toggle applicable
   // file navigation without showing a dead button or rendering the wrong
   // view. (After a conflict is resolved, `isConflict` flips false and the
   // resolver falls back to Current, showing the resolved file.)
   const effectiveMode: Mode =
     (mode === 'conflict' && !isConflict) ||
     (mode === 'diff' && !isChanged) ||
-    (mode === 'render' && !isMarkdown)
+    (mode === 'render' && !isMarkdown && !isHtml)
       ? 'current'
       : mode;
   const isDeleted = entry?.status === 'deleted';
@@ -220,6 +202,7 @@ export function FileViewer({
         isChanged={isChanged}
         isConflict={isConflict}
         isMarkdown={isMarkdown}
+        isHtml={isHtml}
         mode={effectiveMode}
         onModeChange={setMode}
         onClose={onClose}
@@ -234,7 +217,7 @@ export function FileViewer({
         ) : effectiveMode === 'diff' && entry?.status ? (
           <DiffView source={source} path={selectedPath} status={entry.status} />
         ) : effectiveMode === 'render' ? (
-          <MarkdownView source={source} path={selectedPath} />
+          isHtml ? <HtmlView source={source} path={selectedPath} /> : <MarkdownView source={source} path={selectedPath} />
         ) : (
           <FileView
             ref={fileViewRef}
@@ -259,6 +242,7 @@ interface HeaderProps {
   isChanged: boolean;
   isConflict: boolean;
   isMarkdown: boolean;
+  isHtml: boolean;
   mode: Mode;
   onModeChange: (m: Mode) => void;
   onClose?: () => void;
@@ -276,6 +260,7 @@ function FileViewerHeader({
   isChanged,
   isConflict,
   isMarkdown,
+  isHtml,
   mode,
   onModeChange,
   onClose,
@@ -303,7 +288,7 @@ function FileViewerHeader({
         </span>
       </Tip>
       {outside && (
-        <Tip label="Outside this chat's folder. It opens because the agent read or wrote it.">
+        <Tip label="Outside this chat's folder. The agent shared or used this file.">
           <span className="inline-flex items-center gap-1 text-[10px] font-normal text-muted-foreground/70 shrink-0">
             <Lock size={10} />
             Read only
@@ -331,7 +316,7 @@ function FileViewerHeader({
           </button>
         )
       )}
-      {(isChanged || isMarkdown) && (
+      {(isChanged || isMarkdown || isHtml) && (
         <div className="inline-flex items-center rounded-md border border-border bg-muted/40 p-0.5 text-[10px] font-medium shrink-0">
           {isConflict ? (
             <button
@@ -375,9 +360,9 @@ function FileViewerHeader({
             )}
           >
             <FileText size={10} />
-            Current
+            {isHtml ? 'Source' : 'Current'}
           </button>
-          {isMarkdown && (
+          {(isMarkdown || isHtml) && (
             <button
               type="button"
               onClick={() => onModeChange('render')}
@@ -389,7 +374,7 @@ function FileViewerHeader({
               )}
             >
               <BookOpen size={10} />
-              Render
+              {isHtml ? 'Preview' : 'Render'}
             </button>
           )}
         </div>

@@ -1,9 +1,17 @@
 import { expect, it } from 'vitest';
-import { assertLocalBridge, isLocalViewer, isViewerReload, remoteViewerOrigin, trustedViewerFrame, viewerPermission } from './viewer-trust';
+import { assertLocalBridge, isLocalViewer, isViewerReload, remoteViewerOrigin, trustedViewerFrame, viewerPermission, viewerNotificationAction } from './viewer-trust';
 import { desktopRequestHeaders } from './trust';
 import type { BackendReady } from './config';
 
 const local: BackendReady = { type: 'ready', connection: 'home', origin: 'https://localhost:4224', certificate: 'pinned', token: 'sign-in', desktopClient: 'native' };
+it('lets a connected renderer read notification consent while refusing every mutation and arbitrary action', () => {
+  expect(viewerNotificationAction('status', false)).toBe('status');
+  for (const action of ['enable', 'disable', 'test', 'claim', 'ack', {}, null]) {
+    expect(() => viewerNotificationAction(action, false)).toThrow();
+  }
+  for (const action of ['status', 'enable', 'disable', 'test']) expect(viewerNotificationAction(action, true)).toBe(action);
+  for (const action of ['claim', 'ack', {}, null]) expect(() => viewerNotificationAction(action, true)).toThrow();
+});
 it('requires a local session, certificate and capability, never inferring privilege from a URL', () => {
   expect(isLocalViewer(local)).toBe(true);
   expect(isLocalViewer({ ...local, connection: 'remote' })).toBe(false);

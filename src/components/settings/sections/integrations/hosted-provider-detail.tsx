@@ -28,6 +28,7 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
   const previousActive = previousConnections.find(connection => `previous:${connection.id}` === target);
   const showForm = (accounts.length === 0 && previousConnections.length === 0) || target === 'new' || !!active || !!previousActive;
   const kind = provider.mcp?.authKind ?? 'oauth';
+  const local = provider.mcp?.local === true;
   const healthy = accounts.length > 0 && accounts.every(account => account.enabled !== false && !account.requiresAuth && account.status === 'ok');
   const usedAuthConfigIds = accounts.flatMap(account => account.authConfigId ? [account.authConfigId] : []);
   const toolCount = props.toolkits.reduce((count, toolkit) => count + toolkit.actions.length, 0);
@@ -45,11 +46,11 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
       <BackLink onBack={props.onBack} busy={busy} />
       <DetailHeader logo={<IntegrationLogo providerId={provider.id} name={provider.displayName} size={48} />}
         title={provider.displayName} subtitle={integrationMeta(provider.id).description}
-        meta={<><Chip tone={healthy ? 'ok' : accounts.length ? 'warn' : undefined}>{accounts.length ? healthy ? `${accounts.length} account${accounts.length === 1 ? '' : 's'} connected` : 'Needs attention' : 'Not connected'}</Chip><Chip>{integrationMeta(provider.id).category}</Chip>{toolCount > 0 && <Chip>{toolCount} tools</Chip>}</>} />
+        meta={<><Chip tone={healthy ? 'ok' : accounts.length ? 'warn' : undefined}>{accounts.length ? healthy ? local ? 'Connected' : `${accounts.length} account${accounts.length === 1 ? '' : 's'} connected` : 'Needs attention' : 'Not connected'}</Chip><Chip>{integrationMeta(provider.id).category}</Chip>{toolCount > 0 && <Chip>{toolCount} tools</Chip>}</>} />
     </div>
 
     {(accounts.length > 0 || previousConnections.length > 0) && <section className="space-y-2">
-      <GroupHeading count={accounts.length + previousConnections.length} action={kind !== 'none' && <Button size="xs" variant="outline" disabled={busy} onClick={() => setTarget('new')}><Plus size={12} /> Add account</Button>}>Accounts</GroupHeading>
+      <GroupHeading count={local ? undefined : accounts.length + previousConnections.length} action={kind !== 'none' && <Button size="xs" variant="outline" disabled={busy} onClick={() => setTarget('new')}><Plus size={12} /> Add account</Button>}>{local ? 'Connection' : 'Accounts'}</GroupHeading>
       {form}
       <div className="space-y-3">{accounts.map(account => {
         const accountKind = account.authKind ?? kind;

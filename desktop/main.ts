@@ -38,12 +38,11 @@ import { setupRequest } from './setup-client';
 import type { ConnectionSetupStatus, ConnectionSetupRequest } from './connection-setup';
 import { hasLoginSupervision } from '../src/lib/service/supervision-state';
 import { localDeviceMenu } from './local-device-menu';
-import { isLocalViewer, isViewerReload, trustedViewerFrame, viewerPermission } from './viewer-trust';
+import { isLocalViewer, isViewerReload, trustedViewerFrame, viewerPermission, viewerNotificationAction } from './viewer-trust';
 import { ViewerTransitions } from './viewer-transitions';
 import { signInDesktopSession } from './session-auth';
 import { connectionFailure } from './connection-failure';
 import { DesktopConnection } from './connection-state';
-import type { DesktopNotificationAction } from '../src/lib/notifications/desktop-contract';
 import { teamsFile } from './teams';
 import { teamFlow } from './team-flow';
 import { teamWindows } from './team-window';
@@ -144,7 +143,7 @@ let menuActions: Parameters<typeof desktopMenuCommands>[0] | undefined;
 let refreshApplicationMenu: (() => void) | undefined;
 let activityPresentation = '';
 const pendingLinks: string[] = [];
-let setupView: 'auto' | 'settings' | 'connect' | 'create-team' = 'auto';
+let setupView: 'auto' | 'settings' | 'connect' | 'create-team' | 'notifications' = 'auto';
 const desktopConnection = new DesktopConnection({
   hasViewer: () => !!viewerTransitions.current,
   publish: state => {
@@ -199,11 +198,11 @@ function detectedInstallation() {
   };
   return discovery.result;
 }
-function setupPageOptions(view: 'auto' | 'settings' | 'connect' | 'create-team' = 'auto') {
+function setupPageOptions(view: 'auto' | 'settings' | 'connect' | 'create-team' | 'notifications' = 'auto') {
   return { ...localStyleOptions(), view };
 }
 
-async function showSetup(view: 'auto' | 'settings' | 'connect' | 'create-team' = 'auto') {
+async function showSetup(view: 'auto' | 'settings' | 'connect' | 'create-team' | 'notifications' = 'auto') {
   setupView = view;
   await startupVisibility.showLocal(() => companion.show(setupPageOptions(view)));
 }
@@ -1026,7 +1025,7 @@ async function start() {
           else await retryConnection();
         } catch (error) { fail(error); }
       }
-    } else if (action === 'settings' || action === 'connect') await showSetup(action);
+    } else if (action === 'settings' || action === 'connect' || action === 'notifications') await showSetup(action);
     // Settings, Teams in My Ri: a team made on this computer (docs/homes-spec.md §3.1).
     else if (action === 'create-team') await showSetup('create-team');
     else throw new Error('Invalid connection action');
@@ -1051,11 +1050,12 @@ async function start() {
     await shell.openExternal(url);
   });
   ipcMain.handle('desktop:notifications', async (event, action: unknown) => {
-    if (!localViewer) throw new Error('This remote Home uses browser notifications.');
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) throw new Error('Untrusted window');
-    if (typeof action !== 'string' || !['status', 'enable', 'disable', 'test'].includes(action)) throw new Error('Invalid notification action');
-    if (!notifications) throw new Error('The local service has not connected yet.');
-    return notifications.action(action as DesktopNotificationAction);
+    // A connected Home can read this computer's effective status. Consent and
+    // test actions still belong exclusively to the trusted local companion.
+    const kind = viewerNotificationAction(action, localViewer);
+    if (!notifications) throw new Error('This computer has not connected to Ri yet.');
+    return notifications.action(kind);
   });
   await localSurface.show({ id: 'loading', html: startingPage(randomUUID().replaceAll('-', ''), localStyleOptions()) });
   teams = teamFlow({

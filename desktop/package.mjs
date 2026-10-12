@@ -31,6 +31,7 @@ const server = path.join(stage, 'server');
 const shell = path.join(stage, 'shell');
 const node = path.join(stage, 'node');
 run('pnpm', ['desktop:build']);
+run('pnpm', ['apps:catalog', '--compatible']);
 if (!process.argv.includes('--skip-build')) run(process.execPath, ['desktop/launch.mjs', '--build-only']);
 if (!fs.existsSync(path.join(repo, '.next-desktop/BUILD_ID'))) throw new Error('Build the production app first.');
 
@@ -47,11 +48,7 @@ fs.mkdirSync(path.join(server, 'src/styles'), { recursive: true });
 fs.copyFileSync(path.join(repo, 'src/styles/theme.css'), path.join(server, 'src/styles/theme.css'));
 for (const name of ['public', 'drizzle', 'skills', 'dist']) fs.cpSync(path.join(repo, name), path.join(server, name), { recursive: true });
 if (process.argv.includes('--with-speech')) stageSpeechHelper(path.join(repo, 'release/speech-helper'), path.join(server, 'speech-helper'));
-if (process.argv.includes('--with-local-apps')) {
-  const catalog=path.join(repo,'release/local-apps/catalog');
-  if(!fs.existsSync(path.join(catalog,'ri-finance.json')) || !fs.existsSync(path.join(catalog,'ri-tracker.json')))throw new Error('Stage the qualified local app catalog before packaging --with-local-apps');
-  fs.cpSync(catalog,path.join(server,'release/local-apps/catalog'),{recursive:true});
-}
+fs.cpSync(path.join(repo,'release/local-apps/catalog'),path.join(server,'release/local-apps/catalog'),{recursive:true});
 fs.cpSync(path.join(repo, '.next-desktop'), path.join(server, '.next-desktop'), {
   recursive: true,
   // Turbopack's hashed externals link into ../node_modules. Keep those relative.

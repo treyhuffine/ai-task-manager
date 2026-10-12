@@ -24,6 +24,7 @@ const dest = resolve(repoRoot, 'src/components/integrations/integration-icon-dat
 // providerId -> ordered candidate simple-icons slugs/titles (first hit wins).
 // Keep in sync with PROVIDER_CATALOG in packages/integrations/src/providers/index.ts.
 const CANDIDATES = {
+  onepassword: ['1password'],
   google: ['google'],
   slack: ['slack'],
   notion: ['notion'],

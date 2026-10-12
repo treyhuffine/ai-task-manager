@@ -13,6 +13,7 @@ import fs from 'node:fs/promises';
 import { NextRequest } from 'next/server';
 import { agentReplyMentions, getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { findReplyImage } from '@/lib/sessions/reply-images';
+import { imageThumbnail, imageVersion } from '@/lib/attachments/image-thumbnail';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -32,18 +33,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     );
     if (!image.ok) return Response.json({ error: image.error }, { status: image.status });
 
-    const bytes = await fs.readFile(image.file);
+    const thumbnail = request.nextUrl.searchParams.get('thumbnail') === '1';
+    const etag = `"${await imageVersion(image.file, thumbnail)}"`;
+    const cacheHeaders = { ETag: etag, 'Cache-Control': 'private, no-cache' };
+    if (request.headers.get('if-none-match') === etag) return new Response(null, { status: 304, headers: cacheHeaders });
+    const bytes = thumbnail ? await imageThumbnail(image.file, etag.slice(1, -1)) : await fs.readFile(image.file);
     return new Response(new Uint8Array(bytes), {
       status: 200,
       headers: {
-        'Content-Type': image.mime,
+        'Content-Type': thumbnail ? 'image/webp' : image.mime,
         'Content-Length': String(bytes.byteLength),
         'Content-Security-Policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'",
         'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'no-referrer',
         'Cross-Origin-Resource-Policy': 'same-origin',
         // A screenshot can be retaken under the same name.
-        'Cache-Control': 'private, no-cache',
+        ...cacheHeaders,
       },
     });
   } catch (err) {

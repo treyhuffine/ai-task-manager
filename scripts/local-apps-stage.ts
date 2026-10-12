@@ -4,11 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
 import Database from "better-sqlite3";
+import { hasIncludedArtifact, includedAppIds } from "../src/lib/local-apps/included-catalog";
 
 export const repository = fileURLToPath(new URL("../", import.meta.url));
 export async function runCommand(command: string, args: string[], cwd = repository) {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: "inherit", env: process.env });
+    const child = spawn(command, args, { cwd, stdio: "inherit", env: { ...process.env, RI_RUNTIME_REPO: repository } });
     const stop = (signal: NodeJS.Signals) => child.kill(signal);
     const interrupt = () => stop("SIGINT"), terminate = () => stop("SIGTERM");
     process.once("SIGINT", interrupt);
@@ -22,20 +23,33 @@ export async function runCommand(command: string, args: string[], cwd = reposito
     });
   });
 }
-export async function stageLocalApps() {
+export async function stageLocalApps({ onlyMissing = false, compatibleOnly = false } = {}) {
   const directory = path.join(repository, "release/local-apps");
   await fs.mkdir(directory, { recursive: true });
   const lock = new Database(path.join(directory, "catalog.owner.sqlite"), { timeout: 0 });
   try { lock.exec("BEGIN IMMEDIATE"); }
   catch { lock.close(); throw new Error("The included apps are already being built. Wait for that build to finish"); }
   try {
-    await runCommand("pnpm", ["finances:package"]);
-    const finance = path.join(repository, "apps/finances/release");
-    await runCommand("pnpm", ["exec", "tsx", "scripts/local-apps-catalog.ts",
-      path.join(finance, "ri-finance-0.1.0.tar.gz"), path.join(finance, "catalog-entry.json")]);
-    await runCommand("pnpm", ["exec", "tsx", "scripts/local-apps-catalog.ts", "--tracker"]);
+    for (const id of includedAppIds(compatibleOnly)) {
+      if (onlyMissing && await hasIncludedArtifact(id, path.join(directory, "catalog"))) continue;
+      if (id === "ri-finance") {
+        await runCommand("pnpm", ["finances:package"]);
+        const finance = path.join(repository, "apps/finances/release");
+        await runCommand("pnpm", ["exec", "tsx", "scripts/local-apps-catalog.ts",
+          path.join(finance, "ri-finance-0.1.0.tar.gz"), path.join(finance, "catalog-entry.json")]);
+      } else {
+        await runCommand("pnpm", ["exec", "tsx", "scripts/local-apps-catalog.ts", "--tracker"]);
+      }
+    }
   } finally { lock.close(); }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void stageLocalApps().catch(error => { console.error(error.message); process.exitCode = 1; });
+  const args = process.argv.slice(2);
+  if (args.some(arg => !['--if-missing', '--compatible'].includes(arg))) {
+    console.error("Use --if-missing to reuse staged packages, or --compatible to select packages qualified for this runtime");
+    process.exitCode = 1;
+  } else {
+    void stageLocalApps({ onlyMissing: args.includes('--if-missing'), compatibleOnly: args.includes('--compatible') })
+      .catch(error => { console.error(error.message); process.exitCode = 1; });
+  }
 }

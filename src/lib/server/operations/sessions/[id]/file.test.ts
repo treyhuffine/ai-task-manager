@@ -32,6 +32,9 @@ async function setup() {
   fs.writeFileSync(path.join(outside, 'shot.png'), PNG);
   fs.writeFileSync(path.join(outside, 'notes.md'), '# Notes\n');
   fs.writeFileSync(path.join(outside, 'secret.txt'), 'never shown');
+  fs.writeFileSync(path.join(outside, 'explorer.html'), '<button>Explore plays</button><script>window.ready=true</script>');
+  fs.writeFileSync(path.join(outside, 'not-mentioned.html'), 'private HTML');
+  fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(outside, 'disguised.html'));
   const ws = q.createWorkspace({ name: 'Outside files', cwd: folder, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   const { execution, session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Screenshots', worktreePath: folder });
   const read = (file: string) =>
@@ -86,4 +89,21 @@ it('says where the file is for a chat on another device', async () => {
   const shot = path.join(outside, 'shot.png');
   read(shot);
   expect(await get(shot)).toMatchObject({ ok: false, status: 409, body: { code: 'elsewhere', error: 'This file is on Laptop.' } });
+});
+
+it('opens an HTML artifact the agent supplied in a reply, without requiring a file tool', async () => {
+  const { q, outside, session, get } = await setup();
+  const html = path.join(outside, 'explorer.html');
+  q.insertChatEvent({ sessionId: session.id, role: 'assistant', source: 'agent', content: `\uE200visualize\uE202${JSON.stringify({ path: html, mode: 'wide' })}\uE201` });
+  expect(await get(html)).toMatchObject({ ok: true, data: { mime: 'text/html', content: '<button>Explore plays</button><script>window.ready=true</script>' } });
+  expect(await get(path.join(outside, 'not-mentioned.html'))).toMatchObject({ ok: false, status: 403 });
+});
+
+it('accepts a file URL from a reply, but refuses a disguised non-HTML file', async () => {
+  const { q, outside, session, get } = await setup();
+  const fileUrl = new URL(`file://${path.join(outside, 'explorer.html')}`).href;
+  const disguised = path.join(outside, 'disguised.html');
+  q.insertChatEvent({ sessionId: session.id, role: 'assistant', source: 'agent', content: `[Preview](${fileUrl}) and ${disguised}` });
+  expect(await get(fileUrl)).toMatchObject({ ok: true, data: { mime: 'text/html' } });
+  expect(await get(disguised)).toMatchObject({ ok: false, status: 415 });
 });

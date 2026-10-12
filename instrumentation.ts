@@ -65,7 +65,8 @@ export async function register() {
     return;
   }
 
-  if (process.env.RI_LOCAL_APPS === '1') {
+  const { localAppsEnabled } = await import('@/lib/config/features');
+  if (localAppsEnabled()) {
     try { await (await import('@/lib/local-apps/service')).localApps().initialize(); }
     catch (error) { console.error('[local-apps] startup failed', error instanceof Error ? error.message : 'App registry could not start'); }
   }

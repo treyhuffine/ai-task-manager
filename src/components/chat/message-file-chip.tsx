@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, FileText, Image as ImageIcon, Download, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, ChevronRight, FileText, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { attachmentUrl } from '@/lib/attachments/view';
 import { getAuthToken } from '@/lib/api/client';
 import type { Attachment } from '@/db/types';
 import { Tip } from '@/components/ui/tip';
+import { ImagePreviewCard } from './image-preview-card';
 
 interface MessageFileChipProps {
   attachment: Attachment;
@@ -35,65 +36,12 @@ export function MessageFileChip({ attachment, variant = 'inline', fileUrl = atta
   const url = fileUrl(fileName);
 
   if (isImage) {
-    return <ImageThumb url={url} display={display} variant={variant} size={size} />;
+    return <span className={cn(variant === 'block' && 'block my-1')}><ImagePreviewCard src={url} name={display} /></span>;
   }
   if (isText) {
     return <TextExpandChip url={url} display={display} variant={variant} size={size} />;
   }
   return <DownloadChip url={url} display={display} variant={variant} size={size} />;
-}
-
-// ─── Image variant ─────────────────────────────────────────────
-
-function ImageThumb({ url, display, variant, size }: {
-  url: string; display: string; variant: 'inline' | 'block'; size: number;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className={cn(variant === 'block' && 'block my-1')}>
-      <Tip label={`${display} · ${formatSize(size)}`}>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className={cn(
-            'inline-block align-middle mx-0.5 rounded-md border border-border overflow-hidden',
-            'hover:border-foreground/30 transition-colors',
-            'cursor-zoom-in',
-          )}
-          aria-label={`${display} · ${formatSize(size)}`}
-        >
-          <AuthedImage src={url} alt={display} className="block max-h-32 max-w-[14rem] object-cover" />
-        </button>
-      </Tip>
-      {open && <Lightbox url={url} alt={display} onClose={() => setOpen(false)} />}
-    </span>
-  );
-}
-
-function Lightbox({ url, alt, onClose }: { url: string; alt: string; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  return (
-    <span
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-6 cursor-zoom-out"
-      onClick={onClose}
-    >
-      <AuthedImage
-        src={url}
-        alt={alt}
-        className="max-h-full max-w-full object-contain rounded-md shadow-2xl"
-      />
-    </span>
-  );
 }
 
 // ─── Text variant ──────────────────────────────────────────────
@@ -203,59 +151,6 @@ function DownloadChip({ url, display, variant, size }: {
 }
 
 // ─── Internals ─────────────────────────────────────────────────
-
-/**
- * Browser image fetches don't carry our Bearer token, so a vanilla
- * `<img src={attachmentUrl}>` would 401 against the protected serve
- * route. Fetch the bytes, blob-URL them, swap the src.
- */
-function AuthedImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
-  const [objUrl, setObjUrl] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    let revoked = false;
-    let url: string | null = null;
-    (async () => {
-      try {
-        const token = getAuthToken();
-        const res = await fetch(src, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
-        url = URL.createObjectURL(blob);
-        if (!revoked) setObjUrl(url);
-        else URL.revokeObjectURL(url);
-      } catch {
-        setError(true);
-      }
-    })();
-    return () => {
-      revoked = true;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [src]);
-
-  if (error) {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-destructive">
-        <ImageIcon size={11} />
-        Failed to load
-      </span>
-    );
-  }
-  if (!objUrl) {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground">
-        <Loader2 size={11} className="animate-spin" />
-        Loading…
-      </span>
-    );
-  }
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={objUrl} alt={alt} className={className} />;
-}
 
 function formatSize(bytes: number): string {
   if (!bytes) return '';

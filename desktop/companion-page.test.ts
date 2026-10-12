@@ -220,6 +220,24 @@ describe('desktop welcome and connection flow', () => {
 });
 
 describe('configured desktop settings', () => {
+  it('opens notification controls directly without changing consent and keeps test disabled until enabled', async () => {
+    const ui = await renderPage({ ...viewer, notifications: { supported: true, enabled: false } }, { view: 'notifications' });
+    expect(ui.visible('settings')).toBe(true);
+    expect(ui.element('notifications').hasAttribute('open')).toBe(true);
+    expect(ui.element('preferences').hasAttribute('open')).toBe(false);
+    expect(ui.input('native-notifications').checked).toBe(false);
+    expect(ui.element('notification-detail').textContent).toBe('Off for this computer. Turn on alerts above.');
+    expect(ui.input('notification-test').disabled).toBe(true);
+    expect(ui.request.mock.calls.every(([name]) => name === 'status')).toBe(true);
+    await ui.refresh({ ...viewer, notifications: { supported: true, enabled: true } });
+    expect(ui.element('notification-detail').textContent).toBe('On for this computer.');
+    expect(ui.input('notification-test').disabled).toBe(false);
+    // Polling must not reopen a disclosure the person deliberately closed.
+    ui.element('notifications').removeAttribute('open');
+    await ui.refresh();
+    expect(ui.element('notifications').hasAttribute('open')).toBe(false);
+  });
+
   it('keeps intentional settings usable while an existing viewer reconnects, without a duplicate retry', async () => {
     const ui = await renderPage({ ...viewer, connecting: true, hasViewer: true }, { view: 'settings' });
     expect(ui.visible('settings')).toBe(true);

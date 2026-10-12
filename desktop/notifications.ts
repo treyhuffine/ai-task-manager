@@ -61,7 +61,7 @@ export class DesktopNotifications {
       this.transportError = undefined;
       return result;
     } catch (error) {
-      if (!this.stopped) this.transportError = 'Desktop notifications are waiting for the local service to reconnect.';
+      if (!this.stopped) this.transportError = 'Desktop notifications are waiting for Ri to reconnect.';
       throw error;
     }
   }

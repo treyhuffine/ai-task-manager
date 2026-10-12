@@ -9,6 +9,7 @@ if (process.isMainFrame) {
   contextBridge.exposeInMainWorld('riDesktop', Object.freeze({
     platform: process.platform,
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('desktop:open-external', url),
+    notificationStatus: () => ipcRenderer.invoke('desktop:notifications', 'status'),
     connection: (action: DesktopConnectionAction): Promise<DesktopConnectionState> => ipcRenderer.invoke('desktop:connection', action),
     onConnectionChange: (callback: (state: DesktopConnectionState) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, state: DesktopConnectionState) => callback(state);

@@ -45,6 +45,14 @@ export function AppView({
   paused.current = waiting;
   const refreshRef = useRef<(() => Promise<void>) | null>(null);
   const queryKey = JSON.stringify(query);
+  const retryView = async () => {
+    try {
+      await trpcClient.localApps.retry.mutate({ id, draft });
+      setReopen((value) => value + 1);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'The app could not retry');
+    }
+  };
   useEffect(() => {
     if (!waiting) void refreshRef.current?.();
   }, [changeRevision, waiting]);
@@ -211,8 +219,8 @@ export function AppView({
       {error && (
         <div role="alert" className="absolute inset-x-4 top-4 space-y-2 rounded-xl border border-border bg-background p-3 text-[12px] shadow-sm">
           <p className="text-foreground">{error}</p>
-          <Button size="xs" variant="outline" onClick={() => setReopen((value) => value + 1)}>
-            Reopen view
+          <Button size="xs" variant="outline" onClick={() => void retryView()}>
+            {error.includes('failed to start repeatedly') ? 'Retry' : 'Reopen view'}
           </Button>
         </div>
       )}

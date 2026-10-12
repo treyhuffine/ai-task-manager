@@ -44,6 +44,8 @@ export interface IntegrationMeta {
    * (OAuth providers). Rendered as a link in the connect panel.
    */
   docsUrl?: string;
+  /** Additional provider-owned setup examples, rendered beside the setup guide. */
+  helpLinks?: { label: string; url: string }[];
   /**
    * Numbered credential setup steps, shown in direct or OAuth app setup.
    * No dashes (project copy rule).
@@ -52,6 +54,22 @@ export interface IntegrationMeta {
 }
 
 export const INTEGRATION_META: Record<string, IntegrationMeta> = {
+  onepassword: {
+    category: 'Developer',
+    description: 'Manage project Environments through 1Password Desktop. Secret values stay out of tool responses.',
+    brandHex: '0094F5',
+    docsUrl: 'https://www.1password.dev/environments/mcp-server',
+    helpLinks: [{
+      label: 'Authorization screenshot (Cursor)',
+      url: 'https://1password.com/blog/the-1password-environments-mcp-server-is-now-on-cursor-marketplace',
+    }],
+    setup: [
+      'Install and sign in to 1Password Desktop on the computer running Ri.',
+      'In 1Password Settings > Labs > MCP Server, enable the local MCP server.',
+      'In Settings > Developer, turn on Integrate with MCP clients.',
+      'Create an Environment in 1Password, then connect here and enable 1Password for your agent. Use a Claude Code chat.',
+    ],
+  },
   google: {
     category: 'Workspace',
     description: 'Gmail, Calendar, Drive, Docs, and Sheets.',

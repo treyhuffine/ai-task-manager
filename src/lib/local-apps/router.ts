@@ -103,11 +103,8 @@ export const localAppsRouter = router({
     .mutation(({ input }) =>
       appOperation(() => localApps().remove(input.id, input.revision)),
     ),
-  retry: p.input(z.object({ id }).strict()).mutation(({ input }) =>
-    appOperation(() => {
-      localApps().instance(input.id);
-      localApps().engine.retry(input.id);
-    }),
+  retry: p.input(z.object({ id, draft: z.boolean().optional() }).strict()).mutation(({ input }) =>
+    appOperation(() => localApps().retry(input.id, input.draft)),
   ),
   repair: p
     .input(

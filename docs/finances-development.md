@@ -8,6 +8,15 @@ Apps are enabled on a normally started Ri Home without an environment override.
 Set `RI_LOCAL_APPS=0` before startup to opt out. Catalog staging and installation
 remain separate from enabling the Apps destination.
 
+Normal `pnpm build` stages included apps before building Ri. `pnpm dev` and
+the desktop source launcher prepare missing or damaged catalog artifacts before
+starting, then reuse complete packages on later starts. Finances is included
+automatically on its qualified macOS arm64 Node 26.5.0 runtime, ABI 147.
+Other runtimes build the portable tracker. Desktop and headless runtime packages
+carry the staged catalog by default. Merging source alone carries no generated
+packages, so an already running source Home can use `pnpm apps:catalog`, then
+reopen Apps, without restarting the Home.
+
 ## Development commands
 
 Run these from the repository root:

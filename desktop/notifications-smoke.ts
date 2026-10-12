@@ -71,7 +71,7 @@ void acceptance('notifications-smoke', async fixture => {
   await eventually(async () => !(await channel()).events.includes('execution.finished'), 'routing toggle saved');
   await eventually(async () => !(await finishedEvent.isChecked()), 'routing toggle reflected after settings refresh');
   const selectedEvents = (await channel()).events;
-  assert.equal(await page.getByText('For alerts on your phone, enable browser push from Ri on that device.', { exact: true }).count(), 1);
+  assert.equal(await page.getByText('Open Ri on your phone to enable browser push there.', { exact: true }).count(), 1);
   fixture.check('Settings opt-in, per-event preference, and separate phone push guidance');
 
   await page.getByRole('button', { name: 'Test', exact: true }).click();

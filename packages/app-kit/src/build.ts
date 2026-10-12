@@ -4,7 +4,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { Script } from 'node:vm';
 import { transpileModule, ModuleKind, ScriptTarget, DiagnosticCategory } from 'typescript';
-import { createRequire } from "node:module";
 import * as tar from "tar";
 import { parseHTML } from "linkedom";
 import {
@@ -15,7 +14,7 @@ import {
   type AppContract,
 } from "./contract.js";
 import type { Artifact, ExecutionDriver } from "./runtime.js";
-import {kitAsset} from './assets.js';
+import {kitAsset,kitRequire} from './assets.js';
 
 export interface PackageFile {
   name: string;
@@ -419,7 +418,7 @@ export interface BuildOptions {
 /** Resolve pinned build assets within the installed kit, including external
  * server bundles whose caller has a synthetic import.meta URL. */
 export function appKitToolchain() {
-  const require = createRequire(import.meta.url);
+  const require = kitRequire();
   const resolve = require.resolve.bind(require);
   const kitDir = path.resolve(path.dirname(resolve(['@ri/app-kit', 'build'].join('/'))), '..');
   return { packageDir: kitDir, pnpm: path.join(path.dirname(require.resolve('pnpm')), 'bin/pnpm.cjs'), validationWorker: path.join(kitDir, 'dist/validation-worker.js') };
@@ -452,7 +451,7 @@ export async function buildPackage(
   await options.driver.prepare(artifact, options.signal);
   if (manifest.extensions["com.ri"].build.adapter === "none")
     return validateArtifact(options.packageDir);
-  const require = createRequire(import.meta.url);
+  const require = kitRequire();
   const executable = (options.driver as { nodeExecutable?: string })
     .nodeExecutable;
   if (!executable)

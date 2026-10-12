@@ -179,6 +179,12 @@ export function AppLibrary({ data, navigate }: { data: LocalAppsList; navigate: 
             </section>
           )}
 
+          {catalog.isPending && <p role="status" className="text-[11.5px] text-muted-foreground">Loading included apps…</p>}
+          {catalog.data?.length === 0 && (
+            <p role="status" className="text-[11.5px] text-muted-foreground">
+              Included apps aren&apos;t available in this installation yet. You can create an app or import a package.
+            </p>
+          )}
           {!!catalog.data?.length && (
             <section className="space-y-2">
               <GroupHeading count={catalog.data.length}>Included apps</GroupHeading>

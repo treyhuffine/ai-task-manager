@@ -1,14 +1,14 @@
 import { localPageStyle, type LocalPageStyleOptions } from './local-page-style';
 
 export interface CompanionPageOptions extends LocalPageStyleOptions {
-  view?: 'auto' | 'settings' | 'connect' | 'help' | 'create-team';
+  view?: 'auto' | 'settings' | 'connect' | 'help' | 'create-team' | 'notifications';
 }
 
 /** Trusted local UI. Dynamic values are rendered as text, never HTML. */
 export function companionPage(nonce: string, options: CompanionPageOptions = {}) {
   const style = localPageStyle(nonce, options);
   const view = options.view ?? 'auto';
-  if (!['auto', 'settings', 'connect', 'help', 'create-team'].includes(view)) throw new Error('Invalid companion view');
+  if (!['auto', 'settings', 'connect', 'help', 'create-team', 'notifications'].includes(view)) throw new Error('Invalid companion view');
   return `<!doctype html><html ${style.attributes} data-ri-local-view="companion"><head><meta charset="utf-8">
 ${style.head}<title>Ri</title></head><body>${style.chrome}<main>
 ${style.brand}
@@ -51,7 +51,7 @@ ${style.brand}
 <section id="settings" hidden>
   <details id="execution" hidden><summary>Agents on this computer</summary><p id="worker-status"></p><p id="worker-reason"></p><p class="hint">Local agents use the folders, tools and sign-ins on this computer.</p><div class="actions"><button id="enable-worker" class="secondary" hidden>Enable local execution</button><button id="stop-worker" class="secondary" hidden>Stop local execution</button><button id="resume-worker" class="secondary" hidden>Resume local execution</button></div></details>
   <details id="preferences" hidden><summary>Desktop preferences</summary><label class="check"><input id="desktop-login" type="checkbox"><span>Open Ri quietly when I log in</span></label><p id="desktop-login-detail" class="hint"></p><label class="check"><input id="capture-enabled" type="checkbox"><span>Enable a global Quick Capture shortcut</span></label><label for="capture-shortcut">Shortcut</label><input id="capture-shortcut" type="text" autocomplete="off" spellcheck="false" placeholder="CommandOrControl+Shift+Space"><p id="capture-detail" class="hint"></p><button id="capture-save" class="secondary">Save shortcut</button></details>
-  <details id="notifications" hidden><summary>Notifications on this computer</summary><label class="check"><input id="native-notifications" type="checkbox"><span>Show native notifications from your Ri</span></label><p id="notification-detail" class="hint"></p><button id="notification-test" class="secondary">Send test notification</button><p class="hint">Keep Ri open in the menu bar to receive alerts.</p></details>
+  <details id="notifications" hidden><summary>Notifications on this computer</summary><label class="check"><input id="native-notifications" type="checkbox"><span>Enable desktop notifications</span></label><p id="notification-detail" class="hint" role="status"></p><button id="notification-test" class="secondary">Send test notification</button><p class="hint">Keep Ri running in the menu bar. If a test does not appear, allow Ri in your computer’s notification settings.</p></details>
   <details id="service" hidden><summary>Background service</summary><label class="check"><input id="login" type="checkbox"><span>Start this computer’s service when I log in</span></label><p id="login-detail" class="hint"></p><p class="hint">Quitting Ri leaves this service running. This computer must stay awake to run work or serve your data to other devices.</p></details>
   <details id="updates" hidden><summary>Updates</summary><p id="version"></p><p id="update-status"></p><div class="actions"><button id="update-check" class="secondary">Check for updates</button><button id="update-download" class="secondary" hidden>Download update</button><button id="update-apply" class="secondary" hidden>Update when idle</button><button id="update-later" class="secondary" hidden>Later</button></div><p class="hint">Local updates wait for a safe time. Updating this viewer does not restart your remote Ri.</p></details>
 </section>
@@ -70,7 +70,7 @@ ${style.brand}
 </main><script nonce="${nonce}">
 ${style.script}
 const $=id=>document.getElementById(id);
-let view='${view}',returnView='auto',state=null,busy=false,captureEdited=false,connectionFailed=false,link=null,verifyTimer=null;
+let view='${view}',returnView='auto',state=null,busy=false,captureEdited=false,connectionFailed=false,link=null,verifyTimer=null,focusNotifications=view==='notifications';
 $('run-work').checked=false;
 async function call(action,value){const result=await window.riCompanion.request(action,value);if(result.error)throw new Error(result.error);return result;}
 function isRemote(){return state?.role==='worker'||state?.role==='viewer';}
@@ -104,7 +104,7 @@ function render(){
  const reconnecting=!!state?.connecting&&!failed;
  const pending=state?.connecting||homeChosen||failed;
  const current=view==='auto'?(pending?(notice?'recovery':'starting'):fresh&&!homeChosen?'welcome':'settings'):view;
- const starting=current==='starting',recovery=current==='recovery',welcome=current==='welcome',connecting=current==='connect',help=current==='help',settings=current==='settings',creatingTeam=current==='create-team';
+ const starting=current==='starting',recovery=current==='recovery',welcome=current==='welcome',connecting=current==='connect',help=current==='help',settings=current==='settings'||current==='notifications',creatingTeam=current==='create-team';
  if(failed&&!connectionFailed)document.querySelectorAll('#settings details').forEach(el=>el.removeAttribute('open'));
  connectionFailed=failed;
  $('starting').hidden=!starting;$('startup-status').textContent=remote?'Connecting to your Ri…':'Starting Ri…';
@@ -146,11 +146,12 @@ function render(){
  $('service').hidden=!configured;$('login').checked=!!state?.login?.enabled;$('login-detail').textContent=state?.login?.detail||'This starts the background service after login, independently of the Ri window.';
  const prefs=state?.preferences;$('preferences').hidden=!prefs;
  if(prefs){$('desktop-login').checked=prefs.login.enabled;$('desktop-login-detail').textContent=prefs.login.detail||'Keep notifications and Quick Capture available from the menu bar.';if(!captureEdited){$('capture-enabled').checked=prefs.shortcut.enabled;$('capture-shortcut').value=prefs.shortcut.accelerator;}$('capture-detail').textContent=prefs.shortcut.detail||('Shortcut '+prefs.shortcut.state);}
- $('notifications').hidden=!state?.notifications;$('native-notifications').checked=!!state?.notifications?.enabled;$('notification-detail').textContent=state?.notifications?.error||'Only this computer can enable its native notifications.';
+ $('notifications').hidden=!state?.notifications;$('native-notifications').checked=!!state?.notifications?.enabled;$('notification-detail').textContent=state?.notifications?.error||(state?.notifications?.supported===false?'Desktop notifications are unavailable on this computer.':state?.notifications?.enabled?'On for this computer.':'Off for this computer. Turn on alerts above.');
  $('updates').hidden=!state?.service;$('version').textContent='Desktop '+(state?.desktop||'')+(state?.service?.version?' · Runtime '+state.service.version:'');
  const update=state?.update;$('update-status').textContent=update?.reason||update?.error||(update?'Update '+update.phase:'No pending update');
  $('update-download').hidden=update?.phase!=='available';$('update-apply').hidden=!['ready','waiting'].includes(update?.phase);$('update-later').hidden=!update||['idle','committed'].includes(update.phase);
  updateDisabled();
+ if(focusNotifications&&state?.notifications&&!busy){focusNotifications=false;$('notifications').setAttribute('open','');const target=$('native-notifications').disabled?$('notifications').querySelector('summary'):$('native-notifications');target.focus();$('notifications').scrollIntoView?.({block:'center'});}
 }
 function updateDisabled(){
  const prefs=state?.preferences;document.querySelectorAll('button,input').forEach(el=>el.disabled=busy);
@@ -160,7 +161,7 @@ function updateDisabled(){
  $('create-team-button').disabled=busy||!$('team-name').value.trim()||!$('owner-name').value.trim();
  $('open').disabled=busy||!!state?.connecting&&!state?.connectionError&&!state?.connection?.showNotice;
  $('desktop-login').disabled=busy||!prefs?.login.supported;$('login').disabled=busy||!state?.service;
- $('native-notifications').disabled=busy||state?.notifications?.supported===false;$('notification-test').disabled=busy||state?.notifications?.supported===false;
+ $('native-notifications').disabled=busy||state?.notifications?.supported===false;$('notification-test').disabled=busy||!state?.notifications?.enabled||state?.notifications?.supported===false;
 }
 async function refresh(){state=await call('status');render();}
 async function run(fn,progress=''){

@@ -12,5 +12,5 @@ export interface DesktopConnectionState {
   showNotice: boolean;
 }
 
-export type DesktopConnectionAction = 'status' | 'retry' | 'settings' | 'connect' | 'create-team';
+export type DesktopConnectionAction = 'status' | 'retry' | 'settings' | 'connect' | 'create-team' | 'notifications';
 export const CONNECTION_NOTICE_DELAY_MS = 10_000;

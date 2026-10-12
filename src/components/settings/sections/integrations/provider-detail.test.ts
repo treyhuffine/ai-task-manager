@@ -73,6 +73,16 @@ function catalogProvider(id: string, configured = true): ProviderStatus & { mcp:
 }
 
 describe('hosted provider connection flow', () => {
+  it('explains local 1Password setup without offering tokens, account labels or browser sign-in', () => {
+    const html = render({ provider: { ...catalogProvider('onepassword'), mcp: { local: true, authKind: 'none', requiresAuth: false, accounts: [] } } });
+    for (const text of ['1Password Desktop on the computer running Ri', 'Settings &gt; Labs &gt; MCP Server', 'Integrate with MCP clients', 'Setup guide', 'Authorization screenshot (Cursor)', 'Connect 1Password']) expect(html).toContain(text);
+    expect(html).toContain('href="https://www.1password.dev/environments/mcp-server"');
+    expect(html).toContain('href="https://1password.com/blog/the-1password-environments-mcp-server-is-now-on-cursor-marketplace"');
+    expect(html).not.toContain('does not require an account');
+    expect(html).not.toContain('Account label');
+    expect(html).not.toContain('Add account');
+    expect(html).not.toContain('Use your own OAuth app');
+  });
   it('requires an explicit account label before starting the first hosted sign-in', () => {
     const html = render({ provider: { ...provider, mcp: { requiresAuth: true, authKind: 'oauth', accounts: [] } } });
     expect(html).toContain('Account label');
@@ -162,7 +172,7 @@ describe('hosted provider connection flow', () => {
     expect(html).not.toContain('Server URL');
   });
 
-  it.each(HOSTED_MCP_PROVIDERS.filter((entry) => entry.auth?.kind === 'none').map(({ id, displayName }) => [id, displayName]))('offers a public connection for catalog service %s without account setup', (id, displayName) => {
+  it.each(HOSTED_MCP_PROVIDERS.filter((entry) => entry.auth?.kind === 'none' && !entry.localCommand).map(({ id, displayName }) => [id, displayName]))('offers a public connection for catalog service %s without account setup', (id, displayName) => {
     const html = render({ provider: { ...provider, id, displayName, mcp: { authKind: 'none', requiresAuth: false } } });
     expect(html).toContain(`Connect ${displayName}`);
     expect(html).toContain('does not require an account or a token');

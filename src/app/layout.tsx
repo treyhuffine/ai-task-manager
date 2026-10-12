@@ -15,6 +15,7 @@ import { WebAppBootstrap } from '@/components/settings/phone-install';
 import { QuickCaptureHost } from '@/components/dashboard/quick-capture-host';
 import { TeamRoot } from '@/components/team/team-root';
 import { isTeamPage } from '@/lib/team/page-authority';
+import { ArtifactPreviewProvider } from '@/components/chat/artifact-preview-provider';
 import { spacePage } from '@/lib/spaces/page';
 import { SpaceRoot } from '@/components/spaces/space-root';
 
@@ -53,13 +54,17 @@ export default async function RootLayout({
           {team ? (
             <TipProvider>
               <ConfirmProvider>
-                <TeamRoot>{children}</TeamRoot>
+                <ArtifactPreviewProvider>
+                  <TeamRoot>{children}</TeamRoot>
+                </ArtifactPreviewProvider>
               </ConfirmProvider>
             </TipProvider>
           ) : space ? (
             <TipProvider>
               <ConfirmProvider>
-                <SpaceRoot space={space}>{children}</SpaceRoot>
+                <ArtifactPreviewProvider>
+                  <SpaceRoot space={space}>{children}</SpaceRoot>
+                </ArtifactPreviewProvider>
               </ConfirmProvider>
             </TipProvider>
           ) : (
@@ -73,7 +78,9 @@ export default async function RootLayout({
                 <HomeReachabilityBanner />
                 <HomeEnvironmentMarker />
                 <ConfirmProvider>
-                  <LifecycleGuardProvider>{children}</LifecycleGuardProvider>
+                  <ArtifactPreviewProvider>
+                    <LifecycleGuardProvider>{children}</LifecycleGuardProvider>
+                  </ArtifactPreviewProvider>
                 </ConfirmProvider>
               </TipProvider>
             </>

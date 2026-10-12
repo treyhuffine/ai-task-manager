@@ -15,6 +15,7 @@ import { NextRequest } from 'next/server';
 import { getAttachmentsDir } from '@/lib/config/paths';
 import { resolveMime } from '@/lib/attachments/mime';
 import { withCompression } from '@/lib/api/compression';
+import { imageThumbnail, imageVersion } from '@/lib/attachments/image-thumbnail';
 import { UNTRUSTED_DOCUMENT_HEADERS } from '@/lib/attachments/delivery';
 
 /** Reject anything that isn't a bare `<uuid>.<ext>` filename. */
@@ -25,7 +26,7 @@ const SAFE_FILENAME_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/;
 export const GET = withCompression(handleGET);
 
 async function handleGET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ fileName: string }> },
 ) {
   try {
@@ -45,9 +46,11 @@ async function handleGET(
       return Response.json({ error: 'Invalid filename' }, { status: 400 });
     }
 
+    const mime = resolveMime(null, fileName);
+    const thumbnail = mime.startsWith('image/') && request.nextUrl.searchParams.get('thumbnail') === '1';
     let bytes: Buffer;
     try {
-      bytes = await fs.readFile(absolute);
+      bytes = thumbnail ? await imageThumbnail(absolute, await imageVersion(absolute, true)) : await fs.readFile(absolute);
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         return Response.json({ error: 'Not found' }, { status: 404 });
@@ -55,12 +58,10 @@ async function handleGET(
       throw err;
     }
 
-    const mime = resolveMime(null, fileName);
-
     return new Response(new Uint8Array(bytes), {
       status: 200,
       headers: {
-        'Content-Type': mime,
+        'Content-Type': thumbnail ? 'image/webp' : mime,
         'Content-Length': String(bytes.byteLength),
         // Uploaded documents never inherit the application's script authority.
         // SVG still renders as an image, including its own inline styles.

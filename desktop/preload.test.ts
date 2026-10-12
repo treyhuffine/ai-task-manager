@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ expose: vi.fn(), on: vi.fn(), remove: vi.fn(), send: vi.fn(), sendSync: vi.fn(() => 'local') }));
-vi.mock('electron', () => ({ contextBridge: { exposeInMainWorld: mocks.expose }, ipcRenderer: { on: mocks.on, removeListener: mocks.remove, send: mocks.send, sendSync: mocks.sendSync } }));
+const mocks = vi.hoisted(() => ({ expose: vi.fn(), on: vi.fn(), remove: vi.fn(), send: vi.fn(), invoke: vi.fn(), sendSync: vi.fn(() => 'local') }));
+vi.mock('electron', () => ({ contextBridge: { exposeInMainWorld: mocks.expose }, ipcRenderer: { on: mocks.on, removeListener: mocks.remove, send: mocks.send, invoke: mocks.invoke, sendSync: mocks.sendSync } }));
 afterEach(() => vi.unstubAllGlobals());
 
 it('passes no IPC event or sender to renderer resume callbacks and removes its exact listener', async () => {
@@ -56,6 +56,9 @@ it('remote Home viewers get save/capture hooks without native settings or notifi
   const bridge = mocks.expose.mock.calls[0][1];
   expect(bridge.settings).toBeUndefined();
   expect(bridge.notifications).toBeUndefined();
+  expect(bridge.notificationStatus).toBeTypeOf('function');
+  await bridge.notificationStatus('enable');
+  expect(mocks.invoke).toHaveBeenLastCalledWith('desktop:notifications', 'status');
   expect(bridge.onPrepareClose).toBeTypeOf('function');
   expect(bridge.onQuickCapture).toBeTypeOf('function');
   expect(bridge.connection).toBeTypeOf('function');
