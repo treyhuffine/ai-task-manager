@@ -128,7 +128,7 @@ export function TeamJoin() {
   }
   if (link.kind === 'invite') return <JoinForm link={link} team={preview.team.name} />;
   if (link.kind === 'sign-in') return <SignInHere link={link} team={preview.team.name} member={preview.member?.name ?? 'you'} />;
-  return <SetupForm link={link} />;
+  return <SetupForm link={link} team={preview.team.name} />;
 }
 
 /** What a link opens here: the team for a member already in, else what the link is. */
@@ -230,13 +230,13 @@ function SignInHere({ link, team, member }: { link: Link; team: string; member: 
   );
 }
 
-function SetupForm({ link }: { link: Link }) {
-  const [teamName, setTeamName] = useState(() => readSetupAttempt(link.secret)?.teamName ?? '');
+function SetupForm({ link, team }: { link: Link; team: string }) {
+  const [teamName, setTeamName] = useState(() => readSetupAttempt(link.secret)?.teamName ?? team);
   const [ownerName, setOwnerName] = useState(() => readSetupAttempt(link.secret)?.ownerName ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <TeamGate title="Set up your team" footer={`Hosted at ${typeof window === 'undefined' ? '' : window.location.host}. Everyone you invite uses this address.`}>
+    <TeamGate title={`Finish setting up ${team}`} footer="After setup, connect your personal Ri from Settings, You, Connect to My Ri.">
       <form
         className="space-y-3"
         onSubmit={(e) => {
@@ -256,11 +256,11 @@ function SetupForm({ link }: { link: Link }) {
           );
         }}
       >
-        <GateField id="team-name" label="Team name" hint="You can change it later." value={teamName} onChange={(e) => setTeamName(e.target.value)} autoFocus maxLength={80} />
-        <GateField id="owner-name" label="Your name" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} autoComplete="name" maxLength={80} />
+        <GateField id="team-name" label="Team name" hint="Already filled in from this team's setup. You can change it later." value={teamName} onChange={(e) => setTeamName(e.target.value)} maxLength={80} />
+        <GateField id="owner-name" label="Your name" hint="Your name on shared work. Connecting your personal Ri later keeps this same membership." value={ownerName} onChange={(e) => setOwnerName(e.target.value)} autoComplete="name" autoFocus maxLength={80} />
         {error && <GateNotice tone="error">{error}</GateNotice>}
         <GateButton type="submit" busy={busy} disabled={!teamName.trim() || !ownerName.trim()}>
-          Create team
+          Become the owner
         </GateButton>
       </form>
     </TeamGate>

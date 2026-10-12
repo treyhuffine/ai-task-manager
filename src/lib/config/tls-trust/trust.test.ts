@@ -169,6 +169,36 @@ describe('macOS trust adapter', () => {
     expect(r.calls.find((c) => c.args[0] === 'add-trusted-cert')).toBeUndefined();
   });
 
+  it('finishes trust for an imported but untrusted CA and preserves that certificate during cleanup', async () => {
+    const r = new MockRunner();
+    let trusted = false;
+    r.handler = (_cmd, args) => {
+      if (args[0] === 'find-certificate') return { status: 0, stdout: caPem, stderr: '' };
+      if (args[0] === 'verify-cert') return { status: trusted ? 0 : 1, stdout: '', stderr: 'CSSMERR_TP_NOT_TRUSTED' };
+      if (args[0] === 'add-trusted-cert') trusted = true;
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    expect((await installTrust({ runner: r })).results[0].outcome).toBe('installed');
+    expect(r.calls.find((c) => c.args[0] === 'add-trusted-cert')).toBeDefined();
+    expect(readTrustManifest()?.entries[0]).toMatchObject({ createdByUs: true, preserveCertificate: true });
+    expect((await installTrust({ runner: r })).results[0].outcome).toBe('already-present');
+    expect(readTrustManifest()?.entries[0].preserveCertificate).toBe(true);
+    expect((await removeTrust({ runner: r })).results[0].outcome).toBe('removed');
+    expect(r.calls.find((c) => c.args[0] === 'remove-trusted-cert')).toBeDefined();
+    expect(r.calls.find((c) => c.args[0] === 'delete-certificate')).toBeUndefined();
+  });
+
+  it('does not report an imported but untrusted CA as trusted when authorization still fails', async () => {
+    const r = new MockRunner();
+    r.handler = (_cmd, args) => {
+      if (args[0] === 'find-certificate') return { status: 0, stdout: caPem, stderr: '' };
+      if (args[0] === 'verify-cert') return { status: 1, stdout: '', stderr: 'CSSMERR_TP_NOT_TRUSTED' };
+      return { status: 1, stdout: '', stderr: 'Authorization was denied.' };
+    };
+    expect((await installTrust({ runner: r })).results[0]).toMatchObject({ outcome: 'permission-denied', detail: 'Authorization was denied.' });
+    expect(readTrustManifest()?.entries).toEqual([]);
+  });
+
   it('removes only the owned cert, by verified SHA-1', async () => {
     const install = new MockRunner();
     install.handler = (cmd, args) =>

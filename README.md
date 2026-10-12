@@ -103,6 +103,10 @@ If certificate trust is skipped, fails or is canceled, setup still opens in your
 
 Retrying the same command resumes an interrupted setup with the same team and data. Once the team has an owner, it opens the existing team instead of offering another owner setup. Your personal Home at `~/ri` stays separate. If a foreground `ri start` still runs for this team, stop it with Ctrl-C first.
 
+Owner setup fills in the team name chosen in the CLI. Your name is the team's member name, so people can recognize your shared work. It does not create a personal Home, and connecting an existing personal Home later uses the same member.
+
+To connect your personal Ri, finish owner setup, then open the team's Settings. Under **Where people reach the team**, use **Get an address with Beamd** or configure your own reachable, trusted HTTPS address. Under **You**, select **Connect to My Ri** and copy the sign-in link. In your personal Ri, open **Settings → Teams**, paste that link and select **Connect** within 15 minutes. A sign-in link preserves your existing membership and does not ask for your name again. The personal Home verifies the team's certificate itself, so accepting a local browser warning does not make an untrusted localhost link work there.
+
 For automation, `--no-open` prints the link without opening a browser or changing trust. `--no-start` keeps the provisioning-only operation. `--trust-local` explicitly allows certificate trust installation without the interactive question. The lower-level `service start`, `team setup-link` and `tls trust` commands remain available for administration. A local link opens only on the hosting computer until the team has a reachable HTTPS address.
 
 Closing Terminal and restarting the computer are different: automatic start at login requires a staged packaged runtime and `ri service install`, described in [Desktop and background service](docs/desktop.md). For foreground development or debugging, `RI_ROOT="$HOME/family-team" ri start --port 4300` remains available.

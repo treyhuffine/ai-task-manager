@@ -92,6 +92,10 @@ process ownership), `src/cli/lib/server.ts` (loopback bind for Next),
   opening the owner setup link. The browser may still show a certificate
   warning, and trust can be retried later. Removal uses the same
   authorization path and retains its ownership record on failure.
+  Importing a certificate alone does not establish trust. Retry verifies trust
+  with `security verify-cert` before reporting an existing certificate as ready.
+  If Ri adds trust to an already imported certificate, cleanup removes only its
+  trust settings and leaves that certificate in place.
 - **Linux system stores are not auto-elevated.** Writing to the Debian/Fedora
   anchor directories needs root. The app is never run elevated and never captures
   a password. A blocked write returns `permission-denied` with guidance to re-run

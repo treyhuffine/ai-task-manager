@@ -35,10 +35,9 @@ export function TeamSignedOut() {
   if (ready === false) {
     return (
       <TeamGate title="This team is being set up">
-        <p>The computer that hosts it hasn&apos;t named it or made its owner yet.</p>
+        <p>Owner setup hasn&apos;t been completed yet.</p>
         <p>
-          On that computer, run <code className="rounded bg-muted px-1 py-0.5 text-[12px] text-foreground">ri team setup-link</code> and open the
-          link it prints.
+          On the computer hosting this team, rerun your team creation command and open the full setup link it prints to finish the owner form.
         </p>
       </TeamGate>
     );

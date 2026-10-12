@@ -56,6 +56,8 @@ export interface TrustResult {
    * the profiles Ri added it to, never a profile that already trusted the CA.
    */
   ownedProfiles?: string[];
+  /** macOS: we added trust to a certificate already imported before this run. */
+  preserveCertificate?: boolean;
 }
 
 /** Result of a native command execution. */
@@ -117,5 +119,5 @@ export interface TrustAdapter {
    * ownership (NSS) so removal never touches a location we did not install into;
    * adapters without per-location state ignore it.
    */
-  remove(ctx: TrustContext, ownedProfiles?: string[]): TrustResult;
+  remove(ctx: TrustContext, options?: { ownedProfiles?: string[]; preserveCertificate?: boolean }): TrustResult;
 }

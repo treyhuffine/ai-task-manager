@@ -24,6 +24,8 @@ export interface TrustEntry {
   /** Multi-location stores (NSS): the exact profiles THIS install added to, so
    *  untrust removes only from those. Absent for single-location stores. */
   profiles?: string[];
+  /** Remove our macOS trust settings, but retain a previously imported cert. */
+  preserveCertificate?: boolean;
   installedAt: string;
 }
 

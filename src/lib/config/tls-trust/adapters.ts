@@ -78,7 +78,10 @@ const macosAdapter: TrustAdapter = {
   detect: (r) => r.platform === 'darwin',
 
   install(ctx): TrustResult {
-    if (findMacCertSha1(ctx.runner, ctx.caFingerprintSha256)) {
+    const present = !!findMacCertSha1(ctx.runner, ctx.caFingerprintSha256);
+    // Import and trust are separate operations. A canceled/failed trust prompt
+    // can leave the certificate imported but still unusable in a browser.
+    if (present && ctx.runner.run('/usr/bin/security', ['verify-cert', '-c', ctx.caCertPath, '-p', 'ssl', '-l', '-L', '-q']).status === 0) {
       return { target: this.id, label: this.label, outcome: 'already-present' };
     }
     const res = runMacSecurity(ctx.runner, [
@@ -91,20 +94,20 @@ const macosAdapter: TrustAdapter = {
       ctx.caCertPath,
     ]);
     if (res.status === 0) {
-      return { target: this.id, label: this.label, outcome: 'installed', owned: true };
+      return { target: this.id, label: this.label, outcome: 'installed', owned: true, ...(present ? { preserveCertificate: true } : {}) };
     }
     if (permissionDenied(res)) {
       return {
         target: this.id,
         label: this.label,
         outcome: 'permission-denied',
-        detail: 'macOS administrator authorization was canceled or unavailable. Retry and approve the macOS authorization dialog.',
+        detail: res.stderr.trim() || res.error || 'macOS did not authorize certificate trust installation.',
       };
     }
     return { target: this.id, label: this.label, outcome: 'error', detail: res.stderr.trim() };
   },
 
-  remove(ctx): TrustResult {
+  remove(ctx, { preserveCertificate = false } = {}): TrustResult {
     const sha1 = findMacCertSha1(ctx.runner, ctx.caFingerprintSha256);
     if (!sha1) return { target: this.id, label: this.label, outcome: 'not-present' };
 
@@ -117,6 +120,7 @@ const macosAdapter: TrustAdapter = {
     if (untrust.status !== 0 && !alreadyUntrusted) {
       return { target: this.id, label: this.label, outcome: permissionDenied(untrust) ? 'permission-denied' : 'error', detail: untrust.stderr.trim() };
     }
+    if (preserveCertificate) return { target: this.id, label: this.label, outcome: 'removed', detail: 'Trust removed. The previously imported certificate was left in place.' };
     const del = runMacSecurity(ctx.runner, ['delete-certificate', '-Z', sha1, SYSTEM_KEYCHAIN]);
     if (del.status === 0) return { target: this.id, label: this.label, outcome: 'removed' };
     if (permissionDenied(del)) {
@@ -399,7 +403,7 @@ function nssAdapter(spec: NssTarget): TrustAdapter {
       return { target: this.id, label: this.label, outcome: 'error', owned: false, detail: 'certutil add failed' };
     },
 
-    remove(ctx, ownedProfiles): TrustResult {
+    remove(ctx, { ownedProfiles } = {}): TrustResult {
       if (!ctx.runner.which('certutil')) {
         return { target: this.id, label: this.label, outcome: 'missing-tool' };
       }

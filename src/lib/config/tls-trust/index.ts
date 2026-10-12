@@ -154,6 +154,7 @@ export async function installTrust(opts: { runner?: NativeRunner } = {}): Promis
         identifier: entryIdentifier(adapter, ctx),
         createdByUs: owned,
         ...(profiles.length > 0 ? { profiles } : {}),
+        ...((prior?.createdByUs ? prior.preserveCertificate : result.preserveCertificate) ? { preserveCertificate: true } : {}),
         installedAt: new Date().toISOString(),
       });
     }
@@ -204,7 +205,7 @@ export async function removeTrust(opts: { runner?: NativeRunner } = {}): Promise
       continue;
     }
     journalBegin(manifest, 'remove', adapter.id);
-    const result = adapter.remove(ctx, entry.profiles);
+    const result = adapter.remove(ctx, { ownedProfiles: entry.profiles, preserveCertificate: entry.preserveCertificate });
     // Clear the ownership record ONLY when trust is actually gone. A partial or
     // failed removal returns `error`/`permission-denied`, keeping the record so
     // it can be retried rather than stranding trust with no cleanup handle.
