@@ -318,6 +318,8 @@ export interface ConnectionMetadata {
 }
 
 export interface ActionContext {
+  /** Trusted caller cancellation, including work waiting for a transport slot. */
+  signal?: AbortSignal;
   connection: ConnectionMetadata;
   http: AuthedHttp;
   /** Escape hatch for SDK/signing; `ctx.http` is the blessed path. */

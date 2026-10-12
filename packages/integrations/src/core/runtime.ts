@@ -1149,6 +1149,7 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
         ...(retry ? { retry } : {}),
       });
       const ctx = {
+        signal: options.signal,
         connection: meta,
         http,
         getToken: provider.externalAuth ? rejectTransportAccess : async () => provider.auth.tokenOf(await getValidCredentials(connection.id)),

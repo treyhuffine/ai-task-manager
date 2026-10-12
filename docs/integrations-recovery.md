@@ -6,9 +6,13 @@ Ri distinguishes temporarily unavailable connectors from connections that need n
 
 Discovery normally refreshes on access after five minutes, or when a provider notifies Ri that its tools changed. Invalidation immediately prevents new work through the old projection. It retires the old MCP clients, allowing already-started tool calls and resource reads to finish before closing their sockets.
 
-The SDK still bounds each operation. Tool calls have a two-minute inactivity timeout, reset by progress, and a ten-minute total cap. Resource reads have a thirty-second timeout. Retirement does not extend those deadlines.
+Ri still bounds each operation. Tool calls have a ten-minute inactivity timeout and a thirty-minute total cap. Ri requests upstream progress notifications, which reset inactivity but cannot extend the total cap. A separate cancellation timer enforces the total deadline even while progress continues. Resource reads have a two-minute timeout, connection initialization thirty seconds, and discovery sixty seconds. Retirement does not extend those deadlines.
 
-Disabled accounts, changed credentials, tool overrides, changed capability revisions and account removal are still checked before dispatch. Graceful retirement only preserves requests that have already started.
+Each HTTP client uses its own thirty-one-minute header and body budgets. This keeps Node's shorter HTTP defaults from ending a valid long tool call before the MCP deadline. Ri does not change global fetch or automatically replay timed-out requests.
+
+DataForSEO dispatches at most three tool calls concurrently per account. Calls from different chats, agents and runtime generations share that account's FIFO queue. Separate accounts have separate slots. The tool's timeout starts when it gets a slot and Ri sends it upstream, rather than while it waits locally. Ri rechecks connection and tool access after waiting. Caller cancellation removes unsent queued work, and cancellation of a sent request aborts only that request's HTTP operation.
+
+Disabled accounts, changed credentials, tool overrides, changed capability revisions and account removal are still checked before dispatch. Graceful retirement preserves admitted work across an ordinary discovery refresh. A broken transport stops queued requests before they are sent, while Ri lets requests already sent finish or reach their deadline.
 
 ## Temporary outages
 
@@ -16,7 +20,7 @@ When connecting or listing tools fails, Ri records the error and its phase. If t
 
 Cached discovery never activates a connection, replaces its sealed credential, changes account identity, or bypasses the normal permissions and approval gates. It cannot send a data request. An attempted call returns `provider_unavailable` with a message that no request was sent. A connection already awaiting authorization continues to return `auth_required`.
 
-A runtime with unavailable discovery retries on its next access after a fifteen-second cooldown. A failure from an established transport retires that runtime so the next access can reconnect. Multiple accesses share one build. There is no continuous background polling, and account scopes and tool overrides still apply to the cached definitions.
+A runtime with unavailable discovery retries on its next access after a fifteen-second cooldown. A connection failure from an established transport retires that runtime so the next access can reconnect. An individual request deadline instead returns `provider_timeout` and keeps the shared transport, credentials and discovered tools available. Other in-flight calls and queued work continue. Caller cancellation also does not invalidate the shared connection. Multiple accesses share one build. There is no continuous background polling, and account scopes and tool overrides still apply to the cached definitions.
 
 Provider-returned tool errors, such as an invalid API request represented by MCP `isError`, remain action errors and do not retire the connection. Transport failures do not erase credentials.
 
@@ -30,12 +34,12 @@ Replacing a static credential or receiving a new OAuth access token clears the r
 
 ## Paid and mutating requests
 
-Recovery never automatically replays an action. A failed request that may have crossed the wire retains `indeterminate: true`, including DataForSEO's paid research calls. The caller must inspect the result or provider usage before deciding whether to repeat it. A call rejected by an unavailable cached transport has not crossed the wire and is not indeterminate.
+Recovery never automatically replays an action. A failed request that may have crossed the wire retains `indeterminate: true`, including DataForSEO's paid research calls. The caller must inspect the result or provider usage before deciding whether to repeat it. A timed-out paid or mutating request has the same uncertainty, even after Ri cancels its local HTTP operation. Upstream cancellation is best effort and is not proof that the action stopped. A call rejected by an unavailable cached transport has not crossed the wire and is not indeterminate.
 
 ## Diagnostics
 
-The MCP server store retains `lastStatus`, `lastError`, `lastCheckedAt` and `lastFailure`, whose fields distinguish authorization from availability and identify `connect`, `discover`, `publish`, `call` or `resource`. It keeps the last twenty health transitions in `healthHistory`, omitting repeated identical checks. Runtime errors are redacted and capped at two thousand characters before persistence. The last verified tool count survives a failed discovery.
+The MCP server store retains `lastStatus`, `lastError`, `lastCheckedAt` and `lastFailure`, whose fields distinguish authorization from availability and identify `connect`, `discover`, `publish`, `call` or `resource`. It keeps the last twenty health transitions in `healthHistory`, omitting repeated identical checks. Runtime errors are redacted and capped at two thousand characters before persistence. The last verified tool count survives a failed discovery. `lastRequestError` separately records a request timeout and its timestamp without turning healthy connection metadata into an outage. Known Basic credentials and their decoded passwords are redacted from diagnostics as well as their encoded header values.
 
 The existing MCP server metadata endpoint exposes this history for diagnosis. No tokens or raw API responses are added to health metadata.
 
-Regression coverage lives in `mcp-client-lifetime.test.ts`, `hosted-multiaccount-runtime.test.ts`, `mcp-servers.test.ts`, and the engine's `mcp-cached-discovery.test.ts` and `mcp-client.test.ts`.
+Regression coverage lives in `mcp-client-lifetime.test.ts`, `hosted-multiaccount-runtime.test.ts`, `mcp-servers.test.ts`, `mcp-concurrency.test.ts`, and the engine's `mcp-cached-discovery.test.ts`, `mcp-client.test.ts`, `mcp-timeouts.test.ts` and `mcp-http-fetch.test.ts` and `mcp-http-transport.test.ts`. The timeout tests use the real MCP SDK with a controlled provider response, including silent slow calls, progress, total deadlines, cancellation and sibling request isolation.

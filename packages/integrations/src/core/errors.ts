@@ -17,6 +17,7 @@ export type IntegrationErrorCode =
   | 'provider_error'
   | 'provider_rate_limited'
   | 'provider_unavailable'
+  | 'provider_timeout'         // one request exceeded its budget, not a revoked connection
   | 'provider_not_configured'   // no auth client/app resolves for this provider (+caller, in hosted mode)
   | 'conflict'                  // admin op conflicts with state (delete a config with live connections, §9)
   | 'internal_error'

@@ -25,6 +25,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "undici": "7.28.0",
     "uuidv7": "^1.1.0",
     "zod": "^3.25.76"
   },

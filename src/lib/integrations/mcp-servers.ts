@@ -73,6 +73,8 @@ export interface McpServerEntry {
   lastCheckedAt?: string;
   /** A typed auth rejection is distinct from a temporary transport/discovery outage. */
   lastFailure?: McpServerFailure;
+  /** A failed individual request is not a connection health or credential failure. */
+  lastRequestError?: McpRequestError;
   /** Bounded, redacted health transitions for diagnosing an outage after recovery. */
   healthHistory?: Omit<McpServerHealth, 'tools'>[];
   /** Hash identifying the last successfully completed interactive authorization. */
@@ -108,12 +110,19 @@ export interface McpServerFailure {
   status?: number;
 }
 
+export interface McpRequestError {
+  code: 'provider_timeout';
+  message: string;
+  at: string;
+}
+
 export interface McpServerHealth {
   lastStatus: McpServerEntry['lastStatus'];
   lastError?: string | null;
   lastToolCount?: number;
   lastCheckedAt: string;
   lastFailure?: McpServerFailure;
+  lastRequestError?: McpRequestError;
   /** When present, refreshes the persisted tool list (from a successful ingest). */
   tools?: McpToolInfo[];
 }
@@ -286,10 +295,11 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         if (!row) return;
         if (row.entry.lastStatus !== health.lastStatus || row.entry.lastError !== (health.lastError ?? undefined) ||
           row.entry.lastToolCount !== (health.lastToolCount ?? row.entry.lastToolCount) ||
-          JSON.stringify(row.entry.lastFailure) !== JSON.stringify(health.lastFailure)) {
+          JSON.stringify(row.entry.lastFailure) !== JSON.stringify(health.lastFailure) ||
+          (health.lastRequestError !== undefined && JSON.stringify(row.entry.lastRequestError) !== JSON.stringify(health.lastRequestError))) {
           const transition: Omit<McpServerHealth, 'tools'> = {
             lastStatus: health.lastStatus, lastError: health.lastError, lastToolCount: health.lastToolCount,
-            lastCheckedAt: health.lastCheckedAt, lastFailure: health.lastFailure,
+            lastCheckedAt: health.lastCheckedAt, lastFailure: health.lastFailure, lastRequestError: health.lastRequestError,
           };
           row.entry.healthHistory = [...(row.entry.healthHistory ?? []), transition].slice(-20);
         }
@@ -298,6 +308,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         if (health.lastToolCount !== undefined) row.entry.lastToolCount = health.lastToolCount;
         row.entry.lastCheckedAt = health.lastCheckedAt;
         row.entry.lastFailure = health.lastFailure;
+        if (health.lastRequestError !== undefined) row.entry.lastRequestError = health.lastRequestError;
         if (health.tools !== undefined) row.entry.tools = health.tools;
         writeAll(rows);
       });

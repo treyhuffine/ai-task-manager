@@ -46,7 +46,7 @@ export interface McpToolDef {
 /** The minimal MCP client surface ingestion needs (a test double or a real client). */
 export interface McpClientLike {
   listTools(): Promise<{ tools: McpToolDef[] }>;
-  callTool(params: { name: string; arguments?: Record<string, unknown> }): Promise<{
+  callTool(params: { name: string; arguments?: Record<string, unknown> }, options?: { signal?: AbortSignal }): Promise<{
     content: unknown;
     structuredContent?: unknown;
     isError?: boolean;
@@ -249,8 +249,13 @@ export async function ingestMcpServers(
         if (account.opts.isCurrentTransport?.() === false) throw new NeedsReauthError(ctx.connection.id);
         let res: Awaited<ReturnType<McpClientLike['callTool']>>;
         try {
-          res = await account.opts.client.callTool({ name, arguments: selected.input });
+          res = await account.opts.client.callTool({ name, arguments: selected.input }, ...(ctx.signal ? [{ signal: ctx.signal }] : []));
         } catch (error) {
+          if (error instanceof IntegrationError && error.code === 'provider_timeout') {
+            throw new IntegrationError(error.code, error.message, {
+              indeterminate: selected.selected.mutating, cause: error,
+            });
+          }
           if (error instanceof IntegrationError || error instanceof NeedsReauthError) throw error;
           // Only the selected account's mutation can have crossed the wire.
           throw new IntegrationError('provider_unavailable', error instanceof Error ? error.message : String(error), {

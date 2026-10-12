@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { NeedsReauthError } from '../core/errors';
-import { beginMcpOAuth, connectMcpClient, isMcpAuthenticationError } from '../mcp/client';
+import { beginMcpOAuth, connectMcpClient, isMcpAuthenticationError, isMcpRequestTimeout } from '../mcp/client';
 
 const sdk = vi.hoisted(() => ({
   connect: vi.fn(),
@@ -13,6 +14,8 @@ const sdk = vi.hoisted(() => ({
   setNotificationHandler: vi.fn(),
   auth: vi.fn(),
 }));
+
+vi.mock('../mcp/http-fetch', () => ({ mcpHttpFetch: async () => ({ fetch: vi.fn(), close: async () => {} }) }));
 
 vi.mock('@modelcontextprotocol/sdk/client/auth.js', async (importOriginal) => ({
   ...await importOriginal<typeof import('@modelcontextprotocol/sdk/client/auth.js')>(),
@@ -46,6 +49,16 @@ describe('connectMcpClient', () => {
   ])('distinguishes typed authentication rejection from transient errors: %s', async (error, rejected) => {
     expect(await isMcpAuthenticationError(error)).toBe(rejected);
   });
+  it.each([
+    [new McpError(ErrorCode.RequestTimeout, 'Request timed out'), true],
+    [new DOMException('The operation timed out', 'TimeoutError'), true],
+    [new McpError(ErrorCode.ConnectionClosed, 'Connection closed'), false],
+    [new Error('The operation timed out'), false],
+    [Object.assign(new Error('Request timed out'), { code: -32001 }), false],
+  ])('classifies only typed request deadlines: %s', async (error, timeout) => {
+    expect(await isMcpRequestTimeout(error)).toBe(timeout);
+  });
+
   beforeEach(() => { vi.resetAllMocks(); });
   it('preserves advertised UI metadata, original result metadata and resource contents', async () => {
     const metadata = { ui: { resourceUri: 'ui://sample', visibility: ['model'] } };
@@ -57,7 +70,7 @@ describe('connectMcpClient', () => {
     expect((await client.listTools()).tools[0]?._meta).toEqual(metadata);
     expect(await client.callTool({ name: 'query' })).toMatchObject({ structuredContent: { value: 42 }, _meta: { privateUi: 'original' } });
     expect(await client.readResource({ uri: 'ui://sample' })).toEqual(resource);
-    expect(sdk.readResource).toHaveBeenCalledWith({ uri: 'ui://sample' }, { timeout: 30000 });
+    expect(sdk.readResource).toHaveBeenCalledWith({ uri: 'ui://sample' }, { timeout: 120_000 });
   });
 
   it.each(['AUTHORIZED', 'REDIRECT'] as const)('begins explicit SDK OAuth without opening a transport: %s', async (result) => {
@@ -104,7 +117,7 @@ describe('connectMcpClient', () => {
       { name: 'find-tasks', title: 'Find tasks', inputSchema: schema, outputSchema, annotations: readAnnotations },
       { name: 'manage-assignments', annotations: { destructiveHint: false } },
     ] });
-    expect(sdk.listTools.mock.calls).toEqual([[undefined], [{ cursor: 'second' }], [{ cursor: 'third' }]]);
+    expect(sdk.listTools.mock.calls).toEqual([[undefined, { timeout: 60_000 }], [{ cursor: 'second' }, { timeout: 60_000 }], [{ cursor: 'third' }, { timeout: 60_000 }]]);
   });
 
   it('subscribes to the SDK tool-list notification before connecting', async () => {
@@ -140,10 +153,17 @@ describe('connectMcpClient', () => {
     expect(await client.callTool({ name: 'find-tasks', arguments: { limit: 100 } })).toEqual({ ...response, isError: false });
     expect(await client.callTool({ name: 'fetch-object', arguments: { id: 'missing' } })).toMatchObject({ isError: true });
     expect(sdk.callTool).toHaveBeenNthCalledWith(1, { name: 'find-tasks', arguments: { limit: 100 } }, undefined, {
-      timeout: 120_000, resetTimeoutOnProgress: true, maxTotalTimeout: 600_000,
+      timeout: 600_000, resetTimeoutOnProgress: true, maxTotalTimeout: 1_800_000,
+      signal: expect.any(AbortSignal), onprogress: expect.any(Function),
     });
     await client.close();
     expect(sdk.close).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a provider-reported timeout distinct from Ri exhausting its own deadline', async () => {
+    sdk.callTool.mockRejectedValue(new McpError(ErrorCode.RequestTimeout, 'Provider task timed out', { timeout: 5_000 }));
+    const client = await connectMcpClient({ url: 'https://official.example/mcp' });
+    await expect(client.callTool({ name: 'research' })).rejects.toMatchObject({ code: 'provider_timeout', message: expect.stringContaining('upstream MCP request reported a timeout') });
   });
 
   it.each([

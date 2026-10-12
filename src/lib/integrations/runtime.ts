@@ -37,13 +37,14 @@ import {
   type HostedMcpEndpointSetup,
 } from '@integrations/engine/providers';
 import { toToolSet } from '@integrations/engine/ai-sdk';
-import { connectMcpClient, ingestMcpServers, isMcpAuthenticationError, type ConnectedMcpClient, type McpToolDef } from '@integrations/engine/mcp';
+import { connectMcpClient, ingestMcpServers, isMcpAuthenticationError, isMcpRequestTimeout, MCP_CONNECT_TIMEOUT_MS, MCP_DISCOVERY_TIMEOUT_MS, type ConnectedMcpClient, type McpToolDef } from '@integrations/engine/mcp';
 import type { ToolSet } from 'ai';
 import { appApprovalPolicy } from './approval';
 import { getIntegrationsDir } from './storage';
 import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { mcpServerStore, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
 import { drainMcpClient } from './mcp-client-lifetime';
+import { withMcpCallSlot } from './mcp-concurrency';
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
 import { registerMcpSecrets } from './mcp-secrets';
 import { APP_NAME } from '@/constants/app';
@@ -429,7 +430,7 @@ export function mcpAuthHeaders(auth: McpServerAuth, secret: string | null, schem
   return undefined;
 }
 
-export const MCP_TIMEOUT_MS = 10_000;
+export const MCP_TIMEOUT_MS = MCP_CONNECT_TIMEOUT_MS;
 export function withTimeout<T>(p: Promise<T>, ms: number, label: string, onLateResolve?: (value: T) => void | Promise<unknown>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let expired = false;
@@ -691,19 +692,56 @@ async function build(): Promise<Built> {
           await restoreCachedDefinitions(entry);
           continue;
         }
-        if (secret) redactor.register(secret, 'mcp_secret');
+        if (secret) {
+          redactor.register(secret, 'mcp_secret');
+          if (hosted?.tokenAuth?.scheme === 'basic') {
+            const credential = Buffer.from(secret, 'base64').toString('utf8');
+            redactor.register(credential, 'mcp_basic_credential');
+            const colon = credential.indexOf(':');
+            if (colon >= 0) redactor.register(credential.slice(colon + 1), 'mcp_basic_password');
+          }
+        }
         sessionToken = secret ?? 'mcp-session';
         client = await withTimeout(
           connectMcpClient({ url: entry.url, name: entry.slug, headers: mcpAuthHeaders(entry.auth, secret, hosted?.tokenAuth?.scheme), onToolsChanged }),
           MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
         );
       }
-      client = drainMcpClient(client);
+      const connected = client;
+      const maxConcurrentCalls = hosted?.maxConcurrentCalls;
+      const callKey = `${dir}:${hostedMcpConnectionId(entry)}`;
+      client = drainMcpClient({
+        ...connected,
+        callTool: (params, options) => {
+          const dispatch = async () => {
+            const stored = await store.get(hostedMcpConnectionId(candidate.entry));
+            // A request can wait while another chat changes this account. Recheck
+            // before sending. An ordinary age refresh can let admitted work finish.
+            if (candidate.changed || !isCurrentMcpTransport(candidate.entry, mcpStore)) {
+              throw new IntegrationError('tools_changed', 'The connection access or tools changed while this request was waiting. No request was sent.');
+            }
+            if (stored?.connection.status !== 'active') {
+              throw new NeedsReauthError(hostedMcpConnectionId(candidate.entry), 'The connection access changed while this request was waiting. No request was sent.');
+            }
+            if (options?.signal?.aborted) throw new IntegrationError('denied', 'The queued request was cancelled. No request was sent.');
+            try { return await connected.callTool(params, ...(options ? [options] : [])); }
+            catch (error) {
+              // Stop queued sends before releasing this account's slot when the
+              // transport really fails. One timeout or caller cancellation is local.
+              if (!(error instanceof DOMException && error.name === 'AbortError') && !await isMcpRequestTimeout(error)) {
+                candidate.changed = true;
+              }
+              throw error;
+            }
+          };
+          return maxConcurrentCalls ? withMcpCallSlot(callKey, maxConcurrentCalls, dispatch, options?.signal) : dispatch();
+        },
+      });
       candidate.discoveryStarted = true;
       let discovered: { tools: McpToolDef[] } | undefined;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         candidate.changed = false;
-        const result = await withTimeout(client.listTools(), MCP_TIMEOUT_MS, `discover MCP "${entry.slug}"`);
+        const result = await withTimeout(client.listTools(), MCP_DISCOVERY_TIMEOUT_MS, `discover MCP "${entry.slug}"`);
         if (!candidate.changed) { discovered = result; break; }
       }
       if (!discovered) throw new IntegrationError('provider_unavailable', 'The provider kept changing its tools during discovery. Test the connection again.');
@@ -745,6 +783,18 @@ async function build(): Promise<Built> {
           const runTransport = async <T>(operation: () => Promise<T>, phase: 'call' | 'resource'): Promise<T> => {
             try { return redactor.redact(await operation()); }
             catch (error) {
+              if ((error instanceof IntegrationError && (error.code === 'tools_changed' || error.code === 'denied')) ||
+                  (error instanceof DOMException && error.name === 'AbortError')) throw error;
+              // Expiring one request does not revoke credentials or break the
+              // shared transport. Other calls and queued work keep their slots.
+              if (await isMcpRequestTimeout(error)) {
+                await finalizeMcpServer(snapshot, mcpStore, current => mcpStore.setHealth(current.id, {
+                  lastStatus: current.lastStatus, lastError: current.lastError, lastFailure: current.lastFailure,
+                  lastCheckedAt: current.lastCheckedAt ?? new Date().toISOString(),
+                  lastRequestError: { code: 'provider_timeout', message: redactor.redact(error instanceof Error ? error.message : String(error)).slice(0, 2_000), at: new Date().toISOString() },
+                })).catch(() => {});
+                throw error;
+              }
               // Retire a broken transport on the next access. Never retry the
               // action: paid requests may already have crossed the wire.
               if (!account.unavailable && rt.generation === buildGeneration) {
@@ -757,7 +807,7 @@ async function build(): Promise<Built> {
           };
           definitions.push({
             name: snapshot.slug,
-            client: { listTools: async () => ({ tools: account.tools }), callTool: (params: { name: string; arguments?: Record<string, unknown> }) => runTransport(() => account.client.callTool(params), 'call') },
+            client: { listTools: async () => ({ tools: account.tools }), callTool: (params: { name: string; arguments?: Record<string, unknown> }, options?: { signal?: AbortSignal }) => runTransport(() => account.client.callTool(params, ...(options ? [options] : [])), 'call') },
             ownerId: getIntegrationOwnerId(), connectionId: hostedMcpConnectionId(snapshot), sessionToken: account.sessionToken,
             ...(account.unavailable ? { preserveConnection: true } : {}),
             isCurrentTransport: () => {

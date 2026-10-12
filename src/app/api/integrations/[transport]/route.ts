@@ -70,7 +70,7 @@ Guidelines:
 }
 
 /** Build a per-request MCP handler scoped by the optional `?ws` workspace id and calling chat. */
-function buildHandler(workspaceId: string | null, sessionId: string | null) {
+function buildHandler(workspaceId: string | null, sessionId: string | null, signal: AbortSignal) {
   // Asking for a connection needs a chat to put the card in, and the user's say-so (Settings).
   const requestsOn = sessionId !== null && integrationRequestsEnabled();
   return createMcpHandler(
@@ -104,6 +104,7 @@ function buildHandler(workspaceId: string | null, sessionId: string | null) {
       // The SDK's McpServer has a more generic registerTool than the engine's structural
       // McpToolRegistrar; runtime-compatible, so bridge the two type defs.
       serveMcp(server as unknown as McpToolRegistrar, runtime, {
+        signal,
         ownerId,
         caller: sessionId ? sessionCaller(sessionId) : { type: 'mcp' },
         toolkits,
@@ -199,7 +200,7 @@ function handle(req: NextRequest): Promise<Response> {
     return createMcpHandler(async server => { await serveAccountChat(server as unknown as McpToolRegistrar, ticket); }, { serverInfo: { name: 'account_demo', version: '1' } }, { basePath: '/api/integrations', maxDuration: 120 })(req);
   }
   const ws = new URL(req.url).searchParams.get('ws');
-  return buildHandler(ws, callingChat(req))(req);
+  return buildHandler(ws, callingChat(req), req.signal)(req);
 }
 
 export const GET = handle;

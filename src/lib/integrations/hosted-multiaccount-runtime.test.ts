@@ -2,8 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { serveMcp, type McpToolRegistrar } from '@integrations/engine/mcp';
 import type { ConnectMcpOptions, ConnectedMcpClient, McpToolDef } from '@integrations/engine/mcp';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import { IntegrationError } from '@integrations/engine';
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
@@ -84,6 +86,128 @@ async function staticAccount() {
 }
 
 describe('hosted multi-account runtime discovery', () => {
+  it('limits a burst across runtime refreshes to three upstream calls per account', async () => {
+    const research = await staticAccount();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const old = await getIntegrationRuntime();
+    const finish: (() => void)[] = [];
+    let active = 0;
+    let peak = 0;
+    research.state.calls.mockImplementation(() => new Promise(resolve => {
+      peak = Math.max(peak, ++active);
+      finish.push(() => { active--; resolve({ content: [] }); });
+    }));
+    const calls = Array.from({ length: 14 }, () => old.runAction('dataforseo.api_request', {}));
+    await vi.waitFor(() => expect(finish).toHaveLength(3));
+    clock.mockReturnValue(now + MCP_DISCOVERY_MAX_AGE_MS + 1);
+    const fresh = await getIntegrationRuntime();
+    expect(fresh).not.toBe(old);
+    calls.push(fresh.runAction('dataforseo.api_request', {}));
+    expect(research.state.closes).not.toHaveBeenCalled();
+    for (let i = 0; i < 15; i++) {
+      finish[i]!();
+      await vi.waitFor(() => expect(finish).toHaveLength(Math.min(i + 4, 15)));
+    }
+    expect((await Promise.all(calls)).every(result => result.ok)).toBe(true);
+    expect(peak).toBe(3);
+    await vi.waitFor(() => expect(research.state.closes).toHaveBeenCalledOnce());
+  });
+
+  it('keeps discovery and credentials active after one paid request times out, without replaying it', async () => {
+    const research = await staticAccount();
+    const runtime = await getIntegrationRuntime();
+    const saved = await getIntegrationConnectionStore().get(research.connectionId);
+    research.state.calls.mockRejectedValueOnce(new IntegrationError('provider_timeout', 'fixture-password request timed out'));
+    const results = await Promise.all(Array.from({ length: 6 }, () => runtime.runAction('dataforseo.api_request', {})));
+    expect(results.filter(result => !result.ok)).toEqual([expect.objectContaining({ code: 'provider_timeout', indeterminate: true })]);
+    expect(results.filter(result => result.ok)).toHaveLength(5);
+    expect(research.state.calls).toHaveBeenCalledTimes(6);
+    expect(research.state.closes).not.toHaveBeenCalled();
+    expect(await getIntegrationRuntime()).toBe(runtime);
+    expect(await getIntegrationConnectionStore().get(research.connectionId)).toEqual(saved);
+    const metadata = getMcpServerStore().get(research.entry.id)!;
+    expect(metadata).toMatchObject({ lastStatus: 'ok', lastRequestError: { code: 'provider_timeout' } });
+    expect(metadata.lastRequestError?.message).not.toContain('fixture-password');
+    expect(metadata.lastFailure).toBeUndefined();
+    expect(metadata.healthHistory?.at(-1)?.lastRequestError).toEqual(metadata.lastRequestError);
+  });
+
+  it.each(['protocol', 'http'] as const)('cancels queued paid calls through the %s signal without sending or invalidating discovery', async source => {
+    const research = await staticAccount();
+    const runtime = await getIntegrationRuntime();
+    const finish: (() => void)[] = [];
+    research.state.calls.mockImplementation(() => new Promise(resolve => { finish.push(() => resolve({ content: [] })); }));
+    const calls = Array.from({ length: 3 }, () => runtime.runAction('dataforseo.api_request', {}));
+    await vi.waitFor(() => expect(finish).toHaveLength(3));
+    let handler!: Parameters<McpToolRegistrar['registerTool']>[2];
+    const controller = new AbortController();
+    serveMcp({ registerTool(name, _config, run) { if (name === 'dataforseo__api_request') handler = run; } }, runtime, source === 'http' ? { signal: controller.signal } : {});
+    const queued = handler({}, source === 'protocol' ? { signal: controller.signal } : undefined);
+    // The signal travels through the engine even when cancellation races admission.
+    controller.abort();
+    const result = await queued;
+    expect(JSON.parse(result.content[0]!.text)).toMatchObject({ code: 'denied' });
+    expect(await getIntegrationRuntime()).toBe(runtime);
+    expect(research.state.closes).not.toHaveBeenCalled();
+    finish.forEach(resolve => resolve());
+    await Promise.all(calls);
+    expect(research.state.calls).toHaveBeenCalledTimes(3);
+  });
+
+  it('stops queued sends when an established transport closes while allowing other sent requests to finish', async () => {
+    const research = await staticAccount();
+    const runtime = await getIntegrationRuntime();
+    const finish: (() => void)[] = [];
+    let fail!: () => void;
+    research.state.calls.mockImplementation(() => new Promise((resolve, reject) => {
+      if (!fail) fail = () => reject(new Error('Connection closed'));
+      finish.push(() => resolve({ content: [] }));
+    }));
+    const calls = Array.from({ length: 6 }, () => runtime.runAction('dataforseo.api_request', {}));
+    await vi.waitFor(() => expect(finish).toHaveLength(3));
+    fail();
+    await vi.waitFor(() => expect(getMcpServerStore().get(research.entry.id)?.lastStatus).toBe('unreachable'));
+    finish.forEach(resolve => resolve());
+    const results = await Promise.all(calls);
+    expect(results.filter(result => result.ok)).toHaveLength(2);
+    expect(results.filter(result => !result.ok && result.reason === 'error' && result.code === 'provider_unavailable')).toEqual([expect.objectContaining({ indeterminate: true })]);
+    expect(results.filter(result => !result.ok && result.reason === 'error' && result.code === 'tools_changed')).toHaveLength(3);
+    expect(research.state.calls).toHaveBeenCalledTimes(3);
+    await vi.waitFor(() => expect(research.state.closes).toHaveBeenCalledOnce());
+  });
+
+  it('rejects queued work before sending when tool access changes', async () => {
+    const research = await staticAccount();
+    const runtime = await getIntegrationRuntime();
+    const finish: (() => void)[] = [];
+    research.state.calls.mockImplementation(() => new Promise(resolve => { finish.push(() => resolve({ content: [] })); }));
+    const calls = Array.from({ length: 4 }, () => runtime.runAction('dataforseo.api_request', {}));
+    await vi.waitFor(() => expect(finish).toHaveLength(3));
+    await getMcpServerStore().update(research.entry.id, { toolOverrides: { api_request: { enabled: false } } });
+    finish.forEach(resolve => resolve());
+    const results = await Promise.all(calls);
+    expect(results.filter(result => result.ok)).toHaveLength(3);
+    const rejected = results.find(result => !result.ok);
+    expect(rejected).toMatchObject({ code: 'tools_changed' });
+    expect(rejected).not.toHaveProperty('indeterminate', true);
+    expect(research.state.calls).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects queued work before sending when the account loses authorization', async () => {
+    const research = await staticAccount();
+    const runtime = await getIntegrationRuntime();
+    const finish: (() => void)[] = [];
+    research.state.calls.mockImplementation(() => new Promise(resolve => { finish.push(() => resolve({ content: [] })); }));
+    const calls = Array.from({ length: 4 }, () => runtime.runAction('dataforseo.api_request', {}));
+    await vi.waitFor(() => expect(finish).toHaveLength(3));
+    await getIntegrationConnectionStore().setStatus(research.connectionId, 'needs_reauth');
+    finish.forEach(resolve => resolve());
+    const results = await Promise.all(calls);
+    expect(results.filter(result => !result.ok)).toEqual([expect.objectContaining({ reason: 'auth_required' })]);
+    expect(research.state.calls).toHaveBeenCalledTimes(3);
+  });
+
   it('lets an already-started paid request finish across the five-minute refresh', async () => {
     const research = await staticAccount();
     const now = Date.now();

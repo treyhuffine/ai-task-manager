@@ -33,11 +33,13 @@ export interface McpToolRegistrar {
   registerTool(
     name: string,
     config: { description?: string; inputSchema?: Record<string, z.ZodTypeAny> },
-    handler: (args: Record<string, unknown>) => Promise<McpToolResult>,
+    handler: (args: Record<string, unknown>, extra?: { signal?: AbortSignal }) => Promise<McpToolResult>,
   ): void;
 }
 
 export interface ServeMcpOptions {
+  /** The incoming HTTP request lifetime, even for stateless MCP transports. */
+  signal?: AbortSignal;
   ownerId?: string;
   toolkits?: string[];
   caller?: Caller;
@@ -89,12 +91,14 @@ export function serveMcp(server: McpToolRegistrar, runtime: IntegrationRuntime, 
             ...(binding.kind === 'pin' ? {} : { account: z.string().optional().describe(accountDesc) }),
           },
         },
-        async (args) => {
+        async (args, extra) => {
           const { account, ...rest } = args as { account?: string } & Record<string, unknown>;
+          const signals = [options.signal, extra?.signal].filter((signal): signal is AbortSignal => signal !== undefined);
           const outcome = await runtime.runAction(a.id, rest, {
             ...(options.ownerId ? { ownerId: options.ownerId } : {}),
             ...bindingRunOptions(binding, account),
             caller,
+            ...(signals.length ? { signal: signals.length === 1 ? signals[0] : AbortSignal.any(signals) } : {}),
           });
           if (outcome.ok) {
             const result = options.redactor ? options.redactor.redact(outcome.result) : outcome.result;
