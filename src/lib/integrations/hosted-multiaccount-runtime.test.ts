@@ -2,13 +2,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ConnectMcpOptions, McpToolDef } from '@integrations/engine/mcp';
+import type { ConnectMcpOptions, ConnectedMcpClient, McpToolDef } from '@integrations/engine/mcp';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
 import { ensureHostedMcpServer, hostedMcpConnectionId } from './hosted-mcp';
 import { removeMcpServer } from './mcp-lifecycle';
-import { getIntegrationConnectionStore, getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime, MCP_DISCOVERY_MAX_AGE_MS } from './runtime';
+import { getIntegrationConnectionStore, getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime, MCP_DISCOVERY_MAX_AGE_MS, MCP_DISCOVERY_RETRY_MS } from './runtime';
 import type { McpServerEntry } from './mcp-servers';
 
 const mocks = vi.hoisted(() => ({ connect: vi.fn() }));
@@ -22,7 +23,7 @@ let dir: string;
 const remotes = new Map<string, ReturnType<typeof remote>>();
 function remote() {
   const state = { tools: [structuredClone(readTool)], notifications: [] as NonNullable<ConnectMcpOptions['onToolsChanged']>[],
-    calls: vi.fn(async ({ name, arguments: args }: { name: string; arguments?: Record<string, unknown> }) => ({ content: [], structuredContent: { name, args } })),
+    calls: vi.fn<ConnectedMcpClient['callTool']>(async ({ name, arguments: args }) => ({ content: [], structuredContent: { name, args } })),
     closes: vi.fn(async () => {}), list: vi.fn<() => Promise<{ tools: McpToolDef[] }>>() };
   state.list.mockImplementation(async () => ({ tools: structuredClone(state.tools) }));
   return state;
@@ -72,7 +73,149 @@ async function revoke(entry: McpServerEntry) {
   await servers.compareAndSetOAuthState(entry.id, saved.revision as string, next);
 }
 
+async function staticAccount() {
+  const entry = await ensureHostedMcpServer(getHostedMcpProvider('dataforseo')!, getMcpServerStore(),
+    getIntegrationConnectionStore(), 'local', { label: 'Research', secret: 'fixture@example.com:fixture-password' });
+  const state = remote();
+  state.tools = [{ name: 'api_request', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false, destructiveHint: false } }];
+  remotes.set(entry.slug, state);
+  vi.stubEnv('INTEGRATIONS_AUTO_APPROVE', '1');
+  return { entry, state, connectionId: hostedMcpConnectionId(entry) };
+}
+
 describe('hosted multi-account runtime discovery', () => {
+  it('lets an already-started paid request finish across the five-minute refresh', async () => {
+    const research = await staticAccount();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const old = await getIntegrationRuntime();
+    let finish!: () => void;
+    research.state.calls.mockImplementationOnce(() => new Promise(resolve => {
+      finish = () => resolve({ content: [], structuredContent: { name: 'api_request', args: {} } });
+    }));
+    const pending = old.runAction('dataforseo.api_request', {});
+    await vi.waitFor(() => expect(research.state.calls).toHaveBeenCalledOnce());
+    clock.mockReturnValue(now + MCP_DISCOVERY_MAX_AGE_MS + 1);
+    const fresh = await getIntegrationRuntime();
+    expect(fresh).not.toBe(old);
+    expect(research.state.closes).not.toHaveBeenCalled();
+    expect(await old.runAction('dataforseo.api_request', {})).toMatchObject({ code: 'tools_changed' });
+    finish();
+    expect(await pending).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(research.state.closes).toHaveBeenCalledOnce());
+    expect(research.state.calls).toHaveBeenCalledOnce();
+  });
+
+  it('keeps known tools through a discovery outage and recovers after the short cooldown without changing credentials', async () => {
+    const research = await staticAccount();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    await getIntegrationRuntime();
+    const stored = await getIntegrationConnectionStore().get(research.connectionId);
+    const credentialRevision = getMcpServerStore().get(research.entry.id)?.credentialRevision;
+    clock.mockReturnValue(now + MCP_DISCOVERY_MAX_AGE_MS + 1);
+    mocks.connect.mockRejectedValueOnce(new Error('fetch failed'));
+    const unavailable = await getIntegrationRuntime();
+    expect(unavailable.getToolkits().some(toolkit => toolkit.id === 'dataforseo')).toBe(true);
+    expect(await unavailable.runAction('dataforseo.api_request', {})).toMatchObject({
+      ok: false, code: 'provider_unavailable', message: expect.stringContaining('No request was sent'),
+    });
+    expect(research.state.calls).not.toHaveBeenCalled();
+    expect(await getIntegrationConnectionStore().get(research.connectionId)).toEqual(stored);
+    expect(getMcpServerStore().get(research.entry.id)).toMatchObject({ lastStatus: 'unreachable', credentialRevision,
+      lastFailure: { kind: 'unavailable', phase: 'connect' } });
+    expect(await getIntegrationRuntime()).toBe(unavailable);
+    clock.mockReturnValue(now + MCP_DISCOVERY_MAX_AGE_MS + MCP_DISCOVERY_RETRY_MS + 2);
+    const recovered = await getIntegrationRuntime();
+    expect(recovered).not.toBe(unavailable);
+    expect(await recovered.runAction('dataforseo.api_request', {})).toMatchObject({ ok: true });
+    expect(research.state.calls).toHaveBeenCalledOnce();
+    expect(getMcpServerStore().get(research.entry.id)).toMatchObject({ lastStatus: 'ok', healthHistory: [
+      expect.objectContaining({ lastStatus: 'ok' }), expect.objectContaining({ lastStatus: 'unreachable' }),
+      expect.objectContaining({ lastStatus: 'ok' }),
+    ] });
+    expect(getMcpServerStore().get(research.entry.id)?.lastFailure).toBeUndefined();
+  });
+
+  it('retires a failed transport without replaying an indeterminate paid call, then reconnects on the next use', async () => {
+    const research = await staticAccount();
+    const old = await getIntegrationRuntime();
+    research.state.calls.mockRejectedValueOnce(new Error('MCP error -32000: Connection closed'));
+    expect(await old.runAction('dataforseo.api_request', {})).toMatchObject({
+      ok: false, code: 'provider_unavailable', indeterminate: true,
+    });
+    expect(research.state.calls).toHaveBeenCalledOnce();
+    expect((await getIntegrationConnectionStore().get(research.connectionId))?.connection.status).toBe('active');
+    expect(getMcpServerStore().get(research.entry.id)?.lastFailure).toEqual({ kind: 'unavailable', phase: 'call' });
+    const fresh = await getIntegrationRuntime();
+    expect(fresh).not.toBe(old);
+    expect(research.state.calls).toHaveBeenCalledOnce();
+    expect(await fresh.runAction('dataforseo.api_request', {})).toMatchObject({ ok: true });
+    expect(research.state.calls).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves the connection in place when the provider returns an ordinary API request error', async () => {
+    const research = await staticAccount();
+    const runtime = await getIntegrationRuntime();
+    research.state.calls.mockResolvedValueOnce({ content: [{ type: 'text', text: 'Invalid API path' }], isError: true });
+    expect(await runtime.runAction('dataforseo.api_request', {})).toMatchObject({ code: 'provider_error' });
+    expect(await getIntegrationRuntime()).toBe(runtime);
+    expect(research.state.closes).not.toHaveBeenCalled();
+    expect((await getIntegrationConnectionStore().get(research.connectionId))?.connection.status).toBe('active');
+    expect(getMcpServerStore().get(research.entry.id)?.lastFailure).toBeUndefined();
+    expect(await runtime.runAction('dataforseo.api_request', {})).toMatchObject({ ok: true });
+  });
+
+  it('does not persist reflected credential values in failure history', async () => {
+    const research = await staticAccount();
+    const token = (await getMcpServerStore().openSecret(research.entry.id))!;
+    const runtime = await getIntegrationRuntime();
+    research.state.calls.mockRejectedValueOnce(new Error(`Transport failed: ${token}`));
+    const outcome = await runtime.runAction('dataforseo.api_request', {});
+    expect(JSON.stringify(outcome)).not.toContain(token);
+    const metadata = getMcpServerStore().get(research.entry.id)!;
+    expect(JSON.stringify(metadata.lastError)).not.toContain(token);
+    expect(JSON.stringify(metadata.healthHistory)).not.toContain(token);
+    expect(metadata.lastFailure).toEqual({ kind: 'unavailable', phase: 'call' });
+  });
+
+  it('keeps a rejected API credential inactive even though tool discovery does not validate it', async () => {
+    const research = await staticAccount();
+    const old = await getIntegrationRuntime();
+    research.state.calls.mockRejectedValueOnce(new StreamableHTTPError(401, 'Unauthorized'));
+    // The real client converts call rejection to NeedsReauthError. This fixture
+    // deliberately leaves the typed HTTP rejection intact to cover host handling.
+    expect(await old.runAction('dataforseo.api_request', {})).toMatchObject({ reason: 'auth_required' });
+    const rejected = await getIntegrationConnectionStore().get(research.connectionId);
+    expect(rejected?.connection.status).toBe('needs_reauth');
+    const pending = await getIntegrationRuntime();
+    expect(pending.getToolkits().some(toolkit => toolkit.id === 'dataforseo')).toBe(true);
+    expect(await pending.runAction('dataforseo.api_request', {})).toMatchObject({ reason: 'auth_required' });
+    expect(mocks.connect).toHaveBeenCalledOnce();
+    expect(await getIntegrationConnectionStore().get(research.connectionId)).toEqual(rejected);
+    const servers = getMcpServerStore();
+    await servers.update(research.entry.id, { secret: Buffer.from('fixture@example.com:replacement').toString('base64') });
+    const recovered = await getIntegrationRuntime();
+    expect(await recovered.runAction('dataforseo.api_request', {})).toMatchObject({ ok: true });
+    expect((await getIntegrationConnectionStore().get(research.connectionId))?.connection.status).toBe('active');
+  });
+
+  it('does not reuse a cached unavailable account after disconnect or disabled tool policy', async () => {
+    const personal = await account('Personal');
+    const work = await account('Work', { add: true });
+    await getIntegrationRuntime();
+    invalidateIntegrationRuntime();
+    mocks.connect.mockRejectedValueOnce(new Error('fetch failed'));
+    const unavailable = await getIntegrationRuntime();
+    expect(await unavailable.runAction('todoist.read', {}, { connectionId: personal.connectionId })).toMatchObject({ code: 'provider_unavailable' });
+    expect(await unavailable.runAction('todoist.read', {}, { connectionId: work.connectionId })).toMatchObject({ ok: true });
+    await getMcpServerStore().update(personal.entry.id, { toolOverrides: { read: { enabled: false } } });
+    expect(await unavailable.runAction('todoist.read', {}, { connectionId: personal.connectionId })).toMatchObject({ reason: 'auth_required' });
+    await removeMcpServer(personal.entry, getMcpServerStore(), getIntegrationConnectionStore(), 'local');
+    expect(await unavailable.runAction('todoist.read', {}, { connectionId: personal.connectionId })).toMatchObject({ code: 'connection_not_found' });
+    expect(personal.state.calls).not.toHaveBeenCalled();
+  });
+
   it('publishes one Todoist toolkit and dispatches each account through its own connected client', async () => {
     const personal = await account('Personal');
     const work = await account('Work', { add: true });

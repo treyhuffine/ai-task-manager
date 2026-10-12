@@ -98,6 +98,12 @@ export interface IngestMcpOptions {
    */
   connectionId?: string;
   /**
+   * Publish cached definitions for an unavailable transport without activating or
+   * rewriting its existing connection. Requires a saved connection with the same
+   * identity. Its sealed transport credential and status remain authoritative.
+   */
+  preserveConnection?: boolean;
+  /**
    * Per-tool reclassification (§12). Keyed by the remote tool name:
    *   - `enabled: false` → the tool is NOT ingested (hidden from the agent).
    *   - `mutating: false` → the tool reads-through the approval gate (for a trusted read tool).
@@ -163,12 +169,24 @@ export async function ingestMcpServers(
     const connectionId = opts.connectionId ?? newId();
     if (ids.has(connectionId)) throw new IntegrationError('conflict', 'An MCP account group contains a duplicate connection id.');
     ids.add(connectionId);
-    const previous = opts.connectionId ? (await store.get(opts.connectionId))?.connection : undefined;
+    const stored = opts.connectionId ? await store.get(opts.connectionId) : undefined;
+    const previous = stored?.connection;
     if (previous && (previous.providerId !== providerId || (opts.ownerId !== undefined && previous.ownerId !== opts.ownerId))) {
       throw new IntegrationError('conflict', 'The MCP connection id belongs to a different provider or owner.');
     }
     const now = new Date().toISOString();
-    const connection: Connection = {
+    if (opts.preserveConnection && (!stored ||
+      (opts.identity?.accountId !== undefined && previous?.accountId !== opts.identity.accountId) ||
+      previous?.authConfigId !== opts.identity?.authConfigId)) {
+      throw new IntegrationError('connection_not_found', 'Cached MCP discovery requires the same saved account.');
+    }
+    let sessionToken = opts.sessionToken ?? 'mcp-session';
+    if (opts.preserveConnection) {
+      const credential = await secretBox.open<Credentials>(stored!.sealed);
+      if (credential.type !== 'bearer') throw new IntegrationError('conflict', 'The saved MCP transport credential has a different type.');
+      sessionToken = credential.token;
+    }
+    const connection: Connection = opts.preserveConnection ? { ...previous! } : {
       ...previous, id: connectionId, ownerId: opts.ownerId ?? previous?.ownerId ?? 'local', providerId,
       accountId: opts.identity?.accountId ?? previous?.accountId ?? (opts.identity ? `${providerId}:default` : opts.name),
       ...(opts.identity?.authConfigId ? { authConfigId: opts.identity.authConfigId } : {}),
@@ -189,7 +207,7 @@ export async function ingestMcpServers(
         ? opts.defaultRisk ?? (annotations?.destructiveHint === false ? 'medium' : 'high') : 'low');
       enabled.set(tool.name, { tool, input: jsonSchemaToZodObject(tool.inputSchema), mutating, risk });
     }
-    prepared.push({ opts, connection, tools, enabled, sessionToken: opts.sessionToken ?? 'mcp-session' });
+    prepared.push({ opts, connection, tools, enabled, sessionToken });
   }
   const byConnection = new Map(prepared.map(account => [account.connection.id, account]));
   const sameAccount = (expected: Connection, current: ConnectionMetadata) => expected.id === current.id
@@ -271,6 +289,7 @@ export async function ingestMcpServers(
   });
   registry.addBundle({ provider, toolkits: [defineToolkit({ id: providerId, providerId, displayName, actions })] });
   for (const account of prepared) {
+    if (account.opts.preserveConnection) continue;
     // Retain identity/client pins but replace only the host transport credential.
     await store.save(account.connection, await secretBox.seal({ type: 'bearer', token: account.sessionToken }));
   }

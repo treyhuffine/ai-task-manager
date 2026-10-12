@@ -71,6 +71,10 @@ export interface McpServerEntry {
   lastError?: string;
   lastToolCount?: number;
   lastCheckedAt?: string;
+  /** A typed auth rejection is distinct from a temporary transport/discovery outage. */
+  lastFailure?: McpServerFailure;
+  /** Bounded, redacted health transitions for diagnosing an outage after recovery. */
+  healthHistory?: Omit<McpServerHealth, 'tools'>[];
   /** Hash identifying the last successfully completed interactive authorization. */
   lastAuthorizationId?: string;
 }
@@ -98,11 +102,18 @@ export interface McpServerPatch {
   secret?: string | null;
 }
 
+export interface McpServerFailure {
+  kind: 'auth' | 'unavailable';
+  phase: 'connect' | 'discover' | 'publish' | 'call' | 'resource';
+  status?: number;
+}
+
 export interface McpServerHealth {
   lastStatus: McpServerEntry['lastStatus'];
   lastError?: string | null;
   lastToolCount?: number;
   lastCheckedAt: string;
+  lastFailure?: McpServerFailure;
   /** When present, refreshes the persisted tool list (from a successful ingest). */
   tools?: McpToolInfo[];
 }
@@ -250,6 +261,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         if (patch.secret !== undefined) {
           row.sealed = patch.secret === null ? undefined : await sealSecret(patch.secret);
           row.entry.credentialRevision = uuidv7();
+          delete row.entry.lastFailure;
         }
         row.entry.updatedAt = new Date().toISOString();
         writeAll(rows);
@@ -272,10 +284,20 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         const rows = readAll();
         const row = rows.find((r) => r.entry.id === id);
         if (!row) return;
+        if (row.entry.lastStatus !== health.lastStatus || row.entry.lastError !== (health.lastError ?? undefined) ||
+          row.entry.lastToolCount !== (health.lastToolCount ?? row.entry.lastToolCount) ||
+          JSON.stringify(row.entry.lastFailure) !== JSON.stringify(health.lastFailure)) {
+          const transition: Omit<McpServerHealth, 'tools'> = {
+            lastStatus: health.lastStatus, lastError: health.lastError, lastToolCount: health.lastToolCount,
+            lastCheckedAt: health.lastCheckedAt, lastFailure: health.lastFailure,
+          };
+          row.entry.healthHistory = [...(row.entry.healthHistory ?? []), transition].slice(-20);
+        }
         row.entry.lastStatus = health.lastStatus;
         row.entry.lastError = health.lastError ?? undefined;
-        row.entry.lastToolCount = health.lastToolCount;
+        if (health.lastToolCount !== undefined) row.entry.lastToolCount = health.lastToolCount;
         row.entry.lastCheckedAt = health.lastCheckedAt;
+        row.entry.lastFailure = health.lastFailure;
         if (health.tools !== undefined) row.entry.tools = health.tools;
         writeAll(rows);
       });
@@ -375,6 +397,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         const rows = readAll();
         const row = rows.find((r) => r.entry.id === id);
         if (!row) return;
+        if (state.tokens) delete row.entry.lastFailure;
         row.sealedOAuth = await deps.secretBox.seal({ ...state, revision: uuidv7() });
         row.entry.updatedAt = new Date().toISOString();
         writeAll(rows);
@@ -389,6 +412,9 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         const current = row.sealedOAuth ? await deps.secretBox.open<Record<string, unknown>>(row.sealedOAuth) : {};
         if (current.revision !== expectedRevision) return null;
         const next: Record<string, unknown> = { ...state, revision: uuidv7() };
+        const oldToken = (current.tokens as { access_token?: string } | undefined)?.access_token;
+        const newToken = (next.tokens as { access_token?: string } | undefined)?.access_token;
+        if (newToken && newToken !== oldToken) delete row.entry.lastFailure;
         if (current.tokens && !next.tokens) row.entry.credentialRevision = uuidv7();
         row.sealedOAuth = await deps.secretBox.seal(next);
         row.entry.updatedAt = new Date().toISOString();

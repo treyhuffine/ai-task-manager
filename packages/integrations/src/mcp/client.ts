@@ -29,6 +29,17 @@ export interface ConnectedMcpClient extends McpClientLike {
   close(): Promise<void>;
 }
 
+/** Only typed SDK rejection or the host's credential signal proves authorization failed. */
+export async function isMcpAuthenticationError(error: unknown): Promise<boolean> {
+  if (error instanceof NeedsReauthError) return true;
+  const [authMod, httpMod] = await Promise.all([
+    import('@modelcontextprotocol/sdk/client/auth.js'),
+    import('@modelcontextprotocol/sdk/client/streamableHttp.js'),
+  ]);
+  return error instanceof authMod.UnauthorizedError ||
+    (error instanceof httpMod.StreamableHTTPError && error.code === 401);
+}
+
 /**
  * Start OAuth explicitly for a trusted host profile with specific consent scopes
  * or a gateway that does not issue an unauthenticated MCP challenge. This does not

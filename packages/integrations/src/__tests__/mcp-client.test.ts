@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { NeedsReauthError } from '../core/errors';
-import { beginMcpOAuth, connectMcpClient } from '../mcp/client';
+import { beginMcpOAuth, connectMcpClient, isMcpAuthenticationError } from '../mcp/client';
 
 const sdk = vi.hoisted(() => ({
   connect: vi.fn(),
@@ -35,6 +35,17 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', async (importOrigi
 }));
 
 describe('connectMcpClient', () => {
+  it.each([
+    [new UnauthorizedError('Token rejected'), true],
+    [new StreamableHTTPError(401, 'Unauthorized'), true],
+    [new NeedsReauthError(), true],
+    [new StreamableHTTPError(403, 'Forbidden'), false],
+    [new StreamableHTTPError(503, 'Unavailable'), false],
+    [Object.assign(new Error('401 Unauthorized'), { name: 'UnauthorizedError', code: 401 }), false],
+    [new Error('Connection closed'), false],
+  ])('distinguishes typed authentication rejection from transient errors: %s', async (error, rejected) => {
+    expect(await isMcpAuthenticationError(error)).toBe(rejected);
+  });
   beforeEach(() => { vi.resetAllMocks(); });
   it('preserves advertised UI metadata, original result metadata and resource contents', async () => {
     const metadata = { ui: { resourceUri: 'ui://sample', visibility: ['model'] } };

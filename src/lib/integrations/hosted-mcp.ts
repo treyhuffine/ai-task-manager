@@ -42,6 +42,7 @@ export async function hostedMcpRequiresAuth(
   servers: Pick<McpServerStore, 'getOAuthState' | 'openSecret'>,
 ): Promise<boolean> {
   if (!entry?.enabled) return true;
+  if (entry.lastFailure?.kind === 'auth') return true;
   if (entry.auth.kind === 'none') return false;
   if (entry.auth.kind === 'oauth') return !(await servers.getOAuthState(entry.id))?.tokens;
   return !(await servers.openSecret(entry.id));

@@ -85,6 +85,39 @@ describe('mcpServerStore', () => {
     expect(store.list()).toHaveLength(0);
   });
 
+  it('keeps bounded health transitions and the last known tool count during an outage', async () => {
+    const store = freshStore();
+    const entry = await store.create({ slug: 'history', displayName: 'History', url: 'https://example.com', auth: { kind: 'none' } });
+    await store.setHealth(entry.id, { lastStatus: 'ok', lastToolCount: 4, lastCheckedAt: 'initial', tools: [{ name: 'read' }] });
+    for (let index = 0; index < 30; index += 1) {
+      await store.setHealth(entry.id, { lastStatus: 'unreachable', lastError: `failure ${index}`, lastCheckedAt: `${index}`,
+        lastFailure: { kind: 'unavailable', phase: 'connect' } });
+    }
+    const saved = store.get(entry.id)!;
+    expect(saved.lastToolCount).toBe(4);
+    expect(saved.healthHistory).toHaveLength(20);
+    expect(saved.healthHistory![19]).toMatchObject({ lastError: 'failure 29', lastFailure: { kind: 'unavailable', phase: 'connect' } });
+    expect(saved.healthHistory![0]).not.toHaveProperty('tools');
+    await store.setHealth(entry.id, { lastStatus: 'unreachable', lastError: 'failure 29', lastCheckedAt: 'later',
+      lastFailure: { kind: 'unavailable', phase: 'connect' } });
+    expect(store.get(entry.id)?.healthHistory).toEqual(saved.healthHistory);
+    await store.setHealth(entry.id, { lastStatus: 'ok', lastToolCount: 4, lastCheckedAt: 'recovered' });
+    expect(store.get(entry.id)?.lastFailure).toBeUndefined();
+    expect(store.get(entry.id)?.healthHistory).toHaveLength(20);
+  });
+
+  it('clears a rejected static credential only when it is replaced', async () => {
+    const store = freshStore();
+    const entry = await store.create({ slug: 'rejected', displayName: 'Rejected', url: 'https://example.com', auth: { kind: 'bearer' } }, 'old-token');
+    const lastFailure = { kind: 'auth' as const, phase: 'call' as const, status: 401 };
+    await store.setHealth(entry.id, { lastStatus: 'error', lastCheckedAt: 'failed', lastFailure });
+    await store.update(entry.id, { displayName: 'Renamed' });
+    expect(store.get(entry.id)?.lastFailure).toEqual(lastFailure);
+    await store.update(entry.id, { secret: 'new-token' });
+    expect(store.get(entry.id)?.lastFailure).toBeUndefined();
+    expect(store.get(entry.id)?.healthHistory?.[0].lastFailure).toEqual(lastFailure);
+  });
+
   it('publishes exact completed consent without overwriting health or discovered tools', async () => {
     const store = freshStore();
     const entry = await store.create({ slug: 'completed-auth', displayName: 'Auth', url: 'https://example.com', auth: { kind: 'oauth' } });
