@@ -32,7 +32,7 @@ export function selectTeamRoot(root?: string): void {
   for (const key of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR']) delete process.env[key];
 }
 
-async function openTeam(link: string, trustLocal: boolean): Promise<void> {
+async function openTeam(link: string, trustLocal: boolean, hasOwner: boolean): Promise<void> {
   const url = new URL(link);
   const { isLoopbackTeamAddress } = await import('@/lib/team/address');
   if (url.protocol === 'https:' && isLoopbackTeamAddress(link)) {
@@ -42,7 +42,7 @@ async function openTeam(link: string, trustLocal: boolean): Promise<void> {
       && trust.detected.every(({ target }) => trust.recorded.includes(target));
     if (trustLocal || !recorded) {
       const answer = trustLocal || (process.stdin.isTTY && await confirm({
-        message: "Allow Ri to trust this team's local HTTPS certificate? Your OS may ask for authorization.",
+        message: "Allow Ri to trust this team's local HTTPS certificate? Your OS may ask for an administrator password.",
         initialValue: true,
       }));
       if (!answer || isCancel(answer)) {
@@ -53,13 +53,15 @@ async function openTeam(link: string, trustLocal: boolean): Promise<void> {
       const result = await installTrust();
       const incomplete = result.results.filter(({ outcome }) => outcome !== 'installed' && outcome !== 'already-present');
       for (const entry of incomplete) console.error(`${entry.label}: ${entry.detail || entry.outcome}`);
-      if (incomplete.length) {
-        console.log('Certificate trust needs attention in the browsers listed above. Retry this command with --trust-local after resolving the errors.');
-      }
       if (!result.results.some(({ outcome }) => outcome === 'installed' || outcome === 'already-present')) {
-        console.log('The team is running, but local browser certificate setup did not finish.');
+        console.log('The team is running. Certificate trust did not finish, so the browser was not opened.');
+        if (!hasOwner) console.log('Owner setup is still pending. The team address will show "This team is being set up" until you finish the form at the full /join#setup= link above.');
+        console.log('Run this same create command again and approve certificate authorization to continue.');
         process.exitCode = 1;
         return;
+      }
+      if (incomplete.length) {
+        console.log('Certificate trust needs attention in the browsers listed above. Retry this command after resolving the errors.');
       }
     }
   }
@@ -111,7 +113,7 @@ export function registerTeamCommand(program: Command) {
         console.log('');
         console.log(hasOwner ? 'Open your team:' : 'Open this single-use link yourself to become the owner:');
         console.log(`  ${link}`);
-        if (opts.open) await openTeam(link, opts.trustLocal === true);
+        if (opts.open) await openTeam(link, opts.trustLocal === true, hasOwner);
       } catch (err) {
         console.error(pc.red(err instanceof Error ? err.message : String(err)));
         process.exitCode = 1;

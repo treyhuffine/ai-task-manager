@@ -164,12 +164,23 @@ it('never changes native trust implicitly in a noninteractive shell', async () =
   expect(mocks.open).toHaveBeenCalledOnce();
 });
 
-it('reports a failed certificate installation while retaining the running team for retry', async () => {
+it('explains pending owner setup after a certificate failure and resumes the same team on retry', async () => {
   mocks.installTrust.mockResolvedValue({ results: [{ label: 'System trust', outcome: 'permission-denied' }] });
   await create();
   expect(process.exitCode).toBe(1);
   expect(mocks.open).not.toHaveBeenCalled();
   expect(getHome()?.kind).toBe('team');
+  expect(teamHasOwner()).toBe(false);
+  expect(console.log).toHaveBeenCalledWith(expect.stringContaining('browser was not opened'));
+  expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Owner setup is still pending'));
+  const id = getHome()?.id;
+  process.exitCode = 0;
+  mocks.installTrust.mockResolvedValue({ results: [{ label: 'System trust', outcome: 'installed' }] });
+  await create();
+  expect(getHome()?.id).toBe(id);
+  expect(process.exitCode).toBe(0);
+  const link = new URL(mocks.open.mock.calls[0][0]);
+  expect(inspectTeamGrant(new URLSearchParams(link.hash.slice(1)).get('setup')!, 'setup').state).toBe('valid');
 });
 
 it('reports an optional browser trust failure without blocking a successfully configured system browser', async () => {

@@ -10,7 +10,7 @@
 
 import crypto from 'node:crypto';
 import path from 'node:path';
-import type { NativeRunner, TrustAdapter, TrustResult } from './types';
+import type { NativeRunner, RunResult, TrustAdapter, TrustResult } from './types';
 
 // ─── Certificate fingerprint helpers (Node built-ins) ───────────────────────
 
@@ -33,7 +33,7 @@ function permissionDenied(res: { status: number | null; stderr: string; error?: 
   const text = `${res.stderr} ${res.error ?? ''}`.toLowerCase();
   return (
     res.error === 'EACCES' ||
-    /permission denied|not authorized|access is denied|must be run as|operation not permitted|eacces|eperm/.test(
+    /permission denied|write permissions error|not authorized|authorization.*denied|access is denied|must be run as|operation not permitted|interaction is not allowed|user cancel(?:ed|led)|\(-128\)|eacces|eperm/.test(
       text,
     )
   );
@@ -54,6 +54,24 @@ function looksAbsent(res: { stdout: string; stderr: string; error?: string }): b
 
 const SYSTEM_KEYCHAIN = '/Library/Keychains/System.keychain';
 
+/**
+ * Only the native keychain command runs elevated, after explicit trust consent.
+ * Paths stay in argv, never AppleScript source. AppleScript's quoted form
+ * protects each argument when its authorization API invokes the shell.
+ * https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleScriptLangGuide/reference/ASLR_cmds.html#//apple_ref/doc/uid/TP40000983-CH216-SW40
+ */
+function runMacSecurity(runner: NativeRunner, args: string[]): RunResult {
+  const result = runner.run('/usr/bin/security', args);
+  if (result.status === 0 || !permissionDenied(result) || /user cancel(?:ed|led)|\(-128\)/i.test(result.stderr)) return result;
+  return runner.run('/usr/bin/osascript', ['-e', `on run argv
+  set commandText to "/usr/bin/security"
+  repeat with argument in argv
+    set commandText to commandText & " " & quoted form of (argument as text)
+  end repeat
+  do shell script commandText with administrator privileges
+end run`, '--', ...args]);
+}
+
 const macosAdapter: TrustAdapter = {
   id: 'macos-system',
   label: 'macOS system keychain',
@@ -63,7 +81,7 @@ const macosAdapter: TrustAdapter = {
     if (findMacCertSha1(ctx.runner, ctx.caFingerprintSha256)) {
       return { target: this.id, label: this.label, outcome: 'already-present' };
     }
-    const res = ctx.runner.run('security', [
+    const res = runMacSecurity(ctx.runner, [
       'add-trusted-cert',
       '-d',
       '-r',
@@ -80,7 +98,7 @@ const macosAdapter: TrustAdapter = {
         target: this.id,
         label: this.label,
         outcome: 'permission-denied',
-        detail: 'Admin authorization was declined or unavailable.',
+        detail: 'macOS administrator authorization was canceled or unavailable. Retry and approve the macOS authorization dialog.',
       };
     }
     return { target: this.id, label: this.label, outcome: 'error', detail: res.stderr.trim() };
@@ -92,8 +110,14 @@ const macosAdapter: TrustAdapter = {
 
     // Remove the admin trust settings, then delete the owned certificate by its
     // SHA-1 hash (verified above to belong to our CA's DER).
-    ctx.runner.run('security', ['remove-trusted-cert', '-d', ctx.caCertPath]);
-    const del = ctx.runner.run('security', ['delete-certificate', '-Z', sha1, SYSTEM_KEYCHAIN]);
+    const untrust = runMacSecurity(ctx.runner, ['remove-trusted-cert', '-d', ctx.caCertPath]);
+    // A prior attempt may have removed trust settings before certificate
+    // deletion failed. Only these explicit absence results allow that retry.
+    const alreadyUntrusted = /SecTrustSettingsRemoveTrustSettings: (?:No Trust Settings were found\.|The specified item could not be found in the keychain\.)/.test(untrust.stderr);
+    if (untrust.status !== 0 && !alreadyUntrusted) {
+      return { target: this.id, label: this.label, outcome: permissionDenied(untrust) ? 'permission-denied' : 'error', detail: untrust.stderr.trim() };
+    }
+    const del = runMacSecurity(ctx.runner, ['delete-certificate', '-Z', sha1, SYSTEM_KEYCHAIN]);
     if (del.status === 0) return { target: this.id, label: this.label, outcome: 'removed' };
     if (permissionDenied(del)) {
       return { target: this.id, label: this.label, outcome: 'permission-denied' };
@@ -108,7 +132,7 @@ const macosAdapter: TrustAdapter = {
  * matches on the full SHA-256 DER fingerprint, never on name/serial.
  */
 function findMacCertSha1(runner: NativeRunner, wantSha256: string): string | null {
-  const res = runner.run('security', ['find-certificate', '-a', '-p', SYSTEM_KEYCHAIN]);
+  const res = runner.run('/usr/bin/security', ['find-certificate', '-a', '-p', SYSTEM_KEYCHAIN]);
   if (res.status !== 0) return null;
   for (const block of splitPemBlocks(res.stdout)) {
     if (sha256OfPem(block) === wantSha256) {

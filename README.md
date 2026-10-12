@@ -97,7 +97,9 @@ To host a team alongside your personal Home, run one command from the repository
 ri team create --root "$HOME/family-team" --name "Family"
 ```
 
-The command prepares the team folder, starts its background service on a free HTTPS port and opens owner setup in your browser. It asks before installing local certificate trust, and the OS may ask for authorization. Name yourself in the browser, then invite people from the team's Settings. The team keeps running after Terminal closes.
+The command prepares the team folder, starts its background service on a free HTTPS port and opens owner setup in your browser. It asks before installing local certificate trust. On macOS, approve the native administrator authorization dialog if prompted. Name yourself in the browser, then invite people from the team's Settings. The team keeps running after Terminal closes.
+
+If certificate authorization fails or is canceled, the team keeps running and the browser stays closed. Retry the same command to continue. Owner setup needs the full printed `/join#setup=…` link. Visiting only the team's base address shows “This team is being set up” until you finish that form.
 
 Retrying the same command resumes an interrupted setup with the same team and data. Once the team has an owner, it opens the existing team instead of offering another owner setup. Your personal Home at `~/ri` stays separate. If a foreground `ri start` still runs for this team, stop it with Ctrl-C first.
 

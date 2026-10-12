@@ -84,6 +84,12 @@ process ownership), `src/cli/lib/server.ts` (loopback bind for Next),
   the built-in `certutil -user -addstore/-delstore/-store Root`, which takes the
   cert path and thumbprint as fixed arguments (no shell interpolation). This
   targets the current-user store, matching the spec's intent.
+- **macOS keychain authorization.** Explicit certificate trust consent can invoke
+  the native administrator dialog when `/usr/bin/security` reports a permission
+  failure. Only that keychain command runs elevated. Certificate paths travel as
+  arguments and are shell-quoted by AppleScript, and Ri never reads the password.
+  Canceling leaves setup pending and safe to retry. Removal uses the same
+  authorization path and retains its ownership record on failure.
 - **Linux system stores are not auto-elevated.** Writing to the Debian/Fedora
   anchor directories needs root. The app is never run elevated and never captures
   a password. A blocked write returns `permission-denied` with guidance to re-run

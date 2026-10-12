@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import type { NativeRunner, RunResult } from './types';
 import { readTrustManifest } from './manifest';
 
@@ -85,8 +86,8 @@ describe('macOS trust adapter', () => {
     const r = new MockRunner();
     r.platform = 'darwin';
     r.handler = (cmd, args) => {
-      if (cmd === 'security' && args[0] === 'find-certificate') return { status: 0, stdout: '', stderr: '' };
-      if (cmd === 'security' && args[0] === 'add-trusted-cert') return { status: 0, stdout: '', stderr: '' };
+      if (cmd === '/usr/bin/security' && args[0] === 'find-certificate') return { status: 0, stdout: '', stderr: '' };
+      if (cmd === '/usr/bin/security' && args[0] === 'add-trusted-cert') return { status: 0, stdout: '', stderr: '' };
       return { status: 1, stdout: '', stderr: '' };
     };
     const summary = await installTrust({ runner: r });
@@ -96,12 +97,71 @@ describe('macOS trust adapter', () => {
     expect(add.args).toContain('/Library/Keychains/System.keychain');
     expect(add.args).toContain('-r');
     expect(add.args).toContain('trustRoot');
+    expect(r.calls.some((c) => c.command === '/usr/bin/osascript')).toBe(false);
+  });
+
+  it('requests native authorization after a system keychain write permission error', async () => {
+    const r = new MockRunner();
+    r.handler = (cmd, args) => {
+      if (args[0] === 'add-trusted-cert') return { status: 1, stdout: '', stderr: 'SecCertificateAddToKeychain: Write permissions error.' };
+      if (cmd === '/usr/bin/osascript') return { status: 0, stdout: '', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    const summary = await installTrust({ runner: r });
+    expect(summary.results[0].outcome).toBe('installed');
+    const auth = r.calls.find((c) => c.command === '/usr/bin/osascript')!;
+    expect(auth.args[1]).toContain('with administrator privileges');
+    expect(auth.args[1]).not.toContain(summary.caCertPath);
+    expect(auth.args.slice(2)).toEqual(['--', 'add-trusted-cert', '-d', '-r', 'trustRoot', '-k', '/Library/Keychains/System.keychain', summary.caCertPath]);
+    expect(readTrustManifest()?.entries[0].createdByUs).toBe(true);
+  });
+
+  it('leaves canceled authorization unrecorded and succeeds when retried', async () => {
+    const r = new MockRunner();
+    let canceled = true;
+    r.handler = (cmd, args) => {
+      if (args[0] === 'add-trusted-cert') return { status: 1, stdout: '', stderr: 'SecCertificateAddToKeychain: Write permissions error.' };
+      if (cmd === '/usr/bin/osascript' && canceled) return { status: 1, stdout: '', stderr: 'execution error: User canceled. (-128)' };
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    expect((await installTrust({ runner: r })).results[0].outcome).toBe('permission-denied');
+    expect(readTrustManifest()?.entries).toEqual([]);
+    canceled = false;
+    expect((await installTrust({ runner: r })).results[0].outcome).toBe('installed');
+  });
+
+  it('does not retry cancellation or unrelated failures with administrator privileges', async () => {
+    for (const stderr of ['User canceled. (-128)', 'Unable to read certificate']) {
+      const r = new MockRunner();
+      r.handler = (_cmd, args) => ({ status: args[0] === 'add-trusted-cert' ? 1 : 0, stdout: '', stderr });
+      await installTrust({ runner: r });
+      expect(r.calls.some((c) => c.command === '/usr/bin/osascript')).toBe(false);
+    }
+  });
+
+  it.runIf(process.platform === 'darwin')('keeps special characters in paths as literal arguments through native AppleScript quoting', async () => {
+    const r = new MockRunner();
+    r.handler = (_cmd, args) => args[0] === 'add-trusted-cert'
+      ? { status: 1, stdout: '', stderr: 'Write permissions error.' }
+      : { status: 0, stdout: '', stderr: '' };
+    await installTrust({ runner: r });
+    const auth = r.calls.find((c) => c.command === '/usr/bin/osascript')!;
+    // Exercise the real native interpreter without elevation or a trust-store
+    // mutation: return the command, then ask sh to print its parsed argv.
+    const script = auth.args[1].replace('do shell script commandText with administrator privileges', 'return commandText');
+    expect(script).not.toContain('do shell script');
+    const args = ['add-trusted-cert', '-k', '/Library/Keychains/System.keychain', '/tmp/Team\'s "folder" $(printf injected) `printf injected`\\\n/ca.crt'];
+    const built = spawnSync('/usr/bin/osascript', ['-e', script, '--', ...args], { encoding: 'utf8' });
+    expect(built.status, built.stderr).toBe(0);
+    const parsed = spawnSync('/bin/sh', ['-c', `set -- ${built.stdout.trimEnd()}\nprintf '%s\\0' "$@"`], { encoding: 'utf8' });
+    expect(parsed.status, parsed.stderr).toBe(0);
+    expect(parsed.stdout.split('\0').slice(0, -1)).toEqual(['/usr/bin/security', ...args]);
   });
 
   it('is idempotent when the CA is already in the keychain', async () => {
     const r = new MockRunner();
     r.handler = (cmd, args) => {
-      if (cmd === 'security' && args[0] === 'find-certificate') return { status: 0, stdout: caPem, stderr: '' };
+      if (cmd === '/usr/bin/security' && args[0] === 'find-certificate') return { status: 0, stdout: caPem, stderr: '' };
       return { status: 0, stdout: '', stderr: '' };
     };
     const summary = await installTrust({ runner: r });
@@ -112,14 +172,14 @@ describe('macOS trust adapter', () => {
   it('removes only the owned cert, by verified SHA-1', async () => {
     const install = new MockRunner();
     install.handler = (cmd, args) =>
-      cmd === 'security' && args[0] === 'find-certificate'
+      cmd === '/usr/bin/security' && args[0] === 'find-certificate'
         ? { status: 0, stdout: '', stderr: '' }
         : { status: 0, stdout: '', stderr: '' };
     await installTrust({ runner: install });
 
     const r = new MockRunner();
     r.handler = (cmd, args) => {
-      if (cmd === 'security' && args[0] === 'find-certificate') return { status: 0, stdout: caPem, stderr: '' };
+      if (cmd === '/usr/bin/security' && args[0] === 'find-certificate') return { status: 0, stdout: caPem, stderr: '' };
       return { status: 0, stdout: '', stderr: '' };
     };
     const summary = await removeTrust({ runner: r });
@@ -137,12 +197,43 @@ describe('macOS trust adapter', () => {
     const foreignPem = SECOND_CA_PEM;
     const r = new MockRunner();
     r.handler = (cmd, args) => {
-      if (cmd === 'security' && args[0] === 'find-certificate') return { status: 0, stdout: foreignPem, stderr: '' };
+      if (cmd === '/usr/bin/security' && args[0] === 'find-certificate') return { status: 0, stdout: foreignPem, stderr: '' };
       return { status: 0, stdout: '', stderr: '' };
     };
     const summary = await removeTrust({ runner: r });
     expect(summary.results[0].outcome).toBe('not-present');
     expect(r.calls.find((c) => c.args[0] === 'delete-certificate')).toBeUndefined();
+  });
+
+  it('authorizes removal and retains ownership if authorization is canceled', async () => {
+    await installTrust({ runner: new MockRunner() });
+    const r = new MockRunner();
+    let canceled = true;
+    r.handler = (cmd, args) => {
+      if (args[0] === 'find-certificate') return { status: 0, stdout: caPem, stderr: '' };
+      if (cmd === '/usr/bin/security') return { status: 1, stdout: '', stderr: 'Write permissions error.' };
+      return { status: canceled ? 1 : 0, stdout: '', stderr: canceled ? 'User canceled. (-128)' : '' };
+    };
+    expect((await removeTrust({ runner: r })).results[0].outcome).toBe('permission-denied');
+    expect(readTrustManifest()?.entries[0].createdByUs).toBe(true);
+    expect(r.calls.some((c) => c.args.includes('delete-certificate'))).toBe(false);
+    canceled = false;
+    expect((await removeTrust({ runner: r })).results[0].outcome).toBe('removed');
+    expect(r.calls.find((c) => c.command === '/usr/bin/osascript' && c.args.includes('delete-certificate'))?.args).toContain(caSha1);
+    expect(readTrustManifest()?.entries).toEqual([]);
+  });
+
+  it.each(['No Trust Settings were found.', 'The specified item could not be found in the keychain.'])('finishes partial removal when trust settings are already gone: %s', async (message) => {
+    await installTrust({ runner: new MockRunner() });
+    const r = new MockRunner();
+    r.handler = (_cmd, args) => {
+      if (args[0] === 'find-certificate') return { status: 0, stdout: caPem, stderr: '' };
+      if (args[0] === 'remove-trusted-cert') return { status: 1, stdout: '', stderr: `SecTrustSettingsRemoveTrustSettings: ${message}` };
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    expect((await removeTrust({ runner: r })).results[0].outcome).toBe('removed');
+    expect(r.calls.find((c) => c.args[0] === 'delete-certificate')?.args).toContain(caSha1);
+    expect(readTrustManifest()?.entries).toEqual([]);
   });
 });
 
@@ -234,7 +325,7 @@ describe('untrust safety (partial-failure handling)', () => {
     install.platform = 'darwin';
     // find-certificate returns our CA → install sees it already present → createdByUs=false.
     install.handler = (cmd, args) =>
-      cmd === 'security' && args[0] === 'find-certificate'
+      cmd === '/usr/bin/security' && args[0] === 'find-certificate'
         ? { status: 0, stdout: caPem, stderr: '' }
         : { status: 0, stdout: '', stderr: '' };
     const ins = await installTrust({ runner: install });
