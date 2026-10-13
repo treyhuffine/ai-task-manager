@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import { Archive, Check, Copy, FolderPlus, Globe, House, LogOut, RotateCcw, Smartphone, UserMinus, UserPlus } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
+import { Archive, Check, Copy, FolderPlus, House, LogOut, RotateCcw, Smartphone, UserMinus, UserPlus } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { apiErrorText } from '@/lib/api/client';
+import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { forgetTeamSignIn } from '@/lib/team/client';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -16,6 +16,7 @@ import { MemberAvatar } from './member-avatar';
 import { NewAreaDialog } from './team-areas';
 import { useSpace } from '@/components/spaces/space-root';
 import { useAreas, useUpdateArea } from '@/hooks/use-areas';
+import { TeamAddressSetup } from './team-address-setup';
 
 /**
  * A team's Settings (docs/homes-spec.md §3.2): the team's name and where it's
@@ -26,8 +27,16 @@ import { useAreas, useUpdateArea } from '@/hooks/use-areas';
 export function TeamSettings() {
   const nav = useTeamNav();
   const { member } = useTeam();
+  const addressRef = useRef<HTMLDivElement>(null);
+  const [needsAddress, setNeedsAddress] = useState(false);
+  const settingUp = nav.remoteSetup && member.role === 'owner';
+  const needAddress = () => {
+    setNeedsAddress(true);
+    addressRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    addressRef.current?.focus({ preventScroll: true });
+  };
   return (
-    <Dialog open={nav.panel === 'settings'} onOpenChange={(open) => !open && nav.openPanel(null)}>
+    <Dialog open={nav.panel === 'settings'} onOpenChange={(open) => { if (!open) { if (settingUp) nav.finishRemoteSetup(); else nav.openPanel(null); } }}>
       {/* Sized to the screen, like personal Settings: the header stays put and
           only the body scrolls, and only down, so a long link truncates
           rather than widening everything. Opening it focuses the dialog, not
@@ -40,15 +49,27 @@ export function TeamSettings() {
         }}
       >
         <DialogHeader className="border-b border-border px-5 py-5 pr-12 text-left">
-          <DialogTitle className="text-[15px] font-semibold">Settings</DialogTitle>
+          <DialogTitle className="text-[15px] font-semibold">{settingUp ? 'Use this team on other devices?' : 'Settings'}</DialogTitle>
           <DialogDescription className="sr-only">The team, its people, and you.</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto overflow-x-hidden px-5 py-5">
-          <TeamSection />
-          <AreasSection />
-          <PeopleSection />
-          {member.role === 'owner' && <AddressSection />}
-          <YouSection />
+          {settingUp ? <TeamAddressSetup onDone={nav.finishRemoteSetup} /> : (
+            <>
+              <TeamSection />
+              {member.role === 'owner' && (
+                <div ref={addressRef} tabIndex={-1} className="outline-none">
+                  <Section title="Where people reach the team">
+                    {needsAddress && <p role="status" className="text-sm text-muted-foreground">Set up or reconnect a remote address here, then try making your link again.</p>}
+                    <TeamAddressSetup onSaved={() => setNeedsAddress(false)} />
+                  </Section>
+                </div>
+              )}
+              <AreasSection />
+              <PeopleSection onNeedAddress={needAddress} />
+              {needsAddress && member.role !== 'owner' && <p role="status" className="text-sm text-muted-foreground">Ask a team owner to set up a reachable address before signing in elsewhere or connecting your personal Ri.</p>}
+              <YouSection onNeedAddress={needAddress} />
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -191,7 +212,7 @@ function CopyLink({ link, note }: { link: string; note?: string }) {
   );
 }
 
-function PeopleSection() {
+function PeopleSection({ onNeedAddress }: { onNeedAddress: () => void }) {
   const { member } = useTeam();
   const owner = member.role === 'owner';
   const qc = useQueryClient();
@@ -200,12 +221,16 @@ function PeopleSection() {
   const invitations = useQuery({ ...trpc.team.invitations.list.queryOptions(), enabled: owner });
   const [latest, setLatest] = useState<{ link: string; reachable: boolean; expiresAt: string } | null>(null);
   const invite = useMutation({
-    mutationFn: () => trpcClient.team.invitations.create.mutate(),
+    mutationFn: () => trpcClient.team.invitations.createRemote.mutate(),
     onSuccess: (made) => {
-      setLatest(made);
+      if (made.reachable) setLatest(made);
+      else { setLatest(null); onNeedAddress(); }
       void invitations.refetch();
     },
-    onError: (err) => toast.error(apiErrorText(err)),
+    onError: (err) => {
+      if (apiErrorStatus(err) === 412) { setLatest(null); onNeedAddress(); }
+      else toast.error(apiErrorText(err));
+    },
   });
   const pending = (invitations.data ?? []).filter((i) => i.state === 'valid');
   return (
@@ -280,58 +305,8 @@ function PeopleSection() {
   );
 }
 
-function AddressSection() {
-  const address = useQuery(trpc.team.address.get.queryOptions());
-  const [draft, setDraft] = useState('');
-  const save = useMutation({
-    mutationFn: (value: string) => trpcClient.team.address.set.mutate({ address: value }),
-    onSuccess: () => {
-      setDraft('');
-      void address.refetch();
-    },
-    onError: (err) => toast.error(apiErrorText(err)),
-  });
-  const beamd = useMutation({
-    mutationFn: () => trpcClient.team.address.openBeamd.mutate(),
-    onSuccess: () => void address.refetch(),
-    onError: (err) => toast.error(apiErrorText(err)),
-  });
-  return (
-    <Section
-      title="Where people reach the team"
-      hint={address.data?.address ? undefined : 'Right now only this computer can open the team. Invitations need an address other people can reach.'}
-    >
-      {address.data?.address && (
-        <p className="flex min-w-0 items-center gap-1.5 text-sm">
-          <Globe size={13} className="shrink-0 text-muted-foreground" /> <span className="min-w-0 break-words">{address.data.address}</span>
-        </p>
-      )}
-      <form
-        className="flex items-center gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (draft.trim()) save.mutate(draft.trim());
-        }}
-      >
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="https://team.example.com"
-          aria-label="Team address"
-          className="min-w-0 flex-1 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-sm outline-none focus-visible:border-primary/60"
-        />
-        <button type="submit" className={rowButton()} disabled={!draft.trim() || save.isPending}>
-          {address.data?.address ? 'Change' : 'Use this address'}
-        </button>
-      </form>
-      <button type="button" className={rowButton()} onClick={() => beamd.mutate()} disabled={beamd.isPending}>
-        {beamd.isPending ? 'Opening…' : 'Get an address with Beamd'}
-      </button>
-    </Section>
-  );
-}
 
-function YouSection() {
+function YouSection({ onNeedAddress }: { onNeedAddress: () => void }) {
   const { member } = useTeam();
   const qc = useQueryClient();
   const signIns = useQuery(trpc.team.signIns.list.queryOptions());
@@ -342,9 +317,16 @@ function YouSection() {
   const [link, setLink] = useState<{ value: string; forHome: boolean } | null>(null);
   const makeLink = async (forHome: boolean) => {
     try {
-      setLink({ value: (await trpcClient.team.signIns.create.mutate()).link, forHome });
+      const made = await trpcClient.team.signIns.createRemote.mutate();
+      if (!made.reachable) {
+        setLink(null);
+        onNeedAddress();
+        return;
+      }
+      setLink({ value: made.link, forHome });
     } catch (err) {
-      toast.error(apiErrorText(err));
+      if (apiErrorStatus(err) === 412) { setLink(null); onNeedAddress(); }
+      else toast.error(apiErrorText(err));
     }
   };
   return (

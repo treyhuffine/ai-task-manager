@@ -114,7 +114,7 @@ export function TeamJoin() {
     return (
       <TeamGate title={`You're in ${stage.team}`}>
         <p>This device is already signed in to the team.</p>
-        <GateButton onClick={() => window.location.replace(landing())}>Open {stage.team}</GateButton>
+        <GateButton onClick={() => window.location.replace(link.kind === 'setup' ? '/?panel=settings&setup=remote' : landing())}>Open {stage.team}</GateButton>
       </TeamGate>
     );
   }
@@ -152,11 +152,11 @@ async function resolveStage(current: Link): Promise<Stage> {
   }
 }
 
-async function enter(admit: () => Promise<Admitted>, onError: (message: string) => void, onUnreachable: () => void) {
+async function enter(admit: () => Promise<Admitted>, onError: (message: string) => void, onUnreachable: () => void, destination?: string) {
   try {
     const admitted = await admit();
     await keepTeamSignIn(admitted.token);
-    window.location.replace(landing());
+    window.location.replace(destination ?? landing());
   } catch (err) {
     if (err instanceof TeamUnreachableError) onUnreachable();
     else onError(err instanceof TeamRequestError ? err.message : 'Something went wrong. Try again.');
@@ -254,6 +254,7 @@ function SetupForm({ link, team }: { link: Link; team: string }) {
               setError("Ri couldn't reach the team. Your link is kept. Try again.");
               setBusy(false);
             },
+            '/?panel=settings&setup=remote',
           );
         }}
       >

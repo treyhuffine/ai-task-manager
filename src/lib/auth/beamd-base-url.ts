@@ -16,7 +16,7 @@
  */
 
 import { APP_SHORT_ID } from '@/constants/app';
-import { getTunnelName, setRemoteBaseUrl } from '@/lib/auth/bootstrap';
+import { getRemoteBaseUrl, getTunnelName, setRemoteBaseUrl } from '@/lib/auth/bootstrap';
 import { readTeamIntent, type TeamIntent } from '@/lib/home/team-intent';
 import { beamdCheck } from '@/lib/preview/beamd/cli';
 import { openOwnedTunnel } from '@/lib/preview/beamd/ownership';
@@ -98,8 +98,13 @@ export async function openAndSaveBeamdBaseUrl(
   opts: { name?: string; verifyUrl?: (url: string) => Promise<string> } = {},
 ): Promise<BeamdBaseUrlResult> {
   const name = opts.name ?? appBeamdTunnelName();
+  const previousUrl = getRemoteBaseUrl();
   await beamdCheck();
   const opened = await openOwnedTunnel(port, name);
-  const url = setRemoteBaseUrl(opts.verifyUrl ? await opts.verifyUrl(opened.url) : opened.url);
+  const verified = opts.verifyUrl ? await opts.verifyUrl(opened.url) : opened.url;
+  // An automatic reconnect started before an owner changed the address must
+  // not put the old URL back after the new choice has already been saved.
+  const superseded = !opts.name && (appBeamdTunnelName() !== name || getRemoteBaseUrl() !== previousUrl);
+  const url = superseded ? verified : setRemoteBaseUrl(verified);
   return { url, name, port };
 }

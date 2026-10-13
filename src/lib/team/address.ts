@@ -2,6 +2,38 @@
 import { createTeamAddressProbe, deleteTeamAddressProbe, getHome } from '@/lib/db/queries';
 import { readLimitedRequestBody } from '@/lib/webhooks/read-limited-body';
 import { baseUrlSnapshot } from '@/lib/auth/base-url-snapshot';
+import { writeAuthConfig } from '@/lib/auth/config-file';
+import { appBeamdTunnelName, normalizeTunnelName, tunnelNameIsEnvLocked } from '@/lib/auth/beamd-base-url';
+import { beamdCheck } from '@/lib/preview/beamd/cli';
+import { openOwnedTunnel } from '@/lib/preview/beamd/ownership';
+import { isValidPreviewLabel, MAX_LABEL_LENGTH, previewName } from '@/lib/preview/preview-name';
+
+/** Suggest from the name the owner chose, without changing existing addresses. */
+export function teamAddressSettings() {
+  const snapshot = baseUrlSnapshot();
+  return {
+    address: snapshot.tunnel,
+    local: snapshot.local,
+    autoTunnel: snapshot.autoTunnel,
+    tunnelName: snapshot.effectiveTunnelName,
+    suggestedName: previewName(getHome()?.name ?? 'team'),
+    nameLocked: snapshot.tunnelNameLocked,
+  };
+}
+
+/** Open and verify first. A failed rename leaves the working address intact. */
+export async function openTeamBeamdAddress(port: number, requestedName?: string) {
+  const name = normalizeTunnelName(requestedName ?? appBeamdTunnelName());
+  if (!isValidPreviewLabel(name)) throw new Error(`Use letters, numbers and hyphens, up to ${MAX_LABEL_LENGTH} characters. Start and end with a letter or number.`);
+  if (tunnelNameIsEnvLocked() && name !== appBeamdTunnelName()) throw new Error('The hosting computer controls this address prefix. Ask its administrator to change RI_TUNNEL_NAME.');
+  await beamdCheck();
+  const opened = await openOwnedTunnel(port, name);
+  const address = await verifyTeamAddress(opened.url);
+  writeAuthConfig({ tunnelName: name, tunnelUrl: address, autoTunnel: true });
+  // Keep the old tunnel alive for clients currently using it, including the
+  // browser making this request. Only new links use the newly chosen address.
+  return { address };
+}
 
 export function isLoopbackTeamAddress(address: string): boolean {
   return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(address).hostname);

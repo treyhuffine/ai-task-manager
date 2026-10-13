@@ -12,6 +12,9 @@ import { apiErrorStatus } from '@/lib/api/error-status';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 
 const ai = vi.hoisted(() => ({ embed: vi.fn(async () => ({ embedding: new Array(1536).fill(0) })) }));
+const beamd = vi.hoisted(() => ({ check: vi.fn(), open: vi.fn() }));
+vi.mock('@/lib/preview/beamd/cli', async (original) => ({ ...await original<typeof import('@/lib/preview/beamd/cli')>(), beamdCheck: beamd.check }));
+vi.mock('@/lib/preview/beamd/ownership', () => ({ openOwnedTunnel: beamd.open }));
 vi.mock('ai', async (importOriginal) => ({ ...(await importOriginal<typeof import('ai')>()), embed: ai.embed }));
 vi.mock('@/lib/sessions/workstream', () => ({ coordinateLifecycleChange: vi.fn(async () => {}) }));
 vi.mock('@/lib/sessions/workstream-runtime', () => ({ inProcessWorkstreamRuntime: {} }));
@@ -61,9 +64,9 @@ async function post(path: string, body: unknown, token?: string): Promise<Respon
   });
 }
 
-async function clientFor(token: string) {
+async function clientFor(token: string, url = 'http://team.test/api/trpc') {
   const { createAppTRPCClient } = await import('@/lib/trpc/client');
-  return createAppTRPCClient({ url: 'http://team.test/api/trpc', transport: new ApiClient({ getToken: () => token, onUnauthorized: () => {} }) });
+  return createAppTRPCClient({ url, transport: new ApiClient({ getToken: () => token, onUnauthorized: () => {} }) });
 }
 
 async function status(promise: Promise<unknown>): Promise<number | null> {
@@ -93,6 +96,8 @@ beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-team-', openDb: false });
   process.env.OPENAI_API_KEY = 'sk-test-ambient';
   ai.embed.mockClear();
+  beamd.check.mockReset().mockResolvedValue(undefined);
+  beamd.open.mockReset().mockResolvedValue({ name: 'team-huffine', url: 'https://team-huffine-trey.beamd.run', port: 43333 });
   const { writeTeamIntent } = await import('@/lib/home/team-intent');
   writeTeamIntent({ creationId: 'team-create-1', name: 'Acme' });
   const { resetHomeIdentityCache, ensureHomeIdentity } = await import('@/lib/home/identity');
@@ -307,6 +312,34 @@ describe('getting in', () => {
       expect(signIn.status).toBe(200);
       expect(await signIn.json()).toMatchObject({ member: first.member });
     }
+  });
+
+  it('lets only an owner choose a Beamd prefix, then uses the verified address in both kinds of link', async () => {
+    const localOwner = await clientFor(owner.token);
+    const q = await import('@/lib/db/queries');
+    expect(await status(localOwner.team.invitations.createRemote.mutate())).toBe(412);
+    expect(await status(localOwner.team.signIns.createRemote.mutate())).toBe(412);
+    expect(q.listTeamInvitations()).toHaveLength(0);
+    const member = await clientFor((await joinAs('Bo')).token, 'http://team.test:43333/api/trpc');
+    expect(await status(member.team.address.configureBeamd.mutate({ name: 'team-huffine' }))).toBe(403);
+    expect(beamd.check).not.toHaveBeenCalled();
+    const client = await clientFor(owner.token, 'http://team.test:43333/api/trpc');
+    expect(await status(client.team.address.set.mutate({ address: 'https://localhost:42242' }))).toBe(400);
+    expect(await status(client.team.address.configureBeamd.mutate({ name: 'bad name' }))).toBe(400);
+    expect(beamd.check).not.toHaveBeenCalled();
+    expect(await client.team.address.configureBeamd.mutate({ name: 'team-huffine' })).toEqual({ address: 'https://team-huffine-trey.beamd.run' });
+    expect(beamd.open).toHaveBeenCalledWith(43333, 'team-huffine');
+    expect(await client.team.address.get.query()).toMatchObject({ tunnelName: 'team-huffine', autoTunnel: true });
+    // Existing clients can still use the original no-input Beamd command.
+    expect(await client.team.address.openBeamd.mutate()).toEqual({ address: 'https://team-huffine-trey.beamd.run' });
+    for (const made of [await client.team.invitations.createRemote.mutate(), await client.team.signIns.createRemote.mutate()]) {
+      expect(made).toMatchObject({ base: 'https://team-huffine-trey.beamd.run', reachable: true });
+      expect(made.link).toContain('https://team-huffine-trey.beamd.run/join#');
+    }
+    await client.team.address.set.mutate({ address: 'https://custom-team.example' });
+    expect(await client.team.address.get.query()).toMatchObject({ address: 'https://custom-team.example', autoTunnel: false });
+    await client.team.address.clear.mutate();
+    expect(await client.team.address.get.query()).toMatchObject({ address: null, autoTunnel: false });
   });
 
   it('verifies the configured HTTPS address and never advertises an unreachable one as reachable', async () => {

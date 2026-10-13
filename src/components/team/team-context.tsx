@@ -58,6 +58,8 @@ export function useTeamNav() {
       areaId,
       mine,
       panel,
+      remoteSetup: params.get('setup') === 'remote',
+      finishRemoteSetup: () => set({ setup: null, panel: null }, 'replace'),
       show: (next: TeamView) => set({ view: next === 'board' ? null : next }),
       openTask: (id: string) => set({ task: id, note: null }),
       openNote: (id: string) => set({ note: id, task: null }),
@@ -66,6 +68,6 @@ export function useTeamNav() {
       setMine: (on: boolean) => set({ mine: on ? '1' : null }, 'replace'),
       openPanel: (name: 'settings' | 'search' | null) => set({ panel: name }, name ? 'push' : 'replace'),
     }),
-    [view, taskId, noteId, areaId, mine, panel, set],
+    [view, taskId, noteId, areaId, mine, panel, set, params],
   );
 }

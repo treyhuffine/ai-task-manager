@@ -68,5 +68,5 @@ it('preserves the saved setup attempt when its response was lost, including an e
   await act(async () => container.querySelector('form')!.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
   expect(mocks.finishTeamSetup).toHaveBeenCalledWith(secret, 'Edited Team', 'Trey');
   expect(mocks.keepTeamSignIn).toHaveBeenCalledWith('member-token');
-  expect(mocks.replace).toHaveBeenCalledWith('/');
+  expect(mocks.replace).toHaveBeenCalledWith('/?panel=settings&setup=remote');
 });

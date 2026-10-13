@@ -10,15 +10,14 @@
 
 import { z } from 'zod/v4';
 import { TRPCError } from '@trpc/server';
-import { baseUrlSnapshot } from '@/lib/auth/base-url-snapshot';
-import { openAndSaveBeamdBaseUrl } from '@/lib/auth/beamd-base-url';
-import { clearRemoteBaseUrl, setRemoteBaseUrl, setRunningPort } from '@/lib/auth/bootstrap';
+import { setRunningPort } from '@/lib/auth/bootstrap';
+import { writeAuthConfig } from '@/lib/auth/config-file';
 import { readLiveServerRuntime } from '@/lib/server-runtime/record';
 import * as q from '@/lib/db/queries';
 import { memberProcedure, ownerProcedure, router } from '@/lib/trpc/init';
-import { teamLink, type TeamLinkKind } from './links';
+import { teamLink } from './links';
 import { teamSummary } from './summary';
-import { teamLinkAddress, verifyTeamAddress } from './address';
+import { teamAddressSettings, teamLinkAddress, verifyTeamAddress, openTeamBeamdAddress, isLoopbackTeamAddress, normalizeTeamAddress } from './address';
 
 const nameInput = z.object({ name: z.string().min(1).max(q.MEMBER_NAME_MAX) }).strict();
 const idInput = z.object({ id: z.string().min(1) }).strict();
@@ -33,10 +32,29 @@ function memberView(member: { id: string; name: string; role: 'owner' | 'member'
   return { id: member.id, name: member.name, role: member.role };
 }
 
-/** A grant's link at the address people reach the team at. */
-async function linkFor(kind: TeamLinkKind, secret: string, origin: string | null) {
+/** Check reachability before creating a grant when the browser needs a remote link. */
+async function createMemberLink(kind: 'invite' | 'sign-in', memberId: string, origin: string | null, remoteOnly = false) {
   const { base, reachable } = await teamLinkAddress(origin);
-  return { link: teamLink(base, kind, secret), reachable, base };
+  if (remoteOnly && !reachable) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Set up a reachable team address before making this link.' });
+  const { grant, secret } = kind === 'invite'
+    ? q.createTeamGrant({ kind: 'invite', role: 'member', createdByMemberId: memberId })
+    : q.createTeamGrant({ kind: 'sign_in', memberId, createdByMemberId: memberId });
+  return { id: grant.id, link: teamLink(base, kind, secret), reachable, base, expiresAt: grant.expiresAt };
+}
+
+async function openBeamdAddress(request: Request, name?: string) {
+  const running = readLiveServerRuntime();
+  const port = running?.privateUpstreams?.next
+    ? Number(new URL(running.privateUpstreams.next).port)
+    : Number(new URL(request.url).port) || 0;
+  if (!port) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: "Ri couldn't tell which port the team is on." });
+  setRunningPort(port);
+  try {
+    return await openTeamBeamdAddress(port, name);
+  } catch (err) {
+    if (err instanceof Error) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+    throw err;
+  }
 }
 
 function requestOrigin(request: Request): string | null {
@@ -67,11 +85,8 @@ export const teamRouter = router({
     list: memberProcedure.query(({ ctx }) =>
       q.listMemberSignIns(me(ctx).id).map((s) => ({ ...s, current: s.keyId === ctx.key!.apiKeyId })),
     ),
-    create: memberProcedure.mutation(async ({ ctx }) => {
-      const member = me(ctx);
-      const { grant, secret } = q.createTeamGrant({ kind: 'sign_in', memberId: member.id, createdByMemberId: member.id });
-      return { ...await linkFor('sign-in', secret, requestOrigin(ctx.request)), expiresAt: grant.expiresAt };
-    }),
+    create: memberProcedure.mutation(({ ctx }) => createMemberLink('sign-in', me(ctx).id, requestOrigin(ctx.request))),
+    createRemote: memberProcedure.mutation(({ ctx }) => createMemberLink('sign-in', me(ctx).id, requestOrigin(ctx.request), true)),
     revoke: memberProcedure.input(z.object({ keyId: z.string().min(1) }).strict()).mutation(({ ctx, input }) => {
       q.revokeMemberSignIn(me(ctx).id, input.keyId);
       return { ok: true as const };
@@ -91,11 +106,8 @@ export const teamRouter = router({
   removeMember: ownerProcedure.input(idInput).mutation(({ input }) => memberView(q.removeMember(input.id))),
   invitations: router({
     list: ownerProcedure.query(() => q.listTeamInvitations()),
-    create: ownerProcedure.mutation(async ({ ctx }) => {
-      const owner = me(ctx);
-      const { grant, secret } = q.createTeamGrant({ kind: 'invite', role: 'member', createdByMemberId: owner.id });
-      return { id: grant.id, ...await linkFor('invite', secret, requestOrigin(ctx.request)), expiresAt: grant.expiresAt };
-    }),
+    create: ownerProcedure.mutation(({ ctx }) => createMemberLink('invite', me(ctx).id, requestOrigin(ctx.request))),
+    createRemote: ownerProcedure.mutation(({ ctx }) => createMemberLink('invite', me(ctx).id, requestOrigin(ctx.request), true)),
     revoke: ownerProcedure.input(idInput).mutation(({ input }) => {
       q.revokeTeamGrant(input.id);
       return { ok: true as const };
@@ -106,35 +118,24 @@ export const teamRouter = router({
    * uses: an address the owner already has, or a Beamd tunnel.
    */
   address: router({
-    get: ownerProcedure.query(() => {
-      const snapshot = baseUrlSnapshot();
-      return { address: snapshot.tunnel, local: snapshot.local, autoTunnel: snapshot.autoTunnel };
-    }),
+    get: ownerProcedure.query(() => teamAddressSettings()),
     set: ownerProcedure.input(z.object({ address: z.string().min(1).max(2048) }).strict()).mutation(async ({ input }) => {
       try {
-        return { address: setRemoteBaseUrl(await verifyTeamAddress(input.address)) };
+        if (isLoopbackTeamAddress(normalizeTeamAddress(input.address))) throw new Error('Choose an address other devices can reach. A localhost address only works on the hosting computer.');
+        const address = await verifyTeamAddress(input.address);
+        writeAuthConfig({ tunnelUrl: address, autoTunnel: false });
+        return { address };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'That address is not valid.' });
       }
     }),
     clear: ownerProcedure.mutation(() => {
-      clearRemoteBaseUrl();
+      writeAuthConfig({ tunnelUrl: null, autoTunnel: false });
       return { address: null };
     }),
-    openBeamd: ownerProcedure.mutation(async ({ ctx }) => {
-      const running = readLiveServerRuntime();
-      const port = running?.privateUpstreams?.next
-        ? Number(new URL(running.privateUpstreams.next).port)
-        : Number(new URL(ctx.request.url).port) || 0;
-      if (!port) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: "Ri couldn't tell which port the team is on." });
-      setRunningPort(port);
-      try {
-        const opened = await openAndSaveBeamdBaseUrl(port, { verifyUrl: verifyTeamAddress });
-        return { address: opened.url };
-      } catch (err) {
-        if (err instanceof Error) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message });
-        throw err;
-      }
-    }),
+    // Keep the original no-input endpoint usable by existing clients.
+    openBeamd: ownerProcedure.mutation(({ ctx }) => openBeamdAddress(ctx.request)),
+    configureBeamd: ownerProcedure.input(z.object({ name: z.string().min(1).max(63) }).strict())
+      .mutation(({ ctx, input }) => openBeamdAddress(ctx.request, input.name)),
   }),
 });

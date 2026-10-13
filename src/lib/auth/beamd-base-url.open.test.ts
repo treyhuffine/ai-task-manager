@@ -4,14 +4,20 @@ const mocks = vi.hoisted(() => ({
   check: vi.fn(async () => {}),
   open: vi.fn(async () => ({ url: 'https://team.example' })),
   save: vi.fn((url: string) => url),
+  remote: vi.fn<() => string | null>(() => null),
+  name: vi.fn<() => string | null>(() => null),
 }));
 vi.mock('@/lib/preview/beamd/cli', () => ({ beamdCheck: mocks.check }));
 vi.mock('@/lib/preview/beamd/ownership', () => ({ openOwnedTunnel: mocks.open }));
-vi.mock('@/lib/auth/bootstrap', () => ({ getTunnelName: () => null, setRemoteBaseUrl: mocks.save }));
+vi.mock('@/lib/auth/bootstrap', () => ({ getTunnelName: mocks.name, getRemoteBaseUrl: mocks.remote, setRemoteBaseUrl: mocks.save }));
 vi.mock('@/lib/home/team-intent', () => ({ readTeamIntent: () => null }));
 import { openAndSaveBeamdBaseUrl } from './beamd-base-url';
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.remote.mockReturnValue(null);
+  mocks.name.mockReturnValue(null);
+});
 
 it('keeps the personal tunnel flow unchanged without a verifier', async () => {
   await expect(openAndSaveBeamdBaseUrl(42393, { name: 'test-team' })).resolves.toEqual({ url: 'https://team.example', name: 'test-team', port: 42393 });
@@ -32,4 +38,14 @@ it('saves a verified team address', async () => {
   });
   await openAndSaveBeamdBaseUrl(42393, { name: 'test-team', verifyUrl });
   expect(mocks.save).toHaveBeenCalledWith('https://team.example');
+});
+
+it.each(['name', 'address'] as const)('does not let an in-flight reconnect overwrite a newer %s choice', async (choice) => {
+  mocks.open.mockImplementationOnce(async () => {
+    if (choice === 'name') mocks.name.mockReturnValue('team-huffine');
+    else mocks.remote.mockReturnValue('https://custom.example');
+    return { url: 'https://old.example' };
+  });
+  await openAndSaveBeamdBaseUrl(42393);
+  expect(mocks.save).not.toHaveBeenCalled();
 });
