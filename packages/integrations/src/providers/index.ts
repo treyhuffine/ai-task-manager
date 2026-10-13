@@ -114,6 +114,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   { id: 'webflow', displayName: 'Webflow', method: 'mcp' },
   { id: 'wordpress', displayName: 'WordPress.com', method: 'mcp' },
   { id: 'dataforseo', displayName: 'DataForSEO', method: 'mcp' },
+  { id: 'openseo', displayName: 'OpenSEO', method: 'mcp' },
 ];
 
 /**

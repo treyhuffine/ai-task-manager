@@ -44,7 +44,6 @@ import { getIntegrationsDir } from './storage';
 import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { mcpServerStore, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
 import { drainMcpClient } from './mcp-client-lifetime';
-import { withMcpCallSlot } from './mcp-concurrency';
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
 import { registerMcpSecrets } from './mcp-secrets';
 import { APP_NAME } from '@/constants/app';
@@ -708,33 +707,28 @@ async function build(): Promise<Built> {
         );
       }
       const connected = client;
-      const maxConcurrentCalls = hosted?.maxConcurrentCalls;
-      const callKey = `${dir}:${hostedMcpConnectionId(entry)}`;
       client = drainMcpClient({
         ...connected,
-        callTool: (params, options) => {
-          const dispatch = async () => {
-            const stored = await store.get(hostedMcpConnectionId(candidate.entry));
-            // A request can wait while another chat changes this account. Recheck
-            // before sending. An ordinary age refresh can let admitted work finish.
-            if (candidate.changed || !isCurrentMcpTransport(candidate.entry, mcpStore)) {
-              throw new IntegrationError('tools_changed', 'The connection access or tools changed while this request was waiting. No request was sent.');
+        callTool: async (params, options) => {
+          const stored = await store.get(hostedMcpConnectionId(candidate.entry));
+          // Recheck access immediately before sending. An ordinary age refresh
+          // can still let requests already admitted by this client finish.
+          if (candidate.changed || !isCurrentMcpTransport(candidate.entry, mcpStore)) {
+            throw new IntegrationError('tools_changed', 'The connection access or tools changed before dispatch. No request was sent.');
+          }
+          if (stored?.connection.status !== 'active') {
+            throw new NeedsReauthError(hostedMcpConnectionId(candidate.entry), 'The connection access changed before dispatch. No request was sent.');
+          }
+          if (options?.signal?.aborted) throw new IntegrationError('denied', 'The request was cancelled before dispatch. No request was sent.');
+          try { return await connected.callTool(params, ...(options ? [options] : [])); }
+          catch (error) {
+            // Stop new sends when the transport really fails. One timeout or
+            // caller cancellation affects only that request.
+            if (!(error instanceof DOMException && error.name === 'AbortError') && !await isMcpRequestTimeout(error)) {
+              candidate.changed = true;
             }
-            if (stored?.connection.status !== 'active') {
-              throw new NeedsReauthError(hostedMcpConnectionId(candidate.entry), 'The connection access changed while this request was waiting. No request was sent.');
-            }
-            if (options?.signal?.aborted) throw new IntegrationError('denied', 'The queued request was cancelled. No request was sent.');
-            try { return await connected.callTool(params, ...(options ? [options] : [])); }
-            catch (error) {
-              // Stop queued sends before releasing this account's slot when the
-              // transport really fails. One timeout or caller cancellation is local.
-              if (!(error instanceof DOMException && error.name === 'AbortError') && !await isMcpRequestTimeout(error)) {
-                candidate.changed = true;
-              }
-              throw error;
-            }
-          };
-          return maxConcurrentCalls ? withMcpCallSlot(callKey, maxConcurrentCalls, dispatch, options?.signal) : dispatch();
+            throw error;
+          }
         },
       });
       candidate.discoveryStarted = true;
@@ -786,7 +780,7 @@ async function build(): Promise<Built> {
               if ((error instanceof IntegrationError && (error.code === 'tools_changed' || error.code === 'denied')) ||
                   (error instanceof DOMException && error.name === 'AbortError')) throw error;
               // Expiring one request does not revoke credentials or break the
-              // shared transport. Other calls and queued work keep their slots.
+              // shared transport. Other in-flight calls continue.
               if (await isMcpRequestTimeout(error)) {
                 await finalizeMcpServer(snapshot, mcpStore, current => mcpStore.setHealth(current.id, {
                   lastStatus: current.lastStatus, lastError: current.lastError, lastFailure: current.lastFailure,

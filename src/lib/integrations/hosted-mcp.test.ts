@@ -77,8 +77,8 @@ afterEach(() => {
 describe('multiple hosted accounts', () => {
   const setupId = 'ae8c37c1-df91-4105-a738-6d2da375ad80';
 
-  it('adds a PostHog API-key account without replacing its existing OAuth account', async () => {
-    const provider = getHostedMcpProvider('posthog')!;
+  it.each(['posthog', 'openseo'])('adds a %s API-key account without replacing its existing OAuth account', async providerId => {
+    const provider = getHostedMcpProvider(providerId)!;
     const servers = freshStore(true), connections = connectionStore();
     const oauth = await ensureHostedMcpServer(provider, servers, connections, 'local');
     await servers.setOAuthState(oauth.id, { tokens: { access_token: 'existing-oauth-token' } });

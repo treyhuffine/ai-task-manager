@@ -253,6 +253,16 @@ export const INTEGRATION_META: Record<string, IntegrationMeta> = {
       'Data requests run without approval. Turn on Ask first for api_request to approve each one.',
     ],
   },
+  openseo: {
+    category: 'Websites & publishing',
+    description: 'Research keywords, rankings, backlinks and AI visibility, and manage SEO projects.',
+    docsUrl: 'https://www.openseo.so/docs/mcp',
+    setup: [
+      'Sign in to OpenSEO and approve access, or choose Use API key.',
+      'For an API key, open OpenSEO Settings > API keys, create a key and paste it here. The key acts as your OpenSEO account.',
+      'Live research and tracking can use OpenSEO credits. Saved project context and reports can be read without research credits.',
+    ],
+  },
   todoist: {
     category: 'Productivity',
     description: 'Manage tasks, projects, sections, and assignments.',

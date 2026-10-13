@@ -318,7 +318,7 @@ export interface ConnectionMetadata {
 }
 
 export interface ActionContext {
-  /** Trusted caller cancellation, including work waiting for a transport slot. */
+  /** Trusted caller cancellation for the request lifetime. */
   signal?: AbortSignal;
   connection: ConnectionMetadata;
   http: AuthedHttp;

@@ -32,8 +32,6 @@ export interface HostedMcpProvider {
   } | { kind: 'bearer'; label?: string; helpUrl?: string } | { kind: 'none' };
   /** Provider-specific write floor, for broad automation or administrative tools. */
   defaultMutationRisk?: 'medium' | 'high';
-  /** Trusted per-account upstream concurrency. Excess calls wait locally before transmission. */
-  maxConcurrentCalls?: number;
   /**
    * A documented API-key path alongside OAuth, without changing saved accounts. The key is
    * sent as `Bearer`, or with `basic` as HTTP Basic credentials (`login:password` in Base64).
@@ -148,9 +146,12 @@ export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
   // The same endpoint takes the API login and password as Basic credentials.
   // Data requests go through one `api_request` tool, a paid read with no write floor.
   { id: 'dataforseo', displayName: 'DataForSEO', url: 'https://mcp.dataforseo.com/v3/mcp',
-    maxConcurrentCalls: 3,
     auth: { kind: 'oauth', scopes: ['api'] },
     tokenAuth: { label: 'API login:password', helpUrl: 'https://app.dataforseo.com/api-access', scheme: 'basic' } },
+  // Public MCP OAuth clients use PKCE, mcp access and offline_access for refresh.
+  { id: 'openseo', displayName: 'OpenSEO', url: 'https://app.openseo.so/mcp',
+    auth: { kind: 'oauth', scopes: ['mcp', 'offline_access'], tokenEndpointAuthMethod: 'none', authorizeBeforeConnect: true },
+    tokenAuth: { label: 'OpenSEO API key', helpUrl: 'https://app.openseo.so/settings' } },
 ];
 
 export function getHostedMcpProvider(id: string): HostedMcpProvider | undefined {

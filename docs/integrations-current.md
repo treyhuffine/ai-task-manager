@@ -1,14 +1,14 @@
 # Current integration catalog
 
-After the eighth delivery wave and the local 1Password addition: **68 integrations, comprising 58 external MCP integrations and 10 native integrations.** The external entries include 57 remote services and one local desktop service. Reconciled against the TypeScript catalog on October 9, 2026. Implementation and validation details are in the [delivery tracker](integration-implementation.md) and [1Password guide](integrations-onepassword.md).
+After the eighth delivery wave, local 1Password and OpenSEO additions: **69 integrations, comprising 59 external MCP integrations and 10 native integrations.** The external entries include 58 remote services and one local desktop service. Reconciled against the TypeScript catalog on October 13, 2026. Implementation and validation details are in the [delivery tracker](integration-implementation.md) and [1Password guide](integrations-onepassword.md).
 
 **Hosted/external MCP** means the service supplies tool names, schemas and execution. We maintain connection setup, encrypted credentials, permissions and any typed app consumers. n8n connects to the user-selected instance, which may be self-hosted. **Native** means our code implements operations against the service API. Native does not imply the same tool surface Claude exposes.
 
 The eight registered-app integrations use official services of the kind exposed through Claude, with our own client registration. Hosted service adoption does not transfer Claude's app admission, account permissions or commercial terms. Generic client endpoints may differ from Claude-specific endpoints. No integration compatibility aliases remain.
 
-These entries are implemented and fixture-tested. They are not a claim that all 68 have passed real-account sign-in and workflow acceptance.
+These entries are implemented and fixture-tested. They are not a claim that all 69 have passed real-account sign-in and workflow acceptance.
 
-## Hosted MCP with browser sign-in (42)
+## Hosted MCP with browser sign-in (43)
 
 | Integration | Endpoint or setup |
 | --- | --- |
@@ -36,6 +36,7 @@ These entries are implemented and fixture-tested. They are not a claim that all 
 | n8n | Enter the instance URL |
 | Neon | `https://mcp.neon.tech/mcp` |
 | Notion | `https://mcp.notion.com/mcp` |
+| OpenSEO | `https://app.openseo.so/mcp`, or an OpenSEO API key |
 | Otter | `https://mcp.otter.ai/mcp` |
 | PayPal | Choose Production or Sandbox |
 | PostHog | `https://mcp.posthog.com/mcp` |
@@ -127,3 +128,5 @@ Hosted integrations support multiple labeled accounts with separate credentials,
 Runtime refresh lets already-started requests finish. Temporary discovery failures retain verified tool definitions and retry on access after fifteen seconds, keeping unavailable services distinct from rejected credentials. Paid calls are never replayed automatically. The [recovery guide](integrations-recovery.md) describes the behavior and retained health diagnostics.
 
 Todoist and Jira have typed consumers for the task picker using canonical hosted tools. They read accounts independently and preserve account labels, source links and partial results. ClickUp, Trello, TickTick and Wrike picker consumers remain pending authenticated contract capture. The [evidence and capture guide](integration-audit/task-picker-expansion.md) records the exact gaps. The retired Linear and Asana picker consumers are removed. These services remain available to agents through hosted tools, but their task-picker support needs validated current input/output schemas. Other hosted additions likewise expose agent tools without automatically adding deterministic picker integrations.
+
+OpenSEO adds keyword, SERP, backlink, rank tracking, AI visibility and saved project research through its [official hosted MCP](https://www.openseo.so/docs/mcp). It supports public OAuth with PKCE and refresh, or an OpenSEO API key. Ri preserves the provider's research, write and sharing annotations under the normal permission and approval gates. See the [OpenSEO implementation and validation notes](integration-audit/openseo.md).
