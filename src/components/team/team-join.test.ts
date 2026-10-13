@@ -43,6 +43,15 @@ async function render() {
   await act(async () => root.render(createElement(TeamJoin)));
 }
 
+it('asks for a team name in browser setup when the CLI did not supply one', async () => {
+  mocks.previewTeamLink.mockResolvedValue({ kind: 'team', state: 'valid', team: { id: 'team', name: 'Team' }, member: null, expiresAt: null });
+  await render();
+  expect(container.querySelector('h1')?.textContent).toBe('Set up your team');
+  expect(container.querySelector<HTMLInputElement>('#team-name')?.value).toBe('');
+  expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
+  expect(container.textContent).toContain('Your ownership stays with the team, even if you stop using this browser.');
+});
+
 it('fills the owner form with the team name already chosen at creation', async () => {
   await render();
   expect(container.querySelector<HTMLInputElement>('#team-name')?.value).toBe('Team Huffine');

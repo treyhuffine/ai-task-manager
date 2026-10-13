@@ -5,8 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { ensureHomeIdentity } from '@/lib/home/identity';
 import { readTeamIntent, teamIntentPath } from '@/lib/home/team-intent';
-import { createTeamOwner, getHome, inspectTeamGrant, teamHasOwner } from '@/lib/db/queries';
-import { finishSetup } from '@/lib/team/admission';
+import { createTeamOwner, getHome, inspectTeamGrant, listMembers, memberForApiKey, revokeApiKey, teamHasOwner } from '@/lib/db/queries';
+import { finishSetup, signIn } from '@/lib/team/admission';
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(), open: vi.fn(), confirm: vi.fn(), inspectTrust: vi.fn(), installTrust: vi.fn(),
@@ -53,11 +53,47 @@ afterEach(async () => {
   await home.cleanup();
 });
 
-function create(...args: string[]) {
+function runTeam(...args: string[]) {
   const program = new Command().exitOverride();
   registerTeamCommand(program);
-  return program.parseAsync(['node', 'ri', 'team', 'create', '--root', home.root, '--name', 'Acme', ...args]);
+  return program.parseAsync(['node', 'ri', 'team', ...args]);
 }
+
+function create(...args: string[]) {
+  return runTeam('create', '--root', home.root, '--name', 'Acme', ...args);
+}
+
+it('creates without a CLI name and accepts the team and owner names in browser setup', async () => {
+  await runTeam('create', '--root', home.root);
+  expect(process.exitCode).toBe(0);
+  expect(getHome()).toMatchObject({ kind: 'team', name: 'Team' });
+  const secret = new URLSearchParams(new URL(mocks.open.mock.calls[0][0]).hash.slice(1)).get('setup')!;
+  const admitted = finishSetup({ secret, teamName: 'Team Huffine', ownerName: 'Trey' }, null);
+  expect(admitted.member).toMatchObject({ name: 'Trey', role: 'owner' });
+  expect(getHome()?.name).toBe('Team Huffine');
+  await runTeam('create', '--root', home.root);
+  expect(mocks.open).toHaveBeenLastCalledWith(origin);
+  expect(getHome()?.name).toBe('Team Huffine');
+  expect(listMembers()).toHaveLength(1);
+});
+
+it('recovers the same owner from the host after the only browser sign-in is revoked', async () => {
+  await create('--no-open');
+  const owner = createTeamOwner({ creationId: readTeamIntent()!.creationId, name: 'Trey', device: { name: 'Original browser', kind: 'computer' } });
+  revokeApiKey(owner.key.id);
+  expect(memberForApiKey(owner.key.id)).toBeNull();
+  expect(teamHasOwner()).toBe(true);
+  vi.mocked(console.log).mockClear();
+  await runTeam('owner-sign-in');
+  const link = vi.mocked(console.log).mock.calls.map(([value]) => value).find((value) => String(value).startsWith(`${origin}/join#sign-in=`));
+  expect(link).toBeDefined();
+  const secret = new URLSearchParams(new URL(String(link)).hash.slice(1)).get('sign-in')!;
+  const recovered = signIn({ secret }, null);
+  expect(recovered.member).toMatchObject({ id: owner.member.id, name: 'Trey', role: 'owner' });
+  expect(recovered.token).not.toBe(owner.token.plaintext);
+  expect(listMembers()).toHaveLength(1);
+  expect(inspectTeamGrant(secret, 'sign_in').state).toBe('used');
+});
 
 it('creates and starts the team, offers certificate trust and opens a real owner setup grant', async () => {
   await create();

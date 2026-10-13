@@ -161,6 +161,28 @@ async function joinInBrowserWith(link: string, name: string) {
 }
 
 describe('Connect to My Ri', () => {
+  it('keeps personal Home owner access after the setup browser signs out', async () => {
+    const { teamTRPC } = await import('./remote');
+    const ownerLink = (await (await owner()).team.signIns.create.mutate()).link;
+    const response = await fetch(`${team.url}/api/team/public/sign-in`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret: new URLSearchParams(new URL(ownerLink).hash.slice(1)).get('sign-in') }),
+    });
+    expect(response.status).toBe(200);
+    const browser = await response.json() as { token: string; member: { id: string } };
+    const browserClient = teamTRPC(team.url, browser.token);
+    const { connectTeam, teamFor } = await import('./connect');
+    const connection = await connectTeam({ link: (await browserClient.team.signIns.create.mutate()).link });
+    expect(connection.memberId).toBe(browser.member.id);
+    await browserClient.team.signIns.signOut.mutate();
+    expect(await status(browserClient.team.me.query())).toBe('signed_out');
+    const fromHome = (await teamFor(connection.id))!.client;
+    expect(await fromHome.team.me.query()).toMatchObject({ member: { id: browser.member.id, role: 'owner' } });
+    // Owner authority, including inviting someone, survives closing that browser.
+    expect((await fromHome.team.invitations.create.mutate()).link).toContain('/join#invite=');
+  }, 60_000);
+
   it('refuses admission for a different team before looking up or forwarding an existing key', async () => {
     const { connectTeam } = await import('./connect');
     const saved = await connectTeam({ link: await invitation(), name: 'Existing' });

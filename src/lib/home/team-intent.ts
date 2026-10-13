@@ -18,12 +18,11 @@ import path from 'node:path';
 import { atomicWriteFile } from '@/lib/config/atomic-write';
 import { getConfigDir, getConnectionPath, getDbPath } from '@/lib/config/paths';
 import { retiredHomes } from '@/lib/home/retired';
+import { DEFAULT_TEAM_NAME, TEAM_NAME_MAX } from '@/constants/team';
 
 export const TEAM_INTENT_FILE = 'team.json';
 export const TEAM_INTENT_VERSION = 1;
-/** What a team is called until its owner names it. */
-export const DEFAULT_TEAM_NAME = 'Team';
-export const TEAM_NAME_MAX = 80;
+export { DEFAULT_TEAM_NAME, TEAM_NAME_MAX } from '@/constants/team';
 
 export interface TeamIntent {
   version: typeof TEAM_INTENT_VERSION;

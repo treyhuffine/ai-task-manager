@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { getAuthToken } from '@/lib/api/client';
+import { DEFAULT_TEAM_NAME, TEAM_NAME_MAX } from '@/constants/team';
 import {
   finishTeamSetup,
   joinTeam,
@@ -231,12 +232,12 @@ function SignInHere({ link, team, member }: { link: Link; team: string; member: 
 }
 
 function SetupForm({ link, team }: { link: Link; team: string }) {
-  const [teamName, setTeamName] = useState(() => readSetupAttempt(link.secret)?.teamName ?? team);
+  const [teamName, setTeamName] = useState(() => readSetupAttempt(link.secret)?.teamName ?? (team === DEFAULT_TEAM_NAME ? '' : team));
   const [ownerName, setOwnerName] = useState(() => readSetupAttempt(link.secret)?.ownerName ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <TeamGate title={`Finish setting up ${team}`} footer="After setup, connect your personal Ri from Settings, You, Connect to My Ri.">
+    <TeamGate title="Set up your team" footer="After setup, connect your personal Ri from Settings, You, Connect to My Ri. Your ownership stays with the team, even if you stop using this browser.">
       <form
         className="space-y-3"
         onSubmit={(e) => {
@@ -256,8 +257,8 @@ function SetupForm({ link, team }: { link: Link; team: string }) {
           );
         }}
       >
-        <GateField id="team-name" label="Team name" hint="Already filled in from this team's setup. You can change it later." value={teamName} onChange={(e) => setTeamName(e.target.value)} maxLength={80} />
-        <GateField id="owner-name" label="Your name" hint="Your name on shared work. Connecting your personal Ri later keeps this same membership." value={ownerName} onChange={(e) => setOwnerName(e.target.value)} autoComplete="name" autoFocus maxLength={80} />
+        <GateField id="team-name" label="Team name" hint="What everyone sees. You can change it later." placeholder="e.g. Family" value={teamName} onChange={(e) => setTeamName(e.target.value)} autoFocus={team === DEFAULT_TEAM_NAME} maxLength={TEAM_NAME_MAX} />
+        <GateField id="owner-name" label="Your name" hint="Your name on shared work. Connecting your personal Ri later keeps this same membership." value={ownerName} onChange={(e) => setOwnerName(e.target.value)} autoComplete="name" autoFocus={team !== DEFAULT_TEAM_NAME} maxLength={80} />
         {error && <GateNotice tone="error">{error}</GateNotice>}
         <GateButton type="submit" busy={busy} disabled={!teamName.trim() || !ownerName.trim()}>
           Become the owner

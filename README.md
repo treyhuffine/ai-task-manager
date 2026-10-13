@@ -94,18 +94,26 @@ For a source installation, run `ri start` from the repository directory so it ca
 To host a team alongside your personal Home, run one command from the repository:
 
 ```bash
-ri team create --root "$HOME/family-team" --name "Family"
+ri team create --root "$HOME/family-team"
 ```
 
-The command prepares the team folder, starts its background service on a free HTTPS port and opens owner setup in your browser. Installing local certificate trust is optional. Choose No to skip, or approve the native administrator authorization dialog if prompted. Name yourself in the browser, then invite people from the team's Settings. The team keeps running after Terminal closes.
+The command prepares the team folder, starts its background service on a free HTTPS port and opens owner setup in your browser. Installing local certificate trust is optional. Choose No to skip, or approve the native administrator authorization dialog if prompted. Name the team and yourself in the browser, then invite people from the team's Settings. The team keeps running after Terminal closes.
 
 If certificate trust is skipped, fails or is canceled, setup still opens in your browser. The browser may show a certificate warning for the local address. You can retry trust installation later with the same command. Owner setup needs the full printed `/join#setup=…` link. Visiting only the team's base address shows “This team is being set up” until you finish that form.
 
 Retrying the same command resumes an interrupted setup with the same team and data. Once the team has an owner, it opens the existing team instead of offering another owner setup. Your personal Home at `~/ri` stays separate. If a foreground `ri start` still runs for this team, stop it with Ctrl-C first.
 
-Owner setup fills in the team name chosen in the CLI. Your name is the team's member name, so people can recognize your shared work. It does not create a personal Home, and connecting an existing personal Home later uses the same member.
+The team name belongs in browser setup. Your name is the team's member name, so people can recognize your shared work. It does not create a personal Home, and connecting an existing personal Home later uses the same member. Older commands with `--name` still prefill the team name.
 
 To connect your personal Ri, finish owner setup, then open the team's Settings. Under **Where people reach the team**, use **Get an address with Beamd** or configure your own reachable, trusted HTTPS address. Under **You**, select **Connect to My Ri** and copy the sign-in link. In your personal Ri, open **Settings → Teams**, paste that link and select **Connect** within 15 minutes. A sign-in link preserves your existing membership and does not ask for your name again. The personal Home verifies the team's certificate itself, so accepting a local browser warning does not make an untrusted localhost link work there.
+
+Ownership lives in the team's database. The single-use setup link creates the owner and gives that browser a sign-in. Connecting your personal Home gives it a separate sign-in for the same owner, so signing out or losing the original browser does not remove ownership or disconnect your Home. From an existing sign-in, **Settings → You → Sign in on another device** creates a link for a new browser. If every sign-in is lost, run this on the computer hosting the team and open the link it prints:
+
+```bash
+RI_ROOT="$HOME/family-team" ri team owner-sign-in
+```
+
+This recovers the existing owner without creating another member. If there are several owners, use `team status` to find your member ID, then pass `--member <id>`.
 
 For automation, `--no-open` prints the link without opening a browser or changing trust. `--no-start` keeps the provisioning-only operation. `--trust-local` explicitly allows certificate trust installation without the interactive question. The lower-level `service start`, `team setup-link` and `tls trust` commands remain available for administration. A local link opens only on the hosting computer until the team has a reachable HTTPS address.
 

@@ -14,16 +14,20 @@ for (const name of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR', 'RI_BRAIN_PATH
   'RI_SESSION_CREDENTIAL', 'RI_SESSION_CLI', 'NODE_OPTIONS', 'ELECTRON_RUN_AS_NODE']) delete env[name];
 
 try {
-  for (const args of [['--help'], ['start', '--help']]) {
+  for (const args of [['--help'], ['start', '--help'], ['team', 'create', '--help']]) {
     const output = execFileSync(process.execPath, [path.join(repo, 'dist/cli/index.mjs'), ...args], {
       cwd: repo, env, encoding: 'utf8', timeout: 30_000,
     });
     assert.match(output, /Usage: ri/);
+    if (args[0] === 'team') {
+      assert.doesNotMatch(output, /--name/);
+      assert.match(output, /Name your team.*browser/);
+    }
   }
   assert.deepEqual(fs.readdirSync(root), [], 'CLI help must not initialize a Home');
   const teamRoot = path.join(root, 'team root');
   execFileSync(process.execPath, [path.join(repo, 'dist/cli/index.mjs'), 'team', 'create', '--root', teamRoot,
-    '--name', 'CLI fixture', '--no-start'], { cwd: repo, env, encoding: 'utf8', timeout: 30_000 });
+    '--no-start'], { cwd: repo, env, encoding: 'utf8', timeout: 30_000 });
   assert.deepEqual(fs.readdirSync(root), ['team root'], 'explicit team target must be selected before CLI activity writes');
   assert.equal(JSON.parse(fs.readFileSync(path.join(teamRoot, '.config/team.json'), 'utf8')).kind, 'team');
   assert(!fs.existsSync(path.join(teamRoot, 'data.db')), 'provision-only creation must not open a database or service');

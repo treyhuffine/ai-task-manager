@@ -3,7 +3,7 @@
  *
  * For hosting a team on a server, or any computer, from a terminal:
  *
- *   ri team create --root ~/acme-team --name Acme
+ *   ri team create --root ~/acme-team
  *
  * Declares the team, starts its background service and opens owner setup.
  * Retrying resumes the same folder. --no-start only provisions the folder,
@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import pc from 'picocolors';
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import { randomBytes } from 'node:crypto';
 import { confirm, isCancel } from '@clack/prompts';
 import { APP_SHORT_ID } from '@/constants/app';
@@ -78,7 +78,9 @@ export function registerTeamCommand(program: Command) {
     .command('create')
     .description('Create a team, start it in the background and open setup')
     .option('--root <dir>', 'the folder for the team (default: this root)')
-    .option('--name <name>', "the team's name, editable later")
+    // Keep existing scripts working. People name the team in browser setup.
+    .addOption(new Option('--name <name>', 'prefill the team name during setup').hideHelp())
+    .addHelpText('after', '\nName your team and become its owner in the browser that opens.')
     .option('--no-start', 'only prepare the team folder, without starting its service')
     .option('--no-open', 'print the setup link without opening a browser or changing certificate trust')
     .option('--trust-local', 'allow installation of this team’s local HTTPS certificate trust')
