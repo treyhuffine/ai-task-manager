@@ -257,7 +257,7 @@ function SetupForm({ link, team }: { link: Link; team: string }) {
           );
         }}
       >
-        <GateField id="team-name" label="Team name" hint="What everyone sees. You can change it later." placeholder="e.g. Family" value={teamName} onChange={(e) => setTeamName(e.target.value)} autoFocus={team === DEFAULT_TEAM_NAME} maxLength={TEAM_NAME_MAX} />
+        <GateField id="team-name" label="Team name" hint="What everyone sees. You can change it later." placeholder="Name your team" value={teamName} onChange={(e) => setTeamName(e.target.value)} autoFocus={team === DEFAULT_TEAM_NAME} maxLength={TEAM_NAME_MAX} />
         <GateField id="owner-name" label="Your name" hint="Your name on shared work. Connecting your personal Ri later keeps this same membership." value={ownerName} onChange={(e) => setOwnerName(e.target.value)} autoComplete="name" autoFocus={team !== DEFAULT_TEAM_NAME} maxLength={80} />
         {error && <GateNotice tone="error">{error}</GateNotice>}
         <GateButton type="submit" busy={busy} disabled={!teamName.trim() || !ownerName.trim()}>
