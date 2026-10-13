@@ -16,16 +16,33 @@ export function teamAddressSettings() {
     local: snapshot.local,
     autoTunnel: snapshot.autoTunnel,
     tunnelName: snapshot.effectiveTunnelName,
-    suggestedName: previewName(getHome()?.name ?? 'team'),
+    suggestedName: snapshot.tunnelName ?? previewName(getHome()?.name ?? 'team'),
     nameLocked: snapshot.tunnelNameLocked,
   };
 }
 
-/** Open and verify first. A failed rename leaves the working address intact. */
-export async function openTeamBeamdAddress(port: number, requestedName?: string) {
-  const name = normalizeTunnelName(requestedName ?? appBeamdTunnelName());
+function validatedTeamPrefix(requestedName: string) {
+  const name = normalizeTunnelName(requestedName);
   if (!isValidPreviewLabel(name)) throw new Error(`Use letters, numbers and hyphens, up to ${MAX_LABEL_LENGTH} characters. Start and end with a letter or number.`);
   if (tunnelNameIsEnvLocked() && name !== appBeamdTunnelName()) throw new Error('The hosting computer controls this address prefix. Ask its administrator to change RI_TUNNEL_NAME.');
+  return name;
+}
+
+/** First-run preference only. Choosing a name never opts into a remote service. */
+export function saveTeamAddressPrefix(requestedName: string) {
+  const name = validatedTeamPrefix(requestedName);
+  const snapshot = baseUrlSnapshot();
+  if (snapshot.tunnel || snapshot.autoTunnel) {
+    if (name !== snapshot.effectiveTunnelName) throw new Error('This team already has remote access configured. Change its address in Settings.');
+  } else {
+    writeAuthConfig({ tunnelName: name });
+  }
+  return teamAddressSettings();
+}
+
+/** Open and verify first. A failed rename leaves the working address intact. */
+export async function openTeamBeamdAddress(port: number, requestedName?: string) {
+  const name = validatedTeamPrefix(requestedName ?? appBeamdTunnelName());
   await beamdCheck();
   const opened = await openOwnedTunnel(port, name);
   const address = await verifyTeamAddress(opened.url);

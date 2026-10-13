@@ -342,6 +342,18 @@ describe('getting in', () => {
     expect(await client.team.address.get.query()).toMatchObject({ address: null, autoTunnel: false });
   });
 
+  it('lets only an owner save a setup prefix without enabling remote access', async () => {
+    const member = await clientFor((await joinAs('Bo')).token);
+    expect(await status(member.team.address.savePrefix.mutate({ name: 'team-huffine' }))).toBe(403);
+    const client = await clientFor(owner.token);
+    expect(await status(client.team.address.savePrefix.mutate({ name: 'bad name' }))).toBe(400);
+    expect(await client.team.address.savePrefix.mutate({ name: 'Team-Huffine' })).toMatchObject({ tunnelName: 'team-huffine', suggestedName: 'team-huffine', address: null, autoTunnel: false });
+    expect(await client.team.address.get.query()).toMatchObject({ suggestedName: 'team-huffine', address: null, autoTunnel: false });
+    expect(await status(client.team.invitations.createRemote.mutate())).toBe(412);
+    expect(beamd.check).not.toHaveBeenCalled();
+    expect(beamd.open).not.toHaveBeenCalled();
+  });
+
   it('verifies the configured HTTPS address and never advertises an unreachable one as reachable', async () => {
     const q = await import('@/lib/db/queries');
     const probe = q.createTeamAddressProbe();

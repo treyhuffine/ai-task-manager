@@ -17,7 +17,7 @@ import * as q from '@/lib/db/queries';
 import { memberProcedure, ownerProcedure, router } from '@/lib/trpc/init';
 import { teamLink } from './links';
 import { teamSummary } from './summary';
-import { teamAddressSettings, teamLinkAddress, verifyTeamAddress, openTeamBeamdAddress, isLoopbackTeamAddress, normalizeTeamAddress } from './address';
+import { teamAddressSettings, teamLinkAddress, verifyTeamAddress, openTeamBeamdAddress, saveTeamAddressPrefix, isLoopbackTeamAddress, normalizeTeamAddress } from './address';
 
 const nameInput = z.object({ name: z.string().min(1).max(q.MEMBER_NAME_MAX) }).strict();
 const idInput = z.object({ id: z.string().min(1) }).strict();
@@ -119,6 +119,13 @@ export const teamRouter = router({
    */
   address: router({
     get: ownerProcedure.query(() => teamAddressSettings()),
+    savePrefix: ownerProcedure.input(z.object({ name: z.string().min(1).max(63) }).strict()).mutation(({ input }) => {
+      try {
+        return saveTeamAddressPrefix(input.name);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'That prefix is not valid.' });
+      }
+    }),
     set: ownerProcedure.input(z.object({ address: z.string().min(1).max(2048) }).strict()).mutation(async ({ input }) => {
       try {
         if (isLoopbackTeamAddress(normalizeTeamAddress(input.address))) throw new Error('Choose an address other devices can reach. A localhost address only works on the hosting computer.');

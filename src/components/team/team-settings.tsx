@@ -49,7 +49,7 @@ export function TeamSettings() {
         }}
       >
         <DialogHeader className="border-b border-border px-5 py-5 pr-12 text-left">
-          <DialogTitle className="text-[15px] font-semibold">{settingUp ? 'Use this team on other devices?' : 'Settings'}</DialogTitle>
+          <DialogTitle className="text-[15px] font-semibold">{settingUp ? 'Choose a team prefix' : 'Settings'}</DialogTitle>
           <DialogDescription className="sr-only">The team, its people, and you.</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto overflow-x-hidden px-5 py-5">

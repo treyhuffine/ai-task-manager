@@ -9,7 +9,8 @@ import { appBeamdTunnelName } from '@/lib/auth/beamd-base-url';
 const mocks = vi.hoisted(() => ({ check: vi.fn(), open: vi.fn() }));
 vi.mock('@/lib/preview/beamd/cli', () => ({ beamdCheck: mocks.check }));
 vi.mock('@/lib/preview/beamd/ownership', () => ({ openOwnedTunnel: mocks.open }));
-import { openTeamBeamdAddress, teamAddressSettings } from './address';
+import { openTeamBeamdAddress, saveTeamAddressPrefix, teamAddressSettings } from './address';
+import { getAutoTunnel } from '@/lib/auth/bootstrap';
 
 let home: TestHome;
 beforeEach(async () => {
@@ -36,6 +37,40 @@ afterEach(async () => {
 it('suggests the name chosen in browser setup without moving an existing fallback address', () => {
   expect(teamAddressSettings()).toMatchObject({ suggestedName: 'team-huffine', tunnelName: 'ri-team-1234', address: null });
   expect(appBeamdTunnelName()).toBe('ri-team-1234');
+});
+
+it('saves a prefix for later without enabling remote access or contacting a provider', () => {
+  expect(saveTeamAddressPrefix(' Huffines ')).toMatchObject({ suggestedName: 'huffines', tunnelName: 'huffines', address: null, autoTunnel: false });
+  expect(readAuthConfig()).toMatchObject({ tunnelName: 'huffines', tunnelUrl: null, autoTunnel: null });
+  expect(getAutoTunnel()).toBe(false);
+  renameTeam('A different name');
+  expect(teamAddressSettings().suggestedName).toBe('huffines');
+  expect(mocks.check).not.toHaveBeenCalled();
+  expect(mocks.open).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it.each(['', 'has spaces', '-starts', 'x'.repeat(64)])('refuses an invalid saved prefix: %s', (name) => {
+  expect(() => saveTeamAddressPrefix(name)).toThrow('Use letters');
+  expect(appBeamdTunnelName()).toBe('ri-team-1234');
+});
+
+it.each([
+  { tunnelUrl: 'https://existing.example.com', autoTunnel: false },
+  { tunnelUrl: null, autoTunnel: true },
+])('does not let stale setup change an existing remote configuration: %j', (remote) => {
+  writeAuthConfig({ tunnelName: 'existing', ...remote });
+  const before = readAuthConfig();
+  expect(() => saveTeamAddressPrefix('huffines')).toThrow('already has remote access configured');
+  expect(() => saveTeamAddressPrefix('existing')).not.toThrow();
+  expect(readAuthConfig()).toEqual(before);
+});
+
+it('respects a host-controlled prefix when saving for later', () => {
+  vi.stubEnv('RI_TUNNEL_NAME', 'host-chosen');
+  expect(() => saveTeamAddressPrefix('huffines')).toThrow('hosting computer controls');
+  expect(saveTeamAddressPrefix('host-chosen')).toMatchObject({ tunnelName: 'host-chosen', autoTunnel: false });
+  expect(mocks.open).not.toHaveBeenCalled();
 });
 
 it('opens the chosen prefix on the team port and persists the verified address and reconnect choice together', async () => {

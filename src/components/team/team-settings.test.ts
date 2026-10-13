@@ -63,10 +63,10 @@ async function click(label: string) {
   await settle();
 }
 
-it('offers remote setup before any sharing controls after owner creation', async () => {
+it('offers provider-neutral prefix setup after owner creation', async () => {
   mocks.remoteSetup = true;
   await render();
-  expect(container.textContent).toContain('Use this team on other devices?');
+  expect(container.textContent).toContain('Choose a team prefix');
   expect(container.textContent).not.toContain('Invite people');
   expect(container.textContent).not.toContain('Connect to My Ri');
   await click('Remote address setup');
