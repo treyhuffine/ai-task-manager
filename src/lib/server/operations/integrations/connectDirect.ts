@@ -1,5 +1,6 @@
 import { INTEGRATION_LABELS } from '@/constants/integrations';
-import { ensureHostedMcpServer, hostedAccountSelection, hostedMcpConnectionId, hostedMcpDefinition } from '@/lib/integrations/hosted-mcp';
+import { ensureHostedMcpServer, hostedAccountSelection, hostedMcpConnectionId, hostedMcpDefinition, resolveHostedMcpAccount } from '@/lib/integrations/hosted-mcp';
+import { hostedMcpAuthDefinition, resolveHostedMcpUrl } from '@/lib/integrations/hosted-endpoint';
 import { buildCredential, getIntegrationConnectionStore, getIntegrationOwnerId, getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime } from '@/lib/integrations/runtime';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { isIntegrationError } from '@integrations/engine';
@@ -18,6 +19,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     label?: unknown;
     endpointId?: unknown;
     instanceUrl?: unknown;
+    authMethod?: unknown;
     existingConnectionId?: unknown;
     serverId?: unknown;
     addAccount?: unknown;
@@ -26,21 +28,26 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
   const providerId = typeof body.providerId === 'string' ? body.providerId : '';
   if (!providerId) return reply({ error: 'providerId required' }, { status: 400 });
   const hosted = getHostedMcpProvider(providerId);
-  if (hosted && (!hosted.auth || hosted.auth.kind === 'oauth') && !hosted.tokenAuth) {
-    return reply({ error: `This ${INTEGRATION_LABELS.singular.toLowerCase()} uses browser sign-in. Connect it from Settings.` }, { status: 400 });
-  }
   const fields =
     body.fields && typeof body.fields === 'object' ? (body.fields as Record<string, string>) : {};
 
   if (hosted) {
     const token = typeof fields.token === 'string' ? fields.token.trim() : '';
-    if ((hosted.auth?.kind === 'bearer' || hosted.tokenAuth) && !token) return reply({ error: 'A connection token is required.' }, { status: 400 });
-    if (hosted.auth?.kind === 'none' && Object.keys(fields).length > 0) return reply({ error: `This ${INTEGRATION_LABELS.singular.toLowerCase()} does not accept credentials.` }, { status: 400 });
     try {
       const servers = getMcpServerStore();
+      const selection = hostedAccountSelection(body);
+      const existing = await resolveHostedMcpAccount(hosted, servers, getIntegrationConnectionStore(), getIntegrationOwnerId(), selection);
+      const url = hosted.endpoint?.kind === 'deployment'
+        ? existing && body.endpointId === undefined && body.instanceUrl === undefined ? existing.url : resolveHostedMcpUrl(hosted, body)
+        : hosted.url ?? '';
+      const selfHosted = hosted.endpoint?.kind === 'deployment' && url !== hosted.endpoint.hostedUrl;
+      const effective = hostedMcpAuthDefinition(hosted, url, body.authMethod ?? (selfHosted && existing?.url === url ? existing.auth.kind : undefined));
+      if ((!effective.auth || effective.auth.kind === 'oauth') && !effective.tokenAuth) return reply({ error: `This ${INTEGRATION_LABELS.singular.toLowerCase()} uses browser sign-in. Connect it from Settings.` }, { status: 400 });
+      if ((effective.auth?.kind === 'bearer' || effective.tokenAuth) && !token) return reply({ error: 'A connection token is required.' }, { status: 400 });
+      if (effective.auth?.kind === 'none' && Object.keys(fields).length > 0) return reply({ error: `This ${INTEGRATION_LABELS.singular.toLowerCase()} does not accept credentials.` }, { status: 400 });
       const entry = await ensureHostedMcpServer(hosted, servers, getIntegrationConnectionStore(), getIntegrationOwnerId(), {
-        ...hostedAccountSelection(body),
-        ...(token ? { secret: token } : {}), endpointId: body.endpointId, instanceUrl: body.instanceUrl,
+        ...selection,
+        ...(token ? { secret: token } : {}), endpointId: body.endpointId, instanceUrl: body.instanceUrl, authMethod: body.authMethod,
       });
       invalidateIntegrationRuntime();
       await getIntegrationRuntime();
@@ -83,4 +90,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
   }
 }
 
-export const POSTInput = rpcZ.object({ body: rpcZ.object({ "providerId": rpcZ.string().optional(), "fields": rpcZ.record(rpcZ.string(), rpcZ.string()).optional(), "label": rpcZ.string().nullable().optional(), "endpointId": rpcZ.string().optional(), "instanceUrl": rpcZ.string().optional(), "existingConnectionId": rpcZ.string().optional(), "serverId": rpcZ.string().optional(), "addAccount": rpcZ.boolean().optional(), "setupId": rpcZ.string().optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ body: rpcZ.object({ "providerId": rpcZ.string().optional(), "fields": rpcZ.record(rpcZ.string(), rpcZ.string()).optional(), "label": rpcZ.string().nullable().optional(), "endpointId": rpcZ.string().optional(), "instanceUrl": rpcZ.string().optional(), "authMethod": rpcZ.enum(["oauth", "none"]).optional(), "existingConnectionId": rpcZ.string().optional(), "serverId": rpcZ.string().optional(), "addAccount": rpcZ.boolean().optional(), "setupId": rpcZ.string().optional() }).strict().default({}) }).strict();

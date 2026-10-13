@@ -537,3 +537,36 @@ it('marks old tokens for sign-in once, preserving other providers and owners', a
   expect(rows[2]?.status).toBe('active');
   expect(rows[3]?.status).toBe('active');
 });
+
+
+describe('OpenSEO self-hosted accounts', () => {
+  const provider = getHostedMcpProvider('openseo')!;
+  it('adds Docker and Cloudflare instances beside existing hosted credentials and keeps every binding immutable', async () => {
+    const servers = freshStore(true);
+    const connections = connectionStore();
+    const hosted = await ensureHostedMcpServer(provider, servers, connections, 'local', { secret: 'hosted-api-key' });
+    expect(hosted.accountId).toBe('openseo:default');
+    const docker = await ensureHostedMcpServer(provider, servers, connections, 'local', { addAccount: true, endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none', label: 'Docker' });
+    const cloudflare = await ensureHostedMcpServer(provider, servers, connections, 'local', { addAccount: true, endpointId: 'selfhosted', instanceUrl: 'https://seo.example', authMethod: 'oauth' });
+    expect(docker).toMatchObject({ providerId: 'openseo', url: 'http://localhost:3000/mcp', auth: { kind: 'none' } });
+    expect(hostedMcpDefinition(cloudflare)).toMatchObject({ auth: { kind: 'oauth' }, tokenAuth: undefined });
+    expect(hostedMcpDefinition(cloudflare)?.auth).not.toHaveProperty('scopes');
+    expect(await servers.openSecret(hosted.id)).toBe('hosted-api-key');
+    expect(await servers.openSecret(docker.id)).toBeNull();
+    expect(await hostedMcpRequiresAuth(docker, servers)).toBe(false);
+    expect(await ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: docker.id })).toEqual(docker);
+    expect(new Set(servers.list().map(entry => entry.accountId)).size).toBe(3);
+    await expect(ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: docker.id, authMethod: 'oauth' })).rejects.toThrow('different connection method');
+    await expect(ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: docker.id, endpointId: 'selfhosted', instanceUrl: 'https://other.example', authMethod: 'none' })).rejects.toThrow('before changing');
+    await expect(ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: hosted.id, endpointId: 'selfhosted', instanceUrl: 'https://other.example', secret: 'hosted-api-key' })).rejects.toThrow('does not accept a token');
+  });
+  it('preserves legacy hosted account IDs and rejects unsupported authentication without creating an entry', async () => {
+    const servers = freshStore();
+    const old = await servers.create({ providerId: 'openseo', slug: 'builtin_openseo', displayName: 'OpenSEO', connectionId: 'hosted-openseo', accountId: 'openseo:default', url: 'https://app.openseo.so/mcp', auth: { kind: 'oauth' } });
+    expect(await ensureHostedMcpServer(provider, servers, connectionStore(), 'local')).toEqual(old);
+    for (const options of [{ addAccount: true, authMethod: 'none' }, { addAccount: true, endpointId: 'selfhosted', instanceUrl: 'https://seo.example', authMethod: 'bearer' }, { addAccount: true, endpointId: 'selfhosted', instanceUrl: 'https://seo.example', authMethod: 'none', secret: 'wrong-key' }]) {
+      await expect(ensureHostedMcpServer(provider, servers, connectionStore(), 'local', options)).rejects.toThrow();
+    }
+    expect(servers.list()).toHaveLength(1);
+  });
+});

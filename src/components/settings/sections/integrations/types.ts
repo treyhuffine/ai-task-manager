@@ -33,6 +33,7 @@ export interface HostedConnectIntent {
   label?: string;
   endpointId?: string;
   instanceUrl?: string;
+  authMethod?: 'oauth' | 'none';
   fields?: Record<string, string>;
 }
 

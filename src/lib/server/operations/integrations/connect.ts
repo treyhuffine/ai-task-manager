@@ -1,6 +1,7 @@
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { beginConnect } from '@/lib/integrations/begin-connect';
 import { ensureHostedMcpServer, hostedAccountSelection, resolveHostedMcpAccount } from '@/lib/integrations/hosted-mcp';
+import { hostedMcpAuthDefinition, resolveHostedMcpUrl } from '@/lib/integrations/hosted-endpoint';
 import { usesRegisteredOAuth } from '@/lib/integrations/hosted-oauth-config';
 import { beginMcpAuthorization } from '@/lib/integrations/mcp-authorization';
 import { safeReturnPath } from '@/lib/integrations/oauth-return';
@@ -25,6 +26,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     returnTo?: unknown;
     endpointId?: unknown;
     instanceUrl?: unknown;
+    authMethod?: unknown;
     serverId?: unknown;
     addAccount?: unknown;
     setupId?: unknown;
@@ -37,11 +39,16 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
   try {
     const hosted = getHostedMcpProvider(providerId);
     if (hosted) {
-      if (hosted.auth && hosted.auth.kind !== 'oauth') {
-        return reply({ error: hosted.auth.kind === 'bearer' ? `This ${INTEGRATION_LABELS.singular.toLowerCase()} uses a connection token. Connect it from Settings.` : `This ${INTEGRATION_LABELS.singular.toLowerCase()} does not use browser sign-in. Connect it from Settings.` }, { status: 400 });
-      }
       const selection = hostedAccountSelection(body);
       const existing = await resolveHostedMcpAccount(hosted, getMcpServerStore(), getIntegrationConnectionStore(), getIntegrationOwnerId(), selection);
+      const url = hosted.endpoint?.kind === 'deployment'
+        ? existing && body.endpointId === undefined && body.instanceUrl === undefined ? existing.url : resolveHostedMcpUrl(hosted, body)
+        : hosted.url ?? '';
+      const selfHosted = hosted.endpoint?.kind === 'deployment' && url !== hosted.endpoint.hostedUrl;
+      const effective = hostedMcpAuthDefinition(hosted, url, body.authMethod ?? (selfHosted && existing?.url === url ? existing.auth.kind : undefined));
+      if (effective.auth && effective.auth.kind !== 'oauth') {
+        return reply({ error: effective.auth.kind === 'bearer' ? `This ${INTEGRATION_LABELS.singular.toLowerCase()} uses a connection token. Connect it from Settings.` : `This ${INTEGRATION_LABELS.singular.toLowerCase()} does not use browser sign-in. Connect it from Settings.` }, { status: 400 });
+      }
       const selectedId = typeof body.authConfigId === 'string' ? body.authConfigId : existing?.authConfigId;
       if (existing?.authConfigId && selectedId !== existing.authConfigId) throw new Error(`Disconnect this ${INTEGRATION_LABELS.singular.toLowerCase()} before changing its OAuth app.`);
       const registered = usesRegisteredOAuth(hosted);
@@ -51,7 +58,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
         if (selected) await selectHostedOAuthConfig(providerId, selected.config.id);
         return ensureHostedMcpServer(hosted, getMcpServerStore(), getIntegrationConnectionStore(), getIntegrationOwnerId(), {
           ...selection,
-          endpointId: body.endpointId, instanceUrl: body.instanceUrl,
+          endpointId: body.endpointId, instanceUrl: body.instanceUrl, authMethod: body.authMethod,
           ...(selected ? { authConfigId: selected.config.id } : {}),
         });
       };
@@ -79,4 +86,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
   }
 }
 
-export const POSTInput = rpcZ.object({ body: rpcZ.object({ "providerId": rpcZ.string().optional(), "scopes": rpcZ.array(rpcZ.string()).optional(), "label": rpcZ.string().nullable().optional(), "existingConnectionId": rpcZ.string().optional(), "authConfigId": rpcZ.string().optional(), "returnTo": rpcZ.string().optional(), "endpointId": rpcZ.string().optional(), "instanceUrl": rpcZ.string().optional(), "serverId": rpcZ.string().optional(), "addAccount": rpcZ.boolean().optional(), "setupId": rpcZ.string().optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ body: rpcZ.object({ "providerId": rpcZ.string().optional(), "scopes": rpcZ.array(rpcZ.string()).optional(), "label": rpcZ.string().nullable().optional(), "existingConnectionId": rpcZ.string().optional(), "authConfigId": rpcZ.string().optional(), "returnTo": rpcZ.string().optional(), "endpointId": rpcZ.string().optional(), "instanceUrl": rpcZ.string().optional(), "authMethod": rpcZ.enum(["oauth", "none"]).optional(), "serverId": rpcZ.string().optional(), "addAccount": rpcZ.boolean().optional(), "setupId": rpcZ.string().optional() }).strict().default({}) }).strict();

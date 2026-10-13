@@ -12,7 +12,7 @@ import { integrationEndpointSelection, type HostedEndpointSelection } from '@/li
 import { BackLink, Chip, ConnectFormSection, DetailHeader, GroupHeading } from './parts';
 import { Byo, ConnectPanel, ToolList, type ProviderDetailProps } from './provider-detail';
 import { CapabilityReview } from './capability-review';
-import { providerForHostedAccount } from './hosted-account-request';
+import { providerForHostedAccount, providerForHostedDeployment } from './hosted-account-request';
 import { connectionIdentity, isRegisteredMcp, type Connection, type HostedMcpAccount, type HostedConnectIntent } from './types';
 
 /** Account-scoped controls for built-in services, including unfinished sign-ins. */
@@ -108,11 +108,12 @@ function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAcc
       : props.provider.mcp?.authKind === 'none' ? {} : { addAccount: true, setupId };
   const baseProvider = providerForHostedAccount(props.provider, baseIntent, props.connections);
   const [method, setMethod] = useState(account?.authKind ?? baseProvider.mcp?.authKind ?? 'oauth');
-  const tokenAuth = props.provider.mcp?.tokenAuth;
+  const deployedProvider = providerForHostedDeployment(baseProvider, endpoint);
+  const tokenAuth = deployedProvider.mcp?.tokenAuth;
   const provider = method === 'bearer' && tokenAuth
-    ? { ...baseProvider, mcp: { ...baseProvider.mcp!, authKind: 'bearer' as const, credentialLabel: tokenAuth.label, helpUrl: tokenAuth.helpUrl } }
-    : baseProvider;
-  const needsLabel = !account && !previousConnection && provider.mcp?.authKind !== 'none';
+    ? { ...deployedProvider, mcp: { ...deployedProvider.mcp!, authKind: 'bearer' as const, credentialLabel: tokenAuth.label, helpUrl: tokenAuth.helpUrl } }
+    : deployedProvider;
+  const needsLabel = !account && !previousConnection && (provider.mcp?.authKind !== 'none' || provider.mcp?.endpointConfig?.kind === 'deployment');
   const ready = !needsLabel || !!label.trim();
   const intent = (): HostedConnectIntent => ({ ...baseIntent, label: label.trim() || undefined, fields: creds, ...integrationEndpointSelection(provider.mcp?.endpointConfig, endpoint) });
   const formProps: ProviderDetailProps = {
@@ -128,7 +129,7 @@ function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAcc
       <Button type="button" size="xs" variant={method === 'bearer' ? 'secondary' : 'ghost'} disabled={props.busy} onClick={() => { setMethod('bearer'); setCreds({}); }}>Use API key</Button>
     </div>}
     {needsLabel && <div className="space-y-1"><label htmlFor="hosted-account-label" className="text-xs font-medium">Account label</label><Input id="hosted-account-label" value={label} onChange={event => setLabel(event.target.value)} placeholder="Work or Personal" disabled={props.busy} required /></div>}
-    {provider.mcp?.endpointConfig && <HostedEndpointFields setup={provider.mcp.endpointConfig} value={endpoint} onChange={setEndpoint} disabled={props.busy} />}
+    {provider.mcp?.endpointConfig && <HostedEndpointFields setup={provider.mcp.endpointConfig} value={endpoint} onChange={selection => { setEndpoint(selection); setMethod('oauth'); setCreds({}); }} disabled={props.busy} />}
     <ConnectPanel {...formProps} />
     {isRegisteredMcp(provider) && provider.configured && <div className="space-y-2">
       <Button variant="ghost" size="xs" onClick={props.onToggleAdvanced} aria-expanded={props.advancedOpen}>OAuth apps</Button>

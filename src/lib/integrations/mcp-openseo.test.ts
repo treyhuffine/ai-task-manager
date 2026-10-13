@@ -37,7 +37,7 @@ describe('OpenSEO connector', () => {
   it('exposes the official service with OAuth, API-key setup and the SEO catalog category', () => {
     expect(PROVIDER_CATALOG.find(provider => provider.id === 'openseo')).toMatchObject({ displayName: 'OpenSEO', method: 'mcp' });
     expect(getHostedMcpProvider('openseo')).toMatchObject({
-      url: endpoint, auth: { kind: 'oauth', scopes: ['mcp', 'offline_access'], tokenEndpointAuthMethod: 'none', authorizeBeforeConnect: true },
+      endpoint: { kind: 'deployment', hostedUrl: endpoint, path: '/mcp' }, auth: { kind: 'oauth', scopes: ['mcp', 'offline_access'], tokenEndpointAuthMethod: 'none', authorizeBeforeConnect: true },
       tokenAuth: { label: 'OpenSEO API key', helpUrl: 'https://app.openseo.so/settings' },
     });
     expect(getHostedMcpProvider('openseo')?.defaultMutationRisk).toBeUndefined();
@@ -45,12 +45,12 @@ describe('OpenSEO connector', () => {
     expect(INTEGRATION_META.openseo).toMatchObject({ category: 'Websites & publishing', docsUrl: 'https://www.openseo.so/docs/mcp' });
   });
 
-  it('uses Bearer API keys through the real SDK for discovery and tool dispatch', async () => {
+  it.each([{ deployment: 'hosted API key', url: endpoint, secret: key }, { deployment: 'self-hosted Docker', url: 'http://localhost:3000/mcp', secret: undefined }])('uses $deployment through the real SDK for discovery and tool dispatch', async ({ url, secret }) => {
     const methods: string[] = [];
     vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
-      expect(request.url).toBe(endpoint);
-      expect(request.headers.get('Authorization')).toBe(`Bearer ${key}`);
+      expect(request.url).toBe(url);
+      expect(request.headers.get('Authorization')).toBe(secret ? `Bearer ${secret}` : null);
       if (request.method === 'GET') return new Response(null, { status: 405 });
       const message = await request.json() as { id?: number; method: string };
       methods.push(message.method);
@@ -61,7 +61,7 @@ describe('OpenSEO connector', () => {
           : { content: [{ type: 'text', text: 'Projects' }], structuredContent: { projects: [{ id: 'fixture-project' }] } };
       return Response.json({ jsonrpc: '2.0', id: message.id, result });
     }));
-    const client = await connectMcpClient({ url: endpoint, headers: mcpAuthHeaders({ kind: 'bearer' }, key) });
+    const client = await connectMcpClient({ url, ...(secret ? { headers: mcpAuthHeaders({ kind: 'bearer' }, secret) } : {}) });
     try {
       expect(await client.listTools()).toEqual({ tools });
       expect(await client.callTool({ name: 'list_projects' })).toMatchObject({ structuredContent: { projects: [{ id: 'fixture-project' }] } });

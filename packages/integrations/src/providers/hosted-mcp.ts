@@ -1,11 +1,13 @@
 export type HostedMcpEndpoint =
   | { kind: 'region'; label: string; options: readonly { id: string; label: string; url: string }[] }
-  | { kind: 'instance'; label: string; placeholder: string; path: string };
+  | { kind: 'instance'; label: string; placeholder: string; path: string }
+  | { kind: 'deployment'; label: string; hostedUrl: string; placeholder: string; path: string };
 
 /** Public setup metadata. Saved endpoints are immutable until disconnected. */
 export type HostedMcpEndpointSetup =
   | { kind: 'region'; label: string; options: readonly { id: string; label: string }[]; selectedId?: string; locked: boolean }
-  | { kind: 'instance'; label: string; placeholder: string; selectedUrl?: string; locked: boolean };
+  | { kind: 'instance'; label: string; placeholder: string; selectedUrl?: string; locked: boolean }
+  | { kind: 'deployment'; label: string; placeholder: string; selectedId?: 'hosted' | 'selfhosted'; selectedUrl?: string; selectedAuthMethod?: 'oauth' | 'none'; locked: boolean };
 
 /** Provider-maintained MCP services presented as ordinary built-in integrations. */
 export interface HostedMcpProvider {
@@ -149,7 +151,7 @@ export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
     auth: { kind: 'oauth', scopes: ['api'] },
     tokenAuth: { label: 'API login:password', helpUrl: 'https://app.dataforseo.com/api-access', scheme: 'basic' } },
   // Public MCP OAuth clients use PKCE, mcp access and offline_access for refresh.
-  { id: 'openseo', displayName: 'OpenSEO', url: 'https://app.openseo.so/mcp',
+  { id: 'openseo', displayName: 'OpenSEO', endpoint: { kind: 'deployment', label: 'Deployment', hostedUrl: 'https://app.openseo.so/mcp', placeholder: 'https://seo.example.com', path: '/mcp' },
     auth: { kind: 'oauth', scopes: ['mcp', 'offline_access'], tokenEndpointAuthMethod: 'none', authorizeBeforeConnect: true },
     tokenAuth: { label: 'OpenSEO API key', helpUrl: 'https://app.openseo.so/settings' } },
 ];

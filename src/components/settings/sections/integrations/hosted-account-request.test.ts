@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hostedAccountRequestFields, hostedAccountSignedIn, providerForHostedAccount } from './hosted-account-request';
+import { hostedAccountRequestFields, hostedAccountSignedIn, providerForHostedAccount, providerForHostedDeployment } from './hosted-account-request';
 import type { HostedConnectIntent, ProviderStatus } from './types';
 
 const options = [{ id: 'us', label: 'United States' }, { id: 'eu', label: 'Europe' }];
@@ -96,5 +96,26 @@ describe('hosted account request isolation', () => {
     const completed: ProviderStatus = { ...reconnecting, mcp: { ...reconnecting.mcp!, accounts: [{ serverId: 'target', requiresAuth: false, lastAuthorizationId: 'new-consent' }] } };
     expect(hostedAccountSignedIn(completed, 'target', 'new-consent')).toBe(true);
     expect(hostedAccountSignedIn({ ...provider, mcp: { requiresAuth: false } }, 'target', 'new-consent')).toBe(false);
+  });
+});
+
+describe('OpenSEO deployment form requests', () => {
+  const openSeo: ProviderStatus = { id: 'openseo', displayName: 'OpenSEO', method: 'mcp', configured: true, mcp: {
+    requiresAuth: true, authKind: 'oauth', tokenAuth: { label: 'API key', helpUrl: 'https://app.openseo.so/settings' },
+    endpointConfig: { kind: 'deployment', label: 'Deployment', placeholder: 'https://seo.example', locked: false }, accounts: [],
+  } };
+  it('carries instance auth through Add account and removes hosted API keys from self-hosted forms', () => {
+    const intent: HostedConnectIntent = { addAccount: true, setupId: 'stable', label: 'Docker', endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' };
+    expect(hostedAccountRequestFields(openSeo, intent)).toEqual({ addAccount: true, setupId: 'stable', label: 'Docker', endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' });
+    expect(providerForHostedDeployment(openSeo, intent).mcp).toMatchObject({ authKind: 'none', tokenAuth: undefined });
+    expect(providerForHostedDeployment(openSeo, { ...intent, authMethod: 'oauth' }).mcp).toMatchObject({ authKind: 'oauth', tokenAuth: undefined });
+    expect(providerForHostedDeployment(openSeo, { endpointId: 'hosted' })).toEqual(openSeo);
+  });
+  it('reconnects saved Docker with its own URL and auth despite hosted or OAuth drafts', () => {
+    const saved: ProviderStatus = { ...openSeo, mcp: { ...openSeo.mcp!, accounts: [{ serverId: 'docker', requiresAuth: false, authKind: 'none', endpointConfig: { ...openSeo.mcp!.endpointConfig!, kind: 'deployment', label: 'Deployment', placeholder: 'https://seo.example', locked: true, selectedId: 'selfhosted', selectedUrl: 'https://saved.example', selectedAuthMethod: 'none' } }] } };
+    const intent: HostedConnectIntent = { serverId: 'docker', endpointId: 'hosted', authMethod: 'oauth' };
+    expect(hostedAccountRequestFields(saved, intent)).toMatchObject({ serverId: 'docker', endpointId: 'selfhosted', instanceUrl: 'https://saved.example', authMethod: 'none' });
+    expect(providerForHostedDeployment(providerForHostedAccount(saved, intent), intent).mcp?.authKind).toBe('none');
+    expect(providerForHostedAccount(saved, { addAccount: true }).mcp?.endpointConfig).toEqual(openSeo.mcp?.endpointConfig);
   });
 });

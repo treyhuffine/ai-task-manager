@@ -2,7 +2,7 @@ import { INTEGRATION_LABELS } from '@/constants/integrations';
 import type { HostedMcpProvider, HostedMcpEndpointSetup } from '@integrations/engine/providers';
 import { validateMcpUrl } from './mcp-validate';
 
-export interface HostedEndpointInput { endpointId?: unknown; instanceUrl?: unknown }
+export interface HostedEndpointInput { endpointId?: unknown; instanceUrl?: unknown; authMethod?: unknown }
 
 /** Resolve user choices through the catalog. Never accept a replacement service URL. */
 export function resolveHostedMcpUrl(definition: HostedMcpProvider, input: HostedEndpointInput = {}): string {
@@ -18,7 +18,13 @@ export function resolveHostedMcpUrl(definition: HostedMcpProvider, input: Hosted
     if (!option) throw new Error(`Choose a supported ${configuration.label.toLowerCase()}.`);
     return option.url;
   }
-  if (input.endpointId !== undefined) throw new Error(`This ${INTEGRATION_LABELS.singular.toLowerCase()} requires an instance URL, not a region.`);
+  if (configuration.kind === 'deployment') {
+    if (input.endpointId === undefined || input.endpointId === 'hosted') {
+      if (input.instanceUrl !== undefined) throw new Error('Choose Self-hosted before entering an instance URL.');
+      return configuration.hostedUrl;
+    }
+    if (input.endpointId !== 'selfhosted') throw new Error('Choose Hosted or Self-hosted.');
+  } else if (input.endpointId !== undefined) throw new Error(`This ${INTEGRATION_LABELS.singular.toLowerCase()} requires an instance URL, not a region.`);
   if (typeof input.instanceUrl !== 'string') throw new Error('An instance URL is required.');
   const raw = input.instanceUrl.trim();
   if (/[\u0000-\u0020\u007f\\]/.test(raw)) throw new Error('Use a valid instance URL without spaces or backslashes.');
@@ -35,12 +41,13 @@ export function resolveHostedMcpUrl(definition: HostedMcpProvider, input: Hosted
 /** Revalidate stored authority on every use, not just when the user first connects. */
 export function hostedMcpUrlMatches(definition: HostedMcpProvider, url: string): boolean {
   if (!definition.endpoint) return url === definition.url;
+  if (definition.endpoint.kind === 'deployment' && url === definition.endpoint.hostedUrl) return true;
   if (definition.endpoint.kind === 'region') return definition.endpoint.options.some((option) => option.url === url);
-  try { return resolveHostedMcpUrl(definition, { instanceUrl: url }) === url; }
+  try { return resolveHostedMcpUrl(definition, { instanceUrl: url, ...(definition.endpoint.kind === 'deployment' ? { endpointId: 'selfhosted' } : {}) }) === url; }
   catch { return false; }
 }
 
-export function hostedMcpEndpointSetup(definition: HostedMcpProvider, entry?: { url: string }): HostedMcpEndpointSetup | undefined {
+export function hostedMcpEndpointSetup(definition: HostedMcpProvider, entry?: { url: string; auth?: { kind: string } }): HostedMcpEndpointSetup | undefined {
   const configuration = definition.endpoint;
   if (!configuration) return undefined;
   // An invalid saved address must not break the entire settings catalog or
@@ -52,6 +59,13 @@ export function hostedMcpEndpointSetup(definition: HostedMcpProvider, entry?: { 
     ...(valid ? { selectedId: configuration.options.find((option) => option.url === entry.url)!.id } : {}),
     locked: Boolean(entry),
   };
+  if (configuration.kind === 'deployment') return {
+    kind: 'deployment', label: configuration.label, placeholder: configuration.placeholder, locked: Boolean(entry),
+    ...(valid ? { selectedId: entry.url === configuration.hostedUrl ? 'hosted' : 'selfhosted',
+      ...(entry.url !== configuration.hostedUrl ? { selectedUrl: entry.url.slice(0, -configuration.path.length),
+        selectedAuthMethod: entry.auth?.kind === 'none' ? 'none' : 'oauth' } : {}),
+    } : {}),
+  };
   return {
     kind: 'instance', label: configuration.label, placeholder: configuration.placeholder,
     ...(valid ? { selectedUrl: entry.url.slice(0, -configuration.path.length) } : {}),
@@ -60,6 +74,17 @@ export function hostedMcpEndpointSetup(definition: HostedMcpProvider, entry?: { 
 }
 
 /** A user-selected server does not inherit a vendor's trusted tool annotations. */
-export function trustHostedMcpAnnotations(definition: HostedMcpProvider): boolean {
+export function trustHostedMcpAnnotations(definition: HostedMcpProvider, url?: string): boolean {
+  if (definition.endpoint?.kind === 'deployment') return url === definition.endpoint.hostedUrl;
   return definition.endpoint?.kind !== 'instance';
+}
+
+/** Self-hosted OAuth is discovered from the instance, without hosted scopes or API keys. */
+export function hostedMcpAuthDefinition(definition: HostedMcpProvider, url: string, authMethod?: unknown): HostedMcpProvider {
+  if (definition.endpoint?.kind === 'deployment' && url !== definition.endpoint.hostedUrl) {
+    if (authMethod !== undefined && authMethod !== 'oauth' && authMethod !== 'none') throw new Error('Choose Browser sign-in or No authentication.');
+    return { ...definition, auth: { kind: authMethod === 'none' ? 'none' : 'oauth' }, tokenAuth: undefined };
+  }
+  if (authMethod !== undefined) throw new Error('Authentication selection is supported only for self-hosted instances.');
+  return definition;
 }

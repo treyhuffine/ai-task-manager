@@ -93,3 +93,32 @@ describe('public endpoint setup metadata', () => {
     expect(JSON.stringify(invalid)).not.toContain('secret');
   });
 });
+
+
+describe('OpenSEO deployment endpoints', () => {
+  const definition = getHostedMcpProvider('openseo')!;
+  const hosted = 'https://app.openseo.so/mcp';
+  it('defaults to hosted for existing clients, and normalizes self-hosted base or MCP URLs once', () => {
+    expect(resolveHostedMcpUrl(definition)).toBe(hosted);
+    expect(resolveHostedMcpUrl(definition, { endpointId: 'hosted' })).toBe(hosted);
+    for (const base of ['https://seo.example', 'https://seo.example/mcp/', 'http://localhost:3000']) {
+      const expected = base.startsWith('http:') ? 'http://localhost:3000/mcp' : 'https://seo.example/mcp';
+      expect(resolveHostedMcpUrl(definition, { endpointId: 'selfhosted', instanceUrl: base })).toBe(expected);
+      expect(hostedMcpUrlMatches(definition, expected)).toBe(true);
+    }
+    expect(hostedMcpUrlMatches(definition, hosted)).toBe(true);
+    for (const input of [{ endpointId: 'other' }, { endpointId: 'hosted', instanceUrl: 'https://other.example' }, { endpointId: 'selfhosted' }, { endpointId: 'selfhosted', instanceUrl: 'https://user:secret@seo.example' }, { endpointId: 'selfhosted', instanceUrl: 'http://seo.example' }]) {
+      expect(() => resolveHostedMcpUrl(definition, input)).toThrow();
+    }
+  });
+  it('freezes deployment and authentication, and restricts annotation trust to the hosted URL', () => {
+    expect(hostedMcpEndpointSetup(definition, { url: hosted, auth: { kind: 'bearer' } })).toMatchObject({ kind: 'deployment', selectedId: 'hosted', locked: true });
+    expect(hostedMcpEndpointSetup(definition, { url: 'http://localhost:3000/mcp', auth: { kind: 'none' } })).toMatchObject({ selectedId: 'selfhosted', selectedUrl: 'http://localhost:3000', selectedAuthMethod: 'none', locked: true });
+    expect(trustHostedMcpAnnotations(definition, hosted)).toBe(true);
+    expect(trustHostedMcpAnnotations(definition, 'https://seo.example/mcp')).toBe(false);
+    expect(trustHostedMcpAnnotations(definition)).toBe(false);
+    const invalid = hostedMcpEndpointSetup(definition, { url: 'https://user:secret@seo.example/mcp' });
+    expect(invalid).not.toHaveProperty('selectedUrl');
+    expect(JSON.stringify(invalid)).not.toContain('secret');
+  });
+});

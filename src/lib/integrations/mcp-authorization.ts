@@ -1,7 +1,7 @@
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { IntegrationError, createRedactor, isIntegrationError } from '@integrations/engine';
 import { beginMcpOAuth, connectMcpClient, finishMcpOAuth } from '@integrations/engine/mcp';
-import { getHostedMcpProvider } from '@integrations/engine/providers';
+import { hostedMcpDefinition } from './hosted-mcp';
 import { createHash } from 'node:crypto';
 import { desktopOAuth, desktopRelayFor, isDesktopRequest, type DesktopOAuthFlow } from './desktop-oauth';
 import { usesRegisteredOAuth } from './hosted-oauth-config';
@@ -45,7 +45,7 @@ export async function beginMcpAuthorization(entry: McpServerEntry, request?: Pic
     // Stop the previous session before replacing its authorization state. A
     // concurrent refresh must not overwrite this sign-in's tokens or PKCE data.
     invalidateIntegrationRuntime();
-    const definition = entry.providerId ? getHostedMcpProvider(entry.providerId) : undefined;
+    const definition = hostedMcpDefinition(entry);
     const registered = usesRegisteredOAuth(definition);
     // Registered applications need the exact stable callback shown in Settings,
     // including when sign-in starts from the desktop app.

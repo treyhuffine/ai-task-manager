@@ -812,7 +812,7 @@ async function build(): Promise<Built> {
             },
             ...(hosted ? {
               identity: { providerId: hosted.id, displayName: hosted.displayName, label: snapshot.displayName, accountId: snapshot.accountId, authConfigId: snapshot.authConfigId },
-              trustToolAnnotations: trustHostedMcpAnnotations(hosted),
+              trustToolAnnotations: trustHostedMcpAnnotations(hosted, snapshot.url),
               ...(hosted.defaultMutationRisk ? { defaultRisk: hosted.defaultMutationRisk } : {}),
             } : {}),
             ...(snapshot.toolOverrides ? { toolOverrides: snapshot.toolOverrides } : {}),

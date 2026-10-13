@@ -3,6 +3,7 @@ import type { HostedMcpEndpointSetup } from '@integrations/engine/providers';
 export interface HostedEndpointSelection {
   endpointId?: string;
   instanceUrl?: string;
+  authMethod?: 'oauth' | 'none';
 }
 
 /** The saved selection wins over a stale form draft when reconnecting. */
@@ -18,6 +19,15 @@ export function integrationEndpointSelection(
     }
     return { endpointId };
   }
+  let deployment: HostedEndpointSelection = {};
+  if (setup.kind === 'deployment') {
+    const endpointId = setup.locked ? setup.selectedId : draft.endpointId ?? 'hosted';
+    if (endpointId === 'hosted') return { endpointId };
+    if (endpointId !== 'selfhosted') throw new Error('Choose Hosted or Self-hosted.');
+    const authMethod = setup.locked ? setup.selectedAuthMethod : draft.authMethod ?? 'oauth';
+    if (authMethod !== 'oauth' && authMethod !== 'none') throw new Error('Choose an authentication method.');
+    deployment = { endpointId, authMethod };
+  }
   const instanceUrl = (setup.locked ? setup.selectedUrl : draft.instanceUrl)?.trim();
   if (!instanceUrl) throw new Error(`Enter your ${setup.label.toLowerCase()} before connecting.`);
   let url: URL;
@@ -30,7 +40,7 @@ export function integrationEndpointSelection(
   if (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
     throw new Error('Use an https:// instance URL. HTTP is supported only for localhost.');
   }
-  return { instanceUrl };
+  return { ...deployment, instanceUrl };
 }
 
 export function integrationEndpointReady(setup: HostedMcpEndpointSetup | undefined, draft?: HostedEndpointSelection): boolean {

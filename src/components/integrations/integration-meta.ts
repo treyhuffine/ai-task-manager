@@ -258,7 +258,7 @@ export const INTEGRATION_META: Record<string, IntegrationMeta> = {
     description: 'Research keywords, rankings, backlinks and AI visibility, and manage SEO projects.',
     docsUrl: 'https://www.openseo.so/docs/mcp',
     setup: [
-      'Sign in to OpenSEO and approve access, or choose Use API key.',
+      'Choose Hosted for OpenSEO browser sign-in or an API key, or Self-hosted to connect your own instance.',
       'For an API key, open OpenSEO Settings > API keys, create a key and paste it here. The key acts as your OpenSEO account.',
       'Live research and tracking can use OpenSEO credits. Saved project context and reports can be read without research credits.',
     ],

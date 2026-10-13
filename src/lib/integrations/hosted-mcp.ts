@@ -4,14 +4,15 @@ import { IntegrationError, type ConnectionStore } from '@integrations/engine';
 import type { McpServerEntry, McpServerStore } from './mcp-servers';
 import { activateMcpServer } from './mcp-lifecycle';
 import { createHash, randomUUID } from 'node:crypto';
-import { hostedMcpUrlMatches, resolveHostedMcpUrl, type HostedEndpointInput } from './hosted-endpoint';
+import { hostedMcpUrlMatches, hostedMcpAuthDefinition, resolveHostedMcpUrl, type HostedEndpointInput } from './hosted-endpoint';
 import { usesRegisteredOAuth } from './hosted-oauth-config';
 export { hostedMcpEndpointSetup, trustHostedMcpAnnotations } from './hosted-endpoint';
 
 /** Only a catalog-pinned endpoint may take a built-in provider's identity and trust policy. */
 export function hostedMcpDefinition(entry: McpServerEntry): HostedMcpProvider | undefined {
   if (!entry.providerId) return undefined;
-  const definition = getHostedMcpProvider(entry.providerId);
+  const pinned = getHostedMcpProvider(entry.providerId);
+  const definition = pinned && hostedMcpAuthDefinition(pinned, entry.url, pinned.endpoint?.kind === 'deployment' && entry.url !== pinned.endpoint.hostedUrl ? entry.auth.kind : undefined);
   if (!definition || !hostedMcpUrlMatches(definition, entry.url) || (entry.auth.kind !== (definition.auth?.kind ?? 'oauth') && !(definition.tokenAuth && entry.auth.kind === 'bearer'))) {
     throw new Error(`The built-in ${INTEGRATION_LABELS.singular.toLowerCase()} no longer matches its trusted service configuration. Reconnect it from Settings.`);
   }
@@ -127,21 +128,24 @@ export async function ensureHostedMcpServer(
   ownerId: string,
   options: HostedEndpointInput & HostedAccountSelection & { secret?: string; authConfigId?: string } = {},
 ): Promise<McpServerEntry> {
-  const auth = { kind: options.secret !== undefined && definition.tokenAuth ? 'bearer' : definition.auth?.kind ?? 'oauth' };
   const pinned = getHostedMcpProvider(definition.id);
-  if (!pinned || pinned.url !== definition.url || JSON.stringify(pinned.endpoint) !== JSON.stringify(definition.endpoint) || ((pinned.auth?.kind ?? 'oauth') !== auth.kind && !(pinned.tokenAuth && auth.kind === 'bearer'))) {
+  if (!pinned || pinned.url !== definition.url || JSON.stringify(pinned.endpoint) !== JSON.stringify(definition.endpoint) || JSON.stringify(pinned.auth) !== JSON.stringify(definition.auth) || JSON.stringify(pinned.tokenAuth) !== JSON.stringify(definition.tokenAuth)) {
     throw new Error(`The built-in ${INTEGRATION_LABELS.singular.toLowerCase()} does not match its trusted service configuration.`);
   }
-  if (auth.kind !== 'bearer' && options.secret !== undefined) throw new Error(`This ${INTEGRATION_LABELS.singular.toLowerCase()} does not accept a token.`);
-  const secret = options.secret === undefined ? undefined : hostedTokenSecret(pinned, options.secret);
-  if (auth.kind === 'bearer' && options.secret !== undefined && !secret) throw new Error('A connection token is required.');
   const existing = await resolveHostedMcpAccount(definition, servers, connections, ownerId, options);
-  if (usesRegisteredOAuth(pinned)) {
+  if (usesRegisteredOAuth(pinned) && !options.authConfigId) throw new Error('Choose an OAuth app before connecting.');
+  const hasSelection = options.endpointId !== undefined || options.instanceUrl !== undefined;
+  const url = existing && !hasSelection ? existing.url : resolveHostedMcpUrl(pinned, options);
+  const selfHosted = pinned.endpoint?.kind === 'deployment' && url !== pinned.endpoint.hostedUrl;
+  const effective = hostedMcpAuthDefinition(pinned, url, options.authMethod ?? (selfHosted && existing?.url === url ? existing.auth.kind : undefined));
+  const auth = { kind: options.secret !== undefined && effective.tokenAuth ? 'bearer' : effective.auth?.kind ?? 'oauth' };
+  if (auth.kind !== 'bearer' && options.secret !== undefined) throw new Error(`This ${INTEGRATION_LABELS.singular.toLowerCase()} does not accept a token.`);
+  const secret = options.secret === undefined ? undefined : hostedTokenSecret(effective, options.secret);
+  if (auth.kind === 'bearer' && options.secret !== undefined && !secret) throw new Error('A connection token is required.');
+  if (usesRegisteredOAuth(effective)) {
     if (!options.authConfigId) throw new Error('Choose an OAuth app before connecting.');
     if (existing && existing.authConfigId !== options.authConfigId) throw new Error(`Disconnect this ${INTEGRATION_LABELS.singular.toLowerCase()} before changing its OAuth app.`);
   } else if (options.authConfigId !== undefined) throw new Error(`This ${INTEGRATION_LABELS.singular.toLowerCase()} does not use a registered OAuth app.`);
-  const hasSelection = options.endpointId !== undefined || options.instanceUrl !== undefined;
-  const url = existing && !hasSelection ? existing.url : resolveHostedMcpUrl(pinned, options);
   if (existing) {
     hostedMcpDefinition(existing);
     if (existing.auth.kind !== auth.kind) throw new Error('Add another account to use a different connection method.');
@@ -168,7 +172,7 @@ export async function ensureHostedMcpServer(
       providerId: definition.id,
       ...(options.authConfigId ? { authConfigId: options.authConfigId } : {}),
       connectionId,
-      accountId: distinct ? previous[0]?.accountId ?? `${definition.id}:${setupId}` : pinned.endpoint
+      accountId: distinct ? previous[0]?.accountId ?? `${definition.id}:${setupId}` : pinned.endpoint && !(pinned.endpoint.kind === 'deployment' && url === pinned.endpoint.hostedUrl)
         ? `${definition.id}:${createHash('sha256').update(url).digest('hex').slice(0, 20)}`
         : previous[0]?.accountId ?? `${definition.id}:default`,
       slug,

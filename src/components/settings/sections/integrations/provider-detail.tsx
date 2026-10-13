@@ -255,7 +255,11 @@ function SingleProviderDetail(props: ProviderDetailProps) {
 /** The one connect flow that fits this provider: OAuth sign-in, own-app setup, or paste-a-key. */
 export function ConnectPanel(props: ProviderDetailProps) {
   const { provider: p, toolkits, busy } = props;
-  const meta = integrationMeta(p.id);
+  const setup = p.mcp?.endpointConfig;
+  const selfHosted = setup?.kind === 'deployment' && (setup.locked ? setup.selectedId : props.endpointSelection?.endpointId) === 'selfhosted';
+  const meta = selfHosted ? { ...integrationMeta(p.id), docsUrl: 'https://www.openseo.so/docs/self-hosting', setup: p.mcp?.authKind === 'none'
+    ? ['Connect to your Docker OpenSEO instance with AUTH_MODE=local_noauth. The address is reached from the computer running Ri.']
+    : ['Enable Managed OAuth in the Cloudflare Access application protecting OpenSEO, then sign in and approve access.', 'Allow Ri’s callback address in Cloudflare Access. Desktop sign-in uses a loopback callback.'] } : integrationMeta(p.id);
   const again = props.connections.length > 0;
   const hosted = p.method === 'mcp';
   const authKind = p.mcp?.authKind ?? 'oauth';
@@ -270,7 +274,7 @@ export function ConnectPanel(props: ProviderDetailProps) {
           {meta.docsUrl && <a href={meta.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Setup guide <ExternalLink size={11} /></a>}
           {meta.helpLinks?.map(link => <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">{link.label} <ExternalLink size={11} /></a>)}
         </div>
-      </div> : <p className="text-xs text-muted-foreground">{p.displayName} does not require an account or a token.</p>}
+      </div> : selfHosted ? <div className="space-y-2 text-xs text-muted-foreground"><p>{meta.setup?.[0]}</p><a href={meta.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Setup guide <ExternalLink size={11} /></a></div> : <p className="text-xs text-muted-foreground">{p.displayName} does not require an account or a token.</p>}
       <Button size="sm" onClick={() => props.onConnectDirect()} disabled={busy || !endpointReady || props.connectDisabled} className="text-xs font-semibold">
         <Plus size={14} /> {again ? 'Reconnect' : `Connect ${p.displayName}`}
       </Button>

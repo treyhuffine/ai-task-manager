@@ -11,7 +11,9 @@ export function providerForHostedAccount(provider: ProviderStatus, intent?: Host
     && connections.some(connection => connection.id === intent.existingConnectionId && connection.providerId === provider.id);
   if (intent.addAccount || firstPublicConnection || legacyConnection) {
     const setup = common.endpointConfig;
-    const endpointConfig = !setup ? undefined : setup.kind === 'region'
+    const endpointConfig = !setup ? undefined : setup.kind === 'deployment'
+      ? { kind: setup.kind, label: setup.label, placeholder: setup.placeholder, locked: false }
+      : setup.kind === 'region'
       ? { kind: setup.kind, label: setup.label, options: setup.options, locked: false }
       : { kind: setup.kind, label: setup.label, placeholder: setup.placeholder, locked: false };
     return { ...provider, mcp: { ...common, serverId: undefined, authConfigId: undefined, requiresAuth: true, error: undefined, status: undefined, endpointConfig } };
@@ -54,4 +56,14 @@ export function hostedAccountSignedIn(provider: ProviderStatus | undefined, serv
     return provider.mcp.accounts.some(account => account.serverId === serverId && !account.requiresAuth);
   }
   return provider?.mcp?.requiresAuth === false;
+}
+
+/** Deployment auth is distinct from the hosted service's sign-in and API-key choices. */
+export function providerForHostedDeployment(provider: ProviderStatus, draft: HostedEndpointSelection): ProviderStatus {
+  const setup = provider.mcp?.endpointConfig;
+  if (setup?.kind !== 'deployment') return provider;
+  const selectedId = setup.locked ? setup.selectedId : draft.endpointId ?? 'hosted';
+  if (selectedId !== 'selfhosted') return provider;
+  const authKind = setup.locked ? setup.selectedAuthMethod : draft.authMethod ?? 'oauth';
+  return { ...provider, mcp: { ...provider.mcp!, authKind, tokenAuth: undefined, credentialLabel: undefined, helpUrl: undefined } };
 }

@@ -37,3 +37,20 @@ describe('hosted endpoint form selection', () => {
     expect(integrationEndpointSelection(undefined, { endpointId: 'eu', instanceUrl: 'https://other.example' })).toEqual({});
   });
 });
+
+
+describe('deployment selection', () => {
+  const setup = { kind: 'deployment' as const, label: 'Deployment', placeholder: 'https://seo.example', locked: false };
+  it('defaults new accounts to hosted and requires a valid self-hosted URL', () => {
+    expect(integrationEndpointSelection(setup)).toEqual({ endpointId: 'hosted' });
+    expect(integrationEndpointReady(setup, { endpointId: 'selfhosted' })).toBe(false);
+    expect(integrationEndpointSelection(setup, { endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' })).toEqual({ endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' });
+    expect(integrationEndpointSelection(setup, { endpointId: 'selfhosted', instanceUrl: 'https://seo.example' })).toHaveProperty('authMethod', 'oauth');
+  });
+  it('uses saved deployment, URL and auth despite stale drafts', () => {
+    const saved = { ...setup, locked: true, selectedId: 'selfhosted' as const, selectedUrl: 'https://saved.example', selectedAuthMethod: 'none' as const };
+    expect(integrationEndpointSelection(saved, { endpointId: 'hosted', instanceUrl: 'https://wrong.example', authMethod: 'oauth' })).toEqual({ endpointId: 'selfhosted', instanceUrl: 'https://saved.example', authMethod: 'none' });
+    expect(integrationEndpointSelection({ ...setup, locked: true, selectedId: 'hosted' }, { endpointId: 'selfhosted', instanceUrl: 'https://wrong.example', authMethod: 'none' })).toEqual({ endpointId: 'hosted' });
+    expect(integrationEndpointReady({ ...setup, locked: true })).toBe(false);
+  });
+});

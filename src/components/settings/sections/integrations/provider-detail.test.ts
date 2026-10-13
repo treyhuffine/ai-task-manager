@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { getHostedMcpProvider, HOSTED_MCP_PROVIDERS } from '@integrations/engine/providers';
 import { hostedMcpEndpointSetup } from '@/lib/integrations/hosted-endpoint';
 import { ProviderDetail, type ProviderDetailProps } from './provider-detail';
+import { HostedEndpointFields } from '@/components/integrations/hosted-endpoint-fields';
 import { PreviousConnections } from './previous-connections';
 import type { Connection, ProviderStatus } from './types';
 
@@ -466,5 +467,37 @@ describe('hosted provider connection flow', () => {
     expect(html).toContain('Service unavailable.');
     expect(html).not.toContain('Sign-in needed');
     expect(html).not.toContain('Sign in to reconnect');
+  });
+});
+
+
+describe('OpenSEO deployment setup UI', () => {
+  it('offers hosted and self-hosted in the built-in account form while retaining hosted API-key setup', () => {
+    const openseo = catalogProvider('openseo');
+    const html = render({ provider: { ...openseo, mcp: { ...openseo.mcp, accounts: [], tokenAuth: { label: 'OpenSEO API key', helpUrl: 'https://app.openseo.so/settings' } } } });
+    expect(html).toContain('>Hosted</option>');
+    expect(html).toContain('>Self-hosted</option>');
+    expect(html).toContain('Use API key');
+    expect(html).not.toContain('Authentication</label>');
+  });
+  it('shows instance and authentication fields for self-hosted, and the Docker connection flow after saving', () => {
+    const definition = getHostedMcpProvider('openseo')!;
+    const setup = hostedMcpEndpointSetup(definition)!;
+    const fields = renderToStaticMarkup(createElement(HostedEndpointFields, { setup, value: { endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' } }));
+    for (const text of ['Instance URL', 'Authentication', 'Browser sign-in (Cloudflare Access)', 'No authentication (Docker)', 'Ri adds /mcp automatically.']) expect(fields).toContain(text);
+    const savedSetup = hostedMcpEndpointSetup(definition, { url: 'http://localhost:3000/mcp', auth: { kind: 'none' } })!;
+    const html = render({ provider: { ...catalogProvider('openseo'), mcp: { requiresAuth: false, authKind: 'none', endpointConfig: savedSetup } } });
+    expect(html).toContain('AUTH_MODE=local_noauth');
+    expect(html).toContain('Connect OpenSEO');
+    expect(html).not.toContain('Use API key');
+    expect(html).not.toContain('Sign in to OpenSEO');
+    expect(html).not.toMatch(/<button(?=[^>]*disabled="")[^>]*>[^]*?Connect OpenSEO/);
+  });
+  it('shows Cloudflare Managed OAuth instructions for saved self-hosted browser sign-in', () => {
+    const setup = hostedMcpEndpointSetup(getHostedMcpProvider('openseo')!, { url: 'https://seo.example/mcp', auth: { kind: 'oauth' } });
+    const html = render({ provider: { ...catalogProvider('openseo'), mcp: { requiresAuth: true, authKind: 'oauth', endpointConfig: setup } } });
+    expect(html).toContain('Enable Managed OAuth');
+    expect(html).toContain('Cloudflare Access');
+    expect(html).not.toContain('Settings &gt; API keys');
   });
 });

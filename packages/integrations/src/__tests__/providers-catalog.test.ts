@@ -10,7 +10,7 @@ describe('provider catalog', () => {
     expect(new Set(HOSTED_MCP_PROVIDERS.map((p) => p.id)).size).toBe(HOSTED_MCP_PROVIDERS.length);
     for (const provider of HOSTED_MCP_PROVIDERS) {
       expect(Boolean(provider.url)).not.toBe(Boolean(provider.endpoint));
-      const urls = provider.url ? [provider.url] : provider.endpoint?.kind === 'region' ? provider.endpoint.options.map((option) => option.url) : [];
+      const urls = provider.url ? [provider.url] : provider.endpoint?.kind === 'region' ? provider.endpoint.options.map((option) => option.url) : provider.endpoint?.kind === 'deployment' ? [provider.endpoint.hostedUrl] : [];
       if (provider.localCommand) {
         expect(provider.url).toBe(`stdio:${provider.localCommand}`);
         expect(provider.auth).toEqual({ kind: 'none' });
@@ -29,6 +29,7 @@ describe('provider catalog', () => {
         expect(provider.endpoint.options.length).toBeGreaterThan(0);
         expect(new Set(provider.endpoint.options.map((option) => option.id)).size).toBe(provider.endpoint.options.length);
       }
+      if (provider.endpoint?.kind === 'deployment') expect(provider.endpoint.path).toBe('/mcp');
       if (provider.endpoint?.kind === 'instance') expect(provider.endpoint.path).toBe('/mcp-server/http');
     }
   });

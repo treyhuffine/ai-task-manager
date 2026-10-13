@@ -163,6 +163,16 @@ describe('MCP interactive authorization secret confinement', () => {
     expect(mocks.connectMcpClient).not.toHaveBeenCalled();
   });
 
+  it('discovers self-hosted OpenSEO OAuth without the hosted preauthorization scopes', async () => {
+    const close = vi.fn(async () => {});
+    mocks.connectMcpClient.mockResolvedValue({ close });
+    const selfHosted = { ...entry, providerId: 'openseo', url: 'https://seo.example/mcp' };
+    await expect(beginMcpAuthorization(selfHosted)).resolves.toEqual({ requiresAuth: false });
+    expect(mocks.beginMcpOAuth).not.toHaveBeenCalled();
+    expect(mocks.connectMcpClient).toHaveBeenCalledWith(expect.objectContaining({ url: selfHosted.url }));
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it('does not reinterpret an arbitrary custom server 403 as a reason to preauthorize', async () => {
     mocks.connectMcpClient.mockRejectedValue(new Error('HTTP 403 forbidden'));
     const custom = { ...entry, providerId: undefined, slug: 'custom', url: 'https://custom.example/mcp' };

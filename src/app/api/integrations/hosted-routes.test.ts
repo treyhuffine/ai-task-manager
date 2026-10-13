@@ -57,6 +57,7 @@ function selectedEndpoint(providerId: string): { selection: { endpointId?: strin
     const instanceUrl = 'https://workflow.example/instance';
     return { selection: { instanceUrl }, url: `${instanceUrl}${provider.endpoint.path}` };
   }
+  if (provider.endpoint?.kind === 'deployment') return { selection: { endpointId: 'hosted' }, url: provider.endpoint.hostedUrl };
   if (!provider.url) throw new Error(`Fixture requires explicit selection for ${providerId}`);
   return { selection: {}, url: provider.url };
 }
@@ -854,5 +855,41 @@ describe('hosted account selection routes', () => {
     expect(await servers.openSecret(work.id)).toBe('work-account-token');
     expect(await connections.get(work.connectionId!)).not.toBeNull();
     expect(mocked.deleteChannels).toHaveBeenCalledExactlyOnceWith(personal.connectionId);
+  });
+});
+
+describe('OpenSEO deployment routes', () => {
+  const docker = { providerId: 'openseo', endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' };
+  it('connects Docker through the built-in direct route without credentials or OAuth', async () => {
+    successfulDiscovery();
+    const response = await connectDirect(request('connectDirect', { ...docker, fields: {} }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ connection: { providerId: 'openseo', status: 'active' } });
+    expect(servers.list()[0]).toMatchObject({ url: 'http://localhost:3000/mcp', auth: { kind: 'none' } });
+    expect(mocked.begin).not.toHaveBeenCalled();
+    expect(await servers.openSecret(servers.list()[0]!.id)).toBeNull();
+    const reconnect = await connectDirect(request('connectDirect', { providerId: 'openseo', serverId: servers.list()[0]!.id, fields: {} }));
+    expect(reconnect.status).toBe(200);
+    expect(servers.list()).toHaveLength(1);
+  });
+  it('starts self-hosted browser consent at the selected instance', async () => {
+    const response = await connect(request('connect', { ...docker, instanceUrl: 'https://seo.example/mcp/', authMethod: 'oauth' }));
+    expect(response.status).toBe(200);
+    expect(servers.list()[0]).toMatchObject({ url: 'https://seo.example/mcp', auth: { kind: 'oauth' } });
+    expect(mocked.begin).toHaveBeenCalledWith(servers.list()[0], expect.any(Object), undefined);
+    expect(mocked.selectConfig).not.toHaveBeenCalled();
+  });
+  it.each([
+    { route: 'connect', body: docker },
+    { route: 'connectDirect', body: { ...docker, fields: { token: 'hosted-key' } } },
+    { route: 'connectDirect', body: { ...docker, endpointId: 'hosted', instanceUrl: undefined } },
+    { route: 'connectDirect', body: { ...docker, authMethod: 'oauth' } },
+    { route: 'connectDirect', body: { ...docker, instanceUrl: 'https://user:secret@seo.example' } },
+  ])('rejects unsupported authentication before creating or contacting a server: $route', async ({ route, body }) => {
+    const handler = route === 'connect' ? connect : connectDirect;
+    expect((await handler(request(route, body))).status).toBe(400);
+    expect(servers.list()).toHaveLength(0);
+    expect(mocked.runtime).not.toHaveBeenCalled();
+    expect(mocked.begin).not.toHaveBeenCalled();
   });
 });
