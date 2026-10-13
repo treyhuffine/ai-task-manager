@@ -1,5 +1,6 @@
 'use client';
 
+import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
@@ -48,6 +49,8 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
         title={provider.displayName} subtitle={integrationMeta(provider.id).description}
         meta={<><Chip tone={healthy ? 'ok' : accounts.length ? 'warn' : undefined}>{accounts.length ? healthy ? local ? 'Connected' : `${accounts.length} account${accounts.length === 1 ? '' : 's'} connected` : 'Needs attention' : 'Not connected'}</Chip><Chip>{integrationMeta(provider.id).category}</Chip>{toolCount > 0 && <Chip>{toolCount} tools</Chip>}</>} />
     </div>
+
+    {!showForm && <PluginSetupHelpButton target={{ kind: 'integration', provider }} disabled={busy} />}
 
     {(accounts.length > 0 || previousConnections.length > 0) && <section className="space-y-2">
       <GroupHeading count={local ? undefined : accounts.length + previousConnections.length} action={kind !== 'none' && <Button size="xs" variant="outline" disabled={busy} onClick={() => setTarget('new')}><Plus size={12} /> Add account</Button>}>{local ? 'Connection' : 'Accounts'}</GroupHeading>

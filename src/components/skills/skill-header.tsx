@@ -1,5 +1,6 @@
 'use client';
 
+import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { useState } from 'react';
 import { Archive, ChevronLeft, Copy, GitCommitHorizontal, Loader2, MoreHorizontal, Pencil, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
@@ -216,6 +217,7 @@ export function SkillHeader({
           ))}
         </div>
       )}
+      <div className="px-4 pb-2"><PluginSetupHelpButton target={{ kind: 'skill', skill }} /></div>
     </header>
   );
 }

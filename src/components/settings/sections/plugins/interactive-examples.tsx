@@ -1,5 +1,6 @@
 'use client';
 
+import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, PanelsTopLeft } from 'lucide-react';
@@ -83,6 +84,7 @@ export function InteractiveExamples() {
                     <Button size="xs" disabled={!status.data?.available || !selected?.available || !selected.interactiveTools || launchAccount.isPending} onClick={() => void open(undefined, selected?.serverId)}>Try interactive view</Button>
                   </> : <Button size="xs" variant="outline" disabled={!status.data?.available || launch.isPending} onClick={() => void open(demo.id as 'excalidraw' | 'flint' | 'buildings' | 'tldraw')}>Open demo</Button>}
                 </div>
+                <PluginSetupHelpButton target={{ kind: 'plugin', id: demo.id, name: demo.name, docsUrl: demo.source }} />
                 {demo.id === 'figma' && <p className="text-[11px] text-muted-foreground">Ri client approval and UI discovery are checked separately.</p>}
               </td>
             </tr>;

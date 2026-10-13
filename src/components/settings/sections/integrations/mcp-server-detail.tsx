@@ -10,6 +10,7 @@ import { INTEGRATION_LABELS } from '@/constants/integrations';
 import type { FormEvent, ReactNode } from 'react';
 import { LogIn, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { BackLink, Chip, DetailHeader, GroupHeading, McpLogo, type Tone } from './parts';
@@ -117,6 +118,8 @@ export function McpServerDetail({
 
       <CapabilityReview changes={s.capabilityChanges} busy={busy} onReview={onReviewCapabilities} />
 
+      <PluginSetupHelpButton target={{ kind: 'mcp', server: s }} disabled={busy} />
+
       {tools.length > 0 && (
         <section className="space-y-2">
           <GroupHeading count={tools.length}>Tools</GroupHeading>
@@ -213,6 +216,8 @@ export function McpServerForm({
           subtitle={`Point at any remote MCP server. Its tools become ${INTEGRATION_LABELS.plural.toLowerCase()}, behind your approval gate.`}
         />
       </div>
+
+      <PluginSetupHelpButton target={{ kind: 'mcp-new', form }} disabled={busy} />
 
       <form onSubmit={submit} className="space-y-3 rounded-xl border border-border bg-card/20 p-4">
         <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">

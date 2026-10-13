@@ -8,6 +8,7 @@
  * Adding an account opens its form under the Accounts heading, above the
  * accounts, where the button that opened it is.
  */
+import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { useState, type FormEvent } from 'react';
 import { ChevronDown, ExternalLink, KeyRound, Loader2, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -163,6 +164,8 @@ function SingleProviderDetail(props: ProviderDetailProps) {
         />
       </div>
 
+      {!showConnect && <PluginSetupHelpButton target={{ kind: 'integration', provider: p, redirectUri: props.redirectUri }} disabled={busy} />}
+
       {connected && (
         <section className="space-y-2">
           <GroupHeading
@@ -254,6 +257,10 @@ function SingleProviderDetail(props: ProviderDetailProps) {
 
 /** The one connect flow that fits this provider: OAuth sign-in, own-app setup, or paste-a-key. */
 export function ConnectPanel(props: ProviderDetailProps) {
+  return <div className="space-y-4"><ConnectPanelContent {...props} /><PluginSetupHelpButton target={{ kind: 'integration', provider: props.provider, endpointSelection: props.endpointSelection, redirectUri: props.redirectUri }} disabled={props.busy} /></div>;
+}
+
+function ConnectPanelContent(props: ProviderDetailProps) {
   const { provider: p, toolkits, busy } = props;
   const setup = p.mcp?.endpointConfig;
   const selfHosted = setup?.kind === 'deployment' && (setup.locked ? setup.selectedId : props.endpointSelection?.endpointId) === 'selfhosted';

@@ -6,6 +6,7 @@
  * uses it: the drafts, Ri's own, the global ones, and each project's.
  */
 
+import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { useMemo, useState } from 'react';
 import { Loader2, Plus, ScrollText, Search } from 'lucide-react';
 import { toast } from 'sonner';
@@ -170,6 +171,7 @@ export function SkillsTab() {
   const all = data?.skills.length ?? 0;
   return (
     <div className="@container space-y-5">
+      <PluginSetupHelpButton target={{ kind: 'plugins', tab: 'skills' }} />
       {all > 8 && (
         <div className="relative">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
