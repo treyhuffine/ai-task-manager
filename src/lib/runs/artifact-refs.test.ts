@@ -64,6 +64,7 @@ describe('ACTION_ARTIFACT_REFS', () => {
     const { artifactRefsForAction } = await import('./artifact-refs');
     expect(artifactRefsForAction('create_task', { title: 'x' }, { id: 't1' })).toEqual([{ kind: 'task', id: 't1' }]);
     expect(artifactRefsForAction('update_task', { id: 't2' }, {})).toEqual([{ kind: 'task', id: 't2' }]);
+    expect(artifactRefsForAction('rank_task', { id: 't4', rank: 1 }, { id: 't4', rank: 1, total: 9 })).toEqual([{ kind: 'task', id: 't4' }]);
     expect(artifactRefsForAction('transition_task', { id: 't3', command: 'archive' }, {})).toEqual([{ kind: 'task', id: 't3' }]);
     expect(artifactRefsForAction('create_note', {}, { id: 'n1' })).toEqual([{ kind: 'note', id: 'n1' }]);
     expect(artifactRefsForAction('reorder_tasks', {}, { changedTaskIds: ['a', 'b'] })).toEqual([

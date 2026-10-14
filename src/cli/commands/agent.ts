@@ -6,7 +6,7 @@
  *
  * Conventions:
  *  - Positional args are declared in the action's `cli.positional` list and
- *    consumed in order.
+ *    consumed in order, coerced like flags (`rank_task <id> 3`).
  *  - Every other param is a `--snake_case` flag. Strings, numbers, booleans,
  *    and enums parse straight; arrays and objects accept JSON strings.
  *  - Output is always JSON on stdout for easy piping (`| jq`). Errors print
@@ -60,7 +60,9 @@ export function registerAgentCommand(program: Command) {
 
       const input: Record<string, unknown> = {};
       positional.forEach((name, i) => {
-        if (positionalValues[i] !== undefined) input[name] = positionalValues[i];
+        if (positionalValues[i] === undefined) return;
+        const schema = (action.params as Record<string, z.ZodTypeAny>)[name];
+        input[name] = schema ? coerceFlag(positionalValues[i], schema) : positionalValues[i];
       });
       for (const [paramName, paramSchema] of Object.entries(action.params) as Array<
         [string, z.ZodTypeAny]

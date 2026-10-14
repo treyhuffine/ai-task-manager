@@ -60,6 +60,13 @@ function bucketTargetIndex(bucket: Bucket, n: number): number {
   }
 }
 
+/** The rank a bucket lands on in a list of `total` tasks (the task included),
+ * the same spot {@link computeBucketPlacement} picks. */
+export function bucketRank(bucket: Bucket, total: number): number {
+  const others = Math.max(total - 1, 0);
+  return Math.max(0, Math.min(others, bucketTargetIndex(bucket, others))) + 1;
+}
+
 /**
  * Place `taskId` in the chosen bucket within `list`. Backfills any null sort_keys
  * so the placement is well-defined, then computes a new key for the moved task

@@ -11,8 +11,10 @@ import {
 	optimisticTransition,
 	rollbackOptimistic,
 	settleEntity,
+	type OptimisticSnapshot,
 } from '@/lib/query/optimistic-entity';
 import { targetState, type TransitionCommand } from '@/lib/tasks/lifecycle';
+import { PRIORITY_RANK_FILTER, placeAtRank } from '@/lib/tasks/priority-rank';
 import { trpc } from '@/lib/trpc/client';
 import type { RouterInputs } from '@/lib/trpc/router';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
@@ -206,6 +208,33 @@ export function useTransitionTask() {
         return;
       }
       toast.error(apiErrorText(err));
+    },
+    onSettled: () => settleEntity(qc, 'tasks'),
+  });
+}
+
+/**
+ * Put a task at a numbered spot in the Priority Order, 1 being the top. The
+ * priority list moves at once, placed by the same rule the server applies
+ * (`placeAtRank`), then settles against the server's order.
+ */
+export function useRankTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: trpc.tasks.rank.mutationKey(),
+    mutationFn: ({ id, rank }: { id: string; rank: number }) => tasksApi.rank(id, rank),
+    onMutate: async ({ id, rank }) => {
+      const key = entityKeys.tasks.list(PRIORITY_RANK_FILTER);
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<TaskListDTO[]>(key);
+      const placement = previous ? placeAtRank(previous, id, rank) : null;
+      if (placement) qc.setQueryData(key, placement.list);
+      const snapshot: OptimisticSnapshot = [[key, previous]];
+      return { snapshot };
+    },
+    onError: (_err, _vars, ctx) => {
+      rollbackOptimistic(qc, ctx?.snapshot);
+      toast.error('Could not change the rank');
     },
     onSettled: () => settleEntity(qc, 'tasks'),
   });

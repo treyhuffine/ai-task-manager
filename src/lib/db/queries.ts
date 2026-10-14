@@ -29,6 +29,7 @@ import { searchTerms } from '@/lib/search/highlight';
 import { calendarDaysUntil, toDateOnly } from '@/lib/dates';
 import { todayLocalDate } from '@/lib/deck/date';
 import { syncEntity, syncDeletion, MutationContext, syncBatch } from '@/lib/export/mirror';
+import { placeAtRank } from '@/lib/tasks/priority-rank';
 import type {
   AgentMainChatState,
   TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals, DeadlineTask,
@@ -170,6 +171,15 @@ function expandStatusFilter(input: TaskFilter['status']): string[] {
   return [...out];
 }
 
+/**
+ * Priority Order: ranked tasks by key, then unranked ones newest first. The id
+ * settles the rest (two tasks can share a key or a created time), so every
+ * reader sees one order and a task's rank (`rankTask`) names one spot.
+ */
+function priorityOrder(): SQL[] {
+  return [sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt), desc(tasks.id)];
+}
+
 export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
   const db = getDb();
   const conditions: SQL[] = [];
@@ -205,8 +215,8 @@ export function listTasks(filter: TaskFilter = {}): TaskListRecord[] {
       // Named explicitly, not just the fallback: callers that specifically want
       // the user's drag order (the launcher does) shouldn't silently change
       // behavior if this default is ever repointed.
-      case 'sortKey':       return [sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt)];
-      default:               return [sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt)];
+      case 'sortKey':       return priorityOrder();
+      default:               return priorityOrder();
     }
   })();
 
@@ -971,7 +981,7 @@ export function reorderTaskInLane(taskId: string, prevId: string | null, nextId:
       .select({ id: tasks.id, sortKey: tasks.sortKey, createdAt: tasks.createdAt })
       .from(tasks)
       .where(eq(tasks.status, moved.status))
-      .orderBy(sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt))
+      .orderBy(...priorityOrder())
       .all();
 
     // Normalize null/duplicate keys across the whole lane so every neighbor key
@@ -1049,7 +1059,7 @@ export async function reorderTasksToTop(input: { areaId: string; taskIds: string
 
     const siblings = db.select({ id: tasks.id, sortKey: tasks.sortKey })
       .from(tasks).where(eq(tasks.areaId, areaId))
-      .orderBy(sql`${tasks.sortKey} ASC NULLS LAST`, desc(tasks.createdAt)).all();
+      .orderBy(...priorityOrder()).all();
     const changedTaskIds: string[] = [];
     if (!taskIds.every((id, index) => siblings[index]?.id === id)) {
       // Ignore the selected tasks' old keys. Only the remaining queue bounds
@@ -1083,6 +1093,48 @@ export async function reorderTasksToTop(input: { areaId: string; taskIds: string
   mirrorChanges.addMany('task', result.changedTaskIds);
   await syncBatch(mirrorChanges);
   return result;
+}
+
+/**
+ * Put a task at a numbered spot in the Priority Order of committed work (Todo
+ * and In progress, every Area), 1 being the top. A rank past the end places it
+ * last. Only this task moves: it takes a key between its new neighbors, and the
+ * only other writes are keys a task above it needs first (an unranked task, or
+ * one tied with its neighbor). Repeating a satisfied rank is a no-op.
+ */
+export async function rankTask(taskId: string, rank: number): Promise<{ id: string; rank: number; total: number }> {
+  if (!Number.isInteger(rank) || rank < 1) {
+    throw new TaskReorderError('invalid_params', 'Rank must be a whole number, 1 or more.');
+  }
+  const result = inEntityTx(() => {
+    const db = getDb();
+    const task = db.select({ status: tasks.status }).from(tasks).where(eq(tasks.id, taskId)).get();
+    if (!task) throw new TaskReorderError('not_found', `Task not found: ${taskId}`);
+    // The same list the slideout counts: `active` expands to todo | in_progress
+    // (and legacy `active` bytes), in the order listTasks returns.
+    const ranked = expandStatusFilter('active');
+    if (!ranked.includes(task.status)) {
+      throw new TaskReorderError('conflict', 'Only Todo and In progress tasks are ranked. Move it to Todo first.');
+    }
+    const list = db.select({ id: tasks.id, sortKey: tasks.sortKey })
+      .from(tasks).where(inArray(tasks.status, ranked as LifecycleTaskStatus[]))
+      .orderBy(...priorityOrder()).all();
+    const placement = placeAtRank(list, taskId, rank)!;
+    const updatedAt = new Date().toISOString();
+    for (const write of placement.writes) {
+      db.update(tasks).set({ sortKey: write.sortKey, updatedAt }).where(eq(tasks.id, write.id)).run();
+    }
+    return { id: taskId, rank: placement.rank, total: placement.total, changedTaskIds: placement.writes.map((w) => w.id) };
+  }, true);
+
+  // Ordering changes no content, versions or embeddings. Refresh the mirrors
+  // of whatever moved in one batch, as reorderTasksToTop does.
+  if (result.changedTaskIds.length) {
+    const mirrorChanges = new MutationContext();
+    mirrorChanges.addMany('task', result.changedTaskIds);
+    await syncBatch(mirrorChanges);
+  }
+  return { id: result.id, rank: result.rank, total: result.total };
 }
 
 // ─── Lifecycle command chokepoint ─────────────────────────────

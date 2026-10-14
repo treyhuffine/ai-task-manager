@@ -1,6 +1,5 @@
 'use client';
 
-import { entityKeys } from '@/lib/query/entity-keys';
 import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 
 import { useEffect, useCallback, useRef, useState } from 'react';
@@ -17,28 +16,24 @@ import {
   Repeat,
   Pencil,
   ChevronLeft,
-  ChevronDown,
   Maximize2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
   useTask,
-  useTasks,
   useUpdateTask,
   useDeleteTask,
 } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button';
-import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { tasksApi } from '@/lib/api/tasks';
-import { BUCKET_OPTIONS, computeBucketPlacement, type Bucket } from '@/lib/utils/bucket-placement';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { RichEditor } from '@/components/editor/rich-editor';
 import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { LinkedReferences } from '@/components/shared/linked-references';
 import { SubtaskSection } from './subtask-section';
+import { TaskPriority } from './task-priority';
 import { EFFORT_OPTIONS, ENERGY_OPTIONS } from './task-options';
 import { SharedTaskBody } from '@/components/spaces/shared-task-body';
 import { removeFromMyWork } from '@/components/spaces/my-work';
@@ -102,11 +97,6 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     (next: EntityViewMode) => { if (taskId) setViewOverride({ id: taskId, view: next }); },
     [taskId],
   );
-
-  // Global priority-ordered list, used to compute bucket placement and the position readout.
-  const priorityFilter = { status: 'active' as const, orderBy: 'sortKey' as const };
-  const { data: priorityList } = useTasks(priorityFilter);
-  const queryClient = useQueryClient();
 
   const { size: width, isResizing, handleResizeStart } = useDragResize({
     edge: 'left',
@@ -174,39 +164,6 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     },
     [taskId, updateTask],
   );
-
-  const handlePickBucket = useCallback(
-    (bucket: Bucket) => {
-      if (!taskId || !priorityList) return;
-      const placement = computeBucketPlacement(priorityList, taskId, bucket);
-      if (!placement) return;
-
-      const priorityKey = entityKeys.tasks.list(priorityFilter);
-      const previousData = queryClient.getQueryData(priorityKey);
-      queryClient.setQueryData(priorityKey, placement.reordered);
-
-      const allPatches = [...placement.normalizationPatches, placement.movedPatch];
-      Promise.all(allPatches.map((p) => tasksApi.update(p.id, { sortKey: p.sortKey })))
-        .then(() => {
-          queryClient.invalidateQueries({ queryKey: entityKeys.tasks.all });
-        })
-        .catch(() => {
-          queryClient.setQueryData(priorityKey, previousData);
-        });
-    },
-    [taskId, priorityList, queryClient, priorityFilter],
-  );
-
-  const positionInfo = (() => {
-    if (!taskId || !priorityList || priorityList.length === 0) return null;
-    const idx = priorityList.findIndex((t) => t.id === taskId);
-    if (idx === -1) return null;
-    return {
-      index: idx,
-      total: priorityList.length,
-      hasKey: priorityList[idx].sortKey !== null,
-    };
-  })();
 
   const handleTitleInput = useCallback(
     (e: React.FormEvent<HTMLTextAreaElement>) => {
@@ -346,6 +303,8 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
           }}
           onEscapeKeyDown={(e) => {
             e.preventDefault();
+            // An inline editor (the rank, a date) takes Escape as "cancel this edit".
+            if (e.target instanceof Element && e.target.closest('[data-cancel-on-escape]')) return;
             if (e.shiftKey) onCloseAll();
             else onClose();
           }}
@@ -604,42 +563,9 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                           ))}
                         </div>
 
-                        {/* Priority — bucket is a gesture (one-time nudge), not state */}
+                        {/* Priority: a typed rank, or a bucket as a one-time nudge */}
                         <span className="text-muted-foreground font-medium">Priority</span>
-                        <div className="flex flex-col gap-1.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-foreground/80 text-[12px] font-medium">
-                              {!positionInfo
-                                ? 'Loading…'
-                                : positionInfo.hasKey
-                                  ? `Ranked #${positionInfo.index + 1} of ${positionInfo.total}`
-                                  : 'Not yet ranked'}
-                            </span>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors">
-                                  {positionInfo?.hasKey ? 'Move' : 'Place'}
-                                  <ChevronDown size={10} />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="start" className="w-32">
-                                {BUCKET_OPTIONS.map((opt) => (
-                                  <DropdownMenuItem
-                                    key={opt.value}
-                                    onClick={() => handlePickBucket(opt.value)}
-                                    className="text-xs"
-                                  >
-                                    {opt.label}
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                          <span className="text-[10px] text-muted-foreground/60 leading-snug">
-                            Drop into a rough bucket so AI has a starting point for weighing this
-                            against other tasks. The system can refine from there.
-                          </span>
-                        </div>
+                        <TaskPriority taskId={task.id} status={task.status} />
 
                         {/* Deadline */}
                         <span className="text-muted-foreground font-medium">Deadline</span>
@@ -649,6 +575,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                               type="date"
                               autoFocus
                               defaultValue={task.hardDeadline?.split('T')[0] ?? ''}
+                              data-cancel-on-escape=""
                               className="text-[12px] bg-card border border-border rounded px-2 py-1"
                               onBlur={(e) => {
                                 setEditingDeadline(false);
@@ -684,6 +611,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                               type="date"
                               autoFocus
                               defaultValue={task.resurfaceAfter?.split('T')[0] ?? ''}
+                              data-cancel-on-escape=""
                               className="text-[12px] bg-card border border-border rounded px-2 py-1"
                               onBlur={(e) => {
                                 setEditingBoomerang(false);

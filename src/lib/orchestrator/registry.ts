@@ -74,6 +74,7 @@ import {
 	markRunCancelled,
 	MAX_REORDER_TASKS,
 	proposeTriageDecisions,
+	rankTask,
 	recordTriageDecisionAndApply,
 	ReferenceFolderError,
 	reorderTasksToTop,
@@ -445,6 +446,29 @@ const reorder_tasks_action = defineAction({
     if (new Set(task_ids).size !== task_ids.length) throw new ActionError('invalid_params', 'Task ids must be unique.');
     try {
       return await reorderTasksToTop({ areaId: area_id, taskIds: task_ids });
+    } catch (err) {
+      if (err instanceof TaskReorderError) throw new ActionError(err.code, err.message);
+      throw err;
+    }
+  },
+});
+
+const rank_task_action = defineAction({
+  name: 'rank_task',
+  description:
+    'Put a task at a numbered spot in the Priority Order of committed work (Todo and In progress, across every Area), 1 being the top. ' +
+    'Ranks count tasks as list_tasks returns them with status "active" and orderBy "sortKey". A rank past the end places the task last. ' +
+    'Only this task moves: every other task keeps its order, and no content or status changes. Returns the rank it landed on and the total. ' +
+    'Consider, Done and Archived tasks are not ranked. Repeating a satisfied rank is a no-op.',
+  params: {
+    id: z.string().trim().min(1),
+    rank: z.number().int().min(1).describe('1 is the top. Larger than the number of ranked tasks places it last.'),
+  },
+  mutating: true,
+  cli: { positional: ['id', 'rank'] },
+  handler: async (_ctx, { id, rank }) => {
+    try {
+      return await rankTask(id, rank);
     } catch (err) {
       if (err instanceof TaskReorderError) throw new ActionError(err.code, err.message);
       throw err;
@@ -3492,6 +3516,7 @@ export const typedActions = [
   create_task_action,
   update_task_action,
   reorder_tasks_action,
+  rank_task_action,
   complete_task_action,
   transition_task_action,
   attach_execution_to_task_action,

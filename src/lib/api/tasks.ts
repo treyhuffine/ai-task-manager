@@ -16,6 +16,7 @@ export const tasksApi = {
   transition: (id: string, command: TransitionCommand, opts: Omit<Input['transition'], 'id' | 'command'> = {}) => trpcClient.tasks.transition.mutate({ id, command, ...opts }),
   executions: (id: string) => trpcClient.tasks.executions.query({ id }),
   reorder: (id: string, opts: Omit<Input['reorder'], 'id'>) => trpcClient.tasks.reorder.mutate({ id, ...opts }),
+  rank: (id: string, rank: number) => trpcClient.tasks.rank.mutate({ id, rank }),
   attention: async (ids: string[]) => {
     const unique = [...new Set(ids)];
     const batches: Promise<RouterOutputs['tasks']['attention']>[] = [];

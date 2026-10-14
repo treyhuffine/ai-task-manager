@@ -45,6 +45,8 @@ export const ACTION_ARTIFACT_REFS: Readonly<Record<string, RefExtractor>> = {
     const changed = (result as { changedTaskIds?: unknown } | null | undefined)?.changedTaskIds;
     return Array.isArray(changed) ? changed.flatMap((id) => idRef('task', id)) : [];
   },
+  // The ranked task. Keys a rank gives the tasks above it don't change them.
+  rank_task: byInputId('task'),
   create_note: byResultId('note'),
   update_note: byInputId('note'),
   create_workspace: byResultId('workspace'),

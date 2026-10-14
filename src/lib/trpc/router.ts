@@ -42,6 +42,15 @@ function required<T>(value: T | null | undefined, entity: string): T {
   return value;
 }
 
+/** A query-layer ordering refusal, as the matching tRPC error. */
+function orderingError(err: unknown): never {
+  if (err instanceof q.TaskReorderError) {
+    const code = err.code === 'not_found' ? 'NOT_FOUND' : err.code === 'conflict' ? 'CONFLICT' : 'BAD_REQUEST';
+    throw new TRPCError({ code, message: err.message, cause: err });
+  }
+  throw err;
+}
+
 /** A shared task in My Ri (it has a team), or null. */
 function sharedTaskIn(id: string) {
   const task = q.getTask(id);
@@ -138,6 +147,11 @@ export const appRouter = router({
       return transitionTaskForViewer(id, command, opts, caller.team ? { memberId: caller.memberId, source } : undefined);
     }),
     reorder: sp.input(s.entityIdSchema.extend({ prevId: z.string().nullable().optional(), nextId: z.string().nullable().optional() })).mutation(({ input }) => q.reorderTaskInLane(input.id, input.prevId ?? null, input.nextId ?? null)),
+    // A rank is a person's own planning, which a team's task doesn't keep.
+    rank: sp.input(s.entityIdSchema.extend({ rank: z.number().int().min(1) })).mutation(({ input, ctx }) => {
+      if (sharedCaller(ctx.key).team) throw new TRPCError({ code: 'FORBIDDEN', message: "A team's tasks aren't ranked. Rank them in your own Ri." });
+      return q.rankTask(input.id, input.rank).catch(orderingError);
+    }),
     executions: p.input(s.entityIdSchema).query(({ input }) => q.getTaskExecutions(input.id).map(({ id, label, status }) => ({ id, label, status }))),
     // A team's published results (docs/homes-spec.md §9.5): a member shares
     // a chosen summary, link or files. A personal home has none.
