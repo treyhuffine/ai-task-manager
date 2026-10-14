@@ -4,7 +4,7 @@ import { useMemo, type ReactNode } from 'react';
 import type { Components } from 'streamdown';
 import { EntityAwareText } from '@/components/ai-elements/entity-reference';
 import { MessageResponse } from '@/components/ai-elements/message';
-import { rewriteLocalImages } from '@/lib/sessions/reply-image-urls';
+import { rewriteReplyImages } from '@/lib/sessions/reply-image-urls';
 import { HTML_PREVIEW_TAG, htmlPreviewTarget, rewriteLocalHtml } from '@/lib/sessions/reply-html';
 import { HtmlPreviewLink } from './html-preview-link';
 import { ImagePreviewCard } from './image-preview-card';
@@ -24,7 +24,7 @@ export function AgentResponse({ text, sessionId }: { text: string; sessionId?: s
   }), [sessionId]);
   return (
     <EntityAwareText
-      text={rewriteLocalHtml(rewriteLocalImages(text, sessionId), sessionId)}
+      text={rewriteLocalHtml(rewriteReplyImages(text, sessionId), sessionId)}
       renderMarkdown={(markdown, key) => (
         <MessageResponse key={key} components={components} allowedTags={htmlTags} literalTagContent={literalTags} className="text-[12.5px] [&_p]:text-[12.5px] [&_li]:text-[12.5px] [&_code]:text-[11px]">
           {markdown}

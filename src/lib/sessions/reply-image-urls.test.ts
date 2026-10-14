@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isLocalImageTarget, replyImageUrl, rewriteLocalImages } from './reply-image-urls';
+import { isLocalImageTarget, replyImageUrl, rewriteGithubImages, rewriteLocalImages, rewriteReplyImages } from './reply-image-urls';
 
 const SID = 'chat-1';
 const url = (p: string) => replyImageUrl(SID, p);
@@ -91,6 +91,84 @@ describe('rewriteLocalImages', () => {
     expect(rewriteLocalImages(md, SID)).toBe(`# Screenshots\n\n- ![One](${url('/tmp/one.png')})\n- ![two.png](${url('/tmp/two.png')})\n\n**Done**. [[task:abc]]`);
     const rewritten = rewriteLocalImages(md, SID);
     expect(rewriteLocalImages(rewritten, SID)).toBe(rewritten);
+  });
+});
+
+describe('rewriteGithubImages', () => {
+  const SHA = 'c5d8ea2ecf8587bc5ae8d570fe96f5220e25cf36';
+  const REPORTED = `https://github.com/InsiderFinance/insiderfinance-app/blob/${SHA}/459/after-overview.jpg?raw=true`;
+
+  it('points a Markdown image in a GitHub repository at the chat route, as the agent wrote it', () => {
+    expect(rewriteGithubImages(`![Guide overview](${REPORTED})`, SID)).toBe(`![Guide overview](${url(REPORTED)})`);
+    for (const target of [
+      'https://github.com/o/r/blob/main/docs/a.png',
+      'https://github.com/o/r/raw/main/docs/a.png',
+      'https://raw.githubusercontent.com/o/r/main/docs/a.png',
+      'https://raw.githubusercontent.com/o/r/refs/heads/feature/x/a.png',
+    ]) expect(rewriteGithubImages(`![shot](${target})`, SID)).toBe(`![shot](${url(target)})`);
+  });
+
+  it('keeps the title, the text around it, and a table of them', () => {
+    expect(rewriteGithubImages(`Before ![a](${REPORTED} "The board") after`, SID)).toBe(`Before ![a](${url(REPORTED)} "The board") after`);
+    const before = 'https://github.com/o/r/blob/main/before.jpg?raw=true';
+    const after = 'https://github.com/o/r/blob/main/after.jpg?raw=true';
+    const table = `| Before: develop | After: this PR |\n| --- | --- |\n| ![Before](${before}) | ![After](${after}) |`;
+    expect(rewriteGithubImages(table, SID)).toBe(`| Before: develop | After: this PR |\n| --- | --- |\n| ![Before](${url(before)}) | ![After](${url(after)}) |`);
+  });
+
+  it('names an image without alt text by its file', () => {
+    expect(rewriteGithubImages(`![](${REPORTED})`, SID)).toBe(`![after-overview.jpg](${url(REPORTED)})`);
+  });
+
+  it('turns a link to the bytes of an image into a preview, and leaves a page link alone', () => {
+    const raw = 'https://raw.githubusercontent.com/o/r/main/a.png';
+    expect(rewriteGithubImages(`See [the shot](${raw}).`, SID)).toBe(`See ![the shot](${url(raw)}).`);
+    expect(rewriteGithubImages(`[**Desktop** shot](${REPORTED})`, SID)).toBe(`![Desktop shot](${url(REPORTED)})`);
+    const page = 'https://github.com/o/r/blob/main/a.png';
+    expect(rewriteGithubImages(`[the file](${page})`, SID)).toBe(`[the file](${page})`);
+    // An autolink, or a link whose text is its own address, is named by its file.
+    expect(rewriteGithubImages(`<${REPORTED}>`, SID)).toBe(`![after-overview.jpg](${url(REPORTED)})`);
+    expect(rewriteGithubImages(`[${raw}](${raw})`, SID)).toBe(`![a.png](${url(raw)})`);
+  });
+
+  it('handles reference images and links while retaining their definitions', () => {
+    expect(rewriteGithubImages(`![Guide][g]\n\n[g]: ${REPORTED} "Guide"`, SID)).toBe(`![Guide](${url(REPORTED)} "Guide")\n\n[g]: ${REPORTED} "Guide"`);
+    const raw = 'https://raw.githubusercontent.com/o/r/main/a.png';
+    expect(rewriteGithubImages(`[Shot][s]\n\n[s]: ${raw}`, SID)).toBe(`![Shot](${url(raw)})\n\n[s]: ${raw}`);
+  });
+
+  it('leaves code, other hosts, non-image links and bare addresses alone', () => {
+    const untouched = [
+      `\`![x](${REPORTED})\``,
+      `\`\`\`md\n![x](${REPORTED})\n\`\`\``,
+      '![x](https://example.com/a.png)',
+      '![x](https://github.com.evil.example/o/r/blob/main/a.png)',
+      '![x](https://github.com/o/r/pull/459)',
+      '[PR 459](https://github.com/o/r/pull/459)',
+      '[README](https://raw.githubusercontent.com/o/r/main/README.md)',
+      `Open ${REPORTED} yourself.`,
+      '![x](/tmp/a.png)',
+      'no images here',
+    ];
+    for (const md of untouched) expect(rewriteGithubImages(md, SID)).toBe(md);
+  });
+
+  it('does nothing without a chat to ask, and is stable once applied', () => {
+    expect(rewriteGithubImages(`![x](${REPORTED})`, null)).toBe(`![x](${REPORTED})`);
+    const rewritten = rewriteGithubImages(`![x](${REPORTED}) and ![y](/tmp/a.png)`, SID);
+    expect(rewriteGithubImages(rewritten, SID)).toBe(rewritten);
+    expect(rewriteLocalImages(rewritten, SID)).toBe(`![x](${url(REPORTED)}) and ![y](${url('/tmp/a.png')})`);
+  });
+});
+
+describe('rewriteReplyImages', () => {
+  it('shows local and GitHub images in one reply', () => {
+    const github = 'https://github.com/o/r/blob/main/after.jpg?raw=true';
+    const md = `Local: /tmp/before.png\n\nGitHub: ![After](${github})`;
+    const rewritten = rewriteReplyImages(md, SID);
+    expect(rewritten).toBe(`Local: ![before.png](${url('/tmp/before.png')})\n\nGitHub: ![After](${url(github)})`);
+    expect(rewriteReplyImages(rewritten, SID)).toBe(rewritten);
+    expect(rewriteReplyImages(md, undefined)).toBe(md);
   });
 });
 

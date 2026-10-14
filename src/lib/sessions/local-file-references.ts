@@ -26,13 +26,13 @@ export function isLocalFileTarget(target: string, extensions: string): boolean {
   return new RegExp(`\\.(?:${extensions})$`, 'i').test(path);
 }
 
-interface Replacement {
+export interface Replacement {
   start: number;
   end: number;
   text: string;
 }
 
-function labelText(node: Nodes): string {
+export function labelText(node: Nodes): string {
   if ('value' in node) return node.value;
   if ('children' in node) return node.children.map(labelText).join('');
   return '';
@@ -139,9 +139,12 @@ export function rewriteLocalFileReferences(markdown: string, options: ReferenceO
     if ('children' in node) node.children.forEach(visit);
   }
   visit(tree);
+  return applyReplacements(markdown, replacements);
+}
 
-  // Source offsets refer to the original message. Apply from the end so an
-  // earlier replacement never shifts a later one's range.
+/** Source offsets refer to the original message. Apply from the end so an
+ * earlier replacement never shifts a later one's range. */
+export function applyReplacements(markdown: string, replacements: Replacement[]): string {
   let rewritten = markdown;
   for (const { start, end, text } of replacements.sort((a, b) => b.start - a.start)) {
     rewritten = rewritten.slice(0, start) + text + rewritten.slice(end);

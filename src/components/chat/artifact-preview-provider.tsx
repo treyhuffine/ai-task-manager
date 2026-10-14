@@ -4,13 +4,14 @@ import { createContext, useCallback, useContext, useRef, useState, type ReactNod
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { HtmlView } from '@/components/executions/viewer/html-view';
 import { sessionFolder } from '@/lib/folders/source';
+import type { ImageFallback } from '@/lib/sessions/artifact-image';
 import { PreviewImage } from './preview-image';
 
 type Preview = {
   kind: 'html';
   sessionId: string;
   path: string;
-} | { kind: 'image'; src: string; name: string; alt: string };
+} | { kind: 'image'; src: string; name: string; alt: string; fallback?: ImageFallback | null };
 
 const ArtifactPreviewContext = createContext<((preview: Preview, trigger: HTMLElement) => void) | null>(null);
 
@@ -40,7 +41,7 @@ export function ArtifactPreviewProvider({ children }: { children: ReactNode }) {
           </div>
           <div className="min-h-0 flex-1">
             {preview?.kind === 'html' && <HtmlView key={`${preview.sessionId}:${preview.path}`} source={sessionFolder(preview.sessionId)} path={preview.path} />}
-            {preview?.kind === 'image' && <PreviewImage key={preview.src} src={preview.src} alt={preview.alt || preview.name} className="h-full w-full object-contain p-3" />}
+            {preview?.kind === 'image' && <PreviewImage key={preview.src} src={preview.src} alt={preview.alt || preview.name} className="h-full w-full object-contain p-3" fallback={preview.fallback} fallbackLink />}
           </div>
         </DialogContent>
       </Dialog>

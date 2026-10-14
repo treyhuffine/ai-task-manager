@@ -326,7 +326,7 @@ useExecutionActions(sessionId)    composes useCommit/usePush/usePullBase + new o
 ```
 GET  /api/sessions/[id]/tree              → { entries: TreeEntry[] }
 GET  /api/sessions/[id]/file?path=<rel>   → { content, encoding, mime, size, sha, isBinary } (or an absolute path the agent named)
-GET  /api/sessions/[id]/reply-image?path= → image bytes, for a local image path in an agent reply
+GET  /api/sessions/[id]/reply-image?path= → image bytes, for a local image path or a GitHub repository image in an agent reply
 POST /api/sessions/[id]/pr                → ask agent to draft + open PR (prompt injection)
 POST /api/sessions/[id]/merge             → merge PR (uses @agentex/github)
 ```
@@ -341,7 +341,14 @@ when the agent wrote that exact path in one of its replies
 address for `/tmp/shot.png` and every such image failed, in the repo or not. A
 chat on another device keeps its files there, and the route says so.
 `[[file:<name>]]` in a reply shows the file from the home's attachments folder,
-like one in a user's message.
+like one in a user's message. An image in a GitHub repository
+(`https://github.com/<owner>/<repo>/blob/<ref>/<path>?raw=true`, the form that
+renders on a pull request page, or a `raw.githubusercontent.com` address)
+goes through the same route when the agent wrote that exact address in a
+reply: the home fetches it with the user's `gh` sign-in or a connected GitHub
+connector's token (`src/lib/github/repo-image.ts`), so a private repository's
+screenshot shows too. A preview that still cannot load becomes a link to the
+file's page on GitHub (`docs/chat-sessions.md`, "Images in GitHub repositories").
 
 **Files outside the folder.** A file chip in the transcript (a Read, Write,
 Edit or apply_patch row, or a turn's "files changed" footer) can name a file
