@@ -57,7 +57,9 @@ function sse(blocks: FakeBlock[], stop: string): string {
 /** The last tool results Claude Code sent back, by tool use id. */
 export function toolResults(request: FakeAnthropicRequest): Record<string, { isError: boolean; text: string }> {
   const out: Record<string, { isError: boolean; text: string }> = {};
-  const last = request.messages.at(-1);
+  // Subscription sessions can append a system cache marker after the user
+  // tool results. Read the latest user message, not the last wire message.
+  const last = [...request.messages].reverse().find(message => message.role === 'user');
   if (!last || !Array.isArray(last.content)) return out;
   for (const part of last.content as Array<{ type: string; tool_use_id?: string; is_error?: boolean; content?: unknown }>) {
     if (part.type !== 'tool_result' || !part.tool_use_id) continue;

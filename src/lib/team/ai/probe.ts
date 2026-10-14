@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { findBinary } from '@agentex/agent';
 import { processState } from '@/lib/process-state';
 import { TEAM_AI_LAUNCH_ARGS } from './runtime';
+import { teamAiCommand } from './auth';
 
 export interface TeamAiRuntimeProbe {
   ok: boolean;
@@ -44,7 +45,7 @@ export async function probeTeamAiRuntime(options: { command?: string; fresh?: bo
     // The binary the runtime itself would launch, found the same way: on PATH
     // or where Claude Code installs itself, so a service with a short PATH
     // agrees with what a turn would run.
-    const resolved = options.command ? { bin: options.command, prefixArgs: [] as string[] } : await findBinary('claude');
+    const resolved = options.command ? { bin: options.command, prefixArgs: [] as string[] } : await findBinary('claude', teamAiCommand());
     const version = (await run(resolved.bin, [...resolved.prefixArgs, '--version'])).trim().split('\n')[0]?.trim() || null;
     const help = await run(resolved.bin, [...resolved.prefixArgs, '--help']);
     const missing = REQUIRED_FLAGS.filter((flag) => !new RegExp(`(^|[\\s,])${flag.replace(/[-]/g, '\\-')}(?=[\\s,<=]|$)`, 'm').test(help));

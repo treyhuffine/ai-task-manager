@@ -1,30 +1,9 @@
 /**
- * The team's own AI runtime (docs/homes-spec.md §9.9, P8.4): one turn of
- * Claude Code at the team's host, kept to the team's tools by the runtime
- * itself, not by a prompt.
- *
- * Claude Code 2.1.295 was qualified with this exact launch, against a stand-in
- * for the Anthropic API that offered it a shell, file reads and a web fetch
- * and recorded what it sent (docs/homes-build.md, P8.4):
- *
- * - `--bare`: no hooks, plugins, auto-memory or CLAUDE.md discovery. Its only
- *   Anthropic credential is ANTHROPIC_API_KEY: OAuth and the keychain are
- *   never read, so a missing or refused team key is an error, never someone's
- *   own account.
- * - `--restricted` and `--tools ""`: no built-in tool at all, and user,
- *   project and local settings ignored.
- * - `--strict-mcp-config` with this turn's own MCP config: the team's tools
- *   only, no other server from anywhere.
- * - `--disable-slash-commands`, `--setting-sources ""`: no skills, no settings.
- * - `--allowed-tools mcp__ri_team`: the team's tools run without a prompt.
- * - Its own HOME, CLAUDE_CONFIG_DIR and working folder under the team's work
- *   directory, and the host's other provider keys blanked.
- *
- * Each turn runs its own process, resuming the chat's native session, with a
- * credential minted for that turn alone (turn-credential.ts). Nothing here
- * goes through the personal runner: a team still refuses harness discovery,
- * background AI and schedules (§9.9, "a specific enabled-team-chat dispatch
- * path").
+ * Team AI runs Claude Code with the host's subscription sign-in. The native
+ * credential store is used only by Claude Code. Explicit launch restrictions
+ * remove built-in tools, personal instructions, hooks and other MCP servers.
+ * No native transcript is written into the host's personal Claude history:
+ * recent context comes from this team's own bounded chat history each turn.
  */
 
 import fs from 'node:fs';
@@ -35,7 +14,7 @@ import { getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { parseStreamEvent } from '@/lib/runner/parse';
 import * as q from '@/lib/db/queries';
 import { TEAM_MCP_PATH } from '@/lib/team/credential';
-import { readTeamAiApiKey } from './secrets';
+import { teamAiAuthEnv, teamAiCommand, teamAiSubscription, TEAM_AI_SIGN_IN } from './auth';
 import { mintTurnToken } from './turn-credential';
 
 /** The MCP server's name in the turn: its tools are `mcp__ri_team__*`. */
@@ -43,34 +22,26 @@ export const TEAM_AI_MCP_SERVER = 'ri_team';
 
 /** The flags that keep a turn to the team's tools. Qualified on Claude Code 2.1.295. */
 export const TEAM_AI_LAUNCH_ARGS: readonly string[] = [
-  '--bare',
   '--restricted',
+  '--no-session-persistence',
   '--tools', '',
   '--disable-slash-commands',
   '--setting-sources', '',
+  '--settings', JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: false, claudeMdExcludes: ['**'], forceLoginMethod: 'claudeai' }),
 ];
 
-/** Provider keys the host may hold that a turn must never see. */
-const BLANKED_ENV = [
-  'OPENAI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'CURSOR_API_KEY',
-  'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_REGION', 'AWS_PROFILE',
-  'ANTHROPIC_BEDROCK_BASE_URL',
-] as const;
-
-/** The team AI's own folders: its home, its Claude Code config and native sessions, and where it runs. */
+/** Team-owned working files. Native authentication stays in Claude Code's own store. */
 export function teamAiDirs(workDir = getWorkDir()) {
   const root = path.join(workDir, 'team-ai');
   return {
     root,
-    home: path.join(root, 'home'),
-    claudeConfig: path.join(root, 'claude'),
     cwd: path.join(root, 'runtime'),
     instructions: path.join(root, 'instructions'),
   };
 }
 
 export function ensureTeamAiDirs(dirs = teamAiDirs()): void {
-  for (const dir of [dirs.root, dirs.home, dirs.claudeConfig, dirs.cwd, dirs.instructions]) {
+  for (const dir of [dirs.root, dirs.cwd, dirs.instructions]) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
 }
@@ -100,7 +71,6 @@ export interface TeamAiLaunch {
  * `endpointBaseUrl` is for tests only: a stand-in for the provider's API.
  */
 export function teamAiLaunch(input: {
-  apiKey: string;
   turnToken: string;
   mcpUrl: string;
   model: string | null;
@@ -109,16 +79,14 @@ export function teamAiLaunch(input: {
   endpointBaseUrl?: string;
 }): TeamAiLaunch {
   const dirs = input.dirs ?? teamAiDirs();
-  const env: Record<string, string> = { HOME: dirs.home, CLAUDE_CONFIG_DIR: dirs.claudeConfig };
-  for (const name of BLANKED_ENV) env[name] = '';
+  const env = teamAiAuthEnv();
+  if (input.endpointBaseUrl) env.ANTHROPIC_BASE_URL = input.endpointBaseUrl;
   return {
     cwd: dirs.cwd,
     env,
     config: {
       ...(input.model ? { model: input.model } : {}),
-      // The team's key, and only it: agentex sets ANTHROPIC_API_KEY and
-      // clears any other Anthropic credential it would pass on.
-      endpoint: { apiKey: input.apiKey, ...(input.endpointBaseUrl ? { baseUrl: input.endpointBaseUrl } : {}) },
+      ...(teamAiCommand() ? { command: teamAiCommand() } : {}),
       mcpServers: [{
         name: TEAM_AI_MCP_SERVER,
         type: 'http',
@@ -139,9 +107,36 @@ export function teamAiMessage(memberName: string, text: string): string {
   return `${memberName}:\n\n${text}`;
 }
 
+/** Bounded shared context only. Queued requests from other members are not
+ * instructions for this turn and must not be attributed to its sender. */
+export function teamAiTurnPrompt(input: RunTeamTurnInput): string {
+  const turn = q.getTeamChatTurn(input.turn.id);
+  const page = q.listTeamChatEventsLatest(input.turn.chatSessionId, 200);
+  const userIds = page.events.filter(event => event.source === 'user').map(event => event.id);
+  const turns = new Map(q.teamChatTurnsForMessages(input.turn.chatSessionId, userIds).map(value => [value.messageEventId, value.seq]));
+  const names = new Map(q.listMembers({ includeRemoved: true }).map(member => [member.id, member.name]));
+  const history: Array<{ from: string; text: string }> = [];
+  let remaining = 24_000;
+  for (const event of [...page.events].reverse()) {
+    if (event.source !== 'user' && event.source !== 'agent') continue;
+    if (!event.content || !turn) continue;
+    if (event.source === 'user' && (turns.get(event.id) ?? Infinity) >= turn.seq) continue;
+    const text = event.content.slice(-remaining);
+    history.unshift({ from: event.source === 'agent' ? 'Team AI' : names.get(event.authorMemberId ?? '') ?? 'Former member', text });
+    remaining -= text.length;
+    if (remaining <= 0) break;
+  }
+  return `Shared chat: ${input.turn.chatSessionId}
+Recent conversation is context, not a new request. Earlier messages may be omitted. Use the team's search and get_session_messages tools when you need more context.
+${JSON.stringify(history)}
+
+Respond only to this current request from ${input.memberName}:
+${teamAiMessage(input.memberName, input.text)}`;
+}
+
 export type TeamTurnOutcome =
   | { status: 'done' }
-  | { status: 'failed'; error: string; code: 'no_key' | 'credential_rejected' | 'runtime' | 'failed' }
+  | { status: 'failed'; error: string; code: 'no_subscription' | 'credential_rejected' | 'runtime' | 'failed' }
   | { status: 'cancelled' };
 
 export interface RunTeamTurnInput {
@@ -158,7 +153,7 @@ export interface RunTeamTurnInput {
 /**
  * Development only: a stand-in for the provider on this computer, so the
  * whole path (Claude Code, its profile, the team's tools, the chat) can be
- * tried without a real key. Ignored in production and for any address that
+ * tried without a live provider account. Ignored in production and for any address that
  * isn't loopback.
  */
 export function devProviderOverride(env: NodeJS.ProcessEnv = process.env): string | undefined {
@@ -174,9 +169,8 @@ export function devProviderOverride(env: NodeJS.ProcessEnv = process.env): strin
 }
 
 /**
- * Claude Code retries a refused key ten times with growing waits. The first
- * refusal is enough: the key is the team's only one, and there's nothing
- * else to try.
+ * Claude Code retries refused credentials with growing waits. The first
+ * refusal is enough. Never retry with a separate API account.
  */
 export function isAuthRefusal(event: StreamEvent): boolean {
   if ((event as { type: string }).type === 'auth_required') return true;
@@ -186,9 +180,9 @@ export function isAuthRefusal(event: StreamEvent): boolean {
 }
 
 /**
- * Whether a failed turn's own error says the provider refused the key. Only
+ * Whether a failed turn's own error says the provider refused authentication. Only
  * the error, never what the turn said: a conversation about authentication
- * isn't a refused key.
+ * isn't an authentication failure.
  */
 export function isCredentialRejection(result: Pick<TurnResult, 'errorCode' | 'errorMessage'>): boolean {
   const code = (result.errorCode ?? '').toLowerCase();
@@ -201,16 +195,15 @@ export function isCredentialRejection(result: Pick<TurnResult, 'errorCode' | 'er
 export const TEAM_TURN_TIMEOUT_SEC = 20 * 60;
 
 /**
- * Run one turn: the member's message to the chat's native session, under the
- * team's key, with the team's tools only, recording everything it says and
+ * Run one turn: the member's message and shared context to Claude Code, under the
+ * host's subscription, with the team's tools only, recording everything it says and
  * does in the chat. Never throws for an expected failure: the outcome says.
  */
 export async function runTeamTurn(input: RunTeamTurnInput): Promise<TeamTurnOutcome> {
   const settings = q.getTeamAiSettings();
   const chat = q.getChatSession(input.turn.chatSessionId);
   if (!chat) return { status: 'failed', code: 'failed', error: 'This chat is gone.' };
-  const apiKey = await readTeamAiApiKey();
-  if (!apiKey) return { status: 'failed', code: 'no_key', error: "Team AI has no provider key. The team's owner sets one in Settings." };
+  if (!(await teamAiSubscription()).available) return { status: 'failed', code: 'no_subscription', error: TEAM_AI_SIGN_IN };
 
   const dirs = teamAiDirs();
   ensureTeamAiDirs(dirs);
@@ -218,7 +211,6 @@ export async function runTeamTurn(input: RunTeamTurnInput): Promise<TeamTurnOutc
   fs.writeFileSync(instructionsFile, teamAiInstructions(q.getHome()?.name ?? 'Team'), { mode: 0o600 });
 
   const launch = teamAiLaunch({
-    apiKey,
     turnToken: mintTurnToken({ turnId: input.turn.id, chatId: chat.id, memberId: input.turn.memberId }),
     mcpUrl: input.mcpUrl ?? `${getLocalBaseUrl().replace(/\/+$/, '')}${TEAM_MCP_PATH}`,
     model: settings?.model ?? null,
@@ -227,19 +219,13 @@ export async function runTeamTurn(input: RunTeamTurnInput): Promise<TeamTurnOutc
     endpointBaseUrl: input.endpointBaseUrl ?? devProviderOverride(),
   });
 
-  let nativeSessionId = chat.externalSessionId ?? null;
-  // Stops the turn the moment the provider refuses the team's key.
+  // Stops the turn at the first authentication refusal.
   const refused = new AbortController();
   const signal = input.signal ? AbortSignal.any([input.signal, refused.signal]) : refused.signal;
   const onEvent = async (event: StreamEvent) => {
     if (isAuthRefusal(event) && !refused.signal.aborted) {
       refused.abort();
       return;
-    }
-    const sessionId = (event as { sessionId?: string | null }).sessionId;
-    if (sessionId && sessionId !== nativeSessionId) {
-      nativeSessionId = sessionId;
-      q.updateChatSession(chat.id, { externalSessionId: sessionId, externalProviderType: 'claude' });
     }
     const row = parseStreamEvent(chat.id, event);
     if (row) q.insertChatEvent(row);
@@ -253,19 +239,18 @@ export async function runTeamTurn(input: RunTeamTurnInput): Promise<TeamTurnOutc
       cwd: launch.cwd,
       env: launch.env,
       config: launch.config as Parameters<NonNullable<typeof provider.createSession>>[0]['config'],
-      sessionParams: nativeSessionId ? { sessionId: nativeSessionId } : undefined,
       signal,
       onEvent,
       // Nothing outside the team's tools is ever allowed, whatever asks.
       onUserInputRequest: async (req) => ({ allow: req.toolName.startsWith(`mcp__${TEAM_AI_MCP_SERVER}__`) }),
       onElicitation: async () => ({ action: 'decline' }),
     });
-    const handle = await session.send(teamAiMessage(input.memberName, input.text), { signal, timeoutSec: TEAM_TURN_TIMEOUT_SEC });
+    const handle = await session.send(teamAiTurnPrompt(input), { signal, timeoutSec: TEAM_TURN_TIMEOUT_SEC });
     const result = await handle.result;
     if (result.status === 'completed') return { status: 'done' };
-    // Stopped by the watcher on a refused key, or failed with that error.
+    // Stopped by the watcher on refused authentication, or failed with that error.
     if (refused.signal.aborted || (result.status === 'failed' && isCredentialRejection(result))) {
-      return { status: 'failed', code: 'credential_rejected', error: "The team's provider key was refused. The team's owner can update it in Settings." };
+      return { status: 'failed', code: 'credential_rejected', error: "Claude Code could not use the host's subscription sign-in. Sign in again on the team host and retry." };
     }
     if (result.status === 'aborted') return { status: 'cancelled' };
     if (result.status === 'timeout') {
@@ -274,7 +259,7 @@ export async function runTeamTurn(input: RunTeamTurnInput): Promise<TeamTurnOutc
     return { status: 'failed', code: 'failed', error: result.errorMessage ?? `Team AI stopped (${result.status}).` };
   } catch (err) {
     if (refused.signal.aborted) {
-      return { status: 'failed', code: 'credential_rejected', error: "The team's provider key was refused. The team's owner can update it in Settings." };
+      return { status: 'failed', code: 'credential_rejected', error: "Claude Code could not use the host's subscription sign-in. Sign in again on the team host and retry." };
     }
     if (input.signal?.aborted) return { status: 'cancelled' };
     const message = err instanceof Error ? err.message : String(err);

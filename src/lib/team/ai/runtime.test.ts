@@ -16,11 +16,13 @@ afterEach(async () => { await home.cleanup(); });
 describe('the launch profile', () => {
   it('keeps a turn to the team\'s tools, its own folders and the team\'s key', () => {
     const dirs = teamAiDirs('/srv/team/.work');
-    const launch = teamAiLaunch({ apiKey: 'sk-ant-team', turnToken: 'rtt_x.y', mcpUrl: 'http://127.0.0.1:4224/api/team/mcp', model: null, instructionsFile: '/srv/i.md', dirs });
-    expect(TEAM_AI_LAUNCH_ARGS).toEqual(['--bare', '--restricted', '--tools', '', '--disable-slash-commands', '--setting-sources', '']);
+    const launch = teamAiLaunch({ turnToken: 'rtt_x.y', mcpUrl: 'http://127.0.0.1:4224/api/team/mcp', model: null, instructionsFile: '/srv/i.md', dirs });
+    expect(TEAM_AI_LAUNCH_ARGS).not.toContain('--bare');
+    expect(TEAM_AI_LAUNCH_ARGS).toContain('--no-session-persistence');
+    const settings = JSON.parse(TEAM_AI_LAUNCH_ARGS[TEAM_AI_LAUNCH_ARGS.indexOf('--settings') + 1]);
+    expect(settings).toMatchObject({ disableAllHooks: true, autoMemoryEnabled: false, claudeMdExcludes: ['**'], forceLoginMethod: 'claudeai' });
     expect(launch.cwd).toBe('/srv/team/.work/team-ai/runtime');
     expect(launch.config).toEqual({
-      endpoint: { apiKey: 'sk-ant-team' },
       mcpServers: [{ name: 'ri_team', type: 'http', url: 'http://127.0.0.1:4224/api/team/mcp', headers: { Authorization: 'Bearer rtt_x.y' } }],
       strictMcpConfig: true,
       allowedTools: ['mcp__ri_team'],
@@ -28,10 +30,13 @@ describe('the launch profile', () => {
       unattendedPermissionPolicy: 'deny',
       extraArgs: [...TEAM_AI_LAUNCH_ARGS],
     });
-    expect(launch.env).toMatchObject({ HOME: '/srv/team/.work/team-ai/home', CLAUDE_CONFIG_DIR: '/srv/team/.work/team-ai/claude' });
+    expect(launch.env.HOME).toBe(process.env.HOME);
+    expect(launch.env.CLAUDE_CONFIG_DIR).toBe(process.env.CLAUDE_CONFIG_DIR || undefined);
+    expect(launch.env.ANTHROPIC_API_KEY).toBe('');
+    expect(launch.env.ANTHROPIC_AUTH_TOKEN).toBe('');
     // The host's other provider keys never reach it.
     for (const name of ['OPENAI_API_KEY', 'GEMINI_API_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_PROFILE']) expect(launch.env[name], name).toBe('');
-    expect(teamAiLaunch({ apiKey: 'k', turnToken: 't', mcpUrl: 'u', model: 'claude-x', instructionsFile: 'f', dirs }).config.model).toBe('claude-x');
+    expect(teamAiLaunch({ turnToken: 't', mcpUrl: 'u', model: 'claude-x', instructionsFile: 'f', dirs }).config.model).toBe('claude-x');
   });
 
   it('names who sent each message', () => {
@@ -78,7 +83,7 @@ describe('the runtime probe', () => {
       fs.writeFileSync(file, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "9.9.9 (Claude Code)"; else printf '%s\\n' "${help}"; fi\n`, { mode: 0o755 });
       return file;
     };
-    const all = '  --bare  --restricted  --tools <tools...>  --disable-slash-commands  --setting-sources <s>  --strict-mcp-config  --mcp-config <c>  --allowed-tools <t>';
+    const all = '  --no-session-persistence  --settings <json>  --restricted  --tools <tools...>  --disable-slash-commands  --setting-sources <s>  --strict-mcp-config  --mcp-config <c>  --allowed-tools <t>';
     expect(await probeTeamAiRuntime({ command: script(all) })).toEqual({ ok: true, version: '9.9.9 (Claude Code)', missing: [], error: null });
     const older = await probeTeamAiRuntime({ command: script(all.replace('--restricted', '')) });
     expect(older).toMatchObject({ ok: false, missing: ['--restricted'] });

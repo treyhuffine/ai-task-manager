@@ -72,14 +72,13 @@ export const teamAiRouter = router({
   status: memberProcedure.query(() => teamAiStatus()),
   configure: ownerProcedure
     .input(z.object({
-      apiKey: z.string().min(1).max(500).optional(),
-      credentialLabel: z.string().min(1).max(120),
       model: z.string().max(100).nullable().optional(),
     }).strict())
     .mutation(async ({ ctx, input }) => {
       await configureTeamAi(me(ctx).id, input);
       return teamAiStatus();
     }),
+  refreshAuth: ownerProcedure.mutation(() => teamAiStatus({ freshAuth: true })),
   setEnabled: ownerProcedure.input(z.object({ enabled: z.boolean() }).strict()).mutation(async ({ ctx, input }) => {
     const owner = me(ctx);
     await setTeamAiEnabled(owner.id, input.enabled);
@@ -88,7 +87,6 @@ export const teamAiRouter = router({
   }),
   forgetKey: ownerProcedure.mutation(async ({ ctx }) => {
     forgetTeamAiKey(me(ctx).id);
-    await stopTeamAiWork({}, "The team's provider key was removed.");
     return teamAiStatus();
   }),
 

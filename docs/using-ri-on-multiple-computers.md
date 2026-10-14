@@ -41,6 +41,10 @@ Your personal Ri can connect to team spaces so you can handle personal and share
 
 People who only use a team space can open it in a browser without setting up a personal Home, installing the desktop app or enabling agents.
 
+To use the team's shared AI, switch to the team and open **Settings**, then **Team AI**. The owner clicks **Turn on**. Ri uses the Claude Code subscription already signed in on the computer hosting the team. Everyone's use counts toward that subscription's limits. If it needs a sign-in, run `claude auth login` on that computer, then click **Check sign-in**. Open **Chat** in the team's sidebar to talk with it about shared tasks, notes and decisions.
+
+**Connect your AI** in team Settings is a separate option for giving your own assistant access to shared work. Its member access token authorizes team tools. It does not pay for model usage.
+
 ## Read this help offline
 
 The welcome and connection screens include **Using Ri on multiple computers**. It opens a built-in guide, so help remains available before setup and while your Home is unreachable.

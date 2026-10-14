@@ -12,6 +12,9 @@ import { apiErrorStatus } from '@/lib/api/error-status';
 import { createTeamTestHome, preloadTeamRoutes, serveTeam, teamTrpc, type TeamTestHome } from '@/test/fixtures/team-home';
 import type { RunTeamTurnInput, TeamTurnOutcome } from './runtime';
 
+const subscription = vi.hoisted(() => vi.fn<(fresh?: boolean) => Promise<{ available: boolean }>>(async () => ({ available: true })));
+vi.mock('./auth', async (original) => ({ ...(await original<typeof import('./auth')>()), teamAiSubscription: subscription }));
+
 const ai = vi.hoisted(() => ({
   embed: vi.fn(async () => ({ embedding: new Array(1536).fill(0) })),
   harness: vi.fn(async () => { throw new Error('no background model in a team'); }),
@@ -71,6 +74,7 @@ let held: ReturnType<typeof heldRuntime>;
 beforeAll(preloadTeamRoutes, 120_000);
 
 beforeEach(async () => {
+  subscription.mockReset().mockResolvedValue({ available: true });
   vi.stubGlobal('fetch', serveTeam);
   team = await createTeamTestHome('ri-team-chat-');
   maya = await team.joinAs('Maya');
@@ -99,14 +103,13 @@ async function status(promise: Promise<unknown>): Promise<number | null> {
 
 async function turnOn() {
   const owner = await teamTrpc(team.owner.token);
-  await owner.team.ai.configure.mutate({ apiKey: 'sk-ant-team', credentialLabel: "Acme's Anthropic account" });
   return owner.team.ai.setEnabled.mutate({ enabled: true });
 }
 
 const sendId = () => crypto.randomUUID();
 
 describe('Team AI settings', () => {
-  it('keeps a refused key unavailable when another chat finishes successfully', async () => {
+  it('keeps a signed-out subscription unavailable when another chat finishes successfully', async () => {
     await turnOn();
     const owner = await teamTrpc(team.owner.token);
     const [main] = await owner.team.ai.chats.list.query();
@@ -114,21 +117,23 @@ describe('Team AI settings', () => {
     const a = await owner.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'First' });
     const b = await owner.team.ai.send.mutate({ chatId: other.id, clientSendId: sendId(), text: 'Second' });
     await held.waitFor(2);
+    subscription.mockResolvedValue({ available: false });
     await held.answer(a.turnId, '', { status: 'failed', code: 'credential_rejected', error: 'Refused' });
-    await vi.waitFor(async () => expect(await owner.team.ai.status.query()).toMatchObject({ state: 'unavailable' }));
+    await vi.waitFor(async () => expect(await owner.team.ai.status.query()).toMatchObject({ state: 'needs_sign_in' }));
     await held.answer(b.turnId, 'Finished before the key was revoked');
     const { settledTeamAi } = await import('./chat');
     await settledTeamAi();
-    expect(await owner.team.ai.status.query()).toMatchObject({ state: 'unavailable', reason: expect.stringMatching(/refused/) });
+    expect(await owner.team.ai.status.query()).toMatchObject({ state: 'needs_sign_in', reason: expect.stringMatching(/Sign in/) });
   });
 
-  it('does not reject a replacement key when an old turn reports its refusal', async () => {
+  it('uses the current sign-in when an old turn reports an authentication refusal', async () => {
     await turnOn();
     const owner = await teamTrpc(team.owner.token);
     const [main] = await owner.team.ai.chats.list.query();
     const sent = await owner.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Old key' });
     await held.waitFor(1);
-    await owner.team.ai.configure.mutate({ apiKey: 'sk-ant-replacement', credentialLabel: 'New account' });
+    await owner.team.ai.refreshAuth.mutate();
+    expect(subscription).toHaveBeenCalledWith(true);
     await held.answer(sent.turnId, '', { status: 'failed', code: 'credential_rejected', error: 'Old key refused' });
     const { settledTeamAi } = await import('./chat');
     await settledTeamAi();
@@ -139,12 +144,15 @@ describe('Team AI settings', () => {
     const owner = await teamTrpc(team.owner.token);
     const member = await teamTrpc(maya.token);
     expect(await member.team.ai.status.query()).toMatchObject({ enabled: false, state: 'off' });
-    expect(await status(member.team.ai.configure.mutate({ apiKey: 'sk-ant-x', credentialLabel: 'Mine' }))).toBe(403);
+    expect(await status(member.team.ai.configure.mutate({ model: 'sonnet' }))).toBe(403);
     expect(await status(member.team.ai.setEnabled.mutate({ enabled: true }))).toBe(403);
 
-    expect(await owner.team.ai.setEnabled.mutate({ enabled: true })).toMatchObject({ state: 'needs_key' });
-    const ready = await owner.team.ai.configure.mutate({ apiKey: 'sk-ant-secret-team-key', credentialLabel: "Acme's Anthropic account" });
-    expect(ready).toMatchObject({ enabled: true, state: 'ready', credentialLabel: "Acme's Anthropic account", provider: 'Anthropic API', runtime: 'Claude Code' });
+    expect(subscription).not.toHaveBeenCalled();
+    subscription.mockResolvedValue({ available: false });
+    expect(await owner.team.ai.setEnabled.mutate({ enabled: true })).toMatchObject({ state: 'needs_sign_in' });
+    subscription.mockResolvedValue({ available: true });
+    const ready = await owner.team.ai.refreshAuth.mutate();
+    expect(ready).toMatchObject({ enabled: true, state: 'ready', provider: 'Claude subscription', runtime: 'Claude Code' });
     expect(JSON.stringify(ready)).not.toContain('sk-ant-secret');
     expect(JSON.stringify(await member.team.ai.status.query())).not.toContain('sk-ant-secret');
     // Turning it on made the team's main chat.
@@ -180,7 +188,7 @@ describe('shared chats', () => {
     for (let i = 0; i < 205; i++) {
       q.acceptTeamChatSend({ chatId: chat.id, memberId: maya.id, clientSendId: sendId(), text: `Waiting ${i}` });
     }
-    q.saveTeamAiSettings({ lastError: 'credential_rejected' }, null);
+    subscription.mockResolvedValue({ available: false });
     const { kickTeamChat, settledTeamAi } = await import('./chat');
     kickTeamChat(chat.id);
     await settledTeamAi();
@@ -190,7 +198,7 @@ describe('shared chats', () => {
     expect(q.teamChatsWithQueuedTurns()).toEqual([]);
   });
 
-  it.each(['member removed', 'chat archived', 'AI disabled', 'key removed'] as const)('rechecks a pending send after its runtime probe: %s', async (change) => {
+  it.each(['member removed', 'chat archived', 'AI disabled', 'subscription signed out'] as const)('rechecks a pending send after its runtime probe: %s', async (change) => {
     await turnOn();
     const owner = await teamTrpc(team.owner.token);
     const member = await teamTrpc(maya.token);
@@ -206,7 +214,7 @@ describe('shared chats', () => {
     if (change === 'member removed') await owner.team.removeMember.mutate({ id: maya.id });
     if (change === 'chat archived') await owner.team.ai.chats.archive.mutate({ id: chat.id });
     if (change === 'AI disabled') await owner.team.ai.setEnabled.mutate({ enabled: false });
-    if (change === 'key removed') await owner.team.ai.forgetKey.mutate();
+    if (change === 'subscription signed out') subscription.mockResolvedValue({ available: false });
     release();
     expect(await sending).toBe(change === 'member removed' ? 403 : change === 'chat archived' ? 404 : 412);
     const q = await import('@/lib/db/queries');
@@ -290,18 +298,17 @@ describe('shared chats', () => {
     expect((await member.team.ai.events.query({ chatId: main.id, after: later.cursor })).events).toEqual([]);
   });
 
-  it('stops running and queued work when the owner removes the provider key', async () => {
+  it('does not stop subscription work when removing an obsolete API key', async () => {
     await turnOn();
     const owner = await teamTrpc(team.owner.token);
     const [chat] = await owner.team.ai.chats.list.query();
     const first = await owner.team.ai.send.mutate({ chatId: chat.id, clientSendId: sendId(), text: 'Running' });
     await held.waitFor(1);
-    const waiting = await owner.team.ai.send.mutate({ chatId: chat.id, clientSendId: sendId(), text: 'Waiting' });
     await owner.team.ai.forgetKey.mutate();
     const q = await import('@/lib/db/queries');
-    expect(q.getTeamChatTurn(first.turnId)).toMatchObject({ status: 'cancelled', error: expect.stringMatching(/key was removed/) });
-    expect(q.getTeamChatTurn(waiting.turnId)).toMatchObject({ status: 'cancelled', error: expect.stringMatching(/key was removed/) });
-    expect(held.calls).toHaveLength(1);
+    expect(q.getTeamChatTurn(first.turnId)?.status).toBe('running');
+    expect(await owner.team.ai.status.query()).toMatchObject({ state: 'ready' });
+    await held.answer(first.turnId, 'Done');
   });
 
   it('stops everything when turned off, and keeps records and members\' AI clients working', async () => {
@@ -371,19 +378,21 @@ describe('shared chats', () => {
     expect(page.turns.find((t) => t.id === waiting.turn.id)).toMatchObject({ status: 'done' });
   });
 
-  it('becomes unavailable when the team\'s key is refused, until the owner saves another', async () => {
+  it('recovers after the host signs back in, without provisioning a new key', async () => {
     await turnOn();
     const owner = await teamTrpc(team.owner.token);
     const member = await teamTrpc(maya.token);
     const [main] = await member.team.ai.chats.list.query();
     const sent = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Hello' });
     await held.waitFor(1);
-    await held.answer(sent.turnId, '', { status: 'failed', code: 'credential_rejected', error: "The team's provider key was refused." });
+    subscription.mockResolvedValue({ available: false });
+    await held.answer(sent.turnId, '', { status: 'failed', code: 'credential_rejected', error: 'Sign-in was refused.' });
     const { settledTeamAi } = await import('./chat');
     await settledTeamAi();
-    expect(await member.team.ai.status.query()).toMatchObject({ state: 'unavailable', reason: expect.stringMatching(/refused/) });
+    expect(await member.team.ai.status.query()).toMatchObject({ state: 'needs_sign_in', reason: expect.stringMatching(/Sign in/) });
     expect(await status(member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Again' }))).toBe(412);
-    expect(await owner.team.ai.configure.mutate({ apiKey: 'sk-ant-new', credentialLabel: "Acme's Anthropic account" })).toMatchObject({ state: 'ready' });
+    subscription.mockResolvedValue({ available: true });
+    expect(await owner.team.ai.refreshAuth.mutate()).toMatchObject({ state: 'ready' });
   });
 
   it('gives a running turn the team\'s tools and nothing else, for as long as it runs', async () => {
@@ -513,4 +522,29 @@ describe('shared chats', () => {
     expect(page.turns[0]).toMatchObject({ status: 'cancelled', error: 'Stopped by Maya.' });
     expect((await member.team.ai.chats.list.query()).map((c) => c.label).sort()).toEqual(['Acme', 'Release planning']);
   });
+});
+
+
+it('restores only earlier shared conversation, excludes queued requests, and bounds retained text', async () => {
+  await turnOn();
+  const q = await import('@/lib/db/queries');
+  const { teamAiTurnPrompt } = await import('./runtime');
+  const chat = q.createTeamChat('Context boundary');
+  q.acceptTeamChatSend({ chatId: chat.id, memberId: team.owner.id, clientSendId: sendId(), text: 'Earlier shared question' });
+  q.insertChatEvent({ sessionId: chat.id, source: 'agent', role: 'assistant', content: 'Earlier shared answer' });
+  const current = q.acceptTeamChatSend({ chatId: chat.id, memberId: maya.id, clientSendId: sendId(), text: 'Current request' });
+  q.acceptTeamChatSend({ chatId: chat.id, memberId: team.owner.id, clientSendId: sendId(), text: 'Future queued instruction' });
+  const other = q.createTeamChat('Other context');
+  q.insertChatEvent({ sessionId: other.id, source: 'agent', role: 'assistant', content: 'OTHER CHAT SECRET' });
+  const input = { turn: current.turn, memberName: 'Maya', text: 'Current request' };
+  const prompt = teamAiTurnPrompt(input);
+  expect(prompt).toContain('Earlier shared question');
+  expect(prompt).toContain('Earlier shared answer');
+  expect(prompt).toContain('Trey');
+  expect(prompt).toContain('Maya');
+  expect(prompt).not.toContain('Future queued instruction');
+  expect(prompt).not.toContain('OTHER CHAT SECRET');
+  expect(prompt.match(/Current request/g)).toHaveLength(1);
+  q.insertChatEvent({ sessionId: chat.id, source: 'agent', role: 'assistant', content: 'x'.repeat(60_000) });
+  expect(teamAiTurnPrompt(input).length).toBeLessThan(25_000);
 });
