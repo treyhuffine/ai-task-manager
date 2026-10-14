@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, session, shell, screen, clipboard, globalShortcut } from 'electron';
+import { app, BrowserWindow, dialog, type BaseWindow, ipcMain, Menu, nativeImage, Notification, session, shell, screen, clipboard, globalShortcut } from 'electron';
 import { fork, execFile, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
@@ -30,6 +30,7 @@ import { DesktopActivity } from './activity';
 import { desktopActivityPath, type DesktopActivitySnapshot } from '../src/lib/sessions/desktop-activity-contract';
 import { companionWindow } from './companion-window';
 import { createLocalWindow } from './local-window';
+import { createFindBars, editMenu } from './find-bar';
 import { desktopAppearance, localPageAssets } from './appearance';
 import { startingPage } from './local-page-style';
 import { createStartupVisibility } from './startup-visibility';
@@ -163,9 +164,22 @@ const appearance = desktopAppearance(path.join(profile, 'appearance.json'));
 let pageAssets: ReturnType<typeof localPageAssets> | undefined;
 const localSurface = createLocalWindow({
   window: () => window,
-  onShow: () => { if (quitting) localSurface.close(); else sendLocalTheme(); },
+  onShow: () => { if (window) findBars.close(window); if (quitting) localSurface.close(); else sendLocalTheme(); },
   onError: error => { if (!quitting) dialog.showErrorBox('Desktop settings', error.message); },
 });
+// Find in page searches the app, or a team's page in its own window, never the
+// local settings or startup page covering the app.
+const findBars = createFindBars({
+  target: win => {
+    if (win !== window) return win.webContents;
+    return appOrigin && !localSurface.isPresented() ? win.webContents : undefined;
+  },
+  page: localStyleOptions,
+});
+function findWindow(focused: BaseWindow | undefined) {
+  const win = focused ?? BrowserWindow.getFocusedWindow();
+  return win instanceof BrowserWindow && !win.isDestroyed() ? win : undefined;
+}
 const startupVisibility = createStartupVisibility({
   viewer: () => window, local: localSurface, quitting: () => quitting,
   revealWindow: () => { visibilityRevision++; revealWindow(window); },
@@ -186,6 +200,7 @@ function sendLocalTheme() {
   for (const id of ['loading', 'companion', 'maintenance'] as const) {
     localSurface.get(id)?.webContents.send('desktop:theme', appearance.get());
   }
+  findBars.theme(appearance.get());
 }
 let discovered: DiscoveredInstallation | null = null;
 let discovery: { expires: number; result: Promise<DiscoveredInstallation | null> } | undefined;
@@ -1090,7 +1105,12 @@ async function start() {
       ] : []),
       { ...commands.quit, accelerator: 'CmdOrCtrl+Q' },
     ] },
-    { role: 'editMenu' }, { role: 'viewMenu' },
+    editMenu(process.platform, {
+      find: focused => { const win = findWindow(focused); if (win) void findBars.open(win); },
+      next: focused => { const win = findWindow(focused); if (win) void findBars.step(win, true); },
+      previous: focused => { const win = findWindow(focused); if (win) void findBars.step(win, false); },
+    }),
+    { role: 'viewMenu' },
     { label: 'Window', role: 'windowMenu', submenu: [
       { role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, commands.show,
       // Teams open in windows of their own (desktop/team-window.ts).

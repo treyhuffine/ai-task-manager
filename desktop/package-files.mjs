@@ -38,7 +38,7 @@ export function rebaseResourceLinks(root, sourceRoot) {
 export function assertCompanionPackage(server, shell) {
   const serverFiles = ['dist/desktop/connection-setup-entry.cjs', 'dist/service/worker.cjs', 'src/styles/theme.css',
     'public/fonts/inter-latin.woff2', 'public/fonts/OFL.txt', 'public/brand/ri-mark-white.svg'];
-  const shellFiles = ['companion-preload.cjs', 'local-preload.cjs'];
+  const shellFiles = ['companion-preload.cjs', 'local-preload.cjs', 'find-preload.cjs'];
   for (const file of [...serverFiles.map(file => path.join(server, file)), ...shellFiles.map(file => path.join(shell, file))]) {
     if (!fs.existsSync(file) || !fs.lstatSync(file).isFile()) throw new Error(`Companion package entry is missing or unsafe: ${file}`);
   }

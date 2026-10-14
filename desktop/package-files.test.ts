@@ -25,7 +25,7 @@ it('refuses a new companion package missing setup, worker, privileged preload or
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-package-companion-')); dirs.push(temporary);
   const server = path.join(temporary, 'server'); const shell = path.join(temporary, 'shell');
   const assets = ['src/styles/theme.css', 'public/fonts/inter-latin.woff2', 'public/fonts/OFL.txt', 'public/brand/ri-mark-white.svg'].map(file => path.join(server, file));
-  const files = [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), path.join(shell, 'companion-preload.cjs'), path.join(shell, 'local-preload.cjs'), ...assets];
+  const files = [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), path.join(shell, 'companion-preload.cjs'), path.join(shell, 'local-preload.cjs'), path.join(shell, 'find-preload.cjs'), ...assets];
   for (const file of files) {
     expect(() => assertCompanionPackage(server, shell)).toThrow(/missing or unsafe/);
     fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, 'built');

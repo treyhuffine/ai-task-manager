@@ -8,8 +8,9 @@ export interface LocalPageStyleOptions {
   platform?: string;
 }
 
-/** Local pages accept bundled assets only. No page can fetch another origin. */
-export function localPageStyle(nonce: string, options: LocalPageStyleOptions = {}) {
+/** The strict policy, theme and bundled assets every local page shares. Local
+ * pages accept bundled assets only. No page can fetch another origin. */
+export function localPageBase(nonce: string, options: LocalPageStyleOptions = {}) {
   if (!/^[a-zA-Z0-9]+$/.test(nonce)) throw new Error('Invalid page nonce');
   const theme = options.theme ?? 'dark';
   if (theme !== 'light' && theme !== 'dark') throw new Error('Invalid page theme');
@@ -21,14 +22,25 @@ export function localPageStyle(nonce: string, options: LocalPageStyleOptions = {
   if (logo && (logo.length > 200_000 || !/^data:image\/(?:png|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/.test(logo))) throw new Error('Invalid logo image');
   const font = options.fontDataUrl;
   if (font && (font.length > 2_000_000 || !/^data:font\/woff2;base64,[A-Za-z0-9+/]+={0,2}$/.test(font))) throw new Error('Invalid page font');
-
   return {
     attributes: `lang="en" class="${theme}" data-ri-desktop="${platform}"`,
-    head: `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; font-src data:; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style nonce="${nonce}">${css}
+    meta: `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; font-src data:; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">`,
+    css: `${css}
 ${font ? `@font-face{font-family:Inter;font-style:normal;font-weight:100 900;font-display:swap;src:url("${font}") format("woff2")}` : ''}
-:root{color-scheme:light}.dark{color-scheme:dark}*{box-sizing:border-box}[hidden]{display:none!important}
+:root{color-scheme:light}.dark{color-scheme:dark}*{box-sizing:border-box}[hidden]{display:none!important}`,
+    logo,
+    script: `window.riLocal?.onTheme?.(theme=>{if(theme==='light'||theme==='dark'){document.documentElement.classList.toggle('dark',theme==='dark');document.documentElement.classList.toggle('light',theme==='light');}});`,
+  };
+}
+
+/** Setup, recovery and loading pages: the shared base plus their layout. */
+export function localPageStyle(nonce: string, options: LocalPageStyleOptions = {}) {
+  const base = localPageBase(nonce, options);
+  return {
+    attributes: base.attributes,
+    head: `${base.meta}
+<style nonce="${nonce}">${base.css}
 body{margin:0;min-height:100dvh;display:grid;align-content:center;padding:64px 32px 40px;background:var(--background,Canvas);color:var(--foreground,CanvasText);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
 main{width:100%;max-width:560px;margin:0 auto}main.maintenance{max-width:720px}
 .desktop-titlebar{display:none}html[data-ri-desktop=darwin] .desktop-titlebar{display:block;position:fixed;inset:0 0 auto;height:40px;padding-left:88px;background:var(--background,Canvas);z-index:20;-webkit-app-region:drag;user-select:none}
@@ -42,8 +54,8 @@ details{border-top:1px solid var(--border,ButtonBorder);padding:16px 0}summary{c
 @media(max-width:600px){body{padding:56px 24px 32px}h1{font-size:23px}.maintenance section{padding:16px}}@media(prefers-reduced-motion:reduce){button{transition:none}}
 </style>`,
     chrome: '<div class="desktop-titlebar" data-desktop-titlebar aria-hidden="true"></div>',
-    brand: `<div class="brand">${logo ? `<img src="${logo}" alt="">` : ''}<span>Ri</span></div>`,
-    script: `window.riLocal?.onTheme?.(theme=>{if(theme==='light'||theme==='dark'){document.documentElement.classList.toggle('dark',theme==='dark');document.documentElement.classList.toggle('light',theme==='light');}});`,
+    brand: `<div class="brand">${base.logo ? `<img src="${base.logo}" alt="">` : ''}<span>Ri</span></div>`,
+    script: base.script,
   };
 }
 
