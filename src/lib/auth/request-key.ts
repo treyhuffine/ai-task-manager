@@ -24,6 +24,8 @@ export const SESSION_CHAT_HEADER = `x-${APP_SHORT_ID}-session-chat-id`;
 /** In a team space, the member a sign-in key belongs to, and their role (docs/homes-spec.md §9.1). */
 export const MEMBER_ID_HEADER = `x-${APP_SHORT_ID}-member-id`;
 export const MEMBER_ROLE_HEADER = `x-${APP_SHORT_ID}-member-role`;
+/** In a team space, the team AI turn a `team_ai` credential acts for (docs/homes-spec.md §9.9). */
+export const TEAM_AI_TURN_HEADER = `x-${APP_SHORT_ID}-team-ai-turn`;
 
 export const FORWARDED_KEY_HEADERS = [
   API_KEY_ID_HEADER,
@@ -33,6 +35,7 @@ export const FORWARDED_KEY_HEADERS = [
   SESSION_CHAT_HEADER,
   MEMBER_ID_HEADER,
   MEMBER_ROLE_HEADER,
+  TEAM_AI_TURN_HEADER,
 ] as const;
 
 export type CallerLocation = 'home' | 'elsewhere';
@@ -41,10 +44,12 @@ export type CallerLocation = 'home' | 'elsewhere';
  * A viewing key reads and acts as the owner. A worker key only reaches the
  * worker routes. A session token only reaches its session's servers, as that
  * session. In a team space there are no viewers: a `member` key acts as that
- * member, and the `host` key (the host's own) administers the installation
- * and is never a member.
+ * member, an `ai_client` key is that member's own AI assistant reaching only
+ * the team's MCP, a `team_ai` credential is one turn of the team's own AI
+ * acting for the member who asked, and the `host` key (the host's own)
+ * administers the installation and is never a member.
  */
-export type KeyScope = 'viewer' | 'worker' | 'session' | 'member' | 'host';
+export type KeyScope = 'viewer' | 'worker' | 'session' | 'member' | 'ai_client' | 'team_ai' | 'host';
 export type MemberRoleScope = 'owner' | 'member';
 
 export interface RequestKey {
@@ -56,9 +61,11 @@ export interface RequestKey {
   workerDeviceId: string | null;
   /** The chat a session token speaks for. */
   sessionChatId: string | null;
-  /** In a team space, the member a `member` key signs in as, and their role. */
+  /** In a team space, the member a `member` key signs in as, or an `ai_client` key acts for, and their role. */
   memberId?: string | null;
   memberRole?: MemberRoleScope | null;
+  /** The team AI turn a `team_ai` credential acts for. */
+  teamAiTurnId?: string | null;
 }
 
 export function getRequestKey(headers: Headers): RequestKey | null {
@@ -66,16 +73,18 @@ export function getRequestKey(headers: Headers): RequestKey | null {
   if (!apiKeyId) return null;
   const declared = headers.get(API_KEY_SCOPE_HEADER);
   const scope: KeyScope =
-    declared === 'worker' || declared === 'session' || declared === 'member' || declared === 'host' ? declared : 'viewer';
+    declared === 'worker' || declared === 'session' || declared === 'member' || declared === 'ai_client' || declared === 'team_ai' || declared === 'host' ? declared : 'viewer';
   const declaredRole = headers.get(MEMBER_ROLE_HEADER);
+  const ofMember = scope === 'member' || scope === 'ai_client' || scope === 'team_ai';
   return {
     apiKeyId,
     location: headers.get(CALLER_LOCATION_HEADER) === 'home' ? 'home' : 'elsewhere',
     scope,
     workerDeviceId: scope === 'worker' || scope === 'session' ? headers.get(WORKER_DEVICE_HEADER) : null,
     sessionChatId: scope === 'session' ? headers.get(SESSION_CHAT_HEADER) : null,
-    memberId: scope === 'member' ? headers.get(MEMBER_ID_HEADER) : null,
-    memberRole: scope === 'member' && (declaredRole === 'owner' || declaredRole === 'member') ? declaredRole : null,
+    memberId: ofMember ? headers.get(MEMBER_ID_HEADER) : null,
+    memberRole: ofMember && (declaredRole === 'owner' || declaredRole === 'member') ? declaredRole : null,
+    teamAiTurnId: scope === 'team_ai' ? headers.get(TEAM_AI_TURN_HEADER) : null,
   };
 }
 

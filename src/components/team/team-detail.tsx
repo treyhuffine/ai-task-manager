@@ -13,7 +13,7 @@ import { entityKeys } from '@/lib/query/entity-keys';
 import { NoteEditor } from '@/components/editor/rich-editor';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Tip } from '@/components/ui/tip';
 import type { EntityVersionRecord } from '@/db/types';
@@ -24,6 +24,7 @@ import { SaveStatus, SharedBodyState, useSharedBody } from './shared-body-editor
 import { TeamAreaSelect } from './team-areas';
 import { MyWorkControl, SaveNoteControl } from '@/components/spaces/my-work-control';
 import { TeamPublishedResults } from '@/components/spaces/published-results';
+import { DecisionLabel, NoteKindMenuItem } from '@/components/notes/note-kind';
 
 /** A shared task or note, open beside the board or list. */
 export function TeamDetail() {
@@ -166,6 +167,7 @@ function TeamNotePanel({ id }: { id: string }) {
         <HistoryButton kind="note" id={note.id} bodyRevision={note.bodyRevision} />
         <MoreMenu
           canDelete={member.role === 'owner'}
+          extra={<NoteKindMenuItem kind={note.kind} className="" iconClassName="" onChange={(kind) => updateNote.mutate({ id: note.id, kind })} />}
           onArchive={() => {
             updateNote.mutate({ id: note.id, status: 'archived' });
             nav.closeDetail();
@@ -193,6 +195,7 @@ function TeamNotePanel({ id }: { id: string }) {
             metadata={
               <div className="mb-4 space-y-3">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                  <DecisionLabel kind={note.kind} />
                   <Field label="Area">
                     <TeamAreaSelect value={note.areaId ?? null} onChange={(areaId) => updateNote.mutate({ id: note.id, areaId })} />
                   </Field>
@@ -220,13 +223,14 @@ function PanelLoading() {
   return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
 }
 
-function MoreMenu({ canDelete, onArchive, onDelete }: { canDelete: boolean; onArchive: () => void; onDelete: () => void }) {
+function MoreMenu({ canDelete, onArchive, onDelete, extra }: { canDelete: boolean; onArchive: () => void; onDelete: () => void; extra?: React.ReactNode }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger aria-label="More" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted/50 hover:text-foreground">
         <MoreHorizontal size={15} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44 text-xs">
+        {extra && <>{extra}<DropdownMenuSeparator /></>}
         <DropdownMenuItem onSelect={onArchive}>
           <Archive size={13} /> Archive
         </DropdownMenuItem>
@@ -240,10 +244,13 @@ function MoreMenu({ canDelete, onArchive, onDelete }: { canDelete: boolean; onAr
   );
 }
 
-/** Who did what to this, as the team sees it: "Maya changed this". */
+/**
+ * Who did what to this, as the team sees it: "Maya changed this", "Maya's
+ * agent changed this", or "Team AI, for Maya, changed this" (§9.8, §9.9).
+ */
 function describe(version: EntityVersionRecord, name: (id: string | null) => string): string {
   const who = name(version.actorMemberId ?? null);
-  const by = version.source === 'ai' ? `${who}'s agent` : who;
+  const by = version.source !== 'ai' ? who : version.actorSessionId ? `Team AI, for ${who},` : `${who}'s agent`;
   if (version.summary === 'Created') return `${by} added this`;
   if (version.revertedFromVersionId) return `${by} restored an earlier version`;
   return `${by} changed this`;

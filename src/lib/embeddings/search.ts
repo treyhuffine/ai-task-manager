@@ -2,8 +2,21 @@ import { getRawDb } from '@/lib/db';
 import { isTeamAuthority } from '@/lib/home/authority';
 import { generateEmbedding } from './embed';
 import { toFtsMatchQuery, normalizeFtsRank } from './fts-query';
+import type { NoteKind } from '@/db/types';
 
 export { toFtsMatchQuery, normalizeFtsRank };
+
+/**
+ * Narrow a search to notes of one kind (docs/homes-spec.md §9.7): the stored
+ * kind, never the title. `note` includes notes from before kinds existed.
+ */
+export interface SearchKindFilter {
+  noteKind?: NoteKind;
+}
+
+function noteKindSql(kind: NoteKind, alias = 'n'): string {
+  return kind === 'decision' ? `${alias}.kind = 'decision'` : `(${alias}.kind = 'note' OR ${alias}.kind IS NULL)`;
+}
 
 export interface SearchHit {
   entityType: 'task' | 'note' | 'stream';
@@ -15,10 +28,29 @@ export interface SearchHit {
  * Vector similarity search using sqlite-vec.
  * Returns results sorted by cosine similarity descending.
  */
-export async function vectorSearch(query: string, limit = 20): Promise<SearchHit[]> {
+export async function vectorSearch(query: string, limit = 20, { noteKind }: SearchKindFilter = {}): Promise<SearchHit[]> {
   const db = getRawDb();
   const queryVector = await generateEmbedding(query);
   const queryEmbedding = new Float32Array(queryVector);
+  if (noteKind) {
+    // Nearest neighbours can't filter inside the vector index: look further,
+    // then keep the notes of this kind.
+    const rows = db
+      .prepare(
+        `WITH nearest AS (
+           SELECT rowid, distance FROM embeddings_vec WHERE embedding MATCH ? AND k = ?
+         )
+         SELECT e.entity_id AS entityId, nearest.distance
+         FROM nearest
+         JOIN embeddings e ON e.id = nearest.rowid
+         JOIN notes n ON n.id = e.entity_id
+         WHERE e.entity_type = 'note' AND ${noteKindSql(noteKind)}
+         ORDER BY nearest.distance
+         LIMIT ?`,
+      )
+      .all(queryEmbedding, limit * 4, limit) as Array<{ entityId: string; distance: number }>;
+    return rows.map((r) => ({ entityType: 'note' as const, entityId: r.entityId, score: 1 - r.distance }));
+  }
 
   const rows = db
     .prepare(
@@ -50,15 +82,15 @@ export async function vectorSearch(query: string, limit = 20): Promise<SearchHit
  * BM25 keyword search across all FTS tables.
  * Normalizes scores to 0-1 range.
  */
-export function ftsSearch(query: string, limit = 20): SearchHit[] {
+export function ftsSearch(query: string, limit = 20, { noteKind }: SearchKindFilter = {}): SearchHit[] {
   const db = getRawDb();
   // Escape FTS5 special chars and add prefix matching
   const searchTerm = toFtsMatchQuery(query);
 
   const hits: SearchHit[] = [];
 
-  // Tasks FTS
-  try {
+  // Tasks FTS (not when the search asks for notes of a kind)
+  if (!noteKind) try {
     const taskRows = db
       .prepare(
         `SELECT t.id, rank
@@ -88,7 +120,7 @@ export function ftsSearch(query: string, limit = 20): SearchHit[] {
         `SELECT n.id, rank
          FROM notes_fts
          JOIN notes n ON n.rowid = notes_fts.rowid
-         WHERE notes_fts MATCH ?
+         WHERE notes_fts MATCH ?${noteKind ? ` AND ${noteKindSql(noteKind)}` : ''}
          ORDER BY rank
          LIMIT ?`,
       )
@@ -106,7 +138,7 @@ export function ftsSearch(query: string, limit = 20): SearchHit[] {
   }
 
   // Stream FTS
-  try {
+  if (!noteKind) try {
     const streamRows = db
       .prepare(
         `SELECT s.id, rank
@@ -139,24 +171,24 @@ export function ftsSearch(query: string, limit = 20): SearchHit[] {
  */
 export async function hybridSearch(
   query: string,
-  { limit = 20, vectorWeight = 0.7 }: { limit?: number; vectorWeight?: number } = {},
+  { limit = 20, vectorWeight = 0.7, noteKind }: { limit?: number; vectorWeight?: number } & SearchKindFilter = {},
 ): Promise<SearchHit[]> {
   // A team space searches by keyword only: it runs no AI (docs/homes-spec.md §9.2).
-  if (isTeamAuthority()) return ftsSearch(query, limit);
+  if (isTeamAuthority()) return ftsSearch(query, limit, { noteKind });
   const bm25Weight = 1 - vectorWeight;
 
   // Run both searches in parallel. The vector half needs OPENAI_API_KEY to
   // embed the query — degrade to FTS-only instead of failing the whole
   // search when it's unavailable (matches upsertEmbedding's silent skip).
   const [vecResults, ftsResults] = await Promise.all([
-    vectorSearch(query, limit * 2).catch((err) => {
+    vectorSearch(query, limit * 2, { noteKind }).catch((err) => {
       if (process.env.OPENAI_API_KEY) {
         // A real failure, not the expected keyless path — keep it visible.
         console.warn('[search] vector search failed, falling back to FTS:', err);
       }
       return [] as SearchHit[];
     }),
-    Promise.resolve(ftsSearch(query, limit * 2)),
+    Promise.resolve(ftsSearch(query, limit * 2, { noteKind })),
   ]);
 
   // Merge scores by (entityType, entityId)
@@ -218,9 +250,9 @@ function truncate(value: unknown): unknown {
  */
 export async function hybridSearchWithEntities(
   query: string,
-  { limit = 10, vectorWeight }: { limit?: number; vectorWeight?: number } = {},
+  { limit = 10, vectorWeight, noteKind }: { limit?: number; vectorWeight?: number } & SearchKindFilter = {},
 ): Promise<SearchHitWithEntity[]> {
-  const hits = await hybridSearch(query, { limit, ...(vectorWeight !== undefined ? { vectorWeight } : {}) });
+  const hits = await hybridSearch(query, { limit, noteKind, ...(vectorWeight !== undefined ? { vectorWeight } : {}) });
   const db = getRawDb();
 
   return hits
@@ -236,7 +268,7 @@ export async function hybridSearchWithEntities(
         if (entity) entity.body = truncate(entity.body);
       } else if (hit.entityType === 'note') {
         entity = db
-          .prepare('SELECT id, title, body, area_id AS areaId, task_id AS taskId FROM notes WHERE id = ?')
+          .prepare("SELECT id, title, body, COALESCE(kind, 'note') AS kind, area_id AS areaId, task_id AS taskId FROM notes WHERE id = ?")
           .get(hit.entityId) as Record<string, unknown> | undefined;
         if (entity) entity.body = truncate(entity.body);
       } else if (hit.entityType === 'stream') {

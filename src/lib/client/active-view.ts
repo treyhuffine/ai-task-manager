@@ -41,6 +41,16 @@ export function viewFromSearchParams(params: Pick<URLSearchParams, 'get' | 'toSt
   return HOME_VIEW;
 }
 
+/**
+ * The URL of a view on its own, for a page outside the dashboard (the
+ * standalone task and note pages) that has no view state to change.
+ */
+export function viewHref(view: ActiveView): string {
+  const qs = applyViewToSearchParams(new URLSearchParams(), view).toString();
+  const path = view.kind === 'apps' ? `/apps${view.route ? '/' + view.route : ''}` : '/';
+  return qs ? `${path}?${qs}` : path;
+}
+
 /** Write the view into search params, leaving unrelated params alone. */
 export function applyViewToSearchParams(params: URLSearchParams, view: ActiveView, previous?:ActiveView): URLSearchParams {
   if(previous?.kind==='apps')for(const key of Object.keys(previous.query??{}))params.delete(key);

@@ -63,9 +63,19 @@ export function sharedFields(teamId: string, task: TeamTask) {
   };
 }
 
-/** What My Ri keeps of a saved team note. */
-export function sharedNoteFields(teamId: string, note: TeamNote) {
-  return { title: note.title ?? null, body: bodyForDocument(note.body ?? '', teamId), url: note.url ?? null };
+/**
+ * What My Ri keeps of a saved team note, its kind included (§9.7): a
+ * decision at the team is a decision here. A team that predates kinds says
+ * nothing, and the cached kind stays.
+ */
+export function sharedNoteFields(teamId: string, note: TeamNote): q.SharedNoteFields {
+  const kind = (note as { kind?: unknown }).kind;
+  return {
+    title: note.title ?? null,
+    body: bodyForDocument(note.body ?? '', teamId),
+    url: note.url ?? null,
+    ...(kind === 'note' || kind === 'decision' ? { kind } : {}),
+  };
 }
 
 export interface TeamSyncResult {

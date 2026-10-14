@@ -288,9 +288,13 @@ const taskCreateShape = {
   outcome: z.string().nullable().optional(),
 };
 
+const noteKind = z.enum(['note', 'decision']);
 const noteCreateShape = {
   title: z.string().optional(),
   body: z.string().min(1),
+  kind: noteKind.optional().describe(
+    'decision for a note recording what was decided and why (title says the decision, body the context, alternatives and rationale). Omit for an ordinary note. A title never makes a decision.',
+  ),
   url: z.string().nullable().optional(),
   areaId: z.string().nullable().optional(),
   workspaceId: z.string().nullable().optional(),
@@ -664,11 +668,13 @@ const review_execution_action = defineAction({
 
 const list_notes_action = defineAction({
   name: 'list_notes',
-  description: 'List notes with optional filters (area, linked task, status).',
+  description: 'List notes with optional filters (area, linked task, status, kind). kind: "decision" lists recorded decisions.',
   params: {
     areaId: z.string().nullable().optional(),
     taskId: z.string().nullable().optional(),
     status: noteStatus.optional(),
+    kind: noteKind.optional(),
+    decisionsOnly: z.boolean().optional().describe('Older alias for kind: "decision".'),
     limit: z.number().int().positive().max(1000).optional(),
     offset: z.number().int().nonnegative().optional(),
     orderBy: z.enum(['lastViewedAt', 'createdAt', 'updatedAt']).optional(),
@@ -712,7 +718,9 @@ const list_outgoing_links_action = defineAction({
 
 const create_note_action = defineAction({
   name: 'create_note',
-  description: 'Create a note. Embeddings + markdown mirror are updated automatically.',
+  description:
+    'Create a note. Embeddings + markdown mirror are updated automatically. ' +
+    'To record a decision someone asked you to save, pass kind: "decision" with a title that says what was decided.',
   params: noteCreateShape,
   mutating: true,
   handler: (_ctx, input) => createNote(input),
@@ -722,6 +730,7 @@ const update_note_action = defineAction({
   name: 'update_note',
   description:
     'Update a note by id. All fields optional. Unspecified fields keep their value. ' +
+    'kind marks it a decision or a regular note, without changing anything else. ' +
     'Set status=archived instead of deleting. There is no delete action by design.',
   params: {
     id: z.string().min(1),
@@ -1428,13 +1437,14 @@ const search_action = defineAction({
   params: {
     query: z.string().min(1),
     limit: z.number().int().positive().max(50).optional(),
+    kind: noteKind.optional().describe('Only notes of this kind, e.g. "decision" to search recorded decisions.'),
   },
   cli: { positional: ['query'] },
-  handler: async (_ctx, { query, limit }) => {
+  handler: async (_ctx, { query, limit, kind }) => {
     // Lazy: embedding generation pulls in the AI SDKs (vector half of the
     // hybrid). FTS-only fallback still applies when no OPENAI_API_KEY.
     const { hybridSearchWithEntities } = await import('@/lib/embeddings/search');
-    return hybridSearchWithEntities(query, { limit });
+    return hybridSearchWithEntities(query, { limit, noteKind: kind });
   },
 });
 

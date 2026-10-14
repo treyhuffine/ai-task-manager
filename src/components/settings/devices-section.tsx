@@ -533,6 +533,8 @@ const ROLE_LABEL: Record<DeviceKeyView['role'], string | null> = {
   home: "Ri's own",
   worker: 'Worker',
   sign_in: null,
+  // Only a team issues these (docs/homes-spec.md §9.8).
+  ai_client: 'AI client',
 };
 
 function KeyRow({ keyView, onRevoke, revoking }: { keyView: DeviceKeyView; onRevoke: () => void; revoking: boolean }) {

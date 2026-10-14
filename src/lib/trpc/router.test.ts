@@ -137,6 +137,24 @@ describe('typed UI API over the authenticated HTTP adapter', () => {
     await expect(client.tasks.get.query({ id: task.id })).rejects.toMatchObject({ data: { httpStatus: 404 } });
   });
 
+  it("carries a note's kind in records and lists, and refuses a kind it doesn't know as a bad request", async () => {
+    const decision = await client.notes.create.mutate({ title: 'Use the billing provider', body: 'Chosen', kind: 'decision' });
+    const plain = await client.notes.create.mutate({ body: 'Ordinary' });
+    expect([decision.kind, plain.kind]).toEqual(['decision', 'note']);
+    expect((await client.notes.list.query({ kind: 'decision' })).map((note) => [note.id, note.kind])).toEqual([[decision.id, 'decision']]);
+    expect((await client.notes.list.query({ decisionsOnly: true })).map((note) => note.id)).toEqual([decision.id]);
+    expect(await client.notes.update.mutate({ id: plain.id, patch: { kind: 'decision' } })).toMatchObject({ kind: 'decision' });
+    expect(await client.notes.update.mutate({ id: plain.id, patch: { title: 'Renamed' } })).toMatchObject({ kind: 'decision' });
+
+    for (const refused of [
+      client.notes.list.query({ decisionsOnly: true, kind: 'note' }),
+      client.notes.list.query({ kind: 'policy' as never }),
+      client.notes.create.mutate({ body: 'x', kind: 'policy' as never }),
+      client.notes.update.mutate({ id: plain.id, patch: { kind: null as never } }),
+    ]) await expect(refused).rejects.toMatchObject({ data: { httpStatus: 400 } });
+    expect((await client.notes.get.query({ id: plain.id })).kind).toBe('decision');
+  });
+
   it('allows document saves and reads while draining, rejects new work and all offline access', async () => {
     const task = q.createTask({ title: 'Before', rawInput: 'Before' });
     const note = q.createNote({ body: 'Before' });

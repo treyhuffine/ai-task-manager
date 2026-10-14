@@ -337,7 +337,8 @@ describe('P2.9 selected transcript reads', () => {
       const rows = sqlite.prepare('SELECT rowid,* FROM external_session_imports').all() as Array<Record<string, unknown>>;
       expect(rows.map(({ device_id: device, ...row }) => { expect(device).toBeNull(); return row; })).toEqual(before);
       // The homes migration also adds `part_revision`, empty on old events.
-      expect(sqlite.prepare('SELECT rowid,* FROM chat_events').all()).toEqual(events.map((e) => ({ ...(e as object), part_revision: null })));
+      // Columns added since read as empty: no author is made up for an old message (docs/homes-spec.md §9.9).
+      expect(sqlite.prepare('SELECT rowid,* FROM chat_events').all()).toEqual(events.map((e) => ({ ...(e as object), part_revision: null, author_member_id: null })));
       expect(sqlite.prepare("SELECT name,sql FROM sqlite_master WHERE name LIKE '%fts%' ORDER BY name").all()).toEqual(fts);
       expect(sqlite.pragma('foreign_key_check')).toEqual([]);
       expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);

@@ -49,6 +49,8 @@ export function createWebSocketContext(request: Request, params: Record<string, 
     const found = lookupApiToken(token);
     if (!found) throw new TRPCError({ code: 'UNAUTHORIZED' });
     if (isWorkerApiKey(found.key.id)) throw new TRPCError({ code: 'FORBIDDEN' });
+    // An AI client reaches only a team's MCP, never the app's connection.
+    if (found.key.role === 'ai_client') throw new TRPCError({ code: 'FORBIDDEN' });
     const mismatch = apiCompatibilityIssue(protocol, CURRENT_COMPATIBILITY.apiProtocols);
     if (mismatch) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: mismatch.message, cause: new OperationError(426, mismatch) });
     if (!isHomeActive() || process.env.RI_SERVICE_VALIDATING === '1' || readMaintenance()?.phase === 'offline') {

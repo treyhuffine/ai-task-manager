@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, type ReactNode } from 'react';
-import { FileText, KanbanSquare, Plus, Search, Settings } from 'lucide-react';
+import { FileText, KanbanSquare, MessageCircle, Plus, Search, Settings } from 'lucide-react';
 import { apiErrorCode, apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { useAreas } from '@/hooks/use-areas';
 import { useCreateNote } from '@/hooks/use-notes';
@@ -13,6 +13,7 @@ import { useTeamMe } from './use-team';
 import { MemberAvatar } from './member-avatar';
 import { TeamBoard } from './team-board';
 import { TeamNotes } from './team-notes';
+import { TeamChat, useTeamAiStatus } from './team-chat';
 import { TeamDetail } from './team-detail';
 import { TeamSettings } from './team-settings';
 import { TeamSearch } from './team-search';
@@ -97,7 +98,7 @@ function Shell() {
       <TeamRail />
       <main className="flex min-w-0 flex-1 flex-col">
         <PhoneTopBar />
-        <div className="min-h-0 flex-1 @container/lt">{nav.view === 'notes' ? <TeamNotes /> : <TeamBoard />}</div>
+        <div className="min-h-0 flex-1 @container/lt">{nav.view === 'notes' ? <TeamNotes /> : nav.view === 'chat' ? <TeamChat /> : <TeamBoard />}</div>
         <PhoneTabBar />
       </main>
       <TeamDetail />
@@ -140,9 +141,16 @@ function RailRow({ icon: Icon, label, active, onClick, trailing }: { icon: typeo
   );
 }
 
+/** Team AI's chats appear once it's on, and stay readable after it's turned off (§9.9). */
+function useShowChat(): boolean {
+  const status = useTeamAiStatus();
+  return Boolean(status.data?.enabled || status.data?.mainChatId);
+}
+
 function TeamRail() {
   const { team, member } = useTeam();
   const nav = useTeamNav();
+  const showChat = useShowChat();
   const space = useSpace();
   const { data: areas } = useAreas();
   const go = (view: TeamView) => {
@@ -164,6 +172,7 @@ function TeamRail() {
       <nav className="space-y-0.5 px-2 pt-1">
         <RailRow icon={KanbanSquare} label="Task Board" active={nav.view === 'board'} onClick={() => go('board')} />
         <RailRow icon={FileText} label="Notes" active={nav.view === 'notes'} onClick={() => go('notes')} />
+        {showChat && <RailRow icon={MessageCircle} label="Chat" active={nav.view === 'chat'} onClick={() => go('chat')} />}
         <RailRow
           icon={Search}
           label="Search"
@@ -249,11 +258,12 @@ function PhoneTopBar() {
 
 function PhoneTabBar() {
   const nav = useTeamNav();
+  const showChat = useShowChat();
   const createTask = useCreateTask();
   const createNote = useCreateNote();
   const add = async () => {
     if (nav.view === 'notes') {
-      const note = await createNote.mutateAsync({ body: '', ...(nav.areaId ? { areaId: nav.areaId } : {}) });
+      const note = await createNote.mutateAsync({ body: '', ...(nav.decisions ? { kind: 'decision' as const } : {}), ...(nav.areaId ? { areaId: nav.areaId } : {}) });
       nav.openNote(note.id);
     } else {
       const task = await createTask.mutateAsync({ title: 'New task', rawInput: 'New task', ...(nav.areaId ? { areaId: nav.areaId } : {}) });
@@ -272,11 +282,20 @@ function PhoneTabBar() {
         <FileText size={18} />
         Notes
       </button>
-      <button type="button" className={tab(false)} onClick={() => void add()} aria-label={nav.view === 'notes' ? 'New note' : 'New task'}>
-        <span className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
-          <Plus size={16} />
-        </span>
-      </button>
+      {showChat && (
+        <button type="button" className={tab(nav.view === 'chat')} onClick={() => nav.show('chat')}>
+          <MessageCircle size={18} />
+          Chat
+        </button>
+      )}
+      {/* In a chat, the message box is how you add. */}
+      {nav.view !== 'chat' && (
+        <button type="button" className={tab(false)} onClick={() => void add()} aria-label={nav.view === 'notes' ? (nav.decisions ? 'New decision' : 'New note') : 'New task'}>
+          <span className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <Plus size={16} />
+          </span>
+        </button>
+      )}
       <button type="button" className={tab(nav.panel === 'settings')} onClick={() => nav.openPanel('settings')}>
         <Settings size={18} />
         Settings

@@ -14,6 +14,7 @@ vi.mock('@/hooks/use-notes', () => ({ useCreateNote: vi.fn() }));
 vi.mock('@/hooks/use-tasks', () => ({ useCreateTask: vi.fn() }));
 vi.mock('./team-board', () => ({ TeamBoard: () => null }));
 vi.mock('./team-notes', () => ({ TeamNotes: () => null }));
+vi.mock('./team-chat', () => ({ TeamChat: () => null }));
 vi.mock('./team-detail', () => ({ TeamDetail: () => null }));
 vi.mock('./team-settings', () => ({ TeamSettings: () => null }));
 vi.mock('./team-search', () => ({ TeamSearch: () => null }));

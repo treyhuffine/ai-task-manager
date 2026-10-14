@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { actions, type ActionName, type ActionOutput } from './registry';
 import type { Action, ActionContext } from './types';
 import { ActionError } from './types';
-import { getChatSession } from '@/lib/db/queries';
+import { getChatSession, isNoteKindError } from '@/lib/db/queries';
 
 export function findAction(name: string): Action | undefined {
   return actions.find((a) => a.name === name);
@@ -94,6 +94,8 @@ async function dispatch(
         error: { code: err.code, message: err.message, suggestion: err.suggestion, details: err.details },
       };
     }
+    // A note's kind refused at the query layer is the caller's to fix.
+    if (isNoteKindError(err)) return { ok: false, action: name, error: { code: 'invalid_params', message: err.message } };
     const message = err instanceof Error ? err.message : String(err);
     return {
       ok: false,

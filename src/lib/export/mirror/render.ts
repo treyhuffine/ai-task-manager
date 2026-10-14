@@ -282,6 +282,7 @@ export function renderNote(note: NoteRecord, opts: RenderNoteOpts = {}): { filen
     type: 'note',
     title: note.title,
     status: note.status,
+    kind: note.kind,
     area: wikiLink(opts.links, 'area', note.areaId),
     areaId: note.areaId,
     areaName: opts.areaName ?? null,

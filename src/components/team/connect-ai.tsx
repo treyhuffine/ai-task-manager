@@ -1,0 +1,220 @@
+'use client';
+
+import { useState } from 'react';
+import { Check, Copy, Plug } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { apiErrorText } from '@/lib/api/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
+import { AI_CLIENT_KINDS, aiClientSetup, type AiClientKind } from '@/lib/team/ai-client-config';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { cn } from '@/lib/utils';
+import { useTeam } from './team-context';
+
+const buttonClass = 'inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted/50 disabled:opacity-50';
+
+function when(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Connect your AI (docs/homes-spec.md §9.8, P8.3): a member's own assistant,
+ * such as Claude Code or Codex, working with the team's shared tasks and
+ * notes as that member. Each has a key of its own, shown once, and is
+ * disconnected on its own.
+ */
+export function ConnectAiSection() {
+  const { team } = useTeam();
+  const clients = useQuery(trpc.team.aiClients.list.queryOptions());
+  const confirm = useConfirm();
+  const [open, setOpen] = useState(false);
+  const disconnect = useMutation({
+    mutationFn: (keyId: string) => trpcClient.team.aiClients.revoke.mutate({ keyId }),
+    onSuccess: () => void clients.refetch(),
+    onError: (err) => toast.error(apiErrorText(err)),
+  });
+  return (
+    <section className="min-w-0">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Your AI</h3>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Connect Claude Code, Codex or another assistant you use. It can read and change {team.name}&apos;s shared tasks and notes as you, and
+        everyone sees its changes as yours, made by your agent. It sees nothing else.
+      </p>
+      <div className="mt-2 space-y-2">
+        {(clients.data ?? []).length > 0 && (
+          <ul className="divide-y divide-border/60 rounded-md border border-border">
+            {(clients.data ?? []).map((client) => (
+              <li key={client.keyId} className="flex items-center gap-2 px-3 py-2 text-xs">
+                <Plug size={13} className="shrink-0 text-muted-foreground" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{client.name}</span>
+                <span className="shrink-0 text-muted-foreground">
+                  {client.lastUsedAt ? `Used ${when(client.lastUsedAt)}` : `Connected ${when(client.createdAt)}`}
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 underline text-muted-foreground"
+                  disabled={disconnect.isPending}
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: `Disconnect ${client.name}?`,
+                      description: 'Its key stops working at its next request. What it already changed keeps your name.',
+                      confirmLabel: 'Disconnect',
+                      tone: 'destructive',
+                    });
+                    if (ok) disconnect.mutate(client.keyId);
+                  }}
+                >
+                  Disconnect
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <button type="button" className={buttonClass} onClick={() => setOpen(true)}>
+          <Plug size={13} aria-hidden /> Connect your AI
+        </button>
+      </div>
+      <ConnectAiDialog open={open} onOpenChange={setOpen} onConnected={() => void clients.refetch()} />
+    </section>
+  );
+}
+
+function CopyBlock({ label, text }: { label: string; text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 p-2">
+        <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[11px] select-all">{text}</pre>
+        <button
+          type="button"
+          className={cn(buttonClass, 'shrink-0')}
+          onClick={async () => {
+            await navigator.clipboard.writeText(text).catch(() => {});
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />} {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+type Made = { name: string; token: string; mcpUrl: string; reachable: boolean; kind: AiClientKind };
+
+function ConnectAiDialog({ open, onOpenChange, onConnected }: { open: boolean; onOpenChange: (open: boolean) => void; onConnected: () => void }) {
+  const { team } = useTeam();
+  const [kind, setKind] = useState<AiClientKind>('claude_code');
+  const [name, setName] = useState(AI_CLIENT_KINDS[0].defaultName);
+  const [made, setMade] = useState<Made | null>(null);
+  const create = useMutation({
+    mutationFn: () => trpcClient.team.aiClients.create.mutate({ name: name.trim() }),
+    onSuccess: (result) => {
+      setMade({ name: result.client.name, token: result.token, mcpUrl: result.mcpUrl, reachable: result.reachable, kind });
+      onConnected();
+    },
+    onError: (err) => toast.error(apiErrorText(err)),
+  });
+  const close = (next: boolean) => {
+    onOpenChange(next);
+    if (!next) {
+      // The key is never shown again once this closes.
+      setMade(null);
+      setKind('claude_code');
+      setName(AI_CLIENT_KINDS[0].defaultName);
+    }
+  };
+  const setup = made ? aiClientSetup(made.kind, { teamName: team.name, mcpUrl: made.mcpUrl, token: made.token }) : null;
+
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-h-[90dvh] w-full max-w-[calc(100%-1rem)] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{made ? `Set up ${made.name}` : 'Connect your AI'}</DialogTitle>
+          <DialogDescription>
+            {made
+              ? 'Copy the key now: Ri shows it only this once. Anyone with it can read and change the team\'s shared work as you.'
+              : `Your assistant gets a key of its own to work with ${team.name}'s shared tasks and notes as you. You can disconnect it here any time.`}
+          </DialogDescription>
+        </DialogHeader>
+
+        {!made ? (
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (name.trim()) create.mutate();
+            }}
+          >
+            <fieldset className="space-y-1.5">
+              <legend className="text-xs font-medium">Which assistant</legend>
+              <div className="flex flex-wrap gap-2">
+                {AI_CLIENT_KINDS.map((option) => (
+                  <label
+                    key={option.kind}
+                    className={cn(
+                      'cursor-pointer rounded-md border px-3 py-1.5 text-xs font-medium',
+                      kind === option.kind ? 'border-primary/60 bg-primary/10 text-primary' : 'border-border hover:bg-muted/50',
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="ai-client-kind"
+                      className="sr-only"
+                      checked={kind === option.kind}
+                      onChange={() => {
+                        // A name still at the last default follows the choice.
+                        if (AI_CLIENT_KINDS.some((k) => k.defaultName === name)) setName(option.defaultName);
+                        setKind(option.kind);
+                      }}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium">Name</span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={80}
+                className="w-full rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-sm outline-none focus-visible:border-primary/60"
+              />
+              <span className="block text-xs text-muted-foreground">So you can tell your assistants apart, such as Claude Code on your laptop.</span>
+            </label>
+            <DialogFooter>
+              <button type="submit" className={cn(buttonClass, 'px-3 py-1.5')} disabled={!name.trim() || create.isPending}>
+                {create.isPending ? 'Connecting…' : 'Connect'}
+              </button>
+            </DialogFooter>
+          </form>
+        ) : (
+          <div className="min-w-0 space-y-4">
+            {setup!.steps.map((step, index) => (
+              <CopyBlock key={index} label={`${index + 1}. ${step.label}`} text={step.text} />
+            ))}
+            <p className="text-xs text-muted-foreground">
+              {setup!.steps.length + 1}. Ask your assistant something about the team&apos;s work, such as &ldquo;What has {team.name} decided about billing?&rdquo; or
+              &ldquo;Record that we chose weekly releases as a decision.&rdquo;
+            </p>
+            {!made.reachable && (
+              <p role="status" className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                This address works only on this computer until the team has an address people can reach. Its owner sets one in Settings.
+              </p>
+            )}
+            {setup!.caveat && <p className="text-xs text-muted-foreground">{setup!.caveat}</p>}
+            <DialogFooter>
+              <button type="button" className={cn(buttonClass, 'px-3 py-1.5')} onClick={() => close(false)}>
+                Done
+              </button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiErrorCode, apiErrorDetails, apiErrorStatus, apiErrorText } from '@/lib/api/client';
-import { entityKeys } from '@/lib/query/entity-keys';
+import { patchEntityCaches } from '@/lib/query/optimistic-entity';
 import type { Attachment } from '@/db/types';
 import { bodyForDocument, bodyForTeam, currentSpaceId } from '@/lib/spaces/document';
 import { SharedBodySaver, sharedDraftKey, type SharedBody, type SharedBodyStatus, type WriteFailure } from '@/lib/team/shared-body';
@@ -168,12 +168,10 @@ export function useSharedBody(kind: Kind, record: SharedRecord | undefined) {
         const saved = kind === 'task'
           ? await trpcClient.tasks.update.mutate({ id: recordId, patch, expectedBodyRevision })
           : await trpcClient.notes.update.mutate({ id: recordId, patch, expectedBodyRevision });
-        // Only the revision goes into the cache: the editor already shows the
-        // body it sent, and a server echo must never rewrite an open editor.
-        const revise = <T extends object>(current: T | undefined): T | undefined =>
-          current ? { ...current, body: bodyForTeam(body, space), bodyRevision: saved.bodyRevision } : current;
-        if (kind === 'task') qc.setQueryData(entityKeys.tasks.detail(recordId), revise);
-        else qc.setQueryData(entityKeys.notes.detail(recordId), revise);
+        // The cache gets the body this editor sent and the new revision, never
+        // the server's echo, which must not rewrite an open editor. Lists get
+        // its excerpt, so a note typed and closed doesn't read as untitled.
+        patchEntityCaches(qc, kind === 'task' ? 'tasks' : 'notes', recordId, { body: bodyForTeam(body, space), bodyRevision: saved.bodyRevision });
         return { body: saved.body != null ? bodyForDocument(saved.body, space) : body, bodyRevision: saved.bodyRevision };
       },
     };

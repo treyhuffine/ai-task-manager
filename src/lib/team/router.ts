@@ -18,6 +18,8 @@ import { memberProcedure, ownerProcedure, router } from '@/lib/trpc/init';
 import { teamLink } from './links';
 import { teamSummary } from './summary';
 import { teamAddressSettings, teamLinkAddress, verifyTeamAddress, openTeamBeamdAddress, saveTeamAddressPrefix, isLoopbackTeamAddress, normalizeTeamAddress } from './address';
+import { TEAM_MCP_PATH } from './credential';
+import { teamAiRouter } from './ai/router';
 
 const nameInput = z.object({ name: z.string().min(1).max(q.MEMBER_NAME_MAX) }).strict();
 const idInput = z.object({ id: z.string().min(1) }).strict();
@@ -98,12 +100,40 @@ export const teamRouter = router({
     }),
   }),
 
+  /**
+   * This member's own AI assistants (docs/homes-spec.md §9.8): each a key
+   * that reaches only the team's MCP and acts as this member's agent. The
+   * key is shown once, when it's made.
+   */
+  aiClients: router({
+    list: memberProcedure.query(({ ctx }) => q.listMemberAiClients(me(ctx).id)),
+    create: memberProcedure.input(z.object({ name: z.string().min(1).max(q.AI_CLIENT_NAME_MAX) }).strict()).mutation(async ({ ctx, input }) => {
+      const member = me(ctx);
+      const { client, token } = q.createMemberAiClient(member.id, input.name);
+      const { base, reachable } = await teamLinkAddress(requestOrigin(ctx.request));
+      return { client, token: token.plaintext, mcpUrl: `${base}${TEAM_MCP_PATH}`, reachable };
+    }),
+    revoke: memberProcedure.input(z.object({ keyId: z.string().min(1) }).strict()).mutation(({ ctx, input }) => {
+      q.revokeMemberAiClient(me(ctx).id, input.keyId);
+      return { ok: true as const };
+    }),
+  }),
+
+  /** Team AI: its settings, and the team's shared chats with it (§9.9). */
+  ai: teamAiRouter,
+
   // ─── The owner's ─────────────────────────────────────────────
   rename: ownerProcedure.input(nameInput).mutation(({ input }) => {
     q.renameTeam(input.name);
     return teamSummary();
   }),
-  removeMember: ownerProcedure.input(idInput).mutation(({ input }) => memberView(q.removeMember(input.id))),
+  removeMember: ownerProcedure.input(idInput).mutation(async ({ input }) => {
+    const removed = q.removeMember(input.id);
+    // Their waiting Team AI turns are cancelled and a running one stopped (§9.9).
+    const { stopTeamAiWork } = await import('./ai/chat');
+    await stopTeamAiWork({ memberId: removed.id }, 'The member who sent this left the team.');
+    return memberView(removed);
+  }),
   invitations: router({
     list: ownerProcedure.query(() => q.listTeamInvitations()),
     create: ownerProcedure.mutation(({ ctx }) => createMemberLink('invite', me(ctx).id, requestOrigin(ctx.request))),

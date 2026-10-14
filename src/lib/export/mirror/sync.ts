@@ -18,6 +18,7 @@ import {
   entityLinks as entityLinksTbl,
 } from '@/lib/db/schema';
 import { hydrateRow } from '@/lib/db/hydrate';
+import { normalizeNoteRow } from '@/lib/notes/kind';
 import { and, asc, eq } from 'drizzle-orm';
 import type {
   TaskRecord,
@@ -238,12 +239,12 @@ async function syncOne(type: EntityType, id: string): Promise<void> {
   }
 
   if (type === 'note') {
-    const row = hydrateRow(db.select().from(notesTbl).where(eq(notesTbl.id, id)).get());
-    if (!row) {
+    const found = db.select().from(notesTbl).where(eq(notesTbl.id, id)).get();
+    if (!found) {
       await deleteEntityFile('note', id);
       return;
     }
-    await writeNote(row);
+    await writeNote(normalizeNoteRow(found));
     return;
   }
 

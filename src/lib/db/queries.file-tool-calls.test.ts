@@ -116,6 +116,6 @@ describe('fileToolCallNamed', () => {
     const params = Array.from({ length: (sql!.match(/\?/g) ?? []).length }, () => null);
     const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as { detail: string }[]).map((r) => r.detail);
     const eventReads = plan.filter((d) => /\bchat_events\b/.test(d) && /^(SCAN|SEARCH)\b/.test(d));
-    expect(eventReads).toEqual(['SEARCH chat_events USING INDEX idx_chat_events_session_created (session_id=?)']);
+    expect(eventReads).toEqual(['SEARCH chat_events USING INDEX idx_chat_events_session_cursor (session_id=?)']);
   });
 });

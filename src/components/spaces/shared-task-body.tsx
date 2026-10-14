@@ -10,6 +10,7 @@ import { spacePath } from '@/lib/spaces/document';
 import { spaceAttachmentStore } from '@/lib/spaces/attachment-store';
 import { sharedDraftKey } from '@/lib/team/shared-body';
 import { entityKeys } from '@/lib/query/entity-keys';
+import { patchEntityCaches } from '@/lib/query/optimistic-entity';
 import { trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 import { RichEditor } from '@/components/editor/rich-editor';
@@ -232,9 +233,11 @@ function SharedBody({ task, memberId }: { task: TaskRecord; memberId: string | n
         });
         const bodyRevision = row.source?.bodyRevision ?? expectedBodyRevision;
         // Only the revision goes into the cache, with the body the editor
-        // sent: a server echo must never rewrite an open editor.
+        // sent: a server echo must never rewrite an open editor. Lists get
+        // its excerpt.
+        patchEntityCaches(qc, 'tasks', task.id, { body });
         qc.setQueryData(entityKeys.tasks.detail(task.id), (current: TaskRecord | undefined) =>
-          current?.source ? { ...current, body, source: { ...current.source, bodyRevision } } : current,
+          current?.source ? { ...current, source: { ...current.source, bodyRevision } } : current,
         );
         return { body: row.body ?? body, bodyRevision };
       },

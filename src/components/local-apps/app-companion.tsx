@@ -4,7 +4,10 @@ import { useState } from 'react';
 import { KeyRound, SquareArrowOutUpRight, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tip } from '@/components/ui/tip';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useRouter } from 'next/navigation';
+import { useOptionalDashboard } from '@/contexts/dashboard-context';
+import { viewHref } from '@/lib/client/active-view';
+import type { ActiveView } from '@/types/dashboard';
 import { useElementWidth } from '@/hooks/use-element-width';
 import { trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
@@ -38,7 +41,11 @@ export function AppCompanion({
   children: React.ReactNode;
 }) {
   const { enabled, data } = useLocalApps();
-  const { setActiveView } = useDashboard();
+  // The standalone task and note pages have a chat but no dashboard: there,
+  // Open full screen goes to the app's own address.
+  const dashboard = useOptionalDashboard();
+  const router = useRouter();
+  const openView = (view: ActiveView) => (dashboard ? dashboard.setActiveView(view) : router.push(viewHref(view)));
   const { busy, run } = useAppAction();
   const [access, setAccess] = useState(false);
   const [measureRef, width] = useElementWidth<HTMLDivElement>();
@@ -95,7 +102,7 @@ export function AppCompanion({
               <button
                 type="button"
                 onClick={() =>
-                  setActiveView({ kind: 'apps', route: `${instance.slug}${panel.path === '/' ? '' : panel.path}`, query: panel.query })
+                  openView({ kind: 'apps', route: `${instance.slug}${panel.path === '/' ? '' : panel.path}`, query: panel.query })
                 }
                 aria-label={`Open ${instance.displayName} full screen`}
                 className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"

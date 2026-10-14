@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, members, teamGrants, teamConnections, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
+  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, members, teamGrants, teamConnections, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
   workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, workResults, workResultTasks, workResultDecisions, workResultAiReviews,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -174,8 +174,14 @@ export type CreateTaskStatusChangeInput = Omit<InferInsertModel<typeof taskStatu
 
 // ─── Notes ────────────────────────────────────────────────────
 
-export type NoteRecord = WithCamelAttachments<InferSelectModel<typeof notes>>;
-export type CreateNoteInput = WithCamelAttachments<PolicyOptional<Omit<InferInsertModel<typeof notes>, 'id'>, 'status'>>;
+/** What a note is (docs/homes-spec.md §9.7): `note` or `decision`. */
+export type NoteKind = NonNullable<InferSelectModel<typeof notes>['kind']>;
+// A note written before kinds existed has none in storage. Every read gives
+// it `note`, so a record always says what it is.
+export type NoteRecord = WithCamelAttachments<Omit<InferSelectModel<typeof notes>, 'kind'> & { kind: NoteKind }>;
+// Creating without a kind makes an ordinary note (the query-layer creator
+// writes it). A kind is a value, never null.
+export type CreateNoteInput = WithCamelAttachments<PolicyOptional<Omit<InferInsertModel<typeof notes>, 'id' | 'kind'>, 'status'> & { kind?: NoteKind }>;
 export type UpdateNoteInput = Partial<CreateNoteInput>;
 export type NoteStatus = NonNullable<NoteRecord['status']>;
 
@@ -232,10 +238,13 @@ export type TeamConnectionStatus = TeamConnectionRecord['status'];
 export type SharedSourceState = NonNullable<TaskRecord['sourceState']>;
 export type { SharedTaskSource, SharedNoteSource } from '@/lib/db/schema';
 
+export type TeamAiSettingsRecord = InferSelectModel<typeof teamAiSettings>;
+export type TeamChatTurnRecord = InferSelectModel<typeof teamChatTurns>;
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
 export type ApiKeyRole = ApiKeyRecord['role'];
-// A key always says which device it belongs to. Null only for the home's own
-// key made before the home's identity, which gives it the home's device.
+// A key always says which device it belongs to. Null for the home's own key
+// made before the home's identity, which gives it the home's device, and for
+// a team member's AI client, which is an assistant rather than a device.
 export type CreateApiKeyInput = PolicyOptional<Omit<InferInsertModel<typeof apiKeys>, 'id' | 'prefix' | 'suffix' | 'hash' | 'deviceId'>, 'env'> & {
   deviceId: string | null;
 };
@@ -550,8 +559,11 @@ export interface NoteFilter {
   workspaceId?: string | null;
   taskId?: string | null;
   status?: NoteStatus;
-  /** When true, restrict to notes whose title starts with "Decision: " — the
-   *  agent-written-decisions convention. See docs/async-agents-v1.md §4.5. */
+  /** `decision` lists decisions, `note` ordinary notes, including those from
+   *  before kinds (docs/homes-spec.md §9.7). */
+  kind?: NoteKind;
+  /** The older way to ask for decisions: the same as `kind: 'decision'`.
+   *  It contradicts `kind: 'note'`. */
   decisionsOnly?: boolean;
   limit?: number;
   offset?: number;

@@ -512,6 +512,8 @@ Estimated total: **5–7 focused weeks** (lift adds ~1 week to the original 4–
 
 ## #24 — Decisions convention
 
+> Superseded by `docs/homes-spec.md` §9.7 (P8.1): a decision is a note with `kind: "decision"`, not a title prefix. The steps below are the original V1 plan, kept as history.
+
 **Goal:** the AI writes decisions as notes; humans filter them out of the notes list.
 
 **Files:**

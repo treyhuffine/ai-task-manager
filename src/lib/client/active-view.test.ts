@@ -10,6 +10,7 @@ import {
   isAgentTab,
   sameView,
   viewFromSearchParams,
+  viewHref,
   viewKey,
 } from './active-view';
 
@@ -85,5 +86,22 @@ describe('comparing views', () => {
     expect(['overview', 'files', 'terminal', 'preview', 'setup'].every(isAgentTab)).toBe(true);
     expect(isAgentTab('chat')).toBe(false);
     expect(isAgentTab(null)).toBe(false);
+  });
+});
+
+describe('viewHref', () => {
+  it('gives a view its own address, for pages outside the dashboard', () => {
+    expect(viewHref({ kind: 'apps', route: 'finances/accounts', query: { month: '2026-10' } })).toBe('/apps/finances/accounts?month=2026-10');
+    expect(viewHref({ kind: 'apps', route: '' })).toBe('/apps');
+    expect(viewHref(executionView('chat-1'))).toBe('/?session=chat-1');
+    expect(viewHref(agentView('ws', 'files'))).toBe('/?agent=ws&tab=files');
+    expect(viewHref(HOME_VIEW)).toBe('/');
+  });
+
+  it('round-trips through the parser', () => {
+    const view = { kind: 'apps' as const, route: 'finances', query: { tab: 'x' } };
+    const href = new URL(viewHref(view), 'http://ri.test');
+    // `tab` is the agent view's own key, so an app never carries it.
+    expect(viewFromSearchParams(href.searchParams, href.pathname)).toEqual({ kind: 'apps', route: 'finances' });
   });
 });

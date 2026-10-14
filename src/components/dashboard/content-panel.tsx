@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Layers, ChevronDown, Users, Gavel, Loader2, Plus, SquareTerminal,
+  Layers, ChevronDown, Users, Loader2, Plus, SquareTerminal,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -38,7 +38,6 @@ const CORE_TABS: { id: PanelTab; label: string }[] = [
 const MORE_TABS: { id: MorePanelTab; label: string; icon: typeof Users }[] = [
   { id: 'areas', label: 'Areas', icon: Layers },
   { id: 'people', label: 'Contacts', icon: Users },
-  { id: 'decisions', label: 'Decisions', icon: Gavel },
   // Shells on the box the home runs on, opening in its home folder.
   { id: 'terminal', label: 'Terminal', icon: SquareTerminal },
 ];

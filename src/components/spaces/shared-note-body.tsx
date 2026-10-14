@@ -7,6 +7,7 @@ import { spacePath } from '@/lib/spaces/document';
 import { RichEditor } from '@/components/editor/rich-editor';
 import { AreaSelect } from '@/components/shared/area-select';
 import { LinkedReferences } from '@/components/shared/linked-references';
+import { DecisionLabel } from '@/components/notes/note-kind';
 import { useConnectedTeams } from './space-selector';
 import { spaceAttachmentStore } from '@/lib/spaces/attachment-store';
 
@@ -42,6 +43,8 @@ export function SharedNoteBody({ note }: { note: NoteRecord }) {
           <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary">
             <Users size={12} /> Shared with {teamName}
           </span>
+          {/* The team's kind, like its text: changed where the note is edited. */}
+          <DecisionLabel kind={note.kind} />
           {note.source?.area && <span className="rounded-full border border-border px-2 py-0.5 text-muted-foreground">{note.source.area.name}</span>}
           {syncedAt && !gone && (
             <span className="text-muted-foreground">

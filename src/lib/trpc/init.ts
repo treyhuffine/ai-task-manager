@@ -1,7 +1,7 @@
 import { getRequestKey } from '@/lib/auth/request-key';
 import { isOperationError, OperationError } from '@/lib/server/operation';
 import { isTeamAuthority, isTeamBoundaryError } from '@/lib/home/authority';
-import { isBodyRevisionConflict, isTeamError, type TeamErrorCode } from '@/lib/db/queries';
+import { isBodyRevisionConflict, isNoteKindError, isTeamChatError, isTeamError, type TeamErrorCode } from '@/lib/db/queries';
 import { beginActivity, MaintenanceError } from '@/lib/service/maintenance';
 import { isTaskLifecycleError, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 import { initTRPC, TRPCError } from '@trpc/server';
@@ -80,6 +80,11 @@ function admitted(admit: Admission) {
         throw new TRPCError({ code: status === 404 ? 'NOT_FOUND' : status === 409 ? 'CONFLICT' : status === 403 ? 'FORBIDDEN' : 'BAD_REQUEST', message: teamCause.message, cause: new OperationError(status, { error: teamCause.code, message: teamCause.message }) });
       }
       if (isTeamBoundaryError(teamCause)) throw new TRPCError({ code: 'FORBIDDEN', message: teamCause.message, cause: teamCause });
+      if (isNoteKindError(teamCause)) throw new TRPCError({ code: 'BAD_REQUEST', message: teamCause.message, cause: teamCause });
+      if (isTeamChatError(teamCause)) {
+        const code = teamCause.code === 'not_found' ? 'NOT_FOUND' : teamCause.code === 'conflict' ? 'CONFLICT' : teamCause.code === 'unavailable' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST';
+        throw new TRPCError({ code, message: teamCause.message, cause: new OperationError(code === 'NOT_FOUND' ? 404 : code === 'CONFLICT' ? 409 : code === 'PRECONDITION_FAILED' ? 412 : 400, { error: teamCause.code, message: teamCause.message }) });
+      }
       throw error;
     } finally { release?.(); }
   };

@@ -300,6 +300,8 @@ What skills are *not*:
 
 ### 4.6 Decisions
 
+> Since P8.1 (`docs/homes-spec.md` §9.7) the future hook below is built: a decision is a note with `kind: "decision"`, created with `create_note` and found with the Decisions filter, `list_notes` and `search`. The `"Decision:"` title prefix described here is retired and never classifies a note.
+
 Decisions are **notes**. No new entity.
 
 When the agent makes a decision of substance, it calls `create_note` with `title: "Decision: ..."` and a body containing context, options considered, the decision, and expected consequences. The note shows up in the brain's notes list. The user reads, edits, archives like any other note.

@@ -797,6 +797,7 @@ export function useSendMessage(id: string) {
         id: input.eventId,
         sessionId: id,
         senderSessionId: null,
+        authorMemberId: null,
         role: 'user',
         source: 'user',
         content: input.content,

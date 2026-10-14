@@ -1,10 +1,14 @@
 /**
  * Who a validated key is in a team space (docs/homes-spec.md §9.1, P6.1).
  *
- * A team has two kinds of caller and nothing else:
+ * A team has three kinds of caller and nothing else:
  *
  * - a **member**: an active sign-in key of an active member. It acts as
  *   that member, on the team's shared work only.
+ * - a member's **AI client**: an active `ai_client` key of an active member
+ *   (§9.8). It reaches only the team's MCP and reads the team's files, and
+ *   acts as that member's agent. It is never a sign-in, so nothing that
+ *   admits a member admits it.
  * - the **host**: the host's own key (`localToken` in the team root's
  *   config). It administers the installation: creating the first owner from
  *   the trusted local flow, making a setup link, the service. It is never a
@@ -17,15 +21,20 @@
 import { APP_SHORT_ID } from '@/constants/app';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { getDbPath } from '@/lib/config/paths';
-import { getHome, memberForApiKey } from '@/lib/db/queries';
+import { aiClientForApiKey, getHome, memberForApiKey } from '@/lib/db/queries';
 import type { ApiKeyRecord, MemberRecord } from '@/db/types';
 
-export type TeamCaller = { scope: 'member'; member: MemberRecord } | { scope: 'host' };
+export type TeamCaller =
+  | { scope: 'member'; member: MemberRecord }
+  | { scope: 'ai_client'; member: MemberRecord }
+  | { scope: 'host' };
 
 export function teamCallerFor(key: Pick<ApiKeyRecord, 'id'>, tokenHash: string): TeamCaller | null {
   if (isHostKeyHash(tokenHash)) return { scope: 'host' };
   const member = memberForApiKey(key.id);
-  return member ? { scope: 'member', member } : null;
+  if (member) return { scope: 'member', member };
+  const client = aiClientForApiKey(key.id);
+  return client ? { scope: 'ai_client', member: client.member } : null;
 }
 
 let cookieCache: { dbPath: string; name: string } | null = null;
@@ -53,6 +62,20 @@ export function memberMayReach(pathname: string): boolean {
   if (pathname.startsWith('/api/team/host')) return false;
   if (MEMBER_PATHS.has(pathname)) return true;
   return MEMBER_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+/** The team's MCP, for a member's AI client (§9.8). */
+export const TEAM_MCP_PATH = '/api/team/mcp';
+
+/**
+ * Where a member's AI client may go: the team's MCP, and reading the team's
+ * files that its records link to. Never uploads, the app's API, sign-ins or
+ * anything else a member's browser reaches.
+ */
+export function aiClientMayReach(pathname: string, method: string): boolean {
+  // GET and DELETE reach the MCP to be told it keeps no stream or session.
+  if (pathname === TEAM_MCP_PATH) return method === 'POST' || method === 'GET' || method === 'DELETE';
+  return (method === 'GET' || method === 'HEAD') && /^\/api\/attachments\/[^/]+$/.test(pathname);
 }
 
 /** Where the host's key may go: installation administration only. */

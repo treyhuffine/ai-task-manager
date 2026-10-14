@@ -132,9 +132,10 @@ describe('listBackgroundTaskEvents', () => {
       const params = Array((sql!.match(/\?/g) ?? []).length).fill('x');
       return (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as { detail: string }[]).map((r) => r.detail);
     };
-    expect(planOf(sqls.find((s) => s.includes('json_extract')))).toEqual([
-      'SEARCH chat_events USING INDEX idx_chat_events_background_task (session_id=?)',
-    ]);
+    const lifecyclePlan = planOf(sqls.find((s) => s.includes('json_extract')));
+    expect(lifecyclePlan).toContain('SEARCH chat_events USING INDEX idx_chat_events_background_task (session_id=?)');
+    expect(lifecyclePlan).toContain('SEARCH chat_events USING INTEGER PRIMARY KEY (rowid=?)');
+    expect(lifecyclePlan.some(line => /SCAN chat_events|idx_chat_events_session/.test(line))).toBe(false);
     expect(planOf(sqls.find((s) => s.includes('"external_tool_call_id" in')))).toEqual([
       'SEARCH chat_events USING INDEX idx_chat_events_tool_call_id (external_tool_call_id=?)',
     ]);

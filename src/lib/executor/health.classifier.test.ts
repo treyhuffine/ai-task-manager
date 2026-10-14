@@ -18,6 +18,7 @@ function row(
     id: 'r',
     sessionId: 's',
     senderSessionId: null,
+    authorMemberId: null,
     updatedAt: partial.createdAt,
     content: null,
     toolName: null,

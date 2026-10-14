@@ -6,6 +6,7 @@ import {
 import { TeamLabel } from '@/components/spaces/team-label';
 import { removeFromMyNotes } from '@/components/spaces/my-work';
 import { NoteIcon } from '@/components/shared/note-icon';
+import { DecisionLabel, NoteKindMenuItem } from './note-kind';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -87,6 +88,7 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
         {/* Metadata row */}
         <div className="mt-1 flex items-center gap-1.5 flex-wrap">
           <TeamLabel teamId={note.sourceTeamId} />
+          <DecisionLabel kind={note.kind} />
           <AreaSelect
             value={note.areaId}
             onChange={(areaId) => onUpdate(note.id, 'areaId', areaId)}
@@ -144,12 +146,16 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
                 <X size={12} className="mr-2" /> Remove from my notes
               </DropdownMenuItem>
             ) : (
-              <DropdownMenuItem
-                onClick={() => onArchive(note.id)}
-                className="text-xs text-destructive"
-              >
-                <Archive size={12} className="mr-2" /> Archive
-              </DropdownMenuItem>
+              <>
+                <NoteKindMenuItem kind={note.kind} onChange={(kind) => onUpdate(note.id, 'kind', kind)} />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => onArchive(note.id)}
+                  className="text-xs text-destructive"
+                >
+                  <Archive size={12} className="mr-2" /> Archive
+                </DropdownMenuItem>
+              </>
             )}
           </DropdownMenuContent>
         </DropdownMenu>

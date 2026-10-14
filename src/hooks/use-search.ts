@@ -10,11 +10,11 @@ import { searchApi, type SearchMode } from '@/lib/api/search';
  * the input value (useDeferredValue) so we fire one request per settle, not one
  * per keystroke.
  */
-export function useSearch(query: string, mode?: SearchMode) {
+export function useSearch(query: string, mode?: SearchMode, kind?: 'note' | 'decision') {
   const trimmed = query.trim();
   return useQuery({
-    queryKey: ['search', trimmed, mode],
-    queryFn: () => searchApi.query(trimmed, { mode }),
+    queryKey: ['search', trimmed, mode, kind],
+    queryFn: () => searchApi.query(trimmed, { mode, ...(kind ? { kind } : {}) }),
     enabled: trimmed.length > 0,
     placeholderData: keepPreviousData,
     staleTime: 30_000,

@@ -3,7 +3,8 @@ import { SPACE_HEADER, SPACE_PATH_PREFIX, spaceIdFromPath } from '@/lib/spaces/d
 import { CURRENT_COMPATIBILITY } from '@/lib/releases/compatibility';
 import { NextResponse, type NextRequest } from 'next/server';
 import { lookupApiToken } from '@/lib/auth/api-token';
-import { getWorkerDevice, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
+import { activeTeamChatTurn, getWorkerDevice, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
+import { isTurnToken, readTurnToken } from '@/lib/team/ai/turn-credential';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 import { isHomeActive } from '@/lib/home/identity';
 import {
@@ -14,10 +15,11 @@ import {
   MEMBER_ID_HEADER,
   MEMBER_ROLE_HEADER,
   SESSION_CHAT_HEADER,
+  TEAM_AI_TURN_HEADER,
   WORKER_DEVICE_HEADER,
 } from '@/lib/auth/request-key';
 import { isTeamAuthority } from '@/lib/home/authority';
-import { hostMayReach, isTeamPublicPath, memberMayReach, teamCallerFor, teamSessionCookieName } from '@/lib/team/credential';
+import { aiClientMayReach, hostMayReach, isTeamPublicPath, memberMayReach, TEAM_MCP_PATH, teamCallerFor, teamSessionCookieName } from '@/lib/team/credential';
 import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/session-token';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { permitsCookieMutation } from '@/lib/auth/request-origin';
@@ -106,6 +108,8 @@ function teamProxy(request: NextRequest) {
   }
   const header = request.headers.get('authorization');
   const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  // One turn of the team's own AI, acting for the member who asked (§9.9).
+  if (bearer && isTurnToken(bearer)) return teamAiTurnProxy(request, bearer);
   const token = bearer || request.cookies.get(cookieName)?.value || null;
   if (!token || isSessionToken(token)) return unauthorized();
   const found = lookupApiToken(token);
@@ -113,7 +117,8 @@ function teamProxy(request: NextRequest) {
   const caller = teamCallerFor(found.key, found.tokenHash);
   if (!caller) return unauthorized();
 
-  if (!hasIndependentProtocol(pathname) && pathname !== '/api/version') {
+  // An AI client speaks MCP, not the app's own API protocol.
+  if (caller.scope !== 'ai_client' && !hasIndependentProtocol(pathname) && pathname !== '/api/version') {
     const mismatch = apiCompatibilityIssue(request.headers.get(API_PROTOCOL_HEADER), CURRENT_COMPATIBILITY.apiProtocols);
     if (mismatch) return NextResponse.json(mismatch, { status: 426, headers: { 'Cache-Control': 'no-store' } });
   }
@@ -122,6 +127,13 @@ function teamProxy(request: NextRequest) {
   }
   if (caller.scope === 'member' && !memberMayReach(pathname)) {
     return NextResponse.json({ error: 'not_in_team', message: "That isn't part of a team space." }, { status: 404 });
+  }
+  if (caller.scope === 'ai_client' && !aiClientMayReach(pathname, request.method)) {
+    return forbidden('ai_client_key', "An AI client's key reaches only the team's MCP and the files its records link to.");
+  }
+  // A member's sign-in can't reach the MCP: it's for the AI clients they connect.
+  if (caller.scope === 'member' && pathname === TEAM_MCP_PATH) {
+    return forbidden('sign_in_key', 'Connect your AI from the team, and give it the key that makes.');
   }
   try {
     touchApiKey(found.key.id, {
@@ -136,10 +148,33 @@ function teamProxy(request: NextRequest) {
   headers.set(API_KEY_ID_HEADER, found.key.id);
   headers.set(CALLER_LOCATION_HEADER, caller.scope === 'host' ? 'home' : 'elsewhere');
   headers.set(API_KEY_SCOPE_HEADER, caller.scope);
-  if (caller.scope === 'member') {
+  if (caller.scope === 'member' || caller.scope === 'ai_client') {
     headers.set(MEMBER_ID_HEADER, caller.member.id);
     headers.set(MEMBER_ROLE_HEADER, caller.member.role);
   }
+  return NextResponse.next({ request: { headers } });
+}
+
+/**
+ * A team AI turn's credential: signed by the team, alive only while its turn
+ * runs, its member is in the team and Team AI is on. It reaches the team's
+ * MCP and nothing else.
+ */
+function teamAiTurnProxy(request: NextRequest, token: string) {
+  const claims = readTurnToken(token);
+  const active = claims ? activeTeamChatTurn(claims) : null;
+  if (!claims || !active) return unauthorized();
+  if (request.nextUrl.pathname !== TEAM_MCP_PATH) {
+    return forbidden('team_ai_turn', "The team AI's credential reaches only the team's tools.");
+  }
+  const headers = new Headers(request.headers);
+  for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+  headers.set(API_KEY_ID_HEADER, `team-ai-turn:${claims.turnId}`);
+  headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
+  headers.set(API_KEY_SCOPE_HEADER, 'team_ai');
+  headers.set(MEMBER_ID_HEADER, active.member.id);
+  headers.set(MEMBER_ROLE_HEADER, active.member.role);
+  headers.set(TEAM_AI_TURN_HEADER, claims.turnId);
   return NextResponse.next({ request: { headers } });
 }
 
@@ -255,6 +290,9 @@ export function proxy(request: NextRequest) {
   const found = lookupApiToken(token);
   if (!found) return unauthorized();
   const { key, tokenHash } = found;
+  // Only a team issues AI client keys (docs/homes-spec.md §9.8). One here
+  // isn't a sign-in, whatever else it is.
+  if (key.role === 'ai_client') return unauthorized();
 
   // An authenticated stale view is refused before route writes or effects.
   // Worker and MCP transports retain their own authenticated negotiation.

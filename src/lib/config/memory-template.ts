@@ -5,11 +5,10 @@
  * Written once by `ensureBrainDir()` if absent; never overwritten so
  * user edits survive.
  *
- * Includes a Decisions section the agent appends to via
- * `create_note { title: "Decision: ..." }`. The note title prefix is
- * the only convention — no schema change — and the notes list has a
- * `Decisions` filter chip that surfaces these without a separate
- * surface.
+ * Includes a Decisions section: a decision is a note with
+ * `kind: "decision"` (docs/homes-spec.md §9.7), found with the notes list's
+ * Decisions filter and `kind` on list_notes and search. A title never makes
+ * a note a decision.
  */
 
 import { APP_NAME } from '@/constants/app';
@@ -24,18 +23,21 @@ have to re-state at the top of each conversation.
 
 ## Decisions
 
-When you make a decision of substance during a run, write a note via
-\`create_note\` with a title that starts with \`Decision: \`, for example
-\`Decision: switch transcript storage to JSON Lines\`. The body should
-capture:
+A decision is a note with \`kind: "decision"\`. When you're asked to
+record a decision, or one made during your work will need to be found on
+its own later, call \`create_note\` with \`kind: "decision"\` and a title
+that says what was decided, for example \`Switch transcript storage to
+JSON Lines\`. In the body, write what was actually discussed in plain
+prose: the choice, its context, the alternatives considered and why.
+Leave out anything nobody said. Link the task it came from with a
+\`[[task:<id>]]\` marker.
 
-- **Context**: what surfaced the decision
-- **Options**: what was considered
-- **Decision**: what was chosen, and why
-- **Consequences**: what changes downstream
+A conclusion that only matters to one task can stay in that task's body.
+Not every conclusion needs its own note.
 
-Decisions stay queryable in the notes list (filter chip:
-\`Decisions\`). Six months later, "Why did we decide X?" maps to one
-search, not an archeology project.
+To make an existing note a decision, call \`update_note\` with
+\`kind: "decision"\`. Find decisions with \`list_notes\` or \`search\`
+and \`kind: "decision"\`, or the Decisions filter in Notes. Six months
+later, "why did we decide X?" is one search, not an archeology project.
 `;
 }

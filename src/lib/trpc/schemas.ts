@@ -1,6 +1,6 @@
 import { createInsertSchema } from 'drizzle-zod';
 import { z } from 'zod/v4';
-import { tasks, notes, areas } from '@/lib/db/schema';
+import { tasks, notes, areas, NOTE_KINDS } from '@/lib/db/schema';
 import { TASK_STATUSES, TRANSITION_COMMANDS } from '@/lib/tasks/lifecycle';
 import type { Attachment, TaskFilter, NoteFilter, AreaFilter } from '@/db/types';
 
@@ -26,7 +26,9 @@ export const createTaskSchema = taskFields.extend({
   status: z.enum(['consider', 'todo']).optional(),
 }).strict();
 export const updateTaskSchema = taskFields.omit({ status: true }).partial().strict();
-const noteFields = createInsertSchema(notes).omit({ ...immutable, ...projection, sourceNoteId: true, bodyRevision: true }).extend(jsonFields);
+// A kind is a value, never null: a write without one keeps the note's (§9.7).
+const noteKind = z.enum(NOTE_KINDS);
+const noteFields = createInsertSchema(notes).omit({ ...immutable, ...projection, sourceNoteId: true, bodyRevision: true }).extend({ ...jsonFields, kind: noteKind.optional() });
 export const createNoteSchema = noteFields.extend({ status: noteFields.shape.status.optional() }).strict();
 export const updateNoteSchema = createNoteSchema.partial().strict();
 const areaFields = createInsertSchema(areas).omit(immutable).extend({ attachments: jsonFields.attachments });
@@ -45,8 +47,10 @@ export const taskFilterSchema = z.object({
 }).strict() satisfies z.ZodType<TaskFilter>;
 export const noteFilterSchema = z.object({
   areaId: foreignId, workspaceId: foreignId, taskId: foreignId,
-  status: noteFields.shape.status.optional(), decisionsOnly: z.boolean().optional(), ...pagination,
-}).strict() satisfies z.ZodType<NoteFilter>;
+  status: noteFields.shape.status.optional(), kind: noteKind.optional(), decisionsOnly: z.boolean().optional(), ...pagination,
+}).strict().refine((f) => !(f.decisionsOnly && f.kind === 'note'), {
+  message: 'decisionsOnly asks for decisions, which contradicts kind: "note".',
+}) satisfies z.ZodType<NoteFilter>;
 export const areaFilterSchema = z.object({ status: z.enum([...areaFields.shape.status.options, 'all']).optional() }).strict() satisfies z.ZodType<AreaFilter>;
 export const entityIdSchema = z.object({ id: z.string().min(1) }).strict();
 /** A member's chosen result for a team task (src/lib/team/published-results.ts). */

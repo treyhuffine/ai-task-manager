@@ -19,7 +19,7 @@ export type ActiveView =
   | { kind: 'skill'; ref: string };
 
 export type PanelTab = 'deck' | 'chat' | 'tasks' | 'stream' | 'notes';
-export type MorePanelTab = 'areas' | 'people' | 'decisions' | 'terminal';
+export type MorePanelTab = 'areas' | 'people' | 'terminal';
 export type AnyPanelTab = PanelTab | MorePanelTab;
 export type PanelId = 'a' | 'b';
 

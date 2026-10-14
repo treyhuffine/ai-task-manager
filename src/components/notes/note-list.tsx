@@ -2,8 +2,8 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { FileText, Filter, ArrowDownAz, Loader2 } from 'lucide-react';
-import { useNotes, useUpdateNote } from '@/hooks/use-notes';
+import { FileText, Filter, ArrowDownAz, Gavel, Loader2, Plus } from 'lucide-react';
+import { useCreateNote, useNotes, useUpdateNote } from '@/hooks/use-notes';
 import { useAreas } from '@/hooks/use-areas';
 import { useDashboard } from '@/contexts/dashboard-context';
 import {
@@ -23,6 +23,7 @@ import {
   ToolbarSearchButton,
   toolbarButtonClass,
 } from '@/components/shared/list-toolbar';
+import { Tip } from '@/components/ui/tip';
 import { NoteRow } from './note-row';
 import type { NoteStatus } from '@/db/types';
 import type { NoteListDTO } from '@/lib/api/dto/entity-list';
@@ -47,20 +48,34 @@ export function NoteList() {
   const [statusFilter, setStatusFilter] = useState<NoteStatus | 'all'>('active');
   const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
   const [sortBy, setSortBy] = useState<NoteSortOption>('lastViewedAt');
-  // Decisions-only filter — agent-written notes with title prefix
-  // "Decision: ". See docs/async-agents-v1.md §4.5.
+  // Decisions are notes marked as one (docs/homes-spec.md §9.7), never a
+  // title convention.
   const [decisionsOnly, setDecisionsOnly] = useState(false);
 
   const filter = {
     ...(statusFilter !== 'all' ? { status: statusFilter as NoteStatus } : {}),
     ...(areaFilter !== 'all' ? { areaId: areaFilter } : {}),
-    ...(decisionsOnly ? { decisionsOnly: true } : {}),
+    ...(decisionsOnly ? { kind: 'decision' as const } : {}),
     orderBy: sortBy,
   };
 
   const { data: notes, isLoading, error } = useNotes(filter);
   const { data: areas } = useAreas();
   const updateNote = useUpdateNote();
+  const createNote = useCreateNote();
+
+  // New makes what the list is showing: a decision while Decisions is on.
+  const newLabel = decisionsOnly ? 'New decision' : 'New note';
+  const handleNew = useCallback(() => {
+    createNote.mutate(
+      {
+        body: ' ',
+        ...(decisionsOnly ? { kind: 'decision' as const } : {}),
+        ...(areaFilter !== 'all' ? { areaId: areaFilter } : {}),
+      },
+      { onSuccess: (note) => openNote(note.id) },
+    );
+  }, [createNote, decisionsOnly, areaFilter, openNote]);
 
   const areaLabel =
     areaFilter === 'all'
@@ -103,7 +118,7 @@ export function NoteList() {
             {filterActive && <ToolbarActiveDot />}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
-            {/* Decisions-only — agent-written notes with "Decision: " prefix */}
+            {/* Notes marked as decisions */}
             <DropdownMenuCheckboxItem
               checked={decisionsOnly}
               onCheckedChange={(c) => setDecisionsOnly(!!c)}
@@ -143,9 +158,23 @@ export function NoteList() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* Folds to its icon before the status tabs have to scroll. */}
+        <Tip label={newLabel} onlyWhenTextHidden>
+          <button
+            type="button"
+            onClick={handleNew}
+            disabled={createNote.isPending}
+            aria-label={newLabel}
+            className={toolbarButtonClass()}
+          >
+            {decisionsOnly ? <Gavel className="size-3.5 shrink-0" /> : <Plus className="size-3.5 shrink-0" />}
+            <span className="hidden @2xl/lt:inline">{newLabel}</span>
+          </button>
+        </Tip>
+
         <ToolbarSearchButton
-          label="Search notes"
-          onClick={() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: 'note: ' } }))}
+          label={decisionsOnly ? 'Search decisions' : 'Search notes'}
+          onClick={() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: decisionsOnly ? 'decision: ' : 'note: ' } }))}
         />
       </ListToolbar>
 
@@ -157,6 +186,7 @@ export function NoteList() {
         onUpdate={handleUpdate}
         onArchive={handleArchive}
         onOpen={openNote}
+        empty={decisionsOnly ? 'No decisions yet. Mark a note as a decision from its menu, or start a new one.' : 'No notes found'}
       />
     </div>
   );
@@ -171,10 +201,11 @@ interface VirtualNoteListProps {
   onUpdate: (id: string, field: string, value: unknown) => void;
   onArchive: (id: string) => void;
   onOpen: (id: string) => void;
+  empty: string;
 }
 
 function VirtualNoteList({
-  notes, isLoading, error, onUpdate, onArchive, onOpen,
+  notes, isLoading, error, onUpdate, onArchive, onOpen, empty,
 }: VirtualNoteListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -201,7 +232,7 @@ function VirtualNoteList({
       {notes && notes.length === 0 && (
         <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
           <FileText size={20} className="opacity-30" />
-          <p className="text-[11px]">No notes found</p>
+          <p className="max-w-[260px] text-center text-[11px]">{empty}</p>
         </div>
       )}
       {notes && notes.length > 0 && (

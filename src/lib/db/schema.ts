@@ -773,8 +773,11 @@ export interface CalendarBlock {
 // the phone app or a CLI signs in with it and acts as the owner. `worker`:
 // the key a device's worker runs agents with, issued by enrolling it. It
 // reaches only the worker routes, and a device runs agents while it has an
-// active one. Callers always say which: there is no default.
-export const API_KEY_ROLES = ['sign_in', 'worker'] as const;
+// active one. `ai_client`: in a team space, a member's own AI assistant
+// (Codex, Claude Code), issued by Connect your AI (docs/homes-spec.md §9.8).
+// It reaches only the team's MCP and its files, acts as that member's agent,
+// and is never a sign-in. Callers always say which: there is no default.
+export const API_KEY_ROLES = ['sign_in', 'worker', 'ai_client'] as const;
 
 export const apiKeys = sqliteTable(
   'api_keys',
@@ -1215,6 +1218,96 @@ export const teamGrants = sqliteTable(
   ],
 );
 
+// A shared-work change made through the team's MCP, recorded with the change
+// itself (docs/homes-spec.md §9.8). A client that lost the response sends the
+// same idempotency key again and gets this outcome back instead of a second
+// change. The same key with a different request is refused. One per member,
+// tool and key.
+export const sharedOperationReceipts = sqliteTable(
+  'shared_operation_receipts',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    memberId: text().notNull().references((): AnySQLiteColumn => members.id),
+    // The client that made it.
+    apiKeyId: text().references((): AnySQLiteColumn => apiKeys.id, { onDelete: 'set null' }),
+    action: text().notNull(),
+    idempotencyKey: text().notNull(),
+    // A hash of the request, normalized, without its idempotency key.
+    intentHash: text().notNull(),
+    entityType: text({ enum: ['task', 'note'] }).notNull(),
+    entityId: text().notNull(),
+    // What the tool returned the first time.
+    outcome: text({ mode: 'json' }).$type<unknown>().notNull(),
+  },
+  (table) => [
+    uniqueIndex('uniq_shared_operation_receipts_key').on(table.memberId, table.action, table.idempotencyKey),
+    index('idx_shared_operation_receipts_entity').on(table.entityType, table.entityId),
+  ],
+);
+
+// A team's own AI (docs/homes-spec.md §9.9, P8.4): off until its owner
+// turns it on with a model-provider key provisioned for the team. One row.
+// The key itself is sealed under `<config>/team-ai`, never here: this keeps
+// what Settings may show (the provider, the account's label) and how it last
+// went. Everyone's use counts against that one account, and a missing or
+// failing key never falls back to anyone's own.
+export const TEAM_AI_HARNESSES = ['claude'] as const;
+export const TEAM_AI_PROVIDERS = ['anthropic'] as const;
+
+export const teamAiSettings = sqliteTable('team_ai_settings', {
+  id: text().primaryKey(),
+  ...timestamps,
+  enabled: integer({ mode: 'boolean' }).notNull(),
+  // The one runtime qualified to keep to the team's tools (§9.9).
+  harness: text({ enum: TEAM_AI_HARNESSES }).notNull(),
+  provider: text({ enum: TEAM_AI_PROVIDERS }).notNull(),
+  model: text(),
+  // What the owner calls the account, shown in Settings. Never the key.
+  credentialLabel: text(),
+  credentialSetAt: text(),
+  // The team's main conversation, made the first time Team AI is turned on.
+  mainChatSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
+  lastError: text(),
+  lastErrorAt: text(),
+  lastOkAt: text(),
+  updatedByMemberId: text().references((): AnySQLiteColumn => members.id),
+});
+
+// One member's message to a team's AI, and the turn it gets (docs/homes-spec.md
+// §9.9, P8.5). Sends are durable and kept in order: one turn runs at a time
+// in each chat, in the order they were accepted, each as the member who sent
+// it. A retried send finds its row by the member's own id for it, so a lost
+// response never makes a second turn. A turn that was running when the team
+// stopped is `interrupted`, never run again on its own.
+export const TEAM_CHAT_TURN_STATUSES = ['queued', 'running', 'done', 'failed', 'cancelled', 'interrupted'] as const;
+
+export const teamChatTurns = sqliteTable(
+  'team_chat_turns',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    chatSessionId: text().notNull().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'cascade' }),
+    memberId: text().notNull().references((): AnySQLiteColumn => members.id),
+    // The member's own id for this send, for retries.
+    clientSendId: text().notNull(),
+    // The message's row in chat_events.
+    messageEventId: text().notNull(),
+    // Accepted order within the chat.
+    seq: integer().notNull(),
+    status: text({ enum: TEAM_CHAT_TURN_STATUSES }).notNull(),
+    startedAt: text(),
+    finishedAt: text(),
+    error: text(),
+  },
+  (table) => [
+    uniqueIndex('uniq_team_chat_turns_send').on(table.chatSessionId, table.memberId, table.clientSendId),
+    uniqueIndex('uniq_team_chat_turns_seq').on(table.chatSessionId, table.seq),
+    index('idx_team_chat_turns_status').on(table.status, table.chatSessionId, table.seq),
+    index('idx_team_chat_turns_message').on(table.chatSessionId, table.messageEventId),
+  ],
+);
+
 // ─── Workspace setups ─────────────────────────────────────────
 // An agent's folder on each device it runs on (docs/homes-spec.md §4.1,
 // §4.2): where the person chose it is, and what the device found when it
@@ -1499,6 +1592,7 @@ export const executions = sqliteTable(
     // Optional label. Most executions don't need one; recurring trigger
     // executions might be labeled "morning-triage" etc. for the UI.
     label: text(),
+    labelRevision: integer().notNull().default(0),
 
     // Durable git state — lifted from chat_sessions. All nullable because
     // executions exist before worktree provisioning completes (and non-git
@@ -1898,6 +1992,8 @@ export const chatSessions = sqliteTable(
     surfaceRef: text(),
     status: text({ enum: ['active', 'archived'] }).notNull(),
     label: text(),
+    labelSource: text({ enum: ['manual', 'native', 'fallback', 'truncated'] }),
+    labelRevision: integer().notNull().default(0),
 
     // Free-form scratch space scoped to this session. Markdown text the
     // user jots into during work — observations, error logs, half-formed
@@ -2166,6 +2262,10 @@ export const chatEvents = sqliteTable(
     // (`[[file:<file_name>]]`) point at entries here so the chip's
     // position in the message is preserved on render.
     attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().default([]),
+    // In a team's shared chat (docs/homes-spec.md §9.9): the member who wrote
+    // this message. Null everywhere else, and never filled in for older rows.
+    // Not a foreign key, for the same reason as `senderSessionId`.
+    authorMemberId: text(),
   },
   (table) => [
     // Idempotent upsert key for CLI-backed events. Claude (JSONL uuid) and
@@ -2175,6 +2275,9 @@ export const chatEvents = sqliteTable(
       .on(table.sessionId, table.externalEventId, table.sourcePartIndex)
       .where(sql`${table.externalEventId} IS NOT NULL`),
     index('idx_chat_events_session_created').on(table.sessionId, table.createdAt),
+    // SQLite appends rowid to this index, so insertion-order team cursors
+    // seek and page without sorting every event in a long chat.
+    index('idx_chat_events_session_cursor').on(table.sessionId),
     index('idx_chat_events_tool_call_id').on(table.externalToolCallId),
     // The rare events that carry files, covering `attachments`, so the
     // attachment sweep (`collectReferencedFileNames`) reads those rows only.
@@ -2292,9 +2395,20 @@ export interface EntityVersionSnapshot {
   assigneeMemberId?: string | null;
   // Note-only.
   url?: string | null;
+  // Note-only, recorded since kinds (docs/homes-spec.md §9.7). Absent on
+  // older snapshots, which restore leaves alone rather than guessing.
+  kind?: 'note' | 'decision';
 }
 
 // ─── Notes ────────────────────────────────────────────────────
+
+/**
+ * What a note is (docs/homes-spec.md §9.7): an ordinary note, or a decision,
+ * a note saying what was decided and why. Stored nullable without a default,
+ * so adding it rebuilt nothing: a note written before kinds existed has
+ * none, which reads as `note`. Creators always write one.
+ */
+export const NOTE_KINDS = ['note', 'decision'] as const;
 
 export const notes = sqliteTable(
   'notes',
@@ -2315,6 +2429,7 @@ export const notes = sqliteTable(
     status: text({ enum: ['active', 'archived'] }).notNull(),
     contextTags: text({ mode: 'json' }).$type<string[]>().default([]),
     lastViewedAt: text(),
+    kind: text({ enum: NOTE_KINDS }),
     // Counts changes to `body`, as on tasks.
     bodyRevision: integer().notNull().default(0),
     // A shared note this person saved in My Ri (docs/homes-spec.md §9.3,
@@ -2331,6 +2446,8 @@ export const notes = sqliteTable(
     index('idx_notes_task_id').on(table.taskId),
     index('idx_notes_workspace_id').on(table.workspaceId),
     index('idx_notes_status').on(table.status),
+    // Listing decisions: the kind and the status filter in one index.
+    index('idx_notes_kind_status').on(table.kind, table.status),
   ],
 );
 
@@ -2859,4 +2976,3 @@ export const skillUsage = sqliteTable('skill_usage', {
   score: real().notNull().default(0),
   lastUsedAt: text(),
 });
-

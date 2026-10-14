@@ -5,6 +5,7 @@
 
 import { getDb } from '@/lib/db';
 import { hydrateRow } from '@/lib/db/hydrate';
+import { normalizeNoteRow } from '@/lib/notes/kind';
 import {
   tasks as tasksTbl,
   notes as notesTbl,
@@ -71,7 +72,7 @@ export async function reconcileAll(opts: { force?: boolean } = {}): Promise<Reco
   }
 
   // Notes
-  const dbNotes = db.select().from(notesTbl).all().map((r) => hydrateRow(r));
+  const dbNotes = db.select().from(notesTbl).all().map(normalizeNoteRow);
   const dbNoteIds = new Set<string>();
   for (const n of dbNotes) {
     dbNoteIds.add(n.id);

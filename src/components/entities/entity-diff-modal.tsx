@@ -6,6 +6,7 @@ import { trpcClient } from '@/lib/trpc/client';
 import { DiffLines } from '@/components/executions/file-chip';
 import type { EntityVersionSnapshot } from '@/db/types';
 import { useAreas } from '@/hooks/use-areas';
+import { NOTE_KIND_LABELS } from '@/components/notes/note-kind';
 import {
 	EMPTY_SNAPSHOT,
 	groupVersions,
@@ -40,6 +41,8 @@ interface FieldSpec {
   recordedLater?: boolean;
   /** Shown as the area's name rather than its id. */
   area?: boolean;
+  /** Shown by label rather than its stored value. */
+  labels?: Record<string, string>;
 }
 
 const AREA_PROP: FieldSpec = { key: 'areaId', label: 'Area', recordedLater: true, area: true };
@@ -57,7 +60,13 @@ const TASK_PROPS: FieldSpec[] = [
   { key: 'userContext', label: 'Context' },
 ];
 
-const NOTE_PROPS: FieldSpec[] = [AREA_PROP, { key: 'status', label: 'Status' }, { key: 'url', label: 'URL' }];
+const NOTE_PROPS: FieldSpec[] = [
+  AREA_PROP,
+  // Versions from before kinds didn't record one (docs/homes-spec.md §9.7).
+  { key: 'kind', label: 'Kind', recordedLater: true, labels: NOTE_KIND_LABELS },
+  { key: 'status', label: 'Status' },
+  { key: 'url', label: 'URL' },
+];
 
 function str(v: unknown): string {
   if (v == null) return '';
@@ -255,7 +264,7 @@ function DiffBody({
   const shown = (f: FieldSpec, snap: EntityVersionSnapshot) => {
     const raw = str(snap[f.key]);
     if (!raw) return '-';
-    return f.area ? areaName(raw) : raw;
+    return f.area ? areaName(raw) : f.labels?.[raw] ?? raw;
   };
 
   if (!titleChanged && !bodyChanged && changedProps.length === 0) {

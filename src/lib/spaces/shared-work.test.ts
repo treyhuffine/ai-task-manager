@@ -251,6 +251,35 @@ describe('saved team notes', () => {
     expect((await o.notes.get.query({ id: note.id })).areaId).toBeNull();
   }, 60_000);
 
+  it("carries the team's decision, follows a change of kind, and never changes it here", async () => {
+    const me = await connected('Kim');
+    const o = await owner();
+    const decision = await o.notes.create.mutate({ title: 'Use the billing provider', body: 'Chosen for its invoices.', kind: 'decision' });
+    const plain = await o.notes.create.mutate({ title: 'Launch plan', body: '' });
+    expect((await o.notes.list.query({ kind: 'decision' })).map((note) => note.id)).toEqual([decision.id]);
+
+    const { saveTeamNoteToMyNotes, syncTeam } = await import('./sync');
+    const saved = await saveTeamNoteToMyNotes(me.id, decision.id);
+    expect(saved.kind).toBe('decision');
+    expect((await saveTeamNoteToMyNotes(me.id, plain.id)).kind).toBe('note');
+
+    const q = await import('@/lib/db/queries');
+    // My Ri's decision list shows the team's decision with its own.
+    const mine = q.createNote({ title: 'Mine', body: '', kind: 'decision' });
+    expect(q.listNotes({ kind: 'decision' }).map((note) => note.id).sort()).toEqual([saved.id, mine.id].sort());
+    // The kind is the team's, like the text.
+    expect(() => q.updateNote(saved.id, { kind: 'note' }, { source: 'human' })).toThrow(/belongs to its team/);
+
+    // Made an ordinary note at the team, it is one here after the next pass,
+    // and the team's text never needed a revision check to change it.
+    const before = await o.notes.get.query({ id: decision.id });
+    await o.notes.update.mutate({ id: decision.id, patch: { kind: 'note' } });
+    expect((await o.notes.get.query({ id: decision.id })).bodyRevision).toBe(before.bodyRevision);
+    expect((await syncTeam(me.id)).changed).toBeGreaterThanOrEqual(1);
+    expect(q.getNote(saved.id)).toMatchObject({ kind: 'note', body: 'Chosen for its invoices.' });
+    expect(q.listNotes({ kind: 'decision' }).map((note) => note.id)).toEqual([mine.id]);
+  }, 60_000);
+
   it('lets a removed or deleted note go, keeping its title and organization and none of its text', async () => {
     const me = await connected('Ivy');
     const o = await owner();

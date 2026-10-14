@@ -11,7 +11,8 @@
  * The set below shows the range of a real system two months in:
  *   - Reference notes (contractor contacts, wholesale accounts, Ruby's school
  *     info, where the money lives, paint colors)
- *   - Decision notes (on-device transcription, the panel quotes)
+ *   - A decision note (on-device transcription), and a working note whose
+ *     Decision section is enough on its own (the panel quotes)
  *   - Meeting notes (the call with Luis about wholesale pricing)
  *   - Working documents pinned to a task (launch checklist, job post,
  *     inspection notes, gift ideas, the treasurer handoff)
@@ -371,7 +372,8 @@ export const notes: SeedNote[] = [
     `,
   },
   {
-    title: 'Decision: on-device transcription, not a server',
+    title: 'On-device transcription, not a server',
+    kind: 'decision',
     area_name: 'Fieldnote',
     createdAt: daysAgo(27, 22, 0),
     body: md`

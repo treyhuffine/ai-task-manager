@@ -17,7 +17,7 @@ export function useTeam(): TeamIdentity {
   return value;
 }
 
-export type TeamView = 'board' | 'notes';
+export type TeamView = 'board' | 'notes' | 'chat';
 
 /**
  * Where this screen is in the team: its own URL, so a reload, a shared link
@@ -28,11 +28,16 @@ export function useTeamNav() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const view: TeamView = params.get('view') === 'notes' ? 'notes' : 'board';
+  const rawView = params.get('view');
+  const view: TeamView = rawView === 'notes' || rawView === 'chat' ? rawView : 'board';
   const taskId = params.get('task');
   const noteId = params.get('note');
+  /** The shared chat open in the Chat view (docs/homes-spec.md §9.9). */
+  const chatId = params.get('chat');
   const areaId = params.get('area');
   const mine = params.get('mine') === '1';
+  /** Notes marked as decisions only (docs/homes-spec.md §9.7). */
+  const decisions = params.get('kind') === 'decision';
   const panel = params.get('panel');
 
   const set = useCallback(
@@ -55,19 +60,23 @@ export function useTeamNav() {
       view,
       taskId,
       noteId,
+      chatId,
       areaId,
       mine,
+      decisions,
       panel,
       remoteSetup: params.get('setup') === 'remote',
       finishRemoteSetup: () => set({ setup: null, panel: null }, 'replace'),
       show: (next: TeamView) => set({ view: next === 'board' ? null : next }),
       openTask: (id: string) => set({ task: id, note: null }),
       openNote: (id: string) => set({ note: id, task: null }),
+      openChat: (id: string | null) => set({ view: 'chat', chat: id, task: null, note: null, panel: null }),
       closeDetail: () => set({ task: null, note: null }, 'replace'),
       filterArea: (id: string | null) => set({ area: id }, 'replace'),
       setMine: (on: boolean) => set({ mine: on ? '1' : null }, 'replace'),
+      setDecisions: (on: boolean) => set({ kind: on ? 'decision' : null }, 'replace'),
       openPanel: (name: 'settings' | 'search' | null) => set({ panel: name }, name ? 'push' : 'replace'),
     }),
-    [view, taskId, noteId, areaId, mine, panel, set, params],
+    [view, taskId, noteId, chatId, areaId, mine, decisions, panel, set, params],
   );
 }

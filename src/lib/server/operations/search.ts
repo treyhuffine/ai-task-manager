@@ -14,6 +14,12 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
       | 'keyword'
       | 'vector';
     const limit = parseInt(searchParams(rpcInput.query).get('limit') ?? '100', 10);
+    // Notes of one kind only, by their stored kind (docs/homes-spec.md §9.7).
+    const kindParam = searchParams(rpcInput.query).get('kind');
+    if (kindParam && kindParam !== 'note' && kindParam !== 'decision') {
+      return reply({ error: 'kind is "note" or "decision".' }, { status: 400 });
+    }
+    const noteKind = (kindParam ?? undefined) as 'note' | 'decision' | undefined;
 
     if (!q || q.trim().length === 0) {
       return reply([]);
@@ -22,21 +28,21 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
     let hits: Array<{ entityType: string; entityId: string; score: number }>;
 
     if (mode === 'keyword') {
-      hits = ftsSearch(q, limit);
+      hits = ftsSearch(q, limit, { noteKind });
     } else if (mode === 'vector') {
       try {
-        hits = await vectorSearch(q, limit);
+        hits = await vectorSearch(q, limit, { noteKind });
       } catch {
         // Fall back to keyword if embedding fails
-        hits = ftsSearch(q, limit);
+        hits = ftsSearch(q, limit, { noteKind });
       }
     } else {
       // hybrid (default)
       try {
-        hits = await hybridSearch(q, { limit });
+        hits = await hybridSearch(q, { limit, noteKind });
       } catch {
         // Fall back to keyword if embedding fails
-        hits = ftsSearch(q, limit);
+        hits = ftsSearch(q, limit, { noteKind });
       }
     }
 
@@ -63,4 +69,4 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
   }
 }
 
-export const GETInput = rpcZ.object({ query: rpcZ.object({ "q": rpcZ.string().optional(), "mode": rpcZ.string().optional(), "limit": rpcZ.string().optional() }).strict().optional() }).strict().default({});
+export const GETInput = rpcZ.object({ query: rpcZ.object({ "q": rpcZ.string().optional(), "mode": rpcZ.string().optional(), "limit": rpcZ.string().optional(), "kind": rpcZ.string().optional() }).strict().optional() }).strict().default({});

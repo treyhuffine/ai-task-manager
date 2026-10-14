@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { listNotes, createNote } from '@/lib/db/queries';
+import { listNotes, createNote, isNoteKindError } from '@/lib/db/queries';
 import type { CreateNoteInput } from '@/db/types';
 import { withCompression } from '@/lib/api/compression';
 import { toNoteListDTOs } from '@/lib/api/dto/entity-list';
@@ -16,6 +16,7 @@ async function handleGET(request: NextRequest) {
       areaId: params.get('areaId') ?? undefined,
       taskId: params.get('taskId') ?? undefined,
       status: (params.get('status') as 'active' | 'archived') ?? undefined,
+      kind: (params.get('kind') as 'note' | 'decision' | null) ?? undefined,
       decisionsOnly: params.get('decisionsOnly') === 'true' ? true : undefined,
       orderBy: params.get('orderBy') ?? undefined,
       limit: params.get('limit') ? parseInt(params.get('limit')!, 10) : undefined,
@@ -26,6 +27,7 @@ async function handleGET(request: NextRequest) {
     // one-line preview. Full body stays on GET /api/notes/:id.
     return Response.json(toNoteListDTOs(rows));
   } catch (err) {
+    if (isNoteKindError(err)) return Response.json({ error: err.message }, { status: 400 });
     console.error('[GET /api/notes]', err);
     return Response.json({ error: String(err) }, { status: 500 });
   }

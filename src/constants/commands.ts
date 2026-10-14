@@ -109,12 +109,15 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
 
 // ── Type filter prefixes ─────────────────────────────────────
 
-export type EntityTypeFilter = 'task' | 'note' | 'stream';
+/** An entity type, or `decision`: notes marked as decisions (docs/homes-spec.md §9.7). */
+export type EntityTypeFilter = 'task' | 'note' | 'decision' | 'stream';
 
 export const TYPE_PREFIXES: Record<string, EntityTypeFilter> = {
   'task:': 'task',
   'tasks:': 'task',
   'note:': 'note',
   'notes:': 'note',
+  'decision:': 'decision',
+  'decisions:': 'decision',
   'stream:': 'stream',
 };

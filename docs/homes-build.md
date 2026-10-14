@@ -2038,3 +2038,381 @@ The owner requested the remaining failures be fixed and P7 squash-merged to main
 - Main's pre-existing uncommitted work was rehearsed with the P7 changes in a separate checkout. The combined source passed typecheck and **512 desktop tests**. Conflict resolutions preserve the newer P8 spec, notifications, image previews and attachment thumbnails, including preview providers in team views. Those edits remain outside the P7 squash commit.
 
 All runtime checks used disposable homes through `pnpm iso`. Gate D and the P7 human gate remain unobserved and unticked. No production service restart or production database migration is part of the merge.
+
+## P8 Shared context and the first team AI slice, as built
+
+Built on branch `ai-task-manager/teams-p8` (worktree `ai-task-manager-teams-p8`). Everything here ran in disposable roots through `pnpm iso`, never against production, `~/ri`, the original checkout or real credentials. Gates E and F need people observed and stay unticked.
+
+### P8.0 Baseline
+
+- **Base.** Main at `109bcfca`: the P7 squash (`906e349a`) and the connection `address` to `url` rename with migration `0013_team_connection_url`. The worktree was first cut from the spec commit `c735cc9e`, and was moved to `109bcfca` before any work because main had moved.
+- **Clients.** On the build machine: Claude Code 2.1.295 (the CLI) and codex-cli 0.160.0. The owner's partner uses "Codex and Claude". Which Claude (Claude Code or the Claude desktop or web app) and which Codex (CLI or app), and their versions, are not confirmed yet, so the build target is Codex CLI plus Claude Code and no app journey is claimed. **P8.0 stays open until the pilot's clients are recorded.**
+- **What P8 builds on, and what it lacks** (file references as of `109bcfca`):
+  - *Notes.* Filters, list DTOs, search (FTS plus vectors on a personal home, keyword only on a team), version snapshots and restore, the markdown mirror, and P7's saved-note projections with their source-field guards (`assertPrivateNotePatch`, `SHARED_NOTE_FIELDS`). Decisions were a title convention: `decisionsOnly` matched `title LIKE 'Decision:%'`.
+  - *Shared writes.* The team's tRPC procedures take a member through `sharedCaller`, check field allowlists (`TEAM_*_FIELDS`), require the body revision a write edited (`requireBodyRevision`, `BodyRevisionConflictError` as a 409), and record lifecycle commands with an idempotency key in `task_status_changes`. Publishing a result has its own request hash. Nothing else has a receipt: a retried create makes a second record.
+  - *Membership and keys.* Key roles are `sign_in` and `worker` only. A member's key is a `sign_in` key with a member, rechecked on every request (`memberForApiKey`), and reaches `/api/trpc`, `/api/attachments`, `/api/team/*` and two read routes (`memberMayReach`). An agent's source is relayed only for a `service` device, and the device kind is the client's claim. There is no AI-client credential and no way to tell one from a browser.
+  - *MCP.* The orchestrator MCP (`mcp-handler`, one tool per registry action) is personal only: a team refuses it at the proxy, and its actions have no member, field allowlist or required revision. The result-action pattern (`handleUndiscoveredResultCall`) is the model for an allowlist enforced at discovery and at call time.
+  - *Chat.* `chat_events` has no member author. Sends go straight to the harness, and a send during a turn is injected into it, not queued. Live updates are an in-process bus over SSE that members can't reach. Every session gets the host's orchestrator credential.
+  - *Harness launch.* `SessionSpec` carries `extraArgs`, `env`, `mcpServers` and `strictMcpConfig`, but no session is launched with `--tools ""`, `--setting-sources ""`, its own `CLAUDE_CONFIG_DIR` or a dedicated key, and agentex inherits `HOME` and `ANTHROPIC_API_KEY` from the server. `assertPersonalCapability` refuses agents and harness discovery on a team. The one locked-down precedent is the plugin evaluation one-shot.
+  - *Secrets.* `<config>/teams/credentials.json` and `<config>/agents/credentials.json` (AES-GCM, 0600) are the patterns for a team-owned model key.
+- **Not to be confused.** `work_result_decisions` is feedback on a published result (accepted, changes requested). It is not where decisions live, and P8 adds no feedback workflow.
+
+### P8.1 Decisions are a kind of note
+
+- **Storage.** `notes.kind` (`note | decision`), nullable, with `idx_notes_kind_status`. The note changes are included in generated migration `0015_team_shared_context`: an added column and an index, no rebuild, no default, no backfill. Existing rows stay null and read as `note` everywhere (`normalizeNoteRow` in `src/lib/notes/kind.ts`). No title is inspected.
+- **Contracts.** Every creator writes a kind (`createNote` and saved-note projections write `kind ?? 'note'`), so a client that sends none makes an ordinary note, whatever its title says. An update that leaves kind out keeps it, an explicit null is refused, and an unknown value is refused (`NoteKindError`, 400 over tRPC and REST, `invalid_params` for agents). `kind: 'note'` includes legacy nulls and `kind: 'decision'` matches only the stored value. `decisionsOnly` stays as another way to ask for decisions, and asking for it with `kind: 'note'` is refused rather than answered with an empty list.
+- **Agents.** `create_note`, `update_note` and `list_notes` take `kind`, and `search` takes it to search decisions only. Action names are unchanged.
+- **Search.** The stored kind filters in SQL before keyword ranking. The vector half can't filter inside the index, so with a kind it looks four times further and keeps notes of that kind. Note hits carry their kind. The decision list's plan is pinned to `SEARCH notes USING INDEX idx_notes_kind_status` (`queries.note-kind.test.ts`).
+- **Shared use.** Kind belongs to the team's note: it's in `TEAM_NOTE_FIELDS`, a saved note in My Ri carries the team's value and follows a change at the next pass, and My Ri can't change it. A change of kind leaves the body revision alone, so it never conflicts with someone typing.
+- **History.** Snapshots record the kind, so a change of kind is a version with its actor (the member and their source on a team). Restoring a version from before kinds keeps the current kind. The history view shows **Kind: Note → Decision**, and skips versions that never recorded one.
+- **In the app.**
+  - A small **Decision** label on note rows (My Ri and the team), the Area slideout, search results (the palette and the team's search) and a saved team note.
+  - An open note says **Decision** where it said **Note**.
+  - **Mark as decision** and **Make regular note** in the menus of a note row, the slideout, the full page and the team's note panel. A saved team note has neither.
+  - The Notes filter's **Decisions only** now reads the stored kind. The team's notes get a **Decisions** toggle kept in the URL (`kind=decision`).
+  - The create button follows the filter: **New note**, or **New decision** while decisions are shown. That includes the team's phone add button.
+  - `decision:` in the palette searches decisions.
+  - The "Decisions, Coming soon" placeholder under More is gone, since decisions live in Notes.
+- **Guidance.** The `MEMORY.md` template, the generated orchestrator brief's domain model, the orchestrator skill and `docs/async-agents-v1.md` §4.5 teach `create_note` with `kind: "decision"` when asked to record one, with a title that says what was decided, and that a conclusion only one task needs can stay in its body. The older plans that taught the prefix say it's retired. The dev seed's decision is `On-device transcription, not a server` with `kind: 'decision'`. The panel quotes note stays an ordinary note whose Decision section is enough.
+
+### P8.2 The team's MCP for a member's AI client
+
+- **The credential.** A key role `ai_client` (no migration: the role is a TypeScript enum). A member makes one per assistant with `team.aiClients.create` from their own sign-in, names it, and sees its token once. It has no device row, since an assistant isn't a device. `team.aiClients.list` and `revoke` are the member's own, sign-ins no longer list or revoke AI clients, and removing a member revokes all of their keys as before.
+- **Where it reaches.** A new caller scope, `ai_client` (`src/lib/team/credential.ts`). Every existing check that admits a member asks for `member`, so the tRPC app, its WebSocket and the browser session refuse an AI client without a special case. The proxy lets it reach only `/api/team/mcp` and `GET /api/attachments/<file>`. It skips the app's API protocol check, since MCP negotiates its own. A member's sign-in can't reach the MCP. A personal home refuses an `ai_client` key outright (proxy, WebSocket, session).
+- **The endpoint.** `src/app/api/team/mcp/route.ts` and `src/lib/team/mcp/server.ts`: `mcp-handler`, stateless Streamable HTTP, SSE off, a 2 MiB request cap, and no verbose logs. Each POST is authenticated by the proxy, and each tool call checks the client and its member again before it runs. There is no long-lived stream to outlive a revoked key: GET and DELETE answer 405.
+- **The tools** (`src/lib/team/mcp/tools.ts`), and nothing else, are registered with strict schemas (`additionalProperties: false`), so discovery and dispatch agree and an unlisted name gets "not found":
+  - reads: `search` (keyword, `kind` for decisions), `list_tasks`, `get_task`, `list_notes`, `get_note`, `list_areas`, `get_area`, `list_members`, `list_links`, `list_history`, `list_published_results`.
+  - writes: `create_task`, `update_task`, `transition_task`, `complete_task`, `create_note`, `update_note`.
+  - Results carry team links (`<team>/?task=…`, `?view=notes&note=…`), `body_revision` and `status_changed_count`, and the team's files as URLs the client reads with its own key, never host paths. Writes go through the team's field allowlists, the Area and assignee checks, body revisions (a body needs `expected_body_revision`, and a stale one returns `body_conflict` with the current text) and the lifecycle's own checks. Nothing is deleted: archiving is `transition_task archive` or `update_note status: archived`.
+- **Who acted.** Every change is recorded as `source: ai` with the member from the credential, in version history and in the status ledger. No argument names an actor, and an unexpected field such as `actor_member_id` is refused. History reads "Maya's agent".
+- **Receipts.** `shared_operation_receipts` (a new table in migration `0015_team_shared_context`): one per member, tool and idempotency key, with a hash of the normalized request and the outcome it returned. The change and its receipt commit in one immediate transaction. A repeat with the same request returns the first outcome with `replayed: true`, after a restart as well. The same key with another request is `idempotency_conflict`. A refused change records nothing. Lifecycle commands also keep their ledger key, scoped to the member and tool.
+- **No model.** Search on a team is keyword only, and no tool calls a model or embeds anything. The tests run every tool with an ambient OpenAI key present and the model and one-shot entry points watched: no calls.
+
+Verification: `team-mcp.test.ts` drives the real MCP client SDK through the real proxy and routes on an in-process team (17 cases, including revocation on an already-connected client, member removal, attachment reads, the WebSocket and session refusals, owner keys with no administration, and a restart between a write and its retry). `ai-client-key.test.ts` checks a personal home refuses the key where the same key as a sign-in is let through. Removing the proxy's AI client rule or the receipt replay makes these tests fail.
+
+### P8.3 Connect your AI
+
+- **Where.** Team Settings, **Your AI** (`src/components/team/connect-ai.tsx`), for every member, in the team's own app and in its space in My Ri. It says what a connected assistant can do: read and change the team's shared tasks and notes as the member, with everyone seeing its changes as the member's agent, and nothing else. It lists the member's clients (name, when connected or last used) with **Disconnect**, apart from their sign-ins.
+- **Connecting.** Choose Claude Code, Codex or another MCP client, name it, and **Connect**. The dialog shows the key once and two steps (`src/lib/team/ai-client-config.ts`):
+  1. `export RI_<TEAM>_TOKEN='…'` for the shell profile, added in an editor so it stays out of projects and shell history.
+  2. The client's own command, which names the variable and never contains the key:
+     - Claude Code: `claude mcp add --transport http --scope user ri-<team> <team>/api/team/mcp --header 'Authorization: Bearer ${RI_<TEAM>_TOKEN}'`
+     - Codex: `codex mcp add ri-<team> --url <team>/api/team/mcp --bearer-token-env-var RI_<TEAM>_TOKEN`
+     - Another client: the server JSON with the same header.
+  - A team with no address people can reach says the link works only on its own computer.
+- **The documentation, rechecked 2026-10-12.** Claude Code expands `${VAR}` in a remote server's headers from `~/.claude.json` (user and local scope) as well as `.mcp.json`, except its own credential names such as `ANTHROPIC_API_KEY`, which read as empty. So the variable has a name of its own. Codex's `config.toml` takes `bearer_token_env_var`, and codex-cli 0.160.0's `mcp add` has `--bearer-token-env-var`.
+
+**Checked with the real clients, with no model call**, each in a config folder of its own (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), against a disposable team (42312), using the exact commands the dialog showed:
+
+- Claude Code 2.1.295 stored `"Authorization": "Bearer ${RI_ACME_TOKEN}"` with no key in the file. `claude mcp list` connected (`✔ Connected`), and the team recorded `claude-code/2.1.295` against that client's key. Without the variable it reports `Missing environment variables: RI_ACME_TOKEN`.
+- codex-cli 0.160.0 stored `url` and `bearer_token_env_var = "RI_ACME_TOKEN"` and lists the server with Bearer token auth. Codex connects only inside a session, so its handshake wasn't exercised.
+
+**The journey over real HTTP** (MCP client SDK, the Codex client's key, the team's dev server): find decisions by kind and by keyword, read one, save an explanation as a decision note, repeat the call after a "lost" response (one note, `replayed`), refuse a stale body, update a task, and refuse `delete_note` by name. Another member, Trey, opening the team in My Ri sees the decision under **Decisions**, with "Sam's agent added this" in its history. **Disconnect** in Settings stopped a client that was already connected at its next call (401).
+
+**Not done yet, so P8.3 stays open.** The spec asks for the journey from each real client alone: Claude Code and Codex each finding shared work, reading a decision, updating a task and saving an explanation from a private conversation. That takes model sessions on the owner's own Claude and Codex accounts, which haven't been run. Waiting for the owner's go-ahead, and for P8.0's confirmation of which Claude (Claude Code or the app) and Codex the pilot uses.
+
+**Client limitations, as known:**
+- Remote clients need the team's reachable address (HTTPS). Until it has one, the setup works only on the team's own computer.
+- The Claude desktop and web apps aren't set up here. A custom connector needs a publicly reachable team and a credential that stays the member's own, never one shared across an organization.
+- The Codex app reads the same `config.toml`, but may not see a variable set in a shell profile. Unverified.
+- AI client keys don't expire. Disconnecting a client, or removing its member, stops it.
+
+### P8.4 The team's own AI runtime
+
+- **Settings, Team AI** (`src/components/team/team-ai-settings.tsx`, `src/lib/team/ai/settings.ts`). Off by default.
+  - **The owner** saves an Anthropic API key made for the team, names its account, optionally picks a model, and turns Team AI on or off.
+  - **Every member** sees the state (Off, needs a key, unavailable with the reason, or "On. Claude Code 2.1.295 with the Anthropic API") and "Uses <account>. Everyone's use of Team AI counts against this account."
+  - **The key** is sealed under `<config>/team-ai` (AES-GCM, 0600) and never returned. `team_ai_settings` holds only its label, when it was set and how the last turn went.
+  - Turning it on makes the team's main chat. Turning it off cancels waiting turns and stops a running one. History, tasks, notes and members' AI clients keep working.
+- **The launch** (`src/lib/team/ai/runtime.ts`). One Claude Code process per turn, through agentex's own session, resuming the chat's native session, with:
+  - `--bare`: no hooks, plugins, auto-memory or CLAUDE.md discovery. The only credential is `ANTHROPIC_API_KEY`, and OAuth and the keychain are never read.
+  - `--restricted --tools ""`: no built-in tool.
+  - `--disable-slash-commands --setting-sources ""`: no skills and no settings files.
+  - `--strict-mcp-config` with a turn-only MCP config: the team's MCP and nothing else.
+  - `--allowed-tools mcp__ri_team`.
+  - Its own `HOME`, `CLAUDE_CONFIG_DIR` and working folder under `<work>/team-ai`.
+  - agentex's endpoint config sets the team's key and clears any other Anthropic credential. The host's other provider keys are blanked. `unattendedPermissionPolicy: deny`, and any permission or elicitation request outside the team's tools is refused.
+  - It never goes through the personal runner: a team still refuses harness discovery, background AI and schedules.
+- **The turn's credential** (`turn-credential.ts`): HMAC-signed with Team AI's own secret, naming the turn, its chat and the member who asked, for 30 minutes at most. The proxy admits it as `team_ai` for `/api/team/mcp` only, and only while that turn is running, the member is in the team and Team AI is on. The MCP checks this again on every call. It is not the host's key, a sign-in or an AI client key.
+- **Writes** are `source: ai` with the member and the chat (`actorSessionId`). History reads "Team AI, for Maya", apart from "Maya's agent" (an AI client) and "Maya".
+- **Fails closed.**
+  - A host whose Claude Code lacks any of those flags is unavailable, with the reason, after a probe of `claude --help`. It is never launched with a weaker profile.
+  - A missing key fails the turn before anything starts.
+  - A refused key stops the turn at Claude Code's first `api_retry` for authentication (instead of its ten retries over several minutes). Team AI is then unavailable until the owner saves another key.
+
+**Qualified with the real Claude Code 2.1.295**, against a stand-in for the Anthropic API that records every request and answers with scripted turns (`src/test/fixtures/fake-anthropic.ts`). The opt-in test is `RI_TEAM_AI_HARNESS_TEST=1 … runtime.harness.test.ts`. It runs a real turn through `runTeamTurn` against the team's real MCP over HTTP. Present in the server's own environment were a personal `HOME` (a CLAUDE.md, a skill, a hook, an MCP server and permissive settings), a personal `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` and `OPENAI_API_KEY`, and a team decision whose text says to read `~/.ssh/id_rsa` and the owner's CLAUDE.md. The stand-in asked for Bash, Read, WebFetch and a personal MCP tool as well as the team's search and `create_note`.
+- **What reached the model:** every request carried only the team's key and offered only `mcp__ri_team__*`. No personal marker, credential or file appeared anywhere, and the hook never ran.
+- **What came back:**
+  - Bash, Read, WebFetch and the personal tool each returned "No such tool available".
+  - The search returned the team's results, hostile text included, as information.
+  - The decision note was written as Team AI, for Maya, in that chat.
+- **Afterwards:**
+  - The turn's credential was refused (401) once the turn ended.
+  - A second turn resumed the native session with both members' messages named.
+  - With no key, no request was made.
+  - With a refused key, only that key was ever sent.
+- Removing `--restricted` and `--tools ""` from the profile makes this test fail.
+- `runtime.test.ts` pins the profile, the environment, the development override and the credential's signature and expiry.
+
+**Not yet run: a real model.** No team key was provided during the build, so no real Anthropic call has been made. The profile's enforcement is Claude Code's, not the model's, and the stand-in exercised it. A first real turn with the owner's team key is the remaining check.
+
+**Trying it without a key, in development only.** `RI_TEAM_AI_DEV_PROVIDER_URL=http://127.0.0.1:<port>` points turns at a local stand-in. It is ignored in production and for any address that isn't loopback. Started inside the `pnpm iso` command (`… -- env RI_TEAM_AI_DEV_PROVIDER_URL=… pnpm -s cli:dev start --dev …`), since `iso` drops inherited `RI_*` variables.
+
+### P8.5 Shared chat with Team AI
+
+- **Storage.** Reuses `chat_sessions` (surface `team_chat`, one main chat recorded in the settings, more as members want them) and `chat_events`. Migration `0015_team_shared_context` adds:
+  - `team_ai_settings`
+  - `team_chat_turns`: one per accepted send, with the member, the member's own send id, the message, accepted order, status and error.
+  - `chat_events.author_member_id`: nullable, added with `ADD COLUMN`. Never filled in for old rows, and not a foreign key, like `sender_session_id`.
+- **Sends** (`src/lib/team/ai/chat.ts`):
+  - A message is accepted durably with its author and queued. The member's send id makes a retried send find the same message and turn. The same id with other text is refused.
+  - One turn runs at a time per chat, in accepted order. Before each starts, the member and Team AI are checked again.
+  - Each member's message reaches the AI as "Name:\n\n…", on resume as well.
+  - Turning Team AI off, or removing a member, cancels their waiting turns and stops a running one through agentex's abort, keeping the reason ("Team AI was turned off.", "Stopped by Maya.").
+  - A turn left running by a restart is marked interrupted at the next start and never rerun. Waiting turns go on. Closing a page stops nothing.
+- **Reading** (`team.ai.events`). The latest page, then whatever came after a cursor. The cursor is the row's position, so a reader that reconnects gets exactly what it missed, whatever times the provider stamped. Bounded by the session's index. A member's screen gets no provider record (`raw`). A removed member's reads stop. With Team AI off, history stays readable. No read marker is shared, so none is shown.
+- **In the team's app** (`team-chat.tsx`):
+  - **Navigation:** Chat in the rail and the phone tabs once Team AI is on. The chat list, the main chat first, New chat, and a link that opens a chat by address (`?view=chat&chat=…`).
+  - **Transcript:** each member's messages under their name, Team AI's answers, and one line for each tool it used ("Searched the team “billing”", "Saved a note …").
+  - **Turn states:** waiting, answering, stopped, interrupted, couldn't answer, with Stop for the sender or the owner.
+  - **Composer:** says why Team AI can't answer when it can't.
+  - **Search:** the team's search finds chats by name or content.
+  - It polls by cursor: every second while a turn waits or runs, every 4 seconds otherwise, every 15 while hidden.
+- **The team's MCP** gains `search_sessions` and `get_session_messages` for the team's chats only, with who said what.
+- **Not in v1:** files in chat messages (text only), human-only messages, and chat through MCP. Starting or steering a chat stays a later doorway, as §9.8 says.
+
+**Verified.**
+- `chat.test.ts` (11 cases, a held stand-in runtime, the real proxy and tRPC):
+  - owner-only settings, with the key never returned
+  - two members sending at once, run one at a time in order as each sender
+  - a retry making no second turn
+  - the cursor
+  - turning it off mid-turn, with records and AI clients still working
+  - removing a member mid-turn
+  - a restart
+  - a refused key making it unavailable until a new one
+  - more chats, and Stop
+  - a turn's credential reaching only the MCP while it runs
+- `team-mcp.test.ts` covers the chat tools.
+- In Chromium, on the disposable team, with the real Claude Code and a local stand-in provider:
+  - the owner configured and turned on Team AI
+  - asked about billing and got the team's decision back
+  - asked for a decision to be recorded, and it was, as Team AI for Sam
+  - Trey, from My Ri, asked in the same chat under his own name
+  - with Team AI turned off, the chat stayed readable and the composer explained why it couldn't answer
+  - turned back on
+
+### P8.6 What's verified, and what still needs people
+
+Automated checks and observed use are kept apart: nothing below counts as a gate passed.
+
+| §12.2 case | Automated | In a browser or with a real binary |
+| --- | --- | --- |
+| Existing notes gain the kind column | `note-kind-migration.test.ts` (populated and empty) | Seeded disposable Home |
+| A decision is renamed, restored or converted | `queries.note-kind.test.ts`, `router.test.ts`, `shared-work.test.ts` | Menus, history diff, saved team note |
+| Decisions are listed and searched | `queries.note-kind.test.ts` (plan pinned), `registry.note-kind.test.ts` | Filter, `decision:` search, team search |
+| External assistant connects with no personal Ri | `team-mcp.test.ts`, with no model call | Claude Code 2.1.295 connected. The MCP journey over real HTTP |
+| Pilot connects Codex and the confirmed Claude client | Config text tests | Both configs checked in isolated homes. **The model-driven journey from each real client hasn't run** |
+| A member's external client writes shared work | `team-mcp.test.ts` (member and source, refused identity fields, stale body) | Journey, and Trey seeing "Sam's agent" |
+| MCP mutation succeeds but its response is lost | `team-mcp.test.ts` (retry across a restart, changed intent, refused change) | Journey retry |
+| AI credential is revoked or its member removed | `team-mcp.test.ts`, `ai-client-key.test.ts` | Disconnect in Settings stopped a connected client |
+| Owner enables the first team AI | `chat.test.ts`, `startup.test.ts` (no harness reached at start) | Settings, then Chat |
+| Hosted team AI, then its credential expires | `chat.test.ts`, `runtime.harness.test.ts` (no fallback, refused key) | Real binary against the stand-in. **No real provider yet** |
+| Feedback on published work | No result-decision tool or control exists | |
+| Shared text asks the team AI to read personal files or use another tool | `runtime.harness.test.ts` | Real binary, hostile note and personal config present |
+| Two members send concurrently in one chat | `chat.test.ts` | Sam and Trey in one chat |
+| Shared chat reconnects, remounts or resumes after interruption | `chat.test.ts` (cursor, restart interrupts), resume in `runtime.harness.test.ts` | Polling UI |
+| Member is removed mid-turn, or the owner disables AI | `chat.test.ts` | Turned off from Settings |
+| AI is disabled again or its harness is unavailable | `chat.test.ts` (off, refused key), probe in `settings.ts` | Off state in the chat |
+| Member asks why an implementation choice was made | Instructions require citing a record or saying none was recorded | **Needs a real model to observe** |
+
+**Full app suite (2026-10-12):** 683 files, 6,184 tests passed and 44 skipped (the opt-in Chromium and real-binary suites, run separately above), 3 failed:
+- `homes-p27-p29-review.test.ts` expected migrated chat events to gain only `part_revision`. They now gain `author_member_id` as well, null for every old row as §9.9 asks, and the expectation says so.
+- `daily-backup.test.ts` and `web-app-worker.test.ts` are the load timeouts recorded for P7. Both pass alone, and P8 touches neither.
+
+**Not observed yet, so gates E and F and P8.6 stay open:**
+- People doing the §11 gate E and F journeys: an external assistant recording a real decision, another member finding and renaming it, two members in one chat, a phone with the other laptop closed.
+- A real Anthropic key for a first real Team AI turn.
+- The model-driven journey in real Claude Code and Codex sessions.
+- Confirmation of which Claude and Codex the pilot uses.
+
+### P8 self-review, 2026-10-13
+
+A pass over the whole P8 diff (109bcfca..0e635c67), highest risk first.
+
+**Checked and sound**
+- **Who can reach what.** Every handler that trusts a request's member also checks its scope is `member`: tRPC admission, `sharedCaller`, the team router, the revert route. So `ai_client` and `team_ai` callers are refused everywhere but the MCP (and file reads for AI clients). Neither credential can become a session cookie or a WebSocket. The forwarded identity headers, including the new turn header, are stripped from every incoming request before the proxy sets them.
+- **Searching notes by kind.** The kind filter only ever adds fixed SQL text.
+- **Notes.** Kind normalization, restore and projection guards behave as specified.
+- **The MCP's changes and receipts.** Every write goes through the team's allowlists and revisions. Receipts commit with the change, inside one immediate transaction.
+
+**Found and fixed**
+1. **A running turn could become unstoppable.** Two drain loops could run for one chat when a send arrived just as a turn ended. The first loop's cleanup could then delete the second loop's record of its running turn, so Stop, turning AI off or removing the member would mark it interrupted while it kept running. Now there is one loop per chat (a kick during it asks it to look again), and a loop only clears its own record. The test kicks a chat five times with the readiness check held: the old engine started five loops, the new one starts one.
+2. **A refused send blocked its own retry.** A send refused because Team AI wasn't ready still recorded the message and a failed turn, so Retry with the same send id found that failed turn and was never answered. A new send is now refused before anything is recorded. An already-accepted send is still returned on retry.
+3. **Talking about authentication could disable Team AI.** A failed or stopped turn counted as a refused key when its *summary* mentioned "API key" or "authentication". Now only the error code and message count, with specific patterns, and a Stop is a refusal only when the key watcher stopped it.
+4. **No time limit on a turn.** A turn that never finished would hold its chat. Turns now stop at 20 minutes, inside their credential's 30, and say so.
+5. **The probe could disagree with the runtime.** It ran plain `claude`, so a team started by a service with a short PATH could report Claude Code missing when agentex would find it. It now resolves the binary with agentex's own `findBinary`. A failed check is retried after 30 seconds instead of being held for 10 minutes.
+6. **Members received the runtime's own records.** The chat read returned system rows (start-up, lifecycle), including the host's runtime path. It now returns messages, answers, tool use and errors. The cursor still moves past the rest, so nothing is read twice.
+
+**Noted, not changed**
+- **Links are as reachable as the team.** Without a configured team address, links in MCP results come from the request's host, so a Team AI answer's links point at the host's loopback address. With an address set they use it, as invitations do.
+- **One receipt namespace per member.** The spec scopes receipts to the member, so Team AI and that member's own AI client share one for each tool. A key reused across turns for a different change is refused, and the assistant retries with a new one.
+
+### Found and fixed along the way
+
+- **The standalone note and task pages crashed** on main: `AppCompanion` inside their chat called `useDashboard`, and those pages have no dashboard. It now uses `useOptionalDashboard` and, outside the dashboard, **Open full screen** goes to the app's own address (`viewHref` in `src/lib/client/active-view.ts`).
+- **Shared bodies left lists stale.** A body saved through the shared-body saver (team notes and tasks, and a shared task in My Ri) updated only the open record, so a note typed and closed read "Untitled note" in the list until it refetched. The saver now patches the record and every list's excerpt with the text the editor sent (`patchEntityCaches`), never the server's echo.
+
+### Deployment checklist (P8.1)
+
+- After the new note contract is running in production, update the owner's agent-maintained **Decisions** section in `<app-root>/MEMORY.md` to the template's wording (`kind: "decision"`, a title that says what was decided), keeping everything else in that file as it is. Not before: a running older build can't accept `kind`. Do it on the development Home first and have an agent record one decision there.
+- After deploying this branch, migration `0015_team_shared_context` applies at the next server start, after the already-deployed `0014_opposite_gorgon`. It includes the note kind column/index, shared-operation receipts, Team AI tables, message attribution and chat indexes. It does not rebuild tables or rewrite existing rows. The transcript index has a one-time build cost proportional to existing events. See the consolidation record below.
+
+### Verification (P8.1)
+
+- Typecheck passed. ESLint on the changed UI files reports only problems already in those files (effects that set state, the virtualizer, an `img`).
+- Tests: the generated migration on a populated and an empty Home (rows, rowids, keyword results and links unchanged, `foreign_key_check` empty, a second start applies nothing), query contracts and restore, the decision list's plan, the agent actions, the typed API over HTTP, a real team process (the team's decision saved in My Ri, a change of kind followed, My Ri refused), the cache helper, and the opt-in Chromium cases with the installed shell (`RI_REVIEW_CHROMIUM`). The suites P8.1 touches: 185 files, 1,658 tests passed.
+- In Chromium, on a seeded disposable Home (42311) and a disposable team (42312) that it joined: every surface listed above, including an agent's kind change through `ri agent update_note` showing as an AI change in history, and the saved team decision carrying the team's kind with no control to change it.
+
+### P8 review, 2026-10-13
+
+Reviewed `109bcfca..74c4da83` in `ai-task-manager/teams-p8`, against sections 9.7, 9.8, 9.9, P8 and the acceptance matrix. Nine reproducible defects were fixed in separate commits. No merge, push, production restart, production data change or real model call was made. P8.0, P8.3, P8.6 and gates E and F remain open. An implementation checkbox is not an observed pilot journey.
+
+#### Ranked findings and fixes
+
+Locations below refer to **74c4da83**, before this review's edits. Every regression was run failing before its fix. No P0 finding was reproduced.
+
+| Priority | Finding and affected behavior | Original location | Reproduction and fix |
+| --- | --- | --- | --- |
+| P1 | A send acknowledgement erased text entered after Send. Someone composing a second message lost that draft when the first request finished. | `src/components/team/team-chat.tsx:367` | Chromium holds the send response, types a newer draft, then acknowledges. It previously became empty. `ccf98112` clears only the acknowledged text. Regression: `team-chat.browser.test.ts`, “keeps newer typing”. |
+| P1 | Draft and retry identity followed the composer into another chat. After a lost response, switching chats could submit the first conversation's message to the second one. | `src/components/team/team-chat.tsx:245`, `:356` | Chromium rejects a send in A, switches to B, and observes A's draft there. `1ed23d05` retains drafts and retry IDs by chat, with callbacks bound to the originating send. Switching back preserves the exact retry payload. Regression: “keeps drafts and retries with their original chat”. |
+| P1 | Every transcript poll sorted the whole chat before applying its limit. On the synchronous SQLite thread, long conversations can stall other requests every second. | `src/lib/db/queries.ts:6416`, `:6431` | `EXPLAIN QUERY PLAN` showed `USE TEMP B-TREE FOR ORDER BY` after a session scan. `74b74c4f` added the session index (now in `0015_team_shared_context`), whose implicit rowid order supports bounded forward and reverse seeks. `queries.team-chat.test.ts` pins both plans. Full-suite follow-up `815388ab` explicitly preserves the narrow background-task partial index, which SQLite otherwise stopped choosing after this addition. Its existing plan test caught that regression before completion. |
+| P2 | Send admission could change while the asynchronous runtime probe was pending. A removed member, archived chat, disabled AI or deleted key could still acquire a new durable message and turn. | `src/lib/team/ai/chat.ts:67`, `src/lib/team/ai/settings.ts:56`, `src/lib/db/queries.ts:6300` | Four held-probe cases all returned success before the fix. `b2dec628` rechecks settings after probing, then checks active member, chat and enabled state in the immediate acceptance transaction. All four now refuse without recording or launching anything. Regressions: `chat.test.ts` admission cases. |
+| P2 | Turn outcomes changed the readiness of the wrong key. A success in another chat cleared a refusal, and an old turn's refusal poisoned a replacement key. | `src/lib/team/ai/settings.ts:111`, `src/lib/team/ai/chat.ts:140` | Two independently held chats and an owner key rotation reproduce both orders. `e70ff1f8` associates results with the encrypted credential's revision and keeps refusal sticky until a key is saved. Regressions: the first two settings cases in `chat.test.ts`. No key or key hash is sent to clients. |
+| P2 | Unavailable AI settled only the last 200 queued turns. Older accepted messages stayed queued indefinitely. | `src/lib/team/ai/chat.ts:98` | Queue 205 messages and refuse the key. Five remained queued before the fix. `b95401e8` settles all queued turns with one status-filtered query, independent of display pagination. Regression: “settles every queued turn”. |
+| P2 | A reopened chat exposed only its latest 200 events, with no route or control for reading older history. | `src/lib/team/ai/router.ts:145`, `src/components/team/team-chat.tsx:50` | A 206-event API fixture could not page backward, and Chromium had no earlier-message control. `d79224aa` adds bounded `before` paging, a Load earlier messages button, and historical turn states. The generated turn-lookup index is now in `0015_team_shared_context`. Loading earlier messages leaves the live cursor alone and does not scroll back to the bottom. Regressions cover API pages, hidden runtime rows, browser access and index plans. |
+| P2 | Send/Stop refreshes could start a second transcript request while the first was pending. Both advanced the same cursor and independently scheduled another poll. | `src/components/team/team-chat.tsx:46` | Chromium holds the initial read, acknowledges Send, and observes two concurrent reads instead of one. `c3b884d0` serializes live reads and remembers a refresh requested while one is pending. Regression: “coalesces a send refresh”. |
+| P2 | Remove key did not stop running work, contrary to its confirmation text. A process retained its copied key and queued work remained waiting behind it. | `src/lib/team/ai/router.ts:89` | Hold a running turn, queue another, remove the key. The first stayed running. `c014c303` requests cancellation through the existing runner and settles both with the key-removal reason. Regression: “stops running and queued work when the owner removes the provider key”. |
+
+#### Verdict on the six builder self-review fixes
+
+1. **One drain loop: correct and complete for the reported race.** `draining`/`again` live in `processState`, and identity-checked cleanup cannot delete a successor's running record. Existing repeated-kick and finish-boundary tests pass. Review findings about admission and bulk queue settlement are separate defects.
+2. **Refuse before recording: correct in the immediate case, incomplete across the probe await.** Accepted-send retries are correctly returned first and changed text conflicts. The new four-case admission regression and `b2dec628` close the missing asynchronous window.
+3. **Classify the error, not the summary: correct for the reported false positive.** `runtime.test.ts` covers ordinary discussion of authentication, actual error codes and retry statuses. A stopped turn does not become a refusal merely because of its text. The distinct cross-chat/key-generation state race is fixed by `e70ff1f8`.
+4. **20-minute limit: correctly wired.** `session.send` receives `TEAM_TURN_TIMEOUT_SEC`, shorter than the token's 30 minutes, and timeout has an honest terminal explanation. Source and launch behavior were checked. This review did not wait 20 minutes to observe the wall-clock expiry.
+5. **Probe resolution and cache: correct for the reported problem.** The code uses installed agentex's `findBinary`, including prefix arguments, matches complete flag names, caches success for ten minutes and failure for thirty seconds. Tests cover missing flags, missing executable and cache lifetimes. Help is a compatibility check, not a fresh security qualification of every future binary.
+6. **Runtime-row filtering: correct.** Member reads return the allowed event projection without raw/system records. Forward cursors still advance past hidden rows. FTS indexes only user/agent content, so chat search does not undo this protection. Existing source-filter tests and the new backward-page test pass.
+
+#### Checks found sound
+
+- **Credential separation.** Proxy admission, tRPC admission, WebSocket admission and session-cookie creation distinguish `member`, `ai_client`, `team_ai` and host credentials. An owner's AI client remains a shared-work client. AI-client keys cannot use tRPC, `/api/space`, host operations, uploads or browser sessions. Turn credentials reach only the team MCP, not attachment reads. Human sign-ins cannot use the MCP. A personal Home refuses a stray AI-client key.
+- **Authority cannot come from request headers or tool arguments.** The proxy removes every forwarded identity header, including the turn header, and replaces them from validated credentials. Additional tests in `917f8a55` cover forged headers on anonymous, member and AI-client requests. Strict tool schemas refuse caller-supplied attribution and unsupported fields.
+- **Revocation is checked again.** MCP dispatch rechecks the key/member or running turn for each call, including an already connected SDK client. Attachments recheck the client too. Signed turn claims bind turn, chat and member, use constant-time HMAC comparison, expire, and are checked against enabled state and active membership. Existing tests cover tampering, another member, expiry and a completed turn. Removal/disable tests exercise cancellation and continuing access for other members.
+- **Receipts are transactional.** The shared query callbacks are synchronous and reuse the ambient transaction rather than opening nested entity transactions. Receipt, entity and version writes roll back together. `917f8a55` adds a database trigger that deliberately rejects receipt insertion after the entity write, verifies no entity/history/receipt survived, and successfully retries the same key. Existing restart, changed-intent, lifecycle, member and tool namespace tests pass. Deferred mirrors read committed state, and a team does not dispatch embedding calls.
+- **Team tools are bounded by their own allowlist.** Discovery and dispatch share `TEAM_TOOLS`. Assignees and Areas are checked against this team. Body updates require revisions. Lifecycle changes use the lifecycle operations. Results exclude private paths, credentials, host operations and personal transcripts. Host-derived links affect returned addresses, not authorization or a server-side fetch. Configuring the team's reachable address is still necessary for portable links.
+- **Runtime isolation was checked against installed dependency code.** Agentex's environment builder inherits a small allowlist. The team overrides HOME, CLAUDE_CONFIG_DIR and credentials, blanks the other inherited provider credentials, supplies only its MCP, and denies other tool/input requests. The provider key is an environment value, not a CLI argument. Agentex stages MCP credentials in a mode-0600 temporary file, passing only its path in arguments and deleting it on close. Instructions contain no credential and are removed in `finally`. The real-binary stand-in tests verify isolation, scoped tools, attribution, resume and refusal without using a personal account.
+- **The development override stays out of production.** The override checks `NODE_ENV`, accepts only loopback hosts, and actual production startup sets `NODE_ENV=production` in both launch paths. Production does not rely on an unset environment behaving like development.
+- **Notes and migrations remain additive.** Null-as-note normalization, explicit-null rejection, alias conflict checks, snapshots/restore, saved-note guards and kind synchronization are covered by the existing query, migration, orchestrator and projection suites. At the time of this review, `0014`, `0015` and `0016` were not edited, and the new `0017` and `0018` were unedited drizzle-generated indexes. The owner subsequently authorized consolidating that unpublished P8 history after production's different `0014`, as recorded below. No row rewrite or policy default was added. Creating the new transcript index will take a one-time startup index build proportional to existing events.
+- **Rowid stability was tested rather than assumed broken.** VACUUM on the actual indexed schema preserved delivered cursors, including a deleted-row gap and a later append. `db-rebuild.ts` explicitly copies and verifies rowids, and backup uses SQLite's backup API. No supported restore/rebuild renumbering was reproduced. An arbitrary future rebuild which omits rowid remains incompatible with this cursor contract and must not be introduced.
+- **Secret presentation and ordinary UI fixes.** Connect your AI holds the issued key only in transient component/mutation memory, not browser persistence. Listing clients and owner settings never return it. Owner procedures protect key/settings writes. The non-dashboard app companion uses the optional dashboard context, and shared-body saves project the editor's text into list excerpts without writing a server body echo. Their existing regression suites pass.
+
+#### Assessment of the 39 decisions
+
+These verdicts distinguish implementation correctness from product preference. Recommendations below are not new release gates or claims of observed human behavior.
+
+| # | Verdict | Evidence and tradeoff |
+| --- | --- | --- |
+| 1 | Agree | Nullable storage is the only additive path that avoids a policy default, backfill or rebuild. The shared normalizer and write-time default preserve old data. Refusing an explicit null patch makes classification deliberate. |
+| 2 | Agree | A filter-context New decision action supplies the requested capability without another permanent control. Its discoverability needs the pilot, not a speculative menu expansion. |
+| 3 | Agree | The old Coming soon tab contradicted the implemented note model. Removing it avoids two apparent homes for the same content. |
+| 4 | Agree | Explicit kind, a URL filter and an optional palette prefix support retrieval and shareable views without inferring meaning from titles. The prefix is an accelerator, not a required syntax. |
+| 5 | Agree, with a retrieval limit | Four-times oversampling bounds work but cannot guarantee the best matching decisions when that kind is sparse. Keyword filtering is exact. This is a defensible approximate vector path, not equivalent to a kind-filtered vector index. |
+| 6 | Agree | The transcription note records a choice. Panel quotations do not become a decision merely because they could inform one. The seed should teach that distinction. |
+| 7 | Agree | Capture on request or for independent retrieval avoids turning every conversational choice into maintenance. “Every decision of substance” has no reliable threshold and encourages noise. |
+| 8 | Agree | A distinct role and scope make existing member checks deny by default. No device row is needed for a bearer client that neither views the app nor runs a worker. Tests verify both team and personal boundaries. |
+| 9 | Agree | Separate sign-in and AI authority permits revocation without exposing the app. File reads use the team's attachment authorization. HEAD is also allowed, consistent with read-only access. The app API protocol is irrelevant to an MCP client. |
+| 10 | Agree | Reusing the personal registry wholesale would expose unrelated host capabilities. A dedicated tool list with shared domain operations retains business invariants without that authority. Strict schemas and snake_case fit the public wire contract. |
+| 11 | Agree | The first durable outcome is the only safe answer after a lost create response. `replayed` makes staleness explicit. Member/tool/key matches the spec, including Team AI. Sorting object keys normalizes JSON shape, but omitted defaults and explicit defaults are conservatively different intents. Never pruning favors retry correctness at a storage cost. |
+| 12 | Agree | The existing lifecycle ledger has its own invariants and callers. Namespacing its key while wrapping it in the shared receipt avoids a risky lifecycle rewrite. Both live in the transaction and retry tests pass. |
+| 13 | Agree, with deployment caveat | Stateless POST removes unnecessary session lifetime, and 2 MiB bounds parsing. 405 for GET/DELETE is intentional and clients negotiate it. Configured addresses are preferable to Host-derived links, which may be loopback or proxy-dependent. No authority is inferred from those links. |
+| 14 | Agree | A personal Home should never interpret an AI-client role as a viewer merely because it recognizes a key. HTTP, WebSocket and session tests prove the refusal. |
+| 15 | Unsure for the pilot | Environment indirection keeps tokens out of project configuration and command history, and independently revocable nonexpiring keys avoid surprise disconnections. Shell-profile setup is still manual and does not reliably provision GUI apps. The actual clients must settle whether this is a usable default. |
+| 16 | Agree | Configuration parsing and handshake checks are useful without charging or authorizing a model session. They do not prove a model-driven workflow, correctly left under P8.3. |
+| 17 | Agree for this qualified binary | The exact restricted profile is materially stronger than a prompt-only rule. Isolated HOME/config, explicit provider key and a narrow MCP are required. Support for another harness should follow equivalent behavioral qualification, not a fallback branch. |
+| 18 | Agree | Per-turn processes make credentials and requesting identity immutable and cancellation scoped. Native resume preserves conversation state. Startup cost is an acceptable first-slice tradeoff, measurable in the pilot. |
+| 19 | Agree | The personal runner brings private discovery and workspace assumptions. Reusing agentex plus the event parser supplies execution mechanics without importing that authority. Shared low-level helpers are preferable to reusing the entire personal runner. |
+| 20 | Agree | A signed short-lived credential bound to a running turn limits leakage and permits immediate revocation by state. The 20-minute process limit fits within its 30-minute lifetime. The host secret is not sent to the harness. |
+| 21 | Agree | One explicit shared billing credential is clearer than ambient subscription fallback. Sealing outside the DB avoids accidental database export exposure, but is protection at rest, not a boundary against the OS account which owns both files. |
+| 22 | Agree with the intended rule, original implementation incomplete | Stop on actual authentication failure, not arbitrary answer text. The fake provider exercises the first-refusal path. `e70ff1f8` was necessary to make “until a new key” true across concurrent chats and key replacement. |
+| 23 | Agree | A finite turn lifetime prevents permanent queue capture and expires before its credential. Twenty minutes is a defensible initial policy, not evidence about the pilot's typical latency. |
+| 24 | Agree as a compatibility probe | Flag availability and binary resolution are useful fail-closed preconditions with bounded cache lifetimes. They do not prove flag semantics on a newly installed version. Concurrent cold-probe coalescing is an optional performance improvement. |
+| 25 | Agree for v1 | Ri-owned instructions keep a clear product boundary and avoid another setup editor. They are deliberate team configuration, not personal memory. Editable team guidance can come later if actual repeated needs justify its permissions and precedence. |
+| 26 | Agree for runtime qualification, not product acceptance | The real executable and real MCP with scripted hostile tool requests test enforcement independently of model obedience. They cannot establish answer quality, realistic task completion, live-account setup or gates E/F. P8.4's tick must carry that distinction. |
+| 27 | Agree | A loopback-only development seam makes repeatable end-to-end tests possible without real credentials. Tests and production launch code confirm that it is ignored in production. |
+| 28 | Unsure on claimed streaming parity | After the index, request-serialization and backward-paging fixes, the cursor polling is bounded and reconnects without duplicate appends. It still differs from the spec's instruction to reuse existing streaming. One/four/fifteen-second polling is a defensible first slice, but this review does not certify equivalent chunk latency or idle-client load. Keep that difference explicit and settle it through the shared-chat pilot before describing full streaming parity. |
+| 29 | Agree with separating authorization, not needless duplication | Personal components invoke routes team members cannot reach. A separate outer surface is justified. The reproduced draft/retry defects show the cost of duplicating common composer mechanics. Extract safe presentational/draft behavior when both callers need it, rather than exposing personal routes. |
+| 30 | Agree for first sends | Text-only composition avoids adding an upload/preview permission path before it is needed. It does not grant permission to lose existing attachment references or broaden file access. Rich composition should be driven by a real team use case. |
+| 31 | Agree with the contract, original implementation incomplete | Refusing before persistence and returning accepted retries are correct. Admission during the probe, queues beyond one page and key removal required the fixes above. Each refusal now has a regression and retained reason. |
+| 32 | Agree | One drain per chat preserves accepted order and attribution. Remembering a concurrent kick avoids stranded work without a second runner. The builder's repeated-kick and boundary-send regressions pass. |
+| 33 | Agree with permissions | Shared chats belong to the team, so members can organize them. Protecting the main chat and restricting Stop to sender/owner avoids another member cancelling work casually. Rename/archive currently exist as procedures, not controls in this chat UI. That distinction matters to usability claims. |
+| 34 | Agree | A visible name prefix tells the model who spoke, while signed turn authority determines who acted. The display name is not authentication. Stored AI/member/chat attribution survives resume and is tested through real tool writes. |
+| 35 | Agree | Member reads need human/AI messages and meaningful activity, not process metadata or raw envelopes. The projection and source filter enforce this independently of UI hiding. Search indexes only human/AI text. |
+| 36 | Agree | One additive migration for one feature boundary is reasonable. The author column is nullable with no fabricated legacy author. Generated tables/indexes use existing timestamps and no policy defaults. No existing rowids are rebuilt. |
+| 37 | Agree | A team which never enabled AI should not acquire an empty chat onboarding surface. Retaining navigation once a main chat exists preserves history after disablement. Refresh/focus behavior for status changes in another open browser should be observed in the pilot. |
+| 38 | Agree | Both fixes are narrowly necessary on the reused surfaces. Optional dashboard access fixes standalone routes, and cache projection preserves list shapes and focused editor input. They do not justify unrelated dashboard rewrites. |
+| 39 | Agree with keeping the human gates open | P8.4 records binary qualification, not a real provider journey. P8.5 records the implemented shared-chat slice with the polling caveat in decision 28. Neither tick closes P8.0/P8.3/P8.6 or gates E/F. The nine defects had to be fixed before considering this branch ready for that observed work. |
+
+#### Recommendations, apart from fixed defects
+
+- **Resolve the streaming wording before claiming parity.** Observe latency and idle polling with two members and a long chat. If polling is accepted, document it as the explicit delivery choice. If literal reuse of the streaming transport is required, use the existing delivery mechanism with team-specific admission and revocation checks. Do not copy personal authorization to get it cheaply.
+- **Use the pilot's actual clients to judge setup friction.** The environment-variable flow is safe for the qualified terminal configuration, but is not a complete GUI installation story. A dedicated secure credential handoff would cost more than a copyable command and should target confirmed clients.
+- **Do not infer missing UX from API capabilities.** Rename/archive controls, draft persistence beyond this mounted chat view, and automatic status changes in another open browser are useful pilot questions. This review's draft fix is scoped to switching chats, not durable draft storage across reloads or leaving the team view.
+- **Keep receipts durable until a bounded replay policy exists.** If growth becomes material, define client retry lifetimes and an explicit expired-receipt answer before adding retention. Deleting old receipts silently re-enables duplicate effects.
+- **Qualify upgraded runtimes behaviorally.** Help flags are necessary but not sufficient. Keep the hostile stand-in tests runnable for the supported binary and dependency versions. Do not expand providers by accepting similarly named flags alone.
+- **Preserve cursor/index invariants.** Future database rebuilds must preserve event rowids, and new indexes must run the existing background-task query-plan regressions. The new index is a one-time boot cost worth scheduling with the release, not a per-request scan.
+
+#### Verification and limits
+
+All runtime/test commands used `pnpm -s iso /private/tmp/ri-p8-review-3VN2yQ --port <42471..42474> -- env TMPDIR=/private/tmp ...`. Fixtures made their own temporary Homes under `/private/tmp`. Logs remain in that disposable review root. No production workers or actual account credentials were enrolled or supplied.
+
+- **Before changes:** seven focused files, **56 passed** (`baseline.log`).
+- **Final focused review:** eight files, **70 passed** (`focused-final.log`): chat 24, runtime profile/credential/probe, team MCP 19, personal AI-client refusal, note-kind queries/migration, AI-client setup and cursor/index tests.
+- **Chromium:** three files, **14 passed** (`chromium-final.log`), comprising eight browser cases and six non-browser forwarding cases. Browser cases cover four team-chat regressions, three shared-body/image behaviors and isolation of an executable team SVG from the personal origin. Fresh headless test pages only, not the owner's running browser.
+- **Real Claude binary:** **3 passed** (`harness.log`). Local scripted Anthropic endpoint, hostile fake personal configuration/credentials, real team MCP. No real model request. This does not observe a live provider account or human gates.
+- **Typecheck:** `pnpm -s ts` passed after the final code changes (`typecheck-final2.log`).
+- **Scoped lint:** 89 P8 TypeScript files initially reported **6 errors, 8 warnings**. Re-linting the eight affected files from base commit `109bcfca` via stdin produced the same counts and rules (`eslint-baseline.log`). Errors are pre-existing `set-state-in-effect` in standalone note, area slideout, note slideout and search overlay. Warnings concern area effect dependencies/`img`, the notes virtualizer, two query variables, two mirror variables and the old P2 regression's variable. The **13 review-touched TypeScript files** pass with **0 errors and the 2 existing query warnings** (`review-eslint.log`). No claim of repo-wide lint cleanliness.
+- **First full suite:** **677 files passed, 2 failed, 6 skipped; 6,205 tests passed, 2 failed, 48 skipped**, plus **2 teardown errors** (`full-suite.log`). The failures were the background-task and file-tool query-plan assertions after the new index. The former exposed a real planning regression, fixed by `815388ab`; the latter correctly needed its expected session-index name updated. Teardown errors were late `croner` imports from `homes-p2-recheck-extra.test.ts` after its environment closed. The four-file follow-up including that suite passed **18 tests** with no teardown errors. A first attempt to express `INDEXED BY` as a Drizzle table failed five background-task cases because Drizzle rejected columns from the raw table expression. The final version uses an indexed rowid subquery with ordinary typed hydration, and all 18 pass (`full-followup-final.log`).
+- **Final full suite:** **679 files passed, 6 skipped; 6,208 tests passed, 48 skipped** (`full-suite-final.log`). All assertions passed, but Vitest exited 1 with a single `EnvironmentTeardownError` from `daily-backup.test.ts`: its worker closed RPC while `onUserConsoleLog` was pending. That suite then passed alone, **4 tests**, with no error (`daily-backup-alone.log`). The earlier P2 teardown errors did not recur. `web-app-worker.test.ts` had no failure in either full run. This is not an unqualified green full-suite exit.
+- **Production build:** the complete `pnpm -s build` passed, including the included Finances package, qualified catalog, Next compilation, TypeScript and **169/169 static pages** (`build.log`). It used a disposable HOME, blank provider credential variables and `NEXT_DIST_DIR=.next-p8-review`. Installing the portable Finances project's dependencies dominated its runtime. A direct Next build in `.next-p8-core-review` also passed while that packaging step was pending (`core-build.log`). Both builds reported two broad file-pattern tracing warnings in `src/lib/attachments/save.ts` and `src/lib/service/environment.ts`, outside the reviewed changes. Neither build started a production server.
+
+Intentional failing-before runs are retained: admission **4 failures**, key outcome races **2**, queue overflow **1**, query plan **1**, composer **2**, backward history **2**, overlapping polls **1**, remove-key **1**. Their passing successors are recorded above and in `*-after.log`. Intermediate successful suites grew from chat **19**, **21**, **22** to **24**, cursor/migration **4**, and history/browser/query **29**. Expected failures were not reported as clean verification.
+
+#### Open owner questions, not defects
+
+1. Which exact Claude and Codex applications and versions will the pilot use? The terminal clients observed by the builder do not answer that for the partner's devices. P8.0 stays open.
+2. When should the real external-client and shared-provider journeys be run with deliberately supplied accounts? Configuration and stand-in tests do not substitute for P8.3 or a real Team AI turn.
+3. Is the current polling responsiveness acceptable for the first shared-chat slice, or is existing streaming transport parity required before the pilot?
+4. What do two people actually find natural: record editing, shared AI chat, decisions, and bringing team work into personal Ri? Observe gates E/F and P8.6, including the phone/closed-laptop journey, before adding channels, richer decision workflows or more setup.
+
+
+### P8 migration consolidation, 2026-10-14
+
+The owner explicitly authorized replacing the unpublished P8 migration suffix after reviewing the two different `0014` migrations. Read-only journal checks showed `~/ri`, `~/ri-team-huffine` and `~/ri-dev` had all applied `0000` through `0013` plus `0014_opposite_gorgon`. None had applied the old P8 suffix. The documented P8 browser and server checks used disposable Homes under `/private/tmp`.
+
+- **Preserve the deployed history.** Copied `0014_opposite_gorgon.sql`, its exact snapshot and journal entry from the main checkout. Its SHA-256 remains `2add018924d68bd441c7c3f1eb23a9e0d9f8ed47604d12a04ff157cd192a4bbf`, timestamp `1791848958297`. Every SQL file and journal entry through production's `0014` matches the deployed history. The main checkout and production databases were not changed.
+- **Match the schema before generating.** Added the deployed `chat_sessions.label_source`, `chat_sessions.label_revision` and `executions.label_revision` declarations to this branch. This prevents the generator from treating those existing columns as removals. This imports the schema only, not the separate title-generation feature.
+- **One P8 migration.** Removed the branch's `0014_note_kind` through `0018_team_chat_history`, their snapshots and journal entries. Ran `pnpm db:generate --name team_shared_context` through `pnpm iso` to generate `0015_team_shared_context` and its metadata. The SQL is unedited and contains exactly the statements from the former five migrations, reordered by Drizzle. The final snapshot equals the former P8 snapshot plus the three deployed title columns. No table rebuild, data backfill or destructive statement was introduced.
+- **Old P8 development Homes are obsolete.** Recreate disposable Homes that ran the removed P8 suffix before using this branch. The migration runner still refuses those histories without changing their data or journal. No compatibility bypass or production journal rewrite was added. This owner-authorized development consolidation does not change the standing rule against rewriting deployed migrations. Neither production Home needs resetting or rebuilding.
+
+Verification uses a new disposable root, `/private/tmp/ri-p8-consolidate-jg49urd8`. `p8-migration.test.ts` checks populated personal and team upgrades from production's exact `0014`, preserving title metadata, rowids, tasks, notes, chat events, existing migration records and search results. It also checks fresh/upgrade schema equivalence, a second startup applying nothing, foreign-key/integrity checks, and refusal of the discarded P8 history. `note-kind-migration.test.ts` now exercises the consolidated migration. The first focused run passed all 53 tests across eight files. The broader database/team/regression run passed 498 tests across 53 files, with three opt-in real-harness tests skipped. Typechecking and ESLint on all four changed TypeScript files passed. A second generation reported no schema changes, and `git diff --check` passed.
+
+
+### P8 squash integration, 2026-10-14
+
+Prepared the squash of `ai-task-manager/teams-p8` at `fb75dea9` onto main at `31317f4c` in a separate worktree. Resolved three conflicts by retaining main's provider-neutral prefix setup, reachable-address checks and setup navigation alongside P8's decision filter, shared chat navigation, AI-client controls and Team AI settings. The settings test now verifies that initial prefix setup stays focused and normal settings expose both AI sections. The shell recovery tests keep their child-component boundary after adding shared chat.
+
+Validation ran through `pnpm iso /private/tmp/ri-p8-merge-6t2ie_1t` on ports 42477 through 42480. Installed the frozen lockfile into the integration worktree so workspace links resolve to its own integration-engine sources. Typechecking and ESLint for the five conflict/test files passed. The complete production build passed, including Finances packaging, the qualified app catalog, Next compilation and all 169 static pages. The two pre-existing broad-path tracing warnings remained.
+
+The full suite passed 6,388 tests in 693 files, with 48 tests skipped. Three cases failed under the parallel run: `result-actions.test.ts` exceeded its five-second timeout, `remote-execution.test.ts` observed the live permission prompt before its transcript event, and `daily-backup.test.ts` raced cleanup with a background write (`ENOTEMPTY`). Running those three files serially passed all 21 tests with exit 0 and no source changes. The full-suite exit itself was 1, not a clean pass.
+
+The main checkout contains unrelated uncommitted work. A separate merge rehearsal preserves it outside the squash commit, including the existing manual-title test value and the production migration identity. No production server restart, database migration or push is part of this squash merge. The previously recorded human gates remain open.

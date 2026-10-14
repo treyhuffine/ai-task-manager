@@ -45,6 +45,10 @@ export async function POST(request: NextRequest) {
   if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
     return NextResponse.json({ error: 'expired token' }, { status: 401 });
   }
+  // An AI client's key is never a browser's sign-in.
+  if (key.role === 'ai_client') {
+    return NextResponse.json({ error: 'invalid token' }, { status: 401 });
+  }
 
   // A team's cookie is its own, and only a member's sign-in gets one: the
   // host's key administers the installation from its own computer.

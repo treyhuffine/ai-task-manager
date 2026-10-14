@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CheckSquare, FileText, Search } from 'lucide-react';
+import { CheckSquare, FileText, MessageCircle, Search } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { trpcClient } from '@/lib/trpc/client';
 import { rpcQuery } from '@/lib/trpc/request-options';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { DecisionLabel } from '@/components/notes/note-kind';
 import { useTeamNav } from './team-context';
 
 /**
@@ -28,6 +29,13 @@ export function TeamSearch() {
     staleTime: 10_000,
   });
   const hits = (results.data ?? []).filter((hit) => hit.entityType === 'task' || hit.entityType === 'note');
+  // The team's chats with Team AI, by name or by what was said (§9.9).
+  const chats = useQuery({
+    queryKey: ['team-search-chats', debounced],
+    queryFn: () => trpcClient.team.ai.searchChats.query({ query: debounced }),
+    enabled: open && debounced.length > 0,
+    staleTime: 10_000,
+  });
 
   const go = (hit: (typeof hits)[number]) => {
     if (hit.entityType === 'task') nav.openTask(hit.id);
@@ -59,12 +67,31 @@ export function TeamSearch() {
           />
         </div>
         <ul className="max-h-80 overflow-y-auto py-1">
-          {debounced && results.isSuccess && hits.length === 0 && <li className="px-4 py-6 text-center text-sm text-muted-foreground">Nothing matches.</li>}
+          {debounced && results.isSuccess && chats.isFetched && hits.length === 0 && !chats.data?.length && <li className="px-4 py-6 text-center text-sm text-muted-foreground">Nothing matches.</li>}
           {hits.map((hit) => (
             <li key={`${hit.entityType}:${hit.id}`}>
               <button type="button" onClick={() => go(hit)} className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm hover:bg-muted/50">
                 {hit.entityType === 'task' ? <CheckSquare size={14} className="text-muted-foreground" /> : <FileText size={14} className="text-muted-foreground" />}
                 <span className="truncate">{(hit as { title?: string | null }).title?.trim() || 'Untitled'}</span>
+                {hit.entityType === 'note' && <DecisionLabel kind={hit.kind} />}
+              </button>
+            </li>
+          ))}
+          {(chats.data ?? []).map((chat) => (
+            <li key={`chat:${chat.id}`}>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery('');
+                  nav.openChat(chat.id);
+                }}
+                className="flex w-full items-start gap-2.5 px-4 py-2 text-left text-sm hover:bg-muted/50"
+              >
+                <MessageCircle size={14} className="mt-0.5 flex-shrink-0 text-muted-foreground" />
+                <span className="min-w-0">
+                  <span className="block truncate">{chat.label ?? 'Chat'}</span>
+                  {chat.snippet && <span className="block truncate text-xs text-muted-foreground">{chat.snippet}</span>}
+                </span>
               </button>
             </li>
           ))}

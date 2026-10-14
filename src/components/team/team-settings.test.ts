@@ -17,6 +17,8 @@ vi.mock('./team-context', () => ({
   useTeamNav: () => ({ panel: 'settings', remoteSetup: mocks.remoteSetup, finishRemoteSetup: mocks.done }),
 }));
 vi.mock('./team-address-setup', () => ({ TeamAddressSetup: ({ onDone }: { onDone?: () => void }) => createElement('button', { onClick: onDone }, 'Remote address setup') }));
+vi.mock('./connect-ai', () => ({ ConnectAiSection: () => createElement('div', null, 'Connect your AI') }));
+vi.mock('./team-ai-settings', () => ({ TeamAiSection: () => createElement('div', null, 'Team AI') }));
 vi.mock('./team-areas', () => ({ NewAreaDialog: () => null }));
 vi.mock('./use-team', () => ({ useTeamMembers: () => ({ active: [] }) }));
 vi.mock('@/hooks/use-areas', () => ({ useAreas: () => ({ data: [] }), useUpdateArea: () => ({}) }));
@@ -69,8 +71,17 @@ it('offers provider-neutral prefix setup after owner creation', async () => {
   expect(container.textContent).toContain('Choose a team prefix');
   expect(container.textContent).not.toContain('Invite people');
   expect(container.textContent).not.toContain('Connect to My Ri');
+  expect(container.textContent).not.toContain('Connect your AI');
+  expect(container.textContent).not.toContain('Team AI');
   await click('Remote address setup');
   expect(mocks.done).toHaveBeenCalledOnce();
+});
+
+it('keeps AI controls alongside remote address setup in normal settings', async () => {
+  await render();
+  expect(container.textContent).toContain('Remote address setup');
+  expect(container.textContent).toContain('Connect your AI');
+  expect(container.textContent).toContain('Team AI');
 });
 
 it.each(['Invite people', 'Sign in on another device', 'Connect to My Ri'])('asks for remote setup instead of copying a localhost link for %s', async (label) => {

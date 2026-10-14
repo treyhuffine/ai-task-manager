@@ -6,6 +6,7 @@ import { QueryClient } from '@tanstack/react-query';
 import {
   optimisticPatch,
   optimisticRemove,
+  patchEntityCaches,
   projectPatchToList,
   rollbackOptimistic,
   optimisticTransition,
@@ -86,6 +87,23 @@ describe('typed lifecycle cache membership', () => {
     qc.setQueryData(from, []);
     await optimisticTransition(qc, 'move', 'in_progress');
     expect(qc.getQueryData(to)).toEqual([{ id: 'move', status: 'in_progress', bodyExcerpt: 'Full body', bodyLen: 9 }]);
+  });
+});
+
+describe('patchEntityCaches', () => {
+  it('updates the record and its list rows after a shared body save, without cancelling refetches', async () => {
+    const qc = seed();
+    const listKey = fixtureKey(entityKeys.tasks.list(ACTIVE));
+    let resolve!: (rows: unknown[]) => void;
+    const refetch = qc.fetchQuery({ queryKey: fixtureKey(entityKeys.tasks.list(DONE)), queryFn: () => new Promise<unknown[]>((r) => { resolve = r; }), staleTime: 0 });
+    patchEntityCaches(qc, 'tasks', 't1', { body: 'Typed then closed', bodyRevision: 3 });
+    expect(qc.getQueryData(fixtureKey(entityKeys.tasks.detail('t1')))).toMatchObject({ body: 'Typed then closed', bodyRevision: 3 });
+    const row = qc.getQueryData<Array<Record<string, unknown>>>(listKey)!.find((t) => t.id === 't1')!;
+    expect(row).toMatchObject({ bodyExcerpt: 'Typed then closed', bodyLen: 17, bodyRevision: 3 });
+    expect('body' in row).toBe(false);
+    // The refetch that was running still lands.
+    resolve([{ id: 't9' }]);
+    await expect(refetch).resolves.toEqual([{ id: 't9' }]);
   });
 });
 

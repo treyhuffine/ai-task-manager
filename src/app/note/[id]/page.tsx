@@ -13,6 +13,7 @@ import { ENTITY_HEADER } from '@/components/entities/entity-header';
 import { EntityAgentView } from '@/components/entities/entity-agent-view';
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { AreaSelect } from '@/components/shared/area-select';
+import { NoteKindHeading, NoteKindMenuItem } from '@/components/notes/note-kind';
 import { SharedNoteBody } from '@/components/spaces/shared-note-body';
 import { removeFromMyNotes } from '@/components/spaces/my-work';
 import {
@@ -182,6 +183,12 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
                   )
                 ) : (
                   <>
+                    {note && (
+                      <>
+                        <NoteKindMenuItem kind={note.kind} onChange={(kind) => updateNote.mutate({ id: note.id, kind })} />
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
                     <DropdownMenuItem onClick={handleArchive} className="text-xs">
                       <Archive size={12} className="mr-2" /> Archive
                     </DropdownMenuItem>
@@ -223,9 +230,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
               <>
                 <EntityChangeBanner entityType="note" entityId={note.id} />
                 <div className="pt-6 flex items-center gap-2">
-                  <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">
-                    Note
-                  </span>
+                  <NoteKindHeading kind={note.kind} />
                   <span className="text-muted-foreground/30">&middot;</span>
                   <AreaSelect value={note.areaId} onChange={handleAreaChange} />
                 </div>

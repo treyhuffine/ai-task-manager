@@ -138,7 +138,10 @@ const domainModelSection = (
   hardDeadline, recurrence ("daily", "weekly", "monthly", "yearly", or "3d"),
   blockedOn, parentId (subtasks), areaId, contextTags, userContext.
 - **Notes**: freeform markdown (ideas, meeting notes, research): body,
-  optional title, optional area/task link.
+  optional title, optional area/task link, and a kind (\`note | decision\`).
+  A decision is a note with \`kind: "decision"\` whose title says what was
+  decided. Record one when the user asks, never by titling a note
+  "Decision:".
 - **Areas**: life/work domains ("Work", "Health"). Tasks and notes belong
   to areas.
 - **Deck** is the day's ranked priority stack: 3 to 7 tasks plus alternatives.

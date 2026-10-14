@@ -9,6 +9,7 @@ import { LinkedReferences } from '@/components/shared/linked-references'
 import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes'
 import { HOTKEYS, matchesHotkey } from '@/constants/commands'
 import { AreaSelect } from '@/components/shared/area-select'
+import { NoteKindHeading, NoteKindMenuItem } from '@/components/notes/note-kind'
 import { SharedNoteBody } from '@/components/spaces/shared-note-body'
 import { removeFromMyNotes } from '@/components/spaces/my-work'
 import {
@@ -296,6 +297,12 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                     )
                   ) : (
                     <>
+                      {note && (
+                        <>
+                          <NoteKindMenuItem kind={note.kind} onChange={(kind) => updateNote.mutate({ id: note.id, kind })} />
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
                       <DropdownMenuItem onClick={handleArchive} className="text-xs">
                         <Archive size={12} className="mr-2" /> Archive
                       </DropdownMenuItem>
@@ -329,7 +336,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                 <>
                   <EntityChangeBanner entityType="note" entityId={note.id} />
                   <div className="px-4 md:px-12 py-0 flex items-center gap-2">
-                    <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">Note</span>
+                    <NoteKindHeading kind={note.kind} />
                     <span className="text-muted-foreground/30">·</span>
                     <AreaSelect
                       value={note.areaId}

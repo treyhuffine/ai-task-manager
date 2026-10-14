@@ -243,9 +243,9 @@ What skills are *not*: not code, not a permission boundary, not pipelines. Markd
 
 Decisions are **notes**. No new entity.
 
-When the agent makes a decision of substance, it calls `create_note` with `title: "Decision: ..."` and a body containing context, options considered, the decision, and expected consequences. Shows up in the brain's notes list.
+A decision is a note with `kind: "decision"` (`docs/homes-spec.md` §9.7). When the user asks the agent to record a decision, or one it made will need to be found on its own later, it calls `create_note` with `kind: "decision"`, a title that says what was decided, and a body with the choice, context, alternatives and rationale that were actually discussed. It shows up in the notes list with a Decision label and under the Decisions filter, and `list_notes` and `search` take `kind: "decision"`.
 
-The seed `MEMORY.md` template instructs the agent to write decisions as notes with the `"Decision:"` title prefix. A future "Decisions" filter on the notes list (V2+) is additive UI — no schema change.
+The seed `MEMORY.md` template teaches this. The kind is stored, so a title never makes a note a decision: the earlier `"Decision:"` title prefix is retired, and notes from before kinds read as ordinary notes.
 
 ### 4.6 Webhook intake
 
@@ -533,7 +533,7 @@ One ship, no internal gates.
 14. **Runs view extension** — trigger badge + filter pills + bundled groups
 15. **TopHud extension** — active runs, spend, unread, budget %
 16. **CLI surface** for everything (`ri schedule …`, `ri runs …`, `ri spend …`)
-17. **Decisions convention** — seed `MEMORY.md` template + add "Decisions" filter to notes list
+17. **Decisions convention** — seed `MEMORY.md` template + add "Decisions" filter to notes list (now the stored `notes.kind`, see §4.5)
 18. **Failure surfacing** — banner on schedules with `consecutive_failures >= 3`; no auto-pause (silent failure is worse than surfaced failure)
 
 Estimated effort: 4–6 focused weeks. Ships as one release.

@@ -20,6 +20,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { NoteIcon } from '@/components/shared/note-icon'
+import { DecisionLabel } from '@/components/notes/note-kind'
 import { coverAttachmentUrl } from '@/lib/attachments/view'
 import { cn } from '@/lib/utils'
 import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave'
@@ -475,6 +476,7 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
                               </span>
                             )}
                           </div>
+                          <DecisionLabel kind={note.kind} />
                           <span className="text-[9px] text-muted-foreground/40 flex-shrink-0">
                             {new Date(note.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </span>

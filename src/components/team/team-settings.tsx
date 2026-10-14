@@ -14,15 +14,19 @@ import { useTeam, useTeamNav } from './team-context';
 import { useTeamMembers } from './use-team';
 import { MemberAvatar } from './member-avatar';
 import { NewAreaDialog } from './team-areas';
+import { ConnectAiSection } from './connect-ai';
+import { TeamAiSection } from './team-ai-settings';
 import { useSpace } from '@/components/spaces/space-root';
 import { useAreas, useUpdateArea } from '@/hooks/use-areas';
 import { TeamAddressSetup } from './team-address-setup';
 
 /**
  * A team's Settings (docs/homes-spec.md §3.2): the team's name and where it's
- * hosted, its Areas, People and invitations for the owner, and the member's
- * own name and sign-ins. Nothing about models, agents or this device's service, which
- * belong to a person's own Ri and Desktop Settings.
+ * hosted, its Areas, People and invitations for the owner, the member's own
+ * name and sign-ins, the AI assistants they connect (§9.8), and the team's
+ * own AI (§9.9). Nothing about
+ * this device's service, which belongs to a person's own Ri and Desktop
+ * Settings.
  */
 export function TeamSettings() {
   const nav = useTeamNav();
@@ -68,6 +72,8 @@ export function TeamSettings() {
               <PeopleSection onNeedAddress={needAddress} />
               {needsAddress && member.role !== 'owner' && <p role="status" className="text-sm text-muted-foreground">Ask a team owner to set up a reachable address before signing in elsewhere or connecting your personal Ri.</p>}
               <YouSection onNeedAddress={needAddress} />
+              <ConnectAiSection />
+              <TeamAiSection />
             </>
           )}
         </div>

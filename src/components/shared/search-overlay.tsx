@@ -2,6 +2,7 @@
 
 import { openSettings } from '@/components/settings/settings-store';
 import { NoteIcon } from '@/components/shared/note-icon';
+import { DecisionLabel } from '@/components/notes/note-kind';
 import { Skeleton } from '@/components/ui/skeleton';
 import { openChatSearch } from '@/components/workspaces/chat-search-store';
 import {
@@ -111,7 +112,8 @@ export function SearchOverlay() {
   // One debounced request per settle. `useSearch` defaults to hybrid (semantic +
   // keyword) and keeps the previous hits visible while refining, so the list
   // updates in place rather than reflowing. The skeleton below covers the wait.
-  const { data, isFetching } = useSearch(deferredQuery);
+  // `decision:` asks the server for decisions by their stored kind.
+  const { data, isFetching } = useSearch(deferredQuery, undefined, typeFilter === 'decision' ? 'decision' : undefined);
   const results = data ?? [];
 
   const { openTask, openNote, toggleTheme, theme, showPanelTab, triggerVoiceChat, setActiveView } = useDashboard();
@@ -137,7 +139,7 @@ export function SearchOverlay() {
 
   // Filter results by type if prefix is active
   const filteredResults = typeFilter
-    ? results.filter((r) => r.entityType === typeFilter)
+    ? results.filter((r) => r.entityType === (typeFilter === 'decision' ? 'note' : typeFilter))
     : results;
 
   const hasQuery = !isCommand && searchQuery.trim().length > 0;
@@ -452,9 +454,13 @@ function SearchResultItem({
           </p>
         )}
         <div className="mt-0.5 flex items-center gap-2">
-          <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">
-            {result.entityType}
-          </span>
+          {result.entityType === 'note' && result.kind === 'decision' ? (
+            <DecisionLabel kind="decision" className="py-0 text-[8px]" />
+          ) : (
+            <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">
+              {result.entityType}
+            </span>
+          )}
           {'sourceTeamId' in result && <TeamLabel teamId={result.sourceTeamId} />}
           <span className="text-[8px] text-muted-foreground/60">
             {new Date(result.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

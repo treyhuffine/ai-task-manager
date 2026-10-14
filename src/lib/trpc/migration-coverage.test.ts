@@ -32,6 +32,8 @@ const protocolRoutes = new Set([
   // installation administration takes only the host's key (src/lib/team/admission.ts).
   '/team/public/info', '/team/public/preview', '/team/public/join', '/team/public/sign-in', '/team/public/setup',
   '/team/host/owner', '/team/host/setup-link', '/team/host/status',
+  // A member's own AI client speaks MCP to the team (src/lib/team/mcp/server.ts).
+  '/team/mcp',
   // A team's space in My Ri forwards the team's own typed API and files to it,
   // as this person's member (src/app/api/space/[teamId]/[...path]/route.ts).
   '/space/[teamId]/[...path]',

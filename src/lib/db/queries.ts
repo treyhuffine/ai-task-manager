@@ -13,13 +13,15 @@ import { processState } from '@/lib/process-state';
 import { teamContentChanged } from '@/lib/spaces/generation';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, devices, deviceGrants, members, teamGrants, teamConnections, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
+  home, devices, deviceGrants, members, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
   workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent,
+  NOTE_KINDS,
 } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
+import { normalizeNoteRow } from '@/lib/notes/kind';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import slugify from '@sindresorhus/slugify';
@@ -33,13 +35,13 @@ import { placeAtRank } from '@/lib/tasks/priority-rank';
 import type {
   AgentMainChatState,
   TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals, DeadlineTask,
-  NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter,
+  NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter, NoteKind,
   AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter,
   StreamRecord, CreateStreamInput, UpdateStreamInput,
   DeckRecord, CreateDeckInput, UpdateDeckInput,
   UpdateUserStateInput,
   UserStateRecord,
-  ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput,
+  ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput, TeamAiSettingsRecord, TeamChatTurnRecord,
   HomeRecord, HomeKind, DeviceRecord, CreateDeviceInput, UpdateDeviceInput,
   DeviceGrantRecord, DeviceGrantKind, DeviceKind, WorkerReportedState, WorkerHarnessReport,
   MemberRecord, MemberRole, TeamGrantRecord, TeamGrantKind, TeamConnectionRecord, TeamConnectionStatus, SharedTaskSource, SharedNoteSource, SharedSourceState,
@@ -2208,6 +2210,39 @@ export function getTasksAttentionSignals(taskIds: string[], runningSessionIds?: 
 
 // ─── Notes ────────────────────────────────────────────────────
 
+/**
+ * A note's kind can't be what it isn't (docs/homes-spec.md §9.7): `note` or
+ * `decision`, never null in a write. Every surface (tRPC, actions, REST,
+ * team MCP) reaches this one check.
+ */
+export class NoteKindError extends Error {
+  readonly code = 'invalid_params';
+  constructor(message: string) {
+    super(message);
+    this.name = 'NoteKindError';
+  }
+}
+
+export function isNoteKindError(error: unknown): error is NoteKindError {
+  return error instanceof Error && error.name === 'NoteKindError';
+}
+
+function assertNoteKindValue(input: { kind?: unknown }): void {
+  if (!Object.prototype.hasOwnProperty.call(input, 'kind') || input.kind === undefined) return;
+  if (!(NOTE_KINDS as readonly unknown[]).includes(input.kind)) {
+    throw new NoteKindError(`A note's kind is "note" or "decision", not ${JSON.stringify(input.kind)}.`);
+  }
+}
+
+/** The kind a list asks for, from `kind` and its older alias `decisionsOnly`. */
+function noteKindFilter(filter: NoteFilter): NoteKind | undefined {
+  assertNoteKindValue(filter);
+  if (filter.decisionsOnly && filter.kind === 'note') {
+    throw new NoteKindError('decisionsOnly asks for decisions, which contradicts kind: "note". Ask for one or the other.');
+  }
+  return filter.decisionsOnly ? 'decision' : filter.kind;
+}
+
 export function listNotes(filter: NoteFilter = {}): NoteRecord[] {
   const db = getDb();
   const conditions: SQL[] = [];
@@ -2216,14 +2251,12 @@ export function listNotes(filter: NoteFilter = {}): NoteRecord[] {
   if (filter.workspaceId) conditions.push(eq(notes.workspaceId, filter.workspaceId));
   if (filter.taskId) conditions.push(eq(notes.taskId, filter.taskId));
   if (filter.status) conditions.push(eq(notes.status, filter.status));
-  if (filter.decisionsOnly) {
-    // Convention: agent-written decisions land as notes with a
-    // 'Decision: ' title prefix. Surfaces the convention without a
-    // schema column. See docs/async-agents-v1.md §4.5. Lower-cased
-    // comparison so 'decision: …' / 'DECISION: …' / etc. all match —
-    // SQLite's default LIKE is case-sensitive for ASCII.
-    conditions.push(sql`LOWER(${notes.title}) LIKE 'decision: %'`);
-  }
+  // The stored kind, never the title (§9.7). Decisions are explicit, and an
+  // ordinary note is one that says so or predates kinds. The decision list
+  // walks idx_notes_kind_status.
+  const kind = noteKindFilter(filter);
+  if (kind === 'decision') conditions.push(eq(notes.kind, 'decision'));
+  else if (kind === 'note') conditions.push(or(eq(notes.kind, 'note'), isNull(notes.kind))!);
 
   const limit = filter.limit ?? 10000;
   const offset = filter.offset ?? 0;
@@ -2244,12 +2277,13 @@ export function listNotes(filter: NoteFilter = {}): NoteRecord[] {
     .limit(limit)
     .offset(offset)
     .all();
-  return rows.map((r) => hydrateRow(r));
+  return rows.map(normalizeNoteRow);
 }
 
 export function getNote(id: string): NoteRecord | undefined {
   const db = getDb();
-  return hydrateRow(db.select().from(notes).where(eq(notes.id, id)).get());
+  const row = db.select().from(notes).where(eq(notes.id, id)).get();
+  return row ? normalizeNoteRow(row) : undefined;
 }
 
 /** Viewing metadata bypasses content versioning, embedding and mirror writes. */
@@ -2263,6 +2297,7 @@ export function markTaskViewed(id: string): void {
 
 export function createNote(input: CreateNoteInput, identity?: {id: string}, createdBy?: EntityVersionMeta): NoteRecord {
   assertNoProjectionFields(input);
+  assertNoteKindValue(input);
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -2274,12 +2309,14 @@ export function createNote(input: CreateNoteInput, identity?: {id: string}, crea
 
   const rest = withoutAttachments(input);
   const row = inEntityTx(() => {
-    const created = hydrateRow(db
+    const created = normalizeNoteRow(db
       .insert(notes)
       .values({
         ...rest,
         id: identity?.id ?? uuidv7(),
         status: input.status ?? 'active',
+        // Written explicitly: a title saying "Decision" doesn't make one.
+        kind: input.kind ?? 'note',
         contextTags: input.contextTags ?? [],
         attachments: dehydrateAttachments(attachments) ?? [],
         createdAt: now,
@@ -2298,10 +2335,16 @@ export function createNote(input: CreateNoteInput, identity?: {id: string}, crea
 
 export function updateNote(id: string, input: UpdateNoteInput, meta: EntityVersionMeta, guard: BodyWriteGuard = {}): NoteRecord | null {
   assertNoProjectionFields(input);
+  // An omitted kind keeps the note's, and an explicit null is refused.
+  if (Object.prototype.hasOwnProperty.call(input, 'kind') && (input as { kind?: unknown }).kind === null) {
+    throw new NoteKindError('A note always has a kind. Send "note" or "decision", or leave kind out to keep it.');
+  }
+  assertNoteKindValue(input);
   const db = getDb();
 
-  const existing = hydrateRow(db.select().from(notes).where(eq(notes.id, id)).get());
-  if (!existing) return null;
+  const existingRow = db.select().from(notes).where(eq(notes.id, id)).get();
+  if (!existingRow) return null;
+  const existing = normalizeNoteRow(existingRow);
   // A saved team note's own content is the team's (§9.3).
   if (existing.sourceTeamId) assertPrivateNotePatch(input);
 
@@ -2337,7 +2380,7 @@ export function updateNote(id: string, input: UpdateNoteInput, meta: EntityVersi
       if (!current) return null;
       throw new BodyRevisionConflictError('note', current);
     }
-    const updated = hydrateRow(raw);
+    const updated = normalizeNoteRow(raw);
     if (bodyChanged) {
       projectEntityLinksInline('note', updated.id, [updated.body]);
     }
@@ -2454,6 +2497,8 @@ function noteSnapshot(n: NoteRecord): EntityVersionSnapshot {
     areaId: n.areaId ?? null,
     url: n.sourceTeamId ? null : n.url ?? null,
     status: n.status,
+    // A kind change is a version, with who made it (§9.7).
+    kind: n.kind,
   };
 }
 
@@ -2606,6 +2651,9 @@ function snapshotToNoteInput(snap: EntityVersionSnapshot): UpdateNoteInput {
     body: snap.body,
     ...restorableArea(snap),
     url: snap.url ?? null,
+    // A snapshot from before kinds says nothing about one: the current kind
+    // stays, rather than one guessed from an old title (§9.7).
+    ...(snap.kind ? { kind: snap.kind } : {}),
   };
 }
 
@@ -5881,9 +5929,12 @@ export interface SharedNoteFields {
   title: string | null;
   body: string;
   url: string | null;
+  /** The team note's kind (§9.7). Left out when a read didn't say, keeping what's cached. */
+  kind?: NoteKind;
 }
 
-export const SHARED_NOTE_FIELDS = ['title', 'body', 'url', 'attachments', 'status'] as const;
+// A saved note's kind is its team's: changing it here would only change the copy.
+export const SHARED_NOTE_FIELDS = ['title', 'body', 'url', 'attachments', 'status', 'kind'] as const;
 const NOT_ON_SHARED_NOTES = ['sourceTeamId', 'sourceNoteId', 'sourceState', 'source'] as const;
 
 export class SharedNoteFieldError extends TeamError {
@@ -5901,11 +5952,11 @@ export function assertPrivateNotePatch(input: Record<string, unknown>): void {
 
 export function getNoteProjection(teamId: string, sourceNoteId: string): NoteRecord | null {
   const row = getDb().select().from(notes).where(and(eq(notes.sourceTeamId, teamId), eq(notes.sourceNoteId, sourceNoteId))).get();
-  return row ? hydrateRow(row) : null;
+  return row ? normalizeNoteRow(row) : null;
 }
 
 export function listNoteProjections(teamId: string): NoteRecord[] {
-  return getDb().select().from(notes).where(eq(notes.sourceTeamId, teamId)).all().map((row) => hydrateRow(row));
+  return getDb().select().from(notes).where(eq(notes.sourceTeamId, teamId)).all().map(normalizeNoteRow);
 }
 
 /**
@@ -5924,10 +5975,15 @@ export function saveNoteProjection(input: {
   const db = getDb();
   const now = new Date().toISOString();
   const kept = input.state === 'active';
-  const shared = { title: input.fields.title, body: kept ? input.fields.body : '', url: kept ? input.fields.url : null };
+  const shared = {
+    title: input.fields.title,
+    body: kept ? input.fields.body : '',
+    url: kept ? input.fields.url : null,
+    ...(input.fields.kind ? { kind: input.fields.kind } : {}),
+  };
   const row = inEntityTx(() => {
     const existing = db.select().from(notes).where(and(eq(notes.sourceTeamId, input.teamId), eq(notes.sourceNoteId, input.sourceNoteId))).get();
-    if (existing?.source && existing.source.updatedAt > input.source.updatedAt) return hydrateRow(existing);
+    if (existing?.source && existing.source.updatedAt > input.source.updatedAt) return normalizeNoteRow(existing);
     const saved = existing
       ? db.update(notes)
         .set({ ...shared, status: kept ? 'active' : 'archived', sourceState: input.state, source: input.source, updatedAt: now })
@@ -5938,6 +5994,7 @@ export function saveNoteProjection(input: {
         .values({
           id: uuidv7(),
           ...shared,
+          kind: input.fields.kind ?? 'note',
           status: kept ? 'active' : 'archived',
           attachments: [],
           contextTags: [],
@@ -5951,7 +6008,7 @@ export function saveNoteProjection(input: {
         .returning()
         .get();
     projectEntityLinksInline('note', saved.id, [saved.body]);
-    return hydrateRow(saved);
+    return normalizeNoteRow(saved);
   });
   teamContentChanged();
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
@@ -6078,13 +6135,13 @@ export interface MemberSignInView {
   lastUsedAt: string | null;
 }
 
-/** A member's sign-ins that still work, newest first. */
+/** A member's sign-ins that still work, newest first. Their AI clients are listed apart. */
 export function listMemberSignIns(memberId: string): MemberSignInView[] {
   return getDb()
     .select({ key: apiKeys, device: devices })
     .from(apiKeys)
     .leftJoin(devices, eq(devices.id, apiKeys.deviceId))
-    .where(and(eq(apiKeys.memberId, memberId), isNull(apiKeys.revokedAt)))
+    .where(and(eq(apiKeys.memberId, memberId), eq(apiKeys.role, 'sign_in'), isNull(apiKeys.revokedAt)))
     .orderBy(desc(apiKeys.createdAt))
     .all()
     .map(({ key, device }) => ({
@@ -6096,16 +6153,442 @@ export function listMemberSignIns(memberId: string): MemberSignInView[] {
     }));
 }
 
-/** Sign a member out on one client. Only their own key. */
+/** Sign a member out on one client. Only their own sign-in. */
 export function revokeMemberSignIn(memberId: string, keyId: string): void {
   const now = new Date().toISOString();
   const row = getDb()
     .update(apiKeys)
     .set({ revokedAt: now, revokedReason: 'Signed out', updatedAt: now })
-    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.memberId, memberId), isNull(apiKeys.revokedAt)))
+    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.memberId, memberId), eq(apiKeys.role, 'sign_in'), isNull(apiKeys.revokedAt)))
     .returning({ id: apiKeys.id })
     .get();
   if (!row) throw new TeamError('not_found', 'That sign-in was not found.');
+}
+
+// ─── AI clients (docs/homes-spec.md §9.8) ──────────────────────
+// A member's own assistant (Codex, Claude Code) reaching the team's shared
+// work through its MCP. Its key is the member's, for that client only: it
+// reaches nothing a sign-in does, is listed and revoked on its own, and goes
+// with the member when they're removed.
+
+export const AI_CLIENT_NAME_MAX = 80;
+
+export interface MemberAiClientView {
+  keyId: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+function aiClientView(key: ApiKeyRecord): MemberAiClientView {
+  return { keyId: key.id, name: key.name, createdAt: key.createdAt, lastUsedAt: key.lastUsedAt };
+}
+
+/** A new AI client for an active member. The token is shown once, here. */
+export function createMemberAiClient(memberId: string, name: string): { client: MemberAiClientView; token: GeneratedToken } {
+  const clean = name.trim().replace(/\s+/g, ' ');
+  if (!clean || clean.length > AI_CLIENT_NAME_MAX) {
+    throw new TeamError('invalid', `Name the AI client in ${AI_CLIENT_NAME_MAX} characters or fewer.`);
+  }
+  return getDb().transaction((tx) => {
+    const member = tx.select().from(members).where(eq(members.id, memberId)).get();
+    if (!member || member.status !== 'active') throw new TeamError('not_allowed', 'Only a member of the team can connect an AI.');
+    const { key, token } = insertApiKey(tx, { name: clean, role: 'ai_client', memberId, deviceId: null });
+    return { client: aiClientView(key), token };
+  }, { behavior: 'immediate' });
+}
+
+/** A member's AI clients that still work, newest first. */
+export function listMemberAiClients(memberId: string): MemberAiClientView[] {
+  return getDb()
+    .select()
+    .from(apiKeys)
+    .where(and(eq(apiKeys.memberId, memberId), eq(apiKeys.role, 'ai_client'), isNull(apiKeys.revokedAt)))
+    .orderBy(desc(apiKeys.createdAt))
+    .all()
+    .map(aiClientView);
+}
+
+/** Disconnect one of a member's AI clients. Only their own. */
+export function revokeMemberAiClient(memberId: string, keyId: string): void {
+  const now = new Date().toISOString();
+  const row = getDb()
+    .update(apiKeys)
+    .set({ revokedAt: now, revokedReason: 'Disconnected', updatedAt: now })
+    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.memberId, memberId), eq(apiKeys.role, 'ai_client'), isNull(apiKeys.revokedAt)))
+    .returning({ id: apiKeys.id })
+    .get();
+  if (!row) throw new TeamError('not_found', 'That AI client was not found.');
+}
+
+/**
+ * The member an AI client acts for: an active `ai_client` key of an active
+ * member. Null for anything else, a sign-in included.
+ */
+export function aiClientForApiKey(apiKeyId: string): { member: MemberRecord; key: ApiKeyRecord } | null {
+  const row = getDb()
+    .select({ member: members, key: apiKeys })
+    .from(apiKeys)
+    .innerJoin(members, eq(members.id, apiKeys.memberId))
+    .where(eq(apiKeys.id, apiKeyId))
+    .get();
+  if (!row) return null;
+  if (row.key.revokedAt || row.key.role !== 'ai_client') return null;
+  if (row.key.expiresAt && new Date(row.key.expiresAt).getTime() <= Date.now()) return null;
+  return row.member.status === 'active' ? row : null;
+}
+
+// ─── Team AI settings (docs/homes-spec.md §9.9) ─────────────────
+
+const TEAM_AI_ROW = 'team';
+
+export function getTeamAiSettings(): TeamAiSettingsRecord | null {
+  return getDb().select().from(teamAiSettings).where(eq(teamAiSettings.id, TEAM_AI_ROW)).get() ?? null;
+}
+
+export type TeamAiSettingsPatch = Partial<Pick<TeamAiSettingsRecord,
+  'enabled' | 'model' | 'credentialLabel' | 'credentialSetAt' | 'mainChatSessionId' | 'lastError' | 'lastErrorAt' | 'lastOkAt'>>;
+
+/**
+ * Change the team's AI settings, making the row the first time. It starts off,
+ * on the one qualified runtime: turning it on is always the owner's choice.
+ */
+export function saveTeamAiSettings(patch: TeamAiSettingsPatch, byMemberId: string | null): TeamAiSettingsRecord {
+  const now = new Date().toISOString();
+  return getDb().transaction((tx) => {
+    const existing = tx.select().from(teamAiSettings).where(eq(teamAiSettings.id, TEAM_AI_ROW)).get();
+    if (!existing) {
+      return tx.insert(teamAiSettings).values({
+        id: TEAM_AI_ROW,
+        createdAt: now,
+        updatedAt: now,
+        enabled: patch.enabled ?? false,
+        harness: 'claude',
+        provider: 'anthropic',
+        ...patch,
+        updatedByMemberId: byMemberId,
+      }).returning().get();
+    }
+    return tx.update(teamAiSettings)
+      .set({ ...patch, updatedAt: now, ...(byMemberId ? { updatedByMemberId: byMemberId } : {}) })
+      .where(eq(teamAiSettings.id, TEAM_AI_ROW))
+      .returning()
+      .get();
+  }, { behavior: 'immediate' });
+}
+
+// ─── Team chat turns (docs/homes-spec.md §9.9) ──────────────────
+
+/**
+ * The turn a team AI credential names, while it may still act: running, in
+ * that chat, for that member, who is still in the team, with Team AI on.
+ */
+export function activeTeamChatTurn(claims: { turnId: string; chatId: string; memberId: string }): { turn: TeamChatTurnRecord; member: MemberRecord } | null {
+  const row = getDb()
+    .select({ turn: teamChatTurns, member: members })
+    .from(teamChatTurns)
+    .innerJoin(members, eq(members.id, teamChatTurns.memberId))
+    .where(eq(teamChatTurns.id, claims.turnId))
+    .get();
+  if (!row) return null;
+  if (row.turn.status !== 'running' || row.turn.chatSessionId !== claims.chatId || row.turn.memberId !== claims.memberId) return null;
+  if (row.member.status !== 'active') return null;
+  return getTeamAiSettings()?.enabled ? row : null;
+}
+
+/** The same, from the turn alone: what the team's MCP checks on every call a turn makes. */
+export function activeTeamChatTurnById(turnId: string, memberId: string): { turn: TeamChatTurnRecord; member: MemberRecord } | null {
+  const turn = getDb().select().from(teamChatTurns).where(eq(teamChatTurns.id, turnId)).get();
+  return turn ? activeTeamChatTurn({ turnId, chatId: turn.chatSessionId, memberId }) : null;
+}
+
+export const TEAM_CHAT_SURFACE = 'team_chat';
+
+/** A team's shared chats, most recently active first. Archived ones only when asked. */
+export function listTeamChats(options: { includeArchived?: boolean } = {}): ChatSessionRecord[] {
+  return getDb()
+    .select()
+    .from(chatSessions)
+    .where(and(eq(chatSessions.surfaceKind, TEAM_CHAT_SURFACE), options.includeArchived ? undefined : eq(chatSessions.status, 'active')))
+    .orderBy(desc(chatSessions.lastActivityAt))
+    .all();
+}
+
+export function getTeamChat(chatId: string): ChatSessionRecord | null {
+  const chat = getChatSession(chatId);
+  return chat && chat.surfaceKind === TEAM_CHAT_SURFACE ? chat : null;
+}
+
+export function createTeamChat(label: string): ChatSessionRecord {
+  return createChatSession({ harness: 'claude', type: 'orchestration', surfaceKind: TEAM_CHAT_SURFACE, label });
+}
+
+export class TeamChatError extends Error {
+  constructor(readonly code: 'not_found' | 'unavailable' | 'invalid' | 'conflict', message: string) {
+    super(message);
+    this.name = 'TeamChatError';
+  }
+}
+
+export function isTeamChatError(err: unknown): err is TeamChatError {
+  return err instanceof Error && err.name === 'TeamChatError';
+}
+
+/** A send this member already made in this chat, by their own id for it. */
+export function findTeamChatSend(chatId: string, memberId: string, clientSendId: string): { turn: TeamChatTurnRecord; message: ChatEventRecord | null } | null {
+  const turn = getDb().select().from(teamChatTurns).where(and(
+    eq(teamChatTurns.chatSessionId, chatId),
+    eq(teamChatTurns.memberId, memberId),
+    eq(teamChatTurns.clientSendId, clientSendId),
+  )).get();
+  return turn ? { turn, message: getChatEventById(turn.messageEventId) } : null;
+}
+
+/**
+ * Accept a member's message to the team's AI: the message, with its author,
+ * and its turn, queued after every turn already accepted in that chat. The
+ * member's own id for the send makes a retry find the same message and turn.
+ */
+export function acceptTeamChatSend(input: { chatId: string; memberId: string; clientSendId: string; text: string }): { turn: TeamChatTurnRecord; message: ChatEventRecord; created: boolean } {
+  return getDb().transaction((tx) => {
+    const prior = tx.select().from(teamChatTurns).where(and(
+      eq(teamChatTurns.chatSessionId, input.chatId),
+      eq(teamChatTurns.memberId, input.memberId),
+      eq(teamChatTurns.clientSendId, input.clientSendId),
+    )).get();
+    if (prior) {
+      const message = tx.select().from(chatEvents).where(eq(chatEvents.id, prior.messageEventId)).get();
+      if (!message || message.content !== input.text) throw new TeamChatError('conflict', 'That send id was already used for a different message.');
+      return { turn: prior, message: hydrateRow(message) as ChatEventRecord, created: false };
+    }
+    // Admission can have waited for the runtime. Check again in the same
+    // transaction as the write so removal or archiving cannot accept a send.
+    const member = tx.select().from(members).where(eq(members.id, input.memberId)).get();
+    if (!member || member.status !== 'active') throw new TeamError('not_allowed', 'Only a member of the team can talk with its AI.');
+    const chat = tx.select().from(chatSessions).where(eq(chatSessions.id, input.chatId)).get();
+    if (!chat || chat.surfaceKind !== TEAM_CHAT_SURFACE || chat.status !== 'active') throw new TeamChatError('not_found', 'That chat is gone.');
+    if (!getTeamAiSettings()?.enabled) throw new TeamChatError('unavailable', 'Team AI is off.');
+    const now = new Date().toISOString();
+    const message = insertChatEvent({ sessionId: input.chatId, role: 'user', source: 'user', content: input.text, authorMemberId: input.memberId, createdAt: now });
+    if (!message) throw new TeamChatError('conflict', 'That message could not be saved.');
+    const last = tx.select({ seq: sql<number>`max(${teamChatTurns.seq})` }).from(teamChatTurns).where(eq(teamChatTurns.chatSessionId, input.chatId)).get();
+    const turn = tx.insert(teamChatTurns).values({
+      id: uuidv7(),
+      createdAt: now,
+      updatedAt: now,
+      chatSessionId: input.chatId,
+      memberId: input.memberId,
+      clientSendId: input.clientSendId,
+      messageEventId: message.id,
+      seq: (last?.seq ?? 0) + 1,
+      status: 'queued',
+    }).returning().get();
+    return { turn, message, created: true };
+  }, { behavior: 'immediate' });
+}
+
+/**
+ * The next turn to run in a chat, marked running: the earliest queued one,
+ * and only when none is running. Null when there's nothing to do.
+ */
+export function claimNextTeamChatTurn(chatId: string): TeamChatTurnRecord | null {
+  return getDb().transaction((tx) => {
+    const running = tx.select({ id: teamChatTurns.id }).from(teamChatTurns)
+      .where(and(eq(teamChatTurns.chatSessionId, chatId), eq(teamChatTurns.status, 'running'))).get();
+    if (running) return null;
+    const next = tx.select().from(teamChatTurns)
+      .where(and(eq(teamChatTurns.chatSessionId, chatId), eq(teamChatTurns.status, 'queued')))
+      .orderBy(asc(teamChatTurns.seq)).limit(1).get();
+    if (!next) return null;
+    const now = new Date().toISOString();
+    return tx.update(teamChatTurns).set({ status: 'running', startedAt: now, updatedAt: now })
+      .where(and(eq(teamChatTurns.id, next.id), eq(teamChatTurns.status, 'queued'))).returning().get() ?? null;
+  }, { behavior: 'immediate' });
+}
+
+/** Settle a turn. Only one that's still queued or running: a turn ends once. */
+export function finishTeamChatTurn(turnId: string, status: 'done' | 'failed' | 'cancelled' | 'interrupted', error: string | null = null): TeamChatTurnRecord | null {
+  const now = new Date().toISOString();
+  return getDb().update(teamChatTurns)
+    .set({ status, error, finishedAt: now, updatedAt: now })
+    .where(and(eq(teamChatTurns.id, turnId), inArray(teamChatTurns.status, ['queued', 'running'])))
+    .returning().get() ?? null;
+}
+
+export function getTeamChatTurn(turnId: string): TeamChatTurnRecord | null {
+  return getDb().select().from(teamChatTurns).where(eq(teamChatTurns.id, turnId)).get() ?? null;
+}
+
+/** Settle the whole waiting queue, independent of the transcript's display limit. */
+export function finishQueuedTeamChatTurns(chatId: string, status: 'failed' | 'cancelled', error: string): number {
+  const now = new Date().toISOString();
+  return getDb().update(teamChatTurns)
+    .set({ status, error, finishedAt: now, updatedAt: now })
+    .where(and(eq(teamChatTurns.chatSessionId, chatId), eq(teamChatTurns.status, 'queued')))
+    .run().changes;
+}
+
+/** Turns not yet started, for everyone, one member or one turn, are cancelled. Returns the running ones, to stop. */
+export function cancelQueuedTeamChatTurns(filter: { memberId?: string; turnId?: string } = {}, reason: string): { cancelled: number; running: TeamChatTurnRecord[] } {
+  const now = new Date().toISOString();
+  const byMember = and(
+    filter.memberId ? eq(teamChatTurns.memberId, filter.memberId) : undefined,
+    filter.turnId ? eq(teamChatTurns.id, filter.turnId) : undefined,
+  );
+  const cancelled = getDb().update(teamChatTurns)
+    .set({ status: 'cancelled', error: reason, finishedAt: now, updatedAt: now })
+    .where(and(eq(teamChatTurns.status, 'queued'), byMember))
+    .run().changes;
+  const running = getDb().select().from(teamChatTurns).where(and(eq(teamChatTurns.status, 'running'), byMember)).all();
+  return { cancelled, running };
+}
+
+/**
+ * After the team stopped: a turn that was running may or may not have done
+ * what it set out to, so it's shown as interrupted and never run again.
+ */
+export function interruptRunningTeamChatTurns(): number {
+  const now = new Date().toISOString();
+  return getDb().update(teamChatTurns)
+    .set({ status: 'interrupted', error: 'The team stopped while this was running. Anything it already changed is kept. Send it again if you still need it.', finishedAt: now, updatedAt: now })
+    .where(eq(teamChatTurns.status, 'running'))
+    .run().changes;
+}
+
+export function listTeamChatTurns(chatId: string, options: { limit?: number } = {}): TeamChatTurnRecord[] {
+  return getDb().select().from(teamChatTurns)
+    .where(eq(teamChatTurns.chatSessionId, chatId))
+    .orderBy(desc(teamChatTurns.seq))
+    .limit(options.limit ?? 200)
+    .all()
+    .reverse();
+}
+
+/** Chats with a turn waiting, for restarting work after the team starts. */
+export function teamChatsWithQueuedTurns(): string[] {
+  return getDb().selectDistinct({ chatId: teamChatTurns.chatSessionId }).from(teamChatTurns).where(eq(teamChatTurns.status, 'queued')).all().map((r) => r.chatId);
+}
+
+export interface TeamChatEventPage {
+  events: Array<ChatEventRecord & { cursor: number }>;
+  /** Where the next read starts. */
+  cursor: number;
+}
+
+/**
+ * A shared chat's events in the order they were written, after a cursor: so a
+ * reader that reconnects picks up exactly where it was, with nothing twice and
+ * nothing skipped, whatever times the provider gave its events. One session's
+ * rows, through its index, bounded.
+ */
+export function listTeamChatEventsAfter(chatId: string, cursor: number, limit = 200): TeamChatEventPage {
+  const rows = getDb()
+    .select({ event: chatEvents, cursor: sql<number>`${chatEvents}.rowid` })
+    .from(chatEvents)
+    .where(and(eq(chatEvents.sessionId, chatId), sql`${chatEvents}.rowid > ${cursor}`))
+    .orderBy(sql`${chatEvents}.rowid`)
+    .limit(Math.min(Math.max(limit, 1), 500))
+    .all();
+  return {
+    events: rows.map((r) => ({ ...(hydrateRow(r.event) as ChatEventRecord), cursor: r.cursor })),
+    cursor: rows.length ? rows[rows.length - 1].cursor : cursor,
+  };
+}
+
+/** The latest page, or the page before a delivered insertion position. */
+export function listTeamChatEventsLatest(chatId: string, limit = 200, before?: number): TeamChatEventPage & { oldestCursor: number | null; hasOlder: boolean } {
+  const size = Math.min(Math.max(limit, 1), 500);
+  const rows = getDb()
+    .select({ event: chatEvents, cursor: sql<number>`${chatEvents}.rowid` })
+    .from(chatEvents)
+    .where(and(eq(chatEvents.sessionId, chatId), before === undefined ? undefined : sql`${chatEvents}.rowid < ${before}`))
+    .orderBy(sql`${chatEvents}.rowid DESC`)
+    .limit(size + 1)
+    .all();
+  const hasOlder = rows.length > size;
+  if (hasOlder) rows.pop();
+  rows.reverse();
+  return {
+    events: rows.map((r) => ({ ...(hydrateRow(r.event) as ChatEventRecord), cursor: r.cursor })),
+    cursor: rows.length ? rows[rows.length - 1].cursor : 0,
+    oldestCursor: rows[0]?.cursor ?? null,
+    hasOlder,
+  };
+}
+
+/** Turn states belonging to a bounded history page, including old failures. */
+export function teamChatTurnsForMessages(chatId: string, messageIds: string[]): TeamChatTurnRecord[] {
+  if (!messageIds.length) return [];
+  return getDb().select().from(teamChatTurns).where(and(
+    eq(teamChatTurns.chatSessionId, chatId), inArray(teamChatTurns.messageEventId, messageIds),
+  )).all();
+}
+
+// ─── Shared operation receipts (docs/homes-spec.md §9.8) ───────
+
+export interface SharedOperationScope {
+  memberId: string;
+  apiKeyId: string | null;
+  action: string;
+  idempotencyKey: string;
+  intentHash: string;
+}
+
+export class SharedOperationConflictError extends Error {
+  readonly code = 'idempotency_conflict' as const;
+  constructor() {
+    super('That idempotency key was already used for a different request. Use a new key for a new change.');
+    this.name = 'SharedOperationConflictError';
+  }
+}
+
+export function isSharedOperationConflictError(err: unknown): err is SharedOperationConflictError {
+  return err instanceof Error && err.name === 'SharedOperationConflictError';
+}
+
+/**
+ * Run a shared-work change once per member, tool and idempotency key. The
+ * change and its receipt commit together. A repeat with the same request gets
+ * the recorded outcome back without changing anything again, a repeat with a
+ * different request is refused, and a change that fails records nothing, so
+ * it can be tried again.
+ */
+export function withSharedOperationReceipt<T>(
+  scope: SharedOperationScope,
+  run: () => { entityType: 'task' | 'note'; entityId: string; outcome: T },
+): { outcome: T; replayed: boolean } {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const prior = tx
+      .select()
+      .from(sharedOperationReceipts)
+      .where(and(
+        eq(sharedOperationReceipts.memberId, scope.memberId),
+        eq(sharedOperationReceipts.action, scope.action),
+        eq(sharedOperationReceipts.idempotencyKey, scope.idempotencyKey),
+      ))
+      .get();
+    if (prior) {
+      if (prior.intentHash !== scope.intentHash) throw new SharedOperationConflictError();
+      return { outcome: prior.outcome as T, replayed: true };
+    }
+    const done = run();
+    const now = new Date().toISOString();
+    tx.insert(sharedOperationReceipts).values({
+      id: uuidv7(),
+      createdAt: now,
+      updatedAt: now,
+      memberId: scope.memberId,
+      apiKeyId: scope.apiKeyId,
+      action: scope.action,
+      idempotencyKey: scope.idempotencyKey,
+      intentHash: scope.intentHash,
+      entityType: done.entityType,
+      entityId: done.entityId,
+      outcome: done.outcome,
+    }).run();
+    return { outcome: done.outcome, replayed: false };
+  }, { behavior: 'immediate' });
 }
 
 export interface TeamInvitationView {
@@ -9760,6 +10243,8 @@ export function searchChatSessions(opts: {
   source?: ChatSearchSource;
   /** Max sessions to return, title and message matches together. Default 30. */
   limit?: number;
+  /** A team's shared chats with its AI instead of executions (docs/homes-spec.md §9.9). */
+  teamChats?: boolean;
 }): ChatSearchResult[] {
   const match = toFtsMatchQuery(opts.query);
   const terms = searchTerms(opts.query);
@@ -9772,7 +10257,9 @@ export function searchChatSessions(opts: {
   // FTS aux-function bind-arg quirks. Source clauses use constant literals.
   // The filters bind into both statements, each with its own params besides.
   const filterParams: Record<string, unknown> = {};
-  const conds: string[] = ["cs.type = 'execution'", "COALESCE(cs.surface_kind, '') <> 'result_review'"];
+  const conds: string[] = opts.teamChats
+    ? [`cs.surface_kind = '${TEAM_CHAT_SURFACE}'`]
+    : ["cs.type = 'execution'", "COALESCE(cs.surface_kind, '') <> 'result_review'"];
   if (opts.status) {
     conds.push('cs.status = :status');
     filterParams.status = opts.status;
@@ -10352,24 +10839,21 @@ export function listBackgroundTaskEvents(sessionId: string, taskIds: readonly st
   const db = getDb();
   const wanted = new Set(taskIds);
   const idList = [...wanted];
-  const candidates = db
-    .select()
-    .from(chatEvents)
-    .where(
-      and(
-        eq(chatEvents.sessionId, sessionId),
-        // Narrows to the session's lifecycle rows through
-        // idx_chat_events_background_task before any `raw` is parsed.
-        isBackgroundTaskEvent(chatEvents),
-        or(
-          inArray(sql<string>`json_extract(${chatEvents.raw}, '$.taskId')`, idList),
-          inArray(sql<string>`json_extract(${chatEvents.raw}, '$.raw.task_id')`, idList),
-        ),
+  // With multiple session indexes and no ANALYZE stats, SQLite can choose a
+  // whole-session walk. Pin the partial index before parsing any raw JSON.
+  const matching = db.select({ rowid: sql<number>`rowid` })
+    .from(sql`${chatEvents} INDEXED BY idx_chat_events_background_task`)
+    .where(and(
+      eq(chatEvents.sessionId, sessionId),
+      isBackgroundTaskEvent(chatEvents),
+      or(
+        inArray(sql<string>`json_extract(${chatEvents.raw}, '$.taskId')`, idList),
+        inArray(sql<string>`json_extract(${chatEvents.raw}, '$.raw.task_id')`, idList),
       ),
-    )
-    // Unordered on purpose, here and below: given an ORDER BY created_at,
-    // SQLite prefers idx_chat_events_session_created and walks every event
-    // of the session. The few rows found are sorted at the end.
+    ));
+  // Drizzle hydrates the few matching rows through their integer primary key.
+  const candidates = db.select().from(chatEvents)
+    .where(inArray(sql`${chatEvents}.rowid`, matching))
     .all()
     .map((r) => hydrateRow(r));
 

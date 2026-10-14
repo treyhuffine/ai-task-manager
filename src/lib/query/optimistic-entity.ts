@@ -87,10 +87,19 @@ export async function optimisticPatch(
   const filter = optimisticQueryFilter(root);
   await qc.cancelQueries(filter);
   const snapshot = qc.getQueriesData(filter) as OptimisticSnapshot;
+  patchEntityCaches(qc, root, id, patch);
+  return snapshot;
+}
 
+/**
+ * The merge {@link optimisticPatch} makes, on its own: `patch` into the
+ * record's cache, and its list projection into every list row with that id.
+ * For a write that already happened and must leave refetches running (the
+ * shared-body saver).
+ */
+export function patchEntityCaches(qc: QueryClient, root: OptimisticEntityRoot, id: string, patch: EntityPatch): void {
   const listPatch = projectPatchToList(patch);
-
-  qc.setQueriesData<unknown>(filter, (data: unknown) => {
+  qc.setQueriesData<unknown>(optimisticQueryFilter(root), (data: unknown) => {
     if (data == null) return data;
     // Single-entity cache: the record itself, full shape (with body).
     if (hasId(data, id)) return { ...data, ...patch };
@@ -100,8 +109,6 @@ export async function optimisticPatch(
     }
     return data;
   });
-
-  return snapshot;
 }
 
 /**

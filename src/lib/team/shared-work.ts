@@ -67,7 +67,7 @@ export const TEAM_TASK_FIELDS = [
 ] as const;
 
 /** What a team's note shares. */
-export const TEAM_NOTE_FIELDS = ['title', 'body', 'areaId', 'url', 'status', 'attachments'] as const;
+export const TEAM_NOTE_FIELDS = ['title', 'body', 'areaId', 'url', 'status', 'attachments', 'kind'] as const;
 
 /** What a team's Area keeps: how the team organizes, never anyone's private context. */
 export const TEAM_AREA_FIELDS = ['name', 'description', 'emoji', 'notes', 'status', 'sortOrder', 'attachments'] as const;
