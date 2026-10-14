@@ -73,6 +73,13 @@ describe('MCP server lifecycle', () => {
     await s.servers.update(s.entry.id, { displayName: 'My Todoist' });
     expect(isCurrentMcpTransport(s.entry, s.servers)).toBe(true);
   });
+  it('keeps cached transports valid for live permission changes, but still rejects disabled tools', async () => {
+    const s = await setup();
+    await s.servers.update(s.entry.id, { toolOverrides: { 'find-tasks': { approvalMode: 'ask' } } });
+    expect(isCurrentMcpTransport(s.entry, s.servers)).toBe(true);
+    await s.servers.update(s.entry.id, { toolOverrides: { 'find-tasks': { enabled: false } } });
+    expect(isCurrentMcpTransport(s.entry, s.servers)).toBe(false);
+  });
   it('waits for asynchronous finalization before rotating the token and rejects older discovery afterward', async () => {
     const s = await setup();
     const original = (await s.servers.update(s.entry.id, { auth: { kind: 'bearer' }, secret: 'original-fixture' }))!;

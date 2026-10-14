@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@agentex/agent':
-        specifier: ^0.0.44
-        version: 0.0.44(zod@3.25.76)
+        specifier: ^0.0.45
+        version: 0.0.45(zod@3.25.76)
       '@agentex/github':
         specifier: ^0.0.1
         version: 0.0.1
@@ -83,6 +83,9 @@ importers:
       '@emoji-mart/react':
         specifier: ^1.1.1
         version: 1.1.1(emoji-mart@5.6.0)(react@19.2.3)
+      '@floating-ui/dom':
+        specifier: ^1.7.6
+        version: 1.7.6
       '@google/generative-ai':
         specifier: ^0.24.1
         version: 0.24.1
@@ -654,8 +657,8 @@ packages:
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
 
-  '@agentex/agent@0.0.44':
-    resolution: {integrity: sha512-T1pfcVHRpwybmAKpGduXeddoDEVzcQP6kDyKIWwDQD54otydz8HyU8BpMFexUcPAG9SUDE9pbInOnDW6VqOU6w==}
+  '@agentex/agent@0.0.45':
+    resolution: {integrity: sha512-GOey8i/j7ttio8daBh/gLHp6jRQI8hJNEG8aPLWCVWr52nVnu0UQ/kpwfq9Ox/7KCB/kOFTKRRN8W49LWronRg==}
     engines: {node: '>=20.19.0'}
 
   '@agentex/github@0.0.1':
@@ -10543,7 +10546,7 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@agentex/agent@0.0.44(zod@3.25.76)':
+  '@agentex/agent@0.0.45(zod@3.25.76)':
     dependencies:
       '@agentclientprotocol/sdk': 1.8.0(zod@3.25.76)
     transitivePeerDependencies:

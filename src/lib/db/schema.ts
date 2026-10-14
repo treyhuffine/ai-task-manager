@@ -900,6 +900,8 @@ export const WORKER_COMMAND_KINDS = [
   'send',
   'interrupt',
   'stop_task',
+  'generate_title',
+  'set_title',
   'stop',
   'answer_pending_input',
   'run_script',

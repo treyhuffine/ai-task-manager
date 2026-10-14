@@ -2,6 +2,7 @@ import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { beginMcpAuthorization } from '@/lib/integrations/mcp-authorization';
 import { removeMcpServer, updateMcpServerConfiguration } from '@/lib/integrations/mcp-lifecycle';
 import type { McpServerAuth } from '@/lib/integrations/mcp-servers';
+import { MCP_APPROVAL_POLICIES, type McpApprovalPolicy, type McpToolApprovalPatch } from '@/lib/integrations/mcp-approval-policy';
 import { validateHeaderName, validateMcpUrl } from '@/lib/integrations/mcp-validate';
 import {
   getIntegrationConnectionStore,
@@ -22,7 +23,9 @@ interface PatchBody {
   url?: string;
   enabled?: boolean;
   auth?: McpServerAuth;
-  toolOverrides?: Record<string, { enabled?: boolean; mutating?: boolean }>;
+  toolOverrides?: Record<string, McpToolApprovalPatch>;
+  approvalPolicy?: McpApprovalPolicy | null;
+  resetToolApprovals?: boolean;
   secret?: string | null;
   reviewedRevision?: string;
 }
@@ -46,6 +49,9 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
   if (entry?.providerId && (body.url !== undefined || body.auth !== undefined || body.secret !== undefined)) {
     return reply({ error: `Built-in ${INTEGRATION_LABELS.singular.toLowerCase()} services are managed by the app. Use Connect to sign in.` }, { status: 400 });
   }
+  if (entry.providerId && (body.approvalPolicy !== undefined || body.resetToolApprovals !== undefined)) {
+    return reply({ error: `Built-in ${INTEGRATION_LABELS.singular.toLowerCase()} permissions are managed from their provider settings.` }, { status: 400 });
+  }
 
   if (body.url !== undefined) {
     const check = validateMcpUrl(body.url);
@@ -62,11 +68,16 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
     ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
     ...(body.auth !== undefined ? { auth: body.auth } : {}),
     ...(body.toolOverrides !== undefined ? { toolOverrides: body.toolOverrides } : {}),
+    ...(body.approvalPolicy !== undefined ? { approvalPolicy: body.approvalPolicy } : {}),
+    ...(body.resetToolApprovals !== undefined ? { resetToolApprovals: body.resetToolApprovals } : {}),
     ...(body.secret !== undefined ? { secret: body.secret } : {}),
   });
   if (!updated) return reply({ error: 'not_found' }, { status: 404 });
 
-  invalidateIntegrationRuntime();
+  // Approval is resolved from disk on every call. Changing it needs no reconnect.
+  const permissionOnly = Object.keys(body).length > 0 && Object.keys(body).every(key =>
+    key === 'approvalPolicy' || key === 'resetToolApprovals' || (key === 'toolOverrides' && Object.values(body.toolOverrides ?? {}).every(override => override.enabled === undefined)));
+  if (!permissionOnly) invalidateIntegrationRuntime();
   return reply({ entry: updated });
 }
 
@@ -101,6 +112,6 @@ export async function DELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, _request:
   return reply({ ok: true });
 }
 
-export const PATCHInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "displayName": rpcZ.string().optional(), "url": rpcZ.string().optional(), "enabled": rpcZ.boolean().optional(), "auth": rpcZ.union([rpcZ.object({ "kind": rpcZ.literal("none") }).strict(), rpcZ.object({ "kind": rpcZ.literal("bearer") }).strict(), rpcZ.object({ "kind": rpcZ.literal("header"), "header": rpcZ.string() }).strict(), rpcZ.object({ "kind": rpcZ.literal("oauth") }).strict()]).optional(), "toolOverrides": rpcZ.record(rpcZ.string(), rpcZ.object({ "enabled": rpcZ.boolean().optional(), "mutating": rpcZ.boolean().optional() }).strict()).optional(), "secret": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "reviewedRevision": rpcZ.string().optional() }).strict().default({}) }).strict();
+export const PATCHInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "displayName": rpcZ.string().optional(), "url": rpcZ.string().optional(), "enabled": rpcZ.boolean().optional(), "auth": rpcZ.union([rpcZ.object({ "kind": rpcZ.literal("none") }).strict(), rpcZ.object({ "kind": rpcZ.literal("bearer") }).strict(), rpcZ.object({ "kind": rpcZ.literal("header"), "header": rpcZ.string() }).strict(), rpcZ.object({ "kind": rpcZ.literal("oauth") }).strict()]).optional(), "toolOverrides": rpcZ.record(rpcZ.string(), rpcZ.object({ "enabled": rpcZ.boolean().optional(), "mutating": rpcZ.boolean().optional(), approvalMode: rpcZ.enum(['auto', 'ask']).nullable().optional() }).strict()).optional(), approvalPolicy: rpcZ.enum(MCP_APPROVAL_POLICIES).nullable().optional(), resetToolApprovals: rpcZ.boolean().optional(), "secret": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "reviewedRevision": rpcZ.string().optional() }).strict().default({}) }).strict();
 export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({}).strict().default({}) }).strict();
 export const DELETEInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({}).strict().default({}) }).strict();

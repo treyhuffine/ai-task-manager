@@ -1,0 +1,260 @@
+<div id="ri-apps-study">
+  <div class="viz-carousel" aria-label="Two ways into the same Ri app experience">
+    <section data-variant="Start with your work" aria-label="Start with your work">
+      <div class="ri-study-product" data-experience="work"></div>
+    </section>
+    <section data-variant="Start with your apps" aria-label="Start with your apps" hidden>
+      <div class="ri-study-product" data-experience="apps"></div>
+    </section>
+  </div>
+</div>
+<style>
+  #ri-apps-study {
+    --ri-surface: light-dark(#fcfcfd, #191b1f);
+    --ri-rail: light-dark(#f4f5f7, #14161a);
+    --ri-text: light-dark(#24262b, #e9eaf0);
+    --ri-secondary: light-dark(#666c77, #a9afba);
+    --ri-line: light-dark(#e3e5e9, #34373f);
+    --ri-wash: light-dark(#eceef2, #292d34);
+    --ri-button: light-dark(#292d34, #e2e6ed);
+    --ri-button-text: light-dark(#fafbfc, #21242b);
+    --ri-green: light-dark(#29664c, #8fceb1);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ri-text);
+  }
+  #ri-apps-study * { box-sizing: border-box; }
+  #ri-apps-study [hidden] { display: none !important; }
+  #ri-apps-study button, #ri-apps-study input, #ri-apps-study textarea { font: inherit; }
+  #ri-apps-study button { cursor: inherit; color: inherit; }
+  #ri-apps-study button:focus-visible, #ri-apps-study input:focus-visible, #ri-apps-study textarea:focus-visible { outline: 2px solid var(--ri-green); outline-offset: 3px; }
+  #ri-apps-study .ri-study-product { background: var(--ri-surface); border: 1px solid var(--ri-line); border-radius: 12px; min-height: 650px; overflow: clip; }
+  #ri-apps-study .ri-top { display: flex; align-items: center; gap: 13px; padding: 13px 22px; padding-right: 104px; border-bottom: 1px solid var(--ri-line); }
+  #ri-apps-study .ri-brand { font-size: 20px; font-weight: 600; letter-spacing: -.7px; }
+  #ri-apps-study .ri-top small { font-size: 12px; color: var(--ri-secondary); }
+  #ri-apps-study .ri-shell { display: grid; grid-template-columns: 165px minmax(0, 1fr); min-height: 594px; }
+  #ri-apps-study .ri-nav { background: var(--ri-rail); padding: 20px 10px; border-right: 1px solid var(--ri-line); }
+  #ri-apps-study .ri-navbutton { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; margin-bottom: 5px; border: 0; border-radius: 7px; background: transparent; text-align: left; }
+  #ri-apps-study .ri-navbutton[aria-current="page"] { background: var(--ri-wash); font-weight: 500; }
+  #ri-apps-study .ri-navlabel { padding: 24px 10px 7px; color: var(--ri-secondary); font-size: 12px; }
+  #ri-apps-study .ri-icon { width: 18px; height: 18px; flex-shrink: 0; }
+  #ri-apps-study .ri-body { padding: 26px 28px 22px; min-width: 0; }
+  #ri-apps-study .ri-head { display: flex; gap: 14px; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+  #ri-apps-study h2, #ri-apps-study h3, #ri-apps-study p { margin: 0; }
+  #ri-apps-study h2 { font-size: 22px; font-weight: 500; letter-spacing: -.5px; }
+  #ri-apps-study h3 { font-size: 15px; font-weight: 500; }
+  #ri-apps-study .ri-muted { color: var(--ri-secondary); font-size: 13px; }
+  #ri-apps-study .ri-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  #ri-apps-study .ri-button { display: inline-flex; gap: 6px; align-items: center; justify-content: center; min-height: 35px; padding: 6px 12px; border: 1px solid var(--ri-line); border-radius: 7px; background: var(--ri-surface); white-space: nowrap; }
+  #ri-apps-study .ri-button.primary { background: var(--ri-button); color: var(--ri-button-text); border-color: transparent; }
+  #ri-apps-study .ri-button.quiet { background: transparent; border-color: transparent; padding-left: 4px; padding-right: 4px; }
+  #ri-apps-study .ri-button:disabled { opacity: .5; }
+  #ri-apps-study .ri-search { width: 100%; padding: 9px 12px; border: 1px solid var(--ri-line); border-radius: 8px; color: var(--ri-text); background: var(--ri-surface); }
+  #ri-apps-study .ri-apps { margin: 14px 0 18px; }
+  #ri-apps-study .ri-app { display: flex; align-items: center; gap: 12px; padding: 18px 0; border-bottom: 1px solid var(--ri-line); }
+  #ri-apps-study .ri-appmark { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 9px; background: var(--ri-wash); flex-shrink: 0; }
+  #ri-apps-study .ri-apptext { min-width: 0; flex: 1; }
+  #ri-apps-study .ri-apptext p { margin-top: 3px; }
+  #ri-apps-study .ri-appname { padding: 0; border: 0; background: transparent; text-align: left; font-weight: 500; }
+  #ri-apps-study .ri-appname:hover { text-decoration: underline; }
+  #ri-apps-study .ri-link { border: 0; background: transparent; padding: 0; text-decoration: underline; text-underline-offset: 3px; }
+  #ri-apps-study .ri-user { margin: 8px 0 24px 34px; padding: 13px 16px; background: var(--ri-wash); border-radius: 12px 12px 3px 12px; }
+  #ri-apps-study .ri-answer { padding-right: 8px; }
+  #ri-apps-study .ri-answer > p { margin-bottom: 16px; }
+  #ri-apps-study .ri-choice { padding: 15px 16px; border: 1px solid var(--ri-line); border-radius: 10px; margin: 12px 0 18px; }
+  #ri-apps-study .ri-choice .ri-actions { margin-top: 12px; }
+  #ri-apps-study .ri-choice h3 { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  #ri-apps-study .ri-evidence { display: flex; flex-wrap: wrap; gap: 8px; color: var(--ri-secondary); font-size: 12px; margin: 15px 0; }
+  #ri-apps-study .ri-evidence span { display: flex; align-items: center; gap: 5px; }
+  #ri-apps-study .ri-ready { color: var(--ri-green); }
+  #ri-apps-study .ri-composer { margin-top: 27px; border: 1px solid var(--ri-line); border-radius: 12px; padding: 11px 13px; background: var(--ri-surface); }
+  #ri-apps-study .ri-composer textarea { resize: vertical; width: 100%; min-height: 47px; border: 0; color: var(--ri-text); background: transparent; padding: 0; }
+  #ri-apps-study .ri-composerbar { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  #ri-apps-study .ri-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; background: var(--ri-wash); border-radius: 5px; padding: 3px 8px; margin-bottom: 8px; }
+  #ri-apps-study .ri-chip button { border: 0; background: transparent; padding: 0; line-height: 1; }
+  #ri-apps-study .ri-picker { margin-top: 8px; padding: 7px; border: 1px solid var(--ri-line); border-radius: 8px; background: var(--ri-surface); }
+  #ri-apps-study .ri-picker button { display: flex; width: 100%; justify-content: space-between; gap: 8px; padding: 9px; background: transparent; border: 0; text-align: left; }
+  #ri-apps-study .ri-picker button:hover { background: var(--ri-wash); }
+  #ri-apps-study .ri-picker small { color: var(--ri-secondary); }
+  #ri-apps-study .ri-form { max-width: 420px; margin: 27px auto; }
+  #ri-apps-study .ri-form > * { margin-bottom: 18px; }
+  #ri-apps-study .ri-accounts { display: grid; gap: 9px; }
+  #ri-apps-study .ri-account { display: flex; align-items: center; gap: 9px; padding: 13px; border: 1px solid var(--ri-line); border-radius: 8px; }
+  #ri-apps-study .ri-detail { display: grid; grid-template-columns: 100px 1fr; gap: 10px 16px; font-size: 13px; padding: 16px 0; border-top: 1px solid var(--ri-line); border-bottom: 1px solid var(--ri-line); }
+  #ri-apps-study .ri-detail dt { color: var(--ri-secondary); }
+  #ri-apps-study .ri-detail dd { margin: 0; }
+  #ri-apps-study .ri-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 1fr); gap: 23px; }
+  #ri-apps-study .ri-view { border: 1px solid var(--ri-line); border-radius: 10px; padding: 16px; background: var(--ri-surface); min-width: 0; }
+  #ri-apps-study .ri-view .ri-head { margin-bottom: 18px; gap: 6px; }
+  #ri-apps-study .ri-number { font-size: 28px; letter-spacing: -1px; margin: 5px 0 15px; }
+  #ri-apps-study .ri-transaction { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--ri-line); font-size: 13px; }
+  #ri-apps-study .ri-transaction span { flex: 1; }
+  #ri-apps-study .ri-transaction strong { font-weight: 500; font-variant-numeric: tabular-nums; }
+  #ri-apps-study .ri-flow { display: grid; gap: 14px; margin: 25px 0; }
+  #ri-apps-study .ri-node { border: 1px solid var(--ri-line); border-radius: 9px; padding: 14px; text-align: center; }
+  #ri-apps-study .ri-flow label { display: grid; gap: 5px; text-align: left; }
+  #ri-apps-study .ri-status { margin-top: 14px; color: var(--ri-secondary); font-size: 12px; min-height: 18px; }
+  @media (max-width: 860px) { #ri-apps-study .ri-shell { grid-template-columns: 125px minmax(0, 1fr); } #ri-apps-study .ri-body { padding: 21px 20px; } #ri-apps-study .ri-split { grid-template-columns: 1fr; } }
+  @media (max-width: 610px) {
+    #ri-apps-study .ri-study-product { min-height: 780px; }
+    #ri-apps-study .ri-shell { grid-template-columns: 1fr; }
+    #ri-apps-study .ri-nav { border-right: 0; border-bottom: 1px solid var(--ri-line); display: flex; flex-wrap: wrap; gap: 7px; padding: 8px 13px; }
+    #ri-apps-study .ri-navbutton { width: auto; margin: 0; }
+    #ri-apps-study .ri-pin, #ri-apps-study .ri-navlabel { display: none; }
+    #ri-apps-study .ri-app { flex-wrap: wrap; }
+    #ri-apps-study .ri-apptext { flex-basis: calc(100% - 58px); }
+    #ri-apps-study .ri-app > .ri-actions { padding-left: 48px; }
+    #ri-apps-study .ri-head { align-items: flex-start; }
+    #ri-apps-study .ri-body { padding: 18px 15px; }
+    #ri-apps-study .ri-user { margin-left: 12px; }
+    #ri-apps-study .ri-composer textarea { font-size: 16px; }
+  }
+  @media (pointer: coarse) { #ri-apps-study button, #ri-apps-study .ri-account { min-height: 44px; } #ri-apps-study .ri-chip button { min-height: 30px; } }
+</style>
+<script>
+(() => {
+  const root = document.getElementById('ri-apps-study');
+  const saved = window.openai?.widgetState?.privateContent?.journeys || {};
+  const states = {};
+  const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const icon = name => `<i data-lucide="${name}" class="ri-icon" aria-hidden="true"></i>`;
+  const button = (label, action, primary = false, extra = '') => `<button type="button" class="ri-button cursor-interaction ${primary ? 'primary' : ''}" data-action="${action}" ${extra}>${label}</button>`;
+  const apps = [
+    {id:'gmail', name:'Gmail', icon:'mail', purpose:'Find emails, receipts and answers.'},
+    {id:'finances', name:'Finances', icon:'wallet', purpose:'Understand your spending and subscriptions.'},
+    {id:'excalidraw', name:'Excalidraw', icon:'shapes', purpose:'Turn ideas into editable diagrams.'}
+  ];
+  function persist() {
+    const payload = {modelContent:null, privateContent:{journeys:states}};
+    window.openai?.setWidgetState?.(payload)?.catch(() => {});
+  }
+  function composer(s) {
+    const chip = s.mention ? `<div class="ri-chip">@${esc(s.mention)} <button type="button" data-action="remove-mention" aria-label="Remove app mention">${icon('x')}</button></div>` : '';
+    const selected = s.selected ? `<div class="ri-chip">${s.selected} selected in Finances</div>` : '';
+    return `<div class="ri-composer">${chip}${selected}<textarea aria-label="Message Ri" maxlength="2000" placeholder="Ask Ri anything…">${esc(s.draft)}</textarea><div class="ri-composerbar"><button type="button" class="ri-button quiet cursor-interaction" data-action="picker">${icon('at-sign')} Add context</button>${button(icon('arrow-up'),'send',true,'aria-label="Send sample message"')}</div>${s.picker ? `<div class="ri-picker" aria-label="Apps to use in this message">${apps.map(app=>`<button type="button" class="cursor-interaction" data-action="mention-${app.id}"><span>${esc(app.name)}${app.id==='gmail'&&s.gmail?' · '+esc(s.account):''}</span><small>${app.id==='gmail'&&!s.gmail?'Connect to use':app.id==='excalidraw'&&!s.drawingAdded?'Add to use':'Use in this message'}</small></button>`).join('')}</div>` : ''}</div>`;
+  }
+  function appRow(app, s, add = false) {
+    let actions = '';
+    let detail = app.purpose;
+    if (app.id === 'gmail') {
+      detail = s.gmail ? `${esc(s.account)} account · Search and read email` : app.purpose;
+      actions = s.gmail ? button('Ask Ri','ask-gmail') : button('Connect','connect-gmail',true);
+    } else if (app.id === 'finances') {
+      actions = button('Open','open-finances',true) + button('Ask Ri','ask-finances');
+    } else {
+      actions = s.drawingAdded ? button(s.hasDrawing?'Open drawing':'Ask Ri',s.hasDrawing?'open-drawing':'ask-excalidraw') : button('Add','add-excalidraw');
+    }
+    return `<div class="ri-app" data-app-name="${app.name.toLowerCase()}"><div class="ri-appmark">${icon(app.icon)}</div><div class="ri-apptext"><button type="button" class="ri-appname cursor-interaction" data-action="details-${app.id}">${app.name}</button><p class="ri-muted">${detail}</p></div><div class="ri-actions">${actions}</div></div>`;
+  }
+  function library(s) {
+    return `<div class="ri-head"><div><h2>${s.screen==='add'?'Add an app':'Apps'}</h2><p class="ri-muted">Use your apps with Ri.</p></div>${s.screen==='add'?button('Done','apps'):button(icon('plus')+' Add','add',true)}</div><input class="ri-search" aria-label="Find an app" placeholder="Find an app" value="${esc(s.search||'')}"><div class="ri-apps">${apps.map(app=>appRow(app,s,s.screen==='add')).join('')}</div><p class="ri-muted">Have something else in mind? <button type="button" class="ri-link cursor-interaction" data-action="build">Describe what you need.</button></p>`;
+  }
+  function connect(s) {
+    return `${button(icon('arrow-left')+' Back','back')}<div class="ri-form"><div class="ri-appmark">${icon('mail')}</div><div><h2>Use Gmail with Ri</h2><p class="ri-muted">Find receipts for your subscription review.</p></div><div class="ri-accounts"><label class="ri-account"><input type="radio" name="${s.key}-account" value="Personal" ${s.account==='Personal'?'checked':''}>Personal account</label><label class="ri-account"><input type="radio" name="${s.key}-account" value="Work" ${s.account==='Work'?'checked':''}>Work account</label></div><dl class="ri-detail"><dt>Used by</dt><dd>Personal agent</dd><dt>Access</dt><dd>Search and read email</dd></dl><p class="ri-muted">You can change access from Gmail in Apps.</p>${button('Connect and continue','confirm-connect',true)}</div>`;
+  }
+  function details(s) {
+    const app = apps.find(a=>a.id===s.detail) || apps[0];
+    return `${button(icon('arrow-left')+' Apps','apps')}<div class="ri-form"><div class="ri-appmark">${icon(app.icon)}</div><div><h2>${app.name}</h2><p class="ri-muted">${app.purpose}</p></div>${app.id==='gmail'?`<dl class="ri-detail"><dt>Account</dt><dd>${s.gmail?esc(s.account):'Not connected'}</dd><dt>Used by</dt><dd>${s.gmail?'Personal agent':'Choose when connecting'}</dd><dt>Access</dt><dd>${s.gmail?'Search and read email':'Not granted'}</dd></dl><div class="ri-actions">${s.gmail?button('Ask Ri','ask-gmail',true)+button('Disconnect','disconnect'):button('Connect','connect-gmail',true)}</div>`:`<div class="ri-actions">${app.id==='finances'?button('Open','open-finances',true):s.hasDrawing?button('Open drawing','open-drawing',true):''}${button('Ask Ri','ask-'+app.id)}</div>`}</div>`;
+  }
+  function financeView(s) {
+    return `<div class="ri-view"><div class="ri-head"><h3>Finances</h3>${button(icon('x'),'close-view',false,'aria-label="Close Finances view"')}</div><p class="ri-muted">Monthly subscriptions · Sample data</p><div class="ri-number">$63 / month</div><label class="ri-transaction"><input type="checkbox" data-select="streaming" ${s.checked.streaming?'checked':''}><span>Streaming service</span><strong>$19</strong></label><label class="ri-transaction"><input type="checkbox" data-select="fitness" ${s.checked.fitness?'checked':''}><span>Fitness membership</span><strong>$25</strong></label><label class="ri-transaction"><input type="checkbox" data-select="cloud" ${s.checked.cloud?'checked':''}><span>Cloud storage</span><strong>$19</strong></label><p class="ri-muted" style="margin-top:18px">Select a subscription to discuss it with Ri.</p></div>`;
+  }
+  function drawingView(s) {
+    return `<div class="ri-view"><div class="ri-head"><h3>Receipt workflow</h3>${button(icon('x'),'close-view',false,'aria-label="Close drawing"')}</div><p class="ri-muted">Excalidraw · Sample drawing</p><div class="ri-flow"><div class="ri-node">A receipt arrives in Gmail</div><div class="ri-node"><label>Next step<input class="ri-search" data-diagram-label value="${esc(s.diagramLabel)}" aria-label="Edit diagram step"></label></div><div class="ri-node">Review spending in Finances</div></div></div>`;
+  }
+  function chat(s) {
+    const user = s.lastMessage || 'Which subscriptions got more expensive this month?';
+    let answer = '';
+    if (s.topic === 'build') {
+      answer = `<p>What would make your day easier?</p><p class="ri-muted">Describe something you wish you could keep track of, see or get done.</p>`;
+    } else if (s.topic === 'drawing') {
+      answer = s.hasDrawing ? `<p>Here’s a first version of your receipt workflow.</p>${button('Open drawing','open-drawing',true)}<div class="ri-evidence"><span>${icon('shapes')} Excalidraw</span></div>` : `<p>Tell me what you want to draw. We can keep working on it here.</p>`;
+    } else if (s.financeOnly && !s.gmail) {
+      answer = `<p>These are the subscriptions recorded in Finances. We can review them here.</p>`;
+    } else if (!s.gmail) {
+      answer = `<p>I can compare your spending in Finances with the renewal receipts in Gmail.</p><div class="ri-choice"><h3>${icon('mail')} Gmail</h3><p class="ri-muted">Connect your account so this agent can find the receipts.</p><div class="ri-actions">${button('Connect Gmail','connect-gmail',true)}${button('Use Finances only','finance-only')}</div></div>`;
+    } else if (s.sent) {
+      answer = `<p>In this sample, streaming rose by $3 and the fitness membership rose by $5. Your renewal emails explain both changes.</p><div class="ri-evidence"><span>${icon('mail')} Gmail · ${esc(s.account)}</span><span>${icon('wallet')} Finances</span></div>${!s.panel?button('Review subscriptions','open-finances',true):''}`;
+    } else {
+      answer = `<p><span class="ri-ready">Gmail · ${esc(s.account)} is ready.</span> We can use it in this conversation.</p><p class="ri-muted">Ask a question, or continue your subscription review.</p>${button('Review my subscriptions','review',true)}`;
+    }
+    const panel = s.panel === 'finances' ? financeView(s) : s.panel === 'drawing' ? drawingView(s) : '';
+    return `<div class="ri-head"><div><h2>${s.topic==='drawing'?'Make a diagram':s.topic==='build'?'Make something useful':'Subscription review'}</h2><p class="ri-muted">Personal</p></div></div><div class="${panel?'ri-split':''}"><div><div class="ri-user">${esc(user)}</div><div class="ri-answer">${answer}</div>${composer(s)}</div>${panel}</div>`;
+  }
+  function render(s) {
+    const el = root.querySelector(`[data-experience="${s.key}"]`);
+    const isApps = ['apps','add','details'].includes(s.screen);
+    let content = isApps ? s.screen==='details'?details(s):library(s) : s.screen==='connect'?connect(s):chat(s);
+    el.innerHTML = `<header class="ri-top"><span class="ri-brand">Ri</span><span class="ri-muted">Personal</span><small>Design study · Sample data</small></header><div class="ri-shell"><nav class="ri-nav" aria-label="Ri navigation"><button type="button" class="ri-navbutton cursor-interaction" data-action="chat" ${!isApps?'aria-current="page"':''}>${icon('message-circle')} Chat</button><button type="button" class="ri-navbutton cursor-interaction" data-action="apps" ${isApps?'aria-current="page"':''}>${icon('layout-grid')} Apps</button><div class="ri-navlabel">Pinned</div><button type="button" class="ri-navbutton ri-pin cursor-interaction" data-action="open-finances">${icon('wallet')} Finances</button></nav><main class="ri-body">${content}<div class="ri-status" role="status" aria-live="polite">${esc(s.notice||'')}</div></main></div>`;
+    if (globalThis.lucide) globalThis.lucide.createIcons({attrs:{width:18,height:18}});
+    filter(s);
+  }
+  function filter(s) {
+    root.querySelectorAll(`[data-experience="${s.key}"] [data-app-name]`).forEach(el=>{
+      const query=(s.search||'').toLowerCase();
+      const installed=el.dataset.appName==='finances'||el.dataset.appName==='gmail'&&s.gmail||el.dataset.appName==='excalidraw'&&s.drawingAdded;
+      el.hidden=!el.dataset.appName.includes(query)||!query&&s.screen!=='add'&&!installed;
+    });
+  }
+  root.querySelectorAll('[data-experience]').forEach(el => {
+    const key = el.dataset.experience;
+    const s = states[key] = {key,screen:key==='work'?'chat':'apps',previous:'chat',gmail:false,account:'Personal',drawingAdded:false,hasDrawing:false,topic:'finance',sent:false,draft:'',mention:'',panel:'',picker:false,selected:0,checked:{},diagramLabel:'Match it to a purchase',search:'',notice:'',...(saved[key]||{})};
+    s.key=key;
+    render(s);
+    el.addEventListener('input', event=>{
+      if(event.target.matches('textarea')) {s.draft=event.target.value;persist();}
+      if(event.target.matches('input[aria-label="Find an app"]')) {s.search=event.target.value;filter(s);}
+      if(event.target.matches('[data-diagram-label]')) {s.diagramLabel=event.target.value;persist();}
+    });
+    el.addEventListener('change',event=>{
+      if(event.target.matches('input[type="radio"]')) {s.account=event.target.value;persist();}
+      if(event.target.matches('[data-select]')) {s.checked[event.target.dataset.select]=event.target.checked;s.selected=Object.values(s.checked).filter(Boolean).length;render(s);persist();}
+    });
+    el.addEventListener('click',event=>{
+      const trigger=event.target.closest('[data-action]'); if(!trigger) return;
+      const action=trigger.dataset.action;
+      s.notice='';
+      if(action==='apps'||action==='add'||action==='chat') {s.screen=action;s.search='';}
+      else if(action==='back') {s.screen=s.previous;}
+      else if(action==='connect-gmail') {s.previous=s.screen;s.screen='connect';}
+      else if(action==='confirm-connect') {s.gmail=true;s.screen=s.previous==='apps'||s.previous==='add'?'apps':'chat';if(s.pendingMention){s.mention='Gmail · '+s.account;s.pendingMention='';s.picker=false;}else if(s.screen==='chat')s.sent=true;s.notice='Gmail is available to Personal. This design study does not connect a real account.';}
+      else if(action==='disconnect') {s.gmail=false;s.notice='Personal can no longer use this Gmail account in this sample.';}
+      else if(action==='add-excalidraw') {s.drawingAdded=true;s.notice='Excalidraw is ready. Ask Ri to create a diagram.';}
+      else if(action.startsWith('details-')) {s.detail=action.slice(8);s.screen='details';}
+      else if(action.startsWith('ask-')) {
+        const id=action.slice(4);const app=apps.find(a=>a.id===id);s.screen='chat';s.picker=false;
+        s.mention=id==='gmail'?'Gmail · '+s.account:app.name;
+        if(!s.draft) s.draft=id==='excalidraw'?'Draw a simple workflow for keeping purchase receipts.':id==='gmail'?'Find renewal emails for my subscriptions.':'What changed in my subscriptions this month?';
+        if(id==='excalidraw') s.drawingAdded=true;
+      }
+      else if(action==='open-finances') {s.screen='chat';s.panel='finances';s.topic='finance';if(!s.gmail)s.financeOnly=true;}
+      else if(action==='open-drawing') {s.screen='chat';s.panel='drawing';s.topic='drawing';}
+      else if(action==='close-view') {s.panel='';s.selected=0;s.checked={};}
+      else if(action==='build') {s.screen='chat';s.topic='build';s.lastMessage='I want something that helps me keep track of things.';s.mention='';s.panel='';}
+      else if(action==='picker') {s.picker=!s.picker;}
+      else if(action==='remove-mention') {s.mention='';}
+      else if(action.startsWith('mention-')) {
+        const id=action.slice(8);const app=apps.find(a=>a.id===id);
+        if(id==='gmail'&&!s.gmail) {s.previous='chat';s.pendingMention='gmail';s.screen='connect';}
+        else {s.mention=id==='gmail'?'Gmail · '+s.account:app.name;s.picker=false;if(id==='excalidraw')s.drawingAdded=true;}
+      }
+      else if(action==='finance-only') {s.panel='finances';s.financeOnly=true;s.notice='Finances is open. Gmail can be connected whenever you need it.';}
+      else if(action==='review') {s.sent=true;s.lastMessage='Which subscriptions got more expensive this month?';}
+      else if(action==='send') {
+        if(!s.draft.trim()) {s.notice='Write a question first.';render(s);return;}
+        s.lastMessage=s.draft;s.draft='';s.sent=true;
+        if(s.topic==='drawing'||s.mention==='Excalidraw') {s.hasDrawing=true;s.topic='drawing';s.drawingAdded=true;s.panel='drawing';}
+        else if(s.topic==='build') {s.notice='The build conversation would continue here, with a preview when there is something useful to try.';}
+      }
+      render(s);persist();
+      if(action.startsWith('ask-')||action==='build'||action.startsWith('mention-')) el.querySelector('textarea')?.focus();
+    });
+  });
+  window.addEventListener('openai:set_globals',event=>{
+    const journeys=event.detail?.globals?.widgetState?.privateContent?.journeys;
+    if(!journeys) return;
+    for(const key of Object.keys(states)) if(journeys[key]) {Object.assign(states[key],journeys[key],{key});render(states[key]);}
+  });
+})();
+</script>

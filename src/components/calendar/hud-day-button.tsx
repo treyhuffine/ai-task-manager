@@ -40,9 +40,9 @@ export function HudDayButton() {
   useEffect(() => subscribeInviteDismissed(() => setInviteDismissed(true)), []);
 
   // The countdown re-derives from cached data on a local tick — no refetch.
-  const [, setTick] = useState(0);
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), TICK_MS);
+    const timer = setInterval(() => setNow(new Date()), TICK_MS);
     return () => clearInterval(timer);
   }, []);
 
@@ -55,13 +55,16 @@ export function HudDayButton() {
     return (
       <Popover open={inviteOpen} onOpenChange={setInviteOpen}>
         <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="flex items-center gap-1.5 h-7 px-2 rounded-lg border border-dashed border-border text-[11px] font-medium text-muted-foreground hover:text-foreground transition-all"
-          >
-            <Calendar size={12} />
-            <span>Connect your calendar</span>
-          </button>
+          <Tip label="Connect your calendar" onlyWhenTextHidden>
+            <button
+              type="button"
+              aria-label="Connect your calendar"
+              className="flex min-w-0 max-w-full items-center gap-1.5 h-7 px-2 whitespace-nowrap rounded-lg border border-dashed border-border text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Calendar size={12} className="shrink-0" />
+              <span className="truncate">Connect <span className="hud-calendar-invite-detail">your </span>calendar</span>
+            </button>
+          </Tip>
         </PopoverTrigger>
         <PopoverContent align="end" sideOffset={6} className="w-72 p-3">
           <p className="text-sm font-medium text-foreground">Your day, at a glance</p>
@@ -89,7 +92,7 @@ export function HudDayButton() {
               }}
               className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
             >
-              Don't show this again
+              Don&apos;t show this again
             </button>
           </div>
         </PopoverContent>
@@ -97,8 +100,9 @@ export function HudDayButton() {
     );
   }
 
-  const { text, tone } = hudLabel(data.days[0], data.status, new Date());
-  const stale = Date.now() - Date.parse(data.asOf) > STALE_MS;
+  const { text, tone, event } = hudLabel(data.days[0], data.status, now);
+  const fullLabel = event ? [event.title, event.timing, event.overlap].filter(Boolean).join(' ') : text;
+  const stale = now.getTime() - Date.parse(data.asOf) > STALE_MS;
   const degraded = data.status === 'degraded' || data.status === 'error';
 
   const openDay = () => {
@@ -122,21 +126,30 @@ export function HudDayButton() {
         }}
       >
         <PopoverTrigger asChild>
-          <Tip label={stale || degraded ? `As of ${formatAsOf(data.asOf)}` : undefined}>
+          <Tip
+            label={stale || degraded ? `${fullLabel}\nAs of ${formatAsOf(data.asOf)}` : fullLabel}
+            onlyWhenTextHidden={!stale && !degraded}
+          >
             <button
               type="button"
-              aria-label="Day shape"
+              aria-label={`Day shape: ${fullLabel}`}
               className={cn(
-                'relative flex items-center gap-1.5 h-7 px-2 rounded-lg border text-[11px] font-medium transition-all',
+                'relative flex min-w-0 max-w-full items-center gap-1.5 h-7 px-2 whitespace-nowrap rounded-lg border text-[11px] font-medium transition-colors',
                 tone === 'warning'
                   ? 'text-amber-600 border-amber-500/40 bg-amber-500/10 dark:text-amber-400'
                   : 'border-border text-muted-foreground hover:text-foreground',
               )}
             >
-              <Calendar size={12} />
-              <span className="max-w-56 truncate">{text}</span>
+              <Calendar size={12} className="shrink-0" />
+              {event ? (
+                <>
+                  <span className="min-w-0 max-w-56 truncate">{event.title}</span>
+                  <span className="hud-calendar-timing shrink-0 tabular-nums">{event.timing}</span>
+                  {event.overlap && <span className="hud-calendar-overlap shrink-0">{event.overlap}</span>}
+                </>
+              ) : <span className="min-w-0 max-w-56 truncate">{text}</span>}
               {(stale || degraded) && (
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500/80" aria-hidden />
+                <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-amber-500/80" aria-hidden />
               )}
             </button>
           </Tip>

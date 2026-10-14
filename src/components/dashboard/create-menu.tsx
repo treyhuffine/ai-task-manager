@@ -12,6 +12,10 @@ import { useCreateNote } from "@/hooks/use-notes";
 import { useCreateTask } from "@/hooks/use-tasks";
 import { useDashboard } from "@/contexts/dashboard-context";
 import { HOTKEYS } from "@/constants/commands";
+import { Tip } from "@/components/ui/tip";
+import { useStartSkill } from "@/hooks/use-start-skill";
+import { openSettings } from "@/components/settings/settings-store";
+import { PLUGIN_CREATE_ANCHORS } from "@/components/settings/sections/plugins/navigation";
 
 export function CreateMenu() {
   const [open, setOpen] = useState(false);
@@ -19,6 +23,7 @@ export function CreateMenu() {
 
   const createNote = useCreateNote();
   const createTask = useCreateTask();
+  const newSkill = useStartSkill();
   const { openNote, openTask, setQuickCaptureOpen } = useDashboard();
 
   const handleQuickCapture = useCallback(() => {
@@ -60,9 +65,11 @@ export function CreateMenu() {
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button className="flex items-center gap-1 px-3 py-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-lg shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95">
-            <Plus size={14} /> CREATE
-          </button>
+          <Tip label="Create" onlyWhenTextHidden>
+            <button type="button" aria-label="Create" className="hud-create flex shrink-0 items-center gap-1 whitespace-nowrap px-3 py-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-lg shadow-lg shadow-primary/20 hover:opacity-90 transition-all active:scale-95">
+              <Plus size={14} className="shrink-0" /> <span className="hud-create-label">CREATE</span>
+            </button>
+          </Tip>
         </PopoverTrigger>
         <PopoverContent
           align="end"
@@ -133,6 +140,19 @@ export function CreateMenu() {
             </button>
 
           </div>
+          <div className="h-px bg-border my-1" />
+          <button type="button" onClick={() => { setOpen(false); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.connectService }); }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[11px] hover:bg-accent">
+            <Plus size={15} className="shrink-0 text-muted-foreground" /> Connect a service
+          </button>
+          <button type="button" disabled={newSkill.isPending} onClick={() => { setOpen(false); newSkill.start(); }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[11px] hover:bg-accent disabled:opacity-50">
+            <Plus size={15} className="shrink-0 text-muted-foreground" /> New skill
+          </button>
+          <button type="button" onClick={() => { setOpen(false); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.mcpServer }); }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[11px] hover:bg-accent">
+            <Plus size={15} className="shrink-0 text-muted-foreground" /> Add MCP server
+          </button>
         </PopoverContent>
       </Popover>
 

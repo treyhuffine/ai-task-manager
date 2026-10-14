@@ -26,7 +26,8 @@ export type GlobalSessionStreamMessage =
   | {
       kind: 'session_updated';
       sessionId: string;
-      reason: 'outcome' | 'runtime' | 'background_task' | 'pending_input' | 'reconcile' | 'delivery' | 'transfer';
+      executionId?: string | null;
+      reason: 'outcome' | 'runtime' | 'background_task' | 'pending_input' | 'reconcile' | 'delivery' | 'transfer' | 'title';
     }
   /**
    * A device's worker connected, dropped, or reported a new state (awake,
@@ -36,6 +37,7 @@ export type GlobalSessionStreamMessage =
 
 /** Payload variants carried by the in-process realtime bus. */
 export type SessionStreamMessage =
+  | { kind: 'title_changed' }
   | { kind: 'chat_event'; event: ChatEventRecord }
   | { kind: 'runtime'; running: boolean }
   | { kind: 'background_tasks'; active: boolean; taskIds: string[] }
@@ -182,4 +184,10 @@ export function publishReconcileDone(sessionId: string, replayed: number): void 
   if (replayed > 0) {
     publishGlobal({ kind: 'session_updated', sessionId, reason: 'reconcile' });
   }
+}
+
+/** Metadata refresh without adding a conversational event. */
+export function publishSessionTitle(sessionId: string, executionId?: string | null): void {
+  publish(sessionChannel(sessionId), { kind: 'title_changed' });
+  publishGlobal({ kind: 'session_updated', sessionId, reason: 'title', ...(executionId !== undefined ? { executionId } : {}) });
 }

@@ -3,6 +3,7 @@ import { fileLock, type ConnectionStore, type Lock } from '@integrations/engine'
 import { getConfigDir } from '@/lib/config/paths';
 import type { McpServerEntry, McpServerPatch, McpServerStore } from './mcp-servers';
 import { hostedMcpConnectionId } from './hosted-mcp';
+import { mcpIngestOverrides } from './mcp-approval-policy';
 
 function lifecycleLock(): Lock {
   return fileLock({ dir: path.join(getConfigDir(), 'integrations', 'locks') });
@@ -20,7 +21,7 @@ function matchesTransport(snapshot: McpServerEntry, current: McpServerEntry | nu
     current.credentialRevision === snapshot.credentialRevision &&
     hostedMcpConnectionId(current) === hostedMcpConnectionId(snapshot) &&
     JSON.stringify(current.auth) === JSON.stringify(snapshot.auth) &&
-    JSON.stringify(current.toolOverrides) === JSON.stringify(snapshot.toolOverrides));
+    JSON.stringify(mcpIngestOverrides(current.toolOverrides)) === JSON.stringify(mcpIngestOverrides(snapshot.toolOverrides)));
 }
 
 /** Read on every execution so another process can revoke a captured transport. */

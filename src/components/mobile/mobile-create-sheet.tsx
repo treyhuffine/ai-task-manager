@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from 'react';
-import { Search, CheckSquare, FileText, Layers, Zap, ChevronRight } from 'lucide-react';
+import { Search, CheckSquare, FileText, Layers, Zap, ChevronRight, Plus } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -10,6 +10,9 @@ import {
 import { AreaCreateModal } from '@/components/dashboard/area-create-modal';
 import { useCreateNote } from '@/hooks/use-notes';
 import { useCreateTask } from '@/hooks/use-tasks';
+import { useStartSkill } from '@/hooks/use-start-skill';
+import { openSettings } from '@/components/settings/settings-store';
+import { PLUGIN_CREATE_ANCHORS } from '@/components/settings/sections/plugins/navigation';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { cn } from '@/lib/utils';
 
@@ -25,6 +28,7 @@ export function MobileCreateSheet() {
   const [areaOpen, setAreaOpen] = useState(false);
   const createNote = useCreateNote();
   const createTask = useCreateTask();
+  const newSkill = useStartSkill();
 
   const handleQuickCapture = useCallback(() => {
     setMobileCreateOpen(false);
@@ -104,6 +108,20 @@ export function MobileCreateSheet() {
                 </span>
               </button>
             ))}
+          </div>
+          <div className="mt-4 grid gap-1 border-t border-border pt-2">
+            <button type="button" onClick={() => { setMobileCreateOpen(false); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.connectService }); }}
+              className="flex items-center gap-3 rounded-lg px-2 py-3 text-left text-xs hover:bg-accent">
+              <Plus size={17} className="shrink-0 text-muted-foreground" /> Connect a service
+            </button>
+            <button type="button" disabled={newSkill.isPending} onClick={() => { setMobileCreateOpen(false); newSkill.start(); }}
+              className="flex items-center gap-3 rounded-lg px-2 py-3 text-left text-xs hover:bg-accent disabled:opacity-50">
+              <Plus size={17} className="shrink-0 text-muted-foreground" /> New skill
+            </button>
+            <button type="button" onClick={() => { setMobileCreateOpen(false); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.mcpServer }); }}
+              className="flex items-center gap-3 rounded-lg px-2 py-3 text-left text-xs hover:bg-accent">
+              <Plus size={17} className="shrink-0 text-muted-foreground" /> Add MCP server
+            </button>
           </div>
         </SheetContent>
       </Sheet>

@@ -7,7 +7,7 @@ import { rpcQuery } from '@/lib/trpc/request-options';
  * The Integrations tab of Plugins (./plugins-section.tsx): connect external
  * services so agents can act on your behalf. Two levels, like an app store:
  *
- *   - Catalog. Every provider (and remote MCP server) is a tile whose only
+ *   - Catalog. Every provider is a tile whose only
  *     affordance is "open". Connected ones group at the top with the account
  *     they hold, the rest group by category, and search spans all of it.
  *   - Detail. One integration at a time: accounts (test, disconnect), the connect
@@ -25,25 +25,24 @@ import { rpcQuery } from '@/lib/trpc/request-options';
 import { IntegrationLogo } from '@/components/integrations/integration-logo';
 import { CATEGORY_ORDER, integrationMeta, type IntegrationCategory } from '@/components/integrations/integration-meta';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
-import { useSettingsStore } from '@/components/settings/settings-store';
+import { setSettingsAnchor, useSettingsStore } from '@/components/settings/settings-store';
+import { PLUGIN_CREATE_ANCHORS } from './plugins/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { type HostedEndpointSelection } from '@/lib/client/integration-endpoint';
 import { openIntegrationAuthorization } from '@/lib/client/desktop';
-import { AlertCircle, CheckCircle2, Loader2, Plug, Plus, Search } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, Plug, Search } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ConnectionRequestsSetting } from './integrations/connection-requests-setting';
 import { hostedAccountRequestFields, hostedAccountSignedIn } from './integrations/hosted-account-request';
-import { McpServerDetail, McpServerForm, mcpTone } from './integrations/mcp-server-detail';
 import { watchOAuthReturn } from './integrations/oauth-focus-refresh';
-import { CatalogTile, GroupHeading, McpLogo } from './integrations/parts';
+import { CatalogTile, GroupHeading } from './integrations/parts';
 import { PreviousConnections } from './integrations/previous-connections';
 import { ProviderDetail } from './integrations/provider-detail';
 import {
 	connectionIdentity,
 	EMPTY_BYO_FORM,
-	EMPTY_MCP_FORM,
 	errMsg,
 	isRegisteredMcp,
 	oauthAppRedirectUri,
@@ -52,9 +51,6 @@ import {
 	type ByoForm,
 	type Connection,
 	type HostedConnectIntent,
-	type McpForm,
-	type McpServerEntry,
-	type McpToolOverride,
 	type ProviderStatus,
 	type TestResult,
 	type ToolkitInfo,
@@ -63,9 +59,7 @@ import {
 
 type View =
   | { kind: 'catalog' }
-  | { kind: 'provider'; id: string }
-  | { kind: 'mcp'; id: string }
-  | { kind: 'mcp-new' };
+  | { kind: 'provider'; id: string };
 
 const CATALOG: View = { kind: 'catalog' };
 
@@ -76,15 +70,6 @@ function scrollParent(el: HTMLElement | null): HTMLElement | null {
     if (overflowY === 'auto' || overflowY === 'scroll') return n;
   }
   return null;
-}
-
-/** "https://mcp.sentry.dev/sse" → "mcp.sentry.dev". Falls back to the raw string. */
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host || url;
-  } catch {
-    return url;
-  }
 }
 
 const byName = (a: { displayName: string }, b: { displayName: string }) => a.displayName.localeCompare(b.displayName);
@@ -100,7 +85,7 @@ function connectedSubtitle(p: ProviderStatus, conns: Connection[]): string {
   return who ?? integrationMeta(p.id).description;
 }
 
-export function IntegrationsSection() {
+export function IntegrationsSection({ active = true }: { active?: boolean }) {
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [toolkits, setToolkits] = useState<ToolkitInfo[]>([]);
@@ -118,6 +103,8 @@ export function IntegrationsSection() {
   const [advancedOpen, setAdvancedOpen] = useState(false); // detail view's "Use your own OAuth app"
   const rootRef = useRef<HTMLDivElement>(null);
   const catalogScroll = useRef(0);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const focusSearch = useRef(false);
 
   const [creds, setCreds] = useState<Record<string, Record<string, string>>>({});
   const [endpointSelections, setEndpointSelections] = useState<Record<string, HostedEndpointSelection>>({});
@@ -129,10 +116,6 @@ export function IntegrationsSection() {
   // BYO OAuth app state (per provider).
   const [byoConfigs, setByoConfigs] = useState<Record<string, AuthConfigSummary[]>>({});
   const [byoForm, setByoForm] = useState<Record<string, ByoForm>>({});
-
-  // MCP servers (ingest external MCP as integrations).
-  const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([]);
-  const [mcpForm, setMcpForm] = useState<McpForm>(EMPTY_MCP_FORM);
 
   const providerScopes = useCallback(
     (providerId: string): string[] => {
@@ -179,11 +162,6 @@ export function IntegrationsSection() {
     const wpMap: Record<string, WritePolicyAction> = {};
     for (const t of wp.toolkits) for (const a of t.actions) wpMap[a.id] = { mode: a.mode, defaultMode: a.defaultMode, overridden: a.overridden };
     setWritePolicy(wpMap);
-    // Fetch MCP server health AFTER the runtime-touching calls above (which force a rebuild +
-    // re-ingest), so the health reflects the latest ingest, not a pre-rebuild snapshot.
-    const mcp = await trpcClient.integrations.mcpServersGet.query({});
-    // Built-in hosted integrations have a normal provider card and its connect flow.
-    setMcpServers(mcp.servers.filter((server) => !server.providerId));
     return st.providers;
   }, []);
 
@@ -240,6 +218,7 @@ export function IntegrationsSection() {
     (next: View) => {
       if (view.kind === 'catalog') catalogScroll.current = scrollParent(rootRef.current)?.scrollTop ?? 0;
       setView(next);
+      setSettingsAnchor(next.kind === 'provider' ? `integrations:${next.id}` : 'integrations');
       setAdvancedOpen(false);
       setError(null);
       setBanner(null);
@@ -250,15 +229,17 @@ export function IntegrationsSection() {
 
   // A detail opens at its top; the catalog comes back where it was left.
   useLayoutEffect(() => {
+    if (!active) return;
     const pane = scrollParent(rootRef.current);
     if (pane) pane.scrollTop = view.kind === 'catalog' ? catalogScroll.current : 0;
-  }, [view]);
+    if (!isLoading && view.kind === 'catalog' && focusSearch.current) { searchRef.current?.focus(); focusSearch.current = false; }
+  }, [active, isLoading, view]);
 
   // Esc inside a detail steps back to the catalog instead of closing Settings.
   // This window-level capture listener runs before Radix's document-level one,
   // and Radix skips its dismiss when the event is already default-prevented.
   useEffect(() => {
-    if (view.kind === 'catalog') return;
+    if (!active || view.kind === 'catalog') return;
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || !matchesHotkey(e, HOTKEYS.slideoutBack)) return;
       e.preventDefault();
@@ -266,52 +247,8 @@ export function IntegrationsSection() {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [view.kind, back]);
+  }, [active, view.kind, back]);
 
-  // --- MCP servers ---------------------------------------------------------
-
-  const addMcp = () =>
-    run(async () => {
-      const f = mcpForm;
-      const auth =
-        f.authKind === 'oauth'
-          ? { kind: 'oauth' as const }
-          : f.authKind === 'bearer'
-            ? { kind: 'bearer' as const }
-            : f.authKind === 'header'
-              ? { kind: 'header' as const, header: f.header.trim() }
-              : { kind: 'none' as const };
-      const usesSecret = f.authKind === 'bearer' || f.authKind === 'header';
-      const r = await trpcClient.integrations.mcpServersPost.mutate({body: { name: f.name.trim(), url: f.url.trim(), auth, ...(usesSecret ? { secret: f.secret } : {}) }});
-      if ('requiresAuth' in r && r.requiresAuth && 'authUrl' in r && r.authUrl) {
-        await authorize(r.authUrl, ('desktopFlowId' in r ? r.desktopFlowId : undefined));
-        return;
-      }
-      setMcpForm(EMPTY_MCP_FORM);
-      navigate(CATALOG);
-      setBanner(
-        `Added ${f.name.trim()}${typeof ('toolCount' in r ? r.toolCount : undefined) === 'number' ? ` (${('toolCount' in r ? r.toolCount : undefined)} tool${('toolCount' in r ? r.toolCount : undefined) === 1 ? '' : 's'})` : ''}`,
-      );
-    });
-  const authorizeMcp = (id: string) =>
-    run(async () => {
-      const r = await trpcClient.integrations.mcpServerPost.mutate({params: {id: id}, body: {}});
-      if ('requiresAuth' in r && r.requiresAuth && 'authUrl' in r && r.authUrl) await authorize(r.authUrl, ('desktopFlowId' in r ? r.desktopFlowId : undefined));
-    });
-
-  // Once the refresh drops the server, the stale-view guard below returns to the catalog.
-  const removeMcp = (s: McpServerEntry) =>
-    run(async () => {
-      await trpcClient.integrations.mcpServersDelete.mutate({params: {id: s.id}});
-      setBanner(`Removed ${s.displayName}`);
-    });
-  const toggleMcp = (s: McpServerEntry) =>
-    run(() => trpcClient.integrations.mcpServersPatch.mutate({params: {id: s.id}, body: { enabled: !s.enabled }}).then(() => {}));
-  const retestMcp = (id: string) =>
-    run(async () => {
-      await trpcClient.integrations.mcpServersPatch.mutate({params: {id: id}, body: {}}); // invalidate
-      await trpcClient.integrations.connectionsGet.query({}); // force a rebuild so health refreshes
-    });
   const reviewCapabilities = (serverId: string, reviewedRevision: string) => run(async () => {
     try {
       await trpcClient.integrations.mcpServersPatch.mutate({params: {id: serverId}, body: { reviewedRevision }});
@@ -322,20 +259,8 @@ export function IntegrationsSection() {
       throw error;
     }
   });
-  // Per-tool switches apply optimistically: the list never locks or flashes while
-  // the patch lands, and a failure restores server truth.
-  const setMcpToolOverride = (s: McpServerEntry, toolName: string, patch: McpToolOverride) => {
-    const current = s.toolOverrides ?? {};
-    const toolOverrides = { ...current, [toolName]: { ...current[toolName], ...patch } };
-    setMcpServers((list) => list.map((x) => (x.id === s.id ? { ...x, toolOverrides } : x)));
-    trpcClient.integrations.mcpServersPatch.mutate({params: {id: s.id}, body: { toolOverrides }}).catch((e) => {
-      setError(errMsg(e));
-      refresh().catch(() => {});
-    });
-  };
-
   // Flip a mutating action between running on standing intent ('auto') and pausing
-  // for a per-call approval ('ask'). Optimistic, like the MCP tool switches.
+  // for a per-call approval ('ask'). The switch updates immediately.
   // Landing back on the default clears the override instead of pinning it, so
   // the "changed" marker only ever means "differs from the default".
   const setActionApproval = (actionId: string, mode: ApprovalMode) => {
@@ -422,15 +347,25 @@ export function IntegrationsSection() {
   // `openSettings('plugins', { anchor: 'integrations:<id>' })` lands on that
   // provider's page (the main chat's first run links each app here). Once per
   // anchor, after the catalog has loaded, so Back still reaches the catalog.
-  const { anchor } = useSettingsStore();
-  const openedAnchor = useRef<string | null>(null);
+  const { anchor, requestId } = useSettingsStore();
+  const openedRequest = useRef<number | null>(null);
   useEffect(() => {
-    if (!anchor?.startsWith('integrations:') || anchor === openedAnchor.current || providers.length === 0) return;
+    if (!active || isLoading || openedRequest.current === requestId) return;
+    openedRequest.current = requestId;
+    if (anchor === PLUGIN_CREATE_ANCHORS.connectService) {
+      catalogScroll.current = 0;
+      const pane = scrollParent(rootRef.current);
+      if (pane) pane.scrollTop = 0;
+      focusSearch.current = true; setQuery(''); back();
+      if (view.kind === 'catalog') { searchRef.current?.focus({ preventScroll: true }); focusSearch.current = false; }
+      return;
+    }
+    if (anchor === 'integrations' || !anchor) { back(); return; }
+    if (!anchor.startsWith('integrations:')) return;
     const provider = providers.find((p) => p.id === anchor.slice('integrations:'.length));
-    openedAnchor.current = anchor;
     if (provider) openProvider(provider);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the anchor and the catalog, not on every handler identity
-  }, [anchor, providers]);
+  }, [active, anchor, requestId, isLoading, providers]);
 
   const connectOAuth = useCallback(
     async (p: ProviderStatus, authConfigId?: string, intent?: HostedConnectIntent) => {
@@ -563,20 +498,15 @@ export function IntegrationsSection() {
         .sort(byName);
       if (items.length) groups.push({ category, items });
     }
-    const servers = mcpServers.filter(
-      (s) => !q || s.displayName.toLowerCase().includes(q) || s.url.toLowerCase().includes(q),
-    );
     const previous = connections.filter(c => (c.providerId === 'jira' || c.providerId === 'confluence') &&
       (!q || `${c.providerId} ${connectionIdentity(c)} Atlassian`.toLowerCase().includes(q)));
-    const total = connected.length + groups.reduce((n, g) => n + g.items.length, 0) + servers.length + previous.length;
-    return { connected, groups, servers, previous, total };
-  }, [q, catalogProviders, connectionsByProvider, mcpServers, connections]);
+    const total = connected.length + groups.reduce((n, g) => n + g.items.length, 0) + previous.length;
+    return { connected, groups, previous, total };
+  }, [q, catalogProviders, connectionsByProvider, connections]);
 
   const selectedProvider = view.kind === 'provider' ? catalogProviders.find((p) => p.id === view.id) : undefined;
-  const selectedServer = view.kind === 'mcp' ? mcpServers.find((s) => s.id === view.id) : undefined;
-  // The selected integration vanished (a removed MCP server, a provider the engine
-  // dropped): fall back to the catalog rather than render an empty detail.
-  const stale = (view.kind === 'provider' && !selectedProvider) || (view.kind === 'mcp' && !selectedServer);
+  // The selected provider vanished: fall back to the catalog rather than render an empty detail.
+  const stale = view.kind === 'provider' && !selectedProvider;
   if (stale) setView(CATALOG);
 
   if (isLoading) {
@@ -621,6 +551,7 @@ export function IntegrationsSection() {
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
             <Input
+              ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={`Search ${INTEGRATION_LABELS.plural.toLowerCase()}`}
@@ -687,77 +618,10 @@ export function IntegrationsSection() {
                   </TileGrid>
                 </section>
               ))}
-
-              {(!q || catalog.servers.length > 0) && (
-                <section className="space-y-2">
-                  <GroupHeading
-                    action={
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        onClick={() => navigate({ kind: 'mcp-new' })}
-                        className="text-xs"
-                      >
-                        <Plus size={12} /> Add server
-                      </Button>
-                    }
-                  >
-                    MCP servers
-                  </GroupHeading>
-                  {catalog.servers.length > 0 ? (
-                    <TileGrid>
-                      {catalog.servers.map((s) => {
-                        const status = mcpTone(s);
-                        const tools = s.lastToolCount ?? s.tools?.length;
-                        return (
-                          <CatalogTile
-                            key={s.id}
-                            logo={<McpLogo size={36} dim={!s.enabled} />}
-                            name={s.displayName}
-                            subtitle={
-                              typeof tools === 'number'
-                                ? `${hostOf(s.url)} · ${tools} tool${tools === 1 ? '' : 's'}`
-                                : hostOf(s.url)
-                            }
-                            tone={status.tone}
-                            toneLabel={status.label}
-                            onOpen={() => navigate({ kind: 'mcp', id: s.id })}
-                          />
-                        );
-                      })}
-                    </TileGrid>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground">
-                      Add a remote MCP server and its tools become {INTEGRATION_LABELS.plural.toLowerCase()}, behind your approval gate.
-                    </p>
-                  )}
-                </section>
-              )}
             </div>
           )}
           {!q && <ConnectionRequestsSetting />}
         </>
-      ) : view.kind === 'mcp-new' ? (
-        <McpServerForm
-          form={mcpForm}
-          busy={busy}
-          onChange={(patch) => setMcpForm((f) => ({ ...f, ...patch }))}
-          onSubmit={addMcp}
-          onBack={back}
-        />
-      ) : selectedServer ? (
-        <McpServerDetail
-          key={selectedServer.id}
-          server={selectedServer}
-          busy={busy}
-          onBack={back}
-          onAuthorize={() => authorizeMcp(selectedServer.id)}
-          onRetest={() => retestMcp(selectedServer.id)}
-          onToggleEnabled={() => toggleMcp(selectedServer)}
-          onRemove={() => removeMcp(selectedServer)}
-          onToolOverride={(toolName, patch) => setMcpToolOverride(selectedServer, toolName, patch)}
-          onReviewCapabilities={revision => reviewCapabilities(selectedServer.id, revision)}
-        />
       ) : selectedProvider ? (
         <ProviderDetail
           key={selectedProvider.id}

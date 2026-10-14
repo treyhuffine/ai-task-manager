@@ -36,8 +36,15 @@ function authorizationId(state: string): string {
   return createHash('sha256').update(state).digest('hex');
 }
 
+/** Custom server sign-in returns to its detail. Hosted accounts stay in Connectors. */
+export function mcpSettingsReturnPath(entry: Pick<McpServerEntry, 'id' | 'providerId'>) {
+  const params = new URLSearchParams({ settings: 'plugins' });
+  if (!entry.providerId) params.set('plugin', `mcp:${entry.id}`);
+  return `/?${params}`;
+}
+
 /** `request` is the browser call that started the add, so the callback can return to its origin. */
-export async function beginMcpAuthorization(entry: McpServerEntry, request?: Pick<Request, 'headers' | 'url'>, returnTo?: string) {
+export async function beginMcpAuthorization(entry: McpServerEntry, request?: Pick<Request, 'headers' | 'url'>, returnTo = mcpSettingsReturnPath(entry)) {
   let flow: DesktopOAuthFlow | undefined;
   let authUrl: string | undefined;
   const redactor = createRedactor();

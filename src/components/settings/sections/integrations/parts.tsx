@@ -136,16 +136,16 @@ export function CatalogTile({
  * while a request is in flight, a quiet working indicator that never shifts the
  * layout below it.
  */
-export function BackLink({ onBack, busy = false }: { onBack: () => void; busy?: boolean }) {
+export function BackLink({ onBack, busy = false, label = `All ${INTEGRATION_LABELS.plural.toLowerCase()}` }: { onBack: () => void; busy?: boolean; label?: string }) {
   return (
     <div className="flex min-h-6 items-center justify-between gap-2">
-      <Tip label={`Back to all ${INTEGRATION_LABELS.plural.toLowerCase()}`} shortcut={HOTKEYS.slideoutBack.label}>
+      <Tip label={`Back to ${label.toLowerCase()}`} shortcut={HOTKEYS.slideoutBack.label}>
         <button
           type="button"
           onClick={onBack}
           className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ArrowLeft size={12} /> All {INTEGRATION_LABELS.plural.toLowerCase()}
+          <ArrowLeft size={12} /> {label}
         </button>
       </Tip>
       {busy && (

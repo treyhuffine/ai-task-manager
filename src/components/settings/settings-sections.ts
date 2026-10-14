@@ -100,7 +100,7 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     label: 'Plugins',
     icon: Plug,
     title: 'Plugins',
-    description: `${INTEGRATION_LABELS.plural} let your agents act in your accounts. Skills teach them how to do things.`,
+    description: `${INTEGRATION_LABELS.plural} connect your accounts. Skills teach your agents. MCP servers add custom tools.`,
   },
   {
     id: 'models',

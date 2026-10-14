@@ -108,6 +108,19 @@ describe('resolveBackgroundHarness / backgroundModelFor', () => {
 });
 
 describe('runHarnessText', () => {
+  it('runs supplied naming policy on a device without replacing its harness or model', async () => {
+    userState = { defaultHarness: 'codex', defaultModel: 'gpt-6-astra' };
+    const { executeHarnessTextOnDevice } = await import('./one-shot-runtime');
+    const result = await executeHarnessTextOnDevice({
+      label: 'chat-title', harness: 'claude', model: 'haiku', prompt: 'Name this chat',
+      timeoutSec: 30, skipPermissions: false, planMode: true, extraArgs: ['--tools', ''],
+    });
+    expect(result).toMatchObject({ providerType: 'claude', model: 'haiku', text: 'ok' });
+    expect(lastCall()).toMatchObject({ prompt: 'Name this chat', model: 'haiku', config: {
+      timeoutSec: 30, strictMcpConfig: true, planMode: true, unattendedPermissionPolicy: 'deny', extraArgs: ['--tools', ''],
+    } });
+  });
+
   it('forwards qualified host flags and refuses a different saved harness', async () => {
     userState = { defaultHarness: 'claude' };
     const { runHarnessText } = await import('./one-shot');

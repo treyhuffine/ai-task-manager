@@ -31,8 +31,9 @@ describe('capability review', () => {
       server: { id: 'custom', slug: 'custom', displayName: 'Custom', url: 'https://example.com/mcp', enabled: true, auth: { kind: 'none' }, capabilityChanges: changes, tools: [{ name: 'add-task' }] },
       busy: true, onBack: vi.fn(), onAuthorize: vi.fn(), onRetest: vi.fn(), onToggleEnabled: vi.fn(), onRemove: vi.fn(), onToolOverride: vi.fn(), onReviewCapabilities: vi.fn(),
     }));
-    expect(html).toContain('Tools changed since your last review');
+    expect(html).toContain('Tools changed');
+    expect(html).toContain('Tools use your current permissions');
     expect(html).toContain('Ask first');
-    expect(html).toMatch(/<button(?=[^>]*disabled="")[^>]*>Mark reviewed<\/button>/);
+    expect(html).toMatch(/<button(?=[^>]*disabled="")[^>]*>Dismiss notice<\/button>/);
   });
 });

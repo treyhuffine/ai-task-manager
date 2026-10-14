@@ -1,0 +1,856 @@
+--- a/docs/integrations-current.md
++++ b/docs/integrations-current.md
+@@ -116,4 +116,6 @@
+ 
+ Hosted integrations support multiple labeled accounts with separate credentials, endpoint and OAuth app bindings, and targeted reconnect, test and disconnect. Settings also reports added, removed and changed upstream tools per account. Discovery refreshes on tool-list notifications and on runtime access after five minutes. No SQLite migration is needed for these features.
+ 
++Runtime refresh lets already-started requests finish. Temporary discovery failures retain verified tool definitions and retry on access after fifteen seconds, keeping unavailable services distinct from rejected credentials. Paid calls are never replayed automatically. The [recovery guide](integrations-recovery.md) describes the behavior and retained health diagnostics.
++
+ Todoist and Jira have typed consumers for the task picker using canonical hosted tools. They read accounts independently and preserve account labels, source links and partial results. ClickUp, Trello, TickTick and Wrike picker consumers remain pending authenticated contract capture. The [evidence and capture guide](integration-audit/task-picker-expansion.md) records the exact gaps. The retired Linear and Asana picker consumers are removed. These services remain available to agents through hosted tools, but their task-picker support needs validated current input/output schemas. Other hosted additions likewise expose agent tools without automatically adding deterministic picker integrations.
+--- /dev/null
++++ b/docs/integrations-recovery.md
+@@ -0,0 +1,41 @@
++# Connector transport recovery
++
++Ri distinguishes temporarily unavailable connectors from connections that need new credentials. The behavior is shared by official and custom MCP servers. It requires no database migration.
++
++## Requests already running
++
++Discovery normally refreshes on access after five minutes, or when a provider notifies Ri that its tools changed. Invalidation immediately prevents new work through the old projection. It retires the old MCP clients, allowing already-started tool calls and resource reads to finish before closing their sockets.
++
++The SDK still bounds each operation. Tool calls have a two-minute inactivity timeout, reset by progress, and a ten-minute total cap. Resource reads have a thirty-second timeout. Retirement does not extend those deadlines.
++
++Disabled accounts, changed credentials, tool overrides, changed capability revisions and account removal are still checked before dispatch. Graceful retirement only preserves requests that have already started.
++
++## Temporary outages
++
++When connecting or listing tools fails, Ri records the error and its phase. If the account has a saved connection and a verified capability snapshot, Ri republishes those known tool definitions with an unavailable transport. This avoids turning a network interruption into an unknown-tool error or an empty tool list cached by the harness.
++
++Cached discovery never activates a connection, replaces its sealed credential, changes account identity, or bypasses the normal permissions and approval gates. It cannot send a data request. An attempted call returns `provider_unavailable` with a message that no request was sent. A connection already awaiting authorization continues to return `auth_required`.
++
++A runtime with unavailable discovery retries on its next access after a fifteen-second cooldown. A failure from an established transport retires that runtime so the next access can reconnect. Multiple accesses share one build. There is no continuous background polling, and account scopes and tool overrides still apply to the cached definitions.
++
++Provider-returned tool errors, such as an invalid API request represented by MCP `isError`, remain action errors and do not retire the connection. Transport failures do not erase credentials.
++
++## Authentication rejection
++
++Only typed SDK authentication errors, HTTP 401 transport rejection, or the host's `NeedsReauthError` signal require reauthentication. An error message containing "401" or "Unauthorized" is not sufficient. HTTP 403 alone remains distinct from authentication failure.
++
++A confirmed rejection is recorded separately and the saved connection becomes `needs_reauth`. Ri preserves its known tool definitions so the next call can request authorization, but does not periodically rediscover the rejected credential. This matters for DataForSEO Basic credentials, which its server does not validate during initialization or tool discovery.
++
++Replacing a static credential or receiving a new OAuth access token clears the rejection marker. Successful discovery with the replacement can then activate the connection again.
++
++## Paid and mutating requests
++
++Recovery never automatically replays an action. A failed request that may have crossed the wire retains `indeterminate: true`, including DataForSEO's paid research calls. The caller must inspect the result or provider usage before deciding whether to repeat it. A call rejected by an unavailable cached transport has not crossed the wire and is not indeterminate.
++
++## Diagnostics
++
++The MCP server store retains `lastStatus`, `lastError`, `lastCheckedAt` and `lastFailure`, whose fields distinguish authorization from availability and identify `connect`, `discover`, `publish`, `call` or `resource`. It keeps the last twenty health transitions in `healthHistory`, omitting repeated identical checks. Runtime errors are redacted and capped at two thousand characters before persistence. The last verified tool count survives a failed discovery.
++
++The existing MCP server metadata endpoint exposes this history for diagnosis. No tokens or raw API responses are added to health metadata.
++
++Regression coverage lives in `mcp-client-lifetime.test.ts`, `hosted-multiaccount-runtime.test.ts`, `mcp-servers.test.ts`, and the engine's `mcp-cached-discovery.test.ts` and `mcp-client.test.ts`.
+--- /dev/null
++++ b/packages/integrations/src/__tests__/mcp-cached-discovery.test.ts
+@@ -0,0 +1,48 @@
++import { describe, expect, it, vi } from 'vitest';
++import { createIntegrationRuntime, createRegistry, IntegrationError, staticAuthConfigs } from '../index';
++import { ingestMcpServer, type IngestMcpOptions } from '../mcp';
++import { inMemoryStore, plaintextSecretBox } from '../testing';
++
++async function setup() {
++  const store = inMemoryStore();
++  const secretBox = plaintextSecretBox();
++  const client = {
++    listTools: async () => ({ tools: [{ name: 'read', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }] }),
++    callTool: vi.fn(async () => { throw new IntegrationError('provider_unavailable', 'Discovery will retry shortly. No request was sent.'); }),
++  };
++  const options: IngestMcpOptions = { name: 'official', client, ownerId: 'local',
++    connectionId: 'saved-account', sessionToken: 'real-transport-token', trustToolAnnotations: true,
++    identity: { providerId: 'official', displayName: 'Official', accountId: 'account-1' } };
++  await ingestMcpServer(createRegistry(), store, secretBox, options);
++  return { store, secretBox, client, options };
++}
++
++describe('cached MCP discovery', () => {
++  it.each(['active', 'needs_reauth'] as const)('preserves the complete saved connection and credential when status is %s', async status => {
++    const s = await setup();
++    await s.store.setStatus('saved-account', status);
++    const before = await s.store.get('saved-account');
++    const save = vi.spyOn(s.store, 'save');
++    const registry = createRegistry();
++    await ingestMcpServer(registry, s.store, s.secretBox, { ...s.options, preserveConnection: true, sessionToken: 'must-not-replace-token' });
++    expect(save).not.toHaveBeenCalled();
++    expect(await s.store.get('saved-account')).toEqual(before);
++    const runtime = createIntegrationRuntime({ registry, store: s.store, authRequests: s.store, secretBox: s.secretBox,
++      authConfigs: staticAuthConfigs([]), approval: { check: async () => 'allow' }, authorizationRequired: () => 'https://app.example/connect' });
++    const outcome = await runtime.runAction('official.read', {});
++    expect(outcome).toMatchObject(status === 'active' ? { code: 'provider_unavailable' } : { reason: 'auth_required' });
++    if (status === 'active') expect(outcome).not.toHaveProperty('indeterminate');
++    expect(s.client.callTool).toHaveBeenCalledTimes(status === 'active' ? 1 : 0);
++  });
++
++  it('does not create a connection or change account identity from cached definitions', async () => {
++    const s = await setup();
++    await expect(ingestMcpServer(createRegistry(), s.store, s.secretBox, {
++      ...s.options, connectionId: 'missing-account', preserveConnection: true,
++    })).rejects.toMatchObject({ code: 'connection_not_found' });
++    await expect(ingestMcpServer(createRegistry(), s.store, s.secretBox, {
++      ...s.options, identity: { ...s.options.identity!, accountId: 'different-account' }, preserveConnection: true,
++    })).rejects.toMatchObject({ code: 'connection_not_found' });
++    expect(await s.store.get('missing-account')).toBeNull();
++  });
++});
+--- a/packages/integrations/src/__tests__/mcp-client.test.ts
++++ b/packages/integrations/src/__tests__/mcp-client.test.ts
+@@ -2,7 +2,7 @@
+ import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+ import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+ import { NeedsReauthError } from '../core/errors';
+-import { beginMcpOAuth, connectMcpClient } from '../mcp/client';
++import { beginMcpOAuth, connectMcpClient, isMcpAuthenticationError } from '../mcp/client';
+ 
+ const sdk = vi.hoisted(() => ({
+   connect: vi.fn(),
+@@ -35,6 +35,17 @@
+ }));
+ 
+ describe('connectMcpClient', () => {
++  it.each([
++    [new UnauthorizedError('Token rejected'), true],
++    [new StreamableHTTPError(401, 'Unauthorized'), true],
++    [new NeedsReauthError(), true],
++    [new StreamableHTTPError(403, 'Forbidden'), false],
++    [new StreamableHTTPError(503, 'Unavailable'), false],
++    [Object.assign(new Error('401 Unauthorized'), { name: 'UnauthorizedError', code: 401 }), false],
++    [new Error('Connection closed'), false],
++  ])('distinguishes typed authentication rejection from transient errors: %s', async (error, rejected) => {
++    expect(await isMcpAuthenticationError(error)).toBe(rejected);
++  });
+   beforeEach(() => { vi.resetAllMocks(); });
+   it('preserves advertised UI metadata, original result metadata and resource contents', async () => {
+     const metadata = { ui: { resourceUri: 'ui://sample', visibility: ['model'] } };
+--- a/packages/integrations/src/mcp/client.ts
++++ b/packages/integrations/src/mcp/client.ts
+@@ -27,6 +27,17 @@
+ export interface ConnectedMcpClient extends McpClientLike {
+   readResource(params: { uri: string }): Promise<{ contents: Array<{ uri: string; mimeType?: string; text?: string; blob?: string; _meta?: Record<string, unknown> }> }>;
+   close(): Promise<void>;
++}
++
++/** Only typed SDK rejection or the host's credential signal proves authorization failed. */
++export async function isMcpAuthenticationError(error: unknown): Promise<boolean> {
++  if (error instanceof NeedsReauthError) return true;
++  const [authMod, httpMod] = await Promise.all([
++    import('@modelcontextprotocol/sdk/client/auth.js'),
++    import('@modelcontextprotocol/sdk/client/streamableHttp.js'),
++  ]);
++  return error instanceof authMod.UnauthorizedError ||
++    (error instanceof httpMod.StreamableHTTPError && error.code === 401);
+ }
+ 
+ /**
+--- a/packages/integrations/src/mcp/index.ts
++++ b/packages/integrations/src/mcp/index.ts
+@@ -2,6 +2,6 @@
+ export type { McpToolRegistrar, McpToolResult, McpTextContent, ServeMcpOptions } from './serve';
+ export { ingestMcpServer, ingestMcpServers, mcpToolVisible } from './ingest';
+ export type { McpClientLike, McpToolDef, IngestMcpOptions, IngestMcpResult } from './ingest';
+-export { beginMcpOAuth, connectMcpClient, finishMcpOAuth } from './client';
++export { beginMcpOAuth, connectMcpClient, finishMcpOAuth, isMcpAuthenticationError } from './client';
+ export type { ConnectMcpOptions, ConnectedMcpClient } from './client';
+ export { jsonSchemaToZodObject } from './json-schema';
+--- a/packages/integrations/src/mcp/ingest.ts
++++ b/packages/integrations/src/mcp/ingest.ts
+@@ -97,6 +97,12 @@
+    * with explicit identity.accountId taking precedence. Defaults to a fresh id.
+    */
+   connectionId?: string;
++  /**
++   * Publish cached definitions for an unavailable transport without activating or
++   * rewriting its existing connection. Requires a saved connection with the same
++   * identity. Its sealed transport credential and status remain authoritative.
++   */
++  preserveConnection?: boolean;
+   /**
+    * Per-tool reclassification (§12). Keyed by the remote tool name:
+    *   - `enabled: false` → the tool is NOT ingested (hidden from the agent).
+@@ -163,12 +169,24 @@
+     const connectionId = opts.connectionId ?? newId();
+     if (ids.has(connectionId)) throw new IntegrationError('conflict', 'An MCP account group contains a duplicate connection id.');
+     ids.add(connectionId);
+-    const previous = opts.connectionId ? (await store.get(opts.connectionId))?.connection : undefined;
++    const stored = opts.connectionId ? await store.get(opts.connectionId) : undefined;
++    const previous = stored?.connection;
+     if (previous && (previous.providerId !== providerId || (opts.ownerId !== undefined && previous.ownerId !== opts.ownerId))) {
+       throw new IntegrationError('conflict', 'The MCP connection id belongs to a different provider or owner.');
+     }
+     const now = new Date().toISOString();
+-    const connection: Connection = {
++    if (opts.preserveConnection && (!stored ||
++      (opts.identity?.accountId !== undefined && previous?.accountId !== opts.identity.accountId) ||
++      previous?.authConfigId !== opts.identity?.authConfigId)) {
++      throw new IntegrationError('connection_not_found', 'Cached MCP discovery requires the same saved account.');
++    }
++    let sessionToken = opts.sessionToken ?? 'mcp-session';
++    if (opts.preserveConnection) {
++      const credential = await secretBox.open<Credentials>(stored!.sealed);
++      if (credential.type !== 'bearer') throw new IntegrationError('conflict', 'The saved MCP transport credential has a different type.');
++      sessionToken = credential.token;
++    }
++    const connection: Connection = opts.preserveConnection ? { ...previous! } : {
+       ...previous, id: connectionId, ownerId: opts.ownerId ?? previous?.ownerId ?? 'local', providerId,
+       accountId: opts.identity?.accountId ?? previous?.accountId ?? (opts.identity ? `${providerId}:default` : opts.name),
+       ...(opts.identity?.authConfigId ? { authConfigId: opts.identity.authConfigId } : {}),
+@@ -189,7 +207,7 @@
+         ? opts.defaultRisk ?? (annotations?.destructiveHint === false ? 'medium' : 'high') : 'low');
+       enabled.set(tool.name, { tool, input: jsonSchemaToZodObject(tool.inputSchema), mutating, risk });
+     }
+-    prepared.push({ opts, connection, tools, enabled, sessionToken: opts.sessionToken ?? 'mcp-session' });
++    prepared.push({ opts, connection, tools, enabled, sessionToken });
+   }
+   const byConnection = new Map(prepared.map(account => [account.connection.id, account]));
+   const sameAccount = (expected: Connection, current: ConnectionMetadata) => expected.id === current.id
+@@ -271,6 +289,7 @@
+   });
+   registry.addBundle({ provider, toolkits: [defineToolkit({ id: providerId, providerId, displayName, actions })] });
+   for (const account of prepared) {
++    if (account.opts.preserveConnection) continue;
+     // Retain identity/client pins but replace only the host transport credential.
+     await store.save(account.connection, await secretBox.seal({ type: 'bearer', token: account.sessionToken }));
+   }
+--- a/src/lib/integrations/hosted-mcp.ts
++++ b/src/lib/integrations/hosted-mcp.ts
+@@ -42,6 +42,7 @@
+   servers: Pick<McpServerStore, 'getOAuthState' | 'openSecret'>,
+ ): Promise<boolean> {
+   if (!entry?.enabled) return true;
++  if (entry.lastFailure?.kind === 'auth') return true;
+   if (entry.auth.kind === 'none') return false;
+   if (entry.auth.kind === 'oauth') return !(await servers.getOAuthState(entry.id))?.tokens;
+   return !(await servers.openSecret(entry.id));
+--- a/src/lib/integrations/hosted-multiaccount-runtime.test.ts
++++ b/src/lib/integrations/hosted-multiaccount-runtime.test.ts
+@@ -2,13 +2,14 @@
+ import os from 'node:os';
+ import path from 'node:path';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+-import type { ConnectMcpOptions, McpToolDef } from '@integrations/engine/mcp';
++import type { ConnectMcpOptions, ConnectedMcpClient, McpToolDef } from '@integrations/engine/mcp';
+ import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
++import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+ import { getHostedMcpProvider } from '@integrations/engine/providers';
+ import { APP_ROOT_ENV } from '@/lib/config/paths';
+ import { ensureHostedMcpServer, hostedMcpConnectionId } from './hosted-mcp';
+ import { removeMcpServer } from './mcp-lifecycle';
+-import { getIntegrationConnectionStore, getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime, MCP_DISCOVERY_MAX_AGE_MS } from './runtime';
++import { getIntegrationConnectionStore, getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime, MCP_DISCOVERY_MAX_AGE_MS, MCP_DISCOVERY_RETRY_MS } from './runtime';
+ import type { McpServerEntry } from './mcp-servers';
+ 
+ const mocks = vi.hoisted(() => ({ connect: vi.fn() }));
+@@ -22,7 +23,7 @@
+ const remotes = new Map<string, ReturnType<typeof remote>>();
+ function remote() {
+   const state = { tools: [structuredClone(readTool)], notifications: [] as NonNullable<ConnectMcpOptions['onToolsChanged']>[],
+-    calls: vi.fn(async ({ name, arguments: args }: { name: string; arguments?: Record<string, unknown> }) => ({ content: [], structuredContent: { name, args } })),
++    calls: vi.fn<ConnectedMcpClient['callTool']>(async ({ name, arguments: args }) => ({ content: [], structuredContent: { name, args } })),
+     closes: vi.fn(async () => {}), list: vi.fn<() => Promise<{ tools: McpToolDef[] }>>() };
+   state.list.mockImplementation(async () => ({ tools: structuredClone(state.tools) }));
+   return state;
+@@ -72,7 +73,149 @@
+   await servers.compareAndSetOAuthState(entry.id, saved.revision as string, next);
+ }
+ 
++async function staticAccount() {
++  const entry = await ensureHostedMcpServer(getHostedMcpProvider('dataforseo')!, getMcpServerStore(),
++    getIntegrationConnectionStore(), 'local', { label: 'Research', secret: 'fixture@example.com:fixture-password' });
++  const state = remote();
++  state.tools = [{ name: 'api_request', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false, destructiveHint: false } }];
++  remotes.set(entry.slug, state);
++  vi.stubEnv('INTEGRATIONS_AUTO_APPROVE', '1');
++  return { entry, state, connectionId: hostedMcpConnectionId(entry) };
++}
++
+ describe('hosted multi-account runtime discovery', () => {
++  it('lets an already-started paid request finish across the five-minute refresh', async () => {
++    const research = await staticAccount();
++    const now = Date.now();
++    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
++    const old = await getIntegrationRuntime();
++    let finish!: () => void;
++    research.state.calls.mockImplementationOnce(() => new Promise(resolve => {
++      finish = () => resolve({ content: [], structuredContent: { name: 'api_request', args: {} } });
++    }));
++    const pending = old.runAction('dataforseo.api_request', {});
++    await vi.waitFor(() => expect(research.state.calls).toHaveBeenCalledOnce());
++    clock.mockReturnValue(now + MCP_DISCOVERY_MAX_AGE_MS + 1);
++    const fresh = await getIntegrationRuntime();
++    expect(fresh).not.toBe(old);
++    expect(research.state.closes).not.toHaveBeenCalled();
++    expect(await old.runAction('dataforseo.api_request', {})).toMatchObject({ code: 'tools_changed' });
++    finish();
++    expect(await pending).toMatchObject({ ok: true });
++    await vi.waitFor(() => expect(research.state.closes).toHaveBeenCalledOnce());
++    expect(research.state.calls).toHaveBeenCalledOnce();
++  });
++
++  it('keeps known tools through a discovery outage and recovers after the short cooldown without changing credentials', async () => {
++    const research = await staticAccount();
++    const now = Date.now();
++    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
++    await getIntegrationRuntime();
++    const stored = await getIntegrationConnectionStore().get(research.connectionId);
++    const credentialRevision = getMcpServerStore().get(research.entry.id)?.credentialRevision;
++    clock.mockReturnValue(now + MCP_DISCOVERY_MAX_AGE_MS + 1);
++    mocks.connect.mockRejectedValueOnce(new Error('fetch failed'));
++    const unavailable = await getIntegrationRuntime();
++    expect(unavailable.getToolkits().some(toolkit => toolkit.id === 'dataforseo')).toBe(true);
++    expect(await unavailable.runAction('dataforseo.api_request', {})).toMatchObject({
++      ok: false, code: 'provider_unavailable', message: expect.stringContaining('No request was sent'),
++    });
++    expect(research.state.calls).not.toHaveBeenCalled();
++    expect(await getIntegrationConnectionStore().get(research.connectionId)).toEqual(stored);
++    expect(getMcpServerStore().get(research.entry.id)).toMatchObject({ lastStatus: 'unreachable', credentialRevision,
++      lastFailure: { kind: 'unavailable', phase: 'connect' } });
++    expect(await getIntegrationRuntime()).toBe(unavailable);
++    clock.mockReturnValue(now + MCP_DISCOVERY_MAX_AGE_MS + MCP_DISCOVERY_RETRY_MS + 2);
++    const recovered = await getIntegrationRuntime();
++    expect(recovered).not.toBe(unavailable);
++    expect(await recovered.runAction('dataforseo.api_request', {})).toMatchObject({ ok: true });
++    expect(research.state.calls).toHaveBeenCalledOnce();
++    expect(getMcpServerStore().get(research.entry.id)).toMatchObject({ lastStatus: 'ok', healthHistory: [
++      expect.objectContaining({ lastStatus: 'ok' }), expect.objectContaining({ lastStatus: 'unreachable' }),
++      expect.objectContaining({ lastStatus: 'ok' }),
++    ] });
++    expect(getMcpServerStore().get(research.entry.id)?.lastFailure).toBeUndefined();
++  });
++
++  it('retires a failed transport without replaying an indeterminate paid call, then reconnects on the next use', async () => {
++    const research = await staticAccount();
++    const old = await getIntegrationRuntime();
++    research.state.calls.mockRejectedValueOnce(new Error('MCP error -32000: Connection closed'));
++    expect(await old.runAction('dataforseo.api_request', {})).toMatchObject({
++      ok: false, code: 'provider_unavailable', indeterminate: true,
++    });
++    expect(research.state.calls).toHaveBeenCalledOnce();
++    expect((await getIntegrationConnectionStore().get(research.connectionId))?.connection.status).toBe('active');
++    expect(getMcpServerStore().get(research.entry.id)?.lastFailure).toEqual({ kind: 'unavailable', phase: 'call' });
++    const fresh = await getIntegrationRuntime();
++    expect(fresh).not.toBe(old);
++    expect(research.state.calls).toHaveBeenCalledOnce();
++    expect(await fresh.runAction('dataforseo.api_request', {})).toMatchObject({ ok: true });
++    expect(research.state.calls).toHaveBeenCalledTimes(2);
++  });
++
++  it('leaves the connection in place when the provider returns an ordinary API request error', async () => {
++    const research = await staticAccount();
++    const runtime = await getIntegrationRuntime();
++    research.state.calls.mockResolvedValueOnce({ content: [{ type: 'text', text: 'Invalid API path' }], isError: true });
++    expect(await runtime.runAction('dataforseo.api_request', {})).toMatchObject({ code: 'provider_error' });
++    expect(await getIntegrationRuntime()).toBe(runtime);
++    expect(research.state.closes).not.toHaveBeenCalled();
++    expect((await getIntegrationConnectionStore().get(research.connectionId))?.connection.status).toBe('active');
++    expect(getMcpServerStore().get(research.entry.id)?.lastFailure).toBeUndefined();
++    expect(await runtime.runAction('dataforseo.api_request', {})).toMatchObject({ ok: true });
++  });
++
++  it('does not persist reflected credential values in failure history', async () => {
++    const research = await staticAccount();
++    const token = (await getMcpServerStore().openSecret(research.entry.id))!;
++    const runtime = await getIntegrationRuntime();
++    research.state.calls.mockRejectedValueOnce(new Error(`Transport failed: ${token}`));
++    const outcome = await runtime.runAction('dataforseo.api_request', {});
++    expect(JSON.stringify(outcome)).not.toContain(token);
++    const metadata = getMcpServerStore().get(research.entry.id)!;
++    expect(JSON.stringify(metadata.lastError)).not.toContain(token);
++    expect(JSON.stringify(metadata.healthHistory)).not.toContain(token);
++    expect(metadata.lastFailure).toEqual({ kind: 'unavailable', phase: 'call' });
++  });
++
++  it('keeps a rejected API credential inactive even though tool discovery does not validate it', async () => {
++    const research = await staticAccount();
++    const old = await getIntegrationRuntime();
++    research.state.calls.mockRejectedValueOnce(new StreamableHTTPError(401, 'Unauthorized'));
++    // The real client converts call rejection to NeedsReauthError. This fixture
++    // deliberately leaves the typed HTTP rejection intact to cover host handling.
++    expect(await old.runAction('dataforseo.api_request', {})).toMatchObject({ reason: 'auth_required' });
++    const rejected = await getIntegrationConnectionStore().get(research.connectionId);
++    expect(rejected?.connection.status).toBe('needs_reauth');
++    const pending = await getIntegrationRuntime();
++    expect(pending.getToolkits().some(toolkit => toolkit.id === 'dataforseo')).toBe(true);
++    expect(await pending.runAction('dataforseo.api_request', {})).toMatchObject({ reason: 'auth_required' });
++    expect(mocks.connect).toHaveBeenCalledOnce();
++    expect(await getIntegrationConnectionStore().get(research.connectionId)).toEqual(rejected);
++    const servers = getMcpServerStore();
++    await servers.update(research.entry.id, { secret: Buffer.from('fixture@example.com:replacement').toString('base64') });
++    const recovered = await getIntegrationRuntime();
++    expect(await recovered.runAction('dataforseo.api_request', {})).toMatchObject({ ok: true });
++    expect((await getIntegrationConnectionStore().get(research.connectionId))?.connection.status).toBe('active');
++  });
++
++  it('does not reuse a cached unavailable account after disconnect or disabled tool policy', async () => {
++    const personal = await account('Personal');
++    const work = await account('Work', { add: true });
++    await getIntegrationRuntime();
++    invalidateIntegrationRuntime();
++    mocks.connect.mockRejectedValueOnce(new Error('fetch failed'));
++    const unavailable = await getIntegrationRuntime();
++    expect(await unavailable.runAction('todoist.read', {}, { connectionId: personal.connectionId })).toMatchObject({ code: 'provider_unavailable' });
++    expect(await unavailable.runAction('todoist.read', {}, { connectionId: work.connectionId })).toMatchObject({ ok: true });
++    await getMcpServerStore().update(personal.entry.id, { toolOverrides: { read: { enabled: false } } });
++    expect(await unavailable.runAction('todoist.read', {}, { connectionId: personal.connectionId })).toMatchObject({ reason: 'auth_required' });
++    await removeMcpServer(personal.entry, getMcpServerStore(), getIntegrationConnectionStore(), 'local');
++    expect(await unavailable.runAction('todoist.read', {}, { connectionId: personal.connectionId })).toMatchObject({ code: 'connection_not_found' });
++    expect(personal.state.calls).not.toHaveBeenCalled();
++  });
++
+   it('publishes one Todoist toolkit and dispatches each account through its own connected client', async () => {
+     const personal = await account('Personal');
+     const work = await account('Work', { add: true });
+--- /dev/null
++++ b/src/lib/integrations/mcp-client-lifetime.ts
+@@ -0,0 +1,37 @@
++import { IntegrationError } from '@integrations/engine';
++import type { ConnectedMcpClient } from '@integrations/engine/mcp';
++
++/** Retiring a projection must not abort requests that may already have executed remotely. */
++export function drainMcpClient(client: ConnectedMcpClient): ConnectedMcpClient {
++  let active = 0;
++  let retiring = false;
++  let close: Promise<void> | undefined;
++  let idle: (() => void) | undefined;
++
++  const run = async <T>(operation: () => Promise<T>): Promise<T> => {
++    if (retiring) throw new IntegrationError('tools_changed', 'The connection is refreshing. Refresh the available tools before trying again.');
++    active += 1;
++    try { return await operation(); }
++    finally {
++      active -= 1;
++      if (active === 0) idle?.();
++    }
++  };
++
++  return {
++    // Discovery has its own deadline. A timed-out discovery must still be cancellable.
++    listTools: () => client.listTools(),
++    callTool: params => run(() => client.callTool(params)),
++    readResource: params => run(() => client.readResource(params)),
++    close() {
++      if (close) return close;
++      retiring = true;
++      close = (async () => {
++        // Tool calls and resource reads retain the SDK's finite operation deadlines.
++        if (active > 0) await new Promise<void>(resolve => { idle = resolve; });
++        await client.close();
++      })();
++      return close;
++    },
++  };
++}
+--- /dev/null
++++ b/src/lib/integrations/mcp-client-lifetime.test.ts
+@@ -0,0 +1,60 @@
++import { describe, expect, it, vi } from 'vitest';
++import type { ConnectedMcpClient } from '@integrations/engine/mcp';
++import { drainMcpClient } from './mcp-client-lifetime';
++
++function deferred<T>() {
++  let resolve!: (value: T) => void;
++  let reject!: (error: Error) => void;
++  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
++  return { promise, resolve, reject };
++}
++
++function fixture() {
++  const tool = deferred<Awaited<ReturnType<ConnectedMcpClient['callTool']>>>();
++  const resource = deferred<Awaited<ReturnType<ConnectedMcpClient['readResource']>>>();
++  const close = vi.fn(async () => {});
++  const raw: ConnectedMcpClient = {
++    listTools: async () => ({ tools: [] }),
++    callTool: vi.fn(() => tool.promise), readResource: vi.fn(() => resource.promise), close,
++  };
++  return { tool, resource, raw, close, client: drainMcpClient(raw) };
++}
++
++describe('MCP client retirement', () => {
++  it('drains both an API request and a resource read before closing exactly once', async () => {
++    const f = fixture();
++    const call = f.client.callTool({ name: 'api_request' });
++    const read = f.client.readResource({ uri: 'ui://view' });
++    const closing = f.client.close();
++    expect(f.client.close()).toBe(closing);
++    expect(f.close).not.toHaveBeenCalled();
++    await expect(f.client.callTool({ name: 'api_request' })).rejects.toMatchObject({ code: 'tools_changed' });
++    await expect(f.client.readResource({ uri: 'ui://view' })).rejects.toMatchObject({ code: 'tools_changed' });
++    f.tool.resolve({ content: [{ type: 'text', text: 'completed' }] });
++    expect(await call).toMatchObject({ content: [{ text: 'completed' }] });
++    expect(f.close).not.toHaveBeenCalled();
++    f.resource.resolve({ contents: [] });
++    await read;
++    await closing;
++    expect(f.close).toHaveBeenCalledOnce();
++    expect(f.raw.callTool).toHaveBeenCalledOnce();
++  });
++
++  it('closes after a pending operation fails without replaying it', async () => {
++    const f = fixture();
++    const call = f.client.callTool({ name: 'api_request' });
++    const rejected = expect(call).rejects.toThrow('network failed');
++    const closing = f.client.close();
++    f.tool.reject(new Error('network failed'));
++    await rejected;
++    await closing;
++    expect(f.close).toHaveBeenCalledOnce();
++    expect(f.raw.callTool).toHaveBeenCalledOnce();
++  });
++
++  it('closes an idle connection immediately', async () => {
++    const f = fixture();
++    await f.client.close();
++    expect(f.close).toHaveBeenCalledOnce();
++  });
++});
+--- a/src/lib/integrations/mcp-servers.ts
++++ b/src/lib/integrations/mcp-servers.ts
+@@ -71,6 +71,10 @@
+   lastError?: string;
+   lastToolCount?: number;
+   lastCheckedAt?: string;
++  /** A typed auth rejection is distinct from a temporary transport/discovery outage. */
++  lastFailure?: McpServerFailure;
++  /** Bounded, redacted health transitions for diagnosing an outage after recovery. */
++  healthHistory?: Omit<McpServerHealth, 'tools'>[];
+   /** Hash identifying the last successfully completed interactive authorization. */
+   lastAuthorizationId?: string;
+ }
+@@ -98,11 +102,18 @@
+   secret?: string | null;
+ }
+ 
++export interface McpServerFailure {
++  kind: 'auth' | 'unavailable';
++  phase: 'connect' | 'discover' | 'publish' | 'call' | 'resource';
++  status?: number;
++}
++
+ export interface McpServerHealth {
+   lastStatus: McpServerEntry['lastStatus'];
+   lastError?: string | null;
+   lastToolCount?: number;
+   lastCheckedAt: string;
++  lastFailure?: McpServerFailure;
+   /** When present, refreshes the persisted tool list (from a successful ingest). */
+   tools?: McpToolInfo[];
+ }
+@@ -250,6 +261,7 @@
+         if (patch.secret !== undefined) {
+           row.sealed = patch.secret === null ? undefined : await sealSecret(patch.secret);
+           row.entry.credentialRevision = uuidv7();
++          delete row.entry.lastFailure;
+         }
+         row.entry.updatedAt = new Date().toISOString();
+         writeAll(rows);
+@@ -272,10 +284,20 @@
+         const rows = readAll();
+         const row = rows.find((r) => r.entry.id === id);
+         if (!row) return;
++        if (row.entry.lastStatus !== health.lastStatus || row.entry.lastError !== (health.lastError ?? undefined) ||
++          row.entry.lastToolCount !== (health.lastToolCount ?? row.entry.lastToolCount) ||
++          JSON.stringify(row.entry.lastFailure) !== JSON.stringify(health.lastFailure)) {
++          const transition: Omit<McpServerHealth, 'tools'> = {
++            lastStatus: health.lastStatus, lastError: health.lastError, lastToolCount: health.lastToolCount,
++            lastCheckedAt: health.lastCheckedAt, lastFailure: health.lastFailure,
++          };
++          row.entry.healthHistory = [...(row.entry.healthHistory ?? []), transition].slice(-20);
++        }
+         row.entry.lastStatus = health.lastStatus;
+         row.entry.lastError = health.lastError ?? undefined;
+-        row.entry.lastToolCount = health.lastToolCount;
++        if (health.lastToolCount !== undefined) row.entry.lastToolCount = health.lastToolCount;
+         row.entry.lastCheckedAt = health.lastCheckedAt;
++        row.entry.lastFailure = health.lastFailure;
+         if (health.tools !== undefined) row.entry.tools = health.tools;
+         writeAll(rows);
+       });
+@@ -375,6 +397,7 @@
+         const rows = readAll();
+         const row = rows.find((r) => r.entry.id === id);
+         if (!row) return;
++        if (state.tokens) delete row.entry.lastFailure;
+         row.sealedOAuth = await deps.secretBox.seal({ ...state, revision: uuidv7() });
+         row.entry.updatedAt = new Date().toISOString();
+         writeAll(rows);
+@@ -389,6 +412,9 @@
+         const current = row.sealedOAuth ? await deps.secretBox.open<Record<string, unknown>>(row.sealedOAuth) : {};
+         if (current.revision !== expectedRevision) return null;
+         const next: Record<string, unknown> = { ...state, revision: uuidv7() };
++        const oldToken = (current.tokens as { access_token?: string } | undefined)?.access_token;
++        const newToken = (next.tokens as { access_token?: string } | undefined)?.access_token;
++        if (newToken && newToken !== oldToken) delete row.entry.lastFailure;
+         if (current.tokens && !next.tokens) row.entry.credentialRevision = uuidv7();
+         row.sealedOAuth = await deps.secretBox.seal(next);
+         row.entry.updatedAt = new Date().toISOString();
+--- a/src/lib/integrations/mcp-servers.test.ts
++++ b/src/lib/integrations/mcp-servers.test.ts
+@@ -83,6 +83,39 @@
+     expect(store.get(e.id)?.lastToolCount).toBe(7);
+     expect(await store.remove(e.id)).toBe(true);
+     expect(store.list()).toHaveLength(0);
++  });
++
++  it('keeps bounded health transitions and the last known tool count during an outage', async () => {
++    const store = freshStore();
++    const entry = await store.create({ slug: 'history', displayName: 'History', url: 'https://example.com', auth: { kind: 'none' } });
++    await store.setHealth(entry.id, { lastStatus: 'ok', lastToolCount: 4, lastCheckedAt: 'initial', tools: [{ name: 'read' }] });
++    for (let index = 0; index < 30; index += 1) {
++      await store.setHealth(entry.id, { lastStatus: 'unreachable', lastError: `failure ${index}`, lastCheckedAt: `${index}`,
++        lastFailure: { kind: 'unavailable', phase: 'connect' } });
++    }
++    const saved = store.get(entry.id)!;
++    expect(saved.lastToolCount).toBe(4);
++    expect(saved.healthHistory).toHaveLength(20);
++    expect(saved.healthHistory![19]).toMatchObject({ lastError: 'failure 29', lastFailure: { kind: 'unavailable', phase: 'connect' } });
++    expect(saved.healthHistory![0]).not.toHaveProperty('tools');
++    await store.setHealth(entry.id, { lastStatus: 'unreachable', lastError: 'failure 29', lastCheckedAt: 'later',
++      lastFailure: { kind: 'unavailable', phase: 'connect' } });
++    expect(store.get(entry.id)?.healthHistory).toEqual(saved.healthHistory);
++    await store.setHealth(entry.id, { lastStatus: 'ok', lastToolCount: 4, lastCheckedAt: 'recovered' });
++    expect(store.get(entry.id)?.lastFailure).toBeUndefined();
++    expect(store.get(entry.id)?.healthHistory).toHaveLength(20);
++  });
++
++  it('clears a rejected static credential only when it is replaced', async () => {
++    const store = freshStore();
++    const entry = await store.create({ slug: 'rejected', displayName: 'Rejected', url: 'https://example.com', auth: { kind: 'bearer' } }, 'old-token');
++    const lastFailure = { kind: 'auth' as const, phase: 'call' as const, status: 401 };
++    await store.setHealth(entry.id, { lastStatus: 'error', lastCheckedAt: 'failed', lastFailure });
++    await store.update(entry.id, { displayName: 'Renamed' });
++    expect(store.get(entry.id)?.lastFailure).toEqual(lastFailure);
++    await store.update(entry.id, { secret: 'new-token' });
++    expect(store.get(entry.id)?.lastFailure).toBeUndefined();
++    expect(store.get(entry.id)?.healthHistory?.[0].lastFailure).toEqual(lastFailure);
+   });
+ 
+   it('publishes exact completed consent without overwriting health or discovered tools', async () => {
+--- a/src/lib/integrations/runtime.ts
++++ b/src/lib/integrations/runtime.ts
+@@ -18,6 +18,7 @@
+   storeAuthConfigRegistry,
+   createAuthConfigAdmin,
+   IntegrationError,
++  NeedsReauthError,
+   type AuthConfigAdmin,
+   type AuthConfigInput,
+   type IntegrationRuntime,
+@@ -36,12 +37,13 @@
+   type HostedMcpEndpointSetup,
+ } from '@integrations/engine/providers';
+ import { toToolSet } from '@integrations/engine/ai-sdk';
+-import { connectMcpClient, ingestMcpServers, type ConnectedMcpClient, type McpToolDef } from '@integrations/engine/mcp';
++import { connectMcpClient, ingestMcpServers, isMcpAuthenticationError, type ConnectedMcpClient, type McpToolDef } from '@integrations/engine/mcp';
+ import type { ToolSet } from 'ai';
+ import { appApprovalPolicy } from './approval';
+ import { getIntegrationsDir } from './storage';
+ import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
+-import { mcpServerStore, type McpServerStore, type McpServerAuth, type McpServerEntry } from './mcp-servers';
++import { mcpServerStore, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
++import { drainMcpClient } from './mcp-client-lifetime';
+ import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
+ import { registerMcpSecrets } from './mcp-secrets';
+ import { APP_NAME } from '@/constants/app';
+@@ -478,6 +480,7 @@
+   mcpViews: Map<string, McpViewConnection>;
+   builtAt: number;
+   configuration: string;
++  discoveryUnavailable: boolean;
+ }
+ 
+ export interface McpViewConnection {
+@@ -599,20 +602,55 @@
+     changed: boolean;
+     discoveryStarted: boolean;
+     ready: boolean;
++    unavailable?: boolean;
++    readResource?: ConnectedMcpClient['readResource'];
+   }
+   const prepared: PreparedAccount[] = [];
+-  const recordFailure = async (entry: McpServerEntry, error: unknown) => {
+-    const message = redactor.redact(error instanceof Error ? error.message : String(error));
++  let discoveryUnavailable = false;
++  const recordFailure = async (entry: McpServerEntry, error: unknown, phase: McpServerFailure['phase']) => {
++    const message = redactor.redact(error instanceof Error ? error.message : String(error)).slice(0, 2_000);
++    const authRejected = await isMcpAuthenticationError(error);
++    if (!authRejected) discoveryUnavailable = true;
++    const code = error instanceof IntegrationError ? error.status : (error as { code?: unknown } | null)?.code;
++    const status = typeof code === 'number' && code >= 100 && code < 600 ? code : undefined;
+     await finalizeMcpServer(entry, mcpStore, async current => {
+-      if (current.providerId && await hostedMcpRequiresAuth(current, mcpStore)) {
++      if (authRejected) {
++        const saved = await store.get(hostedMcpConnectionId(current));
++        if (saved) await store.setStatus(saved.connection.id, 'needs_reauth', message);
++      } else if (current.providerId && await hostedMcpRequiresAuth(current, mcpStore)) {
+         await markHostedMcpReconnectRequired(current.providerId, store, getIntegrationOwnerId(), hostedMcpConnectionId(current));
+       }
+-      await mcpStore.setHealth(current.id, { lastStatus: 'unreachable', lastError: message, lastCheckedAt: new Date().toISOString() });
++      await mcpStore.setHealth(current.id, {
++        lastStatus: authRejected ? 'error' : 'unreachable', lastError: message, lastCheckedAt: new Date().toISOString(),
++        lastFailure: { kind: authRejected ? 'auth' : 'unavailable', phase, ...(status !== undefined ? { status } : {}) },
++      });
+     }).catch(() => {});
+-    console.warn(`[integrations] MCP server "${entry.slug}" not ingested: ${message}`);
++    console.warn(`[integrations] MCP server "${entry.slug}" ${phase} failed: ${message}`);
++    return authRejected;
++  };
++  const restoreCachedDefinitions = async (entry: McpServerEntry) => {
++    const cached = readMcpMetadata(dir).find(row => row.entry.id === entry.id);
++    const stored = await store.get(hostedMcpConnectionId(entry));
++    if (!stored || !cached?.capabilities || cached.capabilities.revision !== entry.capabilityRevision ||
++      !isCurrentMcpTransport(entry, mcpStore)) return;
++    // Schemas are useful during an outage, but are never proof that credentials work.
++    // Ingestion preserves the existing row and credential instead of activating it.
++    const unavailable = async (): Promise<never> => {
++      throw new IntegrationError('provider_unavailable',
++        `${entry.displayName} is temporarily unavailable. Connection discovery will retry shortly. No request was sent.`);
++    };
++    prepared.push({ entry, tools: redactor.redact(cached.capabilities.tools) as McpToolDef[],
++      client: { listTools: async () => ({ tools: [] }), callTool: unavailable, readResource: unavailable, close: async () => {} },
++      sessionToken: 'mcp-session', changed: false, discoveryStarted: false, ready: false, unavailable: true });
+   };
+   for (const entry of entries) {
+     if (!entry.enabled) continue;
++    // A verified auth rejection needs new credentials, not periodic rediscovery
++    // that can falsely reactivate Basic credentials on an unauthenticated tool list.
++    if (entry.lastFailure?.kind === 'auth') {
++      await restoreCachedDefinitions(entry);
++      continue;
++    }
+     let client: ConnectedMcpClient | undefined;
+     const candidate = { entry, changed: false, discoveryStarted: false, ready: false } as PreparedAccount;
+     const onToolsChanged = () => {
+@@ -630,6 +668,7 @@
+         if (state) registerMcpSecrets(redactor, state as McpOAuthState);
+         if (!state?.tokens) {
+           await mcpStore.setHealth(entry.id, { lastStatus: 'unreachable', lastError: 'Awaiting authorization', lastCheckedAt: new Date().toISOString() });
++          await restoreCachedDefinitions(entry);
+           continue;
+         }
+         client = await withTimeout(
+@@ -642,6 +681,7 @@
+         const secret = await mcpStore.openSecret(entry.id);
+         if (entry.providerId && entry.auth.kind === 'bearer' && !secret) {
+           await mcpStore.setHealth(entry.id, { lastStatus: 'unreachable', lastError: 'A connection token is required.', lastCheckedAt: new Date().toISOString() });
++          await restoreCachedDefinitions(entry);
+           continue;
+         }
+         if (secret) redactor.register(secret, 'mcp_secret');
+@@ -651,6 +691,7 @@
+           MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
+         );
+       }
++      client = drainMcpClient(client);
+       candidate.discoveryStarted = true;
+       let discovered: { tools: McpToolDef[] } | undefined;
+       for (let attempt = 0; attempt < 3; attempt += 1) {
+@@ -663,7 +704,8 @@
+       prepared.push(candidate);
+     } catch (error) {
+       await client?.close().catch(() => {});
+-      await recordFailure(entry, error);
++      await recordFailure(entry, error, candidate.discoveryStarted ? 'discover' : 'connect');
++      await restoreCachedDefinitions(entry);
+     }
+   }
+ 
+@@ -690,10 +732,24 @@
+           if (!snapshot) throw new Error(`The ${INTEGRATION_LABELS.singular.toLowerCase()} was removed during discovery.`);
+           account.entry = snapshot;
+           const hosted = hostedMcpDefinition(snapshot);
++          const runTransport = async <T>(operation: () => Promise<T>, phase: 'call' | 'resource'): Promise<T> => {
++            try { return redactor.redact(await operation()); }
++            catch (error) {
++              // Retire a broken transport on the next access. Never retry the
++              // action: paid requests may already have crossed the wire.
++              if (!account.unavailable && rt.generation === buildGeneration) {
++                const authRejected = await recordFailure(snapshot, error, phase);
++                invalidateIntegrationRuntime();
++                if (authRejected) throw new NeedsReauthError(hostedMcpConnectionId(snapshot), 'The service rejected the connection credentials.');
++              }
++              throw error;
++            }
++          };
+           definitions.push({
+             name: snapshot.slug,
+-            client: { listTools: async () => ({ tools: account.tools }), callTool: async (params: { name: string; arguments?: Record<string, unknown> }) => redactor.redact(await account.client.callTool(params)) },
++            client: { listTools: async () => ({ tools: account.tools }), callTool: (params: { name: string; arguments?: Record<string, unknown> }) => runTransport(() => account.client.callTool(params), 'call') },
+             ownerId: getIntegrationOwnerId(), connectionId: hostedMcpConnectionId(snapshot), sessionToken: account.sessionToken,
++            ...(account.unavailable ? { preserveConnection: true } : {}),
+             isCurrentTransport: () => {
+               if (rt.generation !== buildGeneration || account.changed || mcpStore.get(snapshot.id)?.capabilityRevision !== snapshot.capabilityRevision) {
+                 throw new IntegrationError('tools_changed', `The ${INTEGRATION_LABELS.singular.toLowerCase()} tools changed. Refresh the available tools before trying again.`);
+@@ -707,10 +763,12 @@
+             } : {}),
+             ...(snapshot.toolOverrides ? { toolOverrides: snapshot.toolOverrides } : {}),
+           });
++          account.readResource = params => runTransport(() => account.client.readResource(params), 'resource');
+         }
+         const results = await ingestMcpServers(registry, store, secretBox, definitions);
+         for (const result of results) {
+           const { account } = valid.find(item => hostedMcpConnectionId(item.current) === result.connectionId)!;
++          if (account.unavailable) { accepted.add(account.entry.id); continue; }
+           await mcpStore.setHealth(account.entry.id, {
+             lastStatus: 'ok', lastToolCount: result.toolCount, lastCheckedAt: new Date().toISOString(),
+             tools: result.tools.map(tool => ({ name: tool.name, description: tool.description })),
+@@ -719,12 +777,12 @@
+           mcpClients.push(account.client);
+           mcpViews.set(account.entry.id, {
+             snapshot: account.entry, tools: account.tools,
+-            readResource: async params => redactor.redact(await account.client.readResource(params)),
++            readResource: account.readResource!,
+           });
+         }
+       });
+     } catch (error) {
+-      for (const account of accounts) await recordFailure(account.entry, error);
++      for (const account of accounts) await recordFailure(account.entry, error, 'publish');
+     } finally {
+       await Promise.all(accounts.filter(account => !accepted.has(account.entry.id)).map(account => account.client.close().catch(() => {})));
+     }
+@@ -732,7 +790,7 @@
+ 
+   const configuration = mcpConfigurationSignature(entries.map(entry => prepared.find(candidate => candidate.entry.id === entry.id)?.entry ?? entry));
+   if (configuration !== mcpConfigurationSignature(mcpStore)) invalidateIntegrationRuntime();
+-  return { runtime, admin, mcpClients, mcpViews, builtAt: Date.now(), configuration };
++  return { runtime, admin, mcpClients, mcpViews, builtAt: Date.now(), configuration, discoveryUnavailable };
+ }
+ 
+ /** Changes made by another process must also refresh the tool projection. */
+@@ -748,6 +806,8 @@
+ 
+ /** Servers without list-change notifications are rechecked on use after five minutes. */
+ export const MCP_DISCOVERY_MAX_AGE_MS = 5 * 60_000;
++/** A temporary outage keeps known tools and retries discovery on use after a short cooldown. */
++export const MCP_DISCOVERY_RETRY_MS = 15_000;
+ 
+ async function closeClients(b: Built): Promise<void> {
+   await Promise.all(b.mcpClients.map((c) => c.close().catch(() => {})));
+@@ -755,7 +815,8 @@
+ 
+ async function getBuilt(): Promise<Built> {
+   if (rt.cachedBuilt) {
+-    if (Date.now() - rt.cachedBuilt.builtAt < MCP_DISCOVERY_MAX_AGE_MS &&
++    const maxAge = rt.cachedBuilt.discoveryUnavailable ? MCP_DISCOVERY_RETRY_MS : MCP_DISCOVERY_MAX_AGE_MS;
++    if (Date.now() - rt.cachedBuilt.builtAt < maxAge &&
+       rt.cachedBuilt.configuration === mcpConfigurationSignature(getMcpServerStore())) return rt.cachedBuilt;
+     invalidateIntegrationRuntime();
+   }
+@@ -802,7 +863,8 @@
+ /**
+  * Drop the cached runtime so the next access rebuilds (re-ingesting MCP servers). Call after any
+  * change to the MCP-server store. Bumps a generation counter so an in-flight build can't cache
+- * stale state, and best-effort closes the old MCP client sockets.
++ * stale state. Old clients stop accepting work immediately and close after their
++ * already-started operations finish, under the SDK's finite request deadlines.
+  */
+ export function invalidateIntegrationRuntime(): void {
+   rt.generation += 1;

@@ -253,10 +253,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     // their first message IS the intent. Orchestration chats are
     // relationship-shaped — intent drifts, so they stay unlabeled while live
     // and get a retrospective summary at archive time instead
-    // (`deriveRetrospectiveLabel`). See docs/orchestrator-harness.md.
-    if (!session.label && !isRetry && session.type !== 'orchestration') {
-      void deriveAndSetSessionLabel(id, expanded, session.harness);
-    }
+    // (`deriveRetrospectiveLabel`). Naming starts in onTaken below.
 
     // Self-heal in-memory state before dispatch. Catches the dead
     // cached `agentSession` case so the next send doesn't silently
@@ -324,8 +321,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
             return;
           }
           // Labeled with the sending chat when another chat sent it. The
-          // stored event keeps the message as sent, and the first-message
-          // title above is derived from it without the label.
+          // stored event keeps the message as sent, and its title is
+          // derived from that content without the sender label.
           await executor.dispatch(id, withSenderLabel(expanded, row.senderSessionId), {
             sourceEventId: row.id,
             attachments,
@@ -333,6 +330,10 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
             onQueued: release,
             onTaken: () => {
               taken = true;
+              // The live runner now exists, or its send is queued ahead of naming.
+              if (!session.label && session.type !== 'orchestration') {
+                void deriveAndSetSessionLabel(id, expanded, session.harness);
+              }
             },
           });
         } finally {

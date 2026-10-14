@@ -7,6 +7,14 @@ The desktop shell has two pieces of chrome, and each has one job:
 
 Reworked 2026-10-05 from a rail that listed every execution even when collapsed, and a header that mixed status with buttons (Inbox, Board, Settings). Reworked again 2026-10-08 so everything above the list is one kind of row and the list has one header (see "What went away").
 
+The top HUD stays on one line at tablet and desktop widths. A CSS container measures the room remaining after native window controls and desktop Back/Forward, so the desktop app compacts sooner than a browser at the same window width. Below 72rem of usable space, gaps tighten, the visible shortcut badges fold away (the shortcuts still work), and the work pill reads "32h human work". Below 56rem, Close/latest chat and Create keep their icons, the work pill keeps its hours, budget warnings keep a compact value or "Paused", and Quick capture moves to Create. Folded labels and shortcuts remain available in tooltips. Only the event title truncates, keeping its countdown or start/end time visible, with the complete event name in the tooltip and day peek.
+
+Below the existing 48rem phone breakpoint, the separate mobile experience takes over. Its top bar contains the space selector and Search. Quick capture is available from the bottom Create sheet.
+
+Desktop Create, the mobile Create sheet, and Search also offer Connect a service, New skill and Add MCP server. They open the catalog search, builder or connection form directly, without navigating Settings first. Inside Plugins, the three creation actions remain above every management tab while scrolling.
+
+Run `pnpm exec tsx scripts/top-hud-browser-smoke.ts` against `pnpm dev` to qualify the layout. It uses disposable browser contexts and synthetic calendar, work and budget responses, checks browser and Mac renderer chrome across 768px to 1440px plus phone widths down to 320px, and verifies the day peek, folded-label tooltip, Close and Create paths. It does not start a native Electron window. Screenshots go to `.work/top-hud/`.
+
 ## Wide rail, top to bottom
 
 | Part | What it does | Scrolls? |
@@ -17,7 +25,7 @@ Reworked 2026-10-05 from a rail that listed every execution even when collapsed,
 | The list header | One row: Agents and Recent as labels in the group-label grammar (the same as Pinned and Needs you under it), the one in force bright and the other quiet, so the switch is the list's title rather than a second row of buttons. On Agents, select-to-archive and New agent sit at its right. While selecting, the toolbar (count, Archive, Cancel) takes the row. | Sticky |
 | Agents, Recent | Agents is the agent tree with each agent's executions. Recent is every execution newest first, archived included, with an agent filter. | Scrolls |
 | The list | Pinned, then the chosen tab's list. Every row carries the same status dot (`chat-status.tsx`: needs input, working, unread, background), unread titles are bold, and no row shows diff stats (they don't help decide where to go, they live in the execution's header). In Recent the dot sits on the agent's avatar, which tells agents apart in a mixed list, and an active execution reads the rail's live record rather than the once-a-minute history feed. | Scrolls |
-| Footer | Settings, then Connect accounts (Settings, Plugins, Integrations). It says accounts, since Apps above are the local apps you open and a connection is one signed-in account. | Fixed |
+| Footer | Settings, then Connect accounts (Settings, Plugins, Connectors). It says accounts, since Apps above are the local apps you open and a connection is one signed-in account. | Fixed |
 
 The places are visited now and then, so they give their room back once you scroll into the list. The list header is the list's own control, so it stays with it. The archive-selection toolbar is that same header in its selecting state, so nothing else needs pinning.
 

@@ -11,7 +11,7 @@
  * label. The auth secret (bearer token / header value) is sealed via the same
  * `SecretBox` as connection creds; non-secret fields live in plaintext JSON.
  *
- * Persistence mirrors the engine's file stores: a single JSON array under
+ * Persistence mirrors the engine's file stores: a JSON document (legacy arrays also read) under
  * `.config/integrations/mcp-servers.json`, atomic write at mode 0600, guarded by the
  * shared cross-process file lock so the CLI and dev server don't corrupt it.
  */
@@ -20,6 +20,7 @@ import path from 'node:path';
 import { uuidv7 } from 'uuidv7';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { snapshotMcpCapabilities, diffMcpCapabilities, type McpCapabilityTool, type McpCapabilitySnapshot, type McpCapabilityChanges } from './mcp-capabilities';
+import { clearMcpToolApprovals, patchMcpToolOverrides, DEFAULT_MCP_APPROVAL_POLICY, MCP_APPROVAL_POLICIES, type McpApprovalPolicy, type McpToolApprovalMode, type McpToolApprovalPatch } from './mcp-approval-policy';
 
 export type McpServerAuth =
   | { kind: 'none' }
@@ -32,11 +33,13 @@ export type McpServerAuth =
 export interface McpToolInfo {
   name: string;
   description?: string;
+  readOnlyHint?: boolean;
 }
 export interface McpToolOverride {
   /** `false` → the tool is not ingested (hidden from the agent). Defaults to enabled. */
   enabled?: boolean;
-  /** `false` → the tool reads through the approval gate (trusted read tool). Defaults to gated. */
+  approvalMode?: McpToolApprovalMode;
+  /** Legacy Ask first preference. Never a fact about the tool's side effects. */
   mutating?: boolean;
 }
 
@@ -58,8 +61,10 @@ export interface McpServerEntry {
   auth: McpServerAuth;
   /** Changes when a static credential changes or OAuth credentials are invalidated. */
   credentialRevision?: string;
-  /** Per-tool reclassification, keyed by remote tool name. */
+  /** Per-tool enablement and permission exceptions, keyed by remote tool name. */
   toolOverrides?: Record<string, McpToolOverride>;
+  /** Omitted means inherit the global MCP preference. */
+  approvalPolicy?: McpApprovalPolicy;
   /** Last-known advertised tools, for rendering per-tool toggles without reconnecting. */
   tools?: McpToolInfo[];
   capabilityRevision?: string;
@@ -99,7 +104,9 @@ export interface McpServerPatch {
   url?: string;
   enabled?: boolean;
   auth?: McpServerAuth;
-  toolOverrides?: Record<string, McpToolOverride>;
+  toolOverrides?: Record<string, McpToolApprovalPatch>;
+  approvalPolicy?: McpApprovalPolicy | null;
+  resetToolApprovals?: boolean;
   /** `undefined` keeps the current secret, `null` clears it, a string replaces it. */
   secret?: string | null;
 }
@@ -143,6 +150,21 @@ interface StoredRow {
   capabilities?: { current: McpCapabilitySnapshot; reviewed: McpCapabilitySnapshot };
 }
 
+interface StoredDocument {
+  servers: StoredRow[];
+  defaultApprovalPolicy?: McpApprovalPolicy;
+}
+
+function parseDocument(parsed: StoredRow[] | StoredDocument): StoredDocument {
+  return Array.isArray(parsed) ? { servers: parsed } : parsed;
+}
+
+export function mcpToolInfo(tool: McpCapabilityTool): McpToolInfo {
+  const annotations = tool.annotations as { readOnlyHint?: boolean } | undefined;
+  return { name: tool.name, ...(tool.description !== undefined ? { description: tool.description } : {}),
+    ...(typeof annotations?.readOnlyHint === 'boolean' ? { readOnlyHint: annotations.readOnlyHint } : {}) };
+}
+
 export class McpStoreError extends Error {
   constructor(
     public code: 'slug_taken' | 'not_found' | 'invalid' | 'conflict',
@@ -160,6 +182,10 @@ export interface McpServerStore {
   create(input: McpServerCreate, secret?: string): Promise<McpServerEntry>;
   update(id: string, patch: McpServerPatch): Promise<McpServerEntry | null>;
   remove(id: string): Promise<boolean>;
+  getApprovalSettings(): { defaultPolicy: McpApprovalPolicy; override: McpApprovalPolicy | null };
+  /** One atomic read keeps bulk changes coherent at the execution boundary. */
+  getApprovalSnapshot(): { servers: McpServerEntry[]; approvalSettings: ReturnType<McpServerStore['getApprovalSettings']> };
+  setDefaultApprovalPolicy(policy: McpApprovalPolicy | null, applyToAll?: boolean): Promise<void>;
   setHealth(id: string, health: McpServerHealth): Promise<void>;
   recordCapabilities(id: string, tools: readonly McpCapabilityTool[]): Promise<McpServerEntry | null>;
   acknowledgeCapabilities(id: string, revision: string): Promise<McpServerEntry | null>;
@@ -190,20 +216,27 @@ export function toSlug(name: string): string {
 export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lock: LockLike }): McpServerStore {
   const file = path.join(deps.dir, 'mcp-servers.json');
 
-  const readAll = (): StoredRow[] => {
+  const readDocument = (): StoredDocument => {
     try {
       const raw = fs.readFileSync(file, 'utf8');
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as StoredRow[]) : [];
-    } catch {
-      return [];
+      const document = parseDocument(parsed);
+      if (!document || !Array.isArray(document.servers)) throw new McpStoreError('invalid', 'Invalid MCP server configuration.');
+      if (document.defaultApprovalPolicy !== undefined && !MCP_APPROVAL_POLICIES.includes(document.defaultApprovalPolicy)) {
+        throw new McpStoreError('invalid', 'Invalid MCP approval policy.');
+      }
+      return document;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { servers: [] };
+      throw error;
     }
   };
+  const readAll = (): StoredRow[] => readDocument().servers;
 
-  const writeAll = (rows: StoredRow[]): void => {
+  const writeDocument = (document: StoredDocument): void => {
     fs.mkdirSync(deps.dir, { recursive: true, mode: 0o700 });
     const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(rows, null, 2), { mode: 0o600 });
+    fs.writeFileSync(tmp, JSON.stringify(document, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, file);
     try {
       fs.chmodSync(file, 0o600);
@@ -211,10 +244,38 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
       /* best-effort */
     }
   };
+  const writeAll = (rows: StoredRow[]): void => writeDocument({ ...readDocument(), servers: rows });
 
   const sealSecret = async (secret: string): Promise<unknown> => deps.secretBox.seal({ secret });
+  const approvalSnapshot = () => {
+    const document = readDocument();
+    const override = document.defaultApprovalPolicy;
+    return { servers: document.servers.map(row => row.entry), approvalSettings: {
+      defaultPolicy: override ?? DEFAULT_MCP_APPROVAL_POLICY, override: override ?? null,
+    } };
+  };
 
   return {
+    getApprovalSettings() {
+      return approvalSnapshot().approvalSettings;
+    },
+    getApprovalSnapshot: approvalSnapshot,
+    async setDefaultApprovalPolicy(policy, applyToAll = false) {
+      if (policy !== null && !MCP_APPROVAL_POLICIES.includes(policy)) throw new McpStoreError('invalid', 'Invalid MCP approval policy.');
+      await deps.lock.withLock('mcp-servers', async () => {
+        const document = readDocument();
+        if (policy === null) delete document.defaultApprovalPolicy;
+        else document.defaultApprovalPolicy = policy;
+        if (applyToAll) for (const row of document.servers) {
+          // Built-in providers retain their own established write policy.
+          if (row.entry.providerId) continue;
+          delete row.entry.approvalPolicy;
+          row.entry.toolOverrides = clearMcpToolApprovals(row.entry.toolOverrides);
+          row.entry.updatedAt = new Date().toISOString();
+        }
+        writeDocument(document);
+      });
+    },
     list() {
       return readAll().map((r) => r.entry);
     },
@@ -266,7 +327,10 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         if (patch.url !== undefined) row.entry.url = patch.url;
         if (patch.enabled !== undefined) row.entry.enabled = patch.enabled;
         if (patch.auth !== undefined) row.entry.auth = patch.auth;
-        if (patch.toolOverrides !== undefined) row.entry.toolOverrides = patch.toolOverrides;
+        if (patch.toolOverrides !== undefined) row.entry.toolOverrides = patchMcpToolOverrides(row.entry.toolOverrides, patch.toolOverrides);
+        if (patch.approvalPolicy === null) delete row.entry.approvalPolicy;
+        else if (patch.approvalPolicy !== undefined) row.entry.approvalPolicy = patch.approvalPolicy;
+        if (patch.resetToolApprovals) row.entry.toolOverrides = clearMcpToolApprovals(row.entry.toolOverrides);
         if (patch.secret !== undefined) {
           row.sealed = patch.secret === null ? undefined : await sealSecret(patch.secret);
           row.entry.credentialRevision = uuidv7();
@@ -325,7 +389,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         row.capabilities = { current, reviewed };
         row.entry.capabilityRevision = current.revision;
         row.entry.capabilityChanges = diffMcpCapabilities(reviewed, current);
-        row.entry.tools = current.tools.map(({ name, description }) => ({ name, ...(description !== undefined ? { description } : {}) }));
+        row.entry.tools = current.tools.map(mcpToolInfo);
         row.entry.updatedAt = new Date().toISOString();
         writeAll(rows);
         return row.entry;
@@ -439,8 +503,8 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 /** Safe inert catalog read. No credential key creation, unsealing or network discovery. */
 export function readMcpMetadata(dir: string): { entry: McpServerEntry; capabilities: McpCapabilitySnapshot | null }[] {
   try {
-    const rows = JSON.parse(fs.readFileSync(path.join(dir, 'mcp-servers.json'), 'utf8')) as StoredRow[];
-    return rows.map(row => ({ entry: row.entry, capabilities: row.capabilities?.current ?? null }));
+    const document = parseDocument(JSON.parse(fs.readFileSync(path.join(dir, 'mcp-servers.json'), 'utf8')));
+    return document.servers.map(row => ({ entry: row.entry, capabilities: row.capabilities?.current ?? null }));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw error;

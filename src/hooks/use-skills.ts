@@ -42,7 +42,7 @@ export function useCreateSkill() {
   const settle = useSettle();
   return useMutation({
     mutationFn: (body: CreateSkillBody) => skillsApi.create(body),
-    onSuccess: (result) => settle(result.skill),
+    onSuccess: (result) => { void settle(result.skill); },
   });
 }
 

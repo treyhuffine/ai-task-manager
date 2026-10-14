@@ -62,12 +62,12 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function authorize(recordOrigin = true) {
+async function authorize(recordOrigin = true, returnTo?: string) {
   const entry = await store.create({ slug: 'fixture', displayName: 'Fixture', url: provider.url, auth: { kind: 'oauth' } });
   const request = recordOrigin ? new Request('http://localhost:4224/api/integrations/mcp-servers', {
     method: 'POST', headers: { origin: pageOrigin, 'sec-fetch-site': 'same-origin' },
   }) : undefined;
-  const result = await beginMcpAuthorization(entry, request);
+  const result = await beginMcpAuthorization(entry, request, returnTo);
   expect(result.requiresAuth).toBe(true);
   if (!result.requiresAuth) throw new Error('Expected authorization');
   expect(result.desktopFlowId).toBeUndefined();
@@ -82,6 +82,15 @@ async function authorize(recordOrigin = true) {
 
 const resultUrl = (response: Response) => new URL(response.headers.get('location')!, webOrigin);
 
+it('preserves an explicit chat destination when authorization starts from chat', async () => {
+  const { callback, finish } = await authorize(true, '/?session=chat-that-asked');
+  const result = resultUrl(await finish(callback));
+  expect(result.origin).toBe(pageOrigin);
+  expect(result.searchParams.get('session')).toBe('chat-that-asked');
+  expect(result.searchParams.get('plugin')).toBeNull();
+  expect(result.searchParams.get('connected')).toBe('Fixture');
+});
+
 it('keeps web MCP OAuth working through persisted state and PKCE, rejecting foreign state and replay', async () => {
   const { entry, callback, finish } = await authorize();
   const foreign = new URL(callback);
@@ -89,7 +98,9 @@ it('keeps web MCP OAuth working through persisted state and PKCE, rejecting fore
   expect(resultUrl(await finish(foreign)).searchParams.get('error')).toBe('authorization_failed');
   expect(provider.exchanges).toBe(0);
   const response = await finish(callback);
-  expect(response.headers.get('location')).toBe(`${pageOrigin}/?settings=plugins&connected=Fixture`);
+  expect(resultUrl(response).origin).toBe(pageOrigin);
+  expect(resultUrl(response).searchParams.get('plugin')).toBe(`mcp:${entry.id}`);
+  expect(resultUrl(response).searchParams.get('connected')).toBe('Fixture');
   expect(provider.exchanges).toBe(1);
   const saved = await store.getOAuthState(entry.id);
   expect(saved?.tokens).toMatchObject({ access_token: provider.token });
@@ -109,7 +120,9 @@ it('requires valid state for web denial and consumes it without a token exchange
   expect(resultUrl(await finish(forged)).searchParams.get('error')).toBe('invalid_state');
   expect((await store.getOAuthState(entry.id))?.authorizationState).toBeTruthy();
   const response = await finish(callback);
-  expect(response.headers.get('location')).toBe(`${pageOrigin}/?settings=plugins&error=authorization_cancelled`);
+  expect(resultUrl(response).origin).toBe(pageOrigin);
+  expect(resultUrl(response).searchParams.get('plugin')).toBe(`mcp:${entry.id}`);
+  expect(resultUrl(response).searchParams.get('error')).toBe('authorization_cancelled');
   expect((await store.getOAuthState(entry.id))?.authorizationState).toBeUndefined();
   expect(provider.exchanges).toBe(0);
 });
@@ -122,9 +135,11 @@ it('rejects an expired web callback before attempting exchange', async () => {
 });
 
 it('keeps the callback browser on its origin when no starting page was recorded', async () => {
-  const { callback, finish } = await authorize(false);
+  const { entry, callback, finish } = await authorize(false);
   const response = await finish(callback);
-  expect(response.headers.get('location')).toBe('/?settings=plugins&connected=Fixture');
+  expect(response.headers.get('location')).toMatch(/^\/\?settings=plugins&plugin=mcp%3A/);
+  expect(resultUrl(response).searchParams.get('plugin')).toBe(`mcp:${entry.id}`);
+  expect(resultUrl(response).searchParams.get('connected')).toBe('Fixture');
   expect(resultUrl(response).origin).toBe(webOrigin);
   expect(provider.exchanges).toBe(1);
 });
@@ -135,7 +150,9 @@ it('completes a web flow after the configured remote origin changes and returns 
   mocks.redirectOrigin = 'https://new-home.example';
   const response = await finish(callback);
   expect(response.status).toBe(307);
-  expect(response.headers.get('location')).toBe(`${pageOrigin}/?settings=plugins&connected=Fixture`);
+  expect(resultUrl(response).origin).toBe(pageOrigin);
+  expect(resultUrl(response).searchParams.get('plugin')).toBe(`mcp:${entry.id}`);
+  expect(resultUrl(response).searchParams.get('connected')).toBe('Fixture');
   expect(provider.exchanges).toBe(1);
   expect((await store.getOAuthState(entry.id))?.tokens).toMatchObject({ access_token: provider.token });
 });

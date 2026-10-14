@@ -111,7 +111,7 @@ describe('hosted MCP confidential dynamic registration', () => {
       const assertSealed = (...secrets: string[]) => {
         const disk = fs.readFileSync(path.join(dir, 'mcp-servers.json'), 'utf8');
         const publicMetadata = JSON.stringify(store.list());
-        expect(JSON.parse(disk)[0]).toHaveProperty('sealedOAuth');
+        expect(JSON.parse(disk).servers[0]).toHaveProperty('sealedOAuth');
         for (const secret of secrets) {
           expect(disk).not.toContain(secret);
           expect(publicMetadata).not.toContain(secret);

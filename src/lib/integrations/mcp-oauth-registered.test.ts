@@ -429,7 +429,7 @@ describe('registered MCP OAuth clients', () => {
       expect(saved).not.toHaveProperty('clientInformation');
       expect(JSON.stringify(saved)).not.toContain(clientSecret);
       const disk = fs.readFileSync(path.join(dir, 'mcp-servers.json'), 'utf8');
-      expect(JSON.parse(disk)[0]).toHaveProperty('sealedOAuth');
+      expect(JSON.parse(disk).servers[0]).toHaveProperty('sealedOAuth');
       for (const sensitive of [clientSecret, tokens.access_token, tokens.refresh_token, saved.registeredClientFingerprint!]) {
         expect(disk).not.toContain(sensitive);
         expect(JSON.stringify(store.list())).not.toContain(sensitive);

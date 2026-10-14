@@ -1,8 +1,8 @@
 'use client'
 
-import { Extension } from '@tiptap/core'
+import { Extension, type Editor, type Range } from '@tiptap/core'
 import Suggestion, { type SuggestionOptions, type SuggestionProps, type SuggestionKeyDownProps } from '@tiptap/suggestion'
-import { createRoot, type Root } from 'react-dom/client'
+import { createSuggestionPopupRenderer } from '@/components/chat/editor/suggestion/renderer'
 import { useState, useEffect, useCallback, useRef, useImperativeHandle, forwardRef } from 'react'
 import {
   Heading1,
@@ -28,7 +28,7 @@ interface SlashCommandItem {
   title: string
   description: string
   icon: React.ComponentType<{ size?: number }>
-  command: (props: { editor: any; range: any }) => void
+  command: (props: { editor: Editor; range: Range }) => void
 }
 
 interface SlashCommandsBuildContext {
@@ -41,7 +41,7 @@ interface SlashCommandsBuildContext {
 
 /** Open the system file picker and insert the chosen images at `insertAt`. */
 function pickAndInsertImages(
-  editor: any,
+  editor: Editor,
   insertAt: number,
   onAttachment?: (a: Attachment) => void,
   store?: AttachmentStore,
@@ -191,10 +191,11 @@ const CommandList = forwardRef<CommandListRef, CommandListProps>(
     const [selectedIndex, setSelectedIndex] = useState(0)
     const listRef = useRef<HTMLDivElement>(null)
 
-    // Reset selection when items change
-    useEffect(() => {
+    const [prevItems, setPrevItems] = useState(items)
+    if (items !== prevItems) {
+      setPrevItems(items)
       setSelectedIndex(0)
-    }, [items])
+    }
 
     // Scroll selected item into view
     useEffect(() => {
@@ -279,101 +280,6 @@ const CommandList = forwardRef<CommandListRef, CommandListProps>(
 
 CommandList.displayName = 'CommandList'
 
-// --- Suggestion render using vanilla DOM + React root ---
-
-function createSuggestionRenderer() {
-  return () => {
-    let popup: HTMLDivElement | null = null
-    let root: Root | null = null
-    let componentRef: CommandListRef | null = null
-    let host: HTMLElement = document.body
-
-    return {
-      onStart(props: SuggestionProps<SlashCommandItem>) {
-        popup = document.createElement('div')
-        popup.className = 'slash-command-popup'
-        // Mount inside the nearest Radix Dialog when present — Radix sets
-        // pointer-events: none on body siblings of a modal dialog, which would
-        // otherwise block clicks and scrollbar drags on the menu.
-        const editorDom = props.editor.view.dom as HTMLElement
-        host =
-          (editorDom.closest('[role="dialog"]') as HTMLElement | null) ??
-          (editorDom.closest('[data-radix-popper-content-wrapper]') as HTMLElement | null) ??
-          document.body
-        host.appendChild(popup)
-
-        root = createRoot(popup)
-        root.render(
-          <CommandList
-            ref={(r) => { componentRef = r }}
-            items={props.items}
-            command={(item) => {
-              props.command(item)
-            }}
-          />
-        )
-
-        updatePosition(popup, props)
-      },
-
-      onUpdate(props: SuggestionProps<SlashCommandItem>) {
-        root?.render(
-          <CommandList
-            ref={(r) => { componentRef = r }}
-            items={props.items}
-            command={(item) => {
-              props.command(item)
-            }}
-          />
-        )
-
-        if (popup) updatePosition(popup, props)
-      },
-
-      onKeyDown(props: SuggestionKeyDownProps) {
-        if (props.event.key === 'Escape') {
-          cleanup()
-          return true
-        }
-        return componentRef?.onKeyDown(props) ?? false
-      },
-
-      onExit() {
-        cleanup()
-      },
-    }
-
-    function updatePosition(
-      el: HTMLDivElement,
-      props: SuggestionProps<SlashCommandItem>
-    ) {
-      const rect = props.clientRect?.()
-      if (!rect) return
-      // `clientRect` is viewport-relative. When the host is a transformed
-      // ancestor (e.g. a Radix Dialog with a slide-in transform), `position:
-      // fixed` resolves against that ancestor's box, so we subtract its
-      // origin to land at the caret. For the body fallback, hostRect is at
-      // 0,0 and the math degenerates to plain viewport coords.
-      const hostRect =
-        host === document.body
-          ? { left: 0, top: 0 }
-          : host.getBoundingClientRect()
-      el.style.position = 'fixed'
-      el.style.left = `${rect.left - hostRect.left}px`
-      el.style.top = `${rect.bottom - hostRect.top + 4}px`
-      el.style.zIndex = '999'
-    }
-
-    function cleanup() {
-      root?.unmount()
-      root = null
-      popup?.remove()
-      popup = null
-      componentRef = null
-    }
-  }
-}
-
 // --- Tiptap Extension ---
 
 interface SlashCommandsOptions {
@@ -413,13 +319,17 @@ export const SlashCommands = Extension.create<SlashCommandsOptions>({
         range,
         props: item,
       }: {
-        editor: any
-        range: any
+        editor: SuggestionProps<SlashCommandItem>['editor']
+        range: Range
         props: SlashCommandItem
       }) => {
         item.command({ editor, range })
       },
-      render: createSuggestionRenderer(),
+      render: createSuggestionPopupRenderer<SlashCommandItem>(CommandList, {
+        placement: 'bottom-start',
+        matchEditorWidth: false,
+        gap: 4,
+      }),
     }
 
     return [

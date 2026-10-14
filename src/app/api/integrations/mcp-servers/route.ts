@@ -5,3 +5,4 @@ import * as operation from '@/lib/server/operations/integrations/mcp-servers';
 
 export const GET = withCompression(serveOperation(operation.GETInput, operation.GET));
 export const POST = withCompression(serveOperation(operation.POSTInput, operation.POST));
+export const PATCH = withCompression(serveOperation(operation.PATCHInput, operation.PATCH));

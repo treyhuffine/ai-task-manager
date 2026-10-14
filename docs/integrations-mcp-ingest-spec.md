@@ -161,7 +161,10 @@ code:
 
 ## 7. Safety (non-negotiable, inherited from the engine)
 
-- Ingested tools default to `mutating: true, risk: 'high'` → **approval-gated**.
+- The engine's generic ingestion remains conservative. Ri's custom MCP servers use advertised
+  read-only annotations for mutation facts, with separate approval preferences. The host default
+  is **Ask before writes**, with server-wide/global controls and per-tool exceptions. Missing
+  read-only annotations count as writes. See `docs/integration-approvals.md`.
 - Namespaced + provenance-tagged (`mcp.<slug>.<tool>`, results carry `server`);
   cannot impersonate a native integration.
 - **Redaction of the remote secret (do this).** The real bearer/header goes to
@@ -197,17 +200,29 @@ code:
 
 ## 10. UI
 
-A dedicated **"MCP servers"** section in the Integrations pane (the aisuite
-Integrations layout), below the provider catalog:
-- list each server: displayName, url, tool count, status pill, enable toggle,
-  Re-test, Remove;
-- an **"Add MCP server"** form: name (→ slug), url, auth (none / bearer / custom
-  header + secret), with the live tool-count confirmation on success;
-- the "runs behind your approval" safety note, and (for Q2-B) honest copy like
-  "Restart the current agent session to use newly added MCP tools."
+A dedicated **MCP servers** tab in Settings > Plugins sits beside Connectors
+and Skills. The shared creation row above all tabs offers **Add MCP server**
+without requiring a tab switch. The desktop and mobile Create menus and Search
+also open the form directly. `?settings=plugins&plugin=mcp:new` deep-links there.
+
+- Each server has a catalog tile with its display name, URL and status. Its
+  detail shows discovered tools, permissions, enable/disable, Re-test and Remove.
+- The add form asks for name, URL and auth (none, bearer, custom header, or OAuth).
+  It appears before catalog loading completes. A successful add opens the
+  discovered server detail. Failed requests and tab switches retain input.
+- Global permissions and Apply to all servers live above server search. The
+  global section and each named server section group their dropdown and Apply
+  action together, with scope-specific labels.
+  Server and tool exceptions follow the policy in `docs/integration-approvals.md`.
+- Existing chats need restarting to discover newly added tools. Permission
+  changes take effect on the next call in running chats.
+- Browser OAuth returns to the custom server detail with success or failure
+  feedback, including when the host restarted during sign-in. An explicit chat
+  return path still takes precedence. Desktop focus refresh retains its flow.
 
 Ingested servers are **not** in `PROVIDER_CATALOG` (user data), hence a separate
-section rather than catalog rows.
+tab rather than provider catalog rows. Built-in hosted providers keep their
+normal account setup in Connectors.
 
 ## 11. DECISIONS (resolved 2026-06-24: Q1=A, Q2=A+B, Q3=A)
 
@@ -258,10 +273,10 @@ Editing/removing needs the registry rebuilt (§2.2, append-only).
 - ✅ **#4 Long-running tools.** `connectMcpClient.callTool` passes
   `{ timeout: 120s, resetTimeoutOnProgress: true, maxTotalTimeout: 600s }` so a tool
   emitting progress isn't killed, while a silent stall still caps.
-- ✅ **#3 Per-tool reclassification.** `IngestMcpOptions.toolOverrides`
-  (`{enabled?, mutating?}` per tool); the store persists the advertised tool list +
-  overrides; the pane shows per-tool On + Approval toggles. Disabled → not ingested;
-  non-mutating → reads through the gate.
+- ✅ **#3 Per-tool controls.** Ri stores `enabled` and `approvalMode` independently. Disabled tools
+  are not ingested, and approval choices never reclassify writes as reads. The engine's generic
+  `IngestMcpOptions.toolOverrides` remains available to other hosts. Legacy Ri `mutating` overrides
+  are read as permission choices only. Server/global policies make bulk changes one action.
 
 - ✅ **#1 OAuth-to-MCP.** Built **SDK-native** (more robust than the engine-reuse the map
   first sketched): the transport's `authProvider` drives the whole flow — protected-resource

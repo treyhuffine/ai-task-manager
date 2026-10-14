@@ -1,12 +1,9 @@
 "use client";
 
-import { Search, Zap } from 'lucide-react';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { Search } from 'lucide-react';
 import { SpaceSelector } from '@/components/spaces/space-selector';
 
 export function MobileTopBar() {
-  const { setQuickCaptureOpen } = useDashboard();
-
   return (
     // pt: respect the safe-area on devices that report one (notch/island),
     // floor at 0.75rem so non-PWA browsers — which evaluate env() to 0 —
@@ -19,19 +16,11 @@ export function MobileTopBar() {
       <SpaceSelector variant="collapsed" />
       <button
         onClick={() => document.dispatchEvent(new CustomEvent('open-search'))}
-        className="flex-1 h-10 flex items-center gap-2.5 px-3.5 rounded-lg border border-border text-muted-foreground active:bg-muted/60 transition-colors"
+        className="min-w-0 flex-1 h-10 flex items-center gap-2.5 px-3.5 rounded-lg border border-border text-muted-foreground active:bg-muted/60 transition-colors"
         aria-label="Search"
       >
         <Search size={15} className="flex-shrink-0" />
-        <span className="text-sm text-muted-foreground/70">Search tasks, notes, areas…</span>
-      </button>
-
-      <button
-        onClick={() => setQuickCaptureOpen(true)}
-        className="h-10 w-10 flex items-center justify-center rounded-lg border border-border text-muted-foreground active:bg-muted/60 transition-colors"
-        aria-label="Quick capture"
-      >
-        <Zap size={16} />
+        <span className="truncate text-sm text-muted-foreground/70">Search tasks, notes, areas…</span>
       </button>
     </header>
   );

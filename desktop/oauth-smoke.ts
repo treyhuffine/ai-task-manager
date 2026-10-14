@@ -156,7 +156,7 @@ void acceptance('oauth-smoke', async fixture => {
 
     const fallback = await webFlow('Relative return fixture');
     assert(fallback.location, 'Unrecorded starting origin omitted its return location');
-    assert(fallback.location.startsWith('/?settings=plugins&connected='), 'Unrecorded starting origin did not produce a relative return');
+    assert(fallback.location.startsWith('/?settings=plugins&plugin=mcp%3A'), 'Unrecorded starting origin did not produce a relative MCP return');
     assert(new URL(fallback.location, origin).origin === origin, 'Relative callback escaped its browser origin');
     fixture.check('Web initiation without browser-origin metadata uses a relative callback return');
 

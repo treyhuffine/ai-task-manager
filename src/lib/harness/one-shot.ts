@@ -41,15 +41,13 @@ import type { z } from 'zod';
 import { backgroundHarnessUnavailableReason } from '@/lib/executor/harness';
 import { cheapModelFor } from '@/lib/harness/model-discovery';
 import { modelBelongsToProvider, type ProviderId } from '@/lib/harness/options';
-import { runtimeContextForHarness } from '@/lib/harness/runtime';
+import { executeHarnessTextOnDevice } from './one-shot-runtime';
 import { withActivity } from '@/lib/service/maintenance';
 import { getAppRoot } from '@/lib/config/paths';
 import { getUserState } from '@/lib/db/queries';
 
 /** fast = cheap model (haiku / gpt-6-luna); standard = the user's default agent model. */
 export type ModelTier = 'fast' | 'standard';
-
-const DEFAULT_DISALLOWED_TOOLS = ['Write', 'Edit', 'NotebookEdit', 'Bash'];
 
 export interface HarnessOneShotOpts {
   /** Short tag for log/error lines, e.g. 'deck-context'. */
@@ -77,6 +75,8 @@ export interface HarnessOneShotOpts {
    * everything else is denied unattended).
    */
   skipPermissions?: boolean;
+  /** Host-owned read-only mode for a qualified background workflow. */
+  planMode?: boolean;
   onEvent?: (event: StreamEvent) => void | Promise<void>;
   signal?: AbortSignal;
   /** Fail rather than silently run a harness that the caller has not qualified. */
@@ -141,44 +141,7 @@ async function executeHarnessText(opts: HarnessOneShotOpts): Promise<HarnessOneS
   const unavailable = backgroundHarnessUnavailableReason(providerType);
   if (unavailable) throw new Error(`[${opts.label}] ${unavailable}`);
   const model = opts.model ?? await backgroundModelFor(providerType, opts.tier ?? 'fast');
-  const cwd = opts.cwd ?? getAppRoot();
-  const hasMcp = (opts.mcpServers?.length ?? 0) > 0;
-  const skipPermissions = opts.skipPermissions ?? !hasMcp;
-
-  const provider = getProvider(providerType);
-  const runtime = await runtimeContextForHarness(providerType, { cwd });
-
-  const result = await provider.execute({
-    ...(opts.signal ? {signal: opts.signal} : {}),
-    prompt: opts.system ? `${opts.system}\n\n---\n\n${opts.prompt}` : opts.prompt,
-    ...(model ? { model } : {}),
-    cwd,
-    env: runtime.env,
-    ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
-    config: {
-      ...runtime.config,
-      timeoutSec: opts.timeoutSec ?? 60,
-      maxTurns: opts.maxTurns ?? 1,
-      // Ambient MCP (a stray .mcp.json, user-scope servers) must never leak
-      // into a background call — its surface is exactly what we attach.
-      strictMcpConfig: true,
-      ...(opts.extraArgs ? { extraArgs: opts.extraArgs } : {}),
-      ...(hasMcp ? { mcpServers: opts.mcpServers } : {}),
-      ...(opts.allowedTools?.length ? { allowedTools: opts.allowedTools } : {}),
-      disallowedTools: opts.disallowedTools ?? DEFAULT_DISALLOWED_TOOLS,
-      ...(skipPermissions
-        ? { skipPermissions: true }
-        : { unattendedPermissionPolicy: 'deny' as const }),
-    },
-  });
-
-  const text = result.summary?.trim() ?? '';
-  if (result.status !== 'completed' || !text) {
-    throw new Error(
-      `[${opts.label}] ${providerType} one-shot ${result.status}: ${result.errorMessage ?? 'no output'}`,
-    );
-  }
-  return { text, providerType, model, raw: result };
+  return executeHarnessTextOnDevice({ ...opts, harness: providerType, model, cwd: opts.cwd ?? getAppRoot() });
 }
 
 export interface HarnessJsonOpts<T> extends HarnessOneShotOpts {

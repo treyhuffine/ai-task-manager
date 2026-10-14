@@ -28,9 +28,11 @@ interface SettingsState {
    * link that's about a skill. Reset whenever the section changes.
    */
   anchor: string | null;
+  /** Repeated requests for the same destination still navigate and focus it. */
+  requestId: number;
 }
 
-let state: SettingsState = { open: false, section: DEFAULT_SECTION, autoLand: false, anchor: null };
+let state: SettingsState = { open: false, section: DEFAULT_SECTION, autoLand: false, anchor: null, requestId: 0 };
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -40,8 +42,8 @@ function emit() {
 /** Open settings. With a section → land there. Without → let the modal choose. */
 export function openSettings(section?: SectionId, opts: { anchor?: string } = {}): void {
   state = section
-    ? { open: true, section, autoLand: false, anchor: opts.anchor ?? null }
-    : { ...state, open: true, autoLand: true, anchor: null };
+    ? { open: true, section, autoLand: false, anchor: opts.anchor ?? null, requestId: state.requestId + 1 }
+    : { ...state, open: true, autoLand: true, anchor: null, requestId: state.requestId + 1 };
   emit();
 }
 
@@ -52,9 +54,16 @@ export function closeSettings(): void {
   emit();
 }
 
+/** A pane's local navigation updates its deep link without issuing another open request. */
+export function setSettingsAnchor(anchor: string): void {
+  if (!state.open || state.section !== 'plugins' || state.anchor === anchor) return;
+  state = { ...state, anchor };
+  emit();
+}
+
 export function setSettingsSection(section: SectionId): void {
   if (state.open && state.section === section && !state.autoLand) return;
-  state = { open: state.open, section, autoLand: false, anchor: null };
+  state = { ...state, section, autoLand: false, anchor: null };
   emit();
 }
 

@@ -6,6 +6,65 @@ it. The tool returns `approval_required`, and the chat that asked shows an appro
 buttons. Before this, nothing in the UI could approve, so a paused agent stayed stuck until the user
 turned Ask first off in Settings.
 
+## Custom MCP permissions
+
+Settings > Plugins > MCP servers has a global default and an **Apply to all servers**
+button. Each server also has a permission selector and individual tool exceptions:
+
+The **Global MCP default** is above server search and uses a distinct tinted
+section. A server's detail instead names its scope, **Permissions for <server>**.
+Each dropdown and its bulk Apply action share one control group, inline when
+there is room and stacked together on phones. Dropdown changes save immediately.
+The controls use the app's standard Select with a padded chevron. Escape closes
+an open dropdown before returning from a server detail to its catalog.
+
+- **Ask before writes** is the code default. Tools advertising `readOnlyHint: true` run freely.
+  Writes and tools without a read-only annotation require approval.
+- **Always allow** runs the server's enabled tools without the Ri approval prompt.
+- **Ask every time** prompts for reads as well as writes.
+
+Precedence is an explicit tool choice, then the server's choice, then the global default. A server
+can inherit the global default, and a tool's reset button returns it to the server setting.
+Changing a server's selector applies it to every tool and clears its permission exceptions.
+**Apply to all tools** reapplies the selected policy when exceptions have been added.
+**Apply to all servers** clears custom servers' own policies and tool permission exceptions so
+they inherit the global default. Disabled servers and tools stay off. Newly discovered tools
+inherit the same policy. Built-in providers keep their existing write policy.
+
+Permission changes take effect at the next tool call, including in a running chat. They do not
+reconnect the MCP server or change whether the tool mutates data. Tool enable/disable changes still
+refresh discovery and revoke stale cached transports.
+
+Configuration lives in `<config-dir>/integrations/mcp-servers.json`, with atomic writes under the
+shared cross-process file lock. The file now holds `{ servers, defaultApprovalPolicy? }`, and reads
+also accept the earlier server array. Reading never upgrades the file. The first authorized write
+does so, preserving credentials, OAuth state, health and capability snapshots. Defaults are resolved
+in `mcp-approval-policy.ts`, and new records store no permission choice until the user makes one.
+Each execution reads the server preferences and global default from the same atomic snapshot.
+No SQLite schema or migration changes are involved.
+
+Tool change notices are informational and never gate tool access. The same JSON
+file stores each server's `capabilities.current` and `capabilities.reviewed`
+snapshots. Discovery compares the new inventory with the last acknowledged one.
+**Dismiss notice** copies the current snapshot to the acknowledged snapshot and
+clears the displayed changes. It does not change tool access or approval settings.
+
+Per-tool approval uses `toolOverrides[tool].approvalMode: 'auto' | 'ask'`, independently of mutation
+facts. Legacy `toolOverrides[tool].mutating` is interpreted only as the saved approval choice
+(`false` means auto, `true` means ask), never as a read/write reclassification. Updating that
+permission replaces the legacy field. **Always allow** on a chat approval card writes the same
+per-tool preference without reconnecting. The engine still reports uncertain write failures as
+`indeterminate`, even when approval is automatic.
+
+Built-in MCP-backed providers also preserve legacy tool choices. Their provider-wide action
+preference takes priority, and changing it clears older account-level permission exceptions.
+
+The UI uses typed tRPC `integrations.mcpApprovalPolicyPatch` and `integrations.mcpServersPatch`.
+The REST adapters are `PATCH /api/integrations/mcp-servers { defaultPolicy, applyToAll? }` and
+`PATCH /api/integrations/mcp-servers/:id { approvalPolicy?, resetToolApprovals?, toolOverrides? }`.
+Null restores inheritance, per-tool patches merge under the store lock, and only viewer credentials
+can change permission preferences. Session and worker credentials cannot approve themselves.
+
 ## The flow
 
 1. **Gate.** `appApprovalPolicy` (`integrations/approval.ts`) registers a pending approval, one per

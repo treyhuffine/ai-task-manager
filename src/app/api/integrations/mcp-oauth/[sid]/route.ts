@@ -3,7 +3,7 @@ import { withCompression } from '@/lib/api/compression';
 import {
   getMcpServerStore, getMcpOAuthRedirectUrl,
 } from '@/lib/integrations/runtime';
-import { completeMcpAuthorization } from '@/lib/integrations/mcp-authorization';
+import { completeMcpAuthorization, mcpSettingsReturnPath } from '@/lib/integrations/mcp-authorization';
 import { oauthReturnRedirect, takeOAuthReturn } from '@/lib/integrations/oauth-return';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { usesRegisteredOAuth } from '@/lib/integrations/hosted-oauth-config';
@@ -14,7 +14,7 @@ import { timingSafeEqual } from 'node:crypto';
  * server sends the browser here with `?code&state`. Registered built-in slugs resolve to their
  * current server ID. The SDK provider retains the selected client and PKCE verifier, so `finishMcpOAuth`
  * can exchange the code and save the tokens. We then rebuild the runtime to ingest the now-authorized
- * server's tools and bounce back to the Integrations pane, on the origin the add started from
+ * server's tools and return to its management detail, on the origin the add started from
  * (see oauth-return.ts).
  */
 // Compressed when the body is JSON and over ~1KiB; a streamed or
@@ -55,7 +55,7 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ s
   if (wrongChannel) {
     return new Response('This authorization belongs to the desktop callback', { status: 400 });
   }
-  const back = takeOAuthReturn(state);
+  const back = takeOAuthReturn(state) ?? (entry ? { origin: null, path: mcpSettingsReturnPath(entry) } : null);
   const redirect = (result: Record<string, string>) => oauthReturnRedirect(back, result);
 
   if (error) {

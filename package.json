@@ -94,7 +94,7 @@
     "skills"
   ],
   "dependencies": {
-    "@agentex/agent": "^0.0.44",
+    "@agentex/agent": "^0.0.45",
     "@agentex/github": "^0.0.1",
     "@agentex/workspace": "^0.0.5",
     "@ai-sdk/anthropic": "^3.0.63",
@@ -119,6 +119,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
+    "@floating-ui/dom": "^1.7.6",
     "@google/generative-ai": "^0.24.1",
     "@integrations/engine": "workspace:*",
     "@lezer/highlight": "^1.2.3",

@@ -245,6 +245,10 @@ export function useSessionStream(sessionId: string | null): void {
     };
 
     const handlers: Record<string, (data: unknown, caughtUp?: () => void) => void> = {
+      title_changed: () => {
+        void queryClient.invalidateQueries({ queryKey: ['session', sessionId], exact: true });
+        invalidateRail();
+      },
       chat_event: handleChatEvent,
       delivery: handleDelivery,
       transfer: handleTransfer,

@@ -1,3 +1,4 @@
+import type { TitleRequest } from '@/lib/runner/types';
 /**
  * How this device's worker carries out execution commands
  * (docs/homes-build.md, P2 protocol and P2.4): send, interrupt, stop a task,
@@ -660,6 +661,19 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
     run_script: runScript,
     interrupt: repeatable(async (command) => {
       await runner.abort(chatOf(command));
+      return { state: 'delivered' };
+    }),
+    generate_title: repeatable(async (command) => {
+      const chatId = command.target.chatSessionId;
+      if (chatId) void runner.localRunner.generateTitle?.(chatId, command.payload as TitleRequest).catch((error) => {
+        console.warn('[worker] title request failed:', error);
+      });
+      return { state: 'delivered' };
+    }),
+    set_title: repeatable(async (command) => {
+      const chatId = command.target.chatSessionId;
+      const payload = command.payload as { title: string | null; revision: number };
+      if (chatId) await runner.localRunner.setTitle?.(chatId, payload.title, payload.revision);
       return { state: 'delivered' };
     }),
     stop_task: repeatable(async (command) => {

@@ -35,20 +35,22 @@ export function BudgetWarningPill() {
     <Tip
       label={
         data.budget != null
-          ? `${pct}% of $${data.budget.toFixed(2)} monthly budget`
-          : undefined
+          ? `${message}. ${pct}% of $${data.budget.toFixed(2)} monthly budget`
+          : message
       }
     >
       <button
         type="button"
+        aria-label={message}
         onClick={() => openSettings('models')}
         className={cn(
-          'inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-medium',
+          'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-1 rounded-md border text-[11px] font-medium',
           tone,
         )}
       >
-        <AlertTriangle size={11} />
-        <span>{message}</span>
+        <AlertTriangle size={11} className="shrink-0" />
+        <span className="hud-budget-label">{message}</span>
+        <span className="hud-budget-short hidden" aria-hidden>{data.budgetState === 'block' ? 'Paused' : `${pct}%`}</span>
       </button>
     </Tip>
   );

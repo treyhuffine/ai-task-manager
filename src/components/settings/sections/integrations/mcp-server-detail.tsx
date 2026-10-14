@@ -4,17 +4,18 @@
  * Detail + add views for remote MCP servers. An ingested server's tools become
  * integrations behind the same approval gate, so they get the same drill-in
  * treatment as a provider: status and controls up top, every tool listed below
- * with its On and Ask first switches, no dropdowns.
+ * with server-wide permissions and individual On and Ask first switches.
  */
-import { INTEGRATION_LABELS } from '@/constants/integrations';
 import type { FormEvent, ReactNode } from 'react';
-import { LogIn, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { LogIn, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { BackLink, Chip, DetailHeader, GroupHeading, McpLogo, type Tone } from './parts';
-import type { McpForm, McpServerEntry, McpToolOverride } from './types';
+import type { McpForm, McpServerEntry } from './types';
+import { DEFAULT_MCP_APPROVAL_POLICY, mcpToolApprovalOverride, resolveMcpToolApproval, type McpApprovalPolicy, type McpToolApprovalPatch } from '@/lib/integrations/mcp-approval-policy';
+import { McpPermissionControls, McpPermissionSelect, MCP_POLICY_LABELS } from './mcp-permissions';
 import { CapabilityReview } from './capability-review';
 import { Tip } from '@/components/ui/tip';
 
@@ -44,6 +45,8 @@ export function McpServerDetail({
   onRemove,
   onToolOverride,
   onReviewCapabilities,
+  defaultPolicy = DEFAULT_MCP_APPROVAL_POLICY,
+  onSetPolicy,
 }: {
   server: McpServerEntry;
   busy: boolean;
@@ -52,8 +55,10 @@ export function McpServerDetail({
   onRetest: () => void;
   onToggleEnabled: () => void;
   onRemove: () => void;
-  onToolOverride: (toolName: string, patch: McpToolOverride) => void;
+  onToolOverride: (toolName: string, patch: McpToolApprovalPatch) => void;
   onReviewCapabilities?: (revision: string) => void;
+  defaultPolicy?: McpApprovalPolicy;
+  onSetPolicy?: (policy: McpApprovalPolicy | null) => void;
 }) {
   const status = mcpTone(s);
   const tools = s.tools ?? [];
@@ -63,7 +68,7 @@ export function McpServerDetail({
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <BackLink onBack={onBack} busy={busy} />
+        <BackLink onBack={onBack} busy={busy} label="All MCP servers" />
         <DetailHeader
           logo={<McpLogo size={48} dim={!s.enabled} />}
           title={s.displayName}
@@ -118,29 +123,43 @@ export function McpServerDetail({
 
       <CapabilityReview changes={s.capabilityChanges} busy={busy} onReview={onReviewCapabilities} />
 
+      {onSetPolicy && <section aria-label={`Server permissions for ${s.displayName}`} className="@container space-y-3 rounded-xl border border-border bg-card/20 p-4">
+        <h3 className="break-words text-xs font-medium">Permissions for {s.displayName}</h3>
+        <McpPermissionControls label={`Permission choice and bulk action for ${s.displayName}`}>
+          <McpPermissionSelect value={s.approvalPolicy ?? null} inheritedLabel="Use global default"
+            label={`Permissions for ${s.displayName}`} busy={busy} onChange={onSetPolicy} />
+          {Object.values(s.toolOverrides ?? {}).some(override => mcpToolApprovalOverride(override) !== undefined) &&
+            <Button variant="outline" size="sm" className="h-9 text-xs" disabled={busy} onClick={() => onSetPolicy(s.approvalPolicy ?? null)}>Apply to all tools</Button>}
+        </McpPermissionControls>
+        <p className="text-[11px] leading-normal text-muted-foreground">
+          {s.approvalPolicy == null && <>Global default: {MCP_POLICY_LABELS[defaultPolicy]}. </>}
+          Changing this applies immediately to this server&apos;s tools, including new tools, and clears individual approval choices. Disabled tools stay off.
+        </p>
+      </section>}
+
       <PluginSetupHelpButton target={{ kind: 'mcp', server: s }} disabled={busy} />
 
       {tools.length > 0 && (
         <section className="space-y-2">
           <GroupHeading count={tools.length}>Tools</GroupHeading>
           <p className="text-[11px] leading-normal text-muted-foreground">
-            Turn off any tool agents should never call. Ask first pauses a tool for your approval each time, so switch
-            it off only for trusted read-only tools. Restart a running agent session to pick up changes.
+            Turn off tools agents should never call. Ask first pauses each call for approval. Individual switches override the server setting.
           </p>
           <div className="overflow-hidden rounded-xl border border-border bg-card/20 py-1">
-            <div className="grid grid-cols-[1fr_2.5rem_3.5rem] items-center gap-x-2 px-3 pb-1 pt-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="grid grid-cols-[1fr_2.5rem_3.5rem_1.25rem] items-center gap-x-2 px-3 pb-1 pt-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
               <span>Tool</span>
               <span className="text-center">On</span>
               <span className="text-center">Ask first</span>
+              <span />
             </div>
             {tools.map((t) => {
               const ov = s.toolOverrides?.[t.name];
               const toolEnabled = ov?.enabled !== false;
-              const gated = ov?.mutating !== false;
+              const gated = resolveMcpToolApproval(s, t.name, defaultPolicy, t.readOnlyHint !== true) === 'ask';
               return (
                 <div
                   key={t.name}
-                  className="grid grid-cols-[1fr_2.5rem_3.5rem] items-center gap-x-2 px-3 py-1.5 hover:bg-muted/30"
+                  className="grid grid-cols-[1fr_2.5rem_3.5rem_1.25rem] items-center gap-x-2 px-3 py-1.5 hover:bg-muted/30"
                 >
                   <div className="min-w-0">
                     <Tip label={t.name} onlyWhenTextHidden>
@@ -159,6 +178,7 @@ export function McpServerDetail({
                   <Switch
                     size="sm"
                     checked={toolEnabled}
+                    disabled={busy}
                     onCheckedChange={(on) => onToolOverride(t.name, { enabled: on })}
                     aria-label={`Enable ${t.name}`}
                     className="justify-self-center"
@@ -166,11 +186,16 @@ export function McpServerDetail({
                   <Switch
                     size="sm"
                     checked={gated}
-                    disabled={!toolEnabled}
-                    onCheckedChange={(on) => onToolOverride(t.name, { mutating: on })}
+                    disabled={busy || !toolEnabled}
+                    onCheckedChange={(on) => onToolOverride(t.name, { approvalMode: on ? 'ask' : 'auto' })}
                     aria-label={`Ask before ${t.name} runs`}
                     className="justify-self-center"
                   />
+                  {mcpToolApprovalOverride(ov) !== undefined && <Tip label="Use server permissions">
+                    <button type="button" aria-label={`Use server permissions for ${t.name}`} disabled={busy}
+                      onClick={() => onToolOverride(t.name, { approvalMode: null })}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-50"><RotateCcw size={12} /></button>
+                  </Tip>}
                 </div>
               );
             })}
@@ -209,11 +234,11 @@ export function McpServerForm({
   return (
     <div className="space-y-6">
       <div className="space-y-4">
-        <BackLink onBack={onBack} busy={busy} />
+        <BackLink onBack={onBack} busy={busy} label="All MCP servers" />
         <DetailHeader
           logo={<McpLogo size={48} />}
           title="Add an MCP server"
-          subtitle={`Point at any remote MCP server. Its tools become ${INTEGRATION_LABELS.plural.toLowerCase()}, behind your approval gate.`}
+          subtitle="Connect a remote MCP server. Its tools follow your default MCP permissions."
         />
       </div>
 

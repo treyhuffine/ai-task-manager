@@ -4,6 +4,7 @@
 // derived from the Drizzle schema.
 import type { HostedMcpEndpointSetup } from '@integrations/engine/providers';
 import type { McpCapabilityChanges } from '@/lib/integrations/mcp-capabilities';
+import type { McpServerEntry as StoredMcpServerEntry, McpToolOverride as StoredMcpToolOverride } from '@/lib/integrations/mcp-servers';
 
 export interface HostedMcpAccount {
   serverId: string;
@@ -137,29 +138,10 @@ export interface ByoForm {
 
 export const EMPTY_BYO_FORM: ByoForm = { label: '', clientId: '', clientSecret: '' };
 
-export interface McpToolOverride {
-  enabled?: boolean;
-  mutating?: boolean;
-}
-
-export interface McpServerEntry {
-  id: string;
-  /** Built-in servers are managed through their provider card. */
-  providerId?: string;
-  slug: string;
-  displayName: string;
-  url: string;
-  enabled: boolean;
-  auth: { kind: 'none' } | { kind: 'bearer' } | { kind: 'header'; header: string } | { kind: 'oauth' };
-  tools?: { name: string; description?: string }[];
-  toolOverrides?: Record<string, McpToolOverride>;
-  lastStatus?: 'ok' | 'unreachable' | 'error';
-  lastError?: string;
-  lastToolCount?: number;
-  lastCheckedAt?: string;
-  capabilityRevision?: string;
-  capabilityChanges?: McpCapabilityChanges;
-}
+export type McpToolOverride = StoredMcpToolOverride;
+export type McpServerEntry = Pick<StoredMcpServerEntry,
+  'id' | 'providerId' | 'slug' | 'displayName' | 'url' | 'enabled' | 'auth' | 'tools' | 'toolOverrides' |
+  'approvalPolicy' | 'lastStatus' | 'lastError' | 'lastToolCount' | 'lastCheckedAt' | 'capabilityRevision' | 'capabilityChanges'>;
 
 export interface McpForm {
   name: string;

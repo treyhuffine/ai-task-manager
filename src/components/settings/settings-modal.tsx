@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -77,7 +78,7 @@ function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupCheckli
  * and a single scrollable content pane (the Claude/OpenAI pattern).
  */
 export function SettingsModal() {
-  const { open, section, autoLand } = useSettingsStore();
+  const { open, section, autoLand, anchor } = useSettingsStore();
   const def = getSection(section);
 
   // Single source for setup state: drives the Get-started tab + count. Only
@@ -88,14 +89,11 @@ export function SettingsModal() {
   // and stays sticky until close — so skipping the last item doesn't yank the
   // tab out from under you mid-session. `null` = not yet decided this session.
   const [showGetStarted, setShowGetStarted] = useState<boolean | null>(null);
+  if (!open && showGetStarted !== null) setShowGetStarted(null);
+  if (open && showGetStarted === null && checklist.ready) setShowGetStarted(checklist.showGetStarted);
   useEffect(() => {
-    if (!open) {
-      if (showGetStarted !== null) setShowGetStarted(null);
-      return;
-    }
-    if (showGetStarted !== null || !checklist.ready) return;
-    const shouldShow = checklist.showGetStarted;
-    setShowGetStarted(shouldShow);
+    if (!open || showGetStarted === null || !checklist.ready) return;
+    const shouldShow = showGetStarted;
     // Generic open (gear/palette/mobile) → land on Get started while incomplete;
     // an explicit-section open (CTA/deep link) keeps its target.
     if (autoLand) {
@@ -111,8 +109,9 @@ export function SettingsModal() {
 
   // Open from a `?settings=<id>` deep link on first mount.
   useEffect(() => {
-    const section = sectionFromParam(new URLSearchParams(window.location.search).get('settings'));
-    if (section) openSettings(section);
+    const params = new URLSearchParams(window.location.search);
+    const section = sectionFromParam(params.get('settings'));
+    if (section) openSettings(section, { anchor: section === 'plugins' ? params.get('plugin') ?? undefined : undefined });
   }, []);
 
   // Reflect open state + active section in the URL so the modal is linkable
@@ -121,10 +120,12 @@ export function SettingsModal() {
     const params = new URLSearchParams(window.location.search);
     if (open) params.set('settings', section);
     else params.delete('settings');
+    if (open && section === 'plugins' && anchor) params.set('plugin', anchor);
+    else params.delete('plugin');
     const qs = params.toString();
     const url = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
     window.history.replaceState(window.history.state, '', url);
-  }, [open, section]);
+  }, [open, section, anchor]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? openSettings() : closeSettings())}>
@@ -138,13 +139,13 @@ export function SettingsModal() {
           getStarted={showGetStarted ? { done: checklist.doneCount, total: checklist.total } : null}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <DialogHeader className="gap-1 border-b border-border px-5 py-4 pr-12 text-left">
             <DialogTitle className="text-[15px] font-semibold">{def.title}</DialogTitle>
             <DialogDescription className="text-[12px] leading-snug">{def.description}</DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          <div data-settings-scroll className={cn('min-h-0 flex-1 overflow-y-auto px-5 pb-5', section !== 'plugins' && 'pt-5')}>
             <SectionBody id={section} checklist={checklist} />
           </div>
         </div>

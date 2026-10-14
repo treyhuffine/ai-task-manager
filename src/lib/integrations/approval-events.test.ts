@@ -282,16 +282,16 @@ describe('allowWithoutAsking', () => {
     expect(getActionOverride('google_calendar.create_event')).toBeUndefined();
   });
 
-  it('flips an MCP tool’s own Ask first switch and re-ingests', async () => {
+  it('changes MCP approval independently of mutation facts, without reconnecting', async () => {
     h.mcpEntries.push({ id: 'srv-1', slug: 'linear', toolOverrides: { other_tool: { enabled: false } } });
     await allowWithoutAsking('mcp.linear.create_issue', 'high');
     expect(h.mcpUpdates).toEqual([
       {
         id: 'srv-1',
-        patch: { toolOverrides: { other_tool: { enabled: false }, create_issue: { mutating: false } } },
+        patch: { toolOverrides: { create_issue: { approvalMode: 'auto' } } },
       },
     ]);
-    expect(h.invalidated).toBe(1);
+    expect(h.invalidated).toBe(0);
     expect(getActionOverride('mcp.linear.create_issue')).toBeUndefined();
   });
 

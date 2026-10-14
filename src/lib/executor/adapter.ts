@@ -610,6 +610,7 @@ async function deliver(
   concurrentSend: boolean,
 ): Promise<Delivered> {
   const buildSpec = async () => {
+    const currentTitle = getChatSessionWithExecution(chatSessionId);
     const built = {
     ...(await buildSessionSpec(
       {
@@ -633,6 +634,7 @@ async function deliver(
     preparedWorktreeOf: preparing,
     };
     if (built.readOnlyReview) built.readOnlyReview.message = remote ? userMessage : placeFilesAtHome(userMessage, options.attachments ?? []);
+    if (currentTitle) built.title = { label: currentTitle.label, revision: currentTitle.labelRevision, source: currentTitle.labelSource };
     return built;
   };
   // A live session here needs no spec, so a follow-up does no spec work. A

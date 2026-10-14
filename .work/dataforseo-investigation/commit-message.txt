@@ -1,0 +1,12 @@
+fix(integrations): preserve active requests and recover temporary outages
+
+Runtime refresh drains already-started MCP calls before closing their clients.
+Temporary discovery failures retain verified tool definitions without replacing
+credentials or reactivating rejected accounts, and retry discovery on use after
+a 15-second cooldown. Transport recovery never replays a paid request.
+
+Keep typed authentication rejection separate from unavailable transport errors
+and retain bounded, redacted health transitions after recovery.
+
+Validated the isolated commit snapshot with 870 app tests, 408 engine tests,
+app and engine typechecks, and changed-file lint.

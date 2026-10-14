@@ -45,6 +45,8 @@ export function remoteRunnerFor(deviceId: string): ExecutionRunner {
   };
 
   return {
+    async generateTitle(chatSessionId, request) { queue(chatSessionId, 'generate_title', request); },
+    async setTitle(chatSessionId, title, revision) { queue(chatSessionId, 'set_title', { title, revision }); },
     async send(req) {
       // A device elsewhere may have no session for the chat yet, or a
       // stale one: it always gets the spec.

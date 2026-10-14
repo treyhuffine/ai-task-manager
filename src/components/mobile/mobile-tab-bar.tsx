@@ -71,6 +71,7 @@ export function MobileTabBar() {
           return (
             <button
               key={tab.id}
+              aria-label="Create"
               onClick={() => setMobileCreateOpen(true)}
               className="flex items-center justify-center -mt-3 w-12 h-12 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30 active:scale-95 transition-transform"
             >

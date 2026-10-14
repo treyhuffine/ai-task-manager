@@ -23,6 +23,8 @@ import {
   chatPlacement,
   getAckedEventSeq,
   getChatSession,
+  adoptNativeChatSessionLabel,
+  setGeneratedChatSessionLabel,
   heldPlacement,
   insertChatEvent,
   replaceChatEventPart,
@@ -34,7 +36,7 @@ import {
   getHome,
   recordNativeSession,
 } from '@/lib/db/queries';
-import { publishBackgroundTaskActivity, publishPendingInput, publishRuntime } from '@/lib/realtime/bus';
+import { publishBackgroundTaskActivity, publishPendingInput, publishRuntime, publishSessionTitle } from '@/lib/realtime/bus';
 import { queueNeedsInput } from '@/lib/notifications/emit';
 import { recordRunTelemetry } from '@/lib/runs/event-hooks';
 import { finishRunInTransaction } from '@/lib/runs/finish';
@@ -80,6 +82,29 @@ export function applyRunnerSignal(
   const current = !from || currentRemoteSignal(from.deviceId, from.eventPosition);
   if (from) after.tasks.push(() => mirrorSignal(from.deviceId, chatSessionId, signal, from.eventPosition));
   switch (signal.type) {
+    case 'native_title': {
+      // Heartbeats contain live runtime state, but no title metadata. A journaled
+      // name still needs applying after a newer heartbeat, with ownership guards.
+      const row = adoptNativeChatSessionLabel(chatSessionId, signal.title);
+      if (row) after.tasks.push(() => {
+        publishSessionTitle(chatSessionId, row.executionId);
+        // Advance the runner's revision fence without rewriting an existing native name.
+        void import('@/lib/sessions/derive-label').then(({ syncSessionTitle }) => syncSessionTitle(chatSessionId, { syncNative: false }));
+      });
+      return;
+    }
+    case 'title_suggestion': {
+      if (!signal.title || !signal.source) return;
+      const row = setGeneratedChatSessionLabel(chatSessionId, {
+        label: signal.title, source: signal.source, expectedRevision: signal.expectedRevision,
+      });
+      if (row) after.tasks.push(() => {
+        publishSessionTitle(chatSessionId, row.executionId);
+        void import('@/lib/sessions/derive-label').then(({ syncSessionTitle }) => syncSessionTitle(chatSessionId, { syncNative: signal.syncNative !== false }));
+      });
+      return;
+    }
+
     case 'running':
       if (current) after.tasks.push(() => {
         publishRuntime(chatSessionId, signal.running);

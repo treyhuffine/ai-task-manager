@@ -149,6 +149,8 @@ export function parseStreamEvent(
   }
 
   switch (event.type) {
+    case 'title_changed':
+      return null;
     // Liveness signals. They drive the runtime running flag (see
     // `trackTurnBoundary`) and carry nothing a reader would want in the
     // transcript; persisting them would surface an `unknown` row per turn.

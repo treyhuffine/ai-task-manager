@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { mcpServerStore, toSlug, type McpServerStore } from './mcp-servers';
+import { mcpServerStore, readMcpMetadata, toSlug, type McpServerStore } from './mcp-servers';
 import { validateMcpUrl, validateHeaderName } from './mcp-validate';
 import { fileLock } from '@integrations/engine';
 
@@ -26,6 +26,77 @@ afterEach(() => {
 });
 
 describe('mcpServerStore', () => {
+  it('reads legacy configuration without changing it and upgrades only on a write', async () => {
+    const store = freshStore();
+    const entry = await store.create({ slug: 'legacy', displayName: 'Legacy', url: 'https://example.com/mcp', auth: { kind: 'bearer' } }, 'fixture-secret');
+    await store.update(entry.id, { toolOverrides: { read: { mutating: true }, write: { mutating: false }, hidden: { enabled: false } } });
+    const file = path.join(dirs.at(-1)!, 'mcp-servers.json');
+    const rows = JSON.parse(fs.readFileSync(file, 'utf8')).servers;
+    fs.writeFileSync(file, JSON.stringify(rows));
+    const oldBytes = fs.readFileSync(file, 'utf8');
+    expect(store.getApprovalSettings()).toEqual({ defaultPolicy: 'writes', override: null });
+    expect(readMcpMetadata(dirs.at(-1)!)[0]?.entry).toEqual(store.get(entry.id));
+    expect(fs.readFileSync(file, 'utf8')).toBe(oldBytes);
+    await store.setDefaultApprovalPolicy('auto');
+    expect(store.get(entry.id)?.toolOverrides).toEqual(rows[0].entry.toolOverrides);
+    expect(await store.openSecret(entry.id)).toBe('fixture-secret');
+    expect(readMcpMetadata(dirs.at(-1)!)[0]?.entry).toEqual(store.get(entry.id));
+    expect(store.getApprovalSettings()).toEqual({ defaultPolicy: 'auto', override: 'auto' });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).servers[0]).toEqual(rows[0]);
+  });
+
+  it('stores only explicit preferences and applies the global policy atomically without enabling tools', async () => {
+    const store = freshStore();
+    const custom = await store.create({ slug: 'custom', displayName: 'Custom', url: 'https://example.com', auth: { kind: 'none' } });
+    const builtin = await store.create({ slug: 'builtin', providerId: 'todoist', displayName: 'Built-in', url: 'https://example.com', auth: { kind: 'none' } });
+    expect(store.get(custom.id)).not.toHaveProperty('approvalPolicy');
+    await store.update(custom.id, { approvalPolicy: 'ask', toolOverrides: { read: { approvalMode: 'auto' }, hidden: { enabled: false, mutating: true } } });
+    await store.update(builtin.id, { toolOverrides: { read: { approvalMode: 'ask' } } });
+    await store.setDefaultApprovalPolicy('auto');
+    expect(store.get(custom.id)?.approvalPolicy).toBe('ask');
+    await store.setDefaultApprovalPolicy('auto', true);
+    expect(store.get(custom.id)).not.toHaveProperty('approvalPolicy');
+    expect(store.get(custom.id)?.toolOverrides).toEqual({ hidden: { enabled: false } });
+    expect(store.get(builtin.id)?.toolOverrides).toEqual({ read: { approvalMode: 'ask' } });
+    const added = await store.create({ slug: 'new', displayName: 'New', url: 'https://example.com', auth: { kind: 'none' } });
+    expect(added).not.toHaveProperty('approvalPolicy');
+    expect(store.getApprovalSettings().defaultPolicy).toBe('auto');
+    await store.setDefaultApprovalPolicy(null);
+    expect(store.getApprovalSettings()).toEqual({ defaultPolicy: 'writes', override: null });
+    expect(JSON.parse(fs.readFileSync(path.join(dirs.at(-1)!, 'mcp-servers.json'), 'utf8'))).not.toHaveProperty('defaultApprovalPolicy');
+  });
+
+  it('applies a server policy to every tool while leaving other servers and disabled tools alone', async () => {
+    const store = freshStore();
+    const entry = await store.create({ slug: 'server', displayName: 'Server', url: 'https://example.com', auth: { kind: 'none' } });
+    await store.update(entry.id, { toolOverrides: { read: { approvalMode: 'ask' }, write: { mutating: false }, hidden: { enabled: false } } });
+    expect((await store.update(entry.id, { approvalPolicy: 'auto', resetToolApprovals: true }))?.toolOverrides).toEqual({ hidden: { enabled: false } });
+    await store.update(entry.id, { approvalPolicy: null });
+    expect(store.get(entry.id)).not.toHaveProperty('approvalPolicy');
+    expect(store.getApprovalSettings().defaultPolicy).toBe('writes');
+  });
+
+  it('preserves concurrent tool preferences and the global setting across store instances', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-preferences-lock-'));
+    dirs.push(dir);
+    const makeStore = () => mcpServerStore({ dir, secretBox: fakeSecretBox, lock: fileLock({ dir: path.join(dir, 'locks'), retryMs: 1 }) });
+    const first = makeStore(), second = makeStore();
+    const entry = await first.create({ slug: 'concurrent', displayName: 'Concurrent', url: 'https://example.com', auth: { kind: 'none' } });
+    await Promise.all([first.update(entry.id, { toolOverrides: { one: { approvalMode: 'ask' } } }), second.update(entry.id, { toolOverrides: { two: { enabled: false } } }), first.setDefaultApprovalPolicy('auto')]);
+    expect(second.get(entry.id)?.toolOverrides).toEqual({ one: { approvalMode: 'ask' }, two: { enabled: false } });
+    expect(second.getApprovalSettings().defaultPolicy).toBe('auto');
+    await first.setHealth(entry.id, { lastStatus: 'ok', lastCheckedAt: 'now' });
+    expect(second.getApprovalSettings().defaultPolicy).toBe('auto');
+  });
+
+  it('does not overwrite corrupt configuration with an empty store', async () => {
+    const store = freshStore();
+    const file = path.join(dirs.at(-1)!, 'mcp-servers.json');
+    fs.writeFileSync(file, '{broken');
+    await expect(store.setDefaultApprovalPolicy('auto')).rejects.toThrow();
+    expect(fs.readFileSync(file, 'utf8')).toBe('{broken');
+  });
+
   it('creates, lists, and reads back by slug', async () => {
     const store = freshStore();
     const entry = await store.create({ slug: 'sentry', displayName: 'Sentry', url: 'https://mcp.sentry.io', auth: { kind: 'none' } });
@@ -171,7 +242,7 @@ describe('durable tool capability review', () => {
     const reopened = mcpServerStore({ dir: dirs.at(-1)!, secretBox: fakeSecretBox, lock: noopLock });
     expect(reopened.get(entry.id)?.capabilityChanges).toEqual(latest?.capabilityChanges);
     const rows = JSON.parse(fs.readFileSync(path.join(dirs.at(-1)!, 'mcp-servers.json'), 'utf8'));
-    expect(rows[0].capabilities.reviewed.tools[0].inputSchema).toEqual({ type: 'object' });
+    expect(rows.servers[0].capabilities.reviewed.tools[0].inputSchema).toEqual({ type: 'object' });
   });
 
   it('rejects stale acknowledgement and advances only the exact reviewed revision', async () => {

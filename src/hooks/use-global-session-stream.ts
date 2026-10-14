@@ -23,6 +23,15 @@ export function useGlobalSessionStream(): void {
       // A turn starting or ending, or a reconnect that may have missed some:
       // tasks the agent moved and its Working badge (invalidate-tasks.ts).
       const reason = (data as { reason?: string } | null)?.reason;
+      if (event === 'session_updated' && reason === 'title') {
+        const changed = data as { sessionId: string; executionId?: string | null };
+        // Sibling chats share the execution header, even when their own names differ.
+        void queryClient.invalidateQueries({ predicate: (query) => {
+          if (query.queryKey[0] !== 'session' || query.queryKey.length !== 2) return false;
+          return query.queryKey[1] === changed.sessionId || (!!changed.executionId
+            && (query.state.data as { executionId?: string | null } | undefined)?.executionId === changed.executionId);
+        } });
+      }
       if (event === 'ready' || (event === 'session_updated' && (reason === 'runtime' || reason === 'outcome'))) {
         invalidateTaskListsSoon(queryClient);
       }

@@ -8879,7 +8879,7 @@ export function updateExecution(id: string, input: UpdateExecutionInput): Execut
   const db = getDb();
   const row = db
     .update(executions)
-    .set({ ...input, updatedAt: new Date().toISOString() })
+    .set({ ...input, updatedAt: new Date().toISOString(), ...(Object.hasOwn(input, 'label') ? { labelRevision: sql`${executions.labelRevision} + 1` } : {}) })
     .where(eq(executions.id, id))
     .returning()
     .get();
@@ -9459,6 +9459,7 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
     .insert(chatSessions)
     .values({
       ...input,
+      labelSource: input.labelSource ?? (input.label ? 'manual' : null),
       // A session owns a concrete provider tuple. Never let nullable legacy
       // defaults or a model from another provider reach the executor.
       model: selection.model,
@@ -9514,11 +9515,48 @@ export function updateChatSession(id: string, input: UpdateChatSessionInput): Ch
   }
   const row = db
     .update(chatSessions)
-    .set(normalized)
+    .set({ ...normalized, ...(Object.hasOwn(input, 'label') ? {
+      labelSource: input.labelSource ?? 'manual',
+      labelRevision: sql`${chatSessions.labelRevision} + 1`,
+    } : {}) })
     .where(eq(chatSessions.id, id))
     .returning()
     .get();
   return row ?? null;
+}
+
+/** Accept an automatic suggestion only while the title revision and ownership still match. */
+export function setGeneratedChatSessionLabel(id: string, input: {
+  label: string;
+  source: Exclude<NonNullable<ChatSessionRecord['labelSource']>, 'manual'>;
+  expectedRevision: number;
+}): ChatSessionRecord | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const row = tx.update(chatSessions).set({
+      label: input.label, labelSource: input.source,
+      labelRevision: sql`${chatSessions.labelRevision} + 1`,
+    }).where(and(
+      eq(chatSessions.id, id), eq(chatSessions.labelRevision, input.expectedRevision),
+      or(inArray(chatSessions.labelSource, ['native', 'fallback', 'truncated']),
+        and(isNull(chatSessions.labelSource), isNull(chatSessions.label))),
+    )).returning().get();
+    if (!row) return null;
+    if (row.executionId) {
+      // A manual rename or clear of the header increments its own revision.
+      tx.update(executions).set({ label: input.label, labelRevision: sql`${executions.labelRevision} + 1` })
+        .where(and(eq(executions.id, row.executionId), isNull(executions.label), eq(executions.labelRevision, 0))).run();
+    }
+    return row;
+  });
+}
+
+/** Native notifications are metadata, never transcript rows or names for a live main chat. */
+export function adoptNativeChatSessionLabel(id: string, label: string): ChatSessionRecord | null {
+  const existing = getChatSession(id);
+  if (!existing || (existing.type === 'orchestration' && existing.status === 'active') || existing.labelSource === 'manual'
+    || (existing.labelSource === null && existing.label !== null) || existing.label === label) return null;
+  return setGeneratedChatSessionLabel(id, { label, source: 'native', expectedRevision: existing.labelRevision });
 }
 
 /** An import by its native session: on the home's own device, or on a connected one (P2.9). */

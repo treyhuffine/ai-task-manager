@@ -1,6 +1,7 @@
 "use client";
 
 import { openSettings } from '@/components/settings/settings-store';
+import { PLUGIN_CREATE_ANCHORS } from '@/components/settings/sections/plugins/navigation';
 import { NoteIcon } from '@/components/shared/note-icon';
 import { DecisionLabel } from '@/components/notes/note-kind';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,6 +17,7 @@ import { useCreateNote } from '@/hooks/use-notes';
 import { useRecents } from '@/hooks/use-recents';
 import { useSearch } from '@/hooks/use-search';
 import { useCreateTask } from '@/hooks/use-tasks';
+import { useStartSkill } from '@/hooks/use-start-skill';
 import type { SearchResult } from '@/lib/api/search';
 import { closeTaskBoard, openTaskBoard } from '@/lib/client/task-board';
 import { closeCalendarModal, openCalendarModal } from '@/lib/client/calendar-modal';
@@ -102,6 +104,7 @@ export function SearchOverlay() {
   const capabilities = useResultCapabilities();
   const [open, setOpen] = useState(false);
   const [rawQuery, setRawQuery] = useState('');
+  if (!open && rawQuery !== '') setRawQuery('');
   const { searchQuery, typeFilter, isCommand } = parseQuery(rawQuery);
 
   // Defer the query so we fire one request per settle, not one per keystroke.
@@ -133,6 +136,7 @@ export function SearchOverlay() {
     : [];
   const createTask = useCreateTask();
   const createNote = useCreateNote();
+  const newSkill = useStartSkill();
   const { data: recents } = useRecents(25, open);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -189,6 +193,17 @@ export function SearchOverlay() {
         setOpen(false);
         openSettings();
         break;
+      case 'create-skill':
+        if (!newSkill.isPending) { setOpen(false); newSkill.start(); }
+        break;
+      case 'connect-mcp':
+        setOpen(false);
+        openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.mcpServer });
+        break;
+      case 'connect-service':
+        setOpen(false);
+        openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.connectService });
+        break;
       case 'toggle-theme':
         toggleTheme();
         setOpen(false);
@@ -225,7 +240,7 @@ export function SearchOverlay() {
         }
         break;
     }
-  }, [createTask, createNote, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat, router, setActiveView]);
+  }, [createTask, createNote, newSkill, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat, router, setActiveView]);
 
   // Hotkey + custom event listeners
   useEffect(() => {
@@ -257,11 +272,6 @@ export function SearchOverlay() {
       document.removeEventListener('open-search', handleOpen);
     };
   }, []);
-
-  // Reset query when closed so next open starts fresh
-  useEffect(() => {
-    if (!open) setRawQuery('');
-  }, [open]);
 
   // Scroll list to top when results change
   useEffect(() => {

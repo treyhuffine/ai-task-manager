@@ -90,14 +90,35 @@ the skill's chats follow it.
 
 The Settings section is **Plugins** (`?settings=plugins`; the old
 `?settings=integrations` still opens it, since OAuth returns and links carry
-it). It has two tabs named for the two kinds, as the rest of the market names
-them: **Integrations** (access to your accounts, the default tab) and
-**Skills** (know-how). The tab labels live in one list in
+it). It has three management tabs: **Connectors** (access to your accounts, the
+default tab), **Skills** (know-how), and **MCP servers** (custom tools). The tab labels live in one list in
 `src/components/settings/sections/plugins-section.tsx`, so renaming a kind is
 one line. The database keeps "integrations" for the connections it stores,
 which is what they are. The rail's entry is **Connect apps**, which opens
-Plugins on its Integrations tab. Links about a skill open the Skills tab
+Plugins on its Connectors tab. Links about a skill open the Skills tab
 (`openSettings('plugins', { anchor: 'skills' })`).
+
+A sticky creation row sits above all three tabs: **Connect a service**, **New
+skill**, and **Add MCP server**. Tabs organize what is already installed, and
+creation actions go straight to their destination from any tab. Connect a
+service returns to the catalog and focuses search. Add MCP server opens the
+form immediately, independently of catalog loading. Switching tabs retains
+unfinished form input. The desktop and mobile Create menus and Search also offer
+all three actions.
+
+Deep links use `?settings=plugins&plugin=skills`, `plugin=mcp`, `plugin=mcp:new`,
+`plugin=mcp:<serverId>`, or `plugin=integrations:<providerId>`. The settings store
+distinguishes a new opening request from local pane navigation so repeated
+shortcuts refocus their destination without a navigation loop. Each catalog
+mounts on first visit, and only the active pane handles Escape or scroll.
+Interactive examples sit behind a small disclosure below the active catalog.
+Their status and account polling starts only when the user opens it.
+
+Run `pnpm exec tsx scripts/plugins-browser-smoke.ts` against `pnpm dev` to check
+direct setup, retained input, failed creation, sticky actions, deep links,
+desktop and mobile Create, search, and deferred examples at 1440px, 390px, and
+320px. It intercepts setup operations with disposable records and never connects
+accounts or creates skill files. Screenshots go to `.work/plugins-layout/`.
 
 Why, as of September 2026:
 
@@ -113,12 +134,14 @@ Why, as of September 2026:
 
 ## The builder
 
-**New skill** sits at the right of the Plugins tabs, there on either tab, and
-in the Skills section of an agent's Setup tab. It starts a draft named
+**New skill** sits above every Plugins tab, in the main Create menu, in Search,
+and in the Skills section of an agent's Setup tab. It starts a draft named
 `new-skill` and opens it in the builder straight away. Clicking it again
 before anything is written opens the same blank draft (nothing in the file
 and nothing said in its chats), so walking away never leaves a pile of empty
-ones.
+ones. All Plugins, Create, and Search entry points share `useStartSkill`. The
+creation acknowledgment seeds the skill detail cache and opens the builder
+without waiting for the skill list to refetch.
 
 The builder view (`?skill=<ref>`, `src/components/skills/`) is the agent
 view's shape: chat on the left (Build and Try it), the skill on the right.

@@ -395,6 +395,9 @@ describe('POST /api/sessions/[id]/messages — sender provenance', () => {
       SESSION_ID,
       '[Message from the "ri" agent\'s main chat, sent on the user\'s behalf]\n\nhello',
     );
+    // Naming starts once the harness (or its queue) accepted the message.
+    expect(deriveAndSetSessionLabel).not.toHaveBeenCalled();
+    dispatchOptions.onTaken?.();
     // The chat's first-message title comes from the message itself, not the label.
     expect(deriveAndSetSessionLabel).toHaveBeenCalledWith(SESSION_ID, 'hello', 'claude');
     expect(((await res.json()) as { senderSessionId: string }).senderSessionId).toBe(AGENT_CHAT);

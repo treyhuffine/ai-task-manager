@@ -11,6 +11,55 @@ This replaced the API-key era where deck generation, the stream urgency
 lane, image-capture extraction, and the NL MCP inner agent each called
 `openai(MODEL_STANDARD || 'gpt-5.4-mini')` directly.
 
+## Chat naming
+
+Ri owns when a chat gets named, the context, display rules, and the fallback
+prompt/model. Agentex 0.0.45 provides the native-first `generateTitle` helper
+with an explicit host-supplied fallback. The library supplies no naming prompt
+or model and does not persist suggestions.
+
+The fallback uses the device-local execution half of the one-shot helper
+(`src/lib/harness/one-shot-runtime.ts`). The home supplies the naming prompt,
+harness and model, so a connected runner never reads the home's database to
+resolve those choices. The native request and fallback each have a 30-second
+budget within a 70-second overall deadline, including metadata reads and cleanup.
+
+- Work and content chats request a title after their first send is accepted.
+  Their runner first reuses an existing native title, then invokes native
+  generation if available, then uses Ri's callback. Claude uses
+  `generate_session_title` with `persist: false`. Codex exposes native title
+  reads/writes but no native generator, so Ri's callback supplies generation.
+- Main chats remain unlabeled while live. Archive requests a fresh retrospective
+  suggestion without reusing the initial native name. Manual names are retained.
+  A closed Claude chat uses a short-lived native control session without
+  resuming the archived work. That session supplies no custom generation prompt
+  and is closed after the naming request.
+- A title suggestion carries the revision captured when it was requested.
+  `setGeneratedChatSessionLabel` accepts it only while that revision and title
+  ownership still match. Every explicit rename or clear increments the revision
+  and marks the name manual, so a late result cannot overwrite it. Legacy
+  nonempty labels are treated conservatively as manually chosen.
+- User renames remain Ri operations. Native synchronization uses `setTitle`,
+  never direct writes to harness files or databases. Active sessions sync at
+  once. Inactive sessions sync their current Ri name when next started/resumed.
+  Automatic names first check for a rename made in the native client while
+  offline. Existing native names are adopted without rewriting them. Clearing
+  a Ri name remains a local choice when the native setter accepts only nonempty names.
+  Native writes are serialized, and an older revision cannot follow a newer one.
+- Connected devices receive durable `generate_title` and `set_title` commands.
+  Generation runs in the background on the session's device and reports a
+  journaled suggestion. The home applies the same revision guard. Naming does
+  not block chat sends or the worker's command queue.
+- Native title notifications are metadata, not transcript rows. A dedicated
+  realtime title event refreshes the chat and rail. Explicit manual names and
+  active main-chat naming policy take priority over those notifications.
+- Initial generation failure uses truncation. Retrospective failure keeps the
+  existing name/snippet. Unsupported or failed native generation calls the
+  supplied Ri fallback. Cancellation never starts fallback work.
+
+The execution's header title remains separate from its per-chat title. It is
+seeded once, and its own revision preserves later header renames and clears.
+
 ## The helper: `src/lib/harness/one-shot.ts`
 
 Generalizes the pattern `deriveAndSetSessionLabel` pioneered
@@ -70,7 +119,7 @@ disappears and the allowlists light up there too.
 | Stream urgency lane | `src/lib/stream-triage/urgency.ts` | fast | none (JSON) |
 | Image-capture extraction | `src/lib/capture/extract-image.ts` | standard | file reads (images already saved to the attachments dir) |
 | NL MCP inner agent | `src/lib/mcp/agent.ts` | standard | read-only action allowlist (`query`) or the full surface (`update`) |
-| Session label derivation | `src/lib/sessions/derive-label.ts` | fast (predates the helper) | none |
+| Session label derivation | `src/lib/sessions/derive-label.ts` + `src/lib/runner/titles.ts` | native, then the chat's model | none |
 
 The NL MCP agent harvests its `entities` / `innerSteps` payload from
 harness `tool_call` / `tool_result` stream events instead of ai-sdk steps:

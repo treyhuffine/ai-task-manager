@@ -17,7 +17,7 @@ function s(id: string, iso: string): RailSession {
     surfaceRef: null,
     status: 'active',
     label: 'Test',
-    labelSource: null,
+    labelSource: 'manual',
     labelRevision: 0,
 
     workspaceId: 'ws-1',

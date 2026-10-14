@@ -1,0 +1,943 @@
+diff --git a/docs/integration-audit/openseo.md b/docs/integration-audit/openseo.md
+index 2a8d1753..21fab219 100644
+--- a/docs/integration-audit/openseo.md
++++ b/docs/integration-audit/openseo.md
+@@ -8,3 +8,9 @@ Browser sign-in uses public dynamic client registration, PKCE S256, and the `mcp
+ 
+-Use API key accepts a personal OpenSEO key from OpenSEO Settings > API keys. Ri seals the key and sends it as `Authorization: Bearer <key>`. OAuth and API-key accounts coexist without replacing each other's credentials. The provider pins the official hosted endpoint, so a custom server cannot assume OpenSEO's identity or trusted annotations. Self-hosted OpenSEO can still be added as a custom MCP server.
++Use API key accepts a personal OpenSEO key from OpenSEO Settings > API keys. Ri seals the key and sends it as `Authorization: Bearer <key>`. OAuth and API-key accounts coexist without replacing each other's credentials. The Hosted deployment pins the official endpoint and preserves existing account IDs.
++
++Self-hosted is available in the same OpenSEO setup. Enter the instance base URL or its full `/mcp` URL. Ri appends `/mcp` once and accepts HTTPS, plus HTTP for loopback addresses such as `http://localhost:3000`. The instance is reached from the computer running Ri. Credentials, query parameters and fragments are not accepted in the address.
++
++Choose **No authentication (Docker)** for `AUTH_MODE=local_noauth`, or **Browser sign-in (Cloudflare Access)** for deployments protected by Cloudflare Access Managed OAuth. Enable Managed OAuth in that Access application and allow Ri's web callback and desktop loopback redirect URIs, as documented by OpenSEO. OAuth metadata and scopes come from the instance rather than the hosted OpenSEO profile. Hosted API keys are not offered or accepted for self-hosted instances.
++
++Each saved connection freezes its deployment, normalized URL and authentication method. Hosted, Docker and Cloudflare accounts can coexist. Reconnect retains these settings and credentials. Disconnect and add a connection to change them. Arbitrary self-hosted servers do not inherit the hosted vendor's trusted tool annotations, following the existing instance-server policy.
+ 
+@@ -19,2 +25,3 @@ The upstream annotations distinguish free reads, credit-backed research and dest
+ - [Official MCP setup guide](https://www.openseo.so/docs/mcp) documents the hosted endpoint, browser login and Bearer API keys.
++- [Official self-hosting guide](https://www.openseo.so/docs/self-hosting) and [Cloudflare MCP operations](https://github.com/every-app/open-seo/blob/89e5a00717cdf049b7c2b4e29646edb3a7d4995b/docs/SELF_HOSTING_CLOUDFLARE_OPERATIONS.md) document Docker no-auth and Cloudflare Access Managed OAuth.
+ - [OAuth scopes](https://github.com/every-app/open-seo/blob/89e5a00717cdf049b7c2b4e29646edb3a7d4995b/src/lib/oauth-resource.ts) define `mcp` and `offline_access`.
+@@ -26 +33,3 @@ The live unauthenticated metadata and MCP probe was blocked by Cloudflare error
+ `mcp-openseo.test.ts` exercises the real SDK's public OAuth registration, consent, token exchange and refresh for both callbacks, the real Streamable HTTP API-key path, rejected-key handling, catalog presentation and tool approval classifications. `hosted-mcp.test.ts` covers encrypted multi-account setup and API-key rotation beside an existing OAuth account. `hosted-multiaccount-runtime.test.ts` verifies that DataForSEO bursts remain uncapped across discovery refreshes, preserving the user's previously requested policy after a later commit had restored the cap.
++
++Self-hosted validation adds real SDK discovery and tool dispatch against an intercepted Docker fixture, real host stores and instance-driven public OAuth registration and PKCE exchange for web and desktop callbacks. Route, encrypted-store, request-selection and rendered UI tests cover both deployment choices, authentication validation, immutable saved bindings and coexistence with existing hosted credentials. No live self-hosted deployment or Cloudflare account was provisioned or contacted.
+diff --git a/docs/integration-implementation.md b/docs/integration-implementation.md
+index 751f0c2f..4b43d3eb 100644
+--- a/docs/integration-implementation.md
++++ b/docs/integration-implementation.md
+@@ -6,2 +6,8 @@ Started September 28, 2026 from the [ranked audit](integration-audit/README.md).
+ 
++## OpenSEO addition
++
++Added OpenSEO as a built-in connector, bringing the catalog to **69 providers: 59 external MCP and 10 native**. Hosted setup uses public OAuth with PKCE and refresh, or an encrypted personal API key. Self-hosted setup accepts an instance URL and either Docker no-auth or Cloudflare Access Managed OAuth. Each account keeps its own immutable URL, authentication and credentials. Hosted and self-hosted accounts coexist without a database migration. Self-hosted instances follow the existing conservative tool-annotation policy.
++
++The [OpenSEO guide and validation record](integration-audit/openseo.md) documents the supported authentication modes and fixture coverage. Live hosted account sign-in and live self-hosted acceptance remain untested. The catalog continues to leave DataForSEO and OpenSEO request concurrency uncapped, as requested.
++
+ ## Local 1Password addition
+@@ -84,3 +90,3 @@ Public sources, exact profiles and acceptance limits are recorded for [Robinhood
+ 
+-This supersedes the original audit's productivity-first ranking. The first four and monday.com are delivered, while five candidates require vendor qualification or admission. The seventh wave also delivered Webflow, WordPress.com, Smartsheet and Fibery, the eighth added DataForSEO, and the local desktop addition added 1Password. The current catalog contains 68 providers. An app-specific task picker is not a prerequisite for adding a hosted integration. Account access is needed for live acceptance, and sometimes to discover undocumented contracts for a fixed app feature, but it is not a general prerequisite for writing integration setup code.
++This supersedes the original audit's productivity-first ranking. The first four and monday.com are delivered, while five candidates require vendor qualification or admission. The seventh wave also delivered Webflow, WordPress.com, Smartsheet and Fibery, the eighth added DataForSEO, and the local desktop addition added 1Password. The current catalog contains 69 providers, including OpenSEO. An app-specific task picker is not a prerequisite for adding a hosted integration. Account access is needed for live acceptance, and sometimes to discover undocumented contracts for a fixed app feature, but it is not a general prerequisite for writing integration setup code.
+ 
+diff --git a/docs/integrations-current.md b/docs/integrations-current.md
+index c0cc39b4..e9c32e6f 100644
+--- a/docs/integrations-current.md
++++ b/docs/integrations-current.md
+@@ -4,3 +4,3 @@ After the eighth delivery wave, local 1Password and OpenSEO additions: **69 inte
+ 
+-**Hosted/external MCP** means the service supplies tool names, schemas and execution. We maintain connection setup, encrypted credentials, permissions and any typed app consumers. n8n connects to the user-selected instance, which may be self-hosted. **Native** means our code implements operations against the service API. Native does not imply the same tool surface Claude exposes.
++**Hosted/external MCP** means the service supplies tool names, schemas and execution. We maintain connection setup, encrypted credentials, permissions and any typed app consumers. n8n connects to the user-selected instance, which may be self-hosted. OpenSEO offers Hosted and Self-hosted deployment choices. **Native** means our code implements operations against the service API. Native does not imply the same tool surface Claude exposes.
+ 
+@@ -38,3 +38,3 @@ These entries are implemented and fixture-tested. They are not a claim that all
+ | Notion | `https://mcp.notion.com/mcp` |
+-| OpenSEO | `https://app.openseo.so/mcp`, or an OpenSEO API key |
++| OpenSEO | Hosted browser sign-in or API key, or Self-hosted instance URL with Docker no-auth or Cloudflare Access browser sign-in |
+ | Otter | `https://mcp.otter.ai/mcp` |
+@@ -131,2 +131,2 @@ Todoist and Jira have typed consumers for the task picker using canonical hosted
+ 
+-OpenSEO adds keyword, SERP, backlink, rank tracking, AI visibility and saved project research through its [official hosted MCP](https://www.openseo.so/docs/mcp). It supports public OAuth with PKCE and refresh, or an OpenSEO API key. Ri preserves the provider's research, write and sharing annotations under the normal permission and approval gates. See the [OpenSEO implementation and validation notes](integration-audit/openseo.md).
++OpenSEO adds keyword, SERP, backlink, rank tracking, AI visibility and saved project research through its [official hosted MCP](https://www.openseo.so/docs/mcp). It supports public OAuth with PKCE and refresh, or an OpenSEO API key. Self-hosted setup supports Docker without authentication and Cloudflare Access Managed OAuth. Saved URLs and authentication methods stay bound to their individual connections. Ri preserves the hosted provider's research, write and sharing annotations under the normal permission and approval gates. See the [OpenSEO implementation and validation notes](integration-audit/openseo.md).
+diff --git a/packages/integrations/src/__tests__/providers-catalog.test.ts b/packages/integrations/src/__tests__/providers-catalog.test.ts
+index 9402684c..b674f6d9 100644
+--- a/packages/integrations/src/__tests__/providers-catalog.test.ts
++++ b/packages/integrations/src/__tests__/providers-catalog.test.ts
+@@ -12,3 +12,3 @@ describe('provider catalog', () => {
+       expect(Boolean(provider.url)).not.toBe(Boolean(provider.endpoint));
+-      const urls = provider.url ? [provider.url] : provider.endpoint?.kind === 'region' ? provider.endpoint.options.map((option) => option.url) : [];
++      const urls = provider.url ? [provider.url] : provider.endpoint?.kind === 'region' ? provider.endpoint.options.map((option) => option.url) : provider.endpoint?.kind === 'deployment' ? [provider.endpoint.hostedUrl] : [];
+       if (provider.localCommand) {
+@@ -31,2 +31,3 @@ describe('provider catalog', () => {
+       }
++      if (provider.endpoint?.kind === 'deployment') expect(provider.endpoint.path).toBe('/mcp');
+       if (provider.endpoint?.kind === 'instance') expect(provider.endpoint.path).toBe('/mcp-server/http');
+diff --git a/packages/integrations/src/providers/hosted-mcp.ts b/packages/integrations/src/providers/hosted-mcp.ts
+index 13d44b2a..c254555d 100644
+--- a/packages/integrations/src/providers/hosted-mcp.ts
++++ b/packages/integrations/src/providers/hosted-mcp.ts
+@@ -2,3 +2,4 @@ export type HostedMcpEndpoint =
+   | { kind: 'region'; label: string; options: readonly { id: string; label: string; url: string }[] }
+-  | { kind: 'instance'; label: string; placeholder: string; path: string };
++  | { kind: 'instance'; label: string; placeholder: string; path: string }
++  | { kind: 'deployment'; label: string; hostedUrl: string; placeholder: string; path: string };
+ 
+@@ -7,3 +8,4 @@ export type HostedMcpEndpointSetup =
+   | { kind: 'region'; label: string; options: readonly { id: string; label: string }[]; selectedId?: string; locked: boolean }
+-  | { kind: 'instance'; label: string; placeholder: string; selectedUrl?: string; locked: boolean };
++  | { kind: 'instance'; label: string; placeholder: string; selectedUrl?: string; locked: boolean }
++  | { kind: 'deployment'; label: string; placeholder: string; selectedId?: 'hosted' | 'selfhosted'; selectedUrl?: string; selectedAuthMethod?: 'oauth' | 'none'; locked: boolean };
+ 
+@@ -151,3 +153,3 @@ export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
+   // Public MCP OAuth clients use PKCE, mcp access and offline_access for refresh.
+-  { id: 'openseo', displayName: 'OpenSEO', url: 'https://app.openseo.so/mcp',
++  { id: 'openseo', displayName: 'OpenSEO', endpoint: { kind: 'deployment', label: 'Deployment', hostedUrl: 'https://app.openseo.so/mcp', placeholder: 'https://seo.example.com', path: '/mcp' },
+     auth: { kind: 'oauth', scopes: ['mcp', 'offline_access'], tokenEndpointAuthMethod: 'none', authorizeBeforeConnect: true },
+diff --git a/scripts/openseo-browser-smoke.ts b/scripts/openseo-browser-smoke.ts
+new file mode 100644
+index 00000000..72218026
+--- /dev/null
++++ b/scripts/openseo-browser-smoke.ts
+@@ -0,0 +1,97 @@
++/** Check OpenSEO's hosted and self-hosted forms against the dev UI.
++ * Run: pnpm exec tsx scripts/openseo-browser-smoke.ts
++ * All connector reads and connection attempts are intercepted fixtures.
++ */
++import assert from 'node:assert/strict';
++import fs from 'node:fs/promises';
++import { existsSync } from 'node:fs';
++import path from 'node:path';
++import { chromium } from 'playwright-core';
++import { getHostedMcpProvider } from '@integrations/engine/providers';
++import { APP_ROOT_ENV, getConfigPath, getProductionAppRoot, resolveDevAppRoot } from '@/lib/config/paths';
++import { isWithin } from '@/lib/config/dev-isolation';
++import { hostedMcpEndpointSetup } from '@/lib/integrations/hosted-endpoint';
++
++async function main() {
++  process.env[APP_ROOT_ENV] = resolveDevAppRoot();
++  assert(!isWithin(getConfigPath(), getProductionAppRoot()), 'Use the dev Home');
++  const config = JSON.parse(await fs.readFile(getConfigPath(), 'utf8'));
++  const executablePath = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'].find(existsSync);
++  assert(executablePath, 'Chromium is required');
++  const definition = getHostedMcpProvider('openseo')!;
++  const output = path.resolve('.work/openseo-browser');
++  await fs.mkdir(output, { recursive: true });
++  const browser = await chromium.launch({ executablePath, headless: true });
++  try {
++    for (const width of [1440, 390]) {
++      const context = await browser.newContext({ viewport: { width, height: 1000 } });
++      const page = await context.newPage();
++      const errors: string[] = [];
++      const attempts: { kind: string; body: Record<string, unknown> }[] = [];
++      page.on('pageerror', error => errors.push(error.message));
++      await page.addInitScript({ content: "localStorage.setItem('ri.client.apiTransport', 'http');" });
++      await page.route('**/api/trpc/integrations.*', async route => {
++        const procedure = new URL(route.request().url()).pathname.split('/').at(-1)!;
++        let data: unknown;
++        if (procedure === 'integrations.statusGet') data = { providers: [{ id: 'openseo', displayName: 'OpenSEO', method: 'mcp', configured: true,
++          mcp: { requiresAuth: true, authKind: 'oauth', tokenAuth: definition.tokenAuth, endpointConfig: hostedMcpEndpointSetup(definition), accounts: [] } }], redirectUri: '' };
++        else if (procedure === 'integrations.connectionsGet') data = { connections: [] };
++        else if (procedure === 'integrations.toolkitsGet' || procedure === 'integrations.writePolicyGet') data = { toolkits: [] };
++        else if (procedure === 'integrations.mcpServersGet') data = { servers: [] };
++        else if (procedure === 'integrations.connectPost' || procedure === 'integrations.connectDirectPost') {
++          attempts.push({ kind: procedure, body: route.request().postDataJSON().body });
++          // Keep the form open without saving, navigating or sending any real request.
++          await route.fulfill({ status: 400, json: { error: { message: 'Intercepted OpenSEO setup', code: -32600, data: { code: 'BAD_REQUEST', httpStatus: 400 } } } });
++          return;
++        } else {
++          throw new Error(`Unexpected connector request: ${procedure}`);
++        }
++        await route.fulfill({ json: { result: { data } } });
++      });
++      await page.goto(`http://127.0.0.1:42241/apps?settings=integrations#token=${encodeURIComponent(config.localToken)}`);
++      await page.getByRole('button', { name: /OpenSEO/ }).first().click({ timeout: 120_000 });
++      const deployment = page.getByRole('combobox', { name: 'Deployment', exact: true });
++      await deployment.waitFor();
++      assert.equal(await deployment.inputValue(), 'hosted');
++      await page.getByLabel('Account label', { exact: true }).fill('Research');
++      await page.getByRole('button', { name: 'Use API key', exact: true }).click();
++      const key = page.getByLabel('OpenSEO API key', { exact: true });
++      await key.fill('oseo_fixture_key');
++      await deployment.selectOption('selfhosted');
++      assert.equal(await page.getByRole('button', { name: 'Use API key', exact: true }).count(), 0);
++      const auth = page.getByRole('combobox', { name: 'Authentication', exact: true });
++      await page.getByLabel('Instance URL', { exact: true }).fill('http://localhost:3000');
++      await auth.selectOption('none');
++      await page.getByRole('button', { name: 'Connect OpenSEO', exact: true }).click();
++      await page.getByText('Intercepted OpenSEO setup', { exact: true }).waitFor();
++      assert.equal(attempts.length, 1);
++      assert.deepEqual({ endpointId: attempts[0].body.endpointId, instanceUrl: attempts[0].body.instanceUrl, authMethod: attempts[0].body.authMethod, fields: attempts[0].body.fields },
++        { endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none', fields: {} });
++      assert.equal(attempts[0].kind, 'integrations.connectDirectPost');
++      await page.screenshot({ path: path.join(output, `docker-${width}.png`), fullPage: true });
++      await page.getByLabel('Instance URL', { exact: true }).fill('https://seo.example');
++      await auth.selectOption('oauth');
++      await page.getByText(/Enable Managed OAuth/).waitFor();
++      await page.getByRole('button', { name: 'Connect OpenSEO', exact: true }).click();
++      await page.waitForFunction(() => document.querySelector('[role="dialog"]')?.textContent?.includes('Intercepted OpenSEO setup'));
++      await page.waitForTimeout(100);
++      assert.equal(attempts.length, 2);
++      assert.equal(attempts[1].kind, 'integrations.connectPost');
++      assert.equal(attempts[1].body.authMethod, 'oauth');
++      assert.equal(attempts[1].body.instanceUrl, 'https://seo.example');
++      await deployment.selectOption('hosted');
++      await page.getByRole('button', { name: 'Use API key', exact: true }).click();
++      assert.equal(await key.inputValue(), '');
++      assert.equal(await page.getByLabel('Instance URL', { exact: true }).count(), 0);
++      const overflow = await page.getByRole('dialog').evaluate(element => element.scrollWidth > element.clientWidth + 1);
++      assert.equal(overflow, false, `Settings overflow at ${width}px`);
++      assert.deepEqual(errors, [], `Browser errors at ${width}px`);
++      await context.close();
++      console.log(`OpenSEO deployment forms passed at ${width}px`);
++    }
++  } finally { await browser.close(); }
++}
++main().catch(error => {
++  console.error(error instanceof Error ? error.message.replace(/(?:#token=|ri_live_)[^\s"']+/g, '[dev token]') : 'OpenSEO browser check failed');
++  process.exitCode = 1;
++});
+diff --git a/src/app/api/integrations/hosted-routes.test.ts b/src/app/api/integrations/hosted-routes.test.ts
+index 9fd616b1..d5cb85ec 100644
+--- a/src/app/api/integrations/hosted-routes.test.ts
++++ b/src/app/api/integrations/hosted-routes.test.ts
+@@ -59,2 +59,3 @@ function selectedEndpoint(providerId: string): { selection: { endpointId?: strin
+   }
++  if (provider.endpoint?.kind === 'deployment') return { selection: { endpointId: 'hosted' }, url: provider.endpoint.hostedUrl };
+   if (!provider.url) throw new Error(`Fixture requires explicit selection for ${providerId}`);
+@@ -858 +859,37 @@ describe('hosted account selection routes', () => {
+ });
++
++describe('OpenSEO deployment routes', () => {
++  const docker = { providerId: 'openseo', endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' };
++  it('connects Docker through the built-in direct route without credentials or OAuth', async () => {
++    successfulDiscovery();
++    const response = await connectDirect(request('connectDirect', { ...docker, fields: {} }));
++    expect(response.status).toBe(200);
++    expect(await response.json()).toMatchObject({ connection: { providerId: 'openseo', status: 'active' } });
++    expect(servers.list()[0]).toMatchObject({ url: 'http://localhost:3000/mcp', auth: { kind: 'none' } });
++    expect(mocked.begin).not.toHaveBeenCalled();
++    expect(await servers.openSecret(servers.list()[0]!.id)).toBeNull();
++    const reconnect = await connectDirect(request('connectDirect', { providerId: 'openseo', serverId: servers.list()[0]!.id, fields: {} }));
++    expect(reconnect.status).toBe(200);
++    expect(servers.list()).toHaveLength(1);
++  });
++  it('starts self-hosted browser consent at the selected instance', async () => {
++    const response = await connect(request('connect', { ...docker, instanceUrl: 'https://seo.example/mcp/', authMethod: 'oauth' }));
++    expect(response.status).toBe(200);
++    expect(servers.list()[0]).toMatchObject({ url: 'https://seo.example/mcp', auth: { kind: 'oauth' } });
++    expect(mocked.begin).toHaveBeenCalledWith(servers.list()[0], expect.any(Object), undefined);
++    expect(mocked.selectConfig).not.toHaveBeenCalled();
++  });
++  it.each([
++    { route: 'connect', body: docker },
++    { route: 'connectDirect', body: { ...docker, fields: { token: 'hosted-key' } } },
++    { route: 'connectDirect', body: { ...docker, endpointId: 'hosted', instanceUrl: undefined } },
++    { route: 'connectDirect', body: { ...docker, authMethod: 'oauth' } },
++    { route: 'connectDirect', body: { ...docker, instanceUrl: 'https://user:secret@seo.example' } },
++  ])('rejects unsupported authentication before creating or contacting a server: $route', async ({ route, body }) => {
++    const handler = route === 'connect' ? connect : connectDirect;
++    expect((await handler(request(route, body))).status).toBe(400);
++    expect(servers.list()).toHaveLength(0);
++    expect(mocked.runtime).not.toHaveBeenCalled();
++    expect(mocked.begin).not.toHaveBeenCalled();
++  });
++});
+diff --git a/src/components/integrations/hosted-endpoint-fields.tsx b/src/components/integrations/hosted-endpoint-fields.tsx
+index 517badd1..2094928f 100644
+--- a/src/components/integrations/hosted-endpoint-fields.tsx
++++ b/src/components/integrations/hosted-endpoint-fields.tsx
+@@ -18,3 +18,6 @@ export function HostedEndpointFields({ setup, value = {}, onChange, disabled = f
+       ? setup.options.find(option => option.id === setup.selectedId)?.label
+-      : setup.selectedUrl;
++      : setup.kind === 'deployment'
++        ? setup.selectedId === 'hosted' ? 'Hosted' : setup.selectedId === 'selfhosted'
++          ? `Self-hosted: ${setup.selectedUrl ?? 'address unavailable'} (${setup.selectedAuthMethod === 'none' ? 'no authentication' : 'browser sign-in'})` : undefined
++        : setup.selectedUrl;
+     return <div className="space-y-1 text-xs">
+@@ -25,2 +28,32 @@ export function HostedEndpointFields({ setup, value = {}, onChange, disabled = f
+   }
++  if (setup.kind === 'deployment') {
++    const selfHosted = (value.endpointId ?? 'hosted') === 'selfhosted';
++    return <div className="space-y-3">
++      <div className="space-y-2">
++        <label htmlFor={id} className="text-xs font-medium">{setup.label}</label>
++        <select id={id} value={value.endpointId ?? 'hosted'} disabled={disabled}
++          onChange={event => onChange?.({ endpointId: event.target.value, ...(event.target.value === 'selfhosted' ? { authMethod: 'oauth' } : {}) })}
++          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs">
++          <option value="hosted">Hosted</option><option value="selfhosted">Self-hosted</option>
++        </select>
++      </div>
++      {selfHosted && <>
++        <div className="space-y-2">
++          <label htmlFor={`${id}-url`} className="text-xs font-medium">Instance URL</label>
++          <Input id={`${id}-url`} type="url" value={value.instanceUrl ?? ''} placeholder={setup.placeholder} autoComplete="url" required disabled={disabled}
++            onChange={event => onChange?.({ ...value, instanceUrl: event.target.value })} />
++          <p className="text-xs text-muted-foreground">Enter the address of your OpenSEO server. Local Docker addresses such as http://localhost:3000 are supported. Ri adds /mcp automatically.</p>
++        </div>
++        <div className="space-y-2">
++          <label htmlFor={`${id}-auth`} className="text-xs font-medium">Authentication</label>
++          <select id={`${id}-auth`} value={value.authMethod ?? 'oauth'} disabled={disabled}
++            onChange={event => onChange?.({ ...value, authMethod: event.target.value as 'oauth' | 'none' })}
++            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs">
++            <option value="oauth">Browser sign-in (Cloudflare Access)</option>
++            <option value="none">No authentication (Docker)</option>
++          </select>
++        </div>
++      </>}
++    </div>;
++  }
+   return <div className="space-y-2">
+diff --git a/src/components/integrations/integration-meta.ts b/src/components/integrations/integration-meta.ts
+index fb58fa8e..e0b758d6 100644
+--- a/src/components/integrations/integration-meta.ts
++++ b/src/components/integrations/integration-meta.ts
+@@ -260,3 +260,3 @@ export const INTEGRATION_META: Record<string, IntegrationMeta> = {
+     setup: [
+-      'Sign in to OpenSEO and approve access, or choose Use API key.',
++      'Choose Hosted for OpenSEO browser sign-in or an API key, or Self-hosted to connect your own instance.',
+       'For an API key, open OpenSEO Settings > API keys, create a key and paste it here. The key acts as your OpenSEO account.',
+diff --git a/src/components/settings/sections/integrations/hosted-account-request.test.ts b/src/components/settings/sections/integrations/hosted-account-request.test.ts
+index 5c35d717..cf24b27f 100644
+--- a/src/components/settings/sections/integrations/hosted-account-request.test.ts
++++ b/src/components/settings/sections/integrations/hosted-account-request.test.ts
+@@ -1,3 +1,3 @@
+ import { describe, expect, it } from 'vitest';
+-import { hostedAccountRequestFields, hostedAccountSignedIn, providerForHostedAccount } from './hosted-account-request';
++import { hostedAccountRequestFields, hostedAccountSignedIn, providerForHostedAccount, providerForHostedDeployment } from './hosted-account-request';
+ import type { HostedConnectIntent, ProviderStatus } from './types';
+@@ -100 +100,22 @@ describe('hosted account request isolation', () => {
+ });
++
++describe('OpenSEO deployment form requests', () => {
++  const openSeo: ProviderStatus = { id: 'openseo', displayName: 'OpenSEO', method: 'mcp', configured: true, mcp: {
++    requiresAuth: true, authKind: 'oauth', tokenAuth: { label: 'API key', helpUrl: 'https://app.openseo.so/settings' },
++    endpointConfig: { kind: 'deployment', label: 'Deployment', placeholder: 'https://seo.example', locked: false }, accounts: [],
++  } };
++  it('carries instance auth through Add account and removes hosted API keys from self-hosted forms', () => {
++    const intent: HostedConnectIntent = { addAccount: true, setupId: 'stable', label: 'Docker', endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' };
++    expect(hostedAccountRequestFields(openSeo, intent)).toEqual({ addAccount: true, setupId: 'stable', label: 'Docker', endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' });
++    expect(providerForHostedDeployment(openSeo, intent).mcp).toMatchObject({ authKind: 'none', tokenAuth: undefined });
++    expect(providerForHostedDeployment(openSeo, { ...intent, authMethod: 'oauth' }).mcp).toMatchObject({ authKind: 'oauth', tokenAuth: undefined });
++    expect(providerForHostedDeployment(openSeo, { endpointId: 'hosted' })).toEqual(openSeo);
++  });
++  it('reconnects saved Docker with its own URL and auth despite hosted or OAuth drafts', () => {
++    const saved: ProviderStatus = { ...openSeo, mcp: { ...openSeo.mcp!, accounts: [{ serverId: 'docker', requiresAuth: false, authKind: 'none', endpointConfig: { ...openSeo.mcp!.endpointConfig!, kind: 'deployment', label: 'Deployment', placeholder: 'https://seo.example', locked: true, selectedId: 'selfhosted', selectedUrl: 'https://saved.example', selectedAuthMethod: 'none' } }] } };
++    const intent: HostedConnectIntent = { serverId: 'docker', endpointId: 'hosted', authMethod: 'oauth' };
++    expect(hostedAccountRequestFields(saved, intent)).toMatchObject({ serverId: 'docker', endpointId: 'selfhosted', instanceUrl: 'https://saved.example', authMethod: 'none' });
++    expect(providerForHostedDeployment(providerForHostedAccount(saved, intent), intent).mcp?.authKind).toBe('none');
++    expect(providerForHostedAccount(saved, { addAccount: true }).mcp?.endpointConfig).toEqual(openSeo.mcp?.endpointConfig);
++  });
++});
+diff --git a/src/components/settings/sections/integrations/hosted-account-request.ts b/src/components/settings/sections/integrations/hosted-account-request.ts
+index e5d3ecec..2fb96a1f 100644
+--- a/src/components/settings/sections/integrations/hosted-account-request.ts
++++ b/src/components/settings/sections/integrations/hosted-account-request.ts
+@@ -13,3 +13,5 @@ export function providerForHostedAccount(provider: ProviderStatus, intent?: Host
+     const setup = common.endpointConfig;
+-    const endpointConfig = !setup ? undefined : setup.kind === 'region'
++    const endpointConfig = !setup ? undefined : setup.kind === 'deployment'
++      ? { kind: setup.kind, label: setup.label, placeholder: setup.placeholder, locked: false }
++      : setup.kind === 'region'
+       ? { kind: setup.kind, label: setup.label, options: setup.options, locked: false }
+@@ -57 +59,11 @@ export function hostedAccountSignedIn(provider: ProviderStatus | undefined, serv
+ }
++
++/** Deployment auth is distinct from the hosted service's sign-in and API-key choices. */
++export function providerForHostedDeployment(provider: ProviderStatus, draft: HostedEndpointSelection): ProviderStatus {
++  const setup = provider.mcp?.endpointConfig;
++  if (setup?.kind !== 'deployment') return provider;
++  const selectedId = setup.locked ? setup.selectedId : draft.endpointId ?? 'hosted';
++  if (selectedId !== 'selfhosted') return provider;
++  const authKind = setup.locked ? setup.selectedAuthMethod : draft.authMethod ?? 'oauth';
++  return { ...provider, mcp: { ...provider.mcp!, authKind, tokenAuth: undefined, credentialLabel: undefined, helpUrl: undefined } };
++}
+diff --git a/src/components/settings/sections/integrations/hosted-provider-detail.tsx b/src/components/settings/sections/integrations/hosted-provider-detail.tsx
+index dad25355..2e5e8f39 100644
+--- a/src/components/settings/sections/integrations/hosted-provider-detail.tsx
++++ b/src/components/settings/sections/integrations/hosted-provider-detail.tsx
+@@ -14,3 +14,3 @@ import { Byo, ConnectPanel, ToolList, type ProviderDetailProps } from './provide
+ import { CapabilityReview } from './capability-review';
+-import { providerForHostedAccount } from './hosted-account-request';
++import { providerForHostedAccount, providerForHostedDeployment } from './hosted-account-request';
+ import { connectionIdentity, isRegisteredMcp, type Connection, type HostedMcpAccount, type HostedConnectIntent } from './types';
+@@ -110,7 +110,8 @@ function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAcc
+   const [method, setMethod] = useState(account?.authKind ?? baseProvider.mcp?.authKind ?? 'oauth');
+-  const tokenAuth = props.provider.mcp?.tokenAuth;
++  const deployedProvider = providerForHostedDeployment(baseProvider, endpoint);
++  const tokenAuth = deployedProvider.mcp?.tokenAuth;
+   const provider = method === 'bearer' && tokenAuth
+-    ? { ...baseProvider, mcp: { ...baseProvider.mcp!, authKind: 'bearer' as const, credentialLabel: tokenAuth.label, helpUrl: tokenAuth.helpUrl } }
+-    : baseProvider;
+-  const needsLabel = !account && !previousConnection && provider.mcp?.authKind !== 'none';
++    ? { ...deployedProvider, mcp: { ...deployedProvider.mcp!, authKind: 'bearer' as const, credentialLabel: tokenAuth.label, helpUrl: tokenAuth.helpUrl } }
++    : deployedProvider;
++  const needsLabel = !account && !previousConnection && (provider.mcp?.authKind !== 'none' || provider.mcp?.endpointConfig?.kind === 'deployment');
+   const ready = !needsLabel || !!label.trim();
+@@ -130,3 +131,3 @@ function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAcc
+     {needsLabel && <div className="space-y-1"><label htmlFor="hosted-account-label" className="text-xs font-medium">Account label</label><Input id="hosted-account-label" value={label} onChange={event => setLabel(event.target.value)} placeholder="Work or Personal" disabled={props.busy} required /></div>}
+-    {provider.mcp?.endpointConfig && <HostedEndpointFields setup={provider.mcp.endpointConfig} value={endpoint} onChange={setEndpoint} disabled={props.busy} />}
++    {provider.mcp?.endpointConfig && <HostedEndpointFields setup={provider.mcp.endpointConfig} value={endpoint} onChange={selection => { setEndpoint(selection); setMethod('oauth'); setCreds({}); }} disabled={props.busy} />}
+     <ConnectPanel {...formProps} />
+diff --git a/src/components/settings/sections/integrations/provider-detail.test.ts b/src/components/settings/sections/integrations/provider-detail.test.ts
+index dc943725..f01a41ec 100644
+--- a/src/components/settings/sections/integrations/provider-detail.test.ts
++++ b/src/components/settings/sections/integrations/provider-detail.test.ts
+@@ -6,2 +6,3 @@ import { hostedMcpEndpointSetup } from '@/lib/integrations/hosted-endpoint';
+ import { ProviderDetail, type ProviderDetailProps } from './provider-detail';
++import { HostedEndpointFields } from '@/components/integrations/hosted-endpoint-fields';
+ import { PreviousConnections } from './previous-connections';
+@@ -470 +471,33 @@ describe('hosted provider connection flow', () => {
+ });
++
++
++describe('OpenSEO deployment setup UI', () => {
++  it('offers hosted and self-hosted in the built-in account form while retaining hosted API-key setup', () => {
++    const openseo = catalogProvider('openseo');
++    const html = render({ provider: { ...openseo, mcp: { ...openseo.mcp, accounts: [], tokenAuth: { label: 'OpenSEO API key', helpUrl: 'https://app.openseo.so/settings' } } } });
++    expect(html).toContain('>Hosted</option>');
++    expect(html).toContain('>Self-hosted</option>');
++    expect(html).toContain('Use API key');
++    expect(html).not.toContain('Authentication</label>');
++  });
++  it('shows instance and authentication fields for self-hosted, and the Docker connection flow after saving', () => {
++    const definition = getHostedMcpProvider('openseo')!;
++    const setup = hostedMcpEndpointSetup(definition)!;
++    const fields = renderToStaticMarkup(createElement(HostedEndpointFields, { setup, value: { endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' } }));
++    for (const text of ['Instance URL', 'Authentication', 'Browser sign-in (Cloudflare Access)', 'No authentication (Docker)', 'Ri adds /mcp automatically.']) expect(fields).toContain(text);
++    const savedSetup = hostedMcpEndpointSetup(definition, { url: 'http://localhost:3000/mcp', auth: { kind: 'none' } })!;
++    const html = render({ provider: { ...catalogProvider('openseo'), mcp: { requiresAuth: false, authKind: 'none', endpointConfig: savedSetup } } });
++    expect(html).toContain('AUTH_MODE=local_noauth');
++    expect(html).toContain('Connect OpenSEO');
++    expect(html).not.toContain('Use API key');
++    expect(html).not.toContain('Sign in to OpenSEO');
++    expect(html).not.toMatch(/<button(?=[^>]*disabled="")[^>]*>[^]*?Connect OpenSEO/);
++  });
++  it('shows Cloudflare Managed OAuth instructions for saved self-hosted browser sign-in', () => {
++    const setup = hostedMcpEndpointSetup(getHostedMcpProvider('openseo')!, { url: 'https://seo.example/mcp', auth: { kind: 'oauth' } });
++    const html = render({ provider: { ...catalogProvider('openseo'), mcp: { requiresAuth: true, authKind: 'oauth', endpointConfig: setup } } });
++    expect(html).toContain('Enable Managed OAuth');
++    expect(html).toContain('Cloudflare Access');
++    expect(html).not.toContain('Settings &gt; API keys');
++  });
++});
+diff --git a/src/components/settings/sections/integrations/provider-detail.tsx b/src/components/settings/sections/integrations/provider-detail.tsx
+index e0f3a608..252b0ebc 100644
+--- a/src/components/settings/sections/integrations/provider-detail.tsx
++++ b/src/components/settings/sections/integrations/provider-detail.tsx
+@@ -257,3 +257,7 @@ export function ConnectPanel(props: ProviderDetailProps) {
+   const { provider: p, toolkits, busy } = props;
+-  const meta = integrationMeta(p.id);
++  const setup = p.mcp?.endpointConfig;
++  const selfHosted = setup?.kind === 'deployment' && (setup.locked ? setup.selectedId : props.endpointSelection?.endpointId) === 'selfhosted';
++  const meta = selfHosted ? { ...integrationMeta(p.id), docsUrl: 'https://www.openseo.so/docs/self-hosting', setup: p.mcp?.authKind === 'none'
++    ? ['Connect to your Docker OpenSEO instance with AUTH_MODE=local_noauth. The address is reached from the computer running Ri.']
++    : ['Enable Managed OAuth in the Cloudflare Access application protecting OpenSEO, then sign in and approve access.', 'Allow Ri’s callback address in Cloudflare Access. Desktop sign-in uses a loopback callback.'] } : integrationMeta(p.id);
+   const again = props.connections.length > 0;
+@@ -272,3 +276,3 @@ export function ConnectPanel(props: ProviderDetailProps) {
+         </div>
+-      </div> : <p className="text-xs text-muted-foreground">{p.displayName} does not require an account or a token.</p>}
++      </div> : selfHosted ? <div className="space-y-2 text-xs text-muted-foreground"><p>{meta.setup?.[0]}</p><a href={meta.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Setup guide <ExternalLink size={11} /></a></div> : <p className="text-xs text-muted-foreground">{p.displayName} does not require an account or a token.</p>}
+       <Button size="sm" onClick={() => props.onConnectDirect()} disabled={busy || !endpointReady || props.connectDisabled} className="text-xs font-semibold">
+diff --git a/src/components/settings/sections/integrations/types.ts b/src/components/settings/sections/integrations/types.ts
+index e990f4af..21d78612 100644
+--- a/src/components/settings/sections/integrations/types.ts
++++ b/src/components/settings/sections/integrations/types.ts
+@@ -35,2 +35,3 @@ export interface HostedConnectIntent {
+   instanceUrl?: string;
++  authMethod?: 'oauth' | 'none';
+   fields?: Record<string, string>;
+diff --git a/src/lib/client/integration-endpoint.test.ts b/src/lib/client/integration-endpoint.test.ts
+index e0f75863..3278fdea 100644
+--- a/src/lib/client/integration-endpoint.test.ts
++++ b/src/lib/client/integration-endpoint.test.ts
+@@ -39 +39,18 @@ describe('hosted endpoint form selection', () => {
+ });
++
++
++describe('deployment selection', () => {
++  const setup = { kind: 'deployment' as const, label: 'Deployment', placeholder: 'https://seo.example', locked: false };
++  it('defaults new accounts to hosted and requires a valid self-hosted URL', () => {
++    expect(integrationEndpointSelection(setup)).toEqual({ endpointId: 'hosted' });
++    expect(integrationEndpointReady(setup, { endpointId: 'selfhosted' })).toBe(false);
++    expect(integrationEndpointSelection(setup, { endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' })).toEqual({ endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none' });
++    expect(integrationEndpointSelection(setup, { endpointId: 'selfhosted', instanceUrl: 'https://seo.example' })).toHaveProperty('authMethod', 'oauth');
++  });
++  it('uses saved deployment, URL and auth despite stale drafts', () => {
++    const saved = { ...setup, locked: true, selectedId: 'selfhosted' as const, selectedUrl: 'https://saved.example', selectedAuthMethod: 'none' as const };
++    expect(integrationEndpointSelection(saved, { endpointId: 'hosted', instanceUrl: 'https://wrong.example', authMethod: 'oauth' })).toEqual({ endpointId: 'selfhosted', instanceUrl: 'https://saved.example', authMethod: 'none' });
++    expect(integrationEndpointSelection({ ...setup, locked: true, selectedId: 'hosted' }, { endpointId: 'selfhosted', instanceUrl: 'https://wrong.example', authMethod: 'none' })).toEqual({ endpointId: 'hosted' });
++    expect(integrationEndpointReady({ ...setup, locked: true })).toBe(false);
++  });
++});
+diff --git a/src/lib/client/integration-endpoint.ts b/src/lib/client/integration-endpoint.ts
+index 28e3beb6..826b24a6 100644
+--- a/src/lib/client/integration-endpoint.ts
++++ b/src/lib/client/integration-endpoint.ts
+@@ -5,2 +5,3 @@ export interface HostedEndpointSelection {
+   instanceUrl?: string;
++  authMethod?: 'oauth' | 'none';
+ }
+@@ -20,2 +21,11 @@ export function integrationEndpointSelection(
+   }
++  let deployment: HostedEndpointSelection = {};
++  if (setup.kind === 'deployment') {
++    const endpointId = setup.locked ? setup.selectedId : draft.endpointId ?? 'hosted';
++    if (endpointId === 'hosted') return { endpointId };
++    if (endpointId !== 'selfhosted') throw new Error('Choose Hosted or Self-hosted.');
++    const authMethod = setup.locked ? setup.selectedAuthMethod : draft.authMethod ?? 'oauth';
++    if (authMethod !== 'oauth' && authMethod !== 'none') throw new Error('Choose an authentication method.');
++    deployment = { endpointId, authMethod };
++  }
+   const instanceUrl = (setup.locked ? setup.selectedUrl : draft.instanceUrl)?.trim();
+@@ -32,3 +42,3 @@ export function integrationEndpointSelection(
+   }
+-  return { instanceUrl };
++  return { ...deployment, instanceUrl };
+ }
+diff --git a/src/lib/integrations/hosted-endpoint.test.ts b/src/lib/integrations/hosted-endpoint.test.ts
+index 5048b3e9..2ca4de4a 100644
+--- a/src/lib/integrations/hosted-endpoint.test.ts
++++ b/src/lib/integrations/hosted-endpoint.test.ts
+@@ -95 +95,30 @@ describe('public endpoint setup metadata', () => {
+ });
++
++
++describe('OpenSEO deployment endpoints', () => {
++  const definition = getHostedMcpProvider('openseo')!;
++  const hosted = 'https://app.openseo.so/mcp';
++  it('defaults to hosted for existing clients, and normalizes self-hosted base or MCP URLs once', () => {
++    expect(resolveHostedMcpUrl(definition)).toBe(hosted);
++    expect(resolveHostedMcpUrl(definition, { endpointId: 'hosted' })).toBe(hosted);
++    for (const base of ['https://seo.example', 'https://seo.example/mcp/', 'http://localhost:3000']) {
++      const expected = base.startsWith('http:') ? 'http://localhost:3000/mcp' : 'https://seo.example/mcp';
++      expect(resolveHostedMcpUrl(definition, { endpointId: 'selfhosted', instanceUrl: base })).toBe(expected);
++      expect(hostedMcpUrlMatches(definition, expected)).toBe(true);
++    }
++    expect(hostedMcpUrlMatches(definition, hosted)).toBe(true);
++    for (const input of [{ endpointId: 'other' }, { endpointId: 'hosted', instanceUrl: 'https://other.example' }, { endpointId: 'selfhosted' }, { endpointId: 'selfhosted', instanceUrl: 'https://user:secret@seo.example' }, { endpointId: 'selfhosted', instanceUrl: 'http://seo.example' }]) {
++      expect(() => resolveHostedMcpUrl(definition, input)).toThrow();
++    }
++  });
++  it('freezes deployment and authentication, and restricts annotation trust to the hosted URL', () => {
++    expect(hostedMcpEndpointSetup(definition, { url: hosted, auth: { kind: 'bearer' } })).toMatchObject({ kind: 'deployment', selectedId: 'hosted', locked: true });
++    expect(hostedMcpEndpointSetup(definition, { url: 'http://localhost:3000/mcp', auth: { kind: 'none' } })).toMatchObject({ selectedId: 'selfhosted', selectedUrl: 'http://localhost:3000', selectedAuthMethod: 'none', locked: true });
++    expect(trustHostedMcpAnnotations(definition, hosted)).toBe(true);
++    expect(trustHostedMcpAnnotations(definition, 'https://seo.example/mcp')).toBe(false);
++    expect(trustHostedMcpAnnotations(definition)).toBe(false);
++    const invalid = hostedMcpEndpointSetup(definition, { url: 'https://user:secret@seo.example/mcp' });
++    expect(invalid).not.toHaveProperty('selectedUrl');
++    expect(JSON.stringify(invalid)).not.toContain('secret');
++  });
++});
+diff --git a/src/lib/integrations/hosted-endpoint.ts b/src/lib/integrations/hosted-endpoint.ts
+index a5a3d774..455255ff 100644
+--- a/src/lib/integrations/hosted-endpoint.ts
++++ b/src/lib/integrations/hosted-endpoint.ts
+@@ -4,3 +4,3 @@ import { validateMcpUrl } from './mcp-validate';
+ 
+-export interface HostedEndpointInput { endpointId?: unknown; instanceUrl?: unknown }
++export interface HostedEndpointInput { endpointId?: unknown; instanceUrl?: unknown; authMethod?: unknown }
+ 
+@@ -20,3 +20,9 @@ export function resolveHostedMcpUrl(definition: HostedMcpProvider, input: Hosted
+   }
+-  if (input.endpointId !== undefined) throw new Error(`This ${INTEGRATION_LABELS.singular.toLowerCase()} requires an instance URL, not a region.`);
++  if (configuration.kind === 'deployment') {
++    if (input.endpointId === undefined || input.endpointId === 'hosted') {
++      if (input.instanceUrl !== undefined) throw new Error('Choose Self-hosted before entering an instance URL.');
++      return configuration.hostedUrl;
++    }
++    if (input.endpointId !== 'selfhosted') throw new Error('Choose Hosted or Self-hosted.');
++  } else if (input.endpointId !== undefined) throw new Error(`This ${INTEGRATION_LABELS.singular.toLowerCase()} requires an instance URL, not a region.`);
+   if (typeof input.instanceUrl !== 'string') throw new Error('An instance URL is required.');
+@@ -37,4 +43,5 @@ export function hostedMcpUrlMatches(definition: HostedMcpProvider, url: string):
+   if (!definition.endpoint) return url === definition.url;
++  if (definition.endpoint.kind === 'deployment' && url === definition.endpoint.hostedUrl) return true;
+   if (definition.endpoint.kind === 'region') return definition.endpoint.options.some((option) => option.url === url);
+-  try { return resolveHostedMcpUrl(definition, { instanceUrl: url }) === url; }
++  try { return resolveHostedMcpUrl(definition, { instanceUrl: url, ...(definition.endpoint.kind === 'deployment' ? { endpointId: 'selfhosted' } : {}) }) === url; }
+   catch { return false; }
+@@ -42,3 +49,3 @@ export function hostedMcpUrlMatches(definition: HostedMcpProvider, url: string):
+ 
+-export function hostedMcpEndpointSetup(definition: HostedMcpProvider, entry?: { url: string }): HostedMcpEndpointSetup | undefined {
++export function hostedMcpEndpointSetup(definition: HostedMcpProvider, entry?: { url: string; auth?: { kind: string } }): HostedMcpEndpointSetup | undefined {
+   const configuration = definition.endpoint;
+@@ -54,2 +61,9 @@ export function hostedMcpEndpointSetup(definition: HostedMcpProvider, entry?: {
+   };
++  if (configuration.kind === 'deployment') return {
++    kind: 'deployment', label: configuration.label, placeholder: configuration.placeholder, locked: Boolean(entry),
++    ...(valid ? { selectedId: entry.url === configuration.hostedUrl ? 'hosted' : 'selfhosted',
++      ...(entry.url !== configuration.hostedUrl ? { selectedUrl: entry.url.slice(0, -configuration.path.length),
++        selectedAuthMethod: entry.auth?.kind === 'none' ? 'none' : 'oauth' } : {}),
++    } : {}),
++  };
+   return {
+@@ -62,4 +76,15 @@ export function hostedMcpEndpointSetup(definition: HostedMcpProvider, entry?: {
+ /** A user-selected server does not inherit a vendor's trusted tool annotations. */
+-export function trustHostedMcpAnnotations(definition: HostedMcpProvider): boolean {
++export function trustHostedMcpAnnotations(definition: HostedMcpProvider, url?: string): boolean {
++  if (definition.endpoint?.kind === 'deployment') return url === definition.endpoint.hostedUrl;
+   return definition.endpoint?.kind !== 'instance';
+ }
++
++/** Self-hosted OAuth is discovered from the instance, without hosted scopes or API keys. */
++export function hostedMcpAuthDefinition(definition: HostedMcpProvider, url: string, authMethod?: unknown): HostedMcpProvider {
++  if (definition.endpoint?.kind === 'deployment' && url !== definition.endpoint.hostedUrl) {
++    if (authMethod !== undefined && authMethod !== 'oauth' && authMethod !== 'none') throw new Error('Choose Browser sign-in or No authentication.');
++    return { ...definition, auth: { kind: authMethod === 'none' ? 'none' : 'oauth' }, tokenAuth: undefined };
++  }
++  if (authMethod !== undefined) throw new Error('Authentication selection is supported only for self-hosted instances.');
++  return definition;
++}
+diff --git a/src/lib/integrations/hosted-mcp.test.ts b/src/lib/integrations/hosted-mcp.test.ts
+index 5848e07d..58439c70 100644
+--- a/src/lib/integrations/hosted-mcp.test.ts
++++ b/src/lib/integrations/hosted-mcp.test.ts
+@@ -539 +539,34 @@ it('marks old tokens for sign-in once, preserving other providers and owners', a
+ });
++
++
++describe('OpenSEO self-hosted accounts', () => {
++  const provider = getHostedMcpProvider('openseo')!;
++  it('adds Docker and Cloudflare instances beside existing hosted credentials and keeps every binding immutable', async () => {
++    const servers = freshStore(true);
++    const connections = connectionStore();
++    const hosted = await ensureHostedMcpServer(provider, servers, connections, 'local', { secret: 'hosted-api-key' });
++    expect(hosted.accountId).toBe('openseo:default');
++    const docker = await ensureHostedMcpServer(provider, servers, connections, 'local', { addAccount: true, endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none', label: 'Docker' });
++    const cloudflare = await ensureHostedMcpServer(provider, servers, connections, 'local', { addAccount: true, endpointId: 'selfhosted', instanceUrl: 'https://seo.example', authMethod: 'oauth' });
++    expect(docker).toMatchObject({ providerId: 'openseo', url: 'http://localhost:3000/mcp', auth: { kind: 'none' } });
++    expect(hostedMcpDefinition(cloudflare)).toMatchObject({ auth: { kind: 'oauth' }, tokenAuth: undefined });
++    expect(hostedMcpDefinition(cloudflare)?.auth).not.toHaveProperty('scopes');
++    expect(await servers.openSecret(hosted.id)).toBe('hosted-api-key');
++    expect(await servers.openSecret(docker.id)).toBeNull();
++    expect(await hostedMcpRequiresAuth(docker, servers)).toBe(false);
++    expect(await ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: docker.id })).toEqual(docker);
++    expect(new Set(servers.list().map(entry => entry.accountId)).size).toBe(3);
++    await expect(ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: docker.id, authMethod: 'oauth' })).rejects.toThrow('different connection method');
++    await expect(ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: docker.id, endpointId: 'selfhosted', instanceUrl: 'https://other.example', authMethod: 'none' })).rejects.toThrow('before changing');
++    await expect(ensureHostedMcpServer(provider, servers, connections, 'local', { serverId: hosted.id, endpointId: 'selfhosted', instanceUrl: 'https://other.example', secret: 'hosted-api-key' })).rejects.toThrow('does not accept a token');
++  });
++  it('preserves legacy hosted account IDs and rejects unsupported authentication without creating an entry', async () => {
++    const servers = freshStore();
++    const old = await servers.create({ providerId: 'openseo', slug: 'builtin_openseo', displayName: 'OpenSEO', connectionId: 'hosted-openseo', accountId: 'openseo:default', url: 'https://app.openseo.so/mcp', auth: { kind: 'oauth' } });
++    expect(await ensureHostedMcpServer(provider, servers, connectionStore(), 'local')).toEqual(old);
++    for (const options of [{ addAccount: true, authMethod: 'none' }, { addAccount: true, endpointId: 'selfhosted', instanceUrl: 'https://seo.example', authMethod: 'bearer' }, { addAccount: true, endpointId: 'selfhosted', instanceUrl: 'https://seo.example', authMethod: 'none', secret: 'wrong-key' }]) {
++      await expect(ensureHostedMcpServer(provider, servers, connectionStore(), 'local', options)).rejects.toThrow();
++    }
++    expect(servers.list()).toHaveLength(1);
++  });
++});
+diff --git a/src/lib/integrations/hosted-mcp.ts b/src/lib/integrations/hosted-mcp.ts
+index 78ad89e5..2a9ed552 100644
+--- a/src/lib/integrations/hosted-mcp.ts
++++ b/src/lib/integrations/hosted-mcp.ts
+@@ -6,3 +6,3 @@ import { activateMcpServer } from './mcp-lifecycle';
+ import { createHash, randomUUID } from 'node:crypto';
+-import { hostedMcpUrlMatches, resolveHostedMcpUrl, type HostedEndpointInput } from './hosted-endpoint';
++import { hostedMcpUrlMatches, hostedMcpAuthDefinition, resolveHostedMcpUrl, type HostedEndpointInput } from './hosted-endpoint';
+ import { usesRegisteredOAuth } from './hosted-oauth-config';
+@@ -13,3 +13,4 @@ export function hostedMcpDefinition(entry: McpServerEntry): HostedMcpProvider |
+   if (!entry.providerId) return undefined;
+-  const definition = getHostedMcpProvider(entry.providerId);
++  const pinned = getHostedMcpProvider(entry.providerId);
++  const definition = pinned && hostedMcpAuthDefinition(pinned, entry.url, pinned.endpoint?.kind === 'deployment' && entry.url !== pinned.endpoint.hostedUrl ? entry.auth.kind : undefined);
+   if (!definition || !hostedMcpUrlMatches(definition, entry.url) || (entry.auth.kind !== (definition.auth?.kind ?? 'oauth') && !(definition.tokenAuth && entry.auth.kind === 'bearer'))) {
+@@ -129,12 +130,17 @@ export async function ensureHostedMcpServer(
+ ): Promise<McpServerEntry> {
+-  const auth = { kind: options.secret !== undefined && definition.tokenAuth ? 'bearer' : definition.auth?.kind ?? 'oauth' };
+   const pinned = getHostedMcpProvider(definition.id);
+-  if (!pinned || pinned.url !== definition.url || JSON.stringify(pinned.endpoint) !== JSON.stringify(definition.endpoint) || ((pinned.auth?.kind ?? 'oauth') !== auth.kind && !(pinned.tokenAuth && auth.kind === 'bearer'))) {
++  if (!pinned || pinned.url !== definition.url || JSON.stringify(pinned.endpoint) !== JSON.stringify(definition.endpoint) || JSON.stringify(pinned.auth) !== JSON.stringify(definition.auth) || JSON.stringify(pinned.tokenAuth) !== JSON.stringify(definition.tokenAuth)) {
+     throw new Error(`The built-in ${INTEGRATION_LABELS.singular.toLowerCase()} does not match its trusted service configuration.`);
+   }
++  const existing = await resolveHostedMcpAccount(definition, servers, connections, ownerId, options);
++  if (usesRegisteredOAuth(pinned) && !options.authConfigId) throw new Error('Choose an OAuth app before connecting.');
++  const hasSelection = options.endpointId !== undefined || options.instanceUrl !== undefined;
++  const url = existing && !hasSelection ? existing.url : resolveHostedMcpUrl(pinned, options);
++  const selfHosted = pinned.endpoint?.kind === 'deployment' && url !== pinned.endpoint.hostedUrl;
++  const effective = hostedMcpAuthDefinition(pinned, url, options.authMethod ?? (selfHosted && existing?.url === url ? existing.auth.kind : undefined));
++  const auth = { kind: options.secret !== undefined && effective.tokenAuth ? 'bearer' : effective.auth?.kind ?? 'oauth' };
+   if (auth.kind !== 'bearer' && options.secret !== undefined) throw new Error(`This ${INTEGRATION_LABELS.singular.toLowerCase()} does not accept a token.`);
+-  const secret = options.secret === undefined ? undefined : hostedTokenSecret(pinned, options.secret);
++  const secret = options.secret === undefined ? undefined : hostedTokenSecret(effective, options.secret);
+   if (auth.kind === 'bearer' && options.secret !== undefined && !secret) throw new Error('A connection token is required.');
+-  const existing = await resolveHostedMcpAccount(definition, servers, connections, ownerId, options);
+-  if (usesRegisteredOAuth(pinned)) {
++  if (usesRegisteredOAuth(effective)) {
+     if (!options.authConfigId) throw new Error('Choose an OAuth app before connecting.');
+@@ -142,4 +148,2 @@ export async function ensureHostedMcpServer(
+   } else if (options.authConfigId !== undefined) throw new Error(`This ${INTEGRATION_LABELS.singular.toLowerCase()} does not use a registered OAuth app.`);
+-  const hasSelection = options.endpointId !== undefined || options.instanceUrl !== undefined;
+-  const url = existing && !hasSelection ? existing.url : resolveHostedMcpUrl(pinned, options);
+   if (existing) {
+@@ -170,3 +174,3 @@ export async function ensureHostedMcpServer(
+       connectionId,
+-      accountId: distinct ? previous[0]?.accountId ?? `${definition.id}:${setupId}` : pinned.endpoint
++      accountId: distinct ? previous[0]?.accountId ?? `${definition.id}:${setupId}` : pinned.endpoint && !(pinned.endpoint.kind === 'deployment' && url === pinned.endpoint.hostedUrl)
+         ? `${definition.id}:${createHash('sha256').update(url).digest('hex').slice(0, 20)}`
+diff --git a/src/lib/integrations/mcp-authorization.test.ts b/src/lib/integrations/mcp-authorization.test.ts
+index b22d06c1..ac613ede 100644
+--- a/src/lib/integrations/mcp-authorization.test.ts
++++ b/src/lib/integrations/mcp-authorization.test.ts
+@@ -165,2 +165,12 @@ describe('MCP interactive authorization secret confinement', () => {
+ 
++  it('discovers self-hosted OpenSEO OAuth without the hosted preauthorization scopes', async () => {
++    const close = vi.fn(async () => {});
++    mocks.connectMcpClient.mockResolvedValue({ close });
++    const selfHosted = { ...entry, providerId: 'openseo', url: 'https://seo.example/mcp' };
++    await expect(beginMcpAuthorization(selfHosted)).resolves.toEqual({ requiresAuth: false });
++    expect(mocks.beginMcpOAuth).not.toHaveBeenCalled();
++    expect(mocks.connectMcpClient).toHaveBeenCalledWith(expect.objectContaining({ url: selfHosted.url }));
++    expect(close).toHaveBeenCalledOnce();
++  });
++
+   it('does not reinterpret an arbitrary custom server 403 as a reason to preauthorize', async () => {
+diff --git a/src/lib/integrations/mcp-authorization.ts b/src/lib/integrations/mcp-authorization.ts
+index 37a893f8..0c1681ed 100644
+--- a/src/lib/integrations/mcp-authorization.ts
++++ b/src/lib/integrations/mcp-authorization.ts
+@@ -3,3 +3,3 @@ import { IntegrationError, createRedactor, isIntegrationError } from '@integrati
+ import { beginMcpOAuth, connectMcpClient, finishMcpOAuth } from '@integrations/engine/mcp';
+-import { getHostedMcpProvider } from '@integrations/engine/providers';
++import { hostedMcpDefinition } from './hosted-mcp';
+ import { createHash } from 'node:crypto';
+@@ -47,3 +47,3 @@ export async function beginMcpAuthorization(entry: McpServerEntry, request?: Pic
+     invalidateIntegrationRuntime();
+-    const definition = entry.providerId ? getHostedMcpProvider(entry.providerId) : undefined;
++    const definition = hostedMcpDefinition(entry);
+     const registered = usesRegisteredOAuth(definition);
+diff --git a/src/lib/integrations/mcp-openseo-selfhost.test.ts b/src/lib/integrations/mcp-openseo-selfhost.test.ts
+new file mode 100644
+index 00000000..181ac982
+--- /dev/null
++++ b/src/lib/integrations/mcp-openseo-selfhost.test.ts
+@@ -0,0 +1,113 @@
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
++import { connectMcpClient } from '@integrations/engine/mcp';
++import { getHostedMcpProvider } from '@integrations/engine/providers';
++import { APP_ROOT_ENV } from '@/lib/config/paths';
++import { ensureHostedMcpServer } from './hosted-mcp';
++import { getIntegrationConnectionStore, getIntegrationRuntime, getMcpServerStore, getProviderStatuses, invalidateIntegrationRuntime, mcpOAuthProviderFor } from './runtime';
++
++vi.mock('@/lib/db/queries', () => ({ getWorkspace: vi.fn() }));
++let dir: string;
++beforeEach(() => {
++  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openseo-selfhost-'));
++  vi.stubEnv(APP_ROOT_ENV, dir);
++  invalidateIntegrationRuntime();
++});
++afterEach(() => {
++  invalidateIntegrationRuntime();
++  vi.unstubAllGlobals();
++  vi.unstubAllEnvs();
++  fs.rmSync(dir, { recursive: true, force: true });
++});
++
++describe('OpenSEO self-hosted transport and host stores', () => {
++  it('discovers and dispatches Docker tools without auth while treating self-hosted annotations conservatively', async () => {
++    const entry = await ensureHostedMcpServer(getHostedMcpProvider('openseo')!, getMcpServerStore(), getIntegrationConnectionStore(), 'local', {
++      endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none',
++    });
++    const calls: string[] = [];
++    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input, init) => {
++      const request = new Request(input, init);
++      expect(request.url).toBe(entry.url);
++      expect(request.headers.has('Authorization')).toBe(false);
++      if (request.method === 'GET') return new Response(null, { status: 405 });
++      const message = await request.json() as { id?: number; method: string };
++      calls.push(message.method);
++      if (message.method === 'notifications/initialized') return new Response(null, { status: 202 });
++      const result = message.method === 'initialize'
++        ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'OpenSEO self-hosted', version: 'fixture' } }
++        : message.method === 'tools/list' ? { tools: [
++          { name: 'list_projects', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true, destructiveHint: false } },
++          { name: 'set_report_sharing', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true, destructiveHint: false } },
++        ] }
++          : { content: [{ type: 'text', text: 'Projects' }], structuredContent: { projects: [] } };
++      return Response.json({ jsonrpc: '2.0', id: message.id, result });
++    }));
++    const runtime = await getIntegrationRuntime();
++    expect(await runtime.runAction('openseo.list_projects', {})).toMatchObject({ ok: true });
++    const actions = runtime.getToolkits().find(toolkit => toolkit.id === 'openseo')!.actions;
++    expect(actions.find(action => action.id === 'openseo.set_report_sharing')).toMatchObject({ mutating: true });
++    expect(calls).toContain('tools/call');
++    const status = (await getProviderStatuses()).find(provider => provider.id === 'openseo')!;
++    expect(status.mcp?.accounts[0]).toMatchObject({ requiresAuth: false, authKind: 'none', status: 'ok', endpointConfig: {
++      kind: 'deployment', selectedId: 'selfhosted', selectedUrl: 'http://localhost:3000', selectedAuthMethod: 'none', locked: true,
++    } });
++  });
++
++  it.each([
++    { channel: 'web' as const, redirectUri: 'https://ri.example/api/integrations/mcp-oauth/fixture' },
++    { channel: 'desktop' as const, redirectUri: 'http://127.0.0.1:45123/mcp/callback' },
++  ])('discovers instance OAuth scopes, registers and exchanges PKCE through the real SDK for $channel', async ({ channel, redirectUri }) => {
++    const entry = await ensureHostedMcpServer(getHostedMcpProvider('openseo')!, getMcpServerStore(), getIntegrationConnectionStore(), 'local', {
++      endpointId: 'selfhosted', instanceUrl: 'https://seo.example', authMethod: 'oauth',
++    });
++    // A Managed OAuth discovery fixture. The instance supplies the issuer and scopes.
++    const issuer = 'https://team.cloudflareaccess.com';
++    const metadata = { issuer, authorization_endpoint: `${issuer}/authorize`, token_endpoint: `${issuer}/token`, registration_endpoint: `${issuer}/register`,
++      response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'],
++      token_endpoint_auth_methods_supported: ['none'], code_challenge_methods_supported: ['S256'], scopes_supported: ['openid', 'email'] };
++    const registrations: Record<string, unknown>[] = [];
++    const exchanges: URLSearchParams[] = [];
++    const fetchFixture = vi.fn<typeof fetch>(async (input, init) => {
++      const request = new Request(input, init);
++      if (request.url === entry.url) return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Bearer resource_metadata="https://seo.example/.well-known/oauth-protected-resource/mcp"' } });
++      if (request.url === 'https://seo.example/.well-known/oauth-protected-resource/mcp') return Response.json({ resource: entry.url, authorization_servers: [issuer], scopes_supported: ['openid', 'email'] });
++      if (request.url === `${issuer}/.well-known/oauth-authorization-server`) return Response.json(metadata);
++      if (request.url === metadata.registration_endpoint) {
++        const body = await request.json(); registrations.push(body);
++        return Response.json({ ...body, client_id: 'selfhost-fixture-client' });
++      }
++      if (request.url === metadata.token_endpoint) {
++        const body = new URLSearchParams(await request.text()); exchanges.push(body);
++        return Response.json({ access_token: 'selfhost-access-token', refresh_token: 'selfhost-refresh-token', token_type: 'Bearer' });
++      }
++      throw new Error(`Unexpected fixture URL: ${request.url}`);
++    });
++    vi.stubGlobal('fetch', fetchFixture);
++    const redirect = vi.fn();
++    const provider = mcpOAuthProviderFor(entry, redirect, { redirectUri, callbackChannel: channel, interactive: true });
++    await expect(connectMcpClient({ url: entry.url, authProvider: provider })).rejects.toThrow();
++    expect(registrations).toHaveLength(1);
++    expect(registrations[0]).toMatchObject({ redirect_uris: [redirectUri], token_endpoint_auth_method: 'none' });
++    expect(registrations[0].scope).toBe('openid email');
++    expect(JSON.stringify(registrations)).not.toContain('offline_access');
++    const consent = redirect.mock.calls[0][0] as URL;
++    expect(consent.origin).toBe(issuer);
++    expect(consent.searchParams.get('scope')).toBe('openid email');
++    expect(consent.searchParams.get('resource')).toBe(entry.url);
++    expect(consent.searchParams.get('code_challenge_method')).toBe('S256');
++    expect(await auth(provider, { serverUrl: entry.url, authorizationCode: 'selfhost-code', fetchFn: fetchFixture })).toBe('AUTHORIZED');
++    expect(Object.fromEntries(exchanges[0])).toMatchObject({ client_id: 'selfhost-fixture-client', redirect_uri: redirectUri, resource: entry.url, code_verifier: expect.any(String) });
++    expect(exchanges[0].has('client_secret')).toBe(false);
++    const resumed = mcpOAuthProviderFor(entry);
++    expect(await resumed.tokens()).toMatchObject({ access_token: 'selfhost-access-token' });
++    expect(resumed.redirectUrl).toBe(redirectUri);
++    expect(await auth(resumed, { serverUrl: entry.url, fetchFn: fetchFixture })).toBe('AUTHORIZED');
++    expect(Object.fromEntries(exchanges[1])).toMatchObject({ grant_type: 'refresh_token', refresh_token: 'selfhost-refresh-token', resource: entry.url });
++    expect(registrations).toHaveLength(1);
++    expect(await getMcpServerStore().openSecret(entry.id)).toBeNull();
++  });
++});
+diff --git a/src/lib/integrations/mcp-openseo.test.ts b/src/lib/integrations/mcp-openseo.test.ts
+index 8328057b..acd4598c 100644
+--- a/src/lib/integrations/mcp-openseo.test.ts
++++ b/src/lib/integrations/mcp-openseo.test.ts
+@@ -39,3 +39,3 @@ describe('OpenSEO connector', () => {
+     expect(getHostedMcpProvider('openseo')).toMatchObject({
+-      url: endpoint, auth: { kind: 'oauth', scopes: ['mcp', 'offline_access'], tokenEndpointAuthMethod: 'none', authorizeBeforeConnect: true },
++      endpoint: { kind: 'deployment', hostedUrl: endpoint, path: '/mcp' }, auth: { kind: 'oauth', scopes: ['mcp', 'offline_access'], tokenEndpointAuthMethod: 'none', authorizeBeforeConnect: true },
+       tokenAuth: { label: 'OpenSEO API key', helpUrl: 'https://app.openseo.so/settings' },
+@@ -47,3 +47,3 @@ describe('OpenSEO connector', () => {
+ 
+-  it('uses Bearer API keys through the real SDK for discovery and tool dispatch', async () => {
++  it.each([{ deployment: 'hosted API key', url: endpoint, secret: key }, { deployment: 'self-hosted Docker', url: 'http://localhost:3000/mcp', secret: undefined }])('uses $deployment through the real SDK for discovery and tool dispatch', async ({ url, secret }) => {
+     const methods: string[] = [];
+@@ -51,4 +51,4 @@ describe('OpenSEO connector', () => {
+       const request = new Request(input, init);
+-      expect(request.url).toBe(endpoint);
+-      expect(request.headers.get('Authorization')).toBe(`Bearer ${key}`);
++      expect(request.url).toBe(url);
++      expect(request.headers.get('Authorization')).toBe(secret ? `Bearer ${secret}` : null);
+       if (request.method === 'GET') return new Response(null, { status: 405 });
+@@ -63,3 +63,3 @@ describe('OpenSEO connector', () => {
+     }));
+-    const client = await connectMcpClient({ url: endpoint, headers: mcpAuthHeaders({ kind: 'bearer' }, key) });
++    const client = await connectMcpClient({ url, ...(secret ? { headers: mcpAuthHeaders({ kind: 'bearer' }, secret) } : {}) });
+     try {
+diff --git a/src/lib/integrations/runtime.ts b/src/lib/integrations/runtime.ts
+index c6f635d2..d674b612 100644
+--- a/src/lib/integrations/runtime.ts
++++ b/src/lib/integrations/runtime.ts
+@@ -814,3 +814,3 @@ async function build(): Promise<Built> {
+               identity: { providerId: hosted.id, displayName: hosted.displayName, label: snapshot.displayName, accountId: snapshot.accountId, authConfigId: snapshot.authConfigId },
+-              trustToolAnnotations: trustHostedMcpAnnotations(hosted),
++              trustToolAnnotations: trustHostedMcpAnnotations(hosted, snapshot.url),
+               ...(hosted.defaultMutationRisk ? { defaultRisk: hosted.defaultMutationRisk } : {}),
+diff --git a/src/lib/server/operations/integrations/connect.ts b/src/lib/server/operations/integrations/connect.ts
+index 094ddb46..a36a3eb9 100644
+--- a/src/lib/server/operations/integrations/connect.ts
++++ b/src/lib/server/operations/integrations/connect.ts
+@@ -3,2 +3,3 @@ import { beginConnect } from '@/lib/integrations/begin-connect';
+ import { ensureHostedMcpServer, hostedAccountSelection, resolveHostedMcpAccount } from '@/lib/integrations/hosted-mcp';
++import { hostedMcpAuthDefinition, resolveHostedMcpUrl } from '@/lib/integrations/hosted-endpoint';
+ import { usesRegisteredOAuth } from '@/lib/integrations/hosted-oauth-config';
+@@ -27,2 +28,3 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
+     instanceUrl?: unknown;
++    authMethod?: unknown;
+     serverId?: unknown;
+@@ -39,7 +41,12 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
+     if (hosted) {
+-      if (hosted.auth && hosted.auth.kind !== 'oauth') {
+-        return reply({ error: hosted.auth.kind === 'bearer' ? `This ${INTEGRATION_LABELS.singular.toLowerCase()} uses a connection token. Connect it from Settings.` : `This ${INTEGRATION_LABELS.singular.toLowerCase()} does not use browser sign-in. Connect it from Settings.` }, { status: 400 });
+-      }
+       const selection = hostedAccountSelection(body);
+       const existing = await resolveHostedMcpAccount(hosted, getMcpServerStore(), getIntegrationConnectionStore(), getIntegrationOwnerId(), selection);
++      const url = hosted.endpoint?.kind === 'deployment'
++        ? existing && body.endpointId === undefined && body.instanceUrl === undefined ? existing.url : resolveHostedMcpUrl(hosted, body)
++        : hosted.url ?? '';
++      const selfHosted = hosted.endpoint?.kind === 'deployment' && url !== hosted.endpoint.hostedUrl;
++      const effective = hostedMcpAuthDefinition(hosted, url, body.authMethod ?? (selfHosted && existing?.url === url ? existing.auth.kind : undefined));
++      if (effective.auth && effective.auth.kind !== 'oauth') {
++        return reply({ error: effective.auth.kind === 'bearer' ? `This ${INTEGRATION_LABELS.singular.toLowerCase()} uses a connection token. Connect it from Settings.` : `This ${INTEGRATION_LABELS.singular.toLowerCase()} does not use browser sign-in. Connect it from Settings.` }, { status: 400 });
++      }
+       const selectedId = typeof body.authConfigId === 'string' ? body.authConfigId : existing?.authConfigId;
+@@ -53,3 +60,3 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
+           ...selection,
+-          endpointId: body.endpointId, instanceUrl: body.instanceUrl,
++          endpointId: body.endpointId, instanceUrl: body.instanceUrl, authMethod: body.authMethod,
+           ...(selected ? { authConfigId: selected.config.id } : {}),
+@@ -81,2 +88,2 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
+ 
+-export const POSTInput = rpcZ.object({ body: rpcZ.object({ "providerId": rpcZ.string().optional(), "scopes": rpcZ.array(rpcZ.string()).optional(), "label": rpcZ.string().nullable().optional(), "existingConnectionId": rpcZ.string().optional(), "authConfigId": rpcZ.string().optional(), "returnTo": rpcZ.string().optional(), "endpointId": rpcZ.string().optional(), "instanceUrl": rpcZ.string().optional(), "serverId": rpcZ.string().optional(), "addAccount": rpcZ.boolean().optional(), "setupId": rpcZ.string().optional() }).strict().default({}) }).strict();
++export const POSTInput = rpcZ.object({ body: rpcZ.object({ "providerId": rpcZ.string().optional(), "scopes": rpcZ.array(rpcZ.string()).optional(), "label": rpcZ.string().nullable().optional(), "existingConnectionId": rpcZ.string().optional(), "authConfigId": rpcZ.string().optional(), "returnTo": rpcZ.string().optional(), "endpointId": rpcZ.string().optional(), "instanceUrl": rpcZ.string().optional(), "authMethod": rpcZ.enum(["oauth", "none"]).optional(), "serverId": rpcZ.string().optional(), "addAccount": rpcZ.boolean().optional(), "setupId": rpcZ.string().optional() }).strict().default({}) }).strict();
+diff --git a/src/lib/server/operations/integrations/connectDirect.ts b/src/lib/server/operations/integrations/connectDirect.ts
+index 9ae51d79..9b7e6359 100644
+--- a/src/lib/server/operations/integrations/connectDirect.ts
++++ b/src/lib/server/operations/integrations/connectDirect.ts
+@@ -1,3 +1,4 @@
+ import { INTEGRATION_LABELS } from '@/constants/integrations';
+-import { ensureHostedMcpServer, hostedAccountSelection, hostedMcpConnectionId, hostedMcpDefinition } from '@/lib/integrations/hosted-mcp';
++import { ensureHostedMcpServer, hostedAccountSelection, hostedMcpConnectionId, hostedMcpDefinition, resolveHostedMcpAccount } from '@/lib/integrations/hosted-mcp';
++import { hostedMcpAuthDefinition, resolveHostedMcpUrl } from '@/lib/integrations/hosted-endpoint';
+ import { buildCredential, getIntegrationConnectionStore, getIntegrationOwnerId, getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime } from '@/lib/integrations/runtime';
+@@ -20,2 +21,3 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
+     instanceUrl?: unknown;
++    authMethod?: unknown;
+     existingConnectionId?: unknown;
+@@ -28,5 +30,2 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
+   const hosted = getHostedMcpProvider(providerId);
+-  if (hosted && (!hosted.auth || hosted.auth.kind === 'oauth') && !hosted.tokenAuth) {
+-    return reply({ error: `This ${INTEGRATION_LABELS.singular.toLowerCase()} uses browser sign-in. Connect it from Settings.` }, { status: 400 });
+-  }
+   const fields =
+@@ -36,9 +35,17 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
+     const token = typeof fields.token === 'string' ? fields.token.trim() : '';
+-    if ((hosted.auth?.kind === 'bearer' || hosted.tokenAuth) && !token) return reply({ error: 'A connection token is required.' }, { status: 400 });
+-    if (hosted.auth?.kind === 'none' && Object.keys(fields).length > 0) return reply({ error: `This ${INTEGRATION_LABELS.singular.toLowerCase()} does not accept credentials.` }, { status: 400 });
+     try {
+       const servers = getMcpServerStore();
++      const selection = hostedAccountSelection(body);
++      const existing = await resolveHostedMcpAccount(hosted, servers, getIntegrationConnectionStore(), getIntegrationOwnerId(), selection);
++      const url = hosted.endpoint?.kind === 'deployment'
++        ? existing && body.endpointId === undefined && body.instanceUrl === undefined ? existing.url : resolveHostedMcpUrl(hosted, body)
++        : hosted.url ?? '';
++      const selfHosted = hosted.endpoint?.kind === 'deployment' && url !== hosted.endpoint.hostedUrl;
++      const effective = hostedMcpAuthDefinition(hosted, url, body.authMethod ?? (selfHosted && existing?.url === url ? existing.auth.kind : undefined));
++      if ((!effective.auth || effective.auth.kind === 'oauth') && !effective.tokenAuth) return reply({ error: `This ${INTEGRATION_LABELS.singular.toLowerCase()} uses browser sign-in. Connect it from Settings.` }, { status: 400 });
++      if ((effective.auth?.kind === 'bearer' || effective.tokenAuth) && !token) return reply({ error: 'A connection token is required.' }, { status: 400 });
++      if (effective.auth?.kind === 'none' && Object.keys(fields).length > 0) return reply({ error: `This ${INTEGRATION_LABELS.singular.toLowerCase()} does not accept credentials.` }, { status: 400 });
+       const entry = await ensureHostedMcpServer(hosted, servers, getIntegrationConnectionStore(), getIntegrationOwnerId(), {
+-        ...hostedAccountSelection(body),
+-        ...(token ? { secret: token } : {}), endpointId: body.endpointId, instanceUrl: body.instanceUrl,
++        ...selection,
++        ...(token ? { secret: token } : {}), endpointId: body.endpointId, instanceUrl: body.instanceUrl, authMethod: body.authMethod,
+       });
+@@ -85,2 +92,2 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
+ 
+-export const POSTInput = rpcZ.object({ body: rpcZ.object({ "providerId": rpcZ.string().optional(), "fields": rpcZ.record(rpcZ.string(), rpcZ.string()).optional(), "label": rpcZ.string().nullable().optional(), "endpointId": rpcZ.string().optional(), "instanceUrl": rpcZ.string().optional(), "existingConnectionId": rpcZ.string().optional(), "serverId": rpcZ.string().optional(), "addAccount": rpcZ.boolean().optional(), "setupId": rpcZ.string().optional() }).strict().default({}) }).strict();
++export const POSTInput = rpcZ.object({ body: rpcZ.object({ "providerId": rpcZ.string().optional(), "fields": rpcZ.record(rpcZ.string(), rpcZ.string()).optional(), "label": rpcZ.string().nullable().optional(), "endpointId": rpcZ.string().optional(), "instanceUrl": rpcZ.string().optional(), "authMethod": rpcZ.enum(["oauth", "none"]).optional(), "existingConnectionId": rpcZ.string().optional(), "serverId": rpcZ.string().optional(), "addAccount": rpcZ.boolean().optional(), "setupId": rpcZ.string().optional() }).strict().default({}) }).strict();

@@ -25,7 +25,7 @@ import { isImportMirror } from '@/lib/import/mirror';
 import { notify } from '@/lib/notifications';
 import { healthCheckSession } from '@/lib/executor/health';
 import { dispatchSessionTurn } from '@/lib/sessions/deliver';
-import { getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime } from './runtime';
+import { getIntegrationRuntime, getMcpServerStore } from './runtime';
 import { defaultApprovalMode, isOutwardAction, setActionOverride } from './write-policy';
 import { GRANT_TTL_MS, type ApprovalDecision, type PendingApproval, type ResolvedApproval } from './approval';
 import {
@@ -289,7 +289,7 @@ export async function recordApprovalsSettled(settled: readonly PendingApproval[]
 
 /**
  * Stop asking before `actionId` runs, through the setting the Integrations screen shows for it:
- *   - an ingested MCP tool: the server's per-tool "Ask first" (`toolOverrides[tool].mutating`);
+ *   - an ingested MCP tool: the server's per-tool approval preference (`approvalMode`);
  *   - any other action: the write-policy override. Landing on the built-in default clears the
  *     override instead of pinning it, exactly like the settings switch, so "changed" keeps meaning
  *     "differs from the default".
@@ -301,11 +301,9 @@ export async function allowWithoutAsking(actionId: string, risk: string): Promis
     const store = getMcpServerStore();
     const entry = store.list().find((s) => s.slug === slug);
     if (!entry) throw new Error(`MCP server "${slug}" is no longer configured`);
-    const current = entry.toolOverrides ?? {};
     await store.update(entry.id, {
-      toolOverrides: { ...current, [tool!]: { ...current[tool!], mutating: false } },
+      toolOverrides: { [tool!]: { approvalMode: 'auto' } },
     });
-    invalidateIntegrationRuntime();
     return;
   }
   const facts = { actionId, risk: risk as Parameters<typeof defaultApprovalMode>[0]['risk'], mutating: true };

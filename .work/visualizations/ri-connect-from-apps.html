@@ -1,0 +1,483 @@
+<div id="ri-connect-study">
+  <div class="rc-window">
+    <div class="rc-top">
+      <span class="rc-brand">Ri</span>
+      <span class="rc-top-label">Personal</span>
+      <span class="rc-preview">Design preview · Sample data</span>
+    </div>
+    <div class="rc-shell">
+      <nav class="rc-rail" aria-label="Ri navigation">
+        <div class="rc-rail-main">
+          <button type="button" class="rc-nav cursor-interaction" data-action="new-chat"><i data-lucide="plus" aria-hidden="true"></i><span>New chat</span></button>
+          <div class="rc-nav rc-context"><i data-lucide="search" aria-hidden="true"></i><span>Search chats</span></div>
+          <div class="rc-rule"></div>
+          <button type="button" class="rc-nav cursor-interaction" data-action="apps" data-place="apps" aria-current="page"><i data-lucide="layout-grid" aria-hidden="true"></i><span>Apps</span><i data-lucide="chevron-right" class="rc-end" aria-hidden="true"></i></button>
+          <div class="rc-nav rc-context"><i data-lucide="square-kanban" aria-hidden="true"></i><span>Task Board</span></div>
+          <div class="rc-nav rc-context"><i data-lucide="calendar" aria-hidden="true"></i><span>Calendar</span></div>
+          <div class="rc-nav rc-context"><i data-lucide="clock" aria-hidden="true"></i><span>Schedules and Triggers</span></div>
+          <div class="rc-list-title"><i data-lucide="bot" aria-hidden="true"></i><span>Agents</span><span class="rc-muted">Recent</span></div>
+          <button type="button" class="rc-nav cursor-interaction" data-action="chat" data-place="chat"><span class="rc-avatar">P</span><span>Personal</span></button>
+          <button type="button" class="rc-chat-link cursor-interaction" data-action="chat">Subscription review</button>
+        </div>
+        <div class="rc-rail-footer">
+          <button type="button" class="rc-nav cursor-interaction" data-action="settings" data-place="settings"><i data-lucide="settings" aria-hidden="true"></i><span>Settings</span></button>
+          <button type="button" class="rc-account-link cursor-interaction" data-action="settings"><i data-lucide="plug" aria-hidden="true"></i><span>Connect accounts</span></button>
+        </div>
+      </nav>
+      <div class="rc-content">
+        <div class="rc-status" role="status" aria-live="polite" hidden></div>
+        <main class="rc-main" aria-label="Apps connection preview"></main>
+      </div>
+    </div>
+  </div>
+</div>
+<style>
+  #ri-connect-study {
+    --rc-bg: light-dark(#ffffff, #1b1c20);
+    --rc-rail: light-dark(#f7f7f8, #16171b);
+    --rc-text: light-dark(#25262c, #e8e9ee);
+    --rc-muted: light-dark(#6d717b, #a1a6b2);
+    --rc-line: light-dark(#e6e7eb, #33353d);
+    --rc-soft: light-dark(#f0f1f4, #272a31);
+    --rc-ink: light-dark(#31343c, #e4e7ed);
+    --rc-on-ink: light-dark(#ffffff, #212329);
+    --rc-green: light-dark(#216847, #98d7b7);
+    --rc-green-soft: light-dark(#edf7f1, #203329);
+    --rc-red: light-dark(#a63c43, #e9a2a7);
+    color: var(--rc-text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  #ri-connect-study * { box-sizing: border-box; }
+  #ri-connect-study [hidden] { display: none !important; }
+  #ri-connect-study h2, #ri-connect-study h3, #ri-connect-study p { margin: 0; }
+  #ri-connect-study button, #ri-connect-study input, #ri-connect-study textarea { font: inherit; color: inherit; }
+  #ri-connect-study button { cursor: inherit; }
+  #ri-connect-study button:disabled { opacity: .45; }
+  #ri-connect-study button:hover:not(:disabled) { filter: brightness(.97); }
+  #ri-connect-study input, #ri-connect-study textarea { background: var(--rc-bg); }
+  #ri-connect-study button, #ri-connect-study a, #ri-connect-study input, #ri-connect-study textarea { -webkit-tap-highlight-color: transparent; }
+  #ri-connect-study svg, #ri-connect-study i[data-lucide] { flex-shrink: 0; width: 16px; height: 16px; }
+  #ri-connect-study .rc-window { background: var(--rc-bg); border: 1px solid var(--rc-line); border-radius: 12px; overflow: clip; min-height: 670px; }
+  #ri-connect-study .rc-top { min-height: 51px; padding: 12px 110px 12px 18px; display: flex; gap: 16px; align-items: center; border-bottom: 1px solid var(--rc-line); flex-wrap: wrap; }
+  #ri-connect-study .rc-brand { font-size: 20px; font-weight: 600; letter-spacing: -.8px; }
+  #ri-connect-study .rc-top-label { font-size: 12px; color: var(--rc-muted); }
+  #ri-connect-study .rc-preview { margin-left: auto; color: var(--rc-muted); font-size: 11px; }
+  #ri-connect-study .rc-shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 618px; }
+  #ri-connect-study .rc-rail { padding: 13px 9px 10px; background: var(--rc-rail); border-right: 1px solid var(--rc-line); display: flex; flex-direction: column; }
+  #ri-connect-study .rc-rail-main { flex: 1; }
+  #ri-connect-study .rc-nav { display: flex; gap: 9px; align-items: center; min-height: 33px; width: 100%; padding: 6px 9px; margin: 1px 0; border: 0; border-radius: 6px; background: transparent; text-align: left; font-size: 12px; }
+  #ri-connect-study .rc-context { color: var(--rc-muted); }
+  #ri-connect-study .rc-nav[aria-current="page"] { background: var(--rc-soft); font-weight: 500; }
+  #ri-connect-study .rc-end { margin-left: auto; color: var(--rc-muted); width: 12px; }
+  #ri-connect-study .rc-rule { height: 1px; background: var(--rc-line); margin: 12px 5px; }
+  #ri-connect-study .rc-list-title { display: flex; gap: 8px; align-items: center; padding: 21px 9px 8px; font-size: 11px; font-weight: 500; }
+  #ri-connect-study .rc-list-title .rc-muted { margin-left: 4px; }
+  #ri-connect-study .rc-avatar { width: 20px; height: 20px; background: var(--rc-soft); border: 1px solid var(--rc-line); border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; }
+  #ri-connect-study .rc-chat-link { font-size: 11px; background: transparent; border: 0; padding: 5px 7px 5px 38px; text-align: left; color: var(--rc-muted); }
+  #ri-connect-study .rc-rail-footer { border-top: 1px solid var(--rc-line); padding-top: 8px; margin-top: 35px; }
+  #ri-connect-study .rc-account-link { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 9px; font-size: 11px; background: transparent; border: 1px solid var(--rc-line); border-radius: 6px; margin-top: 5px; }
+  #ri-connect-study .rc-content { min-width: 0; }
+  #ri-connect-study .rc-main { padding: 30px 34px; min-width: 0; }
+  #ri-connect-study .rc-status { display: flex; align-items: center; gap: 8px; background: var(--rc-green-soft); color: var(--rc-green); padding: 10px 26px; font-size: 12px; }
+  #ri-connect-study .rc-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+  #ri-connect-study h2 { font-size: 23px; line-height: 1.3; letter-spacing: -.5px; font-weight: 500; }
+  #ri-connect-study h3 { font-size: 14px; font-weight: 500; }
+  #ri-connect-study .rc-muted { color: var(--rc-muted); }
+  #ri-connect-study .rc-subtitle { color: var(--rc-muted); font-size: 13px; margin-top: 6px; }
+  #ri-connect-study .rc-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  #ri-connect-study .rc-button { display: inline-flex; gap: 7px; align-items: center; justify-content: center; padding: 7px 12px; min-height: 35px; border: 1px solid var(--rc-line); border-radius: 7px; background: var(--rc-bg); font-size: 12px; font-weight: 500; }
+  #ri-connect-study .rc-button.primary { background: var(--rc-ink); color: var(--rc-on-ink); border-color: transparent; }
+  #ri-connect-study .rc-button.quiet { background: transparent; border-color: transparent; }
+  #ri-connect-study .rc-button.danger { color: var(--rc-red); }
+  #ri-connect-study .rc-link { display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: 0; color: var(--rc-muted); font-size: 12px; text-align: left; }
+  #ri-connect-study .rc-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+  #ri-connect-study .rc-back { margin-bottom: 23px; }
+  #ri-connect-study .rc-section-title { color: var(--rc-muted); font-size: 11px; font-weight: 500; margin: 23px 0 8px; }
+  #ri-connect-study .rc-app-row { display: flex; align-items: center; gap: 13px; padding: 19px 0; border-bottom: 1px solid var(--rc-line); flex-wrap: wrap; }
+  #ri-connect-study .rc-app-text { flex: 1; min-width: 130px; }
+  #ri-connect-study .rc-app-text p { font-size: 12px; color: var(--rc-muted); margin-top: 4px; }
+  #ri-connect-study .rc-mark { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; flex-shrink: 0; border: 1px solid var(--rc-line); border-radius: 10px; background: var(--rc-soft); }
+  #ri-connect-study .rc-mark.large { width: 47px; height: 47px; border-radius: 12px; }
+  #ri-connect-study .rc-mark.large svg { width: 22px; height: 22px; }
+  #ri-connect-study .rc-app-name { background: transparent; border: 0; padding: 0; font-weight: 500; text-align: left; }
+  #ri-connect-study .rc-app-title { display: flex; gap: 13px; align-items: center; }
+  #ri-connect-study .rc-state { font-size: 11px; display: inline-flex; align-items: center; gap: 5px; color: var(--rc-green); }
+  #ri-connect-study .rc-state svg { width: 13px; height: 13px; }
+  #ri-connect-study .rc-search { position: relative; margin-bottom: 13px; }
+  #ri-connect-study .rc-search > svg { position: absolute; left: 11px; top: 12px; color: var(--rc-muted); }
+  #ri-connect-study .rc-search input { padding: 10px 12px 10px 36px; border: 1px solid var(--rc-line); border-radius: 8px; width: 100%; font-size: 13px; }
+  #ri-connect-study .rc-connect-prompt { margin-top: 28px; padding: 20px; background: var(--rc-rail); border: 1px solid var(--rc-line); border-radius: 10px; }
+  #ri-connect-study .rc-connect-prompt .rc-actions { margin-top: 17px; }
+  #ri-connect-study .rc-account-card { margin-top: 24px; padding: 18px; border: 1px solid var(--rc-line); border-radius: 10px; }
+  #ri-connect-study .rc-account-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  #ri-connect-study .rc-account-heading p { font-size: 12px; color: var(--rc-muted); margin-top: 3px; overflow-wrap: anywhere; }
+  #ri-connect-study .rc-account-facts { margin: 20px 0 16px; display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px 12px; font-size: 12px; }
+  #ri-connect-study .rc-account-facts dt { color: var(--rc-muted); }
+  #ri-connect-study .rc-account-facts dd { margin: 0; }
+  #ri-connect-study .rc-related { border-top: 1px solid var(--rc-line); margin-top: 25px; padding-top: 16px; }
+  #ri-connect-study .rc-example { margin-top: 20px; }
+  #ri-connect-study .rc-example button { display: block; border: 1px solid var(--rc-line); border-radius: 7px; padding: 10px 13px; background: var(--rc-bg); font-size: 12px; text-align: left; margin-top: 8px; width: 100%; }
+  #ri-connect-study .rc-flow { max-width: 430px; margin: 0 auto; padding-top: 5px; }
+  #ri-connect-study .rc-flow > .rc-subtitle { margin-top: 12px; }
+  #ri-connect-study .rc-flow .rc-mark { margin-bottom: 17px; }
+  #ri-connect-study .rc-flow .rc-account-facts { padding: 20px 0; border-top: 1px solid var(--rc-line); border-bottom: 1px solid var(--rc-line); }
+  #ri-connect-study .rc-flow .rc-actions { margin-top: 25px; }
+  #ri-connect-study .rc-note { font-size: 11px; color: var(--rc-muted); margin-top: 14px; }
+  #ri-connect-study .rc-sample-label { display: inline-flex; font-size: 11px; color: var(--rc-muted); background: var(--rc-soft); padding: 4px 9px; border-radius: 5px; margin-bottom: 19px; }
+  #ri-connect-study .rc-account-options { display: grid; gap: 10px; margin-top: 22px; padding: 0; border: 0; }
+  #ri-connect-study .rc-account-options legend { font-size: 12px; color: var(--rc-muted); margin-bottom: 9px; }
+  #ri-connect-study .rc-account-option { display: flex; align-items: center; gap: 12px; padding: 13px; border: 1px solid var(--rc-line); border-radius: 8px; }
+  #ri-connect-study .rc-account-option:has(input:checked) { background: var(--rc-soft); border-color: var(--rc-muted); }
+  #ri-connect-study .rc-account-option input { accent-color: var(--rc-ink); }
+  #ri-connect-study .rc-account-option span { display: block; font-size: 13px; }
+  #ri-connect-study .rc-account-option small { color: var(--rc-muted); font-size: 11px; overflow-wrap: anywhere; }
+  #ri-connect-study .rc-tabs { display: flex; align-items: center; gap: 24px; border-bottom: 1px solid var(--rc-line); margin: 5px 0 20px; }
+  #ri-connect-study .rc-tab { font-size: 12px; padding: 9px 1px; color: var(--rc-muted); }
+  #ri-connect-study .rc-tab.active { color: var(--rc-text); border-bottom: 2px solid var(--rc-ink); }
+  #ri-connect-study .rc-settings-layout { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 23px; }
+  #ri-connect-study .rc-settings-nav { font-size: 12px; display: flex; flex-direction: column; gap: 6px; color: var(--rc-muted); }
+  #ri-connect-study .rc-settings-nav span { padding: 7px 8px; }
+  #ri-connect-study .rc-settings-nav .active { background: var(--rc-soft); border-radius: 5px; color: var(--rc-text); }
+  #ri-connect-study .rc-settings-content { min-width: 0; }
+  #ri-connect-study .rc-chat { max-width: 570px; margin: 0 auto; }
+  #ri-connect-study .rc-chat-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--rc-muted); margin-bottom: 27px; }
+  #ri-connect-study .rc-user-message { background: var(--rc-soft); padding: 13px 16px; border-radius: 11px 11px 3px 11px; margin: 0 0 26px 25px; font-size: 13px; overflow-wrap: anywhere; }
+  #ri-connect-study .rc-assistant { font-size: 13px; }
+  #ri-connect-study .rc-assistant > p { margin-bottom: 13px; }
+  #ri-connect-study .rc-assistant .rc-connect-prompt { margin: 17px 0; }
+  #ri-connect-study .rc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 11px; }
+  #ri-connect-study .rc-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 5px; background: var(--rc-soft); font-size: 11px; }
+  #ri-connect-study .rc-compose { border: 1px solid var(--rc-line); border-radius: 11px; padding: 12px; margin-top: 27px; }
+  #ri-connect-study .rc-compose textarea { width: 100%; min-height: 67px; resize: vertical; border: 0; padding: 0; font-size: 13px; }
+  #ri-connect-study .rc-compose-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 8px; font-size: 11px; color: var(--rc-muted); }
+  #ri-connect-study .rc-results { margin: 19px 0; }
+  #ri-connect-study .rc-result { padding: 12px 0; border-bottom: 1px solid var(--rc-line); display: flex; justify-content: space-between; gap: 14px; font-size: 12px; }
+  #ri-connect-study .rc-result small { display: block; color: var(--rc-muted); margin-top: 3px; font-size: 11px; }
+  #ri-connect-study .rc-result strong { font-weight: 500; white-space: nowrap; }
+  #ri-connect-study .rc-empty { padding: 20px 0; font-size: 13px; color: var(--rc-muted); }
+  #ri-connect-study details { margin-top: 15px; font-size: 12px; }
+  #ri-connect-study details summary { color: var(--rc-muted); padding: 6px 0; }
+  #ri-connect-study details p { margin-top: 8px; color: var(--rc-muted); }
+  @media (max-width: 800px) {
+    #ri-connect-study .rc-shell { grid-template-columns: 170px minmax(0, 1fr); }
+    #ri-connect-study .rc-main { padding: 25px 20px; }
+    #ri-connect-study .rc-settings-layout { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    #ri-connect-study .rc-settings-nav { flex-direction: row; flex-wrap: wrap; }
+    #ri-connect-study .rc-app-row > .rc-actions { margin-left: 51px; }
+    #ri-connect-study .rc-preview { margin-left: 0; }
+  }
+  @media (max-width: 590px) {
+    #ri-connect-study .rc-shell { display: block; }
+    #ri-connect-study .rc-rail { padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--rc-line); display: flex; flex-direction: row; gap: 8px; }
+    #ri-connect-study .rc-rail-main { display: contents; }
+    #ri-connect-study .rc-rail-main > * { display: none; }
+    #ri-connect-study .rc-rail-main > [data-place] { display: flex; width: auto; flex: 1; padding: 6px 8px; justify-content: center; }
+    #ri-connect-study .rc-rail-main > [data-place="chat"] { order: 2; }
+    #ri-connect-study .rc-rail-main > [data-place="apps"] { order: 1; }
+    #ri-connect-study .rc-rail-footer { margin: 0; padding: 0; border: 0; order: 3; flex: 1; }
+    #ri-connect-study .rc-rail-footer .rc-nav { justify-content: center; }
+    #ri-connect-study .rc-account-link, #ri-connect-study .rc-end { display: none; }
+    #ri-connect-study .rc-top { padding-left: 15px; column-gap: 11px; row-gap: 1px; }
+    #ri-connect-study .rc-preview { flex-basis: 100%; }
+    #ri-connect-study .rc-main { padding: 22px 16px; }
+    #ri-connect-study .rc-head { gap: 12px; }
+    #ri-connect-study .rc-app-row { gap: 10px; }
+    #ri-connect-study .rc-app-row > .rc-actions { margin-left: 48px; }
+    #ri-connect-study .rc-app-text { min-width: 125px; }
+    #ri-connect-study .rc-flow { padding-top: 0; }
+    #ri-connect-study .rc-account-facts { grid-template-columns: 72px minmax(0, 1fr); }
+    #ri-connect-study .rc-settings-nav span { padding: 5px 7px; }
+    #ri-connect-study .rc-nav .rc-avatar { display: none; }
+  }
+  @media (pointer: coarse) {
+    #ri-connect-study button, #ri-connect-study .rc-account-option { min-height: 44px; }
+    #ri-connect-study input, #ri-connect-study textarea { font-size: 16px; }
+  }
+</style>
+<script>
+(() => {
+  const root = document.getElementById('ri-connect-study');
+  const main = root.querySelector('.rc-main');
+  const status = root.querySelector('.rc-status');
+  const accounts = {
+    personal: { name: 'Personal', email: 'alex.personal@example.com' },
+    work: { name: 'Work', email: 'alex.work@example.com' }
+  };
+  const allowedViews = ['apps', 'catalog', 'gmail', 'settings', 'settings-gmail', 'chat', 'finances'];
+  const initialQuestion = 'Which subscriptions got more expensive this month?';
+  function clean(saved) {
+    const safe = saved && typeof saved === 'object' ? saved : {};
+    return {
+      view: allowedViews.includes(safe.view) ? safe.view : 'apps',
+      account: Object.hasOwn(accounts, safe.account || '') ? safe.account : null,
+      draft: typeof safe.draft === 'string' ? safe.draft.slice(0, 4000) : '',
+      question: typeof safe.question === 'string' ? safe.question.slice(0, 4000) : initialQuestion,
+      reviewed: safe.reviewed === true,
+      withEmail: safe.withEmail === true,
+      gmailContext: safe.gmailContext === true,
+      selectedAccount: Object.hasOwn(accounts, safe.selectedAccount || '') ? safe.selectedAccount : 'personal'
+    };
+  }
+  const stored = window.openai?.widgetState?.privateContent;
+  let state = clean(stored?.previewVersion === 1 ? stored.connectionPreview : null);
+  function cleanFlow(value) {
+    return value && allowedViews.includes(value.origin) && ['review', 'signin'].includes(value.phase)
+      ? { origin: value.origin, phase: value.phase }
+      : null;
+  }
+  let pending = cleanFlow(stored?.previewVersion === 1 ? stored.connectionFlow : null);
+  let notice = '';
+  const esc = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
+  const icon = name => '<i data-lucide="' + name + '" aria-hidden="true"></i>';
+  const button = (label, action, style = '', glyph = '') => '<button type="button" class="rc-button cursor-interaction ' + style + '" data-action="' + action + '">' + (glyph ? icon(glyph) : '') + esc(label) + '</button>';
+  const link = (label, action, glyph = '') => '<button type="button" class="rc-link cursor-interaction" data-action="' + action + '">' + (glyph ? icon(glyph) : '') + esc(label) + '</button>';
+  const mark = (name, large = false) => '<span class="rc-mark' + (large ? ' large' : '') + '">' + icon(name) + '</span>';
+  const back = (label, action) => '<div class="rc-back">' + link(label, action, 'arrow-left') + '</div>';
+  const account = () => state.account ? accounts[state.account] : null;
+  function persist() {
+    const save = window.openai?.setWidgetState;
+    if (save) Promise.resolve(save.call(window.openai, {
+      modelContent: null,
+      privateContent: { previewVersion: 1, connectionPreview: state, connectionFlow: pending }
+    })).catch(() => {});
+  }
+  function announce(text) { notice = text; }
+  function appRow(name, text, glyph, action, controls) {
+    return '<article class="rc-app-row">' + mark(glyph) + '<div class="rc-app-text"><button type="button" class="rc-app-name cursor-interaction" data-action="' + action + '">' + esc(name) + '</button><p>' + text + '</p></div><div class="rc-actions">' + controls + '</div></article>';
+  }
+  function library() {
+    const who = account();
+    return '<div class="rc-head"><div><h2>Apps</h2><p class="rc-subtitle">Use them with your agent or open a view.</p></div>' + button('Add app', 'catalog', 'primary', 'plus') + '</div>' +
+      '<div class="rc-section-title">Your apps</div>' +
+      appRow('Finances', 'Spending, accounts and budgets', 'wallet', 'finances', button('Open', 'finances') + button('Ask Ri', 'ask-finances', 'quiet')) +
+      (who ? appRow('Gmail', esc(who.name) + ' · ' + esc(who.email), 'mail', 'gmail', button('Ask Ri', 'ask-gmail') + button('Details', 'gmail', 'quiet')) : '') +
+      (!who ? '<div class="rc-section-title">Try with your agent</div>' + appRow('Gmail', 'Find messages and check receipts', 'mail', 'gmail', button('Connect', 'connect-library')) : '') +
+      '<div class="rc-related">' + link('Manage accounts in Settings', 'settings', 'settings') + '</div>';
+  }
+  function catalog() {
+    return back('Your apps', 'apps') +
+      '<div class="rc-head"><div><h2>Add an app</h2><p class="rc-subtitle">Find something useful for the way you work.</p></div></div>' +
+      '<div class="rc-search">' + icon('search') + '<input aria-label="Find an app" placeholder="Search apps" data-input="search" autocomplete="off"></div>' +
+      '<div data-search-row data-search-text="gmail google email receipts">' + appRow('Gmail', 'Search messages and receipts with your agent', 'mail', 'gmail', button(state.account ? 'Connected' : 'Connect', state.account ? 'gmail' : 'connect-catalog')) + '</div>' +
+      '<div data-search-row data-search-text="finances finance spending budgets">' + appRow('Finances', 'Spending, accounts and budgets', 'wallet', 'finances', button('Open', 'finances')) + '</div>' +
+      '<p class="rc-empty" data-empty-search hidden>No matching apps in this preview.</p>';
+  }
+  function accountCard() {
+    const who = account();
+    return '<section class="rc-account-card" aria-label="Gmail account"><div class="rc-account-heading"><div><h3>' + esc(who.name) + '</h3><p>' + esc(who.email) + '</p></div><span class="rc-state">' + icon('check') + 'Connected</span></div>' +
+      '<dl class="rc-account-facts"><dt>Used by</dt><dd>Personal agent</dd><dt>Access</dt><dd>Search and read email</dd></dl>' +
+      '<div class="rc-actions">' + button('Check connection', 'check-account', 'quiet', 'refresh-cw') + button('Disconnect', 'disconnect', 'quiet danger') + '</div></section>';
+  }
+  function gmail(inSettings) {
+    const who = account();
+    const origin = inSettings ? 'settings' : 'apps';
+    return back(inSettings ? 'Settings · Plugins · Connectors' : 'Your apps', origin) +
+      '<div class="rc-head"><div class="rc-app-title">' + mark('mail', true) + '<div><h2>Gmail</h2><p class="rc-subtitle">Find messages and check receipts.</p></div></div>' +
+      (who ? button('Ask Ri', 'ask-gmail', 'primary', 'message-circle') : '') + '</div>' +
+      (who ? accountCard() : '<section class="rc-connect-prompt"><h3>Connect your Gmail account</h3><p class="rc-subtitle">Let your Personal agent search and read your email.</p><div class="rc-actions">' + button('Connect', inSettings ? 'connect-settings' : 'connect-gmail', 'primary') + '</div></section>') +
+      (!inSettings ? '<div class="rc-example"><div class="rc-section-title">Try asking</div><button type="button" class="cursor-interaction" data-action="example">Find the renewal receipts for my subscriptions.</button></div>' : '') +
+      '<div class="rc-related">' + link(inSettings ? 'View Gmail in Apps' : 'Manage in Settings', inSettings ? 'gmail' : 'settings-gmail', inSettings ? 'layout-grid' : 'settings') + '</div>';
+  }
+  function settings() {
+    const who = account();
+    return '<div class="rc-head"><h2>Settings</h2></div><div class="rc-settings-layout"><div class="rc-settings-nav" aria-label="Settings sections"><span>General</span><span>Profile</span><span class="active">Plugins</span></div><section class="rc-settings-content" aria-label="Plugins settings"><h3>Plugins</h3><div class="rc-tabs"><span class="rc-tab active">Connectors</span><span class="rc-tab">Skills</span></div>' +
+      '<p class="rc-subtitle">Connect accounts and manage access.</p>' +
+      appRow('Gmail', who ? esc(who.name) + ' · ' + esc(who.email) : 'Search and read email', 'mail', 'settings-gmail', button(who ? 'Manage' : 'Connect', who ? 'settings-gmail' : 'connect-settings-catalog')) +
+      (who ? '<p class="rc-note">' + icon('check') + ' Connected · Available to Personal</p>' : '') +
+      '</section></div>';
+  }
+  function connectFlow() {
+    const returning = pending.origin === 'chat' ? 'Subscription review' : pending.origin.startsWith('settings') ? 'Settings' : 'Apps';
+    if (pending.phase === 'review') {
+      return back('Back to ' + returning, 'cancel-connect') + '<section class="rc-flow">' + mark('mail', true) +
+        '<h2>Connect Gmail</h2><p class="rc-subtitle">Use your email with Ri.</p>' +
+        '<dl class="rc-account-facts"><dt>Used by</dt><dd>Personal agent</dd><dt>Access</dt><dd>Search and read email</dd><dt>Return to</dt><dd>' + esc(returning) + '</dd></dl>' +
+        '<p class="rc-subtitle">Choose the Google account you want to use.</p><div class="rc-actions">' +
+        button('Continue to Google', 'provider-signin', 'primary', 'external-link') + button('Cancel', 'cancel-connect', 'quiet') +
+        '</div><p class="rc-note">Preview only. The next screen uses sample accounts.</p></section>';
+    }
+    const options = Object.entries(accounts).map(([key, who]) =>
+      '<label class="rc-account-option cursor-interaction"><input type="radio" name="ri-sample-account" value="' + key + '"' + (state.selectedAccount === key ? ' checked' : '') + '><div><span>' + esc(who.name) + '</span><small>' + esc(who.email) + '</small></div></label>'
+    ).join('');
+    return back('Back to Gmail setup', 'review-connect') + '<section class="rc-flow"><div class="rc-sample-label">Simulated Google sign-in</div><h2>Choose an account</h2><p class="rc-subtitle">Continue to Ri with a sample account.</p><fieldset class="rc-account-options"><legend>Google account</legend>' + options + '</fieldset>' +
+      '<p class="rc-note">Allow Ri to search and read this account’s email.</p><div class="rc-actions">' + button('Allow and return to Ri', 'complete-connect', 'primary') + button('Cancel', 'cancel-connect', 'quiet') + '</div></section>';
+  }
+  function results() {
+    return '<div class="rc-results"><div class="rc-result"><div>Streamly<small>Monthly renewal</small></div><strong>$15 → $19</strong></div><div class="rc-result"><div>Cloudbox<small>Monthly renewal</small></div><strong>$10 → $12</strong></div></div>';
+  }
+  function chat() {
+    const who = account();
+    const needConnection = !state.reviewed && state.question;
+    let answer = '';
+    if (state.reviewed) {
+      answer = '<div class="rc-assistant"><p>Two subscriptions increased by a total of $6 per month.</p>' + results() +
+        '<p class="rc-muted">' + (state.withEmail ? 'The renewal receipts match the new charges.' : 'Based on the transactions in Finances.') + '</p><div class="rc-chips"><span class="rc-chip">' + icon('wallet') + 'Finances</span>' +
+        (state.withEmail ? '<span class="rc-chip">' + icon('mail') + 'Gmail' + (who ? ' · ' + esc(who.name) : ' · Disconnected') + '</span>' : '') + '</div>' +
+        button('Open Finances', 'finances', '', 'arrow-up-right') + '</div>';
+    } else if (needConnection) {
+      answer = '<div class="rc-assistant"><p>I can compare your subscriptions with renewal receipts in Gmail.</p>' +
+        '<div class="rc-connect-prompt"><div class="rc-app-title">' + mark('mail') + '<div><h3>' + (who ? 'Use Gmail · ' + esc(who.name) : 'Connect Gmail') + '</h3><p class="rc-subtitle">' + (who ? esc(who.email) : 'Search receipts with your Personal agent.') + '</p></div></div><div class="rc-actions">' +
+        button(who ? 'Check renewal receipts' : 'Connect and continue', who ? 'review-email' : 'connect-chat', 'primary') + button('Use Finances only', 'review-finances', 'quiet') + '</div></div></div>';
+    }
+    return '<section class="rc-chat"><div class="rc-chat-meta"><span class="rc-avatar">P</span><span>Personal</span><span> / </span><span>' + (state.question ? 'Subscription review' : 'New chat') + '</span></div>' +
+      (state.question ? '<div class="rc-user-message">' + esc(state.question) + '</div>' : '<h2>What would you like to work on?</h2>') + answer +
+      '<div class="rc-compose">' +
+      (state.gmailContext && who ? '<div class="rc-chips"><span class="rc-chip">' + icon('mail') + '@Gmail · ' + esc(who.name) + '</span></div>' : '') +
+      '<textarea aria-label="Message Personal" placeholder="Message Personal…" data-input="draft" maxlength="4000"></textarea><div class="rc-compose-footer"><span>Personal agent</span>' + button('Send', 'send', 'primary', 'arrow-up') + '</div></div></section>';
+  }
+  function finances() {
+    return back('Back to ' + (state.reviewed ? 'subscription review' : 'Apps'), state.reviewed ? 'chat' : 'apps') +
+      '<div class="rc-head"><div class="rc-app-title">' + mark('wallet', true) + '<div><h2>Finances</h2><p class="rc-subtitle">Subscriptions</p></div></div>' + button('Ask Ri', 'ask-finances', '', 'message-circle') + '</div>' +
+      '<div class="rc-section-title">Changes this month</div>' + results() + '<p class="rc-note">Sample transactions</p>';
+  }
+  function render() {
+    const place = state.view.startsWith('settings') ? 'settings' : state.view === 'chat' ? 'chat' : 'apps';
+    root.querySelectorAll('[data-place]').forEach(item => {
+      if (item.dataset.place === place) item.setAttribute('aria-current', 'page');
+      else item.removeAttribute('aria-current');
+    });
+    status.hidden = !notice;
+    status.textContent = notice;
+    if (pending) main.innerHTML = connectFlow();
+    else main.innerHTML = ({
+      apps: library,
+      catalog,
+      gmail: () => gmail(false),
+      settings,
+      'settings-gmail': () => gmail(true),
+      chat,
+      finances
+    })[state.view]();
+    const draft = main.querySelector('[data-input="draft"]');
+    if (draft) draft.value = state.draft;
+    if (globalThis.lucide) globalThis.lucide.createIcons({ attrs: { width: 16, height: 16 } });
+  }
+  function navigate(view) {
+    pending = null;
+    notice = '';
+    state.view = view;
+  }
+  function begin(origin) {
+    state.view = origin;
+    pending = { origin, phase: 'review' };
+    notice = '';
+  }
+  root.addEventListener('click', event => {
+    const target = event.target.closest('[data-action]');
+    if (!target || !root.contains(target) || target.disabled) return;
+    const action = target.dataset.action;
+    if (allowedViews.includes(action)) {
+      navigate(action);
+    } else if (action === 'new-chat') {
+      navigate('chat');
+      state.question = '';
+      state.reviewed = false;
+      state.withEmail = false;
+      state.gmailContext = false;
+    } else if (action.startsWith('connect-')) {
+      const origins = { 'connect-library':'apps', 'connect-catalog':'catalog', 'connect-gmail':'gmail', 'connect-settings':'settings-gmail', 'connect-settings-catalog':'settings', 'connect-chat':'chat' };
+      if (origins[action]) begin(origins[action]);
+    } else if (action === 'provider-signin' && pending) {
+      pending.phase = 'signin';
+    } else if (action === 'review-connect' && pending) {
+      pending.phase = 'review';
+    } else if (action === 'cancel-connect' && pending) {
+      state.view = pending.origin;
+      pending = null;
+    } else if (action === 'complete-connect' && pending) {
+      const origin = pending.origin;
+      state.account = state.selectedAccount;
+      pending = null;
+      state.view = origin === 'chat' ? 'chat' : origin.startsWith('settings') ? 'settings-gmail' : 'gmail';
+      if (origin === 'chat') {
+        state.reviewed = true;
+        state.withEmail = true;
+        state.gmailContext = true;
+      }
+      announce('Gmail · ' + account().name + ' connected. Available to Personal.');
+    } else if (action === 'disconnect') {
+      state.account = null;
+      state.gmailContext = false;
+      announce('Gmail disconnected. Personal no longer has access.');
+    } else if (action === 'check-account') {
+      announce('Gmail · ' + account().name + ' is connected.');
+    } else if (action === 'ask-gmail' || action === 'example') {
+      if (!state.account) {
+        state.view = 'chat';
+        state.question = initialQuestion;
+        state.reviewed = false;
+        begin('chat');
+      } else {
+        navigate('chat');
+        state.gmailContext = true;
+        if (!state.draft) state.draft = 'Find the renewal receipts for my subscriptions.';
+      }
+    } else if (action === 'ask-finances') {
+      navigate('chat');
+      if (!state.draft) state.draft = initialQuestion;
+    } else if (action === 'review-email') {
+      state.reviewed = true;
+      state.withEmail = true;
+      state.gmailContext = true;
+      notice = '';
+    } else if (action === 'review-finances') {
+      state.reviewed = true;
+      state.withEmail = false;
+      notice = '';
+    } else if (action === 'send') {
+      if (!state.draft.trim()) return;
+      state.question = state.draft.trim();
+      state.draft = '';
+      state.reviewed = Boolean(state.account);
+      state.withEmail = Boolean(state.account);
+      state.gmailContext = Boolean(state.account);
+      notice = '';
+    }
+    render();
+    persist();
+  });
+  root.addEventListener('input', event => {
+    const target = event.target;
+    if (target.dataset.input === 'draft') {
+      state.draft = target.value.slice(0, 4000);
+      persist();
+    }
+    if (target.dataset.input === 'search') {
+      const query = target.value.trim().toLowerCase();
+      let count = 0;
+      root.querySelectorAll('[data-search-row]').forEach(row => {
+        row.hidden = !row.dataset.searchText.includes(query);
+        if (!row.hidden) count++;
+      });
+      root.querySelector('[data-empty-search]').hidden = count !== 0;
+    }
+  });
+  root.addEventListener('change', event => {
+    if (event.target.name === 'ri-sample-account' && Object.hasOwn(accounts, event.target.value)) {
+      state.selectedAccount = event.target.value;
+      persist();
+    }
+  });
+  root.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && pending) {
+      event.preventDefault();
+      state.view = pending.origin;
+      pending = null;
+      render();
+      persist();
+    }
+  });
+  window.addEventListener('openai:set_globals', event => {
+    const value = event.detail?.globals?.widgetState?.privateContent;
+    if (value?.previewVersion !== 1) return;
+    const next = clean(value.connectionPreview);
+    const flow = cleanFlow(value.connectionFlow);
+    if (JSON.stringify(next) === JSON.stringify(state) && JSON.stringify(flow) === JSON.stringify(pending)) return;
+    state = next;
+    pending = flow;
+    notice = '';
+    render();
+  });
+  render();
+})();
+</script>

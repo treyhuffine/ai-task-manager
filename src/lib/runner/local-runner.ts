@@ -1,3 +1,4 @@
+import { generateRunnerTitle, setRunnerTitle, syncRunnerTitleSnapshot } from './titles';
 /**
  * The local runner: harness sessions on this device (docs/homes-build.md,
  * "P2.1 The runner split").
@@ -739,6 +740,10 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
         const safeEvent = redactHarnessRuntimeValue(event);
         // Account limits are per harness, not per chat (harness/rate-limits.ts).
         if (safeEvent.type === 'rate_limits') recordRateLimits(spec.harness, safeEvent.update);
+        if (safeEvent.type === 'title_changed' && !safeEvent.parentToolCallId) {
+          if (safeEvent.title) report(chatSessionId, { type: 'native_title', title: safeEvent.title });
+          return;
+        }
         _recordSessionInventory(chatSessionId, safeEvent);
         state.lastActivityAt.set(chatSessionId, Date.now());
         await persistStreamEvent(chatSessionId, safeEvent, runnerSink().writer, { trackBackgroundTaskRuntime: true });
@@ -766,6 +771,7 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
     requiresMessageSnapshot: spec.harness === 'antigravity' && !!spec.nativeSessionId,
     readOnlyReview: spec.readOnlyReview ?? null,
   });
+  if (spec.title) void syncRunnerTitleSnapshot(chatSessionId, handle, spec.title, (signal) => report(chatSessionId, signal)).catch(() => {});
   state.lastActivityAt.set(chatSessionId, Date.now());
   if (firstTurnPreamble) firstTurnPreambles.set(handle, firstTurnPreamble);
 
@@ -1118,6 +1124,12 @@ export async function closeAllSessions(): Promise<string[]> {
 // ─── The runner interface ─────────────────────────────────────
 
 export const localRunner: ExecutionRunner = {
+  async generateTitle(chatSessionId, request) {
+    await generateRunnerTitle(chatSessionId, liveHandle(chatSessionId), request, (signal) => report(chatSessionId, signal));
+  },
+  async setTitle(chatSessionId, title, revision) {
+    await setRunnerTitle(chatSessionId, liveHandle(chatSessionId), title, revision);
+  },
   send,
   interrupt: abort,
   stopTask,

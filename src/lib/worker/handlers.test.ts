@@ -17,7 +17,8 @@ const runner = vi.hoisted(() => ({
   close: vi.fn(async () => ({ closed: true })),
   answerPendingInput: vi.fn((): { ok: false; refused?: string } => ({ ok: false })),
 }));
-vi.mock('@/lib/runner/local-runner', () => runner);
+const titleRunner = vi.hoisted(() => ({ generateTitle: vi.fn(async () => {}), setTitle: vi.fn(async () => {}) }));
+vi.mock('@/lib/runner/local-runner', () => ({ ...runner, localRunner: titleRunner }));
 
 const scripts = vi.hoisted(() => ({ runs: 0 }));
 vi.mock('@/lib/workspaces/index', async (importOriginal) => ({
@@ -247,5 +248,24 @@ describe('stop, interrupt, stop a task', () => {
     expect(runner.abort).toHaveBeenCalledOnce();
     expect(runner.close).toHaveBeenCalledOnce();
     expect(runner.stopTask).toHaveBeenCalledWith('chat-1', 't1');
+  });
+});
+
+
+describe('native title commands', () => {
+  it('starts generation without blocking the device command queue', async () => {
+    const { handlers, ctx } = await setup();
+    titleRunner.generateTitle.mockReturnValueOnce(new Promise(() => {}));
+    const payload = { harness: 'claude', description: 'Plan a launch', fallbackPrompt: 'Title', fallbackModel: 'haiku', expectedRevision: 0, reuseExisting: true, truncateOnFailure: true };
+    const c = command('generate_title', payload);
+    expect(await handlers.generate_title!.run(c, ctx(c))).toEqual({ state: 'delivered' });
+    expect(titleRunner.generateTitle).toHaveBeenCalledWith('chat-1', payload);
+  });
+
+  it('sends a revision with each native rename', async () => {
+    const { handlers, ctx } = await setup();
+    const c = command('set_title', { title: 'Manual name', revision: 3 });
+    expect(await handlers.set_title!.run(c, ctx(c))).toEqual({ state: 'delivered' });
+    expect(titleRunner.setTitle).toHaveBeenCalledWith('chat-1', 'Manual name', 3);
   });
 });

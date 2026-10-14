@@ -1,0 +1,143 @@
+
+> ai-task-manager@0.1.0 dev /Users/agent/ai-task-manager
+> pnpm --filter @ri/app-kit build && tsx scripts/dev.ts
+
+
+> @ri/app-kit@0.1.0 build /Users/agent/ai-task-manager/packages/app-kit
+> node scripts/build.mjs
+
+(node:51544) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:51549) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[auth] ready at http://localhost:42241 — run `pnpm auth:pair` for the pairing URL
+[auth] pairing URL: http://localhost:42241/#token=ri_live_VeL4ZvQQKLZGdhbVV1nQrh4Lv5JTLDfsGl7gc5Un
+[mirror] brain: /Users/agent/ri-dev
+[reconcile] startup sweep: checked=0 drifted=0 replayed=0 redispatched=0 reapedStuckBootstraps=0 importsChecked=0 importsSynced=0 errors=0
+[server] ready on http://0.0.0.0:42241
+[mirror] startup reconcile: synced=33 skipped=122 orphaned=0 attachments=6/1 archived=0 (433ms)
+ GET /api/health 200 in 203ms (compile: 45ms, proxy.ts: 150ms, render: 8ms)
+[auto-tunnel] Ri reachable at https://ri-dev-trey.beamd.run (tunnel "ri-dev")
+ GET /api/health 200 in 4ms (compile: 1066µs, proxy.ts: 1418µs, render: 1720µs)
+ GET /api/dev/sessions/scratch 200 in 147ms (compile: 120ms, proxy.ts: 21ms, render: 7ms)
+ GET /api/dev/sessions/scratch 200 in 152ms (compile: 128ms, proxy.ts: 21ms, render: 2ms)
+(node:51854) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+○ Compiling / ...
+ GET /?session=01a121c7-2a5c-7a21-a9ec-3539ff1dd629 200 in 4.5s (compile: 3.7s, render: 854ms)
+ GET /?session=01a121c7-2a5c-78bd-aade-3c266b5f4fc2 200 in 4.6s (compile: 3.7s, render: 821ms)
+ POST /api/session 200 in 112ms (compile: 95ms, proxy.ts: 14ms, render: 3ms)
+ GET /api/version 200 in 130ms (compile: 113ms, proxy.ts: 16ms, render: 1514µs)
+ POST /api/session 200 in 128ms (compile: 95ms, proxy.ts: 32ms, render: 1292µs)
+ GET /api/version 200 in 131ms (compile: 87ms, proxy.ts: 42ms, render: 1160µs)
+(node:51870) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /api/trpc/transport.capabilities 200 in 2.4s (compile: 2.3s, proxy.ts: 45ms, render: 8ms)
+ GET /api/trpc/transport.capabilities 200 in 2.4s (compile: 2.3s, proxy.ts: 47ms, render: 8ms)
+ GET /api/trpc/sessions.reviewGet?input=%7B%22params%22%3A%7B%22id%22%3A%2201a121c7-2a5c-7a21-a9ec-3539ff1dd629%22%7D%2C%22query%22%3A%7B%7D%7D 200 in 544ms (compile: 360ms, proxy.ts: 180ms, render: 4ms)
+ GET /api/trpc/sessions.reviewGet?input=%7B%22params%22%3A%7B%22id%22%3A%2201a121c7-2a5c-78bd-aade-3c266b5f4fc2%22%7D%2C%22query%22%3A%7B%7D%7D 200 in 769ms (compile: 641ms, proxy.ts: 125ms, render: 3ms)
+(node:52156) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:52175) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /api/sessions/01a121c7-2a5c-78bd-aade-3c266b5f4fc2/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png&thumbnail=1 200 in 1431ms (compile: 1379ms, proxy.ts: 32ms, render: 19ms)
+ GET /api/version 200 in 13ms (compile: 4ms, proxy.ts: 6ms, render: 3ms)
+ GET /api/version 200 in 17ms (compile: 8ms, proxy.ts: 7ms, render: 2ms)
+ GET /api/version 200 in 19ms (compile: 5ms, proxy.ts: 11ms, render: 3ms)
+ GET /api/version 200 in 24ms (compile: 8ms, proxy.ts: 13ms, render: 3ms)
+ GET /api/version 200 in 16ms (compile: 6ms, proxy.ts: 7ms, render: 3ms)
+ GET /api/version 200 in 18ms (compile: 9ms, proxy.ts: 8ms, render: 1887µs)
+ GET /api/version 200 in 16ms (compile: 6ms, proxy.ts: 7ms, render: 3ms)
+ GET /api/version 200 in 19ms (compile: 8ms, proxy.ts: 8ms, render: 2ms)
+ GET /api/version 200 in 15ms (compile: 6ms, proxy.ts: 6ms, render: 3ms)
+ GET /api/version 200 in 19ms (compile: 9ms, proxy.ts: 8ms, render: 2ms)
+ GET /api/version 200 in 7ms (compile: 3ms, proxy.ts: 3ms, render: 1668µs)
+ GET /api/version 200 in 10ms (compile: 5ms, proxy.ts: 4ms, render: 1436µs)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121c7-2a5c-7a21-a9ec-3539ff1dd629%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 33.1s (compile: 463ms, proxy.ts: 37ms, render: 32.6s)
+ GET /api/version 200 in 12ms (compile: 3ms, proxy.ts: 6ms, render: 3ms)
+ GET /api/version 200 in 13ms (compile: 4ms, proxy.ts: 5ms, render: 4ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121c7-2a5c-78bd-aade-3c266b5f4fc2%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 44s (compile: 1579ms, proxy.ts: 36ms, render: 43s)
+ GET /api/dev/sessions/scratch 200 in 9ms (compile: 2ms, proxy.ts: 3ms, render: 4ms)
+ GET /api/dev/sessions/scratch 200 in 8ms (compile: 1916µs, proxy.ts: 3ms, render: 3ms)
+ GET /?session=01a121ca-84bb-7bfe-b13a-b21b0d8821b7 200 in 828ms (compile: 253ms, render: 576ms)
+ GET /?session=01a121ca-84bb-7ae0-b96f-17a3596b8c17 200 in 858ms (compile: 308ms, render: 550ms)
+ POST /api/session 200 in 25ms (compile: 15ms, proxy.ts: 5ms, render: 4ms)
+ GET /api/version 200 in 30ms (compile: 19ms, proxy.ts: 8ms, render: 3ms)
+ POST /api/session 200 in 39ms (compile: 14ms, proxy.ts: 21ms, render: 4ms)
+ GET /api/version 200 in 36ms (compile: 17ms, proxy.ts: 17ms, render: 3ms)
+ GET /api/trpc/transport.capabilities 200 in 351ms (compile: 323ms, proxy.ts: 26ms, render: 2ms)
+ GET /api/trpc/transport.capabilities 200 in 628ms (compile: 614ms, proxy.ts: 11ms, render: 2ms)
+(node:56044) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /api/trpc/sessions.reviewGet?input=%7B%22params%22%3A%7B%22id%22%3A%2201a121ca-84bb-7bfe-b13a-b21b0d8821b7%22%7D%2C%22query%22%3A%7B%7D%7D 200 in 494ms (compile: 374ms, proxy.ts: 115ms, render: 5ms)
+ GET /api/trpc/sessions.reviewGet?input=%7B%22params%22%3A%7B%22id%22%3A%2201a121ca-84bb-7ae0-b96f-17a3596b8c17%22%7D%2C%22query%22%3A%7B%7D%7D 200 in 327ms (compile: 319ms, proxy.ts: 5ms, render: 3ms)
+ GET /api/sessions/01a121ca-84bb-7ae0-b96f-17a3596b8c17/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png&thumbnail=1 200 in 26ms (compile: 9ms, proxy.ts: 6ms, render: 11ms)
+(node:56198) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:56202) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /api/sessions/01a121ca-84bb-7ae0-b96f-17a3596b8c17/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png 200 in 17ms (compile: 5ms, proxy.ts: 3ms, render: 9ms)
+ GET /api/sessions/01a121ca-84bb-7ae0-b96f-17a3596b8c17/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png&thumbnail=1 200 in 13ms (compile: 3ms, proxy.ts: 3ms, render: 6ms)
+ GET /api/sessions/01a121ca-84bb-7ae0-b96f-17a3596b8c17/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png&thumbnail=1 200 in 12ms (compile: 4ms, proxy.ts: 3ms, render: 5ms)
+ GET /api/sessions/01a121ca-84bb-7ae0-b96f-17a3596b8c17/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png&thumbnail=1 304 in 10ms (compile: 3ms, proxy.ts: 3ms, render: 4ms)
+ GET /api/sessions/01a121ca-84bb-7ae0-b96f-17a3596b8c17/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png 200 in 14ms (compile: 4ms, proxy.ts: 3ms, render: 6ms)
+(node:56207) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121ca-84bb-7ae0-b96f-17a3596b8c17%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 3.2s (compile: 1038ms, proxy.ts: 301ms, render: 1903ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121ca-84bb-7ae0-b96f-17a3596b8c17%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 382ms (compile: 372ms, proxy.ts: 4ms, render: 6ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121ca-84bb-7ae0-b96f-17a3596b8c17%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 380ms (compile: 370ms, proxy.ts: 8ms, render: 2ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121ca-84bb-7bfe-b13a-b21b0d8821b7%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 4.3s (compile: 654ms, proxy.ts: 300ms, render: 3.4s)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121ca-84bb-7bfe-b13a-b21b0d8821b7%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 557ms (compile: 387ms, proxy.ts: 5ms, render: 166ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121ca-84bb-7bfe-b13a-b21b0d8821b7%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 383ms (compile: 373ms, proxy.ts: 5ms, render: 5ms)
+ GET /api/dev/sessions/scratch 200 in 8ms (compile: 1247µs, proxy.ts: 4ms, render: 3ms)
+ GET /?session=01a121cc-8576-71b0-a5e8-22e2e3a3a2c3 200 in 591ms (compile: 104ms, render: 487ms)
+ GET /api/version 200 in 22ms (compile: 8ms, proxy.ts: 10ms, render: 4ms)
+ POST /api/session 200 in 27ms (compile: 15ms, proxy.ts: 9ms, render: 3ms)
+ GET /api/trpc/transport.capabilities 200 in 369ms (compile: 356ms, proxy.ts: 11ms, render: 1973µs)
+(node:59458) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /api/trpc/sessions.reviewGet?input=%7B%22params%22%3A%7B%22id%22%3A%2201a121cc-8576-71b0-a5e8-22e2e3a3a2c3%22%7D%2C%22query%22%3A%7B%7D%7D 200 in 340ms (compile: 330ms, proxy.ts: 7ms, render: 3ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121cc-8576-71b0-a5e8-22e2e3a3a2c3%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 3.0s (compile: 354ms, proxy.ts: 3ms, render: 2.6s)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121cc-8576-71b0-a5e8-22e2e3a3a2c3%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 519ms (compile: 265ms, proxy.ts: 4ms, render: 250ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121cc-8576-71b0-a5e8-22e2e3a3a2c3%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 319ms (compile: 304ms, proxy.ts: 12ms, render: 3ms)
+ GET /api/dev/sessions/scratch 200 in 8ms (compile: 1727µs, proxy.ts: 3ms, render: 3ms)
+ GET /api/dev/sessions/scratch 200 in 6ms (compile: 833µs, proxy.ts: 3ms, render: 2ms)
+ POST /api/attachments 201 in 106ms (compile: 100ms, proxy.ts: 1485µs, render: 5ms)
+ GET /?session=01a121cf-beab-70ff-8602-b1ca23ffe2de 200 in 568ms (compile: 73ms, render: 495ms)
+ GET /?session=01a121cf-beab-7b4c-a315-3dabb037a69f 200 in 126ms (compile: 12ms, render: 114ms)
+ POST /api/session 200 in 22ms (compile: 13ms, proxy.ts: 5ms, render: 4ms)
+ GET /api/version 200 in 25ms (compile: 15ms, proxy.ts: 8ms, render: 2ms)
+ POST /api/session 200 in 33ms (compile: 8ms, proxy.ts: 20ms, render: 4ms)
+ GET /api/version 200 in 23ms (compile: 13ms, proxy.ts: 8ms, render: 3ms)
+ GET /api/trpc/transport.capabilities 200 in 318ms (compile: 304ms, proxy.ts: 11ms, render: 2ms)
+ GET /api/trpc/transport.capabilities 200 in 566ms (compile: 554ms, proxy.ts: 10ms, render: 1810µs)
+(node:64323) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /api/trpc/sessions.reviewGet?input=%7B%22params%22%3A%7B%22id%22%3A%2201a121cf-beab-70ff-8602-b1ca23ffe2de%22%7D%2C%22query%22%3A%7B%7D%7D 200 in 571ms (compile: 523ms, proxy.ts: 45ms, render: 4ms)
+ GET /api/trpc/sessions.reviewGet?input=%7B%22params%22%3A%7B%22id%22%3A%2201a121cf-beab-7b4c-a315-3dabb037a69f%22%7D%2C%22query%22%3A%7B%7D%7D 200 in 666ms (compile: 609ms, proxy.ts: 54ms, render: 3ms)
+ GET /api/sessions/01a121cf-beab-7b4c-a315-3dabb037a69f/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png&thumbnail=1 200 in 625ms (compile: 593ms, proxy.ts: 24ms, render: 9ms)
+(node:64526) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:64527) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:64528) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /api/sessions/01a121cf-beab-7b4c-a315-3dabb037a69f/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png 200 in 14ms (compile: 5ms, proxy.ts: 1523µs, render: 7ms)
+ GET /api/sessions/01a121cf-beab-7b4c-a315-3dabb037a69f/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png&thumbnail=1 200 in 7ms (compile: 1896µs, proxy.ts: 2ms, render: 3ms)
+ GET /api/sessions/01a121cf-beab-7b4c-a315-3dabb037a69f/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png&thumbnail=1 200 in 6ms (compile: 1493µs, proxy.ts: 1671µs, render: 2ms)
+ GET /api/sessions/01a121cf-beab-7b4c-a315-3dabb037a69f/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png&thumbnail=1 304 in 5ms (compile: 1445µs, proxy.ts: 1363µs, render: 2ms)
+ GET /api/sessions/01a121cf-beab-7b4c-a315-3dabb037a69f/reply-image?path=%2FUsers%2Fagent%2Fai-task-manager%2F.work%2Fnotification-settings-qa%2Foff-desktop.png 200 in 9ms (compile: 2ms, proxy.ts: 2ms, render: 4ms)
+ GET /api/attachments/01a121cf-bf1b-78d9-b7ff-5a6d7ebae464.png?thumbnail=1 200 in 448ms (proxy.ts: 3ms)
+(node:64530) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121cf-beab-7b4c-a315-3dabb037a69f%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 3.0s (compile: 859ms, proxy.ts: 3ms, render: 2.2s)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121cf-beab-7b4c-a315-3dabb037a69f%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 321ms (compile: 313ms, proxy.ts: 2ms, render: 6ms)
+ GET /api/attachments/01a121cf-bf1b-78d9-b7ff-5a6d7ebae464.png?thumbnail=1 200 in 9ms (compile: 3ms, proxy.ts: 4ms, render: 3ms)
+ GET /api/attachments/01a121cf-bf1b-78d9-b7ff-5a6d7ebae464.png 200 in 6ms (compile: 2ms, proxy.ts: 1965µs, render: 2ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121cf-beab-70ff-8602-b1ca23ffe2de%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 3.8s (compile: 577ms, proxy.ts: 3ms, render: 3.3s)
+(node:64541) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /api/attachments/01a121cf-bf1b-78d9-b7ff-5a6d7ebae464.png?thumbnail=1 200 in 12ms (compile: 5ms, proxy.ts: 2ms, render: 5ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121cf-beab-7b4c-a315-3dabb037a69f%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 751ms (compile: 289ms, proxy.ts: 6ms, render: 457ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121cf-beab-70ff-8602-b1ca23ffe2de%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 495ms (compile: 269ms, proxy.ts: 3ms, render: 222ms)
+ GET /api/live?sub=%7B%22s%22%3A%5B%5B%2201a121cf-beab-70ff-8602-b1ca23ffe2de%22%2Cnull%2Cnull%5D%5D%2C%22t%22%3A%5B%5D%7D 200 in 305ms (compile: 300ms, proxy.ts: 3ms, render: 1928µs)

@@ -5,6 +5,7 @@ import React, {
   type RefAttributes,
 } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { autoUpdate, computePosition, flip, hide, offset, shift, size } from '@floating-ui/dom'
 import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion'
 import { registerOpenSuggestion } from './escape-guard'
 
@@ -21,17 +22,15 @@ export interface SuggestionPopupRef {
 /**
  * Generic Tiptap Suggestion `render` factory. Mounts the supplied
  * popup component into the DOM (next to the editor or inside a Radix
- * dialog if one wraps the composer), keeps it positioned above the
- * caret, and tears it down when the suggestion closes.
+ * dialog if one wraps the composer), keeps it beside the trigger, and tears
+ * it down when the suggestion closes.
  *
- * Used by the slash, @-mention (files), and #-mention (PRs) menus —
- * all of which share the same caret-anchored, composer-width popup
- * shape but differ in what they render in the list.
+ * Used by chat and document suggestion menus. Chat menus match the composer
+ * width above the trigger. Document slash menus prefer below the trigger.
  *
- * Positioning matches Conductor's behavior: full composer width
- * horizontally, anchored above the caret vertically. Handles
- * transformed ancestors (Radix Dialog / Popover) by subtracting the
- * mount host's bounding rect from the caret's viewport rect.
+ * Chat menus use the full composer width above the trigger. Floating UI resolves
+ * the actual fixed containing block, including untransformed dialogs, and
+ * keeps the list within the visible viewport when the keyboard is open.
  */
 export type SuggestionPopupComponent<TItem> = ForwardRefExoticComponent<
   {
@@ -57,6 +56,9 @@ export function settledItems<TItem>(items: TItem[]): TItem[] {
 
 export interface SuggestionPopupRendererOptions {
   popupClassName?: string
+  placement?: 'top-start' | 'bottom-start'
+  matchEditorWidth?: boolean
+  gap?: number
   /**
    * The extension's `items` is async and returns through `settledItems`.
    * Tiptap hands the renderer its newest query before that query's items
@@ -83,8 +85,10 @@ export function createSuggestionPopupRenderer<TItem>(
     let popup: HTMLDivElement | null = null
     let root: Root | null = null
     let componentRef: SuggestionPopupRef | null = null
-    let host: HTMLElement = document.body
     let releaseEscape: (() => void) | null = null
+    let releasePosition: (() => void) | null = null
+    let updatePosition: (() => void) | null = null
+    let latestProps: SuggestionProps<TItem> | null = null
     // Escape closes the menu for the rest of the current token. The
     // Tiptap plugin stays active on purpose — force-exiting it would
     // let the very next keystroke re-match `#1` → `#12` and pop the
@@ -95,14 +99,17 @@ export function createSuggestionPopupRenderer<TItem>(
 
     return {
       onStart(props: SuggestionProps<TItem>) {
+        cleanup()
         dismissed = false
+        latestProps = props
         popup = document.createElement('div')
         popup.className = popupClassName
+        Object.assign(popup.style, { position: 'fixed', top: '0', left: '0', visibility: 'hidden', zIndex: '999' })
         // Mount inside the nearest Radix Dialog when present — Radix sets
         // pointer-events: none on body siblings of a modal dialog, which
         // would otherwise block clicks and scrollbar drags on the menu.
         const editorDom = props.editor.view.dom as HTMLElement
-        host =
+        const host =
           (editorDom.closest('[role="dialog"]') as HTMLElement | null) ??
           (editorDom.closest('[data-radix-popper-content-wrapper]') as HTMLElement | null) ??
           document.body
@@ -111,7 +118,7 @@ export function createSuggestionPopupRenderer<TItem>(
         root = createRoot(popup)
         renderList(props)
 
-        updatePosition(popup, props)
+        startPositioning(popup, editorDom)
 
         releaseEscape?.()
         releaseEscape = registerOpenSuggestion({
@@ -122,8 +129,9 @@ export function createSuggestionPopupRenderer<TItem>(
 
       onUpdate(props: SuggestionProps<TItem>) {
         if (dismissed) return
+        latestProps = props
         renderList(props)
-        if (popup) updatePosition(popup, props)
+        updatePosition?.()
       },
 
       onKeyDown(props: SuggestionKeyDownProps) {
@@ -166,20 +174,69 @@ export function createSuggestionPopupRenderer<TItem>(
       options?.onDismiss?.()
     }
 
-    function updatePosition(el: HTMLDivElement, props: SuggestionProps<TItem>) {
-      const caretRect = props.clientRect?.()
-      if (!caretRect) return
-      const editorRect = (props.editor.view.dom as HTMLElement).getBoundingClientRect()
-      const hostRect =
-        host === document.body ? { left: 0, top: 0 } : host.getBoundingClientRect()
-      el.style.position = 'fixed'
-      el.style.left = `${editorRect.left - hostRect.left}px`
-      el.style.width = `${editorRect.width}px`
-      el.style.bottom = `${window.innerHeight - caretRect.top - hostRect.top + 6}px`
-      el.style.zIndex = '999'
+    function startPositioning(el: HTMLDivElement, editorDom: HTMLElement) {
+      let live = true
+      let revision = 0
+      const matchEditorWidth = options?.matchEditorWidth ?? true
+      const reference = {
+        contextElement: editorDom,
+        getBoundingClientRect() {
+          const trigger = latestProps?.clientRect?.()
+          if (!trigger) return new DOMRect()
+          if (!matchEditorWidth) return trigger
+          const editor = editorDom.getBoundingClientRect()
+          return new DOMRect(editor.left, trigger.top, editor.width, trigger.height)
+        },
+      }
+      updatePosition = () => {
+        const current = ++revision
+        if (!latestProps?.clientRect?.()) {
+          el.style.visibility = 'hidden'
+          return
+        }
+        void computePosition(reference, el, {
+          strategy: 'fixed',
+          placement: options?.placement ?? 'top-start',
+          middleware: [
+            offset(options?.gap ?? 6),
+            flip({ padding: 8 }),
+            shift({ padding: 8 }),
+            size({ padding: 8, apply({ availableHeight, availableWidth, rects }) {
+              if (!live || current !== revision) return
+              Object.assign(el.style, {
+                ...(matchEditorWidth ? { width: `${Math.min(rects.reference.width, Math.max(0, availableWidth))}px` } : {}),
+                maxWidth: `${Math.max(0, availableWidth)}px`,
+                maxHeight: `${Math.max(0, availableHeight)}px`,
+                overflowY: 'auto',
+              })
+            } }),
+            hide({ strategy: 'referenceHidden' }),
+          ],
+        }).then(({ x, y, middlewareData }) => {
+          // An async position computed before a keystroke or teardown must
+          // not move a newer menu or revive a dismissed one.
+          if (!live || current !== revision) return
+          Object.assign(el.style, {
+            left: `${x}px`,
+            top: `${y}px`,
+            visibility: middlewareData.hide?.referenceHidden ? 'hidden' : 'visible',
+          })
+        })
+      }
+      // Scroll, resize, async result height and visualViewport changes all
+      // matter. Frame tracking also follows Radix's transform animations.
+      const stop = autoUpdate(reference, el, updatePosition, { animationFrame: true })
+      releasePosition = () => {
+        live = false
+        stop()
+      }
     }
 
     function cleanup() {
+      releasePosition?.()
+      releasePosition = null
+      updatePosition = null
+      latestProps = null
       releaseEscape?.()
       releaseEscape = null
       root?.unmount()

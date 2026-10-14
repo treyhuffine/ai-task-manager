@@ -83,6 +83,9 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   // Create
   { id: 'create-task', label: 'Create task', keywords: 'new add task', icon: 'Plus', shortcut: 'T', group: 'create' },
   { id: 'create-note', label: 'Create note', keywords: 'new add note', icon: 'StickyNote', shortcut: 'N', group: 'create' },
+  { id: 'create-skill', label: 'New skill', keywords: 'create build teach instructions plugin', icon: 'Plus', group: 'create' },
+  { id: 'connect-mcp', label: 'Add MCP server', keywords: 'custom connect tools plugin', icon: 'Plus', group: 'create' },
+  { id: 'connect-service', label: 'Connect a service', keywords: 'account connectors integrations plugin', icon: 'Plus', group: 'create' },
 
   // Voice
   { id: 'voice-chat', label: 'Voice chat', keywords: 'voice mic record dictate speak', icon: 'Mic', shortcut: '\u2318J', group: 'navigate' },

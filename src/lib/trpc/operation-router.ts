@@ -283,6 +283,7 @@ export const internalRouters = {
     authConfigsDefaultPost: p.input(operation11.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation11.POST(input, operationContext(ctx.request, input, "/integrations/auth-configs/default")))),
     connectionsGet: p.input(operation12.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation12.GET(input, operationContext(ctx.request, input, "/integrations/connections")))),
     mcpServersGet: p.input(operation13.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation13.GET(input, operationContext(ctx.request, input, "/integrations/mcp-servers")))),
+    mcpApprovalPolicyPatch: p.input(operation13.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation13.PATCH(input, operationContext(ctx.request, input, "/integrations/mcp-servers")))),
     mcpServersPost: p.input(operation13.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation13.POST(input, operationContext(ctx.request, input, "/integrations/mcp-servers")))),
     pendingApprovalsGet: p.input(operation14.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation14.GET(input, operationContext(ctx.request, input, "/integrations/pending-approvals")))),
     requestSettingsGet: p.input(operation15.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation15.GET(input, operationContext(ctx.request, input, "/integrations/request-settings")))),

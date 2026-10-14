@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Skills in Plugins (docs/skills.md): the New skill button beside the tabs,
+ * Skills in Plugins (docs/skills.md): the shared New skill action above the tabs,
  * and the Skills tab, every skill grouped by where it lives, which is who
  * uses it: the drafts, Ri's own, the global ones, and each project's.
  */
@@ -9,10 +9,9 @@
 import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { useMemo, useState } from 'react';
 import { Loader2, Plus, ScrollText, Search } from 'lucide-react';
-import { toast } from 'sonner';
-import { apiErrorText } from '@/lib/api/client';
 import type { SkillSummary } from '@/lib/api/skills';
-import { useCreateSkill, useSkills } from '@/hooks/use-skills';
+import { useSkills } from '@/hooks/use-skills';
+import { useStartSkill } from '@/hooks/use-start-skill';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { closeSettings } from '@/components/settings/settings-store';
 import { Button } from '@/components/ui/button';
@@ -36,26 +35,14 @@ function SkillLogo() {
  * rather than piling up empty ones.
  */
 export function NewSkillButton({ className }: { className?: string }) {
-  const create = useCreateSkill();
-  const { openSkill } = useDashboard();
+  const create = useStartSkill();
   return (
     <Button
       variant="outline"
       size="xs"
       className={cn('text-[11.5px]', className)}
       disabled={create.isPending}
-      onClick={() =>
-        create.mutate(
-          {},
-          {
-            onSuccess: ({ skill }) => {
-              closeSettings();
-              openSkill(skill.ref);
-            },
-            onError: (err) => toast.error(apiErrorText(err)),
-          },
-        )
-      }
+      onClick={create.start}
     >
       {create.isPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
       New skill
@@ -161,7 +148,7 @@ export function SkillsGroup({ skills, searching }: { skills: SkillSummary[]; sea
 /**
  * The Skills tab of Plugins: every skill grouped by where it lives. A search
  * box appears once there are enough to need one. New skills start from
- * NewSkillButton, beside the tabs.
+ * NewSkillButton, above the tabs and in the main Create menu.
  */
 export function SkillsTab() {
   const [query, setQuery] = useState('');

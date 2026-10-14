@@ -41,6 +41,7 @@ export function openSessionFeed(
   const unsubscribe = subscribe(sessionChannel(sessionId), (message: SessionStreamMessage) => {
     switch (message.kind) {
       case 'chat_event': writeChatEvent(message.event); break;
+      case 'title_changed': emit('title_changed', {}); break;
       case 'runtime': emit('runtime', { running: message.running }); break;
       case 'background_tasks': emit('background_tasks', { active: message.active, taskIds: message.taskIds }); break;
       case 'pending_input': emit('pending_input', { pending: message.pending }); break;

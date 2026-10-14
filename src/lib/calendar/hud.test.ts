@@ -92,5 +92,29 @@ describe('hudLabel', () => {
     const s = hudLabel(day([long]), 'ok', at(9, 45));
     expect(s.text).toMatch(/… in 15m$/);
     expect(s.text.length).toBeLessThanOrEqual(24 + ' in 15m'.length);
+    expect(s.event).toEqual({ title: long.title, timing: 'in 15m' });
+  });
+
+  it('keeps titles containing time words separate from the countdown', () => {
+    const title = 'Check in at the Portal';
+    const s = hudLabel(day([ev(title, `${DATE}T10:00:00`, `${DATE}T11:00:00`)]), 'ok', at(9, 52));
+    expect(s.event).toEqual({ title, timing: 'in 8m' });
+    expect(s.tone).toBe('warning');
+  });
+
+  it('keeps ongoing timing separate from the optional overlap detail', () => {
+    const long = ev('Planning', `${DATE}T10:00:00`, `${DATE}T11:30:00`);
+    const s = hudLabel(day([long, standup]), 'ok', at(10, 10));
+    expect(s.event).toEqual({ title: 'Standup', timing: 'ends 10:30 AM', overlap: '· +1 now' });
+  });
+
+  it('keeps later start times visible independently of the title', () => {
+    const s = hudLabel(day([ev('Review', `${DATE}T15:00:00`, `${DATE}T16:00:00`)]), 'ok', at(9));
+    expect(s.event).toEqual({ title: 'Review', timing: 'at 3:00 PM' });
+  });
+
+  it('provides no event fragments for calendar errors or an empty day', () => {
+    expect(hudLabel(day([standup]), 'error', at(9)).event).toBeUndefined();
+    expect(hudLabel(day([]), 'ok', at(9)).event).toBeUndefined();
   });
 });

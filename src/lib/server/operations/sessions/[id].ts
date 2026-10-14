@@ -1,3 +1,4 @@
+import { publishSessionTitle } from '@/lib/realtime/bus';
 import { EFFORT_LEVELS, PERMISSION_MODES, type EffortLevel, type PermissionMode } from '@/db/types';
 import { getAppRoot } from '@/lib/config/paths';
 import {
@@ -256,6 +257,8 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
       }
     }
 
+    if (executionChanged) publishSessionTitle(id, existing.executionId);
+
     // No-op when nothing on the chat row changed (e.g. PATCH with
     // permissionMode matching the current value). Drizzle's update()
     // throws "No values to set" with an empty patch, so short-circuit. A
@@ -270,6 +273,10 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
 
     const row = updateChatSession(id, updates);
     if (!row) return reply({ error: 'Session not found' }, { status: 404 });
+    if ('label' in body) {
+      publishSessionTitle(id, row.executionId);
+      void import('@/lib/sessions/derive-label').then(({ syncSessionTitle }) => syncSessionTitle(id));
+    }
 
     if (executorChanged) {
       // Fire-and-forget: a fresh CLI process spawns on the next message.

@@ -12,13 +12,15 @@
  */
 
 import type { McpServerConfig, RuntimeCommandInventory, UserInputResponse } from '@agentex/agent';
-import type { CreateChatEventInput, EffortLevel, PermissionMode, WorkerCommandActor } from '@/db/types';
+import type { ChatSessionRecord, CreateChatEventInput, EffortLevel, PermissionMode, WorkerCommandActor } from '@/db/types';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { ExecutionEnvironment, ExpectedAgentFolders } from './environment';
 import type { PendingInput } from './pending';
 
 /** Everything a runner needs to start or resume one chat's harness session. Plain JSON. */
 export interface SessionSpec {
+  /** Ri-owned name to sync when a native session starts or resumes. */
+  title?: { label: ChatSessionRecord['label']; revision: ChatSessionRecord['labelRevision']; source?: ChatSessionRecord['labelSource'] };
   chatSessionId: string;
   harness: HarnessId;
   /** The folder the harness runs in, on the runner's device. */
@@ -141,7 +143,20 @@ export type SendResult =
   /** No live session, and no spec to start one: send again with a spec. */
   | { status: 'needs_spec' };
 
+/** App policy supplied to the runner. Agentex owns only native-first orchestration. */
+export interface TitleRequest {
+  harness: HarnessId;
+  description: string;
+  fallbackPrompt: string;
+  fallbackModel: string | null;
+  expectedRevision: number;
+  reuseExisting: boolean;
+  truncateOnFailure: boolean;
+}
+
 export type RunnerSignal =
+  | { type: 'native_title'; title: string }
+  | { type: 'title_suggestion'; title: string | null; source: Exclude<NonNullable<ChatSessionRecord['labelSource']>, 'manual'> | null; expectedRevision: number; syncNative?: boolean }
   | { type: 'running'; running: boolean }
   | { type: 'background_tasks'; active: boolean; taskIds: string[] }
   | { type: 'inventory'; inventory: RuntimeCommandInventory }
@@ -180,6 +195,8 @@ export type AnswerResult = { ok: true; pending: PendingInput } | { ok: false; re
  * device's command carries it. Absent means the system itself.
  */
 export interface ExecutionRunner {
+  generateTitle?(chatSessionId: string, request: TitleRequest): Promise<void>;
+  setTitle?(chatSessionId: string, title: string | null, revision: number): Promise<void>;
   send(req: SendRequest): Promise<SendResult>;
   interrupt(chatSessionId: string, actor?: WorkerCommandActor): Promise<void>;
   stopTask(chatSessionId: string, taskId: string, actor?: WorkerCommandActor): Promise<{ stopped: boolean; queued?: boolean }>;

@@ -1,0 +1,152 @@
+diff --git a/docs/integration-audit/openseo.md b/docs/integration-audit/openseo.md
+index 21fab219..a9693b5c 100644
+--- a/docs/integration-audit/openseo.md
++++ b/docs/integration-audit/openseo.md
+@@ -35 +35,3 @@ The live unauthenticated metadata and MCP probe was blocked by Cloudflare error
+ Self-hosted validation adds real SDK discovery and tool dispatch against an intercepted Docker fixture, real host stores and instance-driven public OAuth registration and PKCE exchange for web and desktop callbacks. Route, encrypted-store, request-selection and rendered UI tests cover both deployment choices, authentication validation, immutable saved bindings and coexistence with existing hosted credentials. No live self-hosted deployment or Cloudflare account was provisioned or contacted.
++
++`pnpm exec tsx scripts/openseo-browser-smoke.ts` bundles the real connection form and styles into a disposable browser fixture. It checks Hosted/API-key setup, switching to Docker without leaking the entered key, Cloudflare OAuth request selection and switching back to an empty hosted-key form at 1440px and 390px. It never opens a Ri Home or sends a connector request. Relevant host and engine suites, both typechecks and lint pass.
+diff --git a/scripts/openseo-browser-smoke.ts b/scripts/openseo-browser-smoke.ts
+index 72218026..ee755c0f 100644
+--- a/scripts/openseo-browser-smoke.ts
++++ b/scripts/openseo-browser-smoke.ts
+@@ -1,4 +1,4 @@
+-/** Check OpenSEO's hosted and self-hosted forms against the dev UI.
++/** Check the real OpenSEO form in an isolated browser fixture.
+  * Run: pnpm exec tsx scripts/openseo-browser-smoke.ts
+- * All connector reads and connection attempts are intercepted fixtures.
++ * No Home is opened and no connector request reaches a real server.
+  */
+@@ -7,7 +7,9 @@ import fs from 'node:fs/promises';
+ import { existsSync } from 'node:fs';
++import { createServer } from 'node:http';
++import { createRequire } from 'node:module';
+ import path from 'node:path';
+-import { chromium } from 'playwright-core';
++import { build } from 'esbuild';
++import tailwind from '@tailwindcss/postcss';
++import { chromium, type Browser } from 'playwright-core';
+ import { getHostedMcpProvider } from '@integrations/engine/providers';
+-import { APP_ROOT_ENV, getConfigPath, getProductionAppRoot, resolveDevAppRoot } from '@/lib/config/paths';
+-import { isWithin } from '@/lib/config/dev-isolation';
+ import { hostedMcpEndpointSetup } from '@/lib/integrations/hosted-endpoint';
+@@ -15,39 +17,44 @@ import { hostedMcpEndpointSetup } from '@/lib/integrations/hosted-endpoint';
+ async function main() {
+-  process.env[APP_ROOT_ENV] = resolveDevAppRoot();
+-  assert(!isWithin(getConfigPath(), getProductionAppRoot()), 'Use the dev Home');
+-  const config = JSON.parse(await fs.readFile(getConfigPath(), 'utf8'));
++  const definition = getHostedMcpProvider('openseo')!;
++  const provider = { id: 'openseo', displayName: 'OpenSEO', method: 'mcp', configured: true,
++    mcp: { requiresAuth: true, authKind: 'oauth', tokenAuth: definition.tokenAuth, endpointConfig: hostedMcpEndpointSetup(definition), accounts: [] } };
++  const source = `
++    import React from 'react';
++    import { createRoot } from 'react-dom/client';
++    import { HostedProviderDetail } from './src/components/settings/sections/integrations/hosted-provider-detail';
++    import { hostedAccountRequestFields } from './src/components/settings/sections/integrations/hosted-account-request';
++    const provider = ${JSON.stringify(provider)};
++    window.attempts = [];
++    const record = (kind, intent) => window.attempts.push({ kind, body: { ...hostedAccountRequestFields(provider, intent), fields: intent?.fields ?? {} } });
++    const noop = () => {};
++    createRoot(document.getElementById('root')).render(<HostedProviderDetail provider={provider} connections={[]} toolkits={[]} writePolicy={{}} busy={false} testing={null} testResults={{}} creds={{}} selectedServices={[]} advancedOpen={false} redirectUri="" copied={false} byoConfigs={[]} byoForm={{label:'',clientId:'',clientSecret:''}}
++      onConnectOAuth={(_config, intent) => record('oauth', intent)} onConnectDirect={intent => record('direct', intent)}
++      onBack={noop} onCredChange={noop} onToggleService={noop} onTest={noop} onDisconnect={noop} onSetApproval={noop} onToggleAdvanced={noop} onCopyRedirect={noop} onByoField={noop} onByoAdd={noop} onByoSetDefault={noop} onByoDelete={noop} />);
++  `;
++  const bundle = await build({ stdin: { contents: source, loader: 'tsx', resolveDir: process.cwd() }, bundle: true, write: false, platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' }, tsconfig: 'tsconfig.json' });
++  const require = createRequire(import.meta.url);
++  const postcss = createRequire(require.resolve('@tailwindcss/postcss'))('postcss');
++  // Limit Tailwind discovery to the UI. This fixture never scans another worktree.
++  const appCss = (await fs.readFile('src/app/globals.css', 'utf8')).replace('@import "tailwindcss";', '@import "tailwindcss" source(none);\n@source "../components";');
++  const { css } = await postcss([tailwind()]).process(appCss, { from: path.resolve('src/app/globals.css') });
+   const executablePath = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'].find(existsSync);
+   assert(executablePath, 'Chromium is required');
+-  const definition = getHostedMcpProvider('openseo')!;
++  const server = createServer((request, response) => {
++    if (request.url === '/app.js') { response.setHeader('content-type', 'application/javascript'); response.end(bundle.outputFiles[0].text); }
++    else if (request.url === '/app.css') { response.setHeader('content-type', 'text/css'); response.end(css); }
++    else { response.setHeader('content-type', 'text/html'); response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/app.css"></head><body><main id="root" style="max-width:680px;margin:auto;padding:16px"></main><script src="/app.js"></script></body></html>'); }
++  });
++  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
++  const address = server.address();
++  assert(address && typeof address !== 'string');
+   const output = path.resolve('.work/openseo-browser');
+   await fs.mkdir(output, { recursive: true });
+-  const browser = await chromium.launch({ executablePath, headless: true });
++  let browser: Browser | undefined;
+   try {
++    browser = await chromium.launch({ executablePath, headless: true });
+     for (const width of [1440, 390]) {
+-      const context = await browser.newContext({ viewport: { width, height: 1000 } });
+-      const page = await context.newPage();
++      const page = await browser.newPage({ viewport: { width, height: 1000 } });
+       const errors: string[] = [];
+-      const attempts: { kind: string; body: Record<string, unknown> }[] = [];
+       page.on('pageerror', error => errors.push(error.message));
+-      await page.addInitScript({ content: "localStorage.setItem('ri.client.apiTransport', 'http');" });
+-      await page.route('**/api/trpc/integrations.*', async route => {
+-        const procedure = new URL(route.request().url()).pathname.split('/').at(-1)!;
+-        let data: unknown;
+-        if (procedure === 'integrations.statusGet') data = { providers: [{ id: 'openseo', displayName: 'OpenSEO', method: 'mcp', configured: true,
+-          mcp: { requiresAuth: true, authKind: 'oauth', tokenAuth: definition.tokenAuth, endpointConfig: hostedMcpEndpointSetup(definition), accounts: [] } }], redirectUri: '' };
+-        else if (procedure === 'integrations.connectionsGet') data = { connections: [] };
+-        else if (procedure === 'integrations.toolkitsGet' || procedure === 'integrations.writePolicyGet') data = { toolkits: [] };
+-        else if (procedure === 'integrations.mcpServersGet') data = { servers: [] };
+-        else if (procedure === 'integrations.connectPost' || procedure === 'integrations.connectDirectPost') {
+-          attempts.push({ kind: procedure, body: route.request().postDataJSON().body });
+-          // Keep the form open without saving, navigating or sending any real request.
+-          await route.fulfill({ status: 400, json: { error: { message: 'Intercepted OpenSEO setup', code: -32600, data: { code: 'BAD_REQUEST', httpStatus: 400 } } } });
+-          return;
+-        } else {
+-          throw new Error(`Unexpected connector request: ${procedure}`);
+-        }
+-        await route.fulfill({ json: { result: { data } } });
+-      });
+-      await page.goto(`http://127.0.0.1:42241/apps?settings=integrations#token=${encodeURIComponent(config.localToken)}`);
+-      await page.getByRole('button', { name: /OpenSEO/ }).first().click({ timeout: 120_000 });
++      await page.goto(`http://127.0.0.1:${address.port}`);
+       const deployment = page.getByRole('combobox', { name: 'Deployment', exact: true });
+@@ -65,7 +72,6 @@ async function main() {
+       await page.getByRole('button', { name: 'Connect OpenSEO', exact: true }).click();
+-      await page.getByText('Intercepted OpenSEO setup', { exact: true }).waitFor();
+-      assert.equal(attempts.length, 1);
+-      assert.deepEqual({ endpointId: attempts[0].body.endpointId, instanceUrl: attempts[0].body.instanceUrl, authMethod: attempts[0].body.authMethod, fields: attempts[0].body.fields },
++      const docker = await page.evaluate(() => (window as unknown as { attempts: { kind: string; body: Record<string, unknown> }[] }).attempts[0]);
++      assert.equal(docker.kind, 'direct');
++      assert.deepEqual({ endpointId: docker.body.endpointId, instanceUrl: docker.body.instanceUrl, authMethod: docker.body.authMethod, fields: docker.body.fields },
+         { endpointId: 'selfhosted', instanceUrl: 'http://localhost:3000', authMethod: 'none', fields: {} });
+-      assert.equal(attempts[0].kind, 'integrations.connectDirectPost');
+       await page.screenshot({ path: path.join(output, `docker-${width}.png`), fullPage: true });
+@@ -75,8 +81,7 @@ async function main() {
+       await page.getByRole('button', { name: 'Connect OpenSEO', exact: true }).click();
+-      await page.waitForFunction(() => document.querySelector('[role="dialog"]')?.textContent?.includes('Intercepted OpenSEO setup'));
+-      await page.waitForTimeout(100);
+-      assert.equal(attempts.length, 2);
+-      assert.equal(attempts[1].kind, 'integrations.connectPost');
+-      assert.equal(attempts[1].body.authMethod, 'oauth');
+-      assert.equal(attempts[1].body.instanceUrl, 'https://seo.example');
++      const cloudflare = await page.evaluate(() => (window as unknown as { attempts: { kind: string; body: Record<string, unknown> }[] }).attempts[1]);
++      assert.equal(cloudflare.kind, 'oauth');
++      assert.equal(cloudflare.body.authMethod, 'oauth');
++      assert.equal(cloudflare.body.instanceUrl, 'https://seo.example');
++      await page.screenshot({ path: path.join(output, `cloudflare-${width}.png`), fullPage: true });
+       await deployment.selectOption('hosted');
+@@ -85,13 +90,12 @@ async function main() {
+       assert.equal(await page.getByLabel('Instance URL', { exact: true }).count(), 0);
+-      const overflow = await page.getByRole('dialog').evaluate(element => element.scrollWidth > element.clientWidth + 1);
+-      assert.equal(overflow, false, `Settings overflow at ${width}px`);
++      assert.equal(await page.locator('body').evaluate(element => element.scrollWidth > window.innerWidth + 1), false, `Form overflow at ${width}px`);
+       assert.deepEqual(errors, [], `Browser errors at ${width}px`);
+-      await context.close();
++      await page.close();
+       console.log(`OpenSEO deployment forms passed at ${width}px`);
+     }
+-  } finally { await browser.close(); }
++  } finally {
++    await browser?.close();
++    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
++  }
+ }
+-main().catch(error => {
+-  console.error(error instanceof Error ? error.message.replace(/(?:#token=|ri_live_)[^\s"']+/g, '[dev token]') : 'OpenSEO browser check failed');
+-  process.exitCode = 1;
+-});
++main().catch(error => { console.error(error); process.exitCode = 1; });

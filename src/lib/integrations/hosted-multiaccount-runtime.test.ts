@@ -13,6 +13,9 @@ import { ensureHostedMcpServer, hostedMcpConnectionId } from './hosted-mcp';
 import { removeMcpServer } from './mcp-lifecycle';
 import { getIntegrationConnectionStore, getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime, MCP_DISCOVERY_MAX_AGE_MS, MCP_DISCOVERY_RETRY_MS } from './runtime';
 import type { McpServerEntry } from './mcp-servers';
+import { _resetApprovals } from './approval';
+import { GET as getWritePolicy, POST as setWritePolicy } from '@/lib/server/operations/integrations/write-policy';
+import { unwrapOperation, type OperationContext } from '@/lib/server/operation';
 
 const mocks = vi.hoisted(() => ({ connect: vi.fn() }));
 vi.mock('@/lib/db/queries', () => ({ getWorkspace: vi.fn() }));
@@ -32,6 +35,7 @@ function remote() {
 }
 
 beforeEach(() => {
+  _resetApprovals();
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hosted-multiaccount-'));
   vi.stubEnv(APP_ROOT_ENV, dir);
   vi.stubEnv('NODE_ENV', 'test');
@@ -50,10 +54,98 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  _resetApprovals();
   invalidateIntegrationRuntime();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+describe('custom MCP permission enforcement', () => {
+  it('preserves built-in MCP legacy choices and lets provider settings restore their native defaults', async () => {
+    vi.stubEnv('INTEGRATIONS_AUTO_APPROVE', '0');
+    const fixture = await account('Legacy');
+    fixture.state.tools.push({ name: 'write', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false, destructiveHint: true } });
+    const servers = getMcpServerStore();
+    await servers.update(fixture.entry.id, { toolOverrides: { write: { mutating: false }, read: { mutating: true } } });
+    await servers.setDefaultApprovalPolicy('ask', true);
+    const runtime = await getIntegrationRuntime();
+    expect(await runtime.runAction('todoist.write', {}, { connectionId: fixture.connectionId })).toMatchObject({ ok: true });
+    expect(await runtime.runAction('todoist.read', {}, { connectionId: fixture.connectionId })).toMatchObject({ reason: 'approval_required' });
+    const context: OperationContext = { headers: new Headers(), url: 'http://localhost/api/integrations/write-policy', nextUrl: new URL('http://localhost/api/integrations/write-policy'), signal: new AbortController().signal };
+    const before = unwrapOperation(await getWritePolicy({}, context));
+    expect(before.toolkits.find(toolkit => toolkit.id === 'todoist')?.actions.find(action => action.id === 'todoist.write')).toMatchObject({ mode: 'auto', defaultMode: 'ask', overridden: true });
+    unwrapOperation(await setWritePolicy({ body: { actionId: 'todoist.write', mode: null } }, context));
+    expect(await runtime.runAction('todoist.write', {}, { connectionId: fixture.connectionId })).toMatchObject({ reason: 'approval_required' });
+    expect(servers.get(fixture.entry.id)?.toolOverrides).toEqual({ read: { mutating: true } });
+    expect(await getIntegrationRuntime()).toBe(runtime);
+  });
+  async function customServer() {
+    vi.stubEnv('INTEGRATIONS_AUTO_APPROVE', '0');
+    const entry = await getMcpServerStore().create({ slug: 'custom_permissions', displayName: 'Custom permissions', url: 'https://example.com/mcp', auth: { kind: 'none' } });
+    const state = remote();
+    state.tools = [readTool, { name: 'write', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }, { name: 'unmarked', inputSchema: { type: 'object' } }];
+    remotes.set(entry.slug, state);
+    return { entry, state };
+  }
+
+  it('uses read-only annotations and gates every write, including unmarked tools', async () => {
+    const { entry, state } = await customServer();
+    const runtime = await getIntegrationRuntime();
+    expect(await runtime.runAction(`mcp.${entry.slug}.read`, {})).toMatchObject({ ok: true });
+    expect(await runtime.runAction(`mcp.${entry.slug}.write`, {})).toMatchObject({ reason: 'approval_required' });
+    expect(await runtime.runAction(`mcp.${entry.slug}.unmarked`, {})).toMatchObject({ reason: 'approval_required' });
+    expect(state.calls).toHaveBeenCalledOnce();
+    expect(getMcpServerStore().get(entry.id)?.tools).toEqual(expect.arrayContaining([{ name: 'read', description: 'Read records', readOnlyHint: true }, { name: 'write', readOnlyHint: false }]));
+  });
+
+  it('enforces server and tool permissions on a cached runtime without reconnecting', async () => {
+    const { entry, state } = await customServer();
+    const store = getMcpServerStore();
+    const runtime = await getIntegrationRuntime();
+    await store.update(entry.id, { approvalPolicy: 'auto', resetToolApprovals: true });
+    expect(await runtime.runAction(`mcp.${entry.slug}.write`, {})).toMatchObject({ ok: true });
+    expect(runtime.getToolkits().find(toolkit => toolkit.id === `mcp_${entry.slug}`)?.actions.find(action => action.id.endsWith('.write'))?.mutating).toBe(true);
+    await store.update(entry.id, { approvalPolicy: 'ask' });
+    expect(await runtime.runAction(`mcp.${entry.slug}.read`, {})).toMatchObject({ reason: 'approval_required' });
+    await store.update(entry.id, { toolOverrides: { read: { approvalMode: 'auto' } } });
+    expect(await runtime.runAction(`mcp.${entry.slug}.read`, {})).toMatchObject({ ok: true });
+    await store.update(entry.id, { toolOverrides: { read: { approvalMode: null } } });
+    expect(await runtime.runAction(`mcp.${entry.slug}.read`, {})).toMatchObject({ reason: 'approval_required' });
+    await store.update(entry.id, { approvalPolicy: null });
+    expect(await runtime.runAction(`mcp.${entry.slug}.read`, {})).toMatchObject({ ok: true });
+    expect(await runtime.runAction(`mcp.${entry.slug}.write`, {})).toMatchObject({ reason: 'approval_required' });
+    expect(await getIntegrationRuntime()).toBe(runtime);
+    expect(mocks.connect).toHaveBeenCalledOnce();
+    expect(state.closes).not.toHaveBeenCalled();
+  });
+
+  it('preserves legacy approval choices without losing write failure semantics', async () => {
+    const { entry, state } = await customServer();
+    await getMcpServerStore().update(entry.id, { toolOverrides: { write: { mutating: false }, read: { mutating: true } } });
+    const runtime = await getIntegrationRuntime();
+    expect(await runtime.runAction(`mcp.${entry.slug}.read`, {})).toMatchObject({ reason: 'approval_required' });
+    expect(await runtime.runAction(`mcp.${entry.slug}.write`, {})).toMatchObject({ ok: true });
+    state.calls.mockRejectedValueOnce(new IntegrationError('provider_timeout', 'The fixture request timed out'));
+    expect(await runtime.runAction(`mcp.${entry.slug}.write`, {})).toMatchObject({ ok: false, code: 'provider_timeout', indeterminate: true });
+  });
+
+  it('applies the global preference to existing and newly discovered tools while keeping disabled tools hidden', async () => {
+    const { entry, state } = await customServer();
+    const store = getMcpServerStore();
+    await store.update(entry.id, { approvalPolicy: 'ask', toolOverrides: { read: { approvalMode: 'ask' }, unmarked: { enabled: false } } });
+    const runtime = await getIntegrationRuntime();
+    await store.setDefaultApprovalPolicy('auto', true);
+    expect(await runtime.runAction(`mcp.${entry.slug}.read`, {})).toMatchObject({ ok: true });
+    expect(await runtime.runAction(`mcp.${entry.slug}.write`, {})).toMatchObject({ ok: true });
+    expect(runtime.getToolkits().find(toolkit => toolkit.id === `mcp_${entry.slug}`)?.actions.some(action => action.id.endsWith('.unmarked'))).toBe(false);
+    state.tools.push({ name: 'new_write', inputSchema: { type: 'object' } });
+    invalidateIntegrationRuntime();
+    const fresh = await getIntegrationRuntime();
+    expect(await fresh.runAction(`mcp.${entry.slug}.new_write`, {})).toMatchObject({ ok: true });
+    await store.setDefaultApprovalPolicy('ask');
+    expect(await fresh.runAction(`mcp.${entry.slug}.read`, {})).toMatchObject({ reason: 'approval_required' });
+  });
 });
 
 async function account(label: string, options: { add?: boolean; pending?: boolean } = {}) {

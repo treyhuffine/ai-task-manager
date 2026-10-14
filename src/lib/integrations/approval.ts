@@ -3,7 +3,7 @@
  * the dev auto-allow. The engine calls `check()` inside `runAction` (the single chokepoint);
  * this owns the policy:
  *
- *   - non-mutating actions run freely;
+ *   - native non-mutating actions run freely, and MCPs resolve their live tool/server/global policy;
  *   - mutating actions the user's write-policy marks 'auto' (reversible, internal writes on an
  *     account they connected) also run freely — see write-policy.ts;
  *   - the rest (outward sends, irreversible high-risk) need a grant keyed on (ownerId, actionId,
@@ -36,7 +36,7 @@ import { randomUUID } from 'node:crypto';
 import type { ApprovalPolicy, ApprovalCheckInput, Caller } from '@integrations/engine';
 import { isNotifierDelivery } from '@/lib/notifications/caller';
 import { publishIntegrationApprovals } from '@/lib/realtime/bus';
-import { resolveApprovalMode } from './write-policy';
+import { resolveApprovalMode, type ApprovalMode } from './write-policy';
 
 export const GRANT_TTL_MS = 5 * 60_000;
 
@@ -125,6 +125,8 @@ function pruneExpiredGrants(now: number): void {
 }
 
 export interface AppApprovalOptions {
+  /** Resolve live MCP preferences independently of mutation facts. */
+  resolveMode?: (input: ApprovalCheckInput) => ApprovalMode | undefined;
   /** Dev: auto-allow everything so the chat works end-to-end. Production: false → the real gate. */
   autoApprove?: boolean;
   /** A new pending approval: card in the asking chat + notification. Defaults to approval-events. */
@@ -166,14 +168,13 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
       // to the real gate below. Must precede the mutating check (delivery actions are mutating).
       if (isNotifierDelivery(input.caller, input.actionId)) return 'allow';
       if (opts.autoApprove) return 'allow';
-      if (!input.mutating) return 'allow';
       const key = grantKey(input) + (input.caller?.localApp ? `|app:${JSON.stringify(input.caller.localApp)}` : '') + (input.caller?.chatSource ? `|source:${JSON.stringify(input.caller.chatSource)}` : '');
       const sessionId = sessionIdFromCaller(input.caller);
       // Standing intent: reversible, internal writes run on the connection the
       // user already authorized. Outward (send/post/…) and irreversible
       // (high-risk delete/cancel/pay) actions fall through to the human gate,
       // unless the user has explicitly flipped that action to 'auto'.
-      if (resolveApprovalMode({ actionId: input.actionId, risk: input.risk, mutating: input.mutating }) === 'auto') {
+      if ((opts.resolveMode?.(input) ?? resolveApprovalMode({ actionId: input.actionId, risk: input.risk, mutating: input.mutating })) === 'auto') {
         settleMoot(key, sessionId);
         return 'allow';
       }

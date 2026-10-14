@@ -1,6 +1,7 @@
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { beginMcpAuthorization } from '@/lib/integrations/mcp-authorization';
-import { toSlug, type McpServerAuth } from '@/lib/integrations/mcp-servers';
+import { mcpToolInfo, toSlug, type McpServerAuth, type McpToolInfo } from '@/lib/integrations/mcp-servers';
+import { MCP_APPROVAL_POLICIES } from '@/lib/integrations/mcp-approval-policy';
 import { MCP_LIMITS, validateHeaderName, validateMcpUrl } from '@/lib/integrations/mcp-validate';
 import {
   getMcpServerStore,
@@ -23,7 +24,13 @@ import { z as rpcZ } from 'zod/v4';
  *          confirmation in the UI.
  */
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
-  return reply({ servers: getMcpServerStore().list() });
+  return reply(getMcpServerStore().getApprovalSnapshot());
+}
+
+export async function PATCH(input: rpcZ.infer<typeof PATCHInput>, _request: OperationContext) {
+  const store = getMcpServerStore();
+  await store.setDefaultApprovalPolicy(input.body.defaultPolicy, input.body.applyToAll);
+  return reply(store.getApprovalSnapshot());
 }
 
 interface AddBody {
@@ -81,7 +88,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
   }
 
   // Validate by connecting + listing tools. Don't persist a server we can't reach.
-  let toolInfos: { name: string; description?: string }[] = [];
+  let toolInfos: McpToolInfo[] = [];
   try {
     const headers = mcpAuthHeaders(auth, body.secret ?? null);
     const client = await withTimeout(
@@ -91,7 +98,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     );
     try {
       const { tools } = await withTimeout(client.listTools(), MCP_TIMEOUT_MS, 'list tools');
-      toolInfos = tools.map((t) => ({ name: t.name, ...(t.description ? { description: t.description } : {}) }));
+      toolInfos = tools.map(mcpToolInfo);
     } finally {
       await client.close().catch(() => { });
     }
@@ -115,4 +122,5 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
 }
 
 export const GETInput = rpcZ.object({}).strict().default({});
+export const PATCHInput = rpcZ.object({ body: rpcZ.object({ defaultPolicy: rpcZ.enum(MCP_APPROVAL_POLICIES).nullable(), applyToAll: rpcZ.boolean().optional() }).strict() }).strict();
 export const POSTInput = rpcZ.object({ body: rpcZ.object({ "name": rpcZ.string().optional(), "url": rpcZ.string().optional(), "auth": rpcZ.union([rpcZ.object({ "kind": rpcZ.literal("none") }).strict(), rpcZ.object({ "kind": rpcZ.literal("bearer") }).strict(), rpcZ.object({ "kind": rpcZ.literal("header"), "header": rpcZ.string() }).strict(), rpcZ.object({ "kind": rpcZ.literal("oauth") }).strict()]).optional(), "secret": rpcZ.string().optional(), "enabled": rpcZ.boolean().optional() }).strict().default({}) }).strict();

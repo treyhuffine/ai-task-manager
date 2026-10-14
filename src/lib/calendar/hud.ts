@@ -9,6 +9,8 @@ import type { CalendarDay, CalendarReadStatus } from './types';
 
 export interface HudState {
   text: string;
+  /** Keep the time boundary independent from the title's available width. */
+  event?: { title: string; timing: string; overlap?: string };
   /** 'warning' when the next commitment starts within 10 minutes. */
   tone: 'default' | 'warning';
 }
@@ -22,6 +24,14 @@ function truncate(title: string): string {
   return `${title.slice(0, TITLE_MAX - 1).trimEnd()}…`;
 }
 
+function eventState(title: string, timing: string, tone: HudState['tone'], overlap?: string): HudState {
+  return {
+    text: [truncate(title), timing, overlap].filter(Boolean).join(' '),
+    event: { title, timing, ...(overlap ? { overlap } : {}) },
+    tone,
+  };
+}
+
 export function hudLabel(
   day: CalendarDay | undefined,
   status: CalendarReadStatus,
@@ -33,7 +43,7 @@ export function hudLabel(
   const nowMinute = now.getHours() * 60 + now.getMinutes();
   const windows = day.events
     .filter((e) => e.countsAsBusy)
-    .map((e) => ({ title: truncate(e.title), window: eventWindowOnDate(e, day.date) }))
+    .map((e) => ({ title: e.title, window: eventWindowOnDate(e, day.date) }))
     .filter((x): x is { title: string; window: { startMinute: number; endMinute: number } } => x.window != null)
     .sort((a, b) => a.window.startMinute - b.window.startMinute);
 
@@ -54,10 +64,12 @@ export function hudLabel(
     );
     if (!next || soonest.window.endMinute <= next.window.startMinute) {
       const more = ongoing.length - 1;
-      return {
-        text: `${soonest.title} ends ${minutesToLabel(soonest.window.endMinute)}${more > 0 ? ` · +${more} now` : ''}`,
-        tone: 'default',
-      };
+      return eventState(
+        soonest.title,
+        `ends ${minutesToLabel(soonest.window.endMinute)}`,
+        'default',
+        more > 0 ? `· +${more} now` : undefined,
+      );
     }
   }
   // Status, not an instruction ('Clear rest of day' read like a command to
@@ -69,10 +81,11 @@ export function hudLabel(
   if (minutesUntil <= SOON_MINUTES) {
     // Past the hour, raw minutes stop being readable ("in 87m") — formatMinutes
     // renders "1h 27m".
-    return {
-      text: `${next.title} in ${minutesUntil >= 60 ? formatMinutes(minutesUntil) : `${minutesUntil}m`}`,
-      tone: minutesUntil <= IMMINENT_MINUTES ? 'warning' : 'default',
-    };
+    return eventState(
+      next.title,
+      `in ${minutesUntil >= 60 ? formatMinutes(minutesUntil) : `${minutesUntil}m`}`,
+      minutesUntil <= IMMINENT_MINUTES ? 'warning' : 'default',
+    );
   }
-  return { text: `${next.title} at ${minutesToLabel(next.window.startMinute)}`, tone: 'default' };
+  return eventState(next.title, `at ${minutesToLabel(next.window.startMinute)}`, 'default');
 }

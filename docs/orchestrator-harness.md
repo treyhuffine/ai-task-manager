@@ -112,17 +112,19 @@ characters by `PATCH /api/user-state`.
 ## Chat naming + history
 
 - **Titles are list affordances, and only intent-stable threads get them.**
-  Executions keep first-message haiku titles (one task, one intent — the
-  same `deriveAndSetSessionLabel` pipeline as before). Orchestration chats
+  Work and content chats use `deriveAndSetSessionLabel` after the first
+  accepted send. The runner reuses a native title, asks the harness's native
+  generator when available, then falls back to Ri's own generator. Orchestration chats
   are relationship-shaped: they carry **no title while live** (the messages
   route skips derivation for `type='orchestration'`), render in History as
   time + last-user-message snippet, and get a **retrospective summary at
   archive time** (`deriveRetrospectiveLabel` — samples the opening message
-  plus recent exchanges, fired from the new-chat/resume archive sites;
-  failure leaves the snippet). Labels freeze once archived; re-archiving a
-  resumed thread re-summarizes. We deliberately don't scrape Claude Code's
-  own session titles: they're lazy summary records in its JSONL,
-  Claude-only, and not surfaced through agentex's stream.
+  plus recent exchanges, fired from the new-chat/resume archive sites,
+  with failure leaving the snippet). Re-archiving a resumed thread asks
+  for a fresh summary. User renames and clears are retained, with a stored
+  revision protecting them from late suggestions. Agentex exposes native
+  title metadata and controls, and Ri owns the prompt, model and naming policy.
+  Details and native synchronization rules: [Chat naming](background-ai.md#chat-naming).
 - The **History** menu in the chat mode bar lists interactive orchestrator
   chats (`GET /api/orchestrator-chat/history`; scheduled-fire chats excluded).
   Picking one resumes it (`POST /api/orchestrator-chat/resume`): the current

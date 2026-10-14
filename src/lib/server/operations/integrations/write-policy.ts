@@ -1,4 +1,5 @@
-import { getIntegrationRuntime } from '@/lib/integrations/runtime';
+import { getIntegrationRuntime, getMcpServerStore } from '@/lib/integrations/runtime';
+import { mcpToolApprovalOverride } from '@/lib/integrations/mcp-approval-policy';
 import {
   defaultApprovalMode,
   getActionOverride,
@@ -20,6 +21,7 @@ import { z as rpcZ } from 'zod/v4';
 
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   const runtime = await getIntegrationRuntime();
+  const hosted = getMcpServerStore().list().filter(server => server.enabled && server.providerId);
   const toolkits = runtime
     .getToolkits()
     .map((t) => {
@@ -29,14 +31,21 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: Oper
           const risk = (a.risk ?? 'medium') as RiskLevel;
           const facts = { actionId: a.id, risk, mutating: true };
           const override = getActionOverride(a.id);
+          const defaultMode = defaultApprovalMode(facts);
+          const accountOverrides = hosted.filter(server => server.providerId === t.providerId && a.id.startsWith(`${server.providerId}.`))
+            .map(server => mcpToolApprovalOverride(server.toolOverrides?.[a.id.slice(server.providerId!.length + 1)]));
+          const legacyChoice = accountOverrides.some(mode => mode !== undefined);
+          const inheritedMode = legacyChoice
+            ? accountOverrides.some(mode => (mode ?? defaultMode) === 'ask') ? 'ask' : 'auto'
+            : resolveApprovalMode(facts);
           return {
             id: a.id,
             description: a.description ?? '',
             risk,
             outward: isOutwardAction(a.id),
-            defaultMode: defaultApprovalMode(facts),
-            mode: resolveApprovalMode(facts),
-            overridden: override !== undefined,
+            defaultMode,
+            mode: override ?? inheritedMode,
+            overridden: override !== undefined || legacyChoice,
           };
         });
       return { id: t.id, displayName: t.displayName, providerId: t.providerId, actions };
@@ -52,6 +61,15 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
   const mode: ApprovalMode | null =
     body.mode === 'auto' ? 'auto' : body.mode === 'ask' ? 'ask' : body.mode === null ? null : undefined!;
   if (mode === undefined) return reply({ error: "mode must be 'auto', 'ask', or null" }, { status: 400 });
+  // A provider-wide choice replaces older account-level approval preferences.
+  // Clearing them restores the native default without changing mutation facts.
+  const servers = getMcpServerStore();
+  for (const server of servers.list()) if (server.providerId && actionId.startsWith(`${server.providerId}.`)) {
+    const tool = actionId.slice(server.providerId.length + 1);
+    if (mcpToolApprovalOverride(server.toolOverrides?.[tool]) !== undefined) {
+      await servers.update(server.id, { toolOverrides: { [tool]: { approvalMode: null } } });
+    }
+  }
   setActionOverride(actionId, mode);
   return reply({ ok: true, actionId, override: getActionOverride(actionId) ?? null });
 }

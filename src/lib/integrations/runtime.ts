@@ -42,7 +42,9 @@ import type { ToolSet } from 'ai';
 import { appApprovalPolicy } from './approval';
 import { getIntegrationsDir } from './storage';
 import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
-import { mcpServerStore, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
+import { mcpServerStore, mcpToolInfo, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
+import { mcpIngestOverrides, mcpToolApprovalOverride, resolveMcpToolApproval } from './mcp-approval-policy';
+import { getActionOverride } from './write-policy';
 import { drainMcpClient } from './mcp-client-lifetime';
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
 import { registerMcpSecrets } from './mcp-secrets';
@@ -556,7 +558,22 @@ async function build(): Promise<Built> {
     // Real grant-remembering gate (reads allow, mutating → grant-or-ask). Dev auto-allows so the
     // chat works end-to-end; production runs the real gate (resolved from the approval card in
     // chat, via /api/integrations/approve). `INTEGRATIONS_AUTO_APPROVE=0` runs the real gate in dev.
-    approval: appApprovalPolicy({ autoApprove: devAutoApprove() }),
+    approval: appApprovalPolicy({ autoApprove: devAutoApprove(), resolveMode: input => {
+      const match = /^mcp\.([A-Za-z0-9_]+)\.(.+)$/.exec(input.actionId);
+      const { servers, approvalSettings } = getMcpServerStore().getApprovalSnapshot();
+      if (!match) {
+        // Built-in MCPs retain their native policy and any older explicit tool
+        // choices. The provider settings' action-wide override takes priority.
+        const explicit = getActionOverride(input.actionId);
+        if (explicit) return explicit;
+        const hosted = servers.find(server => server.providerId === input.connection.providerId &&
+          hostedMcpConnectionId(server) === input.connection.id && input.actionId.startsWith(`${server.providerId}.`));
+        return hosted ? mcpToolApprovalOverride(hosted.toolOverrides?.[input.actionId.slice(hosted.providerId!.length + 1)]) : undefined;
+      }
+      const server = servers.find(server => server.slug === match[1]);
+      if (!server || server.providerId || !server.enabled || hostedMcpConnectionId(server) !== input.connection.id) return 'ask';
+      return resolveMcpToolApproval(server, match[2]!, approvalSettings.defaultPolicy, input.mutating);
+    } }),
     onActionRun: (e) => {
       if (e.phase === 'finish') {
         // Redacted previews; safe to log. Helps eyeball the flow during testing.
@@ -814,8 +831,8 @@ async function build(): Promise<Built> {
               identity: { providerId: hosted.id, displayName: hosted.displayName, label: snapshot.displayName, accountId: snapshot.accountId, authConfigId: snapshot.authConfigId },
               trustToolAnnotations: trustHostedMcpAnnotations(hosted, snapshot.url),
               ...(hosted.defaultMutationRisk ? { defaultRisk: hosted.defaultMutationRisk } : {}),
-            } : {}),
-            ...(snapshot.toolOverrides ? { toolOverrides: snapshot.toolOverrides } : {}),
+            } : { trustToolAnnotations: true }),
+            ...(snapshot.toolOverrides ? { toolOverrides: mcpIngestOverrides(snapshot.toolOverrides) } : {}),
           });
           account.readResource = params => runTransport(() => account.client.readResource(params), 'resource');
         }
@@ -825,7 +842,7 @@ async function build(): Promise<Built> {
           if (account.unavailable) { accepted.add(account.entry.id); continue; }
           await mcpStore.setHealth(account.entry.id, {
             lastStatus: 'ok', lastToolCount: result.toolCount, lastCheckedAt: new Date().toISOString(),
-            tools: result.tools.map(tool => ({ name: tool.name, description: tool.description })),
+            tools: result.tools.map(mcpToolInfo),
           });
           accepted.add(account.entry.id);
           mcpClients.push(account.client);
@@ -854,7 +871,7 @@ function mcpConfigurationSignature(source: McpServerStore | readonly McpServerEn
     id: entry.id, slug: entry.slug, providerId: entry.providerId, connectionId: entry.connectionId,
     accountId: entry.accountId, authConfigId: entry.authConfigId, displayName: entry.displayName,
     url: entry.url, enabled: entry.enabled, auth: entry.auth, credentialRevision: entry.credentialRevision,
-    capabilityRevision: entry.capabilityRevision, toolOverrides: entry.toolOverrides,
+    capabilityRevision: entry.capabilityRevision, toolOverrides: mcpIngestOverrides(entry.toolOverrides),
   })).sort((a, b) => a.id.localeCompare(b.id)));
 }
 

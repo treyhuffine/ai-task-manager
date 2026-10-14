@@ -50,11 +50,11 @@ export function WorkHudPill() {
         type="button"
         onClick={() => openCalendarModal({ view: 'day', date: today })}
         aria-label={lines.join(' ')}
-        className="flex h-7 items-center gap-1.5 rounded-lg border border-border px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
         <Users size={12} />
         <span className="text-foreground">{formatHours(s.personHours)}h</span>
-        <span>of human work today</span>
+        <span className="hud-work-label"><span className="hud-work-detail">of </span>human work<span className="hud-work-detail"> today</span></span>
       </button>
     </Tip>
   );

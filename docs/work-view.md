@@ -92,7 +92,7 @@ So work gets its own encoding, and meetings keep theirs. Meetings stay as blocks
 - Follows the Agent work switch, so turning it off in the calendar hides the pill too.
 - Shows from one hour of human work on. Before that there is nothing worth saying.
 - Refreshes every five minutes, a glance rather than a ticker. Each read also asks git.
-- Desktop widths only, next to the other header pills.
+- Tablet and desktop widths, next to the other header pills. At medium usable header widths, the wording shortens to "32h human work", then to the hours and people icon when tight. The full explanation and Day view stay available through its tooltip and click. The phone uses its own layout.
 
 **Why the header and not the deck.** The deck is triage: what to do next, in what order (see the deck's own rules). A count of work done is a different job, and it's one you want from every view, including an execution you're watching, not only on the board. The header is visible everywhere and costs one pill. A muted "yesterday" line on the morning deck stays open as a follow-up (see "Next").
 

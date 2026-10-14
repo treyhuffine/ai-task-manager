@@ -53,6 +53,23 @@ afterEach(async () => {
 });
 
 describe('typed UI API over the authenticated HTTP adapter', () => {
+  it('round-trips global and server MCP permissions and rejects session callers', async () => {
+    const { getMcpServerStore } = await import('@/lib/integrations/runtime');
+    const store = getMcpServerStore();
+    const server = await store.create({ slug: 'permission_fixture', displayName: 'Permission fixture', url: 'https://example.com/mcp', auth: { kind: 'none' } });
+    await store.update(server.id, { toolOverrides: { hidden: { enabled: false }, legacy: { mutating: false } } });
+    expect((await client.integrations.mcpServersGet.query({})).approvalSettings).toEqual({ defaultPolicy: 'writes', override: null });
+    const patched = await client.integrations.mcpServersPatch.mutate({ params: { id: server.id }, body: { approvalPolicy: 'ask', resetToolApprovals: true } });
+    expect(patched.entry).toMatchObject({ approvalPolicy: 'ask', toolOverrides: { hidden: { enabled: false } } });
+    const global = await client.integrations.mcpApprovalPolicyPatch.mutate({ body: { defaultPolicy: 'auto', applyToAll: true } });
+    expect(global.approvalSettings).toEqual({ defaultPolicy: 'auto', override: 'auto' });
+    expect(global.servers.find(entry => entry.id === server.id)).not.toHaveProperty('approvalPolicy');
+    expect(store.get(server.id)?.toolOverrides).toEqual({ hidden: { enabled: false } });
+    await expect(client.integrations.mcpApprovalPolicyPatch.mutate({ body: { defaultPolicy: 'invalid' as never } })).rejects.toMatchObject({ data: { code: 'BAD_REQUEST' } });
+    const session = appRouter.createCaller({ request: new Request('http://localhost/api/trpc'), key: { apiKeyId: 'session', scope: 'session', location: 'home', workerDeviceId: null, sessionChatId: 'chat' } });
+    await expect(session.integrations.mcpApprovalPolicyPatch({ body: { defaultPolicy: 'auto' } })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(session.integrations.mcpServersPatch({ params: { id: server.id }, body: { approvalPolicy: 'auto' } })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
   it('round-trips hydrated records, one request per independent read, with compact list DTOs', async () => {
     const area = await client.areas.create.mutate({ name: 'Work' });
     const task = await client.tasks.create.mutate({ title: 'Ship', rawInput: 'Ship', areaId: area.id, body: 'a'.repeat(600), contextTags: ['work'] });

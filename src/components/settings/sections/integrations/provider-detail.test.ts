@@ -115,11 +115,11 @@ describe('hosted provider connection flow', () => {
       { serverId: 'pending', label: 'Work', requiresAuth: true, capabilityChanges: { revision: 'current', added: ['new-tool'], removed: ['old-tool'], changed: [{ name: 'update-task', fields: ['inputSchema', 'annotations'] }] } },
     ] } }, connections: [{ ...connection, id: 'healthy-connection', status: 'active' }], onCancelSetup: vi.fn(), onReviewCapabilities: vi.fn() });
     expect(html).toContain('Cancel setup');
-    expect(html).toContain('Tools changed since your last review');
+    expect(html).toContain('Tools changed');
     expect(html).toContain('new-tool');
     expect(html).toContain('old-tool');
     expect(html).toContain('inputs, permissions and behavior');
-    expect(html).toContain('Mark reviewed');
+    expect(html).toContain('Dismiss notice');
     expect(html.match(/>Disconnect<\/button>/g)).toHaveLength(1);
   });
 
