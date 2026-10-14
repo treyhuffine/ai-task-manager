@@ -11,6 +11,7 @@ import { LifecycleGuardProvider } from "@/components/tasks/lifecycle-guard";
 import "./globals.css";
 import { APP_NAME } from "@/constants/app";
 import { DesktopChrome } from '@/components/desktop/desktop-chrome';
+import { ServiceConnection } from '@/components/desktop/service-connection';
 import { WebAppBootstrap } from '@/components/settings/phone-install';
 import { QuickCaptureHost } from '@/components/dashboard/quick-capture-host';
 import { TeamRoot } from '@/components/team/team-root';
@@ -34,8 +35,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // A team space is the same app with a different shell: no pairing, desktop
-  // chrome, capture or personal banners, which all reach personal routes
+  // A team space is the same app with a different shell: no pairing, service
+  // controls, capture or personal banners, which all reach personal routes
   // (docs/homes-spec.md §3.2, §9.2).
   const team = await isTeamPage();
   // A team's space inside My Ri (`/space/<team>`, P7.1) is the team's own
@@ -53,6 +54,7 @@ export default async function RootLayout({
         <QueryProvider>
           {team ? (
             <TipProvider>
+              <DesktopChrome />
               <ConfirmProvider>
                 <ArtifactPreviewProvider>
                   <TeamRoot>{children}</TeamRoot>
@@ -61,6 +63,7 @@ export default async function RootLayout({
             </TipProvider>
           ) : space ? (
             <TipProvider>
+              <DesktopChrome />
               <ConfirmProvider>
                 <ArtifactPreviewProvider>
                   <SpaceRoot space={space}>{children}</SpaceRoot>
@@ -73,6 +76,7 @@ export default async function RootLayout({
               <PairingBootstrap />
               <TipProvider>
                 <DesktopChrome />
+                <ServiceConnection />
                 <QuickCaptureHost />
                 <WebAppBootstrap />
                 <HomeReachabilityBanner />

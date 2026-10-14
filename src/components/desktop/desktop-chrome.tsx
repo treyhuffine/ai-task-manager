@@ -12,9 +12,10 @@ import { countUnsavedMutations } from '@/lib/query/mutation-meta';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { goBack, goForward, navigationKeyBlocked } from '@/lib/client/history-navigation';
 import '@/lib/client/desktop';
-import { ServiceConnection } from './service-connection';
 import { DesktopNavButtons } from './desktop-nav-buttons';
 
+/** Navigation and save handshakes belong to every viewer document, including
+ * team spaces. Personal service controls mount separately in the layout. */
 export function DesktopChrome() {
   const queryClient = useQueryClient();
   useEffect(() => {
@@ -77,5 +78,5 @@ export function DesktopChrome() {
   }, []);
   // Pages without the dashboard's title bar get this one: a drag strip that
   // still carries Back and Forward, so a full-page note is never a dead end.
-  return <><div className="desktop-drag-fallback"><DesktopNavButtons /></div><ServiceConnection /></>;
+  return <div className="desktop-drag-fallback"><DesktopNavButtons /></div>;
 }

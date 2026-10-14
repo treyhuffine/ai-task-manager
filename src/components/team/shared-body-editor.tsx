@@ -8,6 +8,7 @@ import type { Attachment } from '@/db/types';
 import { bodyForDocument, bodyForTeam, currentSpaceId } from '@/lib/spaces/document';
 import { SharedBodySaver, sharedDraftKey, type SharedBody, type SharedBodyStatus, type WriteFailure } from '@/lib/team/shared-body';
 import { trpcClient } from '@/lib/trpc/client';
+import { documentSaves } from '@/lib/client/document-saves';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useTeam } from './team-context';
@@ -91,7 +92,9 @@ export function useSharedBodyFor(record: SharedRecord | undefined, target: Share
     setInitial(next.text());
     setEditorKey((k) => k + 1);
     setSaver(next);
+    const unregister = documentSaves.register(next);
     return () => {
+      unregister();
       void next.flush().catch(() => {});
       next.dispose();
     };
@@ -109,19 +112,6 @@ export function useSharedBodyFor(record: SharedRecord | undefined, target: Share
 
   const subscribe = useCallback((listener: () => void) => (saver ? saver.subscribe(listener) : () => {}), [saver]);
   const status = useSyncExternalStore(subscribe, () => saver?.status() ?? SAVED, () => SAVED);
-
-  // Leaving with something unsaved asks first. A conflict counts.
-  useEffect(() => {
-    if (!saver) return;
-    const guard = (e: BeforeUnloadEvent) => {
-      if (saver.hasUnsaved()) {
-        void saver.flush().catch(() => {});
-        e.preventDefault();
-      }
-    };
-    window.addEventListener('beforeunload', guard);
-    return () => window.removeEventListener('beforeunload', guard);
-  }, [saver]);
 
   return useMemo(
     () => ({

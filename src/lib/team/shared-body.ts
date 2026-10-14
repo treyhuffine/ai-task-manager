@@ -114,10 +114,16 @@ export class SharedBodySaver {
 
   private retain() {
     try {
-      this.storage().setItem(this.key, JSON.stringify({ body: this.latest, baseRevision: this.draftBaseRevision } satisfies SharedBodyDraft));
+      this.retainDraft();
     } catch {
       // The edit stays in memory and the save still runs.
     }
+  }
+
+  /** An explicit reload must prove retention, including reporting a full or
+   * unavailable local store, before it may carry an unsaved draft forward. */
+  retainDraft(): void {
+    this.storage().setItem(this.key, JSON.stringify({ body: this.latest, baseRevision: this.draftBaseRevision } satisfies SharedBodyDraft));
   }
 
   private release() {

@@ -2,6 +2,13 @@ import { apiErrorStatus } from '@/lib/api/error-status';
 
 type Patch = Record<string, unknown>;
 export interface DocumentDraft { patch: Patch; base: Patch }
+/** Editors with their own write protocol still participate in the viewer's
+ * save handshake. In particular, a shared body's conflict must veto leaving. */
+interface RegisteredDocumentSave {
+  flush(): Promise<void>;
+  hasUnsaved(): boolean;
+  retainDraft(): void;
+}
 interface PendingSave extends DocumentDraft {
   writer: (patch: Patch) => Promise<unknown>;
   timer?: ReturnType<typeof setTimeout>;
@@ -25,6 +32,7 @@ function retryable(error: unknown) {
 export class DocumentSaveQueue {
   private pending = new Map<string, PendingSave>();
   private listeners = new Map<string, Set<() => void>>();
+  private registered = new Set<RegisteredDocumentSave>();
   constructor(private storage: () => Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>) {}
 
   draft(key: string): DocumentDraft | null {
@@ -36,7 +44,12 @@ export class DocumentSaveQueue {
   }
 
   discard(key: string) { this.storage().removeItem(prefix + key); }
-  has(key?: string) { return key ? this.pending.has(key) : this.pending.size > 0; }
+  has(key?: string) { return key ? this.pending.has(key) : this.pending.size > 0 || [...this.registered].some(save => save.hasUnsaved()); }
+
+  register(save: RegisteredDocumentSave) {
+    this.registered.add(save);
+    return () => { this.registered.delete(save); };
+  }
 
   /** Only this session's unacknowledged edits belong in the active document.
    * Reading a retained draft must never silently restore an older session. */
@@ -119,11 +132,17 @@ export class DocumentSaveQueue {
 
   /** Explicit update recovery may reload only after every unsaved edit is
    * durably retained. A storage error must keep this view open. */
-  retainAll() { for (const [key, state] of this.pending) this.persist(key, state); }
+  retainAll() {
+    for (const [key, state] of this.pending) this.persist(key, state);
+    for (const save of this.registered) if (save.hasUnsaved()) save.retainDraft();
+  }
 
   async flushAll() {
-    const results = await Promise.allSettled([...this.pending.keys()].map(key => this.flush(key)));
-    if (results.some(result => result.status === 'rejected')) throw new Error('Some edits could not be saved. Keep this window open and retry.');
+    const results = await Promise.allSettled([
+      ...[...this.pending.keys()].map(key => this.flush(key)),
+      ...[...this.registered].map(save => save.flush()),
+    ]);
+    if (results.some(result => result.status === 'rejected') || this.has()) throw new Error('Some edits could not be saved. Keep this window open and retry.');
   }
 }
 

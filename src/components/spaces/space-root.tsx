@@ -21,8 +21,6 @@ export function useSpace(): SpacePage | null {
  */
 export function SpaceRoot({ space, children }: { space: SpacePage; children: ReactNode }) {
   useEffect(() => {
-    // Room for the desktop's window controls, as My Ri has.
-    if (window.riDesktop) document.documentElement.dataset.riDesktop = window.riDesktop.platform;
     if (!getAuthToken()) window.location.replace('/');
   }, []);
 
