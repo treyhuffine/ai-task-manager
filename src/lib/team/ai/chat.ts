@@ -18,6 +18,7 @@ import { processState } from '@/lib/process-state';
 import type { TeamChatTurnRecord } from '@/db/types';
 import { runTeamTurn, type RunTeamTurnInput } from './runtime';
 import { CREDENTIAL_REJECTED, recordTeamAiOutcome, teamAiStatus } from './settings';
+import { teamAiAuthRevision } from './auth';
 
 export const TEAM_CHAT_MESSAGE_MAX = 20_000;
 
@@ -126,6 +127,7 @@ async function runOne(turn: TeamChatTurnRecord, work: ChatWork): Promise<void> {
     q.finishTeamChatTurn(turn.id, 'failed', 'The message for this turn is gone.');
     return;
   }
+  const authRevision = teamAiAuthRevision();
   const outcome = await (state.runner ?? runTeamTurn)({
     turn,
     memberName: member.name,
@@ -135,13 +137,13 @@ async function runOne(turn: TeamChatTurnRecord, work: ChatWork): Promise<void> {
   });
   if (outcome.status === 'done') {
     q.finishTeamChatTurn(turn.id, 'done');
-    recordTeamAiOutcome({ ok: true });
+    recordTeamAiOutcome({ ok: true }, authRevision);
   } else if (outcome.status === 'cancelled') {
     q.finishTeamChatTurn(turn.id, 'cancelled', work.stopReason ?? 'Stopped.');
   } else {
     q.finishTeamChatTurn(turn.id, 'failed', outcome.error);
-    if (outcome.code === 'credential_rejected') recordTeamAiOutcome({ ok: false, code: CREDENTIAL_REJECTED });
-    else if (outcome.code !== 'no_subscription') recordTeamAiOutcome({ ok: false, code: outcome.code });
+    if (outcome.code === 'credential_rejected') recordTeamAiOutcome({ ok: false, code: CREDENTIAL_REJECTED }, authRevision);
+    else if (outcome.code !== 'no_subscription' && outcome.code !== 'no_key') recordTeamAiOutcome({ ok: false, code: outcome.code }, authRevision);
   }
 }
 

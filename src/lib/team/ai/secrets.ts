@@ -3,7 +3,7 @@
  * `<config>/team-ai`, never in the database and never sent to a client:
  *
  * - the model-provider key its owner provisioned for the team, sealed with a
- *   key of its own. Settings shows only its label.
+ *   key of its own. Settings shows only whether one is saved.
  * - the secret that signs each turn's own short-lived credential for the
  *   team's tools (turn-credential.ts). Not the host's key, and not anyone's
  *   sign-in.

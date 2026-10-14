@@ -239,6 +239,7 @@ export type SharedSourceState = NonNullable<TaskRecord['sourceState']>;
 export type { SharedTaskSource, SharedNoteSource } from '@/lib/db/schema';
 
 export type TeamAiSettingsRecord = InferSelectModel<typeof teamAiSettings>;
+export type TeamAiAuthMode = NonNullable<TeamAiSettingsRecord['authMode']>;
 export type TeamChatTurnRecord = InferSelectModel<typeof teamChatTurns>;
 export type ApiKeyRecord = InferSelectModel<typeof apiKeys>;
 export type ApiKeyRole = ApiKeyRecord['role'];

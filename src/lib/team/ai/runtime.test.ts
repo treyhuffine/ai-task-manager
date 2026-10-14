@@ -14,7 +14,7 @@ beforeEach(async () => { home = await createTestHome({ prefix: 'ri-team-ai-profi
 afterEach(async () => { await home.cleanup(); });
 
 describe('the launch profile', () => {
-  it('keeps a turn to the team\'s tools, its own folders and the team\'s key', () => {
+  it('keeps subscription turns to team tools and excludes API keys', () => {
     const dirs = teamAiDirs('/srv/team/.work');
     const launch = teamAiLaunch({ turnToken: 'rtt_x.y', mcpUrl: 'http://127.0.0.1:4224/api/team/mcp', model: null, instructionsFile: '/srv/i.md', dirs });
     expect(TEAM_AI_LAUNCH_ARGS).not.toContain('--bare');
@@ -83,7 +83,7 @@ describe('the runtime probe', () => {
       fs.writeFileSync(file, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "9.9.9 (Claude Code)"; else printf '%s\\n' "${help}"; fi\n`, { mode: 0o755 });
       return file;
     };
-    const all = '  --no-session-persistence  --settings <json>  --restricted  --tools <tools...>  --disable-slash-commands  --setting-sources <s>  --strict-mcp-config  --mcp-config <c>  --allowed-tools <t>';
+    const all = '  --bare  --no-session-persistence  --settings <json>  --restricted  --tools <tools...>  --disable-slash-commands  --setting-sources <s>  --strict-mcp-config  --mcp-config <c>  --allowed-tools <t>';
     expect(await probeTeamAiRuntime({ command: script(all) })).toEqual({ ok: true, version: '9.9.9 (Claude Code)', missing: [], error: null });
     const older = await probeTeamAiRuntime({ command: script(all.replace('--restricted', '')) });
     expect(older).toMatchObject({ ok: false, missing: ['--restricted'] });

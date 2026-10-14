@@ -43,6 +43,8 @@ People who only use a team space can open it in a browser without setting up a p
 
 To use the team's shared AI, switch to the team and open **Settings**, then **Team AI**. The owner clicks **Turn on**. Ri uses the Claude Code subscription already signed in on the computer hosting the team. Everyone's use counts toward that subscription's limits. If it needs a sign-in, run `claude auth login` on that computer, then click **Check sign-in**. Open **Chat** in the team's sidebar to talk with it about shared tasks, notes and decisions.
 
+To use separate API billing, the owner can choose **Anthropic API key** under **Authentication**, paste a key and click **Save authentication**. It stays encrypted on the team host. Ri uses only the selected method and never switches billing methods automatically. You can choose **Subscription** again or remove the saved key. Changing authentication or replacing/removing an active key stops current answers and waiting messages. Chat history stays readable.
+
 **Connect your AI** in team Settings is a separate option for giving your own assistant access to shared work. Its member access token authorizes team tools. It does not pay for model usage.
 
 ## Read this help offline

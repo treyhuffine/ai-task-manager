@@ -7,7 +7,7 @@
 import { execFile } from 'node:child_process';
 import { findBinary } from '@agentex/agent';
 import { processState } from '@/lib/process-state';
-import { TEAM_AI_LAUNCH_ARGS } from './runtime';
+import { TEAM_AI_API_KEY_LAUNCH_ARGS, TEAM_AI_LAUNCH_ARGS } from './runtime';
 import { teamAiCommand } from './auth';
 
 export interface TeamAiRuntimeProbe {
@@ -18,7 +18,7 @@ export interface TeamAiRuntimeProbe {
   error: string | null;
 }
 
-const REQUIRED_FLAGS = [...new Set(TEAM_AI_LAUNCH_ARGS.filter((arg) => arg.startsWith('--'))), '--strict-mcp-config', '--mcp-config', '--allowed-tools'];
+const REQUIRED_FLAGS = [...new Set([...TEAM_AI_LAUNCH_ARGS, ...TEAM_AI_API_KEY_LAUNCH_ARGS].filter((arg) => arg.startsWith('--'))), '--strict-mcp-config', '--mcp-config', '--allowed-tools'];
 /** A good answer holds for a while. A failed one is asked again soon: it may have been a slow moment. */
 const OK_CACHE_MS = 10 * 60 * 1000;
 const FAILED_CACHE_MS = 30 * 1000;

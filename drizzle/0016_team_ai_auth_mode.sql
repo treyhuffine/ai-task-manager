@@ -1,0 +1,1 @@
+ALTER TABLE `team_ai_settings` ADD `auth_mode` text;

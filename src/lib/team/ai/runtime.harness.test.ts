@@ -119,7 +119,12 @@ describe.skipIf(!enabled)('the team AI runtime, with the real Claude Code', () =
     expect(fake.modelRequests()).toHaveLength(0);
   });
 
-  it('uses subscription auth with only team tools, no personal context, and member-attributed writes', async () => {
+  it.each(['subscription', 'api_key'] as const)('uses %s with only team tools, no personal context, and member-attributed writes', async mode => {
+    if (mode === 'api_key') {
+      const { saveTeamAiApiKey } = await import('./secrets');
+      await saveTeamAiApiKey('sk-ant-TEAM-explicit');
+      (await import('@/lib/db/queries')).saveTeamAiSettings({ authMode: mode }, team.owner.id);
+    }
     const searchTool = 'mcp__ri_team__search';
     const createNote = 'mcp__ri_team__create_note';
     let resultsSeen: ReturnType<typeof toolResults> = {};
@@ -154,8 +159,8 @@ describe.skipIf(!enabled)('the team AI runtime, with the real Claude Code', () =
     const sent = fake.modelRequests();
     expect(sent.length).toBeGreaterThanOrEqual(2);
     for (const request of sent) {
-      expect(request.apiKey).toBeNull();
-      expect(request.bearer).toBe(SUBSCRIPTION_TOKEN);
+      expect(request.apiKey).toBe(mode === 'api_key' ? 'sk-ant-TEAM-explicit' : null);
+      expect(request.bearer).toBe(mode === 'subscription' ? SUBSCRIPTION_TOKEN : null);
       expect(request.tools.length).toBeGreaterThan(0);
       expect(request.tools.every((name) => name.startsWith('mcp__ri_team__'))).toBe(true);
     }
@@ -216,6 +221,7 @@ describe.skipIf(!enabled)('the team AI runtime, with the real Claude Code', () =
   });
 
   it('never falls back to an API key when the subscription is missing or refused', async () => {
+    await (await import('./secrets')).saveTeamAiApiKey('sk-ant-SAVED-but-not-selected');
     const { runTeamTurn } = await import('./runtime');
     auth.available = false;
     const missing = await chatWithTurn(maya.id, 'Hello');
@@ -231,4 +237,21 @@ describe.skipIf(!enabled)('the team AI runtime, with the real Claude Code', () =
     expect(new Set(fake.modelRequests().map((r) => r.bearer))).toEqual(new Set([SUBSCRIPTION_TOKEN]));
     expect(fake.modelRequests().every(request => request.apiKey === null)).toBe(true);
   });
+
+  it('never falls back to subscription or ambient keys when an explicitly selected API key is missing or refused', async () => {
+    const { runTeamTurn } = await import('./runtime');
+    const { saveTeamAiApiKey } = await import('./secrets');
+    (await import('@/lib/db/queries')).saveTeamAiSettings({ authMode: 'api_key' }, team.owner.id);
+    const missing = await chatWithTurn(maya.id, 'Hello');
+    expect(await runTeamTurn({ turn: missing.turn, memberName: 'Maya', text: 'Hello', signal: AbortSignal.timeout(20_000), endpointBaseUrl: fake.url, mcpUrl: `${http.url}/api/team/mcp` })).toMatchObject({ status: 'failed', code: 'no_key' });
+    expect(fake.modelRequests()).toHaveLength(0);
+    await saveTeamAiApiKey('sk-ant-TEAM-refused');
+    fake.script = () => ({ status: 401, error: 'invalid x-api-key' });
+    const refused = await chatWithTurn(maya.id, 'Hello again', 2, missing.chat.id);
+    expect(await runTeamTurn({ turn: refused.turn, memberName: 'Maya', text: 'Hello again', signal: AbortSignal.timeout(20_000), endpointBaseUrl: fake.url, mcpUrl: `${http.url}/api/team/mcp` })).toMatchObject({ status: 'failed', code: 'credential_rejected', error: expect.stringContaining('replace it in Settings') });
+    expect(fake.modelRequests().length).toBeGreaterThan(0);
+    expect(new Set(fake.modelRequests().map(request => request.apiKey))).toEqual(new Set(['sk-ant-TEAM-refused']));
+    expect(fake.modelRequests().every(request => request.bearer === null)).toBe(true);
+  });
+
 });

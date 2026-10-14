@@ -1251,11 +1251,11 @@ export const sharedOperationReceipts = sqliteTable(
 // A team's own AI (docs/homes-spec.md §9.9, P8.4): off until its owner
 // turns it on with a model-provider key provisioned for the team. One row.
 // The key itself is sealed under `<config>/team-ai`, never here: this keeps
-// what Settings may show (the provider, the account's label) and how it last
-// went. Everyone's use counts against that one account, and a missing or
-// failing key never falls back to anyone's own.
+// what Settings may show and how it last went. Subscription is the default,
+// API billing is an explicit choice, and failed auth never changes accounts.
 export const TEAM_AI_HARNESSES = ['claude'] as const;
 export const TEAM_AI_PROVIDERS = ['anthropic'] as const;
+export const TEAM_AI_AUTH_MODES = ['subscription', 'api_key'] as const;
 
 export const teamAiSettings = sqliteTable('team_ai_settings', {
   id: text().primaryKey(),
@@ -1265,6 +1265,8 @@ export const teamAiSettings = sqliteTable('team_ai_settings', {
   harness: text({ enum: TEAM_AI_HARNESSES }).notNull(),
   provider: text({ enum: TEAM_AI_PROVIDERS }).notNull(),
   model: text(),
+  // NULL means no explicit choice: use the host subscription.
+  authMode: text({ enum: TEAM_AI_AUTH_MODES }),
   // What the owner calls the account, shown in Settings. Never the key.
   credentialLabel: text(),
   credentialSetAt: text(),

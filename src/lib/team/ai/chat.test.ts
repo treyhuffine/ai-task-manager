@@ -548,3 +548,104 @@ it('restores only earlier shared conversation, excludes queued requests, and bou
   q.insertChatEvent({ sessionId: chat.id, source: 'agent', role: 'assistant', content: 'x'.repeat(60_000) });
   expect(teamAiTurnPrompt(input).length).toBeLessThan(25_000);
 });
+
+
+describe('explicit API-key authentication', () => {
+  it('defaults to subscription even with a saved legacy key, and lets only the owner select API billing', async () => {
+    const owner = await teamTrpc(team.owner.token);
+    const member = await teamTrpc(maya.token);
+    const { saveTeamAiApiKey, readTeamAiApiKey } = await import('./secrets');
+    await saveTeamAiApiKey('sk-ant-secret-legacy');
+    subscription.mockResolvedValue({ available: false });
+    expect(await turnOn()).toMatchObject({ authMode: 'subscription', state: 'needs_sign_in', hasApiKey: true });
+    expect(await status(member.team.ai.configure.mutate({ authMode: 'api_key', apiKey: 'sk-ant-member' }))).toBe(403);
+    expect(await status(owner.team.ai.configure.mutate({ apiKey: 'sk-ant-unselected' }))).toBe(400);
+    const selected = await owner.team.ai.configure.mutate({ authMode: 'api_key', apiKey: 'sk-ant-explicit' });
+    expect(selected).toMatchObject({ authMode: 'api_key', state: 'ready', provider: 'Anthropic API', hasApiKey: true });
+    expect(await readTeamAiApiKey()).toBe('sk-ant-explicit');
+    expect(JSON.stringify(selected)).not.toContain('sk-ant-');
+    expect(JSON.stringify(await member.team.ai.status.query())).not.toContain('sk-ant-');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const { getConfigDir } = await import('@/lib/config/paths');
+    const file = path.join(getConfigDir(), 'team-ai', 'credentials.json');
+    expect(fs.readFileSync(file, 'utf8')).not.toContain('sk-ant-explicit');
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    subscription.mockClear();
+    expect(await owner.team.ai.refreshAuth.mutate()).toMatchObject({ state: 'ready', authMode: 'api_key' });
+    expect(subscription).not.toHaveBeenCalled();
+  });
+
+  it('keeps a refused API key unavailable when another chat succeeds', async () => {
+    const owner = await teamTrpc(team.owner.token);
+    await owner.team.ai.configure.mutate({ authMode: 'api_key', apiKey: 'sk-ant-refused' });
+    await turnOn();
+    const [main] = await owner.team.ai.chats.list.query();
+    const other = await owner.team.ai.chats.create.mutate({ label: 'Other' });
+    const first = await owner.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'First' });
+    const second = await owner.team.ai.send.mutate({ chatId: other.id, clientSendId: sendId(), text: 'Second' });
+    await held.waitFor(2);
+    await held.answer(first.turnId, '', { status: 'failed', code: 'credential_rejected', error: 'Refused' });
+    await vi.waitFor(async () => expect(await owner.team.ai.status.query()).toMatchObject({ state: 'credential_rejected' }));
+    await held.answer(second.turnId, 'Done');
+    await (await import('./chat')).settledTeamAi();
+    expect(await owner.team.ai.status.query()).toMatchObject({ state: 'credential_rejected', authMode: 'api_key' });
+    expect(await owner.team.ai.configure.mutate({ authMode: 'api_key', apiKey: 'sk-ant-replacement' })).toMatchObject({ state: 'ready' });
+  });
+
+  it('does not let an old turn reject a replacement key', async () => {
+    const { configureTeamAi, recordTeamAiOutcome } = await import('./settings');
+    const { teamAiAuthRevision } = await import('./auth');
+    await configureTeamAi(team.owner.id, { authMode: 'api_key', apiKey: 'sk-ant-old' });
+    await turnOn();
+    const oldRevision = teamAiAuthRevision();
+    await configureTeamAi(team.owner.id, { authMode: 'api_key', apiKey: 'sk-ant-new' });
+    recordTeamAiOutcome({ ok: false, code: 'credential_rejected' }, oldRevision);
+    expect(await (await teamTrpc(team.owner.token)).team.ai.status.query()).toMatchObject({ state: 'ready' });
+  });
+
+  it.each(['remove', 'replace', 'subscription'] as const)('stops running and waiting API work on %s without moving it to another account', async change => {
+    const owner = await teamTrpc(team.owner.token);
+    await owner.team.ai.configure.mutate({ authMode: 'api_key', apiKey: 'sk-ant-in-use' });
+    await turnOn();
+    const [chat] = await owner.team.ai.chats.list.query();
+    const running = await owner.team.ai.send.mutate({ chatId: chat.id, clientSendId: sendId(), text: 'Running' });
+    await held.waitFor(1);
+    const waiting = await owner.team.ai.send.mutate({ chatId: chat.id, clientSendId: sendId(), text: 'Waiting' });
+    if (change === 'remove') await owner.team.ai.forgetKey.mutate();
+    else await owner.team.ai.configure.mutate(change === 'replace' ? { authMode: 'api_key', apiKey: 'sk-ant-replacement' } : { authMode: 'subscription' });
+    await (await import('./chat')).settledTeamAi();
+    const q = await import('@/lib/db/queries');
+    expect(q.getTeamChatTurn(running.turnId)?.status).toBe('cancelled');
+    expect(q.getTeamChatTurn(waiting.turnId)?.status).toBe('cancelled');
+    expect(held.calls).toHaveLength(1);
+    expect(await owner.team.ai.status.query()).toMatchObject({ authMode: change === 'subscription' ? 'subscription' : 'api_key', state: change === 'remove' ? 'needs_key' : 'ready' });
+    expect(q.listChatEvents(chat.id).filter(event => event.source === 'user').map(event => event.content)).toEqual(['Running', 'Waiting']);
+  });
+
+  it('serializes a save and removal so an older save cannot restore a removed key', async () => {
+    const { configureTeamAi, forgetTeamAiKey } = await import('./settings');
+    await Promise.all([
+      configureTeamAi(team.owner.id, { authMode: 'api_key', apiKey: 'sk-ant-racing-save' }),
+      forgetTeamAiKey(team.owner.id),
+    ]);
+    expect(await turnOn()).toMatchObject({ state: 'needs_key', authMode: 'api_key', hasApiKey: false });
+  });
+
+  it('does not admit a send using the result of a different authentication method', async () => {
+    await turnOn();
+    const owner = await teamTrpc(team.owner.token);
+    const [chat] = await owner.team.ai.chats.list.query();
+    let release!: (value: { available: boolean }) => void;
+    subscription.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const { sendToTeamAi } = await import('./chat');
+    const pending = sendToTeamAi({ chatId: chat.id, memberId: team.owner.id, clientSendId: sendId(), text: 'Stale auth' });
+    const result = status(pending);
+    await vi.waitFor(() => expect(release).toBeDefined());
+    await owner.team.ai.configure.mutate({ authMode: 'api_key' });
+    release({ available: true });
+    expect(await result).not.toBe(200);
+    expect(held.calls).toHaveLength(0);
+    expect((await import('@/lib/db/queries')).listChatEvents(chat.id)).toEqual([]);
+  });
+});

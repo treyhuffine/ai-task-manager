@@ -6247,7 +6247,7 @@ export function getTeamAiSettings(): TeamAiSettingsRecord | null {
 }
 
 export type TeamAiSettingsPatch = Partial<Pick<TeamAiSettingsRecord,
-  'enabled' | 'model' | 'credentialLabel' | 'credentialSetAt' | 'mainChatSessionId' | 'lastError' | 'lastErrorAt' | 'lastOkAt'>>;
+  'enabled' | 'authMode' | 'model' | 'credentialLabel' | 'credentialSetAt' | 'mainChatSessionId' | 'lastError' | 'lastErrorAt' | 'lastOkAt'>>;
 
 /**
  * Change the team's AI settings, making the row the first time. It starts off,

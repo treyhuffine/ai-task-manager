@@ -1,5 +1,6 @@
 /**
- * Team AI runs Claude Code with the host's subscription sign-in. The native
+ * Team AI defaults to the host's Claude Code subscription. Owners may select
+ * a saved API key instead, with no automatic fallback between them. The native
  * credential store is used only by Claude Code. Explicit launch restrictions
  * remove built-in tools, personal instructions, hooks and other MCP servers.
  * No native transcript is written into the host's personal Claude history:
@@ -14,7 +15,8 @@ import { getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { parseStreamEvent } from '@/lib/runner/parse';
 import * as q from '@/lib/db/queries';
 import { TEAM_MCP_PATH } from '@/lib/team/credential';
-import { teamAiAuthEnv, teamAiCommand, teamAiSubscription, TEAM_AI_SIGN_IN } from './auth';
+import { teamAiAuthEnv, teamAiAuthMode, teamAiAuthRevision, teamAiCommand, teamAiSubscription, TEAM_AI_SIGN_IN } from './auth';
+import { readTeamAiApiKey } from './secrets';
 import { mintTurnToken } from './turn-credential';
 
 /** The MCP server's name in the turn: its tools are `mcp__ri_team__*`. */
@@ -30,18 +32,26 @@ export const TEAM_AI_LAUNCH_ARGS: readonly string[] = [
   '--settings', JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: false, claudeMdExcludes: ['**'], forceLoginMethod: 'claudeai' }),
 ];
 
+/** Bare mode excludes OAuth/keychain discovery even when the API key fails. */
+export const TEAM_AI_API_KEY_LAUNCH_ARGS: readonly string[] = [
+  '--bare', ...TEAM_AI_LAUNCH_ARGS.slice(0, -2),
+  '--settings', JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: false, claudeMdExcludes: ['**'], forceLoginMethod: 'console' }),
+];
+
 /** Team-owned working files. Native authentication stays in Claude Code's own store. */
 export function teamAiDirs(workDir = getWorkDir()) {
   const root = path.join(workDir, 'team-ai');
   return {
     root,
+    apiHome: path.join(root, 'api-home'),
+    apiConfig: path.join(root, 'api-claude'),
     cwd: path.join(root, 'runtime'),
     instructions: path.join(root, 'instructions'),
   };
 }
 
 export function ensureTeamAiDirs(dirs = teamAiDirs()): void {
-  for (const dir of [dirs.root, dirs.cwd, dirs.instructions]) {
+  for (const dir of [dirs.root, dirs.apiHome, dirs.apiConfig, dirs.cwd, dirs.instructions]) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
 }
@@ -71,6 +81,8 @@ export interface TeamAiLaunch {
  * `endpointBaseUrl` is for tests only: a stand-in for the provider's API.
  */
 export function teamAiLaunch(input: {
+  /** Present only for the explicitly selected API-key mode. */
+  apiKey?: string;
   turnToken: string;
   mcpUrl: string;
   model: string | null;
@@ -80,6 +92,12 @@ export function teamAiLaunch(input: {
 }): TeamAiLaunch {
   const dirs = input.dirs ?? teamAiDirs();
   const env = teamAiAuthEnv();
+  if (input.apiKey !== undefined) {
+    env.HOME = dirs.apiHome;
+    env.CLAUDE_CONFIG_DIR = dirs.apiConfig;
+    env.CLAUDE_CODE_OAUTH_TOKEN = '';
+    env.ANTHROPIC_API_KEY = input.apiKey;
+  }
   if (input.endpointBaseUrl) env.ANTHROPIC_BASE_URL = input.endpointBaseUrl;
   return {
     cwd: dirs.cwd,
@@ -97,7 +115,7 @@ export function teamAiLaunch(input: {
       allowedTools: [`mcp__${TEAM_AI_MCP_SERVER}`],
       instructionsFile: input.instructionsFile,
       unattendedPermissionPolicy: 'deny',
-      extraArgs: [...TEAM_AI_LAUNCH_ARGS],
+      extraArgs: [...(input.apiKey !== undefined ? TEAM_AI_API_KEY_LAUNCH_ARGS : TEAM_AI_LAUNCH_ARGS)],
     },
   };
 }
@@ -136,7 +154,7 @@ ${teamAiMessage(input.memberName, input.text)}`;
 
 export type TeamTurnOutcome =
   | { status: 'done' }
-  | { status: 'failed'; error: string; code: 'no_subscription' | 'credential_rejected' | 'runtime' | 'failed' }
+  | { status: 'failed'; error: string; code: 'no_subscription' | 'no_key' | 'configuration_changed' | 'credential_rejected' | 'runtime' | 'failed' }
   | { status: 'cancelled' };
 
 export interface RunTeamTurnInput {
@@ -196,14 +214,25 @@ export const TEAM_TURN_TIMEOUT_SEC = 20 * 60;
 
 /**
  * Run one turn: the member's message and shared context to Claude Code, under the
- * host's subscription, with the team's tools only, recording everything it says and
+ * selected authentication method, with team tools only, recording everything it says and
  * does in the chat. Never throws for an expected failure: the outcome says.
  */
 export async function runTeamTurn(input: RunTeamTurnInput): Promise<TeamTurnOutcome> {
   const settings = q.getTeamAiSettings();
   const chat = q.getChatSession(input.turn.chatSessionId);
   if (!chat) return { status: 'failed', code: 'failed', error: 'This chat is gone.' };
-  if (!(await teamAiSubscription()).available) return { status: 'failed', code: 'no_subscription', error: TEAM_AI_SIGN_IN };
+  const mode = teamAiAuthMode(settings);
+  const revision = teamAiAuthRevision();
+  let apiKey: string | undefined;
+  if (mode === 'api_key') {
+    apiKey = await readTeamAiApiKey() ?? undefined;
+    if (!apiKey) return { status: 'failed', code: 'no_key', error: 'The team owner needs to save an Anthropic API key in Settings.' };
+  } else if (!(await teamAiSubscription()).available) return { status: 'failed', code: 'no_subscription', error: TEAM_AI_SIGN_IN };
+  if (revision !== teamAiAuthRevision()) return { status: 'failed', code: 'configuration_changed', error: 'Team AI authentication changed. Send your message again to continue.' };
+  if (input.signal?.aborted) return { status: 'cancelled' };
+  const authError = mode === 'api_key'
+    ? 'Anthropic refused the saved API key. The team owner needs to replace it in Settings.'
+    : "Claude Code could not use the host's subscription sign-in. Sign in again on the team host and retry.";
 
   const dirs = teamAiDirs();
   ensureTeamAiDirs(dirs);
@@ -211,6 +240,7 @@ export async function runTeamTurn(input: RunTeamTurnInput): Promise<TeamTurnOutc
   fs.writeFileSync(instructionsFile, teamAiInstructions(q.getHome()?.name ?? 'Team'), { mode: 0o600 });
 
   const launch = teamAiLaunch({
+    apiKey,
     turnToken: mintTurnToken({ turnId: input.turn.id, chatId: chat.id, memberId: input.turn.memberId }),
     mcpUrl: input.mcpUrl ?? `${getLocalBaseUrl().replace(/\/+$/, '')}${TEAM_MCP_PATH}`,
     model: settings?.model ?? null,
@@ -250,7 +280,7 @@ export async function runTeamTurn(input: RunTeamTurnInput): Promise<TeamTurnOutc
     if (result.status === 'completed') return { status: 'done' };
     // Stopped by the watcher on refused authentication, or failed with that error.
     if (refused.signal.aborted || (result.status === 'failed' && isCredentialRejection(result))) {
-      return { status: 'failed', code: 'credential_rejected', error: "Claude Code could not use the host's subscription sign-in. Sign in again on the team host and retry." };
+      return { status: 'failed', code: 'credential_rejected', error: authError };
     }
     if (result.status === 'aborted') return { status: 'cancelled' };
     if (result.status === 'timeout') {
@@ -259,7 +289,7 @@ export async function runTeamTurn(input: RunTeamTurnInput): Promise<TeamTurnOutc
     return { status: 'failed', code: 'failed', error: result.errorMessage ?? `Team AI stopped (${result.status}).` };
   } catch (err) {
     if (refused.signal.aborted) {
-      return { status: 'failed', code: 'credential_rejected', error: "Claude Code could not use the host's subscription sign-in. Sign in again on the team host and retry." };
+      return { status: 'failed', code: 'credential_rejected', error: authError };
     }
     if (input.signal?.aborted) return { status: 'cancelled' };
     const message = err instanceof Error ? err.message : String(err);

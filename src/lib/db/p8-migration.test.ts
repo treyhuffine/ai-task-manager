@@ -52,9 +52,9 @@ it.each(['personal', 'team'])('upgrades a populated %s Home after production 001
     const search = () => db.prepare("SELECT rowid FROM chat_events_fts WHERE chat_events_fts MATCH 'migration' ORDER BY rowid").pluck().all();
     expect(search()).toEqual([251, 971]);
     const pending = inspectMigrationHistory(db, SOURCE).pending;
-    expect(pending).toHaveLength(1);
+    expect(pending.length).toBeGreaterThanOrEqual(1);
 
-    expect(runMigrations(db, SOURCE)).toEqual({ applied: 1 });
+    expect(runMigrations(db, SOURCE)).toEqual({ applied: pending.length });
     initDatabase(db, SOURCE);
     expect(runMigrations(db, SOURCE)).toEqual({ applied: 0 });
 
@@ -62,7 +62,7 @@ it.each(['personal', 'team'])('upgrades a populated %s Home after production 001
     expect(rows(db, 'notes')).toEqual(notes.map(row => ({ ...row, kind: null })));
     expect(rows(db, 'chat_events')).toEqual(events.map(row => ({ ...row, author_member_id: null })));
     expect(rows(db, '__drizzle_migrations').slice(0, history.length)).toEqual(history);
-    expect(rows(db, '__drizzle_migrations')).toHaveLength(history.length + 1);
+    expect(rows(db, '__drizzle_migrations')).toHaveLength(history.length + pending.length);
     expect(search()).toEqual([251, 971]);
     expect(db.prepare("SELECT rowid FROM tasks_fts WHERE tasks_fts MATCH 'preserved'").pluck().all()).toEqual([17]);
     expect(db.prepare("SELECT rowid FROM notes_fts WHERE notes_fts MATCH 'preserved'").pluck().all()).toEqual([43]);
@@ -87,7 +87,8 @@ it('builds a fresh Home with the same schema as an upgrade through production 00
   const upgraded = new Database(':memory:');
   try {
     runMigrations(upgraded, previous.folder);
-    expect(runMigrations(upgraded, SOURCE)).toEqual({ applied: 1 });
+    const pending = inspectMigrationHistory(upgraded, SOURCE).pending.length;
+    expect(runMigrations(upgraded, SOURCE)).toEqual({ applied: pending });
     runMigrations(fresh, SOURCE);
     const schema = (db: Database.Database) => db.prepare('SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name').all();
     expect(schema(fresh)).toEqual(schema(upgraded));
@@ -131,5 +132,26 @@ it('keeps the deployed title migration unchanged and the P8 migration additive',
   expect(p8).toBeDefined();
   for (const statement of p8.sql) {
     expect(statement.trim()).toMatch(/^(CREATE (?:UNIQUE )?(?:TABLE|INDEX)|ALTER TABLE `(?:notes|chat_events)` ADD)\b/);
+  }
+});
+
+
+it('adds the authentication choice without selecting API billing for an existing team', () => {
+  const previous = migrationsFolderUpTo('0015_team_shared_context');
+  const db = new Database(':memory:');
+  try {
+    runMigrations(db, previous.folder);
+    db.exec("INSERT INTO team_ai_settings(id, enabled, harness, provider, model, credential_label, credential_set_at) VALUES ('team', 1, 'claude', 'anthropic', 'sonnet', 'Legacy key', '2026-10-01')");
+    const before = rows(db, 'team_ai_settings');
+    const history = rows(db, '__drizzle_migrations');
+    expect(runMigrations(db, SOURCE)).toEqual({ applied: 1 });
+    expect(rows(db, 'team_ai_settings')).toEqual(before.map(row => ({ ...row, auth_mode: null })));
+    expect(rows(db, '__drizzle_migrations').slice(0, history.length)).toEqual(history);
+    expect(runMigrations(db, SOURCE)).toEqual({ applied: 0 });
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+    expect(db.pragma('integrity_check', { simple: true })).toBe('ok');
+  } finally {
+    db.close();
+    previous.cleanup();
   }
 });

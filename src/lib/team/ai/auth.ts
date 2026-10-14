@@ -3,6 +3,9 @@
  * auth report and never reads, copies or stores the subscription secret. */
 import os from 'node:os';
 import { getProvider } from '@agentex/agent';
+import type { TeamAiAuthMode, TeamAiSettingsRecord } from '@/db/types';
+import * as q from '@/lib/db/queries';
+import { teamAiCredentialVersion } from './secrets';
 
 /** The same native auth home for discovery and execution. Explicit empty
  * API credentials prevent an ambient key from selecting separate billing. */
@@ -35,3 +38,14 @@ export async function teamAiSubscription(fresh = false): Promise<{ available: bo
 }
 
 export const TEAM_AI_SIGN_IN = "Sign in to Claude Code on the computer hosting this team with your Claude subscription, then check sign-in again.";
+
+/** A saved key never changes the selected billing method by itself. */
+export function teamAiAuthMode(settings: Pick<TeamAiSettingsRecord, 'authMode'> | null = q.getTeamAiSettings()): TeamAiAuthMode {
+  return settings?.authMode ?? 'subscription';
+}
+
+/** Non-secret identity for ignoring outcomes from a replaced credential. */
+export function teamAiAuthRevision(): string {
+  const mode = teamAiAuthMode();
+  return JSON.stringify([mode, mode === 'api_key' ? teamAiCredentialVersion() : null]);
+}

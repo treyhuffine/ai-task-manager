@@ -7,10 +7,12 @@
 import { z } from 'zod/v4';
 import { TRPCError } from '@trpc/server';
 import * as q from '@/lib/db/queries';
+import { TEAM_AI_AUTH_MODES } from '@/lib/db/schema';
 import { memberProcedure, ownerProcedure, router } from '@/lib/trpc/init';
 import type { ChatEventRecord, TeamChatTurnRecord } from '@/db/types';
 import { sendToTeamAi, stopTeamAiWork, TEAM_CHAT_MESSAGE_MAX } from './chat';
 import { configureTeamAi, forgetTeamAiKey, setTeamAiEnabled, teamAiStatus } from './settings';
+import { teamAiAuthMode, teamAiAuthRevision } from './auth';
 
 function me(ctx: { key: { memberId?: string | null } | null }) {
   const member = ctx.key?.memberId ? q.getMember(ctx.key.memberId) : null;
@@ -72,10 +74,14 @@ export const teamAiRouter = router({
   status: memberProcedure.query(() => teamAiStatus()),
   configure: ownerProcedure
     .input(z.object({
+      authMode: z.enum(TEAM_AI_AUTH_MODES).optional(),
+      apiKey: z.string().trim().min(1).max(500).optional(),
       model: z.string().max(100).nullable().optional(),
-    }).strict())
+    }).strict().refine(input => input.apiKey === undefined || input.authMode === 'api_key', { message: 'Choose API key authentication before saving a key.' }))
     .mutation(async ({ ctx, input }) => {
+      const before = teamAiAuthRevision();
       await configureTeamAi(me(ctx).id, input);
+      if (before !== teamAiAuthRevision()) await stopTeamAiWork({}, 'Team AI authentication changed. Send your message again to continue.');
       return teamAiStatus();
     }),
   refreshAuth: ownerProcedure.mutation(() => teamAiStatus({ freshAuth: true })),
@@ -86,7 +92,8 @@ export const teamAiRouter = router({
     return teamAiStatus();
   }),
   forgetKey: ownerProcedure.mutation(async ({ ctx }) => {
-    forgetTeamAiKey(me(ctx).id);
+    await forgetTeamAiKey(me(ctx).id);
+    if (teamAiAuthMode() === 'api_key') await stopTeamAiWork({}, 'The team API key was removed.');
     return teamAiStatus();
   }),
 
