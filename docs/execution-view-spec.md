@@ -59,9 +59,13 @@ menu, then two labeled toggles (**Terminal**, **Tools**) and, at the far
 right, the git chip. Rules: the header reads, the chip acts, the toggles
 only change what you look at. The labels are deliberate: the two panel
 glyphs are nearly identical, and a redundant word costs less than a wrong
-click. When the header is tight, things give way in order: the PR's CI
-and review badges, then the agent name, then the toggle labels. The title
-and the git status never truncate.
+click. When the header is tight, the toggle shortcut badges give way
+first, followed by the PR's CI and review badges and the agent name,
+then the toggle labels. The title and the git status never truncate.
+Terminal and Tools show their hotkeys in `kbd` badges beside the labels.
+The badges hide below 1200px of chat-view width, before the labels fold to
+icons below 1040px. Both controls keep accessible names and their tooltip
+shortcuts at every width.
 
 **Status is precise and scoped.** The header describes the selected chat:
 Working, Needs input, Finished 5m ago (never "Ready", since a finished
@@ -213,10 +217,11 @@ Files selector (⋯ for the rest). If the chat needs an answer meanwhile, a
 "Needs input · Answer" bar stays on screen and returns to the approval.
 
 **Hotkeys** (`src/constants/commands.ts`): ⌃` toggles the terminal
-(captured so a focused terminal can't swallow it), ⌥⌘B shows or hides the
-tools panel the way the Tools toggle does (VS Code's key for its right-hand
-side bar, and the agent view uses it for its tools too), ⌘P opens Files and
-focuses the tree search, Esc as above.
+(captured so a focused terminal can't swallow it), ⌃. shows or hides the
+tools panel the way the Tools toggle does (the agent view uses it for its
+tools too). Both toggles use the literal Ctrl key on macOS, Windows and
+Linux, declared with `ctrl: true` rather than the shared Cmd/Ctrl modifier.
+⌘P opens Files and focuses the tree search, Esc as above.
 
 **Mounting.** The dashboard renders its desktop, tablet and phone layouts
 at once and hides two with CSS, and each `ExecutionView` has a desktop and

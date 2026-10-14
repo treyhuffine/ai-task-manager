@@ -3,6 +3,7 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { BACKGROUND_DOT } from '@/components/workspaces/activity-style';
 import { HOTKEYS } from '@/constants/commands';
+import { Kbd } from '@/components/ui/kbd';
 import { useDashboard } from '@/contexts/dashboard-context';
 import type { WorkspaceRecord } from '@/db/types';
 import { useArchiveExecution } from '@/hooks/use-archive-execution';
@@ -586,7 +587,8 @@ export function ExecutionHeader({
 /**
  * A labeled layout toggle. The words are on purpose: the two panel glyphs
  * are nearly identical, and a redundant label costs less than a wrong
- * click. They fold to icons when the header runs out of room.
+ * click. Shortcut badges fold away first, then labels fold to icons when
+ * the header runs out of room. The tooltip keeps the shortcut available.
  */
 function ToggleButton({
   on,
@@ -608,6 +610,7 @@ function ToggleButton({
       <button
         type="button"
         onClick={onClick}
+        aria-label={label}
         aria-pressed={on}
         className={cn(
           'flex h-7 flex-shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium transition-colors',
@@ -616,6 +619,9 @@ function ToggleButton({
       >
         {icon}
         <span className="@max-[1040px]/exec:hidden">{label}</span>
+        <Kbd aria-hidden className="h-4 min-w-0 text-[10px] @max-[1200px]/exec:hidden">
+          {shortcut}
+        </Kbd>
       </button>
     </Tip>
   );

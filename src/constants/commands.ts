@@ -5,6 +5,8 @@
 export interface Hotkey {
   key: string;
   meta?: boolean;    // Cmd (Mac) / Ctrl (Win/Linux)
+  /** Literal Ctrl on every platform. Use instead of `meta`. */
+  ctrl?: boolean;
   shift?: boolean;
   /** Option (Mac) / Alt. Matched by the physical key, since Option turns
    *  `e.key` into another character on a Mac (⌥B types "∫"). */
@@ -31,13 +33,12 @@ export const HOTKEYS = {
   // from everywhere else. Declared here rather than hardcoded in the
   // terminal so the collision is visible in one place.
   terminalClear: { key: 'k', meta: true, label: '\u2318K' },
-  // Execution workbench. `matchesHotkey` treats Ctrl like Cmd, so this is
-  // ⌃` (VS Code's terminal toggle). ⌘` itself belongs to macOS window
-  // cycling and never reaches the page.
-  toggleTerminal: { key: '`', meta: true, label: '\u2303`' },
-  // The tools panel on the right, reopened as you left it. VS Code's key for
-  // its right-hand (secondary) side bar.
-  toggleTools: { key: 'b', meta: true, alt: true, label: '\u2325\u2318B' },
+  // Execution workbench: both layout toggles use literal Ctrl on every
+  // platform. ⌘` belongs to macOS window cycling.
+  toggleTerminal: { key: '`', ctrl: true, label: '\u2303`' },
+  // The tools panel on the right, reopened as you left it. Shared with
+  // the agent view and paired with the terminal's Ctrl shortcut.
+  toggleTools: { key: '.', ctrl: true, label: '\u2303.' },
   // Open Files and focus the tree's search, like an editor's Go to File.
   goToFile: { key: 'p', meta: true, label: '\u2318P' },
   // Back and Forward in the desktop app, which has no browser chrome to do
@@ -50,12 +51,15 @@ export const HOTKEYS = {
 
 /** Check if a KeyboardEvent matches a Hotkey (strict modifier match) */
 export function matchesHotkey(e: KeyboardEvent, hotkey: Hotkey): boolean {
-  const metaRequired = !!hotkey.meta;
   const shiftRequired = !!hotkey.shift;
-  const metaHeld = e.metaKey || e.ctrlKey;
-  if (metaHeld !== metaRequired) return false;
+  if (hotkey.ctrl) {
+    if (!e.ctrlKey || e.metaKey) return false;
+  } else if ((e.metaKey || e.ctrlKey) !== !!hotkey.meta) {
+    return false;
+  }
   if (e.shiftKey !== shiftRequired) return false;
-  if (hotkey.alt) return e.altKey && e.code === `Key${hotkey.key.toUpperCase()}`;
+  if (e.altKey !== !!hotkey.alt) return false;
+  if (hotkey.alt) return e.code === `Key${hotkey.key.toUpperCase()}`;
   return e.key.toLowerCase() === hotkey.key.toLowerCase();
 }
 

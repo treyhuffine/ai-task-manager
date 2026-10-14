@@ -24,3 +24,29 @@ export function imageThumbnailUrl(src: string): string {
   if (!protectedImageUrl(src)) return src;
   return `${src}${src.includes('?') ? '&' : '?'}thumbnail=1`;
 }
+
+/** The source the agent supplied, rather than our thumbnail or blob URL. */
+export function artifactImageSource(src: string): string {
+  if (src.startsWith('data:')) return 'Embedded image (data URL)';
+  if (src.startsWith('blob:')) return 'Temporary image (blob URL)';
+  if (!protectedImageUrl(src)) return src;
+  try {
+    const url = new URL(src, 'http://ri.local');
+    if (url.pathname.endsWith('/reply-image')) return url.searchParams.get('path') || src;
+  } catch { /* Keep an unfamiliar source as written. */ }
+  return src;
+}
+
+/** Preserve an image route's explanation without showing an HTML error page. */
+export async function imageResponseError(response: Response): Promise<string> {
+  const status = `HTTP ${response.status}`;
+  try {
+    const body: unknown = await response.json();
+    if (body && typeof body === 'object') {
+      const { error, message } = body as { error?: unknown; message?: unknown };
+      const detail = typeof message === 'string' ? message : typeof error === 'string' ? error : '';
+      if (detail.trim()) return `${status}: ${detail}`;
+    }
+  } catch { /* Proxies and auth pages may return HTML or no body. */ }
+  return status;
+}
