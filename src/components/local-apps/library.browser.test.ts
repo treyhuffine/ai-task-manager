@@ -52,20 +52,26 @@ beforeAll(async () => {
       import {PluginsSection} from '@/components/settings/sections/plugins-section';
       import {useSettingsStore,openSettings} from '@/components/settings/settings-store';
       import {receiveChatSources} from '@/lib/client/source-handoff';
+      import {useAppPane} from '@/lib/client/app-pane';
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
       const mode=new URLSearchParams(location.search);
       if(mode.has('settings'))openSettings('plugins');
       window.actions=[];window.references=[];
       receiveChatSources('${chatId}',ref=>{window.references.push(ref);return true;});
       const data={revision:1,instances:[{id:'tracker',slug:'subscription-tracker',displayName:'Subscription tracker',description:'See recurring costs and decide what to keep.',packageId:'subscription-tracker',hasView:true,hasActions:true,enabled:true,archived:false,activation:{phase:'active'},runtime:{condition:'stopped'}}],drafts:[],grants:[],approvals:[],panels:[]};
+      function PaneProbe({route}){
+        const {mode,setMode}=useAppPane('tracker',route.includes('riChat=1')?'chat':'closed');
+        return <><output data-pane>{mode}</output><button onClick={()=>setMode('closed')}>Close app chat</button><button onClick={()=>setMode('app')}>Show app pane</button></>;
+      }
       function Fixture(){
         const [query,setQuery]=useState(Object.fromEntries(mode));
         const [destination,setDestination]=useState('');
+        const [paneMount,setPaneMount]=useState(0);
         const settings=useSettingsStore();
         useEffect(()=>{const pop=()=>setQuery(Object.fromEntries(new URLSearchParams(location.search)));window.addEventListener('popstate',pop);return()=>window.removeEventListener('popstate',pop);},[]);
         const navigate=route=>{if(!route||route.startsWith('?')){history.pushState(null,'',route||'/');setQuery(Object.fromEntries(new URLSearchParams(route)));}else setDestination(route);};
         return <main className="flex h-dvh min-w-0 flex-col">
-          {destination?<output data-destination>{destination}</output>:mode.has('settings')?<div className="mx-auto w-full max-w-3xl overflow-auto px-5" data-settings-scroll><PluginsSection/></div>:<AppLibrary data={mode.has('disabled')?undefined:data} localEnabled={!mode.has('disabled')} localLoading={false} query={query} navigate={navigate}/>}
+          {destination?<><output data-destination>{destination}</output><PaneProbe key={paneMount} route={destination}/><button onClick={()=>setPaneMount(n=>n+1)}>Remount pane</button><button onClick={()=>setDestination('')}>Return to library</button></>:mode.has('settings')?<div className="mx-auto w-full max-w-3xl overflow-auto px-5" data-settings-scroll><PluginsSection/></div>:<AppLibrary data={mode.has('disabled')?undefined:data} localEnabled={!mode.has('disabled')} localLoading={false} query={query} navigate={navigate}/>}
           <output hidden data-settings-open>{String(settings.open)}</output>
         </main>;
       }
@@ -146,6 +152,24 @@ it('shows real capabilities, exact accounts and setup in Apps without opening Se
     await page.getByRole('textbox', { name: 'Search library' }).waitFor();
     expect(await page.getByRole('button', { name: 'Discover', exact: true }).getAttribute('aria-current')).toBe('page');
     expect(errors).toEqual([]);
+  } finally { await page.close(); }
+});
+
+it('reopens app chat from the library while preserving pane choices across remounts', async () => {
+  const page = await open();
+  try {
+    await page.getByRole('button', { name: 'Use Subscription tracker in chat' }).click();
+    await expect.poll(() => page.locator('[data-pane]').textContent()).toBe('chat');
+    expect(await page.locator('[data-destination]').textContent()).toBe('subscription-tracker?riChat=1');
+    await page.getByRole('button', { name: 'Show app pane' }).click();
+    await page.getByRole('button', { name: 'Remount pane' }).click();
+    expect(await page.locator('[data-pane]').textContent()).toBe('app');
+    await page.getByRole('button', { name: 'Close app chat' }).click();
+    await page.getByRole('button', { name: 'Remount pane' }).click();
+    expect(await page.locator('[data-pane]').textContent()).toBe('closed');
+    await page.getByRole('button', { name: 'Return to library' }).click();
+    await page.getByRole('button', { name: 'Use Subscription tracker in chat' }).click();
+    await expect.poll(() => page.locator('[data-pane]').textContent()).toBe('chat');
   } finally { await page.close(); }
 });
 

@@ -1,6 +1,6 @@
 # Finances workspace refresh
 
-October 15, 2026. Built from main `1a527860`, after fetching origin. Main already contains the current remote history. Existing work in main is left untouched in favor of `codex/finances-experience`.
+October 15, 2026. Built from main `1a527860` in an isolated worktree, then integrated with the newer Apps library on main `626eb968`. Concurrent uncommitted work in the main checkout was preserved.
 
 The managed home is the product surface. The old setup form is replaced by a responsive React MCP App with an overview, transaction workspace, budget planning and account management. Finance retains its independent service, exact arithmetic and scoped account access. Conversation uses Ri's existing chat.
 
@@ -35,6 +35,7 @@ Qualified on macOS arm64, Node 26.5.0, ABI 147, with synthetic records and dispo
 - `pnpm finances:test`: 70 passed. Includes the real MCP AppBridge browser fixture, arithmetic, currencies, incomplete coverage, effective transaction search, pagination, forbidden selections, CSV preview/import, revision conflicts and budget apply/undo. An empty-budget browser regression covers a failure found during native qualification.
 - `pnpm test:local-apps`: 28 SDK tests and 27 Ri platform tests passed. The optional packed Finance test is run separately with its artifact.
 - Native chat-intent tests: 3 passed, covering targeting, delayed composers, literal text, bounds and expiration.
+- Integration with the newer Apps library: 48 targeted platform, library, composer and process-state tests passed, including browser checks for source chips alongside app questions, exact chat targeting, reopening chat and pane retention. Ri typecheck passed and changed-surface lint reported only the two existing chat-editor warnings.
 - Ri process-state checks: 4 passed. App pane state and pending composer suggestions remain client-only.
 - Ri and Finance typechecks passed. Changed-surface lint has no errors. Two existing unused-variable warnings in the chat editor remain.
 - The packed artifact passed the official reference MCP Apps bridge test. Desktop, 390 px phone, dark theme and budget-preview renders were visually checked.
@@ -47,6 +48,6 @@ Real account connections and provider sync are outside this qualification. Sourc
 
 ## Review and integration
 
-The implementation is in `codex/finances-experience` at `/Users/agent/worktrees/ri-finances-experience`. Main has concurrent uncommitted changes to Apps and the chat editor, including `app-page.tsx` and `chat-input-editor.tsx`, so this work is committed separately. Preserve those changes when integrating. The generated qualified archive is in `apps/finances/release/ri-finance-0.1.0.tar.gz`, and screenshots are in the ignored `apps/finances/artifacts` folder.
+The implementation preserves the Apps library's source-chip handoff alongside contextual Finance questions in the same composer. Library actions explicitly reopen app chat even after it was closed, while responsive remounts retain the chosen pane. The generated qualified archive is in `apps/finances/release/ri-finance-0.1.0.tar.gz`, and screenshots are in the ignored `apps/finances/artifacts` folder.
 
-The disposable Ri browser server on port 42257 was stopped after qualification. To run the finished experience, use `pnpm apps:dev --home /absolute/path/to/disposable-home --port 42251` from this worktree. Normal packaging stages the reviewed source, and installing a new version still uses Review update and Use app. Merely editing or merging source does not replace an installed app's package.
+The disposable Ri browser server on port 42257 was stopped after qualification. To run the finished experience, use `pnpm apps:dev --home /absolute/path/to/disposable-home --port 42251` from the repository. Normal packaging stages the reviewed source, and installing a new version still uses Review update and Use app. Merely editing or merging source does not replace an installed app's package.

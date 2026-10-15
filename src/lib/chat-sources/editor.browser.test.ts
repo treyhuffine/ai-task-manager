@@ -114,12 +114,21 @@ it('qualifies source picking, exact account drill-down, draft restore, both outp
     await page.getByRole('button', { name: 'Mail · Work, Ready', exact: true }).waitFor();
     expect(await editor.getByRole('button', { name: /^Remove .* reference$/ }).count()).toBe(2);
     expect(await editor.innerText()).toContain('Keep my question');
+    // Finance questions and library references share the real composer without
+    // losing either kind of content or interpreting an app's text as markup.
+    await page.evaluate(() => (window as unknown as { requestAppChatDraft(chatId: string, text: string): void }).requestAppChatDraft('01900222-2222-7222-8222-222222222222', 'Review <em>my spending</em>'));
+    await expect.poll(() => editor.innerText()).toContain('Review <em>my spending</em>');
+    expect(await editor.innerText()).toContain('Keep my question');
+    expect(await editor.getByRole('button', { name: /^Remove .* reference$/ }).count()).toBe(2);
+    expect(await editor.locator('em').count()).toBe(0);
     const handoffDraft = await page.evaluate(() => (window as unknown as { sourceEditor: { current: ChatInputEditorHandle } }).sourceEditor.current.getMarkerOutput());
     await page.evaluate(ref => (window as unknown as { offerSourceToChat(chatId: string, sourceRef: string): void }).offerSourceToChat('01900333-3333-7333-8333-333333333333', ref), sources[0].sourceRef);
+    await page.evaluate(() => (window as unknown as { requestAppChatDraft(chatId: string, text: string): void }).requestAppChatDraft('01900333-3333-7333-8333-333333333333', 'Explain this account'));
     expect(await page.evaluate(() => (window as unknown as { sourceEditor: { current: ChatInputEditorHandle } }).sourceEditor.current.getMarkerOutput())).toEqual(handoffDraft);
     await page.evaluate(() => (window as unknown as { changeSourceChat(id: string): void }).changeSourceChat('01900333-3333-7333-8333-333333333333'));
     await page.getByRole('button', { name: 'Mail · Work, Ready', exact: true }).waitFor();
     expect(await editor.getByRole('button', { name: /^Remove .* reference$/ }).count()).toBe(1);
+    await expect.poll(() => editor.innerText()).toContain('Explain this account');
     await page.evaluate(() => (window as unknown as { changeSourceChat(id: string): void }).changeSourceChat('01900222-2222-7222-8222-222222222222'));
     await expect.poll(() => editor.getByRole('button', { name: /^Remove .* reference$/ }).count()).toBe(2);
     expect(await page.evaluate(() => (window as unknown as { sourceEditor: { current: ChatInputEditorHandle } }).sourceEditor.current.getMarkerOutput())).toEqual(handoffDraft);
