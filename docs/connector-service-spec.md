@@ -1,561 +1,431 @@
-# Connector service: connect accounts for Ri and other apps
+# Connector sources with Composio first
 
-**Status:** Final proposal. Nothing here is built. **Date:** October 15, 2026.
+**Status:** Final product and architecture specification. Implementation has not started.
 
-**Supersedes** the Ri Connect spec (this file's earlier name, `ri-connect-spec.md`) and [Independent connector platform and Ri integration](integrations-managed-connections-proposal.md). It combines the October 15 planning chat, both documents and their reviews of each other. Outside facts were checked against provider documentation on October 15, 2026 (Sources, at the end).
+**Date:** October 15, 2026.
 
-It builds on the [integrations module spec](integrations-module-spec.md) (§15 prior art, §20 hosted mode), the [auth config spec](integrations-authconfig-spec.md), the [desktop callback relay](desktop.md#hosted-https-callback-relay) and the [beamd hosted auth spec](beamd-hosted-auth-spec.md).
+Ri will support managed connection sources alongside its existing direct connectors. Composio is the first managed source. Users connect their Composio project once, then sign in to supported applications without registering an OAuth app for each one. Ri presents the actual applications and accounts, remembers preferred connection methods, and applies its normal agent permissions and action approvals.
 
-**Name.** The service's name is undecided. This spec calls it **Bridge**, from Trey's "use the Ri connector, bridge or whatever". Renaming it is a find-and-replace before any code exists.
+The owner's independent connector service is a subsequent source, with its own backend, database, and developer interface. Building that service or an OAuth broker is not a dependency of the Composio release.
 
-## Summary
+This is the single specification for this initiative. Existing engine, auth-config, approval, and chat-connection specifications remain the contracts for their respective subsystems.
 
-Ri users shouldn't have to bring their own keys to connect Gmail or Slack. What they're missing is an OAuth app the provider has already approved, and that approval is what Composio and similar platforms sell. Trey wants to own that business rather than resell it.
+## 1. Product decisions
 
-1. **Bridge is a connector service Trey operates, independent of Ri.** It has its own brand, database, dashboard and developer interface. Ri is its first client, and other developers' apps can use it too.
-2. **It has two modes.** In **broker mode**, Bridge holds only its OAuth apps' secrets and helps with sign-in and refresh. Account tokens stay in the user's Ri, and calls go straight to Gmail. In **managed mode**, Bridge holds the account tokens and runs the tools itself, which is what a developer without a Ri home needs.
-3. **Inside Ri, Bridge keeps at home whatever Ri can do at home.** Ri uses broker mode for every app it has tools for, and managed mode only for apps it doesn't. A Ri user's mail never passes through Bridge.
-4. **Ri remembers how each user likes to connect.** Bridge, Composio, a direct connection and the user's own OAuth app are all sources. The user's chosen sources are remembered, one primary **Connect** button uses the preferred one, and **Change method** keeps the rest in reach.
-5. **Delivery is staged.** Provider approvals start now, because they gate everything. Broker mode ships first, since it's the smallest piece and it removes setup from Ri's 13 hardest connectors. Managed mode and the developer interface come next, proven by a second client that isn't Ri. Composio is an optional source that can arrive at any point.
-6. **Ri users pay through the beamd account**, alongside remote access. Developer pricing is set from measured costs. Bringing your own OAuth app stays free.
+- Composio is the first managed source. Existing direct native and MCP connections remain supported.
+- The initial release uses the user's own Composio project and API key, configured once in Ri. Application sign-in then uses Composio-managed authentication where available.
+- Ri does not distribute an operator-owned Composio project key or introduce a centrally funded gateway in this release.
+- Source settings and preferences live in a versioned configuration file in the Ri home. Credentials remain in protected secret storage.
+- Users may enable multiple sources and choose an overall preference and application-specific overrides.
+- A preference chooses how to create a new connection. It does not move accounts, grant permissions, or change the execution backend of an existing connection.
+- The application-first experience and permission model apply equally to Composio and the future independent service.
+- Success is measured by working user workflows and reliable account handling, not the number of advertised integrations.
 
-Decisions already made and those still open are in §16.
+One-time Composio setup is a deliberate first-release tradeoff. This removes per-application developer setup, but it is not a promise of zero credentials or zero external account setup. Composio usage is billed under the user's own plan. Ri does not hardcode vendor prices or promise unlimited usage.
 
-## 1. Terms
+## 2. What the user experiences
 
-| Term | Meaning |
+### Enable Composio once
+
+The user opens **Connectors → Sources → Composio**, or reaches the same panel while connecting an application.
+
+1. Ri explains that Composio will store the connected application's credentials and process calls made through that source.
+2. The user supplies their own Composio project API key through a protected input. Ri links to the vendor's setup instructions.
+3. Ri validates access on the server, establishes the source identity, and saves the key through protected storage.
+4. The first enabled managed source becomes preferred, visibly labeled and easy to change. Enabling another source does not replace that preference.
+5. Ri returns to the application or chat that initiated setup.
+
+Use a project dedicated to this Ri home by default. Do not automatically import every account reachable through a project key. Reusing an existing project does not grant its other users' accounts to Ri.
+
+Browser sign-in to an application and authenticating Ri to Composio are separate steps. Do not label a pasted project key as OAuth sign-in or claim a Composio account-login flow that has not been implemented.
+
+### Connect an application
+
+The main journey after source setup is:
+
+**Connectors → Gmail → Connect → browser consent → verify account → choose agent access**
+
+Ri shows one primary method and a small alternative:
+
+> **Connect Gmail**
+>
+> Using Composio, your preferred source. Composio stores this connection and processes its tool requests.
+>
+> **Connect** · Change method
+
+The completed account appears as **Gmail · Work**, with its verified address, status, and **via Composio** label. The user's own label supplements the verified identity and never replaces it.
+
+Existing connected accounts appear before offers to add another. Work and personal accounts remain distinct even when they have the same application and source.
+
+The same journey works from a chat's existing `request_connection` card. Connecting an account and allowing the asking agent to use it are explicit decisions. After both finish, the existing chat-resume mechanism reloads the permitted tools and continues.
+
+The agent access picker has one application heading, such as **Gmail**, with accounts grouped by connection method underneath. Each account shows its verified identity and source. Managed accounts have individual checkboxes. Any **Select all connected accounts** control selects only the currently displayed accounts, not future ones. The grouping does not merge permission namespaces.
+
+An application with only direct accounts keeps today's **All accounts** option and wording. Once managed accounts appear under the same heading, that option becomes **All direct accounts, including future direct accounts**, so it cannot be read as covering them. Label the exception, not the common case.
+
+For managed Google sign-in, explain that the consent screen names Composio. Link setup details covering shared provider quotas and available scopes. Composio recommends custom OAuth apps for production branding, scopes, and dedicated quotas, but this is not a blanket prohibition on managed authentication. The release must prove the section 4 workflows with the default managed scopes. Do not silently extend those scopes or require users to register an OAuth app to complete the advertised journey. If managed auth cannot support it, resolve that release blocker explicitly. [Managed and custom authentication](https://docs.composio.dev/docs/authentication/custom-app-vs-managed-app).
+
+### Manage accounts and sources
+
+**Your sources** shows enabled sources, their health, and the preferred marker. Other available sources are less prominent. Within an application's method picker, users can choose another enabled source, a direct connection, or their own credentials.
+
+Changing a preference never asks the user to reconnect working accounts. Disabling a source stops Ri from using it and explains which accounts depend on it. It does not silently revoke all accounts in the user's external project.
+
+The UI distinguishes:
+
+- **Remove agent access:** only the selected agent loses access.
+- **Disconnect from Ri:** stop using the selected local connection and explain whether any remote connection remains.
+- **Revoke remote access:** an explicit operation against that exact remote account, with its wider effect stated.
+
+Do not report successful provider revocation when only local access was removed.
+
+## 3. Connection-method selection
+
+Application identity, source identity, auth config, and account identity are separate concepts. Gmail is an application. A user's Composio project is a source instance. An auth config describes authorization. Work Gmail is an account connected through a particular route.
+
+For a new connection:
+
+1. Use an explicitly selected application method if it supports the required capability.
+2. Otherwise use the overall preferred source if it supports that capability.
+3. With no applicable preference, recommend a working direct route first, then another enabled managed source. Unconfigured services come after enabled ones.
+4. If a saved preference is disabled, unavailable, or lacks the capability, explain why and offer the next suitable method. The user chooses before new authorization begins.
+
+An explicit **Change method** selection becomes that application's override. Merely accepting an automatically recommended method does not create an override that would defeat a later overall preference change.
+
+Changing the overall preference preserves explicit application overrides. Removing an override restores the overall rule. Recent activity does not silently reorder preferences.
+
+Once connected, execution always uses that connection's bound source and account. An outage, missing capability, or denied permission never causes account or source failover.
+
+Availability is capability-specific. A source that can read calendar events might not support creating them or feeding Ri's Calendar view. Display relevant limitations before connection, and do not offer a method for a feature it cannot support.
+
+## 4. First-release coverage
+
+Ship the source infrastructure and one complete Composio adapter. Validate these initial agent workflows:
+
+| Application | Required workflow |
 | --- | --- |
-| Application | The thing a user connects, such as Gmail. |
-| Source | Who supplies the connection: Bridge, Composio, a direct connection, or the user's own OAuth app. |
-| Account | One connected account, such as Work Gmail. One application can have several accounts, from different sources. |
-| Mode | How Bridge serves a connection: broker or managed (§3.2). |
-| OAuth app (client) | An app registered with a provider. Users see its name on the consent screen. |
-| Client ID / client secret | The app's public identifier, and its password. The secret turns sign-in codes into tokens and refreshes them, so it can't ship in an open-source download. |
-| Confidential client / public client | An app that keeps a secret on a server, or one that has no secret and proves itself with a PKCE verifier. |
-| Callback address | Where the provider sends the browser after consent. It must exactly match an address registered with the app. |
-| Authorization code | The short-lived, single-use code returned through the browser and exchanged for tokens. |
-| PKCE verifier | A one-time value created at the start of sign-in, without which the code can't be exchanged. |
-| Access token / refresh token | The short-lived token each call carries, usually for an hour, and the long-lived token that gets new ones. |
-| Verification / review | A provider's approval of an app for public use. For Gmail, Google also requires a yearly security assessment (CASA). |
+| Gmail | Find messages and read the selected message or thread |
+| Gmail | Create a draft and send a user-approved message from the selected account |
+| Google Calendar | List events in a requested date range |
+| Google Calendar | Create a user-approved event in the selected calendar |
 
-## 2. The problem
+Each workflow must work with two accounts and with agent access restricted to only one. Sending and event creation use controlled test accounts during verification.
 
-Of Ri's [69 connectors](integrations-current.md), here is what each asks of the user:
+The adapter discovers schemas and executes tools generically. Adding an application should require catalog mapping, capability and risk review, and real-account acceptance rather than a new integration path through Ri. Do not present every vendor-listed toolkit as tested or available automatically.
 
-| What the user must bring | Count | Connectors |
-| --- | --- | --- |
-| Nothing but a browser sign-in (or no account at all) | 46 | Notion, Linear, Atlassian, Airtable, ClickUp, Todoist, Stripe, Figma and the rest of the browser sign-in list, plus Exa, Microsoft Learn and 1Password |
-| Their own registered OAuth app | 13 | Slack, Zoom, HubSpot, Asana, Box, Dropbox, X and Docusign (hosted MCP), Google, Microsoft 365, Salesforce, QuickBooks and Discord (native) |
-| A token or account credentials | 10 | GitHub, Zapier, monday.com, Smartsheet, Wrike (hosted MCP), Mailgun, Plaid, Telegram, WhatsApp and Zendesk (native) |
+The initial supported catalog is Gmail and Google Calendar through Composio, alongside today's direct catalog. Additional Composio applications use the same adapter and become available after the same acceptance process.
 
-Ri won't connect the 13 until a client ID and secret are added in Settings (`src/lib/integrations/hosted-oauth-config.ts` for MCP servers, `provider_not_configured` from the engine for native connectors). Registering an app means a developer console, a callback address, scopes and copied credentials.
+### Calendar view and deck
 
-**Google is the worst case and the most used.** Gmail, Calendar and Drive drive the deck and the calendar. Google's official Gmail, Calendar and Drive MCP servers, still in Developer Preview, also need your own Cloud project and OAuth setup ([integration notes](integration-audit/notes.md)). A project in "Testing" status gets refresh tokens that expire after 7 days and is limited to 100 test users. Publishing one with Gmail access means passing Google's review and a yearly security assessment.
+Google Calendar through Composio also feeds Ri's Calendar view, `get_day_shape`, and deck in this release. A user who connects a calendar should not need a second connection to make the product see it.
 
-**A "direct connection" really means someone else's approved OAuth app.** That approval is the scarce part. Connector code mostly isn't, since providers now run their own MCP servers and Ri already connects to 59 of them.
+Add a typed read adapter at the shared [calendar service](../src/lib/calendar/service.ts), reusing its existing normalized calendar and event contracts. Support calendar discovery and the same selected-calendar rules as direct Google, bounded pagination, time zones, all-day and recurring events, and declined or free-marked events. Preserve account and source provenance. When the same event arrives through direct and managed routes, merge verified copies for display and busy-time calculation without merging account grants.
 
-**Most of the 10 token connectors are a different problem.** A Mailgun API key or a Telegram bot token is the account itself, and no OAuth app removes it. Zapier's server advertises standard MCP sign-in but documents it only for clients on its list, so switching Ri from its token needs a test (§15, phase 1). GitHub could later get a Bridge app.
+During connection, make use by Ri's Calendar and deck visible and controllable. This authorizes the app's specific calendar reads, independently of agent access. Background reads use an app actor and exact account binding, with live source and connection checks. Removing agent access alone does not disable a calendar the user enabled for Ri. Disabling that product use stops its background reads and invalidates its cache.
 
-## 3. What Bridge is
+Carry unavailable and partial-read status through the [deck adapter](../src/lib/deck/calendar-integration.ts). Preserve known busy blocks and identify unknown availability. An outage or unreadable response must not become a confirmed empty calendar or an assertion that the whole day is free. Deck generation can continue with that limitation visible.
 
-### 3.1 Two customers
+Other typed consumers, including the task picker, retain their established contracts. Additional managed applications become eligible for those features only when a corresponding typed adapter is implemented and tested. Setup explains feature-specific limitations before connection.
 
-- **People using Ri** want their applications connected with no setup. For them Bridge is mostly the approved OAuth apps, delivered through broker mode, with their data staying at home.
-- **Developers building other applications** want a service that connects their users' accounts, supplies useful tools and runs them reliably, without anything installed on the user's side. For them Bridge is accounts, tools and execution, delivered through managed mode.
-
-### 3.2 Two modes
-
-| | Broker mode | Managed mode |
-| --- | --- | --- |
-| Account tokens stored | In the client (the user's Ri home) | In Bridge's encrypted credential store |
-| Calls run | From the client, directly to the provider | On Bridge |
-| Bridge sees | Codes and tokens in transit at sign-in and refresh, never content | Tool arguments and results |
-| Needs | Bridge's approved OAuth apps, a fixed callback, the secrets | All of that, plus durable credential storage, tenant isolation, a tool catalog and execution |
-| For | Ri, for every app it has tools for | Developers, and Ri for apps it has no tools for |
-
-"Tokens stay at home" is a promise of broker mode and direct connections only. Every setup screen states the mode's custody before consent (§8.6).
-
-### 3.3 Authorization and tools are separate questions
-
-1. How is account access obtained and refreshed?
-2. Who supplies and runs the tools?
-
-Broker mode answers only the first: Bridge authorizes, and Ri's existing native or MCP tools do the work. Managed mode answers both. A provider's own MCP server with plain sign-in answers both on its own. Keeping the two apart means adding an authorization route never replaces working tools, and adding a tool source never redefines who owns an account.
-
-### 3.4 Why build it rather than resell a platform
-
-- **The approvals are the asset.** A Gmail app that passed Google's assessment, a Slack Marketplace listing and a verified Microsoft publisher belong to whoever holds them. Reselling Composio means paying its per-call fees and absorbing its changes. It moved new customers to new pricing on August 15, 2026, discontinued Rube, its previous one-URL product, on May 16, and removed its managed X credentials in February.
-- **Broker mode is a position no major platform offers.** Composio, Pipedream and Arcade all hold every user's tokens. "Approved apps, with tokens kept in your own app" is a distinct pitch for local-first and privacy-sensitive developers, and Ri proves it first.
-- **Ri's engine already stands alone.** `packages/integrations` was built so that "hosted is just the biggest host" ([module spec §20](integrations-module-spec.md#20-hosted--multi-tenant-mode-the-paid-offering)).
-
-### 3.5 What Bridge must never be
-
-A single opaque connector. Composio's one-URL server, for example, exposes generic "search tools" and "execute tool". Ri decides approvals by tool name (`src/lib/integrations/mcp-approval-policy.ts`), so reading an inbox and sending an email would arrive as the same call. The accounts would also be invisible to Ri's Connectors list, per-agent access and audit. Bridge, and any Composio adapter in Ri, exposes real accounts and real action identities (§5.3).
-
-## 4. Architecture
-
-### 4.1 Three boundaries
-
-| Component | Responsibility |
-| --- | --- |
-| Shared connector engine (`packages/integrations`) | Provider definitions, auth, the account and action model, schema validation, execution policy, redaction and audit events |
-| Bridge | Developer organizations and projects, end-user identities, connections, hosted credentials, broker endpoints, scoped execution, API and MCP access, dashboard, billing and operations |
-| Ri | Application browsing, sources and preferences, account presentation, per-agent access, approval cards, local data, and the connection experience |
+## 5. Architecture
 
 ```mermaid
 flowchart LR
-    R[Ri Connectors] --> D[Direct native or MCP tools]
-    R --> B[Bridge broker]
-    R --> M[Bridge managed]
-    R --> C[Composio adapter]
-    X[Other apps and agents] --> M
-    X --> B
-    B -. sign-in and refresh .-> A[External applications]
+    U[Ri Connectors and chat] --> R[Ri connection and permission layer]
+    R --> D[Existing direct native and MCP connectors]
+    R --> C[Composio source adapter]
+    C --> P[User's Composio project]
+    P --> A[External applications]
     D --> A
-    M --> A
-    C --> H[Composio] --> A
+    R -. subsequent source .-> S[Independent connector service]
+    X[Other applications] -. service clients .-> S
+    S -. authorized operations .-> A
 ```
 
-Broker traffic is authorization only. It never adds a hop to an application call.
+Ri's home is the trusted host. The browser and model do not receive a source credential, an unrestricted vendor session, or a callable gateway that bypasses Ri's enforcement.
 
-### 4.2 Independence rules
+The source adapter handles discovery, connection lifecycle, account metadata, tool schemas, and execution. It feeds the existing integration engine's action pipeline. It does not create a second approval system.
 
-- Bridge is its own web application and backend with its own database and migrations, deployable and usable without Ri. Its records and hosted credentials never live in Ri's SQLite database.
-- It uses the beamd account for sign-in and billing, so a Ri user doesn't need another password. Its API, credentials and scopes are its own.
-- Its public interface never needs a Ri workspace ID, chat record or approval screen. Ri gets nothing private: special treatment for Ri lives in onboarding and presentation, with the same ownership and permission checks underneath.
-- The engine never depends on Ri's task database, React components or chat machinery. It already doesn't.
-
-### 4.3 Existing code to build on
-
-| Component | Use |
+| Responsibility | Existing foundation |
 | --- | --- |
-| [Engine types](../packages/integrations/src/core/types.ts) | The provider, toolkit, connection, action and port concepts, unchanged |
-| [OAuth2 strategy](../packages/integrations/src/auth/oauth2.ts) and [runtime](../packages/integrations/src/core/runtime.ts) | The broker port's three call sites (§8.1) |
-| [MCP ingestion](../packages/integrations/src/mcp/ingest.ts) | Managed and Composio tools enter Ri's action pipeline with provenance and account bindings |
-| [MCP serving](../packages/integrations/src/mcp/serve.ts) | The pattern for Bridge's MCP surface for developers |
-| [Host runtime](../src/lib/integrations/runtime.ts) | Local connection lifecycle and refresh |
-| [Agent account filtering](../src/lib/integrations/workspace-filter.ts) | Which accounts each Ri agent may use |
-| [Approval flow](integration-approvals.md) | Ri's approval cards, unchanged |
-| [Desktop callback relay](desktop.md#hosted-https-callback-relay) | The fixed callback's **Open Ri** page for the desktop app |
+| Provider, toolkit, connection, action, and error contracts | [Engine types](../packages/integrations/src/core/types.ts) and [errors](../packages/integrations/src/core/errors.ts) |
+| Runtime and protected connection storage | [Ri runtime](../src/lib/integrations/runtime.ts) and [file store](../packages/integrations/src/store/file.ts) |
+| Host-owned authentication for an exact account | `Provider.externalAuth.forConnection` in [engine types](../packages/integrations/src/core/types.ts) |
+| Account-bound external actions and schema handling | [MCP ingestion](../packages/integrations/src/mcp/ingest.ts) |
+| Agent account filtering | [Workspace filter](../src/lib/integrations/workspace-filter.ts) and [scope pins](../src/lib/integrations/scope-pins.ts) |
+| User approval policy | [Approval specification](integration-approvals.md) |
+| Connection requests and chat continuation | [Connection requests](../src/lib/integrations/connection-requests.ts) and [chat connection specification](connecting-from-chat.md) |
+| Configuration paths and atomic writes | [Integration storage](../src/lib/integrations/storage.ts) and [atomic file helpers](../src/lib/config/atomic-file.ts) |
 
-## 5. Identity and authority
+Reuse these boundaries where they fit. Do not force Composio into a raw MCP-server URL if that hides downstream accounts or action identities. Extend shared external-action registration where necessary.
 
-### 5.1 Who's who
+Keep vendor API shapes inside the adapter. The common contract covers listing applications and capabilities, starting and verifying authorization, listing bound accounts, inspecting health, reconnecting, disconnecting, fetching tool definitions, and executing one concrete action. Keep vendor-specific features explicit rather than inventing identical semantics across all sources.
 
-- **Developer organization and project.** A developer's account and an app they build. Ri is a project too, the first one.
-- **End user.** A person whose accounts a project connects. For Ri, the end user is the home's owner.
-- **Client.** What calls Bridge. A Ri home is a client acting for its owner, with an **install key**. A developer's backend is a client with a project key.
-- **Connected account.** One account at a provider, owned by one end user within one project.
+Internal UI calls use tRPC and shared domain operations. OAuth callbacks and external protocols retain HTTP endpoints. Server registries and work-in-flight state use `processState`. Secrets, identity checks, and execution remain server-side.
 
-Ownership comes from authenticated credentials. A user ID or account ID in a request is never evidence that the caller owns it. Isolation is enforced in storage queries as well as in the runtime.
+## 6. Configuration and credentials
 
-### 5.2 Install keys for Ri homes
+Use `<config-dir>/integrations/preferences.json`, resolved through `getIntegrationsDir()`. It holds safe source metadata and preferences. The following illustrates the version 1 shape:
 
-A home turns Bridge on with its beamd sign-in and trades it, once, for an install key: narrow, tied to that home, listed in the beamd dashboard and revocable there. Ri never keeps using the beamd device token, which also works as a full beamd dashboard credential (§9.1). Ri stores the install key sealed with its other integration secrets and registers it with the `Redactor`.
-
-### 5.3 Grants, approvals and generic tools
-
-In managed mode, Bridge enforces a **grant** on every call: which accounts and actions a client may use, with limits and an expiry. It never trusts an "approved" flag in a request.
-
-A person approving an action is the client's own policy, not Bridge's. Ri shows its approval cards as it does today, and then calls Bridge within its grant. A developer's unattended backend may hold a standing grant instead. Either way Bridge checks the grant, and a client can never exceed what its grant allows. This settles the open question in the earlier managed proposal of how a human approval crosses into the hosted service. It doesn't have to: the client decides whether a person must approve, and Bridge enforces the limits.
-
-Discovery can be generic, and execution never is. "Search my work inbox" and "send this email" may share a transport, but each call names its action and account, gets its own permission decision and audit record, and keeps its schema version. A generic executor, a batch or a sandbox is exposed only when every operation inside it can be checked just as precisely.
-
-Adding a connection or updating the catalog never widens a grant. Revoking access takes effect on the next call, and a failed call never falls back to another account or source.
-
-## 6. Broker mode
-
-### 6.1 Two kinds of broker app
-
-Several providers allow public clients with no secret: Slack (PKCE, generally available since March 30, 2026), Dropbox, Zoom, Microsoft, X and Google's Desktop client type. Microsoft's guidance also warns against the broker pattern itself: "Do not forward security credentials or tokens from confidential to public clients." So broker mode has two kinds of app.
-
-| | Brokered app | Public app |
-| --- | --- | --- |
-| OAuth client | Confidential, with the secret on Bridge | Public, with no secret |
-| Callback | Bridge's fixed address | Bridge's fixed address |
-| Who exchanges and refreshes | Bridge, adding the secret | The client, directly with the provider |
-| Tokens through Bridge | In transit at sign-in and each refresh, never stored | Never |
-| When a subscription ends | Refresh stops, so access ends within one access token's life | New sign-ins stop at once. Existing accounts stop when the client checks its status. |
-| Providers | Google, Slack, HubSpot, Asana, Docusign, QuickBooks, Zoom, Dropbox | Microsoft 365 |
-
-**Brokered is the default.** It can cut off an abusive user's existing connections and enforce a cancelled subscription, and some providers expect confidential clients. Slack's MCP guide uses one, and Google's web clients still send the secret along with the PKCE verifier.
-
-**Why not make every app public?** The fixed callback would still have to live on Bridge, because Google's Desktop clients accept only loopback addresses and a phone reaching Ri through a tunnel can't use one. A public app also gives Bridge no way to stop an abusive user's refreshes, so one person could keep using the Gmail approval after being cut off.
-
-**Why not broker Microsoft too?** Microsoft says not to, and publisher verification is how Microsoft vouches for an app. Whether Microsoft's public-client platform accepts an HTTPS callback on Bridge needs confirming at registration. Slack's PKCE mode is one-way, so Bridge's Slack app stays confidential and PKCE is tested only on a separate app.
-
-### 6.2 Connecting an account
-
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant R as User's Ri
-    participant S as Bridge
-    participant P as Provider (Google)
-    R->>R: create state and PKCE verifier (kept at home)
-    R->>S: register sign-in (install key, provider, state, PKCE challenge, return address)
-    S-->>R: accepted
-    R->>B: open the authorization URL (Bridge's client ID, the fixed callback)
-    B->>P: user consents to Bridge's app
-    P->>B: redirect to the fixed callback with code and state
-    B->>S: callback
-    S->>B: redirect to the return address with code and state
-    B->>R: Ri's normal callback route
-    R->>S: exchange (install key, code, PKCE verifier)
-    S->>P: code, verifier, client secret, fixed callback
-    P-->>S: tokens
-    S-->>R: tokens (nothing stored)
-    R->>R: identify the account, seal tokens, save the connection
-```
-
-1. Ri starts sign-in as it does today, with a single-use state and a PKCE verifier sealed in Ri.
-2. Ri registers the sign-in with Bridge: install key, provider, state, the PKCE challenge (not the verifier) and its current callback address. Bridge checks the subscription and the provider and keeps the record for 10 minutes. Ri then builds the authorization URL itself, with Bridge's client ID and fixed callback. Building it at home keeps native connectors and MCP servers on one path, since the MCP SDK builds its own URL (§8.2).
-3. The user consents on the provider's page.
-4. The provider sends the browser to the fixed callback. Bridge finds the sign-in by its state, marks it used, and sends the browser on to the user's Ri with the same code and state. The desktop app gets the relay's **Open Ri** page instead.
-5. Ri's normal callback route checks the state.
-6. For a brokered app, Ri sends Bridge the code and the PKCE verifier. Bridge adds the secret and the fixed callback, calls the provider's token endpoint, and returns the response as is, storing nothing. For a public app, Ri redeems the code with the provider itself, and Bridge never sees a token.
-7. Ri identifies the account, seals the tokens and saves the connection, exactly as today.
-
-The sign-in is one transaction bound to the install, the provider, the client, the code and the registered return address. A code taken from the browser is useless on its own, because redeeming it needs both the verifier (held only by Ri) and the secret (held only by Bridge). PKCE doesn't keep Bridge out, though. At exchange, Ri sends Bridge the verifier, so Bridge holds everything for that sign-in and receives the tokens. That's the in-transit exposure in §6.6.
-
-Bridge sends browsers only to an HTTPS origin, or to `localhost` or `127.0.0.1`, on a registered callback path, and only to the address registered with that sign-in. Every sign-in returns to one fixed address, whether the user is on the Mac running Ri, on a phone through the tunnel, or in the desktop app. That also ends the stale-callback problem `src/lib/integrations/live-callback.ts` works around for these connections. Bridge's callback is off Ri's own paths, so the rebase leaves it alone by design.
-
-### 6.3 Using and refreshing
-
-Calls go from Ri to the provider with the access token, exactly as now. Bridge never sees them. None of the providers checked needs the client secret on ordinary API calls, only at the token endpoint.
-
-When a token expires, Ri's refresh logic runs unchanged: single-flight, rotate-or-preserve, saved before use ([module spec §9](integrations-module-spec.md#9-auth--the-refresh-algorithm-where-bulletproof-actually-lives)). For a brokered app the refresh token goes to Bridge, which checks the install key and subscription, adds the secret and returns the new tokens. That's at most one small request per account per hour, and only while the account is in use. For a public app, Ri checks its cached Bridge status and refreshes with the provider directly.
-
-**A lost refresh response.** Some providers rotate refresh tokens and accept each one only once (Slack with rotation, Box). If Bridge refreshes and its response never reaches the home, the home is left holding a used token. So each brokered refresh carries a request ID and a one-time public key from the home. Bridge keeps the response for two minutes, encrypted to that key, and a retry with the same ID gets the same answer instead of a second refresh. Only the home can read what's kept.
-
-Disconnecting revokes at the provider, as today, through Bridge where the revoke endpoint needs the secret.
-
-### 6.4 When a subscription ends
-
-Bridge stops new sign-ins at once and, for brokered apps, stops refreshing. Each account keeps working until its current access token expires.
-
-| Provider | Kind | The longest an account keeps working |
-| --- | --- | --- |
-| Google | Brokered | 1 hour |
-| Slack | Brokered | 12 hours with token rotation, which Bridge's app must turn on. Rotation can't be turned off later, and without it Slack tokens never expire. |
-| Dropbox | Brokered | Short-lived, set by the response's `expires_in`, commonly 4 hours |
-| Zoom, Asana, QuickBooks | Brokered | 1 hour |
-| HubSpot | Brokered | 30 minutes |
-| Docusign | Brokered | 8 hours |
-| Microsoft 365 | Public | No hard stop. New sign-ins stop at once, and existing accounts stop when the home next checks. Tokens last 60 to 90 minutes, or 20 to 28 hours for clients that support Continuous Access Evaluation. |
-| Discord | Brokered | 7 days |
-
-Lapsed connections aren't torn down. Renewing brings an account back without reconnecting, as long as the provider's grant is still valid. Grants also end on their own: Google expires a refresh token left unused for six months, one with Gmail scopes when the user changes their password, and any beyond 100 per account per OAuth client. Those accounts need an ordinary reconnect. While lapsed, a call returns a clear "Bridge is off" state with two ways forward: renew, or reconnect with another source.
-
-### 6.5 Abuse and blast radius
-
-- **One user can hurt everyone.** A single person sending spam through Bridge's Gmail app could get it suspended for every user and every developer. In broker mode Bridge never sees calls, so its lever is stopping one subscriber's sign-ins and refreshes, which is the main reason brokered is the default.
-- **Consent phishing.** Anyone with an install key can start a sign-in and send the link to someone else, who sees a genuine consent page for Bridge's app. Install keys come only from paid accounts, new sign-ins are rate-limited per install, sign-in records expire in 10 minutes, and installs and accounts can be revoked.
-- **Kill switches** per install, per account, per developer project and per provider.
-
-### 6.6 What Bridge keeps in broker mode
-
-| | |
-| --- | --- |
-| Keeps | Client secrets. Install keys, hashed. Sign-in records for 10 minutes. Refresh responses for two minutes, encrypted to a key only the home holds. Rate-limit counts. |
-| Sees in transit, never stores | Authorization codes passing through the callback. For brokered apps, tokens in exchange and refresh traffic. |
-| Never sees | Mail, files, messages, events, API calls or their results. Any token of a public app. |
-
-Non-retention covers logs and observability as well as tables. Request bodies and the callback's query string are never logged, and the hosting and CDN logs are turned off for those routes too.
-
-## 7. Managed mode
-
-### 7.1 What it adds
-
-Bridge holds connected accounts' credentials, refreshes them and runs tools for authorized clients. A developer can use it with nothing installed on the user's side and no home that has to stay online.
-
-- **Credential storage.** Envelope encryption with a key management service and per-tenant keys. beamd-web has no KMS today, so this is new work and a prerequisite.
-- **The hosting hardening in [module spec §20](integrations-module-spec.md#20-hosted--multi-tenant-mode-the-paid-offering).** A distributed lock for single-flight refresh, tenant isolation at the data layer, owner-scoped management of OAuth apps, rate limits, quotas, observability and audit retention.
-- **Tools.** Providers' own MCP servers and native actions, through the same engine and its gates. The catalog grows only through real-account validation. Registering an OAuth app doesn't create tools, and ingesting an MCP server doesn't prove every advertised workflow works.
-- **Outcomes.** Results, approval requests from the client's own policy, reconnect requirements, failures and uncertain writes stay distinct. A write that may have reached the application is never replayed automatically.
-- **Data handling.** Tool arguments and results are processed in memory and not kept. Audit records keep action, account, time, status and sizes, not content, for a retention period set in the data policy (§16).
-
-### 7.2 The developer interface
-
-Conceptual responsibilities, not finalized endpoints:
-
-| Capability | What a client gets |
-| --- | --- |
-| Application discovery | Supported applications, their capabilities and their connection requirements |
-| Connection lifecycle | A hosted connect page under Bridge's brand, verified completion, health, reconnect and disconnect |
-| Tool discovery | Action identifiers, descriptions, schemas and provenance, within what the grant allows |
-| Grants | Allowed accounts and actions, limits, expiry and revocation |
-| Execution | One concrete, validated action under a valid grant |
-| Outcomes | Results, approval and reconnect requirements, failures and uncertain states |
-
-The same surface is offered as an API and as an MCP server. Broker mode is offered to developers too, for apps that want to keep tokens in their own backend.
-
-### 7.3 Ri and managed mode
-
-Ri uses managed mode only for applications it has no tools for. Their tools enter Ri through MCP ingestion as real, namespaced actions with provenance and account bindings. Ri's approval cards, audit and per-agent access then apply to them exactly as they do to an MCP server's tools. The setup screen says plainly that the account is held by Bridge (§8.6).
-
-## 8. Changes in Ri
-
-### 8.1 The engine
-
-The runtime sends a client secret to a provider at exactly three call sites in `packages/integrations/src/core/runtime.ts`: refresh (around line 357), code exchange (around line 569) and revoke (around line 1240).
-
-- **Broker configs.** `AuthConfig` gains an optional `tokenBroker` naming a registered broker. Such a config carries a client ID and Bridge's fixed callback, never a secret, and registration rejects one that has a secret.
-- **A `TokenBroker` port**, the same shape as the token half of the OAuth flow:
-
-  ```ts
-  interface TokenBroker {
-    exchangeCode(input: { providerId: string, authConfigId: string, code: string, codeVerifier?: string, redirectUri: string }): Promise<TokenSet>
-    refresh(input: { providerId: string, authConfigId: string, refreshToken: string }): Promise<TokenSet>
-    revoke?(input: { providerId: string, authConfigId: string, token: string }): Promise<void>
+```json
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "source_01",
+      "kind": "composio",
+      "label": "Composio",
+      "enabled": true,
+      "remoteUserId": "ri_user_01"
+    }
+  ],
+  "preferredSourceId": "source_01",
+  "applicationMethods": {
+    "gmail": {
+      "sourceId": "source_01"
+    }
   }
-  ```
+}
+```
 
-  At the three call sites, a config with a `tokenBroker` takes exchange, refresh and revoke from that broker. The authorization URL still comes from the provider, and single-flight, rotate-or-preserve and persist-before-return stay where they are.
-- **One broker client for both kinds of app.** For a brokered app it calls Bridge. For a public app it checks the cached Bridge status, then calls the provider's own flow with no secret. Both kinds share one status check and one error mapping.
-- **Errors keep their meaning.** Provider OAuth errors pass through unchanged, so `invalid_grant` still means `needs_reauth`. A lapsed subscription, a revoked install or a paused provider is `auth_config_unavailable` and leaves the connection `active`. Bridge being down or rate limiting is `provider_unavailable`, which is transient.
-- **Secret confinement.** The sentinel test ([module spec §17](integrations-module-spec.md#17-testing-contract-the-spine-must-be-proven)) gains the install key: it never reaches the model, tool output, errors, logs, audit or UI.
+Source IDs and remote user IDs are generated opaque values, immutable after creation. Examples above are placeholders. The file can represent several instances of a source kind, such as separate personal and work projects.
 
-### 8.2 MCP-server sign-ins (Slack, Zoom, HubSpot and others)
+A managed method has the shape `{ "sourceId": "source_01" }`. A direct method has the shape `{ "kind": "direct", "providerId": "google", "authConfigId": "user-google" }`, with `authConfigId` optional. Validation accepts exactly one shape. Direct connections are always available through the existing catalog and do not require a fake managed source entry. Do not repurpose `authConfigId` as a source identifier.
 
-- The sign-in is registered with Bridge from the MCP OAuth provider's `onRedirect` hook (`src/lib/integrations/mcp-oauth.ts`), where the SDK hands Ri the authorization URL with its state and PKCE challenge. The return address is Ri's usual MCP callback (`/api/integrations/mcp-oauth/builtin_<provider>`).
-- A brokered client gives the SDK only its client ID (`mcpOAuthProviderFor` in `src/lib/integrations/runtime.ts`). The SDK's token requests go to Bridge through its fetch hook (`fetchFn`), matched only against the provider's trusted token endpoint, and Bridge adds the secret by the catalog profile's method.
-- `resolveHostedOAuthConfig` in `src/lib/integrations/hosted-oauth-config.ts` gains a branch for broker configs. Today it rejects a config without a secret when the profile needs one, and one whose callback isn't Ri's own.
+Persist a verified project binding when the vendor exposes one. Source credentials are stored separately, sealed using the integration secret-storage boundary and keyed by source ID. Account references remain in connection storage. This file contains no API keys, tokens, session URLs, or client secrets.
 
-### 8.3 Where Bridge's apps come from
+Requirements:
 
-`getIntegrationAuthConfigRegistry` in `src/lib/integrations/runtime.ts` already composes bundled public clients, env clients and saved apps. Bridge adds one more layer: a `global` config for each app Bridge offers this home, with stable IDs (`bridge-google`, `bridge-slack`), because a connection is bound to the config that minted it.
+- Missing file means no saved source preferences and preserves today's direct behavior.
+- Validate input and file contents. Reject unsupported versions without rewriting them.
+- A malformed file is reported and preserved. Do not silently reset it or broaden access.
+- Writes are atomic and serialized with the existing cross-process file lock. Read the current revision under the lock before applying a partial mutation.
+- Validate source and method references before use. Stale preferences are displayed as unavailable until changed.
+- Preferences belong to the Ri home. Every device viewing that home sees the same choices. A separate home has separate settings.
+- Keep source provisioning recoverable across the config and secret stores. An entry without a valid credential is incomplete and cannot execute. Never publish credentials in configuration events or API responses.
+- Key rotation preserves identity only after verifying it still accesses the same source project and bound accounts. Otherwise create a new source instance and require explicit account selection.
+- Disabling or removing a source invalidates its cached runtimes and sessions. Never reuse a removed source ID.
 
-- **Staged scopes.** Each config's `allowedScopes` is the set the provider has approved so far. The engine already refuses a request outside it with `scope_not_allowed`, on first sign-in and on incremental consent ([auth config spec §6a](integrations-authconfig-spec.md#6a-outcome--error-contract-additions-first-class-reserved-in-canonical-now)). So Google can ship with Calendar, Docs and Sheets, and Gmail turns on later through incremental consent with no reconnecting.
-- **Cached, never deleted.** Ri caches the list. When Bridge lapses or is turned off, its configs become `disabled`: no new connections, but refresh and revoke still allowed, and no deletion while connections use them ([lifecycle rules](integrations-authconfig-spec.md#8-authconfig-lifecycle-purpose-aware)). The broker client refuses the refresh, and renewing switches them back to `active`.
-- **Bridge offers Ri only the apps where it adds something:** an approved app Ri can't otherwise use, or tools Ri doesn't have. Where Ri can connect directly with a plain sign-in, Bridge's route is that direct connection, and Bridge holds nothing.
+The preference file itself requires no SQLite migration. Source metadata and backward-compatible connection extensions should use existing storage where appropriate. If correct account or permission representation requires a database change, use an ordinary forward migration. Avoiding a migration is not a reason to overload identity fields.
 
-### 8.4 Sources and remembered choices
+No reset, automatic credential transfer, or forced reconnect is required for existing direct connections.
 
-Ri knows four kinds of source:
+## 7. Identity and agent permissions
 
-| Source | When it's useful |
+The local owner sentinel is not a globally unique external user ID. Generate and persist a stable Composio user ID per source instance and Ri owner. Reuse it for authorization, account discovery, and execution. Do not derive it from an email address or allow the model to choose it.
+
+This release assumes one Ri owner per home. Future team homes need a separate external user binding per member and explicit shared-account grants. Never reuse the single-owner binding as implicit access for every member.
+
+A managed account binding identifies:
+
+- The Ri owner and immutable source instance.
+- The remote user and remote connected-account ID.
+- The remote toolkit and auth config where relevant.
+- The provider-side account identity, verified when available.
+- Its local connection ID and health.
+
+A managed connection's `accountId` is the Composio connected-account ID. Keep verified email and provider identity as metadata, not the permission key. The enclosing managed namespace supplies source isolation, and `authConfigId` retains its real auth-config identity. The local connection ID remains Ri's record ID.
+
+Use `Provider.externalAuth.forConnection` for host-owned authentication and exact-account transport selection. It already excludes native token access and fallback to another connection. Extend the stored credential/reference representation as needed for an explicit managed reference. The hook does not mean the current credential union already supports one. A remote account reference is not an OAuth token, and must not be disguised as a bearer token. Its current-binding check must reject replaced or removed bindings, including changes made by another process.
+
+Namespace managed provider, toolkit, and action identities by source instance and remote identity. Application aliases such as Gmail group them in the UI. Existing native action IDs and toolkit IDs stay unchanged. Two routes to the same email address are distinct connections.
+
+Preserve legacy account pins and fail-closed resolution. New managed agent grants contain explicit accounts. Do not generate an unbounded account grant when enabling a source or finishing consent.
+
+The existing [scope schema](../src/lib/db/schema.ts) treats an omitted account list as all accounts, including future accounts. Preserve that behavior within existing direct toolkit namespaces. A newly added managed source must have a distinct namespace, so it cannot enter those old grants implicitly. Do not introduce an **All future accounts** option for managed sources in this release.
+
+When a new remote connected-account ID replaces an old one, require an explicit rebind and grant confirmation. Email equality alone is insufficient to transfer permissions. A reconnect that preserves the remote binding can preserve its existing grants after verification.
+
+Catalog updates do not grant new capabilities automatically. New actions pass the supported-catalog review and existing approval policy. Changed schemas invalidate incompatible cached tools and pending approvals.
+
+## 8. Composio connection lifecycle
+
+Use a verified current Composio TypeScript SDK, at least `@composio/core` 0.19.1, and pin the exact dependency version tested by the adapter proof. This is a minimum compatibility requirement, not a recommendation to install that historical version. Composio's current model uses stable user IDs, hosted Connect Links, and managed token storage and refresh. Ri retains account references instead of retrieving provider OAuth tokens. [Authentication](https://docs.composio.dev/docs/authentication), [token custody](https://docs.composio.dev/docs/security/token-custody), [SDK configuration requirements](https://docs.composio.dev/docs/configuring-sessions).
+
+### Authorization
+
+1. Resolve the source, application, requested capability, and configured authentication method on the server.
+2. Store a bounded, single-use connection attempt bound to the Ri owner, source, remote user, toolkit, initiating chat where applicable, and allowed return destination.
+3. Ask Composio for a Connect Link through its supported authorization API.
+4. Open the link in the user's browser. No agent-visible API key or unrestricted source session is involved.
+5. Verify completion through Composio, checking the returned account against the stored attempt and expected user, source, and toolkit.
+6. Read verified account metadata, save the local reference idempotently, and present agent access choices.
+
+Callback query parameters and a success redirect are not proof of ownership. Composio documents server-side verification of the connection attempt and authenticated user. [Manual authentication](https://docs.composio.dev/docs/authentication/manually-authenticating).
+
+Use the existing home callback and desktop return mechanisms where supported. Bounded server-side status polling can finish the same stored attempt when a browser redirect cannot reach the home. Verify the flow from the host, a phone viewing the home, and the desktop app.
+
+An abandoned, expired, mismatched, or replayed attempt creates no grant. Restart recovery must reuse or reconcile the recorded attempt rather than start duplicate authorizations.
+
+The vendor controls Connect Link expiry. Bound the local attempt by the link response's required `expires_at` and any shorter local timeout. Generate a fresh link when it expires. A polling timeout is not proof that authorization failed, so reconcile the existing attempt before offering another. [Connected accounts and link expiry](https://docs.composio.dev/kb/guide/platform-connected-accounts).
+
+### Discovery and reconnect
+
+Discover only accounts belonging to the bound remote user. Require explicit selection before importing an existing account or granting it to an agent. Project-key access to other remote users is not authorization to expose their accounts.
+
+The first release creates a dedicated remote user for each source binding. Accounts already present under that binding can be reused. Accounts belonging to another remote user in the same project require fresh authorization for Ri. Do not imply that supplying a project key automatically imports an existing Composio setup.
+
+Use explicit multi-account authorization for **Add another account**. Display verified identity separately from aliases. Account discovery and reconnection never select the newest account as an implicit replacement.
+
+Composio owns token refresh. Ri maps actual expired or revoked account state to reconnect, while source-key failures, quotas, and transient outages remain separate. It does not implement a parallel provider refresh loop.
+
+### Disconnect and revocation
+
+Block new local calls immediately when access is removed, and invalidate affected sessions and pending approvals. Remote cleanup can be retried independently.
+
+Composio distinguishes disabling, revoking, and deleting an account, and upstream revocation may be unsupported or fail. Choose the operation matching the user's stated scope and report partial cleanup accurately. Never delete an entire remote user or project as part of disconnecting one account. [Connected-account API](https://docs.composio.dev/reference/api-reference/connected-accounts).
+
+## 9. Tool discovery and sessions
+
+Use Composio's current session API for agent tools behind the adapter. Its `DIRECT_TOOLS` preset preloads tools and is incompatible with session multi-account mode. Use a separate session for each selected account, with `multiAccount.enable: false` and an explicit `connectedAccounts` binding. Two Gmail accounts therefore use two sessions. [Session configuration](https://docs.composio.dev/docs/configuring-sessions).
+
+Ri controls discovery and projects only the permitted, supported actions into its existing harness tool surface. Search may be generic, but execution must resolve to one concrete action and account before authorization or approval.
+
+Per-account sessions are an execution detail, not a tool shape. Project one tool per action for each source instance, with the existing `account` parameter choosing among that route's granted accounts, as direct multi-account tools do today. The adapter routes each call to the selected account's session. Two Gmail accounts never produce two copies of the same tool.
+
+### Session construction and lifecycle
+
+Create sessions privately, apply restrictions, then read back the server configuration and concrete tool list before registering them with Ri. Required TypeScript settings are:
+
+| Stage | Settings |
 | --- | --- |
-| Direct connection | The provider's own server offers plain sign-in and the tools (the 46). Always available. |
-| Bridge | It removes developer setup or supplies tools Ri lacks. Enabled by turning Bridge on. |
-| Composio, or another platform | The user chose it, or it covers an application nothing else does. Enabled with the user's own platform account. |
-| Your own OAuth app | The user wants to run their own app, or a service needs an account key. Always available, under Advanced. |
+| Create | Positive toolkit and action allowlists, exact `connectedAccounts`, `SessionPreset.DIRECT_TOOLS`, `multiAccount.enable: false`, `sandbox.enable: false`, `manageConnections.enable: false`, `proxyExecute.enable: false` |
+| Update before use | `search.enable: false`, `execute.enableMultiExecute: false`, `manageConnections.enableConnectionRemoval: false` |
 
-The rules for a new connection:
+The latter switches are update-only. Set `proxyExecute` explicitly even though omitting it leaves `COMPOSIO_PROXY_EXECUTE` off, because that helper sends arbitrary authenticated requests to the provider API and is the broadest executor a session can expose. Reject unexpected tools, including any `COMPOSIO_*` helper. Never publish a partially configured session. On failure, deny local use and clean up the vendor session. [Configuration switches](https://docs.composio.dev/docs/configuring-sessions).
 
-1. **A choice made for an application sticks.** Picking a method for Gmail makes it Gmail's method, without changing anything else.
-2. **There is one overall preferred source.** The first service a user turns on becomes it, shown and easy to change. Turning on a second service keeps both available and doesn't replace the preference. The user can make the new one preferred.
-3. **Connect uses** the application's choice first, then the overall preferred source if it offers the application.
-4. **With no preference that applies, Ri recommends** in this order: a direct connection, Bridge, then other enabled sources. Sources the user hasn't turned on come last.
-5. **A preferred source that can't do what's needed** is skipped with a one-line explanation, and the next route is offered.
+Additional requirements:
 
-Preferences stay put until the user changes them, and recent use never reorders them. A preference chooses a setup path for new connections only. It never moves an existing account, grants an agent access or changes where tokens are held. Gmail connected directly keeps that connection after Composio becomes preferred. Moving an account to another source is an explicit reconnect, usually with fresh consent. A failed call never substitutes another account or source.
+- With no allowed actions, create no session and invalidate/delete any existing one. Never substitute `null`, omitted restrictions, or an empty denylist for denial.
+- Key a session by its source, remote user, exact account, and allowed-action set with its policy revision. Callers whose grants for that account are identical can share it, because the harness never holds the session and Ri checks the live caller before every call. A chat is part of Ri's authorization and audit, not of the vendor session. Never reuse a session across owners, accounts, or different action sets.
+- Create a session on the first call that needs it, not when a chat starts. A chat that never uses an account costs no vendor session.
+- Keep session IDs and MCP URLs server-side. Never hand the harness a vendor URL that bypasses Ri.
+- Recheck live Ri access before every call. Invalidate local use immediately on permission changes, then construct a replacement session through the same validation sequence. Delete obsolete sessions. Do not rely on partial map updates to preserve restrictions.
+- Persist enough server-only lifecycle metadata to clean up orphaned sessions after restart. Failed remote cleanup cannot restore local access.
 
-### 8.5 Storage
+Composio sessions otherwise resolve newly connected accounts dynamically. Explicit account overrides prevent fallback to another account. Its sessions also persist until deleted, so Ri must manage their lifecycle. [Session restrictions and lifecycle](https://docs.composio.dev/kb/guide/mcp-tool-router-sessions).
 
-- **Preferences** live in `<config-dir>/integrations/preferences.json`, beside the existing connector files (`getIntegrationsDir()` in `src/lib/integrations/storage.ts`). The file is versioned, written atomically under the existing file lock, and read backward-compatibly, and it never holds a key, token or secret. A missing file means no preference and today's behavior. Preferences belong to the home, so every device viewing it sees the same choices, and separate homes keep their own.
+If the pinned SDK cannot constrain a required operation this way, that operation is unavailable until the adapter can enforce the contract. Do not substitute a broad generic executor.
 
-  ```json
-  { "version": 1, "enabledSources": ["bridge", "composio"], "preferredSource": "bridge", "applications": { "gmail": "bridge" } }
-  ```
+### Tool versions and typed reads
 
-- **Source identity on accounts.** A broker connection is an ordinary connection whose `authConfigId` names its Bridge config. A managed or Composio account is a connection in the same store whose sealed credential is a reference to the remote account, never its OAuth tokens. Per-agent access already pins an account by `(accountId, authConfigId)` (`WorkspaceIntegrationScopeAccount` in `src/lib/db/schema.ts`). So the same Gmail account through two sources is two connections that never collide or inherit each other's grants.
-- **Migrations.** None is expected, because preferences are a file and the account shapes above already exist. If implementation finds one necessary, it's an ordinary forward migration. Bridge's own migrations never run against Ri's database. Existing users need no reset, credential transfer or forced reconnect.
+Session tools follow the latest published version and cannot be version-pinned. Ri records the reported version and a canonical schema hash with the discovered action and any approval. Refresh definitions before dispatch, revalidate arguments, and invalidate approval on a detected version or schema change. Fetch definitions for the session's latest version rather than the older default of the v3 tools endpoint. [Session tool versions](https://docs.composio.dev/docs/configuring-sessions).
 
-### 8.6 Screens
+This check detects observed changes but is not an atomic vendor-side version lock. Do not promise that it prevents a vendor release between validation and execution. If an action requires that stronger guarantee, execute its approved dated version through the explicit versioned path below or leave it unavailable.
 
-- **Connectors.** Applications and existing accounts first. An account shows its source quietly: **Gmail · Work**, "via Bridge".
-- **Connecting.** One primary action, using the user's preferred method, with **Change method** below it and alternatives under **Other ways to connect**. Only methods that support the application and the requested capabilities are shown. The setup line names the source and, for anything other than direct or broker, where the account is held:
+The typed Calendar read adapter uses Composio's supported version-pinned direct-execution API as a narrow exception to session execution. Pin a tested dated toolkit version, explicitly select the remote account and user, allow only the required calendar reads, and validate the output before normalization. This path goes through the same Ri source, account, and app-permission checks. It is not an unrestricted tool exposed to the model. Version-pinned approved actions, if needed, must additionally pass the same approval pipeline.
 
-  > **Connect Gmail**
-  > Using Bridge, your preferred source. Your account stays on this computer.
-  > **Connect** · Change method
+Composio labels this API legacy but continues to support it, and recommends dated versions for programmatically consumed outputs. Treat this dependency as an intentional adapter tradeoff. Track deprecation, test upgrades, and report a retired version as unavailable rather than silently falling back to latest. [Direct execution](https://docs.composio.dev/docs/tools-direct/executing-tools), [versioning and retirement](https://docs.composio.dev/docs/tools-direct/toolkit-versioning).
 
-- **Settings → Connectors → Sources.** **Your sources**, every enabled one, with the preferred source marked. Bridge's sign-in, plan, and the applications and scopes it covers. Other available sources below.
-- **Chat.** A `request_connection` card opens the same setup and needs no Settings visit. Other cards cover a lapsed subscription (Renew, or another source), a scope that isn't approved yet (with another source offered), and a Microsoft work account that needs its IT admin's consent, with a link the user can send them. Microsoft's default policies since 2025 and 2026 require admin consent for mail, files and sites, chats and meetings, and contacts and tasks.
-- Copy follows the app's rules: "Connectors" in user-facing text, no em dashes or semicolons, and icons that describe their purpose.
+## 10. Execution and approval
 
-### 8.7 Agents and self-hosting
+Every managed action follows this sequence:
 
-Agents don't change. `request_connection` already asks for a service by name, and the card handles the rest. Agents never see install keys or sources, apart from the label the UI shows.
+1. Resolve the calling Ri actor and its live permissions.
+2. Resolve an enabled source and an exact local-to-remote account binding.
+3. Resolve a supported concrete action and validate arguments against its current schema.
+4. Apply existing tool enablement and approval policy to the real action.
+5. If approval is needed, show the actual account, meaningful action details, and relevant arguments.
+6. Recheck permission, the approved arguments, and the tool definition immediately before dispatch, subject to the session version limits in section 9.
+7. Execute through the constrained Composio session, or the explicitly versioned path in section 9, and return a normalized outcome.
 
-Everything that works today keeps working: env clients, saved apps and bundled public clients. The broker protocol is public, so an operator can run their own broker for their own apps and point Ri at it.
+The model cannot supply arbitrary source credentials, remote user IDs, sessions, or accounts outside the allowed set. A request such as **Send this message from Work Gmail** must retain that identity through approval, execution, and audit.
 
-## 9. Bridge's foundations
+Classify action risk through reviewed catalog metadata and existing policy. Unknown semantics cannot become an automatically approved read merely because a vendor calls something a tool. One approval for a generic executor does not authorize arbitrary downstream writes.
 
-### 9.1 What beamd.ai already has
+Ri enforces human approval. Composio enforces its project and session constraints. A user's own project key is intentionally broad, so Ri's server enforcement is essential. The future independent service will similarly enforce client grants without needing to verify Ri's approval-card UI.
 
-- Next.js 16 on Vercel and Postgres through Drizzle. Accounts through better-auth, where a workspace is an organization and every signup gets a personal one.
-- Stripe billing. Plans are `free | payg | basic | pro | enterprise`, with Basic ($10 a month) and Pro ($20 a month) sold through Checkout. Entitlements come from `entitlementsFor(plan)` in `src/server/billing/plans.ts`, and webhooks keep `organization.plan` current.
-- Device-code sign-in, which returns a one-year rolling session token. Because of better-auth's bearer plugin, that token is also a full dashboard credential, which is why Ri gets an install key instead (§5.2).
-- Missing: any OAuth app or token code, per-install keys, rate limiting outside better-auth's routes, and a KMS. Secrets live in Vercel's encrypted env vars.
+## 11. Reliability and data handling
 
-Bridge is a separate app with its own database (§4.2). It signs users in with their beamd account and reads their plan from beamd.
+Map vendor failures into the existing engine taxonomy and structured outcomes:
 
-### 9.2 Broker endpoints
-
-| Endpoint | Caller | Does |
-| --- | --- | --- |
-| `POST /v1/installs` | Ri, with its beamd sign-in, once | Mints an install key for this home |
-| `GET /v1/apps` | Client | The apps this client may use: kind, public client ID, approved scopes |
-| `POST /v1/sign-ins` | Client | Registers a sign-in (state, PKCE challenge, provider, return address) |
-| `GET /callback` | Browser | The one fixed callback |
-| `POST /v1/token` | Client | Exchanges a code, for brokered apps |
-| `POST /v1/refresh` | Client | Refreshes a token, for brokered apps, with the request ID and one-time key |
-| `POST /v1/revoke` | Client | Revokes, where the provider needs the secret |
-
-The managed endpoints follow §7.2. Both are versioned from the first release, because Ri and outside developers depend on them.
-
-### 9.3 Data
-
-- `install`: organization, user, key hash, label, created, last used, revoked.
-- `sign_in`: state hash, client, provider, return address, PKCE challenge, expires, used.
-- `refresh_retry`: request ID, client, the response encrypted to the home's one-time key, expires after two minutes.
-- Managed mode adds projects, end users, connected accounts with envelope-encrypted credentials, grants and audit records.
-
-Broker tables never hold a readable account token. A schema test enforces it.
-
-### 9.4 Provider registry, plans and limits
-
-- Bridge's own record of each provider: kind, client ID, secret, endpoints, client authentication method, approved scopes, required extra parameters (Dropbox's `token_access_type=offline`) and an enabled switch. A client never supplies an endpoint, so Bridge can't be pointed at an attacker's server.
-- A `bridge` entitlement in `entitlementsFor`, checked with `isLiveSubscriptionStatus`.
-- Per-client limits on new sign-ins, refreshes per account and total calls, kept in shared storage because Vercel's instances don't share memory.
-
-## 10. Provider approvals
-
-Approvals cover the actual product. Bridge's apps are registered under Bridge's brand, and each review describes both uses, Ri and the developer platform, along with the client type, the scopes and the AI models data reaches. Approval for Ri's own workflow can't be assumed to cover every developer's use. Developers who want their own brand on the consent screen can bring their own OAuth app, which Bridge stores for their project.
-
-| Order | Provider | What Bridge's app needs | Notes |
-| --- | --- | --- | --- |
-| 1 | Google Calendar, Docs, Sheets | Brand and sensitive-scope verification | Calendar is Google's own example of a sensitive scope. Confirm Docs and Sheets at submission. |
-| 2 | Gmail, Drive | Restricted-scope verification plus a yearly CASA assessment | Every Gmail read and modify scope is restricted, as are full `drive` and `drive.readonly`. Arrives through incremental consent (§8.3). |
-| 3 | Microsoft 365 (public app) | Publisher verification: free, with a Partner One ID from the Microsoft AI Cloud Partner Program and a verified publisher domain | Personal accounts work right away. Work tenants on default settings need their admin's consent regardless. |
-| 4 | Slack | A published Marketplace listing, with token rotation on | Slack's MCP server accepts only Marketplace and internal apps. Distributed apps outside the Marketplace are limited to 1 request a minute, 15 items each, on channel history and thread replies. |
-| 5 | Dropbox | Production approval | Development apps are capped at 500 users, and at 50 users an app has two weeks to get approved before new users are blocked. |
-| 5 | Zoom | App Submission Review, then publish (listed or unlisted) | Unpublished apps work only inside the developer's own account. |
-| 5 | HubSpot, Asana | A public app or MCP connector under each developer program | Confirm public distribution rules at registration. |
-| 6 | Docusign, QuickBooks | Go-live review, Intuit production review | |
-| Later | Discord | A standard OAuth app | Low demand, 7-day tokens. |
-| Doesn't fit | Salesforce | Each customer org's admin installs a packaged External Client App | Since September 2025, orgs block connected apps that aren't installed. |
-| Doesn't fit | Box | Credentials created in each customer's Admin Console | |
-| Doesn't fit | X | API use is billed to the app owner per request ($0.005 per post read, $0.015 per post created) | Composio dropped its managed X credentials too. |
-
-Each provider is marked available only after a real-account test of sign-in, consent, tool discovery, refresh and one representative call, the bar the [fifth-wave evidence](integration-audit/fifth-wave-provider-evidence.md) sets.
-
-## 11. The market
-
-Checked October 15, 2026. Pricing changes quickly.
-
-| Platform | Relationship to Bridge | Facts |
-| --- | --- | --- |
-| Composio | Competitor, and an optional source in Ri | Managed OAuth apps by default, so the consent screen says "Composio". Hobby is free with 100,000 tool calls a month, up to 20,000 through its own OAuth apps, then $0.0005 a call. Pro is $29 a month. New pricing for signups from August 15, 2026, with existing customers on their plans through December 31. Rube discontinued May 16, 2026. |
-| Pipedream | Competitor | 3,000+ connectors, one MCP server per app. Connect starts at $99 a month billed annually, with 100 end users included and $2 per user a month after. Now owned by Workday, the deal having closed after the November 2025 agreement. |
-| Arcade | Competitor | Its shared Google app is "to quickly get started", and it "strongly recommends" your own app for production. Free plan: 2,000 sign-ins and 2,000 tool calls a month. Team is $25 a month plus $0.10 per sign-in and $0.01 per call. |
-| Zapier MCP | Already in Ri | 2 Zapier tasks per successful call. Useful for apps nothing else covers. |
-| Nango | Competitor, different model | Self-hostable OAuth infrastructure, where you register every OAuth app yourself |
-| StackOne, Merge, Paragon | Competitors in enterprise niches | Unified HR, CRM and recruiting APIs |
-| Kong AI Gateway | Not comparable | Routing and governance infrastructure, with no ready-made connectors |
-
-Everyone in this list holds every user's tokens or makes you bring your own apps. Bridge's broker mode does neither.
-
-## 12. Business model
-
-- **Ri users** subscribe through the beamd account, bundled with remote access. Home Assistant is the precedent: the software is free and open source, and Nabu Casa sells remote access, voice-assistant linking that otherwise needs your own Google developer project, backups and speech processing for $6.50 a month or $65 a year. That subscription funds the project. Broker mode costs little to run, at most one refresh per account per hour of use.
-- **Developers** pay for managed mode, which has real costs in execution, credential storage and support. Price it from measured cost per workflow after the pilot, and don't imply unlimited usage before then.
-- **Bring your own app stays free** in Ri, which keeps the open-source story honest.
-- **Fixed costs** are the yearly CASA assessment (TAC Security lists Tier 2 at $675 to $855 and Tier 3 at $3,600 per app, and Google assigns the tier), reviews, and the hosted operations managed mode needs.
-
-## 13. Risks
-
-- **Google's assessment applies regardless.** It covers apps that "access or have the capability to access Google user data from or through a server". A broker that receives tokens plausibly counts, and managed mode certainly does. Mimestream, a Mac Gmail client that keeps everything on the device, still completes a yearly Tier 2 assessment.
-- **Managed mode is a breach target.** It holds every developer's users' tokens. Envelope encryption with per-tenant keys, data-layer isolation and audited access are prerequisites for launch, not later work.
-- **One developer or user can get an app suspended for everyone** (§6.5). Developer projects asking for restricted scopes such as Gmail get reviewed before they're turned on.
-- **Enforcement is softer for public apps.** For Microsoft, a lapsed user's existing connections stop only because the client's own code stops them.
-- **Microsoft work accounts often need an admin**, whoever publishes the app.
-- **Bridge becomes a dependency.** If it's down, sign-ins fail, and brokered accounts stop working within about an hour. The engine already treats refresh failures as transient, so nothing is torn down. It needs monitoring and a status page.
-- **Custody wording must match each mode.** "Token custody stays with the user" ([module spec §0](integrations-module-spec.md#0-thesis--why-this-exists-and-why-its-shaped-this-way)) stays true for direct and broker connections, with tokens crossing Bridge in transit. Managed accounts are held by Bridge, and every screen and policy must say which applies.
-- **The market is crowded.** Broker mode and Ri's own users are the wedge, and catalog size alone isn't one.
-- **Providers change terms**, as Slack did for apps outside its Marketplace. Each provider is a separate switch.
-
-## 14. Tests and acceptance
-
-**Broker mode**
-- Brokered exchange, refresh and revoke go through the broker and never straight to the provider. A broker config with a secret is rejected at registration.
-- `invalid_grant` still means `needs_reauth`. A lapsed subscription is `auth_config_unavailable` and leaves the connection active. An outage is `provider_unavailable`. A scope outside `allowedScopes` is `scope_not_allowed`.
-- A code can't be exchanged without the verifier, by another client, twice, or after 10 minutes. The callback sends browsers only to the registered return address.
-- A refresh response dropped before reaching the home is recovered by a retry with the same request ID, with no second provider refresh, and the kept response is gone after two minutes.
-- No broker table holds a readable token, and logs and observability carry no codes or tokens. The sentinel test covers the install key on every sink.
-- End to end on the dev home, from the host's browser, a phone through the tunnel and the desktop app: connect, use, refresh, cancel, renew without reconnecting, disconnect. Then the same for a public app.
-
-**Managed mode**
-- A separate example application connects an end user's account, discovers tools and runs permitted actions through the same interface Ri uses. This proves Bridge doesn't rely on Ri's database, chats or approval screens.
-- Projects and end users can't reach each other's accounts, even with known IDs.
-- Ri's approval cards and another client's standing grant both authorize concrete actions, and no generic executor, batch or sandbox bypasses the grant.
-- Revoking access affects the next call and never falls back to another account or source. Refresh rotation under the distributed lock, outages, uncertain writes, disconnect and deletion all produce the intended outcomes.
-
-**Ri**
-- Work and personal accounts stay separate through reconnects, failures and permission changes, including the same account through two sources.
-- Overall and per-application preferences persist across restarts and across devices viewing the same home. Adding a second source keeps the first preference and both sources. An unsupported preferred source is skipped with an explanation. Changing preferences never touches existing accounts or agent grants.
-- A home without a preferences file keeps working connections, and the file never contains credentials.
-- Existing direct connectors and the typed consumers behind the deck, calendar and task picker keep their contracts.
-- Real accounts, per provider, before each is marked available (§10).
-
-Measure completion reliability, latency, support load and cost per workflow. Catalog size alone isn't an acceptance criterion.
-
-## 15. Phases
-
-| Phase | Work | Depends on |
-| --- | --- | --- |
-| 0. Now | Name, brand and domain. Bridge's Google Cloud project and consent screen, privacy policy, domain verification and demo video. Submit Calendar, Docs and Sheets, then Gmail and Drive with CASA. Start Microsoft partner enrollment and the Slack Marketplace listing. | The name and domain decision |
-| 1. Ri engine | The `TokenBroker` port, broker configs, staged scopes and MCP token routing, plus a local test broker on the dev home using Trey's own test apps, so the whole path is testable before Bridge exists. Separately, try Zapier's standard MCP sign-in, keeping the token as the fallback. | Nothing |
-| 2. Bridge foundation and broker mode | The separate app and database, beamd sign-in and plans, install keys, the versioned broker endpoints, limits, kill switches and the provider registry. The managed interface is designed here, though not built. | The phase 1 protocol |
-| 3. Ri sources and screens | Sources and preferences, Bridge in Connectors, "via Bridge", the setup line, Change method, and the lapsed, not-yet-approved and Microsoft admin cards | Phases 1 and 2 |
-| 4. Providers | Google Calendar, Docs and Sheets, then Gmail and Drive, then Microsoft, Slack and the rest as approvals land | The phase 0 approvals |
-| 5. Managed mode and developers | KMS-backed credentials, grants, execution, the developer API and MCP surface, the dashboard and the example client. Ri starts using it for applications it has no tools for. | The phase 2 foundation |
-| Any time | A Composio adapter as an optional source in Ri, on the user's own Composio account, exposing real accounts and actions | Phase 3's source model |
-
-Broker mode reaches Ri users first because it's the smallest piece that removes real setup, and because it needs the same provider approvals managed mode does. Neither is a prerequisite for designing the other.
-
-## 16. Decisions
-
-**Made** (Trey's direction, as relayed through the earlier proposal and its review):
-- Build Bridge as an independent service Trey operates, with Ri as its first client and other developers as customers.
-- Support both modes, broker and managed.
-- Composio is an optional alternative source, never a single opaque connection.
-- Ri remembers chosen sources, supports several at once, and keeps alternatives one click away.
-
-**Open**, with recommendations:
-
-| Decision | Recommendation |
+| Condition | Required behavior |
 | --- | --- |
-| Name, brand and domain (they appear on consent screens, and Google verifies the domains) | Needed before phase 0 |
-| One set of OAuth apps under Bridge's brand covering Ri and developers, or separate Ri-branded apps | One set under Bridge's brand. CASA is per app, so two sets double the cost and the reviews. |
-| Microsoft: a public app following Microsoft's guidance, or brokered against it | A public app |
-| Ri users' pricing | Included in beamd's paid plans, bundled with remote access |
-| Developer pricing | Set from measured cost per workflow after the managed pilot |
-| Licensing for the engine and for Bridge | Open core: the engine and broker protocol open source, so the "stores nothing" claim can be checked, and Bridge's service proprietary. Settle it before any outside developer uses Bridge. |
-| Data policy for managed mode: retention, deletion, and what developers must tell their users | Write it before phase 5. |
+| Expired or revoked connected account | Reconnect that exact account |
+| Invalid source key or source disabled | Repair or enable the source, preserving account references |
+| Rate limit or quota exhausted | Explain the source limit and respect retry timing |
+| Temporary outage or timeout | Preserve connections and permissions |
+| Missing or changed tool | Refresh supported capabilities, then revalidate |
+| Denied account or tool | Stop without fallback |
+| Write may have reached the provider | Mark the outcome uncertain and reconcile before any retry |
 
-## 17. Docs to update when this is built
+Reads may use bounded retries. Disable automatic mutation retries in the adapter, SDK, and transport unless the particular operation has a verified idempotency contract. Cancellation after dispatch does not prove a write was cancelled. Persist enough operation identity to investigate an uncertain outcome without recording secrets.
 
-- [integrations-current.md](integrations-current.md): which connectors Bridge covers, in which mode and with which scopes.
-- [integrations-module-spec.md](integrations-module-spec.md): §0 positioning and §20, describing both modes.
-- [integrations-authconfig-spec.md](integrations-authconfig-spec.md): broker configs and the broker port.
-- [connecting-from-chat.md](connecting-from-chat.md): the setup journey from chat and the new cards.
-- [desktop.md](desktop.md): the relay's hosted token exchange.
+Record a local operation ID before dispatch, then save the returned Composio `log_id` when available. Composio does not provide execution deduplication. A log ID helps investigation, but may never reach Ri if the response is lost and is not proof of the provider's final state. Reconcile through available execution logs and provider-side evidence, such as the created message or event. If evidence is inconclusive, keep the outcome uncertain and explain it before any explicit user-directed retry. [Production retry guidance](https://docs.composio.dev/docs/production-readiness).
 
-## Sources
+Creating an authorization attempt and saving its result are idempotent local operations. Replaying a completed callback cannot create duplicate accounts or duplicate grants.
 
-Checked October 15, 2026. Many provider pages carry no date. Confirm current terms before each provider's phase.
+The project API key is sealed at rest, redacted from every sink, and used only by the home server. Source sessions and raw account responses receive the same scrutiny. Never include credentials in model context, client responses, audit records, logs, or error messages.
 
-**Google.** [Restricted scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification) · [Sensitive scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/sensitive-scope-verification) · [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes) · [Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) · [OAuth 2.0 overview, including refresh token expiration](https://developers.google.com/identity/protocols/oauth2#expiration) · [OAuth policies](https://developers.google.com/identity/protocols/oauth2/policies) · [Verification FAQ](https://support.google.com/cloud/answer/13463817) · [Workspace MCP servers](https://developers.google.com/workspace/guides/configure-mcp-servers) · [Token types](https://docs.cloud.google.com/docs/authentication/token-types) · [TAC Security CASA pricing](https://tacsecurity.com/?p=18721) · [Mimestream trust page](https://mimestream.com/trust)
+Composio holds managed account credentials and processes tool inputs and outputs. Do not promise that its processing or retention matches Ri's local behavior. Show custody before consent and link current vendor information. Existing direct connections retain their current data flow. Chat results may also reach the configured model service.
 
-**Microsoft.** [Public and confidential client apps](https://learn.microsoft.com/en-us/entra/identity-platform/msal-client-applications) · [Publisher verification](https://learn.microsoft.com/en-us/entra/identity-platform/publisher-verification-overview) · [Access tokens](https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens) · [Refresh tokens](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens) · [MC1163922, admin consent for mail, chat and meetings](https://mc.merill.net/message/MC1163922) · [MC1304287, contacts, people and tasks](https://mc.merill.net/message/MC1304287) · [MC1097272, files and sites](https://office365itpros.com/2025/06/19/app-consent-policy-user-app-consent/)
+Audit the source, exact account reference, action, schema revision, approval decision, timing, and outcome using Ri's existing mechanisms. Avoid adding raw mail content to operational logs. Treat tool results and vendor descriptions as untrusted data.
 
-**Slack.** [Slack MCP server](https://docs.slack.dev/ai/slack-mcp-server) · [Rate limits for apps outside the Marketplace](https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps) · [Token rotation](https://docs.slack.dev/authentication/using-token-rotation) · [PKCE generally available](https://docs.slack.dev/changelog/2026/03/30/pkce) · [Using PKCE](https://docs.slack.dev/authentication/using-pkce)
+## 12. Future independent service
 
-**Other providers.** [Salesforce connected app restrictions](https://admin.salesforce.com/blog/2025/get-ready-for-changes-to-connected-app-usage-restrictions) · [Salesforce External Client App packaging](https://trailhead.salesforce.com/content/learn/modules/external-client-app-basics/package-and-distribute-external-client-apps) · [Dropbox developer guide](https://docs.dropboxapi.com/dropbox-api/docs/developer-resources/developer-guide) · [Dropbox OAuth](https://docs.dropboxapi.com/dropbox-api/docs/oauth) · [Zoom distribution](https://developers.zoom.us/docs/distribute/) · [Zoom OAuth](https://developers.zoom.us/docs/integrations/oauth/) · [X API pricing](https://docs.x.com/x-api/getting-started/pricing) · [HubSpot tokens](https://developers.hubspot.com/docs/api/oauth/tokens) · [Asana OAuth](https://developers.asana.com/docs/oauth) · [Box tokens](https://developer.box.com/guides/authentication/tokens/) · [Discord OAuth2](https://docs.discord.com/developers/topics/oauth2) · [Docusign refresh tokens](https://www.docusign.com/blog/developers/authorization-code-grant-refresh-tokens) · [QuickBooks auth FAQ](https://developer.intuit.com/app/developer/qbo/docs/develop/authentication-and-authorization/faq)
+The owner plans to operate a separate connector service. Its final name is undecided. It will be another source in Ri and usable by external applications through its own API and MCP surface.
 
-**OAuth security.** [RFC 9700, OAuth 2.0 security best current practice](https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1)
+It owns its backend, database and migrations, customer/project identities, end-user bindings, client grants, credential protection, and operations. It may reuse Beamd sign-in and billing through service-specific credentials. Its database does not become part of Ri's database, and its API must not depend on Ri chat or workspace records.
 
-**Platforms.** [Composio pricing](https://composio.dev/pricing) · [Composio white-label authentication](https://docs.composio.dev/docs/white-labeling-authentication) · [Composio session model](https://docs.composio.dev/docs/how-composio-works) · [Composio changelog](https://docs.composio.dev/docs/changelog.md) · [Pipedream pricing](https://pipedream.com/pricing) · [Workday to acquire Pipedream](https://newsroom.workday.com/2025-11-19-Workday-Signs-Definitive-Agreement-to-Acquire-Pipedream) · [Arcade Google provider](https://docs.arcade.dev/en/references/auth-providers/google) · [Arcade pricing](https://www.arcade.dev/pricing) · [Zapier MCP authentication](https://docs.zapier.com/mcp/get-started/authentication) · [Zapier MCP usage](https://docs.zapier.com/mcp/features/usage) · [Nabu Casa pricing](https://www.nabucasa.com/pricing/)
+Share connector definitions and runtime behavior where appropriate. Ri's onboarding can be especially smooth because both codebases are owned, while the underlying public contract and permission checks remain the same as for other clients.
+
+Two implementation modes remain available:
+
+| Mode | Purpose and constraints |
+| --- | --- |
+| Managed execution | The service holds account credentials and executes tools. Validate it through Ri and a small independent client before expanding the catalog. |
+| Authorization broker | The service assists authorization and refresh while the client retains account tokens and runs tools. Add it only where provider rules and a useful workflow justify it. |
+
+Prefer local execution when capabilities and reliability are equivalent, subject to the user's chosen source. Do not restrict managed execution solely because some local tools exist for the same application.
+
+Broker mode is not a prerequisite of this release or a requirement for every future provider. Validate client type, callback behavior, and token handling with each provider. Google requires appropriate client registration, and Microsoft cautions against forwarding tokens from confidential to public clients. [Google OAuth policy](https://developers.google.com/identity/protocols/oauth2/policies), [Microsoft client guidance](https://learn.microsoft.com/en-us/entra/identity-platform/msal-client-applications).
+
+A future broker's refresh recovery must state its limits. A response cache can recover delivery failure after persistence, but cannot guarantee recovery when a provider rotates a token before the broker durably receives it. Any encrypted retry storage must be disclosed accurately, with request binding, expiry, and reconnect behavior.
+
+If Ri later funds a shared Composio project, keep its key in an authenticated hosted gateway with tenant isolation and scoped client access. That is a separate offering from the user-owned-project release. Do not move existing Composio accounts into the new service automatically.
+
+Service pricing, branding, licensing, and the exact approved OAuth deployment are future product decisions. They do not block the Composio adapter. Approval for one application does not imply permission for every external developer's use.
+
+Prepare the independent service's provider registrations and approval requirements alongside Composio implementation. Establish the service identity, domains, data flow, and minimum scopes early, then start verification and any required assessment when the provider's prerequisites are met. This work may require a functioning consent flow or demonstration. It is not assumed to be paperwork that can be completed before any code exists, and it is not a release dependency for user-owned Composio projects.
+
+## 13. Implementation sequence
+
+1. **Adapter proof:** pin the Composio SDK, establish the stable remote user, complete managed Google authorization, and demonstrate reads and approved writes with two accounts in the same toolkit. Prove per-account sessions, create/update restriction readback, rejection of unintended helpers, version-change handling, and session cleanup. Also prove the pinned Calendar read contract with default managed scopes.
+2. **Source configuration:** implement the versioned file, protected credentials, source health, deterministic preference selection, and source-instance identity.
+3. **Account and tool integration:** register distinct managed accounts and actions through the engine, enforce explicit grants, and integrate connection and approval cards.
+4. **Complete lifecycle and product use:** add multiple accounts, reconnect, key rotation, disabling, scoped removal, remote cleanup, session invalidation, and uncertain-write handling. Connect the typed Calendar read adapter to Calendar and the deck, including app access controls and partial-read handling.
+5. **Validate and release:** complete Gmail and Calendar acceptance across Settings, chat, Calendar, and the deck, preserve direct behavior, and publish accurate user-facing setup guidance.
+6. **Subsequent sources:** add the independent service or another platform through the same contract. Prove the independent service with an external client before broadening its catalog.
+
+The adapter proof is a release gate, not permission to leave the shipped implementation as a prototype. All first-release acceptance criteria below must pass.
+
+## 14. Acceptance criteria
+
+| Area | Required evidence |
+| --- | --- |
+| Source setup | A user configures their Composio project once, then connects supported apps without supplying per-app OAuth credentials |
+| Preferences | Overall and explicit application preferences persist across restarts and devices viewing the same home |
+| Multiple sources | A second source instance does not replace the preference, merge accounts, or inherit grants |
+| Method selection | Unsupported preferences produce an explanation and an offered alternative before consent, with no execution failover |
+| Configuration safety | Missing file preserves direct behavior, malformed/unsupported files are preserved, concurrent writes do not lose changes, and no secrets appear in the file |
+| Authorization | Forged, mismatched, expired, and replayed callbacks cannot attach another user's account or create a grant |
+| Account isolation | Work and personal accounts, two source instances, and direct versus Composio accounts remain separate |
+| Existing grants | Legacy direct all-account grants do not acquire managed accounts, and new managed grants name explicit accounts |
+| Access picker | One application grouping shows source-labeled accounts. Direct-only applications keep **All accounts**, and mixed groups use wording that distinguishes future direct accounts from currently selected managed accounts |
+| Live revocation | Removing access blocks the next dispatch, including through a cached session or a pending approval |
+| Tool control | Hidden actions, unknown schemas, generic executors, batches, and sandboxes cannot bypass account, tool, or approval restrictions |
+| Approvals | The displayed account and action match execution, and changes to arguments, account, or an observed tool version/schema invalidate the approval. Session checks do not claim atomic version pinning |
+| Gmail and Calendar | Every workflow in section 4 completes against controlled real accounts, including multi-account cases |
+| Product calendars | Composio calendars feed Calendar, day shape, and deck with correct times and busy blocks. Duplicate routes do not duplicate events, and incomplete reads remain visibly incomplete |
+| App versus agent access | Calendar product access and agent grants can be removed independently, and neither silently creates the other |
+| Lifecycle | Account expiry, source-key expiry, key rotation, disconnect, partial remote cleanup, and interrupted authorization produce distinct useful outcomes |
+| Reliability | Rate limits and outages preserve connections, and an uncertain write is never automatically duplicated |
+| Session lifecycle | Two accounts in one toolkit work through separately bound sessions behind one tool set. Callers with identical grants share a session, and chats that never use an account create none. Partially configured sessions, unexpected helpers, proxy execution, empty grants, and newly added ungranted accounts cannot execute. Access changes and restart cleanup invalidate obsolete sessions |
+| Typed tool versions | Calendar reads use a tested pinned version and validate responses. Schema errors and retired versions produce unavailable data, without a silent switch to latest |
+| Secret confinement | Sentinel credentials never reach browser read responses, model tools, errors, logs, or audit output |
+| Compatibility | Existing direct connections, auth configs, public action IDs, typed product consumers, and chat continuation keep working |
+| Entry points | Setup and connection work from Settings and chat on the host browser, a phone viewing the home, and the desktop app |
+
+Test pure preference and identity logic, adapter contracts, authorization and execution boundaries, and the user journeys above. Reuse the repository's existing test patterns. Run relevant tests, typechecking, and lint for the eventual implementation, and use the dev home for real-account verification.
+
+Release only the capabilities demonstrated by those checks. Keep the shared source contract extensible, while the product remains a simple list of applications and accounts.
