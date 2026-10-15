@@ -15,6 +15,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useStartSkill } from '@/hooks/use-start-skill';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
+import { openAppChat } from '@/lib/client/app-pane';
 import { AppHeader, PrimaryAction, QuietAction } from './app-header';
 import { type LocalAppsList } from './app-hooks';
 import { AppMark } from './app-mark';
@@ -91,7 +92,10 @@ function LibraryOverview({ data, localEnabled, localLoading, localError, query, 
     else patch({ [target.kind === 'provider' ? 'provider' : 'mcp']: target.id });
   };
   const openChat = (item: LibraryItem) => {
-    if (item.target.kind === 'app') navigate(`${item.target.slug}?riChat=1`);
+    if (item.target.kind === 'app') {
+      openAppChat(item.target.id);
+      navigate(`${item.target.slug}?riChat=1`);
+    }
     else setChatItem(item);
   };
   const loading = localLoading || [sources.providers, sources.connections, sources.servers, sources.skills].some(result => result.isPending);

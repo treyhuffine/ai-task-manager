@@ -359,6 +359,16 @@ export function getFinanceTransaction(p: FinancePrincipal, id: string) {
   nextDay.setUTCDate(nextDay.getUTCDate() + 1);
   return listFinanceTransactions(p, {accountIds:[record.accountId],startOn:record.postedOn,endOn:nextDay.toISOString().slice(0,10),limit:1,transactionId:id}).rows[0];
 }
+export function financeTransactionDetail(p: FinancePrincipal, id: string) {
+  const transaction = getFinanceTransaction(p, id);
+  const override = getDb().select().from(s.financeOverrides).where(eq(s.financeOverrides.transactionId, id)).get();
+  const permitted = permittedFinanceEvidenceAccounts(p, listFinanceAccounts(p).filter(a => a.access !== 'revoked').map(a => a.id));
+  const links = getDb().select({evidenceId:s.financeAllocations.evidenceId}).from(s.financeAllocations)
+    .where(eq(s.financeAllocations.transactionId, id)).limit(25).all();
+  const evidence = links.length && permitted.length ? getDb().select().from(s.financeEvidence)
+    .where(and(inArray(s.financeEvidence.id, links.map(l => l.evidenceId)), inArray(s.financeEvidence.accountId, permitted))).limit(25).all() : [];
+  return {transaction, correctionRevision:override?.revision ?? 0, evidence};
+}
 export function financeTransactionsForCalculation(
   p: FinancePrincipal,
   scope: { accountIds: string[]; startOn: string; endOn: string },
@@ -1059,7 +1069,7 @@ export function overrideFinanceTransaction(
       category: input.category ?? before?.category ?? null,
       kind: input.kind ?? before?.kind ?? null,
       obligationId: input.obligationId ?? before?.obligationId ?? null,
-      revision: before ? before.revision + 1 : 0,
+      revision: before ? before.revision + 1 : 1,
     };
     const row = db
       .insert(s.financeOverrides)

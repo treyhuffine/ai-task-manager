@@ -4,6 +4,8 @@ node_modules/
 .env*
 !.env.example
 public/renderer-sdk.js
+public/finance-workspace.js
+public/finance-workspace.css
 coverage/
 artifacts/
 

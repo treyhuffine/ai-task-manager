@@ -11,6 +11,7 @@ import {
   cardObligationsSchema,
   obligationSchema,
   minorUnits,
+  transactionSchema,
 } from "@/lib/finance/contracts";
 export const account = createSelectSchema(s.financeAccounts, {
   cardObligations: cardObligationsSchema.nullable(),
@@ -230,6 +231,14 @@ const changedBudget = budget
   })
   .strict();
 export const outputSchemas: Record<string, z.ZodType> = {
+  finance_export_activity:z.object({text:z.string().max(524288),count:z.number().int()}).strict(),
+  finance_overview:z.object({startOn:z.string(),endOn:z.string(),summaries:z.array(z.object({currency:z.string(),incomeMinor:money,spendingMinor:money,netMinor:money,pendingMinor:money,cashMinor:money.nullable(),creditMinor:money.nullable(),unknownBalances:z.number().int(),categories:z.array(z.object({category:z.string(),amountMinor:money}).strict()),daily:z.array(z.object({date:z.string(),incomeMinor:money,spendingMinor:money}).strict()),transactionCount:z.number().int()}).strict()),findings:z.array(finding),coverage:z.array(z.object({accountId:z.string(),asOf:z.string().nullable(),manual:z.boolean(),incomplete:z.boolean(),stale:z.boolean()}).strict())}).strict(),
+  finance_activity:z.object({rows:z.array(transaction),total:z.number().int(),next:z.object({date:z.string(),id:z.string()}).strict().nullable()}).strict(),
+  finance_transaction_detail:z.object({transaction,correctionRevision:z.number().int(),evidence:z.array(evidence)}).strict(),
+  finance_update_manual_account:account,
+  finance_queue_sync:z.object({queued:z.literal(true)}).strict(),
+  finance_csv_preview:z.object({count:z.number().int(),rows:z.array(transactionSchema)}).strict(),
+  finance_apply_budget_preview:changedBudget,
   finance_source_connections:capabilitiesSchema.extend({unavailable:z.boolean()}),
   finance_connect_mailbox:account,
   finance_disconnect_source:account.extend({providerRevoked:z.boolean(),revocationMessage:z.string()}),

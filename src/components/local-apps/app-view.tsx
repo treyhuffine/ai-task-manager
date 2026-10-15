@@ -6,6 +6,7 @@ import { AppViewController } from "@ri/app-kit/view-host";
 import { registerAppContext } from "@/lib/client/app-context";
 import {useNativeFiles,downloadAppFile} from './native-files';
 import {openSettings} from '@/components/settings/settings-store';
+import { appChatIntent, requestAppChatDraft } from '@/lib/client/app-chat-intent';
 export function AppView({
   id,
   draft = false,
@@ -18,6 +19,7 @@ export function AppView({
   changeRevision = 0,
   onNavigate,
   onAccessCreated,
+  onAsk,
 }: {
   id: string;
   draft?: boolean;
@@ -30,6 +32,7 @@ export function AppView({
   changeRevision?: number;
   onNavigate: (path: string) => void;
   onAccessCreated?: (scopeRef:string) => void;
+  onAsk?: (prompt: string) => void;
 }) {
   const mount = useRef<HTMLDivElement>(null),
     [error, setError] = useState<string | null>(null),
@@ -40,6 +43,8 @@ export function AppView({
   const accessAction = useRef<string|null>(null), accessCreated = useRef(onAccessCreated);
   accessCreated.current = onAccessCreated;
   const navigation = useRef(onNavigate);
+  const ask = useRef(onAsk);
+  ask.current = onAsk;
   navigation.current = onNavigate;
   const paused = useRef(waiting);
   paused.current = waiting;
@@ -81,7 +86,15 @@ export function AppView({
         ack = { viewId: result.viewId, revision: result.revision };
         if (!cancelled) setError(null);
       },
-      navigate: (value) => {if(value==='/__host/manage-access')openSettings('plugins');else navigation.current(value);},
+      navigate: (value) => {
+        const intent = appChatIntent(value);
+        if (intent) {
+          if (ask.current) ask.current(intent.prompt);
+          else if (chatId) requestAppChatDraft(chatId, intent.prompt);
+          else throw new Error('Open the app from Apps to start a conversation.');
+        } else if (value === '/__host/manage-access') openSettings('plugins');
+        else navigation.current(value);
+      },
       externalLink: (url) => {
         if (
           window.confirm(

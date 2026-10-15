@@ -42,6 +42,7 @@ import { trpcClient } from '@/lib/trpc/client';
  */
 
 import { registerChatDraftWriter } from '@/lib/client/chat-drafts';
+import { registerAppChatComposer } from '@/lib/client/app-chat-intent';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -871,6 +872,19 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         return present || editor.chain().focus('end').insertSourceChip({ sourceRef }).insertContent(' ').run();
       });
     }, [editor, sourceChatId, disabled]);
+
+    // Register after this key's saved draft has been restored. App suggestions
+    // append a plain-text paragraph, preserving typed text, chips and history.
+    useEffect(() => {
+      if (!editor || !draftKey?.startsWith('exec:')) return;
+      return registerAppChatComposer(draftKey.slice(5), (text) => {
+        if (editor.isDestroyed) return;
+        if (text) editor.commands.insertContentAt(editor.state.doc.content.size, {
+          type: 'paragraph', content: [{ type: 'text', text }],
+        });
+        editor.commands.focus('end');
+      });
+    }, [editor, draftKey]);
 
     // A reload verifies the same retained JSON used on mount. Failed storage
     // or an uploading chip leaves the live editor open, never silently lost.

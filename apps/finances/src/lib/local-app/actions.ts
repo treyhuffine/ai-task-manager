@@ -8,6 +8,8 @@ import {
   scenarioChangesSchema,
   mutationKey,
   revisionNumber,
+  dateOnly,
+  minorUnits,
 } from "@/lib/finance/contracts";
 import { normalizeFinanceCsv } from "@/lib/finance/imports";
 import { defaultFinanceViews } from "@/lib/finance/default-views";
@@ -15,6 +17,10 @@ import { createManagedScope, managedInstanceId,listManagedScopes,revokeManagedSc
 import {connectorCapabilities,ConnectorUnavailable} from '@/lib/connectors/client';
 import {connectFinanceMailbox,disconnectFinanceSource} from '@/lib/finance/sources';
 import type { FinancePrincipal } from "@/lib/db/finance-queries";
+import {applyScenario} from '@/lib/finance/calculations';
+import {createHash} from 'node:crypto';
+const workspaceScope = z.object({accountIds:z.array(financeId).min(1).max(100),startOn:dateOnly,endOn:dateOnly}).strict();
+const activityScope = workspaceScope.extend({currency:z.string().regex(/^[A-Z]{3}$/).optional(),search:z.string().max(300).optional(),category:z.string().max(80).optional(),state:z.enum(['posted','pending']).optional()});
 export const HOME_RESOURCE = "ui://ri-finance/home.html",
   VIEW_RESOURCE = "ui://personal-finance/renderer-v1.html";
 export const contextState = z
@@ -31,6 +37,9 @@ export const contextState = z
       .max(50),
     viewRevision: revisionNumber.optional(),
     budgetRevision: revisionNumber.optional(),
+    budgetId: financeId.optional(),
+    section: z.enum(['overview','transactions','budget','accounts']).optional(),
+    activity: z.object({search:z.string().max(300).optional(),category:z.string().max(80).optional(),currency:z.string().regex(/^[A-Z]{3}$/).optional(),state:z.enum(['posted','pending']).optional()}).strict().optional(),
     filters: z
       .object({
         startOn: z.string().optional(),
@@ -92,7 +101,8 @@ function open(p: FinancePrincipal, input: z.infer<typeof location>) {
             .map((action) => action.name),
           "finance_propose_budget",
           "finance_transactions",
-          ...(p.owner ? ["finance_change_budget"] : []),
+          "finance_budget", "finance_scenario",
+          ...(p.owner ? ["finance_change_budget", "finance_record_transaction", "finance_correct_transaction"] : []),
         ],
       },
     };
@@ -130,6 +140,14 @@ type LocalDefinition = {
   handler: (p: FinancePrincipal, input: never) => unknown;
 };
 export const localAppActions: LocalDefinition[] = [
+  {name:'finance_export_activity',description:'Prepare a bounded CSV export of the filtered, permitted transactions and record that a copy was made.',input:activityScope,effect:'app_write',audience:['user'],handler:q.exportFinanceActivity},
+  {name:'finance_overview',description:'Read exact monthly income, net spending, category and daily totals separately by currency. Transfers and card payments are excluded. Coverage and balances remain explicit.',input:workspaceScope,effect:'read',audience:['user','agent'],handler:q.financeOverview},
+  {name:'finance_activity',description:'Search effective transactions within permitted accounts and a bounded date range, newest first, with stable pagination. Honors manual corrections.',input:activityScope.extend({limit:z.number().int().min(1).max(200).optional(),after:z.object({date:dateOnly,id:financeId}).strict().optional()}),effect:'read',audience:['user','agent'],handler:q.financeActivity},
+  {name:'finance_transaction_detail',description:'Read a permitted transaction, its current correction revision and only authorized linked evidence.',input:z.object({id:financeId}).strict(),effect:'read',audience:['user','agent'],handler:(p,i:{id:string})=>q.financeTransactionDetail(p,i.id)},
+  {name:'finance_update_manual_account',description:'Explicitly update a manual balance snapshot. Recording activity does not update a snapshot balance.',input:z.object({id:financeId,balanceMinor:minorUnits.nullable(),balanceIncludesPending:z.boolean()}).strict(),effect:'app_write',audience:['user'],ownerOnly:true,handler:(p,{id,...input}:{id:string;balanceMinor:number|null;balanceIncludesPending:boolean})=>q.updateManualFinanceAccount(p,id,input)},
+  {name:'finance_queue_sync',description:'Request a refresh of a connected source through the existing durable queue.',input:z.object({id:financeId}).strict(),effect:'app_write',audience:['user'],ownerOnly:true,handler:(p,i:{id:string})=>{const a=q.requireFinance(p,[i.id],'sync')[0];if(!['google','microsoft','plaid'].includes(a.provider))throw new AppError('invalid_input','Manual records are updated by you');q.queueFinanceSync(p,i.id);return {queued:true};}},
+  {name:'finance_csv_preview',description:'Validate CSV and preview up to ten normalized records without importing or changing balances. An optional kind column distinguishes income, refunds and transfers.',input:z.object({accountId:financeId,text:z.string().max(800000),positiveMeansSpending:z.boolean()}).strict(),effect:'read',audience:['user'],ownerOnly:true,handler:(p,i:{accountId:string;text:string;positiveMeansSpending:boolean})=>{const a=q.requireFinance(p,[i.accountId])[0];if(a.provider!=='manual')throw new AppError('invalid_input','Choose a manual account');const rows=normalizeFinanceCsv({...i,currency:a.currency});return {count:rows.length,rows:rows.slice(0,10)};}},
+  {name:'finance_apply_budget_preview',description:'Apply explicitly reviewed budget changes against the same revision that was previewed. Never adopts a proposal implicitly.',input:z.object({id:financeId,expectedRevision:revisionNumber,changes:scenarioChangesSchema,mutationKey}).strict(),effect:'app_write',audience:['user'],ownerOnly:true,handler:(p,i:{id:string;expectedRevision:number;changes:z.infer<typeof scenarioChangesSchema>;mutationKey:string})=>{const b=q.getFinanceBudget(p,i.id);return q.changeFinanceBudget(p,{id:i.id,expectedRevision:i.expectedRevision,plan:applyScenario(b.plan,i.changes),mutationKey:i.mutationKey});}},
   {name:'finance_source_connections',description:'Read available account bindings and fully supported connector operations',input:z.object({}).strict(),effect:'read',audience:['user'],ownerOnly:true,handler:async()=>{try{return {...await connectorCapabilities(),unavailable:false};}catch(error){if(error instanceof ConnectorUnavailable)return {version:1,principal:{id:managedInstanceId(),kind:'plugin'},connections:[],operations:[],unavailable:true};throw error;}}},
   {name:'finance_connect_mailbox',description:'Connect a permitted mailbox after explicit consent to broad mailbox reads',input:z.object({connectionId:financeId,provider:z.enum(['google','microsoft']),initialStartOn:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),query:z.string().max(500),monitoring:z.boolean(),acknowledgeBroadMailboxRead:z.literal(true)}).strict(),effect:'app_write',audience:['user'],ownerOnly:true,handler:connectFinanceMailbox},
   {name:'finance_disconnect_source',description:'Stop one Finance source and preserve or explicitly remove its cached records',input:z.object({id:financeId,retain:z.boolean()}).strict(),effect:'app_write',audience:['user'],ownerOnly:true,handler:(p,input:{id:string;retain:boolean})=>disconnectFinanceSource(p,input.id,input.retain)},
@@ -308,21 +326,26 @@ export const localAppActions: LocalDefinition[] = [
         return {modelContent,recordRefs:[{instanceId:managedInstanceId(),entityType:type,recordId:id}],dataRevision:record.updatedAt};
       }
       if (input.path === "/") {
-        if (input.state.selected.length)
-          throw new AppError("invalid_input","Open a saved view to select records");
+        const filter = input.state.filters;
+        if (input.state.selected.length && (!filter?.accountIds?.length || !filter.startOn || !filter.endOn))
+          throw new AppError('invalid_input','Select a period and accounts before sharing records');
+        const scope = filter?.accountIds?.length && filter.startOn && filter.endOn ? {accountIds:filter.accountIds,startOn:filter.startOn,endOn:filter.endOn} : null;
+        const selected = input.state.selected.map(ref => {
+          if(ref.type !== 'transaction')throw new AppError('invalid_input','Open the protected record to share its context');
+          const record=q.getFinanceTransaction(p,ref.id);
+          if(!scope || !scope.accountIds.includes(record.accountId) || record.postedOn<scope.startOn || record.postedOn>=scope.endOn || record.state==='removed')throw new AppError('forbidden','The selected record is outside this view');
+          const activity=input.state.activity;
+          if((activity?.currency && activity.currency!==record.currency)||(activity?.category && activity.category!==record.category)||(activity?.state && activity.state!==record.state)||(activity?.search && !record.merchant.toLocaleLowerCase().includes(activity.search.trim().toLocaleLowerCase())))throw new AppError('forbidden','The selected record is outside the visible filters');
+          return record;
+        });
+        const budget=input.state.budgetId?q.getFinanceBudget(p,input.state.budgetId):null;
+        if(budget && budget.revision!==input.state.budgetRevision)throw new AppError('conflict','The budget changed. Refresh before sharing this preview.');
+        const modelContent=JSON.stringify({section:input.state.section,filters:scope,activity:input.state.activity,overview:scope?q.financeOverview(p,scope).summaries:undefined,selection:selected,budget:budget?{id:budget.id,revision:budget.revision,result:q.calculateFinanceBudget(p,budget.id,undefined,input.state.changes).result}:undefined,proposedChanges:input.state.changes,availableViews:q.listFinanceViews(p).map(v=>({id:v.id,title:v.definition.title,revision:v.revision})),accountCount:q.listFinanceAccounts(p).length});
+        if(Buffer.byteLength(modelContent)>16384)throw new AppError('invalid_input','Reduce the selection before sharing context');
         return {
-          modelContent: JSON.stringify({
-            availableViews: q
-              .listFinanceViews(p)
-              .map((view) => ({
-                id: view.id,
-                title: view.definition.title,
-                revision: view.revision,
-              })),
-            accountCount: q.listFinanceAccounts(p).length,
-          }),
-          recordRefs: [],
-          dataRevision: String(q.getFinanceSettings()?.generation ?? 0),
+          modelContent,
+          recordRefs: selected.map(record=>({instanceId:managedInstanceId(),entityType:'transaction',recordId:record.id})),
+          dataRevision: createHash('sha256').update(modelContent).digest('hex'),
         };
       }
       const id = input.path.split("/")[2],

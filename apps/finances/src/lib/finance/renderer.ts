@@ -23,6 +23,7 @@ function rows(name,categories){const d=payload.data,all=name==='budget'?d.budget
 function heading(c){return el('h2',c.title);}
 function render(){
  if(!payload)return;const focus=document.activeElement?.id;const root=document.getElementById('root');root.replaceChildren();
+ if(standardApp){const nav=el('nav');nav.append(button('Finances overview',()=>standardApp.openLink({url:'/'}).catch(showError)),button('Discuss this view',()=>standardApp.openLink({url:'/__host/chat?prompt='+encodeURIComponent('Help me understand this saved finance view and the selected records.')}).catch(showError)));root.append(nav);}
  root.append(el('h1',payload.view.definition.title));root.append(el('p','Server-calculated results • As of '+new Date(payload.data.asOf).toLocaleString(),'muted'));
  if(payload.savedScenarioStale)root.append(el('p','The saved scenario uses an older budget revision. Review it before applying.','notice'));
  if(payload.data.incomplete){const warning=el('p','Some sources are stale or incomplete. These results may be partial.','notice');warning.setAttribute('role','status');root.append(warning);}

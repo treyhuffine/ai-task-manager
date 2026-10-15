@@ -19,6 +19,7 @@ import { AppToolSummary } from './app-tool-summary';
 import { isAppSurface } from './app-copy';
 import { AppGrantEditor } from './grant-editor';
 import { useAppAction } from './use-app-action';
+import { requestAppChatDraft } from '@/lib/client/app-chat-intent';
 
 /** Below this width the app sits under the chat instead of beside it. */
 const SIDE_WIDTH = 820;
@@ -141,6 +142,7 @@ export function AppCompanion({
               authorityRevision={(chatAccess.data?.revision ?? 0) * 100000 + (owner?.revision ?? 0)}
               changeRevision={instance.changeRevision}
               waiting={!!approval}
+              onAsk={(text) => requestAppChatDraft(chatId, text)}
               onNavigate={(value) => {
                 const location = new URL(value, 'https://app.invalid');
                 void run(() =>

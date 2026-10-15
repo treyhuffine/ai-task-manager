@@ -59,3 +59,9 @@ The exported package still runs independently and can rebuild through Ri's publi
 - [x] Qualify portable rebuild, scopes and lifecycle through the real Ri Finance integration
 - [x] Exercise Finance in a disposable Home through the native browser
 - [x] Reconcile instructions and runbook with the shared checkout
+
+### Managed workspace UI
+
+The in-Ri home is authored in `apps/finances/src/components/workspace`, separately from the standalone Next page. `scripts/build-renderer.ts` bundles the UI and CSS into a self-contained MCP resource. Editing only the standalone page does not change what Ri renders.
+
+For the workspace refresh, run the app tests and `scripts/local-apps-finance-browser-smoke.ts` against a disposable Ri Home. The latter covers native file selection/download, the installed artifact, read-only reopening, previews/apply/undo, and native chat draft handoff. `workspace.browser.test.ts` also exercises the official MCP bridge directly and writes synthetic desktop/mobile screenshots under the ignored `apps/finances/artifacts` directory. Product details and current qualification are in [the workspace refresh record](finances-experience.md).

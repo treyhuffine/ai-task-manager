@@ -65,7 +65,8 @@ export function normalizeFinanceCsv(input: {
   const date = find(columns.date),
     merchant = find(columns.merchant),
     amount = find(columns.amount),
-    category = columns.category ? find(columns.category) : -1;
+    category = columns.category ? find(columns.category) : -1,
+    kind = find('kind');
   if ([date, merchant, amount].some((i) => i < 0))
     throw new Error('Select date, merchant and amount columns');
   const seen = new Map<string, number>();
@@ -96,7 +97,7 @@ export function normalizeFinanceCsv(input: {
       authorizedOn: null,
       merchant: merchantText,
       category: category < 0 ? 'other' : row[category].trim() || 'other',
-      kind: amountMinor < 0 ? 'refund' : 'purchase',
+      kind: kind >= 0 && row[kind].trim() ? row[kind].trim().toLowerCase() : amountMinor < 0 ? 'refund' : 'purchase',
       state: 'posted',
       pendingSourceId: null,
       obligationId: null,

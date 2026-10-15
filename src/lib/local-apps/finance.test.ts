@@ -28,7 +28,8 @@ it.skipIf(!process.env.RI_FINANCE_FIXTURE)(
         { id: instance.id, path: "/", query: {} },
         "fixture-owner",
       );
-      expect(opened.prepared.html).toContain("Opening finances");
+      expect(opened.prepared.html.includes("<title>Finances</title>")).toBe(true);
+      expect(opened.prepared.scriptHashes.length).toBeGreaterThan(0);
       await service.viewCall(
         opened.viewId,
         "fixture-owner",
@@ -97,8 +98,10 @@ it.skipIf(!process.env.RI_FINANCE_FIXTURE)(
         data: { transactions: [{ amountMinor: 2400 }] },
       });
       const changed=await service.createDraft('react',instance.id);
-      const source=path.join(service.draftDir(changed.id),'src/lib/local-app/home-renderer.ts');
-      await fs.writeFile(source,(await fs.readFile(source,'utf8')).replace('Your accounts, records and saved views.','Your updated accounts, records and saved views.'));
+      const source=path.join(service.draftDir(changed.id),'src/components/workspace/workspace.tsx');
+      const originalSource=await fs.readFile(source,'utf8');
+      expect(originalSource.includes('Your money, in view.')).toBe(true);
+      await fs.writeFile(source,originalSource.replace('Your money, in view.','Your updated financial picture.'));
       await service.build(changed.id).catch(async error=>{throw new Error(error.message+'\n'+await fs.readFile(path.join(root,'app-drafts',changed.id,'logs/build.log'),'utf8'));});
       await service.activate(changed.id,service.store.read().revision);
       expect(await service.call(instance.id,'finance_home',{})).toMatchObject({accounts:[{id:account.id}],views:[{id:saved.id}]});

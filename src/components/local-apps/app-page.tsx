@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { requestAppChatDraft } from '@/lib/client/app-chat-intent';
+import { useAppPane } from '@/lib/client/app-pane';
 import { useQuery } from '@tanstack/react-query';
-import { useDefaultLayout, type Layout, type LayoutStorage } from 'react-resizable-panels';
+import { useDefaultLayout, usePanelRef, type Layout, type LayoutStorage } from 'react-resizable-panels';
 import { Archive, Download, KeyRound, MessageSquare, MoreHorizontal, Pencil, Power, ScrollText, Settings2 } from 'lucide-react';
 import { HarnessChatSession } from '@/components/chat/harness-chat';
 import type { MainChatIntro } from '@/components/chat/main-chat-intro';
@@ -69,15 +71,23 @@ export function AppPage({
   const { riAccessChat, riChat, ...viewQuery } = query;
   const [accessOpen, setAccessOpen] = useState(!!riAccessChat);
   const { busy, run } = useAppAction();
-  const [ask, setAsk] = useState(riChat === '1');
-  const [pane, setPane] = useState<Pane>(riChat === '1' ? 'chat' : 'app');
+  const { mode, setMode } = useAppPane(id, riChat === '1' ? 'chat' : 'closed');
+  const ask = mode !== 'closed';
+  const [question, setQuestion] = useState<{ text: string } | null>(null);
+  const usedQuestion = useRef<typeof question>(null);
+  const pane: Pane = mode === 'chat' ? 'chat' : 'app';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showOutput, setShowOutput] = useState(false);
   const [measureRef, width] = useElementWidth<HTMLDivElement>();
   const narrow = width !== null && width < NARROW_WIDTH;
+  const chatPanel = usePanelRef();
 
   const [storage] = useState<LayoutStorage>(() => (typeof window === 'undefined' ? NOOP_STORAGE : window.localStorage));
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'ri.app.layout', storage });
+  useEffect(() => {
+    if (!ask || (narrow && pane === 'app')) chatPanel.current?.collapse();
+    else chatPanel.current?.resize(narrow ? '100%' : String(defaultLayout?.[CHAT_PANEL] || 38) + '%');
+  }, [ask, narrow, pane, chatPanel, defaultLayout]);
 
   const chat = useQuery({
     queryKey: ['document-chat', 'app', id],
@@ -85,6 +95,11 @@ export function AppPage({
     enabled: ask,
   });
   const chatId = ask ? (chat.data?.session.id ?? null) : null;
+  useEffect(() => {
+    if (!question || !chatId || usedQuestion.current === question) return;
+    usedQuestion.current = question;
+    requestAppChatDraft(chatId, question.text);
+  }, [question, chatId]);
   const access = useAppAccess(id, chatId, data.revision);
   const chatGrant =
     !!chatId &&
@@ -128,6 +143,10 @@ export function AppPage({
           authorityRevision={(access.data?.revision ?? 0) * 100000 + (owner?.revision ?? 0)}
           digest={instance.digest}
           onNavigate={(value) => navigate(`${instance.slug}${value}`)}
+          onAsk={(text) => {
+            setMode('chat');
+            setQuestion({ text });
+          }}
         />
       ) : (
         <div className="flex h-full items-center justify-center px-8 text-center">
@@ -181,14 +200,13 @@ export function AppPage({
         mark={<AppMark name={instance.displayName} size="md" />}
         title={instance.displayName}
         subtitle={`${condition.label} · ${instance.version}`}
-        pane={ask && narrow ? { value: pane, options: PANES, onChange: setPane } : undefined}
+        pane={ask && narrow ? { value: pane, options: PANES, onChange: setMode } : undefined}
       >
         <QuietAction
           icon={<MessageSquare size={12} />}
           pressed={ask}
           onClick={() => {
-            setAsk((value) => !value);
-            setPane('chat');
+            setMode(ask ? 'closed' : 'chat');
           }}
         >
           Ask Ri
@@ -238,41 +256,26 @@ export function AppPage({
         />
       )}
 
-      {!ask ? (
-        app
-      ) : narrow ? (
-        <div className="relative min-h-0 flex-1">
-          {PANES.map(({ value }) => (
-            <div
-              key={value}
-              inert={pane !== value}
-              className={cn('absolute inset-0 flex min-h-0 flex-col', pane === value ? 'z-10' : 'opacity-0')}
-            >
-              {value === 'chat' ? chatPane : app}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <ResizablePanelGroup
-          orientation="horizontal"
-          defaultLayout={defaultLayout ?? DEFAULT_LAYOUT}
-          onLayoutChanged={onLayoutChanged}
-          className="min-h-0 flex-1"
-        >
-          <ResizablePanel id={CHAT_PANEL} minSize={340} className="flex min-h-0 min-w-0 flex-col">
-            {chatPane}
-          </ResizablePanel>
-          <ResizableHandle
-            className={cn(
-              'w-[3px] bg-border transition-colors hover:bg-primary/50',
-              'after:absolute after:inset-y-0 after:-left-1.5 after:-right-1.5 after:w-auto after:translate-x-0',
-            )}
-          />
-          <ResizablePanel id={APP_PANEL} minSize="32%" className="flex min-h-0 min-w-0 flex-col">
-            {app}
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      )}
+      <ResizablePanelGroup
+        orientation="horizontal"
+        defaultLayout={defaultLayout ?? DEFAULT_LAYOUT}
+        onLayoutChanged={(layout) => { if (ask && !narrow) onLayoutChanged(layout); }}
+        className="min-h-0 flex-1"
+      >
+        <ResizablePanel id={CHAT_PANEL} panelRef={chatPanel} collapsible collapsedSize="0%" minSize={narrow ? 0 : 340} defaultSize={ask ? '38%' : '0%'} className="flex min-h-0 min-w-0 flex-col" inert={!ask || (narrow && pane !== 'chat')}>
+          {ask && chatPane}
+        </ResizablePanel>
+        <ResizableHandle
+          disabled={!ask || narrow}
+          className={cn(
+            !ask || narrow ? 'hidden' : 'w-[3px] bg-border transition-colors hover:bg-primary/50',
+            'after:absolute after:inset-y-0 after:-left-1.5 after:-right-1.5 after:w-auto after:translate-x-0',
+          )}
+        />
+        <ResizablePanel id={APP_PANEL} minSize={narrow ? 0 : '32%'} className="flex min-h-0 min-w-0 flex-col" inert={ask && narrow && pane !== 'app'}>
+          {app}
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       <Dialog open={accessOpen} onOpenChange={setAccessOpen}><DialogContent className="max-h-[85vh] overflow-auto"><DialogHeader><DialogTitle>Allow access to {instance.displayName}</DialogTitle></DialogHeader>{riAccessChat && <AppGrantEditor instanceId={id} chatId={riAccessChat} onSaved={() => setAccessOpen(false)} />}</DialogContent></Dialog>
       <AppSettingsDialog
