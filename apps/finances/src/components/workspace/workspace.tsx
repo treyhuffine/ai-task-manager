@@ -56,12 +56,12 @@ const sections = [
   ["accounts", "Accounts", CreditCard],
 ] as const;
 const palette = [
-  "#18845f",
-  "#51a687",
-  "#87c1a8",
-  "#a8c8bc",
-  "#809fbb",
-  "#adc1d1",
+  "var(--category-1)",
+  "var(--category-2)",
+  "var(--category-3)",
+  "var(--category-4)",
+  "var(--category-5)",
+  "var(--category-6)",
 ];
 export function Workspace({
   home: incoming,

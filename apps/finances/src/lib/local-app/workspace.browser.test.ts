@@ -291,9 +291,14 @@ it.skipIf(!executablePath)(
             .getByRole("button", { name: "Add account", exact: true })
             .evaluate((e) => getComputedStyle(e).backgroundColor),
         )
-        .toBe("rgb(28, 35, 30)");
+        .toBe("rgb(29, 29, 29)");
       await page.screenshot({
         path: "artifacts/workspace-dark.png",
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 1440, height: 1080 });
+      await page.screenshot({
+        path: "artifacts/workspace-dark-desktop.png",
         fullPage: true,
       });
       // A newly connected account has no budget. Keep this separate from the

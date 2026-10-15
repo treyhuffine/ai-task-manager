@@ -26,6 +26,8 @@ Opening or hiding Ask Ri keeps the app mounted within its page. Ri's desktop/tab
 
 Reference images guide hierarchy, calm styling and the connection between data and conversation. They are not evidence of available providers or permission to access personal accounts. Use synthetic records and disposable Homes for qualification. Health is design context, not part of this change.
 
+The palette uses neutral white, gray and charcoal for surfaces, typography, controls, icons and category charts in both themes, including the older saved views and the standalone shell. Color is reserved for financial direction and meaningful status: positive amounts and recorded income, negative amounts and exceeded budgets, and warnings. General navigation and chat controls have no green tint.
+
 ## Verification
 
 Qualified on macOS arm64, Node 26.5.0, ABI 147, with synthetic records and disposable Homes only:

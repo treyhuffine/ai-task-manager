@@ -540,7 +540,7 @@ export function FinanceApp() {
               </div>
             )}
             {view.data && !view.error ? (
-              <div className="overflow-hidden rounded-xl border border-border bg-[#121713]">
+              <div className="overflow-hidden rounded-xl border border-border bg-background">
                 <iframe
                   key={frameNonce}
                   ref={frame}
