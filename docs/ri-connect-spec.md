@@ -94,7 +94,9 @@ Ri registers its own apps with each provider and runs a small service that hands
 
 ## 4. Compared with the managed connectors proposal
 
-[Managed connectors through Composio](integrations-managed-connections-proposal.md) is the 3.2 design run on Ri's account. It's a careful document, and the two agree on the product:
+This section compares the first version of [that proposal](integrations-managed-connections-proposal.md), which ran Composio on Ri's account. It has since been rewritten as an independent connector platform with Ri as its first client, in which Ri Connect is the broker mode. Whether to build that platform is an open decision (§14).
+
+The first version is the 3.2 design run on Ri's account. It's a careful document, and the two agree on the product:
 
 - The user picks "Gmail" and signs in, with no keys and no developer setup.
 - Ri keeps control of accounts, per-agent access, approvals and the Connectors screens.
@@ -198,7 +200,7 @@ sequenceDiagram
 6. For a brokered app, Ri asks the service to exchange the code, sending the install key and the PKCE verifier. The service adds the secret and the fixed callback, calls the provider's token endpoint, and returns the response as is. It stores nothing. For a public app, Ri redeems the code with the provider itself, and the service never sees a token.
 7. Ri identifies the account, seals the tokens and saves the connection, exactly as today.
 
-**For a brokered app, two keys are needed and no one party has both.** The code is useless without the verifier, which only the user's Ri has, and without the secret, which only the service has. A code leaked from a browser history or a log can't be redeemed.
+**A code taken from the browser is useless on its own.** Redeeming it needs the verifier, which only the user's Ri has, and the secret, which only the service has, so a code leaked from a browser history or a log can't be redeemed. PKCE doesn't keep the service out, though. At exchange the home sends the verifier to the service, which then holds everything for that sign-in and receives the tokens. That's the in-transit exposure in §5.9.
 
 ### 5.5 Using the account
 
@@ -207,6 +209,8 @@ Nothing changes. Ri calls Gmail or Slack with the access token. The service neve
 ### 5.6 Refreshing access
 
 When an access token expires, Ri's existing refresh logic runs unchanged: single-flight, rotate-or-preserve, saved before use ([module spec §9](integrations-module-spec.md#9-auth--the-refresh-algorithm-where-bulletproof-actually-lives)). For a brokered app, the refresh token goes to the service instead of the provider. The service checks the install key and the subscription, adds the secret, calls the provider and returns the new tokens. It stores nothing. That's at most one small request per account per hour, and only while the account is in use. For a public app, Ri checks its cached Ri Connect status and refreshes directly with the provider.
+
+**A lost refresh response.** Some providers rotate refresh tokens and accept each one only once (Slack with rotation, Box). If the service refreshes and its response never reaches the home, the home is left holding a used token and the account needs a reconnect. A direct refresh has the same exposure between the home and the provider, but the broker adds a second hop. So each brokered refresh carries a request ID and a one-time public key from the home. The service keeps the response for two minutes, encrypted to that key, and a retry with the same ID gets the same answer instead of a second refresh. Only the home can read what's kept.
 
 ### 5.7 Disconnecting
 
@@ -229,13 +233,13 @@ Once a subscription ends, the service stops new sign-ins at once, and for broker
 | Microsoft 365 | Public | No hard stop. New sign-ins stop at once, and existing accounts stop when the home next checks its status. Tokens last 60 to 90 minutes, or 20 to 28 hours for clients that support Continuous Access Evaluation. |
 | Discord | Brokered | 7 days, the longest gap. Low priority anyway (§8). |
 
-Lapsed connections aren't torn down. The refresh token is still valid at the provider, so renewing brings every account back without reconnecting. While lapsed, a call returns a clear "Ri Connect is off" state with two ways forward: renew, or reconnect the account with your own OAuth app (§6.1, §6.6). Prompt revocation, rather than waiting for a token to expire, would need the provider's revoke endpoint and the token, and the service deliberately holds no tokens.
+Lapsed connections aren't torn down, and renewing brings an account back without reconnecting as long as the provider's grant is still valid. Grants also end on their own. Google, for example, expires a refresh token left unused for six months, and one with Gmail scopes when the user changes their password, and it keeps at most 100 per account per OAuth client. Those accounts need an ordinary reconnect. While lapsed, a call returns a clear "Ri Connect is off" state with two ways forward: renew, or reconnect the account with your own OAuth app (§6.1, §6.6). Prompt revocation, rather than waiting for a token to expire, would need the provider's revoke endpoint and the token, and the service deliberately holds no tokens.
 
 ### 5.9 What the service keeps
 
 | | Ri Connect |
 | --- | --- |
-| Keeps | Ri's client secrets. Install keys, hashed. Sign-in records for 10 minutes (state hash, install, provider, return address, PKCE challenge). Counts for rate limits. |
+| Keeps | Ri's client secrets. Install keys, hashed. Sign-in records for 10 minutes (state hash, install, provider, return address, PKCE challenge). Refresh responses for two minutes, encrypted to a key only the home holds (§5.6). Counts for rate limits. |
 | Sees in transit, never stores | Authorization codes passing through the callback. For brokered apps, access and refresh tokens in exchange and refresh traffic. |
 | Never sees | Mail, files, messages, calendar events, API calls or their results. Anything about what agents do. Any token of a public app. |
 
@@ -354,7 +358,9 @@ Everything that works today keeps working: env clients, saved apps and bundled p
 - `connect_sign_in`: state hash, install, provider, return address, PKCE challenge, expires, used.
 - Rate-limit counters.
 
-No table has a column for an account token. A schema test enforces that, so "stores nothing" is a property of the code, not a promise.
+- `connect_refresh_retry`: request ID, install, the response encrypted to the home's one-time key, expires after two minutes (§5.6).
+
+No table holds a readable account token. A schema test enforces that, so "stores nothing" is a property of the code, not a promise.
 
 ### 7.4 The provider registry
 
@@ -431,7 +437,7 @@ A Composio competitor sold to other developers is a different business from Ri C
 - **Engine.** Brokered exchange, refresh and revoke go to the broker and never straight to the provider. A Ri Connect config with a secret is rejected at registration. Provider errors pass through (`invalid_grant` still means `needs_reauth`). A lapsed subscription is `auth_config_unavailable` and leaves the connection active, for both kinds of app. A service outage is `provider_unavailable`. Single-flight refresh holds across the broker. A scope outside `allowedScopes` is `scope_not_allowed` on sign-in and on incremental consent.
 - **Confinement.** The sentinel test covers the install key on every sink, the way the client secret and PKCE verifier are covered today.
 - **MCP.** A brokered Slack-style profile signs in and refreshes through the broker, and only the trusted token endpoint is redirected.
-- **Service.** A code can't be exchanged without the verifier, by another install, twice, or after 10 minutes. One install can never reach another install's sign-ins. The callback never sends a browser anywhere but the registered return address. Refresh is refused after cancellation, for a revoked install, and while a provider is paused. No table has a token column. Logs carry no codes or tokens.
+- **Service.** A code can't be exchanged without the verifier, by another install, twice, or after 10 minutes. One install can never reach another install's sign-ins. The callback never sends a browser anywhere but the registered return address. Refresh is refused after cancellation, for a revoked install, and while a provider is paused. A refresh whose response is dropped before it reaches the home is recovered by a retry with the same request ID, with no second refresh at the provider, and the kept response is gone after two minutes. No table holds a readable token. Logs and observability carry no codes or tokens.
 - **End to end on the dev home.** Connect, use, refresh, cancel, renew without reconnecting, disconnect: once from a browser on the host, once from a phone through the tunnel, and once in the desktop app. Then the same for a public app.
 - **Real accounts.** Per provider, before it's marked available (§8).
 
@@ -451,6 +457,7 @@ A Composio competitor sold to other developers is a different business from Ri C
 | Decision | Recommendation |
 | --- | --- |
 | Build Ri Connect, or the managed Composio proposal | Ri Connect (§4) |
+| Whether to also build an independent connector platform for other developers, with hosted tokens and managed execution, as the rewritten proposal suggests | Not first. Ship Ri Connect, then decide once the provider approvals are in hand. |
 | What the service holds: only Ri's app secrets, or full custody of tokens (which would also allow per-call pricing) | Only the secrets |
 | Microsoft: a public app, following Microsoft's guidance with softer cancellation, or brokered, against its guidance | A public app |
 | How to charge: included in the beamd paid plans, a separate add-on, or metered | Included in the paid plans, bundled with remote access |
