@@ -107,6 +107,17 @@ Reseeding keeps your token and paired devices, moves the old home to `~/ri-dev.p
 
 **A dev server costs nothing on its own.** Every clock-driven trigger is seeded paused: the morning deck refresh, the heartbeat, the morning and weekly stream triage, and the seeded schedules. What still runs AI: a message you send, a capture (the triage debounce), and the first look at the deck on a new day, which generates one.
 
+### Trying managed sources without a Composio project
+
+`scripts/dev-fake-composio.ts` serves the parts of Composio's REST API Ri uses, plus a pretend consent page, so the Connectors → Sources → Gmail journey runs in a browser with no real project (docs/connector-service-spec.md):
+
+```sh
+pnpm tsx scripts/dev-fake-composio.ts 42294
+RI_COMPOSIO_API_BASE=http://127.0.0.1:42294/api/v3.1 pnpm dev
+```
+
+Paste `ak_fake_project_key` as the project key. The app reads `RI_COMPOSIO_API_BASE` only outside production and only for a loopback address, so a real key can't be sent elsewhere this way. Its Gmail and Calendar return a couple of sample messages and events.
+
 ## How sessions stay in their own home
 
 Every harness gets an allowlisted environment from agentex, so a server's `RI_ROOT` never reaches its sessions. Each home's server writes a launcher, `<work dir>/bin/ri`, and gives every session it runs that folder first on its PATH and its path in `RI_SESSION_CLI` (`src/lib/executor/session-cli.ts`). The launcher pins the home and the server's own checkout, so `ri` in a dev session acts on the dev home and `ri` in a production session acts on production, wherever the shell's working folder is.

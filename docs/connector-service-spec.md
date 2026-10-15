@@ -1,6 +1,6 @@
 # Connector sources with Composio first
 
-**Status:** Final product and architecture specification. Implementation has not started.
+**Status:** Implemented on October 15, 2026 (section 15 maps it to the code). Verified end to end against a local stand-in for Composio's API, in tests and in a browser. Real-account acceptance (section 13 step 1 and the section 14 Gmail and Calendar rows) still needs a Composio project key and two Google test accounts.
 
 **Date:** October 15, 2026.
 
@@ -240,7 +240,7 @@ Catalog updates do not grant new capabilities automatically. New actions pass th
 
 ## 8. Composio connection lifecycle
 
-Use a verified current Composio TypeScript SDK, at least `@composio/core` 0.19.1, and pin the exact dependency version tested by the adapter proof. This is a minimum compatibility requirement, not a recommendation to install that historical version. Composio's current model uses stable user IDs, hosted Connect Links, and managed token storage and refresh. Ri retains account references instead of retrieving provider OAuth tokens. [Authentication](https://docs.composio.dev/docs/authentication), [token custody](https://docs.composio.dev/docs/security/token-custody), [SDK configuration requirements](https://docs.composio.dev/docs/configuring-sessions).
+Call Composio's REST API v3.1 through Ri's own small typed client. Do not bundle the Composio SDK. Ri is open source and local-first, and every install would otherwise carry vendor code, its telemetry and version checks, and retry and default behavior that the rules below must override. The client sends every session restriction explicitly, validates every response it reads, keeps only the fields it needs, and never retries a mutation. Composio's current model uses stable user IDs, hosted Connect Links, and managed token storage and refresh. Ri retains account references instead of retrieving provider OAuth tokens. [Authentication](https://docs.composio.dev/docs/authentication), [token custody](https://docs.composio.dev/docs/security/token-custody), [session configuration](https://docs.composio.dev/docs/configuring-sessions).
 
 ### Authorization
 
@@ -277,7 +277,7 @@ Composio distinguishes disabling, revoking, and deleting an account, and upstrea
 
 ## 9. Tool discovery and sessions
 
-Use Composio's current session API for agent tools behind the adapter. Its `DIRECT_TOOLS` preset preloads tools and is incompatible with session multi-account mode. Use a separate session for each selected account, with `multiAccount.enable: false` and an explicit `connectedAccounts` binding. Two Gmail accounts therefore use two sessions. [Session configuration](https://docs.composio.dev/docs/configuring-sessions).
+Use Composio's current session API for agent tools behind the adapter. Preloading tools is incompatible with session multi-account mode. Use a separate session for each selected account, with `multi_account.enable: false` and an explicit `connected_accounts` binding. Two Gmail accounts therefore use two sessions. [Session configuration](https://docs.composio.dev/docs/configuring-sessions).
 
 Ri controls discovery and projects only the permitted, supported actions into its existing harness tool surface. Search may be generic, but execution must resolve to one concrete action and account before authorization or approval.
 
@@ -289,10 +289,10 @@ Create sessions privately, apply restrictions, then read back the server configu
 
 | Stage | Settings |
 | --- | --- |
-| Create | Positive toolkit and action allowlists, exact `connectedAccounts`, `SessionPreset.DIRECT_TOOLS`, `multiAccount.enable: false`, `sandbox.enable: false`, `manageConnections.enable: false`, `proxyExecute.enable: false` |
-| Update before use | `search.enable: false`, `execute.enableMultiExecute: false`, `manageConnections.enableConnectionRemoval: false` |
+| Create | Positive `toolkits.enable` and per-toolkit `tools.enable` allowlists, exact `connected_accounts`, `preload.tools` naming exactly the allowed slugs, `multi_account.enable: false`, `workbench.enable: false`, `proxy_execute.enable: false`, `manage_connections` with `enable`, `enable_wait_for_connections` and `enable_connection_removal` all false, `search.enable: false`, `execute.enable_multi_execute: false`, `instant: false` |
+| Execute | `enable_auto_workbench_offload: false`, so a large result is returned rather than moved into a workbench file |
 
-The latter switches are update-only. Set `proxyExecute` explicitly even though omitting it leaves `COMPOSIO_PROXY_EXECUTE` off, because that helper sends arbitrary authenticated requests to the provider API and is the broadest executor a session can expose. Reject unexpected tools, including any `COMPOSIO_*` helper. Never publish a partially configured session. On failure, deny local use and clean up the vendor session. [Configuration switches](https://docs.composio.dev/docs/configuring-sessions).
+The REST create call accepts every switch, so a session is complete when it is created. The SDK applies some of these only on update, which is one more reason Ri does not use it. Set `instant: false` because omitting it enables Composio's paid instant tools. Set `proxy_execute` explicitly even though omitting it leaves `COMPOSIO_PROXY_EXECUTE` off, because that helper sends arbitrary authenticated requests to the provider API and is the broadest executor a session can expose. Reject unexpected tools, including any `COMPOSIO_*` helper. Never publish a partially configured session. On failure, deny local use and clean up the vendor session. [Configuration switches](https://docs.composio.dev/docs/configuring-sessions).
 
 Additional requirements:
 
@@ -305,7 +305,7 @@ Additional requirements:
 
 Composio sessions otherwise resolve newly connected accounts dynamically. Explicit account overrides prevent fallback to another account. Its sessions also persist until deleted, so Ri must manage their lifecycle. [Session restrictions and lifecycle](https://docs.composio.dev/kb/guide/mcp-tool-router-sessions).
 
-If the pinned SDK cannot constrain a required operation this way, that operation is unavailable until the adapter can enforce the contract. Do not substitute a broad generic executor.
+If the REST API cannot constrain a required operation this way, that operation is unavailable until the adapter can enforce the contract. Do not substitute a broad generic executor.
 
 ### Tool versions and typed reads
 
@@ -313,7 +313,7 @@ Session tools follow the latest published version and cannot be version-pinned. 
 
 This check detects observed changes but is not an atomic vendor-side version lock. Do not promise that it prevents a vendor release between validation and execution. If an action requires that stronger guarantee, execute its approved dated version through the explicit versioned path below or leave it unavailable.
 
-The typed Calendar read adapter uses Composio's supported version-pinned direct-execution API as a narrow exception to session execution. Pin a tested dated toolkit version, explicitly select the remote account and user, allow only the required calendar reads, and validate the output before normalization. This path goes through the same Ri source, account, and app-permission checks. It is not an unrestricted tool exposed to the model. Version-pinned approved actions, if needed, must additionally pass the same approval pipeline.
+The typed Calendar read adapter, and the identity read that verifies a newly connected account, use Composio's supported version-pinned direct-execution API as a narrow exception to session execution. Pin a tested dated toolkit version, explicitly select the remote account and user, allow only the required calendar reads, and validate the output before normalization. This path goes through the same Ri source, account, and app-permission checks. It is not an unrestricted tool exposed to the model. Version-pinned approved actions, if needed, must additionally pass the same approval pipeline.
 
 Composio labels this API legacy but continues to support it, and recommends dated versions for programmatically consumed outputs. Treat this dependency as an intentional adapter tradeoff. Track deprecation, test upgrades, and report a retired version as unavailable rather than silently falling back to latest. [Direct execution](https://docs.composio.dev/docs/tools-direct/executing-tools), [versioning and retirement](https://docs.composio.dev/docs/tools-direct/toolkit-versioning).
 
@@ -349,7 +349,7 @@ Map vendor failures into the existing engine taxonomy and structured outcomes:
 | Denied account or tool | Stop without fallback |
 | Write may have reached the provider | Mark the outcome uncertain and reconcile before any retry |
 
-Reads may use bounded retries. Disable automatic mutation retries in the adapter, SDK, and transport unless the particular operation has a verified idempotency contract. Cancellation after dispatch does not prove a write was cancelled. Persist enough operation identity to investigate an uncertain outcome without recording secrets.
+Reads may use bounded retries. Disable automatic mutation retries in the adapter and transport unless the particular operation has a verified idempotency contract. Cancellation after dispatch does not prove a write was cancelled. Persist enough operation identity to investigate an uncertain outcome without recording secrets.
 
 Record a local operation ID before dispatch, then save the returned Composio `log_id` when available. Composio does not provide execution deduplication. A log ID helps investigation, but may never reach Ri if the response is lost and is not proof of the provider's final state. Reconcile through available execution logs and provider-side evidence, such as the created message or event. If evidence is inconclusive, keep the outcome uncertain and explain it before any explicit user-directed retry. [Production retry guidance](https://docs.composio.dev/docs/production-readiness).
 
@@ -390,7 +390,7 @@ Prepare the independent service's provider registrations and approval requiremen
 
 ## 13. Implementation sequence
 
-1. **Adapter proof:** pin the Composio SDK, establish the stable remote user, complete managed Google authorization, and demonstrate reads and approved writes with two accounts in the same toolkit. Prove per-account sessions, create/update restriction readback, rejection of unintended helpers, version-change handling, and session cleanup. Also prove the pinned Calendar read contract with default managed scopes.
+1. **Adapter proof:** build the typed REST client, establish the stable remote user, complete managed Google authorization, and demonstrate reads and approved writes with two accounts in the same toolkit. Prove per-account sessions, restriction readback, rejection of unintended helpers, version-change handling, and session cleanup. Also prove the pinned Calendar read contract with default managed scopes.
 2. **Source configuration:** implement the versioned file, protected credentials, source health, deterministic preference selection, and source-instance identity.
 3. **Account and tool integration:** register distinct managed accounts and actions through the engine, enforce explicit grants, and integrate connection and approval cards.
 4. **Complete lifecycle and product use:** add multiple accounts, reconnect, key rotation, disabling, scoped removal, remote cleanup, session invalidation, and uncertain-write handling. Connect the typed Calendar read adapter to Calendar and the deck, including app access controls and partial-read handling.
@@ -429,3 +429,33 @@ The adapter proof is a release gate, not permission to leave the shipped impleme
 Test pure preference and identity logic, adapter contracts, authorization and execution boundaries, and the user journeys above. Reuse the repository's existing test patterns. Run relevant tests, typechecking, and lint for the eventual implementation, and use the dev home for real-account verification.
 
 Release only the capabilities demonstrated by those checks. Keep the shared source contract extensible, while the product remains a simple list of applications and accounts.
+
+## 15. Implementation map
+
+Everything lives under `src/lib/integrations/sources/` unless named otherwise.
+
+| Spec | Code |
+| --- | --- |
+| §2 Sources panel, application pages, method picker, agent access step | `src/components/settings/sections/integrations/sources-panel.tsx`, `application-detail.tsx`, wired in `integrations-section.tsx` (anchors `integrations:sources`, `integrations:app:<id>`) |
+| §2 Access picker grouping and the "All direct accounts" rule | `src/components/workspaces/integration-scope-picker.tsx` |
+| §2 Chat cards (connect through a source, managed reconnect) | `src/components/executions/connection-request-card.tsx`, `startCardManagedSignIn`, `resolveCardWithManagedConnection` and `managedAlternative` in `src/lib/integrations/connection-requests.ts` |
+| §3 Method selection | `method-selection.ts` (pure), `connectionMethod` in `service.ts` |
+| §4 Reviewed catalog, pinned typed-read versions | `composio/catalog.ts` |
+| §4 Calendar view, day shape and deck | `calendar-reads.ts`, `src/lib/calendar/service.ts` (managed route, `complete`, `partial`, `via`), `src/lib/deck/calendar.ts` (`readCalendarDay` availability), `get_day_shape` |
+| §5 Engine integration | `managed-provider.ts` (one source-namespaced provider per application, `externalAuth.forConnection`), registered in `src/lib/integrations/runtime.ts` |
+| §6 Preferences file and sealed credentials | `preferences.ts`, `source-credentials.ts`, `types.ts` |
+| §7 Identity and bindings | `managed-connections.ts` (`accountId` is the remote connected-account id), the `remote_account` credential in `packages/integrations/src/core/types.ts` and `packages/integrations/src/auth/remote.ts` |
+| §8 Lifecycle | `service.ts` (add, rotate, disable, remove, connect, reconnect, import, disconnect, revoke), `attempts.ts`, `composio/adapter.ts`, `src/app/api/integrations/managed/callback/route.ts` |
+| §9 Sessions | `composio/sessions.ts` (restriction readback, shared registry, orphan cleanup), `composio/client.ts` (`sessionCreateBody`) |
+| §10 and §11 Execution, errors, uncertain writes, audit | `managed-provider.ts` (`toIntegrationError`), `audit.ts`, `revokeApprovalsForConnections` in `src/lib/integrations/approval.ts` |
+| REST client | `composio/client.ts` |
+| Typed procedures | `router.ts`, mounted as `connectorSources` |
+| Tests | `*.test.ts` beside each module, `managed.e2e.test.ts`, `calendar.e2e.test.ts`, managed cases in `src/lib/integrations/connection-requests.test.ts`, the fake API in `composio/fake-composio.ts` |
+| Trying it without a project | `scripts/dev-fake-composio.ts` (docs/environments.md) |
+
+Decisions made while building, beyond the text above:
+
+- The callback and polling paths finish the same stored attempt. An attempt records the remote account its link created, so completion is checked against exactly that account, and a repeated Connect reuses a pending link instead of starting another consent.
+- A session's schema baseline is the session's own tool listing, captured at its first validation in each build. The version must still equal the one Ri registered. This avoids a refresh loop if a session presents a schema differently from the project tool listing, while still catching any change within a build.
+- `instant: false` and `enable_auto_workbench_offload: false` are part of every session and execution, alongside the switches in §9.
+- Development's auto-approval is recorded as `dev_auto` in the audit trail, never as a human grant.

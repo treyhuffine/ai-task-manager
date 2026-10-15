@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getConfigDir, getConfigPath } from '@/lib/config/paths';
 import { atomicWriteFile, withFileLock } from '@/lib/config/atomic-file';
+import { aesGcmSecretBox, generateSecretKey } from '@integrations/engine/crypto';
+import type { SecretBox } from '@integrations/engine';
 
 /** Convert stored app callbacks once. External relay/proxy callbacks keep their address. */
 export function migrateIntegrationCallback(uri: string): string {
@@ -69,4 +71,53 @@ export function getIntegrationsDir(): string {
     ready.add(configDir);
   }
   return path.join(configDir, 'integrations');
+}
+
+/** Best-effort tighten a path's mode (no-op on filesystems/platforms that reject chmod). */
+function hardenMode(target: string, mode: number): void {
+  try {
+    fs.chmodSync(target, mode);
+  } catch {
+    /* best-effort: some filesystems (e.g. mounted volumes) reject chmod */
+  }
+}
+
+/** Read (or lazily create) the at-rest encryption key. Mode 0600, never synced. */
+export function getOrCreateKey(dir: string): string {
+  const keyPath = path.join(dir, 'key');
+  try {
+    const existing = fs.readFileSync(keyPath, 'utf8').trim();
+    if (existing) {
+      // Re-harden on every boot: a key file restored from backup or pre-created could be too open.
+      hardenMode(dir, 0o700);
+      hardenMode(keyPath, 0o600);
+      return existing;
+    }
+  } catch {
+    /* fall through to create */
+  }
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  hardenMode(dir, 0o700); // mkdir mode is umask-masked; enforce it
+  const key = generateSecretKey();
+  try {
+    // `wx`: two processes creating a brand-new home must not each write a different key.
+    fs.writeFileSync(keyPath, key, { mode: 0o600, flag: 'wx' });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    const winner = fs.readFileSync(keyPath, 'utf8').trim();
+    if (!winner) throw new Error(`The integration key at ${keyPath} is empty. Preserve the integration store and repair it before starting.`);
+    return winner;
+  }
+  hardenMode(keyPath, 0o600);
+  return key;
+}
+
+/**
+ * A secret box over the home's integration key, for stores that sit beside the connection store
+ * (managed source credentials, connect attempts). Interchangeable with the runtime's: the seal is
+ * derived from the same key file.
+ */
+export function getIntegrationSecretBox(): SecretBox {
+  const dir = getIntegrationsDir();
+  return aesGcmSecretBox({ key: getOrCreateKey(dir) });
 }

@@ -246,6 +246,13 @@ export function proxy(request: NextRequest) {
     return nextWithoutKeyHeaders(request);
   }
 
+  // `/api/integrations/managed/callback` is where a managed source (Composio) returns the browser
+  // after consent. Its only input is an unguessable single-use attempt id, and completion is
+  // verified server-side through the source against that stored attempt, never the redirect.
+  if (request.nextUrl.pathname === '/api/integrations/managed/callback') {
+    return nextWithoutKeyHeaders(request);
+  }
+
   // `/api/integrations/mcp-oauth/<sid>` is the OAuth redirect target for an ingested MCP server.
   // Same rationale as the integrations callback: the provider redirects the user's browser here
   // without the app Bearer; the SDK's single-use authorization code + PKCE verifier are the auth.

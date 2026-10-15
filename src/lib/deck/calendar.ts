@@ -31,7 +31,19 @@ export interface WorkdayBounds {
 
 // ─── Provider registry (integration injection point) ──────────────
 
-export type CalendarProvider = (date: string) => Promise<CalendarBlock[]>;
+/**
+ * A day's calendar as read: the busy blocks that are known, and whether that is the whole day.
+ * `partial`: some calendars couldn't be read or were cut short. `unknown`: none could be read.
+ * Either way the known blocks stand, and the rest of the day is not confirmed free.
+ */
+export interface CalendarDayRead {
+  blocks: CalendarBlock[];
+  availability: 'known' | 'partial' | 'unknown';
+  detail?: string;
+}
+
+/** A provider returns blocks (a complete read) or a `CalendarDayRead` that says how complete it is. */
+export type CalendarProvider = (date: string) => Promise<CalendarBlock[] | CalendarDayRead>;
 
 let provider: CalendarProvider | null = null;
 
@@ -45,17 +57,23 @@ export function hasCalendarProvider(): boolean {
 }
 
 /**
- * Busy blocks for a local day (YYYY-MM-DD). Returns [] when no provider is
- * registered or the provider throws — the deck treats the day as fully open.
+ * A local day's calendar (YYYY-MM-DD) and how much of it is known. No provider means no calendar
+ * is connected: a known, open day. A provider that throws is an unknown day, never an empty one.
  */
-export async function getCalendarEventsForDay(date: string): Promise<CalendarBlock[]> {
-  if (!provider) return [];
+export async function readCalendarDay(date: string): Promise<CalendarDayRead> {
+  if (!provider) return { blocks: [], availability: 'known' };
   try {
-    return await provider(date);
+    const read = await provider(date);
+    return Array.isArray(read) ? { blocks: read, availability: 'known' } : read;
   } catch (err) {
-    console.error('[calendar] provider failed, treating day as open', err);
-    return [];
+    console.error('[calendar] provider failed, availability unknown', err);
+    return { blocks: [], availability: 'unknown', detail: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/** Busy blocks for a local day: the known ones, whatever the read's completeness. */
+export async function getCalendarEventsForDay(date: string): Promise<CalendarBlock[]> {
+  return (await readCalendarDay(date)).blocks;
 }
 
 // ─── Pure time math ─────────────────────────────────────────────

@@ -31,7 +31,7 @@ import { isReady, normalizeTaskStatus } from '@/lib/tasks/lifecycle';
 import { getLatestDeck, supersedeAndInsertDeck, getUserState, listTeamConnections } from '@/lib/db/queries';
 import { todayLocalDate } from '@/lib/deck/date';
 import {
-  getCalendarEventsForDay,
+  readCalendarDay,
   computeFreeGaps,
   availableMinutes,
   formatGap,
@@ -356,7 +356,8 @@ export async function generateDeck(
   const us = getUserState();
   const workdayStart = us?.workdayStart ?? '09:00';
   const workdayEnd = us?.workdayEnd ?? '18:00';
-  const calendarBlocks = await getCalendarEventsForDay(forDate);
+  const calendarRead = await readCalendarDay(forDate);
+  const calendarBlocks = calendarRead.blocks;
   const gaps = computeFreeGaps(calendarBlocks, { workdayStart, workdayEnd, date: forDate });
   const calendarMinutes = availableMinutes(gaps);
   const effectiveMinutes = generationContext.availableMinutes ?? us?.availableMinutes ?? calendarMinutes;
@@ -366,6 +367,8 @@ export async function generateDeck(
     workdayEnd,
     hasCalendar: calendarBlocks.length > 0,
     gaps: gaps.map((g) => ({ label: formatGap(g), minutes: g.minutes })),
+    ...(calendarRead.availability !== 'known' ? { calendarAvailability: calendarRead.availability } : {}),
+    ...(calendarRead.detail ? { calendarDetail: calendarRead.detail.slice(0, 300) } : {}),
   };
 
   // The user's plain-language source instructions (DECK.md), injected so the

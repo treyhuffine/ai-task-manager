@@ -206,6 +206,11 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
       case 'jwt':
         redactor.register(creds.key, 'jwt_key');
         break;
+      case 'remote_account':
+        // The binding nonce is the only secret-like value. The account id is an identifier the
+        // host shows to the user, and scrubbing it would hide which account a result came from.
+        redactor.register(creds.binding, 'remote_binding');
+        break;
     }
   }
 

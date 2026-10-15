@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { WorkspaceIntegrationScope, WorkspaceIntegrationScopeAccount } from '@/db/types';
 import { pinKey, pinMatchesConnection, scopePins, toggleAccountPin } from '@/lib/integrations/scope-pins';
+import { APPLICATIONS, applicationForDirectToolkit, parseManagedToolkitId } from '@/lib/integrations/sources/applications';
+import type { ApplicationId } from '@/lib/integrations/sources/types';
 import { AlertCircle, ChevronDown, Loader2, Plug } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Tip } from '@/components/ui/tip';
@@ -59,6 +61,11 @@ const isPinned = (c: Connection, pins: WorkspaceIntegrationScopeAccount[]): bool
 
 interface AccountMultiSelectProps {
   serviceName: string;
+  /**
+   * Managed accounts sit under the same application. "All accounts" then reads "All direct
+   * accounts", so it can't be taken to cover them (it never does).
+   */
+  directOnly?: boolean;
   /** The provider's connected accounts. */
   accounts: Connection[];
   /** The scope's account pins. Empty = all accounts, including ones connected later. */
@@ -76,14 +83,14 @@ interface AccountMultiSelectProps {
  * remove it), and a pinned account that is no longer connected is listed so the stored intent
  * stays visible and removable.
  */
-function AccountMultiSelect({ serviceName, accounts, pins, disabled, onChange }: AccountMultiSelectProps) {
+function AccountMultiSelect({ serviceName, directOnly = false, accounts, pins, disabled, onChange }: AccountMultiSelectProps) {
   const all = pins.length === 0;
   const selected = accounts.filter((c) => isPinned(c, pins));
   const dormant = pins.filter((p) => !accounts.some((c) => pinMatchesConnection(p, c)));
   const lastOne = !all && pins.length === 1;
 
   const summary = all
-    ? 'All accounts'
+    ? directOnly ? 'All direct accounts' : 'All accounts'
     : selected.length === 1 && dormant.length === 0
       ? accountLabel(selected[0]!)
       : selected.length === 0
@@ -119,8 +126,8 @@ function AccountMultiSelect({ serviceName, accounts, pins, disabled, onChange }:
       <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-2rem)]">
         <DropdownMenuCheckboxItem checked={all} onCheckedChange={selectAll} onSelect={stayOpen} className="items-start text-xs">
           <span className="min-w-0">
-            <span className="block font-medium">All accounts</span>
-            <span className="block text-[10px] text-muted-foreground">Includes accounts you connect later</span>
+            <span className="block font-medium">{directOnly ? 'All direct accounts' : 'All accounts'}</span>
+            <span className="block text-[10px] text-muted-foreground">{directOnly ? 'Includes future direct accounts. Accounts through a source are chosen below.' : 'Includes accounts you connect later'}</span>
           </span>
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
@@ -170,6 +177,70 @@ function AccountMultiSelect({ serviceName, accounts, pins, disabled, onChange }:
   );
 }
 
+/** One managed source's accounts for an application, with the source-namespaced toolkit they need. */
+interface ManagedRoute {
+  toolkitId: string;
+  sourceLabel: string;
+  accounts: Connection[];
+}
+
+/**
+ * Accounts connected through a managed source, under their application's heading. Each one is
+ * granted by name: there is no "all" for a source, so connecting another account never widens an
+ * agent. "Select all" checks only the accounts shown now.
+ */
+function ManagedAccountChecks({ routes, scopes, disabled, onChange }: {
+  routes: ManagedRoute[];
+  scopes: WorkspaceIntegrationScope[];
+  disabled?: boolean;
+  onChange: (scopes: WorkspaceIntegrationScope[]) => void;
+}) {
+  const pinsOf = (toolkitId: string) => {
+    const scope = scopes.find((s) => s.toolkitId === toolkitId);
+    return scope ? scopePins(scope) : [];
+  };
+  const setPins = (toolkitId: string, pins: WorkspaceIntegrationScopeAccount[]) => {
+    const rest = scopes.filter((s) => s.toolkitId !== toolkitId);
+    // No pins left removes the service: an empty list would mean every account.
+    onChange(pins.length > 0 ? [...rest, { toolkitId, accounts: pins }] : rest);
+  };
+  const toggle = (route: ManagedRoute, c: Connection, on: boolean) => {
+    const pins = pinsOf(route.toolkitId).filter((p) => !pinMatchesConnection(p, c));
+    setPins(route.toolkitId, on ? [...pins, { accountId: c.accountId }] : pins);
+  };
+  const shown = routes.flatMap((route) => route.accounts.map((c) => ({ route, c })));
+  const allChecked = shown.length > 0 && shown.every(({ route, c }) => isPinned(c, pinsOf(route.toolkitId)));
+  const selectAll = () => {
+    let next = scopes;
+    for (const route of routes) {
+      const pins = pinsOf(route.toolkitId);
+      const added = route.accounts.filter((c) => !isPinned(c, pins)).map((c) => ({ accountId: c.accountId }));
+      next = [...next.filter((s) => s.toolkitId !== route.toolkitId), { toolkitId: route.toolkitId, accounts: [...pins, ...added] }];
+    }
+    onChange(next);
+  };
+  return (
+    <div className="space-y-1 pl-7">
+      {shown.map(({ route, c }) => {
+        const checked = isPinned(c, pinsOf(route.toolkitId));
+        return (
+          <label key={c.id} className="flex min-w-0 cursor-pointer items-center gap-2">
+            <Checkbox checked={checked} disabled={disabled} onCheckedChange={() => toggle(route, c, !checked)} />
+            <span className="truncate text-[11px] text-foreground/90">{accountLabel(c)}</span>
+            {c.label && c.email && c.label !== c.email && <span className="truncate text-[10px] text-muted-foreground">{c.label}</span>}
+            <span className="shrink-0 rounded-full bg-muted/70 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">via {route.sourceLabel}</span>
+          </label>
+        );
+      })}
+      {shown.length > 1 && !allChecked && (
+        <button type="button" disabled={disabled} onClick={selectAll} className="text-[10px] font-medium text-primary hover:underline disabled:opacity-40">
+          Select all connected accounts
+        </button>
+      )}
+    </div>
+  );
+}
+
 interface IntegrationScopePickerProps {
   scopes: WorkspaceIntegrationScope[];
   onChange: (scopes: WorkspaceIntegrationScope[]) => void;
@@ -204,11 +275,29 @@ export function IntegrationScopePicker({ scopes, onChange, disabled }: Integrati
     return (pid: string) => m.get(pid) ?? pid.replace(/^mcp_/, 'MCP: ').replace(/_/g, ' ');
   }, [providers]);
 
+  // Managed toolkits (Gmail through Composio), by application. They are never a provider group
+  // of their own: their accounts sit under the application's row.
+  const managedByApp = useMemo(() => {
+    const m = new Map<ApplicationId, ManagedRoute[]>();
+    for (const t of toolkits) {
+      const parsed = parseManagedToolkitId(t.id);
+      if (!parsed || !connectedProviderIds.has(t.providerId)) continue;
+      const accounts = connections.filter((c) => c.providerId === t.providerId);
+      const via = t.displayName.includes(' via ') ? t.displayName.slice(t.displayName.indexOf(' via ') + 5) : 'a source';
+      m.set(parsed.applicationId, [...(m.get(parsed.applicationId) ?? []), { toolkitId: t.id, sourceLabel: via, accounts }]);
+    }
+    return m;
+  }, [toolkits, connectedProviderIds, connections]);
+  const managedFor = (toolkitId: string): ManagedRoute[] => {
+    const app = applicationForDirectToolkit(toolkitId);
+    return app ? managedByApp.get(app) ?? [] : [];
+  };
+
   // Connected providers (sorted) → their toolkits. Only connected providers can be scoped.
   const groups = useMemo(() => {
     const byProvider = new Map<string, Toolkit[]>();
     for (const t of toolkits) {
-      if (!connectedProviderIds.has(t.providerId)) continue;
+      if (!connectedProviderIds.has(t.providerId) || parseManagedToolkitId(t.id)) continue;
       byProvider.set(t.providerId, [...(byProvider.get(t.providerId) ?? []), t]);
     }
     return [...byProvider.entries()]
@@ -241,6 +330,10 @@ export function IntegrationScopePicker({ scopes, onChange, disabled }: Integrati
   };
   const removeDormant = (toolkitId: string) => onChange(scopes.filter((s) => s.toolkitId !== toolkitId));
 
+  // Applications with managed accounts and no direct connection get their own heading.
+  const directToolkitIds = new Set(groups.flatMap((g) => g.toolkits.map((t) => t.id)));
+  const managedOnly = [...managedByApp.entries()].filter(([app]) => !directToolkitIds.has(APPLICATIONS[app].direct.toolkitId));
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
@@ -258,7 +351,7 @@ export function IntegrationScopePicker({ scopes, onChange, disabled }: Integrati
         </div>
       )}
 
-      {groups.length === 0 ? (
+      {groups.length === 0 && managedOnly.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/10 p-6 text-center">
           <Plug size={20} className="mb-2 text-muted-foreground" />
           <p className="text-[12px] text-muted-foreground">
@@ -299,9 +392,10 @@ export function IntegrationScopePicker({ scopes, onChange, disabled }: Integrati
                           <span className="truncate text-xs text-foreground/90">{t.displayName}</span>
                         </label>
                         {/* Shown with >1 account, or while a pin exists so it stays visible and removable. */}
-                        {on && (accounts.length > 1 || pins.length > 0) && (
+                        {on && (accounts.length > 1 || pins.length > 0 || managedFor(t.id).length > 0) && (
                           <AccountMultiSelect
                             serviceName={t.displayName}
+                            directOnly={managedFor(t.id).length > 0}
                             accounts={accounts}
                             pins={pins}
                             disabled={disabled}
@@ -311,10 +405,27 @@ export function IntegrationScopePicker({ scopes, onChange, disabled }: Integrati
                       </div>
                     );
                   })}
+                  {tks.filter((t) => managedFor(t.id).length > 0).map((t) => (
+                    <div key={`managed:${t.id}`} className="space-y-1 pt-1">
+                      <p className="pl-1 text-[10px] font-semibold text-foreground/70">{t.displayName} through a source</p>
+                      <ManagedAccountChecks routes={managedFor(t.id)} scopes={scopes} disabled={disabled} onChange={onChange} />
+                    </div>
+                  ))}
                 </div>
               </div>
             );
           })}
+          {managedOnly.map(([app, routes]) => (
+            <div key={`app:${app}`} className="rounded-xl border border-border bg-card/20 p-3">
+              <div className="flex items-center gap-2.5">
+                <IntegrationLogo providerId={app === 'gmail' ? 'gmail' : 'google'} name={APPLICATIONS[app].displayName} size={24} />
+                <span className="text-sm font-medium text-foreground">{APPLICATIONS[app].displayName}</span>
+              </div>
+              <div className="mt-2 border-t border-border/40 pt-2">
+                <ManagedAccountChecks routes={routes} scopes={scopes} disabled={disabled} onChange={onChange} />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

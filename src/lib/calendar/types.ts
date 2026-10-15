@@ -71,6 +71,10 @@ export interface CalendarProviderStatus {
   providerId: string;
   connectionId: string;
   ok: boolean;
+  /** Read, but not to the end (a page bound cut the list short): what's known is shown. */
+  partial?: boolean;
+  /** The managed source this calendar is read through ("Composio"), when not direct. */
+  via?: string;
   detail?: string;
 }
 
@@ -97,6 +101,11 @@ export interface CalendarDay {
   largestGapMinutes: number;
   /** Busy minutes within workday bounds (workday span minus free minutes). */
   busyMinutes: number;
+  /**
+   * Every calendar that takes your time was read in full. False means the gaps cover only what
+   * was read: some time may be busy that shows as free.
+   */
+  complete: boolean;
 }
 
 export interface CalendarRangeResult {

@@ -14,7 +14,7 @@ const coreRoutes = new Set([
 // These are language-neutral, cookie, byte-stream, native-device or discovery protocols.
 // A new application JSON route must have a typed procedure instead of joining this list.
 const protocolRoutes = new Set([
-  '/[transport]', '/attachments', '/attachments/[fileName]', '/capture', '/integrations/[transport]', '/integrations/callback',
+  '/[transport]', '/attachments', '/attachments/[fileName]', '/capture', '/integrations/[transport]', '/integrations/callback', '/integrations/managed/callback',
   '/integrations/mcp-oauth/[sid]', '/desktop/activity', '/desktop/notifications', '/desktop/oauth/complete', '/desktop/oauth/events',
   '/health', '/live', '/orchestrator/[transport]', '/orchestrator/actions/[name]', '/orchestrator/browser/[transport]', '/orchestrator/results/[transport]', '/playground/chat',
   // Signed harness reports and reviewer completion keep their language-neutral wire contract.

@@ -12,13 +12,14 @@
  * covers the web/API paths; the orchestrator action handlers cover the CLI
  * subprocess path.
  *
- * Degrades to "an open day" whenever nothing is connected or the read errors,
- * so deck generation is never blocked by calendar state.
+ * Nothing connected reads as an open day. A failed or cut-short read keeps the
+ * busy blocks it has and says the rest is unknown, so deck generation goes on
+ * without treating an outage as free time.
  */
 
-import { setCalendarProvider, hasCalendarProvider, type CalendarBlock } from '@/lib/deck/calendar';
+import { setCalendarProvider, hasCalendarProvider, type CalendarDayRead } from '@/lib/deck/calendar';
 
-async function fetchCalendarDay(date: string): Promise<CalendarBlock[]> {
+async function fetchCalendarDay(date: string): Promise<CalendarDayRead> {
   try {
     // Lazy: the service pulls the integrations runtime, which is heavy and
     // ESM-leaning — only load it when a calendar read actually fires, never
@@ -29,11 +30,16 @@ async function fetchCalendarDay(date: string): Promise<CalendarBlock[]> {
     ]);
     const range = await getCalendarRange({ start: date, days: 1 });
     const day = range.days[0];
-    if (!day) return [];
-    return day.events.filter((e) => e.countsAsBusy).map(eventToBlock);
+    const blocks = day ? day.events.filter((e) => e.countsAsBusy).map(eventToBlock) : [];
+    // The known busy blocks always stand. An outage or a cut-short read leaves the rest of the
+    // day unconfirmed, rather than reported as free.
+    const detail = range.providers.filter((p) => !p.ok || p.partial).map((p) => p.detail).filter(Boolean).join(' ');
+    if (range.status === 'error') return { blocks, availability: 'unknown', ...(detail ? { detail } : {}) };
+    if (range.status === 'degraded' || (day && !day.complete)) return { blocks, availability: 'partial', ...(detail ? { detail } : {}) };
+    return { blocks, availability: 'known' };
   } catch (err) {
-    console.warn('[calendar] day-shape read failed — treating day as open', err);
-    return [];
+    console.warn('[calendar] day-shape read failed — availability unknown', err);
+    return { blocks: [], availability: 'unknown', detail: err instanceof Error ? err.message : String(err) };
   }
 }
 

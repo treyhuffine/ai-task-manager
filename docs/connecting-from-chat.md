@@ -117,6 +117,16 @@ it offers, since setup can happen after the card appeared:
 - **Reconnect / Allow access** for a connection that stopped working or needs more access.
 - **Allow for this agent** when the account is connected but the agent can't use it, with a checkbox
   per account when there are several (see Which account).
+- **Connect through a source** for Gmail and Google Calendar when a managed source (Composio) is the
+  method Ri chose for that application (docs/connector-service-spec.md §3). The card says which
+  source stores the connection, signs in through it, and the attempt resolves the card whichever way
+  it finishes (the source's redirect, the card polling it, or a restart). The asking agent is
+  granted exactly the new account. "Change method" falls back to the direct sign-in above.
+
+A request for Gmail or Google Calendar also looks at managed accounts. If the agent can already use
+one, the answer is "already available". If the only accounts are managed ones, the Allow card offers
+exactly those, granted by name under the source's own toolkit. A managed account's Reconnect card
+re-consents through its source, keeping the same remote account and every grant on it.
 
 Keys and app secrets go from the card straight to the server. They never pass through the chat or
 the agent. The agent's reason is shown attributed ("The agent says: …"), separate from app text,

@@ -82,8 +82,22 @@ interface ReadCalendar {
   source: CalendarSource | null;
 }
 
+/**
+ * A connection the service reads. `providerId` is the calendar family ('google' for a Google
+ * Calendar connected directly or through a managed source), so the same calendar is read once
+ * and the copies of a meeting merge across routes. `managed` carries the account for a read
+ * through its source.
+ */
+interface CalendarConn {
+  id: string;
+  providerId: string;
+  managed?: { connection: ManagedConnection; via: string };
+}
+
+type ManagedConnection = Parameters<typeof import('@/lib/integrations/sources/calendar-reads').listManagedCalendars>[0];
+
 interface CalendarRead {
-  conn: { id: string; providerId: string };
+  conn: CalendarConn;
   calendar: ReadCalendar;
 }
 
@@ -106,13 +120,16 @@ async function fetchRange(start: string, days: number): Promise<CalendarRangeRes
 
   let runtime: Awaited<ReturnType<typeof importRuntime>>['runtime'];
   let ownerId: string;
-  let connections: Array<{ id: string; providerId: string }>;
+  let connections: CalendarConn[];
   try {
     const loaded = await importRuntime();
     runtime = loaded.runtime;
     ownerId = loaded.ownerId;
     const all = await runtime.listConnections({ ownerId });
-    connections = all.filter((c) => c.providerId === 'google' || c.providerId === 'microsoft');
+    connections = all
+      .filter((c) => c.providerId === 'google' || c.providerId === 'microsoft')
+      .map((c) => ({ id: c.id, providerId: c.providerId }));
+    connections.push(...(await managedCalendarConnections(ownerId)));
   } catch (err) {
     console.warn(`[calendar] ${INTEGRATION_LABELS.plural.toLowerCase()} runtime unavailable`, err);
     return finalize('error', [], []);
@@ -136,12 +153,40 @@ async function fetchRange(start: string, days: number): Promise<CalendarRangeRes
     ),
   );
   const okCount = providers.filter((p) => p.ok).length;
-  const status = okCount === providers.length ? 'ok' : okCount > 0 ? 'degraded' : 'error';
+  const allComplete = providers.every((p) => p.ok && !p.partial);
+  const status = allComplete ? 'ok' : okCount > 0 ? 'degraded' : 'error';
   const events = mergeCopies(results.flatMap((r) => (r.ok ? r.events : []))).sort(
     (a, b) => eventEpoch(a) - eventEpoch(b),
   );
 
-  return finalize(status, providers, events);
+  const result = finalize(status, providers, events);
+  if (!allComplete) for (const day of result.days) day.complete = false;
+  return result;
+}
+
+/**
+ * Google Calendars connected through a managed source that the user lets Ri's Calendar read.
+ * Loaded lazily, like the runtime, and an unreadable source list simply adds none.
+ */
+async function managedCalendarConnections(ownerId: string): Promise<CalendarConn[]> {
+  try {
+    const [{ calendarReadableConnections }, { getIntegrationConnectionStore }, { currentPreferences }, { managedConfig }] = await Promise.all([
+      import('@/lib/integrations/sources/calendar-reads'),
+      import('@/lib/integrations/runtime'),
+      import('@/lib/integrations/sources/preferences'),
+      import('@/lib/integrations/sources/managed-connections'),
+    ]);
+    const sources = currentPreferences().sources;
+    const readable = await calendarReadableConnections(getIntegrationConnectionStore(), ownerId);
+    return readable.map((connection) => ({
+      id: connection.id,
+      providerId: 'google',
+      managed: { connection, via: sources.find((source) => source.id === managedConfig(connection)?.sourceId)?.label ?? 'Composio' },
+    }));
+  } catch (err) {
+    console.warn('[calendar] managed calendars unavailable', String(err));
+    return [];
+  }
 }
 
 /**
@@ -153,7 +198,7 @@ async function fetchRange(start: string, days: number): Promise<CalendarRangeRes
 async function listCalendars(
   runtime: RuntimeLike,
   ownerId: string,
-  conn: { id: string; providerId: string },
+  conn: CalendarConn,
 ): Promise<ReadCalendar[]> {
   const hit = calendarLists.get(conn.id);
   if (hit && Date.now() - hit.fetchedAt < CALENDARS_TTL_MS) return hit.calendars;
@@ -161,11 +206,19 @@ async function listCalendars(
   let calendars: ReadCalendar[] = [{ readId: conn.providerId === 'google' ? 'primary' : 'default', source: null }];
   try {
     if (conn.providerId === 'google') {
-      const outcome = (await runtime.runAction('google_calendar.list_calendars', {}, ctx)) as ActionOutcome<{
-        calendars: RawGoogleCalendar[];
-      }>;
-      if (outcome.ok) {
-        const shown = (outcome.result.calendars ?? []).filter((c) => c.id && (c.primary || (c.selected && !c.hidden)));
+      // The same selected-calendar rule on both routes: Google's own sidebar choice.
+      let listed: RawGoogleCalendar[] | null = null;
+      if (conn.managed) {
+        const { listManagedCalendars } = await import('@/lib/integrations/sources/calendar-reads');
+        listed = await listManagedCalendars(conn.managed.connection);
+      } else {
+        const outcome = (await runtime.runAction('google_calendar.list_calendars', {}, ctx)) as ActionOutcome<{
+          calendars: RawGoogleCalendar[];
+        }>;
+        if (outcome.ok) listed = outcome.result.calendars ?? [];
+      }
+      if (listed) {
+        const shown = listed.filter((c) => c.id && (c.primary || (c.selected && !c.hidden)));
         const read: ReadCalendar[] = shown.map((c) => ({
           readId: c.id!,
           source: {
@@ -223,7 +276,7 @@ interface RawOutlookCalendar {
  * through the connection that owns it (else the first that lists it).
  */
 export function planReads(
-  lists: ReadonlyArray<{ conn: { id: string; providerId: string }; calendars: readonly ReadCalendar[] }>,
+  lists: ReadonlyArray<{ conn: CalendarConn; calendars: readonly ReadCalendar[] }>,
 ): CalendarRead[] {
   const reads: CalendarRead[] = [];
   const byCalendar = new Map<string, number>();
@@ -242,7 +295,7 @@ export function planReads(
   return reads;
 }
 
-type CalendarResult = { ok: true; events: CalendarEvent[] } | { ok: false; detail: string };
+type CalendarResult = { ok: true; events: CalendarEvent[]; complete?: boolean } | { ok: false; detail: string };
 
 /**
  * A connection is ok when every calendar that takes your time was read. A
@@ -250,17 +303,25 @@ type CalendarResult = { ok: true; events: CalendarEvent[] } | { ok: false; detai
  * connection down.
  */
 function connectionStatus(
-  conn: { id: string; providerId: string },
+  conn: CalendarConn,
   reads: ReadonlyArray<{ read: CalendarRead; result: CalendarResult }>,
 ): CalendarProviderStatus {
   const failed = reads.filter((r) => !r.result.ok);
   const ok = !failed.some((r) => calendarCountsTime(r.read.calendar.source)) && failed.length < reads.length;
+  const partial = reads.some((r) => r.result.ok && r.result.complete === false && calendarCountsTime(r.read.calendar.source));
   const why = (r: (typeof reads)[number]) => (r.result.ok ? '' : r.result.detail);
   const detail =
     reads.length === 1
       ? failed.map(why).join('')
       : failed.map((r) => `${r.read.calendar.source?.name ?? r.read.calendar.readId}: ${why(r)}`).join('; ');
-  return { providerId: conn.providerId, connectionId: conn.id, ok, ...(detail ? { detail } : {}) };
+  const shortened = partial ? 'Some events past the read limit were not loaded.' : '';
+  const said = [detail, shortened].filter(Boolean).join(' ');
+  return {
+    providerId: conn.providerId, connectionId: conn.id, ok,
+    ...(partial ? { partial: true } : {}),
+    ...(conn.managed ? { via: conn.managed.via } : {}),
+    ...(said ? { detail: said } : {}),
+  };
 }
 
 async function importRuntime() {
@@ -284,6 +345,14 @@ async function fetchCalendar(
 ): Promise<CalendarResult> {
   const ctx = { ownerId, connectionId: conn.id, caller: { type: 'app' } };
   try {
+    if (conn.managed) {
+      const { listManagedEvents } = await import('@/lib/integrations/sources/calendar-reads');
+      const read = await listManagedEvents(conn.managed.connection, calendar.readId, windowStart.toISOString(), windowEnd.toISOString());
+      const events = read.events
+        .map((e) => normalizeGoogleEvent(e, conn.id, calendar.source))
+        .filter((e): e is CalendarEvent => e != null);
+      return { ok: true, events, complete: read.complete };
+    }
     if (conn.providerId === 'google') {
       const outcome = (await runtime.runAction(
         'google_calendar.list_events',
@@ -355,6 +424,7 @@ function buildDays(
       freeMinutes,
       largestGapMinutes: gaps.reduce((m, g) => Math.max(m, g.minutes), 0),
       busyMinutes: Math.max(0, workdaySpan - freeMinutes),
+      complete: true,
     });
   }
   return days;

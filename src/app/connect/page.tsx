@@ -2,6 +2,8 @@ import { getHostedMcpProvider, PROVIDER_CATALOG } from '@integrations/engine/pro
 import { hostedMcpConnectionId, hostedMcpEndpointSetup } from '@/lib/integrations/hosted-mcp';
 import { getIntegrationConnectionStore, getIntegrationOwnerId, getMcpServerStore, getProviderStatuses } from '@/lib/integrations/runtime';
 import { ConnectionRequest } from './connection-request';
+import { redirect } from 'next/navigation';
+import { parseManagedToolkitId } from '@/lib/integrations/sources/applications';
 import type { ConnectionRequestAccount } from './request-connection';
 
 export default async function ConnectPage({ searchParams }: {
@@ -9,6 +11,9 @@ export default async function ConnectPage({ searchParams }: {
 }) {
   const params = await searchParams;
   const providerId = typeof params.provider === 'string' ? params.provider : '';
+  // A managed account (Gmail through Composio) reconnects on its application's page in Connectors.
+  const managed = parseManagedToolkitId(providerId);
+  if (managed) redirect(`/?settings=plugins&plugin=${encodeURIComponent(`integrations:app:${managed.applicationId}`)}`);
   const hosted = getHostedMcpProvider(providerId);
   const auth = hosted?.auth;
   const registered = auth?.kind === 'oauth' && auth.registration === 'registered';

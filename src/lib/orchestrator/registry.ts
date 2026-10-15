@@ -1387,7 +1387,8 @@ const get_day_shape_action = defineAction({
   description:
     "The user's day shape for a date or range: calendar commitments, free gaps, and free " +
     'minutes, already computed. Use this for anything about time or availability. Never ' +
-    'compute free/busy from raw calendar events yourself.',
+    'compute free/busy from raw calendar events yourself. A day with complete: false had a ' +
+    'calendar that could not be read in full, so its free gaps are not confirmed free.',
   params: {
     date: z
       .string()
@@ -1402,12 +1403,16 @@ const get_day_shape_action = defineAction({
     const { getCalendarRange } = await import('@/lib/calendar/service');
     const { formatGap } = await import('@/lib/deck/calendar');
     const r = await getCalendarRange({ start: date, days: days ?? 1 });
+    // Calendars that couldn't be read (or were cut short): their time is unknown, not free.
+    const unread = r.providers.filter((p) => !p.ok || p.partial).map((p) => p.detail ?? 'unreadable');
     return {
       status: r.status,
       asOf: r.asOf,
       workday: `${r.workday.start}-${r.workday.end}`,
+      ...(unread.length ? { unreadCalendars: unread } : {}),
       days: r.days.map((d) => ({
         date: d.date,
+        complete: d.complete,
         allDay: d.allDay.map((e) => ({ title: e.title, start: e.start, end: e.end, calendar: e.calendar?.name ?? null })),
         busy: d.events
           .filter((e) => e.countsAsBusy)

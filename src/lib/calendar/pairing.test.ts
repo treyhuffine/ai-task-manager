@@ -14,7 +14,7 @@ function day(gaps: Array<[number, number]>): CalendarDay {
     })),
     freeMinutes: 0,
     largestGapMinutes: 0,
-    busyMinutes: 0,
+    busyMinutes: 0, complete: true,
   };
 }
 

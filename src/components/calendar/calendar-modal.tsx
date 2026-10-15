@@ -446,7 +446,7 @@ function CalendarBody({ initialView, initialDate }: { initialView: CalendarView;
 
 /** A day with nothing booked, for drawing work without a calendar connected. */
 function emptyDay(date: string): CalendarDay {
-  return { date, allDay: [], events: [], gaps: [], freeMinutes: 0, largestGapMinutes: 0, busyMinutes: 0 };
+  return { date, allDay: [], events: [], gaps: [], freeMinutes: 0, largestGapMinutes: 0, busyMinutes: 0, complete: true };
 }
 
 function Segmented<T extends string>({

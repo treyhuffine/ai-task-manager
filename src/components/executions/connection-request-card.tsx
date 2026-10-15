@@ -20,6 +20,11 @@ import { Bot, Check, Copy, ExternalLink, KeyRound, Loader2, Plug, RefreshCw, Shi
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Tip } from '@/components/ui/tip';
+import { sourceErrorMessage, useConnectAttempt, useConnectionMethod } from '@/hooks/use-connector-sources';
+import { applicationForDirectToolkit, parseManagedToolkitId } from '@/lib/integrations/sources/applications';
+import type { ApplicationId } from '@/lib/integrations/sources/types';
+import { trpcClient } from '@/lib/trpc/client';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 
 /** The card a sign-in started from, so its result (or error) shows on it when the page returns. */
@@ -58,6 +63,7 @@ function currentReturnPath(): string {
   const url = new URL(window.location.href);
   url.searchParams.delete('connected');
   url.searchParams.delete('error');
+  url.searchParams.delete('attempt');
   return `${url.pathname}${url.search}`;
 }
 
@@ -85,6 +91,9 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
   if (!view) return null;
   const provider = status?.providers.find((p) => p.id === view.providerId);
   const busy = action.isPending;
+  // Gmail or Google Calendar asked for: it may connect through a managed source (Composio).
+  const apps = view.kind === 'connect' && view.method === 'oauth2' ? [...new Set(view.toolkitIds.map(applicationForDirectToolkit))] : [];
+  const managedApp = apps.length === 1 ? apps[0] : undefined;
 
   const run = (body: Parameters<typeof action.mutate>[0], after?: (r: Awaited<ReturnType<typeof action.mutateAsync>>) => void) => {
     setNotice(null);
@@ -116,7 +125,7 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
   return (
     <div className={cn('overflow-hidden rounded-xl border bg-card text-[11px]', resolved ? 'border-border' : 'border-sky-500/40')}>
       <div className={cn('flex items-center gap-2.5 border-b px-3 py-2', resolved ? 'border-border/60 bg-muted/20' : 'border-sky-500/20 bg-sky-500/5')}>
-        <IntegrationLogo providerId={view.providerId} name={view.providerName} size={24} className="rounded-md" />
+        <IntegrationLogo providerId={logoFor(view.providerId)} name={view.providerName} size={24} className="rounded-md" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <KindIcon kind={view.kind} />
@@ -164,6 +173,30 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
         <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-muted-foreground">
           <Loader2 size={11} className="animate-spin" /> Checking {view.providerName}…
         </div>
+      ) : managedApp ? (
+        <ManagedConnect
+          applicationId={managedApp}
+          eventId={event.id}
+          view={view}
+          busy={busy}
+          notice={notice}
+          onDecline={() => run({ action: 'decline' })}
+          direct={provider && !provider.configured ? (
+            <SetupForm
+              view={view}
+              provider={provider}
+              redirectUri={status.redirectUri}
+              busy={busy}
+              notice={notice}
+              onDecline={() => run({ action: 'decline' })}
+              onSaved={signIn}
+            />
+          ) : (
+            <Footer busy={busy} onDecline={() => run({ action: 'decline' })} notice={notice}>
+              <PrimaryButton busy={busy} onClick={signIn}>Connect {view.providerName}</PrimaryButton>
+            </Footer>
+          )}
+        />
       ) : provider && !provider.configured && view.kind === 'connect' ? (
         <SetupForm
           view={view}
@@ -181,6 +214,92 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
           </PrimaryButton>
         </Footer>
       )}
+    </div>
+  );
+}
+
+/** A managed provider (Gmail through Composio) wears its application's mark. */
+function logoFor(providerId: string): string {
+  const managed = parseManagedToolkitId(providerId);
+  return managed ? (managed.applicationId === 'gmail' ? 'gmail' : 'google') : providerId;
+}
+
+/**
+ * Connect through the method Ri chose for this application. With a managed source preferred the
+ * card signs in through it, and the attempt (callback or polling) answers the card, granting the
+ * asking agent exactly the new account. "Change method" falls back to the direct sign-in.
+ */
+function ManagedConnect({ applicationId, eventId, view, busy, notice, onDecline, direct }: {
+  applicationId: ApplicationId;
+  eventId: string;
+  view: ConnectionRequestView;
+  busy: boolean;
+  notice: string | null;
+  onDecline: () => void;
+  direct: ReactNode;
+}) {
+  const method = useConnectionMethod(applicationId, 'agent_tools');
+  const [useDirect, setUseDirect] = useState(false);
+  const [sourceId, setSourceId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const attempt = useConnectAttempt(attemptId);
+  const selection = method.data;
+  const managedOptions = selection ? [selection.primary, ...selection.alternatives].filter((o): o is Extract<NonNullable<typeof o>, { kind: 'managed' }> => o?.kind === 'managed' && o.available) : [];
+  const chosen = managedOptions.find(o => o.source.id === sourceId) ?? (selection?.primary?.kind === 'managed' && selection.primary.available ? selection.primary : null);
+  const attemptState = attempt.data;
+  const failed = attemptState && attemptState.status !== 'pending' && attemptState.status !== 'completed' ? attemptState.error : null;
+
+  if (method.isLoading) {
+    return <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-muted-foreground"><Loader2 size={11} className="animate-spin" /> Checking how to connect…</div>;
+  }
+  // No managed source to use, or the person picked the direct route: the card as it always was.
+  if (useDirect || !chosen) return <>{direct}</>;
+
+  const connect = async () => {
+    setMessage(null);
+    setStarting(true);
+    try {
+      const result = await trpcClient.connectorSources.cardSignIn.mutate({
+        eventId, returnTo: currentReturnPath(), sourceId: chosen.source.id,
+        ...(selection?.primary?.kind === 'managed' && selection.primary.source.id !== chosen.source.id ? { explicitChoice: true } : {}),
+      });
+      sessionStorage.setItem(PENDING_SIGN_IN_KEY, eventId);
+      setAttemptId(result.attemptId);
+      await openIntegrationAuthorization(result.authorizationUrl);
+    } catch (error) {
+      setMessage(sourceErrorMessage(error));
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-border bg-muted/20 px-3 py-2">
+      <p className="mb-1.5 text-muted-foreground">
+        Using {chosen.source.label}{selection?.basis === 'preferred' && chosen === selection.primary ? ', your preferred source' : ''}. {chosen.source.label} stores this connection and processes its tool requests.
+      </p>
+      {attemptId && attemptState?.status === 'pending' && <p className="mb-1.5 flex items-center gap-1.5 text-[10.5px] text-muted-foreground"><Loader2 size={10} className="animate-spin" /> Finish signing in in your browser.</p>}
+      {(failed || message || notice) && <p className="mb-1.5 text-[10.5px] text-amber-600 dark:text-amber-400">{failed ?? message ?? notice}</p>}
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" disabled={busy || starting} onClick={onDecline} className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted/60 disabled:opacity-50">
+          Not now
+        </button>
+        <button type="button" onClick={() => setUseDirect(true)} className="text-[10.5px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
+          Change method
+        </button>
+        {managedOptions.length > 1 && (
+          <Select value={chosen.source.id} onValueChange={setSourceId}>
+            <SelectTrigger size="sm" aria-label="Source" className="h-6 text-[10.5px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {managedOptions.map(o => <SelectItem key={o.source.id} value={o.source.id} className="text-xs">{o.source.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+        <div className="flex-1" />
+        <PrimaryButton busy={starting} onClick={() => void connect()}>Connect {view.label}</PrimaryButton>
+      </div>
     </div>
   );
 }

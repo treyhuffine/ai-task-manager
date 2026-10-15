@@ -254,6 +254,30 @@ export function resolvePendingApprovals(
   return { resolved, missing };
 }
 
+/**
+ * Access to these connections was removed (an account disconnected, a source turned off). Their
+ * pending approvals can no longer license a call: they leave the queue, recorded as settled so
+ * the cards show it, and any unused grant for them is dropped.
+ */
+export function revokeApprovalsForConnections(
+  connectionIds: readonly string[],
+  onSettled: (settled: PendingApproval[]) => Promise<void> = recordSettled,
+): PendingApproval[] {
+  const ids = new Set(connectionIds);
+  if (ids.size === 0) return [];
+  const removed = [...state.pending.values()].filter((p) => ids.has(p.connectionId));
+  for (const p of removed) state.pending.delete(p.id);
+  // A grant slot starts with the grant key: owner|action|connection|digest|version.
+  for (const slot of [...state.grants.keys()]) if (ids.has(slot.split('|')[2] ?? '')) state.grants.delete(slot);
+  if (removed.length > 0) {
+    const settled = removed.map(toPublic);
+    void onSettled(settled)
+      .catch((err) => console.warn(`[integrations] recording revoked approvals failed:`, err))
+      .finally(() => { for (const sessionId of new Set(settled.map((p) => p.sessionId))) publishSessionApprovals(sessionId); });
+  }
+  return removed.map(toPublic);
+}
+
 /** Test helper: forget every pending approval and grant. */
 export function _resetApprovals(): void {
   state.pending.clear();

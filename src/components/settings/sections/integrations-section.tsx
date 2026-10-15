@@ -32,13 +32,18 @@ import { Input } from '@/components/ui/input';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { type HostedEndpointSelection } from '@/lib/client/integration-endpoint';
 import { openIntegrationAuthorization } from '@/lib/client/desktop';
-import { AlertCircle, CheckCircle2, Loader2, Plug, Search } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, Plug, Search, Waypoints } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { hostedAccountRequestFields, hostedAccountSignedIn } from './integrations/hosted-account-request';
 import { watchOAuthReturn } from './integrations/oauth-focus-refresh';
 import { CatalogTile, GroupHeading } from './integrations/parts';
 import { PreviousConnections } from './integrations/previous-connections';
 import { ProviderDetail } from './integrations/provider-detail';
+import { ApplicationDetail } from './integrations/application-detail';
+import { SourcesPanel } from './integrations/sources-panel';
+import { useManagedAccounts, useSourcesOverview } from '@/hooks/use-connector-sources';
+import { APPLICATIONS, isApplicationId, parseManagedToolkitId } from '@/lib/integrations/sources/applications';
+import type { ApplicationId } from '@/lib/integrations/sources/types';
 import {
 	connectionIdentity,
 	EMPTY_BYO_FORM,
@@ -58,7 +63,25 @@ import {
 
 type View =
   | { kind: 'catalog' }
-  | { kind: 'provider'; id: string };
+  | { kind: 'provider'; id: string }
+  /** Connection sources (Composio), set up once. */
+  | { kind: 'sources' }
+  /** An application a managed source can connect (Gmail, Google Calendar). */
+  | { kind: 'app'; id: ApplicationId };
+
+const APP_ANCHOR = 'integrations:app:';
+const SOURCES_ANCHOR = 'integrations:sources';
+
+function anchorFor(view: View): string {
+  if (view.kind === 'provider') return `integrations:${view.id}`;
+  if (view.kind === 'app') return `${APP_ANCHOR}${view.id}`;
+  if (view.kind === 'sources') return SOURCES_ANCHOR;
+  return 'integrations';
+}
+
+/** Where a managed application lives in the catalog when it isn't connected yet. */
+const APP_CATEGORY: Record<ApplicationId, IntegrationCategory> = { gmail: 'Email', google_calendar: 'Productivity' };
+const APP_LOGO: Record<ApplicationId, string> = { gmail: 'gmail', google_calendar: 'google' };
 
 const CATALOG: View = { kind: 'catalog' };
 
@@ -101,6 +124,10 @@ export function IntegrationsSection({ active = true, navigation }: {
   const [pendingOAuth, setPendingOAuth] = useState<string | null>(null);
   const [pendingRegisteredOAuth, setPendingRegisteredOAuth] = useState<{ id: string; displayName: string; serverId?: string; authorizationId?: string } | null>(null);
   const [query, setQuery] = useState('');
+  // A managed sign-in the browser just came back from (`?attempt=`), finished on its application's page.
+  const [returnedAttempt, setReturnedAttempt] = useState<string | null>(null);
+  const sourcesOverview = useSourcesOverview(active);
+  const managedAccounts = useManagedAccounts(active);
 
   const [view, setView] = useState<View>(() => navigation ? { kind: 'provider', id: navigation.providerId } : CATALOG);
   const [advancedOpen, setAdvancedOpen] = useState(false); // detail view's "Use your own OAuth app"
@@ -186,11 +213,15 @@ export function IntegrationsSection({ active = true, navigation }: {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get('connected');
     const err = params.get('error');
-    if (connected) setBanner(connected === 'Connected' ? 'Connected' : `Connected ${connected}`);
+    const attempt = params.get('attempt');
+    // A managed sign-in's page reads its own attempt, with the real reason when it failed.
+    if (attempt && /^att_[a-f0-9]{32}$/.test(attempt)) setReturnedAttempt(attempt);
+    else if (connected) setBanner(connected === 'Connected' ? 'Connected' : `Connected ${connected}`);
     else if (err) setError(`Connect failed: ${err}`);
-    if (connected || err) {
+    if (connected || err || attempt) {
       params.delete('connected');
       params.delete('error');
+      params.delete('attempt');
       const qs = params.toString();
       window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
     }
@@ -221,7 +252,7 @@ export function IntegrationsSection({ active = true, navigation }: {
     (next: View) => {
       if (view.kind === 'catalog') catalogScroll.current = scrollParent(rootRef.current)?.scrollTop ?? 0;
       setView(next);
-      if (!navigation) setSettingsAnchor(next.kind === 'provider' ? `integrations:${next.id}` : 'integrations');
+      if (!navigation) setSettingsAnchor(anchorFor(next));
       setAdvancedOpen(false);
       setError(null);
       setBanner(null);
@@ -365,6 +396,12 @@ export function IntegrationsSection({ active = true, navigation }: {
       return;
     }
     if (anchor === 'integrations' || !anchor) { back(); return; }
+    if (anchor === SOURCES_ANCHOR) { navigate({ kind: 'sources' }); return; }
+    if (anchor.startsWith(APP_ANCHOR)) {
+      const id = anchor.slice(APP_ANCHOR.length);
+      if (isApplicationId(id)) navigate({ kind: 'app', id });
+      return;
+    }
     if (!anchor.startsWith('integrations:')) return;
     const provider = providers.find((p) => p.id === anchor.slice('integrations:'.length));
     if (provider) openProvider(provider);
@@ -475,11 +512,24 @@ export function IntegrationsSection({ active = true, navigation }: {
 
   // --- Derived view --------------------------------------------------------
 
+  // Managed accounts (Gmail through Composio) belong to their application's page, not to a
+  // provider tile of their own.
+  const directConnections = useMemo(() => connections.filter((c) => !parseManagedToolkitId(c.providerId)), [connections]);
   const connectionsByProvider = useMemo(() => {
     const m = new Map<string, Connection[]>();
-    for (const c of connections) m.set(c.providerId, [...(m.get(c.providerId) ?? []), c]);
+    for (const c of directConnections) m.set(c.providerId, [...(m.get(c.providerId) ?? []), c]);
     return m;
-  }, [connections]);
+  }, [directConnections]);
+
+  // Applications a managed source can connect. Shown once a source exists, so with none set up
+  // Connectors looks exactly as it did before sources.
+  const appEntries = useMemo(() => {
+    const hasSource = (sourcesOverview.data?.sources.length ?? 0) > 0;
+    return (Object.keys(APPLICATIONS) as ApplicationId[]).flatMap((id) => {
+      const accounts = (managedAccounts.data ?? []).filter((a) => a.applicationId === id);
+      return hasSource || accounts.length > 0 ? [{ id, accounts }] : [];
+    });
+  }, [sourcesOverview.data, managedAccounts.data]);
 
   // Every provider the engine offers, plus any connection whose provider it no
   // longer lists, so that account can still be tested and disconnected.
@@ -505,22 +555,61 @@ export function IntegrationsSection({ active = true, navigation }: {
     };
     const visible = catalogProviders.filter(matches);
     const connected = visible.filter((p) => connectionsByProvider.has(p.id)).sort(byName);
-    const groups: { category: IntegrationCategory; items: ProviderStatus[] }[] = [];
+    const appMatches = (id: ApplicationId) => !q || APPLICATIONS[id].displayName.toLowerCase().includes(q) || APP_CATEGORY[id].toLowerCase().includes(q) || 'composio'.includes(q);
+    const visibleApps = appEntries.filter((entry) => appMatches(entry.id));
+    const connectedApps = visibleApps.filter((entry) => entry.accounts.length > 0);
+    const groups: { category: IntegrationCategory; items: ProviderStatus[]; apps: ApplicationId[] }[] = [];
     for (const category of CATEGORY_ORDER) {
       const items = visible
         .filter((p) => !connectionsByProvider.has(p.id) && integrationMeta(p.id).category === category)
         .sort(byName);
-      if (items.length) groups.push({ category, items });
+      const apps = visibleApps.filter((entry) => entry.accounts.length === 0 && APP_CATEGORY[entry.id] === category).map((entry) => entry.id);
+      if (items.length || apps.length) groups.push({ category, items, apps });
     }
-    const previous = connections.filter(c => (c.providerId === 'jira' || c.providerId === 'confluence') &&
+    const previous = directConnections.filter(c => (c.providerId === 'jira' || c.providerId === 'confluence') &&
       (!q || `${c.providerId} ${connectionIdentity(c)} Atlassian`.toLowerCase().includes(q)));
-    const total = connected.length + groups.reduce((n, g) => n + g.items.length, 0) + previous.length;
-    return { connected, groups, previous, total };
-  }, [q, catalogProviders, connectionsByProvider, connections]);
+    const sourcesMatch = !q || 'sources composio connection'.includes(q) || q.includes('source');
+    const total = connected.length + connectedApps.length + groups.reduce((n, g) => n + g.items.length + g.apps.length, 0) + previous.length + (sourcesMatch ? 1 : 0);
+    return { connected, connectedApps, groups, previous, sourcesMatch, total };
+  }, [q, catalogProviders, connectionsByProvider, directConnections, appEntries]);
 
   const selectedProvider = view.kind === 'provider' ? catalogProviders.find((p) => p.id === view.id) : undefined;
   // The selected provider vanished: fall back to the catalog rather than render an empty detail.
   const stale = !isLoading && view.kind === 'provider' && !selectedProvider;
+  const googleProvider = providers.find((p) => p.id === 'google');
+
+  /** A direct sign-in for one application's service only (Gmail, or Calendar, through Google). */
+  const connectDirectService = async (applicationId: ApplicationId) => {
+    const direct = APPLICATIONS[applicationId].direct;
+    const provider = providers.find((p) => p.id === direct.providerId);
+    if (!provider) throw new Error(`${direct.providerId} isn't available.`);
+    if (!provider.configured) {
+      openProvider(provider);
+      setAdvancedOpen(true);
+      return;
+    }
+    const scopes = toolkits.find((t) => t.id === direct.toolkitId)?.scopes ?? [];
+    const result = await trpcClient.integrations.connectPost.mutate({ body: {
+      providerId: provider.id, label: provider.displayName, scopes,
+      returnTo: navigation?.returnTo ?? `/?settings=plugins&plugin=${encodeURIComponent(`${APP_ANCHOR}${applicationId}`)}`,
+    } });
+    const authorizationUrl = result.authorizationUrl ?? ('authUrl' in result ? result.authUrl : undefined);
+    if (!authorizationUrl) throw new Error(`${provider.displayName} did not provide a sign-in link. Try connecting again.`);
+    await authorize(authorizationUrl, 'desktopFlowId' in result ? result.desktopFlowId : undefined);
+  };
+  /** Direct accounts that hold an application's service (a Google account with Gmail granted). */
+  const directForApp = (applicationId: ApplicationId) => {
+    const direct = APPLICATIONS[applicationId].direct;
+    const needed = toolkits.find((t) => t.id === direct.toolkitId)?.scopes ?? [];
+    return directConnections.filter((c) => c.providerId === direct.providerId && (needed.length === 0 || needed.some((scope) => c.scopes.includes(scope))));
+  };
+  const sourcesSubtitle = (() => {
+    const list = sourcesOverview.data?.sources ?? [];
+    if (list.length === 0) return 'Connect Gmail and Google Calendar without registering an OAuth app.';
+    const preferred = list.find((source) => source.preferred);
+    return `${list.map((source) => source.label).join(', ')}${preferred ? `. New connections use ${preferred.label}.` : ''}`;
+  })();
+  const sourcesTone = (sourcesOverview.data?.sources ?? []).some((source) => source.enabled && ['key_rejected', 'no_key', 'unreachable'].includes(source.health.state)) ? 'warn' as const : undefined;
   if (stale && !navigation) setView(CATALOG);
 
   if (isLoading) {
@@ -593,10 +682,25 @@ export function IntegrationsSection({ active = true, navigation }: {
             </div>
           ) : (
             <div className="space-y-6">
-              {catalog.connected.length > 0 && (
+              {catalog.connected.length + catalog.connectedApps.length > 0 && (
                 <section className="space-y-2">
-                  <GroupHeading count={catalog.connected.length}>Connected</GroupHeading>
+                  <GroupHeading count={catalog.connected.length + catalog.connectedApps.length}>Connected</GroupHeading>
                   <TileGrid>
+                    {catalog.connectedApps.map(({ id, accounts }) => {
+                      const healthy = accounts.every((a) => a.status === 'active' && a.sourceEnabled);
+                      const who = accounts.length > 1 ? `${accounts.length} accounts connected` : accounts[0]?.verifiedEmail ?? accounts[0]?.label ?? 'Connected';
+                      return (
+                        <CatalogTile
+                          key={`app:${id}`}
+                          logo={<IntegrationLogo providerId={APP_LOGO[id]} name={APPLICATIONS[id].displayName} size={36} />}
+                          name={APPLICATIONS[id].displayName}
+                          subtitle={`${who}, via ${[...new Set(accounts.map((a) => a.sourceLabel))].join(', ')}`}
+                          tone={healthy ? 'ok' : 'warn'}
+                          toneLabel={healthy ? 'Connected' : 'Needs attention'}
+                          onOpen={() => navigate({ kind: 'app', id })}
+                        />
+                      );
+                    })}
                     {catalog.connected.map((p) => {
                       const conns = connectionsByProvider.get(p.id) ?? [];
                       const healthy = conns.every((c) => c.status === 'active') && !p.mcp?.requiresAuth && (!p.mcp?.status || p.mcp.status === 'ok');
@@ -618,10 +722,34 @@ export function IntegrationsSection({ active = true, navigation }: {
 
               {catalog.previous.length > 0 && <PreviousConnections connections={catalog.previous} busy={busy} onDisconnect={disconnect} />}
 
-              {catalog.groups.map(({ category, items }) => (
+              {catalog.sourcesMatch && (
+                <section className="space-y-2">
+                  <GroupHeading>Sources</GroupHeading>
+                  <TileGrid>
+                    <CatalogTile
+                      logo={<span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted/50 text-muted-foreground ring-1 ring-inset ring-border/50" aria-hidden><Waypoints size={16} /></span>}
+                      name="Connection sources"
+                      subtitle={sourcesSubtitle}
+                      {...(sourcesTone ? { tone: sourcesTone, toneLabel: 'Needs attention' } : {})}
+                      onOpen={() => navigate({ kind: 'sources' })}
+                    />
+                  </TileGrid>
+                </section>
+              )}
+
+              {catalog.groups.map(({ category, items, apps }) => (
                 <section key={category} className="space-y-2">
                   <GroupHeading>{category}</GroupHeading>
                   <TileGrid>
+                    {apps.map((id) => (
+                      <CatalogTile
+                        key={`app:${id}`}
+                        logo={<IntegrationLogo providerId={APP_LOGO[id]} name={APPLICATIONS[id].displayName} size={36} />}
+                        name={APPLICATIONS[id].displayName}
+                        subtitle="Connect through Composio, with no OAuth app of your own."
+                        onOpen={() => navigate({ kind: 'app', id })}
+                      />
+                    ))}
                     {items.map((p) => (
                       <CatalogTile
                         key={p.id}
@@ -637,10 +765,34 @@ export function IntegrationsSection({ active = true, navigation }: {
             </div>
           )}
         </>
+      ) : view.kind === 'sources' ? (
+        <SourcesPanel onBack={back} onChanged={() => void refresh().catch((e) => setError(errMsg(e)))} />
+      ) : view.kind === 'app' ? (
+        <ApplicationDetail
+          key={view.id}
+          applicationId={view.id}
+          directConnections={directForApp(view.id)}
+          toolkits={toolkits.filter((t) => parseManagedToolkitId(t.id)?.applicationId === view.id)}
+          writePolicy={writePolicy}
+          onSetApproval={setActionApproval}
+          onBack={back}
+          onOpenSources={() => navigate({ kind: 'sources' })}
+          onOpenDirect={() => { if (googleProvider) openProvider(googleProvider); }}
+          onConnectDirect={() => connectDirectService(view.id)}
+          returnTo={navigation?.returnTo ?? `/?settings=plugins&plugin=${encodeURIComponent(`${APP_ANCHOR}${view.id}`)}`}
+          initialAttemptId={returnedAttempt}
+          onChanged={() => { setReturnedAttempt(null); void refresh().catch((e) => setError(errMsg(e))); }}
+        />
       ) : selectedProvider ? (
         <ProviderDetail
           key={selectedProvider.id}
           provider={selectedProvider}
+          {...(selectedProvider.id === 'google' ? { alternative: <GoogleAlternative
+            sourceReady={(sourcesOverview.data?.sources ?? []).some((source) => source.enabled)}
+            configured={selectedProvider.configured}
+            onOpenApp={(id) => navigate({ kind: 'app', id })}
+            onOpenSources={() => navigate({ kind: 'sources' })}
+          /> } : {})}
           connections={connectionsByProvider.get(selectedProvider.id) ?? []}
           toolkits={providerToolkits(selectedProvider.id)}
           writePolicy={writePolicy}
@@ -688,4 +840,35 @@ export function IntegrationsSection({ active = true, navigation }: {
 /** Two tiles per row once the pane is wide enough, keyed off the pane, not the viewport. */
 function TileGrid({ children }: { children: ReactNode }) {
   return <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">{children}</div>;
+}
+
+/**
+ * On the Google page: Gmail and Google Calendar can also connect through a managed source,
+ * which needs no OAuth app of your own. Quiet when a direct sign-in already works.
+ */
+function GoogleAlternative({ sourceReady, configured, onOpenApp, onOpenSources }: {
+  sourceReady: boolean;
+  configured: boolean;
+  onOpenApp: (id: ApplicationId) => void;
+  onOpenSources: () => void;
+}) {
+  if (configured && !sourceReady) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-card/20 p-3 text-xs">
+      <Waypoints size={14} className="shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 basis-56 text-foreground/90">
+        {sourceReady
+          ? 'Gmail and Google Calendar can also connect through Composio.'
+          : 'Connect Gmail and Google Calendar without registering an OAuth app, through Composio.'}
+      </span>
+      {sourceReady ? (
+        <span className="flex shrink-0 gap-1">
+          <Button variant="outline" size="xs" className="text-xs" onClick={() => onOpenApp('gmail')}>Gmail</Button>
+          <Button variant="outline" size="xs" className="text-xs" onClick={() => onOpenApp('google_calendar')}>Google Calendar</Button>
+        </span>
+      ) : (
+        <Button variant="outline" size="xs" className="shrink-0 text-xs" onClick={onOpenSources}>Set up Composio</Button>
+      )}
+    </div>
+  );
 }

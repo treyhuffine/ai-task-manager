@@ -58,6 +58,8 @@ import {
 	resolveWorkspaceIntegrationFilter,
 } from './runtime';
 import { pinKey, pinOfConnection, pinMatchesConnection, scopePins } from './scope-pins';
+import { APPLICATIONS, applicationForDirectToolkit, parseManagedToolkitId } from './sources/applications';
+import type { ApplicationId } from './sources/types';
 import { validateIntegrationScopes } from './scopes';
 
 /** An integration call's non-ok outcome, as the MCP pause hook hands it over. */
@@ -183,7 +185,9 @@ function matchCatalog(runtime: IntegrationRuntime): { toolkits: CatalogToolkit[]
   } catch {
     /* no MCP store yet */
   }
-  const registered = runtime.getToolkits().map((t) => ({
+  // A managed toolkit (Gmail through a Composio source) is the same application as its direct
+  // toolkit, so it is matched through that one (see managedAlternative), never as a second service.
+  const registered = runtime.getToolkits().filter((t) => !parseManagedToolkitId(t.id)).map((t) => ({
     id: t.id,
     providerId: t.providerId,
     displayName: names.get(t.providerId) ?? t.displayName,
@@ -242,9 +246,36 @@ export async function connectedButUnavailable(workspaceId: string): Promise<stri
   const runtime = await getIntegrationRuntime();
   const connected = new Set((await runtime.listConnections({ ownerId: getIntegrationOwnerId() })).map((c) => c.providerId));
   const available = new Set((await resolveWorkspaceIntegrationFilter(workspaceId)).toolkits);
-  return matchCatalog(runtime)
+  const direct = matchCatalog(runtime)
     .toolkits.filter((t) => connected.has(t.providerId) && !available.has(t.id))
     .map((t) => t.displayName);
+  // A managed account is asked for by its application's name.
+  const managed = runtime.getToolkits().flatMap((t) => {
+    const parsed = parseManagedToolkitId(t.id);
+    return parsed && connected.has(t.providerId) && !available.has(t.id) ? [APPLICATIONS[parsed.applicationId].displayName] : [];
+  });
+  return [...new Set([...direct, ...managed])];
+}
+
+/**
+ * The managed side of a request for an application (Gmail asked for, and Gmail accounts exist
+ * through a Composio source). Returns the managed toolkit with accounts, so the request can say
+ * it's available or offer exactly those accounts, or null to use the direct route as before.
+ */
+async function managedAlternative(
+  runtime: IntegrationRuntime,
+  toolkitIds: readonly string[],
+): Promise<{ applicationId: ApplicationId; toolkitId: string; providerName: string; connections: Connection[] }[]> {
+  const apps = [...new Set(toolkitIds.map(applicationForDirectToolkit))];
+  if (apps.length !== 1 || !apps[0]) return [];
+  const applicationId = apps[0];
+  const all = await runtime.listConnections({ ownerId: getIntegrationOwnerId() });
+  return runtime.getToolkits().flatMap((t) => {
+    const parsed = parseManagedToolkitId(t.id);
+    if (!parsed || parsed.applicationId !== applicationId) return [];
+    const connections = all.filter((c) => c.providerId === t.providerId);
+    return connections.length > 0 ? [{ applicationId, toolkitId: t.id, providerName: t.displayName, connections }] : [];
+  });
 }
 
 const PROVIDER_LIST = 'Google (Gmail, Calendar, Drive, Docs, Sheets), Microsoft 365 (Outlook Mail and Calendar), Slack, Notion, Linear, Jira, Todoist and about 25 more';
@@ -310,6 +341,34 @@ export async function requestConnection(input: RequestConnectionInput): Promise<
       };
     }
     target = getWorkspace(found.id) ?? null;
+  }
+
+  // Managed accounts for the same application: usable already, or the accounts to offer when
+  // the direct route has none. A request naming an exact account pin keeps its own route.
+  if (!input.accountPin) {
+    const managed = await managedAlternative(runtime, match.toolkitIds);
+    if (managed.length > 0) {
+      const usableManaged = target ? await resolveWorkspaceIntegrationFilter(target.id) : null;
+      const reachable = managed.filter((m) => !usableManaged || usableManaged.toolkits.includes(m.toolkitId));
+      if (reachable.length > 0) {
+        if (!onBehalf) await executor.recycleWhenIdle(input.sessionId);
+        const names = reachable.flatMap((m) => m.connections.map((c) => c.email ?? c.label ?? c.accountId));
+        return {
+          status: 'already_available',
+          service: match.label,
+          message: onBehalf
+            ? `${match.label} is already connected and available to the "${target!.name}" agent on ${describeAccounts(names)}.`
+            : `${match.label} is already available here on ${describeAccounts(names)}, through ${reachable.map((m) => m.toolkitId).join(', ')}__… tools. If they aren't in your list, they were connected after this chat started. The app reloads your tools when this turn ends.`,
+        };
+      }
+      const direct = await providerConnections(runtime, match.providerId);
+      if (direct.length === 0) {
+        const first = managed[0]!;
+        match.providerId = first.toolkitId;
+        match.providerName = first.providerName;
+        match.toolkitIds = [first.toolkitId];
+      }
+    }
   }
 
   const allConnections = await providerConnections(runtime, match.providerId);
@@ -496,11 +555,14 @@ export async function recordPausedConnection(args: {
     return;
   }
 
+  // A managed provider isn't in the catalog: name it by its application and source.
+  const managedName = parseManagedToolkitId(providerId) ? runtime.getProviders().find((p) => p.id === providerId)?.displayName : undefined;
+  const managedLabel = parseManagedToolkitId(providerId) ? APPLICATIONS[parseManagedToolkitId(providerId)!.applicationId].displayName : undefined;
   writeRequest(sessionId, {
     kind,
     providerId,
-    providerName: entry?.displayName ?? providerId,
-    label: entry?.displayName ?? providerId,
+    providerName: managedName ?? entry?.displayName ?? providerId,
+    label: managedLabel ?? entry?.displayName ?? providerId,
     toolkitIds,
     method: entry?.method ?? 'oauth2',
     credentialFields: entry?.credentialFields ?? [],
@@ -555,6 +617,21 @@ export async function startCardSignIn(
   returnTo: string | null,
 ): Promise<{ done: true } | BeginConnectResult> {
   const { row, view } = openCard(eventId);
+  // A managed account reconnects through its source, keeping the same remote account and grants.
+  if (parseManagedToolkitId(view.providerId)) {
+    if (view.kind !== 'reconnect' || !view.connectionId) throw new ConnectionRequestError('invalid', `${view.label} connects from Connectors.`);
+    const { beginManagedReconnect, SourceError } = await import('./sources/service');
+    try {
+      const result = await beginManagedReconnect(request, view.connectionId, returnTo, eventId);
+      return { requestId: result.attemptId, authorizationUrl: result.authorizationUrl };
+    } catch (error) {
+      if (error instanceof SourceError && error.code === 'conflict') {
+        await resolveCard(row, view, 'connected', []);
+        return { done: true };
+      }
+      throw new ConnectionRequestError('failed', error instanceof Error ? error.message : String(error));
+    }
+  }
   if (view.method === 'mcp') throw new ConnectionRequestError('invalid', `${view.label} connects from Settings, under Plugins.`);
   if (view.method !== 'oauth2') throw new ConnectionRequestError('invalid', `${view.label} connects with a key, not a sign-in.`);
   const runtime = await getIntegrationRuntime();
@@ -581,6 +658,42 @@ export async function startCardSignIn(
     returnTo,
     onCompleted: (connection) => resolveCard(row, view, 'connected', [cardAccount(connection)]),
   });
+}
+
+/**
+ * Start a Connect card's sign-in through a managed source (Gmail through Composio). The attempt
+ * carries the card, so whichever path finishes it (the callback, polling, a restart) answers the
+ * card once, granting the asking agent exactly the new account.
+ */
+export async function startCardManagedSignIn(
+  request: Pick<Request, 'headers' | 'url'>,
+  eventId: string,
+  input: { returnTo: string | null; sourceId?: string; explicitChoice?: boolean },
+): Promise<{ attemptId: string; authorizationUrl: string; expiresAt: number }> {
+  const { view } = openCard(eventId);
+  if (view.kind !== 'connect') throw new ConnectionRequestError('invalid', 'Only a Connect card starts a new sign-in.');
+  const apps = [...new Set(view.toolkitIds.map(applicationForDirectToolkit))];
+  if (apps.length !== 1 || !apps[0]) throw new ConnectionRequestError('invalid', `${view.label} can't connect through a managed source.`);
+  const { beginManagedConnect, SourceError } = await import('./sources/service');
+  try {
+    const result = await beginManagedConnect(request, {
+      applicationId: apps[0], requestEventId: eventId, returnTo: input.returnTo,
+      ...(input.sourceId ? { sourceId: input.sourceId } : {}), ...(input.explicitChoice ? { explicitChoice: true } : {}),
+    });
+    return { attemptId: result.attemptId, authorizationUrl: result.authorizationUrl, expiresAt: result.expiresAt };
+  } catch (error) {
+    if (error instanceof SourceError) throw new ConnectionRequestError('failed', error.message);
+    throw error;
+  }
+}
+
+/** A managed sign-in started from a card finished: answer the card with that exact account. */
+export async function resolveCardWithManagedConnection(eventId: string, connection: Connection, toolkitId: string): Promise<void> {
+  const row = getChatEventById(eventId);
+  const view = row ? asView(row) : null;
+  if (!row || !view) return;
+  if (readChatCards(row.sessionId).open.every((c) => c.row.id !== row.id)) return;
+  await resolveCard(row, { ...view, toolkitIds: [toolkitId] }, 'connected', [cardAccount(connection)]);
 }
 
 /** Every scope the given toolkits' actions use: a toolkit's upfront bundle, else its actions' union. */

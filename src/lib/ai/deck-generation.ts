@@ -205,6 +205,9 @@ interface PromptData {
     workdayEnd: string;
     hasCalendar: boolean;
     gaps: { label: string; minutes: number }[];
+    /** How much of today's calendar was read. Absent means fully. */
+    calendarAvailability?: 'known' | 'partial' | 'unknown';
+    calendarDetail?: string;
   };
   generationContext: DeckGenerationContext;
   userProfile?: string;
@@ -288,12 +291,18 @@ export function buildDeckPrompt(data: PromptData): string {
     const lines = [
       `Workday: ${tc.workdayStart} to ${tc.workdayEnd}. Roughly ${tc.availableMinutes} minutes of task time available today.`,
     ];
-    if (tc.hasCalendar && tc.gaps.length > 0) {
+    const availability = tc.calendarAvailability ?? 'known';
+    if (availability === 'unknown') {
+      lines.push(`Today's calendar couldn't be read${tc.calendarDetail ? ` (${tc.calendarDetail})` : ''}. The day is not confirmed free: size the deck conservatively and say the calendar was unavailable.`);
+    } else if (tc.hasCalendar && tc.gaps.length > 0) {
       lines.push('Open gaps between meetings:');
       for (const g of tc.gaps) lines.push(`  - ${g.label}`);
       lines.push('Use the gaps to judge how much fits today, not to schedule anything.');
     } else {
       lines.push('No calendar connected. Size the deck to the available minutes.');
+    }
+    if (availability === 'partial') {
+      lines.push(`Some calendars couldn't be read in full${tc.calendarDetail ? ` (${tc.calendarDetail})` : ''}. The meetings above are known, but time that looks open may be booked.`);
     }
     sections.push(`[Today's Time]\n${lines.join('\n')}`);
   }

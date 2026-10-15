@@ -25,7 +25,7 @@ import {
   type Credentials,
   type CredentialType,
 } from '@integrations/engine';
-import { aesGcmSecretBox, generateSecretKey } from '@integrations/engine/crypto';
+import { aesGcmSecretBox } from '@integrations/engine/crypto';
 import { fileStore, authConfigFileStore } from '@integrations/engine/store';
 import {
   registerAllProviders,
@@ -40,7 +40,7 @@ import { toToolSet } from '@integrations/engine/ai-sdk';
 import { connectMcpClient, ingestMcpServers, isMcpAuthenticationError, isMcpRequestTimeout, MCP_CONNECT_TIMEOUT_MS, MCP_DISCOVERY_TIMEOUT_MS, type ConnectedMcpClient, type McpToolDef } from '@integrations/engine/mcp';
 import type { ToolSet } from 'ai';
 import { appApprovalPolicy } from './approval';
-import { getIntegrationsDir } from './storage';
+import { getIntegrationsDir, getOrCreateKey } from './storage';
 import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { mcpServerStore, mcpToolInfo, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
 import { mcpIngestOverrides, mcpToolApprovalOverride, resolveMcpToolApproval } from './mcp-approval-policy';
@@ -56,6 +56,7 @@ import { hostedMcpConnectionId, hostedMcpDefinition, hostedMcpRequiresAuth, mark
 import { finalizeMcpServer, finalizeMcpServers, isCurrentMcpTransport } from './mcp-lifecycle';
 import { resolveHostedOAuthConfig, usesRegisteredOAuth } from './hosted-oauth-config';
 import { processState } from '@/lib/process-state';
+import { managedSourcesSignature, registerManagedSources, type ManagedSourceStatus } from './sources/managed-provider';
 
 const INTEGRATION_CALLBACK_PATH = '/api/integrations/callback';
 
@@ -268,6 +269,8 @@ export function buildCredential(kind: CredentialType, fields: Record<string, str
       return { type: 'jwt', key: fields.key ?? first() };
     case 'oauth2':
       throw new Error('oauth2 providers connect via the redirect flow, not connectDirect');
+    case 'remote_account':
+      throw new Error('Managed accounts connect through their source, not connectDirect');
   }
 }
 
@@ -275,37 +278,6 @@ export function buildCredential(kind: CredentialType, fields: Record<string, str
 export function getIntegrationConnectionStore() {
   const dir = getIntegrationsDir();
   return fileStore({ dir, lock: fileLock({ dir: path.join(dir, 'locks') }) });
-}
-
-/** Best-effort tighten a path's mode (no-op on filesystems/platforms that reject chmod). */
-function hardenMode(target: string, mode: number): void {
-  try {
-    fs.chmodSync(target, mode);
-  } catch {
-    /* best-effort: some filesystems (e.g. mounted volumes) reject chmod */
-  }
-}
-
-/** Read (or lazily create) the at-rest encryption key. Mode 0600, never synced. */
-function getOrCreateKey(dir: string): string {
-  const keyPath = path.join(dir, 'key');
-  try {
-    const existing = fs.readFileSync(keyPath, 'utf8').trim();
-    if (existing) {
-      // Re-harden on every boot: a key file restored from backup or pre-created could be too open.
-      hardenMode(dir, 0o700);
-      hardenMode(keyPath, 0o600);
-      return existing;
-    }
-  } catch {
-    /* fall through to create */
-  }
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  hardenMode(dir, 0o700); // mkdir mode is umask-masked; enforce it
-  const key = generateSecretKey();
-  fs.writeFileSync(keyPath, key, { mode: 0o600 });
-  hardenMode(keyPath, 0o600);
-  return key;
 }
 
 let mcpStoreCached: { dir: string; store: McpServerStore } | null = null;
@@ -483,6 +455,9 @@ interface Built {
   mcpViews: Map<string, McpViewConnection>;
   builtAt: number;
   configuration: string;
+  /** The managed source files this build read (preferences and credential revisions). */
+  managedConfiguration: string;
+  managedSources: ManagedSourceStatus[];
   discoveryUnavailable: boolean;
 }
 
@@ -510,6 +485,8 @@ const rt = processState('integrations.runtime', () => ({
 // with row-level tenant isolation, spec §20). Until then this is single-user local.
 async function build(): Promise<Built> {
   const buildGeneration = rt.generation;
+  // Read before registering, so a change landing mid-build is seen as a change afterwards.
+  const managedConfiguration = managedSourcesSignature();
   const mcpViews = new Map<string, McpViewConnection>();
   const dir = getIntegrationsDir();
   // CLI + dev server share one home, so the file store's read-modify-write and the runtime's
@@ -598,6 +575,14 @@ async function build(): Promise<Built> {
     await removeConfig(id);
   });
 
+  // Managed sources (a user's Composio project): one source-namespaced provider per application.
+  const managed = await registerManagedSources({
+    registry, store, redactor, ownerId: getIntegrationOwnerId(),
+    onToolsChanged: () => invalidateIntegrationRuntime(),
+    approvalBypassed: devAutoApprove(),
+  });
+  let discoveryUnavailable = managed.discoveryUnavailable;
+
   // Discover accounts independently, then publish each provider once. Its canonical
   // tools dispatch through the selected connection rather than the last client loaded.
   const mcpClients: ConnectedMcpClient[] = [];
@@ -624,7 +609,6 @@ async function build(): Promise<Built> {
     readResource?: ConnectedMcpClient['readResource'];
   }
   const prepared: PreparedAccount[] = [];
-  let discoveryUnavailable = false;
   const recordFailure = async (entry: McpServerEntry, error: unknown, phase: McpServerFailure['phase']) => {
     const message = redactor.redact(error instanceof Error ? error.message : String(error)).slice(0, 2_000);
     const authRejected = await isMcpAuthenticationError(error);
@@ -861,7 +845,8 @@ async function build(): Promise<Built> {
 
   const configuration = mcpConfigurationSignature(entries.map(entry => prepared.find(candidate => candidate.entry.id === entry.id)?.entry ?? entry));
   if (configuration !== mcpConfigurationSignature(mcpStore)) invalidateIntegrationRuntime();
-  return { runtime, admin, mcpClients, mcpViews, builtAt: Date.now(), configuration, discoveryUnavailable };
+  if (managedConfiguration !== managedSourcesSignature()) invalidateIntegrationRuntime();
+  return { runtime, admin, mcpClients, mcpViews, builtAt: Date.now(), configuration, managedConfiguration, managedSources: managed.sources, discoveryUnavailable };
 }
 
 /** Changes made by another process must also refresh the tool projection. */
@@ -888,7 +873,8 @@ async function getBuilt(): Promise<Built> {
   if (rt.cachedBuilt) {
     const maxAge = rt.cachedBuilt.discoveryUnavailable ? MCP_DISCOVERY_RETRY_MS : MCP_DISCOVERY_MAX_AGE_MS;
     if (Date.now() - rt.cachedBuilt.builtAt < maxAge &&
-      rt.cachedBuilt.configuration === mcpConfigurationSignature(getMcpServerStore())) return rt.cachedBuilt;
+      rt.cachedBuilt.configuration === mcpConfigurationSignature(getMcpServerStore()) &&
+      rt.cachedBuilt.managedConfiguration === managedSourcesSignature()) return rt.cachedBuilt;
     invalidateIntegrationRuntime();
   }
   if (rt.inFlight) return rt.inFlight;
@@ -924,6 +910,11 @@ export async function getMcpViewConnection(serverId: string): Promise<McpViewCon
   const connection = (await built.runtime.listConnections({ ownerId: getIntegrationOwnerId() }))
     .find(value => value.id === hostedMcpConnectionId(view.snapshot) && value.status === 'active');
   return connection ? view : null;
+}
+
+/** How each managed source fared in the current build (key rejected, unreachable, cached tools). */
+export async function getManagedSourceStatuses(): Promise<ManagedSourceStatus[]> {
+  return (await getBuilt()).managedSources;
 }
 
 /** The BYO auth-config admin service (add/remove/setDefault your own OAuth clients). */

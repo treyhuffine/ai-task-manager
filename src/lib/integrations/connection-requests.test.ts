@@ -69,6 +69,8 @@ vi.mock('./runtime', async () => {
       ...(h.connections.some((c) => c.providerId === 'slack') ? [{ id: 'slack', providerId: 'slack', displayName: 'Slack' }] : []),
       { id: 'telegram', providerId: 'telegram', displayName: 'Telegram' },
       { id: 'mcp_team_calendar', providerId: 'mcp_team_calendar', displayName: 'MCP: team_calendar' },
+      // Gmail through an enabled Composio source (sources/applications.ts namespacing).
+      { id: 'cmpabcd_gmail', providerId: 'cmpabcd_gmail', displayName: 'Gmail via Composio', actions: [] },
     ],
     getProviders: () => [{ id: 'telegram', auth: { kind: 'custom' } }],
     listConnections: async () => h.connections,
@@ -620,5 +622,45 @@ describe('answering a card', () => {
     h.running.delete(CHAT);
     await vi.advanceTimersByTimeAsync(2_500);
     expect(h.dispatched).toHaveLength(1);
+  });
+});
+
+describe('managed accounts (Gmail through Composio)', () => {
+  const managed = (id: string, email: string) => ({ id, providerId: 'cmpabcd_gmail', accountId: `ca_${id}`, email, status: 'active' });
+
+  it('matches Gmail once, not as a second service', async () => {
+    h.connections.push(managed('m1', 'work@example.com'));
+    const result = await ask({ scopeWorkspaceId: 'ws-ri' });
+    expect(result.status).toBe('card_shown');
+  });
+
+  it('offers exactly the managed accounts when the direct route has none', async () => {
+    h.connections.push(managed('m1', 'work@example.com'));
+    await ask({ scopeWorkspaceId: 'ws-ri' });
+    expect(lastView()).toMatchObject({ kind: 'allow_agent', providerId: 'cmpabcd_gmail', toolkitIds: ['cmpabcd_gmail'], label: 'Gmail' });
+    await allowCardForAgent(cards()[0]!.id, ['ca_m1']);
+    expect(scopesOf('ws-ri')).toEqual([{ toolkitId: 'cmpabcd_gmail', accounts: [{ accountId: 'ca_m1' }] }]);
+  });
+
+  it('says Gmail is available when the agent already has a managed account', async () => {
+    h.connections.push(managed('m1', 'work@example.com'));
+    giveScopes('ws-ri', [{ toolkitId: 'cmpabcd_gmail', accounts: [{ accountId: 'ca_m1' }] }]);
+    const result = await ask({ scopeWorkspaceId: 'ws-ri' });
+    expect(result).toMatchObject({ status: 'already_available', service: 'Gmail' });
+    expect(result.message).toContain('work@example.com');
+    expect(cards()).toEqual([]);
+  });
+
+  it('a legacy all-accounts Gmail grant does not reach managed accounts', async () => {
+    h.connections.push(managed('m1', 'work@example.com'));
+    giveScopes('ws-ri', [{ toolkitId: 'gmail' }]);
+    const result = await ask({ scopeWorkspaceId: 'ws-ri' });
+    expect(result.status).toBe('card_shown');
+    expect(lastView()).toMatchObject({ kind: 'allow_agent', providerId: 'cmpabcd_gmail' });
+  });
+
+  it('names a connected managed service the agent can ask for', async () => {
+    h.connections.push(managed('m1', 'work@example.com'));
+    expect(await connectedButUnavailable('ws-ri')).toEqual(['Gmail']);
   });
 });

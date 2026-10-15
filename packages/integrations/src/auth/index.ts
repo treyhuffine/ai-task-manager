@@ -9,3 +9,4 @@ export type { AwsSigV4Config } from './aws-sigv4';
 export { jwt } from './jwt';
 export type { JwtConfig, JwtAlgorithm } from './jwt';
 export { generateCodeVerifier, codeChallengeS256 } from './pkce';
+export { remoteAccount } from './remote';

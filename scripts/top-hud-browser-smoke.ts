@@ -23,7 +23,7 @@ const event = normalizeGoogleEvent({
 }, 'hud-smoke-calendar')!;
 const calendar: CalendarRangeResult = {
   status: 'ok', asOf: NOW.toISOString(), workday: { start: '09:00', end: '17:00' }, providers: [],
-  days: [{ date: DATE, allDay: [], events: [event], gaps: [], freeMinutes: 420, largestGapMinutes: 300, busyMinutes: 60 }],
+  days: [{ date: DATE, allDay: [], events: [event], gaps: [], freeMinutes: 420, largestGapMinutes: 300, busyMinutes: 60, complete: true }],
 };
 const stats: WorkStats = {
   handsOnMinutes: 60, agentMinutes: 180, whileAwayMinutes: 120, activeMinutes: 180,

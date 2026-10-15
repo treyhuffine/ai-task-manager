@@ -8,6 +8,10 @@ The eight registered-app integrations use official services of the kind exposed 
 
 These entries are implemented and fixture-tested. They are not a claim that all 69 have passed real-account sign-in and workflow acceptance.
 
+## Managed sources
+
+Gmail and Google Calendar can also connect through a managed source, the user's own Composio project, set up once under Connectors → Sources. No OAuth app of their own is needed. Composio holds the account tokens and runs the calls, and Ri keeps account references, agent grants, approvals and the audit trail. Each source instance is its own toolkit namespace (`cmp<id>_gmail`, `cmp<id>_google_calendar`), so a managed account never enters a grant written for the direct toolkit. A managed Google Calendar also feeds the Calendar view, `get_day_shape` and the deck when the user turns that on for it. The reviewed actions are in `src/lib/integrations/sources/composio/catalog.ts`. Design and status: [connector sources](connector-service-spec.md). These are fixture-tested against a stand-in for Composio's API. Real-account acceptance is pending.
+
 ## Hosted MCP with browser sign-in (43)
 
 | Integration | Endpoint or setup |

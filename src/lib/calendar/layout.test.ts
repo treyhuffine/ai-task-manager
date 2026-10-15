@@ -28,7 +28,7 @@ function day(events: CalendarEvent[]): CalendarDay {
     gaps: [],
     freeMinutes: 0,
     largestGapMinutes: 0,
-    busyMinutes: 0,
+    busyMinutes: 0, complete: true,
   };
 }
 

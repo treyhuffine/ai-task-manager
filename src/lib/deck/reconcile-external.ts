@@ -27,7 +27,7 @@ import { tasks } from '@/lib/db/schema';
 import { inArray } from 'drizzle-orm';
 import { todayLocalDate } from './date';
 import {
-  getCalendarEventsForDay,
+  readCalendarDay,
   hasCalendarProvider,
   computeFreeGaps,
   availableMinutes,
@@ -80,7 +80,12 @@ export async function reconcileDeckWithExternalChanges(
     return { changed: false, deck, decisions: [], summary: 'No calendar connected.' };
   }
 
-  const current = await getCalendarEventsForDay(date);
+  const read = await readCalendarDay(date);
+  // Only a complete read can say what changed: a missing calendar isn't a cancelled meeting.
+  if (read.availability !== 'known') {
+    return { changed: false, deck, decisions: [], summary: 'The calendar could not be read in full, so the deck is unchanged.' };
+  }
+  const current = read.blocks;
   const previous = (deck.calendarSnapshot ?? []) as CalendarBlock[];
   const diff = diffBlocks(previous, current);
   if (diff.added.length === 0 && diff.removed.length === 0) {

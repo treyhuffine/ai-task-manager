@@ -23,7 +23,11 @@ export type Credentials =
   // AWS Signature V4 — the strategy signs each request (SigV4). region/service may also come from config.
   | { type: 'aws_sigv4'; accessKeyId: string; secretAccessKey: string; sessionToken?: string; region?: string; service?: string }
   // Self-signed JWT — the strategy mints a fresh JWT per request from this signing key (HS secret or PEM).
-  | { type: 'jwt'; key: string };
+  | { type: 'jwt'; key: string }
+  // A reference to an account another service holds the tokens for (a managed connection source).
+  // It authenticates nothing by itself: the host transport resolves `remoteAccountId` through its
+  // own source credential. `binding` is a per-connect nonce, so a replaced binding no longer matches.
+  | { type: 'remote_account'; sourceId: string; remoteAccountId: string; binding: string };
 
 export type OAuth2Credentials = Extract<Credentials, { type: 'oauth2' }>;
 export type CredentialType = Credentials['type'];

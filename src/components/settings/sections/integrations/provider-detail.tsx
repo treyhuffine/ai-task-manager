@@ -9,7 +9,7 @@
  * accounts, where the button that opened it is.
  */
 import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { ChevronDown, ExternalLink, KeyRound, Loader2, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -46,6 +46,8 @@ const TOOL_FILTER_THRESHOLD = 8;
 
 export interface ProviderDetailProps {
   provider: ProviderStatus;
+  /** Another way to connect some of this provider's apps (Gmail through Composio), shown under the header. */
+  alternative?: ReactNode;
   connections: Connection[];
   /** This provider's toolkits only. */
   toolkits: ToolkitInfo[];
@@ -163,6 +165,8 @@ function SingleProviderDetail(props: ProviderDetailProps) {
           }
         />
       </div>
+
+      {props.alternative}
 
       {!showConnect && <PluginSetupHelpButton target={{ kind: 'integration', provider: p, redirectUri: props.redirectUri }} disabled={busy} />}
 
