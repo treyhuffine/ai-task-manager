@@ -8,7 +8,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ApprovalPolicy } from '@integrations/engine';
 import { readManagedAudit } from './audit';
-import { getAttempt } from './attempts';
+import { createAttempt, getAttempt, newAttemptId } from './attempts';
 import { managedToolkitId } from './applications';
 import { readPreferences } from './preferences';
 import * as service from './service';
@@ -126,6 +126,18 @@ describe('connecting accounts', () => {
     const personal = await connect('gmail', 'me@example.com', 'Personal');
     expect(work.connectionId).not.toBe(personal.connectionId);
     expect((await h.store.list({ ownerId: 'local' })).map(c => c.email).sort()).toEqual(['me@example.com', 'work@example.com']);
+  });
+
+  it('an expired link creates nothing, even if the consent finishes later', async () => {
+    await setup();
+    const prefs = readPreferences().preferences;
+    const attempt = createAttempt({
+      id: newAttemptId(), ownerId: 'local', sourceId: prefs.sources[0]!.id, remoteUserId: prefs.sources[0]!.remoteUserId,
+      applicationId: 'gmail', toolkitSlug: 'gmail', remoteAuthConfigId: 'ac_x', remoteAccountId: 'ca_late', purpose: 'connect',
+      linkExpiresAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+    expect(await service.completeManagedAttempt(attempt.id, { via: 'callback' })).toMatchObject({ status: 'expired' });
+    expect(await h.store.list({ ownerId: 'local' })).toEqual([]);
   });
 
   it('cancelling removes the unfinished remote account', async () => {

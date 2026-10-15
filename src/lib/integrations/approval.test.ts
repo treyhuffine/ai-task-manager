@@ -13,6 +13,7 @@ import {
   sessionCaller,
   sessionIdFromCaller,
   publishSessionApprovals,
+  revokeApprovalsForConnections,
   _resetApprovals,
   GRANT_TTL_MS,
   type PendingApproval,
@@ -254,4 +255,27 @@ it('binds an approval to one mentioned source, message and invocation within the
   resolvePendingApprovals([pending.find(p => p.chatSource?.messageId === 'm1' && p.chatSource.invocationId === 'i1' && p.chatSource.sourceRef === source.sourceRef)!.id], 'approve');
   for (const request of requests.slice(1)) expect(await gate.check(request)).toBe('ask');
   expect(await gate.check(requests[0])).toBe('allow');
+});
+
+describe('revokeApprovalsForConnections', () => {
+  it('drops pendings and unused grants for removed connections only, recording them settled', async () => {
+    const gate = policy();
+    expect(await gate.check(check())).toBe('ask');
+    expect(await gate.check(check({ connection: { ...check().connection, id: 'conn-2', accountId: 'acct-2' }, inputDigest: 'digest-b' }))).toBe('ask');
+    const [first] = listPendingApprovals();
+    // An approved but not yet used grant for conn-1 must not outlive the connection either.
+    resolvePendingApprovals([first!.id], 'approve');
+    expect(await gate.check(check({ inputDigest: 'digest-c' }))).toBe('ask');
+    events.recordApprovalsSettled.mockClear();
+    const removed = revokeApprovalsForConnections(['conn-1'], events.recordApprovalsSettled);
+    expect(removed.map((p) => p.connectionId)).toEqual(['conn-1']);
+    expect(listPendingApprovals().map((p) => p.connectionId)).toEqual(['conn-2']);
+    expect(events.recordApprovalsSettled).toHaveBeenCalledWith(removed);
+    // The earlier approval's grant was dropped: the same call asks again.
+    expect(await gate.check(check())).toBe('ask');
+  });
+
+  it('does nothing for no connections', () => {
+    expect(revokeApprovalsForConnections([])).toEqual([]);
+  });
 });
