@@ -41,7 +41,6 @@ import { listUsableReferenceFolders } from '@/lib/reference-folders/resolve';
 import { buildReferenceFolderSessionConfig, referenceFolderProviderWiring } from '@/lib/reference-folders/session-config';
 import { isReadOnly } from '@/lib/reference-folders/read-only';
 import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
-import { integrationRequestsEnabled } from '@/lib/integrations/request-settings';
 import { mintSessionToken } from '@/lib/auth/session-token';
 import { HOME_ADDRESS_SCHEME } from '@/lib/workers/protocol';
 import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
@@ -348,10 +347,9 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
         if (results) servers.push(results);
       }
       // Workspace-scoped integrations (opt-in via the workspace's integration allowlist). With none
-      // allowed yet, still attached while agents may ask for connections, so the execution has
-      // `request_connection` (and nothing else) when a task needs an account.
-      const scopes = workspace?.integrationScopes ?? [];
-      if ((scopes.length > 0 || integrationRequestsEnabled()) && args.workspaceId && args.surfaceKind !== 'result_review') {
+      // allowed yet, still attached, so the execution has `request_connection` (and nothing else)
+      // when a task needs an account.
+      if (args.workspaceId && args.surfaceKind !== 'result_review') {
         const integrations = integrationsMcpServer(undefined, {
           workspaceId: args.workspaceId,
           sessionId: args.chatSessionId,

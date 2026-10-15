@@ -20,8 +20,4 @@ export const connectionRequestsApi = {
   /** Save a sign-in app for a provider, the same way Settings does. */
   addSignInApp: (body: { providerId: string; label: string; oauth: { clientId: string; redirectUri: string }; clientSecret?: string }) =>
     trpcClient.integrations.authConfigsPost.mutate({body: body}),
-
-  settings: () => trpcClient.integrations.requestSettingsGet.query({}),
-  setRequestsEnabled: (requestsEnabled: boolean) =>
-    trpcClient.integrations.requestSettingsPatch.mutate({body: { requestsEnabled }}),
 };

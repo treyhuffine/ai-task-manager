@@ -139,13 +139,21 @@ agent's sessions. A Reconnect or More access card never changes an agent's acces
 connection the agent already uses (and lists every service of the provider, so granting from it would
 hand the agent all of them).
 
-## Off switch
+## No off switch
 
-Settings, Integrations, "Agents can ask to connect accounts". On by default, stored as
-`integrationRequestsEnabled` in the app's `config.json`. Off removes `request_connection` (and its
-brief lines) from chats started afterwards, and executions without integration access no longer get
-the integrations MCP at all. Reconnect cards still show, since they come from a failed call, not an
-agent's ask.
+There used to be one, "Agents can ask to connect accounts" at the bottom of Settings, Integrations.
+It was removed (2026-10-14), and the stored choice is dropped on upgrade (`storage.ts`), because it
+guarded nothing a card doesn't already guard:
+
+- An agent can only ask. Every completion is a person's act on the card, so the switch was never a
+  safety control, only a noise control.
+- Noise has its control where it happens: "Not now" on the card holds for that service in that chat,
+  and the rule for when to ask is measured by the eval below.
+- Off meant every agent quietly fell back to "I can't reach your calendar", the dead end this feature
+  replaced, from a setting nobody would think to look for in that moment.
+
+So every chat (main chat, agent chats, executions) gets `request_connection`. An execution or agent
+chat with no integration access still gets the integrations MCP for it, serving that one tool.
 
 ## Security
 

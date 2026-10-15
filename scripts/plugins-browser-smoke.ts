@@ -71,7 +71,6 @@ async function main() {
         if (procedure === 'integrations.statusGet') { if (blockCatalog) await catalogGate; data = { providers, redirectUri: '' }; }
         else if (procedure === 'integrations.connectionsGet') data = { connections: [] };
         else if (procedure === 'integrations.toolkitsGet' || procedure === 'integrations.writePolicyGet') data = { toolkits: [] };
-        else if (procedure === 'integrations.requestSettingsGet') data = { requestsEnabled: true };
         else if (procedure === 'integrations.mcpServersGet') data = { servers, approvalSettings: settings };
         else if (procedure === 'integrations.mcpServersPost') {
           if (failMcp) { failMcp = false; await fail('MCP connection failed'); return; }

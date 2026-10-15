@@ -29,7 +29,6 @@ Device connections in `src/lib/connection/` belong to a separate subsystem.
 | Approval notification event | `integration.approval_required` |
 | Environment prefix | `INTEGRATIONS_*` |
 | Account store | `<config-dir>/integrations` |
-| Local request preference | `integrationRequestsEnabled` |
 
 The pre-launch rename has no old package, API, MCP or environment aliases. Vendor
 identifiers, URLs and captured discovery payloads remain as supplied by the

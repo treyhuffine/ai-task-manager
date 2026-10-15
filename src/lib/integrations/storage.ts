@@ -42,14 +42,17 @@ export function migrateIntegrationStorage(): void {
       if (changed) atomicWriteFile(appsFile, JSON.stringify(apps, null, 2) + '\n');
     }
 
+    // The "Agents can ask to connect accounts" switch is retired: agents may always ask, and the
+    // card in the chat is the control (docs/connecting-from-chat.md). Drop its stored choice under
+    // either name it was saved as.
     const configFile = getConfigPath();
     if (fs.existsSync(configFile)) {
       withFileLock(configFile, () => {
         const config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as Record<string, unknown>;
         if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Invalid local configuration. Preserve it and repair it before starting.');
-        if (!Object.hasOwn(config, 'connectorRequestsEnabled')) return;
-        if (config.integrationRequestsEnabled == null) config.integrationRequestsEnabled = config.connectorRequestsEnabled;
-        delete config.connectorRequestsEnabled;
+        const retired = ['connectorRequestsEnabled', 'integrationRequestsEnabled'].filter((key) => Object.hasOwn(config, key));
+        if (retired.length === 0) return;
+        for (const key of retired) delete config[key];
         atomicWriteFile(configFile, JSON.stringify(config, null, 2) + '\n');
       });
     }

@@ -54,7 +54,6 @@ import {
 import { readAuthConfig } from '@/lib/auth/config-file';
 import { SOUL_MD_FILENAME, USER_MD_FILENAME } from '@/lib/config/personalization-templates';
 import { SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
-import { integrationRequestsEnabled } from '@/lib/integrations/request-settings';
 import { DEFAULT_ORCHESTRATOR_NAME } from '@/lib/orchestrator/name';
 import type { WorkspaceRecord } from '@/db/types';
 import { KNOWN_HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
@@ -394,9 +393,9 @@ return a structured next-step (authorization_required, choose_account,
 additional_permission_required, approval_required) instead of a result. Relay
 it and retry after the user acts. Never improvise an auth flow. For
 approval_required the user gets an approval card in this chat: stop and wait.
-A note arrives when they decide, naming which calls to retry and which not to.${integrationRequestsEnabled() ? `
+A note arrives when they decide, naming which calls to retry and which not to.
 
-${REQUEST_CONNECTION_BRIEF}` : ''}`;
+${REQUEST_CONNECTION_BRIEF}`;
 }
 
 /**
@@ -556,9 +555,9 @@ accounts this agent may use. A tool may return a structured next step
 approval_required) instead of a result. Relay it and retry after the user
 acts. Never improvise an auth flow. For approval_required the user gets an
 approval card in this chat: stop and wait. A note arrives when they decide,
-naming which calls to retry and which not to.${integrationRequestsEnabled() ? `
+naming which calls to retry and which not to.
 
-${REQUEST_CONNECTION_BRIEF}` : ''}`
+${REQUEST_CONNECTION_BRIEF}`
       : '',
   ].filter(Boolean).join('\n\n');
 

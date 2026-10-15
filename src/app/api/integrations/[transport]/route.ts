@@ -39,7 +39,6 @@ import { sessionCaller } from '@/lib/integrations/approval';
 import { actorFromSessionCredential, sessionCredentialFromHeaders } from '@/lib/orchestrator/session-credential';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { connectedButUnavailable, recordPausedConnection, requestConnection } from '@/lib/integrations/connection-requests';
-import { integrationRequestsEnabled } from '@/lib/integrations/request-settings';
 import { z } from 'zod';
 
 /** The slice of the SDK server this route registers its own tool through. */
@@ -71,8 +70,8 @@ Guidelines:
 
 /** Build a per-request MCP handler scoped by the optional `?ws` workspace id and calling chat. */
 function buildHandler(workspaceId: string | null, sessionId: string | null, signal: AbortSignal) {
-  // Asking for a connection needs a chat to put the card in, and the user's say-so (Settings).
-  const requestsOn = sessionId !== null && integrationRequestsEnabled();
+  // Asking for a connection needs a chat to put the card in.
+  const requestsOn = sessionId !== null;
   return createMcpHandler(
     async (server) => {
       const ownerId = getIntegrationOwnerId();

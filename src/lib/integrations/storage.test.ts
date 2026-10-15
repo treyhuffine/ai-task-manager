@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe('integration storage conversion', () => {
-  it('moves the complete encrypted store, preserving decryption and disabled settings on retry', async () => {
+  it('moves the complete encrypted store, preserving decryption on retry', async () => {
     const oldDir = path.join(dir, 'connectors');
     fs.mkdirSync(oldDir, { mode: 0o700 });
     const key = generateSecretKey();
@@ -41,7 +41,7 @@ describe('integration storage conversion', () => {
     expect(apps[0].config.oauth.redirectUri).toBe('https://home.example/api/integrations/callback?app=1');
     expect(apps[0].sealedSecret).toEqual(sealed);
     expect(apps[1].config.oauth.redirectUri).toBe('https://relay.example/oauth/callback');
-    expect(JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'))).toEqual({ version: 1, integrationRequestsEnabled: false, localToken: 'keep-token', unknownSetting: 7 });
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'))).toEqual({ version: 1, localToken: 'keep-token', unknownSetting: 7 });
     expect(fs.statSync(path.join(next, 'key')).mode & 0o777).toBe(0o600);
   });
 
@@ -55,16 +55,21 @@ describe('integration storage conversion', () => {
     expect(fs.readFileSync(path.join(dir, 'integrations', 'key'), 'utf8')).toBe('integrations');
   });
 
-  it('keeps an explicit new preference when removing the old field', () => {
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ integrationRequestsEnabled: false, connectorRequestsEnabled: true }));
+  it('drops the retired "agents can ask to connect" switch under either name, keeping the rest', () => {
+    const config = path.join(dir, 'config.json');
+    fs.writeFileSync(config, JSON.stringify({ version: 1, integrationRequestsEnabled: false, connectorRequestsEnabled: true, localToken: 'keep-token' }));
     migrateIntegrationStorage();
-    expect(JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'))).toEqual({ integrationRequestsEnabled: false });
+    expect(JSON.parse(fs.readFileSync(config, 'utf8'))).toEqual({ version: 1, localToken: 'keep-token' });
+    fs.writeFileSync(config, JSON.stringify({ integrationRequestsEnabled: null }));
+    migrateIntegrationStorage();
+    expect(JSON.parse(fs.readFileSync(config, 'utf8'))).toEqual({});
   });
 
-  it('preserves a disabled choice when another config writer initialized the new field to null', () => {
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ integrationRequestsEnabled: null, connectorRequestsEnabled: false }));
+  it('leaves a config without the retired switch untouched', () => {
+    const config = path.join(dir, 'config.json');
+    fs.writeFileSync(config, '{"version":1,"localToken":"keep-token"}');
     migrateIntegrationStorage();
-    expect(JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'))).toEqual({ integrationRequestsEnabled: false });
+    expect(fs.readFileSync(config, 'utf8')).toBe('{"version":1,"localToken":"keep-token"}');
   });
 
   it('handles a fresh home without creating a key', () => {

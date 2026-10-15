@@ -2,7 +2,6 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { setIntegrationRequestsEnabled } from '@/lib/integrations/request-settings';
 
 /**
  * An agent's main chat at spawn (docs/agents-view-spec.md Phase 6): its
@@ -194,19 +193,12 @@ describe('prepareAgentMainChatSpawn', () => {
     expect(loose.warnings.join('\n')).toContain('connectors are unavailable');
   });
 
-  it('with no scopes, attaches integrations only while agents may ask for connections', async () => {
-    // On (the default): the endpoint serves just `request_connection` for this agent.
+  it('with no scopes, still attaches integrations so the agent can ask for an account', async () => {
+    // The endpoint serves just `request_connection` for this agent.
     const asking = await prepare(await seed());
     const integrations = asking.config.mcpServers!.find((s) => s.name === 'integrations') as { url?: string } | undefined;
     expect(integrations?.url).toContain('?ws=');
-    // Off: nothing to attach.
-    setIntegrationRequestsEnabled(false);
-    try {
-      const off = await prepare(await seed());
-      expect(off.config.mcpServers!.some((s) => s.name === 'integrations')).toBe(false);
-    } finally {
-      setIntegrationRequestsEnabled(true);
-    }
+    expect(asking.instructions).toContain('request_connection');
   });
 
   it("browses with the agent's isolated profile, only when the app and the agent allow it", async () => {

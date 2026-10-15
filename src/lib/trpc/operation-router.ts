@@ -14,7 +14,6 @@ import * as operation7 from "@/lib/server/operations/integrations/disconnect";
 import * as operation13 from "@/lib/server/operations/integrations/mcp-servers";
 import * as operation8 from "@/lib/server/operations/integrations/mcp-servers/[id]";
 import * as operation14 from "@/lib/server/operations/integrations/pending-approvals";
-import * as operation15 from "@/lib/server/operations/integrations/request-settings";
 import * as operation16 from "@/lib/server/operations/integrations/requests/[eventId]";
 import * as operation17 from "@/lib/server/operations/integrations/run";
 import * as operation18 from "@/lib/server/operations/integrations/status";
@@ -286,8 +285,6 @@ export const internalRouters = {
     mcpApprovalPolicyPatch: p.input(operation13.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation13.PATCH(input, operationContext(ctx.request, input, "/integrations/mcp-servers")))),
     mcpServersPost: p.input(operation13.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation13.POST(input, operationContext(ctx.request, input, "/integrations/mcp-servers")))),
     pendingApprovalsGet: p.input(operation14.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation14.GET(input, operationContext(ctx.request, input, "/integrations/pending-approvals")))),
-    requestSettingsGet: p.input(operation15.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation15.GET(input, operationContext(ctx.request, input, "/integrations/request-settings")))),
-    requestSettingsPatch: p.input(operation15.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation15.PATCH(input, operationContext(ctx.request, input, "/integrations/request-settings")))),
     requestsEventIdPost: p.input(operation16.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation16.POST(input, operationContext(ctx.request, input, "/integrations/requests/[eventId]")))),
     runPost: p.input(operation17.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation17.POST(input, operationContext(ctx.request, input, "/integrations/run")))),
     statusGet: p.input(operation18.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation18.GET(input, operationContext(ctx.request, input, "/integrations/status")))),

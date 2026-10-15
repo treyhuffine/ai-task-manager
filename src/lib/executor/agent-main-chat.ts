@@ -18,7 +18,6 @@
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import type { McpServerConfig, ProviderConfig } from '@agentex/agent';
 import type { WorkspaceRecord } from '@/db/types';
-import { integrationRequestsEnabled } from '@/lib/integrations/request-settings';
 import {
   browserMcpServer,
   integrationsMcpServer,
@@ -87,8 +86,7 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
   if (orchestrator) servers.push(orchestrator);
   // The agent's accounts, or at least `request_connection` so it can ask for one it needs.
   const hasScopes = ws.integrationScopes.length > 0;
-  const wantsIntegrations = hasScopes || integrationRequestsEnabled();
-  const integrations = wantsIntegrations && args.strictMcpIsolation
+  const integrations = args.strictMcpIsolation
     ? integrationsMcpServer(args.port, { workspaceId: ws.id, sessionId: args.chatSessionId })
     : null;
   if (integrations) servers.push(integrations);

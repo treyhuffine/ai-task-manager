@@ -34,7 +34,6 @@ import { type HostedEndpointSelection } from '@/lib/client/integration-endpoint'
 import { openIntegrationAuthorization } from '@/lib/client/desktop';
 import { AlertCircle, CheckCircle2, Loader2, Plug, Search } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ConnectionRequestsSetting } from './integrations/connection-requests-setting';
 import { hostedAccountRequestFields, hostedAccountSignedIn } from './integrations/hosted-account-request';
 import { watchOAuthReturn } from './integrations/oauth-focus-refresh';
 import { CatalogTile, GroupHeading } from './integrations/parts';
@@ -620,7 +619,6 @@ export function IntegrationsSection({ active = true }: { active?: boolean }) {
               ))}
             </div>
           )}
-          {!q && <ConnectionRequestsSetting />}
         </>
       ) : selectedProvider ? (
         <ProviderDetail
