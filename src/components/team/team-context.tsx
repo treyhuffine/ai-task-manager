@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import type { TeamSettingsSectionId } from './team-settings-sections';
 
 export interface TeamIdentity {
   team: { id: string; name: string; members: number; hostedOn: string | null };
@@ -65,8 +66,10 @@ export function useTeamNav() {
       mine,
       decisions,
       panel,
+      settingsSection: params.get('settings'),
+      openSettings: (section: TeamSettingsSectionId) => set({ panel: 'settings', settings: section }),
       remoteSetup: params.get('setup') === 'remote',
-      finishRemoteSetup: () => set({ setup: null, panel: null }, 'replace'),
+      finishRemoteSetup: () => set({ setup: null, panel: null, settings: null }, 'replace'),
       show: (next: TeamView) => set({ view: next === 'board' ? null : next }),
       openTask: (id: string) => set({ task: id, note: null }),
       openNote: (id: string) => set({ note: id, task: null }),
@@ -75,7 +78,7 @@ export function useTeamNav() {
       filterArea: (id: string | null) => set({ area: id }, 'replace'),
       setMine: (on: boolean) => set({ mine: on ? '1' : null }, 'replace'),
       setDecisions: (on: boolean) => set({ kind: on ? 'decision' : null }, 'replace'),
-      openPanel: (name: 'settings' | 'search' | null) => set({ panel: name }, name ? 'push' : 'replace'),
+      openPanel: (name: 'settings' | 'search' | null) => set({ panel: name, settings: null }, name ? 'push' : 'replace'),
     }),
     [view, taskId, noteId, chatId, areaId, mine, decisions, panel, set, params],
   );

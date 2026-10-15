@@ -1,10 +1,10 @@
-import { act, createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { parseHTML } from 'linkedom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ createLink: vi.fn(), done: vi.fn(), remoteSetup: false, role: 'owner' }));
+const mocks = vi.hoisted(() => ({ createLink: vi.fn(), done: vi.fn(), remoteSetup: false, role: 'owner', initialSection: 'general' }));
 vi.mock('@/lib/trpc/client', () => {
   const list = { queryOptions: () => ({ queryKey: ['test-empty'], queryFn: async () => [] }) };
   return {
@@ -14,7 +14,10 @@ vi.mock('@/lib/trpc/client', () => {
 });
 vi.mock('./team-context', () => ({
   useTeam: () => ({ team: { name: 'Team Huffine' }, member: { id: 'owner', name: 'Trey', role: mocks.role } }),
-  useTeamNav: () => ({ panel: 'settings', remoteSetup: mocks.remoteSetup, finishRemoteSetup: mocks.done }),
+  useTeamNav: () => {
+    const [settingsSection, openSettings] = useState(mocks.initialSection);
+    return { panel: 'settings', settingsSection, openSettings, remoteSetup: mocks.remoteSetup, finishRemoteSetup: mocks.done };
+  },
 }));
 vi.mock('./team-address-setup', () => ({ TeamAddressSetup: ({ onDone }: { onDone?: () => void }) => createElement('button', { onClick: onDone }, 'Remote address setup') }));
 vi.mock('./connect-ai', () => ({ ConnectAiSection: () => createElement('div', null, 'Connect your AI') }));
@@ -38,6 +41,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.remoteSetup = false;
   mocks.role = 'owner';
+  mocks.initialSection = 'general';
   mocks.createLink.mockResolvedValue({ link: 'https://localhost:42242/join#sign-in=secret', reachable: false, expiresAt: '2030-01-01' });
   const { window, document } = parseHTML('<!doctype html><html><body></body></html>');
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -77,15 +81,41 @@ it('offers provider-neutral prefix setup after owner creation', async () => {
   expect(mocks.done).toHaveBeenCalledOnce();
 });
 
-it('keeps AI controls alongside remote address setup in normal settings', async () => {
+it('separates built-in AI, external assistants and remote access into named sections', async () => {
   await render();
-  expect(container.textContent).toContain('Remote address setup');
-  expect(container.textContent).toContain('Connect your AI');
-  expect(container.textContent).toContain('Team AI');
+  expect(container.textContent).not.toContain('Connect your AI');
+  expect(container.textContent).not.toContain('Remote address setup');
+  expect(container.querySelector('nav [aria-current=page]')?.textContent).toBe('General');
+  await click('AI & Models');
+  expect(container.querySelector<HTMLElement>('[data-team-settings-section=ai]')?.hidden).toBe(false);
+  expect(container.querySelector<HTMLElement>('[data-team-settings-section=ai]')?.textContent).toBe('Team AI');
+  expect(container.textContent).not.toContain('Connect your AI');
+  await click('External AI');
+  expect(container.querySelector<HTMLElement>('[data-team-settings-section=ai]')?.hidden).toBe(true);
+  expect(container.querySelector<HTMLElement>('[data-team-settings-section=external-ai]')?.textContent).toBe('Connect your AI');
+  await click('Remote access');
+  expect(container.querySelector<HTMLElement>('[data-team-settings-section=remote]')?.textContent).toBe('Remote address setup');
+});
+
+it.each(['unknown', 'remote'])('falls back safely for a member opening the %s section', async section => {
+  mocks.role = 'member';
+  mocks.initialSection = section;
+  await render();
+  expect(container.querySelector('nav [aria-current=page]')?.textContent).toBe('General');
+  expect(container.textContent).not.toContain('Remote address setup');
+  expect(container.querySelector('nav')?.textContent).not.toContain('Remote access');
+});
+
+it('opens a linked settings section directly', async () => {
+  mocks.initialSection = 'ai';
+  await render();
+  expect(container.querySelector('nav [aria-current=page]')?.textContent).toBe('AI & Models');
+  expect(container.querySelector<HTMLElement>('[data-team-settings-section=ai]')?.textContent).toBe('Team AI');
 });
 
 it.each(['Invite people', 'Sign in on another device', 'Connect to My Ri'])('asks for remote setup instead of copying a localhost link for %s', async (label) => {
   await render();
+  await click(label === 'Invite people' ? 'People' : 'Your access');
   await click(label);
   expect(mocks.createLink).toHaveBeenCalledOnce();
   expect(container.textContent).toContain('Set up or reconnect a remote address here');
@@ -96,6 +126,7 @@ it.each(['Invite people', 'Sign in on another device', 'Connect to My Ri'])('ask
 it.each(['Invite people', 'Sign in on another device', 'Connect to My Ri'])('handles the remote-address precondition before creating a link for %s', async (label) => {
   mocks.createLink.mockRejectedValueOnce(Object.assign(new Error('Set up a reachable address'), { status: 412 }));
   await render();
+  await click(label === 'Invite people' ? 'People' : 'Your access');
   await click(label);
   expect(mocks.createLink).toHaveBeenCalledOnce();
   expect(container.textContent).toContain('Set up or reconnect a remote address here');
@@ -105,6 +136,7 @@ it.each(['Invite people', 'Sign in on another device', 'Connect to My Ri'])('han
 it('shows a reachable link with the instructions for the chosen destination', async () => {
   mocks.createLink.mockResolvedValue({ link: 'https://team-huffine-trey.beamd.run/join#sign-in=secret', reachable: true });
   await render();
+  await click('Your access');
   await click('Connect to My Ri');
   expect(container.querySelector('code')?.textContent).toBe('https://team-huffine-trey.beamd.run/join#sign-in=secret');
   expect(container.textContent).toContain('paste it in your own Ri');
@@ -113,6 +145,7 @@ it('shows a reachable link with the instructions for the chosen destination', as
 it('asks a regular member to contact an owner instead of exposing host settings', async () => {
   mocks.role = 'member';
   await render();
+  await click('Your access');
   await click('Sign in on another device');
   expect(container.textContent).toContain('Ask a team owner');
   expect(container.textContent).not.toContain('Remote address setup');

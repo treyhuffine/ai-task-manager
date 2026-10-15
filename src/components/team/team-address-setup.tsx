@@ -71,7 +71,7 @@ export function TeamAddressSetup({ onSaved, onDone }: { onSaved?: () => void; on
             <p className="text-muted-foreground">Choose a short name to use when you set up a remote address. You can change it later.</p>
             <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (!busy && isValidPreviewLabel(normalizedName)) prefix.mutate(); }}>
               {prefixField}
-              <p className="text-xs text-muted-foreground">To invite people or connect from another device, choose how to make the team reachable in Settings → Where people reach the team.</p>
+              <p className="text-xs text-muted-foreground">To invite people or connect from another device, choose how to make the team reachable in Settings → Remote access.</p>
               {prefix.error && <GateNotice tone="error">{apiErrorText(prefix.error)}</GateNotice>}
               <GateButton type="submit" busy={prefix.isPending} disabled={busy || !isValidPreviewLabel(normalizedName)}>Save and continue</GateButton>
             </form>

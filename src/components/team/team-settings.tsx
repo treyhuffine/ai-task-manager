@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Archive, Check, Copy, FolderPlus, House, LogOut, RotateCcw, Smartphone, UserMinus, UserPlus } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -19,6 +19,8 @@ import { TeamAiSection } from './team-ai-settings';
 import { useSpace } from '@/components/spaces/space-root';
 import { useAreas, useUpdateArea } from '@/hooks/use-areas';
 import { TeamAddressSetup } from './team-address-setup';
+import { SettingsNavigation } from '@/components/settings/settings-nav';
+import { TEAM_SETTINGS_SECTIONS, teamSettingsSection, type TeamSettingsSectionId } from './team-settings-sections';
 
 /**
  * A team's Settings (docs/homes-spec.md §3.2): the team's name and where it's
@@ -32,50 +34,64 @@ export function TeamSettings() {
   const nav = useTeamNav();
   const { member } = useTeam();
   const addressRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [needsAddress, setNeedsAddress] = useState(false);
-  const settingUp = nav.remoteSetup && member.role === 'owner';
+  const owner = member.role === 'owner';
+  const settingUp = nav.remoteSetup && owner;
+  const section = teamSettingsSection(nav.settingsSection, owner);
+  // Keep visited forms mounted while the dialog is open, so changing sections
+  // does not discard a name draft, an unsaved API key or a one-time link.
+  const [visited, setVisited] = useState<TeamSettingsSectionId[]>([section.id]);
+  if (!visited.includes(section.id)) setVisited([...visited, section.id]);
+  const sections = TEAM_SETTINGS_SECTIONS.filter(item => owner || !item.ownerOnly);
   const needAddress = () => {
     setNeedsAddress(true);
-    addressRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    addressRef.current?.focus({ preventScroll: true });
+    if (owner) nav.openSettings('remote');
   };
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+    if (section.id === 'remote' && needsAddress) addressRef.current?.focus({ preventScroll: true });
+  }, [section.id, needsAddress]);
+
+  const content = (id: TeamSettingsSectionId) => {
+    switch (id) {
+      case 'general': return <TeamSection />;
+      case 'people': return <PeopleSection onNeedAddress={needAddress} />;
+      case 'areas': return <AreasSection />;
+      case 'access': return <>
+        {needsAddress && !owner && <p role="status" className="mb-4 text-sm text-muted-foreground">Ask a team owner to set up a reachable address before signing in elsewhere or connecting your personal Ri.</p>}
+        <YouSection onNeedAddress={needAddress} />
+      </>;
+      case 'ai': return <TeamAiSection />;
+      case 'external-ai': return <ConnectAiSection />;
+      case 'remote': return <div ref={addressRef} tabIndex={-1} className="outline-none">
+        {needsAddress && <p role="status" className="mb-4 text-sm text-muted-foreground">Set up or reconnect a remote address here, then try making your link again.</p>}
+        <TeamAddressSetup onSaved={() => setNeedsAddress(false)} />
+      </div>;
+    }
+  };
+
   return (
     <Dialog open={nav.panel === 'settings'} onOpenChange={(open) => { if (!open) { if (settingUp) nav.finishRemoteSetup(); else nav.openPanel(null); } }}>
-      {/* Sized to the screen, like personal Settings: the header stays put and
-          only the body scrolls, and only down, so a long link truncates
-          rather than widening everything. Opening it focuses the dialog, not
-          the team's name, so a phone doesn't raise its keyboard. */}
       <DialogContent
-        className="flex max-h-[90dvh] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(48rem,90vw)]"
+        className={cn('flex max-h-[92dvh] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0',
+          settingUp ? 'sm:max-w-xl' : 'h-[800px] sm:max-w-6xl sm:flex-row')}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           (e.target as HTMLElement | null)?.focus();
         }}
       >
-        <DialogHeader className="border-b border-border px-5 py-5 pr-12 text-left">
-          <DialogTitle className="text-[15px] font-semibold">{settingUp ? 'Choose a team prefix' : 'Settings'}</DialogTitle>
-          <DialogDescription className="sr-only">The team, its people, and you.</DialogDescription>
-        </DialogHeader>
-        <div className="min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto overflow-x-hidden px-5 py-5">
-          {settingUp ? <TeamAddressSetup onDone={nav.finishRemoteSetup} /> : (
-            <>
-              <TeamSection />
-              {member.role === 'owner' && (
-                <div ref={addressRef} tabIndex={-1} className="outline-none">
-                  <Section title="Where people reach the team">
-                    {needsAddress && <p role="status" className="text-sm text-muted-foreground">Set up or reconnect a remote address here, then try making your link again.</p>}
-                    <TeamAddressSetup onSaved={() => setNeedsAddress(false)} />
-                  </Section>
-                </div>
-              )}
-              <AreasSection />
-              <PeopleSection onNeedAddress={needAddress} />
-              {needsAddress && member.role !== 'owner' && <p role="status" className="text-sm text-muted-foreground">Ask a team owner to set up a reachable address before signing in elsewhere or connecting your personal Ri.</p>}
-              <YouSection onNeedAddress={needAddress} />
-              <ConnectAiSection />
-              <TeamAiSection />
-            </>
-          )}
+        {!settingUp && <SettingsNavigation label="Team settings" active={section.id} onSelect={nav.openSettings} sections={sections} />}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <DialogHeader className="gap-1 border-b border-border px-5 py-4 pr-12 text-left">
+            <DialogTitle className="text-[15px] font-semibold">{settingUp ? 'Choose a team prefix' : section.title}</DialogTitle>
+            <DialogDescription className="text-[12px] leading-snug">{settingUp ? 'A short name for your team’s address.' : section.description}</DialogDescription>
+          </DialogHeader>
+          <div ref={bodyRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-5">
+            {settingUp ? <TeamAddressSetup onDone={nav.finishRemoteSetup} /> : sections.filter(item => visited.includes(item.id)).map(item => (
+              <div key={item.id} hidden={section.id !== item.id} data-team-settings-section={item.id}>{content(item.id)}</div>
+            ))}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -282,7 +298,7 @@ function PeopleSection({ onNeedAddress }: { onNeedAddress: () => void }) {
               note={
                 latest.reachable
                   ? `One person can join with this link until ${new Date(latest.expiresAt).toLocaleDateString()}. Make another for each person.`
-                  : 'This link works only on this computer until the team has an address people can reach. Set one below.'
+                  : 'This link works only on this computer until the team has an address people can reach. Set one in Remote access.'
               }
             />
           )}

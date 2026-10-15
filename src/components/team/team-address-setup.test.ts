@@ -54,7 +54,7 @@ async function choose(label: string) {
 it('asks only for a prefix during setup and allows deciding later', async () => {
   await render(true);
   expect(container.querySelector<HTMLInputElement>('#team-address-prefix')?.value).toBe('team-huffine');
-  expect(container.textContent).toContain('Where people reach the team');
+  expect(container.textContent).toContain('Settings → Remote access');
   expect(container.textContent).not.toContain('Beamd');
   expect(container.querySelector('#team-custom-address')).toBeNull();
   await choose('Decide later');

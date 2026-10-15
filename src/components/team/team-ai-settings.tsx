@@ -43,6 +43,7 @@ export function TeamAiSection() {
   const recheck = useMutation({ mutationFn: () => trpcClient.team.ai.refreshAuth.mutate(), onSuccess: refresh, onError });
   const forget = useMutation({ mutationFn: () => trpcClient.team.ai.forgetKey.mutate(), onSuccess: refresh, onError });
   const authPending = saveAuth.isPending || forget.isPending;
+  const authChanged = selectedAuth !== (data?.authMode ?? 'subscription') || Boolean(apiKey.trim());
   const summary = !data ? 'Checking…' : data.state === 'off' ? 'Off.'
     : data.state === 'ready'
       ? data.authMode === 'api_key' ? 'On. Uses the saved Anthropic API key.' : 'On. Uses the Claude Code subscription signed in on this team’s host.'
@@ -86,7 +87,7 @@ export function TeamAiSection() {
             ) : <p className="text-xs text-muted-foreground">Uses the host’s existing Claude Code sign-in.{data?.hasApiKey ? ' The saved API key is not used.' : ''}</p>}
             <p className="text-xs text-muted-foreground">Ri only uses the method you choose. Changing it or replacing the key stops current answers and waiting messages. Chat history stays readable.</p>
             <div className="flex flex-wrap gap-2">
-              <button type="submit" className={button} disabled={!data || authPending || (selectedAuth === 'api_key' && !apiKey.trim() && !data.hasApiKey)}>{saveAuth.isPending ? 'Saving…' : 'Save authentication'}</button>
+              <button type="submit" className={button} disabled={!data || authPending || !authChanged || (selectedAuth === 'api_key' && !apiKey.trim() && !data.hasApiKey)}>{saveAuth.isPending ? 'Saving…' : 'Save authentication'}</button>
               {data?.hasApiKey && <button type="button" className={button} disabled={authPending} onClick={async () => {
                 if (await confirm({ title: 'Remove the API key?', description: data.authMode === 'api_key' ? 'Team AI stops answering until you save a new key or choose Subscription.' : 'The saved key is removed. Subscription sign-in keeps working.', confirmLabel: 'Remove key', tone: 'destructive' })) forget.mutate();
               }}>Remove key</button>}

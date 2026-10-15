@@ -19,7 +19,7 @@ function when(iso: string) {
 }
 
 /**
- * Connect your AI (docs/homes-spec.md §9.8, P8.3): a member's own assistant,
+ * Connect an external assistant (docs/homes-spec.md §9.8, P8.3): a member's own assistant,
  * such as Claude Code or Codex, working with the team's shared tasks and
  * notes as that member. Each has a key of its own, shown once, and is
  * disconnected on its own.
@@ -36,10 +36,10 @@ export function ConnectAiSection() {
   });
   return (
     <section className="min-w-0">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Your AI</h3>
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Assistants outside Ri</h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        Connect Claude Code, Codex or another assistant you use. It can read and change {team.name}&apos;s shared tasks and notes as you, and
-        everyone sees its changes as yours, made by your agent. It sees nothing else.
+        Let Claude Code, Codex or another assistant you already use read and update {team.name}&apos;s shared work as you.
+        This is optional. To chat inside Ri, use AI &amp; Models.
       </p>
       <div className="mt-2 space-y-2">
         {(clients.data ?? []).length > 0 && (
@@ -49,7 +49,7 @@ export function ConnectAiSection() {
                 <Plug size={13} className="shrink-0 text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1 truncate">{client.name}</span>
                 <span className="shrink-0 text-muted-foreground">
-                  {client.lastUsedAt ? `Used ${when(client.lastUsedAt)}` : `Connected ${when(client.createdAt)}`}
+                  {client.lastUsedAt ? `Used ${when(client.lastUsedAt)}` : 'Not used yet'}
                 </span>
                 <button
                   type="button"
@@ -72,7 +72,7 @@ export function ConnectAiSection() {
           </ul>
         )}
         <button type="button" className={buttonClass} onClick={() => setOpen(true)}>
-          <Plug size={13} aria-hidden /> Connect your AI
+          <Plug size={13} aria-hidden /> Connect an external assistant
         </button>
       </div>
       <ConnectAiDialog open={open} onOpenChange={setOpen} onConnected={() => void clients.refetch()} />
@@ -108,10 +108,10 @@ type Made = { name: string; token: string; mcpUrl: string; reachable: boolean; k
 function ConnectAiDialog({ open, onOpenChange, onConnected }: { open: boolean; onOpenChange: (open: boolean) => void; onConnected: () => void }) {
   const { team } = useTeam();
   const [kind, setKind] = useState<AiClientKind>('claude_code');
-  const [name, setName] = useState(AI_CLIENT_KINDS[0].defaultName);
+  const [name, setName] = useState('');
   const [made, setMade] = useState<Made | null>(null);
   const create = useMutation({
-    mutationFn: () => trpcClient.team.aiClients.create.mutate({ name: name.trim() }),
+    mutationFn: () => trpcClient.team.aiClients.create.mutate({ name: name.trim() || AI_CLIENT_KINDS.find(option => option.kind === kind)!.defaultName }),
     onSuccess: (result) => {
       setMade({ name: result.client.name, token: result.token, mcpUrl: result.mcpUrl, reachable: result.reachable, kind });
       onConnected();
@@ -124,7 +124,7 @@ function ConnectAiDialog({ open, onOpenChange, onConnected }: { open: boolean; o
       // The key is never shown again once this closes.
       setMade(null);
       setKind('claude_code');
-      setName(AI_CLIENT_KINDS[0].defaultName);
+      setName('');
     }
   };
   const setup = made ? aiClientSetup(made.kind, { teamName: team.name, mcpUrl: made.mcpUrl, token: made.token }) : null;
@@ -133,11 +133,11 @@ function ConnectAiDialog({ open, onOpenChange, onConnected }: { open: boolean; o
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-h-[90dvh] w-full max-w-[calc(100%-1rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{made ? `Set up ${made.name}` : 'Connect your AI'}</DialogTitle>
+          <DialogTitle>{made ? `Set up ${made.name}` : 'Connect an external assistant'}</DialogTitle>
           <DialogDescription>
             {made
               ? 'Copy the key now: Ri shows it only this once. Anyone with it can read and change the team\'s shared work as you.'
-              : `Your assistant gets a key of its own to work with ${team.name}'s shared tasks and notes as you. You can disconnect it here any time.`}
+              : `MCP gives your assistant tools to search, read and update ${team.name}'s shared tasks, notes and decisions. You run that assistant outside Ri. You can disconnect its access here any time.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -146,10 +146,10 @@ function ConnectAiDialog({ open, onOpenChange, onConnected }: { open: boolean; o
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              if (name.trim()) create.mutate();
+              if (!create.isPending) create.mutate();
             }}
           >
-            <fieldset className="space-y-1.5">
+            <fieldset className="space-y-1.5" disabled={create.isPending}>
               <legend className="text-xs font-medium">Which assistant</legend>
               <div className="flex flex-wrap gap-2">
                 {AI_CLIENT_KINDS.map((option) => (
@@ -166,8 +166,6 @@ function ConnectAiDialog({ open, onOpenChange, onConnected }: { open: boolean; o
                       className="sr-only"
                       checked={kind === option.kind}
                       onChange={() => {
-                        // A name still at the last default follows the choice.
-                        if (AI_CLIENT_KINDS.some((k) => k.defaultName === name)) setName(option.defaultName);
                         setKind(option.kind);
                       }}
                     />
@@ -176,19 +174,25 @@ function ConnectAiDialog({ open, onOpenChange, onConnected }: { open: boolean; o
                 ))}
               </div>
             </fieldset>
-            <label className="block space-y-1">
-              <span className="text-xs font-medium">Name</span>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={80}
-                className="w-full rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-sm outline-none focus-visible:border-primary/60"
-              />
-              <span className="block text-xs text-muted-foreground">So you can tell your assistants apart, such as Claude Code on your laptop.</span>
-            </label>
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground">Connection label (optional)</summary>
+              <label className="mt-2 block space-y-1">
+                <span className="text-xs font-medium">Connection label</span>
+                <input
+                  value={name}
+                  disabled={create.isPending}
+                  placeholder={AI_CLIENT_KINDS.find(option => option.kind === kind)!.defaultName}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={80}
+                  aria-describedby="connection-label-hint"
+                  className="w-full rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-sm outline-none focus-visible:border-primary/60"
+                />
+              </label>
+              <p id="connection-label-hint" className="mt-1 text-xs text-muted-foreground">Defaults to the assistant’s name. Add a label if you connect it from more than one device.</p>
+            </details>
             <DialogFooter>
-              <button type="submit" className={cn(buttonClass, 'px-3 py-1.5')} disabled={!name.trim() || create.isPending}>
-                {create.isPending ? 'Connecting…' : 'Connect'}
+              <button type="submit" className={cn(buttonClass, 'px-3 py-1.5')} disabled={create.isPending}>
+                {create.isPending ? 'Preparing…' : 'Get connection instructions'}
               </button>
             </DialogFooter>
           </form>
