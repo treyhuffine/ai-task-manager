@@ -20,7 +20,7 @@ Run it from the CLI, not the desktop app. The Mini's job is to be the always-on 
 
 ### The database changes only when production starts
 
-Every process that opens a home's database used to apply any migrations it found in its code: the server on boot, but also every `ri agent` command an agent ran. So a migration an agent was still writing reached the production database the next time any agent used the CLI (2026-10-05). Now only a starting server applies migrations (`allowMigrations()` in `instrumentation.ts`, `ri start` and `ri service start`, and `pnpm db:migrate`). Any other process that finds migrations still to apply refuses and changes nothing:
+Every process that opens a home's database used to apply any migrations it found in its code: the server on boot, but also every `ri agent` command an agent ran. So a migration an agent was still writing reached the production database the next time any agent used the CLI (2026-10-05). Now only a starting server applies migrations (`allowMigrations()` in `instrumentation.ts`, `ri start` and the background service controller, and `pnpm db:migrate`). For `ri service start`, the controller grants migration permission while holding the Home's owner lock, before checking its local token. The CLI only starts or attaches to that process. The grant is process-local and cannot pass from the CLI to its child. Any other process that finds migrations still to apply refuses and changes nothing:
 
 > This code has one database change that isn't applied to ~/ri/data.db yet (0008_x). Ri applies database changes when it starts, so restart Ri to apply it. Nothing was changed.
 

@@ -9,13 +9,11 @@ import { createRuntimeManifest, installedRuntime, stageRuntime, verifyRuntime } 
 import { beginActivity } from '@/lib/service/maintenance';
 import { saveEnvironment, environmentStatus } from '@/lib/service/environment';
 import { installService, uninstallService } from '@/lib/service/install';
-import { allowMigrations } from '@/lib/db/migrate';
 import { readLiveServerRuntime } from '@/lib/server-runtime/record';
 
 /** Shared by explicit service startup and the team's first-run command. */
 export async function startBackgroundService(options: { dev?: boolean; home?: boolean } = {}) {
   if (options.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
-  allowMigrations();
   if (options.home && (await import('@/lib/service/role')).resolveServiceRole().role !== 'home') {
     (await import('@/lib/service/desktop-role-intent')).writeDesktopHomeIntent();
   }

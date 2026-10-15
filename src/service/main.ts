@@ -366,9 +366,18 @@ async function startHome() {
   // Consume the first-install permit before any database opener. A later lost
   // database must never be mistaken for an installation that has not begun.
   consumeDesktopInitialization();
+  const { allowMigrations } = await import('@/lib/db/migrate');
   const { ensureLocalToken } = await import('@/lib/auth/bootstrap');
   const { resetDb } = await import('@/lib/db');
-  token = ensureLocalToken().plaintext; resetDb();
+  // This controller holds the Home's owner lock and opens its database before
+  // the backend starts. A migration grant in the spawning CLI cannot reach it.
+  allowMigrations();
+  try {
+    token = ensureLocalToken().plaintext;
+  } finally {
+    allowMigrations(false);
+    resetDb();
+  }
   if (stopping) return;
   await startBackend();
   const probe = await gateway.probe();

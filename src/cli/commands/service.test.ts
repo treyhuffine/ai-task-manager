@@ -2,6 +2,7 @@ import path from 'node:path';
 import { Command } from 'commander';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { APP_ROOT_ENV, getAppRoot, getDevAppRoot } from '@/lib/config/paths';
+import { allowMigrations, migrationsAllowed } from '@/lib/db/migrate';
 const mocks = vi.hoisted(() => ({ ensure: vi.fn(), installed: vi.fn(), status: vi.fn(), request: vi.fn(), awake: vi.fn(), live: vi.fn() }));
 vi.mock('@/lib/server-runtime/record', () => ({ readLiveServerRuntime: mocks.live }));
 vi.mock('@/lib/service/client', () => ({ ensureServiceStatus: mocks.ensure, serviceStatus: mocks.status, serviceRequest: mocks.request, stopService: vi.fn() }));
@@ -11,6 +12,7 @@ import { registerServiceCommand } from './service';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  allowMigrations(false);
   vi.stubEnv(APP_ROOT_ENV, undefined);
   vi.spyOn(console, 'info').mockImplementation(() => {});
   mocks.installed.mockReturnValue(null);
@@ -19,7 +21,7 @@ beforeEach(() => {
   mocks.awake.mockReturnValue({ enabled: false });
   mocks.ensure.mockImplementation(async () => ({ origin: 'https://localhost:42242', identity: { root: getAppRoot() } }));
 });
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+afterEach(() => { allowMigrations(false); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 function run(...args: string[]) {
   const program = new Command().exitOverride();
   registerServiceCommand(program);
@@ -45,6 +47,17 @@ it('keeps the production default when development mode was not requested', async
   await run('start');
   expect(getAppRoot()).toBe(original);
   expect(mocks.ensure).toHaveBeenCalledWith(expect.objectContaining({ env: expect.objectContaining({ RI_DESKTOP_MODE: 'production' }) }));
+});
+it('leaves migrations to the owning controller instead of granting them to the CLI', async () => {
+  mocks.ensure.mockImplementation(async () => {
+    expect(migrationsAllowed()).toBe(false);
+    return { origin: 'https://localhost:42242', identity: { root: getAppRoot() } };
+  });
+  await run('start');
+  expect(migrationsAllowed()).toBe(false);
+  mocks.ensure.mockRejectedValueOnce(new Error('Startup failed'));
+  await expect(run('start')).rejects.toThrow('Startup failed');
+  expect(migrationsAllowed()).toBe(false);
 });
 it('changes keep-awake through the live controller and never starts a service implicitly', async () => {
   mocks.status.mockResolvedValue({ phase: 'running' });

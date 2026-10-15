@@ -7,8 +7,10 @@ import { processState } from '@/lib/process-state';
 /**
  * Who owns a home's schema: the server applies migrations and sets up the
  * derived schema (search tables, triggers, backfills) when it starts
- * (instrumentation.ts), as do `ri start`, which opens the database before it
- * launches the server, and `pnpm db:migrate`. Any other process joins the home
+ * (instrumentation.ts), as do `ri start`, the background service controller
+ * (both open the database before launching the backend), and `pnpm db:migrate`.
+ * The CLI that starts or attaches to a controller does not own the schema.
+ * Any other process joins the home
  * as its server left it (`getDb`): with migrations still to apply it refuses
  * and changes nothing (`PendingMigrationsError`), and otherwise it does no
  * schema work, so it never takes the write lock just to open. An agent's
