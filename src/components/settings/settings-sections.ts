@@ -35,6 +35,7 @@ export type SectionId =
   | 'browser'
   | 'plugins'
   | 'notifications'
+  | 'external-ai'
   | 'devices'
   | 'teams'
   | 'imports'
@@ -69,6 +70,13 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     icon: MonitorSmartphone,
     title: 'Devices',
     description: 'Remote access URL, paired devices, and host-machine settings.',
+  },
+  {
+    id: 'external-ai',
+    label: 'External AI',
+    icon: Plug,
+    title: 'External AI',
+    description: 'Let assistants outside Ri work with your Home.',
   },
   {
     // Teams this Ri works with (docs/homes-spec.md §3.1, §9.3).

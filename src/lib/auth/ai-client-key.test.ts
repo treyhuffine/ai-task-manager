@@ -1,7 +1,7 @@
 /**
- * An AI client key belongs to a team (docs/homes-spec.md §9.8). If one ever
- * reached a personal home's database, it is no sign-in there: the proxy, the
- * app's connection and the browser's session all refuse it.
+ * A device-bound AI client is not a personal content credential. The proxy,
+ * app connection and browser session all refuse it. Personal MCP credentials
+ * have neither a device nor a member (external-ai/home-mcp.test.ts).
  */
 
 import { NextRequest } from 'next/server';

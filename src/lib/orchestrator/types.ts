@@ -43,6 +43,8 @@ export interface ActionContext {
   caller?: {
     location: 'home' | 'elsewhere';
     apiKeyId?: string | null;
+    /** Outside personal assistants receive content tools only. */
+    scope?: 'home_content';
   };
 }
 

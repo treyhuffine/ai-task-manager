@@ -7,7 +7,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import nodePath from 'node:path';
 import os from 'node:os';
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
-import { registerHomeKindReader } from '@/lib/home/authority';
+import { assertPersonalCapability, registerHomeKindReader } from '@/lib/home/authority';
 import { getDb, getRawDb, isDatabaseOpen } from '@/lib/db';
 import { processState } from '@/lib/process-state';
 import { teamContentChanged } from '@/lib/spaces/generation';
@@ -4837,7 +4837,7 @@ export function addDeviceKey(deviceId: string, input: { name?: string; expiresAt
 }
 
 /**
- * Keys without a device are the home's own: only the home mints one before
+ * Sign-in keys without a device are the home's own: only the home mints one before
  * its identity exists (`ensureLocalToken` at first start, and every key a
  * database had before devices, which the homes migration leaves for this).
  * They belong to the device the home runs on. Returns how many it gave.
@@ -4849,7 +4849,7 @@ export function giveHostItsKeys(): number {
   return db
     .update(apiKeys)
     .set({ deviceId: host, updatedAt: new Date().toISOString() })
-    .where(isNull(apiKeys.deviceId))
+    .where(and(isNull(apiKeys.deviceId), eq(apiKeys.role, 'sign_in')))
     .run().changes;
 }
 
@@ -6173,19 +6173,39 @@ export function revokeMemberSignIn(memberId: string, keyId: string): void {
 
 export const AI_CLIENT_NAME_MAX = 80;
 
-export interface MemberAiClientView {
-  keyId: string;
-  name: string;
-  createdAt: string;
-  lastUsedAt: string | null;
-}
+export type AiClientView = Pick<ApiKeyRecord, 'name' | 'createdAt' | 'lastUsedAt'> & { keyId: ApiKeyRecord['id'] };
 
-function aiClientView(key: ApiKeyRecord): MemberAiClientView {
+function aiClientView(key: ApiKeyRecord): AiClientView {
   return { keyId: key.id, name: key.name, createdAt: key.createdAt, lastUsedAt: key.lastUsedAt };
 }
 
+/** Personal clients have no device or member and never become sign-in credentials. */
+export function createPersonalAiClient(name: string): { client: AiClientView; token: GeneratedToken } {
+  assertPersonalCapability('Personal external assistants');
+  const clean = name.trim().replace(/\s+/g, ' ');
+  if (!clean || clean.length > AI_CLIENT_NAME_MAX) throw new TeamError('invalid', `Use a connection label of ${AI_CLIENT_NAME_MAX} characters or fewer.`);
+  const { key, token } = insertApiKey(getDb(), { name: clean, role: 'ai_client', memberId: null, deviceId: null });
+  return { client: aiClientView(key), token };
+}
+
+export function listPersonalAiClients(): AiClientView[] {
+  assertPersonalCapability('Personal external assistants');
+  return getDb().select().from(apiKeys)
+    .where(and(eq(apiKeys.role, 'ai_client'), isNull(apiKeys.memberId), isNull(apiKeys.deviceId), isNull(apiKeys.revokedAt)))
+    .orderBy(desc(apiKeys.createdAt)).all().map(aiClientView);
+}
+
+/** Retry-safe, scoped revocation. Cannot revoke a browser, worker or team key. */
+export function revokePersonalAiClient(keyId: string): void {
+  assertPersonalCapability('Personal external assistants');
+  const now = new Date().toISOString();
+  getDb().update(apiKeys).set({ revokedAt: now, revokedReason: 'Disconnected', updatedAt: now })
+    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.role, 'ai_client'), isNull(apiKeys.memberId), isNull(apiKeys.deviceId), isNull(apiKeys.revokedAt)))
+    .run();
+}
+
 /** A new AI client for an active member. The token is shown once, here. */
-export function createMemberAiClient(memberId: string, name: string): { client: MemberAiClientView; token: GeneratedToken } {
+export function createMemberAiClient(memberId: string, name: string): { client: AiClientView; token: GeneratedToken } {
   const clean = name.trim().replace(/\s+/g, ' ');
   if (!clean || clean.length > AI_CLIENT_NAME_MAX) {
     throw new TeamError('invalid', `Name the AI client in ${AI_CLIENT_NAME_MAX} characters or fewer.`);
@@ -6199,7 +6219,7 @@ export function createMemberAiClient(memberId: string, name: string): { client: 
 }
 
 /** A member's AI clients that still work, newest first. */
-export function listMemberAiClients(memberId: string): MemberAiClientView[] {
+export function listMemberAiClients(memberId: string): AiClientView[] {
   return getDb()
     .select()
     .from(apiKeys)

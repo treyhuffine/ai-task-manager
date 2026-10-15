@@ -1,3 +1,4 @@
+import { externalAiRouter } from '@/lib/external-ai/router';
 import { chatSourcesRouter } from '@/lib/chat-sources/router';
 import { localAppsRouter } from '@/lib/local-apps/router';
 import { toNoteListDTOs, toTaskListDTOs } from '@/lib/api/dto/entity-list';
@@ -58,6 +59,7 @@ function sharedTaskIn(id: string) {
 }
 
 export const appRouter = router({
+  externalAi: externalAiRouter,
   localApps: localAppsRouter,
   chatSources: chatSourcesRouter,
   ...internalRouters,

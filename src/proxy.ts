@@ -2,6 +2,7 @@ import { API_PROTOCOL_HEADER, apiCompatibilityIssue, hasIndependentProtocol } fr
 import { SPACE_HEADER, SPACE_PATH_PREFIX, spaceIdFromPath } from '@/lib/spaces/document';
 import { CURRENT_COMPATIBILITY } from '@/lib/releases/compatibility';
 import { NextResponse, type NextRequest } from 'next/server';
+import { HOME_MCP_PATH, isPersonalAiClientKey } from '@/lib/external-ai/policy';
 import { lookupApiToken } from '@/lib/auth/api-token';
 import { activeTeamChatTurn, getWorkerDevice, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
 import { isTurnToken, readTurnToken } from '@/lib/team/ai/turn-credential';
@@ -290,9 +291,18 @@ export function proxy(request: NextRequest) {
   const found = lookupApiToken(token);
   if (!found) return unauthorized();
   const { key, tokenHash } = found;
-  // Only a team issues AI client keys (docs/homes-spec.md §9.8). One here
-  // isn't a sign-in, whatever else it is.
-  if (key.role === 'ai_client') return unauthorized();
+  // An outside assistant reaches only the content-scoped MCP, never a viewer route.
+  if (key.role === 'ai_client') {
+    if (!isPersonalAiClientKey(key)) return unauthorized();
+    if (request.nextUrl.pathname !== HOME_MCP_PATH) return forbidden('ai_client', 'This connection can only use the Home’s MCP tools.');
+    touchApiKey(key.id, { ip: request.headers.get('x-forwarded-for'), userAgent: request.headers.get('user-agent') });
+    const headers = new Headers(request.headers);
+    for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+    headers.set(API_KEY_ID_HEADER, key.id);
+    headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
+    headers.set(API_KEY_SCOPE_HEADER, 'ai_client');
+    return NextResponse.next({ request: { headers } });
+  }
 
   // An authenticated stale view is refused before route writes or effects.
   // Worker and MCP transports retain their own authenticated negotiation.

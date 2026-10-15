@@ -7,7 +7,7 @@
  * registry, auto-generated. Built for in-repo agents (Claude Code, Codex, etc.)
  * doing direct CRUD work on the user's brain.
  *
- * Bearer auth is enforced globally by `src/middleware.ts`.
+ * Bearer auth is enforced globally by `src/proxy.ts`.
  *
  * URLs:
  *   POST /api/orchestrator/mcp   — Streamable HTTP
@@ -15,6 +15,8 @@
  */
 
 import { createMcpHandler } from 'mcp-handler';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { permitsHomeContentAction } from '@/lib/external-ai/policy';
 import { APP_NAME } from '@/constants/app';
 import { actions } from '@/lib/orchestrator/registry';
 import { runAction } from '@/lib/orchestrator/dispatch';
@@ -34,47 +36,49 @@ Guidelines:
 Today's date: ${new Date().toISOString().slice(0, 10)}.`;
 
 async function handle(request: Request) {
-const staleCall = await handleUndiscoveredResultCall(request);
-if (staleCall) return staleCall;
-const visibleResultNames = new Set<string>(discoverableResultActions().map((action) => action.name));
-const resultNames = new Set<string>(resultActions.map((action) => action.name));
-const handler = createMcpHandler(
-  (server) => {
-    for (const action of actions) {
-      if (resultNames.has(action.name) && !visibleResultNames.has(action.name)) continue;
-      server.registerTool(
-        action.name,
-        {
-          description: action.description,
-          inputSchema: action.params,
-        },
-        async (input: Record<string, unknown>, extra) => {
-          // Which chat and which key called, as the proxy validated them. The
-          // home's own sessions use the home's own key, so their folder paths
-          // are the home's (mcp-caller.ts).
-          const envelope = await runAction(action.name, input, mcpCallContext(extra?.requestInfo?.headers, { allowMissing: ['report_result', 'report_result_review'].includes(action.name) }));
-          return {
-            content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }],
-            isError: !envelope.ok,
-          };
-        },
-      );
-    }
-  },
-  {
-    serverInfo: {
-      name: `${APP_NAME.toLowerCase()}-orchestrator`,
-      version: '0.1.0',
+  const contentOnly = getRequestKey(request.headers)?.scope === 'ai_client';
+  const staleCall = contentOnly ? null : await handleUndiscoveredResultCall(request);
+  if (staleCall) return staleCall;
+  const visibleResultNames = new Set<string>(discoverableResultActions().map((action) => action.name));
+  const resultNames = new Set<string>(resultActions.map((action) => action.name));
+  const handler = createMcpHandler(
+    (server) => {
+      for (const action of actions) {
+        if (contentOnly && !permitsHomeContentAction(action.name)) continue;
+        if (resultNames.has(action.name) && !visibleResultNames.has(action.name)) continue;
+        server.registerTool(
+          action.name,
+          {
+            description: contentOnly && action.name === 'search' ? 'Search this Home’s tasks and notes by meaning or keyword.' : action.description,
+            inputSchema: action.params,
+          },
+          async (input: Record<string, unknown>, extra) => {
+            // Which chat and which key called, as the proxy validated them. The
+            // home's own sessions use the home's own key, so their folder paths
+            // are the home's (mcp-caller.ts).
+            const envelope = await runAction(action.name, input, mcpCallContext(extra?.requestInfo?.headers, { allowMissing: ['report_result', 'report_result_review'].includes(action.name) }));
+            return {
+              content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }],
+              isError: !envelope.ok,
+            };
+          },
+        );
+      }
     },
-    instructions: SERVER_INSTRUCTIONS,
-  },
-  {
-    basePath: '/api/orchestrator',
-    maxDuration: 120,
-    verboseLogs: process.env.NODE_ENV !== 'production',
-  },
-);
-return handler(request);
+    {
+      serverInfo: {
+        name: `${APP_NAME.toLowerCase()}-orchestrator`,
+        version: '0.1.0',
+      },
+      instructions: contentOnly ? 'Ri Home content tools: search, read and update tasks, notes, areas and the priority deck. Read before writing and use the current body revision when editing. These tools act directly on your Home. They do not start Ri chats or run commands. No access to the private capture stream, chats, files or settings.' : SERVER_INSTRUCTIONS,
+    },
+    {
+      basePath: '/api/orchestrator',
+      maxDuration: 120,
+      verboseLogs: process.env.NODE_ENV !== 'production',
+    },
+  );
+  return handler(request);
 }
 
 export const GET = handle;

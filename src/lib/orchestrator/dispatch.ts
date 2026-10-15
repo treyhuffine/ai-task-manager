@@ -13,7 +13,9 @@ import { z } from 'zod';
 import { actions, type ActionName, type ActionOutput } from './registry';
 import type { Action, ActionContext } from './types';
 import { ActionError } from './types';
-import { getChatSession, isNoteKindError } from '@/lib/db/queries';
+import { isPersonalAiClientKey, permitsHomeContentAction } from '@/lib/external-ai/policy';
+import { isTeamAuthority } from '@/lib/home/authority';
+import { getApiKey, getChatSession, isNoteKindError } from '@/lib/db/queries';
 
 export function findAction(name: string): Action | undefined {
   return actions.find((a) => a.name === name);
@@ -43,6 +45,13 @@ async function dispatch(
   rawInput: unknown,
   ctx: ActionContext,
 ): Promise<DispatchEnvelope> {
+  if (ctx.caller?.scope === 'home_content') {
+    const key = ctx.caller.apiKeyId ? getApiKey(ctx.caller.apiKeyId) : null;
+    if (isTeamAuthority() || !key || !isPersonalAiClientKey(key) || key.revokedAt
+      || (key.expiresAt && new Date(key.expiresAt).getTime() <= Date.now()) || !permitsHomeContentAction(name)) {
+      return { ok: false, action: name, error: { code: 'unsupported', message: 'This external connection cannot use that tool.' } };
+    }
+  }
   const action = findAction(name);
   if (!action) {
     return {

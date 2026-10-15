@@ -775,8 +775,10 @@ export interface CalendarBlock {
 // reaches only the worker routes, and a device runs agents while it has an
 // active one. `ai_client`: in a team space, a member's own AI assistant
 // (Codex, Claude Code), issued by Connect your AI (docs/homes-spec.md §9.8).
-// It reaches only the team's MCP and its files, acts as that member's agent,
-// and is never a sign-in. Callers always say which: there is no default.
+// On a personal Home, it has no device or member and reaches only content
+// tools on the orchestrator MCP. In a team it reaches the team's MCP and
+// its files, acting as that member's agent. It is never a sign-in.
+// Callers always say which: there is no default.
 export const API_KEY_ROLES = ['sign_in', 'worker', 'ai_client'] as const;
 
 export const apiKeys = sqliteTable(
@@ -797,9 +799,9 @@ export const apiKeys = sqliteTable(
     revokedAt: text(),
     revokedReason: text(),
     // The device this key belongs to (docs/homes-spec.md §5.1). Every key
-    // has one: pairing makes the device together with its first key. Null
-    // only for the home's own key, between its creation at first start and
-    // the home's identity, which gives it the home's device. Identity only:
+    // used for device sign-in has one: pairing makes it with its first key.
+    // AI clients have no device. Also null for the home's own key between
+    // its creation and the home's identity, which gives it the home's device. Identity only:
     // a key never gains the authority to run work from its device.
     deviceId: text().references((): AnySQLiteColumn => devices.id, { onDelete: 'set null' }),
     role: text({ enum: API_KEY_ROLES }).notNull(),

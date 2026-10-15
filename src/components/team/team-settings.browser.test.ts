@@ -20,11 +20,14 @@ beforeAll(async () => {
       import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
       import {TeamSettings} from './src/components/team/team-settings';
       import {TeamContext} from './src/components/team/team-context';
+      import {ExternalAiSection} from './src/components/settings/sections/external-ai-section';
+      import {useSettingsStore,setSettingsSection} from './src/components/settings/settings-store';
       import {SettingsNav} from './src/components/settings/settings-nav';
       const params = new URLSearchParams(location.search);
-      function Personal() {const [active,onSelect]=useState('get-started');return <SettingsNav active={active} onSelect={onSelect} getStarted={{done:2,total:5}}/>;}
+      function Personal() {const {section}=useSettingsStore();return <div className='mx-auto my-6 flex w-full max-w-[900px] min-w-0 flex-col gap-6 p-4 sm:flex-row'><SettingsNav active={section} onSelect={setSettingsSection} getStarted={{done:2,total:5}}/><main style={{minWidth:0,flex:1}}>{section==='external-ai'&&<ExternalAiSection/>}</main></div>; }
+      if(params.has('personal'))setSettingsSection(params.has('external')?'external-ai':'get-started');
       const identity={team:{id:'team',name:'Team Huffine',members:2,hostedOn:'Mac Mini'},member:{id:'owner',name:'Trey',role:params.get('role')==='member'?'member':'owner'}};
-      createRoot(document.getElementById('root')).render(params.has('personal')?<Personal/>:<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})}><TeamContext.Provider value={identity}><TeamSettings/></TeamContext.Provider></QueryClientProvider>);
+      createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})}>{params.has('personal')?<Personal/>:<TeamContext.Provider value={identity}><TeamSettings/></TeamContext.Provider>}</QueryClientProvider>);
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     define: { 'process.env': '{"NODE_ENV":"development"}' },
@@ -46,7 +49,7 @@ beforeAll(async () => {
         space: `export const useSpace=()=>null;`,
         confirm: `export const useConfirm=()=>async()=>true;`,
         api: `
-          window.connectionCalls=[];let clients=[];
+          window.connectionCalls=[];let clients=[];const local=new URLSearchParams(location.search).has('local');
           let status={enabled:false,state:'off',authMode:'subscription',hasApiKey:false};
           const query=(name,fn=()=>[])=>({queryKey:()=>[name],queryOptions:()=>({queryKey:[name],queryFn:async()=>fn()})});
           export const trpc={team:{
@@ -54,12 +57,14 @@ beforeAll(async () => {
             address:{get:query('address',()=>({address:'https://team.example.test',tunnelName:'team-huffine',suggestedName:'team-huffine',autoTunnel:false,nameLocked:false}))},
             aiClients:{list:query('clients',()=>clients)},ai:{status:query('status',()=>status),chats:{list:query('chats')}}
           }};
+          trpc.externalAi={list:query('personalClients',()=>clients),address:query('personalAddress',()=>({mcpUrl:(local?'http://localhost:4224':'https://home.example.test')+'/api/orchestrator/mcp',reachable:!local}))};
           const unreachable={mutate:async()=>({reachable:false})};
           export const trpcClient={team:{
             invitations:{createRemote:unreachable},signIns:{createRemote:unreachable},
             aiClients:{create:{mutate:async input=>{window.connectionCalls.push(input);const client={keyId:String(clients.length),name:input.name,createdAt:'2026-10-14',lastUsedAt:null};clients=[...clients,client];return {client,token:'fictional-test-token',mcpUrl:'https://team.example.test/api/team/mcp',reachable:true};}},revoke:{mutate:async()=>{clients=[];}}},
             ai:{configure:{mutate:async input=>{status={...status,...input};}},setEnabled:{mutate:async({enabled})=>{status={...status,enabled,state:enabled?'ready':'off'};}},refreshAuth:{mutate:async()=>({})},forgetKey:{mutate:async()=>({})}}
           }};
+          trpcClient.externalAi={create:{mutate:async input=>{window.connectionCalls.push(input);const client={keyId:String(clients.length),name:input.name,createdAt:'2026-10-14',lastUsedAt:null};clients=[...clients,client];return {client,token:'fictional-personal-token',mcpUrl:(local?'http://localhost:4224':'https://home.example.test')+'/api/orchestrator/mcp',reachable:!local};}},revoke:{mutate:async()=>{clients=[];}}};
         `,
       }[path]! }));
     } }],
@@ -76,7 +81,7 @@ beforeAll(async () => {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   address = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   browser = await chromium.launch({ headless: true, executablePath: process.env.RI_REVIEW_CHROMIUM });
-  browser.on('page', page => page.setDefaultTimeout(5_000));
+  browser.on('context', context => context.on('page', page => page.setDefaultTimeout(5_000)));
 }, 90_000);
 
 afterAll(async () => {
@@ -174,3 +179,44 @@ it.skipIf(!enabled)('preserves the personal settings checklist and search', asyn
     expect(await nav.getByRole('button', { name: 'Models', exact: true }).getAttribute('aria-current')).toBe('page');
   } finally { await page.close(); }
 }, 20_000);
+
+it.skipIf(!enabled)('connects and disconnects personal assistants without exposing the token again', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(`${address}/?personal=1&external=1`);
+    await page.getByText('Uses your Home’s remote address.', { exact: false }).waitFor();
+    await page.getByRole('button', { name: 'Connect an external assistant', exact: true }).click();
+    await page.getByText('Codex', { exact: true }).click();
+    await page.getByRole('button', { name: 'Get connection instructions', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('heading', { name: 'Set up Codex', exact: true }).waitFor();
+    expect(await dialog.textContent()).toContain('https://home.example.test/api/orchestrator/mcp');
+    expect(await dialog.textContent()).toContain('RI_HOME_TOKEN');
+    expect(await dialog.textContent()).not.toContain('the team');
+    await screenshot(page, 'personal-external-ai-desktop.png');
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.getByText('Not used yet', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Connect an external assistant', exact: true }).click();
+    expect(await page.getByRole('dialog').textContent()).not.toContain('fictional-personal-token');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
+    await page.getByRole('button', { name: 'Disconnect', exact: true }).waitFor({ state: 'hidden' });
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('explains local-only personal access on a phone and links to Devices', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  try {
+    await page.goto(`${address}/?personal=1&external=1&local=1`);
+    await page.getByRole('button', { name: 'Connect an external assistant', exact: true }).click();
+    await page.getByRole('button', { name: 'Get connection instructions', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByText('This is a local address.', { exact: false }).waitFor();
+    expect(await dialog.textContent()).toContain('http://localhost:4224/api/orchestrator/mcp');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await screenshot(page, 'personal-external-ai-phone.png');
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.getByRole('button', { name: 'Remote access in Devices', exact: true }).click();
+    expect(await page.getByRole('navigation', { name: 'Settings', exact: true }).getByRole('button', { name: 'Devices', exact: true }).getAttribute('aria-current')).toBe('page');
+  } finally { await page.close(); }
+}, 30_000);

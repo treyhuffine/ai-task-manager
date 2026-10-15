@@ -24,13 +24,15 @@ function headerOf(headers: McpHeaders, name: string): string | undefined {
 export function mcpCallContext(headers: McpHeaders, options: { allowMissing?: boolean } = {}): ActionContext {
   const sessionChat =
     headerOf(headers, API_KEY_SCOPE_HEADER) === 'session' ? headerOf(headers, SESSION_CHAT_HEADER) : undefined;
-  const actor = sessionChat ? actorOfChat(sessionChat, options) : actorFromSessionCredential(sessionCredentialFromHeaders(headers), options);
+  const contentOnly = headerOf(headers, API_KEY_SCOPE_HEADER) === 'ai_client';
+  const actor = contentOnly ? { source: 'ai' as const } : sessionChat ? actorOfChat(sessionChat, options) : actorFromSessionCredential(sessionCredentialFromHeaders(headers), options);
   return {
     remote: true,
     actor,
     caller: {
       location: headerOf(headers, CALLER_LOCATION_HEADER) === 'home' ? 'home' : 'elsewhere',
       apiKeyId: headerOf(headers, API_KEY_ID_HEADER) ?? null,
+      ...(contentOnly ? { scope: 'home_content' as const } : {}),
     },
   };
 }

@@ -731,22 +731,25 @@ const update_note_action = defineAction({
   description:
     'Update a note by id. All fields optional. Unspecified fields keep their value. ' +
     'kind marks it a decision or a regular note, without changing anything else. ' +
+    'Pass expected_body_revision from get_note when editing its body so a stale edit is refused. ' +
     'Set status=archived instead of deleting. There is no delete action by design.',
   params: {
     id: z.string().min(1),
+    expected_body_revision: z.number().int().nonnegative().optional(),
     ...Object.fromEntries(
       Object.entries(noteCreateShape).map(([k, v]) => [k, (v as z.ZodTypeAny).optional()]),
     ),
-  } as typeof noteCreateShape & { id: z.ZodString },
+  } as typeof noteCreateShape & { id: z.ZodString; expected_body_revision: z.ZodOptional<z.ZodNumber> },
   mutating: true,
   cli: { positional: ['id'] },
   handler: (_ctx, input) => {
-    const { id, ...rest } = input as { id: string } & Partial<z.infer<z.ZodObject<typeof noteCreateShape>>>;
+    const { id, expected_body_revision, ...rest } = input as { id: string; expected_body_revision?: number } & Partial<z.infer<z.ZodObject<typeof noteCreateShape>>>;
     // Agent-surface edits are attributed to the agent (see update_task).
     let row: ReturnType<typeof updateNote>;
     try {
-      row = updateNote(id, rest, { source: 'ai' });
+      row = updateNote(id, rest, { source: 'ai' }, { expectedBodyRevision: expected_body_revision });
     } catch (err) {
+      if (isBodyRevisionConflict(err)) throw new ActionError('conflict', 'The text changed since it was read.', 'Read it again with get_note and pass its bodyRevision as expected_body_revision.', { current: err.current });
       // A saved team note's content is edited at its team (sourceTeamId set).
       throwSharedAsActionError(err);
     }
@@ -1440,11 +1443,11 @@ const search_action = defineAction({
     kind: noteKind.optional().describe('Only notes of this kind, e.g. "decision" to search recorded decisions.'),
   },
   cli: { positional: ['query'] },
-  handler: async (_ctx, { query, limit, kind }) => {
+  handler: async (ctx, { query, limit, kind }) => {
     // Lazy: embedding generation pulls in the AI SDKs (vector half of the
     // hybrid). FTS-only fallback still applies when no OPENAI_API_KEY.
     const { hybridSearchWithEntities } = await import('@/lib/embeddings/search');
-    return hybridSearchWithEntities(query, { limit, noteKind: kind });
+    return hybridSearchWithEntities(query, { limit, noteKind: kind, includeStream: ctx.caller?.scope !== 'home_content' });
   },
 });
 

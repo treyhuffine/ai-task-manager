@@ -19,14 +19,14 @@ describe('aiClientSetup', () => {
     const setup = aiClientSetup('claude_code', input);
     expect(setup.steps.map((s) => s.text)).toEqual([
       "export RI_ACME_LABS_TOKEN='ri_live_abc123'",
-      "claude mcp add --transport http --scope user ri-acme-labs https://acme.example/api/team/mcp --header 'Authorization: Bearer ${RI_ACME_LABS_TOKEN}'",
+      "claude mcp add --transport http --scope user ri-acme-labs 'https://acme.example/api/team/mcp' --header 'Authorization: Bearer ${RI_ACME_LABS_TOKEN}'",
     ]);
     expect(setup.steps[1].text).not.toContain('ri_live_abc123');
   });
 
   it('points Codex at the variable', () => {
     const setup = aiClientSetup('codex', input);
-    expect(setup.steps[1].text).toBe('codex mcp add ri-acme-labs --url https://acme.example/api/team/mcp --bearer-token-env-var RI_ACME_LABS_TOKEN');
+    expect(setup.steps[1].text).toBe("codex mcp add ri-acme-labs --url 'https://acme.example/api/team/mcp' --bearer-token-env-var RI_ACME_LABS_TOKEN");
     expect(setup.steps[1].text).not.toContain('ri_live_abc123');
   });
 
@@ -38,4 +38,12 @@ describe('aiClientSetup', () => {
   it('quotes a key safely for the shell', () => {
     expect(aiClientSetup('codex', { ...input, token: "a'b" }).steps[0].text).toBe("export RI_ACME_LABS_TOKEN='a'\\''b'");
   });
+});
+
+it('gives a personal Home its own instructions and names', () => {
+  const setup = aiClientSetup('codex', { homeName: 'Home', mcpUrl: 'https://home.example/api/orchestrator/mcp', token: 'fictional' });
+  expect(setup.steps[0].text).toBe("export RI_HOME_TOKEN='fictional'");
+  expect(setup.steps[1].text).toBe("codex mcp add ri-home --url 'https://home.example/api/orchestrator/mcp' --bearer-token-env-var RI_HOME_TOKEN");
+  expect(setup.steps[1].label).toContain('your Home');
+  expect(setup.steps[1].text).not.toContain('fictional');
 });

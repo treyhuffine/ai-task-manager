@@ -12,6 +12,8 @@ export { toFtsMatchQuery, normalizeFtsRank };
  */
 export interface SearchKindFilter {
   noteKind?: NoteKind;
+  /** Outside content clients search tasks and notes, never the private capture stream. */
+  includeStream?: boolean;
 }
 
 function noteKindSql(kind: NoteKind, alias = 'n'): string {
@@ -28,7 +30,7 @@ export interface SearchHit {
  * Vector similarity search using sqlite-vec.
  * Returns results sorted by cosine similarity descending.
  */
-export async function vectorSearch(query: string, limit = 20, { noteKind }: SearchKindFilter = {}): Promise<SearchHit[]> {
+export async function vectorSearch(query: string, limit = 20, { noteKind, includeStream = true }: SearchKindFilter = {}): Promise<SearchHit[]> {
   const db = getRawDb();
   const queryVector = await generateEmbedding(query);
   const queryEmbedding = new Float32Array(queryVector);
@@ -71,7 +73,7 @@ export async function vectorSearch(query: string, limit = 20, { noteKind }: Sear
     distance: number;
   }>;
 
-  return rows.map((r) => ({
+  return rows.filter((r) => includeStream || r.entityType !== 'stream').map((r) => ({
     entityType: r.entityType,
     entityId: r.entityId,
     score: 1 - r.distance, // cosine similarity = 1 - cosine distance
@@ -82,7 +84,7 @@ export async function vectorSearch(query: string, limit = 20, { noteKind }: Sear
  * BM25 keyword search across all FTS tables.
  * Normalizes scores to 0-1 range.
  */
-export function ftsSearch(query: string, limit = 20, { noteKind }: SearchKindFilter = {}): SearchHit[] {
+export function ftsSearch(query: string, limit = 20, { noteKind, includeStream = true }: SearchKindFilter = {}): SearchHit[] {
   const db = getRawDb();
   // Escape FTS5 special chars and add prefix matching
   const searchTerm = toFtsMatchQuery(query);
@@ -138,7 +140,7 @@ export function ftsSearch(query: string, limit = 20, { noteKind }: SearchKindFil
   }
 
   // Stream FTS
-  if (!noteKind) try {
+  if (!noteKind && includeStream) try {
     const streamRows = db
       .prepare(
         `SELECT s.id, rank
@@ -171,24 +173,24 @@ export function ftsSearch(query: string, limit = 20, { noteKind }: SearchKindFil
  */
 export async function hybridSearch(
   query: string,
-  { limit = 20, vectorWeight = 0.7, noteKind }: { limit?: number; vectorWeight?: number } & SearchKindFilter = {},
+  { limit = 20, vectorWeight = 0.7, noteKind, includeStream }: { limit?: number; vectorWeight?: number } & SearchKindFilter = {},
 ): Promise<SearchHit[]> {
   // A team space searches by keyword only: it runs no AI (docs/homes-spec.md §9.2).
-  if (isTeamAuthority()) return ftsSearch(query, limit, { noteKind });
+  if (isTeamAuthority()) return ftsSearch(query, limit, { noteKind, includeStream });
   const bm25Weight = 1 - vectorWeight;
 
   // Run both searches in parallel. The vector half needs OPENAI_API_KEY to
   // embed the query — degrade to FTS-only instead of failing the whole
   // search when it's unavailable (matches upsertEmbedding's silent skip).
   const [vecResults, ftsResults] = await Promise.all([
-    vectorSearch(query, limit * 2, { noteKind }).catch((err) => {
+    vectorSearch(query, limit * 2, { noteKind, includeStream }).catch((err) => {
       if (process.env.OPENAI_API_KEY) {
         // A real failure, not the expected keyless path — keep it visible.
         console.warn('[search] vector search failed, falling back to FTS:', err);
       }
       return [] as SearchHit[];
     }),
-    Promise.resolve(ftsSearch(query, limit * 2, { noteKind })),
+    Promise.resolve(ftsSearch(query, limit * 2, { noteKind, includeStream })),
   ]);
 
   // Merge scores by (entityType, entityId)
@@ -250,9 +252,9 @@ function truncate(value: unknown): unknown {
  */
 export async function hybridSearchWithEntities(
   query: string,
-  { limit = 10, vectorWeight, noteKind }: { limit?: number; vectorWeight?: number } & SearchKindFilter = {},
+  { limit = 10, vectorWeight, noteKind, includeStream }: { limit?: number; vectorWeight?: number } & SearchKindFilter = {},
 ): Promise<SearchHitWithEntity[]> {
-  const hits = await hybridSearch(query, { limit, noteKind, ...(vectorWeight !== undefined ? { vectorWeight } : {}) });
+  const hits = await hybridSearch(query, { limit, noteKind, includeStream, ...(vectorWeight !== undefined ? { vectorWeight } : {}) });
   const db = getRawDb();
 
   return hits

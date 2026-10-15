@@ -47,7 +47,8 @@ export type CallerLocation = 'home' | 'elsewhere';
  * member, an `ai_client` key is that member's own AI assistant reaching only
  * the team's MCP, a `team_ai` credential is one turn of the team's own AI
  * acting for the member who asked, and the `host` key (the host's own)
- * administers the installation and is never a member.
+ * administers the installation and is never a member. On a personal Home,
+ * `ai_client` has no member and reaches only the content-scoped MCP.
  */
 export type KeyScope = 'viewer' | 'worker' | 'session' | 'member' | 'ai_client' | 'team_ai' | 'host';
 export type MemberRoleScope = 'owner' | 'member';
