@@ -266,6 +266,7 @@ export class LocalAppsService {
         return {
         ...item,
         displayName: metadata?.displayName ?? item.slug,
+        description: metadata?.description,
         hasView: metadata?.hasView ?? false,
         hasActions: metadata?.hasActions ?? false,
         runtime: this.engine.condition(item.id),

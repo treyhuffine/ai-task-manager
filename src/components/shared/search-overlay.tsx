@@ -125,7 +125,7 @@ export function SearchOverlay() {
   const { enabled: localAppsEnabled, data: localApps } = useLocalApps({ live: false });
   const appCommands: PaletteCommand[] = localAppsEnabled
     ? (localApps?.instances ?? [])
-        .filter((app) => app.enabled && !app.archived)
+        .filter((app) => app.enabled && !app.archived && app.hasView)
         .map((app) => ({
           id: `open-app:${app.slug}`,
           label: `Open ${app.displayName}`,
@@ -341,7 +341,6 @@ export function SearchOverlay() {
             <Command.Group heading="Actions" className={GROUP_CLASS}>
               {[...PALETTE_COMMANDS, ...appCommands]
                 .filter((cmd) => cmd.capability !== 'handoffs' || capabilities.data?.handoffsEnabled)
-                .filter((cmd) => cmd.id !== 'open-apps' || localAppsEnabled)
                 .filter((cmd) =>
                   !searchQuery ||
                   `${cmd.label} ${cmd.keywords}`.toLowerCase().includes(searchQuery.toLowerCase()),

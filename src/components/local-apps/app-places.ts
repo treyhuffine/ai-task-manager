@@ -17,6 +17,7 @@ interface ListedInstance {
   displayName: string;
   enabled: boolean;
   archived: boolean;
+  hasView: boolean;
 }
 
 /**
@@ -30,7 +31,7 @@ export function appPlaces(
 ): AppPlace[] {
   const waiting = new Set(approvals.map((approval) => approval.instanceId));
   return instances
-    .filter((item) => item.enabled && !item.archived)
+    .filter((item) => item.enabled && !item.archived && item.hasView)
     .map((item) => ({
       id: item.id,
       slug: item.slug,

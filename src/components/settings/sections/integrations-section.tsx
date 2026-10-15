@@ -84,7 +84,11 @@ function connectedSubtitle(p: ProviderStatus, conns: Connection[]): string {
   return who ?? integrationMeta(p.id).description;
 }
 
-export function IntegrationsSection({ active = true }: { active?: boolean }) {
+export function IntegrationsSection({ active = true, navigation }: {
+  active?: boolean;
+  /** Apps can reuse account setup without opening or changing Settings. */
+  navigation?: { providerId: string; returnTo?: string; onBack: () => void };
+}) {
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [toolkits, setToolkits] = useState<ToolkitInfo[]>([]);
@@ -98,7 +102,7 @@ export function IntegrationsSection({ active = true }: { active?: boolean }) {
   const [pendingRegisteredOAuth, setPendingRegisteredOAuth] = useState<{ id: string; displayName: string; serverId?: string; authorizationId?: string } | null>(null);
   const [query, setQuery] = useState('');
 
-  const [view, setView] = useState<View>(CATALOG);
+  const [view, setView] = useState<View>(() => navigation ? { kind: 'provider', id: navigation.providerId } : CATALOG);
   const [advancedOpen, setAdvancedOpen] = useState(false); // detail view's "Use your own OAuth app"
   const rootRef = useRef<HTMLDivElement>(null);
   const catalogScroll = useRef(0);
@@ -217,14 +221,14 @@ export function IntegrationsSection({ active = true }: { active?: boolean }) {
     (next: View) => {
       if (view.kind === 'catalog') catalogScroll.current = scrollParent(rootRef.current)?.scrollTop ?? 0;
       setView(next);
-      setSettingsAnchor(next.kind === 'provider' ? `integrations:${next.id}` : 'integrations');
+      if (!navigation) setSettingsAnchor(next.kind === 'provider' ? `integrations:${next.id}` : 'integrations');
       setAdvancedOpen(false);
       setError(null);
       setBanner(null);
     },
-    [view.kind],
+    [view.kind, navigation],
   );
-  const back = useCallback(() => navigate(CATALOG), [navigate]);
+  const back = useCallback(() => navigation ? navigation.onBack() : navigate(CATALOG), [navigate, navigation]);
 
   // A detail opens at its top; the catalog comes back where it was left.
   useLayoutEffect(() => {
@@ -347,9 +351,10 @@ export function IntegrationsSection({ active = true }: { active?: boolean }) {
   // provider's page (the main chat's first run links each app here). Once per
   // anchor, after the catalog has loaded, so Back still reaches the catalog.
   const { anchor, requestId } = useSettingsStore();
+  const appProviderId = navigation?.providerId;
   const openedRequest = useRef<number | null>(null);
   useEffect(() => {
-    if (!active || isLoading || openedRequest.current === requestId) return;
+    if (navigation || !active || isLoading || openedRequest.current === requestId) return;
     openedRequest.current = requestId;
     if (anchor === PLUGIN_CREATE_ANCHORS.connectService) {
       catalogScroll.current = 0;
@@ -364,7 +369,16 @@ export function IntegrationsSection({ active = true }: { active?: boolean }) {
     const provider = providers.find((p) => p.id === anchor.slice('integrations:'.length));
     if (provider) openProvider(provider);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the anchor and the catalog, not on every handler identity
-  }, [active, anchor, requestId, isLoading, providers]);
+  }, [active, anchor, requestId, isLoading, providers, navigation]);
+
+  useEffect(() => {
+    if (!appProviderId) return;
+    setView({ kind: 'provider', id: appProviderId });
+    const provider = providers.find(item => item.id === appProviderId);
+    if (provider && (provider.method === 'oauth2' || isRegisteredMcp(provider)) && !provider.orphan) {
+      void loadByo(provider.id).catch(error => setError(errMsg(error)));
+    }
+  }, [appProviderId, providers, loadByo]);
 
   const connectOAuth = useCallback(
     async (p: ProviderStatus, authConfigId?: string, intent?: HostedConnectIntent) => {
@@ -373,6 +387,7 @@ export function IntegrationsSection({ active = true }: { active?: boolean }) {
       try {
         const result = await trpcClient.integrations.connectPost.mutate({body: {
           providerId: p.id,
+          ...(navigation?.returnTo ? { returnTo: navigation.returnTo } : {}),
           ...(p.method === 'mcp' ? hostedAccountRequestFields(p, intent, authConfigId, endpointSelections[p.id], connections) : {
             label: p.displayName,
             scopes: connectScopes(p),
@@ -408,7 +423,7 @@ export function IntegrationsSection({ active = true }: { active?: boolean }) {
         setBusy(false);
       }
     },
-    [connectScopes, loadByo, authorize, refresh, endpointSelections, connections],
+    [connectScopes, loadByo, authorize, refresh, endpointSelections, connections, navigation],
   );
 
   const connectDirect = (p: ProviderStatus, intent?: HostedConnectIntent) =>
@@ -471,10 +486,10 @@ export function IntegrationsSection({ active = true }: { active?: boolean }) {
   const catalogProviders = useMemo(() => {
     const known = new Set(providers.map((p) => p.id));
     const orphans: ProviderStatus[] = [...connectionsByProvider.keys()]
-      .filter((id) => !known.has(id) && id !== 'jira' && id !== 'confluence')
+      .filter((id) => !known.has(id) && (appProviderId === id || (id !== 'jira' && id !== 'confluence')))
       .map((id) => ({ id, displayName: id, method: 'custom', configured: false, credentialFields: [], orphan: true }));
     return [...providers, ...orphans];
-  }, [providers, connectionsByProvider]);
+  }, [providers, connectionsByProvider, appProviderId]);
 
   const q = query.trim().toLowerCase();
   const catalog = useMemo(() => {
@@ -505,12 +520,14 @@ export function IntegrationsSection({ active = true }: { active?: boolean }) {
 
   const selectedProvider = view.kind === 'provider' ? catalogProviders.find((p) => p.id === view.id) : undefined;
   // The selected provider vanished: fall back to the catalog rather than render an empty detail.
-  const stale = view.kind === 'provider' && !selectedProvider;
-  if (stale) setView(CATALOG);
+  const stale = !isLoading && view.kind === 'provider' && !selectedProvider;
+  if (stale && !navigation) setView(CATALOG);
 
   if (isLoading) {
     return <SettingsSkeleton rows={5} />;
   }
+
+  if (stale && navigation) return <div role="alert" className="space-y-3 text-sm"><p>{error ?? 'This service is no longer available.'}</p><Button variant="outline" onClick={back}>Back to library</Button></div>;
 
   const onCatalog = view.kind === 'catalog' || stale;
 

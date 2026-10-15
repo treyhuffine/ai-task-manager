@@ -1,5 +1,6 @@
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { beginMcpAuthorization } from '@/lib/integrations/mcp-authorization';
+import { safeReturnPath } from '@/lib/integrations/oauth-return';
 import { removeMcpServer, updateMcpServerConfiguration } from '@/lib/integrations/mcp-lifecycle';
 import type { McpServerAuth } from '@/lib/integrations/mcp-servers';
 import { MCP_APPROVAL_POLICIES, type McpApprovalPolicy, type McpToolApprovalPatch } from '@/lib/integrations/mcp-approval-policy';
@@ -93,7 +94,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     return reply({ error: 'not an OAuth server' }, { status: 400 });
   }
   try {
-    return reply(await beginMcpAuthorization(entry, request));
+    return reply(await beginMcpAuthorization(entry, request, safeReturnPath(rpcInput.body.returnTo) ?? undefined));
   } catch (e) {
     return reply({ error: e instanceof Error ? e.message : 'Could not start authorization.' }, { status: 400 });
   }
@@ -113,5 +114,5 @@ export async function DELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, _request:
 }
 
 export const PATCHInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "displayName": rpcZ.string().optional(), "url": rpcZ.string().optional(), "enabled": rpcZ.boolean().optional(), "auth": rpcZ.union([rpcZ.object({ "kind": rpcZ.literal("none") }).strict(), rpcZ.object({ "kind": rpcZ.literal("bearer") }).strict(), rpcZ.object({ "kind": rpcZ.literal("header"), "header": rpcZ.string() }).strict(), rpcZ.object({ "kind": rpcZ.literal("oauth") }).strict()]).optional(), "toolOverrides": rpcZ.record(rpcZ.string(), rpcZ.object({ "enabled": rpcZ.boolean().optional(), "mutating": rpcZ.boolean().optional(), approvalMode: rpcZ.enum(['auto', 'ask']).nullable().optional() }).strict()).optional(), approvalPolicy: rpcZ.enum(MCP_APPROVAL_POLICIES).nullable().optional(), resetToolApprovals: rpcZ.boolean().optional(), "secret": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "reviewedRevision": rpcZ.string().optional() }).strict().default({}) }).strict();
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({}).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ returnTo: rpcZ.string().optional() }).strict().default({}) }).strict();
 export const DELETEInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({}).strict().default({}) }).strict();

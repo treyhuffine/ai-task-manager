@@ -1,5 +1,6 @@
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { beginMcpAuthorization } from '@/lib/integrations/mcp-authorization';
+import { safeReturnPath } from '@/lib/integrations/oauth-return';
 import { mcpToolInfo, toSlug, type McpServerAuth, type McpToolInfo } from '@/lib/integrations/mcp-servers';
 import { MCP_APPROVAL_POLICIES } from '@/lib/integrations/mcp-approval-policy';
 import { MCP_LIMITS, validateHeaderName, validateMcpUrl } from '@/lib/integrations/mcp-validate';
@@ -39,6 +40,7 @@ interface AddBody {
   auth?: McpServerAuth;
   secret?: string;
   enabled?: boolean;
+  returnTo?: string;
 }
 
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
@@ -79,7 +81,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
   if (auth.kind === 'oauth') {
     const entry = await store.create({ slug, displayName: name, url: urlCheck.url, auth, enabled: body.enabled ?? true });
     try {
-      const result = await beginMcpAuthorization(entry, request);
+      const result = await beginMcpAuthorization(entry, request, safeReturnPath(body.returnTo) ?? undefined);
       return reply({ entry, ...result }, { status: 201 });
     } catch (e) {
       await store.remove(entry.id);
@@ -123,4 +125,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
 
 export const GETInput = rpcZ.object({}).strict().default({});
 export const PATCHInput = rpcZ.object({ body: rpcZ.object({ defaultPolicy: rpcZ.enum(MCP_APPROVAL_POLICIES).nullable(), applyToAll: rpcZ.boolean().optional() }).strict() }).strict();
-export const POSTInput = rpcZ.object({ body: rpcZ.object({ "name": rpcZ.string().optional(), "url": rpcZ.string().optional(), "auth": rpcZ.union([rpcZ.object({ "kind": rpcZ.literal("none") }).strict(), rpcZ.object({ "kind": rpcZ.literal("bearer") }).strict(), rpcZ.object({ "kind": rpcZ.literal("header"), "header": rpcZ.string() }).strict(), rpcZ.object({ "kind": rpcZ.literal("oauth") }).strict()]).optional(), "secret": rpcZ.string().optional(), "enabled": rpcZ.boolean().optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ body: rpcZ.object({ "name": rpcZ.string().optional(), "url": rpcZ.string().optional(), "auth": rpcZ.union([rpcZ.object({ "kind": rpcZ.literal("none") }).strict(), rpcZ.object({ "kind": rpcZ.literal("bearer") }).strict(), rpcZ.object({ "kind": rpcZ.literal("header"), "header": rpcZ.string() }).strict(), rpcZ.object({ "kind": rpcZ.literal("oauth") }).strict()]).optional(), "secret": rpcZ.string().optional(), "enabled": rpcZ.boolean().optional(), returnTo: rpcZ.string().optional() }).strict().default({}) }).strict();

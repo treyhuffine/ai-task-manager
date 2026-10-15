@@ -66,11 +66,11 @@ export function AppPage({
   navigate: (route: string) => void;
 }) {
   const id = instance.id;
-  const { riAccessChat, ...viewQuery } = query;
+  const { riAccessChat, riChat, ...viewQuery } = query;
   const [accessOpen, setAccessOpen] = useState(!!riAccessChat);
   const { busy, run } = useAppAction();
-  const [ask, setAsk] = useState(false);
-  const [pane, setPane] = useState<Pane>('app');
+  const [ask, setAsk] = useState(riChat === '1');
+  const [pane, setPane] = useState<Pane>(riChat === '1' ? 'chat' : 'app');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showOutput, setShowOutput] = useState(false);
   const [measureRef, width] = useElementWidth<HTMLDivElement>();

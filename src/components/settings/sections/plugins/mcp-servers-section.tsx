@@ -20,9 +20,15 @@ import { PLUGIN_CREATE_ANCHORS } from './navigation';
 type View = { kind: 'catalog' } | { kind: 'new' } | { kind: 'server'; id: string };
 
 /** Custom servers have their own management view and an immediately available add form. */
-export function McpServersSection({ active }: { active: boolean }) {
+export function McpServersSection({ active, navigation }: {
+  active: boolean;
+  /** Reuse the same setup/actions in Apps, leaving Settings navigation alone. */
+  navigation?: { serverId: string | null; returnTo?: string; onSelect: (id: string) => void; onBack: () => void };
+}) {
   const { anchor, requestId } = useSettingsStore();
-  const [view, setView] = useState<View>(() => anchor === PLUGIN_CREATE_ANCHORS.mcpServer ? { kind: 'new' } : { kind: 'catalog' });
+  const [view, setView] = useState<View>(() => navigation
+    ? navigation.serverId ? { kind: 'server', id: navigation.serverId } : { kind: 'new' }
+    : anchor === PLUGIN_CREATE_ANCHORS.mcpServer ? { kind: 'new' } : { kind: 'catalog' });
   const [servers, setServers] = useState<McpServerEntry[]>([]);
   const [settings, setSettings] = useState<{ defaultPolicy: McpApprovalPolicy; override: McpApprovalPolicy | null }>({ defaultPolicy: DEFAULT_MCP_APPROVAL_POLICY, override: null });
   const [form, setForm] = useState<McpForm>(EMPTY_MCP_FORM);
@@ -49,17 +55,25 @@ export function McpServersSection({ active }: { active: boolean }) {
   const navigate = useCallback((next: View) => {
     if (view.kind === 'catalog') catalogScroll.current = rootRef.current?.closest('[data-settings-scroll]')?.scrollTop ?? 0;
     setView(next); setError(null); setBanner(null);
-    setSettingsAnchor(next.kind === 'new' ? PLUGIN_CREATE_ANCHORS.mcpServer : next.kind === 'server' ? `mcp:${next.id}` : 'mcp');
-  }, [view.kind]);
+    if (navigation) {
+      if (next.kind === 'server') navigation.onSelect(next.id);
+      else if (next.kind === 'catalog') navigation.onBack();
+    } else setSettingsAnchor(next.kind === 'new' ? PLUGIN_CREATE_ANCHORS.mcpServer : next.kind === 'server' ? `mcp:${next.id}` : 'mcp');
+  }, [view.kind, navigation]);
   const back = useCallback(() => navigate({ kind: 'catalog' }), [navigate]);
 
   useEffect(() => {
-    if (!active || openedRequest.current === requestId) return;
+    if (navigation || !active || openedRequest.current === requestId) return;
     openedRequest.current = requestId;
     if (anchor === PLUGIN_CREATE_ANCHORS.mcpServer) navigate({ kind: 'new' });
     else if (anchor?.startsWith('mcp:')) navigate({ kind: 'server', id: anchor.slice(4) });
     else if (anchor === 'mcp') back();
-  }, [active, anchor, requestId, navigate, back]);
+  }, [active, anchor, requestId, navigate, back, navigation]);
+
+  const appServerId = navigation?.serverId;
+  useEffect(() => {
+    if (appServerId !== undefined) setView(appServerId ? { kind: 'server', id: appServerId } : { kind: 'new' });
+  }, [appServerId]);
 
   // Web sign-in returns into this tab. Read its result after opening the detail
   // so navigation does not clear the feedback, then remove the one-time query.
@@ -118,6 +132,7 @@ export function McpServersSection({ active }: { active: boolean }) {
   const add = () => run(async () => {
     const auth = form.authKind === 'header' ? { kind: 'header' as const, header: form.header.trim() } : { kind: form.authKind };
     const result = await trpcClient.integrations.mcpServersPost.mutate({ body: { name: form.name.trim(), url: form.url.trim(), auth,
+      ...(navigation?.returnTo ? { returnTo: navigation.returnTo } : {}),
       ...(['bearer', 'header'].includes(form.authKind) ? { secret: form.secret } : {}) } });
     setServers(list => [...list.filter(server => server.id !== result.entry.id), result.entry]);
     navigate({ kind: 'server', id: result.entry.id });
@@ -165,7 +180,7 @@ export function McpServersSection({ active }: { active: boolean }) {
       : loading ? <SettingsSkeleton rows={3} />
       : server ? <McpServerDetail server={server} busy={busy} defaultPolicy={settings.defaultPolicy} onBack={back}
         onSetPolicy={policy => setServerPolicy(server, policy)} onToolOverride={(name, patch) => setToolOverride(server, name, patch)}
-        onAuthorize={() => run(async () => { const result = await trpcClient.integrations.mcpServerPost.mutate({ params: { id: server.id }, body: {} }); if ('authUrl' in result && result.authUrl) { setAwaitingServer(server.id); await authorize(result.authUrl, 'desktopFlowId' in result ? result.desktopFlowId : undefined); } })}
+        onAuthorize={() => run(async () => { const result = await trpcClient.integrations.mcpServerPost.mutate({ params: { id: server.id }, body: { ...(navigation?.returnTo ? { returnTo: navigation.returnTo } : {}) } }); if ('authUrl' in result && result.authUrl) { setAwaitingServer(server.id); await authorize(result.authUrl, 'desktopFlowId' in result ? result.desktopFlowId : undefined); } })}
         onRetest={() => run(async () => { await trpcClient.integrations.mcpServersPatch.mutate({ params: { id: server.id }, body: {} }); await trpcClient.integrations.connectionsGet.query({}); })}
         onToggleEnabled={() => run(async () => { await trpcClient.integrations.mcpServersPatch.mutate({ params: { id: server.id }, body: { enabled: !server.enabled } }); })}
         onRemove={() => run(async () => { await trpcClient.integrations.mcpServersDelete.mutate({ params: { id: server.id } }); if (awaitingServer === server.id) { setAwaitingServer(null); setPendingOAuth(null); } navigate({ kind: 'catalog' }); setBanner(`Removed ${server.displayName}`); })}

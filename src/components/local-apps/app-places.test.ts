@@ -7,6 +7,7 @@ const app = (over: Partial<Parameters<typeof appPlaces>[0][number]>) => ({
   displayName: over.displayName ?? 'X',
   enabled: over.enabled ?? true,
   archived: over.archived ?? false,
+  hasView: over.hasView ?? true,
 });
 
 describe('appPlaces', () => {
@@ -17,6 +18,7 @@ describe('appPlaces', () => {
         app({ slug: 'finances', displayName: 'Finances' }),
         app({ slug: 'old', displayName: 'Archived one', archived: true }),
         app({ slug: 'off', displayName: 'Disabled one', enabled: false }),
+        app({ slug: 'tools', displayName: 'Tools only', hasView: false }),
       ],
       [],
     );

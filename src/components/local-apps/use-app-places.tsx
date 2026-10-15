@@ -12,17 +12,17 @@ import { AppsRailList } from './apps-rail-list';
  * Apps in the rail (docs/rail.md): one place row, first among the places.
  * Clicking it opens the library. Resting on it peeks your apps beside the
  * rail, the rail's full height, in the wide rail and the strip alike
- * (`AppsRailList`). Nothing shows while the Home hasn't enabled local apps.
+ * (`AppsRailList`). The library also holds connections and skills, independent
+ * of whether this Home enables the local app runtime.
  */
 export function useAppPlaces(): RailPlace[] {
-  const { enabled, data } = useLocalApps({ live: false });
+  const { data } = useLocalApps({ live: false });
   const { activeView, setActiveView } = useDashboard();
   const route = activeView.kind === 'apps' ? activeView.route : null;
   const instances = data?.instances;
   const approvals = data?.approvals;
 
   return useMemo(() => {
-    if (!enabled) return [];
     const waiting = appPlaces(instances ?? [], approvals ?? []).filter((app) => app.needsApproval).length;
     return [
       {
@@ -37,5 +37,5 @@ export function useAppPlaces(): RailPlace[] {
         flyout: { label: 'Apps', content: <AppsRailList /> },
       },
     ];
-  }, [enabled, instances, approvals, route, setActiveView]);
+  }, [instances, approvals, route, setActiveView]);
 }

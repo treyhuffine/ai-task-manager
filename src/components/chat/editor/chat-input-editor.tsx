@@ -2,6 +2,7 @@
 import { SourceChipNode, SOURCE_CHIP_NAME } from './source-chip-node';
 import { EditorSourceProvider } from '../source-chip';
 import { sourceMarker } from '@/lib/chat-sources/reference';
+import { receiveChatSources } from '@/lib/client/source-handoff';
 import { trpcClient } from '@/lib/trpc/client';
 
 /**
@@ -856,6 +857,20 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         editor.commands.clearContent(true);
       }
     }, [editor, draftKey, writeDraftSync, resetHistoryNav]);
+
+    // Apps hands references to an exact chat. Hydrate its existing draft first,
+    // append a real chip, and leave sending and access approval to the person.
+    useEffect(() => {
+      if (!editor || !sourceChatId || disabled) return;
+      return receiveChatSources(sourceChatId, sourceRef => {
+        if (editor.isDestroyed || !editor.isEditable) return false;
+        let present = false;
+        editor.state.doc.descendants(node => {
+          if (node.type.name === SOURCE_CHIP_NAME && node.attrs.sourceRef === sourceRef) present = true;
+        });
+        return present || editor.chain().focus('end').insertSourceChip({ sourceRef }).insertContent(' ').run();
+      });
+    }, [editor, sourceChatId, disabled]);
 
     // A reload verifies the same retained JSON used on mount. Failed storage
     // or an uploading chip leaves the live editor open, never silently lost.

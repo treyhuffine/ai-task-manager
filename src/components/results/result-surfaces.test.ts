@@ -64,11 +64,11 @@ describe('saved result rediscovery', () => {
     expect(SAVED_RESULTS_COMMAND.href).toBe('/results');
     const disabledHtml = renderToStaticMarkup(createElement(MobileMoreView));
     expect(disabledHtml).not.toContain('Saved results');
-    expect(disabledHtml.includes('>Apps<')).toBe(appsEnabled);
+    expect(disabledHtml.includes('>Apps<')).toBe(true);
     state.enabled = true;
     const enabledHtml = renderToStaticMarkup(createElement(MobileMoreView));
     expect(enabledHtml).toContain(SAVED_RESULTS_COMMAND.label);
-    expect(enabledHtml.includes('>Apps<')).toBe(appsEnabled);
+    expect(enabledHtml.includes('>Apps<')).toBe(true);
   });
 });
 

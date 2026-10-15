@@ -1,6 +1,7 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
+import { useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { viewFromSearchParams } from '@/lib/client/active-view';
@@ -23,10 +24,15 @@ export function AppsShell({ route }: { route: string }) {
   const currentView = viewFromSearchParams(searchParams, `/apps/${route}`);
   const appQuery = currentView.kind === 'apps' ? (currentView.query ?? {}) : {};
 
-  const navigate = (value: string) => {
+  const navigate = useCallback((value: string) => {
     const location = new URL(value, 'https://app.invalid/');
     setActiveView({ kind: 'apps', route: location.pathname.slice(1), query: Object.fromEntries(location.searchParams) });
-  };
+  }, [setActiveView]);
+
+  const parts = route.split('/').filter(Boolean);
+  // The library includes connections and skills even when local execution is off.
+  if (parts.length === 0 || parts[0] === 'new') return <AppLibrary data={data} localEnabled={enabled}
+    localLoading={checking || (enabled && !data && !error)} localError={error} query={appQuery} navigate={navigate} />;
 
   const frame = (children: React.ReactNode) => (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">{children}</div>
@@ -73,9 +79,6 @@ export function AppsShell({ route }: { route: string }) {
       </div>,
     );
   }
-
-  const parts = route.split('/').filter(Boolean);
-  if (parts.length === 0 || parts[0] === 'new') return <AppLibrary data={data} navigate={navigate} />;
 
   if (parts[0] === 'drafts') {
     const draft = data.drafts.find((item) => item.id === parts[1]);

@@ -10,7 +10,9 @@ export function localAppMetadata(id: string, draft = false) {
     const manifest = JSON.parse(readFileSync(fd, 'utf8'));
     const extension = manifest.extensions?.['com.ri'];
     const name = extension?.displayName ?? manifest.name;
-    return { displayName: typeof name === 'string' ? name.slice(0, 160) : undefined, hasView: !!extension?.ui, hasActions: extension?.runtime?.kind === 'node' };
+    return { displayName: typeof name === 'string' ? name.slice(0, 160) : undefined,
+      description: typeof manifest.description === 'string' ? manifest.description.slice(0, 400) : undefined,
+      hasView: !!extension?.ui, hasActions: extension?.runtime?.kind === 'node' };
   } catch { return null; }
   finally { if (fd !== undefined) closeSync(fd); }
 }

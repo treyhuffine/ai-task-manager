@@ -17,7 +17,7 @@ import { useAppAction } from './use-app-action';
  * dot when an action waits on you.
  */
 export function AppsRailList() {
-  const { data } = useLocalApps({ live: false });
+  const { data, enabled } = useLocalApps({ live: false });
   const { activeView, setActiveView } = useDashboard();
   const { busy, run } = useAppAction();
   const route = activeView.kind === 'apps' ? activeView.route : null;
@@ -34,17 +34,17 @@ export function AppsRailList() {
       <div className="flex min-h-[32px] flex-shrink-0 items-center gap-2 border-b border-border/40 px-3">
         <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-foreground">Apps</span>
         <div className="flex-1" />
-        <Tip label="New app">
+        {enabled && <Tip label="Build an app">
           <button
             type="button"
             onClick={newApp}
             disabled={busy}
-            aria-label="New app"
+            aria-label="Build an app"
             className="rounded bg-primary p-1 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             <Plus size={12} />
           </button>
-        </Tip>
+        </Tip>}
       </div>
       <nav aria-label="Apps" className="flex min-h-0 flex-col gap-0.5 overflow-y-auto px-2 py-1.5">
         <Row
@@ -52,11 +52,11 @@ export function AppsRailList() {
           onClick={() => setActiveView({ kind: 'apps', route: '' })}
           icon={<LayoutGrid size={14} className="flex-shrink-0" />}
         >
-          All apps
+          Your library
         </Row>
         {apps.length === 0 ? (
           <p className="px-2 py-3 text-center text-[10.5px] leading-relaxed text-muted-foreground/70">
-            No apps yet. Build one, or add an included app from All apps.
+            Open your library to find apps, connections, and skills.
           </p>
         ) : (
           apps.map((app) => (

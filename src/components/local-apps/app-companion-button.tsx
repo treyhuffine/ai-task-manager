@@ -28,7 +28,7 @@ export function AppCompanionButton({ chatId, surfaceKind }: { chatId: string; su
   const { busy, run } = useAppAction();
   if (!enabled || isAppSurface(surfaceKind)) return null;
   const apps = (data?.instances ?? [])
-    .filter((item) => item.enabled && !item.archived && item.activation?.phase === 'active')
+    .filter((item) => item.enabled && !item.archived && item.hasView && item.activation?.phase === 'active')
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
   if (apps.length === 0) return null;
   const current = data?.panels.find((item) => item.chatId === chatId);

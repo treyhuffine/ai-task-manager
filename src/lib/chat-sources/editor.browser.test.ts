@@ -51,11 +51,11 @@ it('qualifies source picking, exact account drill-down, draft restore, both outp
     await page.getByRole('button', { name: 'Manage accounts', exact: true }).waitFor();
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Remove Mail · Work reference', exact: true }).click();
-    expect(await page.locator('[data-source-chip]').count()).toBe(0);
+    expect(await editor.getByRole('button', { name: /^Remove .* reference$/ }).count()).toBe(0);
     await editor.click(); await page.keyboard.type('@app:Work');
     await page.getByRole('button', { name: /Mail · Work.*Chat/ }).waitFor();
     await editor.evaluate(el => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 229, isComposing: true, bubbles: true })));
-    expect(await page.locator('[data-source-chip]').count()).toBe(0);
+    expect(await editor.getByRole('button', { name: /^Remove .* reference$/ }).count()).toBe(0);
     await page.keyboard.press('Enter');
     await page.getByRole('button', { name: 'Mail · Work, Ready', exact: true }).waitFor();
     await page.screenshot({ path: path.join('/tmp', 'ri-source-mentions-mobile.png') });
@@ -103,6 +103,26 @@ it('qualifies source picking, exact account drill-down, draft restore, both outp
     expect(await page.getByRole('button', { name: /Mail · Work.*Chat/ }).count()).toBe(0);
     await page.keyboard.press('Enter');
     await page.getByRole('button', { name: 'Mail · Personal, Ready', exact: true }).waitFor();
+    // Apps appends to the existing draft, once, and cannot target a different chat.
+    await page.evaluate(() => (window as unknown as { sourceEditor: { current: ChatInputEditorHandle } }).sourceEditor.current.focus({ end: true }));
+    await page.keyboard.type(' Keep my question');
+    await page.evaluate(ref => {
+      const fixture = window as unknown as { offerSourceToChat(chatId: string, sourceRef: string): void };
+      fixture.offerSourceToChat('01900222-2222-7222-8222-222222222222', ref);
+      fixture.offerSourceToChat('01900222-2222-7222-8222-222222222222', ref);
+    }, sources[0].sourceRef);
+    await page.getByRole('button', { name: 'Mail · Work, Ready', exact: true }).waitFor();
+    expect(await editor.getByRole('button', { name: /^Remove .* reference$/ }).count()).toBe(2);
+    expect(await editor.innerText()).toContain('Keep my question');
+    const handoffDraft = await page.evaluate(() => (window as unknown as { sourceEditor: { current: ChatInputEditorHandle } }).sourceEditor.current.getMarkerOutput());
+    await page.evaluate(ref => (window as unknown as { offerSourceToChat(chatId: string, sourceRef: string): void }).offerSourceToChat('01900333-3333-7333-8333-333333333333', ref), sources[0].sourceRef);
+    expect(await page.evaluate(() => (window as unknown as { sourceEditor: { current: ChatInputEditorHandle } }).sourceEditor.current.getMarkerOutput())).toEqual(handoffDraft);
+    await page.evaluate(() => (window as unknown as { changeSourceChat(id: string): void }).changeSourceChat('01900333-3333-7333-8333-333333333333'));
+    await page.getByRole('button', { name: 'Mail · Work, Ready', exact: true }).waitFor();
+    expect(await editor.getByRole('button', { name: /^Remove .* reference$/ }).count()).toBe(1);
+    await page.evaluate(() => (window as unknown as { changeSourceChat(id: string): void }).changeSourceChat('01900222-2222-7222-8222-222222222222'));
+    await expect.poll(() => editor.getByRole('button', { name: /^Remove .* reference$/ }).count()).toBe(2);
+    expect(await page.evaluate(() => (window as unknown as { sourceEditor: { current: ChatInputEditorHandle } }).sourceEditor.current.getMarkerOutput())).toEqual(handoffDraft);
     expect(errors).toEqual([]);
     fs.writeFileSync('/tmp/ri-source-browser-version.txt', browser.version());
   } finally { await browser.close(); await new Promise<void>(r => server.close(() => r())); }
