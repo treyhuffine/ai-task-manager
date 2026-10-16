@@ -34,20 +34,25 @@ beforeAll(async () => {
   if (!enabled) return;
   const bundle = await build({
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
-      import React, { useState } from 'react';
+      import React, { useEffect, useState } from 'react';
       import { createRoot } from 'react-dom/client';
       import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
       import { TipProvider } from './src/components/ui/tip';
       import { ArtifactPreviewProvider, useArtifactPreview } from './src/components/chat/artifact-preview-provider';
       import { ImagePreviewCard } from './src/components/chat/image-preview-card';
+      import { ArtifactCard } from './src/components/chat/artifact-card';
       import { replyImageUrl } from './src/lib/sessions/reply-image-urls';
       const client = new QueryClient();
       function OpenHtml() {
         const open = useArtifactPreview();
         return <button onClick={event => open({ kind: 'html', sessionId: 'fixture', path: '/tmp/gallery.html' }, event.currentTarget)}>Open gallery preview</button>;
       }
+      const galleryHtml = { kind: 'html', sessionId: 'fixture', path: '/tmp/gallery.html' };
       function App() {
         const [switched, setSwitched] = useState(false);
+        // A reply that adds an image while the dialog is open, which blocks clicks outside it.
+        const [arrived, setArrived] = useState(false);
+        useEffect(() => { window.addGalleryImage = () => setArrived(true); }, []);
         return <QueryClientProvider client={client}><TipProvider><ArtifactPreviewProvider>
           <main className="p-8 space-y-4">
             <h1>Chat image previews</h1>
@@ -58,6 +63,19 @@ beforeAll(async () => {
             <div><ImagePreviewCard src={switched ? '/good.svg' : '/missing.png'} alt="Changing image" /></div>
             <button onClick={() => setSwitched(true)}>Change source</button>
             <OpenHtml />
+          </main>
+          <section role="log" aria-label="Gallery chat" className="p-8">
+            <p><ImagePreviewCard src="/gallery/one.svg" alt="First shot" /></p>
+            <div><div><ArtifactCard preview={galleryHtml} name="gallery.html" aria-label="Open HTML: gallery.html" icon={null}>HTML</ArtifactCard></div></div>
+            <ImagePreviewCard src="/gallery/two.svg" alt="Second shot" />
+            <div style={{ display: 'none' }}><ImagePreviewCard src="/gallery/hidden.svg" alt="Hidden copy" /></div>
+            <ImagePreviewCard src="/gallery/three.svg" alt="Third shot" />
+            {arrived && <ImagePreviewCard src="/gallery/four.svg" alt="Fourth shot" />}
+          </section>
+          <section role="log" aria-label="Other chat" className="p-8">
+            <ImagePreviewCard src="/gallery/other.svg" alt="Other chat shot" />
+          </section>
+          <main>
           </main>
         </ArtifactPreviewProvider></TipProvider></QueryClientProvider>;
       }
@@ -84,6 +102,9 @@ beforeAll(async () => {
     } else if (url.pathname.endsWith('/reply-image')) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'The screenshot file was not found.' }));
+    } else if (url.pathname.startsWith('/gallery/')) {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.end('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#0f766e"/></svg>');
     } else if (url.pathname.endsWith('/good.svg')) {
       res.setHeader('Content-Type', 'image/svg+xml');
       res.end('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#4f46e5"/></svg>');
@@ -310,6 +331,81 @@ it.skipIf(!enabled)('leaves an Escape the artifact used to it, and ignores messa
     expect(await dialog.isVisible()).toBe(true);
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'hidden' });
+  } finally { await page.close(); }
+}, 30_000);
+
+async function expectShown(page: Page, title: string, position: string | null) {
+  const dialog = page.getByRole('dialog');
+  await dialog.locator('[data-slot="dialog-title"]', { hasText: title }).waitFor();
+  if (position) await dialog.getByText(position, { exact: true }).waitFor();
+  else expect(await dialog.getByRole('button', { name: 'Next preview' }).count()).toBe(0);
+}
+
+it.skipIf(!enabled)('moves through the chat\'s images and HTML with the arrow keys, in transcript order, stopping at the ends', async () => {
+  const page = await openPage();
+  try {
+    await page.getByRole('button', { name: 'Open image: one.svg' }).click();
+    await expectShown(page, 'one.svg', '1 of 4');
+    const dialog = page.getByRole('dialog');
+    expect(await dialog.getByRole('button', { name: 'Previous preview' }).isDisabled()).toBe(true);
+    await page.keyboard.press('ArrowLeft');
+    await expectShown(page, 'one.svg', '1 of 4');
+    await page.keyboard.press('ArrowRight');
+    await expectShown(page, 'gallery.html', '2 of 4');
+    await page.frameLocator('iframe[title="HTML preview: gallery.html"]').getByRole('heading', { name: 'Gallery' }).waitFor();
+    // Focus is still Ri's, so the next press moves on past the artifact.
+    await page.keyboard.press('ArrowRight');
+    await expectShown(page, 'two.svg', '3 of 4');
+    await dialog.getByRole('img', { name: 'Second shot' }).waitFor();
+    if (process.env.RI_ARTIFACT_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, 'lightbox-navigation.png') });
+    // The hidden copy of the layout is not a stop.
+    await page.keyboard.press('ArrowRight');
+    await expectShown(page, 'three.svg', '4 of 4');
+    expect(await dialog.getByRole('button', { name: 'Next preview' }).isDisabled()).toBe(true);
+    await page.keyboard.press('ArrowRight');
+    await expectShown(page, 'three.svg', '4 of 4');
+    await dialog.getByRole('button', { name: 'Previous preview' }).click();
+    await expectShown(page, 'two.svg', '3 of 4');
+    // Closing returns to the card last shown, not the one first opened.
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    expect(await page.getByRole('button', { name: 'Open image: two.svg' }).evaluate(el => el === document.activeElement)).toBe(true);
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('leaves arrow keys inside an HTML artifact to the artifact', async () => {
+  const page = await openPage();
+  try {
+    await page.getByRole('button', { name: 'Open HTML: gallery.html' }).click();
+    await expectShown(page, 'gallery.html', '2 of 4');
+    const filter = page.frameLocator('iframe[title="HTML preview: gallery.html"]').getByRole('textbox', { name: 'Filter shots' });
+    await filter.click();
+    await page.keyboard.type('dusk');
+    expect(await filter.evaluate(el => el === document.activeElement && document.hasFocus())).toBe(true);
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(300);
+    await expectShown(page, 'gallery.html', '2 of 4');
+    expect(await filter.inputValue()).toBe('dusk');
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('keeps other chats out, and takes in a card that arrives while the dialog is open', async () => {
+  const page = await openPage();
+  try {
+    await page.getByRole('button', { name: 'Open image: other.svg' }).click();
+    await expectShown(page, 'other.svg', null);
+    await page.keyboard.press('ArrowLeft');
+    await expectShown(page, 'other.svg', null);
+    await page.keyboard.press('Escape');
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+
+    await page.getByRole('button', { name: 'Open image: three.svg' }).click();
+    await expectShown(page, 'three.svg', '4 of 4');
+    await page.evaluate(() => (window as unknown as { addGalleryImage: () => void }).addGalleryImage());
+    await expectShown(page, 'three.svg', '4 of 5');
+    await page.keyboard.press('ArrowRight');
+    await expectShown(page, 'four.svg', '5 of 5');
   } finally { await page.close(); }
 }, 30_000);
 

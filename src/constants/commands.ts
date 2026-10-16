@@ -47,6 +47,10 @@ export const HOTKEYS = {
   // outdents (`navigationKeyBlocked`).
   navigateBack: { key: '[', meta: true, label: '\u2318[' },
   navigateForward: { key: ']', meta: true, label: '\u2318]' },
+  // The image and HTML preview dialog: the previous or next one in the same
+  // chat. Keys pressed inside an HTML artifact stay the artifact's.
+  previewPrevious: { key: 'ArrowLeft', label: '\u2190' },
+  previewNext: { key: 'ArrowRight', label: '\u2192' },
 } as const satisfies Record<string, Hotkey>;
 
 /** Check if a KeyboardEvent matches a Hotkey (strict modifier match) */
