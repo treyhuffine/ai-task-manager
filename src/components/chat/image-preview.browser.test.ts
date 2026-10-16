@@ -106,6 +106,14 @@ async function hoverDetails(page: Page, target: ReturnType<Page['locator']>, exp
   return (await tip.textContent())!;
 }
 
+async function hoverImageArea(page: Page, image: ReturnType<Page['locator']>) {
+  await image.scrollIntoViewIfNeeded();
+  const bounds = (await image.boundingBox())!;
+  // Move naturally through the tooltip's transit area and onto the image.
+  // Thumbnail hit testing reaches the card's stretched button by design.
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, { steps: 8 });
+}
+
 it.skipIf(!enabled)('shows the original source and server error on hover and in the lightbox', async () => {
   const page = await openPage();
   try {
@@ -123,7 +131,6 @@ it.skipIf(!enabled)('shows the original source and server error on hover and in 
     await dialog.waitFor();
     expect(await dialog.locator('[data-slot="dialog-description"]').textContent()).toBe(source);
     await dialog.getByText('HTTP 404: The screenshot file was not found.', { exact: true }).waitFor();
-    expect(await hoverDetails(page, dialog.getByText('Preview unavailable', { exact: true }), source)).toContain(source);
     if (process.env.RI_ARTIFACT_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, 'image-lightbox.png') });
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
@@ -166,7 +173,38 @@ it.skipIf(!enabled)('keeps working thumbnails, keyboard details and full-size lo
     await image.waitFor();
     await page.waitForFunction(() => [...document.querySelectorAll<HTMLImageElement>('[role="dialog"] img')].some(img => img.naturalWidth > 0));
     expect(requests.some(url => url.endsWith('/api/attachments/good.svg'))).toBe(true);
-    expect(await hoverDetails(page, image, '/api/attachments/good.svg')).toContain('An uploaded diagram');
+    expect(await dialog.locator('[data-slot="dialog-description"]').textContent()).toBe('/api/attachments/good.svg');
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('keeps image and lightbox header hover clear while thumbnail title details and clicks still work', async () => {
+  const page = await openPage();
+  try {
+    const card = page.getByRole('button', { name: 'Open image: Uploaded diagram.svg' });
+    const image = page.getByRole('img', { name: 'An uploaded diagram' });
+    await image.waitFor();
+    await hoverImageArea(page, image);
+    await page.waitForTimeout(700);
+    expect(await page.getByRole('tooltip').count()).toBe(0);
+    expect(await hoverDetails(page, card, '/api/attachments/good.svg')).toContain('An uploaded diagram');
+    // Moving from the title back onto the image also hides the details.
+    await hoverImageArea(page, image);
+    await page.getByRole('tooltip').waitFor({ state: 'hidden' });
+    await image.click({ force: true });
+    const dialog = page.getByRole('dialog');
+    const fullImage = dialog.getByRole('img', { name: 'An uploaded diagram' });
+    await fullImage.waitFor();
+    await hoverImageArea(page, fullImage);
+    await page.waitForTimeout(700);
+    expect(await page.getByRole('tooltip').count()).toBe(0);
+    await dialog.locator('[data-slot="dialog-title"]').hover();
+    await page.waitForTimeout(700);
+    expect(await page.getByRole('tooltip').count()).toBe(0);
+    const sourceText = dialog.locator('[data-slot="dialog-description"]');
+    expect(await sourceText.textContent()).toBe('/api/attachments/good.svg');
+    await sourceText.hover();
+    await page.waitForTimeout(700);
+    expect(await page.getByRole('tooltip').count()).toBe(0);
   } finally { await page.close(); }
 }, 30_000);
 
