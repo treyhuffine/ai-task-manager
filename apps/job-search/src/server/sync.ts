@@ -20,6 +20,7 @@ import { app, bumpRevision, nowAt } from './state.js';
 import { applyClassification, ingestCalendarEvent, ingestMessage, markMessageUnavailable } from './ingest.js';
 import { correspondenceBody } from './correspondence.js';
 import { json, str, type Row } from './util.js';
+import { matchingIdentity, matchingSources } from './contacts.js';
 
 export const DEFAULT_HISTORY_DAYS = 90;
 export const CALENDAR_FUTURE_DAYS = 180;
@@ -116,7 +117,9 @@ function relevantHeaders(account: string, headers: MailHeaders): boolean {
   if (db.prepare('SELECT 1 FROM correspondence WHERE account = ? AND thread_id = ? LIMIT 1').get(account, headers.threadId)) return true;
   const addresses = [headers.from, ...headers.to, ...headers.cc].filter(Boolean).map((item) => item!.normalized);
   if (!addresses.length) return false;
-  return db.prepare('SELECT contacts FROM opportunities LIMIT 5000').all().some((row) => json<{ email: string }[]>(row.contacts, []).some((contact) => addresses.includes(contact.email)));
+  // Only contacts the person entered or this account taught decide relevance.
+  const sources = matchingSources(accountSource(account));
+  return db.prepare('SELECT contacts, company_domains FROM opportunities LIMIT 5000').all().some((row) => matchingIdentity(row, sources).contacts.some((email) => addresses.includes(email)));
 }
 
 async function mailStep(invocation: AppInvocation, job: JobRecord, account: string, deadline: number): Promise<StepSummary> {

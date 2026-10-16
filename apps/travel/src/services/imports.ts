@@ -7,7 +7,7 @@
  */
 import { z } from "zod/v4";
 import { AppError } from "@ri/app-kit/contract";
-import { allows, sha256, type AccessScope } from "@ri/app-kit/data";
+import { allows, allowsAll, sha256, type AccessScope } from "@ri/app-kit/data";
 import type { AppInvocation } from "@ri/app-kit/sdk";
 import { htmlToText } from "@ri/app-kit/sources";
 import { displayValue } from "../domain/booking.js";
@@ -21,7 +21,7 @@ import { canonicalText, createIntake } from "./evidence.js";
 import { readEmailFile } from "./mime.js";
 import { completeDraft } from "./writes.js";
 import { clip, createReadModel, dateLabel } from "./records.js";
-import { destinationOf } from "./ingest.js";
+import { destinationOf, reviewVisible, type Outcome } from "./ingest.js";
 
 type PreviewInput = z.infer<typeof previewImportInput>;
 type ApplyInput = z.infer<typeof applyImportInput>;
@@ -102,19 +102,29 @@ export function createImports(t: Travel) {
       const { diffs } = t.ingest("preview").differences(target, parsed);
       changes = diffs.map((diff) => ({ field: diff.path, label: fieldLabel(diff.path, target.kind), current: clip(displayValue(diff.path, diff.before), 400), proposed: clip(displayValue(diff.path, diff.after), 400) }));
     }
-    let suggestedTripId: string | null = target?.tripId ?? null;
+    // A trip is suggested only when this caller may choose it, and named as this caller may see it.
+    const choosable = (tripId: string | null) => {
+      const trip = tripId ? repo.trip(tripId) : null;
+      return trip && !trip.archivedAt && allows(scope, trip.sourceKey) ? trip.id : null;
+    };
+    let suggestedTripId: string | null = choosable(target?.tripId ?? null);
     let placement: string;
     const dates = parsed.draft.stay ? [parsed.draft.stay.checkInDate, parsed.draft.stay.checkOutDate] : (parsed.draft.segments ?? []).flatMap((segment) => [segment.startLocal.slice(0, 10), segment.endLocal?.slice(0, 10)]).filter((value): value is string => !!value).sort();
     if (parsed.cancellation) placement = target ? `Marks ${target.title} canceled.` : "No matching booking is recorded, so nothing would change.";
     else if (target) {
-      const tripName = target.tripId ? repo.trip(target.tripId)?.title : null;
+      const tripName = target.tripId ? read.tripTitle(scope, target.tripId) : null;
       placement = changes.length ? `Updates ${target.title}${tripName ? ` in ${tripName}` : ""}.` : `Already recorded as ${target.title}.`;
     }
     else if (match.length > 1) placement = "More than one recorded booking could match. It will wait in Review.";
     else {
-      const trips = repo.trips().filter((trip) => !trip.archivedAt && read.visibleTrip(scope, trip).full);
+      // The trips apply places a booking in: every trip that is not archived.
+      const trips = repo.trips().filter((trip) => !trip.archivedAt);
       const fits = matchTrips({ first: dates[0] ?? null, last: dates.at(-1) ?? null, travelers: parsed.draft.travelers ?? [] }, trips.map((trip) => ({ id: trip.id, startDate: trip.startDate, endDate: trip.endDate, travelers: trip.travelers, destinations: trip.destinations, archived: false })));
-      if (fits.length === 1) { suggestedTripId = fits[0].id; placement = `Adds to ${trips.find((trip) => trip.id === fits[0].id)!.title}.`; }
+      if (fits.length === 1) {
+        suggestedTripId = choosable(fits[0].id);
+        const name = read.tripTitle(scope, fits[0].id);
+        placement = name ? `Adds to ${name}.` : "Adds to an existing trip.";
+      }
       else if (fits.length > 1) placement = "Fits more than one trip. Choose one.";
       else placement = `Starts a new trip${destinationOf(parsed.draft, t.settings.get().homeZone) ? `, ${destinationOf(parsed.draft, t.settings.get().homeZone)}` : ""}.`;
     }
@@ -165,6 +175,24 @@ export function createImports(t: Travel) {
     };
   }
 
+  /**
+   * An outcome as this caller may see it. Placement and dedupe read every
+   * record, so an import can land in a booking or trip from a source this
+   * caller was not given. Its result then names nothing from that record.
+   */
+  function shown<T extends Pick<Outcome, "bookingId" | "tripId" | "reviewId" | "message">>(scope: AccessScope, outcome: T): T {
+    if (scope.kind === "owner") return outcome;
+    const booking = outcome.bookingId ? repo.booking(outcome.bookingId) : null;
+    if (outcome.bookingId && !(booking && allowsAll(scope, booking.sourceKeys)))
+      return { ...outcome, bookingId: null, tripId: null, reviewId: null, message: "Matched a booking that is not shared with you." };
+    const review = outcome.reviewId ? repo.review(outcome.reviewId) : null;
+    return {
+      ...outcome,
+      tripId: outcome.tripId && read.tripTitle(scope, outcome.tripId) !== null ? outcome.tripId : null,
+      reviewId: review && reviewVisible(scope, review, repo) ? review.id : null,
+    };
+  }
+
   function apply(invocation: AppInvocation, scope: AccessScope, input: ApplyInput) {
     if (!allows(scope, IMPORTS_SOURCE)) throw new AppError("forbidden", "This caller may not import confirmations");
     return t.store.mutate(invocation, "apply_import", input, (): ApplyResult => {
@@ -172,7 +200,12 @@ export function createImports(t: Travel) {
       if (!stored) throw new AppError("invalid_input", "This preview is no longer available. Choose the file again");
       if (stored.actor !== t.actor(invocation)) throw new AppError("forbidden", "This preview belongs to someone else");
       if (stored.digest !== input.digest) throw new AppError("conflict", "The preview changed. Review it again before applying");
-      if (stored.appliedAt) return { ...(stored.result as ApplyResult), status: "already_applied" };
+      if (stored.appliedAt) {
+        // Shown again under the caller's access now, which may be narrower than when it was applied.
+        const first = stored.result as ApplyResult;
+        const outcomes = first.outcomes.map((item) => shown(scope, item));
+        return { ...first, outcomes, openTripId: outcomes.find((item) => item.tripId)?.tripId ?? null, status: "already_applied" };
+      }
       if (stored.expiresAt < t.now().toISOString()) throw new AppError("invalid_input", "This preview expired. Choose the file again");
       const preview = stored.parse as StoredPreview;
       if (!preview.parse.bookings.length && !input.manual) return { status: "nothing_to_apply", evidenceId: null, outcomes: [], openTripId: null, message: "Nothing was found to add. Enter the details by hand to keep this file with a booking." };
@@ -194,7 +227,8 @@ export function createImports(t: Travel) {
           ...(decision?.tripId !== undefined ? { tripId: decision.tripId } : {}),
           ...(decision?.newTripTitle ? { newTripTitle: decision.newTripTitle } : {}),
         });
-        outcomes.push({ item: index, ...outcome, message: clip(outcome.message, 300) });
+        const view = shown(scope, outcome);
+        outcomes.push({ item: index, ...view, message: clip(view.message, 300) });
       });
       if (input.manual) {
         const draft = completeDraft(bookingDraftSchema.parse(input.manual));
@@ -205,7 +239,8 @@ export function createImports(t: Travel) {
         const outcome = ingest.apply(evidence, { draft, passages: [], missing: [], ambiguous: [], change: false, cancellation: false, method: "deterministic" }, { reviewed: true, forceNew: true, ...(input.manualTripId !== undefined ? { tripId: input.manualTripId } : {}) });
         if (outcome.bookingId) repo.run("UPDATE bookings SET method = 'manual' WHERE id = ?", outcome.bookingId);
         repo.updateEvidence(evidence.id, { parseStatus: "parsed", parseMethod: "manual", parseNote: "Details entered by hand" });
-        outcomes.push({ item: preview.parse.bookings.length, ...outcome, message: clip(outcome.message, 300) });
+        const view = shown(scope, outcome);
+        outcomes.push({ item: preview.parse.bookings.length, ...view, message: clip(view.message, 300) });
       }
       const open = outcomes.find((item) => item.tripId)?.tripId ?? null;
       const added = outcomes.filter((item) => item.action === "created").length;

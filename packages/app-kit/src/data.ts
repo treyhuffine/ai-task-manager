@@ -236,10 +236,15 @@ export function createScopeStore(db: SqlDatabase, instanceId: () => string) {
     },
     /** Remove a deleted source from every scope so a later identical key never inherits old access. */
     forgetSource(source: string) {
-      for (const scope of this.list()) {
-        if (!scope.sources.includes(source)) continue;
-        db.prepare("UPDATE app_data_scopes SET sources = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(scope.sources.filter((item) => item !== source)), nowIso(), scope.id);
-      }
+      // Every matching scope, not a page of them, in one transaction.
+      transaction(db, () => {
+        const rows = db.prepare("SELECT * FROM app_data_scopes WHERE instance_id = ? AND instr(sources, ?) > 0").all(instanceId(), JSON.stringify(source)).map(scopeRow);
+        const time = nowIso();
+        for (const scope of rows) {
+          if (!scope.sources.includes(source)) continue;
+          db.prepare("UPDATE app_data_scopes SET sources = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(scope.sources.filter((item) => item !== source)), time, scope.id);
+        }
+      });
     },
     /**
      * The data this invocation may use for `operation`. The owner's view and an

@@ -27,6 +27,8 @@ export const FIXTURE_MAIL = 'fixture-mail';
 export const FIXTURE_CALENDAR = 'fixture-calendar';
 const OWNER = 'you@example.test';
 const AUTHOR = 'fixture:preview';
+/** The fictional preview is written as its owner would write it. */
+const OWNER_SCOPE = { kind: 'owner' as const, actorId: AUTHOR };
 
 const RESUME_V1 = `Sam Rivera
 Product designer · Denver, CO · sam.rivera@example.test
@@ -139,7 +141,7 @@ export function seedFixtures(): boolean {
     const offerText = `Hi Sam,\n\nWe are delighted to extend an offer for the Design lead role at Cedar.\nBase salary: $172,000 per year, plus equity.\nPlease reply by ${formatDate(day(6), 'long')}.\n\nPriya Natarajan`;
     deliver(mail({ id: 'fx-cedar-offer', thread: 'fx-t-cedar-offer', from: { name: 'Priya Natarajan', address: 'priya.natarajan@cedar.example' }, subject: 'Your offer from Cedar', text: offerText, at: at(-1, '15:30') }));
     const cedarRow = requireOpportunityRow(cedar);
-    updateOpportunityFields(cedar, num(cedarRow.revision), { deadline: day(6), deadlineLabel: 'Reply to the offer by', nextAction: 'Review terms', compensation: parseCompensation(offerText, 'offer') }, AUTHOR);
+    updateOpportunityFields(cedar, num(cedarRow.revision), { deadline: day(6), deadlineLabel: 'Reply to the offer by', nextAction: 'Review terms', compensation: parseCompensation(offerText, 'offer') }, AUTHOR, OWNER_SCOPE);
 
     // Northstar: acknowledged, application recorded with résumé v3, invited to choose times, then confirmed.
     deliver(mail({ id: 'fx-ns-ack', thread: 'fx-t-ns-ack', from: { name: 'Northstar Careers', address: 'no-reply@northstar.example' }, subject: 'Thank you for applying: Product designer', text: 'Thank you for applying for the Product designer role at Northstar (Req ID: R-4821). We have received your application.', at: at(-6, '11:10') }));
@@ -164,7 +166,7 @@ export function seedFixtures(): boolean {
 
     // Lumen: the person recorded the application with two exact versions and chose a follow-up date.
     recordSubmission({ opportunityId: lumen, expectedRevision: num(requireOpportunityRow(lumen).revision), appliedOn: day(-3), channel: 'company_site', materialVersionIds: [v3, str(cover.version.id)], confirmed: true }, AUTHOR);
-    updateOpportunityFields(lumen, num(requireOpportunityRow(lumen).revision), { nextAction: 'Follow up with Lumen', nextActionDue: day(4) }, AUTHOR);
+    updateOpportunityFields(lumen, num(requireOpportunityRow(lumen).revision), { nextAction: 'Follow up with Lumen', nextActionDue: day(4) }, AUTHOR, OWNER_SCOPE);
     reserveFollowUp({ subject: { type: 'opportunity', id: lumen }, title: 'Follow up with Lumen', dueAt: day(4), operationId: '0192f0aa-0000-7000-8000-00000000f001' }, AUTHOR);
 
     // Atlas Studio: an acknowledgment that names only the company. One role there, so it is suggested, not applied.
@@ -185,7 +187,7 @@ export function seedFixtures(): boolean {
         { id: 'q-first-months', text: 'What would a useful first three months look like?', requirementIds: [] },
       ],
       notes: 'Maya asked for an example of a complex product decision.',
-    }, AUTHOR);
+    }, AUTHOR, OWNER_SCOPE);
     settings.set('fixture.seeded', true);
     void atlas;
     bumpRevision();

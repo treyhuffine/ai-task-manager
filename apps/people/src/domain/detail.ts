@@ -16,7 +16,7 @@ import {
   bestAffiliation, lastExchange, memberLists, monthYear, nextActionFor, nextMeeting, organizationName, organizationVisible, personName, personVisible,
 } from './projection.js';
 import { listReviews } from './reviews.js';
-import { canSee, dataRevision, sourceFilter } from './scope.js';
+import { canSee, dataRevision, opportunityFilter, sourceFilter } from './scope.js';
 import type { Identity, OrganizationDetail, OpportunityDetail, PersonDetail } from '../schemas.js';
 
 const ORIGIN_LABELS: Record<string, string> = {
@@ -58,7 +58,7 @@ export function getPersonDetail(ctx: Ctx, scope: AccessScope, requestedId: strin
   const observedNames = scope.kind === 'owner'
     ? ctx.db.all<{ name: string; source_key: string }>("SELECT name, source_key FROM person_sources WHERE person_id = ? AND name IS NOT NULL AND name_rank = 1 LIMIT 10", id)
     : (() => { const filter = sourceFilter(scope, 'source_key'); return ctx.db.all<{ name: string; source_key: string }>(`SELECT name, source_key FROM person_sources WHERE person_id = ? AND name IS NOT NULL AND name_rank = 1 AND ${filter.sql} LIMIT 10`, id, ...filter.params); })();
-  const filter = sourceFilter(scope, 'o.collection');
+  const filter = opportunityFilter(scope, 'o');
   const opportunities = ctx.db.all<{ id: string; title: string; pipeline_id: string; stage_id: string; pipeline: string; label: string; kind: 'open' | 'succeeded' | 'closed' }>(
     `SELECT o.id, o.title, o.pipeline_id, o.stage_id, p.name AS pipeline, s.label, s.kind FROM opportunity_people op JOIN opportunities o ON o.id = op.opportunity_id JOIN pipelines p ON p.id = o.pipeline_id JOIN pipeline_stages s ON s.id = o.stage_id
      WHERE op.person_id = ? AND o.archived_at IS NULL AND ${filter.sql} ORDER BY o.updated_at DESC LIMIT 30`, id, ...filter.params)
@@ -107,7 +107,7 @@ export function getOrganizationDetail(ctx: Ctx, scope: AccessScope, requestedId:
       .map((row) => ({ keyId: `${id}:${row.domain}`, kind: 'domain' as const, value: row.domain, shared: false, confirmation: row.confirmation, sources: [labels.of(row.source_key)], observedAt: row.created_at }));
   })();
   const contact = identitiesFor(ctx, scope, 'organization', id, labels);
-  const filter = sourceFilter(scope, 'o.collection');
+  const filter = opportunityFilter(scope, 'o');
   const opportunities = ctx.db.all<{ id: string; title: string; label: string; kind: 'open' | 'succeeded' | 'closed'; pipeline: string; next_action: string | null; next_action_date: string | null; value_minor: number | null; currency: string | null }>(
     `SELECT o.id, o.title, s.label, s.kind, p.name AS pipeline, o.next_action, o.next_action_date, o.value_minor, o.currency FROM opportunities o JOIN pipeline_stages s ON s.id = o.stage_id JOIN pipelines p ON p.id = o.pipeline_id
      WHERE o.organization_id = ? AND o.archived_at IS NULL AND ${filter.sql} ORDER BY s.kind = 'open' DESC, COALESCE(o.next_action_date, '9999') LIMIT 50`, id, ...filter.params)
@@ -158,12 +158,12 @@ export function getOpportunityDetail(ctx: Ctx, scope: AccessScope, id: string): 
   const pipeline = ctx.db.get<{ name: string }>('SELECT name FROM pipelines WHERE id = ?', row.pipeline_id);
   const summary = summarizeOpportunity(ctx, scope, row);
   const counts = new Map<string, number>();
-  const filter = sourceFilter(scope, 'collection');
-  for (const item of ctx.db.all<{ stage_id: string; count: number }>(`SELECT stage_id, COUNT(*) AS count FROM opportunities WHERE pipeline_id = ? AND archived_at IS NULL AND ${filter.sql} GROUP BY stage_id`, row.pipeline_id, ...filter.params)) counts.set(item.stage_id, Number(item.count));
+  const filter = opportunityFilter(scope, 'o');
+  for (const item of ctx.db.all<{ stage_id: string; count: number }>(`SELECT o.stage_id, COUNT(*) AS count FROM opportunities o WHERE o.pipeline_id = ? AND o.archived_at IS NULL AND ${filter.sql} GROUP BY o.stage_id`, row.pipeline_id, ...filter.params)) counts.set(item.stage_id, Number(item.count));
   return {
     opportunity: { ...summary, collection: row.collection as OpportunityDetail['opportunity']['collection'], pipelineName: pipeline?.name ?? 'Pipeline' },
     stages: stagesOf(ctx, row.pipeline_id).map((stage, index) => ({ id: stage.id, label: stage.label, kind: stage.kind, position: index, count: counts.get(stage.id) ?? 0 })),
-    history: stageHistory(ctx, row.id),
+    history: stageHistory(ctx, scope, row.id),
     notes: notesFor(ctx, scope, 'opportunity', row.id, labels),
     suggestions: factsFor(ctx, scope, 'opportunity', row.id, labels, ['suggested']),
     activity: listTimeline(ctx, scope, { subject: { kind: 'opportunity', id: row.id }, limit: 20, include: ['email', 'meeting'] }).items,

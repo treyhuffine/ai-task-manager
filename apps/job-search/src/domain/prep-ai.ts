@@ -20,9 +20,9 @@ export interface PrepSource {
 const BUDGET: Record<PrepSource['source'], number> = { posting: 5000, material: 3500, example: 1500, correspondence: 700 };
 const PROMPT_LIMIT = 15500;
 
-export function boundedSources(sources: PrepSource[]): (PrepSource & { id: string })[] {
+export function boundedSources<T extends PrepSource>(sources: T[]): (T & { id: string })[] {
   let total = 0;
-  const kept: (PrepSource & { id: string })[] = [];
+  const kept: (T & { id: string })[] = [];
   for (const source of sources) {
     const text = source.text.replace(/\s+\n/g, '\n').trim().slice(0, BUDGET[source.source]);
     if (!text) continue;

@@ -5,7 +5,7 @@ import type { Labels } from './coverage.js';
 import { refreshOrganization } from './organizations.js';
 import { refreshPerson } from './people.js';
 import { organizationVisible, personVisible } from './projection.js';
-import { assertWritable, canSee, sourceFilter, touch, writableCollection } from './scope.js';
+import { assertWritable, canSee, canSeeOpportunity, sourceFilter, touch, writableCollection } from './scope.js';
 import { removeSearchRow, setSearchRow } from './search.js';
 import { cleanName, cleanText } from './text.js';
 import type { Note } from '../schemas.js';
@@ -26,7 +26,7 @@ function refreshSubject(ctx: Ctx, kind: string, id: string) {
 
 function assertSubject(ctx: Ctx, scope: AccessScope, kind: Note['subjectKind'], id: string) {
   const visible = kind === 'person' ? personVisible(ctx, scope, id) : kind === 'organization' ? organizationVisible(ctx, scope, id)
-    : (() => { const row = ctx.db.get<{ collection: string }>('SELECT collection FROM opportunities WHERE id = ?', id); return !!row && canSee(scope, row.collection); })();
+    : canSeeOpportunity(ctx, scope, ctx.db.get<{ collection: string; pipeline_id: string }>('SELECT collection, pipeline_id FROM opportunities WHERE id = ?', id));
   if (!visible) throw new AppError('not_found', 'That record is no longer available');
 }
 

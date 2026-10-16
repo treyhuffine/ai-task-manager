@@ -7,13 +7,14 @@
  * Automatic changes never move a stage backward.
  */
 import { AppError } from '@ri/app-kit/contract';
-import { newId, transaction } from '@ri/app-kit/data';
-import { isNoReply, normalizeEmail, emailDomain, isPersonalMailDomain } from '@ri/app-kit/sources';
+import { newId, transaction, type AccessScope } from '@ri/app-kit/data';
+import { isNoReply, emailDomain } from '@ri/app-kit/sources';
 import { companyKey, isServiceDomain, roleKey, cleanUrl, requisitionKey } from '../domain/text.js';
 import { MANUAL_SOURCE, STAGE_ORDER, stageLabel, type Compensation, type Outcome, type Stage, type StageEvent } from '../domain/model.js';
 import { app, bumpRevision, nowAt } from './state.js';
 import { json, opt, str, num, type Row } from './util.js';
 import { upsertReview, resolveOpenReviews } from './review.js';
+import { editedContacts, initialContacts, learnedContact } from './contacts.js';
 
 export interface OpportunityFields {
   company: string;
@@ -55,8 +56,7 @@ export function createOpportunity(fields: OpportunityFields, author: string, opt
       if (existing) return existing;
     }
     const id = newId(), at = options.at ?? nowAt();
-    const contacts = (fields.contacts ?? []).map((contact) => ({ email: normalizeEmail(contact.email), name: contact.name, source: MANUAL_SOURCE }));
-    const domains = [...new Set(contacts.map((contact) => emailDomain(contact.email)).filter((domain): domain is string => !!domain && !isServiceDomain(domain) && !isPersonalMailDomain(domain)))];
+    const { contacts, domains } = initialContacts(fields.contacts ?? []);
     db.prepare(`INSERT INTO opportunities (id, created_at, updated_at, revision, source_key, company, company_key, role, role_key, location, work_arrangement, source_url,
       requisition_id, stage, outcome, stage_lock, next_action, next_action_due, deadline, deadline_label, compensation, contacts, company_domains, notes,
       listing_closed_at, archived_at, created_by, dedupe_key, fictional) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'saved', NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`).run(
@@ -71,7 +71,7 @@ export function createOpportunity(fields: OpportunityFields, author: string, opt
 }
 
 /** Apply field edits when the expected revision is current. Returns the new row, or null on a stale revision. */
-export function updateOpportunityFields(id: string, expectedRevision: number, fields: Partial<OpportunityFields> & { archived?: boolean; listingClosed?: boolean }, _author: string): Row | null {
+export function updateOpportunityFields(id: string, expectedRevision: number, fields: Partial<OpportunityFields> & { archived?: boolean; listingClosed?: boolean }, _author: string, scope: AccessScope): Row | null {
   const { db } = app();
   return transaction(db, () => {
     const row = requireOpportunityRow(id);
@@ -104,16 +104,10 @@ export function updateOpportunityFields(id: string, expectedRevision: number, fi
     if (fields.compensation !== undefined) next.compensation = JSON.stringify(fields.compensation);
     if (fields.notes !== undefined) next.notes = clean(fields.notes, 20000);
     if (fields.contacts !== undefined) {
-      // Contacts learned from an account keep their source, so deleting that account's data can remove them.
-      const learnedContacts = json<{ email: string; name: string | null; source?: string }[]>(row.contacts, []);
-      const contacts = fields.contacts.map((contact) => {
-        const email = normalizeEmail(contact.email);
-        return { email, name: contact.name, source: learnedContacts.find((item) => item.email === email)?.source ?? MANUAL_SOURCE };
-      });
+      // The writer replaces only the contacts it can see. Learned ones keep their source.
+      const { contacts, domains } = editedContacts(row, fields.contacts, scope);
       next.contacts = JSON.stringify(contacts);
-      const learned = json<string[]>(row.company_domains, []);
-      const domains = new Set([...learned, ...contacts.map((contact) => emailDomain(contact.email)).filter((domain): domain is string => !!domain && !isServiceDomain(domain) && !isPersonalMailDomain(domain))]);
-      next.company_domains = JSON.stringify([...domains].slice(0, 20));
+      next.company_domains = JSON.stringify(domains);
     }
     if (fields.archived !== undefined) next.archived_at = fields.archived ? (row.archived_at ?? at) : null;
     if (fields.listingClosed !== undefined) next.listing_closed_at = fields.listingClosed ? (row.listing_closed_at ?? at) : null;
@@ -266,27 +260,15 @@ export function setStageTracking(id: string, expectedRevision: number, automatic
   });
 }
 
-/** Remember an employer contact and domain learned from linked correspondence. ATS and personal addresses never count. */
+/** Remember an employer contact and domain learned from linked correspondence, keyed to that account. ATS and no-reply addresses never count. */
 export function learnContact(opportunityId: string, address: string | null | undefined, name: string | null | undefined, source: string) {
   if (!address || isNoReply(address)) return;
   const domain = emailDomain(address);
   if (!domain || isServiceDomain(domain)) return;
-  const { db } = app();
   const row = getOpportunityRow(opportunityId);
   if (!row) return;
-  const normalized = normalizeEmail(address);
-  const contacts = json<{ email: string; name: string | null; source?: string }[]>(row.contacts, []);
-  const domains = json<string[]>(row.company_domains, []);
-  let changed = false;
-  if (!contacts.some((contact) => contact.email === normalized) && contacts.length < 50) {
-    contacts.push({ email: normalized, name: name?.slice(0, 200) ?? null, source });
-    changed = true;
-  }
-  if (!isPersonalMailDomain(domain) && !domains.includes(domain) && domains.length < 20) {
-    domains.push(domain);
-    changed = true;
-  }
-  if (changed) db.prepare('UPDATE opportunities SET contacts = ?, company_domains = ? WHERE id = ?').run(JSON.stringify(contacts), JSON.stringify(domains), opportunityId);
+  const learned = learnedContact(row, address, name, source);
+  if (learned) app().db.prepare('UPDATE opportunities SET contacts = ?, company_domains = ? WHERE id = ?').run(JSON.stringify(learned.contacts), JSON.stringify(learned.domains), opportunityId);
 }
 
 export function currentStage(row: Row): StageTarget {

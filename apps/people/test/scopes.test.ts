@@ -38,7 +38,10 @@ async function world() {
   await call('set_extraction', { enabled: true }, me);
   const queued = await call('request_briefing', { subjectKind: 'person', subjectId: id('Jordan Bell') }, me);
   expect(queued.availability).toBe('queued');
+  // The owner's Prepare runs the owner's own step. The schedule never runs an owner-scope briefing.
   for (let index = 0; index < 10; index++) if (!(await call('run_background_step', {}, scheduled)).ran) break;
+  expect((await call('get_briefing', { subjectKind: 'person', subjectId: id('Jordan Bell') }, me)).origin).toBe('saved_records');
+  await call('continue_import', { source: 'briefings' }, me);
   const ownerBriefing = await call('get_briefing', { subjectKind: 'person', subjectId: id('Jordan Bell') }, me);
   expect(ownerBriefing.origin).toBe('generated');
   return { host, me, a: chat('a', grantA.scopeRef), b: chat('b', grantB.scopeRef), id, fieldwork, work, pipeline, grantA, grantB };

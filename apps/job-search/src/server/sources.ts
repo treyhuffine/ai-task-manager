@@ -12,6 +12,7 @@ import { MANUAL_SOURCE, MATERIALS_SOURCE, type Outcome, type Stage } from '../do
 import { app, bumpRevision, nowAt } from './state.js';
 import { accountLabel, COLLECTION_LABELS } from './project.js';
 import { json, num, opt, str } from './util.js';
+import { withoutSource } from './contacts.js';
 
 export interface SourceSummary {
   key: string;
@@ -151,13 +152,9 @@ export function deleteSourceData(source: string): { removedMessages: number; rem
       }
     }
     // Contacts and domains learned from this account are derived data too.
-    for (const row of db.prepare('SELECT id, contacts FROM opportunities').all()) {
-      const contacts = json<{ email: string; name: string | null; source?: string }[]>(row.contacts, []);
-      const kept = contacts.filter((contact) => contact.source !== source);
-      if (kept.length !== contacts.length) {
-        const domains = [...new Set(kept.map((contact) => contact.email.slice(contact.email.lastIndexOf('@') + 1)).filter((domain) => !isServiceDomain(domain) && !isPersonalMailDomain(domain)))];
-        db.prepare('UPDATE opportunities SET contacts = ?, company_domains = ? WHERE id = ?').run(JSON.stringify(kept), JSON.stringify(domains), str(row.id));
-      }
+    for (const row of db.prepare('SELECT id, contacts, company_domains FROM opportunities').all()) {
+      const kept = withoutSource(row, source);
+      if (kept) db.prepare('UPDATE opportunities SET contacts = ?, company_domains = ? WHERE id = ?').run(JSON.stringify(kept.contacts), JSON.stringify(kept.domains), str(row.id));
     }
     mail.forget(account);
     accounts.remove(account);

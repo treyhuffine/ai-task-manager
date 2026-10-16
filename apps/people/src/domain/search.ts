@@ -6,6 +6,14 @@ import { iso, type Ctx } from './context.js';
  * counting. Text from different sources about the same record lives in
  * separate rows.
  */
+/**
+ * A pseudo-source only the owner's unrestricted search matches. It holds text
+ * about a record that no single source may index, such as a company name kept
+ * in a private collection on a person affiliated under a shared source. No
+ * scope can ever hold this key, so other callers never match it.
+ */
+export const OWNER_ONLY_SOURCE = 'owner-only';
+
 export function setSearchRow(ctx: Ctx, refKey: string, recordKind: 'person' | 'organization' | 'opportunity', recordId: string, sourceKey: string, text: string) {
   const content = text.replace(/\s+/g, ' ').trim().slice(0, 4000);
   const existing = ctx.db.get<{ id: number; source_key: string; record_id: string }>('SELECT id, source_key, record_id FROM search_rows WHERE ref_key = ?', refKey);

@@ -4,6 +4,7 @@
  * extraction switch) come from the query layer, never from SQL defaults.
  */
 import type { Migration } from "@ri/app-kit/data";
+import { MULTIPLE_TRIPS_REASON, POSSIBLE_DUPLICATE_REASON } from "../domain/model.js";
 
 /** Tables whose changes move the view revision. Frozen with migration 1. */
 const TRACKED_V1 = [
@@ -174,7 +175,21 @@ ALTER TABLE calendar_events ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE import_previews ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
 `;
 
+/**
+ * Review reasons written by the first release named the candidate trips or bookings,
+ * which a reader of the item may not be allowed to see. Rewrite those open and
+ * decided items to the reasons used now. The candidates still carry the names,
+ * projected for each reader.
+ */
+const V3 = `
+UPDATE review_items SET reason = '${MULTIPLE_TRIPS_REASON}', revision = revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  WHERE kind = 'assign' AND reason LIKE 'It fits more than one trip: %';
+UPDATE review_items SET reason = '${POSSIBLE_DUPLICATE_REASON}', revision = revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  WHERE kind = 'identity' AND reason LIKE 'This message could describe % recorded bookings (%';
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: "travel records", sql: V1 },
   { version: 2, name: "revisions for evidence, calendar events and previews", sql: V2 },
+  { version: 3, name: "review reasons that name no other record", sql: V3 },
 ];

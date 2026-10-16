@@ -221,7 +221,7 @@ describe('packaged People view', () => {
     }
   }, 240_000);
 
-  it('opens a new owner on the welcome screen with three ways in, and Connect asks Ri for access', async () => {
+  it('opens a new owner on the welcome screen with three ways in, and Connect opens Ri\'s Sources', async () => {
     const instance = install(owner);
     const harness = await view(instance, { width: 1280 });
     try {
@@ -231,7 +231,8 @@ describe('packaged People view', () => {
       await ui.getByRole('heading', { name: 'Add a person' }).waitFor();
       await shot(harness, 'people-empty-1280.png');
       await ui.getByRole('button', { name: 'Connect email and calendar' }).click();
-      await expect.poll(() => harness.hostLinks.some((link) => link.includes('/__host/manage-access'))).toBe(true);
+      // Connecting an account happens in Ri's Sources.
+      await expect.poll(() => harness.hostLinks.some((link) => link.includes('/__host/sources'))).toBe(true);
       await ui.getByRole('button', { name: 'Add a person' }).click();
       await ui.getByRole('dialog').getByLabel('Name').fill('Robin Vale');
       await ui.getByRole('dialog').getByRole('button', { name: 'Add person' }).click();

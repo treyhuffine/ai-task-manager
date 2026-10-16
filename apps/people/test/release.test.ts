@@ -348,7 +348,11 @@ describe('People release requirements', () => {
     expect((await call('create_follow_up', { subject: { kind: 'opportunity', id: usd.id }, title: 'Send proposal', operationId }, me)).link.status).toBe('failed');
     expect((await call('create_follow_up', { subject: { kind: 'opportunity', id: usd.id }, title: 'Send proposal', operationId }, me)).link.status).toBe('linked');
     expect(host.tasks.size).toBe(1);
-    expect(JSON.stringify(await call('list_pipelines', {}, me))).not.toContain('300');
+    // No total of the two values (100 + 200) anywhere. Walk the values: IDs and timestamps may contain the digits 300.
+    const numbers: number[] = [];
+    const walk = (value: unknown): void => { if (typeof value === 'number') numbers.push(value); else if (value && typeof value === 'object') Object.values(value).forEach(walk); };
+    walk(await call('list_pipelines', {}, me));
+    expect(numbers).not.toContain(300);
   });
 
   it('Scoped export and full restore preserve stable IDs, memberships, stage history, corrections and decisions. Archive/removal does not delete Ri tasks.', async () => {

@@ -84,7 +84,37 @@ export function createReadModel(t: Travel) {
     return clip(`${describeEndpoint(first.start)}${first.address ? `, ${first.address}` : ""}`, 300);
   }
 
-  function bookingRecord(scope: AccessScope, booking: EffectiveBooking, options: { tripTitle?: string | null; labels?: Map<string, string | null>; reviews?: ReviewRow[] } = {}): BookingRecord {
+  /**
+   * A trip as this scope may name it. A caller allowed the trip's own source
+   * sees its fields. Anyone else sees a projection built only from the bookings
+   * shared with them, so a name, dates or places from an unshared account never
+   * reach them through a booking, a review, an import or the view context.
+   */
+  function tripHeading(scope: AccessScope, trip: TripRow, view?: ReturnType<typeof visibleTrip>) {
+    if (allows(scope, trip.sourceKey)) return { visible: true, full: true, title: trip.title, startDate: trip.startDate, endDate: trip.endDate, destinations: trip.destinations };
+    const seen = view ?? visibleTrip(scope, trip);
+    const dates = seen.bookings.flatMap((booking) => [booking.firstDate, booking.lastDate]).filter((value): value is string => !!value).sort();
+    // Named from the shared bookings' own places.
+    const destinations = [...new Set(seen.bookings.map((booking) => findCityZone(booking.stay?.address ?? booking.segments[0]?.address)?.city ?? booking.segments.at(0)?.destination.label ?? null).filter((value): value is string => !!value))].slice(0, 6);
+    return { visible: seen.visible, full: false, title: destinations[0] ?? "Shared trip", startDate: dates[0] ?? null, endDate: dates.at(-1) ?? null, destinations };
+  }
+  /** The trip title shown beside a booking or review, or null when the scope cannot see that trip. A memo keeps lists to one projection per trip. */
+  function tripTitle(scope: AccessScope, tripId: string, memo?: Map<string, string | null>): string | null {
+    if (memo?.has(tripId)) return memo.get(tripId)!;
+    const trip = repo.trip(tripId);
+    const heading = trip ? tripHeading(scope, trip) : null;
+    const title = heading?.visible ? heading.title : null;
+    memo?.set(tripId, title);
+    return title;
+  }
+  /** A trip named in a booking's history, as this scope may see it now. The owner sees what was recorded at the time. */
+  function historyTrip(scope: AccessScope, id: string | null | undefined, recorded: string): string {
+    if (scope.kind === "owner") return recorded;
+    if (id === null || (id === undefined && recorded === "Unassigned")) return "Unassigned";
+    return (id ? tripTitle(scope, id) : null) ?? "Another trip";
+  }
+
+  function bookingRecord(scope: AccessScope, booking: EffectiveBooking, options: { tripTitle?: string | null; labels?: Map<string, string | null>; reviews?: ReviewRow[]; titles?: Map<string, string | null> } = {}): BookingRecord {
     const labels = options.labels ?? accountLabels();
     const links = repo.links(booking.id).filter((link) => allows(scope, link.evidence.sourceKey));
     const sources = links.slice(0, 50).map((link) => sourceRef(link, labels));
@@ -95,10 +125,10 @@ export function createReadModel(t: Travel) {
     if (booking.segments.some((segment) => segment.start.resolution === "zone_missing" || segment.end?.resolution === "zone_missing")) missing.push("Time zone");
     if (booking.kind === "flight" && booking.segments.some((segment) => !segment.end)) missing.push("Arrival time");
     const reviews = (options.reviews ?? repo.reviews({ open: true, bookingId: booking.id })).filter((item) => item.bookingId === booking.id && !item.decision && reviewVisible(scope, item, repo));
-    const tripTitle = options.tripTitle !== undefined ? options.tripTitle : booking.tripId ? repo.trip(booking.tripId)?.title ?? null : null;
+    const shownTrip = options.tripTitle !== undefined ? options.tripTitle : booking.tripId ? tripTitle(scope, booking.tripId, options.titles) : null;
     return {
       id: booking.id, createdAt: booking.createdAt, updatedAt: booking.updatedAt, revision: booking.revision,
-      tripId: booking.tripId, tripTitle: clipNull(tripTitle, 200),
+      tripId: booking.tripId, tripTitle: clipNull(shownTrip, 200),
       kind: booking.kind, kindLabel: KIND_LABELS[booking.kind], title: clip(booking.title, 200), provider: clipNull(booking.provider, 200), providerCode: booking.providerCode,
       reference: clipNull(booking.reference, 60), detail: clipNull(booking.detail, 160), travelers: booking.travelers.slice(0, 20).map((name) => clip(name, 120)),
       status: booking.status, statusLabel: STATUS_LABELS[booking.status], notes: clipNull(booking.notes, 2000), method: booking.method,
@@ -137,14 +167,11 @@ export function createReadModel(t: Travel) {
 
   function tripRecord(scope: AccessScope, trip: TripRow, view = visibleTrip(scope, trip)): TripRecord & { coverage: TripCoverage } {
     const active = view.bookings.filter((booking) => booking.status !== "canceled");
-    const dates = view.bookings.flatMap((booking) => [booking.firstDate, booking.lastDate]).filter((value): value is string => !!value).sort();
-    const startDate = view.full ? trip.startDate : dates[0] ?? null;
-    const endDate = view.full ? trip.endDate : dates.at(-1) ?? null;
+    const heading = tripHeading(scope, trip, view);
+    const { startDate, endDate, destinations } = heading;
     const reviews = repo.reviews({ open: true, tripId: trip.id }).filter((item) => reviewVisible(scope, item, repo));
     const coverage = coverageFor(trip, startDate, endDate, view.bookings);
     const today = todayIn(trip.homeZone && isValidZone(trip.homeZone) ? trip.homeZone : t.zone(), t.now());
-    // A trip seen only through shared bookings is named from those bookings' places.
-    const destinations = view.full ? trip.destinations : [...new Set(view.bookings.map((booking) => findCityZone(booking.stay?.address ?? booking.segments[0]?.address)?.city ?? booking.segments.at(0)?.destination.label ?? null).filter((value): value is string => !!value))].slice(0, 6);
     let attention: string | null = null;
     if (reviews.length) attention = `${reviews.length} item${reviews.length === 1 ? "" : "s"} to review`;
     else if (!active.length && view.ideas.length) attention = "Only ideas so far. Nothing is booked yet";
@@ -153,7 +180,7 @@ export function createReadModel(t: Travel) {
     const travelers = view.full ? trip.travelers : [...new Set(view.bookings.flatMap((booking) => booking.travelers))];
     return {
       id: trip.id, createdAt: trip.createdAt, updatedAt: trip.updatedAt, revision: trip.revision,
-      title: clip(view.full ? trip.title : destinations[0] ?? "Shared trip", 200), destinations: destinations.map((item) => clip(item, 120)),
+      title: clip(heading.title, 200), destinations: destinations.map((item) => clip(item, 120)),
       startDate, endDate, dateLabel: dateLabel(startDate, endDate), datesSource: view.full ? trip.datesSource : startDate ? "derived" : "unset",
       homeZone: trip.homeZone, state: tripState({ archivedAt: trip.archivedAt, startDate, endDate }, today), travelers: travelers.slice(0, 20).map((name) => clip(name, 120)),
       notes: view.full ? clipNull(trip.notes, 4000) : null,
@@ -183,6 +210,7 @@ export function createReadModel(t: Travel) {
   function reviewRecord(scope: AccessScope, item: ReviewRow, labels = accountLabels()): ReviewItemRecord {
     const booking = item.bookingId ? repo.booking(item.bookingId) : null;
     const trip = (booking?.tripId ? repo.trip(booking.tripId) : null) ?? (item.tripId ? repo.trip(item.tripId) : null);
+    const shownTrip = trip ? tripTitle(scope, trip.id) : null;
     const evidence = item.evidenceIds.map((id) => repo.evidence(id)).filter((row): row is EvidenceRow => !!row && allows(scope, row.sourceKey));
     const proposed = item.proposed ?? {};
     const previous = item.previous ?? {};
@@ -199,9 +227,9 @@ export function createReadModel(t: Travel) {
       }
       const candidate = repo.trip(id);
       if (!candidate) return null;
-      const projected = visibleTrip(scope, candidate);
-      if (!projected.visible) return null;
-      return { id, type: "trip" as const, title: clip(projected.full ? candidate.title : "Shared trip", 200), detail: dateLabel(candidate.startDate, candidate.endDate) };
+      const heading = tripHeading(scope, candidate);
+      if (!heading.visible) return null;
+      return { id, type: "trip" as const, title: clip(heading.title, 200), detail: dateLabel(heading.startDate, heading.endDate) };
     }).filter((value): value is NonNullable<typeof value> => !!value);
     const draft = proposed.draft && typeof proposed.draft === "object" ? sanitizeDraft(proposed.draft as BookingDraft) : null;
     const prefill = prefillOf((proposed.partial ?? null) as { stay?: Record<string, unknown>; segments?: Record<string, unknown>[] } | null);
@@ -217,7 +245,7 @@ export function createReadModel(t: Travel) {
     return {
       id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt, revision: item.revision, kind: item.kind, kindLabel: REVIEW_LABELS[item.kind],
       headline: clip(headline, 300), reason: clip(item.reason, 600),
-      bookingId: item.bookingId, bookingTitle: clipNull(booking?.title, 200), tripId: trip?.id ?? null, tripTitle: clipNull(trip?.title, 200),
+      bookingId: item.bookingId, bookingTitle: clipNull(booking?.title, 200), tripId: shownTrip !== null ? trip!.id : null, tripTitle: clipNull(shownTrip, 200),
       candidates, comparison: comparison.slice(0, 40), correctionConflict,
       draft, prefill, missing: ((proposed.missing as string[] | undefined) ?? []).slice(0, 30).map((value) => clip(value, 60)),
       passages: ((proposed.passages as string[] | undefined) ?? []).slice(0, 20).map((value) => clip(value, 600)),
@@ -343,7 +371,7 @@ export function createReadModel(t: Travel) {
     };
   }
 
-  return { bookingRecord, tripRecord, stripCoverage, visibleTrip, reviewRecord, ideaRecord, followUpRecord, tripDetail, calendarState, sourceRef, accountLabels, bookingSummary };
+  return { bookingRecord, tripRecord, tripHeading, tripTitle, historyTrip, stripCoverage, visibleTrip, reviewRecord, ideaRecord, followUpRecord, tripDetail, calendarState, sourceRef, accountLabels, bookingSummary };
 }
 export type ReadModel = ReturnType<typeof createReadModel>;
 

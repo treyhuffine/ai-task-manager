@@ -428,17 +428,33 @@ export async function gmailSyncStep(options: MailSyncOptions): Promise<MailStepR
   const lane: "history" | "backfill" = checkpoint.backfill.complete ? "history" : checkpoint.lane === "history" ? "backfill" : "history";
   let bodies = 0, metadata = 0;
 
+  // A message can be deleted after it was listed, even later in the same history
+  // page. Its fetch then reports not_found: record it as gone and keep going,
+  // so the page and its checkpoint still complete.
+  const gone = (id: string, threadId: string) => { options.skip(id, threadId); options.removed(id); result.removed++; return true; };
+  const read = async (name: string, input: unknown) => {
+    try {
+      return await options.invocation.capability(name, input, target);
+    } catch (error) {
+      if ((error as AppError)?.code === "not_found") return null;
+      throw error;
+    }
+  };
   const process = async (id: string, threadId: string, mode: "full" | "headers") => {
     if (options.seen(id)) return true;
     if (mode === "headers" && options.relevant) {
       if (metadata >= maxMetadata) return false;
       metadata++;
-      const headers = parseMetadata(await options.invocation.capability("gmail.get_message", { messageId: id, format: "metadata" }, target));
+      const raw = await read("gmail.get_message", { messageId: id, format: "metadata" });
+      if (raw === null) return gone(id, threadId);
+      const headers = parseMetadata(raw);
       if (!options.relevant(headers)) { options.skip(id, threadId); result.skipped++; return true; }
     }
     if (bodies >= maxBodies || !budgetLeft()) return false;
     bodies++;
-    const message = parseGmailMessage(await options.invocation.capability("gmail.read_message", { messageId: id }, target));
+    const raw = await read("gmail.read_message", { messageId: id });
+    if (raw === null) return gone(id, threadId);
+    const message = parseGmailMessage(raw);
     await options.ingest(message);
     result.read++;
     if (!checkpoint.backfill.oldestAt || message.receivedAt < checkpoint.backfill.oldestAt)

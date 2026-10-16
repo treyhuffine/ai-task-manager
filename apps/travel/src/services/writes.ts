@@ -169,7 +169,7 @@ export function createWrites(t: Travel) {
       const from = booking.tripId ? repo.trip(booking.tripId)?.title ?? "another trip" : "Unassigned";
       repo.updateBooking(booking.id, { tripId: target?.id ?? null });
       if (target) t.ingest(actor).absorb(target.id, repo.booking(booking.id)!);
-      repo.addChange({ bookingId: booking.id, evidenceId: null, kind: "moved", fields: [{ field: "trip", label: "Trip", before: from, after: target?.title ?? "Unassigned" }], actor, sourceKey: MANUAL_SOURCE, note: "Moved by you. Sources and corrections stay with the booking." });
+      repo.addChange({ bookingId: booking.id, evidenceId: null, kind: "moved", fields: [{ field: "trip", label: "Trip", before: from, after: target?.title ?? "Unassigned", beforeId: booking.tripId, afterId: target?.id ?? null }], actor, sourceKey: MANUAL_SOURCE, note: "Moved by you. Sources and corrections stay with the booking." });
       if (target) repo.supersedeReviews(booking.id, ["assign"], actor);
       changed = true;
     }
@@ -258,7 +258,7 @@ export function createWrites(t: Travel) {
           const trip = writableTrip(scope, input.tripId);
           repo.updateBooking(booking.id, { tripId: trip.id });
           ingest.absorb(trip.id, booking);
-          repo.addChange({ bookingId: booking.id, evidenceId: null, kind: "moved", fields: [{ field: "trip", label: "Trip", before: "Unassigned", after: trip.title }], actor, sourceKey: MANUAL_SOURCE, note: "Added to a trip from Review." });
+          repo.addChange({ bookingId: booking.id, evidenceId: null, kind: "moved", fields: [{ field: "trip", label: "Trip", before: "Unassigned", after: trip.title, beforeId: null, afterId: trip.id }], actor, sourceKey: MANUAL_SOURCE, note: "Added to a trip from Review." });
           repo.bumpBooking(booking.id);
           tripId = trip.id;
           message = `${booking.title} is in ${trip.title}.`;
@@ -266,7 +266,7 @@ export function createWrites(t: Travel) {
           if (!allows(scope, MANUAL_SOURCE) && !allows(scope, booking.sourceKey)) throw new AppError("forbidden", "This caller may not add trips");
           const trip = ingest.createTripFor(booking, input.newTripTitle ?? null, booking.fictional);
           repo.updateBooking(booking.id, { tripId: trip.id });
-          repo.addChange({ bookingId: booking.id, evidenceId: null, kind: "moved", fields: [{ field: "trip", label: "Trip", before: "Unassigned", after: trip.title }], actor, sourceKey: MANUAL_SOURCE, note: "Started a new trip from Review." });
+          repo.addChange({ bookingId: booking.id, evidenceId: null, kind: "moved", fields: [{ field: "trip", label: "Trip", before: "Unassigned", after: trip.title, beforeId: null, afterId: trip.id }], actor, sourceKey: MANUAL_SOURCE, note: "Started a new trip from Review." });
           repo.bumpBooking(booking.id);
           tripId = trip.id;
           message = `${booking.title} starts a new trip, ${trip.title}.`;

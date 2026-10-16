@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { calendarGrant, cleanup, fakeConnectors, gmailAccount, harness, instance, job, mailGrant, owner, type FakeMail, type GmailAccount } from "./helpers.js";
+import { calendarGrant, cleanup, fakeConnectors, gmailAccount, harness, instance, job, mailGrant, owner, type FakeMail } from "./helpers.js";
 import * as fx from "../src/fixtures/messages.js";
 import { GMAIL_QUERY, headerRelevant } from "../src/services/sync.js";
 import { openTravel } from "../src/services/core.js";

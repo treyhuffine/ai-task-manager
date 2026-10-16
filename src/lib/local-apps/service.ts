@@ -1603,6 +1603,14 @@ export class LocalAppsService {
         "not_found",
         "Gmail history checkpoint expired (404). Restart the bounded mailbox scan",
       );
+    // A message deleted after it was listed is unavailable evidence, not a failed step.
+    if (
+      !result.ok &&
+      result.reason === "error" &&
+      result.status === 404 &&
+      (call.name === "gmail.read_message" || call.name === "gmail.get_message" || call.name === "gmail.get_attachment")
+    )
+      throw new AppError("not_found", "This message is no longer in the mailbox");
     if (
       !result.ok &&
       result.reason === "error" &&

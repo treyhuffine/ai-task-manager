@@ -6,8 +6,8 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { AppError } from '@ri/app-kit/contract';
-import { openAppDatabase, type Bootstrap } from '@ri/app-kit/sdk';
-import { createBlobStore, createJobQueue, createScopeStore, createSettings, migrate, nowIso, type BlobStore, type JobQueue, type ScopeStore, type SqlDatabase } from '@ri/app-kit/data';
+import { openAppDatabase, type AppInvocation, type Bootstrap } from '@ri/app-kit/sdk';
+import { createBlobStore, createJobQueue, createScopeStore, createSettings, migrate, nowIso, scopeFingerprint, type AccessScope, type BlobStore, type JobQueue, type ScopeStore, type SqlDatabase } from '@ri/app-kit/data';
 import { createAccountStore, createMailIndex, type AccountStore, type MailIndex } from '@ri/app-kit/sources';
 import { z } from 'zod/v4';
 import { MIGRATIONS } from './migrations.js';
@@ -48,19 +48,39 @@ export async function openState(boot: Pick<Bootstrap, 'dataDir' | 'instanceId'>)
   db.exec('PRAGMA busy_timeout = 5000');
   migrate(db, MIGRATIONS);
   const instanceId = boot.instanceId;
+  const scopes = createScopeStore(db, () => instanceId);
+  // A saved write result holds data the caller could see when it was written. A replay by
+  // anyone but the owner is refused unless the caller's sources are still exactly the same.
+  store.useAuthority((invocation) => authorityKey(scopes, invocation));
   state = {
     instanceId,
     dataDir: boot.dataDir,
     store,
     db,
     blobs: createBlobStore(path.join(boot.dataDir, 'blobs')),
-    scopes: createScopeStore(db, () => instanceId),
+    scopes,
     jobs: createJobQueue(db),
     accounts: createAccountStore(db),
     mail: createMailIndex(db),
     settings: createSettings(db),
   };
   return state;
+}
+
+/**
+ * The data authority a write receipt is keyed to: the exact set of sources
+ * the caller may use. A revoked or foreign scope throws, which refuses a
+ * replay just like a new call. A write-only scope is keyed by its sources too.
+ */
+export function authorityKey(scopes: ScopeStore, invocation: Pick<AppInvocation, 'principal' | 'access'>): string {
+  let scope: AccessScope;
+  try {
+    scope = scopes.resolve(invocation, 'read');
+  } catch (error) {
+    if ((error as AppError)?.code !== 'forbidden') throw error;
+    scope = scopes.resolve(invocation, 'write');
+  }
+  return scopeFingerprint(scope);
 }
 
 export function closeState() {

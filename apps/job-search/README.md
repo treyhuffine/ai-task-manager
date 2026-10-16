@@ -45,7 +45,7 @@ Reads are paginated (limit 50 by default, 100 at most) and filtered by the calle
 
 ## Access
 
-The owner's view sees everything. A chat sees only the collections and accounts its scope names: "Saved jobs, interviews and preparation" (`manual`), "Résumés and other materials" (`materials`) and each account (`account:<connection>`). A stage, next event, last activity or count that a chat sees is computed only from sources it may see. A chat with no scope is refused. The schedule sees only its automatically updated accounts.
+The owner's view sees everything. A chat sees only the collections and accounts its scope names: "Saved jobs, interviews and preparation" (`manual`), "Résumés and other materials" (`materials`) and each account (`account:<connection>`). A stage, next event, last activity or count that a chat sees is computed only from sources it may see. Contacts learned from an account appear only to readers of that account. AI preparation suggestions appear only to readers of every source the model was given for that run, whatever the suggestion cites. A repeated write is answered from its saved result only while the caller's sources are unchanged. A chat with no scope is refused. The schedule sees only its automatically updated accounts.
 
 ## Limits
 

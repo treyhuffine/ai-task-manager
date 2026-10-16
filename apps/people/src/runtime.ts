@@ -1,12 +1,13 @@
 import path from 'node:path';
 import { AppError } from '@ri/app-kit/contract';
-import { actorOf, migrate, type AccessScope } from '@ri/app-kit/data';
+import { actorOf, migrate, scopeFingerprint, type AccessScope } from '@ri/app-kit/data';
 import { openAppDatabase, type AppInvocation, type Bootstrap } from '@ri/app-kit/sdk';
 import { FIXTURE_ACCOUNTS } from './fixtures/seed.js';
 import { createContext, type Ctx } from './domain/context.js';
 import { MIGRATIONS } from './domain/schema.js';
 import { resolveScope } from './domain/scope.js';
 import { ensureDefaultCollection } from './domain/sources.js';
+import { ensureSearchIndex } from './domain/reindex.js';
 
 /**
  * The app's single database context. Opened in `initialize`, never at import,
@@ -26,7 +27,13 @@ export async function openContext(boot: Pick<Bootstrap, 'dataDir' | 'instanceId'
     instanceId: boot.instanceId,
     now: options.now,
   });
+  // A cached write is returned on retry only while the caller's data scope is
+  // exactly what it was when the write happened. A narrowed, replaced or
+  // revoked scope refuses the replay (resolve throws for a revoked one).
+  store.useAuthority((invocation) => scopeFingerprint(ctx.scopes.resolve(invocation, 'read')));
   ctx.db.tx(() => ensureDefaultCollection(ctx));
+  // Rows written under older search rules are rebuilt once, guarded by a stored version.
+  ensureSearchIndex(ctx);
   return ctx;
 }
 

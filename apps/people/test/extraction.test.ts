@@ -165,7 +165,10 @@ describe('relationship extraction', () => {
     const maya = (await call('list_people', { limit: 10 }, me)).items[0];
     expect((await call('request_briefing', { subjectKind: 'person', subjectId: maya.id }, me)).availability).toBe('queued');
     expect((await call('request_briefing', { subjectKind: 'person', subjectId: maya.id }, me)).jobId).toBeTruthy();
+    // The schedule leaves an owner-scope briefing for the owner's own step.
     await steps(scheduled);
+    expect((await call('get_briefing', { subjectKind: 'person', subjectId: maya.id }, me)).status).toBe('pending');
+    expect((await call('continue_import', { source: 'briefings' }, me)).ran).toEqual({ kind: 'briefing', source: 'briefings' });
     const ready = await call('get_briefing', { subjectKind: 'person', subjectId: maya.id }, me);
     expect(ready.origin).toBe('generated');
     expect(ready.items[0].text).toBe('You offered an introduction.');

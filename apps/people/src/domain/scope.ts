@@ -29,6 +29,29 @@ export function sourceFilter(scope: AccessScope, column: string): { sql: string;
   return { sql: `${column} IN (${sources.map(() => '?').join(',')})`, params: sources };
 }
 
+/**
+ * Opportunities are visible only when both the opportunity's collection and
+ * its pipeline's collection are allowed. A shared opportunity in a private
+ * pipeline would otherwise reveal the pipeline's name, stages and history.
+ * `alias` names the opportunities row in the surrounding query.
+ */
+export function opportunityFilter(scope: AccessScope, alias: string): { sql: string; params: Param[] } {
+  if (scope.kind === 'owner') return { sql: '1', params: [] };
+  const own = sourceFilter(scope, `${alias}.collection`);
+  const pipeline = sourceFilter(scope, 'visible_pipeline.collection');
+  return {
+    sql: `(${own.sql} AND EXISTS (SELECT 1 FROM pipelines visible_pipeline WHERE visible_pipeline.id = ${alias}.pipeline_id AND ${pipeline.sql}))`,
+    params: [...own.params, ...pipeline.params],
+  };
+}
+export function canSeeOpportunity(ctx: Ctx, scope: AccessScope, row: { collection: string; pipeline_id: string } | null | undefined): boolean {
+  if (!row) return false;
+  if (scope.kind === 'owner') return true;
+  if (!canSee(scope, row.collection)) return false;
+  const pipeline = ctx.db.get<{ collection: string }>('SELECT collection FROM pipelines WHERE id = ?', row.pipeline_id);
+  return !!pipeline && canSee(scope, pipeline.collection);
+}
+
 /** Where a caller's new user-authored record goes. Chats write only to a collection they were given. */
 export function writableCollection(ctx: Ctx, scope: AccessScope, requested?: string | null): string {
   const collection = requested ?? defaultCollection(scope);

@@ -1,6 +1,6 @@
 import type { AccessScope } from '@ri/app-kit/data';
 import type { Ctx } from './context.js';
-import { canSee, sourceFilter } from './scope.js';
+import { canSee, opportunityFilter, sourceFilter } from './scope.js';
 import type { Labels } from './coverage.js';
 import type { NextAction } from '../schemas.js';
 
@@ -65,6 +65,20 @@ export function organizationName(ctx: Ctx, scope: AccessScope, organization: Pic
   const row = ctx.db.get<{ name: string }>(`SELECT name FROM organization_sources WHERE organization_id = ? AND name IS NOT NULL AND ${filter.sql} ORDER BY name_rank ASC, name_at DESC LIMIT 1`, organization.id, ...filter.params);
   return row?.name ?? 'Unnamed organization';
 }
+/**
+ * An organization's name as one source knows it, for search text indexed
+ * under that source: the display name when that source supplied it,
+ * otherwise the name the source itself contributed, otherwise none. The same
+ * rule as `organizationName` for a reader holding only that source, so a
+ * shared source never indexes a name kept in a private collection.
+ */
+export function organizationNameFor(ctx: Ctx, organizationId: string, source: string): string | null {
+  const organization = ctx.db.get<{ display_name: string; name_source: string | null }>('SELECT display_name, name_source FROM organizations WHERE id = ?', organizationId);
+  if (!organization) return null;
+  if (organization.name_source === source) return organization.display_name;
+  return ctx.db.get<{ name: string }>('SELECT name FROM organization_sources WHERE organization_id = ? AND source_key = ? AND name IS NOT NULL', organizationId, source)?.name ?? null;
+}
+
 export function personNameById(ctx: Ctx, scope: AccessScope, personId: string): string | null {
   const person = ctx.db.get<PersonCore & { merged_into: string | null }>('SELECT * FROM persons WHERE id = ?', personId);
   if (!person || person.merged_into || !personVisible(ctx, scope, personId)) return null;
@@ -157,7 +171,7 @@ export function nextActionFor(ctx: Ctx, scope: AccessScope, subject: { kind: 'pe
     if (row.snoozed_until && row.snoozed_until > today) continue;
     if (row.direction === 'i_owe') candidates.push({ label: row.action, dueDate: row.due_date, kind: 'commitment' });
   }
-  const opportunities = sourceFilter(scope, 'o.collection');
+  const opportunities = opportunityFilter(scope, 'o');
   const opportunityRows = subject.kind === 'person'
     ? ctx.db.all<{ next_action: string | null; next_action_date: string | null }>(
       `SELECT o.next_action, o.next_action_date FROM opportunity_people op JOIN opportunities o ON o.id = op.opportunity_id JOIN pipeline_stages s ON s.id = o.stage_id

@@ -4,7 +4,7 @@ import type { AppInvocation } from '@ri/app-kit/sdk';
 import { z } from 'zod/v4';
 import { iso, newId, type Ctx } from './context.js';
 import { organizationVisible, personVisible } from './projection.js';
-import { canSee, touch, writableCollection } from './scope.js';
+import { canSee, canSeeOpportunity, touch, writableCollection } from './scope.js';
 import { cleanText, isLocalDate } from './text.js';
 import { projectTaskLink } from './commitments.js';
 import type { TaskLink } from '../schemas.js';
@@ -29,8 +29,8 @@ function subjectCollection(ctx: Ctx, scope: AccessScope, subject: FollowUpInput[
       return null;
     }
     case 'opportunity': {
-      const row = ctx.db.get<{ collection: string }>('SELECT collection FROM opportunities WHERE id = ?', subject.id);
-      if (!row || !canSee(scope, row.collection)) throw new AppError('not_found', 'This opportunity is no longer available');
+      const row = ctx.db.get<{ collection: string; pipeline_id: string }>('SELECT collection, pipeline_id FROM opportunities WHERE id = ?', subject.id);
+      if (!row || !canSeeOpportunity(ctx, scope, row)) throw new AppError('not_found', 'This opportunity is no longer available');
       return row.collection;
     }
   }

@@ -101,18 +101,32 @@ export function PersonWorkspace({ id, headingLevel = 2 }: { id: string; headingL
 function BriefingCard({ briefing, error, detail, reload }: { briefing: Briefing | undefined; error: string | null; detail: PersonDetail; reload(): void }) {
   const ui = usePeople();
   const request = useSave<{ status: string; jobId: string | null; availability: string }>('request_briefing');
+  const step = useSave<{ ran: { kind: string; source: string } | null; more: boolean; summary: string }>('continue_import');
   const announce = useAnnounce();
+  // The owner's Prepare runs the owner's own briefing step now. A schedule only runs briefings inside its accounts, so it may never reach this one.
+  const prepare = async () => {
+    const result = await request.run({ subjectKind: 'person', subjectId: detail.person.id });
+    request.reset();
+    if (result.availability !== 'queued') { announce(result.availability === 'ready' ? 'Briefing is up to date' : 'Extraction unavailable'); reload(); return; }
+    if (!ui.data.owner) { announce('Briefing queued. It appears after the next update'); reload(); return; }
+    let prepared = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const ran = await step.run({ source: 'briefings' }).catch(() => null);
+      step.reset();
+      if (!ran?.ran) break;
+      if (ran.summary.startsWith('Prepared a briefing about')) prepared = true;
+      if (!ran.more) break;
+    }
+    announce(prepared ? 'Briefing prepared' : 'Briefing queued. It appears after the next update');
+    reload();
+  };
   const commitments = detail.commitments;
   return (
     <section className="pe-briefing" aria-label={briefing?.title ?? 'Recent context'}>
       <div className="pe-row pe-between">
         <h3 className="ri-h3">{briefing?.title ?? 'Recent context'}</h3>
         {briefing && briefing.coverage.extraction === 'on' && briefing.origin !== 'generated' && (
-          <Button size="sm" variant="quiet" busy={request.pending} onClick={async () => {
-            const result = await request.run({ subjectKind: 'person', subjectId: detail.person.id });
-            announce(result.availability === 'queued' ? 'Briefing queued. It appears after the next update' : result.availability === 'ready' ? 'Briefing is up to date' : 'Extraction unavailable');
-            reload();
-          }}>Prepare briefing</Button>
+          <Button size="sm" variant="quiet" busy={request.pending || step.pending} onClick={() => void prepare()}>Prepare briefing</Button>
         )}
       </div>
       {error && !briefing ? <InlineError>{error}</InlineError> : !briefing ? <Loading label="Loading briefing" /> : (

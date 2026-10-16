@@ -5,7 +5,7 @@ import { iso, newId, type Ctx, type Param } from './context.js';
 import type { Labels } from './coverage.js';
 import { decisionsForItem, decisionsForSubject, recordDecision } from './decisions.js';
 import { longDate, organizationRef, personRef } from './projection.js';
-import { assertWritable, canSee, sourceFilter, touch, writableCollection } from './scope.js';
+import { assertWritable, canSee, canSeeOpportunity, sourceFilter, touch, writableCollection } from './scope.js';
 import { cleanText, fingerprintText, isLocalDate, similarity } from './text.js';
 import type { Commitment, TaskLink } from '../schemas.js';
 
@@ -205,7 +205,7 @@ export function projectCommitment(ctx: Ctx, scope: AccessScope, row: CommitmentR
   const person = personRef(ctx, scope, row.person_id);
   const organization = organizationRef(ctx, scope, row.organization_id);
   if (row.person_id && !person && !organization) return null;
-  const opportunity = row.opportunity_id ? ctx.db.get<{ id: string; title: string; collection: string }>('SELECT id, title, collection FROM opportunities WHERE id = ?', row.opportunity_id) : undefined;
+  const opportunity = row.opportunity_id ? ctx.db.get<{ id: string; title: string; collection: string; pipeline_id: string }>('SELECT id, title, collection, pipeline_id FROM opportunities WHERE id = ?', row.opportunity_id) : undefined;
   const occurred = row.interaction_id ? ctx.db.get<{ occurred_at: string }>('SELECT occurred_at FROM interactions WHERE id = ?', row.interaction_id)?.occurred_at ?? null : null;
   const evidence = row.evidence_id ? ctx.db.get<{ status: string }>('SELECT status FROM evidence WHERE id = ?', row.evidence_id) : undefined;
   const link = row.task_link_id ? ctx.db.get<Record<string, unknown>>('SELECT * FROM task_links WHERE id = ?', row.task_link_id) : ctx.db.get<Record<string, unknown>>("SELECT * FROM task_links WHERE subject_kind = 'commitment' AND subject_id = ? ORDER BY created_at DESC LIMIT 1", row.id);
@@ -218,7 +218,7 @@ export function projectCommitment(ctx: Ctx, scope: AccessScope, row: CommitmentR
     direction: row.direction,
     person,
     organization,
-    opportunity: opportunity && canSee(scope, opportunity.collection) ? { id: opportunity.id, name: opportunity.title } : null,
+    opportunity: opportunity && canSeeOpportunity(ctx, scope, opportunity) ? { id: opportunity.id, name: opportunity.title } : null,
     actorLabel: row.direction === 'i_owe' ? 'You' : person?.name ?? organization?.name ?? row.actor_label,
     recipientLabel: row.direction === 'i_owe' ? person?.name ?? organization?.name ?? row.recipient_label : 'You',
     action: row.action,
@@ -284,8 +284,8 @@ export function listFollowUps(ctx: Ctx, scope: AccessScope, input: { filter: 'i_
     for (const row of ctx.db.all<Record<string, unknown> & { k: string }>(`SELECT *, ${taskKey} AS k FROM task_links WHERE ${tw.join(' AND ')} ${cursor ? `AND (${taskKey}, id) > (?, ?)` : ''} ORDER BY k, id LIMIT ?`, ...tp, ...(cursor ? [cursor.k, cursor.id] : []), input.limit + 1)) {
       const subjectKind = String(row.subject_kind), subjectId = String(row.subject_id);
       const subject = subjectKind === 'person' ? personRef(ctx, scope, subjectId) : subjectKind === 'organization' ? organizationRef(ctx, scope, subjectId) : (() => {
-        const opp = ctx.db.get<{ id: string; title: string; collection: string }>('SELECT id, title, collection FROM opportunities WHERE id = ?', subjectId);
-        return opp && canSee(scope, opp.collection) ? { id: opp.id, name: opp.title } : null;
+        const opp = ctx.db.get<{ id: string; title: string; collection: string; pipeline_id: string }>('SELECT id, title, collection, pipeline_id FROM opportunities WHERE id = ?', subjectId);
+        return opp && canSeeOpportunity(ctx, scope, opp) ? { id: opp.id, name: opp.title } : null;
       })();
       entries.push({ k: row.k, id: String(row.id), t: 't', item: { kind: 'task', task: projectTaskLink(row), subject: subject ? { kind: subjectKind, ...subject } : null } });
     }

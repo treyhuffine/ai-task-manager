@@ -31,17 +31,23 @@ import { linkCorrespondence, replyOpportunities, setMatchState, threadIgnored, t
 import { applySourceUpdate, insertInterview, markSourceRemoved, sourceValuesOf, type InterviewValues } from './interviews.js';
 import { groupIgnored, upsertReview } from './review.js';
 import { json, num, opt, str, type Row } from './util.js';
+import { matchingIdentity, matchingSources } from './contacts.js';
 
 export const EXTRACTION_VERSION = 1;
 export const AUTOMATIC = 'automatic';
 
-export function opportunityIdentities(): OpportunityIdentity[] {
+/**
+ * Saved roles as matching sees them for an item from one source. Contacts and
+ * domains count only when the person entered them or that same account taught
+ * them, so a match stored with this item never reflects another account.
+ */
+export function opportunityIdentities(sourceKey: string): OpportunityIdentity[] {
+  const sources = matchingSources(sourceKey);
   return app().db.prepare('SELECT id, company, role, company_domains, contacts, requisition_id, source_url, archived_at FROM opportunities ORDER BY created_at LIMIT 5000').all().map((row) => ({
     id: str(row.id),
     company: str(row.company),
     role: str(row.role),
-    domains: json<string[]>(row.company_domains, []),
-    contacts: json<{ email: string }[]>(row.contacts, []).map((contact) => contact.email),
+    ...matchingIdentity(row, sources),
     requisitionId: opt(row.requisition_id),
     sourceUrl: opt(row.source_url),
     archived: !!row.archived_at,
@@ -145,10 +151,10 @@ export function ingestMessage(message: MailMessage, context: MailContext): Inges
   const own = context.ownAddress ? normalizeEmail(context.ownAddress).toLowerCase() : null;
   const addresses = [message.from, ...message.to, ...message.cc].filter((item): item is NonNullable<typeof item> => !!item).map((item) => item.normalized).filter((address) => address.toLowerCase() !== own);
   const linkedByThread = threadOpportunities(context.account, message.threadId);
-  const linkedByReply = replyOpportunities([message.inReplyTo ?? '', ...message.references]);
+  const linkedByReply = replyOpportunities(context.account, [message.inReplyTo ?? '', ...message.references]);
   const uid = message.invite?.uid ?? null;
   const linkedByInvite = uid ? db.prepare('SELECT DISTINCT opportunity_id FROM interviews WHERE ical_uid = ?').all(uid).map((row) => str(row.opportunity_id)) : [];
-  const identities = opportunityIdentities();
+  const identities = opportunityIdentities(sourceKey);
   const knownContact = addresses.some((address) => identities.some((identity) => identity.contacts.includes(address)));
   const linked = linkedByThread.length + linkedByReply.length + linkedByInvite.length > 0;
   const signals = extractSignals(facts);
@@ -394,7 +400,7 @@ export function ingestCalendarEvent(event: CalendarEvent, context: CalendarConte
   }
   const text = `${event.summary ?? ''}\n${event.description ?? ''}\n${event.location ?? ''}`;
   const addresses = values.participants.filter((participant) => participant.role !== 'self' && participant.email).map((participant) => participant.email!);
-  const identities = opportunityIdentities();
+  const identities = opportunityIdentities(sourceKey);
   const result = matchOpportunity({
     subject: event.summary ?? '', text: `${event.description ?? ''}\n${event.location ?? ''}`, fromName: event.organizer?.displayName ?? null, addresses,
     urls: extractUrls(text), requisitionIds: extractRequisitionIds(text), roleTitles: extractRoleTitles(event.summary ?? '', event.description ?? ''), linkedByThread: [], linkedByReply: [], linkedByInvite: [],

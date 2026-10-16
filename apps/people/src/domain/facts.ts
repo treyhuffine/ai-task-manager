@@ -4,7 +4,7 @@ import { iso, newId, type Ctx } from './context.js';
 import type { Labels } from './coverage.js';
 import { decisionsForItem, decisionsForSubject, findDecision, recordDecision } from './decisions.js';
 import { longDate, organizationRef, personRef } from './projection.js';
-import { canSee, sourceFilter, touch } from './scope.js';
+import { canSee, canSeeOpportunity, sourceFilter, touch } from './scope.js';
 import { fingerprintText, json } from './text.js';
 import type { Fact } from '../schemas.js';
 
@@ -91,8 +91,8 @@ export function projectFact(ctx: Ctx, scope: AccessScope, row: FactRow, labels: 
   };
 }
 function opportunityTitle(ctx: Ctx, scope: AccessScope, id: string) {
-  const row = ctx.db.get<{ id: string; title: string; collection: string }>('SELECT id, title, collection FROM opportunities WHERE id = ?', id);
-  return row && canSee(scope, row.collection) ? { id: row.id, name: row.title } : null;
+  const row = ctx.db.get<{ id: string; title: string; collection: string; pipeline_id: string }>('SELECT id, title, collection, pipeline_id FROM opportunities WHERE id = ?', id);
+  return row && canSeeOpportunity(ctx, scope, row) ? { id: row.id, name: row.title } : null;
 }
 
 export function factsFor(ctx: Ctx, scope: AccessScope, subjectKind: string, subjectId: string, labels: Labels, statuses: string[] = ['suggested', 'active']): Fact[] {

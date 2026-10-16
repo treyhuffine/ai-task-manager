@@ -296,8 +296,25 @@ export async function openAppDatabase(file: string) {
   db.exec(
     "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS app_invocations (id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, input_digest TEXT NOT NULL, result TEXT NOT NULL)",
   );
+  // Receipts written before authority keys existed have none, so a scoped caller cannot replay them.
+  if (!(db.prepare("PRAGMA table_info(app_invocations)").all() as { name: string }[]).some((column) => column.name === "authority"))
+    db.exec("ALTER TABLE app_invocations ADD COLUMN authority TEXT");
+  /** The caller's current data authority. Apps with scopes supply a stronger key through useAuthority. */
+  let authorityOf = (invocation: AppInvocation) =>
+    JSON.stringify({
+      scopeRef: invocation.access?.scopeRef ?? null,
+      accounts: (invocation.access?.accounts ?? []).map((item) => `${item.binding}:${item.account}`).sort(),
+    });
   return {
     db,
+    /**
+     * Key a receipt to the data authority it was written under, for example
+     * `scopeFingerprint(scopes.resolve(invocation, "read"))`. The function may
+     * throw (a revoked scope), which refuses a replay just like a new call.
+     */
+    useAuthority(key: (invocation: AppInvocation) => string) {
+      authorityOf = key;
+    },
     mutate<T>(
       invocation: AppInvocation,
       action: string,
@@ -310,9 +327,10 @@ export async function openAppDatabase(file: string) {
       db.exec("BEGIN IMMEDIATE");
       try {
         const actor = JSON.stringify(invocation.principal);
+        const authority = authorityOf(invocation);
         const prior = db
           .prepare(
-            "SELECT actor,action,input_digest,result FROM app_invocations WHERE id=?",
+            "SELECT actor,action,input_digest,result,authority FROM app_invocations WHERE id=?",
           )
           .get(invocation.id);
         if (prior) {
@@ -325,13 +343,21 @@ export async function openAppDatabase(file: string) {
               "conflict",
               "This invocation ID belongs to a different change",
             );
+          // A cached result holds data the caller could see when it was written.
+          // Return it only while that authority is unchanged. The write itself is never repeated.
+          const owner = invocation.principal.kind === "owner-ui" || invocation.principal.kind === "fixture";
+          if (!owner && prior.authority !== authority)
+            throw new AppError(
+              "conflict",
+              "Your access changed after this change was saved. Reload to see what you can view now",
+            );
           db.exec("COMMIT");
           return JSON.parse(String(prior.result)) as T;
         }
         const result = operation();
         db.prepare(
-          "INSERT INTO app_invocations (id,actor,action,input_digest,result) VALUES (?,?,?,?,?)",
-        ).run(invocation.id, actor, action, digest, JSON.stringify(result));
+          "INSERT INTO app_invocations (id,actor,action,input_digest,result,authority) VALUES (?,?,?,?,?,?)",
+        ).run(invocation.id, actor, action, digest, JSON.stringify(result), authority);
         db.exec("COMMIT");
         return result;
       } catch (error) {

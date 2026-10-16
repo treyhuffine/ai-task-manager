@@ -5,7 +5,7 @@ import type { Ctx, Param } from './context.js';
 import { Labels } from './coverage.js';
 import { peopleQuery } from './people.js';
 import { organizationQuery } from './organizations.js';
-import { canSee, sourceFilter } from './scope.js';
+import { canSee, opportunityFilter, sourceFilter } from './scope.js';
 import { DEFAULT_SORT, getView } from './views.js';
 import type { OrganizationFilters, PeopleFilters } from '../schemas.js';
 
@@ -97,7 +97,7 @@ export function exportPart(ctx: Ctx, scope: AccessScope, input: { table: ExportT
     },
     opportunities: {
       columns: ['id', 'title', 'pipeline_id', 'stage_id', 'organization_id', 'person_ids', 'target_date', 'value_minor', 'currency', 'next_action', 'next_action_date', 'archived', 'closed_at', 'collection', 'revision'],
-      fetch: (from) => { const s = f('collection'); return ctx.db.all(`SELECT * FROM opportunities WHERE id > ? AND ${s.sql} ORDER BY id LIMIT ?`, from, ...s.params, PAGE); },
+      fetch: (from) => { const s = opportunityFilter(scope, 'o'); return ctx.db.all(`SELECT o.* FROM opportunities o WHERE o.id > ? AND ${s.sql} ORDER BY o.id LIMIT ?`, from, ...s.params, PAGE); },
       row: (row) => {
         const people = ctx.db.all<{ person_id: string }>('SELECT person_id FROM opportunity_people WHERE opportunity_id = ?', String(row.id)).map((item) => item.person_id).join('; ');
         return [row.id, row.title, row.pipeline_id, row.stage_id, row.organization_id, people, row.target_date, row.value_minor, row.currency, row.next_action, row.next_action_date, row.archived_at ? 1 : 0, row.closed_at, row.collection, row.revision];
@@ -110,7 +110,7 @@ export function exportPart(ctx: Ctx, scope: AccessScope, input: { table: ExportT
     },
     stage_history: {
       columns: ['id', 'opportunity_id', 'from_pipeline_id', 'from_stage_id', 'to_pipeline_id', 'to_stage_id', 'actor', 'at', 'reason', 'evidence_id'],
-      fetch: (from) => { const s = f('o.collection'); return ctx.db.all(`SELECT c.* FROM stage_changes c JOIN opportunities o ON o.id = c.opportunity_id WHERE c.id > ? AND ${s.sql} ORDER BY c.id LIMIT ?`, from, ...s.params, PAGE); },
+      fetch: (from) => { const s = opportunityFilter(scope, 'o'); return ctx.db.all(`SELECT c.* FROM stage_changes c JOIN opportunities o ON o.id = c.opportunity_id WHERE c.id > ? AND ${s.sql} ORDER BY c.id LIMIT ?`, from, ...s.params, PAGE); },
       row: (row) => [row.id, row.opportunity_id, row.from_pipeline_id, row.from_stage_id, row.to_pipeline_id, row.to_stage_id, row.actor, row.created_at, row.reason, row.evidence_id],
     },
     notes: {

@@ -1,5 +1,5 @@
 import { AppError } from '@ri/app-kit/contract';
-import { redact } from '@ri/app-kit/data';
+import { redact, type AccessScope } from '@ri/app-kit/data';
 import type { AppInvocation } from '@ri/app-kit/sdk';
 import { normalizeEmail } from '@ri/app-kit/sources';
 import { z } from 'zod/v4';
@@ -10,7 +10,7 @@ import { applyResolution, suggestCommitment } from './commitments.js';
 import { suggestFact } from './facts.js';
 import { findKey } from './identity.js';
 import { refreshPerson } from './people.js';
-import { touch } from './scope.js';
+import { opportunityFilter, touch } from './scope.js';
 import { isLocalDate } from './text.js';
 
 /** Queue one conversation for extraction, deduplicated by source revision and extraction version. */
@@ -167,7 +167,7 @@ type WorkItem = { id: string; source_key: string; attempts: number; payload: str
  * One bounded extraction batch: one conversation (the queued message plus up
  * to two earlier messages in its thread). Returns a short summary. Never loops.
  */
-export async function extractOne(ctx: Ctx, invocation: Pick<AppInvocation, 'capability' | 'signal'>, sources: ReadonlySet<string> | null): Promise<{ processed: number; more: boolean; summary: string }> {
+export async function extractOne(ctx: Ctx, invocation: Pick<AppInvocation, 'capability' | 'signal'>, sources: ReadonlySet<string> | null, runner: AccessScope = { kind: 'owner', actorId: 'owner-ui:extraction' }): Promise<{ processed: number; more: boolean; summary: string }> {
   if (!aiAllowed(ctx)) return { processed: 0, more: false, summary: extractionSetting(ctx).status === 'unavailable' ? 'Extraction unavailable' : 'Extraction is off' };
   const pending = ctx.db.all<WorkItem>("SELECT id, source_key, attempts, payload, dedupe_key FROM work_items WHERE kind = 'extract' AND state = 'pending' ORDER BY priority DESC, id LIMIT 50")
     .filter((item) => !sources || sources.has(item.source_key));
@@ -201,8 +201,10 @@ export async function extractOne(ctx: Ctx, invocation: Pick<AppInvocation, 'capa
   const openRows = persons.size ? ctx.db.all<{ id: string; action: string; direction: string; person_id: string }>(
     `SELECT id, action, direction, person_id FROM commitments WHERE person_id IN (${[...persons].map(() => '?').join(',')}) AND state IN ('suggested','accepted') AND source_key = ? ORDER BY created_at DESC LIMIT 10`, ...persons, interaction.source_key) : [];
   const open = new Map(openRows.map((row, index) => [`C${index + 1}`, row.id]));
+  // Only opportunities the runner may see go into the prompt. A schedule holds accounts, not the collections opportunities live in.
+  const visible = opportunityFilter(runner, 'o');
   const opportunityRows = persons.size ? ctx.db.all<{ id: string; title: string; pipeline_id: string; stage_id: string }>(
-    `SELECT DISTINCT o.id, o.title, o.pipeline_id, o.stage_id FROM opportunity_people op JOIN opportunities o ON o.id = op.opportunity_id WHERE op.person_id IN (${[...persons].map(() => '?').join(',')}) AND o.archived_at IS NULL AND o.closed_at IS NULL LIMIT 5`, ...persons) : [];
+    `SELECT DISTINCT o.id, o.title, o.pipeline_id, o.stage_id FROM opportunity_people op JOIN opportunities o ON o.id = op.opportunity_id WHERE op.person_id IN (${[...persons].map(() => '?').join(',')}) AND o.archived_at IS NULL AND o.closed_at IS NULL AND ${visible.sql} LIMIT 5`, ...persons, ...visible.params) : [];
   const opportunities = new Map(opportunityRows.map((row, index) => {
     const stages = ctx.db.all<{ id: string; label: string }>('SELECT id, label FROM pipeline_stages WHERE pipeline_id = ? AND archived_at IS NULL ORDER BY position', row.pipeline_id);
     return [`O${index + 1}`, { id: row.id, title: row.title, current: stages.find((stage) => stage.id === row.stage_id)?.label ?? '', stages: new Map(stages.map((stage) => [stage.label.toLowerCase(), stage.id])), labels: stages.map((stage) => stage.label) }];

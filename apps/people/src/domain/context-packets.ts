@@ -13,7 +13,7 @@ import { getOrganizationRow, listOrganizations, resolveOrganizationId } from './
 import { getPersonRow, listPeople, resolvePersonId } from './people.js';
 import { getOpportunityRow, stageHistory, summarizeOpportunity } from './pipelines.js';
 import { lastExchange, longDate, nextMeeting, organizationName, organizationVisible, personName, personVisible } from './projection.js';
-import { dataRevision } from './scope.js';
+import { dataRevision, opportunityFilter } from './scope.js';
 import { getView } from './views.js';
 import { DEFAULT_SORT } from './views.js';
 import { organizationFiltersSchema, peopleFiltersSchema } from '../schemas.js';
@@ -71,8 +71,8 @@ export function relationshipContext(ctx: Ctx, scope: AccessScope, input: { subje
       items.push({ kind: 'affiliation', text: `${affiliation.personName}${affiliation.role ? `, ${affiliation.role}` : ''}: ${affiliation.status === 'former' ? 'former' : affiliation.confidence === 'confirmed' && affiliation.status === 'current' ? 'current, confirmed by the owner' : 'observed, not confirmed as current'}. ${affiliation.description}.`, date: affiliation.observedAt, state: affiliation.status, evidenceId: affiliation.evidenceId, excerpt: null });
     for (const commitment of companyCommitments(ctx, scope, id, labels))
       items.push({ kind: 'commitment', text: `${commitment.direction === 'i_owe' ? 'The owner' : commitment.actorLabel} ${commitment.direction === 'i_owe' ? 'owes' : 'owes the owner'}: ${commitment.action}. ${commitment.confirmation}.`, date: commitment.occurredAt ?? commitment.createdAt, state: commitment.state, evidenceId: commitment.evidenceId, excerpt: clip(commitment.passage, 300) });
-    const collections = scope.kind === 'owner' ? null : [...scope.sources];
-    for (const row of ctx.db.all<Record<string, unknown>>(`SELECT * FROM opportunities WHERE organization_id = ? AND archived_at IS NULL ${collections ? `AND collection IN (${collections.map(() => '?').join(',') || "''"})` : ''} LIMIT 5`, id, ...(collections ?? []))) {
+    const visible = opportunityFilter(scope, 'o');
+    for (const row of ctx.db.all<Record<string, unknown>>(`SELECT o.* FROM opportunities o WHERE o.organization_id = ? AND o.archived_at IS NULL AND ${visible.sql} LIMIT 5`, id, ...visible.params)) {
       const opportunity = summarizeOpportunity(ctx, scope, row as never);
       items.push({ kind: 'opportunity', text: `Opportunity "${opportunity.title}" in ${opportunity.stageLabel}${opportunity.nextAction ? `. Next: ${opportunity.nextAction}${opportunity.nextActionDate ? ` by ${opportunity.nextActionDate}` : ''}` : ''}.`, date: opportunity.updatedAt, state: opportunity.stageKind, evidenceId: null, excerpt: null });
     }
@@ -83,7 +83,7 @@ export function relationshipContext(ctx: Ctx, scope: AccessScope, input: { subje
     const opportunity = summarizeOpportunity(ctx, scope, row);
     subject = { kind: 'opportunity', id: row.id, name: opportunity.title };
     items.push({ kind: 'opportunity', text: `Stage ${opportunity.stageLabel}${opportunity.organization ? ` with ${opportunity.organization.name}` : ''}${opportunity.people.length ? `, people: ${opportunity.people.map((person) => person.name).join(', ')}` : ''}${opportunity.nextAction ? `. Next: ${opportunity.nextAction}${opportunity.nextActionDate ? ` by ${opportunity.nextActionDate}` : ''}` : ''}${opportunity.value ? `. Recorded value ${opportunity.value.minor} minor units ${opportunity.value.currency}` : ''}.`, date: opportunity.updatedAt, state: opportunity.stageKind, evidenceId: null, excerpt: null });
-    for (const change of stageHistory(ctx, row.id).slice(0, 8)) items.push({ kind: 'stage', text: `${change.fromStage ? `Moved from ${change.fromStage} to ${change.toStage}` : `Created in ${change.toStage}`} by ${change.actor}${change.reason ? `. ${change.reason}` : ''}.`, date: change.at, state: null, evidenceId: change.evidenceId, excerpt: null });
+    for (const change of stageHistory(ctx, scope, row.id).slice(0, 8)) items.push({ kind: 'stage', text: `${change.fromStage ? `Moved from ${change.fromStage} to ${change.toStage}` : `Created in ${change.toStage}`} by ${change.actor}${change.reason ? `. ${change.reason}` : ''}.`, date: change.at, state: null, evidenceId: change.evidenceId, excerpt: null });
     for (const commitment of commitmentsFor(ctx, scope, 'opportunity_id', row.id, labels)) items.push({ kind: 'commitment', text: commitment.action, date: commitment.createdAt, state: commitment.state, evidenceId: commitment.evidenceId, excerpt: clip(commitment.passage, 300) });
   }
   const timeline = listTimeline(ctx, scope, { subject: { kind: subject.kind, id: subject.id }, cursor: input.cursor, limit: 20, include: ['email', 'meeting'], from: input.from, to: input.to });

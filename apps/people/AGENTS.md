@@ -13,6 +13,10 @@ People is an included Ri app (`ri-people`). It runs as a native Node app over `r
 ## Rules that must not regress
 
 - Every read, search, count, sort key, snippet, export and context packet filters by the caller's scope first (`sourceFilter`, `canSee`). A chat never sees another account's names, companies, stages, amounts, participants or activity, including through ordering.
+- An opportunity is visible only when both its collection and its pipeline's collection are allowed. Use `opportunityFilter` / `canSeeOpportunity` from `scope.ts` in every opportunity read, list, board, count, search, context, export and AI prompt.
+- Background work runs under the scope of whoever runs the step. A schedule (job principal) processes only briefing items queued under sources inside its own accounts, queues upcoming-meeting briefings under its own accounts, and sends no private collection data (notes, opportunities) to `ai_text`. Owner-scope items wait for the owner's step (`continue_import` with `briefings`).
+- Search text under a source contains only what that source may see. A company name kept in a private collection is indexed for a person or opportunity under a shared source only through the `owner-only` pseudo-source. Raise `SEARCH_INDEX_VERSION` in `domain/reindex.ts` when the rules change so existing rows are rebuilt once at startup.
+- Write receipts are keyed to the caller's scope fingerprint (`useAuthority` in `runtime.ts`), so a retry after the scope narrows is refused instead of replaying cached data.
 - Derived per-person and per-company rows (`person_sources`, `organization_sources`, search rows) are recomputed from base rows by `refreshPerson` and `refreshOrganization`. Call them after changing base rows.
 - Identity: never strip dots or plus suffixes, never merge on a name or domain, never treat a shared inbox, personal mail domain or calendar co-attendance as identity or employment. User decisions (`decision = 'user'`) are never overridden by ingestion.
 - Calendar events never imply attendance.

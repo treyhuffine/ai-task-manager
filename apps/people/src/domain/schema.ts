@@ -371,4 +371,14 @@ CREATE INDEX search_rows_source ON search_rows (source_key, record_kind);
 CREATE VIRTUAL TABLE search_fts USING fts5(text, tokenize='unicode61 remove_diacritics 2');
 `;
 
-export const MIGRATIONS: readonly Migration[] = [{ version: 1, name: 'people_records', sql: V1 }];
+/**
+ * V2: a generated briefing records the sources it was generated from (NULL for
+ * the owner's full scope), so a briefing a schedule generated from its own
+ * accounts can be shown to any reader who may see all of those sources.
+ */
+const V2 = `ALTER TABLE briefings ADD COLUMN scope_sources TEXT;`;
+
+export const MIGRATIONS: readonly Migration[] = [
+  { version: 1, name: 'people_records', sql: V1 },
+  { version: 2, name: 'briefing_scope_sources', sql: V2 },
+];

@@ -16,6 +16,9 @@ Travel is an included Ri app. These rules keep it correct and safe to change.
 - Migrations are forward only. Never edit an applied migration. Append a new one.
 - Policy defaults live in the query layer (`DEFAULT_SETTINGS`, `DEFAULT_HISTORY_DAYS`, initial booking status), never as SQL defaults.
 - Filter by scope before assembling any list, search, count, snippet, export or context. Use `repo.bookings(scope, ...)`, `read.visibleTrip` and `reviewVisible`. Never return a record because it was named in input.
+- Name a trip shown beside anything else (a booking, a review, an import preview or result, a history entry) with `read.tripTitle` or `read.tripHeading`, never `trip.title`. A caller who may see only some of a trip's bookings gets a projection built from those bookings, the same one `get_trip` returns.
+- Review reasons are stored text that every reader of the item sees, so they never name another booking or trip. Candidates carry those, projected per reader. A trip move records trip IDs beside the names so history can be projected too.
+- Write receipts are keyed to the caller's data access (`store.useAuthority` in `services/core.ts`). A retried write returns its first result only while that access is unchanged, and is refused after a scope narrows or is revoked.
 - Never overwrite a person's correction from a source. Store the source value with `repo.setBase`, keep the override, and open a Review item.
 - Never create a booking from a cancellation, and never cancel because a source disappeared.
 - Keep local wall times, zones and instants separate. Use `@ri/app-kit/time` for zone math. Never turn a date into a midnight timestamp.

@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod/v4';
 import { AppError } from '@ri/app-kit/contract';
 import { defineAction, type AppInvocation } from '@ri/app-kit/sdk';
 import { writeResultSchema } from '@ri/app-kit/data';
 import { id, prepItemSchema, prepRequirementSchema, preparationSchema } from '../domain/model.js';
-import { app, nowAt } from '../server/state.js';
+import { app, authorityKey, nowAt } from '../server/state.js';
 import { preparationRecord, preparationRow, readPreparation, savePreparation, storeSuggestions, suggestionPrompt, validatePreparationReply } from '../server/preparation.js';
 import { authorOf, COMMON_ERRORS, EX, examplePreparation, readScope, WRITE_ERRORS, writeScope } from './common.js';
 import { str } from '../server/util.js';
@@ -47,7 +48,7 @@ export const savePreparationAction = defineAction({
   handler: (input, invocation) => {
     const scope = writeScope(invocation);
     return app().store.mutate(invocation, 'save_preparation', input, () => {
-      const result = savePreparation(input, authorOf(invocation));
+      const result = savePreparation(input, authorOf(invocation), scope);
       if (result.status === 'conflict') {
         const current = result.row ? preparationRecord(result.row, scope) : readPreparation(scope, { opportunityId: input.opportunityId, interviewId: input.interviewId ?? null });
         return { status: 'conflict' as const, current, message: 'This preparation was saved from somewhere else while you edited. Your text is kept here. Compare and save again' };
@@ -57,10 +58,21 @@ export const savePreparationAction = defineAction({
   },
 });
 
-/** The stored result of an earlier attempt with this invocation ID, so a retry never repeats the AI call. */
-function priorResult<T>(invocation: AppInvocation, action: string): T | null {
-  const row = app().db.prepare('SELECT action, result FROM app_invocations WHERE id = ?').get(invocation.id);
-  return row && row.action === action ? (JSON.parse(String(row.result)) as T) : null;
+/**
+ * The stored result of an earlier attempt with this invocation ID, so a retry never repeats the AI call.
+ * It follows the same rules as every other receipt: the same caller, action and input, and for anyone
+ * but the owner, the same data authority as when it was written.
+ */
+function priorResult<T>(invocation: AppInvocation, action: string, input: unknown): T | null {
+  const { db, scopes } = app();
+  const row = db.prepare('SELECT actor, action, input_digest, result, authority FROM app_invocations WHERE id = ?').get(invocation.id);
+  if (!row) return null;
+  if (row.actor !== JSON.stringify(invocation.principal) || row.action !== action || row.input_digest !== createHash('sha256').update(JSON.stringify(input)).digest('hex'))
+    throw new AppError('conflict', 'This invocation ID belongs to a different change');
+  const owner = invocation.principal.kind === 'owner-ui' || invocation.principal.kind === 'fixture';
+  if (!owner && row.authority !== authorityKey(scopes, invocation))
+    throw new AppError('conflict', 'Your access changed after this change was saved. Reload to see what you can view now');
+  return JSON.parse(String(row.result)) as T;
 }
 
 const suggestOutput = z.object({ preparation: preparationSchema, outcome: z.enum(['ready', 'unavailable', 'invalid', 'no_evidence']), message: z.string() }).strict();
@@ -74,11 +86,11 @@ export const suggestPreparationAction = defineAction({
   examples: [{ input: { preparationId: EX.preparation }, output: { preparation: examplePreparation, outcome: 'unavailable', message: 'Extraction unavailable. Your preparation still works by hand, and Prepare with Ri uses your chat instead.' } }],
   handler: async (input, invocation) => {
     const scope = writeScope(invocation);
-    const prior = priorResult<z.infer<typeof suggestOutput>>(invocation, 'suggest_preparation');
+    const prior = priorResult<z.infer<typeof suggestOutput>>(invocation, 'suggest_preparation', input);
     if (prior) return prior;
     const row = preparationRow({ id: input.preparationId });
     if (!row) throw new AppError('not_found', 'Save the preparation first, then ask for suggestions');
-    const { sources, prompt, company, role } = suggestionPrompt(row, scope);
+    const { sources, supplied, prompt, company, role } = suggestionPrompt(row, scope);
     let outcome: z.infer<typeof suggestOutput>['outcome'];
     let message: string;
     let stored: Parameters<typeof storeSuggestions>[1];
@@ -110,7 +122,7 @@ export const suggestPreparationAction = defineAction({
       }
     }
     return app().store.mutate(invocation, 'suggest_preparation', input, () => {
-      const updated = storeSuggestions(str(row.id), stored);
+      const updated = storeSuggestions(str(row.id), stored, supplied);
       return { preparation: preparationRecord(updated, scope), outcome, message };
     });
   },

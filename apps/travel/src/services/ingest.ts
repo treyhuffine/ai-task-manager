@@ -14,7 +14,7 @@ import { allows, type AccessScope } from "@ri/app-kit/data";
 import { daysBetween } from "@ri/app-kit/time";
 import { baseValue, displayValue, draftValues, type EffectiveBooking } from "../domain/booking.js";
 import { draftDates, matchBookings, matchTrips, providerKey, travelerFit } from "../domain/match.js";
-import { fieldLabel, type BookingDraft, type ParsedBooking, type ReviewKind } from "../domain/model.js";
+import { fieldLabel, MULTIPLE_TRIPS_REASON, POSSIBLE_DUPLICATE_REASON, type BookingDraft, type ParsedBooking, type ReviewKind } from "../domain/model.js";
 import { airport, findCityZone } from "../domain/places.js";
 import { isComplete } from "../domain/parse/extract.js";
 import { nameKey, normalizeReference } from "../domain/parse/text.js";
@@ -146,7 +146,8 @@ export function createIngest(ctx: IngestContext) {
       absorb(trips[0].id, booking);
       return { tripId: trips[0].id, reviewId: null };
     }
-    if (!reasons.length && trips.length > 1) reasons.push(`It fits more than one trip: ${trips.map((trip) => trip.title).join(" and ")}. Choose one.`);
+    // The stored reason names no other record. The trip choices are projected for each reader.
+    if (!reasons.length && trips.length > 1) reasons.push(MULTIPLE_TRIPS_REASON);
     if (!reasons.length) {
       const trip = createTripFor(booking, null, !!options.fictional);
       repo.updateBooking(bookingId, { tripId: trip.id });
@@ -286,7 +287,7 @@ export function createIngest(ctx: IngestContext) {
         : matchBookings({ draft: parsed.draft, kindGuessed: parsed.kindGuessed, provider: evidence.sender }, repo.bookings(null)).candidates;
     }
     if (candidates.length > 1) {
-      const item = review({ kind: "identity", evidence, reason: `This message could describe ${candidates.length} recorded bookings (${candidates.map((booking) => `${booking.title}${booking.travelers.length ? ` for ${booking.travelers.join(" and ")}` : ""}`).join(", ")}). Choose the one it belongs to, or keep it separate.`, proposed: { draft: parsed.draft, cancellation: parsed.cancellation, passages: parsed.passages, method: parsed.method }, candidates: candidates.map((booking) => booking.id) });
+      const item = review({ kind: "identity", evidence, reason: POSSIBLE_DUPLICATE_REASON, proposed: { draft: parsed.draft, cancellation: parsed.cancellation, passages: parsed.passages, method: parsed.method }, candidates: candidates.map((booking) => booking.id) });
       return { action: "review", bookingId: null, tripId: null, reviewId: item.id, message: "Several bookings could match." };
     }
     if (candidates.length === 1) return updateExisting(candidates[0], evidence, parsed, options);

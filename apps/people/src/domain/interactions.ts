@@ -11,7 +11,7 @@ import { observeAffiliation } from './affiliations.js';
 import { isBlocked, noteAutoExclusion, senderDecision } from './exclusions.js';
 import { personName, organizationRef } from './projection.js';
 import { propose, proposeSameName } from './reviews.js';
-import { canSee, sourceFilter, touch } from './scope.js';
+import { canSee, canSeeOpportunity, opportunityFilter, sourceFilter, touch } from './scope.js';
 import { parseSignature } from './signature.js';
 import { suggestFact } from './facts.js';
 import type { TimelineItem } from '../schemas.js';
@@ -309,8 +309,8 @@ export function projectInteraction(ctx: Ctx, scope: AccessScope, row: Interactio
     `SELECT DISTINCT target_kind, target_id, origin FROM interaction_links WHERE interaction_id = ? AND state = 'linked' AND ${lc.sql} LIMIT 10`, row.id, ...lc.params)
     .flatMap((link): TimelineItem['links'] => {
       if (link.target_kind === 'organization') { const organization = organizationRef(ctx, scope, link.target_id); return organization ? [{ kind: link.target_kind, id: organization.id, name: organization.name, origin: link.origin }] : []; }
-      const opportunity = ctx.db.get<{ id: string; title: string; collection: string }>('SELECT id, title, collection FROM opportunities WHERE id = ?', link.target_id);
-      return opportunity && canSee(scope, opportunity.collection) ? [{ kind: link.target_kind, id: opportunity.id, name: opportunity.title, origin: link.origin }] : [];
+      const opportunity = ctx.db.get<{ id: string; title: string; collection: string; pipeline_id: string }>('SELECT id, title, collection, pipeline_id FROM opportunities WHERE id = ?', link.target_id);
+      return opportunity && canSeeOpportunity(ctx, scope, opportunity) ? [{ kind: link.target_kind, id: opportunity.id, name: opportunity.title, origin: link.origin }] : [];
     });
   const evidence = row.evidence_id ? ctx.db.get<{ excerpt: string | null; status: string }>('SELECT excerpt, status FROM evidence WHERE id = ?', row.evidence_id) : undefined;
   const email = row.kind === 'email';
@@ -402,16 +402,17 @@ export function listTimeline(ctx: Ctx, scope: AccessScope, input: { subject: Tim
       `SELECT h.id, h.created_at, h.to_state, h.note, c.action, c.source_key FROM commitment_history h JOIN commitments c ON c.id = h.commitment_id
        WHERE ${column} = ? AND h.actor != 'extraction' AND ${c.sql} ${r.sql.replaceAll('(h.created_at, id)', '(h.created_at, h.id)')} ORDER BY h.created_at DESC, h.id DESC LIMIT ?`, input.subject.id, ...c.params, ...r.params, fetch))
       changes.push({ at: row.created_at, id: row.id, title: row.action, detail: row.note, source: row.source_key });
-    const o = sourceFilter(scope, 'o.collection');
+    const o = opportunityFilter(scope, 'o');
     const stageRows = input.subject.kind === 'opportunity'
-      ? ctx.db.all<{ id: string; created_at: string; title: string; label: string; reason: string | null; collection: string }>(
-        `SELECT s.id, s.created_at, o.title, st.label, s.reason, o.collection FROM stage_changes s JOIN opportunities o ON o.id = s.opportunity_id JOIN pipeline_stages st ON st.id = s.to_stage_id WHERE s.opportunity_id = ? AND ${o.sql} ${range('s.created_at').sql.replaceAll('(s.created_at, id)', '(s.created_at, s.id)')} ORDER BY s.created_at DESC, s.id DESC LIMIT ?`, input.subject.id, ...o.params, ...range('s.created_at').params, fetch)
+      ? ctx.db.all<{ id: string; created_at: string; title: string; label: string; reason: string | null; collection: string; to_pipeline_id: string }>(
+        `SELECT s.id, s.created_at, o.title, st.label, s.reason, o.collection, s.to_pipeline_id FROM stage_changes s JOIN opportunities o ON o.id = s.opportunity_id JOIN pipeline_stages st ON st.id = s.to_stage_id WHERE s.opportunity_id = ? AND ${o.sql} ${range('s.created_at').sql.replaceAll('(s.created_at, id)', '(s.created_at, s.id)')} ORDER BY s.created_at DESC, s.id DESC LIMIT ?`, input.subject.id, ...o.params, ...range('s.created_at').params, fetch)
       : input.subject.kind === 'person'
-        ? ctx.db.all<{ id: string; created_at: string; title: string; label: string; reason: string | null; collection: string }>(
-          `SELECT s.id, s.created_at, o.title, st.label, s.reason, o.collection FROM stage_changes s JOIN opportunities o ON o.id = s.opportunity_id JOIN pipeline_stages st ON st.id = s.to_stage_id JOIN opportunity_people op ON op.opportunity_id = o.id WHERE op.person_id = ? AND ${o.sql} ${range('s.created_at').sql.replaceAll('(s.created_at, id)', '(s.created_at, s.id)')} ORDER BY s.created_at DESC, s.id DESC LIMIT ?`, input.subject.id, ...o.params, ...range('s.created_at').params, fetch)
-        : ctx.db.all<{ id: string; created_at: string; title: string; label: string; reason: string | null; collection: string }>(
-          `SELECT s.id, s.created_at, o.title, st.label, s.reason, o.collection FROM stage_changes s JOIN opportunities o ON o.id = s.opportunity_id JOIN pipeline_stages st ON st.id = s.to_stage_id WHERE o.organization_id = ? AND ${o.sql} ${range('s.created_at').sql.replaceAll('(s.created_at, id)', '(s.created_at, s.id)')} ORDER BY s.created_at DESC, s.id DESC LIMIT ?`, input.subject.id, ...o.params, ...range('s.created_at').params, fetch);
-    for (const row of stageRows) changes.push({ at: row.created_at, id: row.id, title: `${row.title} moved to ${row.label}`, detail: row.reason, source: row.collection });
+        ? ctx.db.all<{ id: string; created_at: string; title: string; label: string; reason: string | null; collection: string; to_pipeline_id: string }>(
+          `SELECT s.id, s.created_at, o.title, st.label, s.reason, o.collection, s.to_pipeline_id FROM stage_changes s JOIN opportunities o ON o.id = s.opportunity_id JOIN pipeline_stages st ON st.id = s.to_stage_id JOIN opportunity_people op ON op.opportunity_id = o.id WHERE op.person_id = ? AND ${o.sql} ${range('s.created_at').sql.replaceAll('(s.created_at, id)', '(s.created_at, s.id)')} ORDER BY s.created_at DESC, s.id DESC LIMIT ?`, input.subject.id, ...o.params, ...range('s.created_at').params, fetch)
+        : ctx.db.all<{ id: string; created_at: string; title: string; label: string; reason: string | null; collection: string; to_pipeline_id: string }>(
+          `SELECT s.id, s.created_at, o.title, st.label, s.reason, o.collection, s.to_pipeline_id FROM stage_changes s JOIN opportunities o ON o.id = s.opportunity_id JOIN pipeline_stages st ON st.id = s.to_stage_id WHERE o.organization_id = ? AND ${o.sql} ${range('s.created_at').sql.replaceAll('(s.created_at, id)', '(s.created_at, s.id)')} ORDER BY s.created_at DESC, s.id DESC LIMIT ?`, input.subject.id, ...o.params, ...range('s.created_at').params, fetch);
+    const pipelineVisible = (id: string) => { const pipeline = ctx.db.get<{ collection: string }>('SELECT collection FROM pipelines WHERE id = ?', id); return !!pipeline && canSee(scope, pipeline.collection); };
+    for (const row of stageRows) changes.push({ at: row.created_at, id: row.id, title: `${row.title} moved to ${pipelineVisible(row.to_pipeline_id) ? row.label : 'a stage in another pipeline'}`, detail: row.reason, source: row.collection });
     for (const change of changes) entries.push({ at: change.at, id: change.id, item: { id: change.id, type: 'change', occurredAt: change.at, label: 'Your change', title: change.title.slice(0, 400), detail: change.detail, sourceLabel: labels.of(change.source), participants: [], moreParticipants: 0, evidenceId: null, link: null, status: 'active', attendance: null, links: [], revision: 1 } });
   }
   entries.sort((a, b) => (a.at === b.at ? (a.id < b.id ? 1 : -1) : a.at < b.at ? 1 : -1));
@@ -461,7 +462,7 @@ export function linkInteraction(ctx: Ctx, scope: AccessScope, input: {
       if (!input.target) throw new AppError('invalid_input', 'Choose a company or opportunity');
       const target = input.target;
       if (target.kind === 'organization' && !organizationRef(ctx, scope, target.id)) throw new AppError('not_found', 'That company is no longer available');
-      if (target.kind === 'opportunity') { const opportunity = ctx.db.get<{ collection: string }>('SELECT collection FROM opportunities WHERE id = ?', target.id); if (!opportunity || !canSee(scope, opportunity.collection)) throw new AppError('not_found', 'That opportunity is no longer available'); }
+      if (target.kind === 'opportunity' && !canSeeOpportunity(ctx, scope, ctx.db.get<{ collection: string; pipeline_id: string }>('SELECT collection, pipeline_id FROM opportunities WHERE id = ?', target.id))) throw new AppError('not_found', 'That opportunity is no longer available');
       if (input.operation === 'link') {
         const collection = writable(input.collection);
         ctx.db.run(

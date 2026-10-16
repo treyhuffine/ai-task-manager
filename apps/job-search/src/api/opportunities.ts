@@ -113,11 +113,11 @@ export const saveOpportunityAction = defineAction({
         if (!fields.company?.trim() || !fields.role?.trim()) throw new AppError('invalid_input', 'Add the company and the role');
         const row = createOpportunity({ ...fields, company: fields.company, role: fields.role }, author);
         if (description?.trim()) saveSnapshot({ opportunityId: str(row.id), text: description, origin: 'paste', sourceUrl: fields.sourceUrl ?? null }, author);
-        if (archived || listingClosed) updateOpportunityFields(str(row.id), Number(requireOpportunityRow(str(row.id)).revision), { archived, listingClosed }, author);
+        if (archived || listingClosed) updateOpportunityFields(str(row.id), Number(requireOpportunityRow(str(row.id)).revision), { archived, listingClosed }, author, scope);
         return { status: 'saved' as const, record: recordFor(str(row.id), scope) };
       }
       if (expectedRevision === undefined) throw new AppError('invalid_input', 'Include the revision you edited, so a newer change is not overwritten');
-      const updated = updateOpportunityFields(target, expectedRevision, { ...fields, archived, listingClosed }, author);
+      const updated = updateOpportunityFields(target, expectedRevision, { ...fields, archived, listingClosed }, author, scope);
       if (!updated) return { status: 'conflict' as const, current: recordFor(target, scope), message: 'This opportunity changed since you opened it. Compare and try again' };
       if (description?.trim()) saveSnapshot({ opportunityId: target, text: description, origin: 'paste' }, author);
       return { status: 'saved' as const, record: recordFor(target, scope) };

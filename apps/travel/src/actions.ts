@@ -188,7 +188,8 @@ const listBookings = act({
     const labels = read.accountLabels();
     const all = bookingFilter(scope, input);
     const result = page(all, input.cursor, input.limit);
-    return { items: result.items.map((booking) => read.bookingRecord(scope, booking, { labels })), nextCursor: result.nextCursor, coverage: listCoverage(true, input.query ? "Search covers recorded bookings. A reservation that was never imported cannot appear." : null), revision: scopedRevision(t, scope) };
+    const titles = new Map<string, string | null>();
+    return { items: result.items.map((booking) => read.bookingRecord(scope, booking, { labels, titles })), nextCursor: result.nextCursor, coverage: listCoverage(true, input.query ? "Search covers recorded bookings. A reservation that was never imported cannot appear." : null), revision: scopedRevision(t, scope) };
   },
 });
 
@@ -205,7 +206,12 @@ const getBooking = act({
     const changes = t.repo.changes(booking.id).filter((change) => change.sourceKey === MANUAL_SOURCE || allows(scope, change.sourceKey)).slice(-200).map((change) => {
       const evidence = change.evidenceId ? t.repo.evidence(change.evidenceId) : null;
       return {
-        id: change.id, at: change.createdAt, kind: change.kind, fields: change.fields.slice(0, 60).map((field) => ({ field: clip(field.field, 60), label: clip(field.label, 80), before: clip(field.before, 400), after: clip(field.after, 400) })),
+        id: change.id, at: change.createdAt, kind: change.kind,
+        fields: change.fields.slice(0, 60).map((field) => {
+          // A move names trips, which each reader sees under their own projection.
+          const trip = field.field === "trip";
+          return { field: clip(field.field, 60), label: clip(field.label, 80), before: clip(trip ? read.historyTrip(scope, field.beforeId, field.before) : field.before, 400), after: clip(trip ? read.historyTrip(scope, field.afterId, field.after) : field.after, 400) };
+        }),
         note: change.note ? clip(change.note, 600) : null,
         actorLabel: change.actor.startsWith("owner-ui:") || change.actor.startsWith("fixture:") ? (change.kind === "corrected" || change.kind === "edited" || change.kind === "moved" || change.kind === "kept" || change.kind === "correction_removed" ? "You" : "Travel") : change.actor.startsWith("job:") ? "Automatic update" : change.actor.startsWith("chat:") ? "A chat" : "Travel",
         source: evidence && allows(scope, evidence.sourceKey) ? { evidenceId: evidence.id, title: clip(evidence.title, 300) } : null,

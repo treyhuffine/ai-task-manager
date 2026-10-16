@@ -238,10 +238,10 @@ export const commonActions = [
     audience: ['user'], effect: 'app_write', retry: 'idempotent', errors: SYNC_ERRORS, timeoutMs: 40000, visibility: 'app',
     examples: [{ input: { source: 'account:fixture-personal' }, output: { ran: { kind: 'mail', source: 'account:fixture-personal' }, more: true, summary: 'Read 10 messages' } }],
     async handler(input, invocation) {
-      const c = ctx(); requireOwner(writeScope(invocation));
+      const c = ctx(), scope = writeScope(invocation); requireOwner(scope);
       const accounts = accessOf(invocation)?.accounts ?? [];
       if (isAccountSource(input.source) && !accounts.some((grant) => accountSource(grant.account) === input.source)) throw new AppError('forbidden', 'Grant People access to this account in Ri first');
-      return backgroundStep(c, invocation, { sources: new Set([input.source]), accounts, automaticOnly: false, only: input.source });
+      return backgroundStep(c, invocation, { scope, sources: new Set([input.source]), accounts, automaticOnly: false, only: input.source });
     },
   }),
   ...(['run_background_step', 'sync_step', 'enrich_step'] as const).map((name) => action({
@@ -259,7 +259,7 @@ export const commonActions = [
       const accounts = accessOf(invocation)?.accounts ?? [];
       const sources = scope.kind === 'owner' ? new Set(accounts.map((grant) => accountSource(grant.account))) : scope.sources;
       const kinds: JobKind[] | undefined = name === 'sync_step' ? ['mail', 'calendar'] : name === 'enrich_step' ? ['enrich', 'briefing', 'attribute'] : undefined;
-      return backgroundStep(c, invocation, { sources, accounts, automaticOnly: true, kinds });
+      return backgroundStep(c, invocation, { scope, sources, accounts, automaticOnly: true, kinds });
     },
   })),
   action({

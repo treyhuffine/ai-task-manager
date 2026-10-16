@@ -35,7 +35,9 @@ export interface EvidenceRow {
   forwarded: boolean; availability: "available" | "unavailable"; unavailableAt: string | null; fictional: boolean;
 }
 export interface LinkRow { id: string; createdAt: string; bookingId: string; evidenceId: string; role: "created" | "duplicate" | "changed" | "canceled" | "linked"; contributes: boolean; snapshot: unknown }
-export interface ChangeRow { id: string; createdAt: string; bookingId: string; evidenceId: string | null; kind: string; fields: { field: string; label: string; before: string; after: string }[]; actor: string; sourceKey: string; note: string | null }
+/** One changed field. A trip move also records the trip IDs, so each reader sees those trips under their own projection. */
+export interface ChangeField { field: string; label: string; before: string; after: string; beforeId?: string | null; afterId?: string | null }
+export interface ChangeRow { id: string; createdAt: string; bookingId: string; evidenceId: string | null; kind: string; fields: ChangeField[]; actor: string; sourceKey: string; note: string | null }
 export interface ReviewRow {
   id: string; createdAt: string; updatedAt: string; revision: number; kind: ReviewKind;
   bookingId: string | null; tripId: string | null; evidenceIds: string[]; reason: string;

@@ -17,6 +17,7 @@ import { app, nowAt } from './state.js';
 import { correspondenceFor, correspondenceRecord } from './correspondence.js';
 import { interviewRecord } from './interviews.js';
 import { groupBy, json, marks, num, opt, str, type Row } from './util.js';
+import { visibleContacts } from './contacts.js';
 import { stageEventRecord } from './opportunities.js';
 
 const CHUNK = 400;
@@ -166,7 +167,7 @@ export function opportunityRecord(bundle: Bundle, scope: AccessScope): Opportuni
     deadline: opt(row.deadline),
     deadlineLabel: opt(row.deadline_label),
     compensation: json(row.compensation, []),
-    contacts: json<{ email: string; name: string | null }[]>(row.contacts, []).map((contact) => ({ email: contact.email, name: contact.name ?? null })),
+    contacts: visibleContacts(row, scope),
     notes: opt(row.notes),
     stageLock: json(row.stage_lock, null),
   };

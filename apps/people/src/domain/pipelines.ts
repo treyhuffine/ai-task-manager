@@ -4,9 +4,9 @@ import { z } from 'zod/v4';
 import { iso, newId, type Ctx, type Param } from './context.js';
 import { refreshOrganization } from './organizations.js';
 import { refreshPerson } from './people.js';
-import { organizationRef, organizationVisible, personRef, personVisible } from './projection.js';
-import { assertWritable, canSee, sourceFilter, touch, writableCollection } from './scope.js';
-import { ftsQuery, setSearchRow } from './search.js';
+import { organizationNameFor, organizationRef, organizationVisible, personRef, personVisible } from './projection.js';
+import { assertWritable, canSee, canSeeOpportunity, opportunityFilter, sourceFilter, touch, writableCollection } from './scope.js';
+import { OWNER_ONLY_SOURCE, ftsQuery, removeSearchRow, setSearchRow } from './search.js';
 import { cleanName, cleanText, isLocalDate } from './text.js';
 import { projectTaskLink } from './commitments.js';
 import type { OpportunitySummary, Pipeline, Sort } from '../schemas.js';
@@ -41,8 +41,8 @@ export function stagesOf(ctx: Ctx, pipelineId: string, includeArchived = false):
 }
 
 export function projectPipeline(ctx: Ctx, scope: AccessScope, row: PipelineRow): Pipeline {
-  const filter = sourceFilter(scope, 'collection');
-  const counts = new Map(ctx.db.all<{ stage_id: string; count: number }>(`SELECT stage_id, COUNT(*) AS count FROM opportunities WHERE pipeline_id = ? AND archived_at IS NULL AND ${filter.sql} GROUP BY stage_id`, row.id, ...filter.params).map((item) => [item.stage_id, Number(item.count)]));
+  const filter = opportunityFilter(scope, 'o');
+  const counts = new Map(ctx.db.all<{ stage_id: string; count: number }>(`SELECT o.stage_id, COUNT(*) AS count FROM opportunities o WHERE o.pipeline_id = ? AND o.archived_at IS NULL AND ${filter.sql} GROUP BY o.stage_id`, row.id, ...filter.params).map((item) => [item.stage_id, Number(item.count)]));
   const stages = stagesOf(ctx, row.id).map((stage, index) => ({ id: stage.id, label: stage.label, kind: stage.kind, position: index, count: counts.get(stage.id) ?? 0 }));
   return { id: row.id, revision: row.revision, name: row.name, template: row.template, collection: row.collection as Pipeline['collection'], archived: !!row.archived_at, stages, opportunityCount: stages.reduce((sum, stage) => sum + stage.count, 0) };
 }
@@ -136,13 +136,18 @@ export function savePipelineStages(ctx: Ctx, scope: AccessScope, actor: string, 
 
 // ─── Opportunities ───────────────────────────────────────────────────────────
 
+/** An opportunity this caller may see: its own collection and its pipeline's collection are both allowed. */
 export function getOpportunityRow(ctx: Ctx, scope: AccessScope, id: string): OpportunityRow | null {
   const row = ctx.db.get<OpportunityRow>('SELECT * FROM opportunities WHERE id = ?', id);
-  return row && canSee(scope, row.collection) ? row : null;
+  return row && canSeeOpportunity(ctx, scope, row) ? row : null;
 }
-function indexOpportunity(ctx: Ctx, row: OpportunityRow) {
-  const organization = row.organization_id ? ctx.db.get<{ display_name: string }>('SELECT display_name FROM organizations WHERE id = ?', row.organization_id)?.display_name : '';
+/** Search text for an opportunity. The company name is indexed only as the opportunity's own collection knows it. */
+export function indexOpportunity(ctx: Ctx, row: OpportunityRow) {
+  const organization = row.organization_id ? organizationNameFor(ctx, row.organization_id, row.collection) : null;
   setSearchRow(ctx, `opportunity:${row.id}`, 'opportunity', row.id, row.collection, `${row.title} ${row.next_action ?? ''} ${organization ?? ''}`);
+  const full = row.organization_id && !organization ? ctx.db.get<{ display_name: string }>('SELECT display_name FROM organizations WHERE id = ?', row.organization_id)?.display_name : null;
+  if (full) setSearchRow(ctx, `opportunity:${row.id}:${OWNER_ONLY_SOURCE}`, 'opportunity', row.id, OWNER_ONLY_SOURCE, `${row.title} ${full}`);
+  else removeSearchRow(ctx, `opportunity:${row.id}:${OWNER_ONLY_SOURCE}`);
 }
 function linkedPeople(ctx: Ctx, id: string) {
   return ctx.db.all<{ person_id: string }>('SELECT person_id FROM opportunity_people WHERE opportunity_id = ?', id).map((row) => row.person_id);
@@ -259,7 +264,7 @@ export function summarizeOpportunity(ctx: Ctx, scope: AccessScope, row: Opportun
 
 const cursorSchema = z.object({ k: z.union([z.string(), z.number()]), id: z.string() }).strict();
 export function listOpportunities(ctx: Ctx, scope: AccessScope, input: { cursor?: string; limit: number; filters: { text?: string; pipelineId?: string; stageIds?: string[]; organizationIds?: string[]; personIds?: string[]; archived?: 'active' | 'archived' | 'all' }; sort: Sort }) {
-  const filter = sourceFilter(scope, 'o.collection');
+  const filter = opportunityFilter(scope, 'o');
   const where: string[] = [filter.sql];
   const params: Param[] = [...filter.params];
   const archived = input.filters.archived ?? 'active';
@@ -286,13 +291,23 @@ export function listOpportunities(ctx: Ctx, scope: AccessScope, input: { cursor?
   return { items: items.map((row) => summarizeOpportunity(ctx, scope, row)), nextCursor: rows.length > input.limit && last ? encodeCursor({ k: last.k, id: last.id }) : null, total };
 }
 
-export function stageHistory(ctx: Ctx, opportunityId: string) {
-  const name = (table: string, id: string | null) => (id ? ctx.db.get<{ name: string }>(`SELECT ${table === 'pipelines' ? 'name' : 'label'} AS name FROM ${table} WHERE id = ?`, id)?.name ?? null : null);
+/**
+ * Append-only stage history. Names from a pipeline this caller may not see
+ * (an earlier pipeline the card moved from) are replaced by a neutral label.
+ */
+export function stageHistory(ctx: Ctx, scope: AccessScope, opportunityId: string) {
+  const visiblePipeline = (id: string | null) => {
+    if (!id) return false;
+    const pipeline = ctx.db.get<{ collection: string }>('SELECT collection FROM pipelines WHERE id = ?', id);
+    return !!pipeline && canSee(scope, pipeline.collection);
+  };
+  const raw = (table: string, id: string | null) => (id ? ctx.db.get<{ name: string }>(`SELECT ${table === 'pipelines' ? 'name' : 'label'} AS name FROM ${table} WHERE id = ?`, id)?.name ?? null : null);
+  const name = (table: string, id: string | null, pipelineId: string | null) => (id && !visiblePipeline(pipelineId) ? (table === 'pipelines' ? 'Another pipeline' : 'A stage in another pipeline') : raw(table, id));
   return ctx.db.all<{ id: string; created_at: string; from_pipeline_id: string | null; from_stage_id: string | null; to_pipeline_id: string; to_stage_id: string; actor: string; reason: string | null; evidence_id: string | null }>(
     'SELECT * FROM stage_changes WHERE opportunity_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 100', opportunityId)
     .map((row) => ({
-      id: row.id, at: row.created_at, fromStage: name('pipeline_stages', row.from_stage_id), toStage: name('pipeline_stages', row.to_stage_id) ?? 'Unknown stage',
-      fromPipeline: name('pipelines', row.from_pipeline_id), toPipeline: name('pipelines', row.to_pipeline_id) ?? 'Unknown pipeline',
+      id: row.id, at: row.created_at, fromStage: name('pipeline_stages', row.from_stage_id, row.from_pipeline_id), toStage: name('pipeline_stages', row.to_stage_id, row.to_pipeline_id) ?? 'Unknown stage',
+      fromPipeline: name('pipelines', row.from_pipeline_id, row.from_pipeline_id), toPipeline: name('pipelines', row.to_pipeline_id, row.to_pipeline_id) ?? 'Unknown pipeline',
       actor: row.actor.startsWith('owner-ui') || row.actor.startsWith('fixture') ? 'You' : row.actor.startsWith('chat:') ? 'A chat, at your request' : 'You',
       reason: row.reason, evidenceId: row.evidence_id,
     }));

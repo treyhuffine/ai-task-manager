@@ -64,11 +64,11 @@ export function setMatchState(id: string, status: CorrespondenceItem['matchStatu
 export function threadOpportunities(account: string, threadId: string): string[] {
   return app().db.prepare("SELECT DISTINCT opportunity_id FROM correspondence WHERE account = ? AND thread_id = ? AND match_status = 'matched' AND opportunity_id IS NOT NULL").all(account, threadId).map((row) => str(row.opportunity_id));
 }
-/** Opportunities linked to the messages this one replies to or references. */
-export function replyOpportunities(messageIds: string[]): string[] {
+/** Opportunities linked to the messages this one replies to or references, in the same account, so a match never rests on another account's mail. */
+export function replyOpportunities(account: string, messageIds: string[]): string[] {
   const ids = [...new Set(messageIds.filter(Boolean))].slice(0, 50);
   if (!ids.length) return [];
-  return app().db.prepare(`SELECT DISTINCT opportunity_id FROM correspondence WHERE rfc_message_id IN (${marks(ids.length)}) AND match_status = 'matched' AND opportunity_id IS NOT NULL`).all(...ids).map((row) => str(row.opportunity_id));
+  return app().db.prepare(`SELECT DISTINCT opportunity_id FROM correspondence WHERE account = ? AND rfc_message_id IN (${marks(ids.length)}) AND match_status = 'matched' AND opportunity_id IS NOT NULL`).all(account, ...ids).map((row) => str(row.opportunity_id));
 }
 export function threadIgnored(account: string, threadId: string): boolean {
   return !!app().db.prepare("SELECT 1 FROM correspondence WHERE account = ? AND thread_id = ? AND match_status = 'ignored' AND matched_by IS NOT NULL LIMIT 1").get(account, threadId);

@@ -172,3 +172,11 @@ export const COLLECTION_LABELS: Record<string, string> = {
   [MANUAL_SOURCE]: "Manual entries and ideas",
   [IMPORTS_SOURCE]: "Uploaded and pasted confirmations",
 };
+
+/**
+ * Review reasons are stored text that any reader of the item sees, so they
+ * never name another booking or trip. The candidates carry those, projected for
+ * each reader.
+ */
+export const MULTIPLE_TRIPS_REASON = "It fits more than one trip. Choose one.";
+export const POSSIBLE_DUPLICATE_REASON = "This message could describe more than one recorded booking. Choose the one it belongs to, or keep it separate.";

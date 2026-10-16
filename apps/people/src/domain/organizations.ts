@@ -6,7 +6,7 @@ import { iso, newId, type Ctx, type Param } from './context.js';
 import { Labels } from './coverage.js';
 import { memberLists, nextActionFor, organizationName, sourceLabels, type OrganizationCore } from './projection.js';
 import { dateBounds } from './people.js';
-import { assertWritable, sourceFilter, touch, writableCollection } from './scope.js';
+import { assertWritable, opportunityFilter, sourceFilter, touch, writableCollection } from './scope.js';
 import { ftsQuery, pruneSearchRows, removeSearchForRecord, setSearchRow } from './search.js';
 import { cleanName, domainOf, sortKey } from './text.js';
 import type { OrganizationFilters, OrganizationSummary, Sort } from '../schemas.js';
@@ -58,7 +58,7 @@ export function refreshOrganization(ctx: Ctx, organizationId: string) {
   const supports: string[] = [
     "SELECT DISTINCT collection AS source FROM notes WHERE subject_kind = 'organization' AND subject_id = ? AND archived_at IS NULL",
     'SELECT DISTINCT l.collection AS source FROM list_members m JOIN lists l ON l.id = m.list_id WHERE m.member_id = ? AND l.archived_at IS NULL',
-    'SELECT DISTINCT collection AS source FROM opportunities WHERE organization_id = ? AND archived_at IS NULL',
+    'SELECT DISTINCT o.collection AS source FROM opportunities o JOIN pipelines p ON p.id = o.pipeline_id WHERE o.organization_id = ? AND o.archived_at IS NULL AND p.collection = o.collection',
     "SELECT DISTINCT source_key AS source FROM commitments WHERE organization_id = ? AND state IN ('suggested','accepted','completed')",
     "SELECT DISTINCT collection AS source FROM task_links WHERE subject_kind = 'organization' AND subject_id = ?",
     "SELECT DISTINCT collection AS source FROM attribution_rules WHERE organization_id = ? AND state = 'active'",
@@ -198,7 +198,7 @@ export function organizationQuery(ctx: Ctx, scope: AccessScope, filters: Organiz
     add(`EXISTS (SELECT 1 FROM list_members m JOIN lists l ON l.id = m.list_id WHERE m.member_id = o.id AND ${list.sql} AND l.archived_at IS NULL AND ${s.sql})`, ...list.params, ...s.params);
   }
   if (filters.hasFollowUp !== undefined) {
-    const c = scoped(scope, 'c.source_key'), t = scoped(scope, 't.collection'), op = scoped(scope, 'opp.collection');
+    const c = scoped(scope, 'c.source_key'), t = scoped(scope, 't.collection'), op = opportunityFilter(scope, 'opp');
     const exists = `(EXISTS (SELECT 1 FROM commitments c WHERE c.organization_id = o.id AND c.state = 'accepted' AND ${c.sql}) OR EXISTS (SELECT 1 FROM task_links t WHERE t.subject_kind = 'organization' AND t.subject_id = o.id AND t.status IN ('pending','linked') AND ${t.sql}) OR EXISTS (SELECT 1 FROM opportunities opp JOIN pipeline_stages st ON st.id = opp.stage_id WHERE opp.organization_id = o.id AND opp.archived_at IS NULL AND st.kind = 'open' AND opp.next_action IS NOT NULL AND ${op.sql}))`;
     add(filters.hasFollowUp ? exists : `NOT ${exists}`, ...c.params, ...t.params, ...op.params);
   }
@@ -227,7 +227,7 @@ export function organizationQuery(ctx: Ctx, scope: AccessScope, filters: Organiz
     case 'last_exchange': key = `COALESCE(${activityExpr}, '')`; keyParams.push(...activityParams); break;
     case 'added': key = 'o.created_at'; break;
     case 'next_action': {
-      const c = scoped(scope, 'c.source_key'), t = scoped(scope, 't.collection'), op = scoped(scope, 'opp.collection');
+      const c = scoped(scope, 'c.source_key'), t = scoped(scope, 't.collection'), op = opportunityFilter(scope, 'opp');
       ctes.push(`due AS (SELECT oid, MIN(d) AS d FROM (
         SELECT c.organization_id AS oid, c.due_date AS d FROM commitments c WHERE c.state = 'accepted' AND c.direction = 'i_owe' AND c.due_date IS NOT NULL AND c.organization_id IS NOT NULL AND ${c.sql}
         UNION ALL SELECT t.subject_id, substr(t.due_at, 1, 10) FROM task_links t WHERE t.subject_kind = 'organization' AND t.status IN ('pending','linked') AND t.due_at IS NOT NULL AND ${t.sql}

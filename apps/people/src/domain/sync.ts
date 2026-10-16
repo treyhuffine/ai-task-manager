@@ -1,5 +1,5 @@
 import { AppError } from '@ri/app-kit/contract';
-import { accountSource, redact, type JobRecord } from '@ri/app-kit/data';
+import { accountSource, redact, type AccessScope, type JobRecord } from '@ri/app-kit/data';
 import type { AppInvocation } from '@ri/app-kit/sdk';
 import {
   calendarSyncStep, gmailSyncStep, newCalendarCheckpoint, type CalendarCheckpoint, type MailCheckpoint, type MailHeaders,
@@ -8,7 +8,7 @@ import { z } from 'zod/v4';
 import { iso, type Ctx } from './context.js';
 import { extractionSetting } from './coverage.js';
 import { applyRulesToInteraction, linkRuleBatch } from './attribution.js';
-import { generateOneBriefing, scheduleUpcomingBriefings } from './briefings.js';
+import { generateOneBriefing, hasRunnableBriefing, scheduleUpcomingBriefings } from './briefings.js';
 import { isBlocked, senderDecision } from './exclusions.js';
 import { enqueueExtraction, extractOne, ownerAddresses, rememberOwnerAddress } from './extraction.js';
 import { ingestEvent, ingestMail, markUnavailable } from './interactions.js';
@@ -62,10 +62,11 @@ export interface StepSummary { ran: { kind: string; source: string } | null; mor
  * due job among the caller's sources (kinds alternate and the source that ran
  * longest ago goes first), runs exactly one unit and records the outcome.
  */
-export async function backgroundStep(ctx: Ctx, invocation: AppInvocation, options: { sources: ReadonlySet<string>; accounts: Access['accounts']; automaticOnly: boolean; kinds?: JobKind[]; only?: string }): Promise<StepSummary> {
+export async function backgroundStep(ctx: Ctx, invocation: AppInvocation, options: { scope: AccessScope; sources: ReadonlySet<string>; accounts: Access['accounts']; automaticOnly: boolean; kinds?: JobKind[]; only?: string }): Promise<StepSummary> {
   ctx.jobs.recover();
   ensureJobs(ctx, options.accounts, { automaticOnly: options.automaticOnly });
-  const allowed = new Set([...options.sources, 'briefings']);
+  // Briefings share one queue. A runner reaches it only when an item inside its own scope is waiting.
+  const allowed = new Set([...options.sources, ...(hasRunnableBriefing(ctx, options.scope) ? ['briefings'] : [])]);
   if (options.only) { const job = ctx.jobs.list().find((item) => item.sourceKey === options.only && item.state === 'pending'); if (job) ctx.jobs.wake(job.id); }
   const job = options.only
     ? ctx.jobs.list().filter((item) => item.sourceKey === options.only && item.state === 'pending' && (!options.kinds || options.kinds.includes(item.kind as JobKind))).sort((a, b) => (a.lastRunAt ?? '').localeCompare(b.lastRunAt ?? ''))[0] ?? null
@@ -73,7 +74,7 @@ export async function backgroundStep(ctx: Ctx, invocation: AppInvocation, option
   if (!job) return { ran: null, more: false, summary: 'Nothing is due' };
   ctx.jobs.claim(job.id);
   try {
-    const outcome = await runJob(ctx, invocation, job, options.accounts);
+    const outcome = await runJob(ctx, invocation, job, options.accounts, options.scope);
     ctx.jobs.finish(job.id, { more: outcome.more, idleMs: IDLE_MS, now: ctx.now() });
     return { ran: { kind: job.kind, source: job.sourceKey }, more: outcome.more, summary: outcome.summary };
   } catch (error) {
@@ -90,13 +91,13 @@ export async function backgroundStep(ctx: Ctx, invocation: AppInvocation, option
   }
 }
 
-async function runJob(ctx: Ctx, invocation: AppInvocation, job: JobRecord, accounts: Access['accounts']): Promise<{ more: boolean; summary: string }> {
+async function runJob(ctx: Ctx, invocation: AppInvocation, job: JobRecord, accounts: Access['accounts'], scope: AccessScope): Promise<{ more: boolean; summary: string }> {
   const deadline = Math.min(Date.now() + STEP_BUDGET_MS, invocation.deadline - 5_000);
   switch (job.kind) {
-    case 'mail': return mailStep(ctx, invocation, job.sourceKey.slice(8), accounts, deadline);
-    case 'calendar': return calendarStep(ctx, invocation, job.sourceKey.slice(8), accounts);
-    case 'enrich': return extractOne(ctx, invocation, new Set([job.sourceKey]));
-    case 'briefing': return generateOneBriefing(ctx, invocation);
+    case 'mail': return mailStep(ctx, invocation, job.sourceKey.slice(8), accounts, deadline, scope);
+    case 'calendar': return calendarStep(ctx, invocation, job.sourceKey.slice(8), accounts, scope);
+    case 'enrich': return extractOne(ctx, invocation, new Set([job.sourceKey]), scope);
+    case 'briefing': return generateOneBriefing(ctx, invocation, scope);
     case 'attribute': {
       const item = ctx.db.get<{ id: string; payload: string }>("SELECT id, payload FROM work_items WHERE kind = 'attribute' AND state = 'pending' AND source_key = ? ORDER BY priority LIMIT 1", job.sourceKey);
       if (!item) return { more: false, summary: 'No company links waiting' };
@@ -130,7 +131,7 @@ async function inTransaction<T>(ctx: Ctx, work: () => Promise<T>): Promise<T> {
   }
 }
 
-async function mailStep(ctx: Ctx, invocation: AppInvocation, account: string, accounts: Access['accounts'], deadline: number) {
+async function mailStep(ctx: Ctx, invocation: AppInvocation, account: string, accounts: Access['accounts'], deadline: number, scope: AccessScope) {
   const setup = ensureAccountSetup(ctx, account, 'mail');
   const source = accountSource(account);
   const persons = new Set<string>(), organizations = new Set<string>();
@@ -168,7 +169,7 @@ async function mailStep(ctx: Ctx, invocation: AppInvocation, account: string, ac
     ctx.accounts.commit(account, 'mail', result.checkpoint, result.checkpoint.backfill.complete ? 'ready' : 'importing', result.checkpoint.emailAddress);
     for (const person of persons) refreshPerson(ctx, person);
     for (const org of organizations) refreshOrganization(ctx, org);
-    scheduleUpcomingBriefings(ctx);
+    scheduleUpcomingBriefings(ctx, scope);
     touch(ctx, source);
     const parts = [result.lane === 'profile' ? 'Found the mailbox position' : `Read ${result.read} message${result.read === 1 ? '' : 's'}`, result.skipped ? `left out ${result.skipped}` : '', result.removed ? `${result.removed} no longer available` : '', extracted ? `${extracted} queued for extraction` : ''].filter(Boolean);
     return { more: result.more, summary: parts.join(', ') };
@@ -176,7 +177,7 @@ async function mailStep(ctx: Ctx, invocation: AppInvocation, account: string, ac
 }
 
 const calendarMapSchema = z.record(z.string(), z.unknown());
-async function calendarStep(ctx: Ctx, invocation: AppInvocation, account: string, accounts: Access['accounts']) {
+async function calendarStep(ctx: Ctx, invocation: AppInvocation, account: string, accounts: Access['accounts'], scope: AccessScope) {
   const setup = ensureAccountSetup(ctx, account, 'calendar');
   const source = accountSource(account);
   const map: Record<string, CalendarCheckpoint> = calendarMapSchema.safeParse(setup.checkpoint).success && setup.checkpoint ? { ...(setup.checkpoint as Record<string, CalendarCheckpoint>) } : {};
@@ -199,7 +200,7 @@ async function calendarStep(ctx: Ctx, invocation: AppInvocation, account: string
     const complete = calendars.every((id) => map[id]?.completedAt && !map[id]?.pageToken);
     ctx.accounts.commit(account, 'calendar', map, complete ? 'ready' : 'importing');
     for (const person of persons) refreshPerson(ctx, person);
-    scheduleUpcomingBriefings(ctx);
+    scheduleUpcomingBriefings(ctx, scope);
     touch(ctx, source);
     return { more: result.more || !complete, summary: `Checked ${result.events} calendar event${result.events === 1 ? '' : 's'}${result.cancelled ? `, ${result.cancelled} canceled` : ''}` };
   });

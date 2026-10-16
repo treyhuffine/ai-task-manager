@@ -5,7 +5,7 @@
 import path from "node:path";
 import { z } from "zod/v4";
 import { openAppDatabase, type AppInvocation } from "@ri/app-kit/sdk";
-import { actorOf, createBlobStore, createJobQueue, createScopeStore, createSettings, migrate, type AccessScope, type Operation, type SqlDatabase } from "@ri/app-kit/data";
+import { actorOf, createBlobStore, createJobQueue, createScopeStore, createSettings, migrate, scopeFingerprint, type AccessScope, type Operation, type SqlDatabase } from "@ri/app-kit/data";
 import { createAccountStore, createMailIndex } from "@ri/app-kit/sources";
 import { isValidZone, todayIn } from "@ri/app-kit/time";
 import { MIGRATIONS } from "../db/migrations.js";
@@ -33,6 +33,16 @@ export function createTravel(store: Awaited<ReturnType<typeof openAppDatabase>>,
   const blobs = createBlobStore(blobDir);
   const settingsStore = createSettings(db);
   const scopes = createScopeStore(db, () => instanceId);
+  // A retried write returns its first result only while the caller keeps the
+  // data access it had when the write happened. The result can hold a trip
+  // title or booking from a source that was shared then and is not now. Every
+  // action that saves a receipt resolves write access first, so the key uses
+  // the same resolution. It throws for a revoked or foreign scope, which
+  // refuses the replay just like a new call.
+  store.useAuthority((invocation) => {
+    const scope = scopes.resolve(invocation, "write");
+    return scope.kind === "owner" ? "owner" : `${scopeFingerprint(scope)}:${[...scope.operations].sort().join(",")}`;
+  });
   const jobs = createJobQueue(db);
   const accounts = createAccountStore(db);
   const mailIndex = createMailIndex(db);

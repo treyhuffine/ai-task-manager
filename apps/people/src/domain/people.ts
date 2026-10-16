@@ -5,10 +5,10 @@ import { iso, newId, type Ctx, type Param } from './context.js';
 import { attachKey, ensureKey, observe, type KeyKind } from './identity.js';
 import { Labels } from './coverage.js';
 import {
-  bestAffiliation, lastExchange, memberLists, nextActionFor, nextMeeting, personName, primaryEmail, sourceLabels, type PersonCore,
+  bestAffiliation, lastExchange, memberLists, nextActionFor, nextMeeting, organizationNameFor, personName, primaryEmail, sourceLabels, type PersonCore,
 } from './projection.js';
-import { assertWritable, canSee, sourceFilter, touch, writableCollection } from './scope.js';
-import { ftsQuery, pruneSearchRows, removeSearchForRecord, setSearchRow } from './search.js';
+import { assertWritable, canSee, opportunityFilter, sourceFilter, touch, writableCollection } from './scope.js';
+import { OWNER_ONLY_SOURCE, ftsQuery, pruneSearchRows, removeSearchForRecord, setSearchRow } from './search.js';
 import { cleanName, sortKey } from './text.js';
 import type { PeopleFilters, PersonSummary, Sort } from '../schemas.js';
 
@@ -64,16 +64,23 @@ export function refreshPerson(ctx: Ctx, personId: string) {
     `SELECT source_key, MAX(CASE WHEN direct = 1 AND active = 1 AND kind = 'email' THEN occurred_at END) AS exchange, MAX(occurred_at) AS seen
      FROM interaction_participants WHERE person_id = ? GROUP BY source_key`, personId))
     add(row.source_key, { lastExchange: row.exchange, lastSeen: row.seen });
-  for (const row of ctx.db.all<{ source_key: string; role: string | null; observed_at: string; name: string }>(
-    `SELECT a.source_key, a.role, a.observed_at, o.display_name AS name FROM affiliations a JOIN organizations o ON o.id = a.organization_id
-     WHERE a.person_id = ? AND a.confidence != 'suggested' AND (a.decision IS NULL OR a.decision != 'rejected')`, personId))
-    add(row.source_key, { lastSeen: row.observed_at, text: [row.role, row.name] });
+  // The company name is indexed under the affiliation's source only as that source knows it. Otherwise only
+  // the role, and the full name goes to a row only the owner's search matches.
+  const withheld = new Set<string>();
+  for (const row of ctx.db.all<{ source_key: string; role: string | null; observed_at: string; organization_id: string; display_name: string }>(
+    `SELECT a.source_key, a.role, a.observed_at, a.organization_id, o.display_name FROM affiliations a JOIN organizations o ON o.id = a.organization_id
+     WHERE a.person_id = ? AND a.confidence != 'suggested' AND (a.decision IS NULL OR a.decision != 'rejected')`, personId)) {
+    const known = organizationNameFor(ctx, row.organization_id, row.source_key);
+    if (!known) withheld.add(row.display_name);
+    add(row.source_key, { lastSeen: row.observed_at, text: [row.role, known] });
+  }
   for (const row of ctx.db.all<{ source_key: string; name: string | null; created_at: string }>('SELECT source_key, name, created_at FROM import_rows WHERE person_id = ?', personId))
     add(row.source_key, { name: row.name, rank: 1, nameAt: row.created_at, lastSeen: row.created_at, text: [row.name] });
   const supports: [string, Param][] = [
     ['SELECT DISTINCT collection AS source FROM notes WHERE subject_kind = \'person\' AND subject_id = ? AND archived_at IS NULL', personId],
     ['SELECT DISTINCT l.collection AS source FROM list_members m JOIN lists l ON l.id = m.list_id WHERE m.member_id = ? AND l.archived_at IS NULL', personId],
-    ['SELECT DISTINCT o.collection AS source FROM opportunity_people op JOIN opportunities o ON o.id = op.opportunity_id WHERE op.person_id = ? AND o.archived_at IS NULL', personId],
+    // An opportunity supports a person under its collection only when its pipeline lives there too, so a single-source reader may see both.
+    ['SELECT DISTINCT o.collection AS source FROM opportunity_people op JOIN opportunities o ON o.id = op.opportunity_id JOIN pipelines p ON p.id = o.pipeline_id WHERE op.person_id = ? AND o.archived_at IS NULL AND p.collection = o.collection', personId],
     ["SELECT DISTINCT source_key AS source FROM commitments WHERE person_id = ? AND state IN ('suggested','accepted','completed')", personId],
     ["SELECT DISTINCT collection AS source FROM task_links WHERE subject_kind = 'person' AND subject_id = ?", personId],
   ];
@@ -99,6 +106,11 @@ export function refreshPerson(ctx: Ctx, personId: string) {
     const ref = `person:${personId}:${source}`;
     keep.add(ref);
     setSearchRow(ctx, ref, 'person', personId, source, [row.name, ...row.text].filter(Boolean).join(' '));
+  }
+  if (withheld.size && rows.size) {
+    const ref = `person:${personId}:${OWNER_ONLY_SOURCE}`;
+    keep.add(ref);
+    setSearchRow(ctx, ref, 'person', personId, OWNER_ONLY_SOURCE, [display, ...withheld].join(' '));
   }
   pruneSearchRows(ctx, 'person', personId, 'person:', keep);
   if (display !== person.display_name || nameSource !== person.name_source || exchange !== person.last_exchange_at)
@@ -346,7 +358,7 @@ export function peopleQuery(ctx: Ctx, scope: AccessScope, filters: PeopleFilters
     case 'next_meeting': key = `COALESCE(${meetingExpr}, '9999')`; break;
     case 'added': key = 'p.created_at'; break;
     case 'next_action': {
-      const c = scoped(scope, 'c.source_key'), t = scoped(scope, 't.collection'), o = scoped(scope, 'o.collection');
+      const c = scoped(scope, 'c.source_key'), t = scoped(scope, 't.collection'), o = opportunityFilter(scope, 'o');
       ctes.push(`due AS (SELECT pid, MIN(d) AS d FROM (
         SELECT c.person_id AS pid, c.due_date AS d FROM commitments c WHERE c.state = 'accepted' AND c.direction = 'i_owe' AND c.due_date IS NOT NULL AND c.person_id IS NOT NULL AND ${c.sql}
         UNION ALL SELECT t.subject_id, substr(t.due_at, 1, 10) FROM task_links t WHERE t.subject_kind = 'person' AND t.status IN ('pending','linked') AND t.due_at IS NOT NULL AND ${t.sql}

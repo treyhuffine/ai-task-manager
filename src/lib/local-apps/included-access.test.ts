@@ -104,7 +104,7 @@ it('builds the access record from the caller grant, never from input, and marks 
 
 it('routes a capability to the named granted account and refuses an ambiguous or ungranted one', async () => {
   const {app, installed} = await setup();
-  const owner = grant(app, {kind: 'owner-ui', id: 'owner'}, {connections: [{binding: 'mail', connectionId: 'conn-personal', actions: ['gmail.get_profile']}, {binding: 'mail', connectionId: 'conn-work', actions: ['gmail.get_profile']}]});
+  const owner = grant(app, {kind: 'owner-ui', id: 'owner'}, {connections: [{binding: 'mail', connectionId: 'conn-personal', actions: ['gmail.get_profile']}, {binding: 'mail', connectionId: 'conn-work', actions: ['gmail.get_profile', 'gmail.read_message']}]});
   await service.store.edit(undefined, state => {state.instances.push(app); state.grants.push(owner);});
   runAction.mockImplementation(async (_name: string, _input: unknown, options: {connectionId: string}) => ({ok: true, result: {emailAddress: options.connectionId}}));
   const context = {id: randomUUID(), principal: {kind: 'owner-ui' as const, id: 'owner'}, audience: 'user' as const, grantRevision: 1, deadline: Date.now() + 30000, packageDigest: digest};
@@ -117,6 +117,8 @@ it('routes a capability to the named granted account and refuses an ambiguous or
   await expect(service.dispatchCapability(installed, context, {callId: randomUUID(), name: 'gmail.get_profile', binding: 'mail', account: 'conn-work', input: {}}, signal)).rejects.toMatchObject({code: 'revoked'});
   runAction.mockResolvedValueOnce({ok: false, reason: 'error', code: 'connection_not_found', message: 'gone'});
   await expect(service.dispatchCapability(installed, context, {callId: randomUUID(), name: 'gmail.get_profile', binding: 'mail', account: 'conn-work', input: {}}, signal)).rejects.toMatchObject({code: 'revoked', message: expect.stringMatching(/no longer connected/)});
+  runAction.mockResolvedValueOnce({ok: false, reason: 'error', code: 'provider_error', message: 'gone', status: 404});
+  await expect(service.dispatchCapability(installed, context, {callId: randomUUID(), name: 'gmail.read_message', binding: 'mail', account: 'conn-work', input: {messageId: 'm1'}}, signal)).rejects.toMatchObject({code: 'not_found'});
   runAction.mockResolvedValueOnce({ok: false, reason: 'error', code: 'provider_rate_limited', message: 'slow down'});
   await expect(service.dispatchCapability(installed, context, {callId: randomUUID(), name: 'gmail.get_profile', binding: 'mail', account: 'conn-work', input: {}}, signal)).rejects.toMatchObject({code: 'busy'});
 });

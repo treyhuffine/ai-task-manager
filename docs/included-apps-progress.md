@@ -65,3 +65,25 @@ Recorded as items are checked. Synthetic data and fake providers only. No live a
 - Self-contained change set: a detached worktree at `45682d07` with only this work applied (other sessions' uncommitted connected-apps, coordination and connector work excluded) passed `pnpm ts` with 0 errors, the kit suite (93), integrations (426), Ri local-apps, components and client suites (202 passed, 1 skipped as before), and all three apps' package, typecheck and test runs.
 - Native disposable Home (`scripts/local-apps-included-browser-smoke.ts`, fresh Home from that worktree, private catalog through `RI_LOCAL_APPS_CATALOG_DIR`): for Travel, Job Search and People, the Discover tile shows its purpose icon, Preview app shows the fictional records, Use app installs it, the installed app shows its empty state, Connect email opens Ri's native Sources dialog (no account connected), a record written through the app's own action appears through the host refresh without navigation, the chosen section survives a page reload without the view reopening, an Ask button stages a scoped question in the native composer with no message sent, and the 390 px phone layout has no sideways scroll. A first run found that People's Connect email opened global settings, fixed before the final run.
 - Not separately qualified per app: whole-Home backup and restore and app removal (covered by the shared local-apps lifecycle tests, plus People's own export and restore), approval wait and cancel (no included app action needs approval, all connector actions are reads), and the 360 px companion thread panel inside a chat (360 px container widths are covered by each app's packaged view test).
+
+## Review fixes
+
+An independent review of `b8e90a75` reproduced nine defects with synthetic probes. All nine were confirmed against the code, plus one related leak found while checking them (People list and board views showed stage labels from a private pipeline). Each fix lands with a regression test that fails on `b8e90a75`.
+
+| Finding | Fix |
+| --- | --- |
+| Write receipts replayed after a chat's scope narrowed returned data from the old scope | `openAppDatabase` keys each receipt to the caller's data authority (`useAuthority`, the scope fingerprint in all three apps). A non-owner replay under different or revoked authority is refused. The write is never repeated. |
+| `forgetSource` cleared at most 200 scopes | Every matching scope, in one transaction. |
+| A message deleted later in the same Gmail history page stalled sync | Ri maps a message 404 to `not_found`, and `gmailSyncStep` records the message as gone and completes the page and checkpoint. |
+| People schedules ran owner-scope briefings | A schedule only generates briefings inside its own account sources. Owner briefings run on the owner's Prepare. |
+| Job Search shared generated prose by its citations | Visibility uses every source supplied to the model for that run. |
+| Job Search showed contacts learned from hidden accounts | Contacts and other learned fields are projected by their stored source. |
+| Travel showed private trip titles through shared bookings | Booking views use the scoped trip projection everywhere. |
+| People exposed private pipelines through shared opportunities | An opportunity is visible only when its collection and its pipeline's collection are both allowed, in every read. |
+| People indexed private company names under shared sources | Names are indexed only under sources that may see them, with a one-time reindex. |
+
+The builders' audits closed further leaks of the same kind: Job Search no longer lets a narrower chat delete contacts it cannot see, and a contact learned in one account is no longer matching evidence for another account. Travel stops naming other trips in booking history, review reasons, import previews and import results (migration 3 rewrites stored reasons). People applies the pipeline rule to every opportunity reference, keeps an owner-only search row so the owner still finds records by a private company name, and stores briefing scope sources (migration V2) so a briefing a schedule generated from its accounts can be shown to any reader who holds all of those sources.
+
+Behavior changes from these fixes: People's scheduled extraction no longer sees opportunities (they live in collections a schedule never holds), so stage suggestions come from the owner's own update step. In Job Search, a recruiter known only from one account no longer helps match mail in another account. Two remaining design questions were recorded, not changed: Job Search merges an interview first seen in email with its calendar event by invitation ID, so mail-derived interview details become visible to readers of that calendar account, and an automatic stage change from an account still bumps the opportunity's revision and update time that a narrower chat can see.
+
+Verification after the fixes: app-kit 96, Ri local-apps and components 51 (1 skipped as before), Travel 92, Job Search 97, People 94, every app typecheck clean, all three packaged into the dev catalog with unchanged contracts.
