@@ -2402,6 +2402,20 @@ const createTriggerShape = {
   deliverResultTo: z.array(z.string().min(1)).optional(),
 } as const;
 
+function assertValidRunAt(runAt: string | null | undefined) {
+  if (!runAt || !Number.isFinite(Date.parse(runAt))) {
+    throw new ActionError('invalid_params', 'run_at must be a valid date and time when kind=at');
+  }
+}
+
+function assertValidTriggerTimezone(timezone: string | null | undefined) {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone ?? 'UTC' }).format();
+  } catch {
+    throw new ActionError('invalid_params', 'timezone must be a valid IANA timezone');
+  }
+}
+
 const create_trigger_action = defineAction({
   name: 'create_trigger',
   description:
@@ -2410,6 +2424,7 @@ const create_trigger_action = defineAction({
   params: createTriggerShape,
   mutating: true,
   handler: (_ctx, input) => {
+    assertValidTriggerTimezone(input.timezone);
     // Per-kind validation: catch bad rows here rather than at the tick.
     if (input.kind === 'cron') {
       if (!input.cronExpression) {
@@ -2422,9 +2437,7 @@ const create_trigger_action = defineAction({
         throw new ActionError('invalid_params', 'interval_seconds is required when kind=every');
       }
     } else if (input.kind === 'at') {
-      if (!input.runAt) {
-        throw new ActionError('invalid_params', 'run_at is required when kind=at');
-      }
+      assertValidRunAt(input.runAt);
     }
 
     // Workspace target needs workspace_id; orchestrator must not have one.
@@ -2583,6 +2596,10 @@ const update_trigger_action = defineAction({
       rest.deliverResultTo = validateDeliverResultTo(rest.deliverResultTo, current.targetKind);
     }
 
+    if (rest.timezone !== undefined) assertValidTriggerTimezone(rest.timezone);
+    // Null retains the existing API's explicit disarm operation.
+    if (rest.runAt != null && current.kind === 'at') assertValidRunAt(rest.runAt);
+
     // Validate cron if it's changing.
     const cronExpression =
       rest.cronExpression !== undefined ? rest.cronExpression : current.cronExpression;
@@ -2598,6 +2615,10 @@ const update_trigger_action = defineAction({
       rest.intervalSeconds !== undefined ||
       rest.runAt !== undefined ||
       rest.timezone !== undefined;
+    // A new instant explicitly re-arms a completed one-time trigger. Retrying
+    // the same timestamp after it fires must not arm it a second time.
+    const rearmOneTime = current.kind === 'at' && rest.runAt != null &&
+      Date.parse(rest.runAt) !== Date.parse(current.runAt ?? '');
     let nextRunAt = current.nextRunAt;
     if (triggerChanged) {
       nextRunAt = computeNextRun({
@@ -2607,11 +2628,14 @@ const update_trigger_action = defineAction({
           rest.intervalSeconds !== undefined ? rest.intervalSeconds : current.intervalSeconds,
         runAt: rest.runAt !== undefined ? rest.runAt : current.runAt,
         timezone: rest.timezone !== undefined ? rest.timezone : current.timezone,
-        lastFiredAt: current.lastFiredAt,
+        lastFiredAt: rearmOneTime ? null : current.lastFiredAt,
       });
     }
 
-    const row = updateTrigger(id, { ...rest, ...(harness ? { harness } : {}), nextRunAt });
+    const row = updateTrigger(id, {
+      ...rest, ...(harness ? { harness } : {}),
+      ...(rearmOneTime ? { lastFiredAt: null } : {}), nextRunAt,
+    });
     return row ? withTriggerProvider(row) : row;
   },
 });

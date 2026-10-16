@@ -35,14 +35,16 @@ export function useTrigger(id: string | null) {
 export function useCreateTrigger() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { carriesInput: true },
     mutationFn: (input: CreateTriggerPayload) => triggersApi.create(input),
     onSuccess: () => qc.invalidateQueries({ queryKey: TRIGGERS_KEY }),
   });
 }
 
-export function useUpdateTrigger() {
+export function useUpdateTrigger({ carriesInput = false }: { carriesInput?: boolean } = {}) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { carriesInput },
     mutationFn: ({ id, ...input }: UpdateTriggerPayload & { id: string }) =>
       triggersApi.update(id, input),
     onSuccess: (row) => {

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { HarnessId } from '@/lib/harness/registry';
+import type { TriggerRecord } from '@/db/types';
 
 vi.mock('@agentex/agent', () => ({
   getProvider: () => ({ capabilities: { concurrentSend: true } }),
@@ -65,6 +66,57 @@ function findAction(name: string) {
 }
 
 describe('orchestrator trigger + run actions', () => {
+  it('updates recurring cadence and timezone without changing the job or paused state', async () => {
+    await seed();
+    const q = await import('@/lib/db/queries');
+    const trigger = q.createTrigger({ name: 'schedule-edit', targetKind: 'orchestrator', harness: 'codex',
+      prompt: 'Keep this prompt', kind: 'cron', cronExpression: '0 9 * * *', timezone: 'UTC', enabled: false,
+      model: 'gpt-5.5', effort: 'high', activeHoursStart: '08:00', activeHoursEnd: '18:00' });
+    const update = await findAction('update_trigger');
+    const edited = await update.handler({ remote: false }, { id: trigger.id, cronExpression: '30 10 * * 1-5', timezone: 'America/Denver' } as never) as TriggerRecord;
+    const { computeNextRun } = await import('@/lib/scheduler/cron');
+    expect(edited).toMatchObject({ cronExpression: '30 10 * * 1-5', timezone: 'America/Denver',
+      prompt: trigger.prompt, enabled: false, model: trigger.model, effort: trigger.effort,
+      activeHoursStart: '08:00', activeHoursEnd: '18:00' });
+    expect(edited.nextRunAt).toBe(computeNextRun(edited));
+    expect(() => update.handler({ remote: false }, { id: trigger.id, cronExpression: 'broken' } as never)).toThrow(/Invalid cron/);
+    expect(q.getTrigger(trigger.id)?.cronExpression).toBe('30 10 * * 1-5');
+  });
+
+  it('re-arms a finished one-time job only when its instant changes, retaining run history', async () => {
+    await seed();
+    const q = await import('@/lib/db/queries');
+    const trigger = q.createTrigger({ name: 'once-edit', targetKind: 'orchestrator', harness: 'codex', prompt: 'X',
+      kind: 'at', runAt: '2026-01-01T15:00:00Z', lastFiredAt: '2026-01-01T15:00:01Z',
+      nextRunAt: null, lastRunStatus: 'completed' });
+    const update = await findAction('update_trigger');
+    const runAt = '2030-10-20T15:30:00.000Z';
+    const edited = await update.handler({ remote: false }, { id: trigger.id, runAt } as never) as TriggerRecord;
+    expect(edited).toMatchObject({ nextRunAt: runAt, lastFiredAt: null, lastRunStatus: 'completed' });
+    q.advanceTriggerNextRun(trigger.id, null, runAt);
+    const retried = await update.handler({ remote: false }, { id: trigger.id, runAt } as never) as TriggerRecord;
+    expect(retried).toMatchObject({ nextRunAt: null, lastFiredAt: runAt });
+    const equivalent = await update.handler({ remote: false }, { id: trigger.id, runAt: '2030-10-20T09:30:00-06:00' } as never) as TriggerRecord;
+    expect(equivalent).toMatchObject({ nextRunAt: null, lastFiredAt: runAt });
+  });
+
+  it('rejects invalid one-time dates and timezones before writing', async () => {
+    await seed();
+    const create = await findAction('create_trigger');
+    for (const extra of [{ runAt: 'bad-date' }, { runAt: '2030-01-01T09:00:00Z', timezone: 'Bad/Zone' }]) {
+      expect(() => create.handler({ remote: false }, { name: 'bad-date', targetKind: 'orchestrator', prompt: 'X', kind: 'at', ...extra } as never)).toThrow();
+    }
+    const q = await import('@/lib/db/queries');
+    const trigger = q.createTrigger({ name: 'valid-date', targetKind: 'orchestrator', harness: 'codex', prompt: 'X', kind: 'at', runAt: '2030-01-01T09:00:00Z' });
+    const update = await findAction('update_trigger');
+    for (const runAt of ['', 'bad-date']) {
+      expect(() => update.handler({ remote: false }, { id: trigger.id, runAt } as never)).toThrow(/valid date/);
+    }
+    expect(q.getTrigger(trigger.id)?.runAt).toBe(trigger.runAt);
+    const disarmed = await update.handler({ remote: false }, { id: trigger.id, runAt: null } as never) as TriggerRecord;
+    expect(disarmed).toMatchObject({ runAt: null, nextRunAt: null });
+  });
+
   it('exposes the full trigger + run + skill surface', async () => {
     const { actions } = await import('./registry');
     const names = actions.map((a) => a.name);

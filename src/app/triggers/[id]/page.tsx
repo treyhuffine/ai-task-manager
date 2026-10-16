@@ -4,7 +4,7 @@
  * Trigger detail at /triggers/<id>.
  *
  * Displays who runs it (provider, model, effort; editable in place),
- * prompt + cadence, recent runs (links to the chat session), and
+ * prompt, editable cadence, recent runs (links to the chat session), and
  * pause/delete actions.
  *
  * Failure banner (task #25): when consecutive_failures >= 3, show a
@@ -40,6 +40,7 @@ import { isReservedTrigger, lockedFieldsFor, RESERVED_TRIGGER_IDS, type Reserved
 import { openSettings } from '@/components/settings/settings-store';
 import { TriggerRunsOn } from '@/components/triggers/trigger-runs-on';
 import { AwakeNote } from '@/components/triggers/awake-note';
+import { TriggerSchedule } from '@/components/triggers/trigger-schedule';
 
 export default function TriggerDetailPage() {
   const params = useParams<{ id: string }>();
@@ -189,7 +190,7 @@ export default function TriggerDetailPage() {
             <span className="flex-1">
               This trigger is managed by the app. {describeLocks(lockedFieldsFor(id))} It is turned off
               rather than deleted.{' '}
-              {isHeartbeat ? 'Edit it in Settings > Heartbeat.' : 'Edit its schedule in settings.'}
+              {isHeartbeat ? 'More options are in Settings > Heartbeat.' : 'Edit its schedule below or in settings.'}
             </span>
             <button
               onClick={() => openSettings(isHeartbeat ? 'heartbeat' : 'general')}
@@ -199,6 +200,8 @@ export default function TriggerDetailPage() {
             </button>
           </div>
         )}
+
+        <TriggerSchedule key={trigger.id} trigger={trigger} />
 
         <section>
           <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">

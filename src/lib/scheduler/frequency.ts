@@ -1,7 +1,7 @@
 /**
  * Friendly-frequency compiler — the bridge between the simplified
- * "Create scheduled task" UI (Manual / Hourly / Daily-at / Weekly-on-X-at /
- * Monthly-on-N-at / Webhook / Custom cron) and the trigger row's
+ * "Create scheduled task" UI (Manual / One time / Hourly / Daily / Weekly /
+ * Monthly / Interval / Webhook / Custom cron) and the trigger row's
  * `kind` + cadence fields.
  *
  * Two directions:
@@ -13,14 +13,17 @@
  *     preset, so power users editing custom expressions don't lose
  *     them.
  *
- * The friendly UI never lets you express anything you couldn't also
- * write as a 5-field cron expression. We keep the raw `cronExpression`
- * column populated even for friendly choices so the tick path stays
- * uniform.
+ * Recurring presets keep cronExpression populated. One-time and interval
+ * choices use the scheduler's existing `at` and `every` kinds.
  */
+
+import { CronDate } from 'croner';
+import type { TriggerRecord } from '@/db/types';
 
 export type FrequencyKind =
   | 'manual'
+  | 'once'
+  | 'every'
   | 'hourly'
   | 'daily'
   | 'weekly'
@@ -33,7 +36,7 @@ export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface FrequencyChoice {
   kind: FrequencyKind;
-  /** HH:MM in 24h, for daily/weekly/monthly. */
+  /** HH:MM in 24h, for once/daily/weekly/monthly. */
   time?: string;
   /** Weekday for `weekly`. Default Monday (1). */
   weekday?: Weekday;
@@ -41,15 +44,16 @@ export interface FrequencyChoice {
   dayOfMonth?: number;
   /** Raw cron expression for `custom`. */
   cronExpression?: string;
+  /** Calendar date in the schedule's timezone, for `once`. */
+  date?: string;
+  /** Stored instant, preserved while its local date and time stay unchanged. */
+  runAt?: string;
+  timezone?: string;
+  intervalSeconds?: number;
 }
 
-export interface CompiledTrigger {
-  /** Maps to triggers.kind. Manual → 'manual'; webhook → 'webhook';
-   *  everything else maps to 'cron'. */
-  kind: 'manual' | 'cron' | 'webhook';
-  /** Set when kind='cron'. */
-  cronExpression: string | null;
-}
+export type CompiledTrigger = Pick<TriggerRecord, 'kind' | 'cronExpression'> &
+  Partial<Pick<TriggerRecord, 'runAt' | 'intervalSeconds'>>;
 
 /**
  * Compile a friendly choice into the fields `create_trigger` needs.
@@ -62,6 +66,34 @@ export function frequencyToTrigger(choice: FrequencyChoice): CompiledTrigger {
       return { kind: 'manual', cronExpression: null };
     case 'webhook':
       return { kind: 'webhook', cronExpression: null };
+    case 'once': {
+      if (!choice.date || !/^\d{4}-\d{2}-\d{2}$/.test(choice.date)) {
+        throw new Error('Choose a date for the one-time run.');
+      }
+      const { hour, minute } = parseHHMM(choice.time ?? '09:00');
+      const time = formatHHMM(hour, minute);
+      const timezone = choice.timezone ?? 'UTC';
+      const original = choice.runAt ? new Date(choice.runAt) : null;
+      const originalLocal = original && Number.isFinite(original.getTime())
+        ? dateTimeInTimezone(original, timezone) : null;
+      // Keep seconds and the original offset in a repeated daylight saving
+      // hour when the calendar controls still describe the same instant.
+      const at = originalLocal?.date === choice.date && originalLocal.time === time
+        ? original! : new CronDate(`${choice.date}T${time}:00`, timezone).getDate();
+      const local = dateTimeInTimezone(at, timezone);
+      // Reject impossible dates and times skipped by daylight saving changes.
+      if (local.date !== choice.date || local.time !== time) {
+        throw new Error('This date and time does not exist in the selected timezone.');
+      }
+      return { kind: 'at', cronExpression: null, runAt: at.toISOString() };
+    }
+    case 'every': {
+      const seconds = choice.intervalSeconds;
+      if (!seconds || !Number.isSafeInteger(seconds) || seconds <= 0) {
+        throw new Error('Enter a positive whole number of seconds.');
+      }
+      return { kind: 'every', cronExpression: null, intervalSeconds: seconds };
+    }
     case 'hourly':
       return { kind: 'cron', cronExpression: '0 * * * *' };
     case 'daily': {
@@ -93,16 +125,17 @@ export function frequencyToTrigger(choice: FrequencyChoice): CompiledTrigger {
  * expression doesn't match any preset shape (we never lose the user's
  * original cron).
  */
-export function triggerToFrequency(row: {
-  kind: 'manual' | 'at' | 'every' | 'cron' | 'webhook';
-  cronExpression: string | null;
-}): FrequencyChoice {
+export function triggerToFrequency(row: Pick<TriggerRecord, 'kind' | 'cronExpression'> &
+  Partial<Pick<TriggerRecord, 'runAt' | 'intervalSeconds' | 'timezone'>>): FrequencyChoice {
   if (row.kind === 'manual') return { kind: 'manual' };
   if (row.kind === 'webhook') return { kind: 'webhook' };
-  // `at` and `every` aren't expressible in the friendly menu — treat as
-  // custom so the edit view shows the raw cron we couldn't reverse, or
-  // (for `at`) the next-fire timestamp the user originally entered.
-  if (row.kind !== 'cron') return { kind: 'custom', cronExpression: row.cronExpression ?? '' };
+  if (row.kind === 'at') {
+    const timezone = row.timezone ?? 'UTC';
+    return { kind: 'once', timezone, ...(row.runAt
+      ? { runAt: row.runAt, ...dateTimeInTimezone(new Date(row.runAt), timezone) }
+      : {}) };
+  }
+  if (row.kind === 'every') return { kind: 'every', intervalSeconds: row.intervalSeconds ?? undefined };
 
   const expr = (row.cronExpression ?? '').trim();
   if (!expr) return { kind: 'custom', cronExpression: '' };
@@ -169,7 +202,7 @@ export function describeFrequency(row: {
   if (row.kind === 'webhook') return 'Webhook';
   if (row.kind === 'every') return `every ${row.intervalSeconds ?? '?'}s`;
   if (row.kind === 'at') {
-    return row.runAt ? `once at ${formatIso(row.runAt)}` : 'once (no time)';
+    return row.runAt ? `Once at ${formatIso(row.runAt, row.timezone ?? 'UTC')}` : 'Once (no time)';
   }
   // Cron — try to humanize via the friendly compiler's reverse map.
   const choice = triggerToFrequency(row);
@@ -231,7 +264,16 @@ function clampDay(n: number): number {
   return n;
 }
 
-function formatIso(iso: string): string {
+export function dateTimeInTimezone(date: Date, timezone: string): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)!.value;
+  return { date: `${part('year')}-${part('month')}-${part('day')}`, time: `${part('hour')}:${part('minute')}` };
+}
+
+function formatIso(iso: string, timezone: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString(undefined, {
@@ -240,5 +282,7 @@ function formatIso(iso: string): string {
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: timezone,
+    timeZoneName: 'short',
   });
 }

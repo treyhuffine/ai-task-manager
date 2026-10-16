@@ -37,11 +37,7 @@ import {
 	type ProviderId,
 } from '@/lib/harness/options';
 import { DEFAULT_HARNESS } from '@/lib/harness/registry';
-import {
-	frequencyToTrigger,
-	type FrequencyKind,
-	type Weekday,
-} from '@/lib/scheduler/frequency';
+import { TriggerScheduleFields, scheduleChoiceResult, type ScheduleChoice } from './trigger-schedule-fields';
 import { cn } from '@/lib/utils';
 import {
 	ChevronDown,
@@ -49,27 +45,7 @@ import {
 	FolderOpen,
 	Save,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-
-const FREQUENCY_OPTIONS: { value: FrequencyKind; label: string }[] = [
-  { value: 'manual', label: 'Manual: Run now only' },
-  { value: 'hourly', label: 'Hourly' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'webhook', label: 'Webhook' },
-  { value: 'custom', label: 'Custom cron' },
-];
-
-const WEEKDAY_LABELS: { value: Weekday; label: string }[] = [
-  { value: 1, label: 'Monday' },
-  { value: 2, label: 'Tuesday' },
-  { value: 3, label: 'Wednesday' },
-  { value: 4, label: 'Thursday' },
-  { value: 5, label: 'Friday' },
-  { value: 6, label: 'Saturday' },
-  { value: 0, label: 'Sunday' },
-];
+import { useEffect, useState } from 'react';
 
 export interface WebhookCredentials {
   publicId: string;
@@ -96,16 +72,12 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
   // provider and model, the same tuple the launcher starts from.
   const [harnessPick, setHarnessPick] = useState<LaunchHarnessSelection | null>(null);
   const [efforts, setEfforts] = useState<Record<string, EffortLevel>>({});
-  const [frequency, setFrequency] = useState<FrequencyKind>('manual');
-  const [time, setTime] = useState('09:00');
-  const [weekday, setWeekday] = useState<Weekday>(1);
-  const [dayOfMonth, setDayOfMonth] = useState(1);
-  const [cronExpression, setCronExpression] = useState('0 9 * * *');
-
+  const [scheduleChoice, setScheduleChoice] = useState<ScheduleChoice>(() => ({
+    kind: 'manual', time: '09:00', weekday: 1, dayOfMonth: 1,
+    cronExpression: '0 9 * * *', intervalSeconds: 3600,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  }));
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [timezone, setTimezone] = useState(
-    Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-  );
   // null = no wall-clock timeout (the default). Users who explicitly
   // want a cap set a positive integer via the Advanced field.
   const [timeoutSeconds, setTimeoutSeconds] = useState<number | null>(null);
@@ -151,19 +123,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
     }));
   }
 
-  const compiledCron = useMemo(() => {
-    try {
-      return frequencyToTrigger({
-        kind: frequency,
-        time,
-        weekday,
-        dayOfMonth,
-        cronExpression,
-      });
-    } catch {
-      return null;
-    }
-  }, [frequency, time, weekday, dayOfMonth, cronExpression]);
+  const compiledSchedule = scheduleChoiceResult(scheduleChoice).schedule;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -172,7 +132,8 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
     const trimmedDescription = description.trim();
     if (!trimmedName || !trimmedPrompt || !trimmedDescription) return;
     if (!workspaceId) return;
-    if (!compiledCron) return;
+    const schedule = scheduleChoiceResult(scheduleChoice).schedule;
+    if (!schedule) return;
 
     const input = {
       name: trimmedName,
@@ -181,11 +142,10 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
       targetKind: 'workspace' as const,
       workspaceId,
       provider: selection.harness,
-      kind: compiledCron.kind,
-      cronExpression: compiledCron.cronExpression,
-      intervalSeconds: null,
-      runAt: null,
-      timezone,
+      ...schedule,
+      intervalSeconds: schedule.intervalSeconds ?? null,
+      runAt: schedule.runAt ?? null,
+      timezone: scheduleChoice.timezone,
       activeHoursStart: activeHoursStart || null,
       activeHoursEnd: activeHoursEnd || null,
       model: selection.model || null,
@@ -275,105 +235,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
         )}
       </div>
 
-      <Field label="Frequency">
-        <div className="space-y-2">
-          <select
-            value={frequency}
-            onChange={(e) => setFrequency(e.target.value as FrequencyKind)}
-            className={inputCls}
-          >
-            {FREQUENCY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-
-          {frequency === 'daily' && (
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-muted-foreground">at</span>
-              <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className={cn(inputCls, 'w-32')}
-              />
-            </div>
-          )}
-
-          {frequency === 'weekly' && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] text-muted-foreground">on</span>
-              <select
-                value={String(weekday)}
-                onChange={(e) => setWeekday(Number(e.target.value) as Weekday)}
-                className={cn(inputCls, 'w-36')}
-              >
-                {WEEKDAY_LABELS.map((d) => (
-                  <option key={d.value} value={d.value}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
-              <span className="text-[11px] text-muted-foreground">at</span>
-              <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className={cn(inputCls, 'w-32')}
-              />
-            </div>
-          )}
-
-          {frequency === 'monthly' && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] text-muted-foreground">on the</span>
-              <input
-                type="number"
-                min={1}
-                max={28}
-                value={dayOfMonth}
-                onChange={(e) => setDayOfMonth(Number(e.target.value))}
-                className={cn(inputCls, 'w-20')}
-              />
-              <span className="text-[11px] text-muted-foreground">at</span>
-              <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className={cn(inputCls, 'w-32')}
-              />
-              <span className="text-[10px] text-muted-foreground">
-                (capped at 28 so February works)
-              </span>
-            </div>
-          )}
-
-          {frequency === 'custom' && (
-            <input
-              type="text"
-              value={cronExpression}
-              onChange={(e) => setCronExpression(e.target.value)}
-              placeholder="0 9 * * 1-5"
-              className={cn(inputCls, 'font-mono text-xs')}
-            />
-          )}
-
-          {frequency === 'webhook' && (
-            <p className="text-[11px] text-muted-foreground p-3 border border-border rounded-md">
-              A public ID + signing secret are generated on save. The
-              secret is shown once and used to sign incoming POSTs.
-            </p>
-          )}
-
-          {frequency === 'manual' && (
-            <p className="text-[11px] text-muted-foreground p-3 border border-border rounded-md">
-              No automatic firing. Use the &ldquo;Run now&rdquo; button on
-              the detail page or call <code>ri trigger run</code>.
-            </p>
-          )}
-        </div>
-      </Field>
+      <TriggerScheduleFields value={scheduleChoice} onChange={setScheduleChoice} disabled={createTrigger.isPending} />
 
       <button
         type="button"
@@ -386,15 +248,6 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
 
       {showAdvanced && (
         <div className="space-y-4 border-l-2 border-border pl-4">
-          <Field label="Timezone">
-            <input
-              type="text"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              placeholder="America/New_York"
-              className={inputCls}
-            />
-          </Field>
           <Field label="Wall-clock timeout (seconds, optional)">
             <input
               type="number"
@@ -471,7 +324,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
         </button>
         <button
           type="submit"
-          disabled={createTrigger.isPending || !workspaceId || !compiledCron}
+          disabled={createTrigger.isPending || !workspaceId || !compiledSchedule}
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50"
         >
           <Save size={14} />
