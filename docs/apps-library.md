@@ -12,7 +12,7 @@ Apps at `/apps` is the shared library for local apps, connected services, custom
 - Multiple accounts belong to one service card. Provider-managed MCP servers stay under their provider. A standalone custom MCP server appears once, even when ingestion also exposes it as a provider.
 - Disabled, unavailable, or retired connections stay manageable. One failed catalog does not hide the other sources.
 
-Apps remains reachable from desktop navigation, mobile More, and search when local app execution is disabled. Local app build/import actions honor the existing runtime flag. Individual launchers in the rail, search, and companion picker only list apps with a view.
+Apps remains reachable from desktop navigation, mobile More, and search when local app execution is disabled. Local app build/import actions honor the existing runtime flag. Individual launchers in the rail, search, and companion picker only list apps with a view. The rail's Apps flyout and search also list connected MCPs with an interactive workflow, one per service (`docs/rail.md`).
 
 ## Chat and access
 

@@ -22,6 +22,8 @@ import type { SearchResult } from '@/lib/api/search';
 import { closeTaskBoard, openTaskBoard } from '@/lib/client/task-board';
 import { closeCalendarModal, openCalendarModal } from '@/lib/client/calendar-modal';
 import { useLocalApps } from '@/components/local-apps/app-hooks';
+import { appPlaces } from '@/components/local-apps/app-places';
+import { connectedAppsQuery } from '@/components/mcp-apps/catalog';
 import type { AnyPanelTab } from '@/types/dashboard';
 import { Command } from 'cmdk';
 import {
@@ -47,6 +49,7 @@ import {
 } from 'lucide-react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useResultCapabilities } from '@/hooks/use-results';
 import { TeamLabel } from '@/components/spaces/team-label';
@@ -120,20 +123,21 @@ export function SearchOverlay() {
   const results = data ?? [];
 
   const { openTask, openNote, toggleTheme, theme, showPanelTab, triggerVoiceChat, setActiveView } = useDashboard();
-  // Open apps, and one Open <app> per installed app, exist only on a Home
-  // with local apps on.
+  // One Open <app> per app the rail's Apps flyout lists: installed apps, on a
+  // Home with local apps on, and connections whose MCP server offers an interface.
   const { enabled: localAppsEnabled, data: localApps } = useLocalApps({ live: false });
-  const appCommands: PaletteCommand[] = localAppsEnabled
-    ? (localApps?.instances ?? [])
-        .filter((app) => app.enabled && !app.archived && app.hasView)
-        .map((app) => ({
-          id: `open-app:${app.slug}`,
-          label: `Open ${app.displayName}`,
-          keywords: `app ${app.slug}`,
-          icon: 'LayoutGrid',
-          group: 'navigate',
-        }))
-    : [];
+  const connectedApps = useQuery({ ...connectedAppsQuery(), enabled: open });
+  const appCommands: PaletteCommand[] = appPlaces(
+    localAppsEnabled ? localApps?.instances ?? [] : [],
+    [],
+    connectedApps.data ?? [],
+  ).map((app) => ({
+    id: `open-app:${app.route}`,
+    label: `Open ${app.displayName}`,
+    keywords: `app ${app.keywords}`,
+    icon: 'LayoutGrid',
+    group: 'navigate',
+  }));
   const createTask = useCreateTask();
   const createNote = useCreateNote();
   const newSkill = useStartSkill();

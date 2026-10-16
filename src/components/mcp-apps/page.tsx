@@ -6,12 +6,13 @@ import { trpcClient } from '@/lib/trpc/client';
 import type { RouterOutputs } from '@/lib/trpc/router';
 import { Button } from '@/components/ui/button';
 import { LibraryChat } from '@/components/local-apps/library-chat';
+import { connectedAppsQuery } from './catalog';
 import { ConnectedView } from './view';
 
 type App = RouterOutputs['connectedApps']['catalog'][number];
 type Tool = App['tools'][number];
 export function ConnectedAppPage({serverId, navigate, resultId}: {serverId: string; navigate: (route: string) => void; resultId?: string}) {
-  const catalog = useQuery({queryKey: ['connected-app-catalog'], queryFn: () => trpcClient.connectedApps.catalog.query(), staleTime: 0});
+  const catalog = useQuery(connectedAppsQuery(0));
   const app = catalog.data?.find(item => item.id === serverId);
   const [captureId, setCaptureId] = useState<string | null>(null);
   const [chat, setChat] = useState(false);

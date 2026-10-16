@@ -245,6 +245,7 @@ export function StripFlyout({
   active = false,
   badge,
   onClick,
+  onIntent,
   children,
 }: {
   icon?: LucideIcon;
@@ -255,6 +256,8 @@ export function StripFlyout({
   active?: boolean;
   badge?: ReactNode;
   onClick?: () => void;
+  /** The pointer or focus reached the button: warm what the flyout shows. */
+  onIntent?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -262,7 +265,7 @@ export function StripFlyout({
       contentLabel={contentLabel}
       onClick={onClick}
       trigger={({ ref, open }) => (
-        <RailIconButton ref={ref} icon={icon} mark={mark} label={label} hideTip={open} active={active || open} badge={badge} />
+        <RailIconButton ref={ref} icon={icon} mark={mark} label={label} hideTip={open} active={active || open} badge={badge} onPointerEnter={onIntent} onFocus={onIntent} />
       )}
     >
       {children}

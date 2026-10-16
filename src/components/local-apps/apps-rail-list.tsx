@@ -1,27 +1,32 @@
 'use client';
 
-import { LayoutGrid, Plus } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { LayoutGrid, Plus, Server } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
+import { IntegrationLogo } from '@/components/integrations/integration-logo';
+import { connectedAppsQuery } from '@/components/mcp-apps/catalog';
 import { Tip } from '@/components/ui/tip';
 import { trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 import { useLocalApps } from './app-hooks';
 import { AppMark } from './app-mark';
-import { appPlaces, draftRoute, isAppRoute, isLibraryRoute } from './app-places';
+import { appPlaces, draftRoute, isLibraryRoute, isPlaceRoute, type AppPlace } from './app-places';
 import { useAppAction } from './use-app-action';
 
 /**
  * The Apps flyout, the shape of the Agents flyout: a header row with the
  * name and the one action (New app, as the Agents header has New agent),
- * then All apps (the library) and each installed app by name, with an amber
+ * then All apps (the library) and every app you can open by name: installed
+ * ones and connections whose MCP server offers an interface, with an amber
  * dot when an action waits on you.
  */
 export function AppsRailList() {
   const { data, enabled } = useLocalApps({ live: false });
+  const connected = useQuery(connectedAppsQuery());
   const { activeView, setActiveView } = useDashboard();
   const { busy, run } = useAppAction();
   const route = activeView.kind === 'apps' ? activeView.route : null;
-  const apps = appPlaces(data?.instances ?? [], data?.approvals ?? []);
+  const apps = appPlaces(data?.instances ?? [], data?.approvals ?? [], connected.data ?? []);
 
   const newApp = () =>
     void run(async () => {
@@ -61,10 +66,10 @@ export function AppsRailList() {
         ) : (
           apps.map((app) => (
             <Row
-              key={app.id}
-              active={route !== null && isAppRoute(route, app.slug)}
-              onClick={() => setActiveView({ kind: 'apps', route: app.slug })}
-              icon={<AppMark name={app.displayName} icon={app.icon} size="xs" />}
+              key={app.key}
+              active={route !== null && isPlaceRoute(app, route)}
+              onClick={() => setActiveView({ kind: 'apps', route: app.route })}
+              icon={<PlaceMark place={app} />}
               trailing={
                 app.needsApproval ? (
                   <span className="size-1.5 flex-shrink-0 rounded-full bg-amber-500" aria-label="Needs your approval" />
@@ -77,6 +82,23 @@ export function AppsRailList() {
         )}
       </nav>
     </>
+  );
+}
+
+/** A row's glyph, as the library draws it: an installed app's tile, the provider's logo, or a server for a custom MCP. */
+function PlaceMark({ place }: { place: AppPlace }) {
+  const { mark, displayName } = place;
+  if (mark.kind === 'app') return <AppMark name={displayName} icon={mark.icon} size="xs" />;
+  if (mark.kind === 'provider')
+    return (
+      <span aria-hidden className="flex shrink-0">
+        <IntegrationLogo providerId={mark.providerId} name={displayName} size={16} className="rounded" />
+      </span>
+    );
+  return (
+    <span aria-hidden className="inline-flex size-4 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
+      <Server size={10} />
+    </span>
   );
 }
 

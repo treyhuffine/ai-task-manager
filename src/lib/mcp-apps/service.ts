@@ -32,7 +32,9 @@ export async function connectedAppsCatalog(viewerId?: string) {
     if (!tools.length) return [];
     const connection = metadata.connections.find(c => c.id === hostedMcpConnectionId(entry));
     const toolkitId = entry.providerId ?? `mcp_${entry.slug}`;
-    return [{id: entry.id, name: entry.displayName, providerId: entry.providerId, connectionId: connection?.id,
+    // `name` is this server's own label, often its account ("Todoist 2"). The toolkit's name is the product, shared by every account.
+    const toolkitName = metadata.toolkits.find(t => t.id === toolkitId)?.displayName ?? entry.displayName;
+    return [{id: entry.id, name: entry.displayName, toolkitName, providerId: entry.providerId, connectionId: connection?.id,
       account: connection?.label || connection?.email || connection?.accountId || entry.displayName,
       available: !!connection && connection.status === 'active' && entry.enabled,
       sourceRef: connection ? encodeSource({v: 1, kind: 'integration', toolkitId, account: {accountId: connection.accountId, authConfigId: connection.authConfigId ?? null}}) : null,

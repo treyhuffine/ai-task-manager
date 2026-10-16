@@ -240,6 +240,7 @@ export function RailStripActions({ places }: { places: readonly RailPlace[] }) {
             label={title}
             contentLabel={flyout.label}
             onClick={onClick}
+            onIntent={onIntent}
             active={active}
             badge={badge}
           >

@@ -21,7 +21,7 @@ beforeEach(() => {
   mcpViews().views.clear(); mcpViews().captures.clear();
   entry = {id: 'server', slug: 'fixture', enabled: true, displayName: 'Fixture', url: 'https://fixture.invalid/mcp', credentialRevision: 1, capabilityRevision: 'v1'};
   const connection = {id: 'mcp-fixture', providerId: 'mcp_fixture', ownerId: 'local', accountId: 'account-A', status: 'active', scopes: []};
-  mocks.metadata.mockImplementation(async () => ({servers: [{entry, capabilities: {tools}}], connections: [connection]}));
+  mocks.metadata.mockImplementation(async () => ({servers: [{entry, capabilities: {tools}}], connections: [connection], toolkits: [{id: 'mcp_fixture', providerId: 'mcp_fixture', displayName: 'Fixture'}]}));
   mocks.connections.mockResolvedValue([connection]);
   mocks.runtime.mockResolvedValue({listConnections: mocks.connections, runAction: mocks.run});
   mocks.transport.mockResolvedValue({tools, readResource: mocks.read});
@@ -77,6 +77,13 @@ describe('connected MCP views', () => {
   it('discovers from cached capabilities without executing or building a transport', async () => {
     expect(await connectedAppsCatalog()).toMatchObject([{id: 'server', available: true, tools: [{name: 'calculate', global: false}]}]);
     expect(mocks.runtime).not.toHaveBeenCalled(); expect(mocks.run).not.toHaveBeenCalled();
+  });
+  it('names a server by its toolkit, so every account of one product shares a name', async () => {
+    const second = {...entry, id: 'second', slug: 'builtin_todoist', providerId: 'todoist', displayName: 'Todoist 2'};
+    const connection = {id: 'hosted-todoist', providerId: 'todoist', ownerId: 'local', accountId: 'todoist:2', status: 'active', scopes: []};
+    mocks.metadata.mockImplementation(async () => ({servers: [{entry, capabilities: {tools}}, {entry: second, capabilities: {tools}}], connections: [connection],
+      toolkits: [{id: 'todoist', providerId: 'todoist', displayName: 'Todoist'}]}));
+    expect((await connectedAppsCatalog()).map(app => [app.id, app.name, app.toolkitName])).toEqual([['server', 'Fixture', 'Fixture'], ['second', 'Todoist 2', 'Todoist']]);
   });
   it('captures the original result, keeps private metadata out of the transcript, and never replays on open', async () => {
     const id = await capture();

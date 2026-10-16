@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { IntegrationLogo } from '@/components/integrations/integration-logo';
 import { IntegrationsSection } from '@/components/settings/sections/integrations-section';
+import { connectedAppsQuery } from '@/components/mcp-apps/catalog';
 import { McpServersSection } from '@/components/settings/sections/plugins/mcp-servers-section';
 import { useSettingsStore } from '@/components/settings/settings-store';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
@@ -44,7 +45,7 @@ export function AppLibrary({ data, localEnabled, localLoading, localError, query
   const settings = useSettingsStore();
   const back = useCallback(() => {
     void qc.invalidateQueries({ queryKey: trpc.integrations.pathKey() });
-    void qc.invalidateQueries({ queryKey: ['connected-app-catalog'] });
+    void qc.invalidateQueries({ queryKey: trpc.connectedApps.catalog.queryKey() });
     navigate(libraryRoute(query, { provider: undefined, mcp: undefined }));
   }, [qc, navigate, query]);
   const providerNavigation = useMemo(() => ({ providerId: location.provider ?? '', returnTo: `/apps${libraryRoute(query, {})}`, onBack: back }), [location.provider, query, back]);
@@ -67,7 +68,7 @@ export function AppLibrary({ data, localEnabled, localLoading, localError, query
 
 function LibraryOverview({ data, localEnabled, localLoading, localError, query, navigate }: Parameters<typeof AppLibrary>[0]) {
   const sources = useLibrary();
-  const connected = useQuery({queryKey: ['connected-app-catalog'], queryFn: () => trpcClient.connectedApps.catalog.query(), staleTime: 15_000});
+  const connected = useQuery(connectedAppsQuery());
   const { openSkill } = useDashboard();
   const createSkill = useStartSkill();
   const { busy, run } = useAppAction();

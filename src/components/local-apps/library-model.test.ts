@@ -38,7 +38,7 @@ describe('Apps library identity and capabilities', () => {
     expect(libraryItems(source).every(row => !row.view)).toBe(true);
   });
   it('promotes a UI-capable connection to one app with its existing management and chat identity', () => {
-    const rows = libraryItems({...source, connectedApps: [{id: 'custom', name: 'Receipts', available: true, account: 'Receipts', sourceRef: null, tools: [], recent: []}]});
+    const rows = libraryItems({...source, connectedApps: [{id: 'custom', name: 'Receipts', toolkitName: 'Receipts', available: true, account: 'Receipts', sourceRef: null, tools: [], recent: []}]});
     expect(rows).toHaveLength(2);
     const app = rows.find(row => row.connectedAppId === 'custom');
     expect(app).toMatchObject({kind: 'apps', view: true, chat: true, target: {kind: 'mcp', id: 'custom'}});

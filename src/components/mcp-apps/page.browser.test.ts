@@ -33,7 +33,7 @@ it('starts workflows explicitly, preserves inputs, and cancels declined or aband
       const input = JSON.parse(body || url.searchParams.get('input') || '{}');
       const method = url.pathname.slice('/api/trpc/'.length);
       let data: unknown;
-      if (method === 'connectedApps.catalog') data = [{id: 'fixture', name: 'Fixture', account: 'Account A', sourceRef: 'source', available: true, recent: [], tools: [{name: 'calculate', title: 'Calculate', description: '', global: false, inputSchema: {type: 'object', properties: {enabled: {type: 'boolean'}, amount: {type: 'number'}}, required: ['enabled']}}]}];
+      if (method === 'connectedApps.catalog') data = [{id: 'fixture', name: 'Fixture', toolkitName: 'Fixture', account: 'Account A', sourceRef: 'source', available: true, recent: [], tools: [{name: 'calculate', title: 'Calculate', description: '', global: false, inputSchema: {type: 'object', properties: {enabled: {type: 'boolean'}, amount: {type: 'number'}}, required: ['enabled']}}]}];
       else if (method === 'connectedApps.prepare') {inputs.push(input.args); data = {viewId: `view-${inputs.length}`, invocationId: `invocation-${inputs.length}`};}
       else if (method === 'connectedApps.launch') {
         launches.push(input.viewId);
