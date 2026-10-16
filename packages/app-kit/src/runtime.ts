@@ -4,8 +4,10 @@ import { randomUUID, createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  ACCESS_PROTOCOL,
   AppError,
   ContractValidator,
+  invocationAccessSchema,
   LIMITS,
   publicError,
   errorCodeSchema,
@@ -16,6 +18,7 @@ import {
   type InvocationContext,
   type AppPrincipal,
   type ArtifactTarget,
+  type InvocationAccess,
 } from "./contract.js";
 import { contractDigest } from "./sdk.js";
 import { allocateLoopbackPort, McpServiceTransport } from "./mcp-service.js";
@@ -56,6 +59,8 @@ export interface CapabilityCall {
   callId: string;
   name: string;
   binding?: string;
+  /** A connection the caller's grant binds to `binding`. Required when it binds several. */
+  account?: string;
   input: unknown;
 }
 export interface HostServices {
@@ -85,6 +90,11 @@ export interface HostServices {
     instance: InstalledArtifact,
     context: InvocationContext,
   ): Promise<{ scopeRef: string | null; ticket: string | null; scopeActorId?: string }>;
+  /** Required for packages that declare runtime.access: the caller's bound scope and accounts. */
+  invocationAccess?(
+    instance: InstalledArtifact,
+    context: InvocationContext,
+  ): Promise<InvocationAccess> | InvocationAccess;
 }
 export interface OwnedTransport {
   generation: string;
@@ -231,12 +241,16 @@ class IpcTransport implements OwnedTransport {
           invocationId: string;
           name: string;
           binding?: string;
+          account?: string;
           input: unknown;
         };
         if (
           !this.capability ||
           typeof params.invocationId !== "string" ||
-          typeof params.name !== "string"
+          typeof params.name !== "string" ||
+          (params.binding !== undefined && typeof params.binding !== "string") ||
+          (params.account !== undefined &&
+            (typeof params.account !== "string" || params.account.length > 128))
         )
           throw new AppError("forbidden", "Invalid capability request");
         const result = await this.capability({ ...params, callId: message.id });
@@ -424,10 +438,11 @@ export class NativeNodeDriver implements ExecutionDriver {
             "com.ri"
           ].requests.integrations.map((item) => item.binding),
           ...bootstrap,
+          ...(runtime.access ? { access: ACCESS_PROTOCOL } : {}),
           port,
         },
         controller.signal,
-      )) as { version: number; contractDigest: string; endpoint?: string };
+      )) as { version: number; contractDigest: string; endpoint?: string; access?: string };
       if (
         result.version !== 1 ||
         result.contractDigest !== contractDigest(instance.contract)
@@ -435,6 +450,12 @@ export class NativeNodeDriver implements ExecutionDriver {
         throw new AppError(
           "conflict",
           "The app did not confirm the installed contract",
+        );
+      // A package that asks for scoped callers must prove its SDK enforces them.
+      if (runtime.access && result.access !== runtime.access)
+        throw new AppError(
+          "unsupported",
+          "This app's SDK cannot receive Ri data access. Rebuild it with the current app kit",
         );
       if (runtime.protocol === "mcp-http-v1") {
         const endpoint = `http://127.0.0.1:${port}${runtime.mcpPath}`;
@@ -810,11 +831,19 @@ export class AppEngine {
         startedAt,
         outcome: "running",
       });
+      let access: InvocationAccess | undefined;
+      if (instance.manifest.extensions["com.ri"].runtime.access) {
+        if (!this.host.invocationAccess)
+          throw new AppError("unsupported", "This host cannot supply app data access");
+        access = invocationAccessSchema.parse(
+          await this.host.invocationAccess(instance, context),
+        );
+      }
       const transport = await this.ensureStarted(slot);
       this.arm(slot, active);
       const result = await transport.request(
         "invoke",
-        { action: actionName, input, context },
+        { action: actionName, input, context, ...(access ? { access } : {}) },
         controller.signal,
       );
       const serializedResult = JSON.stringify(result);

@@ -38,6 +38,22 @@
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.cjs"
+    },
+    "./data": {
+      "types": "./dist/data.d.ts",
+      "default": "./dist/data.js"
+    },
+    "./sources": {
+      "types": "./dist/sources.d.ts",
+      "default": "./dist/sources.js"
+    },
+    "./time": {
+      "types": "./dist/time.d.ts",
+      "default": "./dist/time.js"
+    },
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "default": "./dist/ui.js"
     }
   },
   "scripts": {

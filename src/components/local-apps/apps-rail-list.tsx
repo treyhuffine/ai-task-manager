@@ -64,7 +64,7 @@ export function AppsRailList() {
               key={app.id}
               active={route !== null && isAppRoute(route, app.slug)}
               onClick={() => setActiveView({ kind: 'apps', route: app.slug })}
-              icon={<AppMark name={app.displayName} size="xs" />}
+              icon={<AppMark name={app.displayName} icon={app.icon} size="xs" />}
               trailing={
                 app.needsApproval ? (
                   <span className="size-1.5 flex-shrink-0 rounded-full bg-amber-500" aria-label="Needs your approval" />

@@ -1,0 +1,78 @@
+/* Documentation preview. Reuses the shared neutral app concept styles. */
+.crm-main-tabs { align-items: baseline; }
+.crm-main-tabs .add-view { margin-left: auto; font-size: 12px; }
+.crm-toolbar { gap: 8px; }
+.crm-toolbar label { display: flex; align-items: center; gap: 8px; }
+.crm-toolbar select { padding: 8px 10px; max-width: 100%; }
+.crm-toolbar input { flex: 1; max-width: 310px; }
+.crm-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-top: 17px; color: var(--muted); font-size: 12px; }
+.crm-table th { white-space: nowrap; }
+.crm-table td { vertical-align: middle; }
+.crm-table td:first-child { min-width: 185px; }
+.crm-table tbody tr:hover { background: var(--soft); }
+.crm-person-cell { display: flex; align-items: center; gap: 11px; }
+.crm-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--selected); flex: 0 0 auto; font-size: 11px; }
+.crm-person-cell strong { display: block; font-weight: 550; }
+.crm-person-cell small { display: block; color: var(--muted); margin-top: 3px; }
+.crm-company-mark { border-radius: 8px; }
+.crm-role { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+.crm-person-header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 15px; }
+.crm-person-header .person-heading { min-width: 0; }
+.crm-person-header h1 { font-size: 28px; }
+.crm-cover { display: flex; flex-wrap: wrap; gap: 7px 20px; color: var(--muted); font-size: 12px; margin: 4px 0 23px; }
+.crm-briefing { padding: 23px 25px; }
+.crm-briefing p { line-height: 1.7; }
+.crm-briefing .commitment { margin-top: 17px; }
+.crm-record-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(220px, 1fr); gap: 25px; }
+.crm-section { padding: 22px 0; border-bottom: 1px solid var(--line); }
+.crm-section:first-child { padding-top: 0; }
+.crm-section h3 { margin-bottom: 12px; }
+.crm-section p { margin: 8px 0; }
+.crm-card { padding: 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin-bottom: 17px; }
+.crm-card h3 { margin-bottom: 10px; }
+.crm-card .actions { margin-top: 14px; }
+.crm-card .crm-person-cell + .crm-person-cell { margin-top: 15px; }
+.crm-card button.text-button { text-decoration: none; }
+.crm-next { padding: 17px 20px; border: 1px solid var(--line); background: var(--surface); border-radius: 9px; margin-bottom: 24px; }
+.crm-next h3 { margin: 6px 0; }
+.crm-next .actions { margin-top: 12px; }
+.crm-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; }
+.crm-column { min-width: 0; }
+.crm-column-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 4px 14px; font-size: 13px; font-weight: 550; }
+.crm-column-header span { color: var(--muted); font-weight: 400; }
+.crm-opportunity { display: block; text-align: left; width: 100%; padding: 17px; margin-bottom: 12px; }
+.crm-opportunity h3 { margin: 12px 0 8px; line-height: 1.45; }
+.crm-opportunity .crm-card-next { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 13px; font-size: 12px; }
+.crm-column-empty { border: 1px dashed var(--line); padding: 20px 13px; border-radius: 9px; color: var(--muted); font-size: 12px; }
+.crm-toolbar .crm-mobile-stage { display: none; }
+.crm-record-open > .page-heading { display: none; }
+.crm-option { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 19px 0; border-bottom: 1px solid var(--line); }
+.crm-option p { font-size: 12px; color: var(--muted); margin-top: 5px; }
+.crm-form { display: grid; gap: 15px; }
+.crm-form label { display: grid; gap: 7px; font-size: 12px; color: var(--muted); }
+.crm-form input, .crm-form select { padding: 10px; color: var(--ink); min-width: 0; width: 100%; }
+.crm-saved { color: var(--positive); font-size: 12px; }
+.crm-view-note { color: var(--muted); font-size: 12px; margin: 18px 0; }
+.crm-coverage { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 15px; margin-top: 21px; }
+.crm-active-filter { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; font-size: 12px; }
+.crm-mobile-rows { display: none; }
+@container (max-width: 850px) {
+  .crm-record-grid { grid-template-columns: minmax(0, 1fr); }
+  .crm-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 620px) {
+  .crm-table-container { display: none; }
+  .crm-mobile-rows { display: grid; gap: 8px; }
+  .crm-mobile-rows > button { text-align: left; padding: 14px; }
+  .crm-mobile-rows .crm-row-meta { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .crm-board { grid-template-columns: minmax(0, 1fr); }
+  .crm-toolbar .crm-mobile-stage { display: flex; }
+  .crm-column:not(.crm-current-stage) { display: none; }
+  .crm-toolbar input { width: 100%; flex-basis: 100%; max-width: none; }
+  .crm-toolbar .push { margin-left: 0; }
+  .crm-main-tabs { gap: 15px; }
+  .crm-main-tabs .add-view { margin-left: 0; }
+  .crm-briefing { padding: 19px; }
+  .crm-person-header .person-heading h2 { font-size: 23px; }
+  .crm-option { align-items: start; gap: 12px; }
+}

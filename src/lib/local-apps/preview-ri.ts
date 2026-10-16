@@ -9,6 +9,11 @@ const registry=z.object({formatVersion:z.literal(1),tasks:z.array(record).max(10
 /** Synthetic capabilities only. This module never imports Ri's record queries or harness. */
 export function previewRiCapability(dataDir:string,context:InvocationContext,call:CapabilityCall,signal:AbortSignal){
   if(signal.aborted)throw new AppError('interrupted','Preview capability cancelled');
+  if(call.name==='extract_text'){
+    const input=z.object({fileName:z.string().min(1).max(200),mimeType:z.string().max(200),base64:z.string().max(Math.ceil(512*1024/3)*4)}).strict().parse(call.input);
+    if(!input.mimeType.startsWith('text/')&&input.mimeType!=='message/rfc822')throw new AppError('unsupported','Reading PDF and Word files is available once the app is in use');
+    const text=Buffer.from(input.base64,'base64').toString('utf8');return {text:text.slice(0,200_000),truncated:text.length>200_000,characters:text.length};
+  }
   if(call.name==='ai_text'){const {prompt}=z.object({prompt:z.string().min(1).max(16000)}).strict().parse(call.input);return {text:'Fictional preview analysis of supplied text: '+prompt.slice(0,1000)};}
   const file=path.join(dataDir,'ri-fixtures.json'),stamp='2026-10-07T12:00:00.000Z';
   let state:z.infer<typeof registry>;
@@ -18,7 +23,8 @@ export function previewRiCapability(dataDir:string,context:InvocationContext,cal
   if(call.name==='list_tasks'||call.name==='list_notes'){const input=z.object({limit:z.number().int().min(1).max(100).optional(),offset:z.number().int().min(0).max(10000).optional()}).passthrough().parse(call.input);return state[type].slice(input.offset??0,(input.offset??0)+(input.limit??50));}
   if(call.name==='create_task'||call.name==='create_note'){
     const input=z.object({title:z.string().max(500).optional(),body:z.string().max(64000).optional(),description:z.string().max(4000).optional()}).passthrough().parse(call.input);
-    const hash=createHash('sha256').update(JSON.stringify([context.id,context.principal,call.name,input])).digest('hex'),id=`${hash.slice(0,8)}-${hash.slice(8,12)}-8${hash.slice(13,16)}-a${hash.slice(17,20)}-${hash.slice(20,32)}`;
+    const operation=typeof input.operationId==='string'?input.operationId:null;
+    const hash=createHash('sha256').update(JSON.stringify(operation?['preview',call.name,operation]:[context.id,context.principal,call.name,input])).digest('hex'),id=`${hash.slice(0,8)}-${hash.slice(8,12)}-8${hash.slice(13,16)}-a${hash.slice(17,20)}-${hash.slice(20,32)}`;
     const existing=state[type].find(row=>row.id===id);if(existing)return existing;
     if(state[type].length>=100)throw new AppError('busy','The preview fixture record limit was reached');
     const row={id,title:input.title??'Fictional note',body:input.body??input.description??'',status:'todo' as const,createdAt:stamp,updatedAt:stamp};state[type].push(row);registry.parse(state);

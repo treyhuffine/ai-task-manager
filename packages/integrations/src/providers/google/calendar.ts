@@ -19,16 +19,33 @@ interface RawEvent {
   summary?: string;
   htmlLink?: string;
   status?: string;
-  start?: { dateTime?: string; date?: string };
-  end?: { dateTime?: string; date?: string };
+  start?: { dateTime?: string; date?: string; timeZone?: string };
+  end?: { dateTime?: string; date?: string; timeZone?: string };
   /** 'transparent' = shows as free; absent/'opaque' = shows as busy. */
   transparency?: string;
   location?: string;
   hangoutLink?: string;
   /** The event's own color, overriding its calendar's: a key into Google's event palette ("1" to "11"). */
   colorId?: string;
-  attendees?: Array<{ self?: boolean; responseStatus?: string }>;
+  attendees?: Array<{
+    email?: string;
+    displayName?: string;
+    self?: boolean;
+    organizer?: boolean;
+    resource?: boolean;
+    optional?: boolean;
+    responseStatus?: string;
+  }>;
+  attendeesOmitted?: boolean;
   conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
+  organizer?: { email?: string; displayName?: string; self?: boolean };
+  description?: string;
+  /** Set on every instance of a recurring series: the series' own event id. */
+  recurringEventId?: string;
+  originalStartTime?: { dateTime?: string; date?: string; timeZone?: string };
+  updated?: string;
+  created?: string;
+  eventType?: string;
 }
 
 function eventSummary(e: RawEvent) {
@@ -48,6 +65,49 @@ function eventSummary(e: RawEvent) {
     colorId: e.colorId,
     /** The user's own RSVP: needsAction | declined | tentative | accepted. */
     responseStatus: self?.responseStatus,
+  };
+}
+
+const text = (value: string | undefined, max: number) => (typeof value === 'string' ? value.slice(0, max) : undefined);
+
+/**
+ * The full typed event a sync consumer needs: participants, organizer, the
+ * recurrence identity of an occurrence, the zone the organizer chose, the
+ * provider's update time and cancellation. A cancelled event in an incremental
+ * sync carries little more than its id and status, so every field is optional.
+ */
+export function eventDetail(e: RawEvent) {
+  return {
+    ...eventSummary(e),
+    allDay: !!(e.start?.date && !e.start?.dateTime),
+    startTimeZone: text(e.start?.timeZone, 100),
+    endTimeZone: text(e.end?.timeZone, 100),
+    recurringEventId: text(e.recurringEventId, 1024),
+    originalStartTime: e.originalStartTime
+      ? {
+          dateTime: text(e.originalStartTime.dateTime, 64),
+          date: text(e.originalStartTime.date, 32),
+          timeZone: text(e.originalStartTime.timeZone, 100),
+        }
+      : undefined,
+    organizer: e.organizer
+      ? { email: text(e.organizer.email, 320), displayName: text(e.organizer.displayName, 300), self: !!e.organizer.self }
+      : undefined,
+    attendees: (e.attendees ?? []).slice(0, 200).map((a) => ({
+      email: text(a.email, 320),
+      displayName: text(a.displayName, 300),
+      self: !!a.self,
+      organizer: !!a.organizer,
+      resource: !!a.resource,
+      optional: !!a.optional,
+      responseStatus: text(a.responseStatus, 32),
+    })),
+    attendeesOmitted: !!e.attendeesOmitted || (e.attendees?.length ?? 0) > 200,
+    description: text(e.description, 8000),
+    eventType: text(e.eventType, 64),
+    updated: text(e.updated, 64),
+    created: text(e.created, 64),
+    cancelled: e.status === 'cancelled',
   };
 }
 
@@ -107,6 +167,7 @@ export const googleCalendar = defineToolkit({
         timeMax: z.string().optional(),
         maxResults: z.number().int().positive().max(2500).default(25),
         query: z.string().optional().describe('Free-text search over events'),
+        pageToken: z.string().max(2000).optional().describe('Continue from a previous nextPageToken'),
       }),
       request: (i) => ({
         method: 'GET',
@@ -118,11 +179,62 @@ export const googleCalendar = defineToolkit({
           q: i.query,
           singleEvents: true,
           orderBy: 'startTime',
+          pageToken: i.pageToken,
         },
       }),
       output: (raw) => {
-        const r = raw as { items?: RawEvent[] };
-        return { events: (r.items ?? []).map(eventSummary) };
+        const r = raw as { items?: RawEvent[]; nextPageToken?: string };
+        return { events: (r.items ?? []).map(eventSummary), ...(r.nextPageToken ? { nextPageToken: r.nextPageToken } : {}) };
+      },
+    }),
+
+    httpAction({
+      id: 'google_calendar.sync_events',
+      description:
+        'Read one page of a calendar for synchronization: typed participants, organizer, recurrence identity, original time zones, update times and cancellations. ' +
+        'Start with timeMin/timeMax, follow nextPageToken, then pass the final nextSyncToken to receive only later changes. An expired sync token fails with status 410.',
+      scopes: [GOOGLE_SCOPES.calendarEventsReadonly],
+      input: z
+        .object({
+          calendarId: z.string().min(1).max(1024).default('primary'),
+          syncToken: z.string().max(4000).optional(),
+          pageToken: z.string().max(4000).optional(),
+          timeMin: z.string().max(64).optional(),
+          timeMax: z.string().max(64).optional(),
+          maxResults: z.number().int().min(1).max(250).default(100),
+        })
+        // Google rejects a time window beside a sync token. The token already
+        // carries the window of the full sync that produced it, so it wins.
+        .strict(),
+      request: (i) => ({
+        method: 'GET',
+        path: `${CAL}/calendars/${encodeURIComponent(i.calendarId)}/events`,
+        query: {
+          syncToken: i.syncToken,
+          pageToken: i.pageToken,
+          timeMin: i.syncToken ? undefined : i.timeMin,
+          timeMax: i.syncToken ? undefined : i.timeMax,
+          maxResults: i.maxResults,
+          singleEvents: true,
+          showDeleted: true,
+        },
+      }),
+      output: (raw) => {
+        const r = z
+          .object({
+            items: z.array(z.record(z.string(), z.unknown())).max(2500).optional(),
+            nextPageToken: z.string().max(4000).optional(),
+            nextSyncToken: z.string().max(4000).optional(),
+            timeZone: z.string().max(100).optional(),
+          })
+          .passthrough()
+          .parse(raw);
+        return {
+          events: (r.items ?? []).map((item) => eventDetail(item as RawEvent)),
+          calendarTimeZone: r.timeZone,
+          ...(r.nextPageToken ? { nextPageToken: r.nextPageToken } : {}),
+          ...(r.nextSyncToken ? { nextSyncToken: r.nextSyncToken } : {}),
+        };
       },
     }),
 

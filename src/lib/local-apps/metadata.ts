@@ -12,7 +12,8 @@ export function localAppMetadata(id: string, draft = false) {
     const name = extension?.displayName ?? manifest.name;
     return { displayName: typeof name === 'string' ? name.slice(0, 160) : undefined,
       description: typeof manifest.description === 'string' ? manifest.description.slice(0, 400) : undefined,
-      hasView: !!extension?.ui, hasActions: extension?.runtime?.kind === 'node' };
+      hasView: !!extension?.ui, hasActions: extension?.runtime?.kind === 'node',
+      icon: typeof extension?.icon === 'string' && /^[a-z][a-z0-9-]{0,39}$/.test(extension.icon) ? extension.icon as string : undefined };
   } catch { return null; }
   finally { if (fd !== undefined) closeSync(fd); }
 }

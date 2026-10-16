@@ -53,6 +53,14 @@ Finances starts empty. Add a manual account, then choose or paste a CSV file fro
 
 Gmail receipt reads are fixture-qualified for profile, listing, message, history and attachment modes. Live Gmail setup is a separate authorized qualification. Missing Outlook/Plaid operations stay unavailable. Manual records continue to work without connectors. A receipt query is a relevance filter and does not narrow mailbox permission. Removing a local Finances source stops that source. Revoke its host binding in Ri app settings to remove host permission without globally disconnecting an account used elsewhere.
 
+## Travel, Job Search and People
+
+Their source lives in `apps/travel`, `apps/job-search` and `apps/people`, built with the shared kit. `pnpm --filter ri-<app> test`, `typecheck` and `package` work from the repository root. `package` writes to `release/local-apps/dev-catalog`, never the live catalog that a running Home reads. Release staging (`pnpm apps:catalog`, `pnpm build`) builds all three into the catalog.
+
+To qualify them natively, copy the dev-catalog artifacts with the Finances and tracker artifacts into a private folder and start a disposable Home with `RI_LOCAL_APPS_CATALOG_DIR` pointing at it. The header of `scripts/local-apps-included-browser-smoke.ts` has the exact commands. The smoke installs each app from Discover, opens its native Sources dialog, writes through an app action, checks the remembered section across a reload, stages an Ask Ri question without sending, and checks the phone layout.
+
+Connect email in any of the three opens the app's Sources dialog. It shows which Ri accounts are connected, which are granted to the app and which update automatically (one five-minute schedule per app), plus the Ri capabilities the app may use. Connect and Reconnect go to Ri's own account settings. Gmail and Calendar sync are fixture-qualified only.
+
 ## Lifecycle and records
 
 App records live in `<app-root>/apps/<instance-id>/data`. Editable previews live separately under `app-drafts`. IDs survive package changes and slug changes. Metadata, grants, schedules and panel bindings are stored in a strict versioned file under the Home's config directory. No core task/note schema migration is added.

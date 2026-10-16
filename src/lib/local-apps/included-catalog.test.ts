@@ -11,14 +11,15 @@ let root: string;
 afterEach(async () => { if (root) await fs.rm(root, { recursive: true, force: true }); });
 
 const qualified = { platform: 'darwin', arch: 'arm64', nodeVersion: '26.5.0', nodeAbi: '147' };
-it('includes Finances only on its qualified automatic-build target', () => {
-  expect(includedAppIds(true, qualified)).toEqual(['ri-finance', 'ri-tracker']);
+it('includes Finances only on its qualified automatic-build target and the portable apps everywhere', () => {
+  const portable = ['ri-people', 'ri-travel', 'ri-job-search', 'ri-tracker'];
+  expect(includedAppIds(true, qualified)).toEqual(['ri-finance', ...portable]);
   for (const runtime of [
     { ...qualified, platform: 'linux' }, { ...qualified, arch: 'x64' },
     { ...qualified, nodeVersion: '26.6.0' }, { ...qualified, nodeAbi: '148' },
   ]) {
-    expect(includedAppIds(true, runtime)).toEqual(['ri-tracker']);
-    expect(includedAppIds(false, runtime)).toEqual(['ri-finance', 'ri-tracker']);
+    expect(includedAppIds(true, runtime)).toEqual(portable);
+    expect(includedAppIds(false, runtime)).toEqual(['ri-finance', ...portable]);
   }
 });
 

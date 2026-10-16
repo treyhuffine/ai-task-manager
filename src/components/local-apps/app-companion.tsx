@@ -76,7 +76,7 @@ export function AppCompanion({
           )}
         >
           <div className="flex flex-shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1.5">
-            <AppMark name={instance.displayName} size="xs" />
+            <AppMark name={instance.displayName} icon={instance.icon} size="xs" />
             <h2 className="min-w-0 truncate text-[12px] font-medium text-foreground">{instance.displayName}</h2>
             <div className="flex-1" />
             {chatAccess.data === null ? (

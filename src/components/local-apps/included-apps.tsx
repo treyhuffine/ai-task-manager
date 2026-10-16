@@ -8,7 +8,7 @@ import { Chip, GroupHeading } from '@/components/settings/sections/integrations/
 import { trpcClient } from '@/lib/trpc/client';
 import { Tip } from '@/components/ui/tip';
 import { KEY, type LocalAppsList } from './app-hooks';
-import { AppMark } from './app-mark';
+import { AppMark, INCLUDED_APP_ICONS } from './app-mark';
 import { draftRoute } from './app-places';
 import { useAppAction } from './use-app-action';
 
@@ -48,7 +48,7 @@ export function IncludedApps({ data, search, navigate }: { data?: LocalAppsList;
                       className="flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-card/20 p-3"
                     >
                       <div className="flex min-w-0 items-start gap-3">
-                        <AppMark name={entry.name} size="lg" />
+                        <AppMark name={entry.name} icon={INCLUDED_APP_ICONS[entry.packageId]} size="lg" />
                         <div className="min-w-0 flex-1">
                           <h3 className="truncate text-sm font-medium text-foreground">{entry.name}</h3>
                           <p className="text-[11px] leading-snug text-muted-foreground">{entry.description}</p>

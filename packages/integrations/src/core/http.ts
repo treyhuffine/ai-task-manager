@@ -41,7 +41,8 @@ function resolveUrl(baseUrl: string | undefined, path: string, query: HttpReques
   const url = new URL(joinUrl(baseUrl, path));
   if (query) {
     for (const [k, v] of Object.entries(query)) {
-      if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
+      if (Array.isArray(v)) for (const item of v) url.searchParams.append(k, String(item));
+      else if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
     }
   }
   return url.toString();

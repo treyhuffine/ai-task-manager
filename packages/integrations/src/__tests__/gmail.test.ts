@@ -320,3 +320,36 @@ describe('bounded Gmail mailbox reads',()=>{
   h.env.action=()=>({json:{messages:[{id:'m'.repeat(1000)}]}});expect(await h.runtime.runAction('gmail.search_messages',{query:'fixture'},{maxResponseBytes:100})).toMatchObject({ok:false,reason:'error',code:'provider_error'});
  });
 });
+
+describe('Gmail history change types', () => {
+  it('keeps the additions-only default and repeats requested history types for deletions and label changes', async () => {
+    const h = makeHarness(); await h.connect(); const urls: string[] = [];
+    h.env.action = (call) => {
+      urls.push(call.url);
+      return { json: { historyId: '210', history: [
+        { id: '201', messagesAdded: [{ message: { id: 'm1', threadId: 't1' } }] },
+        { id: '202', messagesDeleted: [{ message: { id: 'm2', threadId: 't2' } }] },
+        { id: '203', labelsAdded: [{ message: { id: 'm3', threadId: 't3', labelIds: ['TRASH'] }, labelIds: ['TRASH'] }] },
+        { id: '204', labelsRemoved: [{ message: { id: 'm4', threadId: 't4' }, labelIds: ['INBOX'] }] },
+      ] } };
+    };
+    await h.runtime.runAction('gmail.list_history', { startHistoryId: '200' });
+    expect(new URL(urls[0]!).searchParams.getAll('historyTypes')).toEqual(['messageAdded']);
+    const out = await h.runtime.runAction('gmail.list_history', { startHistoryId: '200', historyTypes: ['messageAdded', 'messageDeleted', 'labelAdded', 'labelRemoved'] });
+    expect(new URL(urls[1]!).searchParams.getAll('historyTypes')).toEqual(['messageAdded', 'messageDeleted', 'labelAdded', 'labelRemoved']);
+    expect(out).toMatchObject({ ok: true, result: { historyId: '210', history: [
+      { messagesAdded: [{ message: { id: 'm1' } }] },
+      { messagesDeleted: [{ message: { id: 'm2' } }] },
+      { labelsAdded: [{ labelIds: ['TRASH'], message: { id: 'm3', labelIds: ['TRASH'] } }] },
+      { labelsRemoved: [{ labelIds: ['INBOX'] }] },
+    ] } });
+  });
+
+  it('rejects an unknown history type before calling Gmail', async () => {
+    const h = makeHarness(); await h.connect(); let called = false;
+    h.env.action = () => { called = true; return { json: {} }; };
+    const out = await h.runtime.runAction('gmail.list_history', { startHistoryId: '1', historyTypes: ['everything'] });
+    expect(out).toMatchObject({ ok: false, code: 'invalid_input' });
+    expect(called).toBe(false);
+  });
+});

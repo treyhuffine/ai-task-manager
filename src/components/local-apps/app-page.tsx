@@ -5,7 +5,7 @@ import { requestAppChatDraft } from '@/lib/client/app-chat-intent';
 import { useAppPane } from '@/lib/client/app-pane';
 import { useQuery } from '@tanstack/react-query';
 import { useDefaultLayout, usePanelRef, type Layout, type LayoutStorage } from 'react-resizable-panels';
-import { Archive, Download, KeyRound, MessageSquare, MoreHorizontal, Pencil, Power, ScrollText, Settings2 } from 'lucide-react';
+import { Archive, Download, KeyRound, MessageSquare, MoreHorizontal, Pencil, PlugZap, Power, ScrollText, Settings2 } from 'lucide-react';
 import { HarnessChatSession } from '@/components/chat/harness-chat';
 import type { MainChatIntro } from '@/components/chat/main-chat-intro';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -26,6 +26,7 @@ import { useAppAccess, type LocalAppInstance, type LocalAppsList } from './app-h
 import { AppMark } from './app-mark';
 import { AppOutput } from './app-output';
 import { AppSettingsDialog } from './app-settings-dialog';
+import { AppSourcesDialog } from './app-sources-dialog';
 import { AppToolSummary } from './app-tool-summary';
 import { AppView } from './app-view';
 import { appCondition } from './app-copy';
@@ -65,9 +66,10 @@ export function AppPage({
   data: LocalAppsList;
   path: string;
   query: Record<string, string>;
-  navigate: (route: string) => void;
+  navigate: (route: string, options?: { replace?: boolean }) => void;
 }) {
   const id = instance.id;
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const { riAccessChat, riChat, ...viewQuery } = query;
   const [accessOpen, setAccessOpen] = useState(!!riAccessChat);
   const { busy, run } = useAppAction();
@@ -143,6 +145,8 @@ export function AppPage({
           authorityRevision={(access.data?.revision ?? 0) * 100000 + (owner?.revision ?? 0)}
           digest={instance.digest}
           onNavigate={(value) => navigate(`${instance.slug}${value}`)}
+          onLocation={(value) => navigate(`${instance.slug}${value}`, { replace: true })}
+          onSources={() => setSourcesOpen(true)}
           onAsk={(text) => {
             setMode('chat');
             setQuestion({ text });
@@ -197,7 +201,7 @@ export function AppPage({
     <div ref={measureRef} className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
       <AppHeader
         onBack={() => navigate('')}
-        mark={<AppMark name={instance.displayName} size="md" />}
+        mark={<AppMark name={instance.displayName} icon={instance.icon} size="md" />}
         title={instance.displayName}
         subtitle={`${condition.label} · ${instance.version}`}
         pane={ask && narrow ? { value: pane, options: PANES, onChange: setMode } : undefined}
@@ -221,6 +225,9 @@ export function AppPage({
             </IconAction>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[190px]">
+            <DropdownMenuItem onSelect={() => setSourcesOpen(true)}>
+              <PlugZap size={13} /> Sources and access
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
               <Settings2 size={13} /> Settings
             </DropdownMenuItem>
@@ -278,6 +285,7 @@ export function AppPage({
       </ResizablePanelGroup>
 
       <Dialog open={accessOpen} onOpenChange={setAccessOpen}><DialogContent className="max-h-[85vh] overflow-auto"><DialogHeader><DialogTitle>Allow access to {instance.displayName}</DialogTitle></DialogHeader>{riAccessChat && <AppGrantEditor instanceId={id} chatId={riAccessChat} onSaved={() => setAccessOpen(false)} />}</DialogContent></Dialog>
+      {openable && <AppSourcesDialog instanceId={id} open={sourcesOpen} onOpenChange={setSourcesOpen} />}
       <AppSettingsDialog
         instance={instance}
         data={data}

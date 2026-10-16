@@ -111,7 +111,7 @@ interface DashboardState {
 interface DashboardActions {
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
-  setActiveView: (view: ActiveView) => void;
+  setActiveView: (view: ActiveView, opts?: { replace?: boolean }) => void;
   /** Open an execution chat (the execution view). */
   openExecution: (sessionId: string) => void;
   /** Open an agent's view, optionally on a tools tab. */

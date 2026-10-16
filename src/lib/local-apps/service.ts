@@ -14,6 +14,7 @@ import {
   viewResultSchema,
   viewStateSchema,
   type AppPrincipal,
+  type InvocationAccess,
   type InvocationContext,
 } from "@ri/app-kit/contract";
 import {
@@ -64,6 +65,8 @@ export function requireLocalApps() {
 }
 const now = () => new Date().toISOString();
 const OWNER: AppPrincipal = { kind: "owner-ui", id: "owner" };
+/** The one host-owned schedule an included app may register for bounded sync and enrichment. */
+const BACKGROUND_ACTION = "run_background_step";
 type ViewSession = {
   id: string;
   instanceId: string;
@@ -196,6 +199,7 @@ export class LocalAppsService {
         this.authorize(artifact, action.name, context),
       capability: (artifact, context, call, signal) =>
         this.dispatchCapability(artifact, context, call, signal),
+      invocationAccess: (artifact, context) => this.invocationAccess(artifact, context),
       event: (event) => this.event(event),
       beginActivity,
       serviceBootstrap: async (artifact, generation) => {
@@ -269,6 +273,7 @@ export class LocalAppsService {
         description: metadata?.description,
         hasView: metadata?.hasView ?? false,
         hasActions: metadata?.hasActions ?? false,
+        icon: metadata?.icon,
         runtime: this.engine.condition(item.id),
       }; }),
       approvals: [...this.approvals.values()].map(
@@ -471,6 +476,23 @@ export class LocalAppsService {
         "forbidden",
         "This package did not request that Ri action",
       );
+    if (
+      new Set(input.connections.map((item) => `${item.binding}\u0000${item.connectionId}`)).size !==
+      input.connections.length
+    )
+      throw new AppError("invalid_input", "An account appears twice for the same binding");
+    const extension = artifact.manifest.extensions["com.ri"];
+    if (
+      extension.runtime.access &&
+      extension.ui?.access &&
+      (input.principal.kind === "chat" || input.principal.kind === "workspace") &&
+      input.actions.length &&
+      !input.serviceScopeRef
+    )
+      throw new AppError(
+        "invalid_input",
+        "Choose which app records this caller may use before allowing its actions",
+      );
     for (const connection of input.connections) {
       const request = requests.integrations.find(
         (item) => item.binding === connection.binding,
@@ -555,6 +577,126 @@ export class LocalAppsService {
     });
     this.invalidate(instanceId);
     await this.engine.stop(instanceId);
+  }
+  /**
+   * Everything the native Sources dialog shows for an app: which Ri accounts
+   * could serve each requested binding, which are granted to the app's own
+   * view, which update automatically through its background schedule, and
+   * which requested Ri capabilities are allowed. Owner-only.
+   */
+  async sourcesState(id: string) {
+    requireLocalApps();
+    const instance = this.instance(id);
+    const artifact = await this.artifact(id);
+    const extension = artifact.manifest.extensions["com.ri"];
+    const state = this.store.read();
+    const owner = state.grants.findLast((grant) => grant.instanceId === id && grant.principal.kind === "owner-ui" && !grant.revokedAt);
+    const schedule = state.schedules.find((item) => item.instanceId === id && item.action === BACKGROUND_ACTION);
+    const job = schedule ? state.grants.find((grant) => grant.id === schedule.grantId && !grant.revokedAt) : undefined;
+    const { getIntegrationRuntime, getIntegrationOwnerId } = await import("@/lib/integrations/runtime");
+    const runtime = await getIntegrationRuntime();
+    const toolkits = runtime.getToolkits(), providers = runtime.getProviders();
+    const connections = await runtime.listConnections({ ownerId: getIntegrationOwnerId() });
+    const bindings = extension.requests.integrations.map((request) => {
+      const toolkit = toolkits.find((item) => item.id === request.toolkit);
+      return { binding: request.binding, toolkit: request.toolkit, name: toolkit?.displayName ?? request.toolkit, providerId: toolkit?.providerId ?? null, actions: request.actions, available: !!toolkit };
+    });
+    const accounts = connections
+      .filter((connection) => bindings.some((binding) => binding.providerId === connection.providerId))
+      .map((connection) => {
+        const provider = providers.find((item) => item.id === connection.providerId);
+        return {
+          id: connection.id,
+          providerId: connection.providerId,
+          label: connection.email ?? connection.label ?? connection.accountId,
+          status: connection.status,
+          bindings: bindings.filter((binding) => binding.providerId === connection.providerId).map((binding) => {
+            const toolkit = toolkits.find((item) => item.id === binding.toolkit);
+            const scopes = [...new Set((toolkit?.actions ?? []).filter((action) => binding.actions.includes(action.id)).flatMap((action) => action.scopes ?? []))];
+            return {
+              binding: binding.binding,
+              granted: !!owner?.connections.some((item) => item.binding === binding.binding && item.connectionId === connection.id),
+              automatic: !!schedule?.enabled && !!job?.connections.some((item) => item.binding === binding.binding && item.connectionId === connection.id),
+              needsConsent: scopes.some((scope) => !connection.scopes.includes(scope) && !provider?.scopeSatisfies?.(connection.scopes, scope)),
+            };
+          }),
+        };
+      });
+    const last = state.invocations.filter((item) => item.instanceId === id && schedule && item.scheduleId === schedule.id).at(-1);
+    const existing = new Set(connections.map((connection) => connection.id));
+    return {
+      instanceId: instance.id,
+      revision: state.revision,
+      displayName: extension.displayName,
+      bindings,
+      accounts,
+      /** Accounts still named by a grant but disconnected from Ri. Saving drops them. */
+      disconnected: [...new Set([...(owner?.connections ?? []), ...(job?.connections ?? [])].map((item) => item.connectionId).filter((item) => !existing.has(item)))].length,
+      riActions: extension.requests.riActions.map((name) => ({ name, owner: !!owner?.riActions.includes(name), background: !!job?.riActions.includes(name) })),
+      background: {
+        supported: artifact.contract.actions.some((action) => action.name === BACKGROUND_ACTION && action.audience.includes("schedule")),
+        enabled: !!schedule?.enabled,
+        nextRunAt: schedule?.enabled ? schedule.nextRunAt : null,
+        lastRunAt: last?.startedAt ?? null,
+        lastOutcome: last?.outcome ?? null,
+      },
+    };
+  }
+  /**
+   * Save the Sources dialog in one step: the app view's granted accounts and Ri
+   * capabilities, and the automatic-update job grant with its five-minute
+   * schedule. An account can update automatically only when it is granted.
+   */
+  async configureSources(
+    id: string,
+    input: { accounts: { binding: string; connectionId: string; granted: boolean; automatic: boolean }[]; riActions: string[]; backgroundRiActions: string[]; timezone: string },
+    revision: number,
+  ) {
+    this.admitted();
+    const artifact = await this.artifact(id);
+    const requests = artifact.manifest.extensions["com.ri"].requests;
+    const actionsFor = (binding: string) => requests.integrations.find((item) => item.binding === binding)?.actions ?? [];
+    if (input.accounts.some((account) => account.automatic && !account.granted))
+      throw new AppError("invalid_input", "Grant an account to the app before updating it automatically");
+    const state = this.store.read();
+    if (state.revision !== revision) throw new AppError("conflict", "App settings changed. Review them again");
+    const supported = artifact.contract.actions.some((action) => action.name === BACKGROUND_ACTION && action.audience.includes("schedule"));
+    if (!supported && (input.backgroundRiActions.length || input.accounts.some((account) => account.granted && account.automatic)))
+      throw new AppError("unsupported", "This app has no background step to schedule");
+    const owner = state.grants.findLast((grant) => grant.instanceId === id && grant.principal.kind === "owner-ui" && !grant.revokedAt);
+    const granted = input.accounts.filter((account) => account.granted);
+    await this.saveGrant(
+      {
+        instanceId: id,
+        principal: OWNER,
+        actions: owner?.actions ?? artifact.contract.actions.filter((action) => action.audience.includes("user")).map((action) => action.name),
+        riActions: input.riActions,
+        connections: granted.map((account) => ({ binding: account.binding, connectionId: account.connectionId, actions: actionsFor(account.binding) })),
+        serviceScopeRef: null,
+      },
+      revision,
+    );
+    const automatic = granted.filter((account) => account.automatic);
+    const existing = this.store.read().schedules.find((item) => item.instanceId === id && item.action === BACKGROUND_ACTION);
+    const wantsSchedule = automatic.length > 0 || input.backgroundRiActions.length > 0;
+    if (!existing && !wantsSchedule) return this.sourcesState(id);
+    const jobId = existing?.id ?? randomUUID();
+    const grant = await this.saveGrant(
+      {
+        instanceId: id,
+        principal: { kind: "job", id: jobId },
+        actions: [BACKGROUND_ACTION],
+        riActions: input.backgroundRiActions,
+        connections: automatic.map((account) => ({ binding: account.binding, connectionId: account.connectionId, actions: actionsFor(account.binding) })),
+        serviceScopeRef: null,
+      },
+      this.store.read().revision,
+    );
+    await this.schedule(
+      { instanceId: id, action: BACKGROUND_ACTION, input: {}, cron: "*/5 * * * *", timezone: input.timezone, activeHours: null, enabled: wantsSchedule, grantId: grant.id },
+      this.store.read().revision,
+    );
+    return this.sourcesState(id);
   }
   private invalidate(id: string) {
     for (const [key, reference] of this.openReferences)
@@ -1263,6 +1405,56 @@ export class LocalAppsService {
       }
     });
   }
+  /**
+   * The negotiated access record for a ri-access-v1 package: the host-bound
+   * actor, the app scope its current grant selected, and the accounts that
+   * grant binds. Built only from Ri state, never from guest or action input.
+   */
+  async invocationAccess(artifact: InstalledArtifact, context: InvocationContext): Promise<InvocationAccess> {
+    const actorId = `${context.principal.kind}:${context.principal.id}`;
+    if (context.principal.kind === "fixture")
+      return { protocol: "ri-access-v1", actorId, scopeRef: null, accounts: [] };
+    const grant = this.grant(artifact.instanceId, context.principal);
+    if (grant.revision !== context.grantRevision)
+      throw new AppError("revoked", "This app action is no longer allowed for this caller");
+    // An account disconnected from Ri stops being offered at once. Its records stay with the app.
+    const connected = grant.connections.length ? await this.connectedAccounts() : new Set<string>();
+    return {
+      protocol: "ri-access-v1",
+      actorId,
+      scopeRef: grant.serviceScopeRef,
+      accounts: grant.connections.filter((connection) => connected.has(connection.connectionId)).map((connection) => ({
+        account: connection.connectionId,
+        binding: connection.binding,
+        actions: connection.actions,
+        automatic: this.automaticAccounts(artifact.instanceId).has(connection.connectionId),
+      })),
+    };
+  }
+  private connectionCache: { at: number; ids: Promise<Set<string>> } | null = null;
+  /** IDs of connections that still exist in Ri, briefly cached across back-to-back invocations. */
+  private connectedAccounts() {
+    if (!this.connectionCache || Date.now() - this.connectionCache.at > 5000) {
+      const ids = (async () => {
+        const { getIntegrationRuntime, getIntegrationOwnerId } = await import("@/lib/integrations/runtime");
+        const runtime = await getIntegrationRuntime();
+        return new Set((await runtime.listConnections({ ownerId: getIntegrationOwnerId() })).map((item) => item.id));
+      })();
+      this.connectionCache = { at: Date.now(), ids };
+      ids.catch(() => { this.connectionCache = null; });
+    }
+    return this.connectionCache.ids;
+  }
+  /** Connections an enabled schedule of this app reads with its own job grant. */
+  automaticAccounts(instanceId: string) {
+    const state = this.store.read(), accounts = new Set<string>();
+    for (const schedule of state.schedules) {
+      if (schedule.instanceId !== instanceId || !schedule.enabled) continue;
+      const grant = state.grants.find((item) => item.id === schedule.grantId && !item.revokedAt);
+      for (const connection of grant?.connections ?? []) accounts.add(connection.connectionId);
+    }
+    return accounts;
+  }
   async dispatchCapability(
     artifact: InstalledArtifact,
     context: InvocationContext,
@@ -1309,14 +1501,23 @@ export class LocalAppsService {
       check();
       return result;
     }
-    const connection = grant.connections.find(
+    // A binding may hold several accounts. The call names one, and an
+    // ambiguous call never falls back to whichever account was bound first.
+    const candidates = grant.connections.filter(
       (item) =>
         item.binding === call.binding && item.actions.includes(call.name),
     );
+    const connection = call.account
+      ? candidates.find((item) => item.connectionId === call.account)
+      : candidates.length === 1
+        ? candidates[0]
+        : undefined;
     if (!connection)
       throw new AppError(
-        "forbidden",
-        "This connection or action is not granted to the initiating caller",
+        candidates.length > 1 && !call.account ? "invalid_input" : "forbidden",
+        candidates.length > 1 && !call.account
+          ? "Several accounts are granted for this binding. Name the account for this call"
+          : "This connection or action is not granted to the initiating caller",
       );
     const { getIntegrationRuntime, getIntegrationOwnerId } = await import(
       "@/lib/integrations/runtime"
@@ -1402,6 +1603,28 @@ export class LocalAppsService {
         "not_found",
         "Gmail history checkpoint expired (404). Restart the bounded mailbox scan",
       );
+    if (
+      !result.ok &&
+      result.reason === "error" &&
+      result.status === 410 &&
+      call.name === "google_calendar.sync_events"
+    )
+      throw new AppError(
+        "not_found",
+        "Calendar sync token expired (410). Restart the bounded calendar scan",
+      );
+    if (!result.ok && result.reason === "error" && (result.code === "connection_not_found" || result.code === "account_not_allowed"))
+      throw new AppError("revoked", "This account is no longer connected to Ri. Its imported records stay in the app");
+    if (!result.ok && (result.reason === "needs_consent" || result.reason === "auth_required"))
+      throw new AppError(
+        "revoked",
+        "This account needs to be reconnected in Ri before the app can read it",
+      );
+    // Typed transient failures let an app's bounded job back off instead of failing.
+    if (!result.ok && result.reason === "error" && (result.code === "provider_rate_limited" || result.code === "provider_unavailable"))
+      throw new AppError("busy", "The account provider is busy. The app will try again later");
+    if (!result.ok && result.reason === "error" && result.code === "provider_timeout")
+      throw new AppError("timeout", "The account provider did not answer in time");
     if (!result.ok)
       throw new AppError(
         result.reason === "approval_required"

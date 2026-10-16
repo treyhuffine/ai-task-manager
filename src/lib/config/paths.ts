@@ -135,7 +135,8 @@ export function getAppDraftsDir(): string { return path.join(getAppRoot(), 'app-
 export function getLocalAppsStatePath(): string { return path.join(getConfigDir(), 'local-apps', 'state.json'); }
 export function getLocalAppsWorkDir(): string { return path.join(getWorkDir(), 'local-apps'); }
 /** Read-only distribution assets, separate from Home records and backups. */
-export function getBundledLocalAppsCatalogDir(): string { return path.join(process.env.RI_RUNTIME_REPO ?? process.cwd(), 'release', 'local-apps', 'catalog'); }
+/** `RI_LOCAL_APPS_CATALOG_DIR` points a disposable qualification Home at its own catalog instead of the checkout's live one. */
+export function getBundledLocalAppsCatalogDir(): string { return process.env.RI_LOCAL_APPS_CATALOG_DIR ? path.resolve(process.env.RI_LOCAL_APPS_CATALOG_DIR) : path.join(process.env.RI_RUNTIME_REPO ?? process.cwd(), 'release', 'local-apps', 'catalog'); }
 
 // ─── .config — precious-local (don't sync, don't lose) ────────────
 

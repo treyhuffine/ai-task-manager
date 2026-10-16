@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs/promises";
 import Database from "better-sqlite3";
-import { hasIncludedArtifact, includedAppIds } from "../src/lib/local-apps/included-catalog";
+import { hasIncludedArtifact, includedAppIds, INCLUDED_NODE_APP_IDS } from "../src/lib/local-apps/included-catalog";
 
 export const repository = fileURLToPath(new URL("../", import.meta.url));
 export async function runCommand(command: string, args: string[], cwd = repository) {
@@ -31,12 +31,21 @@ export async function stageLocalApps({ onlyMissing = false, compatibleOnly = fal
   catch { lock.close(); throw new Error("The included apps are already being built. Wait for that build to finish"); }
   try {
     for (const id of includedAppIds(compatibleOnly)) {
-      if (onlyMissing && await hasIncludedArtifact(id, path.join(directory, "catalog"))) continue;
+      if (onlyMissing && await hasIncludedArtifact(id, process.env.RI_LOCAL_APPS_CATALOG_DIR ? path.resolve(process.env.RI_LOCAL_APPS_CATALOG_DIR) : path.join(directory, "catalog"))) continue;
       if (id === "ri-finance") {
         await runCommand("pnpm", ["finances:package"]);
         const finance = path.join(repository, "apps/finances/release");
         await runCommand("pnpm", ["exec", "tsx", "scripts/local-apps-catalog.ts",
           path.join(finance, "ri-finance-0.1.0.tar.gz"), path.join(finance, "catalog-entry.json")]);
+      } else if ((INCLUDED_NODE_APP_IDS as readonly string[]).includes(id)) {
+        try {
+          await runCommand("pnpm", ["exec", "tsx", "scripts/local-apps-catalog.ts", "--included", id]);
+        } catch (error) {
+          // A development start keeps going without an app that does not build yet.
+          // The library simply does not offer it. Release builds still fail loudly.
+          if (!onlyMissing) throw error;
+          console.error(`${id} could not be built, so the library will not offer it until it does: ${error instanceof Error ? error.message : error}`);
+        }
       } else {
         await runCommand("pnpm", ["exec", "tsx", "scripts/local-apps-catalog.ts", "--tracker"]);
       }

@@ -7,6 +7,7 @@ export interface AppPlace {
   id: string;
   slug: string;
   displayName: string;
+  icon?: string;
   /** An action is waiting on the person's approval. */
   needsApproval: boolean;
 }
@@ -15,6 +16,7 @@ interface ListedInstance {
   id: string;
   slug: string;
   displayName: string;
+  icon?: string;
   enabled: boolean;
   archived: boolean;
   hasView: boolean;
@@ -36,6 +38,7 @@ export function appPlaces(
       id: item.id,
       slug: item.slug,
       displayName: item.displayName,
+      icon: item.icon,
       needsApproval: waiting.has(item.id),
     }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));

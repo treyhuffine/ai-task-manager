@@ -1,0 +1,26 @@
+{
+  "name": "ri-job-search",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "package": "cd ../.. && RI_RUNTIME_REPO=$PWD pnpm exec tsx scripts/local-apps-catalog.ts --included ri-job-search --out release/local-apps/dev-catalog"
+  },
+  "dependencies": {
+    "@ri/app-kit": "workspace:*",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^26",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "esbuild": "0.27.7",
+    "playwright-core": "1.62.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.4"
+  }
+}

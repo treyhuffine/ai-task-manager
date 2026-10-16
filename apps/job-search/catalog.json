@@ -1,0 +1,50 @@
+{
+  "name": "Job Search",
+  "description": "Opportunities, interviews, correspondence and versioned materials together.",
+  "source": "Ri maintained included app",
+  "license": "UNLICENSED",
+  "capabilities": [
+    "ai_text",
+    "create_task",
+    "extract_text",
+    "get_task",
+    "gmail.get_attachment",
+    "gmail.get_message",
+    "gmail.get_profile",
+    "gmail.list_history",
+    "gmail.read_message",
+    "gmail.search_messages",
+    "google_calendar.list_calendars",
+    "google_calendar.sync_events"
+  ],
+  "demo": {
+    "heading": "Fictional pipeline",
+    "caption": "Example records only. No account is read when you open this demo.",
+    "columns": [
+      "Company",
+      "Role",
+      "Stage",
+      "Next"
+    ],
+    "rows": [
+      [
+        "Northstar",
+        "Product designer",
+        "Interviewing",
+        "Fri 16, 10:00"
+      ],
+      [
+        "Lumen",
+        "Staff designer",
+        "Applied",
+        "Follow up Oct 19"
+      ],
+      [
+        "Cedar",
+        "Design lead",
+        "Offer",
+        "Review by Oct 21"
+      ]
+    ]
+  }
+}

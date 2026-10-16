@@ -33,15 +33,22 @@ export async function connectApp(callbacks: AppClientCallbacks = {}) {
       if(result.isError) throw new Error('File selection failed');
       return (result.structuredContent as {file:{name:string;mimeType:string;base64:string}|null}).file;
     },
-    async call(action: string, input: Record<string, unknown> = {}) {
+    /**
+     * Call an action this view was granted. Pass the same `invocationId` when
+     * retrying a write so the app returns the original result instead of
+     * applying it twice. Reads can omit it.
+     */
+    async call(action: string, input: Record<string, unknown> = {}, options: { invocationId?: string } = {}) {
       const result = await app.callServerTool({
         name: action,
         arguments: input,
+        ...(options.invocationId ? { _meta: { "ri/invocationId": options.invocationId } } : {}),
       });
       if (result.isError)
         throw new Error(
-          result.content.find((item) => item.type === "text")?.text ??
-            "App operation failed",
+          // Hosts prefix protocol errors with "MCP error -32603:". People see the app's own message.
+          (result.content.find((item) => item.type === "text")?.text ??
+            "App operation failed").replace(/^MCP error -?\d+:\s*/, ""),
         );
       return result.structuredContent;
     },

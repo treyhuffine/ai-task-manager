@@ -19,8 +19,10 @@ export interface ViewBinding {
   theme: "light" | "dark";
   files?: FileCapabilities;
 }
+/** Guest-chosen invocation ID for a retryable write, carried in the MCP tools/call `_meta`. */
+export const INVOCATION_META = "ri/invocationId";
 export interface ViewCallbacks {
-  call(action: string, input: unknown, signal: AbortSignal): Promise<unknown>;
+  call(action: string, input: unknown, signal: AbortSignal, meta?: { invocationId?: string }): Promise<unknown>;
   context(envelope: unknown, signal: AbortSignal): Promise<void>;
   navigate(path: string): Promise<void> | void;
   externalLink(url: string): Promise<void> | void;
@@ -194,10 +196,14 @@ export class AppViewController {
         const file = await this.callbacks.selectFile(extra.signal);
         return {content: [{type:'text', text:file ? 'File selected' : 'Selection cancelled'}], structuredContent:{file}};
       }
+      const requested = (params as { _meta?: Record<string, unknown> })._meta?.[INVOCATION_META];
+      if (requested !== undefined && (typeof requested !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requested)))
+        throw new Error('The app supplied an invalid invocation ID');
       const result = await this.callbacks.call(
         params.name,
         params.arguments ?? {},
         extra.signal,
+        requested ? { invocationId: requested } : undefined,
       );
       return {
         content: [{ type: "text", text: "App operation completed" }],

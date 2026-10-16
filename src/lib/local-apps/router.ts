@@ -135,6 +135,23 @@ export const localAppsRouter = router({
     .mutation(({ input }) =>
       appOperation(() => localApps().saveGrant(input.grant, input.revision)),
     ),
+  sources: p.input(z.object({ id }).strict()).query(({ input }) => appOperation(() => localApps().sourcesState(input.id))),
+  configureSources: p
+    .input(
+      z
+        .object({
+          id,
+          revision,
+          accounts: z.array(z.object({ binding: z.string().min(1).max(64), connectionId: z.string().min(1).max(128), granted: z.boolean(), automatic: z.boolean() }).strict()).max(20),
+          riActions: z.array(z.string().min(1).max(64)).max(20),
+          backgroundRiActions: z.array(z.string().min(1).max(64)).max(20),
+          timezone: z.string().min(1).max(100),
+        })
+        .strict(),
+    )
+    .mutation(({ input }) =>
+      appOperation(() => localApps().configureSources(input.id, { accounts: input.accounts, riActions: input.riActions, backgroundRiActions: input.backgroundRiActions, timezone: input.timezone }, input.revision)),
+    ),
   revoke: p
     .input(z.object({ id, revision }).strict())
     .mutation(({ input }) =>

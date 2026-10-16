@@ -119,6 +119,8 @@ const runtimeSchema = z
     executionProfile: z.literal("trusted-native").optional(),
     mcpPath: z.literal("/mcp").optional(),
     target: targetSchema.optional(),
+    /** Opt-in per-invocation data access over IPC. See ACCESS_PROTOCOL. */
+    access: z.literal("ri-access-v1").optional(),
   })
   .strict();
 const resourceSchema = z
@@ -130,8 +132,13 @@ const resourceSchema = z
     file: relativePathSchema.optional(),
   })
   .strict();
+export const FILE_MIME_TYPES = [
+  'text/csv', 'text/plain', 'application/json', 'application/pdf', 'image/png', 'image/jpeg',
+  'text/markdown', 'text/html', 'text/vcard', 'message/rfc822',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+] as const;
 export const filePolicySchema = z.object({
-  mimeTypes: z.array(z.enum(['text/csv', 'text/plain', 'application/json', 'application/pdf', 'image/png', 'image/jpeg'])).min(1).max(6),
+  mimeTypes: z.array(z.enum(FILE_MIME_TYPES)).min(1).max(FILE_MIME_TYPES.length),
   maxBytes: z.number().int().min(1).max(512 * 1024),
 }).strict();
 export const fileCapabilitiesSchema = z.object({select: filePolicySchema.optional(), download: filePolicySchema.optional()}).strict();
@@ -160,6 +167,8 @@ export const riExtensionSchema = z
   .object({
     formatVersion: z.literal(1),
     displayName: z.string().min(1).max(100),
+    /** A purpose icon from the host's app icon vocabulary, such as "plane". Unknown names fall back to the app's initial. */
+    icon: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/).optional(),
     hostApi: z.literal(1),
     suggestedSlug: slugSchema,
     runtime: runtimeSchema,
@@ -233,6 +242,10 @@ export const riExtensionSchema = z
       fail(
         "Service artifacts require an exact runtime target and the qualified service adapter",
       );
+    if (runtime.access && (runtime.kind !== "node" || runtime.protocol !== "ri-ipc-v1"))
+      fail("Per-invocation data access applies to ri-ipc-v1 Node apps. Services receive scope through their broker");
+    if (runtime.protocol === "ri-ipc-v1" && extension.ui?.access && !runtime.access)
+      fail("A Node app that lets callers choose account access must declare runtime.access so its scope reaches each invocation");
     if (extension.build.adapter !== 'next-standalone-v1' && (extension.build.recipe || extension.build.output))
       fail('Service recipes belong only to the qualified service adapter');
     if (extension.build.adapter === 'next-standalone-v1' && (!extension.build.output?.startsWith('release/') || extension.build.recipe?.startsWith('release/')))
@@ -368,6 +381,35 @@ export const invocationContextSchema = z
   })
   .strict();
 export type InvocationContext = z.infer<typeof invocationContextSchema>;
+/**
+ * Version 1 of the negotiated Node data-access record. It travels beside the
+ * strict invocation context, so an older SDK that never negotiated it is
+ * unaffected. `actorId` is the host-bound caller (`kind:id`). `scopeRef` is the
+ * app-issued reference the current host grant selected, never guest input.
+ * `accounts` are the connections this caller's grant binds, and whether an
+ * enabled schedule updates each one automatically.
+ */
+export const ACCESS_PROTOCOL = "ri-access-v1" as const;
+export const invocationAccessSchema = z
+  .object({
+    protocol: z.literal(ACCESS_PROTOCOL),
+    actorId: z.string().min(1).max(200),
+    scopeRef: z.string().min(1).max(512).nullable(),
+    accounts: z
+      .array(
+        z
+          .object({
+            account: z.string().min(1).max(128),
+            binding: localNameSchema,
+            actions: z.array(z.string().max(128)).max(50),
+            automatic: z.boolean(),
+          })
+          .strict(),
+      )
+      .max(20),
+  })
+  .strict();
+export type InvocationAccess = z.infer<typeof invocationAccessSchema>;
 export const viewStateSchema = z
   .object({
     formatVersion: z.literal(1),

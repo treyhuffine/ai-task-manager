@@ -1,0 +1,49 @@
+{
+  "name": "People",
+  "description": "Your relationships, conversations and follow-ups in one place.",
+  "source": "Ri maintained included app",
+  "license": "UNLICENSED",
+  "capabilities": [
+    "ai_text",
+    "create_task",
+    "extract_text",
+    "get_task",
+    "gmail.get_message",
+    "gmail.get_profile",
+    "gmail.list_history",
+    "gmail.read_message",
+    "gmail.search_messages",
+    "google_calendar.list_calendars",
+    "google_calendar.sync_events"
+  ],
+  "demo": {
+    "heading": "Fictional relationships",
+    "caption": "Example records only. No account is read when you open this demo.",
+    "columns": [
+      "Person",
+      "Company",
+      "Last exchange",
+      "Next"
+    ],
+    "rows": [
+      [
+        "Maya Chen",
+        "Northstar",
+        "Oct 12",
+        "Portfolio discussion"
+      ],
+      [
+        "Jordan Bell",
+        "Fieldwork",
+        "Oct 11",
+        "Send revised proposal"
+      ],
+      [
+        "Alex Rivera",
+        "Independent",
+        "Oct 6",
+        "Catch-up"
+      ]
+    ]
+  }
+}

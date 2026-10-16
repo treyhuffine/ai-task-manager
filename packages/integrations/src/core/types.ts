@@ -139,7 +139,8 @@ export interface HttpRequest {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   /** Path resolved against the provider `baseUrl`, or an absolute URL. */
   path: string;
-  query?: Record<string, string | number | boolean | undefined | null>;
+  /** An array value repeats its key, as Google's repeated parameters require. */
+  query?: Record<string, string | number | boolean | undefined | null | readonly (string | number | boolean)[]>;
   headers?: Record<string, string>;
   /** JSON body (serialized) unless `rawBody` is set. */
   body?: unknown;

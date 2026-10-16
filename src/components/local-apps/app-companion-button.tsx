@@ -59,7 +59,7 @@ export function AppCompanionButton({ chatId, surfaceKind }: { chatId: string; su
         </DropdownMenuLabel>
         {apps.map((app) => (
           <DropdownMenuItem key={app.id} onSelect={() => open(app.id)}>
-            <AppMark name={app.displayName} size="xs" />
+            <AppMark name={app.displayName} icon={app.icon} size="xs" />
             <span className="min-w-0 flex-1 truncate">{app.displayName}</span>
             {current?.instanceId === app.id && <Check size={13} className="text-muted-foreground" aria-label="Open now" />}
           </DropdownMenuItem>

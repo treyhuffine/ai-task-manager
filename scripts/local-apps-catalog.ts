@@ -7,12 +7,19 @@ import {NativeNodeDriver} from '@ri/app-kit/runtime';
 import {createAppTemplate,buildPackage,exportPackage,importPackage} from '@ri/app-kit/build';
 import {catalogEntrySchema,archiveDigest} from '@/lib/local-apps/catalog';
 import {getBundledLocalAppsCatalogDir} from '@/lib/config/paths';
+import {packageIncludedApp} from './included-app-package';
 
 async function main(){
 const root=getBundledLocalAppsCatalogDir();await fs.mkdir(root,{recursive:true});
 const temporary=await fs.mkdtemp(path.join(os.tmpdir(),'ri-app-catalog-'));
 try{
-  if(process.argv[2]==='--tracker'){
+  if(process.argv[2]==='--included'){
+    const packageId=process.argv[3];if(!packageId)throw new Error('Name the included app package, such as ri-people');
+    // --out stages elsewhere. The default catalog is read live by any Home running from this checkout.
+    const out=process.argv[4]==='--out'&&process.argv[5]?path.resolve(process.argv[5]):root;
+    await packageIncludedApp(packageId,process.env.RI_RUNTIME_REPO??process.cwd(),out);
+    process.stdout.write('Qualified '+packageId+' staged in '+out+'\n');return;
+  }else if(process.argv[2]==='--tracker'){
     const id=randomUUID(),dir=path.join(temporary,'package');await createAppTemplate(dir,'react',id);
     const original='local-app-'+id.slice(-8);
     for(const file of ['plugin.json','package.json','src/actions.ts','src/ui.tsx']){

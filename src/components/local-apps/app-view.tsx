@@ -20,6 +20,8 @@ export function AppView({
   onNavigate,
   onAccessCreated,
   onAsk,
+  onSources,
+  onLocation,
 }: {
   id: string;
   draft?: boolean;
@@ -33,6 +35,10 @@ export function AppView({
   onNavigate: (path: string) => void;
   onAccessCreated?: (scopeRef:string) => void;
   onAsk?: (prompt: string) => void;
+  /** The app asked for Ri's Sources dialog. */
+  onSources?: () => void;
+  /** The app reports its own location (tab, selection, filters) for the URL, without reopening. */
+  onLocation?: (path: string) => void;
 }) {
   const mount = useRef<HTMLDivElement>(null),
     [error, setError] = useState<string | null>(null),
@@ -45,11 +51,22 @@ export function AppView({
   const navigation = useRef(onNavigate);
   const ask = useRef(onAsk);
   ask.current = onAsk;
+  const sources = useRef(onSources);
+  sources.current = onSources;
+  const locate = useRef(onLocation);
+  locate.current = onLocation;
+  // A location the app itself reported is already showing, so it must not
+  // reopen the view. Any other location change (Back, a link) reopens it.
+  const locationKey = JSON.stringify([path, query]);
+  const reported = useRef<string | null>(null);
+  const [openKey, setOpenKey] = useState(locationKey);
+  if (locationKey !== openKey && locationKey !== reported.current) setOpenKey(locationKey);
+  const [openPath, openQuery] = JSON.parse(openKey) as [string, Record<string, string>];
   navigation.current = onNavigate;
   const paused = useRef(waiting);
   paused.current = waiting;
   const refreshRef = useRef<(() => Promise<void>) | null>(null);
-  const queryKey = JSON.stringify(query);
+  const queryKey = JSON.stringify(openQuery);
   const retryView = async () => {
     try {
       await trpcClient.localApps.retry.mutate({ id, draft });
@@ -67,12 +84,13 @@ export function AppView({
       unregister: (() => void) | undefined;
     let ack: { viewId: string; revision: number } | null = null;
     const controller = new AppViewController(mount.current!, {
-      call: async (action, input) => {
+      call: async (action, input, _signal, meta) => {
+        // A guest that retries a write sends the same invocation ID, so the app deduplicates it.
         const result = await trpcClient.localApps.viewCall.mutate({
           viewId,
           action,
           input,
-          invocationId: crypto.randomUUID(),
+          invocationId: meta?.invocationId ?? crypto.randomUUID(),
         });
         if(action === accessAction.current && result && typeof result === 'object' && 'scopeRef' in result && typeof result.scopeRef === 'string') accessCreated.current?.(result.scopeRef);
         return result;
@@ -92,8 +110,17 @@ export function AppView({
           if (ask.current) ask.current(intent.prompt);
           else if (chatId) requestAppChatDraft(chatId, intent.prompt);
           else throw new Error('Open the app from Apps to start a conversation.');
-        } else if (value === '/__host/manage-access') openSettings('plugins');
-        else navigation.current(value);
+        } else if (value === '/__host/manage-access' || value === '/__host/sources') {
+          // The app's own Sources dialog is the per-app access surface. It links on to Ri's account settings.
+          if (sources.current) sources.current();
+          else openSettings('plugins');
+        } else if (value.startsWith('/__host/location?')) {
+          const to = new URL(value, 'https://app.invalid').searchParams.get('to') ?? '';
+          if (!to.startsWith('/') || to.startsWith('//') || to.length > 1024 || !locate.current) return;
+          const target = new URL(to, 'https://app.invalid');
+          reported.current = JSON.stringify([target.pathname, Object.fromEntries(target.searchParams)]);
+          locate.current(target.pathname + target.search);
+        } else navigation.current(value);
       },
       externalLink: (url) => {
         if (
@@ -154,7 +181,7 @@ export function AppView({
     };
     refreshRef.current = refresh;
     void trpcClient.localApps.openView
-      .mutate({ id, draft, path, query: locationQuery, chatId })
+      .mutate({ id, draft, path: openPath, query: locationQuery, chatId })
       .then(async (result) => {
         viewId = result.viewId;
         accessAction.current = result.accessAction;
@@ -176,7 +203,7 @@ export function AppView({
           id: viewId,
           packageDigest: result.packageDigest,
           initialData: result.result,
-          path,
+          path: openPath,
           query: locationQuery,
           theme: document.documentElement.classList.contains("dark")
             ? "dark"
@@ -219,7 +246,7 @@ export function AppView({
       if (viewId)
         void trpcClient.localApps.closeView.mutate({ viewId }).catch(() => {});
     };
-  }, [id, draft, path, queryKey, chatId, digest, authorityRevision, reopen]);
+  }, [id, draft, openPath, queryKey, chatId, digest, authorityRevision, reopen]);
   return (
     <>
       {files.picker}

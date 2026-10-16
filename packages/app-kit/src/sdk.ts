@@ -1,19 +1,26 @@
 import { z } from "zod/v4";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  ACCESS_PROTOCOL,
   AppError,
   ContractValidator,
   LIMITS,
+  invocationAccessSchema,
   invocationContextSchema,
   publicError,
   type ActionDescriptor,
   type AppContract,
+  type InvocationAccess,
   type InvocationContext,
 } from "./contract.js";
 
+/** Which declared binding, and which of its granted accounts, a call uses. */
+export type CapabilityTarget = string | { binding?: string; account?: string };
 export interface AppInvocation extends InvocationContext {
   signal: AbortSignal;
-  capability(name: string, input: unknown, binding?: string): Promise<unknown>;
+  /** The negotiated access record, or null for packages that did not declare runtime.access. */
+  access: InvocationAccess | null;
+  capability(name: string, input: unknown, target?: CapabilityTarget): Promise<unknown>;
 }
 export interface ActionDefinition<I = unknown, O = unknown> {
   name: string;
@@ -88,6 +95,8 @@ export interface Bootstrap {
   contract: AppContract;
   bindings: string[];
   instanceId: string;
+  /** Present when the host offers per-invocation access for a package that declared it. */
+  access?: typeof ACCESS_PROTOCOL;
 }
 export interface AppLifecycle {
   initialize(bootstrap: Bootstrap): Promise<void> | void;
@@ -159,7 +168,12 @@ export function serveApp(
           );
         await lifecycle.initialize(boot);
         initialized = true;
-        reply(message.id, { version: 1, contractDigest: boot.contractDigest });
+        reply(message.id, {
+          version: 1,
+          contractDigest: boot.contractDigest,
+          // Confirming the protocol is this SDK's promise to pass access to every handler.
+          ...(boot.access === ACCESS_PROTOCOL ? { access: ACCESS_PROTOCOL } : {}),
+        });
       } else if (message.method === "invoke") {
         if (!initialized)
           throw new AppError("app_failed", "The app is not ready");
@@ -167,8 +181,15 @@ export function serveApp(
           action: string;
           input: unknown;
           context: unknown;
+          access?: unknown;
         };
         const context = invocationContextSchema.parse(params.context);
+        if (boot.access === ACCESS_PROTOCOL && params.access === undefined)
+          throw new AppError("forbidden", "The host did not supply this invocation's access");
+        const access =
+          boot.access === ACCESS_PROTOCOL
+            ? invocationAccessSchema.parse(params.access)
+            : null;
         const action = definition.actions.find(
           (action) => action.name === params.action,
         );
@@ -180,8 +201,9 @@ export function serveApp(
             action.input.parse(params.input),
             {
               ...context,
+              access,
               signal: controller.signal,
-              capability: (name, input, binding) =>
+              capability: (name, input, target) =>
                 new Promise((resolve, reject) => {
                   if (controller.signal.aborted) {
                     reject(
@@ -203,7 +225,11 @@ export function serveApp(
                         invocationId: context.id,
                         name,
                         input,
-                        binding,
+                        ...(typeof target === "string"
+                          ? { binding: target }
+                          : target
+                            ? { binding: target.binding, account: target.account }
+                            : {}),
                       },
                     },
                     (error) => {

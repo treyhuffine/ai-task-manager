@@ -1,0 +1,103 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "ri-job-search",
+  "version": "0.1.0",
+  "description": "Opportunities, interviews, correspondence and versioned materials together.",
+  "license": "UNLICENSED",
+  "extensions": {
+    "com.ri": {
+      "formatVersion": 1,
+      "displayName": "Job Search",
+      "icon": "briefcase",
+      "hostApi": 1,
+      "suggestedSlug": "job-search",
+      "runtime": {
+        "kind": "node",
+        "protocol": "ri-ipc-v1",
+        "entry": "dist/server.mjs",
+        "start": "on-demand",
+        "executionProfile": "trusted-native",
+        "access": "ri-access-v1"
+      },
+      "build": {
+        "adapter": "ri-esbuild-v1",
+        "lockfile": "pnpm-lock.yaml",
+        "executionProfile": "trusted-native"
+      },
+      "ui": {
+        "resources": [
+          {
+            "uri": "ui://ri-job-search/main.html",
+            "file": "dist/ui.html"
+          }
+        ],
+        "entrypoints": [
+          "global",
+          "thread"
+        ],
+        "resolveAction": "open_view",
+        "contextAction": "describe_view_context",
+        "access": {
+          "path": "/access",
+          "action": "create_scope"
+        }
+      },
+      "contract": "contract.json",
+      "requests": {
+        "integrations": [
+          {
+            "binding": "mail",
+            "toolkit": "gmail",
+            "actions": [
+              "gmail.get_profile",
+              "gmail.search_messages",
+              "gmail.get_message",
+              "gmail.read_message",
+              "gmail.get_attachment",
+              "gmail.list_history"
+            ]
+          },
+          {
+            "binding": "calendar",
+            "toolkit": "google_calendar",
+            "actions": [
+              "google_calendar.list_calendars",
+              "google_calendar.sync_events"
+            ]
+          }
+        ],
+        "riActions": [
+          "create_task",
+          "get_task",
+          "ai_text",
+          "extract_text"
+        ],
+        "files": {
+          "select": {
+            "mimeTypes": [
+              "application/pdf",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "text/plain",
+              "text/markdown",
+              "text/html"
+            ],
+            "maxBytes": 524288
+          },
+          "download": {
+            "mimeTypes": [
+              "text/plain",
+              "text/markdown",
+              "application/json",
+              "text/csv"
+            ],
+            "maxBytes": 524288
+          }
+        }
+      },
+      "source": {
+        "kind": "starter",
+        "version": "0.1.0"
+      }
+    }
+  }
+}

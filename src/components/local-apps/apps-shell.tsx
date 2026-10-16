@@ -24,9 +24,9 @@ export function AppsShell({ route }: { route: string }) {
   const currentView = viewFromSearchParams(searchParams, `/apps/${route}`);
   const appQuery = currentView.kind === 'apps' ? (currentView.query ?? {}) : {};
 
-  const navigate = useCallback((value: string) => {
+  const navigate = useCallback((value: string, options?: { replace?: boolean }) => {
     const location = new URL(value, 'https://app.invalid/');
-    setActiveView({ kind: 'apps', route: location.pathname.slice(1), query: Object.fromEntries(location.searchParams) });
+    setActiveView({ kind: 'apps', route: location.pathname.slice(1), query: Object.fromEntries(location.searchParams) }, options);
   }, [setActiveView]);
 
   const parts = route.split('/').filter(Boolean);

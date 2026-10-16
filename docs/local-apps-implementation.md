@@ -331,6 +331,26 @@ Shared Ri files changed for this trial:
 No core Drizzle schema or migration changed. `queries.ts` only exposes the shared task/note handoff operations and chat lifecycle cleanup. The integration package's Gmail additions are generic provider operations. HTTP routes remain external protocol adapters, while internal UI uses `localApps` tRPC. Service health uses the public bounded management summary and never imports Finance business code.
 
 
+### October 15 extension: included Node apps
+
+Built for [Travel, Job Search and People](included-apps-foundation.md). Older packages behave exactly as before. Build and qualification evidence is in [the build record](included-apps-progress.md).
+
+| Seam | Change |
+| --- | --- |
+| Node data access | A `ri-ipc-v1` manifest may declare `runtime.access: "ri-access-v1"`, and must when it declares `ui.access`. The host offers the protocol at `initialize`, the SDK confirms it, and a package that does not confirm cannot start. Each invocation then carries `{ actorId, scopeRef, accounts }` beside the strict context, built only from the caller's current grant (`LocalAppsService.invocationAccess`). Handlers read it as `invocation.access`. |
+| App data scopes | `@ri/app-kit/data` `createScopeStore` resolves the owner and previews to everything, a job to its granted accounts and a chat or agent to the immutable scope its grant selected, checking actor, operation, revocation and instance on every call. A chat or agent grant for such an app must name a scope. |
+| Several accounts per binding | A grant may bind several connections to one binding. A capability call names its account (`capability(name, input, { binding, account })`). An ambiguous call fails and an ungranted account is forbidden. Reconnect, rate-limit and timeout outcomes map to `revoked`, `busy` and `timeout`. |
+| Sources dialog | `localApps.sources` and `localApps.configureSources` (owner only) save the app view's granted accounts and Ri capabilities, plus one job grant and a five-minute schedule calling `run_background_step` for the accounts chosen for automatic updates. `AppSourcesDialog` shows connected, granted and automatic separately and sends Connect and Reconnect to Ri's account settings. A view opens it with `/__host/sources`. |
+| View location | `/__host/location?to=/path?query` replaces the app route in the URL without reopening the view, so tab, day, selection and filters survive refresh and Back without history spam. |
+| Retryable writes | A guest may send `_meta["ri/invocationId"]` with `tools/call`. The host uses it as the invocation ID, so a retried write returns its first result. |
+| Ri capabilities | `create_task` accepts `dueAt` (stored as the task deadline) and an app `operationId` that alone derives the task ID. New `extract_text` reads PDF, Word and text files a human chose, bounded to 512 KiB in and 200,000 characters out. |
+| Files | Declared file policies may also name Markdown, HTML, vCard, email (`message/rfc822`) and Word documents. |
+| Library | A manifest may name a purpose icon (`plane`, `briefcase`, `contact`, `wallet`), shown once installed. Catalog entries keep their original strict shape because a Home on older code reads the catalog folder live, so Ri maps its own included package IDs to icons for catalog tiles. Unknown names fall back to the initial. |
+| Connectors | Gmail `list_history` takes optional `historyTypes` for deletions and label changes. Google Calendar adds `sync_events` with typed participants, organizer, recurrence identity, original zones, update times, cancellations and page plus sync tokens, and `list_events` gains pagination. Existing response fields are unchanged. |
+| Packaging | `scripts/included-app-package.ts` turns `apps/<name>` into a portable package with a packed kit tarball and its own lockfile, then stages it in the catalog. |
+
+Shared files outside the feature folders changed by this extension: `src/contexts/dashboard-context.tsx` (replace navigation for app locations), `packages/integrations/src/core/http.ts` and `core/types.ts` (repeated query parameters), `packages/integrations/src/providers/google/gmail.ts` and `calendar.ts`, `pnpm-workspace.yaml` and `pnpm-lock.yaml` (the three app workspaces), and `scripts/local-apps-catalog.ts` and `scripts/local-apps-stage.ts`.
+
 ## 10. Implementation slices and exit tests
 
 Each slice is checked only after its required proof passes. The detailed evidence checklist records actual qualification results and release boundaries.

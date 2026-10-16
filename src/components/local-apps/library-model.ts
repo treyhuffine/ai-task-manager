@@ -18,6 +18,8 @@ export interface LibraryItem {
   name: string;
   description: string;
   keywords: string;
+  /** An installed app's purpose icon name, from its manifest. */
+  icon?: string;
   kind: Exclude<LibraryFilter, 'all'>;
   target: LibraryTarget;
   providerId?: string;
@@ -43,7 +45,7 @@ export function libraryItems({ apps, providers = [], connections = [], servers =
   const items: LibraryItem[] = [];
   for (const app of apps?.instances ?? []) {
     const condition = appCondition(app);
-    items.push({ key: `app:${app.id}`, name: app.displayName, description: app.description || 'A personal app built in Ri.', keywords: app.packageId,
+    items.push({ key: `app:${app.id}`, name: app.displayName, icon: app.icon, description: app.description || 'A personal app built in Ri.', keywords: app.packageId,
       kind: 'apps', target: { kind: 'app', slug: app.slug, id: app.id }, chat: app.hasActions, view: app.hasView,
       status: condition.label, attention: condition.tone === 'warn' || condition.tone === 'error', added: true,
       usable: app.enabled && !app.archived && app.activation?.phase === 'active' });

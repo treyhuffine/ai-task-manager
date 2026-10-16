@@ -156,9 +156,9 @@ export function AppGrantEditor({
             </label>
           ))}
       </div>
-      {description.data?.manifest.extensions["com.ri"].runtime.protocol ===
-        "mcp-http-v1" &&
-        kind !== "owner-ui" && (
+      {(description.data?.manifest.extensions["com.ri"].runtime.protocol ===
+        "mcp-http-v1" || !!description.data?.manifest.extensions["com.ri"].runtime.access) &&
+        kind !== "owner-ui" && kind !== "job" && (
           <div className="space-y-2 text-sm">
             {description.data.manifest.extensions['com.ri'].ui?.access ? <>
               <p>{scope ? 'Selected account access is ready to bind to this caller.' : 'Choose which app records this caller may use.'}</p>

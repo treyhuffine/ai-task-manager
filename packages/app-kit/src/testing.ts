@@ -102,6 +102,7 @@ export function fixtureHost(node: string, root: string) {
     version: 1,
     serviceBootstrap:async()=>({fixture:true}),
     serviceInvocation:async()=>({scopeRef:null,ticket:null}),
+    invocationAccess:(_instance,context)=>({protocol:'ri-access-v1',actorId:`${context.principal.kind}:${context.principal.id}`,scopeRef:null,accounts:[{account:'fixture-account',binding:'mail',actions:[...granted],automatic:false}]}),
     authorize(_instance, _action, context) {
       if (context.principal.kind !== "fixture")
         throw new AppError("forbidden", "Fixture authority only");
