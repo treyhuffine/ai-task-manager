@@ -19,6 +19,8 @@ const app = (id: string, displayName: string, over: Record<string, unknown> = {}
 const connected = (id: string, toolkitName: string, over: Record<string, unknown> = {}) => ({
   id, name: toolkitName, toolkitName, account: id, available: true, sourceRef: null, tools: [], recent: [], ...over,
 });
+const empty = { 'localApps.list': { revision: 1, drafts: [], grants: [], panels: [], instances: [], approvals: [] }, 'connectedApps.catalog': [] };
+let current: Record<string, unknown>;
 const responses: Record<string, unknown> = {
   'localApps.enabled': { enabled: true },
   'localApps.list': {
@@ -77,7 +79,7 @@ beforeAll(async () => {
       for await (const chunk of req) void chunk;
       const procedure = url.pathname.slice('/api/trpc/'.length);
       requests.push(procedure);
-      const data = responses[procedure];
+      const data = current[procedure];
       res.setHeader('content-type', 'application/json');
       if (data === undefined) { res.statusCode = 500; res.end(JSON.stringify({ error: { message: `Unexpected request: ${procedure}`, code: -32603, data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 } } })); }
       else res.end(JSON.stringify({ result: { data } }));
@@ -110,6 +112,7 @@ const flyout = (page: Page) => page.getByRole('navigation', { name: 'Apps', exac
 const views = (page: Page) => page.evaluate(() => (window as unknown as { views: unknown[] }).views);
 
 it('peeks installed apps and connected apps together, by name, and opens each where it lives', async () => {
+  current = responses;
   const page = await open();
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   try {
@@ -122,7 +125,7 @@ it('peeks installed apps and connected apps together, by name, and opens each wh
     await row.hover();
     await flyout(page).waitFor();
     const names = () => flyout(page).locator('button > span.truncate').allInnerTexts();
-    await expect.poll(names).toEqual(['Your library', 'Receipts', 'Subscription tracker', 'Todoist', 'Travel']);
+    await expect.poll(names).toEqual(['Open your library', 'Receipts', 'Subscription tracker', 'Todoist', 'Travel']);
     // Reaching the row warmed the connections, and the flyout read that same cache.
     expect(requests.filter(name => name === 'connectedApps.catalog')).toHaveLength(1);
     expect(await flyout(page).getByLabel('Needs your approval').count()).toBe(1);
@@ -147,6 +150,22 @@ it('peeks installed apps and connected apps together, by name, and opens each wh
       { kind: 'apps', route: 'travel' },
     ]);
     expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('with no apps yet, still offers the library and says what will appear', async () => {
+  current = { ...responses, ...empty };
+  const page = await open();
+  try {
+    await page.getByRole('button', { name: /^Apps/ }).hover();
+    await flyout(page).waitFor();
+    expect(await flyout(page).getByRole('button').allInnerTexts()).toEqual(['Open your library']);
+    await flyout(page).getByText('Apps you install or connect appear here.').waitFor();
+    await page.screenshot({ path: '/tmp/ri-apps-flyout-empty.png' });
+    await flyout(page).getByRole('button', { name: 'Open your library' }).click();
+    await expect.poll(() => views(page)).toEqual([{ kind: 'apps', route: '' }]);
   } finally {
     await page.close();
   }

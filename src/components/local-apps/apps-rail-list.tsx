@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { LayoutGrid, Plus, Server } from 'lucide-react';
+import { ArrowRight, LayoutGrid, Plus, Server } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { IntegrationLogo } from '@/components/integrations/integration-logo';
 import { connectedAppsQuery } from '@/components/mcp-apps/catalog';
@@ -16,9 +16,12 @@ import { useAppAction } from './use-app-action';
 /**
  * The Apps flyout, the shape of the Agents flyout: a header row with the
  * name and the one action (New app, as the Agents header has New agent),
- * then All apps (the library) and every app you can open by name: installed
+ * then Open your library and every app you can open by name: installed
  * ones and connections whose MCP server offers an interface, with an amber
  * dot when an action waits on you.
+ *
+ * The library row is a verb with an arrow, set apart by a rule. As a noun
+ * above the apps ("Your library") it read as their heading, not a link.
  */
 export function AppsRailList() {
   const { data, enabled } = useLocalApps({ live: false });
@@ -55,13 +58,15 @@ export function AppsRailList() {
         <Row
           active={route !== null && isLibraryRoute(route)}
           onClick={() => setActiveView({ kind: 'apps', route: '' })}
-          icon={<LayoutGrid size={14} className="flex-shrink-0" />}
+          icon={<span aria-hidden className="flex size-4 flex-shrink-0 items-center justify-center"><LayoutGrid size={14} /></span>}
+          trailing={<ArrowRight size={13} aria-hidden className="flex-shrink-0 opacity-60" />}
         >
-          Your library
+          Open your library
         </Row>
+        <div aria-hidden className="mx-2 my-1 h-px flex-shrink-0 bg-border/60" />
         {apps.length === 0 ? (
           <p className="px-2 py-3 text-center text-[10.5px] leading-relaxed text-muted-foreground/70">
-            Open your library to find apps, connections, and skills.
+            Apps you install or connect appear here.
           </p>
         ) : (
           apps.map((app) => (
