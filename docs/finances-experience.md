@@ -24,7 +24,7 @@ The workspace uses the standard MCP Apps `App` client and opaque, network-free v
 
 Opening or hiding Ask Ri keeps the app mounted within its page. Ri's desktop/tablet/phone page replacements retain the chosen chat pane in browser-session UI state. The existing chat draft store retains typed text across those replacements. Budget edits and transaction drafts survive ordinary data refreshes. Closing a dialog or navigating away discards that dialog's unsubmitted edit.
 
-Reference images guide hierarchy, calm styling and the connection between data and conversation. They are not evidence of available providers or permission to access personal accounts. Use synthetic records and disposable Homes for qualification. Health is design context, not part of this change.
+Reference images guide hierarchy, calm styling and the connection between data and conversation. They are not evidence of available providers or permission to access personal accounts. Use synthetic records and disposable Homes for qualification. Health is design context, not part of this change. Its later feasibility exploration and Apple Health requirement are recorded in [Health app discovery](health-app-discovery.md).
 
 The palette uses neutral white, gray and charcoal for surfaces, typography, controls, icons and category charts in both themes, including the older saved views and the standalone shell. Color is reserved for financial direction and meaningful status: positive amounts and recorded income, negative amounts and exceeded budgets, and warnings. General navigation and chat controls have no green tint.
 
