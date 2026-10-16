@@ -44,6 +44,13 @@ const CALENDARS_TTL_MS = 5 * 60_000;
 const cache = new Map<string, { result: CalendarRangeResult; fetchedAt: number }>();
 const calendarLists = new Map<string, { calendars: ReadCalendar[]; fetchedAt: number }>();
 
+/** The calendars to read on a connection, and whether that list is the whole of it. */
+interface CalendarList {
+  calendars: ReadCalendar[];
+  /** False when the account's calendar list couldn't be read in full, so some calendars may be missing. */
+  complete: boolean;
+}
+
 /** Test hook — the caches are module-global and would leak across cases. */
 export function clearCalendarRangeCache(): void {
   cache.clear();
@@ -91,10 +98,13 @@ interface ReadCalendar {
 interface CalendarConn {
   id: string;
   providerId: string;
-  managed?: { connection: ManagedConnection; via: string };
+  /** `unavailable`: the user shows this calendar in Ri, but it can't be read now (why). */
+  managed?: { connection: ManagedConnection; via: string; unavailable?: string };
 }
 
 type ManagedConnection = Parameters<typeof import('@/lib/integrations/sources/calendar-reads').listManagedCalendars>[0];
+
+const UNLISTED = "Couldn't list this account's calendars, so only its primary calendar was read.";
 
 interface CalendarRead {
   conn: CalendarConn;
@@ -141,15 +151,16 @@ async function fetchRange(start: string, days: number): Promise<CalendarRangeRes
   const windowEnd = new Date(`${addDays(start, days)}T00:00:00`);
 
   const lists = await Promise.all(connections.map((conn) => listCalendars(runtime, ownerId, conn)));
-  const reads = planReads(connections.map((conn, i) => ({ conn, calendars: lists[i]! })));
+  const reads = planReads(connections.map((conn, i) => ({ conn, calendars: lists[i]!.calendars })));
   const results = await Promise.all(
     reads.map((read) => fetchCalendar(runtime, ownerId, read, windowStart, windowEnd)),
   );
 
-  const providers = connections.map((conn) =>
+  const providers = connections.map((conn, c) =>
     connectionStatus(
       conn,
       reads.map((read, i) => ({ read, result: results[i]! })).filter((r) => r.read.conn.id === conn.id),
+      lists[c]!.complete,
     ),
   );
   const okCount = providers.filter((p) => p.ok).length;
@@ -178,10 +189,14 @@ async function managedCalendarConnections(ownerId: string): Promise<CalendarConn
     ]);
     const sources = currentPreferences().sources;
     const readable = await calendarReadableConnections(getIntegrationConnectionStore(), ownerId);
-    return readable.map((connection) => ({
+    return readable.map(({ connection, unavailable }) => ({
       id: connection.id,
       providerId: 'google',
-      managed: { connection, via: sources.find((source) => source.id === managedConfig(connection)?.sourceId)?.label ?? 'Composio' },
+      managed: {
+        connection,
+        via: sources.find((source) => source.id === managedConfig(connection)?.sourceId)?.label ?? 'Composio',
+        ...(unavailable ? { unavailable } : {}),
+      },
     }));
   } catch (err) {
     console.warn('[calendar] managed calendars unavailable', String(err));
@@ -192,30 +207,40 @@ async function managedCalendarConnections(ownerId: string): Promise<CalendarConn
 /**
  * The calendars to read on a connection. Google: the primary calendar, and
  * every other calendar checked in Google Calendar's sidebar and not hidden.
- * Outlook: its default calendar. When the list can't be read, the primary
- * calendar alone, unnamed, as before calendars were read at all.
+ * Outlook: its default calendar. When a Google list can't be read, the primary
+ * calendar alone, unnamed, and the list is marked incomplete: the account's
+ * other calendars may hold time it can't account for. Only a full list is cached.
  */
 async function listCalendars(
   runtime: RuntimeLike,
   ownerId: string,
   conn: CalendarConn,
-): Promise<ReadCalendar[]> {
+): Promise<CalendarList> {
+  const fallback: ReadCalendar[] = [{ readId: conn.providerId === 'google' ? 'primary' : 'default', source: null }];
+  // Nothing can be read from it: `fetchCalendar` reports why.
+  if (conn.managed?.unavailable) return { calendars: fallback, complete: true };
   const hit = calendarLists.get(conn.id);
-  if (hit && Date.now() - hit.fetchedAt < CALENDARS_TTL_MS) return hit.calendars;
+  if (hit && Date.now() - hit.fetchedAt < CALENDARS_TTL_MS) return { calendars: hit.calendars, complete: true };
   const ctx = { ownerId, connectionId: conn.id, caller: { type: 'app' } };
-  let calendars: ReadCalendar[] = [{ readId: conn.providerId === 'google' ? 'primary' : 'default', source: null }];
+  let calendars = fallback;
+  let complete = conn.providerId !== 'google';
   try {
     if (conn.providerId === 'google') {
       // The same selected-calendar rule on both routes: Google's own sidebar choice.
       let listed: RawGoogleCalendar[] | null = null;
       if (conn.managed) {
         const { listManagedCalendars } = await import('@/lib/integrations/sources/calendar-reads');
-        listed = await listManagedCalendars(conn.managed.connection);
+        const read = await listManagedCalendars(conn.managed.connection);
+        listed = read.calendars;
+        complete = read.complete;
       } else {
         const outcome = (await runtime.runAction('google_calendar.list_calendars', {}, ctx)) as ActionOutcome<{
           calendars: RawGoogleCalendar[];
         }>;
-        if (outcome.ok) listed = outcome.result.calendars ?? [];
+        if (outcome.ok) {
+          listed = outcome.result.calendars ?? [];
+          complete = true;
+        }
       }
       if (listed) {
         const shown = listed.filter((c) => c.id && (c.primary || (c.selected && !c.hidden)));
@@ -248,9 +273,10 @@ async function listCalendars(
     }
   } catch (err) {
     console.warn('[calendar] could not list calendars', conn.providerId, String(err));
+    if (conn.providerId === 'google') complete = false;
   }
-  calendarLists.set(conn.id, { calendars, fetchedAt: Date.now() });
-  return calendars;
+  if (complete) calendarLists.set(conn.id, { calendars, fetchedAt: Date.now() });
+  return { calendars, complete };
 }
 
 interface RawGoogleCalendar {
@@ -305,17 +331,19 @@ type CalendarResult = { ok: true; events: CalendarEvent[]; complete?: boolean } 
 function connectionStatus(
   conn: CalendarConn,
   reads: ReadonlyArray<{ read: CalendarRead; result: CalendarResult }>,
+  listedAll = true,
 ): CalendarProviderStatus {
   const failed = reads.filter((r) => !r.result.ok);
   const ok = !failed.some((r) => calendarCountsTime(r.read.calendar.source)) && failed.length < reads.length;
-  const partial = reads.some((r) => r.result.ok && r.result.complete === false && calendarCountsTime(r.read.calendar.source));
+  const cutShort = reads.some((r) => r.result.ok && r.result.complete === false && calendarCountsTime(r.read.calendar.source));
+  const partial = cutShort || (ok && !listedAll);
   const why = (r: (typeof reads)[number]) => (r.result.ok ? '' : r.result.detail);
   const detail =
     reads.length === 1
       ? failed.map(why).join('')
       : failed.map((r) => `${r.read.calendar.source?.name ?? r.read.calendar.readId}: ${why(r)}`).join('; ');
-  const shortened = partial ? 'Some events past the read limit were not loaded.' : '';
-  const said = [detail, shortened].filter(Boolean).join(' ');
+  const shortened = cutShort ? 'Some events past the read limit were not loaded.' : '';
+  const said = [detail, shortened, ok && !listedAll ? UNLISTED : ''].filter(Boolean).join(' ');
   return {
     providerId: conn.providerId, connectionId: conn.id, ok,
     ...(partial ? { partial: true } : {}),
@@ -344,6 +372,7 @@ async function fetchCalendar(
   windowEnd: Date,
 ): Promise<CalendarResult> {
   const ctx = { ownerId, connectionId: conn.id, caller: { type: 'app' } };
+  if (conn.managed?.unavailable) return { ok: false, detail: conn.managed.unavailable };
   try {
     if (conn.managed) {
       const { listManagedEvents } = await import('@/lib/integrations/sources/calendar-reads');

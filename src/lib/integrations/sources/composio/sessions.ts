@@ -40,6 +40,8 @@ export interface ValidatedTool {
   slug: string;
   version: string;
   schemaHash: string;
+  /** `schemaShapeHash`: what the session's definition accepts, wording aside. */
+  shapeHash: string;
   inputParameters: Record<string, unknown>;
 }
 
@@ -67,8 +69,52 @@ export class SessionRestrictionError extends Error {
   }
 }
 
+export class SessionInvalidatedError extends Error {
+  constructor() {
+    super('The source or account changed while its session was being set up. Ri won\'t use it.');
+    this.name = 'SessionInvalidatedError';
+  }
+}
+
 export function schemaHash(inputParameters: unknown): string {
   return createHash('sha256').update(canonicalStringify(inputParameters ?? {})).digest('hex').slice(0, 16);
+}
+
+/** JSON Schema keywords that change what a call accepts. Annotations (titles, descriptions, examples, vendor fields) are left out. */
+const VALIDATION_KEYWORDS = new Set([
+  'type', 'properties', 'required', 'items', 'prefixItems', 'enum', 'const', 'anyOf', 'oneOf', 'allOf', 'not',
+  'additionalProperties', 'format', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'minLength', 'maxLength',
+  'pattern', 'minItems', 'maxItems', 'uniqueItems', 'default', 'nullable',
+]);
+
+function schemaShape(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(schemaShape);
+  if (!node || typeof node !== 'object') return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (!VALIDATION_KEYWORDS.has(key)) continue;
+    if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
+      out[key] = Object.fromEntries(Object.entries(value).map(([name, child]) => [name, schemaShape(child)]));
+    } else if (key === 'required' && Array.isArray(value)) {
+      if (value.length) out[key] = [...value].sort();
+    } else if (key === 'type' && Array.isArray(value)) {
+      out[key] = value.length === 1 ? value[0] : [...value].sort();
+    } else if ((key === 'enum' || key === 'anyOf' || key === 'oneOf' || key === 'allOf') && Array.isArray(value)) {
+      out[key] = value.map(schemaShape).sort((a, b) => canonicalStringify(a).localeCompare(canonicalStringify(b)));
+    } else {
+      out[key] = schemaShape(value);
+    }
+  }
+  return out;
+}
+
+/**
+ * A tool's input schema reduced to what decides which calls it accepts. Two listings of the same
+ * tool version that differ only in wording or key order hash the same, and any change to fields,
+ * types, requirements or constraints does not.
+ */
+export function schemaShapeHash(inputParameters: unknown): string {
+  return schemaHash(schemaShape(inputParameters ?? {}));
 }
 
 export function sessionKey(target: SessionTarget): string {
@@ -124,7 +170,10 @@ export function validatedTools(tools: RemoteTool[], target: SessionTarget): Map<
   for (const tool of tools) {
     if (tool.toolkitSlug && tool.toolkitSlug !== target.toolkitSlug) problems.push(`${tool.slug} is from another toolkit`);
     if (!tool.version) problems.push(`${tool.slug} has no version`);
-    out.set(tool.slug, { slug: tool.slug, version: tool.version ?? '', schemaHash: schemaHash(tool.inputParameters), inputParameters: tool.inputParameters });
+    out.set(tool.slug, {
+      slug: tool.slug, version: tool.version ?? '', schemaHash: schemaHash(tool.inputParameters), shapeHash: schemaShapeHash(tool.inputParameters),
+      inputParameters: tool.inputParameters,
+    });
   }
   if (problems.length) throw new SessionRestrictionError(problems);
   return out;
@@ -163,7 +212,16 @@ const cache = processState('integrations.managed-sessions', () => ({
   live: new Map<string, LiveSession>(),
   /** One construction at a time per key in this process. */
   building: new Map<string, Promise<LiveSession>>(),
+  /** Bumped by every invalidation, per source and per account, so a session set up meanwhile is never used. */
+  epochs: new Map<string, number>(),
 }));
+
+const sourceEpochKey = (sourceId: string) => sourceId;
+const accountEpochKey = (sourceId: string, remoteAccountId: string) => `${sourceId}\n${remoteAccountId}`;
+
+function epochOf(target: { sourceId: string; remoteAccountId: string }): string {
+  return `${cache.epochs.get(sourceEpochKey(target.sourceId)) ?? 0}:${cache.epochs.get(accountEpochKey(target.sourceId, target.remoteAccountId)) ?? 0}`;
+}
 
 export interface SessionManagerDeps {
   client: ComposioClient;
@@ -184,26 +242,16 @@ export async function acquireSession(target: SessionTarget, deps: SessionManager
   if (cached && !opts.fresh && now() - cached.validatedAt < READ_REVALIDATE_MS) return cached;
   const inFlight = cache.building.get(key);
   if (inFlight) return inFlight;
+  const epoch = epochOf(target);
   const work = (async () => {
-    // Retire sessions for this account built for another action set or catalog revision.
-    const stale = updateRegistry(dir, document => {
-      const old = document.sessions.filter(record => record.sourceId === target.sourceId && record.remoteAccountId === target.remoteAccountId && record.key !== key);
-      document.sessions = document.sessions.filter(record => !old.includes(record));
-      document.orphans.push(...old.map(record => ({ sessionId: record.sessionId, sourceId: record.sourceId, since: new Date(now()).toISOString() })));
-      return old;
-    });
-    if (stale.length) await sweepOrphans(target.sourceId, deps);
-    const recorded = readRegistry(dir).sessions.find(record => record.key === key);
-    if (recorded) {
-      try {
-        return await validateExisting(recorded.sessionId, target, deps, key);
-      } catch (error) {
-        // Gone, or no longer matching: retire it and build a fresh one.
-        await retire(dir, key, recorded.sessionId, target.sourceId, deps, now);
-        if (!(error instanceof SessionRestrictionError) && !(isComposioApiError(error) && error.kind === 'not_found')) throw error;
-      }
+    const live = await findOrConstruct(target, deps, key, dir, now);
+    // Invalidated while it was being set up (the source turned off, the account disconnected):
+    // retire what was just built instead of handing it out or leaving it published.
+    if (epochOf(target) !== epoch) {
+      await retire(dir, key, live.sessionId, target.sourceId, deps, now);
+      throw new SessionInvalidatedError();
     }
-    return construct(target, deps, key, dir, now);
+    return live;
   })();
   cache.building.set(key, work);
   try {
@@ -211,6 +259,28 @@ export async function acquireSession(target: SessionTarget, deps: SessionManager
   } finally {
     cache.building.delete(key);
   }
+}
+
+async function findOrConstruct(target: SessionTarget, deps: SessionManagerDeps, key: string, dir: string, now: () => number): Promise<LiveSession> {
+  // Retire sessions for this account built for another action set or catalog revision.
+  const stale = updateRegistry(dir, document => {
+    const old = document.sessions.filter(record => record.sourceId === target.sourceId && record.remoteAccountId === target.remoteAccountId && record.key !== key);
+    document.sessions = document.sessions.filter(record => !old.includes(record));
+    document.orphans.push(...old.map(record => ({ sessionId: record.sessionId, sourceId: record.sourceId, since: new Date(now()).toISOString() })));
+    return old;
+  });
+  if (stale.length) await sweepOrphans(target.sourceId, deps);
+  const recorded = readRegistry(dir).sessions.find(record => record.key === key);
+  if (recorded) {
+    try {
+      return await validateExisting(recorded.sessionId, target, deps, key);
+    } catch (error) {
+      // Gone, or no longer matching: retire it and build a fresh one.
+      await retire(dir, key, recorded.sessionId, target.sourceId, deps, now);
+      if (!(error instanceof SessionRestrictionError) && !(isComposioApiError(error) && error.kind === 'not_found')) throw error;
+    }
+  }
+  return construct(target, deps, key, dir, now);
 }
 
 async function validateExisting(sessionId: string, target: SessionTarget, deps: SessionManagerDeps, key: string): Promise<LiveSession> {
@@ -294,6 +364,8 @@ export async function sweepOrphans(sourceId: string, deps: SessionManagerDeps): 
  */
 export async function invalidateSessions(filter: { sourceId: string; remoteAccountId?: string }, deps?: SessionManagerDeps): Promise<void> {
   const dir = deps?.dir ?? getIntegrationsDir();
+  const epochKey = filter.remoteAccountId ? accountEpochKey(filter.sourceId, filter.remoteAccountId) : sourceEpochKey(filter.sourceId);
+  cache.epochs.set(epochKey, (cache.epochs.get(epochKey) ?? 0) + 1);
   const matches = (record: { sourceId: string; remoteAccountId?: string }) => record.sourceId === filter.sourceId
     && (!filter.remoteAccountId || record.remoteAccountId === filter.remoteAccountId);
   const removed = updateRegistry(dir, document => {

@@ -21,10 +21,13 @@ function makeRuntime(
   connections: Array<{ id: string; providerId: string }>,
   handlers: Record<string, (input: Record<string, unknown>) => Outcome>,
 ) {
-  // An action a case doesn't handle fails, the way an unreadable calendar list
-  // does: the read falls back to the primary calendar, unnamed.
+  // A case that doesn't list calendars gets an empty list: the read is the
+  // primary calendar alone, unnamed. Any other action it doesn't handle fails.
+  const defaults: Record<string, (input: Record<string, unknown>) => Outcome> = {
+    'google_calendar.list_calendars': () => ({ ok: true, result: { calendars: [] } }),
+  };
   const runAction = vi.fn<(action: string, input: Record<string, unknown>, ctx?: unknown) => Promise<Outcome>>(
-    async (action, input) => handlers[action]?.(input) ?? { ok: false, reason: 'not_handled' },
+    async (action, input) => (handlers[action] ?? defaults[action])?.(input) ?? { ok: false, reason: 'not_handled' },
   );
   const runtime = { listConnections: async () => connections, runAction };
   mocks.getIntegrationRuntime.mockResolvedValue(runtime);
@@ -320,5 +323,20 @@ describe('calendars and copies', () => {
       calendar: { id: 'cal-a', name: 'Calendar', primary: true, owned: true },
       countsAsBusy: true,
     });
+  });
+
+  it('a calendar list that cannot be read leaves the day incomplete: other calendars may hold time', async () => {
+    const { runAction } = makeRuntime([{ id: 'c1', providerId: 'google' }], {
+      'google_calendar.list_calendars': () => ({ ok: false, reason: 'error', code: 'provider_error', message: 'boom' }),
+      'google_calendar.list_events': () => ({ ok: true, result: { events: [] } }),
+    });
+    const r = await getCalendarRange({ start: DATE });
+    expect(r.status).toBe('degraded');
+    expect(r.providers[0]).toMatchObject({ connectionId: 'c1', ok: true, partial: true, detail: expect.stringMatching(/only its primary calendar/) });
+    expect(r.days[0]!.complete).toBe(false);
+    // The primary calendar was still read, and an unread list is not cached.
+    expect(runAction.mock.calls.filter(([a]) => a === 'google_calendar.list_events')).toHaveLength(1);
+    await getCalendarRange({ start: DATE, fresh: true });
+    expect(runAction.mock.calls.filter(([a]) => a === 'google_calendar.list_calendars')).toHaveLength(2);
   });
 });

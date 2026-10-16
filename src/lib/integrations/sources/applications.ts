@@ -64,5 +64,5 @@ export function parseManagedToolkitId(toolkitId: string): { sourceId: string; ap
   return null;
 }
 
-/** Source ids are `<kind prefix><4 lowercase base32>`, e.g. `cmpk3f9`. */
+/** Source ids are `<kind prefix><4 lowercase base32>`, e.g. `cmpk3fa`. */
 export const SOURCE_ID_PATTERN = /^cmp[a-z2-7]{4}$/;

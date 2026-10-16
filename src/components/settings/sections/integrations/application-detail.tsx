@@ -32,8 +32,9 @@ import type { ManagedAccountView } from '@/lib/integrations/sources/views';
 import { pinKey, scopePins } from '@/lib/integrations/scope-pins';
 import type { WorkspaceIntegrationScope } from '@/db/types';
 import {
-  sourceErrorMessage, useConnectAttempt, useConnectionMethod, useDiscoveredAccounts, useManagedAccounts, useSourceMutations,
-} from '@/hooks/use-connector-sources';
+  sourceErrorMessage, useConnectAttempt, useConnectionMethod, useDiscoveredAccounts, useManagedAccounts, useSourceMutations, useSourcesOverview,
+} from '@/hooks/use-integration-sources';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BackLink, Chip, ConnectFormSection, DetailHeader, GroupHeading } from './parts';
 import { ToolList } from './provider-detail';
 import { connectionIdentity, type ApprovalMode, type Connection, type ToolkitInfo, type WritePolicyAction } from './types';
@@ -64,6 +65,10 @@ const LOGO: Record<ApplicationId, string> = { gmail: 'gmail', google_calendar: '
 export function ApplicationDetail(props: ApplicationDetailProps) {
   const app = APPLICATIONS[props.applicationId];
   const accounts = useManagedAccounts();
+  const overview = useSourcesOverview();
+  // Every source that can be read now, whether or not this home has an account through it yet:
+  // an account disconnected from Ri can be added back from here.
+  const usableSources = useMemo(() => (overview.data?.sources ?? []).filter(source => source.enabled && source.hasKey).map(source => ({ id: source.id, label: source.label })), [overview.data]);
   const managed = useMemo(() => (accounts.data ?? []).filter(account => account.applicationId === props.applicationId), [accounts.data, props.applicationId]);
   const [attemptId, setAttemptId] = useState<string | null>(props.initialAttemptId ?? null);
   const [justConnected, setJustConnected] = useState<string | null>(null);
@@ -167,7 +172,7 @@ export function ApplicationDetail(props: ApplicationDetailProps) {
         </ConnectFormSection>
       )}
 
-      {managed.length > 0 && <ExistingAccounts applicationId={props.applicationId} sourceIds={[...new Set(managed.map(a => a.sourceId))]} onChanged={props.onChanged} onError={setError} />}
+      {usableSources.length > 0 && <ExistingAccounts applicationId={props.applicationId} sources={usableSources} onChanged={props.onChanged} onError={setError} />}
 
       {toolCount > 0 && <ToolList toolkits={props.toolkits} writePolicy={props.writePolicy} onSetApproval={props.onSetApproval} />}
     </div>
@@ -529,9 +534,15 @@ function AgentAccess({ account, onError }: { account: ManagedAccountView; onErro
 }
 
 /** Accounts the source's own user already has in Composio but Ri doesn't use yet. */
-function ExistingAccounts({ applicationId, sourceIds, onChanged, onError }: { applicationId: ApplicationId; sourceIds: string[]; onChanged: () => void; onError: (message: string | null) => void }) {
+function ExistingAccounts({ applicationId, sources, onChanged, onError }: {
+  applicationId: ApplicationId;
+  sources: { id: string; label: string }[];
+  onChanged: () => void;
+  onError: (message: string | null) => void;
+}) {
   const [open, setOpen] = useState(false);
-  const sourceId = sourceIds[0] ?? null;
+  const [picked, setPicked] = useState<string | null>(null);
+  const sourceId = sources.find(source => source.id === picked)?.id ?? sources[0]?.id ?? null;
   const discovered = useDiscoveredAccounts(sourceId, applicationId, open);
   const m = useSourceMutations();
   const pending = (discovered.data ?? []).filter(account => !account.imported && account.status === 'ACTIVE');
@@ -548,6 +559,14 @@ function ExistingAccounts({ applicationId, sourceIds, onChanged, onError }: { ap
       </button>
       {open && (
         <div className="space-y-1 border-t border-border/60 p-3">
+          {sources.length > 1 && (
+            <Select value={sourceId} onValueChange={setPicked}>
+              <SelectTrigger size="sm" aria-label="Source" className="mb-1 h-7 w-fit text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {sources.map(source => <SelectItem key={source.id} value={source.id} className="text-xs">{source.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
           {discovered.isLoading && <p className="text-[11px] text-muted-foreground"><Loader2 size={11} className="mr-1 inline animate-spin" />Looking…</p>}
           {discovered.error && <p className="text-[11px] text-destructive">{sourceErrorMessage(discovered.error)}</p>}
           {!discovered.isLoading && pending.length === 0 && <p className="text-[11px] text-muted-foreground">Nothing to add. Every account here is already in Ri.</p>}

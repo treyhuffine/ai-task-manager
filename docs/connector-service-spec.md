@@ -444,18 +444,24 @@ Everything lives under `src/lib/integrations/sources/` unless named otherwise.
 | §4 Calendar view, day shape and deck | `calendar-reads.ts`, `src/lib/calendar/service.ts` (managed route, `complete`, `partial`, `via`), `src/lib/deck/calendar.ts` (`readCalendarDay` availability), `get_day_shape` |
 | §5 Engine integration | `managed-provider.ts` (one source-namespaced provider per application, `externalAuth.forConnection`), registered in `src/lib/integrations/runtime.ts` |
 | §6 Preferences file and sealed credentials | `preferences.ts`, `source-credentials.ts`, `types.ts` |
-| §7 Identity and bindings | `managed-connections.ts` (`accountId` is the remote connected-account id), the `remote_account` credential in `packages/integrations/src/core/types.ts` and `packages/integrations/src/auth/remote.ts` |
+| §7 Identity and bindings | `managed-connections.ts` (`accountId` is the remote connected-account id), the `remote_account` credential in `packages/integrations/src/core/types.ts` and `packages/integrations/src/auth/remote.ts`. Named-account grants: `validateIntegrationScopes` in `src/lib/integrations/scopes.ts` and `resolveIntegrationFilter` in `src/lib/integrations/workspace-filter.ts` |
 | §8 Lifecycle | `service.ts` (add, rotate, disable, remove, connect, reconnect, import, disconnect, revoke), `attempts.ts`, `composio/adapter.ts`, `src/app/api/integrations/managed/callback/route.ts` |
 | §9 Sessions | `composio/sessions.ts` (restriction readback, shared registry, orphan cleanup), `composio/client.ts` (`sessionCreateBody`) |
 | §10 and §11 Execution, errors, uncertain writes, audit | `managed-provider.ts` (`toIntegrationError`), `audit.ts`, `revokeApprovalsForConnections` in `src/lib/integrations/approval.ts` |
 | REST client | `composio/client.ts` |
-| Typed procedures | `router.ts`, mounted as `connectorSources` |
+| Typed procedures | `router.ts`, mounted as `integrationSources` |
 | Tests | `*.test.ts` beside each module, `managed.e2e.test.ts`, `calendar.e2e.test.ts`, managed cases in `src/lib/integrations/connection-requests.test.ts`, the fake API in `composio/fake-composio.ts` |
 | Trying it without a project | `scripts/dev-fake-composio.ts` (docs/environments.md) |
 
 Decisions made while building, beyond the text above:
 
-- The callback and polling paths finish the same stored attempt. An attempt records the remote account its link created, so completion is checked against exactly that account, and a repeated Connect reuses a pending link instead of starting another consent.
-- A session's schema baseline is the session's own tool listing, captured at its first validation in each build. The version must still equal the one Ri registered. This avoids a refresh loop if a session presents a schema differently from the project tool listing, while still catching any change within a build.
+- The callback and polling paths finish the same stored attempt. An attempt records the remote account its link created, so completion is checked against exactly that account, and a repeated Connect reuses a pending link instead of starting another consent. Concurrent starts for the same sign-in (two clicks, two tabs) share one link.
+- Completing a sign-in, cancelling it, disconnecting and importing each take the account's turn for their final check and write (`withAccountTurn` in `service.ts`). Completion rechecks the attempt, the source and, for a reconnect, the row in that turn, so a cancel or disconnect that lands while consent is being verified always wins.
+- A managed toolkit is only ever granted on named accounts. The server refuses an unbounded grant for one, and a stored scope without accounts grants nothing.
+- A session's tool must match the definition Ri registered: the same version and the same structure (`schemaShapeHash` in `composio/sessions.ts`: fields, types, requirements and constraints, with titles, descriptions and examples left out). Wording or key-order differences between the project and session listings are not a change.
+- Right before dispatch, a call rechecks that its source is usable and its account still active and bound. Every invalidation bumps an epoch for the source or account, and a session set up across one is deleted instead of used or published.
+- The client's deadline and the caller's cancel cover the whole exchange, including the response body. A body cut off after a write's headers is reported as possibly applied.
+- A calendar the user shows in Ri that can't be read now (it needs a reconnect, or its source is off) stays in the range as a failed read, so its time is unknown rather than free. A calendar list that can't be read in full, or is cut short by the page bound, marks the account partial.
+- The chat card shows the Calendar use choice for Google Calendar, polls a managed reconnect like a new connect, and records "Change method" to the direct route as the application's override when the person connects that way, with a way back to the source.
 - `instant: false` and `enable_auto_workbench_offload: false` are part of every session and execution, alongside the switches in §9.
 - Development's auto-approval is recorded as `dev_auto` in the audit trail, never as a human grant.

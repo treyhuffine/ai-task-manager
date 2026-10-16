@@ -19,6 +19,7 @@
  * finds the account connected and resolves the card.
  */
 import type { ChatEventRecord, ChatEventSource, WorkspaceIntegrationScopeAccount, WorkspaceRecord } from '@/db/types';
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import {
 	getChatEventById,
 	getChatSessionWithExecution,
@@ -619,7 +620,7 @@ export async function startCardSignIn(
   const { row, view } = openCard(eventId);
   // A managed account reconnects through its source, keeping the same remote account and grants.
   if (parseManagedToolkitId(view.providerId)) {
-    if (view.kind !== 'reconnect' || !view.connectionId) throw new ConnectionRequestError('invalid', `${view.label} connects from Connectors.`);
+    if (view.kind !== 'reconnect' || !view.connectionId) throw new ConnectionRequestError('invalid', `${view.label} connects from ${INTEGRATION_LABELS.plural}.`);
     const { beginManagedReconnect, SourceError } = await import('./sources/service');
     try {
       const result = await beginManagedReconnect(request, view.connectionId, returnTo, eventId);
@@ -668,7 +669,7 @@ export async function startCardSignIn(
 export async function startCardManagedSignIn(
   request: Pick<Request, 'headers' | 'url'>,
   eventId: string,
-  input: { returnTo: string | null; sourceId?: string; explicitChoice?: boolean },
+  input: { returnTo: string | null; sourceId?: string; explicitChoice?: boolean; calendarUse?: boolean },
 ): Promise<{ attemptId: string; authorizationUrl: string; expiresAt: number }> {
   const { view } = openCard(eventId);
   if (view.kind !== 'connect') throw new ConnectionRequestError('invalid', 'Only a Connect card starts a new sign-in.');
@@ -679,6 +680,7 @@ export async function startCardManagedSignIn(
     const result = await beginManagedConnect(request, {
       applicationId: apps[0], requestEventId: eventId, returnTo: input.returnTo,
       ...(input.sourceId ? { sourceId: input.sourceId } : {}), ...(input.explicitChoice ? { explicitChoice: true } : {}),
+      ...(input.calendarUse !== undefined ? { calendarUse: input.calendarUse } : {}),
     });
     return { attemptId: result.attemptId, authorizationUrl: result.authorizationUrl, expiresAt: result.expiresAt };
   } catch (error) {

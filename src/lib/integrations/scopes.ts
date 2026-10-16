@@ -13,6 +13,7 @@ import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { accountDisplay } from '@integrations/engine';
 import { getIntegrationOwnerId, getIntegrationRuntime } from './runtime';
 import { dedupePins, pinKey, pinMatchesConnection, pinOfConnection, scopePins } from './scope-pins';
+import { parseManagedToolkitId } from './sources/applications';
 import type { WorkspaceIntegrationScope, WorkspaceIntegrationScopeAccount } from '@/db/types';
 
 /** One account in a scope write: an exact pin, or an identifier resolved against live connections. */
@@ -21,7 +22,11 @@ export type IntegrationScopeAccountRef = WorkspaceIntegrationScopeAccount | stri
 /** A parsed (not yet validated) scope entry from a write payload. */
 export interface IntegrationScopeInput {
   toolkitId: string;
-  /** Omitted = all accounts, including ones connected later. */
+  /**
+   * Omitted = all accounts, including ones connected later. A managed source's toolkit
+   * (`cmp<id>_gmail`) has no such grant: it always names its accounts
+   * (docs/connector-service-spec.md §7).
+   */
   accounts?: IntegrationScopeAccountRef[];
 }
 
@@ -150,6 +155,10 @@ export async function validateIntegrationScopes(
   const out: WorkspaceIntegrationScope[] = [];
   for (const s of incoming) {
     if (!s.accounts || s.accounts.length === 0) {
+      if (parseManagedToolkitId(s.toolkitId)) {
+        const name = toolkitsById.get(s.toolkitId)?.displayName ?? s.toolkitId;
+        return { ok: false, error: `${name} needs the accounts it may use. Accounts connected through a source are granted one by one, never all at once.` };
+      }
       out.push({ toolkitId: s.toolkitId });
       continue;
     }

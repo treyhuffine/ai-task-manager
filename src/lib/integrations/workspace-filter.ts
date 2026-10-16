@@ -5,6 +5,7 @@
  */
 import type { AccountChoice, IntegrationRuntime } from '@integrations/engine';
 import { pinMatchesConnection, scopePins } from './scope-pins';
+import { parseManagedToolkitId } from './sources/applications';
 import type { WorkspaceIntegrationScope } from '@/db/types';
 
 /** A workspace's integration allowlist, resolved into the engine projection filters. */
@@ -42,6 +43,9 @@ export async function resolveIntegrationFilter(
     if (!toolkit) continue; // unknown / dormant (e.g. an MCP server not currently ingested)
     if (!connectedProviders.has(toolkit.providerId)) continue; // provider disconnected → dormant
     const pins = scopePins(scope);
+    // A managed source's toolkit is only ever granted on named accounts. A stored scope without
+    // any (written before that rule, or by hand) grants nothing rather than every account.
+    if (pins.length === 0 && parseManagedToolkitId(scope.toolkitId)) continue;
     if (pins.length > 0) {
       const ids = new Set<string>();
       for (const pin of pins) {

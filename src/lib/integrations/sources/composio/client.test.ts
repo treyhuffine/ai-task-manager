@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ComposioApiError, createComposioClient, sessionCreateBody } from './client';
 import { createFakeComposio, seedCatalogTools } from './fake-composio';
 
@@ -99,6 +99,40 @@ describe('Composio REST client', () => {
     const error = await rejection(client.createSession({ userId: 'u', toolkitSlug: 'gmail', toolSlugs: ['GMAIL_SEND_EMAIL'], connectedAccountId: 'ca' })
       );
     expect(error).toMatchObject({ kind: 'unavailable', maybeApplied: true });
+  });
+
+  describe('a response whose body stalls after the headers', () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    /** Answers 200 at once, then never finishes the body unless the request is aborted. */
+    function stalledBody(): typeof fetch {
+      return (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"result_type":'));
+            init?.signal?.addEventListener('abort', () => controller.error(init.signal!.reason), { once: true });
+          },
+        });
+        return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+      }) as typeof fetch;
+    }
+
+    it('still stops at the caller\'s cancel, as a possibly applied write', async () => {
+      const client = createComposioClient({ apiKey: KEY, baseUrl: 'https://fake.composio/api/v3.1', fetch: stalledBody(), sleep: async () => {} });
+      const cancel = new AbortController();
+      const call = rejection(client.executeInSession('trs_1', 'GMAIL_SEND_EMAIL', { recipient_email: 'a@b.com' }, cancel.signal));
+      await new Promise(resolve => setTimeout(resolve, 10));
+      cancel.abort(new Error('the chat stopped'));
+      expect(await call).toMatchObject({ kind: 'cancelled', maybeApplied: true });
+    });
+
+    it('still stops at the deadline', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const client = createComposioClient({ apiKey: KEY, baseUrl: 'https://fake.composio/api/v3.1', fetch: stalledBody(), sleep: async () => {} });
+      const call = rejection(client.executeInSession('trs_1', 'GMAIL_SEND_EMAIL', { recipient_email: 'a@b.com' }));
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(await call).toMatchObject({ kind: 'timeout', maybeApplied: true });
+    });
   });
 
   it('builds a session body with every restriction explicit', () => {

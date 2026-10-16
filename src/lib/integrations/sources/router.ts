@@ -49,7 +49,7 @@ async function run<T>(work: () => Promise<T> | T): Promise<T> {
   }
 }
 
-export const connectorSourcesRouter = router({
+export const integrationSourcesRouter = router({
   overview: p.query(() => run(() => service.sourcesOverview())),
   accounts: p.query(() => run(() => managedAccounts())),
   method: p.input(z.object({ applicationId, capability: z.enum(['agent_tools', 'calendar_view']).optional() }).strict())
@@ -94,12 +94,15 @@ export const connectorSourcesRouter = router({
   setCalendarUse: p.input(z.object({ connectionId, enabled: z.boolean() }).strict())
     .mutation(({ input, ctx }) => { humanOnly(ctx); return run(() => service.setCalendarUse(input.connectionId, input.enabled)); }),
   /** A chat's Connect card, through a managed source. */
-  cardSignIn: p.input(z.object({ eventId: z.string().min(1).max(100), returnTo, sourceId: sourceId.optional(), explicitChoice: z.boolean().optional() }).strict())
+  cardSignIn: p.input(z.object({
+    eventId: z.string().min(1).max(100), returnTo, sourceId: sourceId.optional(), explicitChoice: z.boolean().optional(), calendarUse: z.boolean().optional(),
+  }).strict())
     .mutation(async ({ input, ctx }) => {
       humanOnly(ctx);
       const { startCardManagedSignIn } = await import('../connection-requests');
       return run(() => startCardManagedSignIn(ctx.request, input.eventId, {
         returnTo: input.returnTo ?? null, ...(input.sourceId ? { sourceId: input.sourceId } : {}), ...(input.explicitChoice ? { explicitChoice: true } : {}),
+        ...(input.calendarUse !== undefined ? { calendarUse: input.calendarUse } : {}),
       }));
     }),
 });

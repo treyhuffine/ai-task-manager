@@ -28,12 +28,19 @@ export class ManagedReadError extends Error {
   }
 }
 
-/** Managed calendars the user lets Ri's Calendar read, still connected and usable now. */
-export async function calendarReadableConnections(store: ConnectionStore, ownerId: string): Promise<Connection[]> {
+/**
+ * Managed calendars the user lets Ri's Calendar read. One that can't be read now (it needs a
+ * reconnect, or its source is off) is still listed with why, so its time counts as unknown
+ * instead of free.
+ */
+export async function calendarReadableConnections(store: ConnectionStore, ownerId: string): Promise<{ connection: Connection; unavailable?: string }[]> {
   const use = currentPreferences().calendarUse;
   const connections = await listManagedConnections(store, { ownerId, applicationId: 'google_calendar' });
-  return connections.filter(connection => use[connection.id] === true && connection.status === 'active'
-    && sourceUsable(managedConfig(connection)!.sourceId));
+  return connections.filter(connection => use[connection.id] === true).map(connection => {
+    const unavailable = connection.status !== 'active' ? 'This calendar needs to be reconnected.'
+      : !sourceUsable(managedConfig(connection)!.sourceId) ? 'Its source is turned off or has no key.' : undefined;
+    return { connection, ...(unavailable ? { unavailable } : {}) };
+  });
 }
 
 const calendarItem = z.object({
@@ -122,8 +129,8 @@ export interface ManagedCalendar {
   backgroundColor?: string;
 }
 
-/** The account's calendar list, every page. */
-export async function listManagedCalendars(connection: Connection): Promise<ManagedCalendar[]> {
+/** The account's calendar list, every page up to a bound. `complete` is false when the bound cut it short. */
+export async function listManagedCalendars(connection: Connection): Promise<{ calendars: ManagedCalendar[]; complete: boolean }> {
   const out: ManagedCalendar[] = [];
   let pageToken: string | undefined;
   for (let page = 0; page < MAX_CALENDAR_PAGES; page += 1) {
@@ -133,10 +140,10 @@ export async function listManagedCalendars(connection: Connection): Promise<Mana
       id: item.id, summary: item.summaryOverride ?? item.summary, primary: item.primary, selected: item.selected,
       hidden: item.hidden, accessRole: item.accessRole, backgroundColor: item.backgroundColor,
     })));
-    if (!next) return out;
+    if (!next) return { calendars: out, complete: true };
     pageToken = next;
   }
-  return out;
+  return { calendars: out, complete: false };
 }
 
 /** The direct route's event summary shape (`RawGoogleEvent`), from a Google API event. */

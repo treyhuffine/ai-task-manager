@@ -20,7 +20,7 @@ import { Bot, Check, Copy, ExternalLink, KeyRound, Loader2, Plug, RefreshCw, Shi
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Tip } from '@/components/ui/tip';
-import { sourceErrorMessage, useConnectAttempt, useConnectionMethod } from '@/hooks/use-connector-sources';
+import { sourceErrorMessage, useConnectAttempt, useConnectionMethod } from '@/hooks/use-integration-sources';
 import { applicationForDirectToolkit, parseManagedToolkitId } from '@/lib/integrations/sources/applications';
 import type { ApplicationId } from '@/lib/integrations/sources/types';
 import { trpcClient } from '@/lib/trpc/client';
@@ -80,6 +80,10 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
   const action = useConnectionCardAction(event.id);
   // A sign-in this card started came back with an error: say so here.
   const [notice, setNotice] = useState<string | null>(() => signInReturn(event.id)?.notice ?? null);
+  // A managed account's reconnect: polled until it settles, which also finishes it when the
+  // source's redirect can't reach this home. Its completion answers the card on the server.
+  const [managedAttemptId, setManagedAttemptId] = useState<string | null>(null);
+  const managedAttempt = useConnectAttempt(response ? null : managedAttemptId);
 
   // ...and once shown, tidy the result off the URL.
   useEffect(() => {
@@ -106,6 +110,7 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
   const signIn = () =>
     run({ action: 'sign_in', returnTo: currentReturnPath() }, async (result) => {
       if ('done' in result) return;
+      if (parseManagedToolkitId(view.providerId)) setManagedAttemptId(result.requestId);
       sessionStorage.setItem(PENDING_SIGN_IN_KEY, event.id);
       await openIntegrationAuthorization(result.authorizationUrl);
       // The desktop app signs in in the system browser: the page stays here until the card updates.
@@ -113,6 +118,10 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
     });
 
   const resolved = response !== null;
+  const reconnectState = managedAttemptId ? managedAttempt.data : undefined;
+  const reconnectNotice = !reconnectState ? null
+    : reconnectState.status === 'pending' ? 'Finish signing in in your browser.'
+      : reconnectState.status === 'completed' ? null : reconnectState.error;
   const title = cardTitle(view);
   const offered = view.accounts ?? [];
   const subtitle = [
@@ -181,21 +190,24 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
           busy={busy}
           notice={notice}
           onDecline={() => run({ action: 'decline' })}
-          direct={provider && !provider.configured ? (
-            <SetupForm
-              view={view}
-              provider={provider}
-              redirectUri={status.redirectUri}
-              busy={busy}
-              notice={notice}
-              onDecline={() => run({ action: 'decline' })}
-              onSaved={signIn}
-            />
-          ) : (
-            <Footer busy={busy} onDecline={() => run({ action: 'decline' })} notice={notice}>
-              <PrimaryButton busy={busy} onClick={signIn}>Connect {view.providerName}</PrimaryButton>
-            </Footer>
-          )}
+          renderDirect={(beforeSignIn) => {
+            const directSignIn = () => void beforeSignIn().then(signIn, (err: unknown) => toast.error(sourceErrorMessage(err)));
+            return provider && !provider.configured ? (
+              <SetupForm
+                view={view}
+                provider={provider}
+                redirectUri={status.redirectUri}
+                busy={busy}
+                notice={notice}
+                onDecline={() => run({ action: 'decline' })}
+                onSaved={directSignIn}
+              />
+            ) : (
+              <Footer busy={busy} onDecline={() => run({ action: 'decline' })} notice={notice}>
+                <PrimaryButton busy={busy} onClick={directSignIn}>Connect {view.providerName}</PrimaryButton>
+              </Footer>
+            );
+          }}
         />
       ) : provider && !provider.configured && view.kind === 'connect' ? (
         <SetupForm
@@ -208,8 +220,8 @@ export function ConnectionRequestCard({ event, sessionId }: { event: ChatEventRe
           onSaved={signIn}
         />
       ) : (
-        <Footer busy={busy} onDecline={() => run({ action: 'decline' })} notice={notice}>
-          <PrimaryButton busy={busy} onClick={signIn}>
+        <Footer busy={busy} onDecline={() => run({ action: 'decline' })} notice={reconnectNotice ?? notice}>
+          <PrimaryButton busy={busy || reconnectState?.status === 'pending'} onClick={signIn}>
             {view.kind === 'reconnect' ? `Reconnect ${view.providerName}` : view.kind === 'more_access' ? 'Allow access' : `Connect ${view.providerName}`}
           </PrimaryButton>
         </Footer>
@@ -227,43 +239,71 @@ function logoFor(providerId: string): string {
 /**
  * Connect through the method Ri chose for this application. With a managed source preferred the
  * card signs in through it, and the attempt (callback or polling) answers the card, granting the
- * asking agent exactly the new account. "Change method" falls back to the direct sign-in.
+ * asking agent exactly the new account. "Change method" switches to the direct sign-in, and the
+ * choice is remembered for the application once the person connects that way, as in Settings.
  */
-function ManagedConnect({ applicationId, eventId, view, busy, notice, onDecline, direct }: {
+function ManagedConnect({ applicationId, eventId, view, busy, notice, onDecline, renderDirect }: {
   applicationId: ApplicationId;
   eventId: string;
   view: ConnectionRequestView;
   busy: boolean;
   notice: string | null;
   onDecline: () => void;
-  direct: ReactNode;
+  /** The direct sign-in, given what to do just before it starts. */
+  renderDirect: (beforeSignIn: () => Promise<void>) => ReactNode;
 }) {
   const method = useConnectionMethod(applicationId, 'agent_tools');
-  const [useDirect, setUseDirect] = useState(false);
+  const [mode, setMode] = useState<'auto' | 'direct' | 'managed'>('auto');
   const [sourceId, setSourceId] = useState<string | null>(null);
+  const [calendarUse, setCalendarUse] = useState(true);
   const [starting, setStarting] = useState(false);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const attempt = useConnectAttempt(attemptId);
   const selection = method.data;
-  const managedOptions = selection ? [selection.primary, ...selection.alternatives].filter((o): o is Extract<NonNullable<typeof o>, { kind: 'managed' }> => o?.kind === 'managed' && o.available) : [];
-  const chosen = managedOptions.find(o => o.source.id === sourceId) ?? (selection?.primary?.kind === 'managed' && selection.primary.available ? selection.primary : null);
+  const options = selection ? [selection.primary, ...selection.alternatives] : [];
+  const managedOptions = options.filter((o): o is Extract<NonNullable<typeof o>, { kind: 'managed' }> => o?.kind === 'managed' && o.available);
+  const directOption = options.find((o): o is Extract<NonNullable<typeof o>, { kind: 'direct' }> => o?.kind === 'direct');
+  const primaryManaged = selection?.primary?.kind === 'managed' && selection.primary.available ? selection.primary : null;
+  const chosen = managedOptions.find(o => o.source.id === sourceId) ?? primaryManaged ?? managedOptions[0] ?? null;
   const attemptState = attempt.data;
   const failed = attemptState && attemptState.status !== 'pending' && attemptState.status !== 'completed' ? attemptState.error : null;
 
   if (method.isLoading) {
     return <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-muted-foreground"><Loader2 size={11} className="animate-spin" /> Checking how to connect…</div>;
   }
-  // No managed source to use, or the person picked the direct route: the card as it always was.
-  if (useDirect || !chosen) return <>{direct}</>;
 
+  const showDirect = !chosen || mode === 'direct' || (mode === 'auto' && !primaryManaged);
+  if (showDirect) {
+    // Picking the direct route over another recommendation is an explicit choice: remember it.
+    const beforeSignIn = async () => {
+      if (!directOption || selection?.primary?.kind === 'direct' || 'sourceId' in directOption.method) return;
+      await trpcClient.integrationSources.setApplicationMethod.mutate({ applicationId, method: directOption.method });
+    };
+    return (
+      <>
+        {chosen && (
+          <div className="flex flex-wrap items-center gap-x-2 border-t border-border px-3 pt-2 text-[10.5px] text-muted-foreground">
+            <span>Using a direct sign-in with your Google OAuth app.</span>
+            <button type="button" onClick={() => setMode('managed')} className="underline underline-offset-2 hover:text-foreground">
+              Use {chosen.source.label} instead
+            </button>
+          </div>
+        )}
+        {renderDirect(beforeSignIn)}
+      </>
+    );
+  }
+
+  const explicitChoice = !(selection?.primary?.kind === 'managed' && selection.primary.source.id === chosen.source.id);
   const connect = async () => {
     setMessage(null);
     setStarting(true);
     try {
-      const result = await trpcClient.connectorSources.cardSignIn.mutate({
+      const result = await trpcClient.integrationSources.cardSignIn.mutate({
         eventId, returnTo: currentReturnPath(), sourceId: chosen.source.id,
-        ...(selection?.primary?.kind === 'managed' && selection.primary.source.id !== chosen.source.id ? { explicitChoice: true } : {}),
+        ...(explicitChoice ? { explicitChoice: true } : {}),
+        ...(applicationId === 'google_calendar' ? { calendarUse } : {}),
       });
       sessionStorage.setItem(PENDING_SIGN_IN_KEY, eventId);
       setAttemptId(result.attemptId);
@@ -280,15 +320,23 @@ function ManagedConnect({ applicationId, eventId, view, busy, notice, onDecline,
       <p className="mb-1.5 text-muted-foreground">
         Using {chosen.source.label}{selection?.basis === 'preferred' && chosen === selection.primary ? ', your preferred source' : ''}. {chosen.source.label} stores this connection and processes its tool requests.
       </p>
+      {applicationId === 'google_calendar' && (
+        <label className="mb-1.5 flex items-center gap-1.5 text-[10.5px] text-foreground/85">
+          <Checkbox checked={calendarUse} onCheckedChange={(value) => setCalendarUse(value === true)} aria-label="Show in Ri's Calendar and deck" />
+          Show in Ri&apos;s Calendar and deck
+        </label>
+      )}
       {attemptId && attemptState?.status === 'pending' && <p className="mb-1.5 flex items-center gap-1.5 text-[10.5px] text-muted-foreground"><Loader2 size={10} className="animate-spin" /> Finish signing in in your browser.</p>}
       {(failed || message || notice) && <p className="mb-1.5 text-[10.5px] text-amber-600 dark:text-amber-400">{failed ?? message ?? notice}</p>}
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={busy || starting} onClick={onDecline} className="rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted/60 disabled:opacity-50">
           Not now
         </button>
-        <button type="button" onClick={() => setUseDirect(true)} className="text-[10.5px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
-          Change method
-        </button>
+        {directOption && (
+          <button type="button" onClick={() => setMode('direct')} className="text-[10.5px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
+            Change method
+          </button>
+        )}
         {managedOptions.length > 1 && (
           <Select value={chosen.source.id} onValueChange={setSourceId}>
             <SelectTrigger size="sm" aria-label="Source" className="h-6 text-[10.5px]"><SelectValue /></SelectTrigger>

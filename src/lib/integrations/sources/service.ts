@@ -21,11 +21,11 @@ import {
 import { ensureAuthConfig, listOwnAccounts, readVerifiedIdentity, revokeRemoteAccount, toolkitSlugFor, verifyAttemptAccount, type RemoteCleanup } from './composio/adapter';
 import { isComposioApiError, type RemoteAccount } from './composio/client';
 import { invalidateSessions } from './composio/sessions';
-import { listManagedConnections, managedConfig, saveManagedConnection } from './managed-connections';
+import { listManagedConnections, managedConfig, managedConnectionId, saveManagedConnection } from './managed-connections';
 import { selectConnectionMethod, overrideForChoice, type MethodSelection, type SourceHealth } from './method-selection';
 import { newRemoteUserId, newSourceId, readPreferences, updatePreferences } from './preferences';
 import { deleteSourceCredential, saveSourceCredential, sourceCredentialRevision } from './source-credentials';
-import { composioClient, findSource, openSource, type OpenSource } from './source-runtime';
+import { composioClient, findSource, openSource, sourceUsable, type OpenSource } from './source-runtime';
 import { isManagedMethod, type ApplicationId, type ApplicationMethod, type Capability, type SourceEntry } from './types';
 
 export class SourceError extends Error {
@@ -74,6 +74,46 @@ async function connectionStore(): Promise<ConnectionStore> {
 
 async function ownerId(): Promise<string> {
   return (await sourceServiceDeps()).ownerId();
+}
+
+const coordination = processState('integrations.managed-coordination', () => ({
+  /** The tail of each account's queue of state changes (finish, cancel, disconnect, import). */
+  accountTails: new Map<string, Promise<void>>(),
+  /** A sign-in being started, so a second click or tab joins it instead of creating another. */
+  starting: new Map<string, Promise<BeginManagedConnectResult>>(),
+}));
+
+/**
+ * Run one change to a managed account's local state at a time. Completing a sign-in, cancelling
+ * it, disconnecting and importing all read and then write the account row, with network calls in
+ * between, so each takes the account's turn for its final check and write.
+ */
+async function withAccountTurn<T>(connectionId: string, run: () => Promise<T>): Promise<T> {
+  const previous = coordination.accountTails.get(connectionId) ?? Promise.resolve();
+  let release!: () => void;
+  const turn = new Promise<void>(resolve => { release = resolve; });
+  const tail = previous.then(() => turn);
+  coordination.accountTails.set(connectionId, tail);
+  await previous;
+  try {
+    return await run();
+  } finally {
+    release();
+    if (coordination.accountTails.get(connectionId) === tail) coordination.accountTails.delete(connectionId);
+  }
+}
+
+/** One start per key in flight: concurrent requests for the same sign-in share its result. */
+async function startOnce(key: string, start: () => Promise<BeginManagedConnectResult>): Promise<BeginManagedConnectResult> {
+  const inFlight = coordination.starting.get(key);
+  if (inFlight) return inFlight;
+  const work = start();
+  coordination.starting.set(key, work);
+  try {
+    return await work;
+  } finally {
+    coordination.starting.delete(key);
+  }
 }
 
 // ─── Sources ─────────────────────────────────────────────────────────────────
@@ -403,9 +443,16 @@ export async function beginManagedConnect(request: Pick<Request, 'headers' | 'ur
   const override = overrideForChoice(selection, { sourceId }, input.explicitChoice ?? false);
   if (override) setApplicationMethod(input.applicationId, override);
 
+  const label = input.label?.trim() || undefined;
+  const chosenSourceId = sourceId;
+  return startOnce(JSON.stringify(['connect', chosenSourceId, input.applicationId, input.requestEventId ?? null, label ?? null]), () =>
+    startConnect(request, input, chosenSourceId, label));
+}
+
+async function startConnect(request: Pick<Request, 'headers' | 'url'> | null, input: BeginManagedConnectInput, sourceId: string, label: string | undefined): Promise<BeginManagedConnectResult> {
   const open = await requireOpenSource(sourceId);
   const existing = findPendingAttempt({ sourceId, applicationId: input.applicationId, purpose: 'connect', ...(input.requestEventId ? { requestEventId: input.requestEventId } : {}) });
-  if (existing?.redirectUrl && existing.label === (input.label?.trim() || undefined)) {
+  if (existing?.redirectUrl && existing.label === label) {
     return { attemptId: existing.id, authorizationUrl: existing.redirectUrl, expiresAt: existing.expiresAt, sourceLabel: open.source.label };
   }
   const authConfigId = await ensureAuthConfig(open, input.applicationId);
@@ -435,6 +482,13 @@ export async function beginManagedReconnect(request: Pick<Request, 'headers' | '
   const stored = await store.get(connectionId);
   const config = stored ? managedConfig(stored.connection) : null;
   if (!stored || !config) throw new SourceError('not_found', 'That account is no longer connected.');
+  return startOnce(JSON.stringify(['reconnect', connectionId, requestEventId ?? null]), () => startReconnect(request, store, connectionId, config, returnTo, requestEventId));
+}
+
+async function startReconnect(
+  request: Pick<Request, 'headers' | 'url'> | null, store: ConnectionStore, connectionId: string,
+  config: NonNullable<ReturnType<typeof managedConfig>>, returnTo?: string | null, requestEventId?: string,
+): Promise<BeginManagedConnectResult> {
   const open = await requireOpenSource(config.sourceId);
   const pending = findPendingAttempt({ sourceId: config.sourceId, applicationId: config.applicationId, purpose: 'reconnect', connectionId, ...(requestEventId ? { requestEventId } : {}) });
   if (pending?.redirectUrl) return { attemptId: pending.id, authorizationUrl: pending.redirectUrl, expiresAt: pending.expiresAt, sourceLabel: open.source.label };
@@ -521,28 +575,43 @@ async function finishAttempt(attempt: ConnectAttempt, hintedAccountId?: string):
     const settled = settleAttempt(attempt.id, { status: 'failed', error: verdict.reason });
     return settled.kind === 'missing' ? { status: 'failed', error: verdict.reason } : statusOf(settled.attempt);
   }
+  const email = await readVerifiedIdentity(open, attempt.applicationId, verdict.account.id).catch(() => null);
   const store = await connectionStore();
   const owner = await ownerId();
-  if (attempt.purpose === 'reconnect') {
-    // The same remote account came back: its row (and every grant on it) is kept as it was.
-    const current = attempt.connectionId ? await store.get(attempt.connectionId) : null;
-    if (!current || current.connection.accountId !== verdict.account.id) {
-      const settled = settleAttempt(attempt.id, { status: 'failed', error: 'The account was disconnected while it was reconnecting.' });
-      return settled.kind === 'missing' ? { status: 'failed', error: 'That sign-in request is gone.' } : statusOf(settled.attempt);
+  const fail = (error: string): AttemptStatus => {
+    const settled = settleAttempt(attempt.id, { status: 'failed', error });
+    return settled.kind === 'missing' ? { status: 'failed', error: 'That sign-in request is gone.' } : statusOf(settled.attempt);
+  };
+
+  // The checks above took network time. Whatever happened meanwhile (a cancel, a disconnect, the
+  // source turned off) is decided here, in the account's turn, right before the account is saved.
+  type Committed = { done: AttemptStatus } | { connection: Awaited<ReturnType<typeof saveManagedConnection>>; settled: ReturnType<typeof settleAttempt> };
+  const committed = await withAccountTurn<Committed>(managedConnectionId(attempt.sourceId, verdict.account.id), async () => {
+    const current = getAttempt(attempt.id);
+    if (!current) return { done: { status: 'failed', error: 'That sign-in request is gone.' } as AttemptStatus };
+    if (current.status !== 'pending') return { done: statusOf(current) };
+    if (!sourceUsable(attempt.sourceId)) return { done: fail('The source was turned off or removed before the sign-in finished.') };
+    if (attempt.purpose === 'reconnect') {
+      // The same remote account came back: its row (and every grant on it) is kept as it was.
+      const row = attempt.connectionId ? await store.get(attempt.connectionId) : null;
+      if (!row || row.connection.accountId !== verdict.account.id) return { done: fail('The account was disconnected while it was reconnecting.') };
     }
-  }
-  const email = await readVerifiedIdentity(open, attempt.applicationId, verdict.account.id).catch(() => null);
-  const connection = await saveManagedConnection(store, getIntegrationSecretBox(), {
-    ownerId: owner, source: open.source, applicationId: attempt.applicationId, remote: verdict.account, email,
-    ...(attempt.label ? { label: attempt.label } : {}),
-  });
-  const settled = settleAttempt(attempt.id, { status: 'completed', connectionId: connection.id, account: connection.email ?? connection.label ?? undefined });
-  if (settled.kind === 'settled') {
-    if (attempt.applicationId === 'google_calendar' && attempt.calendarUse !== false && attempt.purpose === 'connect') {
+    const connection = await saveManagedConnection(store, getIntegrationSecretBox(), {
+      ownerId: owner, source: open.source, applicationId: attempt.applicationId, remote: verdict.account, email,
+      ...(attempt.label ? { label: attempt.label } : {}),
+    });
+    const settled = settleAttempt(attempt.id, { status: 'completed', connectionId: connection.id, account: connection.email ?? connection.label ?? undefined });
+    if (settled.kind === 'settled' && attempt.applicationId === 'google_calendar' && attempt.calendarUse !== undefined && attempt.purpose === 'connect') {
       updatePreferences(preferences => {
-        if (preferences.calendarUse[connection.id] === undefined) preferences.calendarUse[connection.id] = true;
+        if (preferences.calendarUse[connection.id] === undefined) preferences.calendarUse[connection.id] = attempt.calendarUse!;
       });
     }
+    return { connection, settled };
+  });
+  if ('done' in committed) return committed.done;
+
+  const { connection, settled } = committed;
+  if (settled.kind === 'settled') {
     if (attempt.purpose === 'reconnect') await invalidateSessions({ sourceId: attempt.sourceId, remoteAccountId: verdict.account.id }, { client: open.client }).catch(() => {});
     await invalidateRuntime();
     if (attempt.requestEventId) {
@@ -559,8 +628,9 @@ async function finishAttempt(attempt: ConnectAttempt, hintedAccountId?: string):
 export async function cancelManagedAttempt(attemptId: string): Promise<void> {
   const attempt = getAttempt(attemptId);
   if (!attempt || attempt.status !== 'pending') return;
-  settleAttempt(attemptId, { status: 'cancelled', error: 'Cancelled.' });
-  if (attempt.purpose !== 'connect') return;
+  // In the account's turn, so a sign-in finishing at the same moment either completes first or not at all.
+  const settled = await withAccountTurn(managedConnectionId(attempt.sourceId, attempt.remoteAccountId), async () => settleAttempt(attemptId, { status: 'cancelled', error: 'Cancelled.' }));
+  if (settled.kind !== 'settled' || attempt.purpose !== 'connect') return;
   const open = await openSource(attempt.sourceId).catch(() => null);
   if (!open) return;
   const account = await open.client.getConnectedAccount(attempt.remoteAccountId).catch(() => null);
@@ -605,8 +675,11 @@ export async function importAccount(sourceId: string, applicationId: Application
   }
   if (account.status !== 'ACTIVE') throw new SourceError('unavailable', 'That account needs to be reconnected in Composio first.');
   const email = await readVerifiedIdentity(open, applicationId, account.id).catch(() => null);
-  const connection = await saveManagedConnection(await connectionStore(), getIntegrationSecretBox(), {
-    ownerId: await ownerId(), source: open.source, applicationId, remote: account, email, ...(label ? { label } : {}),
+  const store = await connectionStore();
+  const owner = await ownerId();
+  const connection = await withAccountTurn(managedConnectionId(sourceId, account.id), async () => {
+    if (!sourceUsable(sourceId)) throw new SourceError('unavailable', 'The source was turned off while the account was being added.');
+    return saveManagedConnection(store, getIntegrationSecretBox(), { ownerId: owner, source: open.source, applicationId, remote: account, email, ...(label ? { label } : {}) });
   });
   await invalidateRuntime();
   return connection;
@@ -628,7 +701,7 @@ async function managedConnection(connectionId: string) {
  */
 export async function disconnectManaged(connectionId: string): Promise<{ sourceLabel: string; remoteRemains: true }> {
   const { store, connection, config } = await managedConnection(connectionId);
-  await store.delete(connection.id);
+  await withAccountTurn(connection.id, () => store.delete(connection.id));
   await stopUsingConnections([connection.id]);
   const open = await openSource(config.sourceId, { includeDisabled: true }).catch(() => null);
   await invalidateSessions({ sourceId: config.sourceId, remoteAccountId: config.remoteAccountId }, open ? { client: open.client } : undefined).catch(() => {});

@@ -121,12 +121,15 @@ it offers, since setup can happen after the card appeared:
   method Ri chose for that application (docs/connector-service-spec.md §3). The card says which
   source stores the connection, signs in through it, and the attempt resolves the card whichever way
   it finishes (the source's redirect, the card polling it, or a restart). The asking agent is
-  granted exactly the new account. "Change method" falls back to the direct sign-in above.
+  granted exactly the new account. A Google Calendar card also asks whether Ri's Calendar and deck
+  may show it. "Change method" switches to the direct sign-in above, and connecting that way
+  records it as the application's method, as in Settings.
 
 A request for Gmail or Google Calendar also looks at managed accounts. If the agent can already use
 one, the answer is "already available". If the only accounts are managed ones, the Allow card offers
 exactly those, granted by name under the source's own toolkit. A managed account's Reconnect card
-re-consents through its source, keeping the same remote account and every grant on it.
+re-consents through its source, keeping the same remote account and every grant on it, and polls
+the attempt the same way, so it finishes even when the source's redirect can't reach the home.
 
 Keys and app secrets go from the card straight to the server. They never pass through the chat or
 the agent. The agent's reason is shown attributed ("The agent says: …"), separate from app text,

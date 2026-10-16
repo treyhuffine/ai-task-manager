@@ -13,6 +13,7 @@ const connections = [
   { id: 'c-side', ownerId: 'local', providerId: 'google', accountId: 'sub-side', email: 'side@gmail.com' },
   { id: 'c-work-team', ownerId: 'local', providerId: 'google', accountId: 'sub-work', authConfigId: 'cfg-team', email: 'work@gmail.com' },
   { id: 'c-slack', ownerId: 'local', providerId: 'slack', accountId: 'T1', label: 'acme' },
+  { id: 'cmpk3fa-ca_work', ownerId: 'local', providerId: 'cmpk3fa_gmail', accountId: 'ca_work', email: 'work@example.com' },
 ];
 
 const runtime = {
@@ -22,6 +23,7 @@ const runtime = {
       { id: 'google_calendar', providerId: 'google' },
       { id: 'slack', providerId: 'slack' },
       { id: 'linear', providerId: 'linear' },
+      { id: 'cmpk3fa_gmail', providerId: 'cmpk3fa_gmail' },
     ] as never,
   listConnections: async () => connections as never,
   listAccountChoices: async (providerId: string) =>
@@ -33,6 +35,13 @@ const runtime = {
 const resolve = (scopes: WorkspaceIntegrationScope[]) => resolveIntegrationFilter(scopes, runtime, 'local');
 
 describe('resolveIntegrationFilter', () => {
+  it('grants a managed source\'s toolkit only on its pinned accounts: a stored scope without any grants nothing', async () => {
+    expect(await resolve([{ toolkitId: 'cmpk3fa_gmail' }])).toEqual({ toolkits: [], connectionPins: {}, allowedAccounts: {} });
+    expect(await resolve([{ toolkitId: 'cmpk3fa_gmail', accounts: [{ accountId: 'ca_work' }] }])).toEqual({
+      toolkits: ['cmpk3fa_gmail'], connectionPins: { cmpk3fa_gmail: 'cmpk3fa-ca_work' }, allowedAccounts: {},
+    });
+  });
+
   it('exposes an all-accounts scope with no pin or set', async () => {
     expect(await resolve([{ toolkitId: 'gmail' }])).toEqual({ toolkits: ['gmail'], connectionPins: {}, allowedAccounts: {} });
   });

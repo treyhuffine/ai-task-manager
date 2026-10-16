@@ -16,7 +16,7 @@ import { Switch } from '@/components/ui/switch';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Tip } from '@/components/ui/tip';
 import { APPLICATIONS } from '@/lib/integrations/sources/applications';
-import { sourceErrorMessage, useSourceMutations, useSourcesOverview } from '@/hooks/use-connector-sources';
+import { sourceErrorMessage, useSourceMutations, useSourcesOverview } from '@/hooks/use-integration-sources';
 import type { SourceView } from '@/lib/integrations/sources/service';
 import { BackLink, Chip, DetailHeader, GroupHeading, type Tone } from './parts';
 

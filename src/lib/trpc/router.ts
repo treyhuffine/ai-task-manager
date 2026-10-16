@@ -2,7 +2,7 @@ import { externalAiRouter } from '@/lib/external-ai/router';
 import { chatSourcesRouter } from '@/lib/chat-sources/router';
 import { connectedAppsRouter } from '@/lib/mcp-apps/router';
 import { localAppsRouter } from '@/lib/local-apps/router';
-import { connectorSourcesRouter } from '@/lib/integrations/sources/router';
+import { integrationSourcesRouter } from '@/lib/integrations/sources/router';
 import { toNoteListDTOs, toTaskListDTOs } from '@/lib/api/dto/entity-list';
 import * as q from '@/lib/db/queries';
 import { listRunningSessions } from '@/lib/executor/status-snapshot';
@@ -66,7 +66,7 @@ export const appRouter = router({
   chatSources: chatSourcesRouter,
   connectedApps: connectedAppsRouter,
   // Managed connection sources (Composio) and their accounts (docs/connector-service-spec.md).
-  connectorSources: connectorSourcesRouter,
+  integrationSources: integrationSourcesRouter,
   ...internalRouters,
   results: resultsRouter,
   // A personal home's teams (docs/homes-spec.md §9.3, P7).

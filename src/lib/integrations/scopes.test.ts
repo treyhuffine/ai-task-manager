@@ -30,6 +30,7 @@ vi.mock('./runtime', () => ({
       { id: 'google_calendar', providerId: 'google', displayName: 'Google Calendar' },
       { id: 'slack', providerId: 'slack', displayName: 'Slack' },
       { id: 'linear', providerId: 'linear', displayName: 'Linear' },
+      { id: 'cmpk3fa_gmail', providerId: 'cmpk3fa_gmail', displayName: 'Gmail via Composio' },
     ],
     listConnections: async () => fake.connections,
     listAccountChoices: async (providerId: string) =>
@@ -52,6 +53,7 @@ beforeEach(() => {
     { id: 'c-work', providerId: 'google', accountId: 'sub-work', email: 'work@gmail.com', label: 'Work' },
     { id: 'c-work-2', providerId: 'google', accountId: 'sub-work', email: 'work@gmail.com', authConfigId: 'cfg-team' },
     { id: 'c-slack', providerId: 'slack', accountId: 'T123', label: 'acme' },
+    { id: 'cmpk3fa-ca_work', providerId: 'cmpk3fa_gmail', accountId: 'ca_work', email: 'work@example.com' },
   ];
   fake.authConfigLabels = { 'cfg-team': 'Team' };
 });
@@ -238,6 +240,18 @@ describe('validateIntegrationScopes', () => {
     expect(res).toEqual({
       ok: true,
       scopes: [{ toolkitId: 'gmail', accounts: [{ accountId: 'sub-personal' }, { accountId: 'sub-work' }] }],
+    });
+  });
+});
+
+describe('managed source toolkits', () => {
+  it('are only granted on named accounts, never all current and future ones', async () => {
+    for (const accounts of [undefined, []]) {
+      const result = await validateIntegrationScopes([{ toolkitId: 'cmpk3fa_gmail', ...(accounts ? { accounts } : {}) }]);
+      expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/Gmail via Composio needs the accounts it may use/) });
+    }
+    expect(await validateIntegrationScopes([{ toolkitId: 'cmpk3fa_gmail', accounts: ['work@example.com'] }])).toEqual({
+      ok: true, scopes: [{ toolkitId: 'cmpk3fa_gmail', accounts: [{ accountId: 'ca_work' }] }],
     });
   });
 });

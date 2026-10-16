@@ -109,6 +109,10 @@ export function createFakeComposio(options: { apiKey?: string; project?: { id: s
     results: new Map<string, (args: Record<string, unknown>, account: FakeAccount) => Record<string, unknown>>(),
     /** The vendor does not offer this resource for a scoped key. */
     sessionInfoForbidden: false,
+    /** Hold the next request matching `method path` (prefix match) until `until` settles, to stage races. */
+    holds: [] as { method: string; path: string; until: Promise<unknown> }[],
+    /** Input schemas a session's tool listing reports instead of the project listing's, by slug. */
+    sessionSchemas: new Map<string, Record<string, unknown>>(),
   };
 
   function addTool(tool: Omit<FakeTool, 'version' | 'input_parameters'> & Partial<FakeTool>) {
@@ -176,6 +180,11 @@ export function createFakeComposio(options: { apiKey?: string; project?: { id: s
     const text = method === 'GET' ? '' : await request.text();
     const body = text ? JSON.parse(text) as RequestBody : undefined;
     state.requests.push({ method, path, ...(body !== undefined ? { body } : {}) });
+    const hold = state.holds.findIndex(entry => entry.method === method && path.startsWith(entry.path));
+    if (hold >= 0) {
+      const [entry] = state.holds.splice(hold, 1);
+      await entry!.until.catch(() => {});
+    }
     if (!state.apiKeys.has(request.headers.get('x-api-key') ?? '')) {
       return json(401, { error: { message: 'Invalid API key', status: 401, request_id: 'req_fake' } });
     }
@@ -293,7 +302,7 @@ export function createFakeComposio(options: { apiKey?: string; project?: { id: s
         return json(200, { session_id: session.id, deleted: true });
       }
       if (method === 'GET' && segments[3] === 'tools') {
-        const items = sessionTools(session).map(toolJson);
+        const items = sessionTools(session).map(tool => toolJson(state.sessionSchemas.has(tool.slug) ? { ...tool, input_parameters: state.sessionSchemas.get(tool.slug)! } : tool));
         return json(200, { items, next_cursor: null, total_pages: 1, current_page: 1, total_items: items.length });
       }
       if (method === 'POST' && segments[3] === 'execute') {

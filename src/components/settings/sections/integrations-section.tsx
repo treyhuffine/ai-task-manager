@@ -41,7 +41,7 @@ import { PreviousConnections } from './integrations/previous-connections';
 import { ProviderDetail } from './integrations/provider-detail';
 import { ApplicationDetail } from './integrations/application-detail';
 import { SourcesPanel } from './integrations/sources-panel';
-import { useManagedAccounts, useSourcesOverview } from '@/hooks/use-connector-sources';
+import { useManagedAccounts, useSourcesOverview } from '@/hooks/use-integration-sources';
 import { APPLICATIONS, isApplicationId, parseManagedToolkitId } from '@/lib/integrations/sources/applications';
 import type { ApplicationId } from '@/lib/integrations/sources/types';
 import {

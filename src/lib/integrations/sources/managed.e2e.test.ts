@@ -5,7 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApprovalPolicy } from '@integrations/engine';
 import { readManagedAudit } from './audit';
 import { createAttempt, getAttempt, newAttemptId } from './attempts';
@@ -26,6 +26,14 @@ const askWrites: ApprovalPolicy = { check: async input => (input.mutating && inp
 async function setup() {
   const source = await service.addComposioSource({ apiKey: FAKE_KEY });
   return source;
+}
+
+/** Hold the next matching request at the fake until `release()`: a race staged at an exact point. */
+function holdNext(method: string, path: string) {
+  let release!: () => void;
+  h.fake.state.holds.push({ method, path, until: new Promise<void>(resolve => { release = resolve; }) });
+  const reached = () => vi.waitFor(() => { expect(h.fake.state.requests.some(r => r.method === method && r.path.startsWith(path))).toBe(true); });
+  return { release: () => release(), reached };
 }
 
 /** Connect one account through the whole consent flow, returning its connection id. */
@@ -137,6 +145,45 @@ describe('connecting accounts', () => {
       linkExpiresAt: new Date(Date.now() - 1_000).toISOString(),
     });
     expect(await service.completeManagedAttempt(attempt.id, { via: 'callback' })).toMatchObject({ status: 'expired' });
+    expect(await h.store.list({ ownerId: 'local' })).toEqual([]);
+  });
+
+  it('two Connect clicks at once share one sign-in link', async () => {
+    await setup();
+    const [first, second] = await Promise.all([
+      service.beginManagedConnect(null, { applicationId: 'gmail' }),
+      service.beginManagedConnect(null, { applicationId: 'gmail' }),
+    ]);
+    expect(second.attemptId).toBe(first.attemptId);
+    expect(h.fake.state.requests.filter(r => r.path === '/connected_accounts/link')).toHaveLength(1);
+    expect(h.fake.state.authConfigs).toHaveLength(1);
+  });
+
+  it('a cancel that lands while the sign-in is being verified wins: no account is saved', async () => {
+    await setup();
+    const begun = await service.beginManagedConnect(null, { applicationId: 'gmail' });
+    const attempt = getAttempt(begun.attemptId)!;
+    h.fake.completeLink(attempt.remoteAccountId, 'work@example.com');
+    const identityRead = holdNext('POST', '/tools/execute');
+    const finishing = service.completeManagedAttempt(begun.attemptId, { via: 'callback' });
+    await identityRead.reached();
+    await service.cancelManagedAttempt(begun.attemptId);
+    identityRead.release();
+    expect(await finishing).toMatchObject({ status: 'cancelled' });
+    expect(await h.store.list({ ownerId: 'local' })).toEqual([]);
+  });
+
+  it('a source turned off while the sign-in is being verified saves nothing', async () => {
+    const source = await setup();
+    const begun = await service.beginManagedConnect(null, { applicationId: 'gmail' });
+    const attempt = getAttempt(begun.attemptId)!;
+    h.fake.completeLink(attempt.remoteAccountId, 'work@example.com');
+    const identityRead = holdNext('POST', '/tools/execute');
+    const finishing = service.completeManagedAttempt(begun.attemptId, { via: 'callback' });
+    await identityRead.reached();
+    await service.setSourceEnabled(source.id, false);
+    identityRead.release();
+    expect(await finishing).toMatchObject({ status: 'failed' });
     expect(await h.store.list({ ownerId: 'local' })).toEqual([]);
   });
 
@@ -272,6 +319,64 @@ describe('execution', () => {
     expect(asked).toBe(0);
   });
 
+  it('a source turned off while its session is being set up sends nothing, and the session is deleted', async () => {
+    const source = await setup();
+    const { connectionId } = await connect('gmail', 'work@example.com');
+    const { runtime } = await h.buildRuntime({ approval: allow });
+    const creating = holdNext('POST', '/tool_router/session');
+    const call = runtime.runAction(`${managedToolkitId(source.id, 'gmail')}.send_email`, { recipient_email: 'a@b.com' }, { ownerId: 'local', connectionId });
+    await creating.reached();
+    await service.setSourceEnabled(source.id, false);
+    creating.release();
+    expect((await call).ok).toBe(false);
+    expect(agentRuns()).toEqual([]);
+    expect(h.fake.liveSessions()).toEqual([]);
+  });
+
+  it('an account disconnected while its session is being set up sends nothing', async () => {
+    const source = await setup();
+    const { connectionId } = await connect('gmail', 'work@example.com');
+    const { runtime } = await h.buildRuntime({ approval: allow });
+    const creating = holdNext('POST', '/tool_router/session');
+    const call = runtime.runAction(`${managedToolkitId(source.id, 'gmail')}.send_email`, { recipient_email: 'a@b.com' }, { ownerId: 'local', connectionId });
+    await creating.reached();
+    await service.disconnectManaged(connectionId);
+    creating.release();
+    expect((await call).ok).toBe(false);
+    expect(agentRuns()).toEqual([]);
+  });
+
+  it('a session listing the same tool version with different requirements is refused', async () => {
+    const source = await setup();
+    const { connectionId } = await connect('gmail', 'work@example.com');
+    const built = await h.buildRuntime({ approval: allow });
+    const registered = h.fake.state.tools.get('GMAIL_SEND_EMAIL')![0]!.input_parameters as { properties: Record<string, unknown> };
+    h.fake.state.sessionSchemas.set('GMAIL_SEND_EMAIL', {
+      type: 'object', properties: { ...registered.properties, bcc: { type: 'string' } }, required: ['recipient_email', 'bcc'],
+    });
+    const outcome = await built.runtime.runAction(`${managedToolkitId(source.id, 'gmail')}.send_email`, { recipient_email: 'a@b.com' }, { ownerId: 'local', connectionId });
+    expect(outcome).toMatchObject({ ok: false, reason: 'error', code: 'tools_changed' });
+    expect(built.toolsChanged()).toBe(1);
+    expect(agentRuns()).toEqual([]);
+  });
+
+  it('a session listing that differs only in wording and key order is the same tool', async () => {
+    const source = await setup();
+    const { connectionId } = await connect('gmail', 'work@example.com');
+    const built = await h.buildRuntime({ approval: allow });
+    h.fake.state.sessionSchemas.set('GMAIL_SEND_EMAIL', {
+      required: ['recipient_email'], title: 'Send email', type: 'object',
+      properties: {
+        body: { description: 'The message body', type: 'string' },
+        subject: { type: 'string', examples: ['Hello'] },
+        recipient_email: { type: 'string', title: 'To' },
+      },
+    });
+    const outcome = await built.runtime.runAction(`${managedToolkitId(source.id, 'gmail')}.send_email`, { recipient_email: 'a@b.com' }, { ownerId: 'local', connectionId });
+    expect(outcome.ok).toBe(true);
+    expect(built.toolsChanged()).toBe(0);
+  });
+
   it('never registers a tool Composio stopped listing', async () => {
     h.fake.state.tools.delete('GMAIL_SEND_DRAFT');
     const source = await setup();
@@ -359,5 +464,27 @@ describe('lifecycle', () => {
     const done = await service.completeManagedAttempt(begun.attemptId, { via: 'callback' });
     expect(done).toMatchObject({ status: 'completed', connectionId });
     expect((await h.store.list({ ownerId: 'local' }))).toHaveLength(1);
+  });
+
+  it('disconnecting while a reconnect is being verified stays disconnected', async () => {
+    await setup();
+    const { connectionId, remoteAccountId } = await connect('gmail', 'work@example.com');
+    const begun = await service.beginManagedReconnect(null, connectionId);
+    h.fake.completeLink(remoteAccountId, 'work@example.com');
+    const identityRead = holdNext('POST', '/tools/execute');
+    const finishing = service.completeManagedAttempt(begun.attemptId, { via: 'callback' });
+    await identityRead.reached();
+    await service.disconnectManaged(connectionId);
+    identityRead.release();
+    expect(await finishing).toMatchObject({ status: 'failed' });
+    expect(await h.store.list({ ownerId: 'local' })).toEqual([]);
+  });
+
+  it('two Reconnect clicks at once share one consent', async () => {
+    await setup();
+    const { connectionId } = await connect('gmail', 'work@example.com');
+    const [first, second] = await Promise.all([service.beginManagedReconnect(null, connectionId), service.beginManagedReconnect(null, connectionId)]);
+    expect(second.attemptId).toBe(first.attemptId);
+    expect(h.fake.state.requests.filter(r => r.path.endsWith('/refresh'))).toHaveLength(1);
   });
 });

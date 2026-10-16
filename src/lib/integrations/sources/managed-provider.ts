@@ -1,7 +1,7 @@
 /**
  * Managed sources in the integration engine (docs/connector-service-spec.md §§7, 9, 10). Each
  * enabled source contributes one provider and toolkit per application, namespaced by the source
- * (`cmpk3f9_gmail`), whose actions are the reviewed catalog. Calls run through the engine's
+ * (`cmpk3fa_gmail`), whose actions are the reviewed catalog. Calls run through the engine's
  * `runAction` like every other action, so account pins, approval cards, redaction and run events
  * apply unchanged. The source adds only its transport:
  *
@@ -28,8 +28,9 @@ import { argumentSummary, newOperationId, recordManagedAction } from './audit';
 import { catalogDefinitions } from './composio/adapter';
 import { COMPOSIO_CATALOG, type CatalogAction } from './composio/catalog';
 import { isComposioApiError, type ComposioApiError, type RemoteTool } from './composio/client';
-import { acquireSession, invalidateSessions, schemaHash, type SessionTarget } from './composio/sessions';
+import { acquireSession, invalidateSessions, schemaHash, schemaShapeHash, type SessionTarget } from './composio/sessions';
 import { managedConfig } from './managed-connections';
+import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { readPreferences } from './preferences';
 import { processState } from '@/lib/process-state';
 import { openSource, sourceUsable, type OpenSource } from './source-runtime';
@@ -44,11 +45,11 @@ interface RegisteredTool {
   /** From the project tool listing, the definition the model and approvals see. */
   schemaHash: string;
   /**
-   * The same tool as the session lists it, captured at its first validation in this build. A
-   * session may present a schema slightly differently from the project listing, so later
-   * session checks compare against this, and a change within the build is caught here.
+   * The same definition reduced to what it accepts (`schemaShapeHash`). The session's listing must
+   * match it, so wording or key order may differ between listings but fields, types and
+   * requirements may not.
    */
-  sessionSchemaHash?: string;
+  shapeHash: string;
 }
 
 export interface ManagedSourceStatus {
@@ -101,13 +102,8 @@ function reportToolsChanged(deps: ManagedBuildDeps, sourceId: string): void {
 }
 
 /** The session's tool still matches what Ri registered and the user approved. */
-function sessionToolMatches(expected: RegisteredTool, live: { version: string; schemaHash: string } | undefined): boolean {
-  if (!live || live.version !== expected.version) return false;
-  if (expected.sessionSchemaHash === undefined) {
-    expected.sessionSchemaHash = live.schemaHash;
-    return true;
-  }
-  return live.schemaHash === expected.sessionSchemaHash;
+function sessionToolMatches(expected: RegisteredTool, live: { version: string; shapeHash: string } | undefined): boolean {
+  return Boolean(live && live.version === expected.version && live.shapeHash === expected.shapeHash);
 }
 
 // ─── Definition cache (an outage keeps the last known tools) ─────────────────
@@ -185,7 +181,9 @@ function registerApplication(deps: ManagedBuildDeps, open: OpenSource, applicati
     const definition = tools.find(tool => tool.slug === entry.slug);
     // A tool Composio doesn't list (or lists without a version) is unavailable, not guessed.
     if (!definition?.version || definition.deprecated) continue;
-    registered.set(entry.slug, { slug: entry.slug, version: definition.version, schemaHash: schemaHash(definition.inputParameters) });
+    registered.set(entry.slug, {
+      slug: entry.slug, version: definition.version, schemaHash: schemaHash(definition.inputParameters), shapeHash: schemaShapeHash(definition.inputParameters),
+    });
     actions.push(managedAction({ deps, source, applicationId, toolkitId, displayName, entry, definition, registered }));
   }
   const bindingFor = (connection: Connection) => {
@@ -237,7 +235,7 @@ function managedAction(input: {
     async execute(ctx, args) {
       const binding = requireBinding(ctx.connection, ctx.config);
       const open = await openSource(source.id);
-      if (!open) throw new IntegrationError('provider_not_configured', `${source.label} is turned off or has no key. Check it in Connectors.`);
+      if (!open) throw new IntegrationError('provider_not_configured', `${source.label} is turned off or has no key. Check it in ${INTEGRATION_LABELS.plural}.`);
       const expected = registered.get(entry.slug)!;
       const target: SessionTarget = {
         sourceId: source.id, remoteUserId: open.source.remoteUserId, remoteAccountId: binding.remoteAccountId,
@@ -265,11 +263,30 @@ function managedAction(input: {
         finish('refused', { errorCode: 'tools_changed' });
         throw new IntegrationError('tools_changed', `${displayName} changed ${entry.op} at ${source.label}. Ri refreshed its tools. Check the new definition and call it again.`);
       }
+      // Setting up the session took network time: the source may have been turned off or the
+      // account disconnected meanwhile. Check the live state right before anything is sent.
+      const stillAllowed = async () => {
+        let problem: IntegrationError | null = null;
+        if (!sourceUsable(source.id)) problem = new IntegrationError('provider_not_configured', `${source.label} is turned off or has no key. Check it in ${INTEGRATION_LABELS.plural}.`);
+        else {
+          const current = await deps.store.get(ctx.connection.id);
+          const bound = current ? managedConfig(current.connection) : null;
+          if (!current || current.connection.status !== 'active' || bound?.sourceId !== source.id || bound.remoteAccountId !== binding.remoteAccountId) {
+            problem = new IntegrationError('connection_not_found', 'This account was disconnected or needs to be reconnected.');
+          }
+        }
+        if (problem) {
+          finish('refused', { errorCode: problem.code });
+          throw problem;
+        }
+      };
+      await stillAllowed();
       recordManagedAction({ ...common, phase: 'dispatch', approval: approvalFor(actionId, entry, deps.approvalBypassed ?? false), ...argumentSummary(args) });
 
       let response;
       for (let attempt = 0; ; attempt += 1) {
         try {
+          if (attempt > 0) await stillAllowed();
           response = await open.client.executeInSession(session.sessionId, entry.slug, args as Record<string, unknown>, ctx.signal);
           break;
         } catch (error) {
@@ -312,7 +329,7 @@ function managedAction(input: {
     ...result,
     validateForConnection: connection => {
       // Before approval: never ask the user to approve a call that can't run.
-      if (!sourceUsable(source.id)) throw new IntegrationError('provider_not_configured', `${source.label} is turned off or has no key. Check it in Connectors.`);
+      if (!sourceUsable(source.id)) throw new IntegrationError('provider_not_configured', `${source.label} is turned off or has no key. Check it in ${INTEGRATION_LABELS.plural}.`);
       if (connection.providerId !== toolkitId) throw new IntegrationError('connection_not_found', 'This account is not bound to this source.');
     },
   };
@@ -330,7 +347,7 @@ export function toIntegrationError(error: unknown, mutating: boolean, displayNam
   switch (e.kind) {
     case 'unauthorized':
     case 'forbidden':
-      return new IntegrationError('provider_not_configured', `Composio rejected the project key for ${displayName}. Repair it in Connectors.`, { status: e.status });
+      return new IntegrationError('provider_not_configured', `Composio rejected the project key for ${displayName}. Repair it in ${INTEGRATION_LABELS.plural}.`, { status: e.status });
     case 'rate_limited':
       return new IntegrationError('provider_rate_limited', `Composio's rate limit was reached for ${displayName}.${uncertainty}`, {
         status: e.status, indeterminate, ...(e.retryAfterMs ? { retryAfter: Math.ceil(e.retryAfterMs / 1000) } : {}),

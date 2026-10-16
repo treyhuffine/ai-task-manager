@@ -26,7 +26,7 @@ import { ensureCalendarProvider } from '@/lib/deck/calendar-integration';
 import { getAttempt } from './attempts';
 import * as service from './service';
 import { createSourcesHarness, FAKE_KEY, type SourcesHarness } from './testing';
-import { updatePreferences } from './preferences';
+import { currentPreferences, updatePreferences } from './preferences';
 
 const DATE = '2026-07-20';
 let h: SourcesHarness;
@@ -87,6 +87,17 @@ describe('managed Google Calendar in Ri\'s calendar', () => {
     expect(range.status).toBe('no_providers');
   });
 
+  it('a calendar connected with "Show in Ri\'s Calendar" off is not read, and that choice is recorded', async () => {
+    await service.addComposioSource({ apiKey: FAKE_KEY });
+    const begun = await service.beginManagedConnect(null, { applicationId: 'google_calendar', calendarUse: false });
+    h.fake.completeLink(getAttempt(begun.attemptId)!.remoteAccountId, 'work@example.com');
+    const done = await service.completeManagedAttempt(begun.attemptId, { via: 'callback' });
+    if (done.status !== 'completed') throw new Error(JSON.stringify(done));
+    seedCalendar([meeting('standup', `${DATE}T15:00:00Z`, `${DATE}T15:30:00Z`)]);
+    expect(currentPreferences().calendarUse[done.connectionId]).toBe(false);
+    expect((await getCalendarRange({ start: DATE, days: 1, fresh: true })).status).toBe('no_providers');
+  });
+
   it('follows every page', async () => {
     await connectCalendar('work@example.com');
     seedCalendar([meeting('a', `${DATE}T15:00:00Z`, `${DATE}T15:30:00Z`), meeting('b', `${DATE}T16:00:00Z`, `${DATE}T16:30:00Z`)], { pages: true });
@@ -131,11 +142,47 @@ describe('managed Google Calendar in Ri\'s calendar', () => {
     expect(range.providers[0]!.detail).toMatch(/retired/);
   });
 
-  it('a source turned off stops background reads', async () => {
+  it('a source turned off stops background reads, and the calendar\'s time is unknown, not free', async () => {
     await connectCalendar('work@example.com');
     seedCalendar([meeting('standup', `${DATE}T15:00:00Z`, `${DATE}T15:30:00Z`)]);
+    const before = h.fake.state.executions.length;
     updatePreferences(prefs => { prefs.sources[0]!.enabled = false; });
     const range = await getCalendarRange({ start: DATE, days: 1, fresh: true });
-    expect(range.status).toBe('no_providers');
+    expect(range.status).toBe('error');
+    expect(range.providers[0]).toMatchObject({ ok: false, detail: expect.stringMatching(/source is turned off/) });
+    expect(range.days[0]!.complete).toBe(false);
+    expect(h.fake.state.executions.length).toBe(before);
+  });
+
+  it('a calendar that needs a reconnect reads as unknown in the deck, never as a free day', async () => {
+    const connectionId = await connectCalendar('work@example.com');
+    seedCalendar([meeting('standup', `${DATE}T15:00:00Z`, `${DATE}T15:30:00Z`)]);
+    await h.store.setStatus(connectionId, 'needs_reauth', 'remote status EXPIRED');
+    const range = await getCalendarRange({ start: DATE, days: 1, fresh: true });
+    expect(range.status).toBe('error');
+    expect(range.providers[0]).toMatchObject({ connectionId, ok: false, detail: expect.stringMatching(/reconnected/) });
+    ensureCalendarProvider();
+    clearCalendarRangeCache();
+    expect((await readCalendarDay(DATE)).availability).toBe('unknown');
+  });
+
+  it('a calendar list that cannot be read, or is cut short, leaves the day incomplete', async () => {
+    await connectCalendar('work@example.com');
+    seedCalendar([]);
+    h.fake.state.results.set('GOOGLECALENDAR_LIST_CALENDARS', () => ({ unexpected: true }));
+    const unreadable = await getCalendarRange({ start: DATE, days: 1, fresh: true });
+    expect(unreadable.status).toBe('degraded');
+    expect(unreadable.providers[0]).toMatchObject({ ok: true, partial: true });
+    expect(unreadable.days[0]!.complete).toBe(false);
+
+    clearCalendarRangeCache();
+    let page = 0;
+    h.fake.state.results.set('GOOGLECALENDAR_LIST_CALENDARS', (_args, account) => ({
+      items: [{ id: page === 0 ? account.email : `extra-${page}`, summary: 'Calendar', primary: page === 0, selected: true, accessRole: 'owner' }],
+      nextPageToken: `p${++page}`,
+    }));
+    const cut = await getCalendarRange({ start: DATE, days: 1, fresh: true });
+    expect(cut.providers[0]).toMatchObject({ ok: true, partial: true });
+    expect(cut.days[0]!.complete).toBe(false);
   });
 });

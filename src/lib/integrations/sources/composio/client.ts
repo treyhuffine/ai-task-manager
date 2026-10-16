@@ -260,6 +260,11 @@ export function createComposioClient(options: ComposioClientOptions) {
       const timer = setTimeout(() => controller.abort(new Error('timeout')), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
       const onAbort = () => controller.abort(opts.signal?.reason);
       opts.signal?.addEventListener('abort', onAbort, { once: true });
+      // The deadline and the caller's cancel cover the whole exchange, body included.
+      const release = () => {
+        clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', onAbort);
+      };
       let response: Response;
       try {
         if (opts.signal?.aborted) throw new ComposioApiError('cancelled', 'The request was cancelled.');
@@ -271,8 +276,7 @@ export function createComposioClient(options: ComposioClientOptions) {
           redirect: 'error',
         });
       } catch (error) {
-        clearTimeout(timer);
-        opts.signal?.removeEventListener('abort', onAbort);
+        release();
         if (error instanceof ComposioApiError) throw error;
         const cancelled = opts.signal?.aborted === true;
         const timedOut = !cancelled && controller.signal.aborted;
@@ -283,19 +287,31 @@ export function createComposioClient(options: ComposioClientOptions) {
         if (cancelled || opts.write) throw lastError;
         continue;
       }
-      clearTimeout(timer);
-      opts.signal?.removeEventListener('abort', onAbort);
-      if (!response.ok) {
-        lastError = await errorFrom(response, opts.write);
-        if (!opts.write && (lastError.kind === 'rate_limited' || lastError.kind === 'unavailable')) continue;
-        throw lastError;
-      }
       let raw: unknown;
       try {
-        const text = await response.text();
-        raw = text.trim() ? JSON.parse(text) : {};
-      } catch (error) {
-        throw new ComposioApiError('unexpected_response', 'Composio sent a response Ri could not read.', { status: response.status, maybeApplied: opts.write, cause: error });
+        if (!response.ok) {
+          lastError = await errorFrom(response, opts.write);
+          if (!opts.write && (lastError.kind === 'rate_limited' || lastError.kind === 'unavailable')) continue;
+          throw lastError;
+        }
+        let text: string;
+        try {
+          text = await response.text();
+        } catch (error) {
+          // The answer started arriving, so a write was accepted: how it ended is unknown.
+          const cancelled = opts.signal?.aborted === true;
+          const timedOut = !cancelled && controller.signal.aborted;
+          throw new ComposioApiError(cancelled ? 'cancelled' : timedOut ? 'timeout' : 'unexpected_response',
+            cancelled ? 'The request was cancelled.' : timedOut ? 'Composio did not finish answering in time.' : 'Composio sent a response Ri could not read.',
+            { status: response.status, maybeApplied: opts.write, cause: error });
+        }
+        try {
+          raw = text.trim() ? JSON.parse(text) : {};
+        } catch (error) {
+          throw new ComposioApiError('unexpected_response', 'Composio sent a response Ri could not read.', { status: response.status, maybeApplied: opts.write, cause: error });
+        }
+      } finally {
+        release();
       }
       const parsed = opts.schema.safeParse(raw);
       if (!parsed.success) {
