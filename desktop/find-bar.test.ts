@@ -1,6 +1,6 @@
 import type { BaseWindow, BrowserWindow, MenuItemConstructorOptions, WebContents } from 'electron';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { createFindBars, editMenu, findBarBounds, matchLabel, FIND_BAR } from './find-bar';
+import { closesFindBar, createFindBars, editMenu, findBarBounds, matchLabel, FIND_BAR } from './find-bar';
 
 const mocks = vi.hoisted(() => {
   const state = {
@@ -212,6 +212,43 @@ it('leaves focus alone when the bar closes while the page has it', async () => {
   expect(parent.webContents.focus).not.toHaveBeenCalled();
 });
 
+const key = (input: Partial<Electron.Input> = {}) =>
+  ({ type: 'keyDown', key: 'Escape', isComposing: false, shift: false, control: false, alt: false, meta: false, ...input }) as Electron.Input;
+function press(parent: Parent, input: Electron.Input) {
+  const event = { preventDefault: vi.fn() };
+  parent.webContents.emit('before-input-event', event, input);
+  return event.preventDefault.mock.calls.length > 0;
+}
+
+it('closes on a plain Escape only', () => {
+  expect(closesFindBar(key())).toBe(true);
+  for (const input of [
+    key({ type: 'keyUp' }), key({ key: 'Esc' }), key({ key: 'Enter' }), key({ isComposing: true }),
+    key({ shift: true }), key({ control: true }), key({ alt: true }), key({ meta: true }),
+  ]) expect(closesFindBar(input)).toBe(false);
+});
+
+it('closes on Escape from the page it searches, which never sees that Escape', async () => {
+  const { parent, win, bars } = fixture();
+  await bars.open(win);
+  ipc('query', 'ri');
+  // A click into the page took focus from the bar.
+  view().webContents.focused = false;
+  for (const input of [key({ shift: true }), key({ meta: true }), key({ type: 'keyUp' }), key({ isComposing: true })]) {
+    expect(press(parent, input)).toBe(false);
+  }
+  expect(bars.isOpen(win)).toBe(true);
+  expect(press(parent, key())).toBe(true);
+  expect(bars.isOpen(win)).toBe(false);
+  expect(view().setVisible).toHaveBeenLastCalledWith(false);
+  expect(parent.webContents.stopFindInPage).toHaveBeenLastCalledWith('keepSelection');
+  expect(parent.webContents.focus).not.toHaveBeenCalled();
+  // Closed, the page has Escape back.
+  expect(press(parent, key())).toBe(false);
+  await bars.open(win);
+  expect(press(parent, key())).toBe(true);
+});
+
 it('reopens on the last search and searches the page as it is now', async () => {
   const { parent, win, bars } = fixture();
   await bars.open(win);
@@ -267,7 +304,7 @@ it('follows the window size and lets go of everything when the window closes', a
   parent.emit('closed');
   expect(bar.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
   expect(parent.contentView.removeChildView).not.toHaveBeenCalled();
-  for (const name of ['found-in-page', 'did-start-navigation', 'destroyed']) expect(parent.webContents.count(name)).toBe(0);
+  for (const name of ['found-in-page', 'did-start-navigation', 'before-input-event', 'destroyed']) expect(parent.webContents.count(name)).toBe(0);
   expect(parent.count('resize') + parent.count('closed')).toBe(0);
   expect(bars.isOpen(win)).toBe(false);
 });

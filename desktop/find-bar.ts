@@ -26,6 +26,13 @@ export function findBarBounds(content: { width: number; height: number }) {
   return { x: Math.max(0, content.width - width - FIND_BAR.right), y: FIND_BAR.top, width, height: FIND_BAR.height };
 }
 
+/** A plain Escape on its way to the page, which closes an open bar from there
+ * too. Escape with a modifier, a key release and an IME composition stay the page's. */
+export function closesFindBar(input: Pick<Electron.Input, 'type' | 'key' | 'shift' | 'control' | 'alt' | 'meta' | 'isComposing'>) {
+  return input.type === 'keyDown' && input.key === 'Escape' && !input.isComposing
+    && !input.shift && !input.control && !input.alt && !input.meta;
+}
+
 /** Where a search stands, as the bar shows it. */
 export function matchLabel(active: number, matches: number) {
   if (!Number.isFinite(matches) || matches <= 0) return 'No results';
@@ -125,6 +132,15 @@ export function createFindBars(options: FindBarOptions) {
     const navigated = (details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>) => {
       if (details.isMainFrame && !details.isSameDocument) close(parent, 'clearSelection');
     };
+    // The bar hears Escape only while it has focus, and a click into the page
+    // takes focus there with the bar still showing. Escape still closes it, and
+    // the page doesn't also act on that one (the execution view would fold its
+    // tools, a note page would go back).
+    const escape = (event: Electron.Event, input: Electron.Input) => {
+      if (!bar.open || !closesFindBar(input)) return;
+      event.preventDefault();
+      close(parent);
+    };
     const gone = () => bar.dispose();
     // A closed page has no search left to stop.
     const targetGone = () => { bar.open = false; bar.dispose(); };
@@ -138,6 +154,7 @@ export function createFindBars(options: FindBarOptions) {
         if (!target.isDestroyed()) {
           target.removeListener('found-in-page', found);
           target.removeListener('did-start-navigation', navigated);
+          target.removeListener('before-input-event', escape);
           target.removeListener('destroyed', targetGone);
           if (bar.open) target.stopFindInPage('clearSelection');
         }
@@ -151,6 +168,7 @@ export function createFindBars(options: FindBarOptions) {
     parent.on('closed', gone);
     target.on('found-in-page', found);
     target.on('did-start-navigation', navigated);
+    target.on('before-input-event', escape);
     target.on('destroyed', targetGone);
     contents.on('render-process-gone', gone);
     return bar;
