@@ -1268,6 +1268,17 @@ export class LocalAppsService {
         buildStatus: "validated",
         buildError: null,
       };
+      if (catalogSource) {
+        const state = this.store.read();
+        const exact = state.drafts.some(item => !item.sourceInstanceId && item.catalogSource?.packageId === catalogSource.packageId && item.catalogSource.artifactDigest === catalogSource.artifactDigest);
+        if (!exact && !state.instances.some(item => item.packageId === catalogSource.packageId)) {
+          const refreshed = await this.refreshCatalogDraft(path.join(root, "package"), artifact, catalogSource);
+          if (refreshed) {
+            await fs.rm(root, { recursive: true, force: true });
+            return refreshed;
+          }
+        }
+      }
       let existing: AppDraft | undefined;
       await this.store.edit(update?.revision, (state) => {
         if (catalogSource) {
@@ -1288,6 +1299,7 @@ export class LocalAppsService {
         await fs.rm(root, { recursive: true, force: true });
         return existing;
       }
+
       this.artifacts.set(id, artifact);
       return draft;
     } catch (error) {
@@ -1296,6 +1308,63 @@ export class LocalAppsService {
     } finally {
       release();
     }
+  }
+  /**
+   * A catalog preview made from an older included package is refreshed in
+   * place when the catalog has a newer one: same draft, chats and route, the
+   * new package and fresh fictional preview data. A preview whose source was
+   * changed, rebuilt or is building is left alone, so edits are never lost.
+   */
+  private async refreshCatalogDraft(staged: string, artifact: ValidatedArtifact, catalogSource: NonNullable<AppDraft["catalogSource"]>) {
+    const stale = this.store.read().drafts.find((item) =>
+      !item.sourceInstanceId &&
+      item.catalogSource?.packageId === catalogSource.packageId &&
+      item.catalogSource.artifactDigest !== catalogSource.artifactDigest &&
+      item.buildStatus === "validated" &&
+      item.validatedDigest === item.catalogSource.artifactDigest);
+    if (!stale || this.builds.has(stale.id)) return null;
+    const dir = path.join(getAppDraftsDir(), stale.id);
+    const { validatePackage } = await import("./validation");
+    const current = await validatePackage(path.join(dir, "package")).catch(() => null);
+    if (!current || current.digest !== stale.validatedDigest) return null;
+    this.invalidate(stale.id);
+    await this.engine.stop(stale.id);
+    this.artifacts.delete(stale.id);
+    const previous = path.join(dir, `previous-${randomUUID()}`);
+    await fs.rename(path.join(dir, "package"), previous);
+    try {
+      await fs.rename(staged, path.join(dir, "package"));
+    } catch (error) {
+      await fs.rename(previous, path.join(dir, "package"));
+      throw error;
+    }
+    let refreshed: AppDraft | undefined;
+    try {
+      await this.store.edit(undefined, (state) => {
+        const item = state.drafts.find((draft) => draft.id === stale.id);
+        if (!item || item.validatedDigest !== stale.validatedDigest) throw new AppError("conflict", "This preview changed while it was being refreshed");
+        Object.assign(item, {
+          catalogSource,
+          validatedDigest: artifact.digest,
+          validatedSourceDigest: artifact.sourceDigest,
+          buildStatus: "validated",
+          buildError: null,
+          updatedAt: now(),
+        });
+        refreshed = structuredClone(item);
+      });
+    } catch (error) {
+      // Put the old preview back exactly as it was.
+      await fs.rm(path.join(dir, "package"), { recursive: true, force: true });
+      await fs.rename(previous, path.join(dir, "package"));
+      throw error;
+    }
+    // Preview records belong to the old version's schema. The new version seeds its own.
+    await fs.rm(path.join(dir, "data"), { recursive: true, force: true });
+    await fs.rm(path.join(dir, "cache"), { recursive: true, force: true });
+    await fs.rm(previous, { recursive: true, force: true });
+    this.artifacts.set(stale.id, { ...artifact, packageDir: path.join(dir, "package") });
+    return refreshed!;
   }
   async export(id: string) {
     this.instance(id, false);

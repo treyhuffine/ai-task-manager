@@ -21,7 +21,7 @@ The app header's Ask Ri opens its app-use chat beside the app. In any other chat
 
 ## Included catalog artifacts
 
-Opening the catalog or its fictional demo executes no app and connects no account. Preview app creates a separate preview. Continue setup reopens that saved preview, including after a restart. Use app activates the reviewed package and its catalog entry then shows Added. Normal builds stage the included catalog, and development starts prepare missing or damaged artifacts. Finances is included on its qualified macOS arm64 Node 26.5.0 runtime, ABI 147. Other platforms include the portable tracker.
+Opening the catalog or its fictional demo executes no app and connects no account. Preview app creates a separate preview. Continue setup reopens that saved preview, including after a restart. When the catalog holds a newer version than an unchanged saved preview, the tile says Preview new version and refreshes that preview in place with fresh sample records. A preview whose source was edited is kept, and the new version opens as its own preview. Use app activates the reviewed package and its catalog entry then shows Added. Normal builds stage the included catalog, and development starts prepare missing or damaged artifacts. Finances is included on its qualified macOS arm64 Node 26.5.0 runtime, ABI 147. Other platforms include the portable tracker.
 
 Source for Finances lives in `apps/finances` in this checkout. It uses the shared public SDK during development. Its portable build exports the SDK, pins independent dependencies and qualifies the app without workspace links. From the repository root:
 

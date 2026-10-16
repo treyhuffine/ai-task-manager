@@ -42,6 +42,8 @@ export function IncludedApps({ data, search, navigate }: { data?: LocalAppsList;
                     item.catalogSource?.packageId === entry.packageId || item.validatedDigest === entry.artifactDigest
                   ));
                   const update = installed && !installed.archived && installed.digest !== entry.artifactDigest;
+                  // A preview made from an older included package is refreshed when opened again.
+                  const outdated = !!pending && pending.catalogSource?.packageId === entry.packageId && pending.catalogSource.artifactDigest !== entry.artifactDigest;
                   return (
                     <article
                       key={entry.packageId}
@@ -62,21 +64,26 @@ export function IncludedApps({ data, search, navigate }: { data?: LocalAppsList;
                             </Chip>
                             <Button size="xs" variant="outline" onClick={() => navigate(installed.slug)}>Open</Button>
                           </>
-                        ) : (
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() =>
-                              void run(async () => {
-                                const draft = await trpcClient.localApps.addCatalog.mutate({ packageId: entry.packageId });
-                                navigate(draftRoute(draft.id));
-                              })
-                            }
-                          >
-                            {pending ? 'Continue setup' : 'Preview app'}
-                          </Button>
-                        )}
+                        ) : (() => {
+                          const button = (
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() =>
+                                void run(async () => {
+                                  const draft = await trpcClient.localApps.addCatalog.mutate({ packageId: entry.packageId });
+                                  navigate(draftRoute(draft.id));
+                                })
+                              }
+                            >
+                              {outdated ? 'Preview new version' : pending ? 'Continue setup' : 'Preview app'}
+                            </Button>
+                          );
+                          return outdated ? (
+                            <Tip label="Your earlier preview used an older version. This refreshes it with the current one and new sample records.">{button}</Tip>
+                          ) : button;
+                        })()}
                         {update && (
                           <Tip label="A newer version is included. Opens it as a preview, your records stay as they are.">
                             <Button
