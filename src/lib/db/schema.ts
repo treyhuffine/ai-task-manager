@@ -2529,6 +2529,64 @@ export const entityProjectionState = sqliteTable(
   ],
 );
 
+/** Durable consultations and delegated work between personal Ri chats. */
+export const agentRequests = sqliteTable('agent_requests', {
+  id: text().primaryKey(),
+  ...timestamps,
+  sourceSessionId: text().notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
+  sourceAddress: text().notNull(),
+  targetAddress: text().notNull(),
+  targetSessionId: text().references(() => chatSessions.id, { onDelete: 'set null' }),
+  requestKey: text().notNull(),
+  parentRequestId: text().references((): AnySQLiteColumn => agentRequests.id, { onDelete: 'set null' }),
+  kind: text({ enum: ['message', 'question', 'delegation'] }).notNull(),
+  content: text().notNull(),
+  options: text({ mode: 'json' }).$type<{
+    workspaceId: string;
+    provider?: HarnessId;
+    model?: string;
+    effort?: string;
+    taskId?: string;
+    deviceId?: string;
+    label?: string;
+  }>(),
+  status: text({ enum: ['queued', 'sent', 'waiting', 'completed', 'failed', 'cancelled'] }).notNull(),
+  messageEventId: text().notNull(),
+  runId: text().references((): AnySQLiteColumn => runs.id, { onDelete: 'set null' }),
+  responseEventId: text(),
+  response: text(),
+  attempts: integer().notNull().default(0),
+  nextAttemptAt: text(),
+  error: text(),
+}, table => [
+  uniqueIndex('uniq_agent_requests_key').on(table.sourceSessionId, table.requestKey),
+  index('idx_agent_requests_dispatch').on(table.status, table.nextAttemptAt),
+  index('idx_agent_requests_target').on(table.targetSessionId, table.status),
+  index('idx_agent_requests_source').on(table.sourceSessionId, table.status),
+  index('idx_agent_requests_run').on(table.runId),
+  uniqueIndex('uniq_agent_requests_message').on(table.messageEventId),
+]);
+
+/** Replies and blocked-state updates are queued with the state change. */
+export const agentDeliveries = sqliteTable('agent_deliveries', {
+  id: text().primaryKey(),
+  ...timestamps,
+  requestId: text().notNull().references(() => agentRequests.id, { onDelete: 'cascade' }),
+  dedupeKey: text().notNull(),
+  kind: text({ enum: ['response', 'blocked', 'failed', 'cancelled'] }).notNull(),
+  content: text().notNull(),
+  eventId: text().notNull(),
+  status: text({ enum: ['pending', 'sent', 'failed'] }).notNull(),
+  deliveredToSessionId: text(),
+  attempts: integer().notNull().default(0),
+  nextAttemptAt: text(),
+  error: text(),
+}, table => [
+  uniqueIndex('uniq_agent_deliveries_key').on(table.requestId, table.dedupeKey),
+  index('idx_agent_deliveries_pending').on(table.status, table.nextAttemptAt),
+  uniqueIndex('uniq_agent_deliveries_event').on(table.eventId),
+]);
+
 // ─── Chat Refs ────────────────────────────────────────────────
 // M:N references from chat sessions (and individual events) to other
 // entities. Two layers in one table:

@@ -13,7 +13,7 @@
  */
 
 import type { RunRecord } from '@/db/types';
-import { bumpSessionOutcome, getRun, markRunCompleted, markRunFailed, setTriggerLastRun } from '@/lib/db/queries';
+import { bumpSessionOutcome, getRun, markRunCompleted, markRunFailed, setTriggerLastRun, settleAgentRequestsForRun } from '@/lib/db/queries';
 import { queueRunTerminal } from '@/lib/notifications/emit';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 import { settleHeartbeatRun } from '@/lib/heartbeat/quiet';
@@ -64,6 +64,9 @@ export function finishRunInTransaction(runId: string, outcome: RunOutcome, after
   // the run's own change, sent after commit.
   const queued = queueRunTerminal(runId);
   if (queued) after.notifications.push(queued);
+  if (settleAgentRequestsForRun(runId, outcome)) {
+    after.tasks.push(() => { void import('@/lib/coordination/service').then(({ drainAgentCoordination }) => drainAgentCoordination()); });
+  }
   return record ?? null;
 }
 

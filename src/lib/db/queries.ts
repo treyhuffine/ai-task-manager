@@ -117,6 +117,7 @@ import { messagePreview } from '@/lib/utils/message-preview';
 export * from '@/lib/work-results/queries';
 export * from '@/lib/work-results/completion-queries';
 export * from './work-result-runtime-queries';
+export * from './coordination-queries';
 import {
   bundledModelIds,
   curatedDefaultModelIds,
@@ -9403,7 +9404,7 @@ export function listMainChats(
   const db = getDb();
   const conditions: SQL[] = [
     eq(chatSessions.type, 'orchestration'),
-    sql`COALESCE(${chatSessions.surfaceKind}, '') <> 'result_review'`,
+    sql`COALESCE(${chatSessions.surfaceKind}, '') IN ('', 'main')`,
     isNull(chatSessions.createdByRunId),
     isNull(chatSessions.executionId),
     workspaceId === null ? isNull(chatSessions.workspaceId) : eq(chatSessions.workspaceId, workspaceId),
@@ -10303,6 +10304,9 @@ export function searchChatSessions(opts: {
   limit?: number;
   /** A team's shared chats with its AI instead of executions (docs/homes-spec.md §9.9). */
   teamChats?: boolean;
+  /** The agent surface can include personal main and content conversations. */
+  types?: ChatSessionRecord['type'][];
+  userId?: string;
 }): ChatSearchResult[] {
   const match = toFtsMatchQuery(opts.query);
   const terms = searchTerms(opts.query);
@@ -10317,7 +10321,15 @@ export function searchChatSessions(opts: {
   const filterParams: Record<string, unknown> = {};
   const conds: string[] = opts.teamChats
     ? [`cs.surface_kind = '${TEAM_CHAT_SURFACE}'`]
-    : ["cs.type = 'execution'", "COALESCE(cs.surface_kind, '') <> 'result_review'"];
+    : ["COALESCE(cs.surface_kind, '') NOT IN ('result_review', 'team_chat')"];
+  if (!opts.teamChats) {
+    const types = opts.types?.length ? opts.types : ['execution'];
+    conds.push(`cs.type IN (${types.map((type, i) => { filterParams[`chatType${i}`] = type; return `:chatType${i}`; }).join(',')})`);
+  }
+  if (opts.userId) {
+    conds.push('cs.user_id = :chatUserId');
+    filterParams.chatUserId = opts.userId;
+  }
   if (opts.status) {
     conds.push('cs.status = :status');
     filterParams.status = opts.status;
@@ -10666,6 +10678,35 @@ export function fileToolCallNamed(scope: { sessionId: string; executionId: strin
     const named = fileTargetPath(row.toolName, row.toolInput);
     return !!named && nodePath.isAbsolute(named) && nodePath.normalize(named) === file;
   });
+}
+
+/** Agent history exposes useful columns only, never provider raw records. */
+const agentHistoryColumns = {
+  id: chatEvents.id, sessionId: chatEvents.sessionId, role: chatEvents.role, source: chatEvents.source,
+  content: chatEvents.content, createdAt: chatEvents.createdAt, toolName: chatEvents.toolName,
+  toolInput: chatEvents.toolInput, toolIsError: chatEvents.toolIsError, senderSessionId: chatEvents.senderSessionId,
+};
+
+export function getAgentHistoryEvent(id: string) {
+  return getDb().select(agentHistoryColumns).from(chatEvents).where(eq(chatEvents.id, id)).get() ?? null;
+}
+
+export function getAgentHistoryCursor(id: string) {
+  return getDb().select({ id: chatEvents.id, sessionId: chatEvents.sessionId, createdAt: chatEvents.createdAt })
+    .from(chatEvents).where(eq(chatEvents.id, id)).get() ?? null;
+}
+
+export function listAgentHistoryPage(sessionId: string, options: { before?: string; limit: number }) {
+  const anchor = options.before ? getDb().select({ createdAt: chatEvents.createdAt, id: chatEvents.id }).from(chatEvents)
+    .where(and(eq(chatEvents.id, options.before), eq(chatEvents.sessionId, sessionId))).get() : null;
+  if (options.before && !anchor) return [];
+  return getDb().select(agentHistoryColumns).from(chatEvents).where(and(eq(chatEvents.sessionId, sessionId), anchor ? or(
+    lt(chatEvents.createdAt, anchor.createdAt), and(eq(chatEvents.createdAt, anchor.createdAt), lt(chatEvents.id, anchor.id)),
+  ) : undefined)).orderBy(desc(chatEvents.createdAt), desc(chatEvents.id)).limit(options.limit).all().reverse();
+}
+
+export function getRunForSourceEvent(eventId: string): RunRecord | null {
+  return getDb().select().from(runs).where(eq(runs.sourceEventId, eventId)).limit(1).get() ?? null;
 }
 
 /**

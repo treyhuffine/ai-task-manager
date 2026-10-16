@@ -5,7 +5,7 @@ import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
   userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, members, teamGrants, teamConnections, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
-  workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs,
+  workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs, agentRequests, agentDeliveries,
   triggers, runs, previewTargets, entityVersions, workResults, workResultTasks, workResultDecisions, workResultAiReviews,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
@@ -36,6 +36,10 @@ type WithCamelAttachments<T> =
 // them optional again. Authorship columns (actorSource/source/createdBy) are
 // deliberately NOT here: callers must always say who acted.
 type PolicyOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+
+export type AgentRequestRecord = InferSelectModel<typeof agentRequests>;
+export type CreateAgentRequestInput = Pick<InferInsertModel<typeof agentRequests>, 'id' | 'sourceSessionId' | 'sourceAddress' | 'targetAddress' | 'targetSessionId' | 'requestKey' | 'parentRequestId' | 'kind' | 'content' | 'messageEventId' | 'options'>;
+export type AgentDeliveryRecord = InferSelectModel<typeof agentDeliveries>;
 
 // Handoff types come from their tables, including the attachment boundary.
 export type WorkResultRecord = WithCamelAttachments<InferSelectModel<typeof workResults>>;

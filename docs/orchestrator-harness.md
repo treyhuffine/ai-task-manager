@@ -60,9 +60,9 @@ The `ri agent` CLI itself stays: executions, scripts and you still use it.
      subprocesses, and without the inline root a skills-mode write lands in
      the default (prod) brain. Caught live by the level-4 smoke.
 5. Per-session config (`orchestratorSessionConfig`) — typed agentex ≥0.0.20
-   `ProviderConfig` fields, not raw argv. Codex ignores them until its
-   wiring lands upstream (so the write guard doesn't hold there; the
-   adapter warns):
+   `ProviderConfig` fields, not raw argv. Claude and qualified Codex CLI
+   versions support configured MCP isolation. Claude-style file-tool deny
+   rules remain a separate capability, enforced by Claude:
    - both harness modes: `disallowedTools: ['Write','Edit','NotebookEdit']`
      (writes must flow through actions — the markdown mirror is one-way and
      direct edits bypass embeddings/mirror/attachment invariants) and
@@ -145,6 +145,14 @@ characters by `PATCH /api/user-state`.
 
 ## Execution oversight
 
+For work whose outcome should return automatically, use the durable
+coordination tools described in [Agent coordination](agent-coordination.md).
+`get_session_context` supplies stable agent addresses, `ask_agent` consults
+an agent's main chat, and `delegate_work` starts a visible execution with a
+return path. Completion and blocked-state updates resume the requesting
+chat through a durable outbox. Executions receive a focused native
+coordination MCP surface and retain the signed CLI fallback.
+
 The orchestrator can watch and steer executions (both harness modes; legacy
 is frozen and doesn't get these):
 
@@ -155,6 +163,7 @@ is frozen and doesn't get these):
   detail derived from the event log.
 - `send_session_message` — message into a session, delivered **through the
   server's messages route**, never `executor.dispatch` from the handler.
+  Optional `requestId` makes retrying the same message safe.
 - `start_execution` — create an execution in a workspace and send its first
   prompt, both through the server. A required `requestId` makes it
   retry-safe: the chat id and the prompt's event id are UUIDv8s derived from
@@ -294,12 +303,11 @@ actions.
   even with partial messages on (verified 2026-06-04, see
   `docs/agentex-thinking-capture-spec.md`); prose returns only if upstream
   policy changes.
-- **Codex**: the surface files install for any provider, and the typed
-  session config (`disallowedTools`/`strictMcpConfig`/`mcpServers`) is
-  passed everywhere — but Codex ignores those fields upstream
-  (`capabilities.mcp` false, no argv tool filtering), so no write guard /
-  MCP there yet. Codex wiring (config overrides, `--skip-git-repo-check`,
-  AGENTS.md-only steering) is next.
+- **Codex**: Agent Ex supports attached configured MCP servers on new and
+  resumed threads. Ri qualifies CLI 0.160.0 or newer before exposing scoped
+  Connectors, the browser, and execution coordination tools. Configured MCP
+  isolation does not imply enforcement of Claude's file-tool deny rules.
+  See [Agent coordination](agent-coordination.md) for the current contract.
 - **Attachments**: the brief teaches the session to `Read`
   `attachments/<name>` (in the home dir) when a message carries `[[file:…]]` markers —
   works for text/images the harness can read natively; no extract-text

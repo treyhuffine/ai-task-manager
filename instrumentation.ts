@@ -155,6 +155,14 @@ export async function register() {
     console.warn('[reconcile] init failed', err);
   }
 
+  // Durable agent requests and replies resume independently of browser viewers.
+  try {
+    const { startAgentCoordination } = await import('@/lib/coordination/service');
+    startAgentCoordination();
+  } catch (err) {
+    console.warn('[coordination] startup failed', err);
+  }
+
   // Send notifications a crash left pending: queued in a transaction that
   // committed, never sent (docs/homes-build.md, P2.3). At startup, then every
   // 5 minutes.

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderRuntimeReport } from '@agentex/agent';
-import { intersectHarnessCapability, runtimeContextForHarness } from './runtime';
+import { codexMcpCapability, intersectHarnessCapability, runtimeContextForHarness } from './runtime';
 import { HARNESS_REGISTRY, KNOWN_HARNESS_IDS } from './registry';
 
 vi.mock('./credentials', () => ({ openCursorApiKey: async () => null }));
@@ -28,6 +28,12 @@ const supportedBinary: ProviderRuntimeReport['binary'] = {
 };
 
 describe('effective harness capabilities', () => {
+  it('qualifies Codex MCP without starting an inference session', () => {
+    expect(HARNESS_REGISTRY.codex.maximumCapabilities).toMatchObject({ mcp: true, strictMcpIsolation: true });
+    expect(codexMcpCapability('codex-cli 0.159.0')).toMatchObject({ supported: false, status: 'upgrade_required' });
+    expect(codexMcpCapability(null)).toMatchObject({ supported: false, status: 'degraded' });
+    for (const version of ['0.160.0', 'codex-cli 0.161.2', 'v1.0.0']) expect(codexMcpCapability(version).supported).toBe(true);
+  });
   it('intersects app maximums, provider declarations, and runtime probes', () => {
     expect(intersectHarnessCapability(false, true, undefined, supportedBinary).supported).toBe(false);
     expect(intersectHarnessCapability(true, false, undefined, supportedBinary).supported).toBe(false);

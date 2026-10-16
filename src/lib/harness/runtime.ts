@@ -146,6 +146,16 @@ export function intersectHarnessCapability(
   return { supported: true, status: 'supported' };
 }
 
+/** Codex MCP configuration is qualified by Agent Ex on CLI 0.160.0 and newer. */
+export function codexMcpCapability(version: string | null): HarnessCapabilityView {
+  const parts = version?.match(/(?:^|\s|v)(\d+)\.(\d+)\.(\d+)/);
+  if (!parts) return { supported: false, status: 'degraded', reason: 'Could not verify the Codex version required for MCP. Install Codex CLI 0.160.0 or newer.' };
+  const [, major, minor] = parts;
+  return Number(major) > 0 || Number(minor) >= 160
+    ? { supported: true, status: 'supported' }
+    : { supported: false, status: 'upgrade_required', reason: 'Codex MCP requires Codex CLI 0.160.0 or newer.' };
+}
+
 export async function getHarnessRuntime(
   harness: HarnessId,
   options: { cwd?: string; refresh?: boolean } = {},
@@ -204,7 +214,9 @@ async function resolveHarnessRuntime(
     capabilities[key] = intersectHarnessCapability(
       maximum[key],
       providerValue,
-      providerKey ? report.capabilities[providerKey] : undefined,
+      harness === 'codex' && (key === 'mcp' || key === 'strictMcpIsolation')
+        ? codexMcpCapability(report.binary.version)
+        : providerKey ? report.capabilities[providerKey] : undefined,
       report.binary,
     );
   }

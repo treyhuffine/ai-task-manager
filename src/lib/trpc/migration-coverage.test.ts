@@ -16,7 +16,7 @@ const coreRoutes = new Set([
 const protocolRoutes = new Set([
   '/[transport]', '/attachments', '/attachments/[fileName]', '/capture', '/integrations/[transport]', '/integrations/callback', '/integrations/managed/callback',
   '/integrations/mcp-oauth/[sid]', '/desktop/activity', '/desktop/notifications', '/desktop/oauth/complete', '/desktop/oauth/events',
-  '/health', '/live', '/orchestrator/[transport]', '/orchestrator/actions/[name]', '/orchestrator/browser/[transport]', '/orchestrator/results/[transport]', '/playground/chat',
+  '/health', '/live', '/orchestrator/[transport]', '/orchestrator/actions/[name]', '/orchestrator/browser/[transport]', '/orchestrator/coordination/[transport]', '/orchestrator/results/[transport]', '/playground/chat',
   // Signed harness reports and reviewer completion keep their language-neutral wire contract.
   '/results/reports', '/results/review-reports',
   // Signed CLI forwarding and the versioned app-process capability broker.

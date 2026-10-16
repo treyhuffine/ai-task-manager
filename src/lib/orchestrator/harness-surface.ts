@@ -1,7 +1,6 @@
 /**
  * Orchestrator harness surface — the on-disk contract for running the
- * dashboard orchestrator on an agent harness (Claude Code today, Codex
- * next) with cwd = the app data root.
+ * dashboard orchestrator on an agent harness with cwd = the app data root.
  *
  * Three pieces, all idempotent and safe to re-run at session spawn:
  *
@@ -33,6 +32,7 @@
  */
 
 import { INTEGRATION_LABELS } from '@/constants/integrations';
+import { COORDINATION_INSTRUCTIONS } from '@/lib/coordination/instructions';
 import fs from 'node:fs';
 import path from 'node:path';
 // agentex is ESM-only (no CJS condition); a static value import crashes the
@@ -233,10 +233,10 @@ You are the conductor over the executing agents:
   (its own worktree for git workspaces). Pass a fresh \`requestId\` per piece
   of work: retrying with the same one returns the same execution instead of
   starting a second. Write the prompt as a complete brief, since the new
-  session starts with none of this conversation. When the user asks for
-  something to be built in an agent, start an execution there. Don't route
-  it through that agent's main chat with \`send_session_message\`: an
-  execution is the work the user can see, steer, and review. It runs on the
+  session starts with none of this conversation. Prefer \`delegate_work\`
+  when you need the outcome returned automatically. Consult an agent's main
+  chat with \`ask_agent\` when its project context would help. Code changes
+  stay in executions, which the user can see, steer, and review. It runs on the
   agent's default device unless you pass \`deviceId\` (\`get_workspace\`
   shows its \`runOn\` choices). One that can't take it is refused with the reason.
 - \`archive_execution\`: close out finished work. It refuses when the
@@ -291,7 +291,7 @@ or weeks, and the user just keeps talking to you. That changes how you work:
 - **Older context may be compacted** into summaries. If you need exactly
   what was said or decided, look it up (\`search\` for tasks/notes/stream,
   \`search_sessions\` for past chats by title or transcript, then
-  \`get_session_messages\` to read a match in full, or the entity itself)
+  \`get_session_events\` / \`get_chat_event\` for complete messages, or the entity itself)
   rather than reconstructing from memory.
 - **Pick up mid-conversation.** Never re-introduce yourself, recap
   unprompted, or greet like a new session. Continue the relationship.`;
@@ -426,6 +426,8 @@ rather than working around it through the filesystem.
 ${toolsSection()}
 
 ${DOMAIN_BRIEF}
+
+${COORDINATION_INSTRUCTIONS}
 
 The \`${AGENT_SKILL_NAME}\` skill carries the deeper writing conventions
 (title style, energy/effort defaults, task-vs-note, error envelope). Load it
@@ -570,10 +572,12 @@ This is that agent's main chat. Your job here is to manage the agent's work:
 see what its executions are doing, answer questions about them, steer them,
 start new ones, and close them out.
 
-**When the user asks you to build something, start an execution.** Building,
+**When the user asks you to build something, start an execution.** Prefer
+\`delegate_work\` for a durable assignment whose outcome returns here.
+\`start_execution\` remains available as a lower-level send. Building,
 fixing, or changing anything in this agent's folder is an execution's
 job, not this chat's. The execution is where the user watches the work, steers
-it, and reviews what changed. Start it with \`start_execution\`, then tell the
+it, and reviews what changed. Start it with \`delegate_work\`, then tell the
 user in a line what you started and reference it. If the ask is too vague to
 brief well, ask one question first.`,
     `## This agent
@@ -612,8 +616,7 @@ ${instructions}`,
 - When an execution is \`awaitingInput\`, its turn is blocked until the
   prompt is answered (\`get_pending_input\`, then \`answer_pending_input\`).
   **Answer its questions when the user's intent is clear from this
-  conversation. Pass permission prompts to the user** unless they have
-  explicitly delegated that kind of approval to you.`,
+  conversation. Permission prompts requiring human approval go to the user.**`,
     `## Your messages are labeled
 
 Anything you send an execution reaches it, and its transcript, labeled as
@@ -626,11 +629,12 @@ You can reach all of ${APP_NAME} (tasks, notes, the deck, the stream, other
 agents). Use it when the user asks. Otherwise keep your attention on this
 agent's work.
 
-Work you start lives in this agent, as its executions. Don't hand work to
-another agent by messaging its main chat, and don't start executions in
-another agent, unless the user asks. A conversation between agents is work
-the user can't see.`,
+Consult another agent's main chat with \`ask_agent\` when its context helps
+the user's requested work. Consultation is visible in the participating
+chats. Delegate changes to the appropriate agent's executions within the
+user's requested scope. Replies return here automatically.`,
     tools,
+    COORDINATION_INSTRUCTIONS,
     personaSection(appRoot, reach.elsewhere !== undefined),
     domainModelSection({ stream: null, executions: 'Seeing the work, and Steering and closing out' }),
     TASK_LIFECYCLE_SECTION,

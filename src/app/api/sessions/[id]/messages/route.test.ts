@@ -65,6 +65,8 @@ vi.mock('@/lib/db/queries', () => ({
   getWorkspace: (id: string) => (getWorkspace as unknown as (id: string) => unknown)(id),
   getChatSession: (id: string) => (getChatSessionWithExecution as unknown as (id: string) => unknown)(id),
   skipOnboardingStepOnScreen: (id: string) => skipOnboardingStepOnScreen(id),
+  // No coordination request rides on these sends.
+  failAgentRequestForMessage: () => false,
 }));
 
 // A local token, so the real session-credential module can mint and verify.

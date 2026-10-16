@@ -537,7 +537,9 @@ export async function send(req: SendRequest): Promise<SendResult> {
   void result.then(
     (value) => {
       const turn = value as { status?: string; summary?: string | null; errorMessage?: string } | null;
-      const error = req.admission && turn?.status && turn.status !== 'completed' ? turn.errorMessage ?? `The result operation ended with runtime status ${turn.status}.` : null;
+      const error = turn?.status && turn.status !== 'completed'
+        ? turn.errorMessage ?? `The ${req.admission ? 'result operation' : 'turn'} ended with runtime status ${turn.status}.`
+        : null;
       finishTurn(req, ref, error, commandUuid, turn?.summary ?? null);
     },
     (err: unknown) => finishTurn(req, ref, err instanceof Error ? err.message : String(err), commandUuid),

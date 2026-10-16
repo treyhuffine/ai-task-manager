@@ -47,6 +47,7 @@ import type { Attachment, PermissionMode, WorkerCommandActor } from '@/db/types'
 import { budgetGate } from '@/lib/runs/budget';
 import { beginRun } from '@/lib/runs/artifact-bucket';
 import { finishRun } from '@/lib/runs/finish';
+import { bindAgentRequestRun } from '@/lib/db/queries';
 import { explicitHarnessSelection, type ProviderId } from '@/lib/harness/options';
 import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
 import { isHarnessEnabled } from '@/lib/harness/registry';
@@ -708,6 +709,7 @@ async function sendAdmitted(
       triggerPayload: null,
       scheduledFor: null,
       status: 'queued',
+      sourceEventId: options.sourceEventId ?? null,
     });
     markRunStartedRow(created.id);
     beginRun(created.id, chatSessionId);
@@ -715,6 +717,7 @@ async function sendAdmitted(
   }
 
   const turnId = uuidv7();
+  if (runId) bindAgentRequestRun(options.sourceEventId, chatSessionId, runId);
   const turn = awaitTurn(turnId);
   let queued: string | null = null;
   try {

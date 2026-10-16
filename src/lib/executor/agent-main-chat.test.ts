@@ -101,12 +101,13 @@ describe('the brief', () => {
       '**Never edit files in this folder.**',
       'start_execution',
       'requestId',
-      'Pass permission prompts to the user',
+      'Permission prompts requiring human approval go to the user',
       'Answer its questions when the user\'s intent is clear',
       'labeled as\ncoming from the "ri" agent\'s main chat',
       '"ws-1"',
       '**When the user asks you to build something, start an execution.**',
-      'Don\'t hand work to\nanother agent by messaging its main chat',
+      'Consult another agent\'s main chat with `ask_agent`',
+      'delegate_work',
     ]) {
       expect(brief).toContain(expected);
     }

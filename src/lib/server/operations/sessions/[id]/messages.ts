@@ -16,6 +16,7 @@ import {
   materializeEventRefs,
   recordSkillUse,
   skipOnboardingStepOnScreen,
+  failAgentRequestForMessage,
 } from '@/lib/db/queries';
 import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
 import * as executor from '@/lib/executor/adapter';
@@ -317,6 +318,9 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
       const refused = (reason: string) => {
         if (taken) return;
         insertChatEvent({ sessionId: id, role: 'system', source: 'error', content: reason, createdAt: new Date().toISOString() });
+        if (failAgentRequestForMessage(row.id, reason)) {
+          void import('@/lib/coordination/service').then(({ drainAgentCoordination }) => drainAgentCoordination());
+        }
       };
       void (async () => {
         try {

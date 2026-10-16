@@ -47,6 +47,8 @@ import type { RunnerSignal } from '@/lib/runner/types';
 import type { WorkerEvent } from '@/lib/workers/protocol';
 import { currentRemoteSignal, mirrorSignal } from './remote-live';
 import { settleTurn } from './turns';
+import { recordAgentRequestOutput, queueAgentBlockedUpdates } from '@/lib/db/queries';
+import { getActiveRunForSession } from '@/lib/runs/artifact-bucket';
 
 /**
  * A chat event: inserted, or for a cumulative provider part replacing an
@@ -57,6 +59,9 @@ import { settleTurn } from './turns';
  */
 export function applyChatEvent(row: CreateChatEventInput, opts: { cumulative: boolean; runId?: string | null }): boolean {
   const stored = opts.cumulative ? replaceChatEventPart(row) : insertChatEvent(row);
+  if (stored && stored.source === 'agent' && stored.content && !stored.externalParentToolCallId) {
+    recordAgentRequestOutput(opts.runId === undefined ? getActiveRunForSession(row.sessionId) : opts.runId, stored.id);
+  }
   if (stored && !opts.cumulative && row.source === 'result' && row.raw && opts.runId !== null) {
     try {
       recordRunTelemetry(row.sessionId, row.raw as unknown as StreamEvent, opts.runId);
@@ -287,6 +292,10 @@ function turnOutcome(signal: Extract<RunnerSignal, { type: 'turn_result' }>) {
 function recordPendingRequest(chatSessionId: string, pending: PendingInput, after: AfterCommit, notify = true): void {
   insertChatEvent(buildPendingRequestEvent(chatSessionId, pending));
   if (!notify) return;
+  const updates = queueAgentBlockedUpdates(chatSessionId, pending.requestId, pending.kind === 'permission'
+    ? `Permission required: ${pending.title ?? pending.toolName}. Only a person can approve it.`
+    : `The agent is waiting for an answer: ${JSON.stringify(pending.questions)}`);
+  if (updates) after.tasks.push(() => { void import('@/lib/coordination/service').then(({ drainAgentCoordination }) => drainAgentCoordination()); });
   // Notifier: the agent is blocked on the human (§2.4).
   const queued = queueNeedsInput({
     sessionId: chatSessionId,

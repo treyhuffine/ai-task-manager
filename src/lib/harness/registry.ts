@@ -102,6 +102,8 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
       questionRequests: true,
       planMode: true,
       modes: true,
+      mcp: true,
+      strictMcpIsolation: true,
       concurrentSend: true,
       sessionModelChange: true,
       sessionEffortChange: true,

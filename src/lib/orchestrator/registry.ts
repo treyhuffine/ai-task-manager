@@ -1,3 +1,7 @@
+import { coordinationActions } from '@/lib/coordination/actions';
+import { historyActions } from '@/lib/coordination/history-actions';
+import { requestScopedId } from '@/lib/coordination/start-id';
+import { stableCoordinationId } from '@/lib/coordination/ids';
 import { chatSourceActions } from '@/lib/chat-sources/actions';
 import { localAppActions } from '@/lib/local-apps/actions';
 import { localAppsEnabled } from '@/lib/config/features';
@@ -132,7 +136,6 @@ import { isReservedTrigger, lockedFieldsFor } from '@/lib/triggers/reserved';
 import { generateWebhookCredentials } from '@/lib/triggers/webhook';
 import { detectBaseBranch, detectIsGit } from '@/lib/workspaces';
 import { describeUncommittedFiles, type DirtyWorktreeBody } from '@/lib/workspaces/uncommitted-files';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { uuidv7 } from 'uuidv7';
 import { z } from 'zod';
@@ -145,7 +148,6 @@ import { ActionError, defineAction, type Action, type ActionContext } from './ty
 // Loading them lazily inside the two action handlers that use them lets the
 // dev CLI boot under tsx and matches the actual call graph: `run_trigger`
 // and `cancel_run` are the only paths that touch the executor.
-import { APP_SHORT_ID } from '@/constants/app';
 import {
 	getAppRoot,
 	getAttachmentsDir,
@@ -1925,18 +1927,19 @@ const search_sessions_action = defineAction({
     'query come first (matchedIn "title"), then transcript matches ranked by relevance (matchedIn ' +
     '"messages"), each with the best-matching passage as a snippet (null for a title match whose ' +
     'messages do not match). Use it to find "the chat where we discussed X" or a chat by its name. ' +
-    'Searches active AND archived by default. Follow up with get_session_messages(sessionId) to ' +
-    'read a match in full.',
+    'Searches personal execution, orchestrator, agent main, and content chats, active AND archived by default. ' +
+    'Use get_session_events or get_chat_event for complete messages, or get_session_messages for a condensed tail.',
   params: {
     query: z.string().min(1),
     status: workspaceStatus.optional(),
     workspaceId: z.string().optional(),
+    type: z.enum(['orchestration', 'content', 'execution']).optional(),
     source: z.enum(['native', 'imported', 'claude', 'codex', 'opencode']).optional(),
     limit: z.number().int().positive().max(50).optional(),
   },
   cli: { positional: ['query'] },
-  handler: (_ctx, { query, status, workspaceId, source, limit }) =>
-    searchChatSessions({ query, status, workspaceId, source, limit }).map((r) => ({
+  handler: (ctx, { query, status, workspaceId, source, limit, type }) =>
+    searchChatSessions({ query, status, workspaceId, source, limit, types: type ? [type] : ['orchestration', 'content', 'execution'], userId: ctx.actor?.sessionId ? getChatSession(ctx.actor.sessionId)?.userId : undefined }).map((r) => ({
       sessionId: r.id,
       label: r.label ?? r.execution?.label ?? null,
       workspaceId: r.workspaceId,
@@ -2122,23 +2125,6 @@ function senderHeaders(ctx: ActionContext): Record<string, string> {
   return credential ? { [SESSION_CREDENTIAL_HEADER]: credential } : {};
 }
 
-/**
- * A stable UUID for one start_execution request, so a retry lands on the same
- * chat and the same prompt event instead of starting work twice. Scoped by
- * workspace, so the same requestId in two agents never collides. Shaped as a
- * UUIDv8 (hash-derived): ids are only ever tie-breakers after timestamps.
- */
-function requestScopedId(kind: 'session' | 'prompt', workspaceId: string, requestId: string): string {
-  const hash = crypto
-    .createHash('sha256')
-    .update(`${APP_SHORT_ID}:start_execution:${kind}:${workspaceId}:${requestId}`)
-    .digest();
-  hash[6] = (hash[6] & 0x0f) | 0x80; // version 8
-  hash[8] = (hash[8] & 0x3f) | 0x80; // RFC 4122 variant
-  const hex = hash.subarray(0, 16).toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
-
 const send_session_message_action = defineAction({
   name: 'send_session_message',
   description:
@@ -2146,15 +2132,17 @@ const send_session_message_action = defineAction({
     'direction. Delivered through the app server: it lands in the agent\'s queue mid-turn or starts a ' +
     'new turn. Fire-and-forget. Poll get_session_messages for the response. The message is labeled with ' +
     'the chat it came from, in the transcript and for the receiving agent, so it is never mistaken for ' +
-    'the user typing. You cannot send to your own session, or to an imported terminal session the user ' +
+    'the user typing. Supply requestId to deduplicate retries. For a returned answer, use ask_agent. ' +
+    'You cannot send to your own session, or to an imported terminal session the user ' +
     'has not taken over in the app (it is read-only).',
   params: {
     sessionId: z.string().min(1),
     content: z.string().min(1),
+    requestId: z.string().min(1).max(200).optional(),
   },
   mutating: true,
   cli: { positional: ['sessionId'] },
-  handler: async (ctx, { sessionId, content }) => {
+  handler: async (ctx, { sessionId, content, requestId }) => {
     const session = getChatSession(sessionId);
     if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
     if (ctx.actor?.sessionId === sessionId) {
@@ -2178,7 +2166,7 @@ const send_session_message_action = defineAction({
     // duplicate harness process against the same session.
     const event = await serverFetch<{ id: string }>(`/sessions/${sessionId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, ...(requestId ? { id: stableCoordinationId('send', ctx.actor?.sessionId ?? 'human', sessionId, requestId) } : {}) }),
       headers: senderHeaders(ctx),
     });
 
@@ -3539,6 +3527,8 @@ const work_summary_action = defineAction({
 });
 
 export const typedActions = [
+  ...coordinationActions,
+  ...historyActions,
   ...localAppActions,
   ...chatSourceActions,
   register_device_action,

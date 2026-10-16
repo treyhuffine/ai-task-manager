@@ -144,7 +144,9 @@ it('adds the authentication choice without selecting API billing for an existing
     db.exec("INSERT INTO team_ai_settings(id, enabled, harness, provider, model, credential_label, credential_set_at) VALUES ('team', 1, 'claude', 'anthropic', 'sonnet', 'Legacy key', '2026-10-01')");
     const before = rows(db, 'team_ai_settings');
     const history = rows(db, '__drizzle_migrations');
-    expect(runMigrations(db, SOURCE)).toEqual({ applied: 1 });
+    const pending = inspectMigrationHistory(db, SOURCE).pending.length;
+    expect(pending).toBeGreaterThanOrEqual(1);
+    expect(runMigrations(db, SOURCE)).toEqual({ applied: pending });
     expect(rows(db, 'team_ai_settings')).toEqual(before.map(row => ({ ...row, auth_mode: null })));
     expect(rows(db, '__drizzle_migrations').slice(0, history.length)).toEqual(history);
     expect(runMigrations(db, SOURCE)).toEqual({ applied: 0 });

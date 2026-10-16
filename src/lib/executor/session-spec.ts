@@ -56,6 +56,7 @@ import { renderStandingAgentInstructionsPrompt } from './prompts/standing-instru
 import { getWorkResultCapabilities } from '@/lib/work-results/capabilities';
 import { workResultsMcpServer } from '@/lib/work-results/instructions';
 import { handoffPreamble } from '@/lib/transfer/handoff';
+import { coordinationMcpServer, COORDINATION_INSTRUCTIONS } from '@/lib/coordination/surface';
 
 /** Where the session will run. The home's own device unless a placement says otherwise. */
 export type SpecTarget = Pick<ChatPlacement, 'deviceId' | 'isHome'> & { generation?: number | null };
@@ -277,9 +278,9 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // only where Claude needs one) before spawn — this also `ensureAppRoot()`s
     // the cwd — and take the session's typed
     // ProviderConfig slice (disallowedTools / strictMcpConfig / mcpServers).
-    // Providers without tool-filtering or MCP wiring ignore the fields
-    // (Codex today), so the config is safe to pass everywhere — but warn,
-    // because the write guard genuinely doesn't hold there yet.
+    // MCP support and native file-tool filtering are separate capabilities.
+    // Codex supports scoped MCP, while the Claude-style file deny list is
+    // still only enforced by Claude.
     const userState = getUserState();
     try {
       // The brief carries the name the user calls the orchestrator. A rename
@@ -324,7 +325,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       if (providerType !== 'claude') {
         console.warn(
           `[executor] ${args.sessionType} session on provider "${providerType}": surface installed, ` +
-            'but tool filtering / MCP attachment are ignored by this provider (no write guard).',
+            'but Claude-style file-tool filtering is not enforced by this harness (no write guard).',
         );
       }
     } catch (err) {
@@ -336,12 +337,16 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
 
   // Execution (workspace coding/agent) sessions: fail closed on MCP, and attach the
   // workspace-scoped integrations endpoint when the workspace opted in — but ONLY on a harness that
-  // actually enforces strict MCP (Claude Code today; Codex ignores these fields). See spec §3/§6c.
+  // actually enforces strict MCP isolation. See spec §3/§6c.
   if (args.sessionType === 'execution') {
     const workspace = args.workspaceId ? getWorkspace(args.workspaceId) ?? null : null;
     if (caps.strictMcpIsolation) {
       spec.strictMcpConfig = true; // no ambient/user/repo MCP leaks into the worktree agent
       const servers: McpServerConfig[] = [];
+      if (args.surfaceKind !== 'result_review') {
+        const coordination = coordinationMcpServer(args.chatSessionId);
+        if (coordination) servers.push(coordination);
+      }
       if (getWorkResultCapabilities().handoffsEnabled || args.surfaceKind === 'result_review') {
         const results = workResultsMcpServer(args.chatSessionId);
         if (results) servers.push(results);
@@ -381,6 +386,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // then the reference-folder block below.
     const instructionBlocks = [
       { name: 'agent instructions', text: '' },
+      ...(args.surfaceKind !== 'result_review' ? [{ name: 'agent coordination', text: COORDINATION_INSTRUCTIONS }] : []),
     ];
 
     // Reference folders (docs/reference-folders-spec.md §6/§7). The prompt
