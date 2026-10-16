@@ -62,7 +62,7 @@ If work cannot start and has no responding chat, the server records a system-aut
 
 ## Restart and failure behavior
 
-Queued work and unsent replies survive restarts. Replies retry delivery without repeating the completed assignment. A local run interrupted by a home restart is reported as interrupted and is not automatically repeated. Work running on a connected device remains owned by that device and can report its outcome through the worker journal.
+Queued work and unsent replies survive restarts. Replies retry delivery without repeating the completed assignment. A person stopping the responding turn ends its run normally, as Stop always has, and the request fails with a notice that the work was stopped, so the requester never reads partial output as finished work. Other unfinished turn statuses (failed, timeout, max turns or budget) fail the run and the request. A local run interrupted by a home restart is reported as interrupted and is not automatically repeated. Work running on a connected device remains owned by that device and can report its outcome through the worker journal.
 
 Closing an exact requesting chat cancels work that has not started. Closing an exact receiving execution prevents a new continuation there. Closed or removed responding chats produce a visible failure, including when an exact target closes before dispatch. Stable agent addresses can resolve new main chats for requests that have not started yet. Request and delivery inspection remain available when a recipient is unavailable.
 

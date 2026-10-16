@@ -175,6 +175,22 @@ describe('fake harness through the real executor', () => {
     await abort(session.id);
     await turn;
     expect(fake!.latest().state).toBe('idle');
+    // Stopping is the person's call: the run ends normally, not as a failure.
+    const q = await import('@/lib/db/queries');
+    expect(q.listRuns({}).filter((run) => run.chatSessionId === session.id).map((run) => run.status)).toEqual(['completed']);
+  });
+
+  it('fails the turn and its run when the harness reports a failed turn', async () => {
+    const session = await chat();
+    const { dispatch } = await import('@/lib/executor/adapter');
+    fake!.onTurn(async () => {
+      throw new Error('model overloaded');
+    });
+    await expect(dispatch(session.id, 'try')).rejects.toThrow('model overloaded');
+    const q = await import('@/lib/db/queries');
+    expect(q.listRuns({}).filter((run) => run.chatSessionId === session.id)).toMatchObject([
+      { status: 'failed', errorMessage: 'model overloaded' },
+    ]);
   });
 });
 

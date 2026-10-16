@@ -21,7 +21,9 @@ import { runnerFor } from '@/lib/executor/placement';
 import { inTransaction, type AfterCommit } from '@/lib/effects/after-commit';
 import { endRun } from './artifact-bucket';
 
-export type RunOutcome = { ok: true } | { ok: false; errorCode: string; errorMessage: string };
+/** `stopped`: a person stopped the run's turn. The run completes, while a
+ * coordination request riding on it learns the work is unfinished. */
+export type RunOutcome = { ok: true; stopped?: boolean } | { ok: false; errorCode: string; errorMessage: string };
 
 export function finishRunInTransaction(runId: string, outcome: RunOutcome, after: AfterCommit): RunRecord | null {
   const before = getRun(runId);

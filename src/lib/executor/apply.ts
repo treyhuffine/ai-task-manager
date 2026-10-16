@@ -277,7 +277,7 @@ function applyWorkerEvent(deviceId: string, event: WorkerEvent, after: AfterComm
 
 function turnOutcome(signal: Extract<RunnerSignal, { type: 'turn_result' }>) {
   return signal.ok
-    ? { ok: true as const }
+    ? { ok: true as const, ...(signal.stopped ? { stopped: true } : {}) }
     : { ok: false as const, errorCode: 'agent_error', errorMessage: signal.error ?? 'The turn failed' };
 }
 

@@ -164,7 +164,8 @@ export type RunnerSignal =
   | { type: 'pending_input'; pending: PendingInput }
   | { type: 'pending_resolved'; pending: PendingInput; response: UserInputResponse }
   | { type: 'pending_changed'; pending: PendingInput[] }
-  | { type: 'turn_result'; turnId: string; runId: string | null; ok: boolean; error: string | null; summary?: string | null };
+  /** `stopped`: a person stopped the turn. It ends normally (`ok`), but the work it was doing is unfinished. */
+  | { type: 'turn_result'; turnId: string; runId: string | null; ok: boolean; error: string | null; summary?: string | null; stopped?: boolean };
 
 /** Where chat events go: inserted, or replacing a cumulative provider part. */
 export interface EventWriter {

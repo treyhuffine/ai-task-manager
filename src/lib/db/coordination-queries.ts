@@ -98,16 +98,21 @@ export function finishAgentRequest(id: string, status: 'completed' | 'failed' | 
   });
 }
 
-export function settleAgentRequestsForRun(runId: string, outcome: { ok: boolean; errorMessage?: string }): boolean {
+export function settleAgentRequestsForRun(runId: string, outcome: { ok: boolean; stopped?: boolean; errorMessage?: string }): boolean {
   const requests = getDb().select().from(agentRequests).where(and(eq(agentRequests.runId, runId), inArray(agentRequests.status, ['sent', 'waiting']))).all();
+  // A stopped run completes for the person who stopped it, but the requester
+  // must not read its partial output as finished work.
+  const completed = outcome.ok && !outcome.stopped;
   for (const request of requests) {
-    if (outcome.ok && request.targetSessionId && hasOutstandingAgentRequests(request.targetSessionId, request.id)) {
+    if (completed && request.targetSessionId && hasOutstandingAgentRequests(request.targetSessionId, request.id)) {
       updateAgentRequest(request.id, { status: 'waiting' });
     } else {
       const output = request.responseEventId ? getDb().select({ content: chatEvents.content }).from(chatEvents).where(eq(chatEvents.id, request.responseEventId)).get()?.content : null;
-      finishAgentRequest(request.id, outcome.ok ? 'completed' : 'failed', outcome.ok
+      finishAgentRequest(request.id, completed ? 'completed' : 'failed', completed
         ? output?.slice(0, 80_000) || request.response || 'The turn finished without a text answer. Inspect the linked chat for its tools and saved results.'
-        : outcome.errorMessage || 'The requested work failed.', request.responseEventId);
+        : outcome.stopped
+          ? 'A person stopped this work before it finished. Inspect the responding chat before continuing.'
+          : outcome.errorMessage || 'The requested work failed.', request.responseEventId);
     }
   }
   return requests.length > 0;

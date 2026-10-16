@@ -535,12 +535,12 @@ describe('the P0.4 gaps closed with P2.4', () => {
     });
     const turn = dispatch(session.id, 'clean up');
     await until(() => pending.listForSession(session.id).length === 1, 'the prompt');
-    const interrupted = expect(turn).rejects.toThrow('interrupted');
     await abort(session.id);
-    await interrupted;
+    // Stopping is the person's call, not a failed run.
+    await turn;
     expect(pending.listForSession(session.id)).toHaveLength(0);
     expect(answer).toBe(false);
-    expect((await import('@/lib/db/queries')).listRuns({}).filter(run => run.chatSessionId === session.id).map(run => run.status)).toEqual(['failed']);
+    expect((await import('@/lib/db/queries')).listRuns({}).filter(run => run.chatSessionId === session.id).map(run => run.status)).toEqual(['completed']);
   });
 
   it('archiving an agent stops its chats, from the app or an action', async () => {

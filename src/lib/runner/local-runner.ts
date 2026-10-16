@@ -537,20 +537,24 @@ export async function send(req: SendRequest): Promise<SendResult> {
   void result.then(
     (value) => {
       const turn = value as { status?: string; summary?: string | null; errorMessage?: string } | null;
-      const error = turn?.status && turn.status !== 'completed'
+      // A turn the person stopped ends normally: its run completes and the
+      // dispatch resolves. Every other unfinished status is a failure, and a
+      // result operation must complete to count.
+      const stopped = turn?.status === 'aborted' && !req.admission;
+      const error = turn?.status && turn.status !== 'completed' && !stopped
         ? turn.errorMessage ?? `The ${req.admission ? 'result operation' : 'turn'} ended with runtime status ${turn.status}.`
         : null;
-      finishTurn(req, ref, error, commandUuid, turn?.summary ?? null);
+      finishTurn(req, ref, error, commandUuid, turn?.summary ?? null, stopped);
     },
     (err: unknown) => finishTurn(req, ref, err instanceof Error ? err.message : String(err), commandUuid),
   );
   return { status: 'delivered' };
 }
 
-function finishTurn(req: SendRequest, ref: DispatchLifecycleRef, error: string | null, commandUuid: string, summary: string | null = null): void {
+function finishTurn(req: SendRequest, ref: DispatchLifecycleRef, error: string | null, commandUuid: string, summary: string | null = null, stopped = false): void {
   forgetSend(req.chatSessionId, commandUuid);
   _endActiveDispatch(req.chatSessionId, ref);
-  report(req.chatSessionId, { type: 'turn_result', turnId: req.turnId, runId: req.runId, ok: error === null, error, summary });
+  report(req.chatSessionId, { type: 'turn_result', turnId: req.turnId, runId: req.runId, ok: error === null, error, summary, ...(stopped ? { stopped: true } : {}) });
 }
 
 /**

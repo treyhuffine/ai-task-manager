@@ -214,6 +214,19 @@ describe('durable agent conversations', () => {
     expect(accepted.at(-1)!.content).toContain('was not repeated');
   });
 
+  it('tells the requester when a person stops the responding work, while the run itself completes', async () => {
+    const ask = await request(main, 'ask_agent', { target: `agent:${agent.id}`, request_id: 'stopped', content: 'Investigate.' });
+    const send = accepted.at(-1)!;
+    applyChatEvent({ id: uuidv7(), sessionId: agentMain.id, role: 'assistant', source: 'agent', content: 'Halfway through the logs.' }, { cumulative: false, runId: send.runId });
+    fake.busy.delete(agentMain.id);
+    finishRun(send.runId, { ok: true, stopped: true });
+    await drainAgentCoordination();
+    expect(q.getRun(send.runId)?.status).toBe('completed');
+    expect(q.getAgentRequest(ask.id)).toMatchObject({ status: 'failed' });
+    expect(accepted.at(-1)).toMatchObject({ sessionId: main.id });
+    expect(accepted.at(-1)!.content).toContain('stopped this work before it finished');
+  });
+
   it('cancels delegated work, stops its execution and refuses cancellation by an unrelated chat', async () => {
     const work = await request(main, 'delegate_work', { workspace_id: agent.id, request_id: 'cancel', prompt: 'Investigate.' });
     expect(await act(agentMain, 'cancel_agent_request', { id: work.id })).toMatchObject({ ok: false });
