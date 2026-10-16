@@ -1,4 +1,5 @@
 import { operationContext, unwrapOperation } from '@/lib/server/operation';
+import { listAccountsNeedingYou } from '@/lib/integrations/attention';
 import * as operation1 from "@/lib/server/operations/browser";
 import * as operation2 from "@/lib/server/operations/calendar";
 import * as operation3 from "@/lib/server/operations/claude-auth/login";
@@ -275,6 +276,8 @@ export const internalRouters = {
     mcpServersPatch: p.input(operation8.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.PATCH(input, operationContext(ctx.request, input, "/integrations/mcp-servers/[id]")))),
     mcpServerPost: p.input(operation8.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.POST(input, operationContext(ctx.request, input, "/integrations/mcp-servers/[id]")))),
     mcpServersDelete: p.input(operation8.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.DELETE(input, operationContext(ctx.request, input, "/integrations/mcp-servers/[id]")))),
+    // The accounts only the person can fix, for the rail's Connect accounts (src/lib/integrations/attention.ts).
+    attentionGet: p.query(() => listAccountsNeedingYou()),
     approvePost: p.input(operation9.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation9.POST(input, operationContext(ctx.request, input, "/integrations/approve")))),
     authConfigsGet: p.input(operation10.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation10.GET(input, operationContext(ctx.request, input, "/integrations/auth-configs")))),
     authConfigsPost: p.input(operation10.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation10.POST(input, operationContext(ctx.request, input, "/integrations/auth-configs")))),

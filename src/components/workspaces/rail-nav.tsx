@@ -12,6 +12,7 @@ import { openTaskBoard, useTaskBoardOpen } from '@/lib/client/task-board';
 import { cn } from '@/lib/utils';
 import { openLauncher } from './launcher/launcher-store';
 import { openChatSearch } from './chat-search-store';
+import { RailCount, RailDot, type RailTone } from './rail-count';
 import { RailIconButton } from './rail-icon-button';
 import { RailFlyout, StripFlyout } from './rail-flyout';
 
@@ -54,7 +55,7 @@ export interface RailPlace {
   /** Live count beside the label in the wide rail, a dot on the icon in the strip. */
   count?: number;
   /** What the count means: work in flight (blue) or something waiting on you (amber). */
-  tone?: 'live' | 'attention';
+  tone?: RailTone;
   /** Resting on the row peeks this beside the rail (Apps), in both rails. A click still goes where `onClick` goes. */
   flyout?: { label: string; content: ReactNode };
 }
@@ -106,16 +107,6 @@ export function useRailPlaces({
   ];
 }
 
-const COUNT_PILL = {
-  live: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  attention: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-} as const;
-
-const COUNT_DOT = {
-  live: 'bg-blue-500',
-  attention: 'bg-amber-500',
-} as const;
-
 /** The two verbs, as rows like the places. `active` never: they open something new. */
 export const RAIL_VERBS: readonly RailPlace[] = [
   {
@@ -161,18 +152,7 @@ function RailRow({
     >
       {mark ?? (Icon && <Icon size={14} className="flex-shrink-0" />)}
       <span className="truncate">{label}</span>
-      {count !== undefined && (
-        <span
-          className={cn(
-            'ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] tabular-nums',
-            COUNT_PILL[tone],
-          )}
-          aria-label={tone === 'attention' ? `${count} waiting on you` : `${count} active`}
-        >
-          <span className={cn('size-1.5 rounded-full', COUNT_DOT[tone])} aria-hidden />
-          {count}
-        </span>
-      )}
+      {count !== undefined && <RailCount count={count} tone={tone} className="ml-auto" />}
       {flyout && (
         <ChevronRight
           size={13}
@@ -225,13 +205,7 @@ export function RailStripActions({ places }: { places: readonly RailPlace[] }) {
       ))}
       <StripDivider />
       {places.map(({ id, title, icon, mark, onClick, onIntent, active, count, tone = 'live', flyout }) => {
-        const badge =
-          count !== undefined ? (
-            <span
-              className={cn('absolute -top-0.5 -right-0.5 size-2 rounded-full ring-2 ring-background', COUNT_DOT[tone])}
-              aria-hidden
-            />
-          ) : undefined;
+        const badge = count !== undefined ? <RailDot tone={tone} /> : undefined;
         return flyout ? (
           <StripFlyout
             key={id}

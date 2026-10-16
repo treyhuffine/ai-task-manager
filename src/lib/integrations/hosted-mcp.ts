@@ -49,7 +49,7 @@ export async function hostedMcpRequiresAuth(
   return !(await servers.openSecret(entry.id));
 }
 
-export function hostedMcpConnectionId(entry: McpServerEntry): string {
+export function hostedMcpConnectionId(entry: Pick<McpServerEntry, 'connectionId' | 'slug'>): string {
   return entry.connectionId ?? `mcp-${entry.slug}`;
 }
 

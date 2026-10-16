@@ -26,7 +26,7 @@ import { IntegrationLogo } from '@/components/integrations/integration-logo';
 import { CATEGORY_ORDER, integrationMeta, type IntegrationCategory } from '@/components/integrations/integration-meta';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import { setSettingsAnchor, useSettingsStore } from '@/components/settings/settings-store';
-import { PLUGIN_CREATE_ANCHORS } from './plugins/navigation';
+import { APP_ANCHOR, PLUGIN_CREATE_ANCHORS } from './plugins/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
@@ -69,7 +69,6 @@ type View =
   /** An application a managed source can connect (Gmail, Google Calendar). */
   | { kind: 'app'; id: ApplicationId };
 
-const APP_ANCHOR = 'integrations:app:';
 const SOURCES_ANCHOR = 'integrations:sources';
 
 function anchorFor(view: View): string {
