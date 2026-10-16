@@ -63,6 +63,8 @@ click. When the header is tight, the toggle shortcut badges give way
 first, followed by the PR's CI and review badges and the agent name,
 then the toggle labels. The title and the git status never truncate.
 Terminal and Tools show their hotkeys in `kbd` badges beside the labels.
+The header, Close chat, tools list and tooltip shortcuts use the shared
+`Kbd` component, with the same compact monospace text and corner radius.
 The badges hide below 1200px of chat-view width, before the labels fold to
 icons below 1040px. Both controls keep accessible names and their tooltip
 shortcuts at every width.

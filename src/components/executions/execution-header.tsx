@@ -619,7 +619,7 @@ function ToggleButton({
       >
         {icon}
         <span className="@max-[1040px]/exec:hidden">{label}</span>
-        <Kbd aria-hidden className="h-4 min-w-0 text-[10px] @max-[1200px]/exec:hidden">
+        <Kbd aria-hidden className="@max-[1200px]/exec:hidden">
           {shortcut}
         </Kbd>
       </button>

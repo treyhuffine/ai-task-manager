@@ -22,6 +22,7 @@ import type { PreviewController } from '../preview/use-preview-controller';
 import { filesLabel } from './changes-summary';
 import type { PanelView } from './workbench-state';
 import { Tip } from '@/components/ui/tip';
+import { Kbd } from '@/components/ui/kbd';
 
 export interface ToolsListProps {
   controller: PreviewController;
@@ -215,7 +216,7 @@ export function ToolsList({
         ),
         'Every change in this worktree, from every chat, against the base branch',
       )}
-      {row('files', <FileText size={15} />, 'Files', touch ? null : <Kbd>{HOTKEYS.goToFile.label}</Kbd>)}
+      {row('files', <FileText size={15} />, 'Files', touch ? null : <Kbd aria-hidden>{HOTKEYS.goToFile.label}</Kbd>)}
       {terminal && (
         <Tip label={terminal.open ? 'Hide the terminal. Shells keep running.' : undefined}>
           <button
@@ -230,7 +231,7 @@ export function ToolsList({
             <SquareTerminal size={15} className="flex-shrink-0 text-muted-foreground group-hover:text-foreground" />
             Terminal
             <span className="ml-auto text-[11.5px] font-normal text-muted-foreground/80">
-              {terminal.open ? 'Open below' : <Kbd>{HOTKEYS.toggleTerminal.label}</Kbd>}
+              {terminal.open ? 'Open below' : <Kbd aria-hidden>{HOTKEYS.toggleTerminal.label}</Kbd>}
             </span>
             {terminal.open ? <ChevronDown size={13} className="flex-shrink-0 text-muted-foreground/60" /> : go}
           </button>
@@ -336,10 +337,6 @@ function ActionButton({
       </button>
     </Tip>
   );
-}
-
-function Kbd({ children }: { children: React.ReactNode }) {
-  return <kbd className="rounded bg-muted px-1 py-0.5 font-mono text-[9.5px] leading-none text-muted-foreground">{children}</kbd>;
 }
 
 function hostOf(url: string): string {

@@ -12,6 +12,7 @@ import { HudDayButton } from '@/components/calendar/hud-day-button';
 import { WorkHudPill } from '@/components/calendar/work/work-hud-pill';
 import { DesktopNavButtons } from '@/components/desktop/desktop-nav-buttons';
 import { Tip } from '@/components/ui/tip';
+import { Kbd } from '@/components/ui/kbd';
 
 // What's happening, from every view: work by status, the way out of (or
 // back into) an execution, today's work in human time, the next calendar
@@ -63,9 +64,9 @@ export function TopHud() {
               >
                 <X size={12} />
                 <span className="hud-view-label text-[11px] font-medium">{closeLabel}</span>
-                <kbd className="hud-shortcut ml-0.5 px-1 py-0.5 bg-background/60 rounded text-[9px] font-mono leading-none text-muted-foreground">
+                <Kbd aria-hidden className="hud-shortcut ml-0.5 bg-background/60">
                   {HOTKEYS.closeView.label}
-                </kbd>
+                </Kbd>
               </button>
             </Tip>
           ) : latestExecutionId ? (
@@ -78,9 +79,9 @@ export function TopHud() {
               >
                 <MessageSquare size={12} />
                 <span className="hud-view-label text-[11px] font-medium">Open latest chat</span>
-                <kbd className="hud-shortcut px-1 py-0.5 bg-muted rounded text-[9px] font-mono leading-none">
+                <Kbd aria-hidden className="hud-shortcut">
                   {HOTKEYS.closeView.label}
-                </kbd>
+                </Kbd>
               </button>
             </Tip>
           ) : null}
