@@ -413,7 +413,7 @@ function ScrollOnSend({ trigger }: { trigger: string | null }) {
  * should get a purpose-built styled affordance — not a raw divider — so add
  * it here only alongside that.
  */
-const RENDERABLE_SYSTEM_SUBTYPES = new Set<string>([]);
+const RENDERABLE_SYSTEM_SUBTYPES = new Set<string>(['mcp_app_result']);
 
 /**
  * Drop transcript noise:

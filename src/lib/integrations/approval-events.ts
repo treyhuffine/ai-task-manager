@@ -258,6 +258,10 @@ export async function recordApprovalDecision(resolved: readonly ResolvedApproval
     if (!getChatSessionWithExecution(sessionId)) continue;
     for (const group of byKind(items)) insertResponse(sessionId, group, decision, runtime);
 
+    // A connected view retries its own exact invocation. Waking the agent here
+    // would invite a second, different invocation of the same operation.
+    if (items.every(item => item.connectedApp)) continue;
+
     const session = deliverableSession(sessionId);
     if (!session) continue;
     const note = approvalNote(

@@ -79,6 +79,10 @@ export interface IntegrationRuntimeOptions {
   clock?: Clock;
   logger?: Logger;
   onActionRun?: OnActionRun;
+  /** Bind optional UI capture before execution. The returned observer retains
+   * that authority and receives only a successful original MCP result. Neither
+   * preparation nor capture failures may change the operation's outcome. */
+  prepareMcpResult?: (invocation: { ownerId: string; connectionId: string; actionId: string; attemptId: string; caller?: Caller; audience: 'model' | 'app'; input: unknown }) => Promise<((result: unknown) => Promise<void>) | undefined>;
   fetch?: typeof fetch;
   /** Transient-failure retry policy for provider calls (idempotency-aware). Engine default applies when omitted. */
   retry?: RetryPolicy;
@@ -1153,6 +1157,12 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
         maxResponseBytes:options.maxResponseBytes,
         ...(retry ? { retry } : {}),
       });
+      let originalResult: unknown;
+      let captureMcpResult: ((result: unknown) => Promise<void>) | undefined;
+      if (provider.externalAuth && opts.prepareMcpResult) {
+        try { captureMcpResult = await opts.prepareMcpResult({ownerId, connectionId: connection.id, actionId, attemptId, caller, audience: options.toolAudience ?? 'model', input: redactor.redact(cleanInput)}); }
+        catch { logger.warn('MCP view capture unavailable'); }
+      }
       const ctx = {
         signal: options.signal,
         connection: meta,
@@ -1162,7 +1172,10 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
         clock,
         log: logger,
         toolAudience: options.toolAudience ?? 'model',
-        captureOriginalResult: options.captureOriginalResult ? (result: unknown) => options.captureOriginalResult!(redactor.redact(result)) : undefined,
+        captureOriginalResult: options.captureOriginalResult || captureMcpResult ? (result: unknown) => {
+          originalResult = redactor.redact(result);
+          options.captureOriginalResult?.(originalResult);
+        } : undefined,
       };
 
       // 8. Execute.
@@ -1194,6 +1207,12 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
       // 9. Shape + redact + audit finish. The returned result is redacted too (not just the
       //    audit preview), so a secret an action surfaced can't reach a caller/projection/model.
       const safeResult = redactor.redact(result);
+      if (originalResult !== undefined && captureMcpResult) {
+        // Rendering is optional. Failure to capture must never turn a completed
+        // operation into an error that invites the caller to replay its effects.
+        try { await captureMcpResult(originalResult); }
+        catch { logger.warn('MCP view capture unavailable'); }
+      }
       finish('ok', { connectionId: connection.id, status: 'ok', outputPreview: safeResult });
       return { ok: true, result: safeResult };
     } catch (e) {

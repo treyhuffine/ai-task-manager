@@ -8,7 +8,7 @@ Apps at `/apps` is the shared library for local apps, connected services, custom
 - **Discover** combines the included app catalog with the existing connector catalog. Connecting a service from here opens its account setup inside Apps. Search and filters survive detail navigation and browser Back.
 - **Build** starts an app draft or a skill draft using the existing builders.
 - **Add** offers the catalog, service connection, custom MCP setup, and app package import. Included apps retain their preview, sample-data, activation, and update workflows.
-- **Works in chat** describes tools. **Opens in Ri** appears only when the installed app has a supported view. Skills say **Agent workflow**. Connections do not acquire a launcher merely because a server advertises UI metadata.
+- **Works in chat** describes tools. **Opens in Ri** identifies local apps with views and connected MCPs that advertise an interactive workflow. Skills say **Agent workflow**. A connected app opens its native account/workflow summary before any tool executes.
 - Multiple accounts belong to one service card. Provider-managed MCP servers stay under their provider. A standalone custom MCP server appears once, even when ingestion also exposes it as a provider.
 - Disabled, unavailable, or retired connections stay manageable. One failed catalog does not hide the other sources.
 
@@ -22,7 +22,7 @@ The existing `RI_CHAT_SOURCES=1` gate and harness support checks still apply. Un
 
 Sign-in initiated from Apps returns to its Apps destination. Adding a custom server returns to the library after web sign-in. Reconnecting an existing server returns to its detail. Settings keeps its existing return path. Custom MCP return destinations are validated with `safeReturnPath` before being handed to authorization.
 
-This change does not add a public marketplace, a hosted MCP UI renderer, or new cross-service permission grants. Existing local app views and account-access management remain the supported paths.
+Connected MCP UI hosting, inline results, and the shared view renderer are described in [Connected MCP apps](connected-mcp-apps.md). A public marketplace and new cross-service permission grants remain separate work.
 
 ## Implementation and checks
 

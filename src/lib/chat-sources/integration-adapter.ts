@@ -11,6 +11,7 @@ import { runSourceInvocation } from '@/lib/integrations/source-invocations';
 import { encodeSource, type SourceReference } from './reference';
 import { SourceError } from './service';
 import type { SourceAdapter, SourceContext, SourceDescriptor } from './types';
+import { viewMetadata } from '@/lib/mcp-apps/metadata';
 
 async function exact(reference: SourceReference, context: SourceContext) {
   if (reference.kind !== 'integration') throw new SourceError('forbidden', 'Invalid account reference');
@@ -51,12 +52,19 @@ export const integrationSourceAdapter: SourceAdapter = {
       const duplicate = connections.filter(c => c.providerId === connection.providerId && pinMatchesConnection(connection, c)).length > 1;
       const accountLabel = accountName(connection, connections);
       const status = !context.harnessReady || duplicate || remote?.entry.enabled === false ? 'unavailable' : connection.status !== 'active' ? 'reconnect' : !allowed(toolkit.id, connection, context) ? 'needs_access' : 'ready';
-      const hasView = remote?.capabilities?.tools.some(t => {
-        const meta = t._meta as { ui?: { resourceUri?: string }; 'ui/resourceUri'?: string } | undefined;
-        return !!(meta?.ui?.resourceUri ?? meta?.['ui/resourceUri']);
-      });
-      return { sourceRef, label: `${toolkit.displayName} · ${accountLabel}`, service: toolkit.displayName, accountLabel, groupId: toolkit.id, keywords: [toolkit.id, toolkit.displayName, accountLabel], status, chat: true, view: hasView ? 'advertised' : 'none' } satisfies SourceDescriptor;
+      const hasView = remote?.capabilities?.tools.some(t => viewMetadata(t) && remote.entry.toolOverrides?.[t.name]?.enabled !== false);
+      const hosted = hasView && process.env.RI_MCP_APPS !== '0';
+      return { sourceRef, label: `${toolkit.displayName} · ${accountLabel}`, service: toolkit.displayName, accountLabel, groupId: toolkit.id, keywords: [toolkit.id, toolkit.displayName, accountLabel], status, chat: true, view: hosted ? 'available' : hasView ? 'advertised' : 'none', ...(hosted ? {openPath: `/apps/~connected/${remote!.entry.id}`} : {}) } satisfies SourceDescriptor;
     }));
+  },
+  async open(ref, ctx) {
+    const current = await exact(ref, ctx);
+    if (!current.remote || process.env.RI_MCP_APPS === '0') throw new SourceError('unavailable', 'This connection has no available app view');
+    const {mcpViews} = await import('@/lib/mcp-apps/service');
+    mcpViews().prune();
+    const capture = [...mcpViews().captures.values()].findLast(c => c.chatId === ctx.chatId && c.sourceRef === encodeSource(ref));
+    const href = `/apps/~connected/${current.remote.entry.id}`;
+    return capture ? {captureId: capture.id, href: `${href}?result=${capture.id}`} : {href};
   },
   async actions(ref, ctx) {
     const { toolkit, remote } = await exact(ref, ctx);

@@ -59,6 +59,8 @@ const nextConfig: NextConfig = {
   // their ~160-module graph from every server-route compile.
   serverExternalPackages: [
     "@ri/app-kit",
+    // The server-side MCP HTML parser has optional native canvas adapters.
+    "linkedom",
     "better-sqlite3",
     "sqlite-vec",
     "node-pty",
@@ -73,7 +75,7 @@ const nextConfig: NextConfig = {
   ],
   // The integration engine is a workspace package shipped as raw TS (zod-only core);
   // Next must transpile it (and its subpath exports) to consume it from routes.
-  transpilePackages: ["@integrations/engine"],
+  transpilePackages: ["@integrations/engine", "@ri/mcp-apps-host"],
   // Honor NEXT_DIST_DIR so the smoke-test server can boot alongside a
   // running `pnpm dev` without fighting for `.next/dev/lock`.
   distDir,

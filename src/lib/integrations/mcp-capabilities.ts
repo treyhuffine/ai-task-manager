@@ -49,7 +49,9 @@ export function snapshotMcpCapabilities(input: readonly McpCapabilityTool[]): Mc
     seen.add(tool.name);
     const meta = tool._meta as { ui?: { resourceUri?: unknown; visibility?: unknown }; 'ui/resourceUri'?: unknown } | undefined;
     const ui = meta?.ui && Object.fromEntries(['resourceUri', 'visibility'].flatMap(key => meta.ui![key as keyof typeof meta.ui] === undefined ? [] : [[key, meta.ui![key as keyof typeof meta.ui]]]));
-    const safeMeta = { ...(ui && Object.keys(ui).length ? { ui } : {}), ...(meta?.['ui/resourceUri'] === undefined ? {} : { 'ui/resourceUri': meta['ui/resourceUri'] }) };
+    const original = tool._meta as Record<string, unknown> | undefined;
+    const compatibility = Object.fromEntries(['openai/outputTemplate', 'openai/widgetAccessible', 'openai/ui'].flatMap(key => original?.[key] === undefined ? [] : [[key, original[key]]]));
+    const safeMeta = { ...compatibility, ...(ui && Object.keys(ui).length ? { ui } : {}), ...(meta?.['ui/resourceUri'] === undefined ? {} : { 'ui/resourceUri': meta['ui/resourceUri'] }) };
     const advertised = { ...tool, _meta: Object.keys(safeMeta).length ? safeMeta : undefined };
     const definition = canonical({ name: tool.name, ...Object.fromEntries(FIELDS.filter(field => advertised[field] !== undefined).map(field => [field, advertised[field]])) }) as McpCapabilityTool;
     return { ...definition, fingerprint: hash(definition) };

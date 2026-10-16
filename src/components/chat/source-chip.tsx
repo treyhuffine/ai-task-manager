@@ -11,6 +11,8 @@ import { openSettings } from '@/components/settings/settings-store';
 import { trpcClient } from '@/lib/trpc/client';
 import { SOURCE_STATUS_LABELS, type SourceDescriptor } from '@/lib/chat-sources/types';
 import { parseSourceMarkers } from '@/lib/chat-sources/reference';
+import { useConnectedCompanion } from '@/lib/client/mcp-app-panel';
+import { useOptionalDashboard } from '@/contexts/dashboard-context';
 
 const SourceContext = createContext<{ chatId?: string; sources: SourceDescriptor[] }>({ sources: [] });
 export function SourceMetadataProvider({ chatId, refs, children }: { chatId?: string; refs: string[]; children: ReactNode }) {
@@ -47,6 +49,8 @@ export function EditorSourceProvider({ editor, chatId, children }: { editor: Edi
   return <SourceMetadataProvider chatId={chatId} refs={refs}>{children}</SourceMetadataProvider>;
 }
 export function SourceChip({ sourceRef, onRemove }: { sourceRef: string; onRemove?: () => void }) {
+  const companion = useConnectedCompanion();
+  const dashboard = useOptionalDashboard();
   const { sources, chatId } = useContext(SourceContext);
   const source = sources.find(item => item.sourceRef === sourceRef);
   const [busy, setBusy] = useState(false);
@@ -57,7 +61,15 @@ export function SourceChip({ sourceRef, onRemove }: { sourceRef: string; onRemov
     if (!chatId) return;
     setBusy(true);
     try {
-      await trpcClient.chatSources.openView.mutate({ chatId, sourceRef });
+      const target = await trpcClient.chatSources.openView.mutate({ chatId, sourceRef });
+      if (target.captureId && companion) companion.open(target.captureId);
+      else if (target.href) {
+        if (dashboard) {
+          const url = new URL(target.href, 'https://ri.invalid');
+          dashboard.setActiveView({kind: 'apps', route: url.pathname.slice('/apps/'.length), query: Object.fromEntries(url.searchParams)});
+        }
+        else window.location.assign(target.href);
+      }
       await queryClient.invalidateQueries({ queryKey: ['local-apps'] });
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not open the app'); }
     finally { setBusy(false); }

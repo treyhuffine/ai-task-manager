@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpRight, BookOpen, Check, ChevronDown, Hammer, LayoutGrid, Loader2, MessageCircle, Plug, Plus, Search, Server, Upload, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,6 +44,7 @@ export function AppLibrary({ data, localEnabled, localLoading, localError, query
   const settings = useSettingsStore();
   const back = useCallback(() => {
     void qc.invalidateQueries({ queryKey: trpc.integrations.pathKey() });
+    void qc.invalidateQueries({ queryKey: ['connected-app-catalog'] });
     navigate(libraryRoute(query, { provider: undefined, mcp: undefined }));
   }, [qc, navigate, query]);
   const providerNavigation = useMemo(() => ({ providerId: location.provider ?? '', returnTo: `/apps${libraryRoute(query, {})}`, onBack: back }), [location.provider, query, back]);
@@ -66,6 +67,7 @@ export function AppLibrary({ data, localEnabled, localLoading, localError, query
 
 function LibraryOverview({ data, localEnabled, localLoading, localError, query, navigate }: Parameters<typeof AppLibrary>[0]) {
   const sources = useLibrary();
+  const connected = useQuery({queryKey: ['connected-app-catalog'], queryFn: () => trpcClient.connectedApps.catalog.query(), staleTime: 15_000});
   const { openSkill } = useDashboard();
   const createSkill = useStartSkill();
   const { busy, run } = useAppAction();
@@ -76,9 +78,9 @@ function LibraryOverview({ data, localEnabled, localLoading, localError, query, 
   // Back/Forward restores the exact library search. Typing itself stays local until navigation settles.
   const [lastSearch, setLastSearch] = useState(search);
   if (lastSearch !== search) { setLastSearch(search); setSearchDraft(search); }
-  const items = useMemo(() => libraryItems({ apps: data, providers: sources.providers.data?.providers,
+  const items = useMemo(() => libraryItems({ apps: data, connectedApps: connected.data, providers: sources.providers.data?.providers,
     connections: sources.connections.data?.connections, servers: sources.servers.data?.servers, skills: sources.skills.data?.skills }),
-  [data, sources.providers.data, sources.connections.data, sources.servers.data, sources.skills.data]);
+  [data, connected.data, sources.providers.data, sources.connections.data, sources.servers.data, sources.skills.data]);
   const visible = filterLibrary(items, mode, filter, searchDraft);
   const patch = (values: Record<string, string | undefined>) => navigate(libraryRoute(query, { q: searchDraft || undefined, ...values }));
   const create = (profile: 'react' | 'html' | 'static' = 'react') => void run(async () => {
@@ -86,7 +88,8 @@ function LibraryOverview({ data, localEnabled, localLoading, localError, query, 
   });
   const open = (item: LibraryItem) => {
     const target = item.target;
-    if (target.kind === 'app') navigate(target.slug);
+    if (item.connectedAppId) navigate(`~connected/${item.connectedAppId}`);
+    else if (target.kind === 'app') navigate(target.slug);
     else if (target.kind === 'draft') navigate(draftRoute(target.id));
     else if (target.kind === 'skill') openSkill(target.ref);
     else patch({ [target.kind === 'provider' ? 'provider' : 'mcp']: target.id });

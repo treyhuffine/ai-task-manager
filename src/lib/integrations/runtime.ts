@@ -557,6 +557,9 @@ async function build(): Promise<Built> {
         console.log(`[integrations] ${e.actionId} → ${e.status}`);
       }
     },
+    prepareMcpResult: async invocation => {
+      if (process.env.RI_MCP_APPS !== '0') return (await import('@/lib/mcp-apps/service')).prepareMcpResultCapture(invocation);
+    },
   });
 
   // Manages BYO auth configs (seals secrets, enforces cross-store invariants) for the admin UI.

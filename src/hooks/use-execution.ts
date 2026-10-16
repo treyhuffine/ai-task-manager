@@ -1,4 +1,5 @@
 import { flushAppContext } from '@/lib/client/app-context';
+import { flushConnectedContext } from '@/lib/client/mcp-app-context';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import type { Attachment, EffortLevel, PermissionMode } from '@/db/types';
 import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
@@ -780,6 +781,7 @@ export function useSendMessage(id: string) {
     mutationFn: async (input) =>
       sessionsApi.sendMessage(id, input.content, {
         appContext: await flushAppContext(id),
+        connectedAppContext: await flushConnectedContext(id),
         attachments: input.attachments,
         eventId: input.eventId,
       }),

@@ -22,7 +22,7 @@ export interface SourceAdapter {
   actions(reference: SourceReference, context: SourceContext): Promise<SourceAction[]>;
   call(reference: SourceReference, context: SourceContext, action: string, input: Record<string, unknown>, invocationId: string, signal?: AbortSignal): Promise<unknown>;
   /** Explicit human request to open a native summary or view beside this chat. */
-  open?(reference: SourceReference, context: SourceContext): Promise<void>;
+  open?(reference: SourceReference, context: SourceContext): Promise<void | {captureId?: string; href?: string}>;
 }
 export type SourceSearchItem = { kind: 'source'; source: SourceDescriptor } | { kind: 'sourceGroup'; groupId: string; label: string; count: number };
 export interface SourceSearchResult { items: SourceSearchItem[]; total: number }

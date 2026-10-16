@@ -14,6 +14,7 @@ import {
   sessionIdFromCaller,
   publishSessionApprovals,
   revokeApprovalsForConnections,
+  cancelConnectedAppApprovals,
   _resetApprovals,
   GRANT_TTL_MS,
   type PendingApproval,
@@ -91,6 +92,19 @@ describe('session caller identity', () => {
 });
 
 describe('appApprovalPolicy', () => {
+  it('binds connected UI approval to the exact viewer, source, view and invocation', async () => {
+    const gate = policy();
+    const identity = {viewId: 'view-a', invocationId: 'inv-a', sourceRef: 'source-a', viewerId: 'viewer-a'};
+    const request = (patch = {}) => check({caller: {...sessionCaller(CHAT), connectedApp: {...identity, ...patch}}});
+    expect(await gate.check(request())).toBe('ask');
+    const pending = listPendingApprovals()[0];
+    expect(events.recordApprovalRequested).not.toHaveBeenCalled();
+    resolvePendingApprovals([pending.id], 'approve');
+    for (const patch of [{viewerId:'other'}, {viewId:'other'}, {invocationId:'other'}, {sourceRef:'other'}]) expect(await gate.check(request(patch))).toBe('ask');
+    expect(await gate.check(check())).toBe('ask');
+    expect(await gate.check(request())).toBe('allow');
+    expect(await gate.check(request())).toBe('ask');
+  });
   it('isolates two apps, invocations and broker calls from anonymous and chat approval slots',async()=>{
     const gate=policy(),base={instanceId:'app-a',invocationId:'inv-a',callId:'call-a',principal:{kind:'chat' as const,id:CHAT}},caller=(localApp:typeof base)=>({type:'app' as const,id:'local-app',localApp});
     const a=check({caller:caller(base)}),b=check({caller:caller({...base,instanceId:'app-b'})}),next=check({caller:caller({...base,invocationId:'inv-b'})}),otherCall=check({caller:caller({...base,callId:'call-b'})});
@@ -278,4 +292,21 @@ describe('revokeApprovalsForConnections', () => {
   it('does nothing for no connections', () => {
     expect(revokeApprovalsForConnections([])).toEqual([]);
   });
+});
+
+it('cancels only the exact connected invocation and removes its unused approval grant', async () => {
+  const gate = policy();
+  const app = {viewId: 'view-a', invocationId: 'invoke-a', sourceRef: 'account-a', viewerId: 'viewer-a'};
+  const other = {...app, invocationId: 'invoke-b'};
+  const request = (connectedApp: typeof app) => check({caller: {...sessionCaller(CHAT), connectedApp}});
+  await gate.check(request(app)); await gate.check(request(other));
+  resolvePendingApprovals(listPendingApprovals().map(p => p.id), 'approve');
+  // The request is already gone, but cancellation must revoke its unused grant.
+  expect(cancelConnectedAppApprovals(app, CHAT)).toEqual([]);
+  expect(await gate.check(request(app))).toBe('ask');
+  expect(await gate.check(request(other))).toBe('allow');
+  expect(cancelConnectedAppApprovals({...app, viewerId: 'someone-else'}, CHAT)).toEqual([]);
+  expect(listPendingApprovals()).toHaveLength(1);
+  expect(cancelConnectedAppApprovals(app, CHAT)).toMatchObject([{decision: 'deny', connectedApp: app}]);
+  expect(listPendingApprovals()).toEqual([]);
 });

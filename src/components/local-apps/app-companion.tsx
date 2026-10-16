@@ -20,6 +20,7 @@ import { isAppSurface } from './app-copy';
 import { AppGrantEditor } from './grant-editor';
 import { useAppAction } from './use-app-action';
 import { requestAppChatDraft } from '@/lib/client/app-chat-intent';
+import { ConnectedCompanion } from '@/components/mcp-apps/companion';
 
 /** Below this width the app sits under the chat instead of beside it. */
 const SIDE_WIDTH = 820;
@@ -33,13 +34,20 @@ const SIDE_WIDTH = 820;
  * the chat's chrome stays the chat's.
  */
 export function AppCompanion({
+  chatId, surfaceKind, children,
+}: { chatId: string; surfaceKind?: string | null; children: React.ReactNode }) {
+  return <ConnectedCompanion key={chatId} chatId={chatId}>{open => <LocalAppCompanion chatId={chatId} surfaceKind={surfaceKind} suppressPanel={open}>{children}</LocalAppCompanion>}</ConnectedCompanion>;
+}
+function LocalAppCompanion({
   chatId,
   surfaceKind,
   children,
+  suppressPanel,
 }: {
   chatId: string;
   surfaceKind?: string | null;
   children: React.ReactNode;
+  suppressPanel: boolean;
 }) {
   const { enabled, data } = useLocalApps();
   // The standalone task and note pages have a chat but no dashboard: there,
@@ -67,7 +75,7 @@ export function AppCompanion({
   return (
     <div ref={measureRef} className={cn('flex min-h-0 flex-1', side ? 'flex-row' : 'flex-col')}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
-      {panel && instance && (
+      {!suppressPanel && panel && instance && (
         <aside
           aria-label={`${instance.displayName} beside this chat`}
           className={cn(

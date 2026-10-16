@@ -37,6 +37,14 @@ describe('Apps library identity and capabilities', () => {
   it('does not promise a launcher for connections that Ri only supports as tools', () => {
     expect(libraryItems(source).every(row => !row.view)).toBe(true);
   });
+  it('promotes a UI-capable connection to one app with its existing management and chat identity', () => {
+    const rows = libraryItems({...source, connectedApps: [{id: 'custom', name: 'Receipts', available: true, account: 'Receipts', sourceRef: null, tools: [], recent: []}]});
+    expect(rows).toHaveLength(2);
+    const app = rows.find(row => row.connectedAppId === 'custom');
+    expect(app).toMatchObject({kind: 'apps', view: true, chat: true, target: {kind: 'mcp', id: 'custom'}});
+    expect(filterLibrary(rows, 'yours', 'apps', '')).toEqual([app]);
+    expect(filterLibrary(rows, 'yours', 'connectors', 'Receipts')).toEqual([app]);
+  });
   it('keeps unavailable accounts and retired providers manageable', () => {
     const rows = libraryItems({ providers: [], connections: [{ ...timestamps, ownerId: 'local', id: 'old', providerId: 'old-service', accountId: 'work', status: 'needs_reauth', scopes: [] }] });
     expect(rows[0]).toMatchObject({ added: true, attention: true, target: { kind: 'provider', id: 'old-service' } });

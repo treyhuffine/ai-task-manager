@@ -6,8 +6,35 @@ const require = createRequire(import.meta.url);
 /** The browser UI kit may span files under src/ui. Each is emitted beside ui.js. */
 const uiFiles = () => existsSync('src/ui') ? readdirSync('src/ui', { recursive: true }).filter(name => /\.(ts|tsx)$/.test(name) && !/\.test\./.test(name)).map(name => `src/ui/${name}`) : [];
 execFileSync(process.execPath, [require.resolve('typescript/bin/tsc'), '--emitDeclarationOnly'], { stdio: 'inherit' });
-await build({ entryPoints: [...['contract','sdk','runtime','view-host','build','testing','build-worker','service-build-worker','app-client','validation-worker','mcp-service','assets','templates','data','sources','time'].map(name => `src/${name}.ts`), 'src/ui.tsx', ...uiFiles()], outdir: 'dist', outbase: 'src', bundle: false, format: 'esm', platform: 'neutral', target: 'es2023', jsx: 'automatic', supported: { 'import-attributes': true } });
+await build({ entryPoints: [...['contract','sdk','runtime','build','testing','build-worker','service-build-worker','app-client','validation-worker','mcp-service','assets','templates','data','sources','time'].map(name => `src/${name}.ts`), 'src/ui.tsx', ...uiFiles()], outdir: 'dist', outbase: 'src', bundle: false, format: 'esm', platform: 'neutral', target: 'es2023', jsx: 'automatic', supported: { 'import-attributes': true } });
 copyFileSync('src/owned-runner.cjs','dist/owned-runner.cjs');
+
+// The view host lives in the workspace-only @ri/mcp-apps-host, which no registry
+// serves. Apps install this SDK as a packed tarball outside the workspace, so the
+// host is inlined here and every other import must be a dependency of this SDK.
+const HOST = '@ri/mcp-apps-host';
+const { dependencies } = JSON.parse(readFileSync('package.json', 'utf8'));
+const packageName = specifier => specifier.split('/').slice(0, specifier.startsWith('@') ? 2 : 1).join('/');
+await build({ entryPoints: ['src/view-host.ts'], outdir: 'dist', bundle: true, format: 'esm', platform: 'neutral', target: 'es2023', plugins: [{ name: 'inline-view-host', setup(b) {
+  b.onResolve({ filter: /^[^./]/ }, ({ path }) => {
+    if (path === HOST) return undefined;
+    if (dependencies[packageName(path)]) return { path, external: true };
+    return { errors: [{ text: `${path} is not a dependency of @ri/app-kit, so the published view host could not load it` }] };
+  });
+} }] });
+const ts = require('typescript');
+const { options } = ts.convertCompilerOptionsFromJson({ ...JSON.parse(readFileSync('tsconfig.json', 'utf8')).compilerOptions, rootDir: undefined, outDir: undefined, emitDeclarationOnly: true }, '.');
+const hostEntry = require.resolve(HOST);
+const hostProgram = ts.createProgram([hostEntry], options);
+const hostErrors = ts.getPreEmitDiagnostics(hostProgram);
+if (hostErrors.length) throw new Error(ts.formatDiagnostics(hostErrors, { getCanonicalFileName: name => name, getCurrentDirectory: () => process.cwd(), getNewLine: () => '\n' }));
+let hostTypes;
+hostProgram.emit(hostProgram.getSourceFile(hostEntry), (_name, text) => { hostTypes = text; }, undefined, true);
+writeFileSync('dist/mcp-apps-host.d.ts', hostTypes);
+writeFileSync('dist/view-host.d.ts', readFileSync('dist/view-host.d.ts', 'utf8').replaceAll(`"${HOST}"`, '"./mcp-apps-host.js"'));
+for (const name of readdirSync('dist', { recursive: true }))
+  if (/\.(c?js|d\.ts)$/.test(name) && /["']@ri\/mcp-apps-host["'/]/.test(readFileSync(`dist/${name}`, 'utf8')))
+    throw new Error(`dist/${name} imports ${HOST}, which installs outside this workspace cannot resolve`);
 
 const serverNames = ['contract','sdk','runtime','build','testing','mcp-service','assets','templates'];
 await build({entryPoints:serverNames.map(name => `src/${name}.ts`),outdir:'dist',outExtension:{'.js':'.cjs'},bundle:false,format:'cjs',platform:'node',target:'node26',define:{'import.meta.url':'__riModuleUrl'}});

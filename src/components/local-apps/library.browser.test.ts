@@ -20,6 +20,7 @@ const sources = ['Work', 'Personal'].map(account => ({
 const customServer = { id: 'receipts', slug: 'receipts', displayName: 'Receipts', url: 'https://receipts.example.test/mcp', enabled: true, auth: { kind: 'none' }, lastStatus: 'ok', tools: [{ name: 'list_receipts', description: 'Read receipts', readOnlyHint: true }] };
 const skills = [{ ref: 'ri:weekly-review', name: 'Weekly review', description: 'Turn the week’s notes into a clear plan for Monday.', hasErrors: false, location: { kind: 'ri' } }];
 const responses: Record<string, unknown> = {
+  'connectedApps.catalog': [],
   'integrations.statusGet': { providers: [
     { id: 'google', displayName: 'Google', method: 'oauth2', configured: true },
     { id: 'linear', displayName: 'Linear', method: 'api_key', configured: true, credentialFields: [] },

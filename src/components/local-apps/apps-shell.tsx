@@ -9,6 +9,7 @@ import { AppBuilder } from './app-builder';
 import { useLocalApps } from './app-hooks';
 import { AppLibrary } from './app-library';
 import { AppPage } from './app-page';
+import { ConnectedAppPage } from '@/components/mcp-apps/page';
 
 export { useLocalApps } from './app-hooks';
 
@@ -30,6 +31,7 @@ export function AppsShell({ route }: { route: string }) {
   }, [setActiveView]);
 
   const parts = route.split('/').filter(Boolean);
+  if (parts[0] === '~connected' && parts[1]) return <ConnectedAppPage key={parts[1]} serverId={parts[1]} navigate={navigate} resultId={appQuery.result}/>;
   // The library includes connections and skills even when local execution is off.
   if (parts.length === 0 || parts[0] === 'new') return <AppLibrary data={data} localEnabled={enabled}
     localLoading={checking || (enabled && !data && !error)} localError={error} query={appQuery} navigate={navigate} />;

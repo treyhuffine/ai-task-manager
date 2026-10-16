@@ -31,6 +31,7 @@ import { z as rpcZ } from 'zod/v4';
 
 interface PostBody {
   appContext?: { viewId: string; revision: number };
+  connectedAppContext?: {viewId: string; revision: number}[];
   content?: string;
   /**
    * Files attached to this message — same `Attachment` shape as
@@ -178,8 +179,16 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
       try { const key = getRequestKey(request.headers); if (key?.scope !== 'viewer') return reply({ error: 'App context requires the viewing owner' }, { status: 403 }); frozenContext = await localApps().freezeContext(id, body.appContext, key.apiKeyId); }
       catch (error) { return reply({ error: publicError(error).message }, { status: 409 }); }
     }
+    let connectedContext: unknown = null;
+    if (body.connectedAppContext?.length && !isExistingRetry) {
+      try {
+        const key = getRequestKey(request.headers);
+        if (key?.scope !== 'viewer') return reply({error: 'App context requires the viewing owner'}, {status: 403});
+        connectedContext = await (await import('@/lib/mcp-apps/service')).freezeConnectedContext(id, key.apiKeyId, body.connectedAppContext);
+      } catch (error) { return reply({error: error instanceof Error ? error.message : 'App context is unavailable'}, {status: 409}); }
+    }
     const inserted = insertChatEvent({
-      ...(frozenContext ? { raw: { localAppContext: frozenContext } } : {}),
+      ...(frozenContext || connectedContext ? { raw: {...(frozenContext ? {localAppContext: frozenContext} : {}), ...(connectedContext ? {connectedAppContext: connectedContext} : {})} } : {}),
       id: body.id,
       sessionId: id,
       role: 'user',
@@ -355,4 +364,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "content": rpcZ.string().optional(), "attachments": rpcZ.array(rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict()).optional(), "id": rpcZ.string().optional(), "appContext": rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict().optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "content": rpcZ.string().optional(), "attachments": rpcZ.array(rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict()).optional(), "id": rpcZ.string().optional(), "connectedAppContext": rpcZ.array(rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict()).max(8).optional(), "appContext": rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict().optional() }).strict().default({}) }).strict();

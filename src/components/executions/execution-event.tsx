@@ -3,6 +3,8 @@ import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 import { SourceText, SourceMetadataProvider } from '@/components/chat/source-chip';
 
 import {AppOpenControl} from '@/components/local-apps/open-control';
+import { ConnectedView } from '@/components/mcp-apps/view';
+import { MCP_APP_EVENT } from '@/lib/mcp-apps/metadata';
 import { Message, MessageContent } from '@/components/ai-elements/message';
 import { AgentResponse } from '@/components/chat/agent-response';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
@@ -483,6 +485,7 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
     }
 
     case 'system':
+      if (event.content === MCP_APP_EVENT) return <ConnectedView captureId={event.id} chatId={event.sessionId} />;
       return (
         <div className="flex items-center gap-2 my-1 text-[10px] text-muted-foreground/70">
           <div className="flex-1 h-px bg-border/60" />

@@ -52,7 +52,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     return reply({ error: "decision must be 'approve', 'always', or 'deny'" }, { status: 400 });
   }
 
-  if (listPendingApprovals().some(item => ids.includes(item.id) && item.localApp)) {
+  if (listPendingApprovals().some(item => ids.includes(item.id) && (item.localApp || item.connectedApp))) {
     return reply({ error: 'Answer app approvals in the native app approval card.' }, { status: 409 });
   }
 

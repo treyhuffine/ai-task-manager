@@ -87,8 +87,8 @@ export class ChatSources {
     const reference = decodeSource(sourceRef);
     const adapter = (await this.deps.adapters()).find(a => a.kind === reference.kind);
     if (source.status === 'unavailable' || !adapter?.open) throw new SourceError('unavailable', 'This app cannot open beside this chat');
-    await adapter.open(reference, context);
-    return { opened: true };
+    const target = await adapter.open(reference, context);
+    return { opened: true, ...(target ?? {} as {captureId?: string; href?: string}) };
   }
   private async bound(chatId: string | null | undefined, messageId: string, sourceRef: string) {
     this.requireEnabled();

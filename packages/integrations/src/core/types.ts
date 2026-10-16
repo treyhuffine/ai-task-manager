@@ -633,6 +633,8 @@ export interface Logger {
 export type CallerType = 'app' | 'agent' | 'mcp' | 'schedule';
 
 export interface Caller {
+  /** Viewer-bound connected MCP UI invocation. Not supplied by a guest. */
+  connectedApp?: { viewId: string; invocationId: string; sourceRef: string; viewerId: string };
   chatSource?: { messageId: string; sourceRef: string; invocationId: string };
   /** Host-issued local app identity, never supplied by a package. */
   localApp?: { instanceId: string; invocationId: string; callId: string; principal: { kind: string; id: string } };

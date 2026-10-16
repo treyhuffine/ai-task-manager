@@ -42,7 +42,7 @@ function SourceChoices({ item, onClose }: { item: LibraryItem; onClose: () => vo
       }
       const groups = toolkits.toolkits.filter(toolkit => toolkit.providerId === providerId);
       const results = await Promise.all(groups.map(group => trpcClient.chatSources.search.query({ chatId: main.session.id, query: '', filter: 'connector', groupId: group.id })));
-      return { chatId: main.session.id, enabled: true, items: results.flatMap(result => result.items.flatMap(entry => entry.kind === 'source' ? [entry.source] : [])) };
+      return { chatId: main.session.id, enabled: true, items: results.flatMap(result => result.items.flatMap(entry => entry.kind === 'source' ? [entry.source] : [])).filter(source => !item.sourceRef || source.sourceRef === item.sourceRef) };
     },
   });
   const open = (sourceRef?: string) => {

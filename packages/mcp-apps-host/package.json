@@ -1,0 +1,11 @@
+{
+  "name": "@ri/mcp-apps-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/view-host.ts" },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.2.2",
+    "@modelcontextprotocol/sdk": "1.29.0"
+  }
+}

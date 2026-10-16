@@ -188,6 +188,13 @@ describe('recordApprovalRequested', () => {
 });
 
 describe('recordApprovalDecision', () => {
+  it('records a connected app decision without asking the agent to repeat its operation', async () => {
+    const request = pending('view-call', {connectedApp: {viewId:'view',invocationId:'invocation',sourceRef:'source',viewerId:'viewer'}});
+    await recordApprovalDecision([resolved(request, 'approve')], 'approve');
+    expect(h.inserted).toHaveLength(1);
+    expect(h.inserted[0]).toMatchObject({source:'approval_response'});
+    expect(h.dispatched).toEqual([]);
+  });
   it('records the decision in the chat and tells the waiting agent to retry', async () => {
     await recordApprovalDecision([resolved(pending('a1'), 'approve'), resolved(pending('a2'), 'approve')], 'approve');
 

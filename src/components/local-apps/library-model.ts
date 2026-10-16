@@ -14,12 +14,14 @@ export type LibraryTarget =
   | { kind: 'skill'; ref: string };
 
 export interface LibraryItem {
+  connectedAppId?: string;
+  sourceRef?: string;
   key: string;
   name: string;
-  description: string;
-  keywords: string;
   /** An installed app's purpose icon name, from its manifest. */
   icon?: string;
+  description: string;
+  keywords: string;
   kind: Exclude<LibraryFilter, 'all'>;
   target: LibraryTarget;
   providerId?: string;
@@ -33,6 +35,7 @@ export interface LibraryItem {
 }
 
 export interface LibrarySources {
+  connectedApps?: RouterOutputs['connectedApps']['catalog'];
   apps?: LocalAppsList;
   providers?: RouterOutputs['integrations']['statusGet']['providers'];
   connections?: RouterOutputs['integrations']['connectionsGet']['connections'];
@@ -41,7 +44,7 @@ export interface LibrarySources {
 }
 
 /** One row per product. Provider-backed MCP servers stay under their provider. */
-export function libraryItems({ apps, providers = [], connections = [], servers = [], skills = [] }: LibrarySources): LibraryItem[] {
+export function libraryItems({ apps, providers = [], connections = [], servers = [], skills = [], connectedApps = [] }: LibrarySources): LibraryItem[] {
   const items: LibraryItem[] = [];
   for (const app of apps?.instances ?? []) {
     const condition = appCondition(app);
@@ -79,13 +82,17 @@ export function libraryItems({ apps, providers = [], connections = [], servers =
     keywords: skill.location.kind === 'project' ? skill.location.projectName : skill.location.kind, kind: 'skills', target: { kind: 'skill', ref: skill.ref },
     chat: true, view: false, status: skill.hasErrors ? 'Needs attention' : skill.location.kind === 'draft' ? 'Draft' : skill.location.kind === 'project' ? skill.location.projectName : skill.location.kind === 'global' ? 'All agents on this computer' : 'Ri agents',
     attention: skill.hasErrors, added: true, draft: skill.location.kind === 'draft' });
+  for (const item of items) {
+    const connected = connectedApps.find(app => item.target.kind === 'mcp' ? app.id === item.target.id : item.target.kind === 'provider' && app.providerId === item.target.id);
+    if (connected) { item.view = true; item.kind = 'apps'; item.connectedAppId = connected.id; }
+  }
   return items.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function filterLibrary(items: LibraryItem[], mode: LibraryMode, filter: LibraryFilter, query: string): LibraryItem[] {
   const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
-  return items.filter(item => (mode === 'discover' ? item.kind === 'connectors' : item.added)
-    && (filter === 'all' || item.kind === filter)
+  return items.filter(item => (mode === 'discover' ? item.kind === 'connectors' || !!item.connectedAppId : item.added)
+    && (filter === 'all' || item.kind === filter || (filter === 'connectors' && !!item.connectedAppId))
     && terms.every(term => `${item.name} ${item.description} ${item.keywords}`.toLocaleLowerCase().includes(term)));
 }
 

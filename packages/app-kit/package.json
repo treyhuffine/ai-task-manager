@@ -75,6 +75,7 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@ri/mcp-apps-host": "workspace:*",
     "@types/node": "^26",
     "@types/react": "^19",
     "@types/react-dom": "^19",
