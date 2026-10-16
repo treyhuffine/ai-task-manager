@@ -1,6 +1,6 @@
 import { DOMParser } from 'linkedom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HTML_PREVIEW_CSP, HTML_PREVIEW_SANDBOX, htmlPreviewDocument } from './html-preview-document';
+import { HTML_PREVIEW_CSP, HTML_PREVIEW_KEY_MESSAGE, HTML_PREVIEW_SANDBOX, HTML_PREVIEW_TAIL, htmlPreviewDocument, htmlPreviewKey } from './html-preview-document';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -35,5 +35,28 @@ describe('HTML preview isolation', () => {
     expect(preview).toContain('color-scheme:dark');
     expect(preview).toContain('Choose preview variant');
     expect(html).not.toContain('Content-Security-Policy');
+  });
+});
+
+describe('Escape handoff from an opened preview', () => {
+  it('serves the handoff ahead of the variant control, so a variant failure cannot take it along', () => {
+    expect(HTML_PREVIEW_TAIL).toContain(`type: '${HTML_PREVIEW_KEY_MESSAGE}'`);
+    expect(HTML_PREVIEW_TAIL.indexOf(HTML_PREVIEW_KEY_MESSAGE)).toBeLessThan(HTML_PREVIEW_TAIL.indexOf('.viz-carousel'));
+    // The artifact keeps an Escape it used, and an IME keeps one mid-composition.
+    expect(HTML_PREVIEW_TAIL).toContain('event.defaultPrevented || event.isComposing');
+  });
+
+  it('accepts only an Escape message, with its modifiers as booleans', () => {
+    expect(htmlPreviewKey({ type: HTML_PREVIEW_KEY_MESSAGE, key: 'Escape', shiftKey: false, altKey: false, ctrlKey: false, metaKey: false }))
+      .toEqual({ key: 'Escape', code: 'Escape', shiftKey: false, altKey: false, ctrlKey: false, metaKey: false });
+    expect(htmlPreviewKey({ type: HTML_PREVIEW_KEY_MESSAGE, key: 'Escape', shiftKey: true })).toMatchObject({ shiftKey: true, metaKey: false });
+    expect(htmlPreviewKey({ type: HTML_PREVIEW_KEY_MESSAGE, key: 'Escape', metaKey: 'yes' })).toMatchObject({ metaKey: false });
+  });
+
+  it('ignores other keys and other messages', () => {
+    expect(htmlPreviewKey({ type: HTML_PREVIEW_KEY_MESSAGE, key: 'Enter' })).toBeNull();
+    expect(htmlPreviewKey({ type: 'ri:html-thumbnail', key: 'Escape' })).toBeNull();
+    expect(htmlPreviewKey('Escape')).toBeNull();
+    expect(htmlPreviewKey(null)).toBeNull();
   });
 });

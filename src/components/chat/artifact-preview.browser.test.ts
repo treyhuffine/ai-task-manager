@@ -5,12 +5,27 @@ import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { HTML_PREVIEW_KEY_MESSAGE, HTML_PREVIEW_RESPONSE_CSP, HTML_PREVIEW_TAIL, htmlPreviewHead } from '@/lib/sessions/html-preview-document';
 
-// Real image load/decode failures, tooltip focus and lightbox interactions.
-// RI_ARTIFACT_BROWSER_TEST=1 pnpm exec vitest run src/components/chat/image-preview.browser.test.ts
+// Real image load/decode failures, tooltip focus, and image and HTML preview
+// dialog interactions, keyboard included.
+// RI_ARTIFACT_BROWSER_TEST=1 pnpm exec vitest run src/components/chat/artifact-preview.browser.test.ts
 const enabled = process.env.RI_ARTIFACT_BROWSER_TEST === '1';
 const remote = 'https://github.com/example/private/blob/revision/missing.png?raw=true';
 const source = '/tmp/Screen Shot 100%.png';
+// An artifact with a control to focus and a menu that uses Escape itself.
+const galleryArtifact = `<main>
+  <h1>Gallery</h1>
+  <input aria-label="Filter shots">
+  <button id="menu-button" onclick="document.getElementById('menu').hidden = false">Sort</button>
+  <ul id="menu" role="menu" hidden><li>Newest</li></ul>
+</main>
+<script>
+  document.addEventListener('keydown', event => {
+    const menu = document.getElementById('menu');
+    if (event.key === 'Escape' && !menu.hidden) { menu.hidden = true; event.preventDefault(); }
+  });
+</script>`;
 let browser: Browser;
 let server: http.Server;
 let address: string;
@@ -23,10 +38,14 @@ beforeAll(async () => {
       import { createRoot } from 'react-dom/client';
       import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
       import { TipProvider } from './src/components/ui/tip';
-      import { ArtifactPreviewProvider } from './src/components/chat/artifact-preview-provider';
+      import { ArtifactPreviewProvider, useArtifactPreview } from './src/components/chat/artifact-preview-provider';
       import { ImagePreviewCard } from './src/components/chat/image-preview-card';
       import { replyImageUrl } from './src/lib/sessions/reply-image-urls';
       const client = new QueryClient();
+      function OpenHtml() {
+        const open = useArtifactPreview();
+        return <button onClick={event => open({ kind: 'html', sessionId: 'fixture', path: '/tmp/gallery.html' }, event.currentTarget)}>Open gallery preview</button>;
+      }
       function App() {
         const [switched, setSwitched] = useState(false);
         return <QueryClientProvider client={client}><TipProvider><ArtifactPreviewProvider>
@@ -38,6 +57,7 @@ beforeAll(async () => {
             <div><ImagePreviewCard src="/api/attachments/undecodable.png" alt="Damaged image" /></div>
             <div><ImagePreviewCard src={switched ? '/good.svg' : '/missing.png'} alt="Changing image" /></div>
             <button onClick={() => setSwitched(true)}>Change source</button>
+            <OpenHtml />
           </main>
         </ArtifactPreviewProvider></TipProvider></QueryClientProvider>;
       }
@@ -70,6 +90,12 @@ beforeAll(async () => {
     } else if (url.pathname.endsWith('/undecodable.png')) {
       res.setHeader('Content-Type', 'image/png');
       res.end('not an image');
+    } else if (url.pathname === '/api/sessions/fixture/html') {
+      // Served as the html route serves it: Ri's head and tail around the
+      // file, under the same sandbox policy.
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Security-Policy', HTML_PREVIEW_RESPONSE_CSP);
+      res.end(`<!doctype html>${htmlPreviewHead(url.searchParams.get('theme') === 'light' ? 'light' : 'dark')}${galleryArtifact}${HTML_PREVIEW_TAIL}`);
     } else if (url.pathname === '/missing.png') {
       res.writeHead(404);
       res.end();
@@ -80,7 +106,9 @@ beforeAll(async () => {
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   address = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  browser = await chromium.launch({ headless: true, executablePath: process.env.RI_REVIEW_CHROMIUM });
+  // Headless Chromium drops some clicks into an out-of-process sandboxed
+  // frame. In process, keys still reach only the focused frame's document.
+  browser = await chromium.launch({ headless: true, executablePath: process.env.RI_REVIEW_CHROMIUM, args: ['--disable-features=IsolateSandboxedIframes'] });
 }, 90_000);
 
 afterAll(async () => {
@@ -205,6 +233,83 @@ it.skipIf(!enabled)('keeps image and lightbox header hover clear while thumbnail
     await sourceText.hover();
     await page.waitForTimeout(700);
     expect(await page.getByRole('tooltip').count()).toBe(0);
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('closes the image lightbox on the first Escape, with the pointer resting on the image', async () => {
+  const page = await openPage();
+  try {
+    const card = page.getByRole('button', { name: 'Open image: Uploaded diagram.svg' });
+    await page.getByRole('img', { name: 'An uploaded diagram' }).waitFor();
+    await card.click();
+    const dialog = page.getByRole('dialog');
+    const fullImage = dialog.getByRole('img', { name: 'An uploaded diagram' });
+    await fullImage.waitFor();
+    // A hover tooltip over the image was a dismissable layer above the
+    // dialog, so the first Escape only closed the tooltip.
+    await hoverImageArea(page, fullImage);
+    await page.waitForTimeout(700);
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    expect(await card.evaluate(el => el === document.activeElement)).toBe(true);
+  } finally { await page.close(); }
+}, 30_000);
+
+async function openGallery(page: Page) {
+  const opener = page.getByRole('button', { name: 'Open gallery preview', exact: true });
+  await opener.click();
+  const dialog = page.getByRole('dialog');
+  await dialog.waitFor();
+  const frame = page.frameLocator('iframe[title="HTML preview: gallery.html"]');
+  await frame.getByRole('heading', { name: 'Gallery' }).waitFor();
+  return { opener, dialog, frame };
+}
+
+it.skipIf(!enabled)('closes an HTML preview on Escape after focus moves into the artifact', async () => {
+  const page = await openPage();
+  try {
+    const { opener, dialog, frame } = await openGallery(page);
+    // Escape before anything inside is focused, as with an image.
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    expect(await opener.evaluate(el => el === document.activeElement)).toBe(true);
+
+    await openGallery(page);
+    await frame.getByRole('heading', { name: 'Gallery' }).click();
+    expect(await frame.locator('body').evaluate(() => document.hasFocus())).toBe(true);
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    expect(await opener.evaluate(el => el === document.activeElement)).toBe(true);
+
+    await openGallery(page);
+    const filter = frame.getByRole('textbox', { name: 'Filter shots' });
+    await filter.click();
+    await page.keyboard.type('dusk');
+    expect(await filter.inputValue()).toBe('dusk');
+    expect(await filter.evaluate(el => el === document.activeElement && document.hasFocus())).toBe(true);
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('leaves an Escape the artifact used to it, and ignores messages from anywhere but the frame', async () => {
+  const page = await openPage();
+  try {
+    const { dialog, frame } = await openGallery(page);
+    await frame.getByRole('button', { name: 'Sort', exact: true }).click();
+    const menu = frame.getByRole('menu');
+    await menu.waitFor();
+    expect(await menu.evaluate(() => document.hasFocus())).toBe(true);
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'hidden' });
+    await page.waitForTimeout(300);
+    expect(await dialog.isVisible()).toBe(true);
+    // Ri's own window posting the same message is not the frame.
+    await page.evaluate(type => window.postMessage({ type, key: 'Escape' }, '*'), HTML_PREVIEW_KEY_MESSAGE);
+    await page.waitForTimeout(300);
+    expect(await dialog.isVisible()).toBe(true);
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
   } finally { await page.close(); }
 }, 30_000);
 

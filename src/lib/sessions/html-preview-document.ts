@@ -21,6 +21,36 @@ export const HTML_PREVIEW_CSP = [
  * Ri's own pages. */
 export const HTML_PREVIEW_RESPONSE_CSP = `sandbox ${HTML_PREVIEW_SANDBOX}; ${HTML_PREVIEW_CSP}; frame-ancestors 'self'`;
 
+/** What an opened preview posts to its parent to hand Escape back to Ri. */
+export const HTML_PREVIEW_KEY_MESSAGE = 'ri:html-preview-key';
+
+// A key pressed in the frame reaches only the frame's document, so once
+// someone clicks into an artifact the dialog or pane around it never hears
+// Escape. Hand it back, unless the artifact used the key itself (to close
+// its own menu, say). Listening on the window's bubble phase runs after the
+// artifact's own document and element listeners.
+const ESCAPE_HANDOFF = `
+addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+  parent.postMessage({ type: '${HTML_PREVIEW_KEY_MESSAGE}', key: 'Escape', shiftKey: event.shiftKey, altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey }, '*');
+});`;
+
+/** The keydown a preview frame handed back, to replay on its iframe, or
+ * null for any other message. Only Escape crosses, with its modifiers. */
+export function htmlPreviewKey(data: unknown): KeyboardEventInit | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const message = data as Record<string, unknown>;
+  if (message.type !== HTML_PREVIEW_KEY_MESSAGE || message.key !== 'Escape') return null;
+  return {
+    key: 'Escape',
+    code: 'Escape',
+    shiftKey: message.shiftKey === true,
+    altKey: message.altKey === true,
+    ctrlKey: message.ctrlKey === true,
+    metaKey: message.metaKey === true,
+  };
+}
+
 // Visualize artifacts leave variant navigation to their host. Provide that
 // small part of the host here, preserving each variant's live DOM and state.
 const VARIANT_NAVIGATION = `
@@ -65,9 +95,10 @@ export function htmlPreviewHead(theme: 'light' | 'dark'): string {
   return `<meta name="viewport" content="${PREVIEW_VIEWPORT}"><style>${previewStyle(theme)}</style>`;
 }
 
-/** What a served preview carries after the artifact's markup: the variant
- * control, which runs once the document above it has parsed. */
-export const HTML_PREVIEW_TAIL = `<script>${VARIANT_NAVIGATION}</script>`;
+/** What a served preview carries after the artifact's markup: the Escape
+ * handoff and the variant control, which run once the document above it has
+ * parsed. */
+export const HTML_PREVIEW_TAIL = `<script>${ESCAPE_HANDOFF}\n${VARIANT_NAVIGATION}</script>`;
 
 /** A served preview's version of Ri's own parts, for its cache validator. */
 export function htmlPreviewPartsVersion(theme: 'light' | 'dark'): string {

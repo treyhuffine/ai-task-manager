@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { FileX, RefreshCw, Loader2 } from 'lucide-react';
 import { syncSessionCookie } from '@/lib/api/client';
 import { useFolderFile } from '@/hooks/use-folder';
 import { htmlPreviewUrl, type FolderSource } from '@/lib/folders/source';
-import { HTML_PREVIEW_SANDBOX } from '@/lib/sessions/html-preview-document';
+import { HTML_PREVIEW_SANDBOX, htmlPreviewKey } from '@/lib/sessions/html-preview-document';
 import { FileSkeleton } from '../skeletons';
 import { useQuery } from '@tanstack/react-query';
 import { captureHtmlThumbnail, htmlThumbnailVersion } from '@/lib/sessions/html-thumbnail';
@@ -41,6 +41,20 @@ function HtmlPreview({ source, path }: { source: FolderSource; path: string }) {
   // it: an unchanged file answers 304, a rewritten one comes in fresh.
   const frame = `${generation}:${src}`;
   const loading = loadedFrame !== frame;
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  // The served document hands Escape back (`html-preview-document.ts`).
+  // Replayed on the iframe, it means what Escape means anywhere on the page:
+  // the preview dialog closes, the file viewer's pane folds.
+  useEffect(() => {
+    const receive = (event: MessageEvent) => {
+      const element = frameRef.current;
+      if (!element || event.source !== element.contentWindow) return;
+      const key = htmlPreviewKey(event.data);
+      if (key) element.dispatchEvent(new KeyboardEvent('keydown', { ...key, bubbles: true, cancelable: true, composed: true }));
+    };
+    window.addEventListener('message', receive);
+    return () => window.removeEventListener('message', receive);
+  }, []);
 
   if (!hydrated || !cookieReady) return <FileSkeleton variant="prose" />;
   return (
@@ -56,6 +70,7 @@ function HtmlPreview({ source, path }: { source: FolderSource; path: string }) {
       </div>
       <iframe
         key={frame}
+        ref={frameRef}
         title={`HTML preview: ${path.split('/').at(-1)}`}
         sandbox={HTML_PREVIEW_SANDBOX}
         referrerPolicy="no-referrer"
