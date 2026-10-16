@@ -5,6 +5,7 @@ import {
 	AUTH_TOKEN_STORAGE_KEY,
 	getAuthToken,
 	setAuthToken,
+	syncSessionCookie,
 } from '@/lib/api/client';
 import { trpcClient } from '@/lib/trpc/client';
 import { rpcOptions } from '@/lib/trpc/request-options';
@@ -62,10 +63,7 @@ export function PairingBootstrap() {
         // Mirror into an httpOnly cookie so browser-native loads authenticate
         // without a header. Fire-and-forget: Bearer-header calls still work
         // if this fails.
-        fetch('/api/session', {
-          method: 'POST',
-          headers: { authorization: `Bearer ${fromUrl}` },
-        }).catch(() => {});
+        void syncSessionCookie(fromUrl);
         const clean = window.location.pathname + window.location.search;
         window.history.replaceState(null, '', clean);
         return;
@@ -82,12 +80,7 @@ export function PairingBootstrap() {
     // httpOnly cookie so we can't check whether we already set one; calling
     // the endpoint is idempotent (sets the same value) and cheap. This also
     // keeps the cookie's Max-Age sliding forward each time the app loads.
-    if (existing) {
-      fetch('/api/session', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${existing}` },
-      }).catch(() => {});
-    }
+    if (existing) void syncSessionCookie(existing);
   }, [pathname, router, queryClient]);
 
   // A worker's association link can arrive in a page that's already open,

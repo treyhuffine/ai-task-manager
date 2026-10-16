@@ -107,3 +107,11 @@ it('accepts a file URL from a reply, but refuses a disguised non-HTML file', asy
   expect(await get(fileUrl)).toMatchObject({ ok: true, data: { mime: 'text/html' } });
   expect(await get(disguised)).toMatchObject({ ok: false, status: 415 });
 });
+
+it('reports a shared HTML artifact past its cap as too large to draw, which the streamed preview still opens', async () => {
+  const { q, outside, session, get } = await setup();
+  const gallery = path.join(outside, 'gallery.html');
+  fs.writeFileSync(gallery, `<!doctype html>${'<img src="data:image/png;base64,AAAA">'.repeat(60_000)}`);
+  q.insertChatEvent({ sessionId: session.id, role: 'assistant', source: 'agent', content: `Open ${gallery}` });
+  expect(await get(gallery)).toMatchObject({ ok: true, data: { mime: 'text/html', tooLarge: true, content: null } });
+});

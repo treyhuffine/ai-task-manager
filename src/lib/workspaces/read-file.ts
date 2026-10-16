@@ -113,7 +113,9 @@ export async function readFileAt(absolute: string, shown: string): Promise<FileR
   };
 }
 
-function sanitizeRelPath(rel: string): string | null {
+/** A folder-relative path, normalized, or null when it is absolute or
+ * climbs out of the folder. */
+export function sanitizeRelPath(rel: string): string | null {
   if (!rel || typeof rel !== 'string') return null;
   if (path.isAbsolute(rel)) return null;
   // Reject any traversal — `path.normalize` would silently collapse them.

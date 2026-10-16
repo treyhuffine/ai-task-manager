@@ -11,6 +11,8 @@ procedure. There are 356 procedures, covering all application JSON domains.
 The route inventory accounts for all 312 API route files: 258 shared-operation
 paths, 13 core entity paths and 41 explicit protocol boundaries (the 41st,
 `/sessions/[id]/reply-image`, came after: image bytes for an `<img>`).
+`/sessions/[id]/html` and `/workspaces/[id]/html` came after too: an HTML
+document streamed into a preview iframe.
 
 ## Architecture
 

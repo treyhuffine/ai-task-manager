@@ -23,11 +23,11 @@ const protocolRoutes = new Set([
   '/chat-sources/action', '/local-apps/action', '/local-apps/broker/v1/[operation]',
   // Package bytes and the backup CLI's cross-process pause/resume lease.
   '/local-apps/import', '/local-apps/export/[name]', '/local-apps/backup',
-  '/preview/settings/connect-device', '/session', '/sessions/[id]/reply-image', '/sessions/[id]/stream', '/sessions/[id]/terminals/[terminalId]/stream', '/sessions/stream',
+  '/preview/settings/connect-device', '/session', '/sessions/[id]/html', '/sessions/[id]/reply-image', '/sessions/[id]/stream', '/sessions/[id]/terminals/[terminalId]/stream', '/sessions/stream',
   '/stt-bench', '/trpc/[trpc]', '/version', '/webhooks/pebble', '/webhooks/pocket', '/webhooks/triggers/[public_id]',
   '/workers/enroll', '/workers/grants', '/workers/me/associations', '/workers/me/attachments/[fileName]', '/workers/me/commands/[id]/ack',
   '/workers/me/events', '/workers/me/heartbeat', '/workers/me/requests/[id]/result', '/workers/me', '/workers/me/stream',
-  '/workers/me/terminals/output', '/workspaces/[id]/terminals/[terminalId]/stream',
+  '/workers/me/terminals/output', '/workspaces/[id]/html', '/workspaces/[id]/terminals/[terminalId]/stream',
   // A team's grants are their own credential, like enrollment, and its host's
   // installation administration takes only the host's key (src/lib/team/admission.ts).
   '/team/public/info', '/team/public/preview', '/team/public/join', '/team/public/sign-in', '/team/public/setup',

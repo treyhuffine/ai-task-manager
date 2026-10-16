@@ -1,11 +1,11 @@
 'use client';
 
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { FileX, RefreshCw, Loader2 } from 'lucide-react';
-import { apiErrorText } from '@/lib/api/client';
+import { syncSessionCookie } from '@/lib/api/client';
 import { useFolderFile } from '@/hooks/use-folder';
-import type { FolderSource } from '@/lib/folders/source';
-import { HTML_PREVIEW_SANDBOX, htmlPreviewDocument } from '@/lib/sessions/html-preview-document';
+import { htmlPreviewUrl, type FolderSource } from '@/lib/folders/source';
+import { HTML_PREVIEW_SANDBOX } from '@/lib/sessions/html-preview-document';
 import { FileSkeleton } from '../skeletons';
 import { useQuery } from '@tanstack/react-query';
 import { captureHtmlThumbnail, htmlThumbnailVersion } from '@/lib/sessions/html-thumbnail';
@@ -21,55 +21,76 @@ const subscribeToTheme = (notify: () => void) => {
   return () => observer.disconnect();
 };
 
-/** One sandboxed renderer for chat artifacts and the file viewer. Loading
- * stays on the existing typed folder API, including connected-device reads. */
+/** One sandboxed renderer for chat artifacts and the file viewer. An opened
+ * preview loads the file as its own document from the `html` route, streamed
+ * into the frame by the browser, so its size never passes through Ri's page.
+ * A card's thumbnail reads the source through the typed folder API instead,
+ * bounded by the file viewer's cap, including connected-device reads. */
 export function HtmlView({ source, path, thumbnail = false }: { source: FolderSource; path: string; thumbnail?: boolean }) {
-  const { data, error, isFetching, refetch } = useFolderFile(source, path);
+  return thumbnail ? <HtmlCardThumbnail source={source} path={path} /> : <HtmlPreview source={source} path={path} />;
+}
+
+function HtmlPreview({ source, path }: { source: FolderSource; path: string }) {
   const theme = useSyncExternalStore(subscribeToTheme, themeSnapshot, serverThemeSnapshot);
   const hydrated = useSyncExternalStore(subscribeToHydration, browserSnapshot, serverSnapshot);
+  const cookieReady = useSessionCookieReady();
   const [generation, setGeneration] = useState(0);
-  const content = data?.content;
-  const document = useMemo(() => !thumbnail && hydrated && typeof content === 'string' && !data?.isBinary && !data?.tooLarge
-    ? htmlPreviewDocument(content, theme) : null,
-  [hydrated, content, data?.isBinary, data?.tooLarge, theme, thumbnail]);
+  const [loadedFrame, setLoadedFrame] = useState<string | null>(null);
+  const src = htmlPreviewUrl(source, path, theme);
+  // Reload mounts a new frame on the same URL, and the browser revalidates
+  // it: an unchanged file answers 304, a rewritten one comes in fresh.
+  const frame = `${generation}:${src}`;
+  const loading = loadedFrame !== frame;
 
-  if (error || data?.tooLarge || data?.isBinary) {
-    if (thumbnail) return <span className="flex h-full items-center justify-center gap-1.5 text-[11px] text-muted-foreground"><FileX size={14} />Preview unavailable</span>;
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-        <FileX size={20} />
-        <p>{error ? apiErrorText(error) : data?.tooLarge ? 'This HTML file exceeds the 1 MiB preview limit.' : 'This file is not readable HTML.'}</p>
-        {error && !thumbnail && <button type="button" onClick={() => void refetch()} className="underline">Try again</button>}
-      </div>
-    );
-  }
-  if (!data || !hydrated) return thumbnail ? <ThumbnailLoading /> : <FileSkeleton variant="prose" />;
-
-  if (thumbnail && typeof content === 'string') return <HtmlThumbnail path={path} content={content} theme={theme} />;
-  if (!document) return <FileSkeleton variant="prose" />;
-
+  if (!hydrated || !cookieReady) return <FileSkeleton variant="prose" />;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 justify-end border-b border-border px-3 py-1">
         <button
           type="button"
-          disabled={isFetching}
-          onClick={() => void refetch().then(() => setGeneration(value => value + 1))}
-          className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+          onClick={() => setGeneration(value => value + 1)}
+          className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          <RefreshCw size={12} /> Reload preview
+          {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Reload preview
         </button>
       </div>
       <iframe
-        key={`${path}:${generation}`}
+        key={frame}
         title={`HTML preview: ${path.split('/').at(-1)}`}
         sandbox={HTML_PREVIEW_SANDBOX}
         referrerPolicy="no-referrer"
-        srcDoc={document}
+        src={src}
+        aria-busy={loading}
+        onLoad={() => setLoadedFrame(frame)}
         className="min-h-0 w-full flex-1 border-0 bg-background"
       />
     </div>
   );
+}
+
+/** The frame authenticates with the session cookie, so wait for the page's
+ * cookie sync (already settled, except right after pairing). */
+function useSessionCookieReady(): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void syncSessionCookie().then(() => { if (live) setReady(true); });
+    return () => { live = false; };
+  }, []);
+  return ready;
+}
+
+function HtmlCardThumbnail({ source, path }: { source: FolderSource; path: string }) {
+  const { data, error } = useFolderFile(source, path);
+  const theme = useSyncExternalStore(subscribeToTheme, themeSnapshot, serverThemeSnapshot);
+  const hydrated = useSyncExternalStore(subscribeToHydration, browserSnapshot, serverSnapshot);
+  // Too large to draw small is not too large to open: the full preview streams it.
+  if (data?.tooLarge) return <span className="flex h-full items-center justify-center text-[11px] text-muted-foreground">Open to preview</span>;
+  if (error || data?.isBinary || data?.content === null) {
+    return <span className="flex h-full items-center justify-center gap-1.5 text-[11px] text-muted-foreground"><FileX size={14} />Preview unavailable</span>;
+  }
+  if (!data || !hydrated) return <ThumbnailLoading />;
+  return <HtmlThumbnail path={path} content={data.content} theme={theme} />;
 }
 
 function ThumbnailLoading() {

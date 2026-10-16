@@ -16,6 +16,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveMime } from '@/lib/attachments/mime';
+import { htmlTooLargeMessage } from './html-preview-response';
 
 export type ReplyFile =
   | { ok: true; file: string; mime: string; size: number }
@@ -77,7 +78,7 @@ export async function findReplyFile(
   }
   // The real path decides the type too, so a link named .png can't serve something else.
   if (!allowed(real)) return { ok: false, status: 415, error: `Only ${plural} are shown here` };
-  if (size > options.maxBytes) return { ok: false, status: 413, error: options.kind === 'image' ? 'Image is too large to show' : 'This HTML file exceeds the 1 MiB preview limit.' };
+  if (size > options.maxBytes) return { ok: false, status: 413, error: options.kind === 'image' ? 'Image is too large to show' : htmlTooLargeMessage(size, options.maxBytes) };
 
   let inFolder = false;
   if (chat.folder) {

@@ -405,8 +405,12 @@ interface FileResponse {
 }
 ```
 
-Size cap: 1 MiB. Larger files return `{ isBinary: true, content: null }`
-with a "File too large to preview" affordance in the viewer.
+Size cap: 1 MiB. Larger files return `{ isBinary: false, content: null, tooLarge: true }`
+with a "File too large to preview" affordance in the viewer. The cap is the
+editor's (CodeMirror holds the whole file). HTML Preview doesn't go through
+it: the iframe loads the file as its own document from
+`/api/sessions/:id/html` or `/api/workspaces/:id/html`, streamed up to 256 MiB
+(see "Interactive HTML in replies" in `docs/chat-sessions.md`).
 
 ### Action state machine
 

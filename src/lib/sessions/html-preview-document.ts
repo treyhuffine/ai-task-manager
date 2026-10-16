@@ -15,6 +15,12 @@ export const HTML_PREVIEW_CSP = [
   "form-action 'none'",
 ].join('; ');
 
+/** The policy an opened preview is served with (`html-preview-response.ts`).
+ * As a response header, `sandbox` gives the document an opaque origin even if
+ * it is ever loaded outside the iframe, and `frame-ancestors` keeps it to
+ * Ri's own pages. */
+export const HTML_PREVIEW_RESPONSE_CSP = `sandbox ${HTML_PREVIEW_SANDBOX}; ${HTML_PREVIEW_CSP}; frame-ancestors 'self'`;
+
 // Visualize artifacts leave variant navigation to their host. Provide that
 // small part of the host here, preserving each variant's live DOM and state.
 const VARIANT_NAVIGATION = `
@@ -45,7 +51,35 @@ document.querySelectorAll('.viz-carousel').forEach(root => {
   nav.append(previous, picker, next); root.append(nav); show(index);
 });`;
 
-/** Called only in the browser. DOMParser is inert: source scripts execute
+const PREVIEW_VIEWPORT = 'width=device-width, initial-scale=1';
+
+/** Ri's styles for every preview: its theme, and the variant control above. */
+function previewStyle(theme: 'light' | 'dark'): string {
+  return `:root{color-scheme:${theme}}body{margin:0}[data-ri-variants]{position:sticky;bottom:12px;z-index:1000;display:flex;justify-content:center;gap:8px;width:max-content;max-width:calc(100% - 24px);margin:12px auto;padding:8px;border:1px solid light-dark(#ddd,#444);border-radius:12px;background:light-dark(#fff,#202020);color:light-dark(#222,#eee);font:13px system-ui}[data-ri-variants] button,[data-ri-variants] select{font:inherit;padding:6px 8px;background:transparent;color:inherit;border:1px solid light-dark(#ddd,#555);border-radius:6px;cursor:pointer}[data-ri-variants] select{min-width:0}`;
+}
+
+/** What a served preview carries ahead of the artifact's own markup. The
+ * parser puts it in the document's head, and the artifact's later styles and
+ * viewport win over it, as they do in `htmlPreviewDocument`. */
+export function htmlPreviewHead(theme: 'light' | 'dark'): string {
+  return `<meta name="viewport" content="${PREVIEW_VIEWPORT}"><style>${previewStyle(theme)}</style>`;
+}
+
+/** What a served preview carries after the artifact's markup: the variant
+ * control, which runs once the document above it has parsed. */
+export const HTML_PREVIEW_TAIL = `<script>${VARIANT_NAVIGATION}</script>`;
+
+/** A served preview's version of Ri's own parts, for its cache validator. */
+export function htmlPreviewPartsVersion(theme: 'light' | 'dark'): string {
+  const parts = htmlPreviewHead(theme) + HTML_PREVIEW_TAIL;
+  let hash = 2166136261;
+  for (let i = 0; i < parts.length; i++) hash = Math.imul(hash ^ parts.charCodeAt(i), 16777619);
+  return (hash >>> 0).toString(36);
+}
+
+/** The thumbnail's renderer (`html-thumbnail.ts`), called only in the
+ * browser. Opened previews are served whole instead (`html-preview-response.ts`).
+ * DOMParser is inert: source scripts execute
  * only after the serialized document enters the sandboxed iframe. */
 export function htmlPreviewDocument(html: string, theme: 'light' | 'dark', interactive = true): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -60,9 +94,9 @@ export function htmlPreviewDocument(html: string, theme: 'light' | 'dark', inter
   }
   const viewport = doc.createElement('meta');
   viewport.name = 'viewport';
-  viewport.content = 'width=device-width, initial-scale=1';
+  viewport.content = PREVIEW_VIEWPORT;
   const style = doc.createElement('style');
-  style.textContent = `:root{color-scheme:${theme}}body{margin:0}[data-ri-variants]{position:sticky;bottom:12px;z-index:1000;display:flex;justify-content:center;gap:8px;width:max-content;max-width:calc(100% - 24px);margin:12px auto;padding:8px;border:1px solid light-dark(#ddd,#444);border-radius:12px;background:light-dark(#fff,#202020);color:light-dark(#222,#eee);font:13px system-ui}[data-ri-variants] button,[data-ri-variants] select{font:inherit;padding:6px 8px;background:transparent;color:inherit;border:1px solid light-dark(#ddd,#555);border-radius:6px;cursor:pointer}[data-ri-variants] select{min-width:0}`;
+  style.textContent = previewStyle(theme);
   if (!interactive) style.textContent += '*{animation-duration:0s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
   doc.head.prepend(policy, viewport, style);
   if (interactive) {

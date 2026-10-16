@@ -27,6 +27,14 @@ export function folderApiBase(source: FolderSource): FolderApiBase {
 }
 
 /**
+ * The document an HTML preview's iframe loads: the file, served whole with
+ * Ri's theme and isolation (`src/lib/sessions/html-preview-response.ts`).
+ */
+export function htmlPreviewUrl(source: FolderSource, path: string, theme: 'light' | 'dark'): string {
+  return `/api${folderApiBase(source)}/html?path=${encodeURIComponent(path)}&theme=${theme}`;
+}
+
+/**
  * Whether files can be created, edited, renamed or deleted from the app.
  * Both an execution's worktree and an agent's own folder can, except an
  * archived agent's. Edits here are the person's: the agent's main chat

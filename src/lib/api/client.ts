@@ -154,6 +154,26 @@ export function setAuthToken(token: string): void {
   }
 }
 
+let sessionCookie: { token: string; synced: Promise<void> } | null = null;
+
+/**
+ * Mirror this browser's token into the httpOnly session cookie, once per
+ * token per page, so loads the browser makes on its own authenticate without
+ * a header: an HTML preview's iframe (`html-view.tsx`). Calling it again
+ * returns the same request, so a preview opened right after pairing waits
+ * for the cookie instead of racing it. Never rejects, and bearer calls never
+ * depend on it.
+ */
+export function syncSessionCookie(token: string | null = getAuthToken()): Promise<void> {
+  if (typeof window === 'undefined' || !token) return Promise.resolve();
+  if (sessionCookie?.token !== token) {
+    const synced = fetch('/api/session', { method: 'POST', headers: { authorization: `Bearer ${token}` } })
+      .then(() => undefined, () => undefined);
+    sessionCookie = { token, synced };
+  }
+  return sessionCookie.synced;
+}
+
 export function clearAuthToken(): void {
   if (typeof window === 'undefined') return;
   try {
@@ -165,6 +185,7 @@ export function clearAuthToken(): void {
 
 function defaultOnUnauthorized(): void {
   clearAuthToken();
+  sessionCookie = null;
   if (typeof window === 'undefined') return;
   // Clear the httpOnly session cookie server-side. Fire-and-forget — if it
   // fails, the cookie will just fail middleware on next use anyway, it can't
