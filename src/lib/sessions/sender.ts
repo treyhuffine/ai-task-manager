@@ -48,3 +48,16 @@ export function withSenderLabel(text: string, senderSessionId: string | null | u
   if (!senderSessionId) return text;
   return `[Message from ${describeSender(senderSessionId)}, sent on the user's behalf]\n\n${text}`;
 }
+
+/**
+ * The label for a message a connected app sent for the user (OpenAI's
+ * `ui/message` with `send`, `raw.sentByApp` on the stored message). Like a
+ * chat's, it keeps the harness from mistaking the app's words for the user
+ * typing, without treating them as anything less than the user's request.
+ */
+export function withAppLabel(text: string, sentByApp: unknown): string {
+  const app = (sentByApp as { app?: unknown } | null | undefined)?.app;
+  if (typeof app !== 'string' || !app.trim()) return text;
+  const name = app.trim().slice(0, 120).replace(/["\n\r]/g, ' ');
+  return `[Message from the "${name}" app, sent on the user's behalf while they used it]\n\n${text}`;
+}

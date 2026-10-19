@@ -62,6 +62,8 @@ export function toChatEventDTO(row: ChatEventRecord): ChatEventDTO {
     raw: decodeBackgroundTaskEvent(row.raw) || row.source === 'continuation' ? row.raw
       : row.source === 'work_result' && str(raw?.resultId) ? { resultId: raw!.resultId }
       : raw?.resultOperation && typeof raw.resultOperation === 'object' ? { resultOperation: raw.resultOperation }
+      // A message a connected app sent names the app, and only that, never its frozen context.
+      : row.source === 'user' && raw?.sentByApp && typeof raw.sentByApp === 'object' ? { sentByApp: { app: str((raw.sentByApp as Record<string, unknown>).app) } }
       : null,
     rawSubtype: str(raw?.subtype),
     rawModel: str(raw?.model),

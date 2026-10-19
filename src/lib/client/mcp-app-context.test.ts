@@ -1,5 +1,5 @@
-import { expect, it } from 'vitest';
-import { registerConnectedContext, selectConnectedContext, flushConnectedContext } from './mcp-app-context';
+import { describe, expect, it, vi } from 'vitest';
+import { registerConnectedContext, selectConnectedContext, flushConnectedContext, visibleToPerson, visibleContextItems, connectedContextGroups, setConnectedContextContent, subscribeConnectedContext, connectedContextVersion } from './mcp-app-context';
 
 it('attaches only the selected acknowledged view in the exact receiving chat', async () => {
   const a=registerConnectedContext('chat-a','view-a',async()=>({viewId:'view-a',revision:2}));
@@ -19,4 +19,64 @@ it('waits for context acknowledgement and propagates a failure to the send flow'
   await Promise.resolve(); expect(finished).toBe(false); acknowledge(); expect(await flush).toEqual([{viewId:'view-c',revision:4}]); cleanup();
   const failed=registerConnectedContext('chat-c','view-c',async()=>{throw new Error('Access changed');});
   selectConnectedContext('chat-c','view-c'); await expect(flushConnectedContext('chat-c')).rejects.toThrow('Access changed');failed();
+});
+
+describe('what apps attached, as the composer shows it', () => {
+  const bolt = { type: 'text', text: 'Selected: M6 hex bolt', _meta: { 'openai/title': 'M6 hex bolt', 'openai/thumbnail': { src: 'https://example.com/bolt.png' } } };
+  const hidden = { type: 'text', text: 'Viewer camera: isometric', annotations: { audience: ['assistant'] } };
+  const both = { type: 'text', text: 'Shared with both', annotations: { audience: ['user', 'assistant'] } };
+
+  it('shows titled, thumbnailed, image and link items and hides blocks for the assistant alone', () => {
+    expect(visibleToPerson(hidden)).toBe(false);
+    expect(visibleToPerson(both)).toBe(true);
+    expect(visibleContextItems([bolt, hidden, both,
+      { type: 'image', data: 'AAAA', mimeType: 'image/png', _meta: { 'openai/title': 'Front view' } },
+      { type: 'image', data: 'AAAA', mimeType: 'text/html' },
+      { type: 'resource_link', uri: 'cad://parts/washer', name: 'washer.stl', title: 'M6 washer' },
+      { type: 'resource', resource: { uri: 'cad://parts/nut', text: '# Nut' } },
+      { type: 'text', text: 'Unsafe', _meta: { 'openai/thumbnail': { src: 'javascript:alert(1)' } } },
+    ])).toEqual([
+      { kind: 'text', title: 'M6 hex bolt', text: 'Selected: M6 hex bolt', thumbnail: { src: 'https://example.com/bolt.png' } },
+      { kind: 'text', text: 'Shared with both' },
+      { kind: 'image', title: 'Front view', src: 'data:image/png;base64,AAAA' },
+      { kind: 'link', title: 'M6 washer', uri: 'cad://parts/washer' },
+      { kind: 'resource', title: 'cad://parts/nut', uri: 'cad://parts/nut', text: '# Nut' },
+      { kind: 'text', text: 'Unsafe' },
+    ]);
+  });
+
+  it('groups the chat\'s view and the global screen, each removable, and never an assistant-only group', async () => {
+    const clearChat = vi.fn(async () => {}), clearScreen = vi.fn(async () => {});
+    const offChat = registerConnectedContext('chat-g', 'view-chat', async () => ({ viewId: 'view-chat', revision: 1 }), { app: 'Bits & Bolts', clear: clearChat, content: [bolt] });
+    const offScreen = registerConnectedContext(null, 'view-screen', async () => ({ viewId: 'view-screen', revision: 4 }), { app: 'Parts Library', clear: clearScreen, content: [hidden] });
+    selectConnectedContext('chat-g', 'view-chat');
+    selectConnectedContext(null, 'view-screen');
+    // The screen attached only assistant context: it is sent, but there is nothing to show.
+    expect(connectedContextGroups('chat-g').map(group => group.app)).toEqual(['Bits & Bolts']);
+    expect(await flushConnectedContext('chat-g')).toEqual([{ viewId: 'view-chat', revision: 1 }, { viewId: 'view-screen', revision: 4 }]);
+    // Another chat gets only the global screen's.
+    expect(await flushConnectedContext('chat-other')).toEqual([{ viewId: 'view-screen', revision: 4 }]);
+    setConnectedContextContent(null, 'view-screen', [both]);
+    const groups = connectedContextGroups('chat-g');
+    expect(groups.map(group => group.app)).toEqual(['Bits & Bolts', 'Parts Library']);
+    await groups[1]!.remove();
+    expect(clearScreen).toHaveBeenCalledOnce();
+    expect(clearChat).not.toHaveBeenCalled();
+    setConnectedContextContent(null, 'view-screen', null);
+    expect(connectedContextGroups('chat-g').map(group => group.app)).toEqual(['Bits & Bolts']);
+    offChat(); offScreen();
+    expect(connectedContextGroups('chat-g')).toEqual([]);
+  });
+
+  it('tells subscribers about every change', () => {
+    const listener = vi.fn();
+    const off = subscribeConnectedContext(listener);
+    const before = connectedContextVersion();
+    const unregister = registerConnectedContext('chat-s', 'view-s', async () => undefined);
+    selectConnectedContext('chat-s', 'view-s');
+    unregister();
+    expect(listener).toHaveBeenCalledTimes(3);
+    expect(connectedContextVersion()).toBe(before + 3);
+    off();
+  });
 });

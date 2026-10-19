@@ -8,8 +8,12 @@ import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { trpcClient } from '@/lib/trpc/client';
 import type { RouterOutputs } from '@/lib/trpc/router';
-import { registerConnectedContext, selectConnectedContext } from '@/lib/client/mcp-app-context';
-import { requestAppChatDraft } from '@/lib/client/app-chat-intent';
+import { registerConnectedContext, selectConnectedContext, setConnectedContextContent, type ContextBlock } from '@/lib/client/mcp-app-context';
+import { requestAppChatMessage } from '@/lib/client/app-chat-intent';
+import { AppMessageGate, appMessageParts, draftNotice, routeAppMessage, type GateRefusal } from '@/lib/client/app-message';
+import { appMessageRouting } from '@/lib/client/app-message-routing';
+import { uploadAttachment } from '@/lib/attachments/client';
+import { useOptionalDashboard } from '@/contexts/dashboard-context';
 import { useConnectedCompanion } from '@/lib/client/mcp-app-panel';
 import { runConnectedInvocation } from '@/lib/client/mcp-app-invocation';
 
@@ -69,12 +73,39 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
   const [height, setHeight] = useState(420);
   const [pending, setPending] = useState<Pending | null>(null);
   const [ready, setReady] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const onExpandRef = useRef(onExpand);
   useEffect(() => { onExpandRef.current = onExpand; }, [onExpand]);
+  const dashboard = useOptionalDashboard();
+  const dashboardRef = useRef(dashboard);
+  useEffect(() => { dashboardRef.current = dashboard; }, [dashboard]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 12_000);
+    return () => clearTimeout(timer);
+  }, [notice]);
   useEffect(() => {
     const resource = view.resource;
-    if (!mount.current || !resource) return;
+    const frame = mount.current;
+    if (!frame || !resource) return;
     let disposed = false, revision = view.revision;
+    // Where this view's model context goes: its chat, or for a global screen whichever chat its
+    // person sends in next. A settings or preview window attaches nothing.
+    const scope = view.chatId ?? (view.kind === 'global' ? null : undefined);
+    const blocks = (context: unknown): ContextBlock[] | null => {
+      const value = context as {content?: unknown; structuredContent?: unknown} | null | undefined;
+      const content = Array.isArray(value?.content) ? value.content as ContextBlock[] : [];
+      return content.length || value?.structuredContent !== undefined ? content : null;
+    };
+    let attached = blocks(view.modelContext) !== null;
+    // Sends need the person working in this view (`AppMessageGate`).
+    const gate = new AppMessageGate();
+    const holdsFocus = () => frame.contains(document.activeElement) && document.hasFocus();
+    const noteFocus = () => setTimeout(() => { if (frame.contains(document.activeElement)) gate.noteInteraction(); }, 0);
+    const press = () => gate.noteInteraction();
+    window.addEventListener('blur', noteFocus);
+    frame.addEventListener('pointerdown', press, true);
+    frame.addEventListener('focusin', press);
     let waiting: Pending | null = null;
     const ask = (request: Omit<Pending, 'finish'>, signal: AbortSignal) => new Promise<boolean>((resolve, reject) => {
       if (waiting) { reject(new Error('Answer the current app approval first')); return; }
@@ -83,7 +114,7 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
       waiting = {...request, finish: approved => { signal.removeEventListener('abort', abort); waiting = null; setPending(null); resolve(approved); }};
       signal.addEventListener('abort', abort, {once: true}); setPending(waiting);
     });
-    const host = new AppViewController(mount.current, {
+    const host = new AppViewController(frame, {
       call: async (name, input, signal, meta) => {
         const invocationId = meta?.invocationId ?? crypto.randomUUID();
         const args = (input ?? {}) as Record<string, unknown>;
@@ -95,9 +126,11 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
         });
       },
       context: async context => {
-        if (view.chatId) selectConnectedContext(view.chatId, view.id);
+        if (scope !== undefined) selectConnectedContext(scope, view.id);
         const accepted = await trpcClient.connectedApps.context.mutate({viewId: view.id, context});
         revision = accepted.revision;
+        attached = blocks(context) !== null;
+        if (scope !== undefined) setConnectedContextContent(scope, view.id, blocks(context));
         let widgetState: unknown;
         if (view.legacy) {
           const text = (context as {content?: {type: string; text?: string}[]}).content?.find(item => item.type === 'text')?.text;
@@ -116,11 +149,38 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
       error: error => { if (!disposed) setError(error.message); },
       ready: () => { if (!disposed) setReady(true); },
       resize: value => { if (!disposed) setHeight(value); },
-      ...(view.chatId ? {message: (text: string) => requestAppChatDraft(view.chatId!, text), displayMode: (mode: 'inline' | 'fullscreen' | 'pip') => onExpandRef.current(mode)} : {}),
+      // OpenAI's `ui/message` extension: rich content, to this chat or a new one, sent only while
+      // the person works in the view (docs/connected-mcp-apps.md, "Messages"). Otherwise a draft.
+      sendMessage: async (message, signal) => {
+        let send = message.send, refusal: GateRefusal | undefined;
+        if (send) {
+          const decision = gate.decide(holdsFocus());
+          if (!decision.send) { send = false; refusal = decision.reason; }
+        }
+        const parts = await appMessageParts(message.content, (file, name) => uploadAttachment(file, name));
+        if (signal.aborted) throw new Error('The app message was cancelled');
+        const chatId = await routeAppMessage(view.chatId, message.target, appMessageRouting(queryClient, dashboardRef.current));
+        const delivery = await requestAppChatMessage(chatId, {parts, send, fromApp: {viewId: view.id, app: view.app}});
+        if (disposed) return;
+        if (refusal) setNotice(draftNotice(view.app, refusal));
+        else if (send && delivery === 'drafted') setNotice(draftNotice(view.app, 'failed'));
+      },
+      ...(view.chatId ? {displayMode: (mode: 'inline' | 'fullscreen' | 'pip') => onExpandRef.current(mode)} : {}),
     });
     controller.current = host;
-    const unregister = view.chatId ? registerConnectedContext(view.chatId, view.id, async () => { await host.flushContext(); return revision ? {viewId: view.id, revision} : undefined; }) : undefined;
-    if (view.chatId && expanded && revision) selectConnectedContext(view.chatId, view.id);
+    // Removing the app's group in the composer drops its context here and tells the app (`openai/modelContext: null`).
+    const clear = async () => {
+      const cleared = await trpcClient.connectedApps.clearContext.mutate({viewId: view.id});
+      revision = cleared.revision;
+      attached = false;
+      if (scope !== undefined) setConnectedContextContent(scope, view.id, null);
+      host.hostContextChanged({'openai/modelContext': null});
+    };
+    const unregister = scope !== undefined ? registerConnectedContext(scope, view.id, async () => {
+      await host.flushContext();
+      return revision && attached ? {viewId: view.id, revision} : undefined;
+    }, {app: view.app, clear, content: blocks(view.modelContext)}) : undefined;
+    if (scope !== undefined && expanded && revision && attached) selectConnectedContext(scope, view.id);
     void host.open(resource, {id: view.id, packageDigest: resource.digest, path: '/', query: {}, initialData: null,
       theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light', mcp: {input: view.input, result: view.result, widgetState: view.widgetState}, displayMode: expanded ? 'fullscreen' : 'inline',
       displayModes: resource.displayModes.available, platform: 'web', fileResource: view.kind === 'file',
@@ -130,7 +190,10 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
         'openai/modelContext': view.modelContext,
       }}).catch(e => setError(e.message));
     const timer = setTimeout(() => { if (!disposed) setReady(current => { if (!current) setError('The app did not connect to Ri’s UI bridge. Its tools and text results are still available.'); return current; }); }, 20_000);
-    return () => { disposed = true; clearTimeout(timer); unregister?.(); waiting?.finish(false); controller.current = null; void host.dispose(); };
+    return () => {
+      disposed = true; clearTimeout(timer); unregister?.(); waiting?.finish(false); controller.current = null; void host.dispose();
+      window.removeEventListener('blur', noteFocus); frame.removeEventListener('pointerdown', press, true); frame.removeEventListener('focusin', press);
+    };
     // The capture is immutable. Refetch checks access without rebuilding the iframe.
   }, [view.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => controller.current?.theme(resolvedTheme === 'dark' ? 'dark' : 'light'), [resolvedTheme]);
@@ -138,6 +201,7 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
   return <div className="relative flex min-h-0 flex-1 flex-col">
     {pending && <div className="space-y-2 border-b border-amber-500/30 bg-amber-500/10 p-3 text-xs"><p className="font-medium">Allow this app operation?</p><pre className="max-h-32 overflow-auto whitespace-pre-wrap">{JSON.stringify(pending.preview, null, 2)}</pre><div className="flex gap-2"><Button size="xs" onClick={() => pending.finish(true)}>Allow once</Button><Button size="xs" variant="outline" onClick={() => pending.finish(false)}>Decline</Button></div></div>}
     {error && <p role="alert" className="border-b border-border p-3 text-xs text-destructive">{error}</p>}
+    {notice && <p role="status" className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground"><span className="min-w-0 flex-1">{notice}</span><button type="button" className="shrink-0 hover:text-foreground" onClick={() => setNotice(null)}>Dismiss</button></p>}
     {!ready && !error && <p role="status" className="absolute left-3 top-3 text-xs text-muted-foreground">Loading interface…</p>}
     {/* Inline, the frame is exactly the height the view reports (the host clamps it to 160 to 900 px), capped
         at 80% of the window, and the view scrolls inside only past that. It must not flex: a 0% flex basis in an

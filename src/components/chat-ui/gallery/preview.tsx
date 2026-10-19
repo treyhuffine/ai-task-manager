@@ -21,6 +21,7 @@ import { ResultRenderer } from '@/components/chat-ui/handoffs/result-renderer';
 import { ExecutionEvent } from '@/components/chat-ui/activity/execution-event';
 import { ConnectedView } from '@/components/mcp-apps/view';
 import { ConnectedCompanion } from '@/components/mcp-apps/companion';
+import { AppContextStrip, type AppContextGroupView } from '@/components/chat-ui/references/app-context-strip';
 import { galleryExample, type ChatUiExampleId } from './catalog';
 
 declare const __GALLERY_EXAMPLE__: ChatUiExampleId;
@@ -86,6 +87,24 @@ function Mentions() {
   </div>;
 }
 
+/** A composer with two apps' context, removable, and a message an app sent, through the real transcript. */
+function AppContext() {
+  const [groups, setGroups] = useState<AppContextGroupView[]>([
+    { viewId: 'parts', app: 'Parts Library', items: [
+      { kind: 'text', title: 'M6 hex bolt', text: 'Selected: M6 hex bolt, zinc plated, 30 mm' },
+      { kind: 'link', title: 'M6 washer', uri: 'parts://library/washer' },
+    ] },
+    { viewId: 'board', app: 'Planning Board', items: [{ kind: 'text', text: 'Column: This week, 4 cards' }] },
+  ]);
+  if (config.state === 'sent') return <section aria-label="Sent message">
+    <ExecutionEvent event={event('user', { id: 'app-message', role: 'user', content: 'Create a new part with Parts Library: a bracket for a 40 mm motor', raw: { sentByApp: { app: 'Parts Library' } } })} sessionId={CHAT_ID} handoffActions={false} />
+  </section>;
+  return <section aria-label="Composer" className="rounded-xl border border-border bg-card">
+    <AppContextStrip groups={groups} onRemove={viewId => setGroups(current => current.filter(group => group.viewId !== viewId))} />
+    <p className="px-3 pb-3 pt-2 text-[13px] text-muted-foreground">Ask about the selected part</p>
+  </section>;
+}
+
 function Example() {
   const revision = useSyncExternalStore(runtime.subscribe, runtime.snapshot, runtime.snapshot);
   const example = galleryExample(__GALLERY_EXAMPLE__);
@@ -97,6 +116,7 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'connections' && <ConnectionRequestCard event={runtime.events[0]} sessionId={CHAT_ID} />}
     {__GALLERY_EXAMPLE__ === 'mentions' && <Mentions />}
     {__GALLERY_EXAMPLE__ === 'references' && <References />}
+    {__GALLERY_EXAMPLE__ === 'app-context' && <AppContext />}
     {__GALLERY_EXAMPLE__ === 'edits' && <div className="space-y-4 text-sm"><p>I clarified the agenda and made the next steps easier to scan.</p><EntityEditChip entityType="note" entityId={RECORD_ID} /></div>}
     {__GALLERY_EXAMPLE__ === 'files' && <div className="space-y-5 text-sm"><p>Here are the review materials:</p><MessageFileChip attachment={{ fileName: 'gallery-agenda.txt', originalName: 'friday-agenda.txt', mimeType: 'text/plain', size: 99, uploadedAt: NOW }} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-image.svg', originalName: 'a-little-room-to-think.svg', mimeType: 'image/svg+xml', size: 720, uploadedAt: NOW }} fileUrl={() => IMAGE_URL} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-report.pdf', originalName: 'friday-review.pdf', mimeType: 'application/pdf', size: 48210, uploadedAt: NOW }} variant="block" /></div>}
     {__GALLERY_EXAMPLE__ === 'html' && <HtmlPreviewLink sessionId={CHAT_ID} path="review-plan.html">An interactive plan for the Friday review</HtmlPreviewLink>}

@@ -1,5 +1,6 @@
 import { flushAppContext } from '@/lib/client/app-context';
 import { flushConnectedContext } from '@/lib/client/mcp-app-context';
+import type { AppProvenance } from '@/lib/client/app-chat-intent';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import type { Attachment, EffortLevel, PermissionMode } from '@/db/types';
 import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
@@ -638,6 +639,8 @@ export function useCloseExecutionChat() {
 export interface SendMessageInput {
   content: string;
   attachments?: Attachment[];
+  /** A connected app sent it for the person (OpenAI's `ui/message` with `send`). */
+  fromApp?: AppProvenance;
 }
 
 interface InternalSendInput extends SendMessageInput {
@@ -784,6 +787,7 @@ export function useSendMessage(id: string) {
         connectedAppContext: await flushConnectedContext(id),
         attachments: input.attachments,
         eventId: input.eventId,
+        ...(input.fromApp ? { fromApp: { viewId: input.fromApp.viewId } } : {}),
       }),
     onMutate: (input) => {
       // Optimistic insert. The user's message lands in the transcript
@@ -819,7 +823,8 @@ export function useSendMessage(id: string) {
         partRevision: null,
         // A user's own optimistic row has no provider payload to lift
         // anything out of; the server's version arrives under the same id.
-        raw: null,
+        // One a connected app sent names the app from the start.
+        raw: input.fromApp ? { sentByApp: { app: input.fromApp.app } } : null,
         rawSubtype: null,
         rawModel: null,
         rawUsage: null,

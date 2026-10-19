@@ -6,7 +6,7 @@ vi.mock('@/lib/integrations/runtime', () => ({getIntegrationRuntime: mocks.runti
 vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: mocks.workspace, insertChatEvent: mocks.insert}));
 vi.mock('@/lib/integrations/approval', () => ({sessionCaller: (id: string) => ({type: 'mcp', id: `session:${id}`}), sessionIdFromCaller: (caller?: {type?: string; id?: string}) => caller?.type === 'mcp' && caller.id?.startsWith('session:') ? caller.id.slice(8) : null, listPendingApprovals: mocks.approvals, resolvePendingApprovals: mocks.decide, cancelConnectedAppApprovals: mocks.cancel}));
 vi.mock('@/lib/integrations/approval-events', () => ({recordApprovalDecision: vi.fn()}));
-import { prepareMcpResultCapture, connectedAppsCatalog, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource } from './service';
+import { prepareMcpResultCapture, connectedAppsCatalog, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource, connectedMessageSender } from './service';
 
 const chatId = randomUUID();
 const result = {content: [{type: 'text', text: 'Public summary'}], structuredContent: {total: 42}, _meta: {privateUi: 'Only for the interface'}};
@@ -309,5 +309,32 @@ describe('OpenAI entrypoints, deep links, resources and model context', () => {
       const {revision} = await updateConnectedContext(screen.id, 'viewer', {content: [{type: 'text', text: 'Library page'}]});
       expect(await freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}])).toMatchObject([{context: {content: [{text: 'Library page'}]}}]);
     });
+  });
+});
+
+describe('OpenAI model context files and app messages', () => {
+  const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+  it('freezes an image in context as an attachment marker, never its bytes, and hands the model the marker', async () => {
+    const view = await openConnectedView(await capture(), 'viewer', chatId);
+    const {revision} = await updateConnectedContext(view.id, 'viewer', {content: [{type: 'image', data: PIXEL, mimeType: 'image/png', _meta: {'openai/title': 'Front view'}}]});
+    const frozen = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision}]);
+    expect(JSON.stringify(frozen)).not.toContain(PIXEL);
+    const [item] = frozen as unknown as {files: {fileName: string; mimeType: string}[]; context: {content: {file: string}[]}}[];
+    expect(item!.files).toEqual([expect.objectContaining({mimeType: 'image/png', originalName: 'Front view'})]);
+    expect(item!.context.content[0]!.file).toBe(`[[file:${item!.files[0]!.fileName}]]`);
+    const turn = await connectedTurnContext(chatId, frozen);
+    expect(turn).toEqual([{sourceRef: view.sourceRef, app: 'Fixture', context: {content: [{type: 'image', mimeType: 'image/png', file: `[[file:${item!.files[0]!.fileName}]]`}]}}]);
+    // A second send with the same context reuses the same file.
+    const again = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision}]) as unknown as typeof frozen;
+    expect((again[0] as unknown as {files: {fileName: string}[]}).files[0]!.fileName).toBe(item!.files[0]!.fileName);
+  });
+
+  it('names the app behind a message only for the viewer of a live view it may still use', async () => {
+    const view = await openConnectedView(await capture(), 'viewer', chatId);
+    expect(await connectedMessageSender(view.id, 'viewer')).toEqual({app: 'Fixture', serverId: 'server', viewId: view.id});
+    await expect(connectedMessageSender(view.id, 'other')).rejects.toThrow('unavailable');
+    entry.enabled = false;
+    await expect(connectedMessageSender(view.id, 'viewer')).rejects.toThrow('disabled');
   });
 });

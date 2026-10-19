@@ -33,6 +33,8 @@ import { z as rpcZ } from 'zod/v4';
 interface PostBody {
   appContext?: { viewId: string; revision: number };
   connectedAppContext?: {viewId: string; revision: number}[];
+  /** A connected app view sent this for the viewer (OpenAI's `ui/message` with `send`). */
+  fromApp?: { viewId: string };
   content?: string;
   /**
    * Files attached to this message — same `Attachment` shape as
@@ -188,8 +190,17 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
         connectedContext = await (await import('@/lib/mcp-apps/service')).freezeConnectedContext(id, key.apiKeyId, body.connectedAppContext);
       } catch (error) { return reply({error: error instanceof Error ? error.message : 'App context is unavailable'}, {status: 409}); }
     }
+    // The app is recorded as the message's provenance: shown in the transcript and named to the
+    // harness. It grants nothing. Only the viewer's own live view of the app may claim it.
+    let sentByApp: { app: string; serverId: string; viewId: string } | null = null;
+    if (body.fromApp && !isExistingRetry) {
+      const key = getRequestKey(request.headers);
+      if (key?.scope !== 'viewer' || senderSessionId) return reply({error: 'Only a connected app the viewer is using can send this'}, {status: 403});
+      try { sentByApp = await (await import('@/lib/mcp-apps/service')).connectedMessageSender(body.fromApp.viewId, key.apiKeyId); }
+      catch (error) { return reply({error: error instanceof Error ? error.message : 'The app is unavailable'}, {status: 409}); }
+    }
     const inserted = insertChatEvent({
-      ...(frozenContext || connectedContext ? { raw: {...(frozenContext ? {localAppContext: frozenContext} : {}), ...(connectedContext ? {connectedAppContext: connectedContext} : {})} } : {}),
+      ...(frozenContext || connectedContext || sentByApp ? { raw: {...(frozenContext ? {localAppContext: frozenContext} : {}), ...(connectedContext ? {connectedAppContext: connectedContext} : {}), ...(sentByApp ? {sentByApp} : {})} } : {}),
       id: body.id,
       sessionId: id,
       role: 'user',
@@ -214,7 +225,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     // question on screen there has passed it over: it's skipped, and the rest
     // come back on their next new chat (docs/main-chat-onboarding.md). Only
     // their own message counts, never one another chat sent.
-    if (!isRetry && !senderSessionId) {
+    if (!isRetry && !senderSessionId && !sentByApp) {
       try {
         skipOnboardingStepOnScreen(id);
       } catch (err) {
@@ -368,4 +379,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "content": rpcZ.string().optional(), "attachments": rpcZ.array(rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict()).optional(), "id": rpcZ.string().optional(), "connectedAppContext": rpcZ.array(rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict()).max(8).optional(), "appContext": rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict().optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "content": rpcZ.string().optional(), "attachments": rpcZ.array(rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict()).optional(), "id": rpcZ.string().optional(), "connectedAppContext": rpcZ.array(rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict()).max(8).optional(), "appContext": rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict().optional(), "fromApp": rpcZ.object({viewId: rpcZ.uuid()}).strict().optional() }).strict().default({}) }).strict();
