@@ -218,3 +218,19 @@ The complete Next.js 16.1.6 production build passed with `next build --webpack`,
 - [x] Full isolated production build.
 - [ ] Packaged desktop qualification.
 - [ ] Actual Total Finance service qualification.
+
+October 19, 2026, OpenAI MCP extensions: the root suite passed 7127 tests in 785 files, the integrations engine 447 tests, app-kit 96 and Finances 70. Root typecheck passed, and lint reported no errors in the 138 changed files. The new and changed suites:
+
+```sh
+pnpm exec vitest run src/lib/mcp-apps src/components/mcp-apps src/lib/mcp src/lib/client/mcp-app-launch.test.ts src/lib/client/app-message.test.ts src/components/local-apps/app-places.test.ts src/components/settings/sections/integrations src/lib/chat-sources src/components/chat/editor src/lib/attachments src/lib/integrations/mcp-capabilities.test.ts src/lib/integrations/mcp-servers.test.ts
+pnpm --filter @integrations/engine test src/__tests__/mcp-client.test.ts
+pnpm --filter @ri/app-kit test
+```
+
+The same day, Bits & Bolts ran end to end on an isolated Home on this branch, with a real Claude Code chat (its screenshots are kept at `~/.local/share/ri-mcp-extensions-screenshots/` on the machine that ran it): the library full screen from Open app, a deep link that moved the open library to a part without a new call, the Parts Tray beside a chat, settings on its page, its parts in the @ menu, `cad.pickFile`'s thumbnail form answered in the chat and its 3D result inline, a selected part shown as context in the composer, Create part sending into the chat as From Bits & Bolts, and an STL attachment opened in its viewer. That run found three things the unit tests had not: the transcript hid form cards, Claude Code dropped any tool call after 60 seconds without progress, and the view sandbox stopped forms from running their submit handlers. All three are fixed and tested.
+
+- [x] OpenAI entrypoints (global, thread, file), deep links, display modes and entrypoint icons and titles.
+- [x] File resources: read, subscribe, write, tool call path and `openai/files/open`, for attachments, agent folders and chat worktrees.
+- [x] Settings, @ search, model context and messages, and extended forms with resource selection.
+- [x] Bits & Bolts end to end with a real Claude Code chat.
+- [ ] A packaged desktop run of the extensions.
