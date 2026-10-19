@@ -12,8 +12,13 @@ import { registerConnectedContext, selectConnectedContext } from '@/lib/client/m
 import { requestAppChatDraft } from '@/lib/client/app-chat-intent';
 import { useConnectedCompanion } from '@/lib/client/mcp-app-panel';
 import { runConnectedInvocation } from '@/lib/client/mcp-app-invocation';
+import { initialDisplayMode } from '@/lib/mcp-apps/metadata';
 
 type OpenView = RouterOutputs['connectedApps']['open'];
+/** Results this browser already placed by their display mode, so scrolling back never moves one again. */
+const placed = new Set<string>();
+/** Only a result this recent opens itself beside the chat. */
+const FRESH_RESULT_MS = 2 * 60_000;
 type Pending = {ids: string[]; preview?: unknown; finish: (approve: boolean) => void};
 /**
  * `onClose` puts a Close control in the result's own header row, for a page that shows the result beside
@@ -46,14 +51,29 @@ export function ConnectedView({captureId, chatId, expanded = false, onClose, app
   const access = useQuery({queryKey: ['connected-app-status', query.data?.id], queryFn: () => trpcClient.connectedApps.status.query({viewId: query.data!.id}), enabled: !!query.data, retry: false, refetchInterval: 15_000});
   const failure = query.error ?? access.error;
   const repeatsName = expanded && !!appName && query.data?.title?.toLocaleLowerCase() === appName.toLocaleLowerCase() && !onClose;
+  // OpenAI's display modes: what the resource declares bounds where it may show.
+  const modes = query.data?.resource?.displayModes;
+  const canInline = !modes || modes.available.includes('inline');
+  const canExpand = !modes || modes.available.includes('fullscreen');
+  const openBeside = companion?.open;
+  useEffect(() => {
+    const data = query.data;
+    if (!data?.resource || expanded || !openBeside || !chatId || data.kind !== 'result' || placed.has(captureId)) return;
+    placed.add(captureId);
+    // A model's result opens full screen (beside the chat) when its resource prefers it, or allows nothing else.
+    const first = initialDisplayMode(data.resource.displayModes, data.resource.displayModes.declared);
+    if ((first === 'fullscreen' || !canInline) && Date.now() - data.created < FRESH_RESULT_MS) openBeside(captureId);
+  }, [query.data, expanded, openBeside, chatId, captureId, canInline]);
   return <section aria-label="Interactive app result" className={`${expanded ? 'h-full' : 'my-3 overflow-hidden rounded-xl border border-border'} flex flex-col bg-background`}>
     <div className={`${repeatsName ? 'hidden' : 'flex'} items-center gap-2 border-b border-border/60 px-3 py-2`}>
       <span className="min-w-0 flex-1 truncate text-xs font-medium">{query.data?.title ?? 'Interactive result'}</span>
-      {chatId && companion && !expanded && !moved && <Button size="xs" variant="ghost" onClick={() => companion.open(captureId)}><PanelRightOpen size={13}/>Open beside chat</Button>}
+      {chatId && companion && !expanded && !moved && canExpand && <Button size="xs" variant="ghost" onClick={() => companion.open(captureId)}><PanelRightOpen size={13}/>Open beside chat</Button>}
       {onClose && <Button size="xs" variant="ghost" onClick={onClose}><X size={13}/>Close</Button>}
     </div>
-    {moved && <p className="px-3 py-4 text-xs text-muted-foreground">Open beside this chat. <button className="text-primary underline" onClick={() => companion?.open(null)}>Show inline</button></p>}
-    <div ref={setInlineMount} className={moved ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}/>
+    {moved && <p className="px-3 py-4 text-xs text-muted-foreground">Open beside this chat.{canInline && <> <button className="text-primary underline" onClick={() => companion?.open(null)}>Show inline</button></>}</p>}
+    {!moved && !expanded && !canInline && <p className="px-3 py-4 text-xs text-muted-foreground">This app shows beside the chat.</p>}
+    {/* A full-screen-only view still mounts here, hidden, so opening it beside the chat keeps its state. */}
+    <div ref={setInlineMount} className={moved || (!expanded && !canInline) ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}/>
     {container && createPortal(failure ? <div role="alert" className="space-y-2 p-4 text-sm text-muted-foreground"><p>{failure.message}</p><p>Your original tool result is unchanged.</p><Button size="xs" variant="outline" onClick={() => {void query.refetch(); void access.refetch();}}>Check view again</Button></div>
       : query.data?.resource ? <MountedView key={query.data.id} view={query.data} expanded={expanded || !!moved} deepLink={deepLink} onExpand={mode => companion?.open(mode === 'inline' ? null : captureId)} />
       : query.data ? <div className="space-y-3 p-4 text-sm"><p className="text-muted-foreground">{query.data.unsupported ?? 'This result has no available interface.'}</p>{query.data.result.content.flatMap((item, index) => item.type === 'text' ? [<p key={index} className="whitespace-pre-wrap [overflow-wrap:anywhere]">{item.text}</p>] : [])}{query.data.result.structuredContent != null && <details><summary className="cursor-pointer text-xs text-muted-foreground">Result data</summary><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(query.data.result.structuredContent, null, 2).slice(0, 64_000)}</pre></details>}<Button size="xs" variant="outline" onClick={() => void query.refetch()}>Check interface again</Button></div>

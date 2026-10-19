@@ -165,7 +165,7 @@ export async function openConnectedView(captureId: string, viewerId: string, cha
   }
   return {id: view.id, captureId: capture.id, title: capture.title, serverId: capture.serverId, sourceRef: capture.sourceRef, chatId: capture.chatId,
     resource: view.resource ?? null, unsupported, input: capture.input, result: capture.result, revision: view.revision, widgetState, legacy: capture.legacy,
-    kind: capture.kind ?? 'result', deepLink: capture.deepLink ?? null, file: capture.file ? {name: capture.file.name} : null,
+    kind: capture.kind ?? 'result', created: capture.created, deepLink: capture.deepLink ?? null, file: capture.file ? {name: capture.file.name} : null,
     // OpenAI's model context host state: what this view last attached, or null, given again on every remount.
     modelContext: view.context && view.contextUpdateId ? {updateId: view.contextUpdateId, ...view.context} : null,
     tool: capture.tool, app: current.remote.entry.displayName, icons: current.remote.entry.protocol?.info?.icons ?? []};
