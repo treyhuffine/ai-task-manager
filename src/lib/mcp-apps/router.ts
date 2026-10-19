@@ -1,20 +1,13 @@
 import { z } from 'zod/v4';
-import { viewerProcedure, router } from '@/lib/trpc/init';
-import { TRPCError } from '@trpc/server';
-import { getApiKey } from '@/lib/db/queries';
+import { router } from '@/lib/trpc/init';
+import { connectedViewerProcedure as p } from './viewer-procedure';
+import { connectedFormsRouter } from './forms-router';
 import { callConnectedView, cancelConnectedInvocation, clearConnectedContext, connectedAppsCatalog, connectedViewStatus, decideConnectedApproval, launchConnectedView, navigateConnectedScreen, prepareConnectedLaunch, openConnectedView, readConnectedResource, updateConnectedContext } from './service';
 
 const id = z.uuid();
 const args = z.record(z.string(), z.unknown());
-const p = viewerProcedure.use(async ({ctx, next}) => {
-  const recheck = () => {
-    ctx.authorize?.();
-    const key = getApiKey(ctx.key!.apiKeyId);
-    if (!key || key.role !== 'sign_in' || key.revokedAt || (key.expiresAt && Date.parse(key.expiresAt) <= Date.now())) throw new TRPCError({code: 'UNAUTHORIZED', message: 'This viewer is no longer signed in'});
-  };
-  recheck(); const result = await next(); recheck(); return result;
-});
 export const connectedAppsRouter = router({
+  forms: connectedFormsRouter,
   catalog: p.query(({ctx}) => connectedAppsCatalog(ctx.key!.apiKeyId)),
   status: p.input(z.object({viewId: id}).strict()).query(({input,ctx}) => connectedViewStatus(input.viewId,ctx.key!.apiKeyId)),
   open: p.input(z.object({captureId: id, chatId: id.optional()}).strict()).mutation(async ({input, ctx}) => {

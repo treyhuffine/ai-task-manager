@@ -12,7 +12,7 @@ describe('parseForm', () => {
   it('reads a titled select with descriptions, and shows images for every option once one has a thumbnail', () => {
     const [part] = parsed(bitsAndBolts.pickFile).fields;
     expect(part).toMatchObject({ kind: 'select', required: true, thumbnails: true, options: [
-      { value: 'hex-bolt', title: 'M6 hex bolt', description: 'A fastener for the main joint.', thumbnail: { src: 'data:image/png;base64,iVBORw0KGgo=' } },
+      { value: 'hex-bolt', title: 'M6 hex bolt', description: 'A fastener for the main joint.', thumbnail: { src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' } },
       { value: 'washer', title: 'M6 washer', description: 'Spreads the load.' },
     ] });
     expect(part!.kind === 'select' && part!.options[1]!.thumbnail).toBeUndefined();
@@ -22,7 +22,7 @@ describe('parseForm', () => {
     const single = parsed(bitsAndBolts.pickReferences('single')).fields[0]!;
     expect(single).toMatchObject({ kind: 'resource', multiple: false, selection: 'explicit', userOptions: { kind: 'file', accept: ['.stl', '.3mf', '.step', '.stp'] } });
     if (single.kind !== 'resource') throw new Error('expected a resource field');
-    expect(single.options[0]).toMatchObject({ uri: 'cad://parts/hex-bolt', thumbnail: { src: 'data:image/png;base64,iVBORw0KGgo=' },
+    expect(single.options[0]).toMatchObject({ uri: 'cad://parts/hex-bolt', thumbnail: { src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' },
       preview: { type: 'resource_link', uri: 'cad://parts/hex-bolt', name: 'hex-bolt.stl', mimeType: 'text/markdown' } });
     expect(single.options[1]!.preview).toEqual({ type: 'mcp_app_tool', name: 'cad.open', arguments: { file: { name: 'washer.stl', resourceUri: 'cad://parts/washer' } } });
     expect(parsed(bitsAndBolts.pickReferences('explicit')).fields[0]).toMatchObject({ multiple: true, selection: 'explicit' });

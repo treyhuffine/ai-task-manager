@@ -5,6 +5,9 @@ import { SourceText, SourceMetadataProvider } from '@/components/chat-ui/referen
 import {AppOpenControl} from '@/components/local-apps/open-control';
 import { ConnectedView } from '@/components/mcp-apps/view';
 import { MCP_APP_EVENT } from '@/lib/mcp-apps/metadata';
+import { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT } from '@/lib/mcp-apps/form-events';
+import { ConnectedForm } from '@/components/mcp-apps/form/connected-form';
+import { ConnectedFormOutcome } from '@/components/mcp-apps/form/form-outcome';
 import { Message, MessageContent } from '@/components/ai-elements/message';
 import { AgentResponse } from '@/components/chat-ui/messages/agent-response';
 import { CopyMessageButton } from '@/components/chat-ui/messages/copy-message-button';
@@ -492,6 +495,8 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
 
     case 'system':
       if (event.content === MCP_APP_EVENT) return <ConnectedView captureId={event.id} chatId={event.sessionId} />;
+      if (event.content === MCP_FORM_EVENT) return <ConnectedForm formId={event.id} />;
+      if (event.content === MCP_FORM_RESPONSE_EVENT) return <ConnectedFormOutcome raw={event.raw} />;
       return (
         <div className="flex items-center gap-2 my-1 text-[10px] text-muted-foreground/70">
           <div className="flex-1 h-px bg-border/60" />

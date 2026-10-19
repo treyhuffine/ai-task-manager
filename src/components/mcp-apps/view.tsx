@@ -12,6 +12,7 @@ import { registerConnectedContext, selectConnectedContext } from '@/lib/client/m
 import { requestAppChatDraft } from '@/lib/client/app-chat-intent';
 import { useConnectedCompanion } from '@/lib/client/mcp-app-panel';
 import { runConnectedInvocation } from '@/lib/client/mcp-app-invocation';
+import { ConnectedViewForms } from './form/view-forms';
 
 type OpenView = RouterOutputs['connectedApps']['open'];
 type Pending = {ids: string[]; preview?: unknown; finish: (approve: boolean) => void};
@@ -139,6 +140,7 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
     {pending && <div className="space-y-2 border-b border-amber-500/30 bg-amber-500/10 p-3 text-xs"><p className="font-medium">Allow this app operation?</p><pre className="max-h-32 overflow-auto whitespace-pre-wrap">{JSON.stringify(pending.preview, null, 2)}</pre><div className="flex gap-2"><Button size="xs" onClick={() => pending.finish(true)}>Allow once</Button><Button size="xs" variant="outline" onClick={() => pending.finish(false)}>Decline</Button></div></div>}
     {error && <p role="alert" className="border-b border-border p-3 text-xs text-destructive">{error}</p>}
     {!ready && !error && <p role="status" className="absolute left-3 top-3 text-xs text-muted-foreground">Loading interface…</p>}
+    <ConnectedViewForms viewId={view.id} />
     {/* Inline, the frame is exactly the height the view reports (the host clamps it to 160 to 900 px), capped
         at 80% of the window, and the view scrolls inside only past that. It must not flex: a 0% flex basis in an
         auto-height column resolves to this empty div's content, which collapsed every view to its minimum. */}

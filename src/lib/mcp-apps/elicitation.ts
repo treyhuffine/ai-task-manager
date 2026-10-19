@@ -9,6 +9,9 @@ import { getAttachmentsDir } from '@/lib/config/paths';
 import { chatPlacement, getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
 import { sessionIdFromCaller } from '@/lib/integrations/approval';
 import { acceptsFile, formErrors, parseForm, type FormContent, type FormField, type ParsedForm, type PreviewTarget } from './form-schema';
+import { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT } from './form-events';
+
+export { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT };
 
 /**
  * Forms an MCP server asks a person to fill while a tool runs: MCP's form
@@ -24,9 +27,6 @@ import { acceptsFile, formErrors, parseForm, type FormContent, type FormField, t
 
 /** What Ri tells every server it supports: MCP form elicitation and OpenAI's extended forms. */
 export const MCP_FORM_CAPABILITIES = { elicitation: { form: {} }, extensions: { 'openai/elicitation': { form: {} } } } as const;
-/** Transcript markers, like `MCP_APP_EVENT`: the request card and the recorded answer. */
-export const MCP_FORM_EVENT = 'mcp_form_request';
-export const MCP_FORM_RESPONSE_EVENT = 'mcp_form_response';
 
 /**
  * A 2025-era form holds the server's call open, which Ri ends after 10

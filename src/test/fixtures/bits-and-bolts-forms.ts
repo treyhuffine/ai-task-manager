@@ -7,7 +7,7 @@ export const bitsAndBoltsForms = {
   pickFile: {
     type: 'object', required: ['part'],
     properties: { part: { type: 'string', title: 'CAD part', oneOf: [
-      { const: 'hex-bolt', title: 'M6 hex bolt', description: 'A fastener for the main joint.', 'x-openai-thumbnail': { src: 'data:image/png;base64,iVBORw0KGgo=' } },
+      { const: 'hex-bolt', title: 'M6 hex bolt', description: 'A fastener for the main joint.', 'x-openai-thumbnail': { src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' } },
       { const: 'washer', title: 'M6 washer', description: 'Spreads the load.' },
     ] } },
   },
@@ -23,7 +23,7 @@ export const bitsAndBoltsForms = {
           type: 'resource', ...(multiple ? { selection } : {}),
           options: [
             { uri: 'cad://parts/hex-bolt', name: 'hex-bolt.stl', title: 'M6 hex bolt', description: 'A fastener.', _meta: {
-              'openai/thumbnail': { src: 'data:image/png;base64,iVBORw0KGgo=' },
+              'openai/thumbnail': { src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' },
               'openai/preview': { target: { type: 'resource_link', uri: 'cad://parts/hex-bolt', name: 'hex-bolt.stl', mimeType: 'text/markdown' } } } },
             { uri: 'cad://parts/washer', name: 'washer.stl', title: 'M6 washer', _meta: {
               'openai/preview': { target: { type: 'mcp_app_tool', name: 'cad.open', arguments: { file: { name: 'washer.stl', resourceUri: 'cad://parts/washer' } } } } } },
