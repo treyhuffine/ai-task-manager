@@ -7,7 +7,8 @@
  * The probe sends one unauthenticated MCP `initialize` and reads the first
  * response:
  *
- * - A normal initialize result means no sign-in.
+ * - A normal initialize result means no sign-in. So does a refusal of the 2025 handshake that names
+ *   2026-07-28 among its supported versions: a server that only speaks the newer protocol.
  * - A 401 or 403 leads to OAuth discovery through the MCP SDK's own helpers,
  *   the same path sign-in takes later: the `WWW-Authenticate` challenge names
  *   the protected-resource metadata (RFC 9728), which names the authorization
@@ -23,8 +24,7 @@
  * documents. Every address it fetches passes the same rule as a saved server:
  * https, or http for loopback only.
  */
-import { discoverAuthorizationServerMetadata, discoverOAuthProtectedResourceMetadata, extractWWWAuthenticateParams } from '@modelcontextprotocol/sdk/client/auth.js';
-import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
+import { discoverAuthorizationServerMetadata, discoverOAuthProtectedResourceMetadata, extractWWWAuthenticateParams, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/client';
 import { APP_NAME } from '@/constants/app';
 import { validateMcpUrl } from './mcp-validate';
 
@@ -75,8 +75,12 @@ interface JsonRpcMessage {
   jsonrpc?: string;
   id?: string | number | null;
   result?: { protocolVersion?: unknown; serverInfo?: { name?: unknown; title?: unknown; version?: unknown } };
-  error?: { code?: unknown; message?: unknown };
+  error?: { code?: unknown; message?: unknown; data?: { supported?: unknown } };
 }
+
+/** JSON-RPC "unsupported protocol version" naming 2026-07-28 or later: an MCP server that only speaks the newer revision. */
+const modernOnly = (message: JsonRpcMessage | undefined) => message?.error?.code === -32022 &&
+  Array.isArray(message.error.data?.supported) && message.error.data.supported.some(version => typeof version === 'string' && version >= '2026-07-28');
 
 export async function detectMcpAuth(rawUrl: string, options: McpAuthProbeOptions = {}): Promise<McpAuthDetection> {
   const check = validateMcpUrl(rawUrl);
@@ -124,6 +128,7 @@ export async function detectMcpAuth(rawUrl: string, options: McpAuthProbeOptions
       const name = [info?.title, info?.name].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
       return { method: 'none', ...(name ? { server: { name, ...(typeof info?.version === 'string' ? { version: info.version } : {}) } } : {}) };
     }
+    if (modernOnly(message)) return { method: 'none' };
     if (message?.error) {
       const text = typeof message.error.message === 'string' ? message.error.message : 'an error';
       return { method: 'unknown', reason: 'not_mcp', status: response.status, message: `The server answered initialize with ${text}.` };
@@ -163,6 +168,7 @@ export async function detectMcpAuth(rawUrl: string, options: McpAuthProbeOptions
     };
   }
 
+  if (response.status === 400 && modernOnly(await readFirstMessage(response).catch(() => undefined))) return { method: 'none' };
   await response.body?.cancel().catch(() => {});
   if (response.status >= 500) {
     return { method: 'unknown', reason: 'server_error', status: response.status, message: `The server answered with an error (HTTP ${response.status}). Try again in a moment.` };

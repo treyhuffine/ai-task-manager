@@ -79,6 +79,16 @@ describe('detectMcpAuth', () => {
     await vi.waitFor(() => expect(requests.map(request => request.method)).toEqual(['POST', 'DELETE']));
   });
 
+  it('reads a server that only speaks MCP 2026-07-28 as no sign-in', async () => {
+    // What the v2 SDK's strict handler (legacy: 'reject') answers a 2025 initialize.
+    const remote = fixture(async (request) => {
+      await initializeRequest(request);
+      return Response.json({ jsonrpc: '2.0', id: 1, error: { code: -32022, message: 'Unsupported protocol version: 2025-11-25', data: { supported: ['2026-07-28'], requested: '2025-11-25' } } }, { status: 400 });
+    });
+    expect(await detectMcpAuth('https://modern.example/mcp', { fetch: remote.fetch })).toEqual({ method: 'none' });
+    expect(remote.requests).toHaveLength(1);
+  });
+
   it('skips a comment event and reports a server that names itself nowhere', async () => {
     const { fetch } = fixture(() => new Response(`: keep-alive\n\nevent: message\ndata: ${JSON.stringify(initializeResult())}\n\n`, { headers: { 'content-type': 'text/event-stream' } }));
     await expect(detectMcpAuth('https://mcp.example/mcp', { fetch })).resolves.toEqual({ method: 'none' });
