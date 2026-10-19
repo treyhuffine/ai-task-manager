@@ -17,6 +17,8 @@ import type { Serialize } from '@trpc/server/unstable-core-do-not-import';
  *     for anything that isn't a background-task envelope
  *   - app-owned handoff events and operation messages retain their small
  *     result reference or delivery envelope so they survive reloads
+ *   - a connected app form's recorded end keeps the app, outcome and
+ *     reason its card reads, so the transcript says what happened
  *
  * So the first two become derived scalars, and `raw` survives only where the
  * decoder can actually use it. The condition is expressed *as* a decoder call
@@ -31,6 +33,7 @@ import type { Serialize } from '@trpc/server/unstable-core-do-not-import';
 
 import type { ChatEventRecord } from '@/db/types';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
+import { MCP_FORM_RESPONSE_EVENT } from '@/lib/mcp-apps/form-events';
 
 export type ChatEventDTO = Serialize<Omit<ChatEventRecord, 'raw'> & {
   /** Provider payload, present only when it is actually decodable. */
@@ -64,6 +67,8 @@ export function toChatEventDTO(row: ChatEventRecord): ChatEventDTO {
       : raw?.resultOperation && typeof raw.resultOperation === 'object' ? { resultOperation: raw.resultOperation }
       // A message a connected app sent names the app, and only that, never its frozen context.
       : row.source === 'user' && raw?.sentByApp && typeof raw.sentByApp === 'object' ? { sentByApp: { app: str((raw.sentByApp as Record<string, unknown>).app) } }
+      // A form's recorded end: which app, how it ended, and why it could not show.
+      : row.source === 'system' && row.content === MCP_FORM_RESPONSE_EVENT && raw ? { app: str(raw.app), outcome: str(raw.outcome), reason: str(raw.reason) }
       : null,
     rawSubtype: str(raw?.subtype),
     rawModel: str(raw?.model),

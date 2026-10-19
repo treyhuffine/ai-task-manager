@@ -64,6 +64,18 @@ describe('toChatEventDTO', () => {
     expect(dto.raw).toEqual({ resultOperation });
   });
 
+  it('keeps a connected app form\'s outcome, and only that, after reload', () => {
+    const declined = toChatEventDTO(row({ source: 'system', role: 'system', content: 'mcp_form_response',
+      raw: { subtype: 'mcp_form_response', formId: 'form-1', outcome: 'declined', app: 'Bits & Bolts' } }));
+    expect(declined.raw).toEqual({ app: 'Bits & Bolts', outcome: 'declined', reason: null });
+    expect(declined.rawSubtype).toBe('mcp_form_response');
+    const unsupported = toChatEventDTO(row({ source: 'system', role: 'system', content: 'mcp_form_response',
+      raw: { subtype: 'mcp_form_response', outcome: 'unsupported', app: 'Bits & Bolts', reason: 'It asks for a file upload', schema: { big: 'x'.repeat(5000) } } }));
+    expect(unsupported.raw).toEqual({ app: 'Bits & Bolts', outcome: 'unsupported', reason: 'It asks for a file upload' });
+    // Another row with the same fields keeps none of them.
+    expect(toChatEventDTO(row({ source: 'system', content: 'other', raw: { outcome: 'declined', app: 'Bits & Bolts' } })).raw).toBeNull();
+  });
+
   it('keeps raw on the legacy Claude unknown envelope', () => {
     // Agentex <=0.0.32 surfaced task lifecycle as `unknown` + providerType
     // claude. Stored transcripts still contain these.
