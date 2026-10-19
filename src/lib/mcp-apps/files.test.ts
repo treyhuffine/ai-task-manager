@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -14,7 +15,7 @@ vi.mock('@/lib/db/queries', () => ({
 }));
 vi.mock('@/lib/setups/run-on', () => ({agentDeviceFor: (id: string) => mocks.remote.has(id) ? 'laptop' : null}));
 import {
-  agentFileHandle, attachmentHandle, sessionFileHandle, etagOf, fileCallMeta, fileLaunchInput, isHostResource, MAX_HOST_FILE_BYTES, openFileTarget, readHostResource,
+  agentFileHandle, attachmentHandle, closeHostWatches, sessionFileHandle, etagOf, fileCallMeta, fileLaunchInput, isHostResource, MAX_HOST_FILE_BYTES, openFileTarget, readHostResource,
   serverRunsHere, subscribeHostResource, unsubscribeHostResource, waitHostResource, writeHostResource,
 } from './files';
 import type { View } from './store';
@@ -75,7 +76,7 @@ describe('host file handles', () => {
     await expect(agentFileHandle('viewer', 'agent', path.join(outside, 'secret.stl'))).rejects.toThrow('not inside');
     await expect(agentFileHandle('viewer', 'agent', '.git/config')).rejects.toThrow('not inside');
     fs.symlinkSync(path.join(outside, 'secret.stl'), path.join(folder, 'parts', 'link.stl'));
-    await expect(agentFileHandle('viewer', 'agent', 'parts/link.stl')).rejects.toThrow('outside the folder');
+    await expect(agentFileHandle('viewer', 'agent', 'parts/link.stl')).rejects.toThrow('not symlinks');
     await expect(agentFileHandle('viewer', 'agent', 'parts')).rejects.toThrow('regular files');
     mocks.remote.add('agent');
     await expect(agentFileHandle('viewer', 'agent', 'parts/hex-bolt.stl')).rejects.toThrow('another device');
@@ -93,7 +94,74 @@ describe('host file handles', () => {
     const {uri, view} = await openedAgentFile();
     fs.rmSync(path.join(folder, 'parts', 'hex-bolt.stl'));
     fs.symlinkSync(path.join(outside, 'secret.stl'), path.join(folder, 'parts', 'hex-bolt.stl'));
-    await expect(readHostResource(view, uri)).rejects.toThrow('outside the folder');
+    await expect(readHostResource(view, uri)).rejects.toThrow('not symlinks');
+  });
+
+  it('refuses a link that aliases .git or a file outside, whatever its name says', async () => {
+    // The name is innocent and the target resolves inside the folder: only the link itself gives it away.
+    fs.symlinkSync('../.git/config', path.join(folder, 'parts', 'git.stl'));
+    await expect(agentFileHandle('viewer', 'agent', 'parts/git.stl')).rejects.toThrow('not symlinks');
+    await expect(sessionFileHandle('viewer', 'chat', 'parts/git.stl')).rejects.toThrow('not symlinks');
+    // A linked folder is refused too, even one pointing back inside.
+    fs.symlinkSync('parts', path.join(folder, 'linked-parts'));
+    await expect(agentFileHandle('viewer', 'agent', 'linked-parts/hex-bolt.stl')).rejects.toThrow('not symlinks');
+    // A hard link is the same alias without looking like one.
+    fs.linkSync(path.join(folder, '.git', 'config'), path.join(folder, 'parts', 'config.stl'));
+    await expect(agentFileHandle('viewer', 'agent', 'parts/config.stl')).rejects.toThrow('hard link');
+  });
+
+  it('refuses a hard link made after the file opened, and leaves its other name alone', async () => {
+    const {uri, view} = await openedAgentFile();
+    const other = path.join(folder, '.git', 'hex-bolt.stl');
+    fs.linkSync(path.join(folder, 'parts', 'hex-bolt.stl'), other);
+    await expect(readHostResource(view, uri)).rejects.toThrow('hard link');
+    await expect(writeHostResource(view, {uri, text: 'into .git'})).rejects.toThrow('hard link');
+    expect(fs.readFileSync(other, 'utf8')).toBe(STL);
+  });
+});
+
+describe('a folder swapped while a file is being opened', () => {
+  const parts = () => path.join(folder, 'parts');
+  /** `outside` holds a file at the same relative name, so a followed swap lands on it. */
+  const decoy = () => { fs.writeFileSync(path.join(outside, 'hex-bolt.stl'), 'outside'); return path.join(outside, 'hex-bolt.stl'); };
+  /** Run `swap` at the moment Ri opens the file, after its checks passed, as a racing writer could. */
+  function raceOpen(swap: () => void) {
+    const open = fsp.open.bind(fsp);
+    const spy = vi.spyOn(fsp, 'open').mockImplementation(async (...args: Parameters<typeof fsp.open>) => { swap(); return open(...args); });
+    return () => spy.mockRestore();
+  }
+  const swapIn = () => { fs.renameSync(parts(), path.join(folder, 'parts-real')); fs.symlinkSync(outside, parts()); };
+  const swapBack = () => { fs.rmSync(parts()); fs.renameSync(path.join(folder, 'parts-real'), parts()); };
+
+  it('refuses a read and a save that a swapped folder would redirect outside', async () => {
+    const target = decoy();
+    const {uri, view} = await openedAgentFile();
+    let restore = raceOpen(swapIn);
+    await expect(readHostResource(view, uri)).rejects.toThrow('not symlinks');
+    restore(); swapBack();
+    restore = raceOpen(swapIn);
+    await expect(writeHostResource(view, {uri, text: 'escaped'})).rejects.toThrow('not symlinks');
+    restore(); swapBack();
+    expect(fs.readFileSync(target, 'utf8')).toBe('outside');
+    expect(fs.readFileSync(path.join(parts(), 'hex-bolt.stl'), 'utf8')).toBe(STL);
+  });
+
+  it('refuses when the folder is swapped back before Ri looks again, by the open file\'s inode', async () => {
+    const target = decoy();
+    const {uri, view} = await openedAgentFile();
+    // The open follows the swapped folder, then the folder is restored at once: every path check after passes.
+    const open = fsp.open.bind(fsp);
+    const spy = vi.spyOn(fsp, 'open').mockImplementation(async (...args: Parameters<typeof fsp.open>) => {
+      swapIn();
+      try { return await open(...args); } finally { swapBack(); }
+    });
+    await expect(readHostResource(view, uri)).rejects.toThrow('changed while it was being opened');
+    await expect(writeHostResource(view, {uri, text: 'escaped'})).rejects.toThrow('changed while it was being opened');
+    spy.mockRestore();
+    expect(fs.readFileSync(target, 'utf8')).toBe('outside');
+    // Unraced, the same handle still works.
+    expect(await writeHostResource(view, {uri, text: 'saved'})).toMatchObject({outcome: 'saved'});
+    expect(fs.readFileSync(path.join(parts(), 'hex-bolt.stl'), 'utf8')).toBe('saved');
   });
 });
 
@@ -153,19 +221,24 @@ describe('resources/read for the opened file', () => {
 });
 
 describe('openai/resources/write', () => {
-  it('saves atomically with a matching etag and returns the new one, keeping the file mode', async () => {
+  it('saves in place with a matching etag and returns the new one, keeping the file and its mode', async () => {
     const target = path.join(folder, 'parts', 'hex-bolt.stl');
     fs.chmodSync(target, 0o640);
+    const inode = fs.statSync(target).ino;
     const {uri, view} = await openedAgentFile();
     const edited = 'solid edited-hex-bolt\nendsolid edited-hex-bolt\n';
     const saved = await writeHostResource(view, {uri, text: edited, ifMatch: etagOf(Buffer.from(STL))});
     expect(saved).toEqual({outcome: 'saved', etag: etagOf(Buffer.from(edited))});
     expect(fs.readFileSync(target, 'utf8')).toBe(edited);
     expect(fs.statSync(target).mode & 0o777).toBe(0o640);
-    expect(fs.readdirSync(path.join(folder, 'parts')).filter(name => name.endsWith('.ri-save'))).toEqual([]);
+    expect(fs.statSync(target).ino).toBe(inode);
+    expect(fs.readdirSync(path.join(folder, 'parts'))).toEqual(['hex-bolt.stl']);
+    // A shorter save leaves none of the longer one behind.
     const blob = Buffer.from([1, 2, 3]);
     expect(await writeHostResource(view, {uri, blob: blob.toString('base64')})).toEqual({outcome: 'saved', etag: etagOf(blob)});
     expect(fs.readFileSync(target)).toEqual(blob);
+    expect(await writeHostResource(view, {uri, text: ''})).toEqual({outcome: 'saved', etag: etagOf(Buffer.alloc(0))});
+    expect(fs.statSync(target).size).toBe(0);
   });
 
   it('reports a conflict with the current etag and leaves the file alone', async () => {
@@ -201,15 +274,19 @@ describe('resources/subscribe', () => {
     expect(await waitHostResource(view, uri, 1)).toEqual({revision: 1, watching: false});
   }, 15_000);
 
-  it('wakes a waiting poll when the view closes', async () => {
+  it('ends a view\'s watches when it closes, waking a waiting poll', async () => {
     const {uri, view} = await openedAgentFile();
+    const other = await openedAgentFile('parts/hex-bolt.stl', 'someone-else');
     await subscribeHostResource(view, uri);
+    await subscribeHostResource(other.view, other.uri);
     const waiting = waitHostResource(view, uri, 0);
     view.closed = true;
-    fs.writeFileSync(path.join(folder, 'parts', 'hex-bolt.stl'), 'changed');
-    expect((await waiting).watching).toBe(false);
-    // The wake rides on a real file system event, which a busy machine can deliver late.
-  }, 15_000);
+    closeHostWatches(view);
+    expect(await waiting).toEqual({revision: 0, watching: false});
+    // Another view's watch on the same file carries on.
+    expect(await waitHostResource(other.view, other.uri, 0, AbortSignal.timeout(50))).toEqual({revision: 0, watching: true});
+    unsubscribeHostResource(other.view, other.uri);
+  });
 });
 
 describe('a file view\'s tool calls and openai/files/open', () => {
@@ -238,7 +315,9 @@ describe('a file view\'s tool calls and openai/files/open', () => {
     await expect(openFileTarget(view, remote, cadTools, path.join(folder, 'parts', 'hex-bolt.stl'))).rejects.toThrow('another computer');
     await expect(openFileTarget(view, local, cadTools, 'parts/hex-bolt.stl')).rejects.toThrow('absolute path');
     await expect(openFileTarget(view, local, cadTools, path.join(home, 'data.db'))).rejects.toThrow('Ri\'s own files');
-    // A repository's internals are never an agent folder file, so Ri has no preview for them.
-    await expect(openFileTarget(view, local, [], path.join(folder, '.git', 'config'))).rejects.toThrow('no viewer');
+    // A repository's internals never open, in Ri's preview or the app's own viewer.
+    await expect(openFileTarget(view, local, [], path.join(folder, '.git', 'config'))).rejects.toThrow('inside .git');
+    fs.writeFileSync(path.join(folder, '.git', 'pack.stl'), STL);
+    await expect(openFileTarget(view, local, cadTools, path.join(folder, '.git', 'pack.stl'))).rejects.toThrow('inside .git');
   });
 });

@@ -20,6 +20,7 @@ export const mcpAppsEnabled = () => process.env.RI_MCP_APPS !== '0';
 export const mcpViews = () => processState('mcp-app-views', () => new McpViewStore(Date.now, view => {
   const ids = listPendingApprovals({ownerId: getIntegrationOwnerId()}).filter(p => p.connectedApp?.viewId === view.id).map(p => p.id);
   if (ids.length) resolvePendingApprovals(ids, 'deny');
+  if (view.capture.kind === 'file') void import('./files').then(files => files.closeHostWatches(view));
 }));
 const assertEnabled = () => { if (!mcpAppsEnabled()) throw new Error('Connected app views are disabled for this Home'); };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
