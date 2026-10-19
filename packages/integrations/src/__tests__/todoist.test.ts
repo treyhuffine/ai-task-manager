@@ -148,7 +148,8 @@ describe('Todoist official MCP integration', () => {
       { id: 'subtask', parentId: 'parent-2', priority: 'p2', labels: ['next'] }, { id: 'unassigned', responsibleUser: 'unassign' },
     ] };
     expect((await s.runtime.runAction('todoist.update-tasks', input)).ok).toBe(true);
-    expect(s.callTool).toHaveBeenCalledExactlyOnceWith({ name: 'update-tasks', arguments: input });
+    expect(s.callTool).toHaveBeenCalledExactlyOnceWith({ name: 'update-tasks', arguments: input },
+      { origin: expect.objectContaining({ actionId: 'todoist.update-tasks', connectionId: 'todoist-connection', audience: 'model' }) });
     expect(await s.runtime.runAction('todoist.update-tasks', { tasks: [{ responsibleUser: 'me' }] })).toMatchObject({ ok: false, code: 'invalid_input' });
     expect(s.callTool).toHaveBeenCalledTimes(1);
     expect(s.fetch).not.toHaveBeenCalled();

@@ -15,6 +15,7 @@
  * a stdio server on a second, short-lived copy of its process, so every connection would start the
  * local program twice, and the stdio channel already carries forms and change notifications.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { McpClientLike, McpToolDef } from './ingest';
 import { IntegrationError, NeedsReauthError } from '../core/errors';
 import { MCP_CONNECT_TIMEOUT_MS, MCP_DISCOVERY_TIMEOUT_MS, MCP_RESOURCE_TIMEOUT_MS, MCP_TOOL_TIMEOUT_MS, MCP_TOOL_TOTAL_TIMEOUT_MS } from './timeouts';
@@ -31,6 +32,31 @@ export const MCP_STDIO_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 /** What Ri advertises to every server: MCP Apps views, plus whatever the host adds (elicitation). */
 export const MCP_APPS_EXTENSION = { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } as const;
+/** Form rounds one tool call may ask for before Ri stops answering (the SDK's own default). */
+export const MCP_INPUT_ROUNDS = 10;
+/** A 2026-07-28 round that carries only `requestState` is retried after this pause, as the SDK paces it. */
+const STATE_ONLY_PACING_MS = 250;
+
+/**
+ * A form Ri cannot show, or cannot place. `unsupported` is a form with an input type Ri does not
+ * render (OpenAI's spec: reported as unsupported, never partly shown). `unrouted` is a form whose
+ * asker Ri cannot tell apart, which it refuses rather than show to the wrong person. `unavailable`
+ * is anything else that ends the form without an answer. A 2025-era server receives it as a
+ * JSON-RPC error. A 2026-07-28 call fails with it.
+ */
+export class McpFormError extends Error {
+  constructor(message: string, readonly reason: 'unsupported' | 'unrouted' | 'unavailable') {
+    super(message);
+    this.name = 'McpFormError';
+  }
+}
+
+/**
+ * The run a tool call belongs to (`callTool`'s `origin`), while that call is in flight. A 2025-era
+ * server's request on the call's own HTTP response stream is handled inside it, so its form finds
+ * the run that caused it. Proven per transport in mcp-client.test.ts.
+ */
+const formOrigin = new AsyncLocalStorage<{ origin: unknown }>();
 
 interface CommonMcpOptions {
   name?: string;
@@ -44,10 +70,15 @@ interface CommonMcpOptions {
   capabilities?: Record<string, unknown>;
   /**
    * Answers a server's form request: standard `elicitation/create`, OpenAI's legacy
-   * `openai/elicitation/create`, and 2026-07-28 multi-round-trip `input_required` rounds (which
-   * the SDK routes through the same `elicitation/create` handler). `method` names which one arrived.
+   * `openai/elicitation/create`, and 2026-07-28 multi-round-trip `input_required` rounds, which
+   * `callTool` answers itself (`round` set). `method` names which one arrived.
+   *
+   * `origin` is the `origin` the asking `callTool` was given: exact for a 2026-07-28 round and for a
+   * 2025-era request on that call's HTTP response stream. A local (stdio) server's request has no
+   * tie to a call on the wire, so it gets the origin only while exactly one request is in flight on
+   * the connection. Otherwise `origin` is undefined, and the host should refuse with `McpFormError`.
    */
-  onElicit?: (request: { method: 'elicitation/create' | 'openai/elicitation/create'; params: Record<string, unknown> }, signal: AbortSignal) => Promise<Record<string, unknown>>;
+  onElicit?: (request: { method: 'elicitation/create' | 'openai/elicitation/create'; params: Record<string, unknown>; round?: boolean }, signal: AbortSignal, origin?: unknown) => Promise<Record<string, unknown>>;
   /** Skip the 2026-07-28 probe for a server known to be legacy. Freshness is the host's job. */
   knownLegacy?: boolean;
   /** Whether to probe for 2026-07-28. Defaults to `auto` over HTTP and `legacy` for a local process. */
@@ -146,6 +177,20 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
   const http = opts.command === undefined ? await mcpHttpFetch() : undefined;
   const url = opts.command === undefined ? new URL(opts.url) : undefined;
 
+  // Requests in flight on this connection, for a local server's form, which has no tie to a call on the wire.
+  const inFlight = new Map<symbol, { origin: unknown } | null>();
+  const tracked = async <T>(origin: { origin: unknown } | null, run: () => Promise<T>): Promise<T> => {
+    const key = Symbol('request');
+    inFlight.set(key, origin);
+    try { return await run(); } finally { inFlight.delete(key); }
+  };
+  const legacyOrigin = (): unknown => {
+    const scoped = formOrigin.getStore();
+    if (scoped) return scoped.origin;
+    if (opts.command === undefined || inFlight.size !== 1) return undefined;
+    return [...inFlight.values()][0]?.origin;
+  };
+
   const open = async (mode: 'auto' | 'legacy') => {
     const capabilities = {
       ...(opts.capabilities ?? {}),
@@ -155,6 +200,8 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
     const client = new mod.Client({ name: opts.name ?? 'integrations-engine', version: opts.version ?? '0.0.1' }, {
       capabilities,
       versionNegotiation: { mode, ...(mode === 'auto' ? { probe: { timeoutMs: opts.command !== undefined ? MCP_STDIO_PROBE_TIMEOUT_MS : MCP_HTTP_PROBE_TIMEOUT_MS } } : {}) },
+      // `callTool` answers 2026-07-28 input rounds itself, where it knows exactly which run asked.
+      inputRequired: { autoFulfill: false },
       // 2026-07-28 delivers list changes on a `subscriptions/listen` stream the client opens.
       ...(opts.onToolsChanged ? { listChanged: { tools: { autoRefresh: false, debounceMs: 0, onChanged: notify } } } : {}),
     });
@@ -168,7 +215,15 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
       const elicit = (method: 'elicitation/create' | 'openai/elicitation/create') =>
         async (request: { params?: Record<string, unknown> } | Record<string, unknown>, ctx: { mcpReq?: { signal?: AbortSignal }; signal?: AbortSignal }) => {
           const params = (method === 'elicitation/create' ? (request as { params?: Record<string, unknown> }).params : request) ?? {};
-          return opts.onElicit!({ method, params: params as Record<string, unknown> }, ctx?.mcpReq?.signal ?? ctx?.signal ?? new AbortController().signal);
+          try {
+            return await opts.onElicit!({ method, params: params as Record<string, unknown> }, ctx?.mcpReq?.signal ?? ctx?.signal ?? new AbortController().signal, legacyOrigin());
+          } catch (error) {
+            // The server learns why its form went unanswered, as a typed JSON-RPC error.
+            if (error instanceof McpFormError) {
+              throw new mod.ProtocolError(error.reason === 'unsupported' ? mod.ProtocolErrorCode.InvalidParams : mod.ProtocolErrorCode.InternalError, error.message);
+            }
+            throw error;
+          }
         };
       client.setRequestHandler('elicitation/create', elicit('elicitation/create'));
       // OpenAI's superset for 2025-era connections. A custom method: the SDK validates neither side.
@@ -237,71 +292,113 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
   return {
     server,
     async readResource(params) {
-      return client.readResource(params, { timeout: MCP_RESOURCE_TIMEOUT_MS });
+      return tracked(null, () => client.readResource(params, { timeout: MCP_RESOURCE_TIMEOUT_MS }));
     },
     async listTools() {
-      try {
-        // No cursor: the SDK walks every page (bounded, so a cursor cycle fails rather than hangs).
-        // Always fetch: discovery is the moment Ri checks what the server offers now.
-        const res = await client.listTools(undefined, { timeout: MCP_DISCOVERY_TIMEOUT_MS, cacheMode: 'refresh' });
-        return { tools: (res.tools ?? []).map((t: McpToolDef) => structuredClone(t)) };
-      } catch (error) {
-        if (error instanceof mod.SdkError && (error as { code?: string }).code === mod.SdkErrorCode.ListPaginationExceeded) {
-          throw new IntegrationError('provider_error', 'MCP server returned a repeated tool-list cursor.', { cause: error });
-        }
-        throw error;
-      }
+      return tracked(null, () => listTools());
     },
     async callTool(params, options) {
       if (options?.signal?.aborted) throw new IntegrationError('denied', 'The request was cancelled before dispatch. No request was sent.');
-      // Request progress explicitly. The SDK only sends a progressToken when
-      // onprogress is present, even with resetTimeoutOnProgress enabled.
-      const deadline = new AbortController();
-      const timer = setTimeout(() => deadline.abort(new DOMException('Ri MCP total deadline exceeded', 'TimeoutError')), MCP_TOOL_TOTAL_TIMEOUT_MS);
-      try {
-        const meta = (params as { _meta?: Record<string, unknown> })._meta;
-        const res = await client.callTool({ name: params.name, arguments: params.arguments ?? {}, ...(meta ? { _meta: meta } : {}) }, {
-          timeout: MCP_TOOL_TIMEOUT_MS,
-          resetTimeoutOnProgress: true,
-          maxTotalTimeout: MCP_TOOL_TOTAL_TIMEOUT_MS,
-          signal: options?.signal ? AbortSignal.any([deadline.signal, options.signal]) : deadline.signal,
-          onprogress: () => {},
-        });
-        return {
-          content: res.content,
-          ...(res.structuredContent !== undefined ? { structuredContent: res.structuredContent } : {}),
-          isError: res.isError ?? false,
-          ...(res._meta !== undefined ? { _meta: res._meta } : {}),
-        };
-      } catch (error) {
-        if (options?.signal?.aborted) {
-          throw new DOMException('The MCP request was cancelled after dispatch and may have completed upstream.', 'AbortError');
-        }
-        // Only the SDK's typed authentication rejection proves this request was
-        // rejected before execution. Network failures and lookalike messages do
-        // not, so leave those intact for the mutation's indeterminate handling.
-        if (await isMcpAuthenticationError(error)) {
-          throw new NeedsReauthError(undefined, 'MCP transport requires authorization');
-        }
-        if (await isMcpRequestTimeout(error)) {
-          const data = (error as { data?: { maxTotalTimeout?: number; timeout?: number } }).data;
-          const total = deadline.signal.aborted || data?.maxTotalTimeout === MCP_TOOL_TOTAL_TIMEOUT_MS;
-          const reason = total ? "The request exceeded Ri's 30-minute total limit."
-            : data?.timeout === MCP_TOOL_TIMEOUT_MS ? "The request exceeded Ri's 10-minute inactivity limit."
-              : 'The upstream MCP request reported a timeout.';
-          throw new IntegrationError('provider_timeout',
-            `${reason} It may have completed upstream. Check the service before repeating a paid or mutating request.`,
-            { cause: error });
-        }
-        throw error;
-      } finally {
-        clearTimeout(timer);
-      }
+      const scope = { origin: options?.origin };
+      return tracked(scope, () => formOrigin.run(scope, () => callTool(params, options)));
     },
     async close() {
       try { await client.close(); } finally { await http?.close(); }
     },
   };
+
+  async function listTools() {
+    try {
+      // No cursor: the SDK walks every page (bounded, so a cursor cycle fails rather than hangs).
+      // Always fetch: discovery is the moment Ri checks what the server offers now.
+      const res = await client.listTools(undefined, { timeout: MCP_DISCOVERY_TIMEOUT_MS, cacheMode: 'refresh' });
+      return { tools: (res.tools ?? []).map((t: McpToolDef) => structuredClone(t)) };
+    } catch (error) {
+      if (error instanceof mod.SdkError && (error as { code?: string }).code === mod.SdkErrorCode.ListPaginationExceeded) {
+        throw new IntegrationError('provider_error', 'MCP server returned a repeated tool-list cursor.', { cause: error });
+      }
+      throw error;
+    }
+  }
+
+  async function callTool(params: Parameters<ConnectedMcpClient['callTool']>[0], options: Parameters<ConnectedMcpClient['callTool']>[1]) {
+    // Request progress explicitly. The SDK only sends a progressToken when
+    // onprogress is present, even with resetTimeoutOnProgress enabled.
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(new DOMException('Ri MCP total deadline exceeded', 'TimeoutError')), MCP_TOOL_TOTAL_TIMEOUT_MS);
+    const started = Date.now();
+    try {
+      const meta = (params as { _meta?: Record<string, unknown> })._meta;
+      const signal = options?.signal ? AbortSignal.any([deadline.signal, options.signal]) : deadline.signal;
+      const base = { name: params.name, arguments: params.arguments ?? {}, ...(meta ? { _meta: meta } : {}) };
+      let request: Record<string, unknown> = base;
+      let res: Sdk;
+      // A 2026-07-28 server asks for input by answering `input_required`. Each round is answered
+      // here, with this call's origin, and the call retried with the answers and the server's
+      // opaque state. A 2025-era server asks with its own request instead (`elicit` above).
+      for (let round = 1; ; round++) {
+        res = await client.callTool(request, {
+          timeout: MCP_TOOL_TIMEOUT_MS,
+          resetTimeoutOnProgress: true,
+          // Later rounds get what remains of the call's total budget.
+          maxTotalTimeout: round === 1 ? MCP_TOOL_TOTAL_TIMEOUT_MS : Math.max(1, MCP_TOOL_TOTAL_TIMEOUT_MS - (Date.now() - started)),
+          signal,
+          onprogress: () => {},
+          allowInputRequired: true,
+        });
+        if (res?.resultType !== 'input_required') break;
+        if (round > MCP_INPUT_ROUNDS) {
+          throw new IntegrationError('provider_error', `MCP tool "${params.name}" still asked for input after ${MCP_INPUT_ROUNDS} rounds.`);
+        }
+        const entries = Object.entries((res.inputRequests ?? {}) as Record<string, { method?: unknown; params?: Record<string, unknown> }>);
+        const inputResponses: Record<string, unknown> = {};
+        // One at a time: each is a form a person answers.
+        for (const [key, entry] of entries) {
+          if (entry?.method !== 'elicitation/create') {
+            throw new IntegrationError('provider_error', `MCP tool "${params.name}" asked for ${typeof entry?.method === 'string' ? entry.method : 'unknown'} input, which Ri does not provide.`);
+          }
+          if (!opts.onElicit) throw new IntegrationError('provider_error', `MCP tool "${params.name}" asked for a form, which this connection cannot show.`);
+          try {
+            inputResponses[key] = await opts.onElicit({ method: 'elicitation/create', params: entry.params ?? {}, round: true }, signal, options?.origin);
+          } catch (error) {
+            if (error instanceof McpFormError) throw new IntegrationError('provider_error', error.message, { cause: error });
+            throw error;
+          }
+        }
+        if (!entries.length) await new Promise(resolve => setTimeout(resolve, STATE_ONLY_PACING_MS));
+        request = { ...base, ...(entries.length ? { inputResponses } : {}), ...(res.requestState !== undefined ? { requestState: res.requestState } : {}) };
+      }
+      return {
+        content: res.content,
+        ...(res.structuredContent !== undefined ? { structuredContent: res.structuredContent } : {}),
+        isError: res.isError ?? false,
+        ...(res._meta !== undefined ? { _meta: res._meta } : {}),
+      };
+    } catch (error) {
+      if (options?.signal?.aborted) {
+        throw new DOMException('The MCP request was cancelled after dispatch and may have completed upstream.', 'AbortError');
+      }
+      // Only the SDK's typed authentication rejection proves this request was
+      // rejected before execution. Network failures and lookalike messages do
+      // not, so leave those intact for the mutation's indeterminate handling.
+      if (await isMcpAuthenticationError(error)) {
+        throw new NeedsReauthError(undefined, 'MCP transport requires authorization');
+      }
+      if (await isMcpRequestTimeout(error)) {
+        const data = (error as { data?: { maxTotalTimeout?: number; timeout?: number } }).data;
+        const total = deadline.signal.aborted || data?.maxTotalTimeout === MCP_TOOL_TOTAL_TIMEOUT_MS;
+        const reason = total ? "The request exceeded Ri's 30-minute total limit."
+          : data?.timeout === MCP_TOOL_TIMEOUT_MS ? "The request exceeded Ri's 10-minute inactivity limit."
+            : 'The upstream MCP request reported a timeout.';
+        throw new IntegrationError('provider_timeout',
+          `${reason} It may have completed upstream. Check the service before repeating a paid or mutating request.`,
+          { cause: error });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 /** An accept-anything Standard Schema for a custom method whose payload Ri validates itself. */

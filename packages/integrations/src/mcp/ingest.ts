@@ -48,7 +48,11 @@ export interface McpToolDef {
 /** The minimal MCP client surface ingestion needs (a test double or a real client). */
 export interface McpClientLike {
   listTools(): Promise<{ tools: McpToolDef[] }>;
-  callTool(params: { name: string; arguments?: Record<string, unknown>; _meta?: Record<string, unknown> }, options?: { signal?: AbortSignal }): Promise<{
+  /**
+   * `origin` is the run that made this call (`ActionContext.callOrigin`). A client that shows a
+   * server's forms passes it to its form handler, so the form reaches whoever caused the call.
+   */
+  callTool(params: { name: string; arguments?: Record<string, unknown>; _meta?: Record<string, unknown> }, options?: { signal?: AbortSignal; origin?: unknown }): Promise<{
     content: unknown;
     structuredContent?: unknown;
     isError?: boolean;
@@ -251,7 +255,8 @@ export async function ingestMcpServers(
         if (account.opts.isCurrentTransport?.() === false) throw new NeedsReauthError(ctx.connection.id);
         let res: Awaited<ReturnType<McpClientLike['callTool']>>;
         try {
-          res = await account.opts.client.callTool({ name, arguments: selected.input }, ...(ctx.signal ? [{ signal: ctx.signal }] : []));
+          res = await account.opts.client.callTool({ name, arguments: selected.input },
+            ...(ctx.signal || ctx.callOrigin ? [{ ...(ctx.signal ? { signal: ctx.signal } : {}), ...(ctx.callOrigin ? { origin: ctx.callOrigin } : {}) }] : []));
         } catch (error) {
           if (error instanceof IntegrationError && error.code === 'provider_timeout') {
             throw new IntegrationError(error.code, error.message, {

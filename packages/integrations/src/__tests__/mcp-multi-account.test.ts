@@ -112,8 +112,9 @@ describe('MCP account groups', () => {
     expect(work.call).not.toHaveBeenCalled();
     expect(await s.runtime.runAction('official.read', { reference: 'task', folder: 'inbox' }, { connectionId: 'Personal' })).toMatchObject({ ok: true });
     expect(await s.runtime.runAction('official.read', { reference: 42, team: 'Engineering' }, { connectionId: 'Work' })).toMatchObject({ ok: true });
-    expect(personal.call).toHaveBeenCalledWith({ name: 'read', arguments: { reference: 'task', folder: 'inbox' } });
-    expect(work.call).toHaveBeenCalledWith({ name: 'read', arguments: { reference: 42, team: 'Engineering' } });
+    // Each call carries its run, so a form the server asks for reaches whoever caused the call.
+    expect(personal.call).toHaveBeenCalledWith({ name: 'read', arguments: { reference: 'task', folder: 'inbox' } }, { origin: expect.objectContaining({ connectionId: 'Personal', actionId: 'official.read' }) });
+    expect(work.call).toHaveBeenCalledWith({ name: 'read', arguments: { reference: 42, team: 'Engineering' } }, { origin: expect.objectContaining({ actionId: 'official.read' }) });
   });
 
   it('uses the most conservative classification without upgrading read failures to indeterminate writes', async () => {

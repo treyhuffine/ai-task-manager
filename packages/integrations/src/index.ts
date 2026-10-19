@@ -52,6 +52,7 @@ export type {
   Connection,
   ConnectionMetadata,
   ActionContext,
+  ActionCallOrigin,
   AccountIdentity,
   IdentifyContext,
   RiskLevel,
