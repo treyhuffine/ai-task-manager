@@ -40,6 +40,26 @@ An inline view is exactly as tall as it reports with `ui/notifications/size-chan
 - Limits: 32 captures and 32 view sessions, 80 invocations per view, 512 KiB per result, 8 MiB cumulative result storage per view, 64 KiB input, and 12 MiB prepared HTML. Context is capped at 8 KiB and 10 updates per second. Guest messages have independent 1 MiB and 100/second containment limits.
 - Frozen context is stored only on an accepted human message and reauthorized on dispatch and recovery. Local authoritative app context and remote untrusted context remain separate fields.
 
+## Bits & Bolts test server
+
+[Bits & Bolts](https://github.com/openai/mcp-extensions/tree/main/plugins/bits-and-bolts) is OpenAI's sample app for its MCP extensions (Apache-2.0): a CAD parts library with a sidebar app, a thread tab, a file viewer, settings, @ search and forms. Ri uses it as the conformance fixture for connected apps, and it is also a useful app to try. `pnpm bits-and-bolts` runs it as a local MCP server.
+
+```sh
+pnpm bits-and-bolts start    # build it if needed, then serve http://localhost:3917/mcp
+pnpm bits-and-bolts status   # the URL, and whether it is up
+pnpm bits-and-bolts stop     # end the server
+```
+
+- The first `start` fetches openai/mcp-extensions at a pinned commit and builds it in `~/.local/share/ri-bits-and-bolts` (`BITS_AND_BOLTS_HOME`), outside this checkout. Later starts reuse the build. Changing the pinned commit or the launcher rebuilds it.
+- It serves Bits & Bolts' own local store, the same tools, catalog and app as its stdio plugin, on `127.0.0.1` only, with no sign-in. Its screens are self-contained, so they render inside Ri. One handler speaks MCP 2026-07-28 and 2025-era clients. The launcher is `scripts/bits-and-bolts/launcher.mjs`.
+- The parts library, imported parts and settings live in `~/.local/share/ri-bits-and-bolts/library` and survive restarts. The log is `server.log` beside it.
+- Nothing starts it at login. It runs until `stop`, a restart of the computer, or the process ending. `BITS_AND_BOLTS_PORT` changes the port.
+- The repository's remote build (`build:remote`) is not part of this command. Its screens load model files from its own origin, and Ri's sandbox refuses views that need network domains.
+
+To use it in Ri, start the server, then open Settings, Plugins, Add MCP server. Name it "Bits & Bolts", set Server URL to `http://localhost:3917/mcp` and Auth to None, then Add and connect. Ri accepts `http://` only for localhost, which works because the Home's own server connects to it. Bits & Bolts then appears in Apps, the rail's Apps flyout and ⌘K, and Open app shows its parts library full screen. This works from any device that can open the Home, since the app's interface reaches the browser through Ri.
+
+To turn it off, switch its connection off or remove it in Settings, Plugins, MCP servers, then run `pnpm bits-and-bolts stop`. A connection left on while the server is stopped shows as unreachable until it is started again.
+
 ## Qualification
 
 Tests use synthetic accounts and independent MCP fixtures, not personal services. Browser tests exercise standard and legacy interfaces through the actual shared bridge. Product tests render the actual inline card and companion, approve a callback, preserve a draft, attach acknowledged context, and verify one live iframe survives expansion and return on desktop and mobile.
