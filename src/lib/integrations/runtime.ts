@@ -42,6 +42,7 @@ import type { ToolSet } from 'ai';
 import { appApprovalPolicy } from './approval';
 import { getIntegrationsDir, getOrCreateKey } from './storage';
 import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
+import { settingsCapability } from '@/lib/mcp-apps/metadata';
 import { mcpKnownLegacy, mcpServerProtocol, mcpServerStore, mcpToolInfo, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
 import { mcpIngestOverrides, mcpToolApprovalOverride, resolveMcpToolApproval } from './mcp-approval-policy';
 import { getActionOverride } from './write-policy';
@@ -140,6 +141,8 @@ export interface HostedAccountStatus {
   lastAuthorizationId?: string;
   capabilityRevision?: string;
   capabilityChanges?: McpServerEntry['capabilityChanges'];
+  /** The server publishes OpenAI's structured settings (`openai/settings`), shown on the account. */
+  settings?: boolean;
 }
 
 export interface ProviderStatus extends ProviderCatalogEntry {
@@ -197,6 +200,7 @@ export async function getProviderStatuses(nativeDesktop = false): Promise<Provid
             status: server.lastStatus, error: server.lastError, toolCount: server.lastToolCount, lastCheckedAt: server.lastCheckedAt,
             lastAuthorizationId: server.lastAuthorizationId,
             capabilityRevision: server.capabilityRevision, capabilityChanges: server.capabilityChanges,
+            ...(settingsCapability(server.protocol?.extensions) ? { settings: true } : {}),
           };
         }));
         const single = accounts.length === 1 ? accounts[0] : undefined;

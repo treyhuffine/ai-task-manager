@@ -18,6 +18,8 @@ import { describeMcpAuthDetection, detectedAuthKind, detectionFor, resolveMcpFor
 import { DEFAULT_MCP_APPROVAL_POLICY, mcpToolApprovalOverride, resolveMcpToolApproval, type McpApprovalPolicy, type McpToolApprovalPatch } from '@/lib/integrations/mcp-approval-policy';
 import { McpPermissionControls, McpPermissionSelect, MCP_POLICY_LABELS } from './mcp-permissions';
 import { CapabilityReview } from './capability-review';
+import { McpServerSettings } from './mcp-settings';
+import { settingsCapability } from '@/lib/mcp-apps/metadata';
 import { Tip } from '@/components/ui/tip';
 
 const AUTH_LABEL: Record<McpServerEntry['auth']['kind'], string> = {
@@ -153,6 +155,8 @@ export function McpServerDetail({
           Changing this applies immediately to this server&apos;s tools, including new tools, and clears individual approval choices. Disabled tools stay off.
         </p>
       </section>}
+
+      <McpServerSettings serverId={s.id} name={s.displayName} enabled={s.enabled && s.lastStatus === 'ok' && !!settingsCapability(s.protocol?.extensions)} />
 
       <PluginSetupHelpButton target={{ kind: 'mcp', server: s }} disabled={busy} />
 

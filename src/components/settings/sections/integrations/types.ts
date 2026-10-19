@@ -24,6 +24,8 @@ export interface HostedMcpAccount {
   lastAuthorizationId?: string;
   capabilityRevision?: string;
   capabilityChanges?: McpCapabilityChanges;
+  /** The server publishes OpenAI's structured settings. */
+  settings?: boolean;
 }
 
 export interface HostedConnectIntent {

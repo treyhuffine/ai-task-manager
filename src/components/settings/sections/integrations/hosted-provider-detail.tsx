@@ -11,6 +11,7 @@ import { integrationMeta } from '@/components/integrations/integration-meta';
 import { HostedEndpointFields } from '@/components/integrations/hosted-endpoint-fields';
 import { integrationEndpointSelection, type HostedEndpointSelection } from '@/lib/client/integration-endpoint';
 import { BackLink, Chip, ConnectFormSection, DetailHeader, GroupHeading } from './parts';
+import { McpServerSettings } from './mcp-settings';
 import { Byo, ConnectPanel, ToolList, type ProviderDetailProps } from './provider-detail';
 import { CapabilityReview } from './capability-review';
 import { providerForHostedAccount, providerForHostedDeployment } from './hosted-account-request';
@@ -78,6 +79,7 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
           {result && <p role="status" className="text-xs text-muted-foreground">{result.ok ? 'Healthy' : result.error || result.status}</p>}
           {account.lastCheckedAt && <p className="text-[11px] text-muted-foreground">Last checked <time dateTime={account.lastCheckedAt} suppressHydrationWarning>{new Date(account.lastCheckedAt).toLocaleString()}</time></p>}
           <CapabilityReview changes={account.capabilityChanges} busy={busy} onReview={props.onReviewCapabilities ? revision => props.onReviewCapabilities!(account.serverId, revision) : undefined} />
+          <McpServerSettings serverId={account.serverId} name={label} enabled={!!account.settings && !!connection && account.enabled !== false && !account.requiresAuth && account.status === 'ok'} />
         </div>;
       })}</div>
       {previousConnections.map(connection => <div key={connection.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card/20 p-3">
