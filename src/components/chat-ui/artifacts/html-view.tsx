@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { FileX, RefreshCw, Loader2 } from 'lucide-react';
-import { syncSessionCookie } from '@/lib/api/client';
+import { useSessionCookieReady } from '@/hooks/use-session-cookie-ready';
 import { useFolderFile } from '@/hooks/use-folder';
 import { htmlPreviewUrl, type FolderSource } from '@/lib/folders/source';
 import { HTML_PREVIEW_SANDBOX, htmlPreviewKey } from '@/lib/sessions/html-preview-document';
@@ -81,18 +81,6 @@ function HtmlPreview({ source, path }: { source: FolderSource; path: string }) {
       />
     </div>
   );
-}
-
-/** The frame authenticates with the session cookie, so wait for the page's
- * cookie sync (already settled, except right after pairing). */
-function useSessionCookieReady(): boolean {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    let live = true;
-    void syncSessionCookie().then(() => { if (live) setReady(true); });
-    return () => { live = false; };
-  }, []);
-  return ready;
 }
 
 function HtmlCardThumbnail({ source, path }: { source: FolderSource; path: string }) {

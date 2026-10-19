@@ -104,6 +104,9 @@ importers:
       '@mozilla/readability':
         specifier: ^0.6.0
         version: 0.6.0
+      '@napi-rs/canvas':
+        specifier: 0.1.100
+        version: 0.1.100
       '@peculiar/x509':
         specifier: ^1.14.3
         version: 1.14.3
@@ -305,6 +308,9 @@ importers:
       openai:
         specifier: ^6.26.0
         version: 6.27.0(ws@8.22.0)(zod@3.25.76)
+      pdfjs-dist:
+        specifier: 5.6.205
+        version: 5.6.205
       picocolors:
         specifier: ^1.1.1
         version: 1.1.1
@@ -12219,7 +12225,6 @@ snapshots:
       '@napi-rs/canvas-linux-x64-musl': 0.1.100
       '@napi-rs/canvas-win32-arm64-msvc': 0.1.100
       '@napi-rs/canvas-win32-x64-msvc': 0.1.100
-    optional: true
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:

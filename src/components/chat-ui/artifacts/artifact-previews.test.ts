@@ -44,5 +44,9 @@ describe('sameArtifact', () => {
     expect(sameArtifact({ kind: 'html', sessionId: 's', path: '/x.html' }, { kind: 'html', sessionId: 's', path: '/x.html' })).toBe(true);
     expect(sameArtifact({ kind: 'html', sessionId: 's', path: '/x.html' }, { kind: 'html', sessionId: 't', path: '/x.html' })).toBe(false);
     expect(sameArtifact({ kind: 'html', sessionId: 's', path: '/x.html' }, { kind: 'image', src: '/x.html', name: 'x', alt: '' })).toBe(false);
+    const pdf = { kind: 'pdf', src: '/api/sessions/s/pdf?path=%2Ftmp%2Fr.pdf', name: 'r.pdf', source: '/tmp/r.pdf' } as const;
+    expect(sameArtifact(pdf, { ...pdf, name: 'Renamed' })).toBe(true);
+    expect(sameArtifact(pdf, { ...pdf, src: '/api/attachments/x.pdf' })).toBe(false);
+    expect(sameArtifact(pdf, { kind: 'image', src: pdf.src, name: 'r.pdf', alt: '' })).toBe(false);
   });
 });

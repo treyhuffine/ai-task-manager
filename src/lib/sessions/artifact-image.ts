@@ -17,7 +17,7 @@ export function artifactImageName(src: string, alt?: string): string {
 }
 
 export function protectedImageUrl(src: string): boolean {
-  return /^\/api\/(?:attachments\/[^/?]+|sessions\/[^/]+\/reply-image)(?:\?|$)/.test(src);
+  return /^\/api\/(?:attachments\/[^/?]+|sessions\/[^/]+\/(?:reply-image|pdf)|workspaces\/[^/]+\/pdf)(?:\?|$)/.test(src);
 }
 
 export function imageThumbnailUrl(src: string): string {

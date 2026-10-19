@@ -102,6 +102,11 @@ async function main() {
     frame = await select('files');
     await frame.getByRole('button', { name: /friday-agenda/ }).click();
     await frame.getByText('1. Look at the new dashboard', { exact: false }).waitFor();
+    await frame.getByRole('img', { name: 'First page of friday-review.pdf' }).waitFor();
+    await frame.getByRole('button', { name: 'Open PDF: friday-review.pdf' }).click();
+    await frame.getByRole('img', { name: 'Page 1 of friday-review.pdf' }).waitFor();
+    await frame.getByRole('dialog').getByRole('link', { name: 'Download' }).waitFor();
+    await frame.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
     frame = await select('html');
     await frame.getByTitle('Thumbnail: review-plan.html').waitFor();
     await frame.getByRole('button', { name: 'Open HTML: review-plan.html' }).click();

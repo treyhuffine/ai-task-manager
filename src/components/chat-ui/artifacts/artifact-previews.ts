@@ -1,7 +1,10 @@
 /** What the artifact dialog shows (`artifact-preview-provider.tsx`). */
 export type ArtifactPreview =
   | { kind: 'html'; sessionId: string; path: string }
-  | { kind: 'image'; src: string; name: string; alt: string };
+  | { kind: 'image'; src: string; name: string; alt: string }
+  /** `src` serves the PDF (`reply-pdf.ts`). `source` is where it is: the path
+   * the agent wrote, or the uploaded file's name. */
+  | { kind: 'pdf'; src: string; name: string; source: string };
 
 /** The cards Previous and Next move between: the ones in the same chat
  * transcript (the `role="log"` around a conversation), or in the same dialog
@@ -34,5 +37,5 @@ export function artifactSequence(trigger: Element, registered: (card: Element) =
  * again after the transcript remounts under the dialog. */
 export function sameArtifact(a: ArtifactPreview, b: ArtifactPreview): boolean {
   if (a.kind === 'html') return b.kind === 'html' && a.sessionId === b.sessionId && a.path === b.path;
-  return b.kind === 'image' && a.src === b.src;
+  return b.kind !== 'html' && b.kind === a.kind && a.src === b.src;
 }

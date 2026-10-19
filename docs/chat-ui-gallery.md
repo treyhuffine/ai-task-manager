@@ -68,8 +68,11 @@ The preview bundle replaces the production tRPC client with an in-memory link
 at build time. Production components and their hooks otherwise use their normal
 behavior. A separate query cache, disposable browser-storage maps and
 `GalleryRuntime` belong to that preview. There is no fallthrough to a live
-client. Unknown operations fail explicitly. The one text attachment is served
-by a named in-memory fetch handler. HTML previews resolve one fictional file
+client. Unknown operations fail explicitly. The one text attachment, and the
+fictional PDF's thumbnail and page images, are served by a named in-memory
+fetch handler. A sandboxed page can't host the browser's PDF viewer, so the PDF
+preview shows those page images, as it does in a browser without a viewer.
+HTML previews resolve one fictional file
 through a build-only folder URL adapter to a local blob document. The native
 HTML viewer and thumbnail renderer stay unchanged. No request is sent to the Home.
 

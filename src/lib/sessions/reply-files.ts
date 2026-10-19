@@ -53,17 +53,17 @@ export async function findReplyFile(
   chat: ReplyFileChat,
   requested: string,
   agentNamed: (text: string) => boolean,
-  options: { kind: 'image' | 'html'; maxBytes: number },
+  options: { kind: 'image' | 'html' | 'pdf'; maxBytes: number },
 ): Promise<ReplyFile> {
-  const noun = options.kind === 'image' ? 'image' : 'HTML file';
-  const plural = options.kind === 'image' ? 'images' : 'HTML files';
+  const noun = { image: 'image', html: 'HTML file', pdf: 'PDF' }[options.kind];
+  const plural = { image: 'images', html: 'HTML files', pdf: 'PDFs' }[options.kind];
   const allowed = (file: string) => options.kind === 'image'
     ? resolveMime(null, path.basename(file)).startsWith('image/')
-    : /\.html?$/i.test(file);
+    : (options.kind === 'html' ? /\.html?$/i : /\.pdf$/i).test(file);
   if (chat.elsewhere) return { ok: false, status: 409, error: `This ${noun} is on ${chat.elsewhere}.` };
   const resolved = resolveReplyFilePath(requested, chat.folder);
   if (!resolved) return { ok: false, status: 404, error: 'Not found' };
-  const mime = options.kind === 'html' ? 'text/html' : resolveMime(null, path.basename(resolved));
+  const mime = options.kind === 'html' ? 'text/html' : options.kind === 'pdf' ? 'application/pdf' : resolveMime(null, path.basename(resolved));
   if (!allowed(resolved)) return { ok: false, status: 415, error: `Only ${plural} are shown here` };
 
   let real: string;
@@ -78,7 +78,9 @@ export async function findReplyFile(
   }
   // The real path decides the type too, so a link named .png can't serve something else.
   if (!allowed(real)) return { ok: false, status: 415, error: `Only ${plural} are shown here` };
-  if (size > options.maxBytes) return { ok: false, status: 413, error: options.kind === 'image' ? 'Image is too large to show' : htmlTooLargeMessage(size, options.maxBytes) };
+  if (size > options.maxBytes) {
+    return { ok: false, status: 413, error: options.kind === 'html' ? htmlTooLargeMessage(size, options.maxBytes) : `This ${noun} is too large to show` };
+  }
 
   let inFolder = false;
   if (chat.folder) {

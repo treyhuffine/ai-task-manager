@@ -410,7 +410,9 @@ with a "File too large to preview" affordance in the viewer. The cap is the
 editor's (CodeMirror holds the whole file). HTML Preview doesn't go through
 it: the iframe loads the file as its own document from
 `/api/sessions/:id/html` or `/api/workspaces/:id/html`, streamed up to 256 MiB
-(see "Interactive HTML in replies" in `docs/chat-sessions.md`).
+(see "Interactive HTML in replies" in `docs/chat-sessions.md`). A PDF shows in
+place of its source, through `/api/sessions/:id/pdf` or `/api/workspaces/:id/pdf`
+(see "PDFs in replies and attachments").
 
 ### Action state machine
 

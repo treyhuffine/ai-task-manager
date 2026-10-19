@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { folderApiBase, folderIsWritable, folderStateId, htmlPreviewUrl, sessionFolder, workspaceFolder } from './source';
+import { folderApiBase, folderIsWritable, folderPdfUrl, folderStateId, htmlPreviewUrl, sessionFolder, workspaceFolder } from './source';
 
 describe('folder sources', () => {
   it("lets you edit an execution's worktree and an agent's own folder, but not an archived agent's", () => {
@@ -20,6 +20,11 @@ describe('folder sources', () => {
       .toBe('/api/sessions/s1/html?path=%2Ftmp%2Fa%20gallery%2Foffers%231.html&theme=dark');
     expect(htmlPreviewUrl(workspaceFolder('w1', { readOnly: true }), 'site/index.html', 'light'))
       .toBe('/api/workspaces/w1/html?path=site%2Findex.html&theme=light');
+  });
+
+  it("points a PDF at its folder's pdf route", () => {
+    expect(folderPdfUrl(sessionFolder('s1'), '/tmp/My Report #2.pdf')).toBe('/api/sessions/s1/pdf?path=%2Ftmp%2FMy%20Report%20%232.pdf');
+    expect(folderPdfUrl(workspaceFolder('w1'), 'docs/spec.pdf')).toBe('/api/workspaces/w1/pdf?path=docs%2Fspec.pdf');
   });
 
   it('keeps per-folder client state on the folder, not on its read-only flag', () => {

@@ -3,7 +3,8 @@
  *
  * Streams an uploaded file from the attachments directory back to the
  * browser. Filenames are UUIDv7-based and content-stable, so responses are
- * immutable-cacheable.
+ * immutable-cacheable. Images take `?thumbnail=1`. PDFs take `?name=`,
+ * `?download=1`, `?thumbnail=1` and `?page=N` (`pdf-delivery.ts`).
  *
  * Auth: bearer token (middleware handles it). We serve to an authenticated
  * session only — attachments are user-private.
@@ -17,6 +18,7 @@ import { resolveMime } from '@/lib/attachments/mime';
 import { withCompression } from '@/lib/api/compression';
 import { imageThumbnail, imageVersion } from '@/lib/attachments/image-thumbnail';
 import { UNTRUSTED_DOCUMENT_HEADERS } from '@/lib/attachments/delivery';
+import { pdfResponse } from '@/lib/attachments/pdf-delivery';
 
 /** Reject anything that isn't a bare `<uuid>.<ext>` filename. */
 const SAFE_FILENAME_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/;
@@ -47,6 +49,12 @@ async function handleGET(
     }
 
     const mime = resolveMime(null, fileName);
+    // A PDF opens in the browser's viewer, downloads, or draws as page
+    // images, with byte ranges (src/lib/attachments/pdf-delivery.ts).
+    if (mime === 'application/pdf') {
+      const name = path.basename(request.nextUrl.searchParams.get('name') || fileName).replace(/[\x00-\x1f\x7f]/g, '');
+      return await pdfResponse(request, absolute, name || fileName);
+    }
     const thumbnail = mime.startsWith('image/') && request.nextUrl.searchParams.get('thumbnail') === '1';
     let bytes: Buffer;
     try {

@@ -8,6 +8,8 @@ import { getAuthToken } from '@/lib/api/client';
 import type { Attachment } from '@/db/types';
 import { Tip } from '@/components/ui/tip';
 import { ImagePreviewCard } from './image-preview-card';
+import { PdfPreviewCard } from './pdf-preview-card';
+import { attachmentPdfUrl } from '@/lib/sessions/reply-pdf';
 
 interface MessageFileChipProps {
   attachment: Attachment;
@@ -22,6 +24,8 @@ interface MessageFileChipProps {
  * a chat message. Branches on mime type:
  *
  *   - image/* → small thumbnail; click to view full size in a lightbox.
+ *   - PDF     → first-page thumbnail; click to read it in the lightbox,
+ *               which also downloads it.
  *   - text/*  → expandable chip; click toggles inline content fetch.
  *   - other   → file chip with a download link.
  *
@@ -37,6 +41,9 @@ export function MessageFileChip({ attachment, variant = 'inline', fileUrl = atta
 
   if (isImage) {
     return <span className={cn(variant === 'block' && 'block my-1')}><ImagePreviewCard src={url} name={display} /></span>;
+  }
+  if (mimeType === 'application/pdf') {
+    return <span className={cn(variant === 'block' && 'block my-1')}><PdfPreviewCard src={attachmentPdfUrl(url, display)} name={display} source={display} /></span>;
   }
   if (isText) {
     return <TextExpandChip url={url} display={display} variant={variant} size={size} />;

@@ -20,7 +20,7 @@ import {
 import { toast } from 'sonner';
 import { apiErrorText } from '@/lib/api/client';
 import { useFolderRoot, useFolderTree, useWriteFile } from '@/hooks/use-folder';
-import { folderIsWritable, type FolderSource } from '@/lib/folders/source';
+import { folderIsWritable, folderPdfUrl, type FolderSource } from '@/lib/folders/source';
 import { isOutsideFolderPath } from '@/lib/entity-refs/open-file-event';
 import { useOpener } from '@/hooks/use-opener';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
@@ -42,6 +42,7 @@ import { DiffView } from './diff-view';
 import { ConflictView } from './conflict-view';
 import { MarkdownView } from './markdown-view';
 import { HtmlView } from '@/components/chat-ui/artifacts/html-view';
+import { PdfView } from '@/components/chat-ui/artifacts/pdf-view';
 import { Tip } from '@/components/ui/tip';
 
 interface FileViewerProps {
@@ -117,6 +118,8 @@ function SelectedFileViewer({
   const isConflict = writable && entry?.status === 'conflict';
   const isMarkdown = !!selectedPath && isMarkdownPath(selectedPath);
   const isHtml = !!selectedPath && /\.html?$/i.test(selectedPath);
+  // A PDF has no source to edit: its Current view is the PDF itself.
+  const isPdf = !!selectedPath && /\.pdf$/i.test(selectedPath);
 
   // HTML opens as a preview, conflicts as a resolver, and everything else
   // as source. A user's mode choice takes precedence as the tree refreshes.
@@ -191,7 +194,7 @@ function SelectedFileViewer({
   // Edit only makes sense in Current mode against a file that exists on
   // disk. Deleted-but-not-committed files have no working-tree copy to
   // edit; the user should restore via git first. Render is read-only.
-  const editable = writable && !outside && effectiveMode === 'current' && !isDeleted;
+  const editable = writable && !outside && effectiveMode === 'current' && !isDeleted && !isPdf;
 
   return (
     <div className="flex h-full w-full flex-col bg-background min-w-0">
@@ -218,6 +221,8 @@ function SelectedFileViewer({
           <DiffView source={source} path={selectedPath} status={entry.status} />
         ) : effectiveMode === 'render' ? (
           isHtml ? <HtmlView source={source} path={selectedPath} /> : <MarkdownView source={source} path={selectedPath} />
+        ) : isPdf && !isDeleted ? (
+          <PdfView key={selectedPath} src={folderPdfUrl(source, selectedPath)} name={selectedPath.split('/').at(-1) || selectedPath} />
         ) : (
           <FileView
             ref={fileViewRef}

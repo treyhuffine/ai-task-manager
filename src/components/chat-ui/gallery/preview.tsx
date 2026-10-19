@@ -22,7 +22,7 @@ import { ConnectedCompanion } from '@/components/mcp-apps/companion';
 import { galleryExample, type ChatUiExampleId } from './catalog';
 
 declare const __GALLERY_EXAMPLE__: ChatUiExampleId;
-import { CHAT_ID, DRAFT_ID, event, IMAGE_URL, NOW, RECORD_ID } from './fixtures';
+import { CHAT_ID, DRAFT_ID, event, IMAGE_URL, NOW, PDF_PAGES, RECORD_ID } from './fixtures';
 import { fixtureConfig as config, fixtureQueryClient as client, fixtureRuntime as runtime } from './fixture-client';
 
 document.documentElement.classList.toggle('dark', config.theme === 'dark');
@@ -40,6 +40,10 @@ for (const name of ['localStorage', 'sessionStorage']) {
 window.fetch = async input => {
   const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, window.location.href);
   if (url.pathname === '/api/attachments/gallery-agenda.txt') return new Response('Friday review\n\n1. Look at the new dashboard\n2. Decide what ships next\n3. Assign the follow-ups', { headers: { 'content-type': 'text/plain' } });
+  // The PDF's thumbnail and pages, as the Home draws them. A sandboxed page
+  // can't host the browser's PDF viewer, so the preview shows these pages.
+  const pdfPage = url.pathname === '/api/attachments/gallery-report.pdf' ? (url.searchParams.get('thumbnail') === '1' ? 1 : Number(url.searchParams.get('page'))) : 0;
+  if (PDF_PAGES[pdfPage - 1]) return new Response(PDF_PAGES[pdfPage - 1], { headers: { 'content-type': 'image/svg+xml', 'x-pdf-pages': String(PDF_PAGES.length) } });
   throw new Error(`The gallery blocked a network request to ${url.pathname}`);
 };
 document.addEventListener('click', event => {
@@ -71,7 +75,7 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'connections' && <ConnectionRequestCard event={runtime.events[0]} sessionId={CHAT_ID} />}
     {__GALLERY_EXAMPLE__ === 'references' && <References />}
     {__GALLERY_EXAMPLE__ === 'edits' && <div className="space-y-4 text-sm"><p>I clarified the agenda and made the next steps easier to scan.</p><EntityEditChip entityType="note" entityId={RECORD_ID} /></div>}
-    {__GALLERY_EXAMPLE__ === 'files' && <div className="space-y-5 text-sm"><p>Here are the review materials:</p><MessageFileChip attachment={{ fileName: 'gallery-agenda.txt', originalName: 'friday-agenda.txt', mimeType: 'text/plain', size: 99, uploadedAt: NOW }} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-image.svg', originalName: 'a-little-room-to-think.svg', mimeType: 'image/svg+xml', size: 720, uploadedAt: NOW }} fileUrl={() => IMAGE_URL} variant="block" /></div>}
+    {__GALLERY_EXAMPLE__ === 'files' && <div className="space-y-5 text-sm"><p>Here are the review materials:</p><MessageFileChip attachment={{ fileName: 'gallery-agenda.txt', originalName: 'friday-agenda.txt', mimeType: 'text/plain', size: 99, uploadedAt: NOW }} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-image.svg', originalName: 'a-little-room-to-think.svg', mimeType: 'image/svg+xml', size: 720, uploadedAt: NOW }} fileUrl={() => IMAGE_URL} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-report.pdf', originalName: 'friday-review.pdf', mimeType: 'application/pdf', size: 48210, uploadedAt: NOW }} variant="block" /></div>}
     {__GALLERY_EXAMPLE__ === 'html' && <HtmlPreviewLink sessionId={CHAT_ID} path="review-plan.html">An interactive plan for the Friday review</HtmlPreviewLink>}
     {__GALLERY_EXAMPLE__ === 'handoffs' && <ResultRenderer resultId={RECORD_ID} />}
     {__GALLERY_EXAMPLE__ === 'activity' && <div className="space-y-5"><ExecutionEvent event={event('tool_call', { toolName: 'Bash', toolInput: { command: 'pnpm test --filter=calendar' } })} /><ExecutionEvent event={event('tool_result', { content: config.state === 'error' ? 'The calendar test failed. Friday overlaps with the existing review.' : 'All 12 calendar tests passed.', toolIsError: config.state === 'error' })} /><ExecutionEvent event={event(config.state === 'error' ? 'error' : 'agent', { content: config.state === 'error' ? 'The schedule needs one more adjustment.' : 'The review plan is ready.' })} handoffActions={false} /></div>}

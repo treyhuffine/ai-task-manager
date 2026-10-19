@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Tip } from '@/components/ui/tip';
@@ -9,8 +9,10 @@ import { HtmlView } from '@/components/chat-ui/artifacts/html-view';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { sessionFolder } from '@/lib/folders/source';
 import { artifactImageSource } from '@/lib/sessions/artifact-image';
+import { pdfDownloadUrl } from '@/lib/sessions/reply-pdf';
 import { artifactSequence, cardShown, sameArtifact, type ArtifactPreview } from './artifact-previews';
 import { PreviewImage } from './preview-image';
+import { PdfView } from './pdf-view';
 
 export type { ArtifactPreview } from './artifact-previews';
 
@@ -112,9 +114,14 @@ export function ArtifactPreviewProvider({ children }: { children: ReactNode }) {
           <div className="flex min-w-0 shrink-0 items-center gap-3 border-b border-border px-4 py-3 pr-14">
             <div className="min-w-0 flex-1">
               <DialogTitle className="w-fit max-w-full truncate text-sm">{preview?.kind === 'html' ? preview.path.split('/').at(-1) : preview?.name}</DialogTitle>
-              {/* Both kinds show where the file is, so the header keeps its height from one to the next. */}
-              <DialogDescription className="mt-1 truncate font-mono text-[11px] select-text">{preview?.kind === 'image' ? artifactImageSource(preview.src) : preview?.path}</DialogDescription>
+              {/* Every kind shows where the file is, so the header keeps its height from one to the next. */}
+              <DialogDescription className="mt-1 truncate font-mono text-[11px] select-text">{preview?.kind === 'image' ? artifactImageSource(preview.src) : preview?.kind === 'pdf' ? preview.source : preview?.path}</DialogDescription>
             </div>
+            {preview?.kind === 'pdf' && (
+              <Button asChild variant="ghost" size="sm" className="shrink-0">
+                <a href={pdfDownloadUrl(preview.src)} download={preview.name}><Download />Download</a>
+              </Button>
+            )}
             {count > 1 && index >= 0 && (
               <div className="flex shrink-0 items-center gap-1">
                 <Tip label="Previous" shortcut={HOTKEYS.previewPrevious.label}>
@@ -130,6 +137,7 @@ export function ArtifactPreviewProvider({ children }: { children: ReactNode }) {
           <div className="min-h-0 flex-1">
             {preview?.kind === 'html' && <HtmlView key={`${preview.sessionId}:${preview.path}`} source={sessionFolder(preview.sessionId)} path={preview.path} />}
             {preview?.kind === 'image' && <PreviewImage key={preview.src} src={preview.src} alt={preview.alt || preview.name} className="h-full w-full object-contain p-3" />}
+            {preview?.kind === 'pdf' && <PdfView key={preview.src} src={preview.src} name={preview.name} />}
           </div>
         </DialogContent>
       </Dialog>

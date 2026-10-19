@@ -51,3 +51,9 @@ export const VERSIONS: EntityVersionRecord[] = [
 
 /** Self-contained image, so opening this example never loads an account or attachment. */
 export const IMAGE_URL = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="720" height="400" viewBox="0 0 720 400"><rect width="720" height="400" fill="#e8eee9"/><path d="M0 320 210 105 410 310 550 180 720 340V400H0Z" fill="#57715f"/><path d="m210 105 70 73-45-8-32 24-24-24-46 15Z" fill="#fff"/><circle cx="565" cy="90" r="35" fill="#d6b770"/><text x="32" y="365" fill="#fff" font-family="system-ui" font-size="24">A little room to think</text></svg>')}`;
+
+/** Two fictional PDF pages, as the Home's renderer would draw them. */
+export const PDF_PAGES = [
+  ['Friday review', 'Decisions to make', 'What ships next', 'Who owns the follow-ups'],
+  ['Follow-ups', 'Alex drafts the release note', 'Sam books the demo', 'Everyone reviews the dashboard'],
+].map(([title, ...lines]) => `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1656" viewBox="0 0 612 792"><rect width="612" height="792" fill="#fff"/><text x="64" y="110" font-family="system-ui" font-size="34" font-weight="600" fill="#111">${title}</text>${lines.map((line, i) => `<rect x="64" y="${170 + i * 64}" width="10" height="10" rx="5" fill="#57715f"/><text x="88" y="${180 + i * 64}" font-family="system-ui" font-size="20" fill="#333">${line}</text>`).join('')}</svg>`);

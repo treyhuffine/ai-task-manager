@@ -14,7 +14,7 @@ const coreRoutes = new Set([
 // These are language-neutral, cookie, byte-stream, native-device or discovery protocols.
 // A new application JSON route must have a typed procedure instead of joining this list.
 const protocolRoutes = new Set([
-  '/[transport]', '/attachments', '/attachments/[fileName]', '/capture', '/integrations/[transport]', '/integrations/callback', '/integrations/managed/callback',
+  '/[transport]', '/attachments', '/attachments/[fileName]', '/attachments/[fileName]/[...name]', '/capture', '/integrations/[transport]', '/integrations/callback', '/integrations/managed/callback',
   '/integrations/mcp-oauth/[sid]', '/desktop/activity', '/desktop/notifications', '/desktop/oauth/complete', '/desktop/oauth/events',
   '/health', '/live', '/orchestrator/[transport]', '/orchestrator/actions/[name]', '/orchestrator/browser/[transport]', '/orchestrator/coordination/[transport]', '/orchestrator/results/[transport]', '/playground/chat',
   // Signed harness reports and reviewer completion keep their language-neutral wire contract.
@@ -25,11 +25,11 @@ const protocolRoutes = new Set([
   '/chat-sources/action', '/local-apps/action', '/local-apps/broker/v1/[operation]',
   // Package bytes and the backup CLI's cross-process pause/resume lease.
   '/local-apps/import', '/local-apps/export/[name]', '/local-apps/backup',
-  '/preview/settings/connect-device', '/session', '/sessions/[id]/html', '/sessions/[id]/reply-image', '/sessions/[id]/stream', '/sessions/[id]/terminals/[terminalId]/stream', '/sessions/stream',
+  '/preview/settings/connect-device', '/session', '/sessions/[id]/html', '/sessions/[id]/pdf', '/sessions/[id]/pdf/[...name]', '/sessions/[id]/reply-image', '/sessions/[id]/stream', '/sessions/[id]/terminals/[terminalId]/stream', '/sessions/stream',
   '/stt-bench', '/trpc/[trpc]', '/version', '/webhooks/pebble', '/webhooks/pocket', '/webhooks/triggers/[public_id]',
   '/workers/enroll', '/workers/grants', '/workers/me/associations', '/workers/me/attachments/[fileName]', '/workers/me/commands/[id]/ack',
   '/workers/me/events', '/workers/me/heartbeat', '/workers/me/requests/[id]/result', '/workers/me', '/workers/me/stream',
-  '/workers/me/terminals/output', '/workspaces/[id]/html', '/workspaces/[id]/terminals/[terminalId]/stream',
+  '/workers/me/terminals/output', '/workspaces/[id]/html', '/workspaces/[id]/pdf', '/workspaces/[id]/pdf/[...name]', '/workspaces/[id]/terminals/[terminalId]/stream',
   // A team's grants are their own credential, like enrollment, and its host's
   // installation administration takes only the host's key (src/lib/team/admission.ts).
   '/team/public/info', '/team/public/preview', '/team/public/join', '/team/public/sign-in', '/team/public/setup',

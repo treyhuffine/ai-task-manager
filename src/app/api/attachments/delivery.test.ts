@@ -46,3 +46,34 @@ it('still refuses a type that is not on the list', async () => {
   const refused = await POST(new NextRequest('http://localhost/api/attachments', { method: 'POST', body: form }));
   expect(refused.status).toBe(415);
 });
+
+it('serves an uploaded PDF for the browser viewer, as a download under its name, and as a thumbnail', async () => {
+  const { makePdf } = await import('@/test/fixtures/pdf');
+  const pdf = makePdf(['Uploaded agenda']);
+  const fileName = 'pdf-delivery-regression.pdf';
+  const file = path.join(ensureAttachmentsDir(), fileName);
+  fs.writeFileSync(file, pdf);
+  files.push(file);
+  const get = (query = '', headers: Record<string, string> = {}) =>
+    GET(new NextRequest(`http://localhost/api/attachments/${fileName}${query}`, { headers }), { params: Promise.resolve({ fileName }) });
+
+  const inline = await get('?name=Friday%20agenda.pdf');
+  expect(inline.status).toBe(200);
+  expect(inline.headers.get('content-type')).toBe('application/pdf');
+  expect(inline.headers.get('accept-ranges')).toBe('bytes');
+  expect(inline.headers.get('content-disposition')).toMatch(/^inline; filename="Friday agenda.pdf"/);
+  expect(Buffer.from(await inline.arrayBuffer()).equals(pdf)).toBe(true);
+
+  const range = await get('', { range: 'bytes=0-3' });
+  expect(range.status).toBe(206);
+  expect(Buffer.from(await range.arrayBuffer()).toString('latin1')).toBe('%PDF');
+
+  const download = await get('?name=Friday%20agenda.pdf&download=1');
+  expect(download.headers.get('content-disposition')).toMatch(/^attachment; filename="Friday agenda.pdf"/);
+  // A name never becomes a path.
+  expect((await get('?name=..%2F..%2Fetc%2Fpasswd')).headers.get('content-disposition')).toMatch(/^inline; filename="passwd"/);
+
+  const thumbnail = await get('?thumbnail=1');
+  expect(thumbnail.headers.get('content-type')).toBe('image/webp');
+  expect(thumbnail.headers.get('x-pdf-pages')).toBe('1');
+}, 30_000);

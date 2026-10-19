@@ -1,16 +1,17 @@
 /**
  * Which file a chat's viewer may open for a requested path, decided once for
- * every reader: the file viewer's JSON read (`/api/sessions/:id/file`) and
- * the HTML preview's document (`/api/sessions/:id/html`). Both answer the same
- * question, so they share this rather than each restating it.
+ * every reader: the file viewer's JSON read (`/api/sessions/:id/file`), the
+ * HTML preview's document (`/api/sessions/:id/html`) and a PDF's bytes and
+ * page images (`/api/sessions/:id/pdf`). They answer the same question, so
+ * they share this rather than each restating it.
  *
  *   - Relative paths, and absolute ones under the chat's folder, are folder
  *     files. The reader keeps them inside the folder, here or on the device
  *     the chat runs on.
  *   - Anything else is outside, and opens when the agent shared that exact
- *     HTML path in a reply in this chat (`reply-files.ts`, checked first so
- *     the common HTML handoff never scans file-tool history), or when one of
- *     its file tools named it (`named-files.ts`).
+ *     HTML or PDF path in a reply in this chat (`reply-files.ts`, checked
+ *     first so the common handoff never scans file-tool history), or when one
+ *     of its file tools named it (`named-files.ts`).
  */
 
 import type { ChatSessionWithExecution } from '@/db/types';
@@ -19,7 +20,9 @@ import { preparedFolder } from '@/lib/executions/location';
 import { NOT_NAMED_MESSAGE, placeViewerPath } from './named-files';
 import { findReplyFile, resolveReplyFilePath } from './reply-files';
 import { isLocalHtmlTarget } from './reply-html';
+import { isLocalPdfTarget } from './reply-pdf';
 import { HTML_PREVIEW_MAX_BYTES } from './html-preview-response';
+import { PDF_MAX_BYTES } from '@/lib/attachments/pdf-delivery';
 
 export type SessionFileTarget =
   /** In the chat's folder, as a folder-relative path. */
@@ -36,15 +39,17 @@ export async function sessionFileTarget(session: ChatSessionWithExecution, reque
   const placed = placeViewerPath(viewerPath, folder);
   if (placed.kind === 'folder') return { kind: 'folder', path: placed.path };
 
-  if (isLocalHtmlTarget(requested) && agentReplyMentions(session.id, requested)) {
-    // Shared HTML artifacts usually arrive as a reply path or visualize marker,
-    // with no file tool call before them. The same narrow, real-file rule as
-    // reply images. The size bound is the preview's: the file viewer's JSON
-    // read reports anything over its own cap as `tooLarge`.
+  const shared = isLocalHtmlTarget(requested) ? { kind: 'html' as const, maxBytes: HTML_PREVIEW_MAX_BYTES }
+    : isLocalPdfTarget(requested) ? { kind: 'pdf' as const, maxBytes: PDF_MAX_BYTES } : null;
+  if (shared && agentReplyMentions(session.id, requested)) {
+    // Shared HTML and PDF artifacts usually arrive as a reply path or
+    // visualize marker, with no file tool call before them. The same narrow,
+    // real-file rule as reply images. The size bound is the preview's: the
+    // file viewer's JSON read reports anything over its own cap as `tooLarge`.
     const artifact = await findReplyFile({
       folder,
       elsewhere: session.location && !session.location.isHome ? session.location.name : null,
-    }, requested, () => true, { kind: 'html', maxBytes: HTML_PREVIEW_MAX_BYTES });
+    }, requested, () => true, shared);
     if (!artifact.ok) return { kind: 'refused', status: artifact.status, body: { error: artifact.error } };
     return { kind: 'outside', file: artifact.file, shown: requested };
   }

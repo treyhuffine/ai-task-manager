@@ -34,6 +34,11 @@ export function htmlPreviewUrl(source: FolderSource, path: string, theme: 'light
   return `/api${folderApiBase(source)}/html?path=${encodeURIComponent(path)}&theme=${theme}`;
 }
 
+/** A PDF in the folder, through its `pdf` route (`src/lib/attachments/pdf-delivery.ts`). */
+export function folderPdfUrl(source: FolderSource, path: string): string {
+  return `/api${folderApiBase(source)}/pdf?path=${encodeURIComponent(path)}`;
+}
+
 /**
  * Whether files can be created, edited, renamed or deleted from the app.
  * Both an execution's worktree and an agent's own folder can, except an
