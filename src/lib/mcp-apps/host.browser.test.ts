@@ -154,3 +154,51 @@ it('advertises OpenAI extensions only as the page supports them, and carries hos
     expect(errors).toEqual([]);
   } finally {await browser.close(); await new Promise<void>(resolve => server.close(() => resolve()));}
 }, 30_000);
+
+// What an app written for ChatGPT does that a locked-down frame used to refuse: a form whose
+// submit handler runs (Bits & Bolts' Create part), WebAssembly, and a worker it builds from a
+// blob (its STEP importer). The network stays closed to the view and to its worker, and a form
+// that is not cancelled, or submitted programmatically, leaves the view running.
+const capableGuest = `
+let sequence=0;const awaiting=new Map();
+const rpc=(method,params)=>new Promise((resolve,reject)=>{const id=++sequence;awaiting.set(id,{resolve,reject});parent.postMessage({jsonrpc:'2.0',id,method,params},'*')});
+const notify=(method,params)=>parent.postMessage({jsonrpc:'2.0',method,params},'*');
+const report=value=>rpc('tools/call',{name:'fixture_probe',arguments:value});
+addEventListener('message',event=>{if(event.source!==parent)return;const m=event.data;if(m.id&&awaiting.has(m.id)){const p=awaiting.get(m.id);awaiting.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result)}});
+rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Capable fixture',version:'1.0.0'},appCapabilities:{}}).then(async()=>{
+  notify('ui/notifications/initialized',{});
+  let submitted=false;const form=document.getElementById('create');form.addEventListener('submit',()=>{submitted=true});form.requestSubmit();form.submit();await new Promise(r=>setTimeout(r,300));
+  let wasm='refused';try{const bytes=new Uint8Array([0,97,115,109,1,0,0,0]);await WebAssembly.instantiate(bytes);wasm='compiled'}catch(error){wasm=String(error.message||error).slice(0,80)}
+  let worker='refused';try{const url=URL.createObjectURL(new Blob(['onmessage=e=>postMessage(e.data*2)'],{type:'text/javascript'}));const w=new Worker(url);worker=await new Promise((resolve,reject)=>{w.onmessage=e=>resolve(String(e.data));w.onerror=()=>reject(new Error('worker failed'));setTimeout(()=>reject(new Error('worker timed out')),3000);w.postMessage(21)})}catch(error){worker=String(error.message||error).slice(0,80)}
+  let network='open';try{await fetch('https://example.com/');}catch{network='closed'}
+  await report({submitted,wasm,worker,network});
+});
+`;
+
+it('runs form handlers, WebAssembly and blob workers inside the view, with the network still closed', async () => {
+  const executablePath = [chromium.executablePath(),'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome','/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'].find(existsSync);
+  if (!executablePath) throw new Error('MCP UI qualification requires Chromium');
+  const require = createRequire(import.meta.url);
+  const output = await build({stdin: {contents: `import {AppViewController} from ${JSON.stringify(require.resolve('@ri/mcp-apps-host'))};window.AppViewController=AppViewController;`, resolveDir: process.cwd()}, bundle: true, write: false, format: 'iife', platform: 'browser'});
+  const host = output.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
+  const server = createServer((_req,res) => {res.setHeader('Content-Type','text/html');res.end(`<html><body><div id="view" style="height:300px"></div><script>${host}</script></body></html>`);});
+  await new Promise<void>(resolve => server.listen(0,'127.0.0.1',resolve));
+  const browser = await chromium.launch({executablePath, headless: true, chromiumSandbox: true, env: {PATH: process.env.PATH, TMPDIR: process.env.TMPDIR}});
+  try {
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${(server.address() as {port: number}).port}`);
+    const uri = 'ui://fixture/capable.html';
+    const prepared = prepareResource({contents: [{uri, mimeType: 'text/html;profile=mcp-app', text: `<html><body><form id="create"><input name="part" value="washer"><button>Create</button></form><script>${capableGuest}</script></body></html>`}]}, uri, false);
+    await page.evaluate(async ({prepared, id}) => {
+      const state = window as unknown as {AppViewController: new (...args: unknown[]) => {open(...args: unknown[]): Promise<void>}; reports: unknown[]};
+      state.reports = [];
+      const controller = new state.AppViewController(document.getElementById('view'), {
+        call: async (name: string, args: unknown) => {if (name === 'fixture_probe') state.reports.push(args); return {content: []};},
+        context: async () => {}, navigate: () => {}, externalLink: () => {}, error: () => {},
+      });
+      await controller.open(prepared, {id, packageDigest: prepared.digest, path: '/', query: {}, theme: 'light', initialData: null, mcp: {input: {}, result: {content: []}}});
+    }, {prepared, id: randomUUID()});
+    await page.waitForFunction(() => (window as unknown as {reports: unknown[]}).reports.length > 0, undefined, {timeout: 15_000});
+    expect((await page.evaluate(() => (window as unknown as {reports: unknown[]}).reports))[0]).toEqual({submitted: true, wasm: 'compiled', worker: '42', network: 'closed'});
+  } finally {await browser.close(); await new Promise<void>(resolve => server.close(() => resolve()));}
+}, 30_000);

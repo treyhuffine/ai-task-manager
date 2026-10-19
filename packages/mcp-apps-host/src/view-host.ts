@@ -81,6 +81,15 @@ export interface ViewCallbacks {
   downloadFile?(contents: unknown[], signal: AbortSignal): Promise<void>;
 }
 /**
+ * Runs first in every view. A form's submit handlers run (the frame allows
+ * forms, as apps written for ChatGPT expect), but no form ever navigates the
+ * frame: a submission its handlers left alone is cancelled once they have run,
+ * and a programmatic `form.submit()` does nothing. CSP's `form-action 'none'`
+ * would block the request anyway. Cancelling first keeps the view alive
+ * instead of leaving it on an error page.
+ */
+export const FORM_GUARD = `(()=>{addEventListener('submit',e=>{if(!e.defaultPrevented)e.preventDefault()});HTMLFormElement.prototype.submit=function(){}})()`;
+/**
  * Message size caps, in characters of serialized JSON. A view may send up to
  * 16 MiB (a file it saves through `openai/resources/write`), and receives up
  * to 64 MiB (a model file it reads, which Bits & Bolts sends at about 6 MB).
@@ -88,7 +97,7 @@ export interface ViewCallbacks {
 export const GUEST_MESSAGE_LIMIT = 16 * 1024 * 1024;
 export const HOST_MESSAGE_LIMIT = 64 * 1024 * 1024;
 // The relay contains no app authority. The same fixed script serves all views.
-export const RELAY_SCRIPT = `(()=>{let inner=null,id=null,digest=null;let attempts=0;const ready=()=>{if(!inner&&++attempts<=200)parent.postMessage({type:'ri-relay-ready'},'*');else clearInterval(timer)};const timer=setInterval(ready,100);let count=0,windowStart=Date.now();const valid=(m,max)=>m&&typeof m==='object'&&m.jsonrpc==='2.0'&&JSON.stringify(m).length<=max;addEventListener('message',e=>{if(e.source===parent){const d=e.data;if(!id&&d?.type==='ri-view-init'&&typeof d.id==='string'&&typeof d.html==='string'){id=d.id;digest=d.packageDigest;clearInterval(timer);inner=document.createElement('iframe');inner.sandbox='allow-scripts';inner.style='width:100%;height:100%;border:0';inner.srcdoc=d.html;document.body.append(inner)}else if(d?.type==='ri-view-message'&&d.id===id&&d.packageDigest===digest&&inner&&valid(d.message,${HOST_MESSAGE_LIMIT})){inner.contentWindow.postMessage(d.message,'*')}}else if(inner&&e.source===inner.contentWindow&&valid(e.data,${GUEST_MESSAGE_LIMIT})){if(Date.now()-windowStart>1000){windowStart=Date.now();count=0}if(++count<=100)parent.postMessage({type:'ri-view-message',id,packageDigest:digest,message:e.data},'*')}});ready()})()`;
+export const RELAY_SCRIPT = `(()=>{let inner=null,id=null,digest=null;let attempts=0;const ready=()=>{if(!inner&&++attempts<=200)parent.postMessage({type:'ri-relay-ready'},'*');else clearInterval(timer)};const timer=setInterval(ready,100);let count=0,windowStart=Date.now();const valid=(m,max)=>m&&typeof m==='object'&&m.jsonrpc==='2.0'&&JSON.stringify(m).length<=max;addEventListener('message',e=>{if(e.source===parent){const d=e.data;if(!id&&d?.type==='ri-view-init'&&typeof d.id==='string'&&typeof d.html==='string'){id=d.id;digest=d.packageDigest;clearInterval(timer);inner=document.createElement('iframe');inner.sandbox='allow-scripts allow-forms';inner.style='width:100%;height:100%;border:0';inner.srcdoc=d.html;document.body.append(inner)}else if(d?.type==='ri-view-message'&&d.id===id&&d.packageDigest===digest&&inner&&valid(d.message,${HOST_MESSAGE_LIMIT})){inner.contentWindow.postMessage(d.message,'*')}}else if(inner&&e.source===inner.contentWindow&&valid(e.data,${GUEST_MESSAGE_LIMIT})){if(Date.now()-windowStart>1000){windowStart=Date.now();count=0}if(++count<=100)parent.postMessage({type:'ri-view-message',id,packageDigest:digest,message:e.data},'*')}});ready()})()`;
 const ALLOWED = new Set([
   "ping",
   "ui/initialize",
@@ -109,8 +118,16 @@ const ALLOWED = new Set([
   "openai/resources/write",
   "openai/files/open",
 ]);
+/**
+ * The view's CSP. Nothing leaves the frame: no network, no navigation, no
+ * form submission, images and fonts only from `data:`. Scripts are the
+ * view's own inline scripts, by hash. Within that, a view may compile
+ * WebAssembly and start workers from `blob:` URLs it builds itself, as a CAD
+ * viewer does to parse STEP files (Bits & Bolts). A worker inherits this
+ * policy, so it has no network either.
+ */
 export function restrictivePolicy(hashes: string[]): string {
-  return `default-src 'none'; script-src ${hashes.join(" ")}; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'`;
+  return `default-src 'none'; script-src ${hashes.join(" ")} 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src blob:; object-src 'none'; form-action 'none'; base-uri 'none'`;
 }
 async function scriptHash(script: string) {
   const digest = await crypto.subtle.digest(
@@ -230,18 +247,20 @@ export class AppViewController {
     await this.disposeBridge();
     if (lifecycle !== this.lifecycle) return;
     this.disposed = false;
-    const relayHash = await scriptHash(RELAY_SCRIPT);
+    const [relayHash, guardHash] = await Promise.all([scriptHash(RELAY_SCRIPT), scriptHash(FORM_GUARD)]);
     if (lifecycle !== this.lifecycle) return;
-    const policy = restrictivePolicy([...resource.scriptHashes, relayHash]);
+    const policy = restrictivePolicy([...resource.scriptHashes, relayHash, guardHash]);
     const iframe = document.createElement("iframe");
-    iframe.sandbox.add("allow-scripts");
+    // Forms may run their submit handlers, as apps written for ChatGPT expect. The view's CSP
+    // (`form-action 'none'`) still stops any form from actually submitting or navigating.
+    iframe.sandbox.add("allow-scripts", "allow-forms");
     iframe.setAttribute("aria-label", "App view");
     iframe.style.cssText = "width:100%;height:100%;border:0;min-height:240px";
     this.mount.append(iframe);
     this.frame = iframe;
     const transport = new OpaqueTransport(iframe, binding, {
       ...resource,
-      html: injectPolicy(resource.html, policy),
+      html: injectPolicy(`<script>${FORM_GUARD}</script>${resource.html}`, policy),
     });
     this.transport = transport;
     const callbacks = this.callbacks;
