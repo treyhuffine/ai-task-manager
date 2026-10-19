@@ -4,14 +4,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-const mocks = vi.hoisted(() => ({workspaces: [] as {id: string; cwd: string; status: string}[], remote: new Set<string>()}));
+const mocks = vi.hoisted(() => ({workspaces: [] as {id: string; cwd: string; status: string}[], remote: new Set<string>(),
+  sessions: [] as {id: string; worktreePath: string | null; status: string}[], elsewhere: new Set<string>()}));
 vi.mock('@/lib/db/queries', () => ({
   getWorkspace: (id: string) => mocks.workspaces.find(workspace => workspace.id === id),
   listWorkspaces: () => mocks.workspaces,
+  getChatSessionWithExecution: (id: string) => mocks.sessions.find(session => session.id === id),
+  chatPlacement: (id: string) => mocks.elsewhere.has(id) ? {isHome: false, deviceId: 'laptop'} : {isHome: true},
 }));
 vi.mock('@/lib/setups/run-on', () => ({agentDeviceFor: (id: string) => mocks.remote.has(id) ? 'laptop' : null}));
 import {
-  agentFileHandle, attachmentHandle, etagOf, fileCallMeta, fileLaunchInput, isHostResource, MAX_HOST_FILE_BYTES, openFileTarget, readHostResource,
+  agentFileHandle, attachmentHandle, sessionFileHandle, etagOf, fileCallMeta, fileLaunchInput, isHostResource, MAX_HOST_FILE_BYTES, openFileTarget, readHostResource,
   serverRunsHere, subscribeHostResource, unsubscribeHostResource, waitHostResource, writeHostResource,
 } from './files';
 import type { View } from './store';
@@ -36,6 +39,9 @@ beforeEach(() => {
   fs.writeFileSync(path.join(home, 'data.db'), 'sqlite');
   mocks.workspaces = [{id: 'agent', cwd: folder, status: 'active'}];
   mocks.remote.clear();
+  // An execution's worktree, here the same folder, reached through its chat.
+  mocks.sessions = [{id: 'chat', worktreePath: folder, status: 'active'}, {id: 'archived-chat', worktreePath: folder, status: 'archived'}, {id: 'no-folder', worktreePath: null, status: 'active'}];
+  mocks.elsewhere.clear();
 });
 afterEach(() => { delete process.env.RI_ROOT; fs.rmSync(root, {recursive: true, force: true}); });
 
@@ -88,6 +94,30 @@ describe('host file handles', () => {
     fs.rmSync(path.join(folder, 'parts', 'hex-bolt.stl'));
     fs.symlinkSync(path.join(outside, 'secret.stl'), path.join(folder, 'parts', 'hex-bolt.stl'));
     await expect(readHostResource(view, uri)).rejects.toThrow('outside the folder');
+  });
+});
+
+describe('files in an execution\'s worktree', () => {
+  it('open through the chat with the same rules as its own file routes', async () => {
+    const {handle, name} = await sessionFileHandle('viewer', 'chat', 'parts/hex-bolt.stl');
+    expect(name).toBe('hex-bolt.stl');
+    const {input} = await fileLaunchInput({viewerId: 'viewer', serverId: 'bnb', extensions: CAD, handle});
+    const view = fileView(handle, name);
+    const [content] = (await readHostResource(view, (input.file as {resourceUri: string}).resourceUri)).contents;
+    expect(content).toMatchObject({text: STL, _meta: {'openai/resource': {writable: true}}});
+    await expect(sessionFileHandle('viewer', 'chat', '../outside/secret.stl')).rejects.toThrow('not inside');
+    await expect(sessionFileHandle('viewer', 'chat', '.git/config')).rejects.toThrow('not inside');
+    await expect(sessionFileHandle('viewer', 'missing', 'parts/hex-bolt.stl')).rejects.toThrow('no longer exists');
+    await expect(sessionFileHandle('viewer', 'no-folder', 'parts/hex-bolt.stl')).rejects.toThrow('no folder');
+    mocks.elsewhere.add('chat');
+    await expect(sessionFileHandle('viewer', 'chat', 'parts/hex-bolt.stl')).rejects.toThrow('another device');
+  });
+
+  it('are read only once the chat is archived', async () => {
+    const {handle, name} = await sessionFileHandle('viewer', 'archived-chat', 'parts/hex-bolt.stl');
+    const {input} = await fileLaunchInput({viewerId: 'viewer', serverId: 'bnb', extensions: CAD, handle});
+    const [content] = (await readHostResource(fileView(handle, name), (input.file as {resourceUri: string}).resourceUri)).contents;
+    expect(content?._meta).toMatchObject({'openai/resource': {writable: false}});
   });
 });
 

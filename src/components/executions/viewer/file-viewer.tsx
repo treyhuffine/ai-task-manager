@@ -385,9 +385,11 @@ function FileViewerHeader({
           )}
         </div>
       )}
-      {/* A connected app that opens this kind of file (OpenAI's file entrypoint), for an agent's own folder. */}
-      {source.kind === 'workspace' && !outside && (
-        <OpenWithApp file={{ kind: 'agent-file', workspaceId: source.workspaceId, path: displayPath, name: displayPath.split('/').pop() ?? displayPath }} className="shrink-0" />
+      {/* A connected app that opens this kind of file (OpenAI's file entrypoint), in an agent's folder or a chat's. */}
+      {!outside && (
+        <OpenWithApp file={source.kind === 'workspace'
+          ? { kind: 'agent-file', workspaceId: source.workspaceId, path: displayPath, name: displayPath.split('/').pop() ?? displayPath }
+          : { kind: 'session-file', sessionId: source.sessionId, path: displayPath, name: displayPath.split('/').pop() ?? displayPath }} className="shrink-0" />
       )}
       <RevealButton source={source} root={root} path={path} outside={outside} />
       <FileHeaderMoreMenu

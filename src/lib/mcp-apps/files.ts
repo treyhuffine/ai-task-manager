@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { getAppRoot, getAttachmentsDir } from '@/lib/config/paths';
-import { getWorkspace, listWorkspaces } from '@/lib/db/queries';
+import { chatPlacement, getChatSessionWithExecution, getWorkspace, listWorkspaces } from '@/lib/db/queries';
 import { hostedMcpDefinition } from '@/lib/integrations/hosted-mcp';
 import type { McpServerEntry } from '@/lib/integrations/mcp-servers';
 import { processState } from '@/lib/process-state';
@@ -40,6 +40,8 @@ export const WATCH_WAIT_MS = 20_000;
 export type HostFileSource =
   | { kind: 'attachment'; fileName: string }
   | { kind: 'agent-folder'; workspaceId: string; path: string }
+  /** A file in an execution's worktree, addressed through one of its chats. */
+  | { kind: 'session-file'; sessionId: string; path: string }
   | { kind: 'local'; path: string; serverId: string };
 interface HostFile { id: string; viewerId: string; source: HostFileSource; name: string; created: number }
 interface Watch {
@@ -110,6 +112,20 @@ async function resolveHostFile(source: HostFileSource): Promise<{ absolute: stri
     const absolute = await regularFile(path.join(root, relative), root, 'This file no longer exists in the agent\'s folder.');
     return { absolute, writable: workspace.status !== 'archived' };
   }
+  if (source.kind === 'session-file') {
+    // The same rules as the execution's own file routes (`openSessionWorktree`): a worktree on
+    // this computer, a path inside it, never `.git`.
+    const session = getChatSessionWithExecution(source.sessionId);
+    if (!session) throw new Error('This chat no longer exists.');
+    const placement = chatPlacement(source.sessionId);
+    if (placement && !placement.isHome) throw new Error('This chat\'s files are on another device, so apps can\'t open them here.');
+    if (!session.worktreePath) throw new Error('This chat has no folder.');
+    const relative = sanitizeRelPath(source.path);
+    if (!relative || relative.split('/').includes('.git')) throw new Error('This path is not inside the chat\'s folder.');
+    const root = await fsp.realpath(session.worktreePath).catch(() => { throw new Error('The chat\'s folder does not exist.'); });
+    const absolute = await regularFile(path.join(root, relative), root, 'This file no longer exists in the chat\'s folder.');
+    return { absolute, writable: session.status !== 'archived' };
+  }
   if (!path.isAbsolute(source.path)) throw new Error('Files open by absolute path.');
   return { absolute: await regularFile(source.path, null, 'This file no longer exists.'), writable: false };
 }
@@ -133,6 +149,12 @@ export async function attachmentHandle(viewerId: string, fileName: string, origi
 /** A handle for a file in an agent's own folder, by the agent and a path inside it. */
 export async function agentFileHandle(viewerId: string, workspaceId: string, relativePath: string) {
   const source: HostFileSource = { kind: 'agent-folder', workspaceId, path: sanitizeRelPath(relativePath) ?? relativePath };
+  await resolveHostFile(source);
+  return remember(viewerId, source, path.basename(source.path));
+}
+/** A handle for a file in an execution's worktree, by one of its chats and a path inside it. */
+export async function sessionFileHandle(viewerId: string, sessionId: string, relativePath: string) {
+  const source: HostFileSource = { kind: 'session-file', sessionId, path: sanitizeRelPath(relativePath) ?? relativePath };
   await resolveHostFile(source);
   return remember(viewerId, source, path.basename(source.path));
 }

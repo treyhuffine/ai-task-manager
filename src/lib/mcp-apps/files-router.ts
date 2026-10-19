@@ -1,6 +1,6 @@
 import { z } from 'zod/v4';
 import { router } from '@/lib/trpc/init';
-import { agentFileHandle, attachmentHandle, openFileTarget, subscribeHostResource, unsubscribeHostResource, waitHostResource, writeHostResource, type ResourceWrite } from './files';
+import { agentFileHandle, attachmentHandle, openFileTarget, sessionFileHandle, subscribeHostResource, unsubscribeHostResource, waitHostResource, writeHostResource, type ResourceWrite } from './files';
 import { checkedView } from './service';
 import { connectedViewerProcedure as p } from './viewer-procedure';
 
@@ -13,13 +13,14 @@ import { connectedViewerProcedure as p } from './viewer-procedure';
 const id = z.uuid();
 const uri = z.string().min(1).max(4096);
 export const connectedFilesRouter = router({
-  /** A host handle for a file the person picked: a chat attachment, or a file in an agent's folder. */
+  /** A host handle for a file the person picked: a chat attachment, a file in an agent's folder, or one in an execution's worktree. */
   handle: p.input(z.discriminatedUnion('kind', [
     z.object({kind: z.literal('attachment'), fileName: z.string().min(1).max(255), name: z.string().max(255).optional()}).strict(),
     z.object({kind: z.literal('agent-file'), workspaceId: z.string().min(1).max(200), path: z.string().min(1).max(4096)}).strict(),
-  ])).mutation(({input, ctx}) => input.kind === 'attachment'
-    ? attachmentHandle(ctx.key!.apiKeyId, input.fileName, input.name)
-    : agentFileHandle(ctx.key!.apiKeyId, input.workspaceId, input.path)),
+    z.object({kind: z.literal('session-file'), sessionId: z.string().min(1).max(200), path: z.string().min(1).max(4096)}).strict(),
+  ])).mutation(({input, ctx}) => input.kind === 'attachment' ? attachmentHandle(ctx.key!.apiKeyId, input.fileName, input.name)
+    : input.kind === 'agent-file' ? agentFileHandle(ctx.key!.apiKeyId, input.workspaceId, input.path)
+    : sessionFileHandle(ctx.key!.apiKeyId, input.sessionId, input.path)),
   subscribe: p.input(z.object({viewId: id, uri}).strict()).mutation(async ({input, ctx}) => {
     const {view} = await checkedView(input.viewId, ctx.key!.apiKeyId);
     return subscribeHostResource(view, input.uri);

@@ -14,10 +14,11 @@ import type { RouterOutputs } from '@/lib/trpc/router';
 import { connectedAppsQuery } from './catalog';
 
 type App = RouterOutputs['connectedApps']['catalog'][number];
-/** A file the person can open with an app: a chat attachment, or a file in an agent's folder. */
+/** A file the person can open with an app: a chat attachment, a file in an agent's folder, or one in an execution's worktree. */
 export type OpenWithFile =
   | { kind: 'attachment'; fileName: string; name: string }
-  | { kind: 'agent-file'; workspaceId: string; path: string; name: string };
+  | { kind: 'agent-file'; workspaceId: string; path: string; name: string }
+  | { kind: 'session-file'; sessionId: string; path: string; name: string };
 export interface FileApp { app: App; tool: string; title: string; label: string }
 
 /**
@@ -50,20 +51,31 @@ export function OpenWithApp({file, className}: {file: OpenWithFile; className?: 
   const [busy, setBusy] = useState(false);
   const [approval, setApproval] = useState<(FileLaunchApproval & {app: FileApp; answer: (allow: boolean) => void}) | null>(null);
   if (!apps.length) return null;
-  const chatId = file.kind === 'attachment' ? companion?.chatId ?? null : null;
+  // A chat's file opens beside that chat. An agent's own folder has no chat, so its file opens full screen.
+  const besideChat = file.kind === 'agent-file' ? null : companion?.chatId ?? null;
 
   const open = async (choice: FileApp) => {
     setBusy(true);
     try {
-      const {handle} = await trpcClient.connectedApps.files.handle.mutate(file.kind === 'attachment'
-        ? {kind: 'attachment', fileName: file.fileName, name: file.name}
-        : {kind: 'agent-file', workspaceId: file.workspaceId, path: file.path});
-      const captureId = await launchConnectedFile({serverId: choice.app.id, tool: choice.tool, handle, chatId,
+      const {handle} = await trpcClient.connectedApps.files.handle.mutate(file.kind === 'attachment' ? {kind: 'attachment', fileName: file.fileName, name: file.name}
+        : file.kind === 'agent-file' ? {kind: 'agent-file', workspaceId: file.workspaceId, path: file.path}
+        : {kind: 'session-file', sessionId: file.sessionId, path: file.path});
+      const launch = (chatId: string | null) => launchConnectedFile({serverId: choice.app.id, tool: choice.tool, handle, chatId,
         ask: (request, signal) => new Promise<boolean>(resolve => {
           const answer = (allow: boolean) => { setApproval(null); resolve(allow); };
           signal.addEventListener('abort', () => answer(false), {once: true});
           setApproval({...request, app: choice, answer});
         })});
+      let chatId = besideChat;
+      let captureId: string;
+      try { captureId = await launch(chatId); }
+      catch (error) {
+        // The chat's agent may not use this app. The person can still open their file in it, full screen,
+        // where nothing it does reaches that chat.
+        if (!chatId || !(error instanceof Error) || !/not available to this chat/.test(error.message)) throw error;
+        chatId = null;
+        captureId = await launch(null);
+      }
       showConnectedCapture({captureId, serverId: choice.app.id, chatId}, {companion, setActiveView: dashboard?.setActiveView});
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `${choice.label} could not open ${file.name}`);
