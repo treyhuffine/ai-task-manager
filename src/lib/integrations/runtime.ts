@@ -37,7 +37,8 @@ import {
   type HostedMcpEndpointSetup,
 } from '@integrations/engine/providers';
 import { toToolSet } from '@integrations/engine/ai-sdk';
-import { connectMcpClient, ingestMcpServers, isMcpAuthenticationError, isMcpRequestTimeout, MCP_CONNECT_TIMEOUT_MS, MCP_DISCOVERY_TIMEOUT_MS, type ConnectedMcpClient, type McpToolDef } from '@integrations/engine/mcp';
+import { connectMcpClient, ingestMcpServers, isMcpAuthenticationError, isMcpRequestTimeout, McpFormError, MCP_CONNECT_TIMEOUT_MS, MCP_DISCOVERY_TIMEOUT_MS, type ConnectedMcpClient, type McpToolDef } from '@integrations/engine/mcp';
+import { mcpFormOptions } from '@/lib/mcp-apps/elicitation';
 import type { ToolSet } from 'ai';
 import { appApprovalPolicy } from './approval';
 import { getIntegrationsDir, getOrCreateKey } from './storage';
@@ -674,7 +675,7 @@ async function build(): Promise<Built> {
       if (hosted?.localCommand) {
         // The executable comes only from our catalog. A custom URL can never launch a process.
         client = await withTimeout(
-          connectMcpClient({ command: hosted.localCommand, name: entry.slug, onToolsChanged, knownLegacy: mcpKnownLegacy(entry) }),
+          connectMcpClient({ command: hosted.localCommand, name: entry.slug, onToolsChanged, knownLegacy: mcpKnownLegacy(entry), ...mcpFormOptions(entry) }),
           MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
         );
       } else if (entry.auth.kind === 'oauth') {
@@ -686,7 +687,7 @@ async function build(): Promise<Built> {
           continue;
         }
         client = await withTimeout(
-          connectMcpClient({ url: entry.url, name: entry.slug, onToolsChanged, knownLegacy: mcpKnownLegacy(entry), ...mcpOAuthTransportOptions(entry), authProvider: mcpOAuthProviderFor(entry, undefined, { onState: state => registerMcpSecrets(redactor, state) }) }),
+          connectMcpClient({ url: entry.url, name: entry.slug, onToolsChanged, knownLegacy: mcpKnownLegacy(entry), ...mcpFormOptions(entry), ...mcpOAuthTransportOptions(entry), authProvider: mcpOAuthProviderFor(entry, undefined, { onState: state => registerMcpSecrets(redactor, state) }) }),
           MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
         );
         const tokens = (await mcpStore.getOAuthState(entry.id))?.tokens as { access_token?: string } | undefined;
@@ -709,7 +710,7 @@ async function build(): Promise<Built> {
         }
         sessionToken = secret ?? 'mcp-session';
         client = await withTimeout(
-          connectMcpClient({ url: entry.url, name: entry.slug, headers: mcpAuthHeaders(entry.auth, secret, hosted?.tokenAuth?.scheme), onToolsChanged, knownLegacy: mcpKnownLegacy(entry) }),
+          connectMcpClient({ url: entry.url, name: entry.slug, headers: mcpAuthHeaders(entry.auth, secret, hosted?.tokenAuth?.scheme), onToolsChanged, knownLegacy: mcpKnownLegacy(entry), ...mcpFormOptions(entry) }),
           MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
         );
       }
@@ -729,9 +730,10 @@ async function build(): Promise<Built> {
           if (options?.signal?.aborted) throw new IntegrationError('denied', 'The request was cancelled before dispatch. No request was sent.');
           try { return await connected.callTool(params, ...(options ? [options] : [])); }
           catch (error) {
-            // Stop new sends when the transport really fails. One timeout or
-            // caller cancellation affects only that request.
-            if (!(error instanceof DOMException && error.name === 'AbortError') && !await isMcpRequestTimeout(error)) {
+            // Stop new sends when the transport really fails. One timeout,
+            // caller cancellation or form Ri could not show affects only that request.
+            const formRefused = error instanceof IntegrationError && error.cause instanceof McpFormError;
+            if (!formRefused && !(error instanceof DOMException && error.name === 'AbortError') && !await isMcpRequestTimeout(error)) {
               candidate.changed = true;
             }
             throw error;
