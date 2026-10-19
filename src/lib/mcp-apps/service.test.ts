@@ -325,6 +325,41 @@ describe('OpenAI entrypoints, deep links, resources and model context', () => {
       expect(await freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}])).toMatchObject([{context: {content: [{text: 'Library page'}]}}]);
     });
   });
+
+  it('binds a global screen\'s context to an agent chat that may use its account, and dispatches it there', async () => {
+    await withTools([launcher], async () => {
+      const launched = await launchRequest('server', 'viewer', 'home');
+      await launchConnectedView(launched.viewId, 'viewer');
+      const screen = await openConnectedView(launched.invocationId, 'viewer');
+      const {revision} = await updateConnectedContext(screen.id, 'viewer', {content: [{type: 'text', text: 'Library page'}]});
+      // The agent may use this account, so its chat's authority includes the agent's scopes.
+      mocks.chat.mockReturnValue({id: chatId, status: 'idle', workspaceId: 'agent', origin: 'ri'});
+      mocks.workspace.mockReturnValue({integrationScopes: [{toolkitId: 'mcp_fixture'}]});
+      const frozen = await freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}]);
+      expect(await connectedTurnContext(chatId, frozen)).toMatchObject([{app: 'Fixture', context: {content: [{text: 'Library page'}]}}]);
+      // An agent that may not use the account refuses it before the message is saved.
+      mocks.workspace.mockReturnValue({integrationScopes: [{toolkitId: 'mcp_fixture', accounts: [{accountId: 'another-account'}]}]});
+      await expect(freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}])).rejects.toThrow('isn\'t available in this chat');
+      // And context frozen for the agent is refused at dispatch once the agent loses the account.
+      await expect(connectedTurnContext(chatId, frozen)).rejects.toThrow('not available');
+    });
+  });
+
+  it('stamps a launch with the capabilities discovery records as the runtime starts', async () => {
+    await withTools([launcher], async () => {
+      // A fresh runtime runs discovery, which records a new capability revision on its first build.
+      // Metadata is a snapshot of the store when read, as on disk.
+      const read = mocks.metadata.getMockImplementation()!;
+      mocks.metadata.mockImplementation(async () => { const metadata = await read(); return {...metadata, servers: metadata.servers.map((server: {entry: object}) => ({...server, entry: {...server.entry}}))}; });
+      let built = false;
+      mocks.runtime.mockImplementation(async () => {
+        if (!built) { built = true; entry.capabilityRevision = 'v2'; }
+        return {listConnections: mocks.connections, runAction: mocks.run};
+      });
+      const launched = await launchRequest('server', 'viewer', 'home');
+      expect(await launchConnectedView(launched.viewId, 'viewer')).toMatchObject({kind: 'opened'});
+    });
+  });
 });
 
 describe('OpenAI model context files and app messages', () => {

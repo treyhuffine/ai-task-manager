@@ -109,12 +109,19 @@ export async function connectedChatTabs(chatId: string, viewerId?: string) {
   });
 }
 
+/**
+ * What a view's access rests on: the exact account, its server and tools, and
+ * the chat's scopes. `revision` digests all of it, so a capture stamped with
+ * one is refused once any of it changes.
+ */
 export async function authority(serverId: string, chatId?: string) {
   assertEnabled();
+  // Building the runtime runs discovery, which can record new capabilities. Read the metadata after
+  // it, so a launch prepared on a fresh runtime is stamped with the revision it will be checked against.
+  const runtime = await getIntegrationRuntime();
   const metadata = await integrationSourceMetadata();
   const remote = metadata.servers.find(s => s.entry.id === serverId);
   if (!remote?.entry.enabled) throw new Error('This connection is disabled or removed');
-  const runtime = await getIntegrationRuntime();
   const connection = (await runtime.listConnections({ownerId: getIntegrationOwnerId()})).find(c => c.id === hostedMcpConnectionId(remote.entry));
   if (!connection || connection.status !== 'active') throw new Error('Reconnect this exact account before opening its app');
   const toolkitId = remote.entry.providerId ?? `mcp_${remote.entry.slug}`;
@@ -467,11 +474,21 @@ export async function freezeConnectedContext(chatId: string, viewerId: string, r
   return Promise.all(refs.map(async ref => {
     const {view} = await checkedView(ref.viewId, viewerId);
     // A global screen belongs to the person, so its context goes with whichever chat they send next.
-    if (view.capture.chatId !== chatId && !(view.capture.kind === 'global' && !view.capture.chatId)) throw new Error('App context changed. Try sending again.');
+    const global = view.capture.kind === 'global' && !view.capture.chatId;
+    if (view.capture.chatId !== chatId && !global) throw new Error('App context changed. Try sending again.');
     if (view.revision !== ref.revision) throw new Error('App context changed. Try sending again.');
+    // Dispatch checks the context against the authority of the chat it goes to. A chat's own view
+    // already carries it. A global screen carries none, so it is bound here, and only when this chat
+    // may use the account: an agent's chat sees only the accounts its agent may use.
+    let bound = view.capture.authority;
+    if (global) {
+      const destination = await authority(view.capture.serverId, chatId).catch(() => { throw new Error(`${view.capture.title} isn't available in this chat. Remove its context to send.`); });
+      if (destination.sourceRef !== view.capture.sourceRef || destination.connection.id !== view.capture.connectionId) throw new Error('App context changed. Try sending again.');
+      bound = destination.revision;
+    }
     // Images and blobs become attachments the message names, so raw keeps no bytes.
     const {context, files} = await (await import('./context-files')).materializeContextFiles(view);
-    return {sourceRef: view.capture.sourceRef, title: view.capture.title, serverId: view.capture.serverId, authority: view.capture.authority, context,
+    return {sourceRef: view.capture.sourceRef, title: view.capture.title, serverId: view.capture.serverId, authority: bound, context,
       ...(files.length ? {files} : {})};
   }));
 }
