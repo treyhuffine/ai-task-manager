@@ -92,27 +92,25 @@ export async function appMessageParts(content: readonly MessageBlock[], upload: 
 
 /**
  * Whether an app may send without the person pressing Send. OpenAI's spec
- * sends by default, so Ri sends, but only for an app the person is working
- * in: its frame holds focus now, or took it in the last 10 seconds. An app
- * that sends on its own, at load or in the background, gets a draft instead.
+ * sends by default, so Ri sends, but only a request the person's own input
+ * inside that view led to: Ri's relay frame had transient user activation
+ * when it passed the request on (`ViewMessage.activated`). Script focusing
+ * itself grants none, and neither does input elsewhere in Ri, so an app that
+ * sends on its own, at load or in the background, gets a draft instead.
  * Sends are also spaced at least 3 seconds apart, and one view sends at most
  * 30 times.
  */
-export const INTERACTION_WINDOW_MS = 10_000;
 export const SEND_SPACING_MS = 3_000;
 export const MAX_SENDS_PER_VIEW = 30;
 export type GateRefusal = 'no-interaction' | 'too-fast' | 'limit';
 export class AppMessageGate {
-  private interacted = -Infinity;
   private lastSend = -Infinity;
   private sends = 0;
   constructor(private readonly now: () => number = Date.now) {}
-  /** The person moved into the view: focus entered its frame, or they pressed on it. */
-  noteInteraction() { this.interacted = this.now(); }
-  /** Decide one send. `focusedNow`: the view's frame holds focus in a focused window. */
-  decide(focusedNow: boolean): { send: true } | { send: false; reason: GateRefusal } {
+  /** Decide one send. `activated`: the person's input inside the view led to this request. */
+  decide(activated: boolean): { send: true } | { send: false; reason: GateRefusal } {
     const now = this.now();
-    if (!focusedNow && now - this.interacted > INTERACTION_WINDOW_MS) return { send: false, reason: 'no-interaction' };
+    if (!activated) return { send: false, reason: 'no-interaction' };
     if (now - this.lastSend < SEND_SPACING_MS) return { send: false, reason: 'too-fast' };
     if (this.sends >= MAX_SENDS_PER_VIEW) return { send: false, reason: 'limit' };
     this.lastSend = now;

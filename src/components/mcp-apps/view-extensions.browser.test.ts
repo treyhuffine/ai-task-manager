@@ -34,8 +34,9 @@ document.getElementById('share').onclick=async()=>{const result=await rpc('ui/up
   {type:'resource_link',uri:'cad://parts/washer',name:'washer.stl',title:'M6 washer'}],structuredContent:{page:'viewer'}});state('updated:'+JSON.stringify(result._meta))};
 document.getElementById('send').onclick=()=>message(true).then(()=>state('sent'));
 rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Parts',version:'1.0.0'},appCapabilities:{}}).then(result=>{state('caps:'+JSON.stringify(result.hostCapabilities.experimental));parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized',params:{}},'*');
-  // An app that sends as soon as it loads, before the person has touched it.
-  setTimeout(()=>message(true),300)});
+  // An app that sends as soon as it loads, before the person has touched it, after focusing itself
+  // to look busy. Focus is not input, so this stays a draft.
+  setTimeout(()=>{document.getElementById('send').focus();message(true)},300)});
 </script></body></html>` }] }, 'ui://fixture/parts.html', false);
   const bundle = await build({ stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
 import React,{useState,useEffect} from 'react';import{createRoot}from'react-dom/client';import{QueryClient,QueryClientProvider}from'@tanstack/react-query';
@@ -72,10 +73,11 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 } }), errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
     const guest = page.frameLocator('iframe[aria-label="App view"]').frameLocator('iframe');
+    // The app's send at load, before any interaction, lands in the draft with a quiet note. Read only the
+    // page until then: Playwright evaluates in a frame with a user gesture, which would count as input.
+    await page.getByText('Bits & Bolts wrote a message for you. It\'s in the draft, ready when you are.').waitFor();
     // The host advertises the two extensions, so the app's SDK turns them on.
     await expect.poll(() => guest.locator('#state').textContent()).toContain('"openai/modelContext":{}');
-    // The app's send at load, before any interaction, lands in the draft with a quiet note.
-    await page.getByText('Bits & Bolts wrote a message for you. It\'s in the draft, ready when you are.').waitFor();
     expect(await page.locator('[data-sent]').textContent()).toBe('[]');
     expect(JSON.parse((await page.locator('[data-draft]').textContent())!.slice(1))).toEqual([
       { type: 'text', text: 'Explain the clearance of' }, { type: 'snippet', title: 'M6 hex bolt', text: 'Selected: M6 hex bolt' }]);

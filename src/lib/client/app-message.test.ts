@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Attachment } from '@/db/types';
-import { AppMessageGate, INTERACTION_WINDOW_MS, MAX_MESSAGE_TEXT, MAX_SENDS_PER_VIEW, SEND_SPACING_MS, appMessageParts, draftNotice, routeAppMessage, type MessageRouting, type RoutedSession } from './app-message';
+import { AppMessageGate, MAX_MESSAGE_TEXT, MAX_SENDS_PER_VIEW, SEND_SPACING_MS, appMessageParts, draftNotice, routeAppMessage, type MessageRouting, type RoutedSession } from './app-message';
 
 const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const uploaded = (name: string, mimeType: string): Attachment => ({ fileName: `01900000-0000-7000-8000-00000000000${name.length % 10}.bin`, originalName: name, mimeType, size: 1, uploadedAt: '2026-10-19T00:00:00.000Z' });
@@ -44,22 +44,18 @@ describe('a message\'s content in the composer', () => {
 });
 
 describe('sending without Send', () => {
-  it('sends only while the person works in the view, spaced and bounded', () => {
+  it('sends only what the person\'s own input in the view led to, spaced and bounded', () => {
     let now = 1_000_000;
     const gate = new AppMessageGate(() => now);
-    // On load, before any interaction.
+    // On load, or after the app focused itself: no input in the view, so a draft.
     expect(gate.decide(false)).toEqual({ send: false, reason: 'no-interaction' });
-    // Focus held in the view counts, however long ago it arrived.
+    // A click or key press in the view.
     expect(gate.decide(true)).toEqual({ send: true });
     expect(gate.decide(true)).toEqual({ send: false, reason: 'too-fast' });
     now += SEND_SPACING_MS;
-    // Focus moved out, but the person pressed in the view a moment ago.
-    gate.noteInteraction();
-    now += INTERACTION_WINDOW_MS;
-    expect(gate.decide(false)).toEqual({ send: true });
-    now += SEND_SPACING_MS;
+    // Earlier input never carries over to a request it did not lead to.
     expect(gate.decide(false)).toEqual({ send: false, reason: 'no-interaction' });
-    for (let i = 2; i < MAX_SENDS_PER_VIEW; i++) { now += SEND_SPACING_MS; expect(gate.decide(true).send).toBe(true); }
+    for (let i = 1; i < MAX_SENDS_PER_VIEW; i++) { now += SEND_SPACING_MS; expect(gate.decide(true).send).toBe(true); }
     now += SEND_SPACING_MS;
     expect(gate.decide(true)).toEqual({ send: false, reason: 'limit' });
   });

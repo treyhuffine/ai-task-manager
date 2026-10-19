@@ -39,7 +39,17 @@ export interface ViewBinding {
 /** A content block from `ui/message` or `ui/update-model-context`: text, image, resource link or embedded resource. */
 export type ViewContentBlock = { type: string; [key: string]: unknown };
 /** `ui/message` with OpenAI's `_meta["openai/message"]` resolved to its defaults (`active`, sent). */
-export interface ViewMessage { content: ViewContentBlock[]; target: 'active' | 'new'; send: boolean }
+export interface ViewMessage {
+  content: ViewContentBlock[]; target: 'active' | 'new'; send: boolean;
+  /**
+   * The person's own input inside this view led to the request: Ri's relay
+   * frame, the guest's parent, had transient user activation when it passed
+   * the request on. Browsers give an ancestor frame activation only for real
+   * input in its subtree, never for script calling `focus()`, and never for
+   * input elsewhere in Ri. False where `navigator.userActivation` is missing.
+   */
+  activated: boolean;
+}
 /** OpenAI's `openai/resources/write` request and result. */
 export type ResourceWrite = { uri: string; ifMatch?: string } & ({ text: string; blob?: never } | { blob: string; text?: never });
 export type ResourceWriteResult = { outcome: 'saved' | 'conflict'; etag: string } | { outcome: 'too-large'; maxBytes: number };
@@ -97,7 +107,7 @@ export const FORM_GUARD = `(()=>{addEventListener('submit',e=>{if(!e.defaultPrev
 export const GUEST_MESSAGE_LIMIT = 16 * 1024 * 1024;
 export const HOST_MESSAGE_LIMIT = 64 * 1024 * 1024;
 // The relay contains no app authority. The same fixed script serves all views.
-export const RELAY_SCRIPT = `(()=>{let inner=null,id=null,digest=null;let attempts=0;const ready=()=>{if(!inner&&++attempts<=200)parent.postMessage({type:'ri-relay-ready'},'*');else clearInterval(timer)};const timer=setInterval(ready,100);let count=0,windowStart=Date.now();const valid=(m,max)=>m&&typeof m==='object'&&m.jsonrpc==='2.0'&&JSON.stringify(m).length<=max;addEventListener('message',e=>{if(e.source===parent){const d=e.data;if(!id&&d?.type==='ri-view-init'&&typeof d.id==='string'&&typeof d.html==='string'){id=d.id;digest=d.packageDigest;clearInterval(timer);inner=document.createElement('iframe');inner.sandbox='allow-scripts allow-forms';inner.style='width:100%;height:100%;border:0';inner.srcdoc=d.html;document.body.append(inner)}else if(d?.type==='ri-view-message'&&d.id===id&&d.packageDigest===digest&&inner&&valid(d.message,${HOST_MESSAGE_LIMIT})){inner.contentWindow.postMessage(d.message,'*')}}else if(inner&&e.source===inner.contentWindow&&valid(e.data,${GUEST_MESSAGE_LIMIT})){if(Date.now()-windowStart>1000){windowStart=Date.now();count=0}if(++count<=100)parent.postMessage({type:'ri-view-message',id,packageDigest:digest,message:e.data},'*')}});ready()})()`;
+export const RELAY_SCRIPT = `(()=>{let inner=null,id=null,digest=null;let attempts=0;const ready=()=>{if(!inner&&++attempts<=200)parent.postMessage({type:'ri-relay-ready'},'*');else clearInterval(timer)};const timer=setInterval(ready,100);let count=0,windowStart=Date.now();const valid=(m,max)=>m&&typeof m==='object'&&m.jsonrpc==='2.0'&&JSON.stringify(m).length<=max;addEventListener('message',e=>{if(e.source===parent){const d=e.data;if(!id&&d?.type==='ri-view-init'&&typeof d.id==='string'&&typeof d.html==='string'){id=d.id;digest=d.packageDigest;clearInterval(timer);inner=document.createElement('iframe');inner.sandbox='allow-scripts allow-forms';inner.style='width:100%;height:100%;border:0';inner.srcdoc=d.html;document.body.append(inner)}else if(d?.type==='ri-view-message'&&d.id===id&&d.packageDigest===digest&&inner&&valid(d.message,${HOST_MESSAGE_LIMIT})){inner.contentWindow.postMessage(d.message,'*')}}else if(inner&&e.source===inner.contentWindow&&valid(e.data,${GUEST_MESSAGE_LIMIT})){if(Date.now()-windowStart>1000){windowStart=Date.now();count=0}if(++count<=100)parent.postMessage({type:'ri-view-message',id,packageDigest:digest,message:e.data,active:navigator.userActivation?.isActive===true},'*')}});ready()})()`;
 const ALLOWED = new Set([
   "ping",
   "ui/initialize",
@@ -150,6 +160,8 @@ class OpaqueTransport implements Transport {
   private listening = false;
   private count = 0;
   private startAt = 0;
+  /** Requests the relay passed on while it had user activation, by JSON-RPC id. Bounded. */
+  private readonly activated = new Set<string>();
   constructor(
     private readonly iframe: HTMLIFrameElement,
     private readonly binding: ViewBinding,
@@ -202,8 +214,25 @@ class OpaqueTransport implements Transport {
         });
       return;
     }
+    if ("method" in message && "id" in message) {
+      const key = String(message.id);
+      this.activated.delete(key);
+      // Only the relay's own stamp counts: this message came from the relay frame itself (checked above).
+      if (data.active === true) {
+        if (this.activated.size >= 64) this.activated.delete(this.activated.values().next().value!);
+        this.activated.add(key);
+      }
+    }
     this.onmessage?.(message);
   };
+  /** Whether the request with this id arrived while the person was acting in the view. Read once. */
+  takeActivation(id: string | number | undefined) {
+    if (id === undefined) return false;
+    const key = String(id);
+    const active = this.activated.has(key);
+    this.activated.delete(key);
+    return active;
+  }
   async start() {
     if (!this.listening) {
       window.addEventListener("message", this.receive);
@@ -372,7 +401,8 @@ export class AppViewController {
           throw new Error('The message options are invalid');
         if (!params.content.length || params.content.some((item: {type: string}) => !['text', 'image', 'resource_link', 'resource'].includes(item.type)))
           throw new Error('This message type is unavailable');
-        await callbacks.sendMessage({ content: params.content as ViewContentBlock[], target: options?.target === 'new' ? 'new' : 'active', send: options?.send !== false }, extra.mcpReq.signal);
+        await callbacks.sendMessage({ content: params.content as ViewContentBlock[], target: options?.target === 'new' ? 'new' : 'active', send: options?.send !== false,
+          activated: transport.takeActivation(extra.mcpReq.id) }, extra.mcpReq.signal);
         return {};
       }
       if (!this.callbacks.message || params.content.some((item: {type: string}) => item.type !== 'text')) throw new Error('This message type is unavailable');

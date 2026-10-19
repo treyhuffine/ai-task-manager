@@ -129,14 +129,8 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
       return content.length || value?.structuredContent !== undefined ? content : null;
     };
     let attached = blocks(view.modelContext) !== null;
-    // Sends need the person working in this view (`AppMessageGate`).
+    // Sends need the person's own input inside this view (`AppMessageGate`, `ViewMessage.activated`).
     const gate = new AppMessageGate();
-    const holdsFocus = () => frame.contains(document.activeElement) && document.hasFocus();
-    const noteFocus = () => setTimeout(() => { if (frame.contains(document.activeElement)) gate.noteInteraction(); }, 0);
-    const press = () => gate.noteInteraction();
-    window.addEventListener('blur', noteFocus);
-    frame.addEventListener('pointerdown', press, true);
-    frame.addEventListener('focusin', press);
     let waiting: Pending | null = null;
     const ask = (request: Omit<Pending, 'finish'>, signal: AbortSignal) => new Promise<boolean>((resolve, reject) => {
       if (waiting) { reject(new Error('Answer the current app approval first')); return; }
@@ -222,7 +216,7 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
       sendMessage: async (message, signal) => {
         let send = message.send, refusal: GateRefusal | undefined;
         if (send) {
-          const decision = gate.decide(holdsFocus());
+          const decision = gate.decide(message.activated);
           if (!decision.send) { send = false; refusal = decision.reason; }
         }
         const parts = await appMessageParts(message.content, (file, name) => uploadAttachment(file, name));
@@ -262,7 +256,6 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
       disposed = true; clearTimeout(timer); unregister?.(); waiting?.finish(false); controller.current = null;
       for (const [uri, stop] of watching) { stop.abort(); void trpcClient.connectedApps.files.unsubscribe.mutate({viewId: view.id, uri}).catch(() => {}); }
       void host.dispose();
-      window.removeEventListener('blur', noteFocus); frame.removeEventListener('pointerdown', press, true); frame.removeEventListener('focusin', press);
     };
     // The capture is immutable. Refetch checks access without rebuilding the iframe.
   }, [view.id]); // eslint-disable-line react-hooks/exhaustive-deps
