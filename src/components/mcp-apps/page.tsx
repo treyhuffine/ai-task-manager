@@ -202,12 +202,15 @@ function useScreenLaunch(app: App | undefined, onScreen: (captureId: string) => 
     if (!serverId) return;
     setBusy(true); setState({kind: 'opening', entry});
     try {
-      const request = await trpcClient.connectedApps.prepare.mutate({serverId, name: entry.name});
+      const prepared = await trpcClient.connectedApps.prepare.mutate({serverId, name: entry.name});
+      // The screen is already open: return to it rather than calling the entrypoint again.
+      if (prepared.kind === 'open') { if (alive.current) { setState({kind: 'idle'}); onScreen(prepared.captureId); } return; }
+      const request = {viewId: prepared.viewId, invocationId: prepared.invocationId};
       if (!alive.current) { await trpcClient.connectedApps.cancel.mutate(request); return; }
       await launch(entry, request);
     } catch (e) { if (alive.current) { active.current = null; setState({kind: 'error', entry, message: e instanceof Error ? e.message : 'The app could not open'}); } }
     finally { if (alive.current) setBusy(false); }
-  }, [serverId, launch]);
+  }, [serverId, launch, onScreen]);
   const decide = useCallback(async (approve: boolean) => {
     if (state.kind !== 'approval' || busy) return;
     setBusy(true);

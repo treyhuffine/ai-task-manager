@@ -39,7 +39,7 @@ describe('Apps library identity and capabilities', () => {
   });
   it('promotes a UI-capable connection to one app with its existing management and chat identity', () => {
     // Result views only, with no standalone screen: it leaves the rail but stays an app in the library.
-    const rows = libraryItems({...source, connectedApps: [{id: 'custom', name: 'Receipts', toolkitName: 'Receipts', available: true, account: 'Receipts', sourceRef: null, standalone: false, entrypoints: [], views: [{name: 'receipt', title: 'Receipt'}], recent: []}]});
+    const rows = libraryItems({...source, connectedApps: [{id: 'custom', name: 'Receipts', toolkitName: 'Receipts', available: true, account: 'Receipts', sourceRef: null, icons: [], standalone: false, entrypoints: [], threads: [], files: [], settings: false, mentions: false, views: [{name: 'receipt', title: 'Receipt'}], recent: []}]});
     expect(rows).toHaveLength(2);
     const app = rows.find(row => row.connectedAppId === 'custom');
     expect(app).toMatchObject({kind: 'apps', view: true, chat: true, target: {kind: 'mcp', id: 'custom'}});

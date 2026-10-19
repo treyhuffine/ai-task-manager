@@ -17,24 +17,78 @@ export interface ViewBinding {
   /** Remote tools use the ordinary MCP envelope, including private UI metadata. */
   mcp?: { input: Record<string, unknown>; result: CallToolResult; widgetState?: unknown };
   displayMode?: 'inline' | 'fullscreen';
+  /**
+   * The modes this view can switch between. Defaults to both when the page
+   * handles `ui/request-display-mode`, and to inline otherwise.
+   */
+  displayModes?: readonly ('inline' | 'fullscreen')[];
+  /** `platform` in the host context. Ri is a web host, including in its desktop shell. */
+  platform?: 'web' | 'desktop' | 'mobile';
+  /**
+   * Further host context the view receives at initialization, such as OpenAI's
+   * `openai/deepLink` and `openai/modelContext`. Later changes go through
+   * `AppViewController.hostContextChanged`.
+   */
+  hostContext?: Record<string, unknown>;
+  /**
+   * The view was opened for a file (OpenAI's file entrypoint), so it is told
+   * it may read, watch and write that file through the host (`openai/resource`).
+   */
+  fileResource?: boolean;
 }
+/** A content block from `ui/message` or `ui/update-model-context`: text, image, resource link or embedded resource. */
+export type ViewContentBlock = { type: string; [key: string]: unknown };
+/** `ui/message` with OpenAI's `_meta["openai/message"]` resolved to its defaults (`active`, sent). */
+export interface ViewMessage { content: ViewContentBlock[]; target: 'active' | 'new'; send: boolean }
+/** OpenAI's `openai/resources/write` request and result. */
+export type ResourceWrite = { uri: string; ifMatch?: string } & ({ text: string; blob?: never } | { blob: string; text?: never });
+export type ResourceWriteResult = { outcome: 'saved' | 'conflict'; etag: string } | { outcome: 'too-large'; maxBytes: number };
+export interface ResourceRead { contents: { uri: string; mimeType?: string; text?: string; blob?: string; _meta?: Record<string, unknown> }[]; _meta?: Record<string, unknown> }
 /** Guest-chosen invocation ID for a retryable write, carried in the MCP tools/call `_meta`. */
 export const INVOCATION_META = "ri/invocationId";
 export interface ViewCallbacks {
   call(action: string, input: unknown, signal: AbortSignal, meta?: { invocationId?: string }): Promise<unknown>;
-  context(envelope: unknown, signal: AbortSignal): Promise<void>;
+  /** Returns OpenAI's `updateId` for the accepted context when the page keeps one (`modelContext`). */
+  context(envelope: unknown, signal: AbortSignal): Promise<void | { updateId?: string }>;
   navigate(path: string): Promise<void> | void;
   externalLink(url: string): Promise<void> | void;
   error(error: Error): void;
   ready?(): void;
   resize?(height: number): void;
   message?(text: string): void;
+  /**
+   * OpenAI's `ui/message` extension: any supported content, sent or left as a
+   * draft, in this chat or a new one. Takes precedence over `message`.
+   */
+  sendMessage?(message: ViewMessage, signal: AbortSignal): Promise<void>;
+  /**
+   * OpenAI's `ui/update-model-context` extension: titled, thumbnailed and
+   * assistant-only content beyond text, with an `updateId` per change.
+   */
+  modelContext?: boolean;
+  /** Byte cap for one context update. Defaults to 8 KiB. */
+  contextLimit?: number;
+  /** `resources/read` from the view: its own server's resources, or the opened file. */
+  readResource?(params: { uri: string; _meta?: Record<string, unknown> }, signal: AbortSignal): Promise<ResourceRead>;
+  subscribeResource?(uri: string, signal: AbortSignal): Promise<void>;
+  unsubscribeResource?(uri: string, signal: AbortSignal): Promise<void>;
+  /** OpenAI's `openai/resources/write` for the file a file entrypoint opened. */
+  writeResource?(params: ResourceWrite, signal: AbortSignal): Promise<ResourceWriteResult>;
+  /** OpenAI's `openai/files/open`: show a file at an absolute path in Ri's viewer. */
+  openFile?(path: string, signal: AbortSignal): Promise<void>;
   displayMode?(mode: 'inline' | 'fullscreen' | 'pip'): void;
   selectFile?(signal: AbortSignal): Promise<{name: string; mimeType: string; base64: string} | null>;
   downloadFile?(contents: unknown[], signal: AbortSignal): Promise<void>;
 }
+/**
+ * Message size caps, in characters of serialized JSON. A view may send up to
+ * 16 MiB (a file it saves through `openai/resources/write`), and receives up
+ * to 64 MiB (a model file it reads, which Bits & Bolts sends at about 6 MB).
+ */
+export const GUEST_MESSAGE_LIMIT = 16 * 1024 * 1024;
+export const HOST_MESSAGE_LIMIT = 64 * 1024 * 1024;
 // The relay contains no app authority. The same fixed script serves all views.
-export const RELAY_SCRIPT = `(()=>{let inner=null,id=null,digest=null;let attempts=0;const ready=()=>{if(!inner&&++attempts<=200)parent.postMessage({type:'ri-relay-ready'},'*');else clearInterval(timer)};const timer=setInterval(ready,100);let count=0,windowStart=Date.now();const valid=m=>m&&typeof m==='object'&&m.jsonrpc==='2.0'&&JSON.stringify(m).length<=1048576;addEventListener('message',e=>{if(e.source===parent){const d=e.data;if(!id&&d?.type==='ri-view-init'&&typeof d.id==='string'&&typeof d.html==='string'){id=d.id;digest=d.packageDigest;clearInterval(timer);inner=document.createElement('iframe');inner.sandbox='allow-scripts';inner.style='width:100%;height:100%;border:0';inner.srcdoc=d.html;document.body.append(inner)}else if(d?.type==='ri-view-message'&&d.id===id&&d.packageDigest===digest&&inner&&valid(d.message)){inner.contentWindow.postMessage(d.message,'*')}}else if(inner&&e.source===inner.contentWindow&&valid(e.data)){if(Date.now()-windowStart>1000){windowStart=Date.now();count=0}if(++count<=100)parent.postMessage({type:'ri-view-message',id,packageDigest:digest,message:e.data},'*')}});ready()})()`;
+export const RELAY_SCRIPT = `(()=>{let inner=null,id=null,digest=null;let attempts=0;const ready=()=>{if(!inner&&++attempts<=200)parent.postMessage({type:'ri-relay-ready'},'*');else clearInterval(timer)};const timer=setInterval(ready,100);let count=0,windowStart=Date.now();const valid=(m,max)=>m&&typeof m==='object'&&m.jsonrpc==='2.0'&&JSON.stringify(m).length<=max;addEventListener('message',e=>{if(e.source===parent){const d=e.data;if(!id&&d?.type==='ri-view-init'&&typeof d.id==='string'&&typeof d.html==='string'){id=d.id;digest=d.packageDigest;clearInterval(timer);inner=document.createElement('iframe');inner.sandbox='allow-scripts';inner.style='width:100%;height:100%;border:0';inner.srcdoc=d.html;document.body.append(inner)}else if(d?.type==='ri-view-message'&&d.id===id&&d.packageDigest===digest&&inner&&valid(d.message,${HOST_MESSAGE_LIMIT})){inner.contentWindow.postMessage(d.message,'*')}}else if(inner&&e.source===inner.contentWindow&&valid(e.data,${GUEST_MESSAGE_LIMIT})){if(Date.now()-windowStart>1000){windowStart=Date.now();count=0}if(++count<=100)parent.postMessage({type:'ri-view-message',id,packageDigest:digest,message:e.data},'*')}});ready()})()`;
 const ALLOWED = new Set([
   "ping",
   "ui/initialize",
@@ -47,6 +101,13 @@ const ALLOWED = new Set([
   "ui/request-display-mode",
   "ui/notifications/size-changed",
   "notifications/cancelled",
+  // Answered only when the page supplies the matching callback. Otherwise the
+  // bridge has no handler and refuses the method.
+  "resources/read",
+  "resources/subscribe",
+  "resources/unsubscribe",
+  "openai/resources/write",
+  "openai/files/open",
 ]);
 export function restrictivePolicy(hashes: string[]): string {
   return `default-src 'none'; script-src ${hashes.join(" ")}; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'`;
@@ -57,6 +118,10 @@ async function scriptHash(script: string) {
     new TextEncoder().encode(script),
   );
   return `'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`;
+}
+/** A schema that accepts any value, for OpenAI's methods the SDK does not know. */
+function passthrough() {
+  return { "~standard": { version: 1 as const, vendor: "ri", validate: (value: unknown) => ({ value }) } };
 }
 function injectPolicy(html: string, policy: string) {
   return `<meta http-equiv="Content-Security-Policy" content="${policy}">${html}`;
@@ -98,7 +163,7 @@ class OpaqueTransport implements Transport {
       this.startAt = Date.now();
       this.count = 0;
     }
-    if (++this.count > 100 || JSON.stringify(data).length > 1048576) {
+    if (++this.count > 100 || JSON.stringify(data).length > GUEST_MESSAGE_LIMIT + 1024) {
       this.onerror?.(new Error("The app exceeded its message limit"));
       return;
     }
@@ -179,15 +244,35 @@ export class AppViewController {
       html: injectPolicy(resource.html, policy),
     });
     this.transport = transport;
+    const callbacks = this.callbacks;
+    // Each OpenAI extension is advertised only when this page can honor it
+    // (OpenAI's MCP extensions spec reads them from `experimental`).
+    const experimental: Record<string, object> = {
+      ...(callbacks.modelContext ? { "openai/modelContext": {} } : {}),
+      ...(callbacks.sendMessage ? { "openai/message": {} } : {}),
+      ...(binding.fileResource && callbacks.readResource ? { "openai/resource": {} } : {}),
+      ...(callbacks.openFile ? { "openai/files": {} } : {}),
+    };
+    const richContent = { text: {}, image: {}, resourceLink: {}, resource: {} };
     const bridge = new AppBridge(
       null,
       { name: "Ri", version: "1.0.0" },
-      { serverTools: {}, updateModelContext: {text: {}}, openLinks: {}, ...(this.callbacks.message ? {message: {text: {}}} : {}), ...(binding.files?.download && this.callbacks.downloadFile ? {downloadFile: {}} : {}) },
+      {
+        serverTools: {},
+        updateModelContext: callbacks.modelContext ? { ...richContent, structuredContent: {} } : { text: {} },
+        openLinks: {},
+        ...(callbacks.sendMessage ? { message: richContent } : callbacks.message ? { message: { text: {} } } : {}),
+        ...(callbacks.readResource ? { serverResources: {} } : {}),
+        ...(binding.files?.download && callbacks.downloadFile ? { downloadFile: {} } : {}),
+        ...(Object.keys(experimental).length ? { experimental } : {}),
+      },
       {
         hostContext: {
+          ...binding.hostContext,
           theme: binding.theme,
+          platform: binding.platform ?? "web",
           displayMode: binding.displayMode ?? "inline",
-          availableDisplayModes: this.callbacks.displayMode ? ["inline", "fullscreen"] : ["inline"],
+          availableDisplayModes: [...(binding.displayModes ?? (callbacks.displayMode ? ["inline", "fullscreen"] : ["inline"]))],
         },
       },
     );
@@ -214,7 +299,7 @@ export class AppViewController {
       };
     };
     bridge.onupdatemodelcontext = async (params, extra) => {
-      if (new TextEncoder().encode(JSON.stringify(params)).byteLength > 8192)
+      if (new TextEncoder().encode(JSON.stringify(params)).byteLength > (callbacks.contextLimit ?? 8192))
         throw new Error('The app context is too large');
       const text = params.content?.find(
         (item: { type: string; text?: string }) => item.type === "text",
@@ -238,8 +323,9 @@ export class AppViewController {
           this.callbacks.error(error as Error);
         },
       );
-      await request;
-      return {};
+      const accepted = await request;
+      // OpenAI's model context extension names each accepted update.
+      return accepted?.updateId ? { _meta: { "openai/modelContext": { updateId: accepted.updateId } } } : {};
     };
     bridge.onopenlink = async (params) => {
       if (params.url.startsWith("/") && !params.url.startsWith("//"))
@@ -260,7 +346,16 @@ export class AppViewController {
     bridge.onsizechange = (params) => {
       if (typeof params.height === 'number' && Number.isFinite(params.height)) this.callbacks.resize?.(Math.max(160, Math.min(900, params.height)));
     };
-    bridge.onmessage = async (params) => {
+    bridge.onmessage = async (params, extra) => {
+      if (callbacks.sendMessage) {
+        const options = (params as { _meta?: Record<string, unknown> })._meta?.["openai/message"] as { target?: unknown; send?: unknown } | undefined;
+        if (options !== undefined && (typeof options !== 'object' || options === null || (options.target !== undefined && options.target !== 'active' && options.target !== 'new') || (options.send !== undefined && typeof options.send !== 'boolean')))
+          throw new Error('The message options are invalid');
+        if (!params.content.length || params.content.some((item: {type: string}) => !['text', 'image', 'resource_link', 'resource'].includes(item.type)))
+          throw new Error('This message type is unavailable');
+        await callbacks.sendMessage({ content: params.content as ViewContentBlock[], target: options?.target === 'new' ? 'new' : 'active', send: options?.send !== false }, extra.mcpReq.signal);
+        return {};
+      }
       if (!this.callbacks.message || params.content.some((item: {type: string}) => item.type !== 'text')) throw new Error('This message type is unavailable');
       const text = params.content.map((item: {type: string; text?: string}) => item.type === 'text' ? item.text : '').join('\n');
       if (new TextEncoder().encode(text).byteLength > 8192) throw new Error('The app message is too large');
@@ -273,6 +368,46 @@ export class AppViewController {
       this.callbacks.displayMode(mode);
       return {mode};
     };
+    if (callbacks.readResource) {
+      const read = callbacks.readResource;
+      bridge.onreadresource = async (params, extra) => {
+        if (typeof params.uri !== 'string' || !params.uri || params.uri.length > 4096) throw new Error('Invalid resource URI');
+        return await read({ uri: params.uri, ...(params._meta ? { _meta: params._meta as Record<string, unknown> } : {}) }, extra.mcpReq.signal) as never;
+      };
+    }
+    const uriParams = (params: unknown) => {
+      const uri = (params as { uri?: unknown } | undefined)?.uri;
+      if (typeof uri !== 'string' || !uri || uri.length > 4096) throw new Error('Invalid resource URI');
+      return uri;
+    };
+    if (callbacks.subscribeResource) {
+      const subscribe = callbacks.subscribeResource;
+      bridge.setRequestHandler('resources/subscribe', async (request, ctx) => { await subscribe(uriParams(request.params), ctx.mcpReq.signal); return {}; });
+    }
+    if (callbacks.unsubscribeResource) {
+      const unsubscribe = callbacks.unsubscribeResource;
+      bridge.setRequestHandler('resources/unsubscribe', async (request, ctx) => { await unsubscribe(uriParams(request.params), ctx.mcpReq.signal); return {}; });
+    }
+    if (callbacks.writeResource) {
+      const write = callbacks.writeResource;
+      bridge.setRequestHandler('openai/resources/write', { params: passthrough(), result: passthrough() }, async (params: unknown, ctx: { mcpReq: { signal: AbortSignal } }) => {
+        const request = (params ?? {}) as Record<string, unknown>;
+        const uri = uriParams(request);
+        if (request.ifMatch !== undefined && (typeof request.ifMatch !== 'string' || !request.ifMatch)) throw new Error('Invalid ifMatch');
+        const text = typeof request.text === 'string' ? request.text : undefined, blob = typeof request.blob === 'string' ? request.blob : undefined;
+        if ((text === undefined) === (blob === undefined)) throw new Error('Write exactly one of text or blob');
+        return await write({ uri, ...(request.ifMatch ? { ifMatch: request.ifMatch as string } : {}), ...(text !== undefined ? { text } : { blob: blob! }) } as ResourceWrite, ctx.mcpReq.signal);
+      });
+    }
+    if (callbacks.openFile) {
+      const open = callbacks.openFile;
+      bridge.setRequestHandler('openai/files/open', { params: passthrough(), result: passthrough() }, async (params: unknown, ctx: { mcpReq: { signal: AbortSignal } }) => {
+        const path = (params as { path?: unknown } | undefined)?.path;
+        if (typeof path !== 'string' || !path || path.length > 4096) throw new Error('Invalid file path');
+        await open(path, ctx.mcpReq.signal);
+        return {};
+      });
+    }
     bridge.oninitialized = () => {
       if (binding.mcp?.widgetState !== undefined) void transport.send({jsonrpc: '2.0', method: 'ri/view-state', params: {widgetState: binding.mcp.widgetState}});
       void bridge
@@ -304,6 +439,14 @@ export class AppViewController {
   }
   theme(theme: "light" | "dark") {
     this.bridge?.sendHostContextChange({ theme });
+  }
+  /** `ui/notifications/host-context-changed` with only the changed fields, such as `openai/deepLink`. */
+  hostContextChanged(changes: Record<string, unknown>) {
+    this.bridge?.sendHostContextChange(changes);
+  }
+  /** `notifications/resources/updated` for a resource the view subscribed to. */
+  async resourceUpdated(uri: string) {
+    await this.bridge?.notification({ method: "notifications/resources/updated", params: { uri } });
   }
   displayMode(displayMode: 'inline' | 'fullscreen') {
     this.bridge?.sendHostContextChange({displayMode});

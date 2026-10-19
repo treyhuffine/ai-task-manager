@@ -21,6 +21,7 @@ import { uuidv7 } from 'uuidv7';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { snapshotMcpCapabilities, diffMcpCapabilities, type McpCapabilityTool, type McpCapabilitySnapshot, type McpCapabilityChanges } from './mcp-capabilities';
 import { clearMcpToolApprovals, patchMcpToolOverrides, DEFAULT_MCP_APPROVAL_POLICY, MCP_APPROVAL_POLICIES, type McpApprovalPolicy, type McpToolApprovalMode, type McpToolApprovalPatch } from './mcp-approval-policy';
+import { safeMcpIcons, type McpIcon } from './mcp-icons';
 
 export type McpServerAuth =
   | { kind: 'none' }
@@ -104,12 +105,11 @@ export interface McpServerProtocol {
   /** `serverInfo` for display: name, title, version, description, website and icons. */
   info?: { name?: string; title?: string; version?: string; description?: string; websiteUrl?: string; icons?: McpServerIcon[] };
 }
-export interface McpServerIcon { src: string; mimeType?: string; sizes?: string[]; theme?: 'light' | 'dark' }
+export type McpServerIcon = McpIcon;
 
 /** A probe fallback is remembered this long before Ri tries 2026-07-28 again. */
 export const MCP_PROBE_FALLBACK_TTL_MS = 24 * 60 * 60_000;
 const MAX_EXTENSIONS_BYTES = 8 * 1024;
-const MAX_ICON_SRC_BYTES = 64 * 1024;
 
 /**
  * Reduce what a server said about itself to the bounded, display-only facts Ri keeps. Icons are
@@ -124,13 +124,7 @@ export function mcpServerProtocol(facts: {
   const merged = { ...record(facts.capabilities?.experimental), ...record(facts.capabilities?.extensions) };
   const extensions = Object.fromEntries(Object.entries(merged).filter(([key, value]) => key.length <= 200 && value && typeof value === 'object' && !Array.isArray(value))) as Record<string, Record<string, unknown>>;
   const info = record(facts.info);
-  const icons = (Array.isArray(info.icons) ? info.icons : []).slice(0, 4).flatMap((raw): McpServerIcon[] => {
-    const icon = record(raw), src = text(icon.src, MAX_ICON_SRC_BYTES);
-    if (!src || !(/^https:\/\//i.test(src) || /^data:image\//i.test(src))) return [];
-    const sizes = Array.isArray(icon.sizes) ? icon.sizes.filter((size): size is string => typeof size === 'string').slice(0, 8) : undefined;
-    return [{ src, ...(text(icon.mimeType, 100) ? { mimeType: icon.mimeType as string } : {}), ...(sizes?.length ? { sizes } : {}),
-      ...(icon.theme === 'light' || icon.theme === 'dark' ? { theme: icon.theme } : {}) }];
-  });
+  const icons = safeMcpIcons(info.icons);
   const kept = {
     ...(text(info.name, 200) ? { name: info.name as string } : {}), ...(text(info.title, 200) ? { title: info.title as string } : {}),
     ...(text(info.version, 100) ? { version: info.version as string } : {}), ...(text(info.description, 1000) ? { description: info.description as string } : {}),
@@ -455,7 +449,14 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         const rows = readAll();
         const row = rows.find(candidate => candidate.entry.id === id);
         if (!row) return null;
-        if (row.capabilities?.current.revision === current.revision) return row.entry;
+        if (row.capabilities?.current.revision === current.revision) {
+          // Same tools. A new or changed icon only refreshes what is shown, with nothing to review.
+          const icons = (snapshot: McpCapabilitySnapshot) => JSON.stringify(snapshot.tools.map(tool => tool.icons ?? null));
+          if (icons(row.capabilities.current) === icons(current)) return row.entry;
+          row.capabilities = { ...row.capabilities, current };
+          writeAll(rows);
+          return row.entry;
+        }
         const reviewed = row.capabilities?.reviewed ?? current;
         row.capabilities = { current, reviewed };
         row.entry.capabilityRevision = current.revision;

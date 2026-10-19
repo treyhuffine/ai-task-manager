@@ -6,7 +6,7 @@ vi.mock('@/lib/integrations/runtime', () => ({getIntegrationRuntime: mocks.runti
 vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: mocks.workspace, insertChatEvent: mocks.insert}));
 vi.mock('@/lib/integrations/approval', () => ({sessionCaller: (id: string) => ({type: 'mcp', id: `session:${id}`}), sessionIdFromCaller: (caller?: {type?: string; id?: string}) => caller?.type === 'mcp' && caller.id?.startsWith('session:') ? caller.id.slice(8) : null, listPendingApprovals: mocks.approvals, resolvePendingApprovals: mocks.decide, cancelConnectedAppApprovals: mocks.cancel}));
 vi.mock('@/lib/integrations/approval-events', () => ({recordApprovalDecision: vi.fn()}));
-import { prepareMcpResultCapture, connectedAppsCatalog, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval } from './service';
+import { prepareMcpResultCapture, connectedAppsCatalog, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource } from './service';
 
 const chatId = randomUUID();
 const result = {content: [{type: 'text', text: 'Public summary'}], structuredContent: {total: 42}, _meta: {privateUi: 'Only for the interface'}};
@@ -39,6 +39,12 @@ async function capture() {
   const complete = await prepareCapture();
   await complete!(result);
   return [...mcpViews().captures.values()][0].id;
+}
+/** A launch that must start a new instance. */
+async function launchRequest(...args: Parameters<typeof prepareConnectedLaunch>) {
+  const prepared = await prepareConnectedLaunch(...args);
+  if (prepared.kind !== 'launch') throw new Error('Expected a new launch');
+  return prepared;
 }
 describe('connected MCP views', () => {
   it('cancels a late approval and never dispatches its retry, even if access was revoked', async () => {
@@ -151,7 +157,7 @@ describe('connected MCP views', () => {
     expect(mocks.run).not.toHaveBeenCalled();
     tools.push(launcher);
     try {
-      const {viewId} = await prepareConnectedLaunch('server', 'viewer', 'home');
+      const {viewId} = await launchRequest('server', 'viewer', 'home');
       expect(await launchConnectedView(viewId, 'viewer')).toMatchObject({kind: 'opened'});
       // The spec has the server accept `{}`, and lets an app-only launcher open, so it runs with the app audience.
       expect(mocks.run.mock.calls[0]).toMatchObject(['mcp.fixture.home', {}, {connectionId: 'mcp-fixture', toolAudience: 'app'}]);
@@ -163,7 +169,7 @@ describe('connected MCP views', () => {
   });
   it('launches a standalone screen and preserves a stable invocation across approvals', async () => {
     tools.push(launcher);
-    const {viewId, invocationId: invocation} = await prepareConnectedLaunch('server', 'viewer', 'home');
+    const {viewId, invocationId: invocation} = await launchRequest('server', 'viewer', 'home');
     mocks.run.mockImplementationOnce(async (_action, _args, options) => {
       mocks.approvals.mockReturnValue([{id: 'approval', connectedApp: options.caller.connectedApp}]);
       return {ok: false, reason: 'approval_required', preview: {}};
@@ -184,7 +190,7 @@ describe('connected MCP views', () => {
   });
   it('requires chat account access and rechecks frozen context before redispatch', async () => {
     const view = await openConnectedView(await capture(), 'viewer', chatId);
-    const revision = await updateConnectedContext(view.id, 'viewer', {content: [{type: 'text', text: 'Selected 7'}]});
+    const {revision} = await updateConnectedContext(view.id, 'viewer', {content: [{type: 'text', text: 'Selected 7'}]});
     const frozen = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision}]);
     expect(await connectedTurnContext(chatId, frozen)).toMatchObject([{context: {content: [{text: 'Selected 7'}]}}]);
     await expect(freezeConnectedContext(randomUUID(), 'viewer', [{viewId: view.id, revision}])).rejects.toThrow('context changed');
@@ -193,9 +199,115 @@ describe('connected MCP views', () => {
   });
   it('enforces context limits and feature-off mode independently of local apps', async () => {
     const view = await openConnectedView(await capture(), 'viewer', chatId);
-    await expect(updateConnectedContext(view.id, 'viewer', {text: 'a'.repeat(8192)})).rejects.toThrow('8 KiB');
+    await expect(updateConnectedContext(view.id, 'viewer', {text: 'a'.repeat(768 * 1024)})).rejects.toThrow('768 KiB');
+    await expect(updateConnectedContext(view.id, 'viewer', {content: [{type: 'audio', data: 'AA==', mimeType: 'audio/wav'}]})).rejects.toThrow('audio');
     process.env.RI_MCP_APPS = '0';
     expect(await connectedAppsCatalog()).toEqual([]);
     await expect(openConnectedView(view.captureId, 'viewer', chatId)).rejects.toThrow('disabled');
+  });
+});
+
+describe('OpenAI entrypoints, deep links, resources and model context', () => {
+  const tray = {name: 'tray', title: 'Parts Tray', _meta: {ui: {resourceUri: 'ui://fixture/calculator.html'}, 'openai/ui': {entrypoints: [{type: 'thread'}]}}};
+  const viewer = {name: 'viewer', _meta: {ui: {resourceUri: 'ui://fixture/calculator.html'}, 'openai/ui': {entrypoints: [{type: 'file', extensions: ['.stl']}]}}};
+  const withTools = async (extra: typeof tools, run: () => Promise<void>) => {
+    tools.push(...extra);
+    try { await run(); } finally { for (const tool of extra) tools.splice(tools.indexOf(tool), 1); }
+  };
+
+  it('lists thread and file entrypoints with titles and the server icon', async () => {
+    entry.protocol = {checkedAt: 'now', info: {icons: [{src: 'https://fixture.invalid/icon.png'}]}, extensions: {'openai/settings': {readTool: 'r', updateTool: 'u'}}};
+    await withTools([launcher, tray, viewer], async () => {
+      const [app] = await connectedAppsCatalog('viewer');
+      expect(app).toMatchObject({
+        entrypoints: [{name: 'home', title: 'Fixture home', icons: [{src: 'https://fixture.invalid/icon.png'}]}],
+        threads: [{name: 'tray', title: 'Parts Tray'}],
+        files: [{name: 'viewer', title: 'viewer', extensions: ['.stl']}],
+        settings: true, mentions: false,
+      });
+    });
+  });
+
+  it('opens one tab per chat beside that chat only, with {} and through the gate, and reuses it', async () => {
+    await withTools([tray], async () => {
+      await expect(prepareConnectedLaunch('server', 'viewer', 'tray', {kind: 'thread'})).rejects.toThrow('beside a chat');
+      await expect(prepareConnectedLaunch('server', 'viewer', 'tray')).rejects.toThrow('no screen');
+      const first = await launchRequest('server', 'viewer', 'tray', {kind: 'thread', chatId});
+      expect(await launchConnectedView(first.viewId, 'viewer')).toMatchObject({kind: 'opened', captureId: first.invocationId});
+      expect(mocks.run.mock.calls[0]).toMatchObject(['mcp.fixture.tray', {}, {toolAudience: 'model'}]);
+      // Opening the tab again in the same chat returns to it. Another chat gets its own instance.
+      expect(await prepareConnectedLaunch('server', 'viewer', 'tray', {kind: 'thread', chatId})).toEqual({kind: 'open', captureId: first.invocationId});
+      expect((await prepareConnectedLaunch('server', 'viewer', 'tray', {kind: 'thread', chatId: randomUUID()})).kind).toBe('launch');
+      expect((await prepareConnectedLaunch('server', 'viewer', 'tray', {kind: 'thread', chatId, fresh: true})).kind).toBe('launch');
+      // A tab is not a recent result to reopen from the app's page.
+      expect((await connectedAppsCatalog('viewer'))[0].recent).toEqual([]);
+      expect(mocks.run).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('never lets a model result or another tool stand in for an entrypoint', async () => {
+    await withTools([tray], async () => {
+      const view = await openConnectedView(await capture(), 'viewer', chatId);
+      await expect(launchConnectedView(view.id, 'viewer')).rejects.toThrow('not a launch request');
+      await expect(prepareConnectedLaunch('server', 'viewer', 'calculate', {kind: 'thread', chatId})).rejects.toThrow('no tab');
+      await expect(prepareConnectedLaunch('server', 'viewer', 'tray', {kind: 'settings'})).rejects.toThrow('no interface');
+    });
+  });
+
+  it('carries a deep link into a new global screen, and moves an open one with it', async () => {
+    await withTools([launcher], async () => {
+      await expect(prepareConnectedLaunch('server', 'viewer', 'home', {deepLink: 'parts'})).rejects.toThrow('starts with /');
+      await expect(prepareConnectedLaunch('server', 'viewer', 'home', {deepLink: '/parts#top'})).rejects.toThrow('fragment');
+      const launched = await launchRequest('server', 'viewer', 'home', {deepLink: '/parts?tag=bolt&sort=asc'});
+      await launchConnectedView(launched.viewId, 'viewer');
+      const opened = await openConnectedView(launched.invocationId, 'viewer');
+      expect(opened).toMatchObject({kind: 'global', deepLink: '/parts?tag=bolt&sort=asc'});
+      expect(await prepareConnectedLaunch('server', 'viewer', 'home', {deepLink: '/parts/hex-bolt'})).toEqual({kind: 'open', captureId: launched.invocationId, deepLink: '/parts/hex-bolt'});
+      expect(await navigateConnectedScreen(opened.id, 'viewer', '/parts/washer')).toEqual({deepLink: '/parts/washer'});
+      expect((await openConnectedView(launched.invocationId, 'viewer')).deepLink).toBe('/parts/washer');
+      expect(normalizeDeepLink(undefined)).toBeUndefined();
+      expect(() => normalizeDeepLink('//evil.example/')).toThrow();
+    });
+  });
+
+  it('relays a view\'s resource reads to its own server on the same account, and refuses the file seam plainly', async () => {
+    const view = await openConnectedView(await capture(), 'viewer', chatId);
+    mocks.read.mockResolvedValueOnce({contents: [{uri: 'cad-resource://bits-and-bolts/occt-import-js.wasm', mimeType: 'application/wasm', blob: 'AGFzbQ=='}]});
+    expect(await readConnectedResource(view.id, 'viewer', {uri: 'cad-resource://bits-and-bolts/occt-import-js.wasm'})).toMatchObject({contents: [{blob: 'AGFzbQ=='}]});
+    expect(mocks.read).toHaveBeenLastCalledWith({uri: 'cad-resource://bits-and-bolts/occt-import-js.wasm'});
+    await expect(readConnectedResource(view.id, 'other', {uri: 'cad://parts/x'})).rejects.toThrow('unavailable');
+    await expect(readConnectedResource(view.id, 'viewer', {uri: 'not a uri'})).rejects.toThrow('Invalid resource URI');
+    entry.enabled = false;
+    await expect(readConnectedResource(view.id, 'viewer', {uri: 'cad://parts/x'})).rejects.toThrow('disabled');
+  });
+
+  it('keeps titled, thumbnailed and assistant-only context, names each change, and keeps _meta from the model', async () => {
+    const view = await openConnectedView(await capture(), 'viewer', chatId);
+    const block = {type: 'text', text: 'Selected: agent dial', _meta: {'openai/title': 'Agent dial', 'openai/thumbnail': {src: 'https://example.com/dial.png'}, private: 'drop'}};
+    const hidden = {type: 'text', text: 'Current part: hex-bolt', annotations: {audience: ['assistant']}};
+    const first = await updateConnectedContext(view.id, 'viewer', {content: [block, hidden]});
+    expect(first.updateId).toMatch(/^[0-9a-f-]{36}$/);
+    const same = await updateConnectedContext(view.id, 'viewer', {content: [block, hidden]});
+    expect(same.updateId).toBe(first.updateId);
+    const reopened = await openConnectedView(view.captureId, 'viewer', chatId);
+    expect(reopened.modelContext).toEqual({updateId: first.updateId, content: [
+      {type: 'text', text: 'Selected: agent dial', _meta: {'openai/title': 'Agent dial', 'openai/thumbnail': {src: 'https://example.com/dial.png'}}}, hidden]});
+    const frozen = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision: same.revision}]);
+    expect(await connectedTurnContext(chatId, frozen)).toMatchObject([{context: {content: [{type: 'text', text: 'Selected: agent dial'}, hidden]}}]);
+    expect(JSON.stringify(await connectedTurnContext(chatId, frozen))).not.toContain('Agent dial');
+    const changed = await updateConnectedContext(view.id, 'viewer', {content: [{type: 'text', text: 'Selected: washer'}]});
+    expect(changed.updateId).not.toBe(first.updateId);
+    await clearConnectedContext(view.id, 'viewer');
+    expect((await openConnectedView(view.captureId, 'viewer', chatId)).modelContext).toBeNull();
+  });
+
+  it('attaches a global screen\'s context to whichever chat its person sends in', async () => {
+    await withTools([launcher], async () => {
+      const launched = await launchRequest('server', 'viewer', 'home');
+      await launchConnectedView(launched.viewId, 'viewer');
+      const screen = await openConnectedView(launched.invocationId, 'viewer');
+      const {revision} = await updateConnectedContext(screen.id, 'viewer', {content: [{type: 'text', text: 'Library page'}]});
+      expect(await freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}])).toMatchObject([{context: {content: [{text: 'Library page'}]}}]);
+    });
   });
 });

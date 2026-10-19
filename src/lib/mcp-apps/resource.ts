@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { parseHTML } from 'linkedom';
+import { resourceDisplayModes } from './metadata';
 
 export const MAX_HTML_BYTES = 12 * 1024 * 1024;
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -44,5 +45,7 @@ export function prepareResource(result: unknown, uri: string, legacy: boolean) {
   const prepared = legacy ? `<script>${LEGACY_BRIDGE}</script>${html}` : html;
   const scriptHashes = [...(legacy ? [LEGACY_BRIDGE] : []), ...scripts].map(script => `'sha256-${createHash('sha256').update(script).digest('base64')}'`);
   if (Buffer.byteLength(prepared) > MAX_HTML_BYTES) throw new Error('The prepared app interface exceeds 12 MiB');
-  return { html: prepared, scriptHashes, digest: digest(prepared) };
+  // OpenAI's display modes ride on the content item, so Ri can choose one before the app initializes.
+  const declared = !!resource._meta && typeof resource._meta['openai/ui'] === 'object' && resource._meta['openai/ui'] !== null;
+  return { html: prepared, scriptHashes, digest: digest(prepared), displayModes: { ...resourceDisplayModes(resource._meta), declared } };
 }

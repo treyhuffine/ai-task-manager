@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
+import { safeMcpIcons, type McpIcon } from './mcp-icons';
 
 export interface McpCapabilityTool {
   name: string;
   title?: string;
+  /** As the server sent them. Snapshots keep only what `safeMcpIcons` allows, outside the fingerprint. */
+  icons?: unknown;
   description?: string;
   inputSchema?: unknown;
   outputSchema?: unknown;
@@ -13,7 +16,7 @@ const FIELDS = ['title', 'description', 'inputSchema', 'outputSchema', 'annotati
 export type McpCapabilityField = typeof FIELDS[number];
 export interface McpCapabilitySnapshot {
   revision: string;
-  tools: (McpCapabilityTool & { fingerprint: string })[];
+  tools: (McpCapabilityTool & { fingerprint: string; icons?: McpIcon[] })[];
 }
 export interface McpCapabilityChanges {
   revision: string;
@@ -50,13 +53,16 @@ export function snapshotMcpCapabilities(input: readonly McpCapabilityTool[]): Mc
     const meta = tool._meta as { ui?: { resourceUri?: unknown; visibility?: unknown }; 'ui/resourceUri'?: unknown } | undefined;
     const ui = meta?.ui && Object.fromEntries(['resourceUri', 'visibility'].flatMap(key => meta.ui![key as keyof typeof meta.ui] === undefined ? [] : [[key, meta.ui![key as keyof typeof meta.ui]]]));
     const original = tool._meta as Record<string, unknown> | undefined;
-    const compatibility = Object.fromEntries(['openai/outputTemplate', 'openai/widgetAccessible', 'openai/ui'].flatMap(key => original?.[key] === undefined ? [] : [[key, original[key]]]));
+    const compatibility = Object.fromEntries(['openai/outputTemplate', 'openai/widgetAccessible', 'openai/ui', 'openai/extensions'].flatMap(key => original?.[key] === undefined ? [] : [[key, original[key]]]));
     const safeMeta = { ...compatibility, ...(ui && Object.keys(ui).length ? { ui } : {}), ...(meta?.['ui/resourceUri'] === undefined ? {} : { 'ui/resourceUri': meta['ui/resourceUri'] }) };
     const advertised = { ...tool, _meta: Object.keys(safeMeta).length ? safeMeta : undefined };
-    const definition = canonical({ name: tool.name, ...Object.fromEntries(FIELDS.filter(field => advertised[field] !== undefined).map(field => [field, advertised[field]])) }) as McpCapabilityTool;
-    return { ...definition, fingerprint: hash(definition) };
+    const definition = canonical({ name: tool.name, ...Object.fromEntries(FIELDS.filter(field => advertised[field] !== undefined).map(field => [field, advertised[field]])) }) as Omit<McpCapabilityTool, 'icons'>;
+    const icons = safeMcpIcons(tool.icons);
+    const entry: McpCapabilitySnapshot['tools'][number] = { ...definition, fingerprint: hash(definition), ...(icons.length ? { icons } : {}) };
+    return entry;
   }).sort((a, b) => compare(a.name, b.name));
-  return { revision: hash(tools), tools };
+  // Icons are presentation, so a new icon never asks the person to review a tool again.
+  return { revision: hash(tools.map(({ icons: _icons, ...tool }) => tool)), tools };
 }
 
 export function diffMcpCapabilities(reviewed: McpCapabilitySnapshot, current: McpCapabilitySnapshot): McpCapabilityChanges | undefined {

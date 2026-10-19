@@ -36,6 +36,24 @@ describe('MCP capability snapshots', () => {
     expect(snapshot.tools[0]?.fingerprint).toHaveLength(64);
   });
 
+  it('keeps safe tool icons for display without counting them as a change to review', () => {
+    const plain = snapshotMcpCapabilities([{ name: 'browse', title: 'Library' }]);
+    const iconic = snapshotMcpCapabilities([{ name: 'browse', title: 'Library', icons: [
+      { src: 'data:image/svg+xml,%3Csvg%2F%3E', mimeType: 'image/svg+xml', theme: 'dark' },
+      { src: 'javascript:alert(1)' }, { src: 'http://insecure.example/icon.png' },
+    ] } as never]);
+    expect(iconic.revision).toBe(plain.revision);
+    expect(iconic.tools[0]?.fingerprint).toBe(plain.tools[0]?.fingerprint);
+    expect(iconic.tools[0]?.icons).toEqual([{ src: 'data:image/svg+xml,%3Csvg%2F%3E', mimeType: 'image/svg+xml', theme: 'dark' }]);
+    expect(diffMcpCapabilities(plain, iconic)).toBeUndefined();
+  });
+
+  it('reviews the deprecated mention search marker, since it changes what a tool is used for', () => {
+    const plain = snapshotMcpCapabilities([{ name: 'search' }]);
+    const marked = snapshotMcpCapabilities([{ name: 'search', _meta: { 'openai/extensions': { 'mentions/search': {} } } }]);
+    expect(diffMcpCapabilities(plain, marked)?.changed).toEqual([{ name: 'search', fields: ['_meta'] }]);
+  });
+
   it('rejects ambiguous duplicate tool names without creating an inventory', () => {
     expect(() => snapshotMcpCapabilities([{ name: 'duplicate' }, { name: 'duplicate' }])).toThrow('unique');
   });

@@ -96,14 +96,21 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
       },
       context: async context => {
         if (view.chatId) selectConnectedContext(view.chatId, view.id);
-        revision = await trpcClient.connectedApps.context.mutate({viewId: view.id, context});
+        const accepted = await trpcClient.connectedApps.context.mutate({viewId: view.id, context});
+        revision = accepted.revision;
         let widgetState: unknown;
         if (view.legacy) {
           const text = (context as {content?: {type: string; text?: string}[]}).content?.find(item => item.type === 'text')?.text;
           if (text) {try {widgetState = JSON.parse(text);} catch { /* Ordinary model context has no widget state. */ }}
         }
         queryClient.setQueryData<OpenView>(['connected-app-view', view.captureId, view.chatId], previous => previous ? {...previous, revision, widgetState} : previous);
+        return accepted.updateId ? {updateId: accepted.updateId} : undefined;
       },
+      // OpenAI's model context extension: titled, thumbnailed and image context, each change named by an updateId.
+      modelContext: true,
+      contextLimit: 768 * 1024,
+      // `resources/read` goes to this app's own server on its account, or to the file it opened.
+      readResource: (params, signal) => trpcClient.connectedApps.readResource.mutate({viewId: view.id, uri: params.uri, ...(params._meta ? {meta: params._meta} : {})}, {signal}),
       navigate: () => { throw new Error('This app does not provide internal navigation'); },
       externalLink: url => { window.open(url, '_blank', 'noopener,noreferrer'); },
       error: error => { if (!disposed) setError(error.message); },
@@ -115,7 +122,13 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
     const unregister = view.chatId ? registerConnectedContext(view.chatId, view.id, async () => { await host.flushContext(); return revision ? {viewId: view.id, revision} : undefined; }) : undefined;
     if (view.chatId && expanded && revision) selectConnectedContext(view.chatId, view.id);
     void host.open(resource, {id: view.id, packageDigest: resource.digest, path: '/', query: {}, initialData: null,
-      theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light', mcp: {input: view.input, result: view.result, widgetState: view.widgetState}, displayMode: expanded ? 'fullscreen' : 'inline'}).catch(e => setError(e.message));
+      theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light', mcp: {input: view.input, result: view.result, widgetState: view.widgetState}, displayMode: expanded ? 'fullscreen' : 'inline',
+      displayModes: resource.displayModes.available, platform: 'web', fileResource: view.kind === 'file',
+      hostContext: {
+        // OpenAI's host state: where a global screen opens, and the context this view attached before a remount.
+        ...(view.deepLink ? {'openai/deepLink': {url: view.deepLink}} : {}),
+        'openai/modelContext': view.modelContext,
+      }}).catch(e => setError(e.message));
     const timer = setTimeout(() => { if (!disposed) setReady(current => { if (!current) setError('The app did not connect to Ri’s UI bridge. Its tools and text results are still available.'); return current; }); }, 20_000);
     return () => { disposed = true; clearTimeout(timer); unregister?.(); waiting?.finish(false); controller.current = null; void host.dispose(); };
     // The capture is immutable. Refetch checks access without rebuilding the iframe.

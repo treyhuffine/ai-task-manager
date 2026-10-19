@@ -245,6 +245,17 @@ describe('durable tool capability review', () => {
     expect(rows.servers[0].capabilities.reviewed.tools[0].inputSchema).toEqual({ type: 'object' });
   });
 
+  it('refreshes tool icons in place without a review', async () => {
+    const store = freshStore();
+    const entry = await store.create({ slug: 'icons', displayName: 'Icons', url: 'https://example.com', auth: { kind: 'none' } });
+    await store.recordCapabilities(entry.id, [{ name: 'browse' }]);
+    const icon = { src: 'https://example.com/icon.png' };
+    const updated = await store.recordCapabilities(entry.id, [{ name: 'browse', icons: [icon] }]);
+    expect(updated?.capabilityChanges).toBeUndefined();
+    const rows = JSON.parse(fs.readFileSync(path.join(dirs.at(-1)!, 'mcp-servers.json'), 'utf8'));
+    expect(rows.servers[0].capabilities.current.tools[0].icons).toEqual([icon]);
+  });
+
   it('rejects stale acknowledgement and advances only the exact reviewed revision', async () => {
     const store = freshStore();
     const entry = await store.create({ slug: 'review', displayName: 'Review', url: 'https://example.com', auth: { kind: 'none' } });

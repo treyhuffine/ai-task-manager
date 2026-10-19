@@ -43,7 +43,7 @@ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});function 
         else{invocationIds.push(input.invocationId);if(!approved)data={kind:'approval',ids:['01900444-4444-7444-8444-444444444444'],preview:{operation:'Recalculate portfolio',amount:9}};else{effects++;data={kind:'result',result:{content:[{type:'text',text:'Updated portfolio'}],structuredContent:{value:'$90,000'}}};}}
       }
       if(method==='connectedApps.approval'){approved=input.approve;data=null;}
-      if(method==='connectedApps.context'){contextRequests++;await contextAcknowledgement;revision++;data=revision;}
+      if(method==='connectedApps.context'){contextRequests++;await contextAcknowledgement;revision++;data={revision,updateId:'update-'+revision};}
       res.setHeader('content-type','application/json');res.end(JSON.stringify({result:{data}}));return;
     }
     if(url.pathname==='/fixture.js'){res.setHeader('content-type','text/javascript');res.end(bundle.outputFiles[0].text);return;}
