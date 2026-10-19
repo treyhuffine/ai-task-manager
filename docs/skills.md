@@ -86,6 +86,39 @@ the skill's chats follow it.
   it tries (`extraSkillDirs`): nothing reads a draft, and a try chat runs in
   Ri's home, not in the project.
 
+### Ri's shipped skills in every project
+
+Ri ships two skills of its own, `agent-work-tasks-notes_ri` (tasks, notes, the
+deck) and `agent-browser_ri` (the agent browser). They're always linked into
+the home's own `.claude/skills` and `.agents/skills`, so chats started there
+have them. Linked into the global folders too, they let Claude Code, Codex and
+every other coding tool on the computer manage tasks and notes from any
+project. That global install:
+
+- Happens at first-run setup without a question (web onboarding through
+  `saveHarnessSetup`, the terminal wizard through `configureGlobalSkill`),
+  unless the home already chose. Most people want it, and few could answer
+  the question before they've used Ri. A home seeded with
+  `globalSkillEnabled: false` (an isolated or dev home) is never switched on,
+  since the global links belong to whichever Ri installed them.
+- Is shown, with one-click install and uninstall, in two places: a Get started
+  item (usually where someone learns it's on) and External AI, its home, next
+  to the keyed connections for assistants elsewhere
+  (`src/components/settings/agent-skill-access.tsx`). Models no longer carries it.
+- Reports what's on disk, not the saved choice (`inspectGlobalSkills`): a
+  link deleted by hand reads as not installed, and an entry holding the name
+  that isn't Ri's link (someone's own skill, another live home's copy) is
+  named so the person can move it. A dead link at a shipped name (left by a
+  home that's gone, like a deleted worktree's demo home) is neither: no tool
+  can read it, so installing replaces it. Otherwise installing and
+  uninstalling touch only Ri's own links, never a project.
+- Uninstalled on purpose counts as skipped in Get started, so it isn't asked
+  again. `ri start` re-links it only while the saved choice is on.
+- Isn't offered in the desktop app, which keeps the skills in its own home
+  (docs/desktop.md).
+
+The Plugins list leaves these two out (above): they're Ri's, not the person's.
+
 ## Naming: Plugins
 
 The Settings section is **Plugins** (`?settings=plugins`; the old
@@ -218,6 +251,8 @@ home backups and comparisons include `skill-drafts` (`src/lib/home/`).
 | `src/lib/skills/manage.ts` | Everything the routes and actions do, keeping folders, links and chats in step |
 | `src/lib/skills/exclusions.ts` | What a builder or try chat gets differently |
 | `src/lib/skills/builder-brief.ts` | The builder chat's brief |
+| `src/lib/agent-skills/shipped.ts` | Ri's shipped skills: materializing, the home and global links, `inspectGlobalSkills` |
+| `src/components/settings/agent-skill-access.tsx` | The one-click install and uninstall in Get started and External AI |
 
 ## Not built yet
 

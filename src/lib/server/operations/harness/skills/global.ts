@@ -1,20 +1,32 @@
-import { AGENT_SKILL_NAME } from '@/constants/app';
+import { APP_NAME } from '@/constants/app';
 import { cleanupKnownProjectSkillLinks } from '@/lib/agent-skills/project-cleanup';
 import {
   configureGlobalSkill,
+  displayHomePath,
   getGlobalSkillPreference,
+  inspectGlobalSkills,
   installAppRootSkills,
 } from '@/lib/agent-skills/shipped';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 
+/**
+ * The saved choice (`enabled`, `configured`) and what's on disk (`installed`,
+ * `conflicts`). They differ when someone deleted a link by hand or another
+ * skill holds the name, and Settings shows what's on disk.
+ */
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
-  if (process.env.RI_DESKTOP === '1') return reply({ enabled: false, configured: true, appOnly: true });
+  if (process.env.RI_DESKTOP === '1') {
+    return reply({ appOnly: true, enabled: false, configured: true, installed: false, conflicts: [] as string[] });
+  }
   const preference = getGlobalSkillPreference();
+  const { installed, conflicts } = await inspectGlobalSkills();
   return reply({
     appOnly: false,
     enabled: preference === true,
     configured: preference !== null,
+    installed,
+    conflicts,
   });
 }
 
@@ -35,7 +47,7 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
     if (result.enabled && result.install.errors > 0) {
       return reply(
         {
-          error: 'The user-level skill could not be installed',
+          error: `${APP_NAME}'s skills could not be installed`,
           result,
           projectCleanup,
         },
@@ -44,9 +56,13 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
     }
 
     if (result.enabled && result.install.conflicts > 0) {
+      const taken = result.install.entries
+        .filter((entry) => entry.status === 'conflict')
+        .map((entry) => displayHomePath(entry.targetPath));
+      const one = taken.length === 1;
       return reply(
         {
-          error: `A user-level skill named ${AGENT_SKILL_NAME} already exists and was left unchanged`,
+          error: `Another skill is already at ${taken.join(', ')}, so ${APP_NAME} left ${one ? 'it' : 'them'} alone. Remove or rename ${one ? 'it' : 'them'}, then install again.`,
           result,
           projectCleanup,
         },

@@ -2,9 +2,10 @@
 
 import { useUserState } from '@/hooks/use-user-state';
 import { settingsApi } from '@/lib/api/settings';
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { agentSkillState } from './agent-skill-state';
 import type { SectionId } from './settings-sections';
 
 /**
@@ -25,6 +26,13 @@ export interface ChecklistItem {
 }
 
 const DISMISS_KEY = 'ri.setup.dismissed';
+
+/**
+ * The item for Ri's user-level skills. Its action is one click right in the
+ * list (install, or uninstall once done), not a jump to its tab, and an
+ * uninstall on purpose counts as skipped, so it never nags to undo a choice.
+ */
+export const AGENT_SKILL_ITEM = 'agent-skill';
 
 function loadDismissed(): Set<string> {
   if (typeof window === 'undefined') return new Set();
@@ -74,6 +82,7 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
     queryFn: () => trpcClient.browser.list.query({}),
     enabled,
   });
+  const skill = useQuery({ ...trpc.harness.skillsGlobalGet.queryOptions({}), enabled });
 
   // SSR-safe: start empty, hydrate from localStorage on mount.
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -109,22 +118,31 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
     // Done when the capability is on and a browser is available. Signing into a
     // site is the optional next step, surfaced in the Browser tab itself.
     const browserDone = !!browser.data?.enabled && (browser.data?.config.detected.length ?? 0) > 0;
+    // The desktop app keeps the skills in its own folder, so there's nothing to offer.
+    const skillState = skill.data ? agentSkillState(skill.data) : null;
 
     const base: Omit<ChecklistItem, 'dismissed'>[] = [
       { id: 'profile', section: 'profile', label: 'Tell your assistant about you', hint: 'Fill this out in the Profile tab any time.', done: profileDone },
       { id: 'model', section: 'models', label: 'Pick a default model', hint: 'Choose one in the Models tab any time.', done: modelDone },
+      ...(skillState === 'app-only' ? [] : [
+        { id: AGENT_SKILL_ITEM, section: 'external-ai' as const, label: 'Let your coding tools manage tasks and notes', hint: 'Install it in External AI any time.', done: skillState === 'on' },
+      ]),
       { id: 'remote', section: 'devices', label: 'Set a remote URL', hint: 'Set your remote URL in the Devices tab any time.', done: remoteDone },
       { id: 'notifications', section: 'notifications', label: 'Turn on notifications', hint: 'Add a channel in the Notifications tab any time.', done: notificationsDone },
       // Ids are saved in DISMISS_KEY, so this one keeps its pre-rename spelling.
       { id: 'connectors', section: 'plugins', label: 'Connect an app', hint: 'Connect one in Plugins any time.', done: integrationsDone },
       { id: 'browser', section: 'browser', label: 'Set up the agent browser', hint: 'Pick a browser and sign into sites in the Browser tab any time.', done: browserDone },
     ];
-    return base.map((i) => ({ ...i, dismissed: dismissed.has(i.id) }));
-  }, [userState?.name, userState?.description, userState?.defaultHarness, baseUrls.data, channels.data, connections.data, browser.data, dismissed]);
+    return base.map((i) => ({
+      ...i,
+      dismissed: dismissed.has(i.id) || (i.id === AGENT_SKILL_ITEM && skillState === 'declined'),
+    }));
+  }, [userState?.description, userState?.defaultHarness, baseUrls.data, channels.data, connections.data, browser.data, skill.data, dismissed]);
 
   const doneCount = items.filter((i) => i.done).length;
   const pending = items.filter((i) => !i.done && !i.dismissed);
-  const ready = !!(userState && baseUrls.data && channels.data && connections.data && browser.data);
+  // The skill check is optional to setup, so a failed one doesn't hold the tab back.
+  const ready = !!(userState && baseUrls.data && channels.data && connections.data && browser.data && skill.isFetched);
 
   return {
     items,

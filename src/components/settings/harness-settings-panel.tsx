@@ -1,6 +1,5 @@
 'use client';
 
-import { trpcClient } from '@/lib/trpc/client';
 import { HarnessPermissionNotice } from './harness-permission-notice';
 
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
@@ -30,8 +29,8 @@ import {
 } from '@/lib/harness/options';
 import { cn } from '@/lib/utils';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Globe2, Loader2, RefreshCw, Search, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2, RefreshCw, Search, X } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CursorCredentialPanel } from './cursor-credential-panel';
 import { ConnectionBadge, ConnectionPanel, ProviderIcon } from './harness-connection-ui';
@@ -86,76 +85,7 @@ export function HarnessSettingsPanel() {
           ))}
         </Accordion>
       )}
-
-      <GlobalSkillSetting />
     </section>
-  );
-}
-
-/**
- * Where agents may use this app's task and note actions. Global by default
- * (set during onboarding) so agents can manage tasks and notes from any
- * project. Turning this off scopes discovery to sessions the app launches from
- * its own directory. Individual repositories are never touched either way.
- */
-function GlobalSkillSetting() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [appOnly, setAppOnly] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    trpcClient.harness.skillsGlobalGet.query({})
-      .then((res) => {
-        if (active) { setEnabled(res.enabled); setAppOnly(res.appOnly === true); }
-      })
-      .catch(() => {
-        if (active) setEnabled(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const toggle = async (next: boolean) => {
-    const previous = enabled;
-    setEnabled(next);
-    setSaving(true);
-    try {
-      await trpcClient.harness.skillsGlobalPut.mutate({body: { enabled: next }});
-      toast.success(
-        next
-          ? 'Agents can manage tasks and notes in every project'
-          : 'Agent task and note access limited to inside the app',
-      );
-    } catch (error) {
-      setEnabled(previous);
-      toast.error('Could not update agent access', {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-2 rounded-lg border border-border bg-card/30 p-3">
-      <div className="flex items-center gap-2 text-foreground">
-        <Globe2 size={14} className="text-muted-foreground" />
-        <h4 className="text-[12px] font-semibold">Task and note access</h4>
-      </div>
-      <p className="text-[11px] text-muted-foreground/85">
-        {appOnly ? 'Desktop agent access stays inside this app. Your existing CLI and global agent skills are left unchanged.' : 'Installs one user-level skill so agents can manage your tasks and notes from any project. Individual repositories stay untouched either way.'}
-      </p>
-      <label className="flex cursor-pointer items-center gap-2 pt-1 text-[11px] text-foreground">
-        <Checkbox
-          checked={enabled === true}
-          disabled={appOnly || enabled === null || saving}
-          onCheckedChange={(value) => void toggle(value === true)}
-        />
-        Available in every project
-      </label>
-    </div>
   );
 }
 

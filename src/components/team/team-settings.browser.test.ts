@@ -58,12 +58,14 @@ beforeAll(async () => {
             aiClients:{list:query('clients',()=>clients)},ai:{status:query('status',()=>status),chats:{list:query('chats')}}
           }};
           trpc.externalAi={list:query('personalClients',()=>clients),address:query('personalAddress',()=>({mcpUrl:(local?'http://localhost:4224':'https://home.example.test')+'/api/orchestrator/mcp',reachable:!local}))};
+          trpc.harness={skillsGlobalGet:query('skill',()=>({appOnly:false,enabled:true,configured:true,installed:true,conflicts:[]}))};
           const unreachable={mutate:async()=>({reachable:false})};
           export const trpcClient={team:{
             invitations:{createRemote:unreachable},signIns:{createRemote:unreachable},
             aiClients:{create:{mutate:async input=>{window.connectionCalls.push(input);const client={keyId:String(clients.length),name:input.name,createdAt:'2026-10-14',lastUsedAt:null};clients=[...clients,client];return {client,token:'fictional-test-token',mcpUrl:'https://team.example.test/api/team/mcp',reachable:true};}},revoke:{mutate:async()=>{clients=[];}}},
             ai:{configure:{mutate:async input=>{status={...status,...input};}},setEnabled:{mutate:async({enabled})=>{status={...status,enabled,state:enabled?'ready':'off'};}},refreshAuth:{mutate:async()=>({})},forgetKey:{mutate:async()=>({})}}
           }};
+          trpcClient.harness={skillsGlobalPut:{mutate:async()=>({})}};
           trpcClient.externalAi={create:{mutate:async input=>{window.connectionCalls.push(input);const client={keyId:String(clients.length),name:input.name,createdAt:'2026-10-14',lastUsedAt:null};clients=[...clients,client];return {client,token:'fictional-personal-token',mcpUrl:(local?'http://localhost:4224':'https://home.example.test')+'/api/orchestrator/mcp',reachable:!local};}},revoke:{mutate:async()=>{clients=[];}}};
         `,
       }[path]! }));
@@ -185,6 +187,9 @@ it.skipIf(!enabled)('connects and disconnects personal assistants without exposi
   try {
     await page.goto(`${address}/?personal=1&external=1`);
     await page.getByText('Uses your Home’s remote address.', { exact: false }).waitFor();
+    // Coding tools on this computer come first, through Ri's skills, with no key.
+    await page.getByRole('heading', { name: 'Coding tools on this computer', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Uninstall', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Connect an external assistant', exact: true }).click();
     await page.getByText('Codex', { exact: true }).click();
     await page.getByRole('button', { name: 'Get connection instructions', exact: true }).click();

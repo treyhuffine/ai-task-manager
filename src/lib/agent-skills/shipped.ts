@@ -2,12 +2,16 @@
  * Lifecycle for skills shipped with the app.
  *
  * The app-root install is always present so orchestrator and content sessions
- * discover the skill from their own cwd. The user-level install is opt-in and
- * makes the same skill available to ordinary agent sessions in any project.
- * Project repositories are never an ownership location for shipped skills.
+ * discover the skill from their own cwd. The user-level install makes the same
+ * skills available to ordinary coding-tool sessions in any project. First-run
+ * setup turns it on unless the home already chose, and Settings (Get started,
+ * External AI) shows it with one-click install and uninstall
+ * (`src/components/settings/agent-skill-access.tsx`). Project repositories are
+ * never an ownership location for shipped skills.
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SkillInstallResult, SkillRemoveResult } from '@agentex/agent';
@@ -100,6 +104,81 @@ export function getGlobalSkillPreference(): boolean | null {
   return readAuthConfig()?.globalSkillEnabled ?? null;
 }
 
+/** Where the user-level install stands on disk, which can differ from the saved choice. */
+export interface GlobalSkillStatus {
+  /** Every shipped skill is linked from both user-level folders to this home's copy. */
+  installed: boolean;
+  /**
+   * User-level entries holding something else under a shipped skill's name:
+   * someone's own skill, or a link to another Ri home's live copy.
+   * Installing leaves them alone, so they keep that skill from being
+   * installed. A dead link isn't one: installing replaces it. Written the
+   * way a person reads them, with `~` for the home folder.
+   */
+  conflicts: string[];
+}
+
+/** Read the user-level skill folders, never change them. */
+export async function inspectGlobalSkills(): Promise<GlobalSkillStatus> {
+  let installed = true;
+  const conflicts: string[] = [];
+  for (const { link, state } of await globalShippedEntries()) {
+    if (state !== 'ours') installed = false;
+    if (state === 'other') conflicts.push(displayHomePath(link));
+  }
+  return { installed, conflicts };
+}
+
+/** Each shipped skill's place in both user-level folders, and what's there now. */
+async function globalShippedEntries(): Promise<Array<{ link: string; state: LinkState }>> {
+  const { resolveSkillsHome } = await loadAgentex();
+  const dirs = shippedSkillDirs();
+  return [resolveSkillsHome('claude'), resolveSkillsHome('agents')].flatMap((skillsHome) =>
+    dirs.map((dir) => {
+      const link = path.join(skillsHome, path.basename(dir));
+      return { link, state: linkState(link, dir) };
+    }),
+  );
+}
+
+/**
+ * Clear dead links at the shipped names in the user-level folders: links
+ * whose target is gone, left by a Ri home that no longer exists (a deleted
+ * worktree's demo home, say). No coding tool can read one, and agentex
+ * won't replace a link it didn't make, so without this the name stays taken
+ * for good. Only the shipped names are looked at. Live links and real
+ * folders stay.
+ */
+async function clearDeadGlobalLinks(): Promise<void> {
+  for (const { link, state } of await globalShippedEntries()) {
+    if (state === 'dead') fs.unlinkSync(link);
+  }
+}
+
+/** A path the way a person reads it, `~` for the home folder. */
+export function displayHomePath(p: string): string {
+  const home = os.homedir();
+  return p.startsWith(`${home}/`) ? `~${p.slice(home.length)}` : p;
+}
+
+type LinkState = 'ours' | 'missing' | 'dead' | 'other';
+
+/**
+ * Agentex's test before it installs or removes a link (a link to exactly this
+ * source is ours), plus whether a link to anything else still leads anywhere.
+ */
+function linkState(link: string, source: string): LinkState {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(link);
+  } catch {
+    return 'missing';
+  }
+  if (!stat.isSymbolicLink()) return 'other';
+  if (path.resolve(path.dirname(link), fs.readlinkSync(link)) === path.resolve(source)) return 'ours';
+  return fs.existsSync(link) ? 'other' : 'dead';
+}
+
 export async function installAppRootSkills(): Promise<SkillInstallResult> {
   const { installSkills } = await loadAgentex();
   return installSkills(shippedSkillDirs(), {
@@ -109,6 +188,7 @@ export async function installAppRootSkills(): Promise<SkillInstallResult> {
 }
 
 export async function installGlobalSkills(): Promise<SkillInstallResult> {
+  await clearDeadGlobalLinks();
   const { installSkills } = await loadAgentex();
   return installSkills(shippedSkillDirs(), { location: 'global' });
 }

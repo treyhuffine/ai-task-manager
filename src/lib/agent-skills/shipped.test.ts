@@ -7,6 +7,7 @@ import { APP_ROOT_ENV } from '@/lib/config/paths';
 import {
   configureGlobalSkill,
   getGlobalSkillPreference,
+  inspectGlobalSkills,
   installAppRootSkills,
   removeOwnedProjectSkillLinks,
   shippedSkillDirs,
@@ -82,6 +83,63 @@ describe('shipped agent skills', () => {
     expect(getGlobalSkillPreference()).toBe(false);
     expect(fs.existsSync(path.join(tmpHome, '.agents', 'skills', AGENT_SKILL_NAME))).toBe(false);
     expect(fs.existsSync(path.join(tmpHome, '.claude', 'skills', AGENT_SKILL_NAME))).toBe(false);
+  });
+
+  it('reports what is on disk, not the saved choice', async () => {
+    expect(await inspectGlobalSkills()).toEqual({ installed: false, conflicts: [] });
+
+    await configureGlobalSkill(true);
+    expect(await inspectGlobalSkills()).toEqual({ installed: true, conflicts: [] });
+
+    // A link deleted by hand: still chosen, no longer installed, nothing in the way.
+    fs.unlinkSync(path.join(tmpHome, '.agents', 'skills', AGENT_BROWSER_SKILL_NAME));
+    expect(getGlobalSkillPreference()).toBe(true);
+    expect(await inspectGlobalSkills()).toEqual({ installed: false, conflicts: [] });
+  });
+
+  it('names what holds a shipped skill name, and installing leaves it alone', async () => {
+    const own = path.join(tmpHome, '.claude', 'skills', AGENT_SKILL_NAME);
+    fs.mkdirSync(own, { recursive: true });
+    fs.writeFileSync(path.join(own, 'SKILL.md'), 'user-owned');
+    // Another Ri home's copy, linked from the other channel.
+    const otherHome = path.join(tmpHome, 'other-home', AGENT_SKILL_NAME);
+    fs.mkdirSync(otherHome, { recursive: true });
+    fs.mkdirSync(path.join(tmpHome, '.agents', 'skills'), { recursive: true });
+    fs.symlinkSync(otherHome, path.join(tmpHome, '.agents', 'skills', AGENT_SKILL_NAME), 'dir');
+
+    const result = await configureGlobalSkill(true);
+
+    expect(result.install.conflicts).toBe(2);
+    expect(await inspectGlobalSkills()).toEqual({
+      installed: false,
+      conflicts: [`~/.claude/skills/${AGENT_SKILL_NAME}`, `~/.agents/skills/${AGENT_SKILL_NAME}`],
+    });
+    expect(fs.readFileSync(path.join(own, 'SKILL.md'), 'utf8')).toBe('user-owned');
+
+    // Uninstalling removes only Ri's own links, so the other two stay put.
+    await configureGlobalSkill(false);
+    expect(fs.readFileSync(path.join(own, 'SKILL.md'), 'utf8')).toBe('user-owned');
+    expect(fs.readlinkSync(path.join(tmpHome, '.agents', 'skills', AGENT_SKILL_NAME))).toBe(otherHome);
+    expect(fs.existsSync(path.join(tmpHome, '.claude', 'skills', AGENT_BROWSER_SKILL_NAME))).toBe(false);
+  });
+
+  it('replaces a dead link a deleted home left at a shipped name, and only that', async () => {
+    const skills = path.join(tmpHome, '.claude', 'skills');
+    fs.mkdirSync(skills, { recursive: true });
+    const gone = path.join(tmpHome, 'deleted-worktree', '.work', 'skills', AGENT_SKILL_NAME);
+    fs.symlinkSync(gone, path.join(skills, AGENT_SKILL_NAME), 'dir');
+    fs.symlinkSync(path.join(tmpHome, 'nowhere'), path.join(skills, 'someone-elses'), 'dir');
+
+    // Not something to move by hand: not installed, and nothing in the way.
+    expect(await inspectGlobalSkills()).toEqual({ installed: false, conflicts: [] });
+
+    const result = await configureGlobalSkill(true);
+
+    expect(result.install.conflicts).toBe(0);
+    expect(await inspectGlobalSkills()).toEqual({ installed: true, conflicts: [] });
+    expect(fs.realpathSync(path.join(skills, AGENT_SKILL_NAME))).toBe(fs.realpathSync(shippedSkillDirs()[0]));
+    // A dead link under any other name is someone else's business.
+    expect(fs.readlinkSync(path.join(skills, 'someone-elses'))).toBe(path.join(tmpHome, 'nowhere'));
   });
 
   it('removes only project links that point to the shipped skill', async () => {

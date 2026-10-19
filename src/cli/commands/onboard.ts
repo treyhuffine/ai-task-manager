@@ -174,8 +174,9 @@ export async function runWizard(): Promise<void> {
 
   // Global by default: make task and note actions available to agents in every
   // project. No prompt — matching the web onboarding, this isn't a decision most
-  // users can meaningfully answer, and the scope is adjustable later in Settings.
-  const skillResult = process.env.RI_DESKTOP === '1'
+  // users can meaningfully answer. Say it happened, and where it comes off.
+  const desktop = process.env.RI_DESKTOP === '1';
+  const skillResult = desktop
     ? { install: await installAppRootSkills() }
     : await configureGlobalSkill(true);
   if (skillResult.install.errors > 0) {
@@ -183,6 +184,11 @@ export async function runWizard(): Promise<void> {
   }
   if (skillResult.install.conflicts > 0) {
     log.warn(`A user-level skill named ${AGENT_SKILL_NAME} already exists and was left unchanged.`);
+  } else if (!desktop) {
+    log.info(
+      'Claude Code, Codex and other coding tools can now manage your tasks and notes from any project. ' +
+        'Uninstall in one click in Settings, External AI.',
+    );
   }
 
   // TODO: prompt for ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.

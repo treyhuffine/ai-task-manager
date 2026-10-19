@@ -30,8 +30,9 @@ export async function saveHarnessSetup(input: {
  * app's copy is its own folder's, so it's always (re)installed.
  *
  * Ri itself works without it, so a conflict (someone's own skill by that
- * name) or a failed install doesn't hold up setup. Settings, Models shows
- * and retries it.
+ * name) or a failed install doesn't hold up setup. Settings shows it, in Get
+ * started and External AI, with one-click install and uninstall
+ * (`src/components/settings/agent-skill-access.tsx`).
  */
 async function installAgentSkill(): Promise<void> {
   try {

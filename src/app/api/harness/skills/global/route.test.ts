@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   configureGlobalSkill: vi.fn(),
   installAppRootSkills: vi.fn(),
   getGlobalSkillPreference: vi.fn(),
+  inspectGlobalSkills: vi.fn(),
   removeOwnedProjectSkillLinks: vi.fn(),
   listWorkspaces: vi.fn(),
   listChatSessions: vi.fn(),
@@ -14,7 +15,9 @@ vi.mock('@/lib/agent-skills/shipped', () => ({
   configureGlobalSkill: mocks.configureGlobalSkill,
   installAppRootSkills: mocks.installAppRootSkills,
   getGlobalSkillPreference: mocks.getGlobalSkillPreference,
+  inspectGlobalSkills: mocks.inspectGlobalSkills,
   removeOwnedProjectSkillLinks: mocks.removeOwnedProjectSkillLinks,
+  displayHomePath: (p: string) => p.replace('/Users/someone', '~'),
 }));
 
 vi.mock('@/lib/db/queries', () => ({
@@ -33,20 +36,46 @@ beforeEach(() => {
 });
 
 describe('global agent skill settings', () => {
-  it('reports whether the user made an explicit choice', async () => {
+  it('reports the saved choice next to what is on disk', async () => {
     mocks.getGlobalSkillPreference.mockReturnValue(null);
+    mocks.inspectGlobalSkills.mockResolvedValue({ installed: false, conflicts: [] });
     expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({
       enabled: false,
       configured: false,
       appOnly: false,
+      installed: false,
+      conflicts: [],
     });
 
+    // Chosen, but someone's own skill holds the name.
     mocks.getGlobalSkillPreference.mockReturnValue(true);
+    mocks.inspectGlobalSkills.mockResolvedValue({ installed: false, conflicts: ['~/.claude/skills/agent-work-tasks-notes_ri'] });
     expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({
       enabled: true,
       configured: true,
       appOnly: false,
+      installed: false,
+      conflicts: ['~/.claude/skills/agent-work-tasks-notes_ri'],
     });
+  });
+
+  it('says where a taken name is and what to do about it', async () => {
+    mocks.configureGlobalSkill.mockResolvedValue({
+      enabled: true,
+      install: {
+        entries: [
+          { target: 'claude', skillName: 'agent-work-tasks-notes_ri', status: 'conflict', targetPath: '/Users/someone/.claude/skills/agent-work-tasks-notes_ri' },
+          { target: 'agents', skillName: 'agent-work-tasks-notes_ri', status: 'created', targetPath: '/Users/someone/.agents/skills/agent-work-tasks-notes_ri' },
+        ],
+        installed: 1, skipped: 0, conflicts: 1, errors: 0,
+      },
+    });
+    const response = await PUT(new NextRequest('http://localhost/api/harness/skills/global', { method: 'PUT', body: JSON.stringify({ enabled: true }) }));
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe(
+      'Another skill is already at ~/.claude/skills/agent-work-tasks-notes_ri, so Ri left it alone. Remove or rename it, then install again.',
+    );
   });
 
   it('rejects a non-boolean choice', async () => {
@@ -93,7 +122,8 @@ describe('global agent skill settings', () => {
 it('keeps desktop onboarding away from global skills and project cleanup', async () => {
   vi.stubEnv('RI_DESKTOP', '1');
   mocks.installAppRootSkills.mockResolvedValue({ installed: 2, errors: 0 });
-  expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({ enabled: false, configured: true, appOnly: true });
+  expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({ enabled: false, configured: true, appOnly: true, installed: false, conflicts: [] });
+  expect(mocks.inspectGlobalSkills).not.toHaveBeenCalled();
   const response = await PUT(new NextRequest('http://localhost/api/harness/skills/global', { method: 'PUT', body: JSON.stringify({ enabled: true }) }));
   expect(response.status).toBe(200);
   expect(mocks.installAppRootSkills).toHaveBeenCalledOnce();

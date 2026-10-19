@@ -15,7 +15,8 @@ Only a harness that answers: a coding CLI (Codex, Claude Code, Cursor, OpenCode 
 signed in, and responding to a real request. Everything else has a default or can wait:
 
 - The model and effort: the harness's defaults, said in one line with a way to change them (below).
-- The agent skill: installed on setup, as the wizard did (Settings, Models shows it).
+- The agent skill: installed on setup without a question, as the wizard did. Settings tells the person it's on and
+  takes it off in one click, in Get started and External AI (docs/skills.md).
 - Areas, imports, apps, a first agent: useful, asked in the conversation, all skippable.
 
 So the harness is the only step that can't be skipped, and usually the person never sees it.
