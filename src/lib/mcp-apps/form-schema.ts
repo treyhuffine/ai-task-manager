@@ -168,8 +168,11 @@ function field(name: string, raw: unknown, required: boolean): FormField | null 
       const defaults = Array.isArray(schema.default) ? schema.default : [schema.default];
       if (defaults.some(uri => !options.some(option => option.uri === uri))) return null;
     }
+    // Implicit selection always lets the person add their own. Without `userOptions` that is any file (OpenAI's spec).
+    const userOptions: UserResourceOptions | undefined = user ? { kind: user.kind === 'directory' ? 'directory' : 'file', accept: (user.accept as string[] | undefined) ?? [] }
+      : selection === 'implicit' ? { kind: 'file', accept: [] } : undefined;
     return { ...common, kind: 'resource', multiple, selection, options,
-      ...(user ? { userOptions: { kind: user.kind === 'directory' ? 'directory' : 'file', accept: (user.accept as string[] | undefined) ?? [] } } : {}),
+      ...(userOptions ? { userOptions } : {}),
       ...(num(schema.minItems) !== undefined ? { minItems: num(schema.minItems) } : {}), ...(num(schema.maxItems) !== undefined ? { maxItems: num(schema.maxItems) } : {}),
       ...(schema.default !== undefined ? { default: schema.default as string | string[] } : {}),
       ...(str(schema.pattern) !== undefined ? { pattern: str(schema.pattern) } : {}) };
@@ -335,7 +338,7 @@ export function formErrors(form: ParsedForm, content: Record<string, unknown>): 
     if (f.kind !== 'resource' || !Object.hasOwn(content, f.name)) continue;
     const chosen = content[f.name];
     const uris = Array.isArray(chosen) ? chosen : [chosen];
-    if (!(f.selection === 'implicit' || f.userOptions || uris.every(uri => f.options.some(option => option.uri === uri)))) errors[f.name] ??= 'Choose from the listed items.';
+    if (!(f.userOptions || uris.every(uri => f.options.some(option => option.uri === uri)))) errors[f.name] ??= 'Choose from the listed items.';
   }
   return errors;
 }

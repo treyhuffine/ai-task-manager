@@ -8,6 +8,13 @@ const parsed = (schema: unknown): ParsedForm => {
   return result.form;
 };
 
+/** A Bits & Bolts resource form whose field leaves `userOptions` out. */
+function withoutUserOptions(schema: ReturnType<typeof bitsAndBolts.pickReferences>) {
+  const copy = structuredClone(schema) as { properties: { references: { 'x-openai-input': Record<string, unknown> } } };
+  delete copy.properties.references['x-openai-input'].userOptions;
+  return copy;
+}
+
 describe('parseForm', () => {
   it('reads a titled select with descriptions, and shows images for every option once one has a thumbnail', () => {
     const [part] = parsed(bitsAndBolts.pickFile).fields;
@@ -100,11 +107,24 @@ describe('answers', () => {
     expect(formErrors(form, { reference: 'cad://x', priority: 'low', approved: true, tolerance: 1, other: 'x' })).toEqual({ '': 'The answer names a field the form does not have.' });
   });
 
-  it('holds a resource answer to the listed items unless selection is implicit or the person may add their own', () => {
+  it('holds a resource answer to the listed items unless the person may add their own', () => {
     const closed = parsed({ type: 'object', properties: { part: { type: 'string', format: 'uri', 'x-openai-input': { type: 'resource', options: [{ uri: 'cad://parts/a', name: 'a' }] } } } });
     expect(formErrors(closed, { part: 'cad://parts/a' })).toEqual({});
     expect(formErrors(closed, { part: 'file:///etc/passwd' })).toEqual({ part: 'Choose from the listed items.' });
     expect(formErrors(parsed(bitsAndBolts.pickReferences('single')), { references: 'file:///Users/me/parts/bracket.step' })).toEqual({});
+    // An implicit selection whose adding was taken away (a remote server's) holds to its items too.
+    const implicit = parsed(withoutUserOptions(bitsAndBolts.pickReferences('implicit')));
+    const field = implicit.fields[0] as Extract<typeof implicit.fields[0], { kind: 'resource' }>;
+    const closedImplicit = { ...implicit, fields: [{ ...field, userOptions: undefined }] };
+    expect(formErrors(closedImplicit, { references: ['cad://parts/washer'] })).toEqual({});
+    expect(formErrors(closedImplicit, { references: ['file:///Users/me/bracket.step'] })).toEqual({ references: 'Choose from the listed items.' });
+  });
+
+  it('lets an implicit selection without userOptions take any file, as OpenAI\'s spec defaults it', () => {
+    expect(parsed(withoutUserOptions(bitsAndBolts.pickReferences('implicit'))).fields[0]).toMatchObject({ selection: 'implicit', userOptions: { kind: 'file', accept: [] } });
+    expect(formErrors(parsed(withoutUserOptions(bitsAndBolts.pickReferences('implicit'))), { references: ['cad://parts/washer', 'file:///Users/me/bracket.obj'] })).toEqual({});
+    // Explicit selection without userOptions shows no way to add one.
+    expect(parsed(withoutUserOptions(bitsAndBolts.pickReferences('explicit'))).fields[0]).not.toHaveProperty('userOptions');
   });
 
   it('matches files against accept the way an HTML file input does', () => {

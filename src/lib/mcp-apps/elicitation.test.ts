@@ -174,6 +174,28 @@ describe('files a person adds', () => {
     await expect(answer).resolves.toEqual({ action: 'accept', content: { references: ['cad://parts/hex-bolt', attachment.uri, step.uri] } });
   });
 
+  it('lets a local server\'s implicit selection take any file when it names no userOptions, and a remote one only its items', async () => {
+    const agent = path.join(dir, 'agent');
+    fs.mkdirSync(agent, { recursive: true });
+    fs.writeFileSync(path.join(agent, 'bracket.obj'), 'o bracket');
+    mocks.chat.mockImplementation((id: string) => id === chatId ? { id, workspaceId: 'ws' } : undefined);
+    mocks.workspace.mockReturnValue({ name: 'Parts', cwd: agent });
+    const schema = structuredClone(bitsAndBolts.pickReferences('implicit')) as { properties: { references: { 'x-openai-input': Record<string, unknown> } } };
+    delete schema.properties.references['x-openai-input'].userOptions;
+    const local = await ask(chatOrigin(), openai(schema as never), { local: true });
+    // The chat's folders are offered only when a field takes added files.
+    expect(await getConnectedForm(local.id, 'v')).toMatchObject({ local: true, folders: [{ label: 'Parts', uri: pathToFileURL(agent).href }] });
+    // Any kind of file, since the server named no accept list.
+    const added = await connectedFormFile(local.id, 'v', 'references', { folder: pathToFileURL(agent).href, path: 'bracket.obj' });
+    await answerConnectedForm(local.id, 'v', { action: 'accept', content: { references: ['cad://parts/washer', added.uri] } });
+    await expect(local.answer).resolves.toEqual({ action: 'accept', content: { references: ['cad://parts/washer', added.uri] } });
+    const remote = await ask(chatOrigin(), openai(schema as never), { local: false });
+    expect(await getConnectedForm(remote.id, 'v')).toMatchObject({ local: false, folders: [] });
+    await expect(connectedFormFile(remote.id, 'v', 'references', { folder: pathToFileURL(agent).href, path: 'bracket.obj' })).rejects.toThrow('only takes the items it listed');
+    expect(await answerConnectedForm(remote.id, 'v', { action: 'accept', content: { references: [added.uri] } })).toMatchObject({ errors: { references: 'Choose from the listed items.' } });
+    await answerConnectedForm(remote.id, 'v', { action: 'cancel' });
+  });
+
   it('names a folder for a directory input, and refuses a file there', async () => {
     const agent = path.join(dir, 'agent');
     fs.mkdirSync(path.join(agent, 'library'), { recursive: true });
