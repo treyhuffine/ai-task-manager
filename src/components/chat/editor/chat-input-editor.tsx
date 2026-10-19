@@ -861,15 +861,22 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
 
     // Apps hands references to an exact chat. Hydrate its existing draft first,
     // append a real chip, and leave sending and access approval to the person.
+    // A starter prompt (Try in chat) goes after its chip on a line of its own,
+    // below anything already typed, so it never overwrites a draft.
     useEffect(() => {
       if (!editor || !sourceChatId || disabled) return;
-      return receiveChatSources(sourceChatId, sourceRef => {
+      return receiveChatSources(sourceChatId, ({ sourceRef, prompt }) => {
         if (editor.isDestroyed || !editor.isEditable) return false;
         let present = false;
         editor.state.doc.descendants(node => {
           if (node.type.name === SOURCE_CHIP_NAME && node.attrs.sourceRef === sourceRef) present = true;
         });
-        return present || editor.chain().focus('end').insertSourceChip({ sourceRef }).insertContent(' ').run();
+        if (!prompt) return present || editor.chain().focus('end').insertSourceChip({ sourceRef }).insertContent(' ').run();
+        if (present && editor.getText().includes(prompt)) return editor.chain().focus('end').run();
+        const line = { type: 'paragraph', content: [{ type: SOURCE_CHIP_NAME, attrs: { sourceRef } }, { type: 'text', text: ` ${prompt}` }] };
+        return editor.isEmpty
+          ? editor.chain().setContent({ type: 'doc', content: [line] }, { emitUpdate: true }).focus('end').run()
+          : editor.chain().insertContentAt(editor.state.doc.content.size, line).focus('end').run();
       });
     }, [editor, sourceChatId, disabled]);
 

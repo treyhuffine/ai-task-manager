@@ -10,7 +10,7 @@ import { recordPausedConnection } from '@/lib/integrations/connection-requests';
 import { runSourceInvocation } from '@/lib/integrations/source-invocations';
 import { encodeSource, type SourceReference } from './reference';
 import { SourceError } from './service';
-import type { SourceAdapter, SourceContext, SourceDescriptor } from './types';
+import type { SourceAdapter, SourceContext, SourceDescriptor, SourceMark } from './types';
 import { viewMetadata } from '@/lib/mcp-apps/metadata';
 
 async function exact(reference: SourceReference, context: SourceContext) {
@@ -51,10 +51,13 @@ export const integrationSourceAdapter: SourceAdapter = {
       const remote = servers.find(s => (s.entry.providerId ? hostedMcpConnectionId(s.entry) : `mcp-${s.entry.slug}`) === connection.id);
       const duplicate = connections.filter(c => c.providerId === connection.providerId && pinMatchesConnection(connection, c)).length > 1;
       const accountLabel = accountName(connection, connections);
+      // One account reads as the service, as ChatGPT names an app. A second makes the account part of the name.
+      const several = connections.filter(c => c.providerId === connection.providerId).length > 1;
       const status = !context.harnessReady || duplicate || remote?.entry.enabled === false ? 'unavailable' : connection.status !== 'active' ? 'reconnect' : !allowed(toolkit.id, connection, context) ? 'needs_access' : 'ready';
       const hasView = remote?.capabilities?.tools.some(t => viewMetadata(t) && remote.entry.toolOverrides?.[t.name]?.enabled !== false);
       const hosted = hasView && process.env.RI_MCP_APPS !== '0';
-      return { sourceRef, label: `${toolkit.displayName} · ${accountLabel}`, service: toolkit.displayName, accountLabel, groupId: toolkit.id, keywords: [toolkit.id, toolkit.displayName, accountLabel], status, chat: true, view: hosted ? 'available' : hasView ? 'advertised' : 'none', ...(hosted ? {openPath: `/apps/~connected/${remote!.entry.id}`} : {}) } satisfies SourceDescriptor;
+      const mark: SourceMark = remote && !remote.entry.providerId ? { kind: 'server' } : { kind: 'provider', providerId: toolkit.providerId, toolkitId: toolkit.id };
+      return { sourceRef, label: `${toolkit.displayName} · ${accountLabel}`, chipLabel: several ? `${toolkit.displayName} · ${accountLabel}` : toolkit.displayName, service: toolkit.displayName, accountLabel, mark, groupId: toolkit.id, keywords: [toolkit.id, toolkit.displayName, accountLabel], status, chat: true, view: hosted ? 'available' : hasView ? 'advertised' : 'none', ...(hosted ? {openPath: `/apps/~connected/${remote!.entry.id}`} : {}) } satisfies SourceDescriptor;
     }));
   },
   async open(ref, ctx) {

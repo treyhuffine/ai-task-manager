@@ -24,9 +24,14 @@ export function prepareResource(result: unknown, uri: string, legacy: boolean) {
   if (resource.mimeType !== 'text/html;profile=mcp-app' && !(legacy && resource.mimeType === 'text/html+skybridge')) throw new Error('This app does not provide a supported MCP interface');
   const html = resource.text ?? (resource.blob ? Buffer.from(resource.blob, 'base64').toString('utf8') : '');
   if (!html || Buffer.byteLength(html) > MAX_HTML_BYTES) throw new Error('This app interface is empty or exceeds 12 MiB');
-  const ui = resource._meta?.ui as {csp?: Record<string, unknown>; domain?: unknown; permissions?: Record<string, unknown>} | undefined;
+  const ui = resource._meta?.ui as {csp?: Record<string, unknown>; permissions?: Record<string, unknown>} | undefined;
   const csp = ui?.csp ?? resource._meta?.['openai/widgetCSP'] as Record<string, unknown> | undefined;
-  if (ui?.domain || resource._meta?.['openai/widgetDomain'] || (ui?.permissions && Object.keys(ui.permissions).length) || (csp && Object.values(csp).some(value => Array.isArray(value) && value.length)))
+  // A dedicated origin (`ui.domain`, ChatGPT's `openai/widgetDomain`) is not checked here. The MCP Apps
+  // spec makes its format host-specific and says it matters for OAuth callbacks, CORS and API key
+  // allowlists, all network uses, which the declared domains and permissions below already rule out.
+  // Without them the view renders on Ri's own sandbox origin under the restrictive CSP. Todoist's task
+  // list declares ChatGPT's domain with an empty CSP, for one.
+  if ((ui?.permissions && Object.keys(ui.permissions).length) || (csp && Object.values(csp).some(value => Array.isArray(value) && value.length)))
     throw new Error('This interface needs external network access. Ri currently supports self-contained MCP interfaces. Its tools and text results remain available.');
   const {document} = parseHTML(html);
   for (const el of document.querySelectorAll('[src], link[href], iframe, object, embed, base, meta[http-equiv]')) {

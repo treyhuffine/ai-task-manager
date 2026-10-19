@@ -1,4 +1,4 @@
-/** The rail's actual Apps row and flyout, against an isolated synthetic API: every kind of app with an interface gets a row. */
+/** The rail's actual Apps row and flyout, against an isolated synthetic API: every app with a screen you can open gets a row. */
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -17,7 +17,7 @@ const app = (id: string, displayName: string, over: Record<string, unknown> = {}
   activation: { phase: 'active' }, runtime: { condition: 'stopped' }, ...over,
 });
 const connected = (id: string, toolkitName: string, over: Record<string, unknown> = {}) => ({
-  id, name: toolkitName, toolkitName, account: id, available: true, sourceRef: null, tools: [], recent: [], ...over,
+  id, name: toolkitName, toolkitName, account: id, available: true, sourceRef: null, standalone: true, entrypoints: [{ name: 'home', title: toolkitName }], views: [], recent: [], ...over,
 });
 const empty = { 'localApps.list': { revision: 1, drafts: [], grants: [], panels: [], instances: [], approvals: [] }, 'connectedApps.catalog': [] };
 let current: Record<string, unknown>;
@@ -38,6 +38,8 @@ const responses: Record<string, unknown> = {
     connected('receipts', 'Receipts'),
     // A provider whose only account is signed out.
     connected('notion', 'Notion', { providerId: 'notion', available: false }),
+    // A service whose interface only comes back as a tool result has no screen to open, so no row.
+    connected('linear', 'Linear', { providerId: 'linear', standalone: false, entrypoints: [], views: [{ name: 'list-issues', title: 'Issues' }] }),
   ],
 };
 
@@ -132,7 +134,8 @@ it('peeks installed apps and connected apps together, by name, and opens each wh
     await page.screenshot({ path: '/tmp/ri-apps-flyout.png' });
 
     await flyout(page).getByRole('button', { name: 'Todoist' }).click();
-    await expect.poll(() => views(page)).toEqual([{ kind: 'apps', route: '~connected/todoist-work' }]);
+    // A connected app's row opens its screen itself, its first global entrypoint.
+    await expect.poll(() => views(page)).toEqual([{ kind: 'apps', route: '~connected/todoist-work', query: { open: 'home' } }]);
     // Going there closes the peek. Back on it, Todoist is the row on screen.
     await flyout(page).waitFor({ state: 'detached' });
     await page.mouse.move(600, 600);
@@ -145,8 +148,8 @@ it('peeks installed apps and connected apps together, by name, and opens each wh
     await row.hover();
     await flyout(page).getByRole('button', { name: 'Travel' }).click();
     await expect.poll(() => views(page)).toEqual([
-      { kind: 'apps', route: '~connected/todoist-work' },
-      { kind: 'apps', route: '~connected/receipts' },
+      { kind: 'apps', route: '~connected/todoist-work', query: { open: 'home' } },
+      { kind: 'apps', route: '~connected/receipts', query: { open: 'home' } },
       { kind: 'apps', route: 'travel' },
     ]);
     expect(errors).toEqual([]);
@@ -162,7 +165,7 @@ it('with no apps yet, still offers the library and says what will appear', async
     await page.getByRole('button', { name: /^Apps/ }).hover();
     await flyout(page).waitFor();
     expect(await flyout(page).getByRole('button').allInnerTexts()).toEqual(['Open your library']);
-    await flyout(page).getByText('Apps you install or connect appear here.').waitFor();
+    await flyout(page).getByText('Apps you install, and connected services with a screen of their own, appear here.').waitFor();
     await page.screenshot({ path: '/tmp/ri-apps-flyout-empty.png' });
     await flyout(page).getByRole('button', { name: 'Open your library' }).click();
     await expect.poll(() => views(page)).toEqual([{ kind: 'apps', route: '' }]);

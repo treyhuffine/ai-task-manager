@@ -25,3 +25,13 @@ it('rejects substituted resources, unsupported MIME, oversized and network-depen
   expect(() => prepareResource(resource('x', {_meta: {ui: {csp: {connectDomains: ['https://api.example']}}}}), uri, false)).toThrow('network');
   expect(() => prepareResource(resource('<iframe srcdoc="hello"></iframe>'), uri, false)).toThrow('outside');
 });
+it('renders a self-contained view that names another host\'s dedicated origin, and still refuses one that needs the network', () => {
+  // Todoist's task list, as its server returns it: ChatGPT's origin, and no network at all.
+  const todoist = {ui: {prefersBorder: true, csp: {connectDomains: [], resourceDomains: []}}, 'openai/widgetDescription': 'Interactive task list widget', 'openai/widgetPrefersBorder': true,
+    'openai/widgetCSP': {connect_domains: [], resource_domains: []}, 'openai/widgetDomain': 'https://ai.todoist.net'};
+  expect(prepareResource(resource('<script>window.list=1</script>', {_meta: todoist}), uri, false).scriptHashes).toHaveLength(1);
+  expect(prepareResource(resource('<p>Board</p>', {_meta: {ui: {domain: 'a904794854a047f6.claudemcpcontent.com'}}}), uri, false).html).toBe('<p>Board</p>');
+  expect(() => prepareResource(resource('x', {_meta: {ui: {domain: 'board.example', csp: {connectDomains: ['https://api.board.example']}}}}), uri, false)).toThrow('network');
+  expect(() => prepareResource(resource('x', {_meta: {'openai/widgetDomain': 'https://board.example', 'openai/widgetCSP': {connect_domains: ['https://api.board.example']}}}), uri, true)).toThrow('network');
+  expect(() => prepareResource(resource('x', {_meta: {ui: {permissions: {camera: {}}}}}), uri, false)).toThrow('network');
+});

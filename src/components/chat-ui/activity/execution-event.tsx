@@ -1331,9 +1331,12 @@ function RenderMessageSegments({
 
   return (
     <SourceMetadataProvider chatId={sessionId} refs={segments.flatMap(segment => segment.kind === 'text' ? parseSourceMarkers(segment.text).flatMap(part => part.type === 'source' && part.valid ? [part.encoded] : []) : [])}>
+      {/* One flowing block: the bubble is a flex column, and chips belong inline with the words around them. */}
+      <div className="min-w-0">
       {segments.map((seg, i) => {
         if (seg.kind === 'text') {
-          return <SourceText key={i} text={seg.text} resolve={false} />;
+          // Only a user message carries source chips, inside its inverted bubble.
+          return <SourceText key={i} text={seg.text} resolve={false} tone="bubble" />;
         }
         const m = seg.marker;
         if (m.kind === 'file') {
@@ -1350,6 +1353,7 @@ function RenderMessageSegments({
           />
         );
       })}
+      </div>
     </SourceMetadataProvider>
   );
 }

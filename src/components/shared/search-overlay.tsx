@@ -48,7 +48,7 @@ import {
 	type LucideIcon,
 } from 'lucide-react';
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
-import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useResultCapabilities } from '@/hooks/use-results';
@@ -124,14 +124,15 @@ export function SearchOverlay() {
 
   const { openTask, openNote, toggleTheme, theme, showPanelTab, triggerVoiceChat, setActiveView } = useDashboard();
   // One Open <app> per app the rail's Apps flyout lists: installed apps, on a
-  // Home with local apps on, and connections whose MCP server offers an interface.
+  // Home with local apps on, and connections whose MCP server declares a standalone screen.
   const { enabled: localAppsEnabled, data: localApps } = useLocalApps({ live: false });
   const connectedApps = useQuery({ ...connectedAppsQuery(), enabled: open });
-  const appCommands: PaletteCommand[] = appPlaces(
+  const appList = useMemo(() => appPlaces(
     localAppsEnabled ? localApps?.instances ?? [] : [],
     [],
     connectedApps.data ?? [],
-  ).map((app) => ({
+  ), [localAppsEnabled, localApps?.instances, connectedApps.data]);
+  const appCommands: PaletteCommand[] = appList.map((app) => ({
     id: `open-app:${app.route}`,
     label: `Open ${app.displayName}`,
     keywords: `app ${app.keywords}`,
@@ -235,7 +236,9 @@ export function SearchOverlay() {
       default:
         if (cmd.id.startsWith('open-app:')) {
           setOpen(false);
-          setActiveView({ kind: 'apps', route: cmd.id.slice('open-app:'.length) });
+          // A connected app with a standalone screen opens that screen, as its flyout row does.
+          const app = appList.find((place) => `open-app:${place.route}` === cmd.id);
+          setActiveView({ kind: 'apps', route: cmd.id.slice('open-app:'.length), ...(app?.query ? { query: app.query } : {}) });
           break;
         }
         // go-* navigation commands
@@ -244,7 +247,7 @@ export function SearchOverlay() {
         }
         break;
     }
-  }, [createTask, createNote, newSkill, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat, router, setActiveView]);
+  }, [createTask, createNote, newSkill, openTask, openNote, toggleTheme, handleNavigate, triggerVoiceChat, router, setActiveView, appList]);
 
   // Hotkey + custom event listeners
   useEffect(() => {

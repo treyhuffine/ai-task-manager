@@ -51,6 +51,12 @@ export interface IntegrationMeta {
    * No dashes (project copy rule).
    */
   setup?: string[];
+  /**
+   * The line Try in chat writes after the service's chip, as ChatGPT's Try
+   * fills "@Todoist What's on my list today". One short question or request,
+   * with no mention in it. Without one, a plain generic question is used.
+   */
+  starterPrompt?: string;
 }
 
 export const INTEGRATION_META: Record<string, IntegrationMeta> = {
@@ -266,6 +272,7 @@ export const INTEGRATION_META: Record<string, IntegrationMeta> = {
   todoist: {
     category: 'Productivity',
     description: 'Manage tasks, projects, sections, and assignments.',
+    starterPrompt: 'What’s on my list today?',
   },
   zapier: {
     category: 'Productivity',
@@ -565,6 +572,18 @@ export const INTEGRATION_META: Record<string, IntegrationMeta> = {
       'AI-powered tools require organization AI processing to be enabled and may incur PostHog AI charges.',
     ],
   },
+  magicpath: {
+    category: 'Developer',
+    description: 'Create and edit interactive UI on a shared canvas, and move designs between the canvas and your code.',
+    brandHex: '085C34',
+    docsUrl: 'https://github.com/MagicPathAI/magicpath-agent-plugin#authentication',
+    setup: [
+      'Sign in to MagicPath and approve read and write access to your canvas.',
+      'Each tool call your agent makes counts toward your MagicPath API quota. Ask your agent for the remaining quota at any time.',
+    ],
+    // MagicPath's own first starter prompt, from its published plugin manifest.
+    starterPrompt: 'Create a responsive landing page in MagicPath.',
+  },
   figma: {
     category: 'Developer',
     description: 'Read design context and work with Figma and FigJam files.',
@@ -612,4 +631,9 @@ export const DEFAULT_CATEGORY: IntegrationCategory = 'Productivity';
 
 export function integrationMeta(providerId: string): IntegrationMeta {
   return INTEGRATION_META[providerId] ?? { category: DEFAULT_CATEGORY, description: '' };
+}
+
+/** What Try in chat asks a service: its curated starter, or a plain question for anything else. */
+export function starterPrompt(providerId: string | null | undefined, name: string): string {
+  return (providerId ? INTEGRATION_META[providerId]?.starterPrompt : undefined) ?? `What can you do with ${name}?`;
 }

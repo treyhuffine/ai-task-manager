@@ -3,7 +3,6 @@ import { actorFromSessionCredential, sessionCredentialFromHeaders } from '@/lib/
 import { dispatchSourceAction } from '@/lib/chat-sources/actions';
 import { readLimitedJson } from '@/lib/api/limited-body';
 export async function POST(request: Request) {
-  if (process.env.RI_CHAT_SOURCES !== '1') return Response.json({ error: 'App mentions unavailable' }, { status: 404 });
   const key = getRequestKey(request.headers);
   if (!key || key.scope === 'worker') return Response.json({ error: 'Unauthorized' }, { status: 403 });
   const actor = key.scope === 'session' ? { sessionId: key.sessionChatId, source: 'ai' as const } : actorFromSessionCredential(sessionCredentialFromHeaders(request.headers));

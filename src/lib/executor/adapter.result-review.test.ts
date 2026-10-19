@@ -47,7 +47,7 @@ describe('reviewer provider startup and completion boundaries', () => {
 
   beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-review-startup-'));
-    previous = Object.fromEntries(['RI_ROOT', 'RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_MIRROR_DISABLED', 'RI_LOCAL_APPS', 'RI_CHAT_SOURCES'].map((key) => [key, process.env[key]]));
+    previous = Object.fromEntries(['RI_ROOT', 'RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_MIRROR_DISABLED', 'RI_LOCAL_APPS'].map((key) => [key, process.env[key]]));
     process.env.RI_ROOT = root;
     process.env.RI_DB_PATH = path.join(root, 'data.db');
     process.env.RI_CONFIG_DIR = path.join(root, '.config');
@@ -82,7 +82,6 @@ describe('reviewer provider startup and completion boundaries', () => {
   it.each(['claude', 'codex', 'cursor', 'opencode', 'antigravity'] as const)(
     'loads snapshot handoff guidance on a %s reviewer without broadening its saved assignment when apps are enabled', async (harness) => {
       process.env.RI_LOCAL_APPS = '1';
-      process.env.RI_CHAT_SOURCES = '1';
       q.updateUserState({ workResultGuidance: 'SHARED: Keep findings concise. Edit the deliverable if needed.' });
       const workspace = q.createWorkspace({ name: 'Reviewed work', cwd: root, isGit: false,
         instructions: 'GENERAL AGENT: Preserve project conventions.', workResultGuidance: 'AGENT HANDOFF: Include specific evidence.' });

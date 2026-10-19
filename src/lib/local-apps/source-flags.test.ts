@@ -4,17 +4,16 @@ vi.mock('@/lib/chat-sources/integration-adapter', () => ({ integrationSourceAdap
 vi.mock('@/lib/local-apps/source-adapter', () => { spies.loadedLocal(); return { localAppSourceAdapter: { kind: 'app', list: spies.local }, sourceChatAllowed: () => true }; });
 vi.mock('@/lib/db/queries', () => ({ getChatEventById: () => null, getChatSessionWithExecution: () => ({ status: 'active', harness: 'claude', workspaceId: null, surfaceKind: spies.surfaceKind }) }));
 import { chatSources } from '@/lib/server/chat-sources';
-afterEach(() => { delete process.env.RI_LOCAL_APPS; delete process.env.RI_CHAT_SOURCES; spies.surfaceKind = null; vi.clearAllMocks(); });
-it.each([[false, false], [true, false], [false, true], [true, true]])('keeps chat sources=%s independent from local apps=%s', async (sources, apps) => {
-  process.env.RI_CHAT_SOURCES = sources ? '1' : '0'; process.env.RI_LOCAL_APPS = apps ? '1' : '0';
+afterEach(() => { delete process.env.RI_LOCAL_APPS; spies.surfaceKind = null; vi.clearAllMocks(); });
+it.each([false, true])('always offers connected accounts, and local apps only when they are on (local apps=%s)', async (apps) => {
+  process.env.RI_LOCAL_APPS = apps ? '1' : '0';
   await chatSources.search('chat', '');
-  expect(spies.integration).toHaveBeenCalledTimes(sources ? 1 : 0);
-  expect(spies.local).toHaveBeenCalledTimes(sources && apps ? 1 : 0);
-  if (!sources || !apps) expect(spies.loadedLocal).not.toHaveBeenCalled();
+  expect(spies.integration).toHaveBeenCalledTimes(1);
+  expect(spies.local).toHaveBeenCalledTimes(apps ? 1 : 0);
+  if (!apps) expect(spies.loadedLocal).not.toHaveBeenCalled();
 });
 
-it('includes local sources when mentions are enabled and local apps use their default', async () => {
-  process.env.RI_CHAT_SOURCES = '1';
+it('includes local sources when local apps use their default', async () => {
   delete process.env.RI_LOCAL_APPS;
   await chatSources.search('chat', '');
   expect(spies.integration).toHaveBeenCalledTimes(1);
@@ -22,7 +21,6 @@ it('includes local sources when mentions are enabled and local apps use their de
 });
 
 it.each(['0', '1'])('does not expose connected or local sources to result reviewers with local apps=%s', async (localApps) => {
-  process.env.RI_CHAT_SOURCES = '1';
   process.env.RI_LOCAL_APPS = localApps;
   spies.surfaceKind = 'result_review';
   await expect(chatSources.search('reviewer', '')).rejects.toMatchObject({ code: 'unavailable' });

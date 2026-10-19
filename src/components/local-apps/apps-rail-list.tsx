@@ -17,8 +17,9 @@ import { useAppAction } from './use-app-action';
  * The Apps flyout, the shape of the Agents flyout: a header row with the
  * name and the one action (New app, as the Agents header has New agent),
  * then Open your library and every app you can open by name: installed
- * ones and connections whose MCP server offers an interface, with an amber
- * dot when an action waits on you.
+ * ones and connections whose MCP server declares a standalone screen, with an
+ * amber dot when an action waits on you. Services whose interface only comes
+ * back as a tool result are used from chat and wait in the library.
  *
  * The library row is a verb with an arrow, set apart by a rule. As a noun
  * above the apps ("Your library") it read as their heading, not a link.
@@ -66,14 +67,14 @@ export function AppsRailList() {
         <div aria-hidden className="mx-2 my-1 h-px flex-shrink-0 bg-border/60" />
         {apps.length === 0 ? (
           <p className="px-2 py-3 text-center text-[10.5px] leading-relaxed text-muted-foreground/70">
-            Apps you install or connect appear here.
+            Apps you install, and connected services with a screen of their own, appear here.
           </p>
         ) : (
           apps.map((app) => (
             <Row
               key={app.key}
               active={route !== null && isPlaceRoute(app, route)}
-              onClick={() => setActiveView({ kind: 'apps', route: app.route })}
+              onClick={() => setActiveView({ kind: 'apps', route: app.route, ...(app.query ? { query: app.query } : {}) })}
               icon={<PlaceMark place={app} />}
               trailing={
                 app.needsApproval ? (

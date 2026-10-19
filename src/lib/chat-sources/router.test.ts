@@ -7,7 +7,7 @@ vi.mock('@/lib/trpc/init', () => {
   const t = initTRPC.context<{ request: Request }>().create();
   return { router: t.router, viewerProcedure: t.procedure };
 });
-vi.mock('@/lib/server/chat-sources', () => ({ chatSourcesEnabled: () => true, chatSources: { search: state.search, resolve: async () => [{ service: 'Mail', accountLabel: 'Work', status: 'needs_access' }] } }));
+vi.mock('@/lib/server/chat-sources', () => ({ chatSources: { search: state.search, resolve: async () => [{ service: 'Mail', accountLabel: 'Work', status: 'needs_access' }] } }));
 vi.mock('@/lib/orchestrator/session-credential', () => ({ actorFromSessionCredential: () => state.actor, sessionCredentialFromHeaders: () => '', SESSION_CREDENTIAL_ENV: 'RI_SESSION_CREDENTIAL', SESSION_CREDENTIAL_HEADER: 'x-ri-session' }));
 vi.mock('@/lib/integrations/connection-requests', () => ({ requestConnection: state.request }));
 vi.mock('@/lib/db/queries', () => ({ getChatSession: () => ({ workspaceId: 'agent' }) }));
@@ -17,7 +17,8 @@ const chatId = '01900111-1111-7111-8111-111111111111';
 const caller = () => chatSourcesRouter.createCaller({ key: null, request: new Request('http://localhost') });
 beforeEach(() => { state.actor = null; state.search.mockReset().mockResolvedValue({ items: [], total: 0 }); state.request.mockReset(); });
 it('constructs a valid tRPC router and enforces the signed chat identity', async () => {
-  expect(await caller().enabled()).toEqual({ enabled: true });
+  // Mentions are always on, so there is no availability procedure to ask.
+  expect(chatSourcesRouter._def.procedures).not.toHaveProperty('enabled');
   expect(chatSourcesRouter._def.procedures).toHaveProperty('invoke');
   state.actor = { sessionId: '01900222-2222-7222-8222-222222222222' };
   await expect(caller().search({ chatId, query: '' })).rejects.toMatchObject({ code: 'FORBIDDEN' });

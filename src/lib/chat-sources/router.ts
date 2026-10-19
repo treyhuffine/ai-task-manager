@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, viewerProcedure as p } from '@/lib/trpc/init';
-import { chatSources, chatSourcesEnabled } from '@/lib/server/chat-sources';
+import { chatSources } from '@/lib/server/chat-sources';
 import { callSourceParams, describeSourceParams } from './actions';
 import { getChatSession } from '@/lib/db/queries';
 import { requestConnection } from '@/lib/integrations/connection-requests';
@@ -15,7 +15,6 @@ function actorChat(request: Request, target: string) {
   return target;
 }
 export const chatSourcesRouter = router({
-  enabled: p.query(() => ({ enabled: chatSourcesEnabled() })),
   search: p.input(z.object({ ...chat, query: z.string().max(256), filter: z.enum(['app', 'connector']).optional(), groupId: z.string().max(512).optional() }).strict()).query(({ input, ctx }) => chatSources.search(actorChat(ctx.request, input.chatId), input.query, input.filter, input.groupId)),
   resolve: p.input(z.object({ ...chat, refs: z.array(z.string().max(2731)).max(16) }).strict()).query(({ input, ctx }) => chatSources.resolve(actorChat(ctx.request, input.chatId), input.refs, { privateLabels: !actorFromSessionCredential(sessionCredentialFromHeaders(ctx.request.headers)) })),
   describe: p.input(z.object({ ...chat, ...describeSourceParams }).strict()).query(({ input, ctx }) => chatSources.describe(actorChat(ctx.request, input.chatId), input.message_id, input.source_ref, input.action, input.cursor)),

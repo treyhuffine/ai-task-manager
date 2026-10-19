@@ -3635,7 +3635,7 @@ export const typedActions = [
 
 /** Dynamic CLI/MCP dispatch validates the selected shape before invoking it.
  * Keep the concrete definitions for callers that know their action name. */
-export const actions = typedActions.filter(action => (process.env.RI_CHAT_SOURCES === '1' || !chatSourceActions.some(source => source.name === action.name))).filter(action => localAppsEnabled() || !localAppActions.some(app => app.name === action.name)) as unknown as Action[];
+export const actions = typedActions.filter(action => localAppsEnabled() || !localAppActions.some(app => app.name === action.name)) as unknown as Action[];
 export type ActionDefinition = typeof typedActions[number];
 export type ActionName = ActionDefinition['name'];
 export type ActionOutput<Name extends ActionName> = Awaited<ReturnType<Extract<ActionDefinition, { name: Name }>['handler']>>;

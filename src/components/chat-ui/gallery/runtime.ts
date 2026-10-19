@@ -1,4 +1,4 @@
-import { approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, NOW, pendingInput, RECORD_ID, VERSIONS } from './fixtures';
+import { approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS } from './fixtures';
 import type { ChatEventRecord, EmailDraft, WorkResultDecisionRecord } from '@/db/types';
 import type { ChatUiExampleId } from './catalog';
 
@@ -77,6 +77,14 @@ export class GalleryRuntime {
       return { done: true };
     }
     if (path === 'areas.list') return [];
+    if (path === 'sessions.entitiesGet') return { tasks: [], notes: [] };
+    if (path === 'sessions.scratchpadGet') return { scratchPad: null };
+    if (path === 'chatSources.resolve') {
+      const sources = mentionExample(this.state).sources;
+      return (input.refs as string[]).map(ref => sources.find(source => source.sourceRef === ref) ?? { sourceRef: ref, label: 'Unavailable app', chipLabel: 'Unavailable app', service: 'App', groupId: ref, keywords: [], status: 'unavailable', chat: false, view: 'none' });
+    }
+    if (path === 'chatSources.openView') { this.changed('Example app page opened. Nothing ran'); return { opened: true }; }
+    if (path === 'chatSources.requestAccess') { this.changed('Example access requested. No account permissions changed'); return { done: true }; }
     if (path === 'entityVersions.list') return { versions: this.versionRows, current: this.versionRows[0]?.snapshot };
     if (path === 'entityVersions.revertPost') {
       this.versionRows = VERSIONS.slice(1);

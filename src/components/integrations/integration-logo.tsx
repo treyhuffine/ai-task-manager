@@ -22,6 +22,11 @@ function luminance(hex: string): number {
   return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
 }
 
+/** A brand mark too dark to see on a dark theme, drawn in the text color instead. */
+export function isDarkBrandMark(hex: string): boolean {
+  return luminance(hex) < 0.18;
+}
+
 /** Stable brand color for a monogram when no explicit hex is set. */
 function hashHex(seed: string): string {
   let h = 0;
@@ -52,7 +57,7 @@ export function IntegrationLogo({
 
   if (icon) {
     // Dark marks adapt to the theme; colored marks keep their brand hue.
-    const dark = luminance(icon.hex) < 0.18;
+    const dark = isDarkBrandMark(icon.hex);
     return (
       <span className={cn(tile, 'bg-muted/50')} style={{ width: size, height: size }}>
         <svg

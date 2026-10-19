@@ -6,7 +6,7 @@
  *
  *   mkdir -p /tmp/ri-included/catalog
  *   cp release/local-apps/catalog/ri-{finance,tracker}.* release/local-apps/dev-catalog/ri-{travel,job-search,people}.* /tmp/ri-included/catalog/
- *   pnpm iso /tmp/ri-included/home --init --port 42273 -- env RI_LOCAL_APPS=1 RI_CHAT_SOURCES=1 \
+ *   pnpm iso /tmp/ri-included/home --init --port 42273 -- env RI_LOCAL_APPS=1 \
  *     RI_LOCAL_APPS_CATALOG_DIR=/tmp/ri-included/catalog NEXT_DIST_DIR=.next-included-42273 pnpm dev --port 42273
  *   RI_ROOT=/tmp/ri-included/home RI_LOCAL_APPS_BROWSER_URL=http://127.0.0.1:42273 pnpm exec tsx scripts/local-apps-included-browser-smoke.ts
  */

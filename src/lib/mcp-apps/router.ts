@@ -21,7 +21,8 @@ export const connectedAppsRouter = router({
     const result = await openConnectedView(input.captureId, ctx.key!.apiKeyId, input.chatId);
     await ctx.authorize?.(); return result;
   }),
-  prepare: p.input(z.object({serverId: z.string().min(1).max(200), name: z.string().min(1).max(200), args}).strict()).mutation(({input,ctx}) => prepareConnectedLaunch(input.serverId,ctx.key!.apiKeyId,input.name,input.args)),
+  // Opens a standalone screen (a global entrypoint) with `{}`. Other tools run from chat.
+  prepare: p.input(z.object({serverId: z.string().min(1).max(200), name: z.string().min(1).max(200)}).strict()).mutation(({input,ctx}) => prepareConnectedLaunch(input.serverId,ctx.key!.apiKeyId,input.name)),
   launch: p.input(z.object({viewId: id}).strict()).mutation(async ({input, ctx}) => {
     const result = await launchConnectedView(input.viewId, ctx.key!.apiKeyId);
     await ctx.authorize?.(); return result;

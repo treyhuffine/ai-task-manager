@@ -12,7 +12,6 @@ import {
   forwardRef,
 } from 'react'
 import {
-  AppWindow,
   Folder,
   FolderSymlink,
   Square,
@@ -27,6 +26,7 @@ import {
   ListFilter,
 } from 'lucide-react'
 import { FileIcon } from '@/components/file-icon'
+import { SourceMark } from '@/components/chat-ui/references/source-mark'
 import type { SuggestionPopupRef } from '../suggestion/renderer'
 import { isSuggestionCommitKey, suggestionNavDelta } from '../suggestion/keys'
 import { parseMentionQuery } from './ranking'
@@ -274,7 +274,8 @@ function PrRowIcon({ state, isDraft }: { state: string; isDraft: boolean }) {
 }
 
 function RowIcon({ item }: { item: MentionItem }) {
-  if (item.kind === 'source' || item.kind === 'sourceGroup') return <AppWindow size={11} />
+  if (item.kind === 'source') return <SourceMark mark={item.source.mark} name={item.source.service} size={13} />
+  if (item.kind === 'sourceGroup') return <SourceMark mark={item.mark} name={item.label} size={13} />
   if (item.kind === 'more') {
     return <ListFilter size={11} className="text-muted-foreground/80" />
   }
@@ -304,11 +305,16 @@ function RowIcon({ item }: { item: MentionItem }) {
 }
 
 function RowBody({ item }: { item: MentionItem }) {
-  if (item.kind === 'sourceGroup') return <><span className="truncate text-[11px]">{item.label}</span><span className="ml-auto text-[10px] text-muted-foreground">{item.count} accounts ›</span></>
+  if (item.kind === 'sourceGroup') return <><span className="truncate text-[11px] font-medium">{item.label}</span><span className="ml-auto text-[10px] text-muted-foreground">{item.count} accounts ›</span></>
   if (item.kind === 'source') {
     const capabilities = [item.source.chat && 'Chat', item.source.view === 'available' && 'View'].filter(Boolean).join(' + ')
+    // The service leads, as it reads on the chip. The account says which one, unless it only repeats the name.
+    const account = item.source.accountLabel && item.source.accountLabel.toLocaleLowerCase() !== item.source.service.toLocaleLowerCase() ? item.source.accountLabel : null
     return <>
-      <span className="min-w-0 truncate text-[11px]">{item.source.label}</span>
+      <span className="min-w-0 truncate text-[11px]">
+        <span className="font-medium">{item.source.service}</span>
+        {account && <span className="text-muted-foreground"> · {account}</span>}
+      </span>
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
         {capabilities && <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{capabilities}</span>}
         {item.source.status !== 'ready' && <span className="text-[9px] text-muted-foreground">{SOURCE_STATUS_LABELS[item.source.status]}</span>}

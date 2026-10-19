@@ -14,7 +14,7 @@ export function createLocalAppSourceAdapter(getApps: () => LocalAppsService = lo
     const apps = getApps();
     const state = apps.store.read();
     return Promise.all(state.instances.map(async instance => {
-      let label = instance.slug, view = false, chat = false;
+      let label = instance.slug, view = false, chat = false, icon: string | undefined;
       try {
         const file = path.join(getLocalAppsDir(), instance.id, 'package', 'plugin.json');
         const handle = await fs.open(file, 'r');
@@ -25,12 +25,14 @@ export function createLocalAppSourceAdapter(getApps: () => LocalAppsService = lo
           if (typeof extension?.displayName === 'string') label = extension.displayName.slice(0, 160);
           view = !!extension?.ui;
           chat = extension?.runtime?.kind === 'node';
+          // The same purpose-icon vocabulary the library and rail draw (`localAppMetadata`).
+          if (typeof extension?.icon === 'string' && /^[a-z][a-z0-9-]{0,39}$/.test(extension.icon)) icon = extension.icon;
         } finally { await handle.close(); }
       } catch { /* unavailable packages retain their installed identity */ }
       let status: SourceDescriptor['status'] = 'ready';
       if (!context.harnessReady || !instance.enabled || instance.archived || instance.activation?.phase !== 'active') status = 'unavailable';
       else { try { apps.grant(instance.id, { kind: 'chat', id: context.chatId }); } catch { status = 'needs_access'; } }
-      return { sourceRef: encodeSource({ v: 1, kind: 'app', instanceId: instance.id }), label, service: label, groupId: `local:${instance.id}`, keywords: [label, instance.slug, instance.packageId], status, chat, view: view ? 'available' : 'none', openPath: `/apps/${instance.slug}`, managePath: `/apps/${instance.slug}?riAccessChat=${encodeURIComponent(context.chatId)}` };
+      return { sourceRef: encodeSource({ v: 1, kind: 'app', instanceId: instance.id }), label, chipLabel: label, service: label, mark: { kind: 'app', icon }, groupId: `local:${instance.id}`, keywords: [label, instance.slug, instance.packageId], status, chat, view: view ? 'available' : 'none', openPath: `/apps/${instance.slug}`, managePath: `/apps/${instance.slug}?riAccessChat=${encodeURIComponent(context.chatId)}` };
     }));
   },
   async actions(ref, ctx) {

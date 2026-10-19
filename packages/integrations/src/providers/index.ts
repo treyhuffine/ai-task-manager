@@ -60,6 +60,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   { id: 'hubspot', displayName: 'HubSpot', method: 'mcp' },
   { id: 'salesforce', displayName: 'Salesforce', method: 'oauth2' },
   { id: 'todoist', displayName: 'Todoist', method: 'mcp' },
+  { id: 'magicpath', displayName: 'MagicPath', method: 'mcp' },
   { id: 'granola', displayName: 'Granola', method: 'mcp' },
   { id: 'sentry', displayName: 'Sentry', method: 'mcp' },
   { id: 'context7', displayName: 'Context7', method: 'mcp' },

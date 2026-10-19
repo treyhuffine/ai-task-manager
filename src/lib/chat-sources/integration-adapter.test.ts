@@ -14,12 +14,13 @@ let scope: unknown[];
 let calls: string[];
 const live = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/integrations/runtime', () => ({ getIntegrationRuntime: () => live(), getIntegrationOwnerId: () => 'local' }));
-vi.mock('@/lib/integrations/source-metadata', () => ({ integrationSourceMetadata: async () => ({ connections, servers: [], toolkits: [{ id: 'fixture', providerId: 'fixture', displayName: 'Fixture Mail' }] }) }));
+let servers: unknown[] = [];
+vi.mock('@/lib/integrations/source-metadata', () => ({ integrationSourceMetadata: async () => ({ connections, servers, toolkits: [{ id: 'fixture', providerId: 'fixture', displayName: 'Fixture Mail' }, { id: 'mcp_board', providerId: 'mcp_board', displayName: 'Board' }] }) }));
 vi.mock('@/lib/db/queries', () => ({ getWorkspace: () => ({ integrationScopes: scope }) }));
 vi.mock('@/lib/integrations/connection-requests', () => ({ recordPausedConnection: vi.fn() }));
 const ctx: SourceContext = { chatId: 'chat', workspaceId: 'agent', harnessReady: true, messageId: 'message' };
 beforeEach(async () => {
-  calls = []; scope = [{ toolkitId: 'fixture', accounts: [{ accountId: 'shared-account', authConfigId: 'work' }] }];
+  calls = []; servers = []; scope = [{ toolkitId: 'fixture', accounts: [{ accountId: 'shared-account', authConfigId: 'work' }] }];
   const registry = createRegistry();
   registry.addBundle({ provider: defineProvider({ id: 'fixture', displayName: 'Fixture Mail', auth: bearer() }), toolkits: [defineToolkit({ id: 'fixture', providerId: 'fixture', displayName: 'Fixture Mail', actions: [action({ id: 'fixture.read', description: 'Synthetic records', input: z.object({ limit: z.number().int().min(1) }), output: z.object({ account: z.string() }), execute: async context => { calls.push(context.connection.id); return { account: context.connection.id }; } })] })] });
   const store = inMemoryStore();
@@ -58,4 +59,22 @@ it('disambiguates equal account labels without changing their stable references'
   expect(renamed.map(s => s.sourceRef)).toEqual(original.map(s => s.sourceRef));
   expect(new Set(renamed.map(s => s.accountLabel)).size).toBe(2);
   expect(live).not.toHaveBeenCalled();
+});
+it('names a lone account by its service, and adds the account once there are two', async () => {
+  const both = await integrationSourceAdapter.list(ctx);
+  expect(both.map(s => s.chipLabel)).toEqual(['Fixture Mail · work', 'Fixture Mail · personal']);
+  expect(both.map(s => s.label)).toEqual(['Fixture Mail · work', 'Fixture Mail · personal']);
+  connections = [connections[0]];
+  const [one] = await integrationSourceAdapter.list(ctx);
+  // The chip reads as the service. The model and the chip's details still get the exact account.
+  expect(one.chipLabel).toBe('Fixture Mail');
+  expect(one.label).toBe('Fixture Mail · work');
+  expect(one.mark).toEqual({ kind: 'provider', providerId: 'fixture', toolkitId: 'fixture' });
+});
+it('marks an MCP server you added with a server glyph rather than a provider logo', async () => {
+  const stamp = new Date().toISOString();
+  connections = [{ id: 'mcp-board', providerId: 'mcp_board', ownerId: 'local', accountId: 'mcp_board', label: 'Board', scopes: [], status: 'active', createdAt: stamp, updatedAt: stamp }];
+  servers = [{ entry: { id: 'server-1', slug: 'board', displayName: 'Board', enabled: true }, capabilities: { tools: [] } }];
+  const [board] = await integrationSourceAdapter.list({ ...ctx, workspaceId: null });
+  expect(board).toMatchObject({ service: 'Board', chipLabel: 'Board', mark: { kind: 'server' } });
 });

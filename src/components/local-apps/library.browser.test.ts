@@ -35,7 +35,6 @@ const responses: Record<string, unknown> = {
   'skills.create': { skill: { ref: 'draft:new-skill' } },
   'localApps.catalog': [],
   'localApps.createDraft': { id: 'new-draft' },
-  'chatSources.enabled': { enabled: true },
   'orchestratorChat.list': { session: { id: chatId, harness: 'claude' } },
 };
 
@@ -58,7 +57,7 @@ beforeAll(async () => {
       const mode=new URLSearchParams(location.search);
       if(mode.has('settings'))openSettings('plugins');
       window.actions=[];window.references=[];
-      receiveChatSources('${chatId}',ref=>{window.references.push(ref);return true;});
+      receiveChatSources('${chatId}',offer=>{window.references.push(offer.sourceRef);return true;});
       const data={revision:1,instances:[{id:'tracker',slug:'subscription-tracker',displayName:'Subscription tracker',description:'See recurring costs and decide what to keep.',packageId:'subscription-tracker',hasView:true,hasActions:true,enabled:true,archived:false,activation:{phase:'active'},runtime:{condition:'stopped'}}],drafts:[],grants:[],approvals:[],panels:[]};
       function PaneProbe({route}){
         const {mode,setMode}=useAppPane('tracker',route.includes('riChat=1')?'chat':'closed');

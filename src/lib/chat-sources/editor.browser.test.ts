@@ -9,7 +9,7 @@ import type { ChatInputEditorHandle } from '@/components/chat/editor/chat-input-
 import type { SourceDescriptor } from './types';
 
 it('qualifies source picking, exact account drill-down, draft restore, both outputs and mobile chips in Chromium', async () => {
-  const sources: SourceDescriptor[] = ['Work', 'Personal'].map(account => ({ sourceRef: encodeSource({ v: 1, kind: 'integration', toolkitId: 'mail', account: { accountId: account, authConfigId: null } }), label: `Mail · ${account}`, accountLabel: account, service: 'Mail', groupId: 'mail', keywords: [account], status: 'ready', chat: true, view: 'none' }));
+  const sources: SourceDescriptor[] = ['Work', 'Personal'].map(account => ({ sourceRef: encodeSource({ v: 1, kind: 'integration', toolkitId: 'mail', account: { accountId: account, authConfigId: null } }), label: `Mail · ${account}`, chipLabel: `Mail · ${account}`, accountLabel: account, service: 'Mail', groupId: 'mail', keywords: [account], status: 'ready', chat: true, view: 'none' }));
   const bundle = await build({ entryPoints: ['src/test/fixtures/source-editor.tsx'], absWorkingDir: process.cwd(), bundle: true, platform: 'browser', format: 'iife', write: false, define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}'  }, jsx: 'automatic', logLevel: 'silent' });
   const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://fixture');

@@ -5,13 +5,12 @@ import type { SourceAdapter, SourceDescriptor } from './types';
 const one = encodeSource({ v: 1, kind: 'integration', toolkitId: 'mail', account: { accountId: 'same', authConfigId: 'work' } });
 const two = encodeSource({ v: 1, kind: 'integration', toolkitId: 'mail', account: { accountId: 'same', authConfigId: 'personal' } });
 const app = encodeSource({ v: 1, kind: 'app', instanceId: '01900111-1111-7111-8111-111111111111' });
-let enabled: boolean, rows: SourceMessage[], sources: SourceDescriptor[], adapter: SourceAdapter, service: ChatSources;
+let rows: SourceMessage[], sources: SourceDescriptor[], adapter: SourceAdapter, service: ChatSources;
 beforeEach(() => {
-  enabled = true;
-  sources = [one, two].map((ref, i) => ({ sourceRef: ref, label: `Mail · ${i ? 'Personal' : 'Work'}`, service: 'Mail', accountLabel: i ? 'Personal' : 'Work', groupId: 'mail', keywords: [i ? 'Personal' : 'Work'], status: 'ready', chat: true, view: 'none' }));
+  sources = [one, two].map((ref, i) => ({ sourceRef: ref, label: `Mail · ${i ? 'Personal' : 'Work'}`, chipLabel: `Mail · ${i ? 'Personal' : 'Work'}`, service: 'Mail', accountLabel: i ? 'Personal' : 'Work', groupId: 'mail', keywords: [i ? 'Personal' : 'Work'], status: 'ready', chat: true, view: 'none' }));
   rows = [{ id: 'm1', sessionId: 'c1', role: 'user', source: 'user', content: sourceMarker(one) }, { id: 'm2', sessionId: 'c2', role: 'user', source: 'user', content: sourceMarker(two) }];
   adapter = { kind: 'integration', list: vi.fn(async () => sources), actions: vi.fn(async () => [{ id: 'read', description: 'Read mail', inputSchema: { type: 'object' } }]), call: vi.fn(async ref => ref) };
-  service = new ChatSources({ enabled: () => enabled, adapters: async () => [adapter], message: id => rows.find(r => r.id === id) ?? null, context: async chatId => ({ chatId, workspaceId: null, harnessReady: true }) });
+  service = new ChatSources({ adapters: async () => [adapter], message: id => rows.find(r => r.id === id) ?? null, context: async chatId => ({ chatId, workspaceId: null, harnessReady: true }) });
 });
 it('searches inert metadata and drills into accounts rather than picking the first', async () => {
   expect(await service.search('c1', '')).toEqual({ items: [{ kind: 'sourceGroup', groupId: 'mail', label: 'Mail', count: 2 }], total: 1 });
@@ -50,13 +49,10 @@ it('rechecks revocation before releasing results and rejects account overrides',
   adapter.call = vi.fn(async () => { sources[0].status = 'unavailable'; return { secret: 'never delivered' }; });
   await expect(service.call('c1', 'm1', one, 'read', {}, 'i')).rejects.toMatchObject({ code: 'unavailable' });
 });
-it('retains readable historical references with flags off and a missing local adapter', async () => {
+it('keeps references to a missing local adapter readable and unavailable, without blocking ordinary chat', async () => {
   expect((await service.resolve('c1', [app]))[0].status).toBe('unavailable');
   expect((await service.resolve('c1', [one]))[0].status).toBe('ready');
-  enabled = false;
-  expect(await service.search('c1', '')).toEqual({ items: [], total: 0 });
-  expect((await service.resolve('c1', [one, app])).every(s => s.status === 'unavailable')).toBe(true);
-  await expect(service.preflight('c1', sourceMarker(one))).rejects.toMatchObject({ code: 'unavailable' });
+  await expect(service.preflight('c1', sourceMarker(app))).rejects.toMatchObject({ code: 'unavailable' });
   expect(await service.preflight('c1', 'ordinary chat')).toEqual([]);
 });
 it('does not execute an already cancelled request or deliver a cancelled result', async () => {
@@ -75,4 +71,11 @@ it('bounds schemas and turn context without provider data or mutable last-source
   expect((await service.describe('c1', 'm1', one, undefined, 20)).actions).toHaveLength(5);
   adapter.actions = vi.fn(async () => [{ id: 'huge', description: 'Read', inputSchema: { description: 'x'.repeat(65536) } }]);
   await expect(service.describe('c1', 'm1', one, 'huge')).rejects.toMatchObject({ code: 'unavailable' });
+});
+it('points an agent that names a bare tool at the action id it needs', async () => {
+  adapter.actions = vi.fn(async () => [{ id: 'mcp.mail.read', description: 'Read mail', inputSchema: { type: 'object' } }]);
+  await expect(service.describe('c1', 'm1', one, 'read')).rejects.toThrow('Use its full id, mcp.mail.read.');
+  await expect(service.describe('c1', 'm1', one, 'send')).rejects.toThrow('without an action to list');
+  await expect(service.call('c1', 'm1', one, 'read', {}, '01900111-1111-7111-8111-111111111112')).rejects.toThrow('mcp.mail.read');
+  expect(adapter.call).not.toHaveBeenCalled();
 });

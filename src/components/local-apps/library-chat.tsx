@@ -28,11 +28,10 @@ function SourceChoices({ item, onClose }: { item: LibraryItem; onClose: () => vo
   const sources = useQuery({
     queryKey: ['apps-library-chat', item.key], staleTime: 0,
     queryFn: async () => {
-      const [main, feature, toolkits] = await Promise.all([
+      const [main, toolkits] = await Promise.all([
         queryClient.fetchQuery({ queryKey: mainChatKey(null), queryFn: () => trpcClient.orchestratorChat.list.query({}), staleTime: 0 }),
-        trpcClient.chatSources.enabled.query(), trpcClient.integrations.toolkitsGet.query({}),
+        trpcClient.integrations.toolkitsGet.query({}),
       ]);
-      if (!feature.enabled) return { chatId: main.session.id, enabled: false, items: [] };
       let providerId = item.target.kind === 'provider' ? item.target.id : undefined;
       if (item.target.kind === 'mcp') {
         const { servers } = await trpcClient.integrations.mcpServersGet.query({});
@@ -42,7 +41,7 @@ function SourceChoices({ item, onClose }: { item: LibraryItem; onClose: () => vo
       }
       const groups = toolkits.toolkits.filter(toolkit => toolkit.providerId === providerId);
       const results = await Promise.all(groups.map(group => trpcClient.chatSources.search.query({ chatId: main.session.id, query: '', filter: 'connector', groupId: group.id })));
-      return { chatId: main.session.id, enabled: true, items: results.flatMap(result => result.items.flatMap(entry => entry.kind === 'source' ? [entry.source] : [])).filter(source => !item.sourceRef || source.sourceRef === item.sourceRef) };
+      return { chatId: main.session.id, items: results.flatMap(result => result.items.flatMap(entry => entry.kind === 'source' ? [entry.source] : [])).filter(source => !item.sourceRef || source.sourceRef === item.sourceRef) };
     },
   });
   const open = (sourceRef?: string) => {
@@ -57,13 +56,12 @@ function SourceChoices({ item, onClose }: { item: LibraryItem; onClose: () => vo
   if (sources.error) return <div role="alert" className="space-y-3 text-sm"><p>{sources.error.message}</p><Button variant="outline" onClick={() => void sources.refetch()}>Retry</Button></div>;
   return <div className="space-y-3">
     {failure && <p role="alert" className="text-sm text-destructive">{failure}</p>}
-    {!sources.data?.enabled ? <><p className="text-sm text-muted-foreground">App mentions are not enabled for this Home yet. You can still ask your agent to use your connected services.</p><Button onClick={() => open()}>Open chat</Button></>
-      : !sources.data.items.length ? <p className="text-sm text-muted-foreground">No accounts from this connection are available to reference. Check the connection and its access, then try again.</p>
+    {!sources.data?.items.length ? <p className="text-sm text-muted-foreground">No accounts from this connection are available to reference. Check the connection and its access, then try again.</p>
       : sources.data.items.map(source => <button key={source.sourceRef} type="button" disabled={source.status === 'unavailable'} onClick={() => open(source.sourceRef)}
         className="flex w-full items-center gap-3 rounded-lg border p-3 text-left hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-50">
         <MessageCircle size={15} className="shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{source.label}</span><span className="text-xs text-muted-foreground">{SOURCE_STATUS_LABELS[source.status]}</span></span>
       </button>)}
     {sources.data?.items.some(source => source.status === 'unavailable') && <p className="text-xs text-muted-foreground">Some sources are unavailable with this chat’s engine or access. You can choose a supported engine in chat.</p>}
-    {sources.data?.enabled && !sources.data.items.some(source => source.status !== 'unavailable') && <Button variant="outline" onClick={() => open()}>Open chat</Button>}
+    {sources.data && !sources.data.items.some(source => source.status !== 'unavailable') && <Button variant="outline" onClick={() => open()}>Open chat</Button>}
   </div>;
 }

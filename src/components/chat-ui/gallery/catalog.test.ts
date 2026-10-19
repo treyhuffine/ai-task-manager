@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { CHAT_UI_EXAMPLES, filterGalleryExamples, galleryExample, galleryPreviewUrl, GALLERY_ORIGINS } from './catalog';
 import { GalleryRuntime } from './runtime';
-import { DRAFT_ID } from './fixtures';
+import { DRAFT_ID, mentionExample } from './fixtures';
 
 describe('central chat UI catalog', () => {
   it('has unique links and states, real source references and no onboarding entries', () => {
@@ -71,4 +71,16 @@ describe('isolated gallery operations', () => {
     expect(await connected.invoke('connectedApps.open', {})).toMatchObject({ resource: fixtureResource, title: 'Example app · Project estimate' });
     expect(await connected.invoke('connectedApps.invoke', { args: { hours: 10 } })).toMatchObject({ result: { structuredContent: { total: 1200 } } });
   });
+
+  it('resolves fictional mentioned accounts, naming a lone account by its service and two by their accounts', async () => {
+    const one = new GalleryRuntime('mentions', 'one');
+    const [todoist] = mentionExample('one').sources;
+    expect(await one.invoke('chatSources.resolve', { chatId: 'gallery', refs: [todoist.sourceRef, 'unknown'] })).toMatchObject([{ chipLabel: 'Todoist', mark: { kind: 'provider', providerId: 'todoist' } }, { status: 'unavailable' }]);
+    const several = mentionExample('several').sources;
+    expect(several.map(source => source.chipLabel)).toEqual(['Gmail · Work', 'Gmail · Personal']);
+    expect(mentionExample('attention').sources.map(source => source.status)).toEqual(['needs_access', 'ready']);
+    await one.invoke('chatSources.requestAccess', {});
+    expect(one.logs).toContain('Example access requested. No account permissions changed');
+  });
 });
+

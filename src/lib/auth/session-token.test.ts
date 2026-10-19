@@ -81,6 +81,8 @@ describe('a session token', () => {
     expect(may('/api/email/action')).toBe(true);
     expect(may('/api/trpc/email.send')).toBe(false);
     expect(may('/api/tasks')).toBe(false);
+    // Mentioned apps and accounts are always on: an execution reaches the bound source calls.
+    expect(may('/api/chat-sources/action')).toBe(true);
 
     const mainChat = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active', permissionMode: 'ask', workspaceId: agentId } as never);
     expect(sessionMayReach(q.getChatSession(mainChat.id)!, '/api/orchestrator/mcp', new URLSearchParams())).toBe(true);
@@ -93,7 +95,7 @@ describe('a session token', () => {
     const q = await import('@/lib/db/queries');
     const reviewer = { ...q.getChatSession(executionChat)!, surfaceKind: 'result_review' as const };
     expect(sessionMayReach(reviewer, '/api/orchestrator/results/mcp', new URLSearchParams())).toBe(true);
-    for (const path of ['/api/orchestrator/mcp', '/api/integrations/mcp', '/api/orchestrator/browser/mcp', '/api/results/reports', '/api/orchestrator/email/mcp', '/api/email/action']) {
+    for (const path of ['/api/orchestrator/mcp', '/api/integrations/mcp', '/api/orchestrator/browser/mcp', '/api/results/reports', '/api/orchestrator/email/mcp', '/api/email/action', '/api/chat-sources/action']) {
       expect(sessionMayReach(reviewer, path, new URLSearchParams(`ws=${agentId}&profile=ws-${agentId}`))).toBe(false);
     }
   });

@@ -2,6 +2,8 @@ import type { ChatEventRecord, EmailDraft, EntityVersionRecord, WorkResultRecord
 import type { PendingInput } from '@/lib/api/sessions';
 import type { ApprovalRequestView } from '@/lib/integrations/approval-describe';
 import type { ConnectionRequestView } from '@/lib/integrations/connection-catalog';
+import { encodeSource, sourceMarker } from '@/lib/chat-sources/reference';
+import type { SourceDescriptor } from '@/lib/chat-sources/types';
 
 export const CHAT_ID = '019a0000-0000-7000-8000-000000000001';
 export const DRAFT_ID = '019a0000-0000-7000-8000-000000000002';
@@ -57,3 +59,21 @@ export const PDF_PAGES = [
   ['Friday review', 'Decisions to make', 'What ships next', 'Who owns the follow-ups'],
   ['Follow-ups', 'Alex drafts the release note', 'Sam books the demo', 'Everyone reviews the dashboard'],
 ].map(([title, ...lines]) => `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1656" viewBox="0 0 612 792"><rect width="612" height="792" fill="#fff"/><text x="64" y="110" font-family="system-ui" font-size="34" font-weight="600" fill="#111">${title}</text>${lines.map((line, i) => `<rect x="64" y="${170 + i * 64}" width="10" height="10" rx="5" fill="#57715f"/><text x="88" y="${180 + i * 64}" font-family="system-ui" font-size="20" fill="#333">${line}</text>`).join('')}</svg>`);
+
+/** Fictional connected accounts, as the source adapter describes them. */
+function source(toolkitId: string, providerId: string, service: string, account: string, several: boolean, over: Partial<SourceDescriptor> = {}): SourceDescriptor {
+  const sourceRef = encodeSource({ v: 1, kind: 'integration', toolkitId, account: { accountId: `${toolkitId}:${account}`, authConfigId: null } });
+  return { sourceRef, label: `${service} · ${account}`, chipLabel: several ? `${service} · ${account}` : service, service, accountLabel: account, mark: { kind: 'provider', providerId, toolkitId }, groupId: toolkitId, keywords: [], status: 'ready', chat: true, view: 'none', ...over };
+}
+export function mentionExample(state: string): { message: string; sources: SourceDescriptor[] } {
+  if (state === 'several') {
+    const sources = [source('gmail', 'google', 'Gmail', 'Work', true), source('gmail', 'google', 'Gmail', 'Personal', true)];
+    return { sources, message: `Find the conference receipt in ${sourceMarker(sources[0].sourceRef)} and forward it from ${sourceMarker(sources[1].sourceRef)} to Alex.` };
+  }
+  if (state === 'attention') {
+    const sources = [source('linear', 'linear', 'Linear', 'sam@example.com', false, { status: 'needs_access' }), source('magicpath', 'magicpath', 'MagicPath', 'sam@example.com', false)];
+    return { sources, message: `File the onboarding bug in ${sourceMarker(sources[0].sourceRef)} and sketch the fix in ${sourceMarker(sources[1].sourceRef)}.` };
+  }
+  const sources = [source('todoist', 'todoist', 'Todoist', 'sam@example.com', false, { view: 'available', openPath: '/apps/~connected/gallery-todoist' })];
+  return { sources, message: `${sourceMarker(sources[0].sourceRef)} What’s on my list today?` };
+}

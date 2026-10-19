@@ -26,3 +26,12 @@ it('removes app tools when the Home explicitly opts out', async () => {
   expect(names).not.toContain('create_app_draft');
   expect(names).toContain('list_tasks');
 });
+
+it.each([undefined, '0'])('always registers the mention-bound source actions (old RI_CHAT_SOURCES=%s is ignored)', async (value) => {
+  vi.stubEnv('RI_CHAT_SOURCES', value);
+  vi.stubEnv('RI_LOCAL_APPS', '0');
+  vi.resetModules();
+  const names = (await import('./registry')).actions.map((action) => action.name);
+  expect(names).toContain('describe_chat_source');
+  expect(names).toContain('call_chat_source');
+});

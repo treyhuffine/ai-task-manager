@@ -14,8 +14,8 @@ import { AppsRailList } from './apps-rail-list';
  * Apps in the rail (docs/rail.md): one place row, first among the places.
  * Clicking it opens the library. Resting on it peeks your apps beside the
  * rail, the rail's full height, in the wide rail and the strip alike
- * (`AppsRailList`): installed apps and connections whose MCP server offers an
- * interface. Reaching the row warms the connections, so the peek opens with
+ * (`AppsRailList`): installed apps and connections whose MCP server declares
+ * a standalone screen. Reaching the row warms the connections, so the peek opens with
  * them. The library also holds connections and skills, independent of whether
  * this Home enables the local app runtime.
  */

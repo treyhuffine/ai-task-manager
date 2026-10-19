@@ -11,6 +11,8 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 import { IntegrationApprovalCard } from '@/components/chat-ui/approvals/integration-approval-card';
 import { ConnectionRequestCard } from '@/components/chat-ui/approvals/connection-request-card';
 import { MessageEntityChip } from '@/components/chat-ui/references/message-entity-chip';
+import { SourceChip, SourceMetadataProvider } from '@/components/chat-ui/references/source-chip';
+import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
 import { ArtifactPreviewProvider } from '@/components/chat-ui/artifacts/artifact-preview-provider';
 import { HtmlPreviewLink } from '@/components/chat-ui/artifacts/html-preview-link';
@@ -22,7 +24,7 @@ import { ConnectedCompanion } from '@/components/mcp-apps/companion';
 import { galleryExample, type ChatUiExampleId } from './catalog';
 
 declare const __GALLERY_EXAMPLE__: ChatUiExampleId;
-import { CHAT_ID, DRAFT_ID, event, IMAGE_URL, NOW, PDF_PAGES, RECORD_ID } from './fixtures';
+import { CHAT_ID, DRAFT_ID, event, IMAGE_URL, mentionExample, NOW, PDF_PAGES, RECORD_ID } from './fixtures';
 import { fixtureConfig as config, fixtureQueryClient as client, fixtureRuntime as runtime } from './fixture-client';
 
 document.documentElement.classList.toggle('dark', config.theme === 'dark');
@@ -64,6 +66,26 @@ function References() {
   </div>;
 }
 
+/** The composer's chips (removable, in the page's colors) and the same message once sent, through the real transcript. */
+function Mentions() {
+  const { message, sources } = mentionExample(config.state);
+  const [removed, setRemoved] = useState<string[]>([]);
+  const segments = parseSourceMarkers(message);
+  return <div className="space-y-6 text-sm">
+    <section aria-label="Composer"><p className="mb-2 text-xs text-muted-foreground">In the composer</p>
+      <div className="rounded-2xl border border-border bg-background px-4 py-3 text-[12.5px] leading-7">
+        <SourceMetadataProvider chatId={CHAT_ID} refs={sources.map(source => source.sourceRef)}>
+          {segments.map((segment, index) => segment.type === 'text' ? <span key={index}>{segment.text}</span>
+            : removed.includes(segment.encoded) ? null : <SourceChip key={index} sourceRef={segment.encoded} onRemove={() => setRemoved(current => [...current, segment.encoded])} />)}
+        </SourceMetadataProvider>
+      </div>
+    </section>
+    <section aria-label="Sent message"><p className="mb-2 text-xs text-muted-foreground">Once sent</p>
+      <ExecutionEvent event={event('user', { id: 'mention-message', role: 'user', content: message })} sessionId={CHAT_ID} handoffActions={false} />
+    </section>
+  </div>;
+}
+
 function Example() {
   const revision = useSyncExternalStore(runtime.subscribe, runtime.snapshot, runtime.snapshot);
   const example = galleryExample(__GALLERY_EXAMPLE__);
@@ -73,6 +95,7 @@ function Example() {
     {(__GALLERY_EXAMPLE__ === 'questions' || __GALLERY_EXAMPLE__ === 'permissions') && <PendingInputArea sessionId={CHAT_ID} />}
     {__GALLERY_EXAMPLE__ === 'approvals' && <IntegrationApprovalCard rows={runtime.events.filter(row => row.source === 'approval_request')} sessionId={CHAT_ID} isLatest />}
     {__GALLERY_EXAMPLE__ === 'connections' && <ConnectionRequestCard event={runtime.events[0]} sessionId={CHAT_ID} />}
+    {__GALLERY_EXAMPLE__ === 'mentions' && <Mentions />}
     {__GALLERY_EXAMPLE__ === 'references' && <References />}
     {__GALLERY_EXAMPLE__ === 'edits' && <div className="space-y-4 text-sm"><p>I clarified the agenda and made the next steps easier to scan.</p><EntityEditChip entityType="note" entityId={RECORD_ID} /></div>}
     {__GALLERY_EXAMPLE__ === 'files' && <div className="space-y-5 text-sm"><p>Here are the review materials:</p><MessageFileChip attachment={{ fileName: 'gallery-agenda.txt', originalName: 'friday-agenda.txt', mimeType: 'text/plain', size: 99, uploadedAt: NOW }} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-image.svg', originalName: 'a-little-room-to-think.svg', mimeType: 'image/svg+xml', size: 720, uploadedAt: NOW }} fileUrl={() => IMAGE_URL} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-report.pdf', originalName: 'friday-review.pdf', mimeType: 'application/pdf', size: 48210, uploadedAt: NOW }} variant="block" /></div>}

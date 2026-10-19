@@ -15,6 +15,8 @@ const connected = (over: Partial<NonNullable<Parameters<typeof appPlaces>[2]>[nu
   toolkitName: over.toolkitName ?? 'Server',
   providerId: over.providerId,
   available: over.available ?? true,
+  standalone: over.standalone ?? true,
+  entrypoints: over.entrypoints ?? (over.standalone === false ? [] : [{ name: 'home' }]),
 });
 
 describe('appPlaces', () => {
@@ -54,6 +56,21 @@ describe('appPlaces', () => {
       ['Finances', 'finances', { kind: 'app', icon: undefined }],
       ['Todoist', '~connected/todoist-1', { kind: 'provider', providerId: 'todoist' }],
     ]);
+  });
+
+  it('leaves out a connection whose interface only comes back as a tool result', () => {
+    const places = appPlaces([], [], [
+      connected({ id: 'todoist', toolkitName: 'Todoist', providerId: 'todoist', standalone: false }),
+      connected({ id: 'magicpath', toolkitName: 'MagicPath', providerId: 'magicpath' }),
+    ]);
+    expect(places.map((p) => p.displayName)).toEqual(['MagicPath']);
+  });
+
+  it('opens a connected app at its first screen, and an installed app at its root', () => {
+    const places = appPlaces([app({ slug: 'finances', displayName: 'Finances' })], [], [
+      connected({ id: 'canvas', toolkitName: 'Canvas', entrypoints: [{ name: 'open-canvas' }, { name: 'gallery' }] }),
+    ]);
+    expect(places.map((p) => [p.route, p.query])).toEqual([['~connected/canvas', { open: 'open-canvas' }], ['finances', undefined]]);
   });
 
   it("gives a provider's accounts one row, opening the first that can open", () => {

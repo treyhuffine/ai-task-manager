@@ -3,6 +3,7 @@ import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { inputDigest, type IntegrationRuntimeOptions } from '@integrations/engine';
 import { processState } from '@/lib/process-state';
 import { integrationSourceMetadata } from '@/lib/integrations/source-metadata';
+import type { McpCapabilityTool } from '@/lib/integrations/mcp-capabilities';
 import { getIntegrationRuntime, getIntegrationOwnerId, getMcpViewConnection } from '@/lib/integrations/runtime';
 import { hostedMcpConnectionId } from '@/lib/integrations/hosted-mcp';
 import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
@@ -22,14 +23,34 @@ export const mcpViews = () => processState('mcp-app-views', () => new McpViewSto
 const assertEnabled = () => { if (!mcpAppsEnabled()) throw new Error('Connected app views are disabled for this Home'); };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
-/** Cached catalog only. Discovery never calls a tool or initializes a server. */
+/** A tool's display title, in the order OpenAI's entrypoint spec resolves it. */
+const toolTitle = (tool: McpCapabilityTool) => {
+  const annotated = object(tool.annotations).title;
+  return tool.title ?? (typeof annotated === 'string' && annotated ? annotated : tool.name);
+};
+
+/** "Todoist · find-tasks-by-date", or the name once when a screen is titled for its service. */
+const viewTitle = (service: string, tool: string) => service.toLocaleLowerCase() === tool.toLocaleLowerCase() ? service : `${service} · ${tool}`;
+
+/**
+ * Cached catalog only. Discovery never calls a tool or initializes a server.
+ *
+ * A connection is listed when its server offers an interface: a result view a
+ * model-run tool returns into chat, or a standalone screen. Only a global
+ * entrypoint is a standalone screen (`_meta["openai/ui"].entrypoints`, OpenAI's
+ * MCP extensions spec, "Sidebar apps"): one the person can open on their own,
+ * which the rail and ⌘K list. Its tool's visibility doesn't hide it, since the
+ * spec ignores `ui.visibility` when an app opens as an entrypoint.
+ */
 export async function connectedAppsCatalog(viewerId?: string) {
   if (!mcpAppsEnabled()) return [];
   const metadata = await integrationSourceMetadata();
   mcpViews().prune();
   return metadata.servers.flatMap(({entry, capabilities}) => {
-    const tools = capabilities?.tools.filter(t => viewMetadata(t) && modelToolVisible(t) && entry.toolOverrides?.[t.name]?.enabled !== false) ?? [];
-    if (!tools.length) return [];
+    const ui = capabilities?.tools.filter(t => viewMetadata(t) && entry.toolOverrides?.[t.name]?.enabled !== false) ?? [];
+    const views = ui.filter(t => modelToolVisible(t));
+    const entrypoints = ui.filter(t => viewMetadata(t)!.global);
+    if (!views.length && !entrypoints.length) return [];
     const connection = metadata.connections.find(c => c.id === hostedMcpConnectionId(entry));
     const toolkitId = entry.providerId ?? `mcp_${entry.slug}`;
     // `name` is this server's own label, often its account ("Todoist 2"). The toolkit's name is the product, shared by every account.
@@ -38,8 +59,11 @@ export async function connectedAppsCatalog(viewerId?: string) {
       account: connection?.label || connection?.email || connection?.accountId || entry.displayName,
       available: !!connection && connection.status === 'active' && entry.enabled,
       sourceRef: connection ? encodeSource({v: 1, kind: 'integration', toolkitId, account: {accountId: connection.accountId, authConfigId: connection.authConfigId ?? null}}) : null,
-      tools: tools.map(t => ({name: t.name, title: t.title ?? t.name, description: t.description ?? '', inputSchema: t.inputSchema, global: viewMetadata(t)!.global})),
-      recent: [...mcpViews().captures.values()].filter(c => c.serverId === entry.id && (!c.viewerId || c.viewerId === viewerId)).map(c => ({id: c.id, chatId: c.chatId, title: c.title, created: c.created}))}];
+      standalone: entrypoints.length > 0,
+      entrypoints: entrypoints.map(t => ({name: t.name, title: toolTitle(t)})),
+      views: views.map(t => ({name: t.name, title: toolTitle(t)})),
+      // A capture without a chat is a screen the person opened (Open app), which reopens full screen.
+      recent: [...mcpViews().captures.values()].filter(c => c.serverId === entry.id && (!c.viewerId || c.viewerId === viewerId)).map(c => ({id: c.id, chatId: c.chatId, title: c.title, created: c.created, launched: !c.chatId}))}];
   });
 }
 
@@ -97,7 +121,7 @@ export async function prepareMcpResultCapture(event: Parameters<NonNullable<Inte
   if (!tool || !ui || !modelToolVisible(tool)) return;
   const current = await authority(remote.entry.id, chatId);
   const binding = {serverId: remote.entry.id, connectionId: event.connectionId, sourceRef: current.sourceRef, authority: current.revision,
-    chatId, tool: toolName, title: `${remote.entry.displayName} · ${tool.title ?? tool.name}`, input: structuredClone(object(event.input)), resourceUri: ui.resourceUri, legacy: ui.legacy};
+    chatId, tool: toolName, title: viewTitle(remote.entry.displayName, tool.title ?? tool.name), input: structuredClone(object(event.input)), resourceUri: ui.resourceUri, legacy: ui.legacy};
   return async (result: unknown) => {
     if (Buffer.byteLength(JSON.stringify(result)) > MAX_RESULT) return;
     const capture: Capture = {...binding, id: randomUUID(), result: CallToolResultSchema.parse(result), created: Date.now()};
@@ -138,10 +162,14 @@ export async function openConnectedView(captureId: string, viewerId: string, cha
     resource: view.resource ?? null, unsupported, input: capture.input, result: capture.result, revision: view.revision, widgetState, legacy: capture.legacy};
 }
 
-async function invoke(view: View, name: string, args: Record<string, unknown>, invocationId: string, audience: 'model' | 'app') {
+/** `entrypoint` is a person opening a standalone screen, which the spec lets past `ui.visibility`. */
+async function invoke(view: View, name: string, args: Record<string, unknown>, invocationId: string, caller: 'model' | 'app' | 'entrypoint') {
   const current = await checkCapture(view.capture);
   const tool = current.transport.tools.find(t => t.name === name);
-  if (!tool || current.remote.entry.toolOverrides?.[name]?.enabled === false || !(audience === 'app' ? appToolVisible(tool) : modelToolVisible(tool))) throw new Error('This tool is not available to this app');
+  const allowed = !!tool && (caller === 'entrypoint' ? !!viewMetadata(tool)?.global : caller === 'app' ? appToolVisible(tool) : modelToolVisible(tool));
+  if (!tool || current.remote.entry.toolOverrides?.[name]?.enabled === false || !allowed) throw new Error('This tool is not available to this app');
+  // The engine still checks visibility, so an entrypoint runs as whichever audience its tool admits.
+  const audience = caller === 'entrypoint' ? (modelToolVisible(tool) ? 'model' : 'app') : caller;
   if (Buffer.byteLength(JSON.stringify(args)) > 64 * 1024) throw new Error('App input exceeds its limit');
   const actionId = `${current.remote.entry.providerId ?? `mcp.${current.remote.entry.slug}`}.${name}`;
   const fingerprint = inputDigest([actionId, args, current.revision, audience]);
@@ -190,22 +218,25 @@ export async function cancelConnectedInvocation(viewId: string, viewerId: string
   await clearInvocationApproval(view, invocationId);
 }
 
-/** Explicit human launch, with schema validation and the ordinary approval gate. Never automatic. */
-export async function prepareConnectedLaunch(serverId: string, viewerId: string, name: string, args: Record<string, unknown>) {
+/**
+ * A person opening a standalone screen: a global entrypoint, called with `{}`
+ * as the spec requires, through the ordinary approval gate. Never automatic.
+ * Any other tool runs from chat, where the agent chooses its inputs.
+ */
+export async function prepareConnectedLaunch(serverId: string, viewerId: string, name: string) {
   const current = await authority(serverId);
   const tool = current.transport.tools.find(t => t.name === name), ui = tool && viewMetadata(tool);
-  if (!tool || !ui || !modelToolVisible(tool) || current.remote.entry.toolOverrides?.[name]?.enabled === false) throw new Error('This UI workflow is unavailable');
-  if (Buffer.byteLength(JSON.stringify(args)) > 64 * 1024) throw new Error('App input exceeds its limit');
+  if (!tool || !ui?.global || current.remote.entry.toolOverrides?.[name]?.enabled === false) throw new Error('This app has no screen to open here. Try it in chat instead.');
   const invocationId = randomUUID();
   const capture: Capture = {id: invocationId, serverId, connectionId: current.connection.id, sourceRef: current.sourceRef, authority: current.revision, viewerId,
-    tool: name, title: `${current.remote.entry.displayName} · ${tool.title ?? name}`, input: args, result: {content: []}, resourceUri: ui.resourceUri, legacy: ui.legacy, created: Date.now()};
+    tool: name, title: viewTitle(current.remote.entry.displayName, toolTitle(tool)), input: {}, result: {content: []}, resourceUri: ui.resourceUri, legacy: ui.legacy, created: Date.now()};
   const view = mcpViews().open(capture, viewerId);
   return {viewId: view.id, invocationId};
 }
 export async function launchConnectedView(viewId: string, viewerId: string) {
   const view = mcpViews().get(viewId, viewerId);
   if (view.capture.viewerId !== viewerId || view.capture.chatId) throw new Error('This view is not a launch request');
-  const result = await invoke(view, view.capture.tool, view.capture.input, view.capture.id, 'model');
+  const result = await invoke(view, view.capture.tool, view.capture.input, view.capture.id, 'entrypoint');
   if (result.kind === 'approval') return {...result, viewId: view.id};
   view.capture.result = result.result;
   mcpViews().put(view.capture);

@@ -56,6 +56,9 @@ export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
   { id: 'hubspot', displayName: 'HubSpot', url: 'https://mcp.hubspot.com/',
     auth: { kind: 'oauth', registration: 'registered', tokenEndpointAuthMethod: 'client_secret_post' }, defaultMutationRisk: 'high' },
   { id: 'todoist', displayName: 'Todoist', url: 'https://ai.todoist.net/mcp' },
+  // Public OAuth discovery, as Todoist: the 401 challenge names its resource metadata, which
+  // advertises magicpath:read and magicpath:write, with dynamic registration and PKCE S256.
+  { id: 'magicpath', displayName: 'MagicPath', url: 'https://api.magicpath.ai/mcp' },
   { id: 'granola', displayName: 'Granola', url: 'https://mcp.granola.ai/mcp' },
   { id: 'sentry', displayName: 'Sentry', url: 'https://mcp.sentry.dev/mcp' },
   // Context7's browser sign-in is exposed on the OAuth-specific transport path.

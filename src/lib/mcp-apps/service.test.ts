@@ -10,11 +10,13 @@ import { prepareMcpResultCapture, connectedAppsCatalog, openConnectedView, callC
 
 const chatId = randomUUID();
 const result = {content: [{type: 'text', text: 'Public summary'}], structuredContent: {total: 42}, _meta: {privateUi: 'Only for the interface'}};
-const tools = [
+const tools: {name: string; title?: string; inputSchema?: unknown; _meta?: unknown}[] = [
   {name: 'calculate', inputSchema: {type: 'object', properties: {amount: {type: 'number'}}, required: ['amount']}, _meta: {ui: {resourceUri: 'ui://fixture/calculator.html'}}},
   {name: 'filter', _meta: {ui: {visibility: ['app']}}},
   {name: 'model_only', _meta: {ui: {visibility: ['model']}}},
 ];
+/** A standalone screen as OpenAI's MCP extensions spec declares one: a global entrypoint on an app-only tool. */
+const launcher = {name: 'home', title: 'Fixture home', _meta: {ui: {resourceUri: 'ui://fixture/calculator.html', visibility: ['app']}, 'openai/ui': {entrypoints: [{type: 'global'}]}}};
 let entry: Record<string, unknown>;
 beforeEach(() => {
   vi.resetAllMocks(); process.env.RI_LOCAL_APPS = '0'; delete process.env.RI_MCP_APPS;
@@ -75,8 +77,25 @@ describe('connected MCP views', () => {
     expect(mocks.run).not.toHaveBeenCalled();
   });
   it('discovers from cached capabilities without executing or building a transport', async () => {
-    expect(await connectedAppsCatalog()).toMatchObject([{id: 'server', available: true, tools: [{name: 'calculate', global: false}]}]);
+    // Its interface only comes back as a tool result, so it is an app with no screen of its own.
+    expect(await connectedAppsCatalog()).toMatchObject([{id: 'server', available: true, standalone: false, entrypoints: [], views: [{name: 'calculate', title: 'calculate'}]}]);
     expect(mocks.runtime).not.toHaveBeenCalled(); expect(mocks.run).not.toHaveBeenCalled();
+  });
+  it('treats only a global entrypoint as a standalone screen, whatever its tool visibility', async () => {
+    const thread = {name: 'tray', title: 'Parts tray', _meta: {ui: {resourceUri: 'ui://fixture/tray.html'}, 'openai/ui': {entrypoints: [{type: 'thread'}]}}};
+    tools.push(thread);
+    try { expect((await connectedAppsCatalog())[0]).toMatchObject({standalone: false, entrypoints: []}); }
+    finally { tools.splice(tools.indexOf(thread), 1); }
+    tools.push(launcher);
+    try {
+      expect((await connectedAppsCatalog())[0]).toMatchObject({standalone: true, entrypoints: [{name: 'home', title: 'Fixture home'}], views: [{name: 'calculate'}]});
+      // An app-only launcher with no model-visible result view is still an app you can open.
+      const only = [launcher];
+      mocks.metadata.mockImplementation(async () => ({servers: [{entry, capabilities: {tools: only}}], connections: [], toolkits: []}));
+      expect(await connectedAppsCatalog()).toMatchObject([{id: 'server', standalone: true, views: []}]);
+      entry.toolOverrides = {home: {enabled: false}};
+      expect(await connectedAppsCatalog()).toEqual([]);
+    } finally { tools.splice(tools.indexOf(launcher), 1); }
   });
   it('names a server by its toolkit, so every account of one product shares a name', async () => {
     const second = {...entry, id: 'second', slug: 'builtin_todoist', providerId: 'todoist', displayName: 'Todoist 2'};
@@ -126,11 +145,28 @@ describe('connected MCP views', () => {
     for (let i = 0; i < 2; i++) await expect(callConnectedView(view.id, 'viewer', 'filter', {}, invocation)).rejects.toThrow('Lost connection');
     expect(mocks.run).toHaveBeenCalledTimes(1);
   });
-  it('launches explicitly with arguments and preserves a stable invocation across approvals', async () => {
-    const {viewId, invocationId: invocation} = await prepareConnectedLaunch('server', 'viewer', 'calculate', {amount: 7});
+  it('opens only a standalone screen, with no arguments, and never runs another tool from the page', async () => {
+    await expect(prepareConnectedLaunch('server', 'viewer', 'calculate')).rejects.toThrow('Try it in chat');
+    await expect(prepareConnectedLaunch('server', 'viewer', 'filter')).rejects.toThrow('Try it in chat');
+    expect(mocks.run).not.toHaveBeenCalled();
+    tools.push(launcher);
+    try {
+      const {viewId} = await prepareConnectedLaunch('server', 'viewer', 'home');
+      expect(await launchConnectedView(viewId, 'viewer')).toMatchObject({kind: 'opened'});
+      // The spec has the server accept `{}`, and lets an app-only launcher open, so it runs with the app audience.
+      expect(mocks.run.mock.calls[0]).toMatchObject(['mcp.fixture.home', {}, {connectionId: 'mcp-fixture', toolAudience: 'app'}]);
+      // A screen the person opened is listed as one, so it reopens full screen.
+      expect((await connectedAppsCatalog('viewer'))[0].recent).toMatchObject([{title: 'Fixture · Fixture home', launched: true}]);
+      await capture();
+      expect((await connectedAppsCatalog('viewer'))[0].recent.map(item => item.launched)).toEqual([true, false]);
+    } finally { tools.splice(tools.indexOf(launcher), 1); }
+  });
+  it('launches a standalone screen and preserves a stable invocation across approvals', async () => {
+    tools.push(launcher);
+    const {viewId, invocationId: invocation} = await prepareConnectedLaunch('server', 'viewer', 'home');
     mocks.run.mockImplementationOnce(async (_action, _args, options) => {
       mocks.approvals.mockReturnValue([{id: 'approval', connectedApp: options.caller.connectedApp}]);
-      return {ok: false, reason: 'approval_required', preview: {amount: 7}};
+      return {ok: false, reason: 'approval_required', preview: {}};
     });
     const paused = await launchConnectedView(viewId, 'viewer');
     expect(paused.kind).toBe('approval'); if (paused.kind !== 'approval') throw new Error('Expected approval');
@@ -144,6 +180,7 @@ describe('connected MCP views', () => {
     await expect(launchConnectedView(viewId, 'viewer')).rejects.toThrow('expired');
     expect(mocks.run).toHaveBeenCalledTimes(2);
     await expect(openConnectedView(invocation, 'other')).rejects.toThrow('different viewer');
+    tools.splice(tools.indexOf(launcher), 1);
   });
   it('requires chat account access and rechecks frozen context before redispatch', async () => {
     const view = await openConnectedView(await capture(), 'viewer', chatId);

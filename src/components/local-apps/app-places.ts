@@ -2,9 +2,12 @@
  * Which apps the rail and ⌘K list, and when a rail row is the one on screen.
  * Pure, so the rail's rows, the palette and their tests agree (docs/rail.md).
  *
- * An app is anything with an interface that opens under `/apps`: an app
- * installed in Ri, built here or included, or a connection whose MCP server
- * offers one (docs/connected-mcp-apps.md), official or added by you.
+ * An app is anything with a screen you can open on its own under `/apps`: an
+ * app installed in Ri, built here or included, or a connection whose MCP
+ * server declares a standalone screen (docs/connected-mcp-apps.md), official
+ * or added by you. A service whose interface only comes back as a tool result,
+ * such as Todoist's task list, isn't one: it is used from chat, with `@`, and
+ * waits in the library and Connectors.
  */
 
 export interface AppPlace {
@@ -12,6 +15,8 @@ export interface AppPlace {
   displayName: string;
   /** The `/apps/<route>` it opens. */
   route: string;
+  /** The query it opens with: a connected app's standalone screen to launch (`open`). */
+  query?: Record<string, string>;
   /** Every route it stands for: an installed app's root, or each account's page of a connected app. */
   roots: string[];
   /** Its glyph: an installed app's tile, a provider's logo, or a custom MCP server. */
@@ -38,6 +43,10 @@ interface ListedConnectedApp {
   toolkitName: string;
   providerId?: string;
   available: boolean;
+  /** Its server declares a screen that opens on its own, not only a tool result's view. */
+  standalone: boolean;
+  /** Those screens, the global entrypoints. A row opens the first. */
+  entrypoints?: readonly { name: string }[];
 }
 
 /** A connected app's page, for one account. */
@@ -46,7 +55,8 @@ export const connectedRoute = (serverId: string) => `~connected/${serverId}`;
 /**
  * The apps a person can open now, by name. A disabled or archived app, or a
  * connection that is off or signed out, can't open, so it waits in the
- * library with its state rather than taking a row it can't honor.
+ * library with its state rather than taking a row it can't honor. Neither
+ * can a connection with no standalone screen: it has nothing to open.
  *
  * A connected app is one row per product, as the library shows it: a
  * provider's accounts share a row, which opens the first account that can
@@ -70,7 +80,7 @@ export function appPlaces(
       needsApproval: waiting.has(item.id),
     }));
   const products = new Map<string, ListedConnectedApp[]>();
-  for (const app of connected) {
+  for (const app of connected.filter((item) => item.standalone)) {
     const product = app.providerId ? `provider:${app.providerId}` : `server:${app.id}`;
     products.set(product, [...(products.get(product) ?? []), app]);
   }
@@ -81,6 +91,8 @@ export function appPlaces(
       key: `connected:${product}`,
       displayName: open.toolkitName,
       route: connectedRoute(open.id),
+      // Choosing it opens the screen itself, as ChatGPT's sidebar does, not the page about it.
+      ...(open.entrypoints?.[0] ? { query: { open: open.entrypoints[0].name } } : {}),
       roots: accounts.map((account) => connectedRoute(account.id)),
       mark: open.providerId ? { kind: 'provider', providerId: open.providerId } : { kind: 'server' },
       keywords: `${open.providerId ?? 'mcp'} connector`,

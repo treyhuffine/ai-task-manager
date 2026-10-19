@@ -689,7 +689,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 <ChatInputEditor
                   sourceChatId={sessionId ?? undefined}
                   ref={editorRef}
-                  placeholder={placeholder ?? "Ask your agent to do any work. You can @mention files, tasks, or notes. Reference PRs with @# or use a slash to run /skills"}
+                  placeholder={placeholder ?? "Ask your agent to do any work. You can @mention apps, files, tasks, or notes. Reference PRs with @# or use a slash to run /skills"}
                   // Don't disable the editor while `sending` — the
                   // user can queue the next message during the POST
                   // round-trip (concurrent send is supported all the

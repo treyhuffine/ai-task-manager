@@ -1,6 +1,6 @@
 # Running local apps
 
-Apps are enabled by default on the Home. Normal startup needs no environment flag. Set `RI_LOCAL_APPS=0` before starting the Home to disable the feature. Browser input cannot change it. Set `RI_CHAT_SOURCES=1` separately to enable exact `@` references to apps and connected accounts. That shared feature also works when local apps are off. Use disposable Homes for qualification, with the qualified macOS arm64 Node 26.5.0 runtime, ABI 147.
+Apps are enabled by default on the Home. Normal startup needs no environment flag. Set `RI_LOCAL_APPS=0` before starting the Home to disable the feature. Browser input cannot change it. Exact `@` references to apps and connected accounts are always on, with no switch. That shared feature also works when local apps are off. Use disposable Homes for qualification, with the qualified macOS arm64 Node 26.5.0 runtime, ABI 147.
 
 Normal startup after pulling and building:
 
@@ -12,7 +12,7 @@ For an isolated development Home:
 
 ```sh
 pnpm install --frozen-lockfile
-RI_CHAT_SOURCES=1 pnpm apps:dev --home /absolute/path/to/disposable-home --port 42251
+pnpm apps:dev --home /absolute/path/to/disposable-home --port 42251
 ```
 
 Open the pairing URL printed by that disposable server. Apps appears above Task Board in the rail. Click it to open the library, or hover to see your apps in its flyout (docs/rail.md). Open Apps, then New app. Describe the desired behavior in the builder chat, build its preview, try it with synthetic records, and use the validated app. It then opens from its row in the flyout. A preview has its own data. Change app stages a separate copy and preserves installed records when activated. View output shows bounded build/runtime diagnostics. Settings shows a managed service’s worker health, setup needs and bounded job summary. Reopen view recovers an expired controller after an authorized access change.
