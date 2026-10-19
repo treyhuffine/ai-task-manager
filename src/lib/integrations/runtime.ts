@@ -44,7 +44,7 @@ import { getIntegrationsDir, getOrCreateKey } from './storage';
 import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { mcpKnownLegacy, mcpServerProtocol, mcpServerStore, mcpToolInfo, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
 import { mcpIngestOverrides, mcpToolApprovalOverride, resolveMcpToolApproval } from './mcp-approval-policy';
-import { getActionOverride } from './write-policy';
+import { getActionOverride, resolveApprovalMode, type ApprovalMode } from './write-policy';
 import { drainMcpClient } from './mcp-client-lifetime';
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
 import { registerMcpSecrets } from './mcp-secrets';
@@ -437,6 +437,35 @@ export function getIntegrationOwnerId(): string {
  * `INTEGRATIONS_AUTO_APPROVE=0` turns the real gate on in dev (to exercise approval cards). There is
  * deliberately no switch that turns the gate off in production.
  */
+/**
+ * The approval mode for an MCP action, from the person's server and tool
+ * choices, or `undefined` for the engine's default. The runtime's gate uses
+ * it, and so does anything that must know beforehand whether a call would
+ * stop for approval (an @ search, which never should).
+ */
+export function resolveMcpApprovalMode(input: { actionId: string; mutating: boolean; connection: { id: string; providerId: string } }): ApprovalMode | undefined {
+  const match = /^mcp\.([A-Za-z0-9_]+)\.(.+)$/.exec(input.actionId);
+  const { servers, approvalSettings } = getMcpServerStore().getApprovalSnapshot();
+  if (!match) {
+    // Built-in MCPs retain their native policy and any older explicit tool
+    // choices. The provider settings' action-wide override takes priority.
+    const explicit = getActionOverride(input.actionId);
+    if (explicit) return explicit;
+    const hosted = servers.find(server => server.providerId === input.connection.providerId &&
+      hostedMcpConnectionId(server) === input.connection.id && input.actionId.startsWith(`${server.providerId}.`));
+    return hosted ? mcpToolApprovalOverride(hosted.toolOverrides?.[input.actionId.slice(hosted.providerId!.length + 1)]) : undefined;
+  }
+  const server = servers.find(server => server.slug === match[1]);
+  if (!server || server.providerId || !server.enabled || hostedMcpConnectionId(server) !== input.connection.id) return 'ask';
+  return resolveMcpToolApproval(server, match[2]!, approvalSettings.defaultPolicy, input.mutating);
+}
+
+/** Whether a read-only call would stop for approval, as the runtime's gate decides it, short of a one-time grant. */
+export function readWouldAsk(actionId: string, connection: { id: string; providerId: string }): boolean {
+  if (devAutoApprove()) return false;
+  return (resolveMcpApprovalMode({ actionId, mutating: false, connection }) ?? resolveApprovalMode({ actionId, risk: 'low', mutating: false })) === 'ask';
+}
+
 export function devAutoApprove(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.NODE_ENV === 'production') return false;
   return env.INTEGRATIONS_AUTO_APPROVE !== '0';
@@ -538,22 +567,7 @@ async function build(): Promise<Built> {
     // Real grant-remembering gate (reads allow, mutating → grant-or-ask). Dev auto-allows so the
     // chat works end-to-end; production runs the real gate (resolved from the approval card in
     // chat, via /api/integrations/approve). `INTEGRATIONS_AUTO_APPROVE=0` runs the real gate in dev.
-    approval: appApprovalPolicy({ autoApprove: devAutoApprove(), resolveMode: input => {
-      const match = /^mcp\.([A-Za-z0-9_]+)\.(.+)$/.exec(input.actionId);
-      const { servers, approvalSettings } = getMcpServerStore().getApprovalSnapshot();
-      if (!match) {
-        // Built-in MCPs retain their native policy and any older explicit tool
-        // choices. The provider settings' action-wide override takes priority.
-        const explicit = getActionOverride(input.actionId);
-        if (explicit) return explicit;
-        const hosted = servers.find(server => server.providerId === input.connection.providerId &&
-          hostedMcpConnectionId(server) === input.connection.id && input.actionId.startsWith(`${server.providerId}.`));
-        return hosted ? mcpToolApprovalOverride(hosted.toolOverrides?.[input.actionId.slice(hosted.providerId!.length + 1)]) : undefined;
-      }
-      const server = servers.find(server => server.slug === match[1]);
-      if (!server || server.providerId || !server.enabled || hostedMcpConnectionId(server) !== input.connection.id) return 'ask';
-      return resolveMcpToolApproval(server, match[2]!, approvalSettings.defaultPolicy, input.mutating);
-    } }),
+    approval: appApprovalPolicy({ autoApprove: devAutoApprove(), resolveMode: resolveMcpApprovalMode }),
     onActionRun: (e) => {
       if (e.phase === 'finish') {
         // Redacted previews; safe to log. Helps eyeball the flow during testing.

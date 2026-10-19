@@ -1,4 +1,5 @@
 import type { SourceSearchItem, SourceSearchResult } from '@/lib/chat-sources/types';
+import type { McpIcon } from '@/lib/integrations/mcp-icons';
 /**
  * Items in the `@`-mention picker. One picker covers six kinds, with a
  * discriminator so the popup can section-render and the extension can
@@ -100,8 +101,33 @@ export interface MoreMentionItem {
 
 export type SearchMentionSources = (query: string, filter?: 'app' | 'connector', groupId?: string, signal?: AbortSignal) => Promise<SourceSearchResult>;
 
+/**
+ * One item a connected app's @ search returned (OpenAI's "Composer
+ * At-Mentions"), grouped under its app. Picking it inserts a source chip
+ * for the account carrying this item (`sourceRef`).
+ */
+export interface AppMentionMenuItem {
+  kind: 'appMention';
+  serverId: string;
+  /** The group's header: the app, with the account when it has several. */
+  group: string;
+  sourceRef: string;
+  title: string;
+  subtitle?: string;
+  icons: McpIcon[];
+  /** The app's own icon, shown when the item has none. */
+  appIcons: McpIcon[];
+}
+
+export interface AppMentionResults {
+  groups: { serverId: string; app: string; account?: string; icons: McpIcon[]; items: { sourceRef: string; title: string; subtitle?: string; icons: McpIcon[] }[] }[];
+}
+/** Searches connected apps that answer @ search. Null when there is nothing to ask. */
+export type SearchAppMentions = (query: string, signal?: AbortSignal) => Promise<AppMentionResults | null>;
+
 export type MentionItem =
   | SourceSearchItem
+  | AppMentionMenuItem
   | FileMentionItem
   | TaskMentionItem
   | NoteMentionItem

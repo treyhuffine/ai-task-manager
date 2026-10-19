@@ -69,6 +69,7 @@ import { recallStep, textToDocJSON, type RecallDirection } from './history-recal
 import { SlashMenuExtension } from './slash-menu/extension';
 import type { SlashCommand } from './slash-menu/types';
 import { MentionMenuExtension } from './mention-menu/extension';
+import { debouncedAppMentionSearch } from './mention-menu/app-mentions';
 import type {
   FileMentionItem,
   ReferenceFolderMentionItem,
@@ -403,6 +404,12 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     mentionFilesRef.current = mentionFiles;
     const sourceChatIdRef = useRef(sourceChatId);
     sourceChatIdRef.current = sourceChatId;
+    // Connected apps' @ search for this chat: debounced, with a short cache that a new chat starts over.
+    const appMentionSearch = useMemo(() => sourceChatId
+      ? debouncedAppMentionSearch((query, signal) => trpcClient.appMentions.search.query({ chatId: sourceChatId, query }, { signal }))
+      : null, [sourceChatId]);
+    const appMentionSearchRef = useRef(appMentionSearch);
+    appMentionSearchRef.current = appMentionSearch;
     const searchMentionEntitiesRef = useRef(searchMentionEntities);
     searchMentionEntitiesRef.current = searchMentionEntities;
     const mentionReferenceFoldersRef = useRef(mentionReferenceFolders);
@@ -757,6 +764,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           searchSources: (query, filter, groupId, signal) => sourceChatIdRef.current
             ? trpcClient.chatSources.search.query({ chatId: sourceChatIdRef.current, query, filter, groupId }, { signal })
             : Promise.resolve({ items: [], total: 0 }),
+          searchAppMentions: (query, signal) => appMentionSearchRef.current?.(query, signal) ?? Promise.resolve(null),
           getFileEntries: () => mentionFilesRef.current ?? [],
           searchEntities: (search) =>
             searchMentionEntitiesRef.current?.(search) ??

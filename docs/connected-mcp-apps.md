@@ -40,6 +40,17 @@ An inline view is exactly as tall as it reports with `ui/notifications/size-chan
 - Limits: 32 captures and 32 view sessions, 80 invocations per view, 512 KiB per result, 8 MiB cumulative result storage per view, 64 KiB input, and 12 MiB prepared HTML. Context is capped at 8 KiB and 10 updates per second. Guest messages have independent 1 MiB and 100/second containment limits.
 - Frozen context is stored only on an accepted human message and reauthorized on dispatch and recovery. Local authoritative app context and remote untrusted context remain separate fields.
 
+## @ search
+
+A server can offer its own items in the composer's @ menu, OpenAI's [composer at-mentions](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#composer-at-mentions): Bits & Bolts offers the parts in its library. It advertises `openai/mentions` with a `searchTool`, or the deprecated `_meta["openai/extensions"]["mentions/search"]` marker on a tool when the capability is absent.
+
+- Ri asks every such server the chat may use, in parallel, with `{query}` as the app, on the server's exact account. Workspace scopes and account pins apply as they do to a chat's other app use. Each server has three seconds, so a slow one only leaves its group out. The mixed picker asks once something is typed and shows up to five items per app. `@app:` asks even for an empty query, as the spec allows, and shows every item the app returned, at most 20. Typing is debounced and recent answers are reused for a few seconds.
+- A server is skipped, with its reason kept in the response, when its search tool is missing, turned off, not marked `readOnlyHint: true`, or not visible to apps, as the spec requires. A search runs on every keystroke, so it never stops for approval: a search tool the person set to Ask first is skipped and says so, rather than raising a card per letter.
+- Items are `resource_link`s or OpenAI's `{type: "resource", resourceUri, title}` form. Invalid items and duplicates are dropped one by one. Item icons pass through `safeMcpIcons`, and remote ones load without a referrer.
+- Choosing an item inserts the same chip an account mention uses. Its source reference names the account and carries the item's URI, title and name (`mentionedResourceSchema` in `chat-sources/reference.ts`). The URI is the identity. The title is only what the chip shows. The chip reads as the item and is exactly as available as its account.
+- When the message is sent, and again on every dispatch, the account is rechecked for that chat before anything is read. A chat that lost the account cannot send the mention. Ri then reads each item through the server's `resources/read` and gives the agent an `<ri-mentioned-resources>` block: app, title, URI, name, MIME type and text content, as untrusted data. Text is capped at 32 KiB per item and 96 KiB per message. A binary item is named without its bytes, and a read that fails says why without failing the message.
+- `RI_MCP_APPS=0` turns @ search off with the rest of connected apps.
+
 ## Bits & Bolts test server
 
 [Bits & Bolts](https://github.com/openai/mcp-extensions/tree/main/plugins/bits-and-bolts) is OpenAI's sample app for its MCP extensions (Apache-2.0): a CAD parts library with a sidebar app, a thread tab, a file viewer, settings, @ search and forms. Ri uses it as the conformance fixture for connected apps, and it is also a useful app to try. `pnpm bits-and-bolts` runs it as a local MCP server.

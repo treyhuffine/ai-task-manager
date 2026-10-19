@@ -25,9 +25,11 @@ import type {
   FileMentionItem,
   MentionEntityResults,
   ReferenceFolderMentionItem,
+  SearchAppMentions,
   SearchMentionEntities,
   SearchMentionSources,
 } from './types'
+import { appMentionItems, shouldSearchAppMentions } from './app-mentions'
 import type { PrMentionItem } from '../pr-menu/types'
 import { createReferenceMentionPlugin } from './reference-mention'
 
@@ -39,6 +41,12 @@ const MENTION_MENU_PLUGIN_KEY = new PluginKey('mentionMenuSuggestion')
 
 interface MentionMenuOptions {
   searchSources?: SearchMentionSources
+  /**
+   * Items from connected apps that answer @ search (OpenAI's composer
+   * at-mentions), such as one part from a parts library. Expected to
+   * debounce and cache, since `items` runs on every keystroke.
+   */
+  searchAppMentions?: SearchAppMentions
   getScopeKey?: () => string | undefined
   /**
    * Worktree files + folders. Wrapped in a closure so the extension
@@ -150,7 +158,8 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
         const references = getReferences()
         const drillDown = parsed.filter ? null : parseReferenceDrillDown(query, references)
         const search = entitySearchFor(parsed, drillDown !== null)
-        const [referenceFiles, entities, sources] = await Promise.all([
+        const appText = accountGroup ? '' : parsed.text
+        const [referenceFiles, entities, sources, appMentions] = await Promise.all([
           drillDown && canBrowseReference(drillDown.reference) && loadReferenceTree
             ? loadReferenceTree(drillDown.reference.id)
                 .then((entries) => toReferenceFileItems(drillDown.reference, entries))
@@ -165,11 +174,16 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
           !drillDown && (!parsed.filter || parsed.filter === 'app' || parsed.filter === 'connector') && this.options.searchSources
             ? this.options.searchSources(accountGroup ? parsed.text.slice(accountGroup.prefix.length).trim() : parsed.text, parsed.filter ?? undefined, accountGroup?.id, request.signal).catch(() => null)
             : null,
+          // Apps' own items (one part from a parts library, say). A slow or failed
+          // search only leaves its app out.
+          this.options.searchAppMentions && shouldSearchAppMentions(parsed.filter, appText, !!drillDown || !!accountGroup)
+            ? this.options.searchAppMentions(appText, request.signal).catch(() => null)
+            : null,
         ])
         if (request.signal.aborted || scope !== this.options.getScopeKey?.()) return settledItems([])
         const sourceItems: MentionItem[] = sources ? [...sources.items] : []
         if (sources && sources.total > sources.items.length) sourceItems.push({ kind: 'more', of: 'app', total: sources.total, shown: sources.items.length, query: parsed.text, narrowed: !!parsed.filter })
-        return settledItems([...sourceItems, ...buildItems({
+        return settledItems([...sourceItems, ...appMentionItems(appMentions, parsed.filter === 'app'), ...buildItems({
           files: getFiles(),
           entities,
           references,
@@ -191,6 +205,9 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
         const chain = editor.chain().focus().deleteRange(range)
         if (item.kind === 'source') {
           chain.insertSourceChip({ sourceRef: item.source.sourceRef }).insertContent(' ').run()
+        } else if (item.kind === 'appMention') {
+          // The same chip as an account mention, carrying the item as well.
+          chain.insertSourceChip({ sourceRef: item.sourceRef }).insertContent(' ').run()
         } else if (item.kind === 'sourceGroup') {
           accountGroup = { id: item.groupId, prefix: `${item.label} /` }
           chain.insertContent(`@app:${accountGroup.prefix}`).run()
