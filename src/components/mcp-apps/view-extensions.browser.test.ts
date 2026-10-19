@@ -68,9 +68,11 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     res.setHeader('content-type', 'text/html'); res.end('<html><head><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>');
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: chromium.executablePath(), headless: true, chromiumSandbox: true });
+  const browser = await chromium.launch({ executablePath: chromium.executablePath(), headless: true, chromiumSandbox: true, args: ['--disable-features=IsolateSandboxedIframes'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 } }), errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    // A step that never happens fails on its own locator, well inside the test's timeout.
+    page.setDefaultTimeout(10_000);
     await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
     const guest = page.frameLocator('iframe[aria-label="App view"]').frameLocator('iframe');
     // The app's send at load, before any interaction, lands in the draft with a quiet note. Read only the

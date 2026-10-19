@@ -64,15 +64,16 @@ export function ConnectedView({captureId, chatId, expanded = false, onClose, app
   const modes = query.data?.resource?.displayModes;
   const canInline = !modes || modes.available.includes('inline');
   const canExpand = !modes || modes.available.includes('fullscreen');
-  const openBeside = companion?.open;
+  const placeBeside = companion?.place;
   useEffect(() => {
     const data = query.data;
-    if (!data?.resource || expanded || !openBeside || !chatId || data.kind !== 'result' || placed.has(captureId)) return;
+    if (!data?.resource || expanded || !placeBeside || !chatId || data.kind !== 'result' || placed.has(captureId)) return;
     placed.add(captureId);
-    // A model's result opens full screen (beside the chat) when its resource prefers it, or allows nothing else.
+    // A model's result opens full screen (beside the chat) when its resource prefers it, or allows nothing else,
+    // unless the person has something open there (`mayPlaceResult`). Then it offers Open beside chat instead.
     const first = initialDisplayMode(data.resource.displayModes, data.resource.displayModes.declared);
-    if ((first === 'fullscreen' || !canInline) && Date.now() - data.created < FRESH_RESULT_MS) openBeside(captureId);
-  }, [query.data, expanded, openBeside, chatId, captureId, canInline]);
+    if ((first === 'fullscreen' || !canInline) && Date.now() - data.created < FRESH_RESULT_MS) placeBeside(captureId);
+  }, [query.data, expanded, placeBeside, chatId, captureId, canInline]);
   return <section aria-label="Interactive app result" className={`${expanded ? 'h-full' : 'my-3 overflow-hidden rounded-xl border border-border'} flex flex-col bg-background`}>
     <div className={`${repeatsName ? 'hidden' : 'flex'} items-center gap-2 border-b border-border/60 px-3 py-2`}>
       <span className="min-w-0 flex-1 truncate text-xs font-medium">{query.data?.title ?? 'Interactive result'}</span>

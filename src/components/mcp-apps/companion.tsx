@@ -7,7 +7,7 @@ import { useElementWidth } from '@/hooks/use-element-width';
 import { launchConnectedApp, LaunchDeclined, type LaunchApproval } from '@/lib/client/mcp-app-launch';
 import { ConnectedView } from './view';
 import { EntrypointIcon } from './entrypoint-icon';
-import { ConnectedCompanionContext, type ConnectedTab } from '@/lib/client/mcp-app-panel';
+import { ConnectedCompanionContext, mayPlaceResult, type ConnectedTab } from '@/lib/client/mcp-app-panel';
 
 type Opening = {tab: ConnectedTab; approval?: LaunchApproval & {answer: (approve: boolean) => void}; error?: string};
 
@@ -23,6 +23,8 @@ export function ConnectedCompanion({chatId, children}: {chatId: string; children
   const [opening, setOpening] = useState<Opening | null>(null);
   const [mount, setMount] = useState<HTMLDivElement | null>(null);
   const [inlineIds, setInlineIds] = useState<Set<string>>(() => new Set());
+  // The result a display mode placed here. The next such result may replace it. Nothing else may.
+  const [placedId, setPlacedId] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
   const register = useCallback((id: string) => {
     setInlineIds(previous => new Set([...previous, id]));
@@ -30,7 +32,11 @@ export function ConnectedCompanion({chatId, children}: {chatId: string; children
   }, []);
   const stopOpening = useCallback(() => { abort.current?.abort(); abort.current = null; setOpening(null); }, []);
   useEffect(() => () => abort.current?.abort(), []);
-  const open = useCallback((id: string | null) => { stopOpening(); setTab(null); setCaptureId(id); }, [stopOpening]);
+  const open = useCallback((id: string | null) => { stopOpening(); setTab(null); setCaptureId(id); setPlacedId(null); }, [stopOpening]);
+  const place = useCallback((id: string) => {
+    if (!mayPlaceResult({captureId, tab, opening: !!opening, placedId})) return;
+    setCaptureId(id); setPlacedId(id);
+  }, [captureId, tab, opening, placedId]);
   const openTab = useCallback(async (next: ConnectedTab, options: {fresh?: boolean} = {}) => {
     stopOpening();
     const controller = new AbortController();
@@ -42,7 +48,7 @@ export function ConnectedCompanion({chatId, children}: {chatId: string; children
         {signal: controller.signal});
       if (controller.signal.aborted) return;
       abort.current = null;
-      setOpening(null); setTab(next); setCaptureId(opened.captureId);
+      setOpening(null); setTab(next); setCaptureId(opened.captureId); setPlacedId(null);
     } catch (error) {
       if (controller.signal.aborted) return;
       abort.current = null;
@@ -53,8 +59,8 @@ export function ConnectedCompanion({chatId, children}: {chatId: string; children
   const [ref, width] = useElementWidth<HTMLDivElement>();
   const side = width === null || width >= 820;
   const visible = !!captureId || !!opening;
-  const close = () => { stopOpening(); setTab(null); setCaptureId(null); };
-  return <ConnectedCompanionContext.Provider value={{chatId, captureId, open, mount, register, tab, openTab}}><div ref={ref} className={`flex min-h-0 min-w-0 flex-1 ${side ? 'flex-row' : 'flex-col'}`}>
+  const close = () => { stopOpening(); setTab(null); setCaptureId(null); setPlacedId(null); };
+  return <ConnectedCompanionContext.Provider value={{chatId, captureId, open, place, mount, register, tab, openTab}}><div ref={ref} className={`flex min-h-0 min-w-0 flex-1 ${side ? 'flex-row' : 'flex-col'}`}>
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children(visible)}</div>
     <aside aria-label="Connected app beside this chat" className={`${visible ? 'flex' : 'hidden'} min-h-0 flex-col bg-background ${side ? 'w-[min(45%,640px)] border-l' : 'h-[50%] border-t'} border-border`}>
       <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs">
