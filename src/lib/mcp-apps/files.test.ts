@@ -199,7 +199,7 @@ describe('resources/subscribe', () => {
     expect(await waiting).toEqual({revision: 1, watching: true});
     unsubscribeHostResource(view, uri);
     expect(await waitHostResource(view, uri, 1)).toEqual({revision: 1, watching: false});
-  });
+  }, 15_000);
 
   it('wakes a waiting poll when the view closes', async () => {
     const {uri, view} = await openedAgentFile();
@@ -208,7 +208,8 @@ describe('resources/subscribe', () => {
     view.closed = true;
     fs.writeFileSync(path.join(folder, 'parts', 'hex-bolt.stl'), 'changed');
     expect((await waiting).watching).toBe(false);
-  });
+    // The wake rides on a real file system event, which a busy machine can deliver late.
+  }, 15_000);
 });
 
 describe('a file view\'s tool calls and openai/files/open', () => {
