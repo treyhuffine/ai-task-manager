@@ -13,6 +13,10 @@ import { requestAppChatDraft } from '@/lib/client/app-chat-intent';
 import { useConnectedCompanion } from '@/lib/client/mcp-app-panel';
 import { runConnectedInvocation } from '@/lib/client/mcp-app-invocation';
 import { initialDisplayMode } from '@/lib/mcp-apps/metadata';
+import { launchConnectedFile, showConnectedCapture } from '@/lib/client/mcp-app-file';
+import { useOptionalDashboard } from '@/contexts/dashboard-context';
+import { viewHref } from '@/lib/client/active-view';
+import { attachmentUrl } from '@/lib/attachments/view';
 
 type OpenView = RouterOutputs['connectedApps']['open'];
 /** Results this browser already placed by their display mode, so scrolling back never moves one again. */
@@ -91,10 +95,17 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
   const [ready, setReady] = useState(false);
   const onExpandRef = useRef(onExpand);
   useEffect(() => { onExpandRef.current = onExpand; }, [onExpand]);
+  // Where a file the app asks to open (`openai/files/open`) shows: beside this chat, or full screen.
+  const companion = useConnectedCompanion();
+  const dashboard = useOptionalDashboard();
+  const places = useRef({companion, dashboard});
+  useEffect(() => { places.current = {companion, dashboard}; }, [companion, dashboard]);
   useEffect(() => {
     const resource = view.resource;
     if (!mount.current || !resource) return;
     let disposed = false, revision = view.revision;
+    // `resources/subscribe` on the opened file: a long poll per URI delivers `notifications/resources/updated`.
+    const watching = new Map<string, AbortController>();
     let waiting: Pending | null = null;
     const ask = (request: Omit<Pending, 'finish'>, signal: AbortSignal) => new Promise<boolean>((resolve, reject) => {
       if (waiting) { reject(new Error('Answer the current app approval first')); return; }
@@ -131,6 +142,43 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
       contextLimit: 768 * 1024,
       // `resources/read` goes to this app's own server on its account, or to the file it opened.
       readResource: (params, signal) => trpcClient.connectedApps.readResource.mutate({viewId: view.id, uri: params.uri, ...(params._meta ? {meta: params._meta} : {})}, {signal}),
+      // OpenAI's file entrypoint: watch and save the file this view opened, through Ri.
+      subscribeResource: async uri => {
+        if (watching.has(uri)) return;
+        let known = (await trpcClient.connectedApps.files.subscribe.mutate({viewId: view.id, uri})).revision;
+        const stop = new AbortController();
+        watching.set(uri, stop);
+        void (async () => {
+          while (!stop.signal.aborted && !disposed) {
+            try {
+              const next = await trpcClient.connectedApps.files.changes.query({viewId: view.id, uri, revision: known}, {signal: stop.signal});
+              if (!next.watching) break;
+              if (next.revision > known) { known = next.revision; await host.resourceUpdated(uri); }
+            } catch {
+              if (stop.signal.aborted || disposed) break;
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          }
+          if (watching.get(uri) === stop) watching.delete(uri);
+        })();
+      },
+      unsubscribeResource: async uri => {
+        watching.get(uri)?.abort();
+        watching.delete(uri);
+        await trpcClient.connectedApps.files.unsubscribe.mutate({viewId: view.id, uri});
+      },
+      writeResource: (params, signal) => trpcClient.connectedApps.files.write.mutate({viewId: view.id, ...params}, {signal}),
+      openFile: async (path, signal) => {
+        const target = await trpcClient.connectedApps.files.open.mutate({viewId: view.id, path}, {signal});
+        const {companion: pane, dashboard: board} = places.current;
+        if (target.kind === 'app') {
+          const captureId = await launchConnectedFile({serverId: target.serverId, tool: target.tool, handle: target.handle, chatId: target.chatId, signal,
+            ask: (request, wait) => ask({ids: request.ids, preview: request.preview}, wait)});
+          showConnectedCapture({captureId, serverId: target.serverId, chatId: target.chatId}, {companion: pane, setActiveView: board?.setActiveView});
+        } else if (target.kind === 'attachment') window.open(attachmentUrl(target.fileName), '_blank', 'noopener,noreferrer');
+        else if (board) board.setActiveView({kind: 'agent', id: target.workspaceId, tab: 'files'});
+        else window.location.assign(viewHref({kind: 'agent', id: target.workspaceId, tab: 'files'}));
+      },
       navigate: () => { throw new Error('This app does not provide internal navigation'); },
       externalLink: url => { window.open(url, '_blank', 'noopener,noreferrer'); },
       error: error => { if (!disposed) setError(error.message); },
@@ -150,7 +198,11 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
         'openai/modelContext': view.modelContext,
       }}).catch(e => setError(e.message));
     const timer = setTimeout(() => { if (!disposed) setReady(current => { if (!current) setError('The app did not connect to Ri’s UI bridge. Its tools and text results are still available.'); return current; }); }, 20_000);
-    return () => { disposed = true; clearTimeout(timer); unregister?.(); waiting?.finish(false); controller.current = null; void host.dispose(); };
+    return () => {
+      disposed = true; clearTimeout(timer); unregister?.(); waiting?.finish(false); controller.current = null;
+      for (const [uri, stop] of watching) { stop.abort(); void trpcClient.connectedApps.files.unsubscribe.mutate({viewId: view.id, uri}).catch(() => {}); }
+      void host.dispose();
+    };
     // The capture is immutable. Refetch checks access without rebuilding the iframe.
   }, [view.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => controller.current?.theme(resolvedTheme === 'dark' ? 'dark' : 'light'), [resolvedTheme]);

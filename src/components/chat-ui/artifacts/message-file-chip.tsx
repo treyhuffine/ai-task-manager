@@ -10,6 +10,8 @@ import { Tip } from '@/components/ui/tip';
 import { ImagePreviewCard } from './image-preview-card';
 import { PdfPreviewCard } from './pdf-preview-card';
 import { attachmentPdfUrl } from '@/lib/sessions/reply-pdf';
+import { useConnectedCompanion } from '@/lib/client/mcp-app-panel';
+import { OpenWithApp } from '@/components/mcp-apps/open-with';
 
 interface MessageFileChipProps {
   attachment: Attachment;
@@ -32,7 +34,16 @@ interface MessageFileChipProps {
  * Distinct from the editor's `FileChipNode`, which is interactive and
  * lives inside Tiptap.
  */
-export function MessageFileChip({ attachment, variant = 'inline', fileUrl = attachmentUrl }: MessageFileChipProps) {
+export function MessageFileChip(props: MessageFileChipProps) {
+  // In a chat, a file a connected app opens (OpenAI's file entrypoint) offers that app beside the chat.
+  const companion = useConnectedCompanion();
+  const chip = <FileChip {...props} />;
+  if (!companion) return chip;
+  const { fileName, originalName } = props.attachment;
+  return <>{chip}<OpenWithApp file={{ kind: 'attachment', fileName, name: originalName || fileName }} className="inline-flex align-baseline" /></>;
+}
+
+function FileChip({ attachment, variant = 'inline', fileUrl = attachmentUrl }: MessageFileChipProps) {
   const { fileName, originalName, mimeType, size } = attachment;
   const display = originalName || fileName;
   const isImage = mimeType.startsWith('image/');

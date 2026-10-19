@@ -105,7 +105,7 @@ async function checkCapture(capture: Capture) {
   if (current.revision !== capture.authority || current.connection.id !== capture.connectionId || current.sourceRef !== capture.sourceRef) throw new Error('This app’s account or access changed. Request a new result.');
   return current;
 }
-async function checkedView(viewId: string, viewerId: string) {
+export async function checkedView(viewId: string, viewerId: string) {
   const view = mcpViews().get(viewId, viewerId);
   const current = await checkCapture(view.capture);
   return {view, ...current};
@@ -208,10 +208,12 @@ async function invoke(view: View, name: string, args: Record<string, unknown>, i
   const result = await mcpViews().call(view, invocationId, fingerprint, async () => {
     const connectedApp = {viewId: view.id, invocationId, sourceRef: view.capture.sourceRef, viewerId: view.viewerId};
     let original: unknown;
+    // A file view's calls carry the file's path to a server on this computer (`files.ts`).
+    const callMeta = view.capture.kind === 'file' ? await (await import('./files')).fileCallMeta(view, current.remote.entry) : undefined;
     const outcome = await (async () => {
       try {
         return await current.runtime.runAction(actionId, args, {ownerId: getIntegrationOwnerId(), connectionId: current.connection.id,
-          allowedConnectionIds: [current.connection.id], toolAudience: audience,
+          allowedConnectionIds: [current.connection.id], toolAudience: audience, ...(callMeta ? {callMeta} : {}),
           caller: {...(view.capture.chatId ? sessionCaller(view.capture.chatId) : {type: 'app' as const, id: `mcp-view:${view.id}`}), connectedApp},
           captureOriginalResult: value => { original = value; }});
       } finally {

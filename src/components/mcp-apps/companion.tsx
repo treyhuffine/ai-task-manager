@@ -54,7 +54,7 @@ export function ConnectedCompanion({chatId, children}: {chatId: string; children
   const side = width === null || width >= 820;
   const visible = !!captureId || !!opening;
   const close = () => { stopOpening(); setTab(null); setCaptureId(null); };
-  return <ConnectedCompanionContext.Provider value={{captureId, open, mount, register, tab, openTab}}><div ref={ref} className={`flex min-h-0 min-w-0 flex-1 ${side ? 'flex-row' : 'flex-col'}`}>
+  return <ConnectedCompanionContext.Provider value={{chatId, captureId, open, mount, register, tab, openTab}}><div ref={ref} className={`flex min-h-0 min-w-0 flex-1 ${side ? 'flex-row' : 'flex-col'}`}>
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children(visible)}</div>
     <aside aria-label="Connected app beside this chat" className={`${visible ? 'flex' : 'hidden'} min-h-0 flex-col bg-background ${side ? 'w-[min(45%,640px)] border-l' : 'h-[50%] border-t'} border-border`}>
       <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs">
