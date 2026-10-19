@@ -225,8 +225,8 @@ interface ChatInputEditorProps {
   searchMentionEntities?: SearchMentionEntities;
   /**
    * Reference folders surfaced in the `@`-picker
-   * (docs/reference-folders-spec.md §8). Picking one retargets the picker
-   * into that folder rather than inserting a chip.
+   * (docs/reference-folders-spec.md §8). Selecting one inserts a folder
+   * mention. Typing `/` after it optionally searches within the folder.
    */
   mentionReferenceFolders?: ReferenceFolderMentionItem[];
   /**

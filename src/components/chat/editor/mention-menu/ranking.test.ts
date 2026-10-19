@@ -8,7 +8,7 @@ import {
   narrowedQueryText,
   parseMentionQuery,
   parseReferenceDrillDown,
-  pickReference,
+  toReferenceMention,
   queryAllowsSpaces,
   toReferenceFileItems,
   rankReferences,
@@ -339,16 +339,13 @@ describe('a linked folder whose files are on another device', () => {
 
   it('is mentioned at its path there, rather than browsed from here', () => {
     expect(canBrowseReference(onMacBook)).toBe(false);
-    expect(pickReference(onMacBook)).toEqual({
-      kind: 'chip',
-      chip: { kind: 'dir', path: '/Users/trey/code/beamd', name: 'beamd-cli', label: 'beamd-cli', referenceAlias: 'beamd-cli' },
-    });
+    expect(toReferenceMention(onMacBook)).toEqual({ kind: 'dir', path: '/Users/trey/code/beamd', name: 'beamd-cli', label: 'beamd-cli', referenceAlias: 'beamd-cli' });
   });
 
-  it('drills in as before when it is here', () => {
+  it('mentions the folder itself when it is here too', () => {
     const here = { ...onMacBook, absolutePath: '/Users/agent/code/beamd', browsable: true };
     expect(canBrowseReference(here)).toBe(true);
-    expect(pickReference(here)).toEqual({ kind: 'drill', text: '@beamd-cli/' });
+    expect(toReferenceMention(here)).toEqual({ kind: 'dir', path: here.absolutePath, name: here.alias, label: here.alias, referenceAlias: here.alias });
     expect(canBrowseReference({ ...here, exists: false })).toBe(false);
   });
 });

@@ -91,3 +91,6 @@ next-env.d.ts
 /.work/email-composer/
 /.work/chat-ui-gallery/
 /public/chat-ui-gallery/
+
+# Editor mention browser screenshots
+/.work/reference-mention/

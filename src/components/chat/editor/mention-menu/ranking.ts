@@ -252,8 +252,8 @@ export interface ReferenceDrillDown {
 
 /**
  * A query of the form `alias/rest` means the user has drilled into a
- * reference folder — either by picking it from the list (which rewrites the
- * text to `@alias/`) or by typing the whole thing.
+ * reference folder, either by typing `/` after its chip or by typing the
+ * whole path.
  *
  * Returns null when nothing before the first slash matches a known alias, so
  * ordinary worktree paths like `src/lib/foo.ts` fall through untouched.
@@ -280,20 +280,13 @@ export function canBrowseReference(reference: ReferenceFolderMentionItem): boole
 }
 
 /**
- * What picking a reference folder does: drill into its files (rewriting the
- * query to `@alias/`), or, when its files are on another device, mention the
- * folder itself at its path there.
+ * A linked folder is a complete mention in its own right. Its chip carries
+ * the absolute path, including when the folder is on another device.
  */
-export function pickReference(
+export function toReferenceMention(
   reference: ReferenceFolderMentionItem,
-): { kind: 'drill'; text: string } | { kind: 'chip'; chip: FileMentionItem } {
-  if (reference.browsable === false && reference.exists) {
-    return {
-      kind: 'chip',
-      chip: { kind: 'dir', path: reference.absolutePath, name: reference.alias, label: reference.alias, referenceAlias: reference.alias },
-    }
-  }
-  return { kind: 'drill', text: `@${reference.alias}/` }
+): FileMentionItem {
+  return { kind: 'dir', path: reference.absolutePath, name: reference.alias, label: reference.alias, referenceAlias: reference.alias }
 }
 
 /**

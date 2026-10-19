@@ -375,12 +375,18 @@ export interface ReferenceFolderMentionItem {
 }
 ```
 
-Two-step behavior:
+Mention first, with optional file search:
 
 - Typing `@back` offers `backend` under a "Reference folders" section.
-- Selecting it **retargets the file picker into that folder**, so
-  `@backend/src/routes/` resolves. This is the ergonomic payoff and it falls
-  out of the existing suggestion plumbing rather than needing new machinery.
+- Select `backend` with a click, Enter or Tab to insert the folder chip and
+  close the picker. Typing the full name still requires selecting it.
+  There is no second confirmation or file selection step.
+- With the caret immediately after the chip, a faded inline hint reads
+  "Or type / for a specific file". It disappears when the user continues
+  writing or leaves the editor. It is a decoration, never saved or sent text.
+- Typing `/` immediately after the chip opens `@backend/` file search.
+  Browsing is optional, and the tree is never fetched for a repo-only mention.
+  A folder on another device resolves to a chip without offering local browse.
 - The picker offers them everywhere you write to an agent: its chats and
   executions (`useSessionReferenceFolders`), and the launcher before the
   execution exists (`useReferenceFolders`, offered only when the work runs on
@@ -388,11 +394,15 @@ Two-step behavior:
   removing a folder refreshes every open picker (`invalidateReferencePickers`),
   so a folder just added is there on the next `@`.
 
-**How the drill-down actually works.** Selecting a reference inserts no chip.
-It rewrites the composer text to `@<alias>/`, which leaves Tiptap's suggestion
-active and re-runs `items` with a query the parser recognizes. Typing
-`@backend/` by hand lands in exactly the same state, so there is no hidden
-picker mode to get out of sync — the query string *is* the state.
+**How selection and drill-down work.** Selecting a reference inserts the
+existing `MentionChipNode`. In `mention-menu/reference-mention.ts`, a slash
+immediately after it restores the text to `@<alias>/`,
+which reactivates the suggestion and re-runs `items` with a query the parser
+recognizes. Typing `@backend/src/routes/` continuously works the same way.
+Names such as `backend-tools` remain ordinary search text until selected.
+Backspace restores the alias for editing.
+Late async search results are checked against the active query so they cannot
+reopen a picker after a repo mention has already completed.
 
 Two things made this cheap, both verified against `@tiptap/suggestion@3.21.0`:
 `items` may be async (the plugin awaits it), and it only re-runs when the query
@@ -410,8 +420,9 @@ Ranking lives in `mention-menu/ranking.ts`, split out of `extension.ts` so the
 ordering rules are testable without loading Tiptap or React.
 
 Serialization: the chip stores the **absolute path** and renders the label as
-`backend/src/routes`. Absolute is unambiguous for the agent and needs no
-prompt-side expansion. Pretty label keeps the transcript readable. Reference
+`backend` for the folder itself or `backend/src/routes` for a file. Absolute is
+unambiguous for the agent and needs no prompt-side expansion. Pretty label
+keeps the transcript readable. Reference
 chips do not offer click-to-open, since the file viewer only resolves paths
 inside the worktree and a click that silently does nothing is worse than none.
 
@@ -542,7 +553,7 @@ Found while building Phase 2:
 - Route test for `GET /api/reference-folders/:id/tree`, including a bare
   non-git folder.
 
-As built: **96 tests across 7 files.**
+Coverage includes query, harness, tree and composer tests:
 
 - `queries.reference-folders.test.ts` (26) — alias scoping, cascades,
   exactly-one-of at both the query and CHECK layers, backlinks, `~`/relative
@@ -554,6 +565,13 @@ As built: **96 tests across 7 files.**
 - `mention-menu/ranking.test.ts` (20) — drill-down parsing, chip
   serialization, section ordering, the name-clash and absolute-path-scoring
   cases.
+- `mention-menu/reference-mention.test.ts`: explicit selection, continuing
+  prose, slash refinement, longer aliases, punctuation, unavailable folders,
+  composition safety, Backspace and undo/redo.
+- `pnpm exec tsx scripts/reference-mention-browser-smoke.ts`: real composer
+  interactions in Chromium and WebKit, desktop and phone widths, including
+  the faded hint, mouse and keyboard selection, sending while the hint is visible, deferred search
+  responses and lazy file browsing. Screenshots go to `.work/reference-mention`.
 - `reference-folders/tree.test.ts` (10) — gitignore honoured, heavy dirs
   pruned, symlinks not followed, unreadable subtree survived, and an assertion
   that listing **never writes** to the folder.

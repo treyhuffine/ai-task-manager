@@ -16,7 +16,7 @@ import {
   narrowedQueryText,
   parseMentionQuery,
   parseReferenceDrillDown,
-  pickReference,
+  toReferenceMention,
   queryAllowsSpaces,
   toReferenceFileItems,
 } from './ranking'
@@ -29,6 +29,7 @@ import type {
   SearchMentionSources,
 } from './types'
 import type { PrMentionItem } from '../pr-menu/types'
+import { createReferenceMentionPlugin } from './reference-mention'
 
 // Distinct PluginKey so this Suggestion plugin doesn't collide with the
 // slash and PR menus — Tiptap's `Suggestion` defaults to a shared
@@ -86,8 +87,8 @@ interface MentionMenuOptions {
  * inserts an `EntityChipNode` (serialized to `[[task:id]]` / `[[note:id]]`
  * / `[[scratchpad]]`). Selecting a PR inserts a `PrChipNode` (serialized to
  * a full context line via `formatPrRef`). Selecting a reference folder
- * inserts nothing: it rewrites the query to `@<alias>/` so the picker
- * retargets into that folder.
+ * inserts a folder chip and closes the picker. Typing `/` just after that chip
+ * restores `@<alias>/` to optionally search its files.
  *
  * PRs are gated behind a `#` after the `@` (`@#193`) — see `pr-trigger.ts`.
  * This replaced a standalone `#` trigger whose send-time raw-text expansion
@@ -120,6 +121,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
     const getReferences = () => this.options.getReferenceFolders?.() ?? []
     const getPrs = () => this.options.getPrs?.() ?? []
     const loadReferenceTree = this.options.loadReferenceTree
+    const renderPopup = createSuggestionPopupRenderer<MentionItem>(MentionMenuList, { asyncItems: true })
 
     const suggestion: Partial<SuggestionOptions<MentionItem, MentionItem>> = {
       pluginKey: MENTION_MENU_PLUGIN_KEY,
@@ -193,14 +195,9 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
           accountGroup = { id: item.groupId, prefix: `${item.label} /` }
           chain.insertContent(`@app:${accountGroup.prefix}`).run()
         } else if (item.kind === 'reference') {
-          // Usually not a chip: retarget the picker into the folder. Rewriting
-          // the text to `@alias/` leaves the suggestion active, so `items`
-          // reruns with a query that `parseReferenceDrillDown` recognizes.
-          // Typing `@alias/` by hand lands in exactly the same place. A folder
-          // whose files are on another device is mentioned instead.
-          const pick = pickReference(item)
-          if (pick.kind === 'chip') chain.insertMentionChip(pick.chip).insertContent(' ').run()
-          else chain.insertContent(pick.text).run()
+          // Keep the caret immediately after the completed mention so `/`
+          // can refine it. A normal space continues the message.
+          chain.insertMentionChip(toReferenceMention(item)).run()
         } else if (item.kind === 'file' || item.kind === 'dir') {
           chain.insertMentionChip(item).insertContent(' ').run()
         } else if (item.kind === 'scratchpad') {
@@ -235,10 +232,25 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
           chain.insertPrChip(pr).insertContent(' ').run()
         }
       },
-      render: createSuggestionPopupRenderer<MentionItem>(MentionMenuList, { asyncItems: true }),
+      render: () => {
+        const renderer = renderPopup()
+        // A selected repo can become a chip while the preceding query is
+        // still awaiting server results. Those results must not reopen it.
+        const isCurrent = (props: SuggestionProps<MentionItem>) => {
+          const current = MENTION_MENU_PLUGIN_KEY.getState(props.editor.state)
+          return current?.active && current.query === props.query
+            && current.range.from === props.range.from && current.range.to === props.range.to
+        }
+        return {
+          ...renderer,
+          onStart: (props: SuggestionProps<MentionItem>) => { if (isCurrent(props)) renderer.onStart(props) },
+          onUpdate: (props: SuggestionProps<MentionItem>) => { if (isCurrent(props)) renderer.onUpdate(props) },
+        }
+      },
     }
 
     return [
+      createReferenceMentionPlugin(getReferences, () => this.editor.view.composing),
       Suggestion<MentionItem, MentionItem>({
         editor: this.editor,
         ...suggestion,

@@ -11,8 +11,8 @@ import type { SourceSearchItem, SourceSearchResult } from '@/lib/chat-sources/ty
  *     surfaced near the top so the user doesn't have to search for it.
  *     Insertion → EntityChipNode (`[[scratchpad]]`).
  *   - reference — a reference folder (docs/reference-folders-spec.md).
- *     Selecting one does NOT insert a chip: it rewrites the query to
- *     `@<alias>/` so the picker retargets into that folder.
+ *     Selecting a result inserts a folder chip and closes the picker.
+ *     `/` optionally searches its files.
  *   - pr — a GitHub pull request, reached by typing `@#` (see
  *     `pr-trigger.ts`). Insertion → PrChipNode, which serializes to a
  *     full context line via `formatPrRef`.
