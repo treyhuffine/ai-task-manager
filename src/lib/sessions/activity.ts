@@ -127,6 +127,7 @@ const SOURCE_REASONS: Record<ChatEventSource, ActivityReason> = {
   approval_response: 'user_answered',
   connection_request: 'awaiting_user',
   connection_response: 'user_answered',
+  email_draft: 'agent_output',
   unknown: 'unknown_event',
 };
 

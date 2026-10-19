@@ -77,6 +77,7 @@ export const outlookMail = defineToolkit({
         subject: z.string(),
         content: z.string(),
         cc: z.array(z.string().email()).optional(),
+        bcc: z.array(z.string().email()).optional(),
       }),
       request: (i) => ({
         method: 'POST',
@@ -87,6 +88,7 @@ export const outlookMail = defineToolkit({
             body: { contentType: 'Text', content: i.content },
             toRecipients: i.to.map((address) => ({ emailAddress: { address } })),
             ...(i.cc ? { ccRecipients: i.cc.map((address) => ({ emailAddress: { address } })) } : {}),
+            ...(i.bcc ? { bccRecipients: i.bcc.map((address) => ({ emailAddress: { address } })) } : {}),
           },
           saveToSentItems: true,
         },

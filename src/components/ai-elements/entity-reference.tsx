@@ -11,7 +11,7 @@ import { useOptionalDashboard } from '@/contexts/dashboard-context';
 import type { AreaRecord, ChatSessionWithExecution, NoteRecord, TaskRecord } from '@/db/types';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { resolveMime } from '@/lib/attachments/mime';
-import { MessageFileChip } from '@/components/chat/message-file-chip';
+import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
 import { executionView } from '@/lib/client/active-view';
 import { calendarDaysUntil, formatLocalDate, isPastDate } from '@/lib/dates';
 import { cn } from '@/lib/utils';

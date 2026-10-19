@@ -3,7 +3,7 @@
 import type { DocumentChatHandle } from '@/components/ai-elements/slideout-chat';
 import { HarnessChatSession } from '@/components/chat/harness-chat';
 import { EntityBriefCard } from '@/components/entities/entity-brief-card';
-import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
+import { EntityChangeBanner } from '@/components/chat-ui/edits/entity-change-banner';
 import { AreaSelect } from '@/components/shared/area-select';
 import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { SubtaskSection } from '@/components/tasks/subtask-section';

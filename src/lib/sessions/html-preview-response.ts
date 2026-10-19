@@ -1,6 +1,6 @@
 /**
  * An HTML artifact's preview, served as a document for the sandboxed iframe
- * that opens it (`src/components/executions/viewer/html-view.tsx`).
+ * that opens it (`src/components/chat-ui/artifacts/html-view.tsx`).
  *
  * Previews used to travel inside the file viewer's JSON, which the page then
  * parsed, rewrote and handed to `srcdoc`. That held several copies of the

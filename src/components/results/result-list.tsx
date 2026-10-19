@@ -11,7 +11,7 @@ import { apiErrorText } from '@/lib/api/client';
 import type { WorkResultRecord } from '@/db/types';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { resultListTitle, uniqueResultPages } from './result-list-presentation';
-import { ResultRenderer } from './result-renderer';
+import { ResultRenderer } from '@/components/chat-ui/handoffs/result-renderer';
 
 export function ResultList({ taskId, executionId, compact = false, initialHistory = false }: {
   taskId?: string;

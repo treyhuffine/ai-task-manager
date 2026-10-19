@@ -6,8 +6,8 @@ import { ChevronLeft, Trash2, MoreHorizontal, ExternalLink, Archive, X } from 'l
 import { NoteEditor } from '@/components/editor/rich-editor';
 import { useNote, useUpdateNote, useDeleteNote } from '@/hooks/use-notes';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
-import { EntityHistoryButton } from '@/components/entities/entity-history-button';
-import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
+import { EntityHistoryButton } from '@/components/chat-ui/edits/entity-history-button';
+import { EntityChangeBanner } from '@/components/chat-ui/edits/entity-change-banner';
 import { EntityViewToggle } from '@/components/entities/entity-view-toggle';
 import { ENTITY_HEADER } from '@/components/entities/entity-header';
 import { EntityAgentView } from '@/components/entities/entity-agent-view';

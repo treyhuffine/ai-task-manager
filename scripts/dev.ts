@@ -34,6 +34,7 @@ import { clearServerRuntimeIfOwned, newRunId, publishServerRuntime } from '@/lib
 import { waitForServer } from '@/cli/lib/server';
 import { localAppsEnabled } from '@/lib/config/features';
 import { stageLocalApps } from './local-apps-stage';
+import { buildChatUiGallery } from './build-chat-ui-gallery';
 
 async function main() {
   process.env[APP_ROOT_ENV] = resolveDevAppRoot();
@@ -65,6 +66,7 @@ async function main() {
   // Source merges carry no generated app packages. Prepare the library before
   // serving it, while reusing complete artifacts on subsequent development starts.
   try {
+    await buildChatUiGallery();
     if (localAppsEnabled()) await stageLocalApps({ onlyMissing: true, compatibleOnly: true });
   } catch (error) {
     release();

@@ -446,7 +446,7 @@ export type CreateChatEventInput = WithCamelAttachments<Omit<InferInsertModel<ty
 export type ChatEventSource =
   | 'user' | 'agent' | 'thinking' | 'tool_call' | 'tool_result'
   | 'system' | 'result' | 'rate_limit' | 'error' | 'recap'
-  | 'background_task'
+  | 'background_task' | 'email_draft'
   | 'permission_request' | 'permission_response'
   | 'question_request' | 'question_response'
   // Integration actions that paused on "Ask first" (integrations/approval-events.ts):
@@ -464,7 +464,10 @@ export const OUTCOME_SOURCES: ReadonlySet<ChatEventSource> = new Set([
   'agent',
   'result',
   'background_task',
+  'email_draft',
 ]);
+
+export type { StoredEmailDraft as EmailDraft } from '@/lib/db/schema';
 
 /**
  * Permission modes for execution sessions. App-native vocabulary, decoupled

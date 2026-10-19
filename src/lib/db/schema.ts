@@ -2228,6 +2228,23 @@ export const isAuthRequiredEvent = (t: { source: AnySQLiteColumn }) => sql`${t.s
 export const isConnectionCardEvent = (t: { source: AnySQLiteColumn }) =>
   sql`${t.source} IN ('connection_request', 'connection_response')`;
 
+/** Durable content of an email_draft chat event. Edits use compare-and-swap on content. */
+export interface StoredEmailDraft {
+  version: 1;
+  revision: number;
+  status: 'draft' | 'sending' | 'sent' | 'uncertain' | 'discarded';
+  connectionId: string | null;
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+  error: string | null;
+  sentAt: string | null;
+  fromLabel: string | null;
+  messageId: string | null;
+}
+
 export const chatEvents = sqliteTable(
   'chat_events',
   {

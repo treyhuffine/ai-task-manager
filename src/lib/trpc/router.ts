@@ -1,4 +1,5 @@
 import { externalAiRouter } from '@/lib/external-ai/router';
+import { emailRouter } from '@/lib/email/router';
 import { chatSourcesRouter } from '@/lib/chat-sources/router';
 import { connectedAppsRouter } from '@/lib/mcp-apps/router';
 import { localAppsRouter } from '@/lib/local-apps/router';
@@ -61,6 +62,7 @@ function sharedTaskIn(id: string) {
 }
 
 export const appRouter = router({
+  email: emailRouter,
   externalAi: externalAiRouter,
   localApps: localAppsRouter,
   chatSources: chatSourcesRouter,

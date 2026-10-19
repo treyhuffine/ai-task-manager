@@ -20,6 +20,7 @@ import { localAppsEnabled } from '@/lib/config/features';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { HUMAN_LINES_PER_HOUR } from '@/lib/work/lines';
 import { resultActions } from './result-actions';
+import { emailActions } from './email-actions';
 import { getWorkResultSourceWorkspace } from '@/lib/work-results/reviewer-preferences';
 import { normalizeWorkResultGuidance, WorkResultGuidanceError } from '@/lib/instructions/preferences';
 import { AttachmentMetadataRepairError, MAX_ATTACHMENT_METADATA_REPAIRS, REPAIR_ATTACHMENT_FILE_NAME } from '@/lib/attachments/repair-metadata';
@@ -3629,6 +3630,7 @@ export const typedActions = [
   move_skill_action,
   ...browserActions,
   ...resultActions,
+  ...emailActions,
 ];
 
 /** Dynamic CLI/MCP dispatch validates the selected shape before invoking it.

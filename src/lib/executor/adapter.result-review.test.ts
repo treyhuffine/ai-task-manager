@@ -103,6 +103,7 @@ describe('reviewer provider startup and completion boundaries', () => {
       expect(context).toContain('Include specific evidence.');
       expect(context).toContain('do not override app authorization');
       expect(call.config.planMode).toBe(true);
+      expect(call.config.mcpServers?.some((server: { name: string }) => server.name === 'email')).not.toBe(true);
       expect(sent.endsWith(q.getWorkResultAiReview(review.id)!.brief!)).toBe(true);
       await expect(executor.dispatch(q.getWorkResultAiReview(review.id)!.reviewerSessionId!, 'Implement those changes.',
         { internalCall: true })).rejects.toMatchObject({ code: 'unsupported' });

@@ -424,7 +424,7 @@ One registry generates both surfaces, so every item lands on both.
 **Provenance in transcripts**
 
 - [x] Messages with a `sender_session_id` show who sent them ("From ri", "From orchestrator"), linking to the sending chat.
-  - `src/components/chat/sender-chip.tsx`. The agent chip opens the agent view, the orchestrator chip goes Home, and an execution chip opens that execution. A deleted sender reads "From a chat that was deleted". Verified with seeded events.
+  - `src/components/chat-ui/messages/sender-chip.tsx`. The agent chip opens the agent view, the orchestrator chip goes Home, and an execution chip opens that execution. A deleted sender reads "From a chat that was deleted". Verified with seeded events.
 
 **Trial preference**
 

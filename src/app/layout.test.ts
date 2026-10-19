@@ -18,7 +18,7 @@ vi.mock('@/components/desktop/service-connection', () => ({ ServiceConnection: '
 vi.mock('@/components/settings/phone-install', () => ({ WebAppBootstrap: 'web-app-bootstrap' }));
 vi.mock('@/components/dashboard/quick-capture-host', () => ({ QuickCaptureHost: 'quick-capture-host' }));
 vi.mock('@/components/team/team-root', () => ({ TeamRoot: 'team-root' }));
-vi.mock('@/components/chat/artifact-preview-provider', () => ({ ArtifactPreviewProvider: 'artifact-preview-provider' }));
+vi.mock('@/components/chat-ui/artifacts/artifact-preview-provider', () => ({ ArtifactPreviewProvider: 'artifact-preview-provider' }));
 vi.mock('@/components/spaces/space-root', () => ({ SpaceRoot: 'space-root' }));
 import RootLayout from './layout';
 

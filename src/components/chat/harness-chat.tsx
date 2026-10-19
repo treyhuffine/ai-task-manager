@@ -9,13 +9,13 @@ import {
 	type EmptyChatActions,
 	type MainChatIntro,
 } from '@/components/chat/main-chat-intro';
-import { BackgroundTasksBar } from '@/components/executions/background-tasks-bar';
+import { BackgroundTasksBar } from '@/components/chat-ui/activity/background-tasks-bar';
 import {
 	ExecutionComposer,
 	type ExecutionComposerHandle,
 } from '@/components/executions/execution-composer';
 import { ExecutionTranscript } from '@/components/executions/execution-transcript';
-import { PendingInputArea } from '@/components/executions/pending-input-overlay';
+import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 import { SyncingPill } from '@/components/executions/syncing-pill';
 import type { EffortLevel } from '@/db/types';
 import {

@@ -438,7 +438,7 @@ Everything lives under `src/lib/integrations/sources/` unless named otherwise.
 | --- | --- |
 | §2 Sources panel, application pages, method picker, agent access step | `src/components/settings/sections/integrations/sources-panel.tsx`, `application-detail.tsx`, wired in `integrations-section.tsx` (anchors `integrations:sources`, `integrations:app:<id>`) |
 | §2 Access picker grouping and the "All direct accounts" rule | `src/components/workspaces/integration-scope-picker.tsx` |
-| §2 Chat cards (connect through a source, managed reconnect) | `src/components/executions/connection-request-card.tsx`, `startCardManagedSignIn`, `resolveCardWithManagedConnection` and `managedAlternative` in `src/lib/integrations/connection-requests.ts` |
+| §2 Chat cards (connect through a source, managed reconnect) | `src/components/chat-ui/approvals/connection-request-card.tsx`, `startCardManagedSignIn`, `resolveCardWithManagedConnection` and `managedAlternative` in `src/lib/integrations/connection-requests.ts` |
 | §3 Method selection | `method-selection.ts` (pure), `connectionMethod` in `service.ts` |
 | §4 Reviewed catalog, pinned typed-read versions | `composio/catalog.ts` |
 | §4 Calendar view, day shape and deck | `calendar-reads.ts`, `src/lib/calendar/service.ts` (managed route, `complete`, `partial`, `via`), `src/lib/deck/calendar.ts` (`readCalendarDay` availability), `get_day_shape` |

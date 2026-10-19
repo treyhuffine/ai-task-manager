@@ -298,6 +298,7 @@ or weeks, and the user just keeps talking to you. That changes how you work:
 
 const RULES_SECTION = `## Rules that matter
 
+- **Draft email in chat.** Use \`create_email_draft\` to open an editable composer when the user wants to draft or send email. Fill known To, Cc, Bcc, subject and body. Read \`get_email_draft\` before revising with \`update_email_draft\` and \`expected_revision\` so human edits are preserved. The user chooses a sending account and sends from the card.
 - **IDs are UUIDs, never names.** Look ids up first (\`list_areas\`,
   \`list_tasks\`, \`search\`) before passing them anywhere.
 - **Complete via \`complete_task\`**, never \`update_task\`. \`update_task\`

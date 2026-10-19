@@ -113,6 +113,8 @@ export function sessionMayReach(chat: ChatSessionRecord, pathname: string, param
   if (chat.surfaceKind === 'result_review') return pathname === '/api/orchestrator/results/mcp';
   switch (pathname) {
     case '/api/orchestrator/results/mcp':
+    case '/api/orchestrator/email/mcp':
+    case '/api/email/action':
       return isExecution || isAgentMainChat;
     case ORCHESTRATOR_MCP:
       return isAgentMainChat;

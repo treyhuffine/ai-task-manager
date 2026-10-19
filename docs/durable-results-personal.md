@@ -28,7 +28,7 @@ Association is derived only from an authorized producing session or execution. A
 
 Changing the picker edits only the request. Use for this agent and Reset agent reviewer explicitly persist the producing agent's preference. The existing agent settings form edits the same fields and offers Review before handoff independently of the reviewer choice. Saving preferences does not enable the home capabilities. Signed harness sessions cannot write these preference fields through the settings API. The normal authoring model and global defaults remain unchanged.
 
-`src/lib/work-results/reviewer-preferences.ts` owns source association. `reviewer-selection-defaults.ts` supplies the same coherent inheritance to the server and picker. The workspace query layer owns validation and persistence. `src/components/results/reviewer-selection.tsx` and `src/components/agents/agent-setup.tsx` expose the explicit controls. Workspace mutations optimistically merge preferences into the existing workspace and result-detail caches and roll back failures.
+`src/lib/work-results/reviewer-preferences.ts` owns source association. `reviewer-selection-defaults.ts` supplies the same coherent inheritance to the server and picker. The workspace query layer owns validation and persistence. `src/components/chat-ui/handoffs/reviewer-selection.tsx` and `src/components/agents/agent-setup.tsx` expose the explicit controls. Workspace mutations optimistically merge preferences into the existing workspace and result-detail caches and roll back failures.
 
 ## Automatic review and runtime boundaries
 

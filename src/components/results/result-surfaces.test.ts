@@ -12,7 +12,7 @@ vi.mock('@/hooks/use-results', () => ({
   useInfiniteResults: (input: unknown) => { lists.pages(input); return { data: { pages: state.pages }, isPending: false, error: null }; },
   useAcceptResultComplete: () => ({ isPending: false, mutate: lists.complete }),
 }));
-vi.mock('./result-renderer', () => ({ ResultRenderer: () => createElement('span', null, 'Shared handoff renderer') }));
+vi.mock('@/components/chat-ui/handoffs/result-renderer', () => ({ ResultRenderer: () => createElement('span', null, 'Shared handoff renderer') }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/contexts/dashboard-context', () => ({ useDashboard: () => ({ theme: 'light', toggleTheme: vi.fn(), openAreasList: vi.fn() }) }));
 vi.mock('@/components/local-apps/app-hooks', () => ({ useLocalApps: () => ({ enabled: state.appsEnabled }) }));
@@ -23,11 +23,11 @@ vi.mock('@/components/calendar/calendar-panel', () => ({ CalendarPanel: () => nu
 import { ResultList } from './result-list';
 import { TaskResults } from './task-results';
 import { ExecutionResultsShortcut } from './execution-results-shortcut';
-import { ResultCompletionAction } from './result-completion-action';
+import { ResultCompletionAction } from '@/components/chat-ui/handoffs/result-completion-action';
 import { MobileMoreView } from '@/components/mobile/mobile-more-view';
 import { SAVED_RESULTS_COMMAND, PALETTE_COMMANDS } from '@/constants/commands';
 import { resultListTitle, uniqueResultPages } from './result-list-presentation';
-import { clearPendingResultCompletion, pendingResultCompletion, retainResultCompletion } from './completion-retry';
+import { clearPendingResultCompletion, pendingResultCompletion, retainResultCompletion } from '@/components/chat-ui/handoffs/completion-retry';
 
 const result = { id: 'taskless-pruned', title: 'Retained research', body: 'Original durable body', createdAt: '2026-10-07', sourceChatSessionId: null, sourceExecutionId: null, supersedesId: null, attachments: [] } as unknown as WorkResultRecord;
 const choice = { id: 'task-1', title: 'Ship work', status: 'todo', statusChangedCount: 7, recurrence: null } as const;

@@ -41,7 +41,7 @@ import { FileView, type FileViewHandle } from './file-view';
 import { DiffView } from './diff-view';
 import { ConflictView } from './conflict-view';
 import { MarkdownView } from './markdown-view';
-import { HtmlView } from './html-view';
+import { HtmlView } from '@/components/chat-ui/artifacts/html-view';
 import { Tip } from '@/components/ui/tip';
 
 interface FileViewerProps {

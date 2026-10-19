@@ -27,7 +27,7 @@ vi.mock('@/lib/attachments/client', () => ({ uploadAttachment: vi.fn() }));
 vi.mock('@/components/ui/confirm-dialog', () => ({ useConfirm: () => vi.fn() }));
 vi.mock('@/components/ui/switch', () => ({ Switch: () => null }));
 vi.mock('@/components/shared/emoji-picker', () => ({ EmojiPicker: ({ children }: { children: ReactNode }) => children }));
-vi.mock('@/components/results/reviewer-selection', () => ({ ReviewerSelection: () => null }));
+vi.mock('@/components/chat-ui/handoffs/reviewer-selection', () => ({ ReviewerSelection: () => null }));
 vi.mock('@/components/workspaces/workspace-integrations-section', () => ({ WorkspaceIntegrationsSection: () => null }));
 vi.mock('./agent-folders', () => ({ AgentFoldersSection: () => null }));
 vi.mock('./agent-skills-section', () => ({ AgentSkillsSection: () => null }));

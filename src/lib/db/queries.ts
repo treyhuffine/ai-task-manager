@@ -10,6 +10,8 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { assertPersonalCapability, registerHomeKindReader } from '@/lib/home/authority';
 import { getDb, getRawDb, isDatabaseOpen } from '@/lib/db';
 import { processState } from '@/lib/process-state';
+import { emailDraftFieldsSchema, emailDraftPatchSchema, parseEmailDraft, EmailDraftError, type EmailDraftFields } from '@/lib/email/validation';
+import type { EmailDraft } from '@/db/types';
 import { teamContentChanged } from '@/lib/spaces/generation';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
@@ -10830,6 +10832,55 @@ export function getChatEventById(id: string): ChatEventRecord | null {
   const db = getDb();
   const rows = db.select().from(chatEvents).where(eq(chatEvents.id, id)).limit(1).all();
   return rows[0] ? hydrateRow(rows[0]) : null;
+}
+
+/** One exact indexed event lookup, never a scan of a long chat. */
+export function getEmailDraft(id: string, sessionId: string) {
+  const event = getChatEventById(id);
+  const draft = event?.source === 'email_draft' && event.sessionId === sessionId ? parseEmailDraft(event.content) : null;
+  if (!event || !draft) throw new EmailDraftError('not_found', 'Email draft not found in this chat');
+  return { id: event.id, sessionId, draft };
+}
+
+export function createEmailDraft(sessionId: string, requestId: string, fields: Partial<EmailDraftFields>) {
+  if (!getChatSession(sessionId)) throw new EmailDraftError('not_found', 'Chat not found');
+  const initial = emailDraftFieldsSchema.parse({ connectionId: null, to: '', cc: '', bcc: '', subject: '', body: '', ...fields });
+  const digest = createHash('sha256').update(JSON.stringify(initial)).digest('hex');
+  const externalEventId = `email-draft:${requestId}`;
+  const draft: EmailDraft = { ...initial, version: 1, revision: 0, status: 'draft', error: null, sentAt: null, fromLabel: null, messageId: null };
+  const inserted = insertChatEvent({ sessionId, role: 'assistant', source: 'email_draft', content: JSON.stringify(draft), partRevision: 0, externalEventId, raw: { emailDraftCreationDigest: digest } });
+  if (inserted) return { id: inserted.id, sessionId, draft };
+  const prior = getDb().select().from(chatEvents).where(and(eq(chatEvents.sessionId, sessionId), eq(chatEvents.externalEventId, externalEventId), eq(chatEvents.sourcePartIndex, 0))).get();
+  if (!prior || (prior.raw as { emailDraftCreationDigest?: string } | null)?.emailDraftCreationDigest !== digest) {
+    throw new EmailDraftError('conflict', 'This request id already created a different email draft');
+  }
+  return getEmailDraft(prior.id, sessionId);
+}
+
+function replaceEmailDraft(id: string, sessionId: string, previous: EmailDraft, next: EmailDraft) {
+  const row = getDb().update(chatEvents).set({ content: JSON.stringify(next), partRevision: next.revision }).where(and(
+    eq(chatEvents.id, id), eq(chatEvents.sessionId, sessionId), eq(chatEvents.source, 'email_draft'), eq(chatEvents.content, JSON.stringify(previous)),
+  )).returning().get();
+  if (!row) throw new EmailDraftError('conflict', 'This email changed. Review the latest draft before saving or sending');
+  publishChatEvent(hydrateRow(row));
+  return { id, sessionId, draft: next };
+}
+
+export function updateEmailDraft(id: string, sessionId: string, expectedRevision: number, input: Partial<EmailDraftFields>) {
+  const patch = emailDraftPatchSchema.parse(input);
+  const current = getEmailDraft(id, sessionId);
+  if (current.draft.status !== 'draft') throw new EmailDraftError('conflict', 'This email can no longer be edited');
+  // Identical retries do not bump revision or overwrite another field.
+  if (Object.entries(patch).every(([key, value]) => current.draft[key as keyof EmailDraftFields] === value)) return current;
+  if (current.draft.revision !== expectedRevision) throw new EmailDraftError('conflict', 'This email changed. Review the latest draft before saving or sending');
+  return replaceEmailDraft(id, sessionId, current.draft, { ...current.draft, ...patch, error: null, revision: expectedRevision + 1 });
+}
+
+/** Server-owned lifecycle. A send claims the exact reviewed revision before any asynchronous work. */
+export function transitionEmailDraft(id: string, sessionId: string, expectedRevision: number, expectedStatus: EmailDraft['status'], patch: Partial<Pick<EmailDraft, 'status' | 'error' | 'sentAt' | 'fromLabel' | 'messageId'>>) {
+  const current = getEmailDraft(id, sessionId);
+  if (current.draft.revision !== expectedRevision || current.draft.status !== expectedStatus) throw new EmailDraftError('conflict', 'This email changed. Review the latest draft before saving or sending');
+  return replaceEmailDraft(id, sessionId, current.draft, { ...current.draft, ...patch, revision: expectedRevision + 1 });
 }
 
 /**

@@ -7,7 +7,7 @@ import type { PublishedResult } from '@/lib/team/published-results';
 import { attachmentUrl, bodyWithAttachmentUrls } from '@/lib/attachments/view';
 import { trpcClient } from '@/lib/trpc/client';
 import { MessageResponse } from '@/components/ai-elements/message';
-import { MessageFileChip } from '@/components/chat/message-file-chip';
+import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
 import { parseFileMarkers } from '@/components/chat/editor/parse-file-markers';
 
 function when(iso: string) {

@@ -3,7 +3,7 @@
 import { use } from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
-import { ResultRenderer } from '@/components/results/result-renderer';
+import { ResultRenderer } from '@/components/chat-ui/handoffs/result-renderer';
 
 export default function ResultPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);

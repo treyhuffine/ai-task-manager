@@ -48,8 +48,8 @@ import {
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
 import { useDragResize } from '@/hooks/use-drag-resize';
 import { ReferencingSessionsButton } from '@/components/shared/referencing-sessions-button';
-import { EntityHistoryButton } from '@/components/entities/entity-history-button';
-import { EntityChangeBanner } from '@/components/entities/entity-change-banner';
+import { EntityHistoryButton } from '@/components/chat-ui/edits/entity-history-button';
+import { EntityChangeBanner } from '@/components/chat-ui/edits/entity-change-banner';
 import { EntityViewToggle } from '@/components/entities/entity-view-toggle';
 import { ENTITY_HEADER, ENTITY_HEADER_LABEL } from '@/components/entities/entity-header';
 import { EntityAgentView } from '@/components/entities/entity-agent-view';

@@ -3,6 +3,8 @@ import { isTrpcDrainSave } from './admission';
 
 it('allows only complete batches of known document saves during drain', () => {
   expect(isTrpcDrainSave('POST', '/api/trpc/tasks.update')).toBe(true);
+  expect(isTrpcDrainSave('POST', '/api/trpc/email.update')).toBe(true);
+  expect(isTrpcDrainSave('POST', '/api/trpc/email.send')).toBe(false);
   expect(isTrpcDrainSave('POST', '/api/trpc/tasks.update,notes.update,areas.update')).toBe(true);
   expect(isTrpcDrainSave('POST', '/api/trpc/tasks.update%2Cnotes.update')).toBe(true);
   for (const path of ['tasks.update,tasks.create', 'tasks.update,', 'tasks.update.evil', 'tasks.update/extra', '', '%ZZ']) {

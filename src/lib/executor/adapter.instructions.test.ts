@@ -85,6 +85,16 @@ describe('scoped handoff guidance and general agent instructions at the dispatch
     return { workspace, session };
   }
 
+  it('attaches the signed email draft surface to an ordinary execution', async () => {
+    (await import('@/lib/auth/config-file')).writeAuthConfig({ localToken: 'instruction-test-token' });
+    const { session } = seed('claude', 'execution', false);
+    await executor.dispatch(session.id, 'Draft an email', { internalCall: true });
+    const call = mock.createSession.mock.calls.at(-1)![0];
+    expect(call.config.mcpServers).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'email', url: expect.stringContaining('/api/orchestrator/email/mcp') })]));
+    expect(fs.readFileSync(call.config.instructionsFile, 'utf8')).toContain('create_email_draft');
+    await executor.close(session.id);
+  });
+
   it.each(['claude', 'codex', 'cursor', 'opencode', 'antigravity'] as const)(
     'keeps handoff preferences out of fresh, resumed and cached %s ordinary chats', async (harness) => {
       for (const surface of ['app', 'task', 'note', 'agent', 'execution']) {

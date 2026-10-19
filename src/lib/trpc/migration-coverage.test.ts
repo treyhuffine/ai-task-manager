@@ -19,6 +19,8 @@ const protocolRoutes = new Set([
   '/health', '/live', '/orchestrator/[transport]', '/orchestrator/actions/[name]', '/orchestrator/browser/[transport]', '/orchestrator/coordination/[transport]', '/orchestrator/results/[transport]', '/playground/chat',
   // Signed harness reports and reviewer completion keep their language-neutral wire contract.
   '/results/reports', '/results/review-reports',
+  // Signed email-draft forwarding and the narrow harness MCP. UI uses emailRouter.
+  '/email/action', '/orchestrator/email/[transport]',
   // Signed CLI forwarding and the versioned app-process capability broker.
   '/chat-sources/action', '/local-apps/action', '/local-apps/broker/v1/[operation]',
   // Package bytes and the backup CLI's cross-process pause/resume lease.

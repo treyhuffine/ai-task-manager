@@ -16,7 +16,7 @@ import { WebAppBootstrap } from '@/components/settings/phone-install';
 import { QuickCaptureHost } from '@/components/dashboard/quick-capture-host';
 import { TeamRoot } from '@/components/team/team-root';
 import { isTeamPage } from '@/lib/team/page-authority';
-import { ArtifactPreviewProvider } from '@/components/chat/artifact-preview-provider';
+import { ArtifactPreviewProvider } from '@/components/chat-ui/artifacts/artifact-preview-provider';
 import { spacePage } from '@/lib/spaces/page';
 import { SpaceRoot } from '@/components/spaces/space-root';
 

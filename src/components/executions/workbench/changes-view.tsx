@@ -7,7 +7,7 @@ import { FileIcon } from '@/components/file-icon';
 import { useSessionDiff, useWorktreeScope } from '@/hooks/use-execution';
 import { apiErrorText } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
-import { DiffLines } from '../file-chip';
+import { DiffLines } from '@/components/chat-ui/artifacts/file-chip';
 import { summarizeChanges, filesLabel, type ChangedFileSummary } from './changes-summary';
 import { Tip } from '@/components/ui/tip';
 

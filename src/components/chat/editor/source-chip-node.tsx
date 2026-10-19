@@ -1,6 +1,6 @@
 import { Node, mergeAttributes, nodePasteRule, type NodeViewProps } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
-import { SourceChip } from '../source-chip';
+import { SourceChip } from '@/components/chat-ui/references/source-chip';
 import { sourceMarker, decodeSource } from '@/lib/chat-sources/reference';
 import { handleChipBackspace } from './suggestion/chip-backspace';
 export const SOURCE_CHIP_NAME = 'sourceChip';

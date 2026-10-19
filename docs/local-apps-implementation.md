@@ -291,7 +291,7 @@ Shared Ri files changed for this trial:
 - `pnpm-workspace.yaml`
 - `src/components/chat/harness-chat.tsx`
 - `src/components/dashboard/dashboard.tsx`
-- `src/components/executions/execution-event.tsx`
+- `src/components/chat-ui/activity/execution-event.tsx`
 - `src/components/executions/execution-view.tsx`
 - `src/components/mobile/mobile-layout.tsx`
 - `src/components/mobile/tablet-layout.tsx`

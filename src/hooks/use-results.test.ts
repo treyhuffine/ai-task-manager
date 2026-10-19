@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { parseHTML } from 'linkedom';
 import { entityKeys } from '@/lib/query/entity-keys';
 import type { WorkResultCompleteResponse } from '@/lib/api/results';
-import { pendingResultCompletion } from '@/components/results/completion-retry';
+import { pendingResultCompletion } from '@/components/chat-ui/handoffs/completion-retry';
 import { useAcceptResultComplete } from './use-results';
 
 const fixtures = vi.hoisted(() => ({ complete: vi.fn(), guard: vi.fn(), getTask: vi.fn(), error: vi.fn() }));

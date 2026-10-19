@@ -88,3 +88,6 @@ next-env.d.ts
 
 # Local source-mentions delivery and qualification artifacts
 /.work/chat-sources/
+/.work/email-composer/
+/.work/chat-ui-gallery/
+/public/chat-ui-gallery/

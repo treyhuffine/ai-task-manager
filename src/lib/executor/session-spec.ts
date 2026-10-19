@@ -55,6 +55,7 @@ import { pendingHandoff } from '@/lib/transfer/continue';
 import { renderStandingAgentInstructionsPrompt } from './prompts/standing-instructions';
 import { getWorkResultCapabilities } from '@/lib/work-results/capabilities';
 import { workResultsMcpServer } from '@/lib/work-results/instructions';
+import { emailMcpServer, EMAIL_COMPOSER_INSTRUCTIONS } from '@/lib/email/surface';
 import { handoffPreamble } from '@/lib/transfer/handoff';
 import { coordinationMcpServer, COORDINATION_INSTRUCTIONS } from '@/lib/coordination/surface';
 
@@ -346,6 +347,8 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       if (args.surfaceKind !== 'result_review') {
         const coordination = coordinationMcpServer(args.chatSessionId);
         if (coordination) servers.push(coordination);
+        const email = emailMcpServer(args.chatSessionId);
+        if (email) servers.push(email);
       }
       if (getWorkResultCapabilities().handoffsEnabled || args.surfaceKind === 'result_review') {
         const results = workResultsMcpServer(args.chatSessionId);
@@ -387,6 +390,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     const instructionBlocks = [
       { name: 'agent instructions', text: '' },
       ...(args.surfaceKind !== 'result_review' ? [{ name: 'agent coordination', text: COORDINATION_INSTRUCTIONS }] : []),
+      ...(args.surfaceKind !== 'result_review' ? [{ name: 'email composer', text: EMAIL_COMPOSER_INSTRUCTIONS }] : []),
     ];
 
     // Reference folders (docs/reference-folders-spec.md §6/§7). The prompt

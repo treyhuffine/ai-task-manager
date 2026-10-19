@@ -1,0 +1,11 @@
+/** Standard MCP Apps guest. Prepared by the same resource validator as connected services. */
+export const GALLERY_GUEST_HTML = `<!doctype html><html><head><style>
+body{margin:0;padding:20px;font:14px system-ui;color:#26382b;background:#f5f8f5}h2{font-size:18px;margin:0 0 6px}p{color:#617266}label{display:block;margin:16px 0 8px}input,button{font:inherit;border:1px solid #c7d3c9;border-radius:8px;padding:9px;background:#fff;color:#26382b}input{width:90px}button{margin-left:8px;cursor:pointer}output{display:block;font-size:28px;font-weight:600;margin-top:20px}small{display:block;color:#617266;margin-top:16px}@media(prefers-color-scheme:dark){body{background:#18221b;color:#e4ede5}p,small{color:#a0b6a4}input,button{background:#233129;color:#e4ede5;border-color:#455e4b}}
+</style></head><body><h2>Project estimate</h2><p>An example interface supplied by a connected app.</p><label for="hours">Hours</label><input id="hours" type="number" value="8" min="1" max="1000"><button id="calculate">Recalculate</button><output id="estimate">$960</output><small>$120 per hour · Fictional data</small><script>
+let sequence=0;const awaiting=new Map();
+const rpc=(method,params)=>new Promise((resolve,reject)=>{const id=++sequence;awaiting.set(id,{resolve,reject});parent.postMessage({jsonrpc:'2.0',id,method,params},'*')});
+const notify=(method,params)=>parent.postMessage({jsonrpc:'2.0',method,params},'*');
+addEventListener('message',event=>{if(event.source!==parent)return;const msg=event.data;if(msg?.id&&awaiting.has(msg.id)){const task=awaiting.get(msg.id);awaiting.delete(msg.id);msg.error?task.reject(new Error(msg.error.message)):task.resolve(msg.result)}});
+rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Gallery calculator',version:'1.0.0'},appCapabilities:{}}).then(()=>{notify('ui/notifications/initialized',{});notify('ui/notifications/size-changed',{height:320})});
+document.getElementById('calculate').onclick=async()=>{const hours=Math.max(1,Math.min(1000,Number(document.getElementById('hours').value)||1));const response=await rpc('tools/call',{name:'estimate',arguments:{hours}});document.getElementById('estimate').textContent='$'+response.structuredContent.total;await rpc('ui/update-model-context',{content:[{type:'text',text:'The selected estimate is '+hours+' hours.'}]})};
+</script></body></html>`;

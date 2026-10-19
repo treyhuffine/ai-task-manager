@@ -77,6 +77,9 @@ describe('a session token', () => {
     // An execution isn't given the orchestrator, and nothing else is a server.
     expect(may('/api/orchestrator/mcp')).toBe(false);
     expect(may('/api/orchestrator/results/mcp')).toBe(true);
+    expect(may('/api/orchestrator/email/mcp')).toBe(true);
+    expect(may('/api/email/action')).toBe(true);
+    expect(may('/api/trpc/email.send')).toBe(false);
     expect(may('/api/tasks')).toBe(false);
 
     const mainChat = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active', permissionMode: 'ask', workspaceId: agentId } as never);
@@ -90,7 +93,7 @@ describe('a session token', () => {
     const q = await import('@/lib/db/queries');
     const reviewer = { ...q.getChatSession(executionChat)!, surfaceKind: 'result_review' as const };
     expect(sessionMayReach(reviewer, '/api/orchestrator/results/mcp', new URLSearchParams())).toBe(true);
-    for (const path of ['/api/orchestrator/mcp', '/api/integrations/mcp', '/api/orchestrator/browser/mcp', '/api/results/reports']) {
+    for (const path of ['/api/orchestrator/mcp', '/api/integrations/mcp', '/api/orchestrator/browser/mcp', '/api/results/reports', '/api/orchestrator/email/mcp', '/api/email/action']) {
       expect(sessionMayReach(reviewer, path, new URLSearchParams(`ws=${agentId}&profile=ws-${agentId}`))).toBe(false);
     }
   });

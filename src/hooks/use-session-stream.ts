@@ -18,7 +18,7 @@ import type { MessageDelivery } from '@/lib/workers/delivery';
 import { noteDeliveryUpdate } from '@/lib/query/delivery-fence';
 import { pageStream } from '@/lib/realtime/page-stream';
 import { integrationApprovalsKey } from '@/hooks/use-integration-approvals';
-import { refreshResultOperationEvent } from '@/components/results/presentation';
+import { refreshResultOperationEvent } from '@/components/chat-ui/handoffs/presentation';
 
 /**
  * Subscribes to the session's frames and folds every frame into

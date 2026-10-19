@@ -1,6 +1,7 @@
 'use client';
 import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { trpcClient } from '@/lib/trpc/client';
+import Link from 'next/link';
 
 /**
  * /dev/execution-chat — playground for the execution-chat surface.
@@ -157,6 +158,7 @@ function DevExecutionChatInner() {
           <p className="text-[10.5px] text-muted-foreground/80 mt-1 leading-snug">
             Inject = synthetic state, no agent call. Live = real prompt + agent dispatch.
           </p>
+          <Link href="/gallery" className="mt-2 inline-block text-[11px] text-primary hover:underline">Explore the Chat UI gallery</Link>
           <div className="flex items-center gap-2 mt-2 text-[10px]">
             <span className={cn('px-1.5 py-0.5 rounded border font-medium', modeMeta.classes.text, modeMeta.classes.border, modeMeta.classes.bg)}>
               {modeMeta.shortTitle}

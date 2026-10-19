@@ -22,7 +22,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { AgentFoldersSection } from './agent-folders';
 import { AgentSkillsSection } from './agent-skills-section';
-import { ReviewerSelection } from '@/components/results/reviewer-selection';
+import { ReviewerSelection } from '@/components/chat-ui/handoffs/reviewer-selection';
 import { useResultCapabilities } from '@/hooks/use-results';
 import type { ReviewerOverrides } from '@/lib/api/results';
 import { WORK_RESULT_GUIDANCE_MAX } from '@/lib/instructions/preferences';

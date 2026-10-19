@@ -6,8 +6,8 @@ import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { entityKeys } from '@/lib/query/entity-keys';
 import { workResultsApi, type WorkResultDecisionInput, type WorkResultReviewInput, type WorkResultListInput, type WorkResultCompleteInput, type WorkResultCompleteResponse } from '@/lib/api/results';
 import { useLifecycleGuard } from '@/components/tasks/lifecycle-guard';
-import { clearResultRequestKey, resultRequestKey } from '@/components/results/request-key';
-import { clearPendingResultCompletion, pendingResultCompletion, retainResultCompletion } from '@/components/results/completion-retry';
+import { clearResultRequestKey, resultRequestKey } from '@/components/chat-ui/handoffs/request-key';
+import { clearPendingResultCompletion, pendingResultCompletion, retainResultCompletion } from '@/components/chat-ui/handoffs/completion-retry';
 
 export const resultKey = (id: string | null) => ['results', id] as const;
 

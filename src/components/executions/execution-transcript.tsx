@@ -19,12 +19,12 @@ import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { ActivityGroup } from './activity-group';
-import { ExecutionEvent } from './execution-event';
-import { TurnFilesFooter } from './file-chip';
+import { ActivityGroup } from '@/components/chat-ui/activity/activity-group';
+import { ExecutionEvent } from '@/components/chat-ui/activity/execution-event';
+import { TurnFilesFooter } from '@/components/chat-ui/artifacts/file-chip';
 import { SetupCard } from './setup-card';
 import { ThinkingState } from './thinking-state';
-import { buildTranscriptNodes } from './transcript-grouping';
+import { buildTranscriptNodes } from '@/components/chat-ui/activity/transcript-grouping';
 
 // Layout effect that no-ops to a passive effect during SSR — the
 // transcript is a client component but still renders once on the server,

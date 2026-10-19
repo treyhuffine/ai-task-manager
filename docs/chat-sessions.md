@@ -4,6 +4,13 @@ Decision doc for how chat works in this app. Written for future-me and anyone wo
 
 Implementation note, 2026-07-14: historical imports now use the provider-neutral Agentex history APIs and the `external_session_imports` ledger. Claude and Codex use Agentex `localHistory`. OpenCode uses Agentex `savedHistory`. The `chat_sessions.external_*` fields described below are live CLI bindings only. Imported transcript synchronization is explicit in Settings in this pass. It is not part of the live-session startup and on-open reconciler. See `docs/external-agent-history-import-spec.md` for the authoritative import contract.
 
+Interactive email drafts render as persistent `email_draft` events inside the same
+transcript. Humans and AI share the draft, and the owner sends from its composer.
+See [Email in chat](email-composer.md) for tools, revision handling and delivery.
+
+The [Chat UI gallery](chat-ui-gallery.md) at `/gallery` is the central visual
+reference for interactive chat interfaces, their origins and source files.
+
 ## TL;DR
 
 **There are three distinct kinds of chat, not one model with variants.** Each serves a different purpose and gets the UX that purpose deserves:

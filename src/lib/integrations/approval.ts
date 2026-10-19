@@ -35,6 +35,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ApprovalPolicy, ApprovalCheckInput, Caller } from '@integrations/engine';
 import { isNotifierDelivery } from '@/lib/notifications/caller';
+import { isEmailComposerSend } from '@/lib/email/caller';
 import { publishIntegrationApprovals } from '@/lib/realtime/bus';
 import { resolveApprovalMode, type ApprovalMode } from './write-policy';
 
@@ -172,6 +173,8 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
       // delivery via an allowlisted action — never "all app callers". Agent/MCP calls fall through
       // to the real gate below. Must precede the mutating check (delivery actions are mutating).
       if (isNotifierDelivery(input.caller, input.actionId)) return 'allow';
+      // The viewer already reviewed this exact revision and clicked Send.
+      if (isEmailComposerSend(input.caller, input.actionId)) return 'allow';
       if (opts.autoApprove) return 'allow';
       const key = grantKey(input) + (input.caller?.localApp ? `|app:${JSON.stringify(input.caller.localApp)}` : '') + (input.caller?.chatSource ? `|source:${JSON.stringify(input.caller.chatSource)}` : '') + (input.caller?.connectedApp ? connectedAppKey(input.caller.connectedApp) : '');
       const sessionId = sessionIdFromCaller(input.caller);

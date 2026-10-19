@@ -415,7 +415,7 @@ and **on-disk reconciliation** (`parseFileEntry`, for imported/drift). They dedu
 
 - ✅ Recognizes the tool: `src/lib/executions/tool-display.ts:219-220`
   (`case 'Task' → {glyph:'task', verb:'Subagent', kind:'subagent'}`); `isSubagentTool` at 255-258;
-  counted in turn summaries by `src/components/executions/transcript-grouping.ts`
+  counted in turn summaries by `src/components/chat-ui/activity/transcript-grouping.ts`
   ("6 tool calls · 2 subagents").
 - ❌ **Renders no task events.** `src/components/executions/execution-transcript.tsx:362-371` —
   `RENDERABLE_SYSTEM_SUBTYPES = new Set<string>([])` (empty), filtered at line ~401. The comment
@@ -494,7 +494,7 @@ exact thing missing from the transcript that started this investigation.
 | SSE fan-out | `src/app/api/sessions/[id]/stream/route.ts` | 75-84 |
 | Client stream hook | `src/hooks/use-session-stream.ts` | 34-173 |
 | Task tool → subagent pill | `src/lib/executions/tool-display.ts` | 219-220, 255-258 |
-| Subagent counting | `src/components/executions/transcript-grouping.ts` | — |
+| Subagent counting | `src/components/chat-ui/activity/transcript-grouping.ts` | — |
 | **Empty render allowlist (the gap)** | `src/components/executions/execution-transcript.tsx` | 362-401 |
 | `externalParentToolCallId` column | `src/lib/db/schema.ts` | 673 |
 | Adapter wiring + ingestion-path docs | `docs/chat-sessions.md` | 247, 389-536 |

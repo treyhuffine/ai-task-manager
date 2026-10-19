@@ -1,6 +1,6 @@
 'use client';
 import { SourceChipNode, SOURCE_CHIP_NAME } from './source-chip-node';
-import { EditorSourceProvider } from '../source-chip';
+import { EditorSourceProvider } from '@/components/chat-ui/references/source-chip';
 import { sourceMarker } from '@/lib/chat-sources/reference';
 import { receiveChatSources } from '@/lib/client/source-handoff';
 import { trpcClient } from '@/lib/trpc/client';
