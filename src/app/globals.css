@@ -38,6 +38,14 @@ html[data-ri-desktop='darwin'] body:not(:has([data-desktop-titlebar])) > .deskto
 html[data-ri-desktop='darwin'] .desktop-drag-fallback button {
   -webkit-app-region: no-drag;
 }
+/* Sheets are portalled to body and fixed to the viewport, so the fallback's
+   body padding cannot keep their toolbars clear of the native drag strip.
+   The dashboard title bar reserves the same 40px. Raising z-index cannot
+   make controls inside an Electron drag region reliably clickable. */
+html[data-ri-desktop='darwin'] [data-slot='sheet-content']:is([data-side='left'], [data-side='right']) {
+  top: 40px;
+  height: calc(100dvh - 40px);
+}
 
 /* The phone has its own header. This container measures usable tablet and
    desktop space, excluding native window controls and history buttons. */
