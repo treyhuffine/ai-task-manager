@@ -123,11 +123,11 @@ export const userState = sqliteTable('user_state', {
   // Null → resolveVoiceModel() auto-picks an available provider. Model ids
   // churn, so no schema literal.
   voiceModel: text(),
-  // The home's default for new work: the harness, model, variant and effort
+  // The global default model: the harness, model, variant and effort
   // new chats, executions and background calls start on. Its own value, not a
-  // copy of that harness's default in `harness_settings` (which is only used
-  // when something picks another harness without a model). Changed only on
-  // purpose (Settings' "Default for new work", a model menu's "Make default",
+  // copy of that harness's own default in `harness_settings` (used when
+  // something picks that harness without a model). Changed only on
+  // purpose (Settings' "Default model", a model menu's "Make default",
   // first-run setup), never by sending or starting a chat
   // (docs/default-selection.md). Nullable for a home that never chose; chat
   // creation resolves null to concrete values.

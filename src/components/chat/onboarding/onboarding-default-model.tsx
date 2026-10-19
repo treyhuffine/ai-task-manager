@@ -14,9 +14,9 @@ import { Card } from './onboarding-ui';
  * The first run picks the harness, model and effort without asking when it
  * can (`HarnessStep`), so this says what it picked, once, in one quiet line
  * where the pick happened: "Found Claude Code. Default set to Opus 5.5,
- * medium effort." Change opens the same editor as Settings' "Default for new
- * work" (`DefaultSelectionEditor`), inline, and saving makes the pick the
- * default for new work. Never a question to answer: the conversation
+ * medium effort." Change opens the same editor as Settings' "Default model"
+ * (`DefaultSelectionEditor`), inline, and saving makes the pick the
+ * global default model. Never a question to answer: the conversation
  * goes on past it either way.
  */
 export function DefaultModelLine({ found }: { found: boolean }) {

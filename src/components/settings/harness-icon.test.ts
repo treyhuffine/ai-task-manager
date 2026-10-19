@@ -1,20 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { Braces, Code2, Orbit, SquareTerminal, Terminal } from 'lucide-react';
 import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
-import { harnessIcon } from './harness-connection-ui';
+import { harnessLogo } from './harness-connection-ui';
 
-describe('harnessIcon', () => {
-  it('draws each harness with the icon its registry entry names', () => {
-    expect(harnessIcon('claude')).toBe(Terminal);
-    expect(harnessIcon('codex')).toBe(Code2);
-    expect(harnessIcon('cursor')).toBe(SquareTerminal);
-    expect(harnessIcon('opencode')).toBe(Braces);
-    expect(harnessIcon('antigravity')).toBe(Orbit);
+describe('harnessLogo', () => {
+  it('draws each harness with its own brand mark', () => {
+    expect(harnessLogo('claude').title).toBe('Claude');
+    expect(harnessLogo('codex').title).toBe('Codex');
+    expect(harnessLogo('cursor').title).toBe('Cursor');
+    expect(harnessLogo('opencode').title).toBe('OpenCode');
+    expect(harnessLogo('antigravity').title).toBe('Antigravity');
   });
 
-  it('gives every harness its own icon', () => {
-    const icons = KNOWN_HARNESS_IDS.map(harnessIcon);
-    expect(icons.every(Boolean)).toBe(true);
-    expect(new Set(icons).size).toBe(icons.length);
+  it('gives every harness a distinct, drawable mark and a brand color', () => {
+    const logos = KNOWN_HARNESS_IDS.map(harnessLogo);
+    expect(new Set(logos.map((logo) => logo.path)).size).toBe(logos.length);
+    for (const logo of logos) {
+      expect(logo.path).toMatch(/^[Mm][MmLlHhVvCcSsQqTtAaZz0-9 ,.\-e]+$/);
+      expect(logo.hex).toMatch(/^[0-9A-F]{6}$/i);
+    }
   });
 });

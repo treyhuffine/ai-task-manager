@@ -95,7 +95,7 @@ describe('PUT /api/harness/models/enabled', () => {
     });
   });
 
-  it('only saves the harness: making it the default for new work is another route', async () => {
+  it('only saves the harness: making it the global default model is another route', async () => {
     mocks.getHarnessModelCatalog.mockResolvedValue([{ id: 'grok-4.5', label: 'Grok 4.5' }]);
     const response = await PUT(request({
       harness: 'cursor',
@@ -104,7 +104,7 @@ describe('PUT /api/harness/models/enabled', () => {
       makeActive: true,
     }));
 
-    // `makeActive` is gone (PUT /api/harness/default sets the default for new work).
+    // `makeActive` is gone (PUT /api/harness/default sets the global default model).
     expect(response.status).toBe(400);
     expect(mocks.setEnabledHarnessModels).not.toHaveBeenCalled();
   });

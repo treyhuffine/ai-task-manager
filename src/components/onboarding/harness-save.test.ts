@@ -23,7 +23,7 @@ beforeEach(() => {
 });
 
 describe('saveHarnessSetup', () => {
-  it("makes the harness's own default model the default for new work", async () => {
+  it("makes the harness's own default model the global default model", async () => {
     skillStatus = { enabled: true, configured: true };
     const saved = await saveHarnessSetup({ harness: 'claude' });
     expect(saved.model).toBe('opus');

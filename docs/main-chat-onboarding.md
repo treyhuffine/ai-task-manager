@@ -59,7 +59,7 @@ Three things start in the background so the steps that need them rarely wait:
   what's now the default: "Found Claude Code. Default set to Opus, medium effort." Change opens the
   model menus' list (every harness with its sign-in state, so one that isn't signed in can't be
   picked) and the effort ladder for the picked model, inline: the same editor as Settings' "Default
-  for new work" (`DefaultSelectionEditor`). Save makes it the default through `setDefaultSelection`
+  model" (`DefaultSelectionEditor`). Save makes it the default through `setDefaultSelection`
   and starts the empty main chat over on it. It's
   never a question: the conversation goes on past it either way, and it doesn't come back once the
   chat is used (the model menus' "Make default" and Settings change it after).

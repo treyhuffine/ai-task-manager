@@ -44,12 +44,13 @@ describe('the default selection', () => {
   });
 
   /**
-   * A home had Claude · Fable · Extra high as its default for new work and
+   * A home had Claude · Fable · Extra high as its global default model and
    * Opus · Medium as Claude's own default. Settings showed Claude's own, so it
    * read as Opus while every new chat started on Fable. They're two settings
-   * now: new work follows the first, and saving the second never moves it.
+   * now: picking nothing starts on the global default, picking a harness starts
+   * on that harness's own default, and saving one never moves the other.
    */
-  it("starts new work on the default for new work, not the harness's own default", async () => {
+  it('starts what picks nothing on the global default model', async () => {
     home = await createTestHome();
     const q = await import('@/lib/db/queries');
     q.ensureHarnessSettings('claude');
@@ -59,22 +60,23 @@ describe('the default selection', () => {
     const { resolveStartSelection } = await import('@/lib/harness/start-selection');
 
     expect(await startNewMainChat(null, {})).toMatchObject({ harness: 'claude', model: 'fable', effort: 'xhigh' });
-    // Naming the default's harness without a model is the same as naming nothing.
-    expect(await resolveStartSelection({ providerId: 'claude' })).toMatchObject({ model: 'fable', effort: 'xhigh' });
-    // Naming a model keeps the default's effort, which the model offers.
-    expect(await resolveStartSelection({ providerId: 'claude', model: 'opus' })).toMatchObject({ model: 'opus', effort: 'xhigh' });
+    // A model named without a harness keeps the global default's harness and effort.
+    expect(await resolveStartSelection({ model: 'opus' })).toMatchObject({ providerId: 'claude', model: 'opus', effort: 'xhigh' });
 
     q.setHarnessDefaultSelection('claude', { model: 'sonnet', effort: 'low' });
     expect(q.getUserState()).toMatchObject({ defaultHarness: 'claude', defaultModel: 'fable', defaultEffort: 'xhigh' });
   });
 
-  it("starts another harness on that harness's own default", async () => {
+  it("starts a picked harness on that harness's own default, the global default's harness included", async () => {
     home = await createTestHome();
     const q = await import('@/lib/db/queries');
+    q.ensureHarnessSettings('claude');
+    q.setHarnessDefaultSelection('claude', { model: 'opus', effort: 'medium' });
     q.setHomeDefaultSelection({ harness: 'claude', model: 'fable', variant: null, effort: 'xhigh' });
     const codex = q.ensureHarnessSettings('codex');
     const { resolveStartSelection } = await import('@/lib/harness/start-selection');
 
+    expect(await resolveStartSelection({ providerId: 'claude' })).toMatchObject({ model: 'opus', effort: 'medium' });
     const selection = await resolveStartSelection({ providerId: 'codex' });
     expect(selection.providerId).toBe('codex');
     expect(selection.model).toBe(codex.defaultModel);

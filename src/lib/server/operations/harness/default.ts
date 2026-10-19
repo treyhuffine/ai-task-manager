@@ -7,9 +7,9 @@ import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 
 /**
- * Set the home's default for new work: the harness, model, variant and effort
+ * Set the global default model: the harness, model, variant and effort
  * new chats, executions and background calls start on (docs/default-selection.md).
- * The one way it changes from the app: Settings' "Default for new work", a
+ * The one way it changes from the app: Settings' "Default model", a
  * model menu's "Make default" and first-run setup all come here. A harness's
  * own default (`PUT /harness/models/enabled`) is a separate setting.
  *

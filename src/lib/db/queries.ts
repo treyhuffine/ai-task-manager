@@ -4526,10 +4526,10 @@ export function setEnabledHarnessModels(
     if (home?.defaultHarness === harness && enabledModels.length === 0) {
       throw new Error('The active harness must have at least one enabled model');
     }
-    // The default for new work stays visible in the model menus that mark it.
+    // The global default model stays visible in the model menus that mark it.
     if (home?.defaultHarness === harness && home.defaultModel
       && existing?.enabledModels.includes(home.defaultModel) && !enabledModels.includes(home.defaultModel)) {
-      throw new Error(`${home.defaultModel} is your default for new work. Choose another default before hiding it.`);
+      throw new Error(`${home.defaultModel} is your global default model. Choose another default model before hiding it.`);
     }
     // An explicit save means the user has now seen the whole current catalog,
     // so advance the known snapshot: a curated model they left off is recorded
@@ -4619,7 +4619,7 @@ export function removeCustomHarnessModel(harness: HarnessId, modelId: string): H
       defaultEffort: replacesDefault ? null : row.defaultEffort,
       updatedAt: now,
     }).where(eq(harnessSettings.harness, harness)).returning().get();
-    // The default for new work was this pin: it moves to the harness's own
+    // The global default model was this pin: it moves to the harness's own
     // default, since nothing can resolve the id any more.
     if (home?.defaultHarness === harness && home.defaultModel === id && !shadowsCatalogModel) {
       tx.update(userState).set({
@@ -4643,7 +4643,7 @@ export function setHarnessDefaultSelection(
       .where(eq(harnessSettings.harness, harness)).get();
     if (!row || !row.enabledModels.includes(selection.model)) throw new Error('The default model must be enabled');
     // A harness's own default, used when something picks this harness
-    // without a model. The home's default for new work is separate and stays
+    // without a model. The global default model is separate and stays
     // put (`setHomeDefaultSelection`, docs/default-selection.md).
     return tx.update(harnessSettings).set({
       defaultModel: selection.model,
@@ -4655,7 +4655,7 @@ export function setHarnessDefaultSelection(
 }
 
 /**
- * Set the home's default for new work: the harness, model, variant and effort
+ * Set the global default model: the harness, model, variant and effort
  * new chats, executions and background calls start on. The model joins that
  * harness's visible models (never narrowing them) so the model menus can mark
  * it. The harness's own default is left alone: it's a separate setting.

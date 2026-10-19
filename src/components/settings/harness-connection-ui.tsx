@@ -1,24 +1,16 @@
 'use client';
 
-import {
-  AlertTriangle,
-  Braces,
-  Code2,
-  Loader2,
-  Orbit,
-  RefreshCw,
-  SquareTerminal,
-  Terminal,
-  type LucideIcon,
-} from 'lucide-react';
+import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
+import { isDarkBrandMark } from '@/components/integrations/integration-logo';
 import { findProvider, type ProviderId } from '@/lib/harness/options';
-import { harnessDefinition, type HarnessIconId } from '@/lib/harness/registry';
+import { harnessDefinition } from '@/lib/harness/registry';
 import {
   useHarnessConnection,
   useRecheckHarnessConnection,
   type HarnessConnection,
 } from '@/hooks/use-harness-connection';
 import { cn } from '@/lib/utils';
+import { HARNESS_LOGOS, type HarnessLogo } from './harness-logo-data';
 
 /**
  * Shared building blocks for surfacing agent-provider connection state — the
@@ -27,39 +19,42 @@ import { cn } from '@/lib/utils';
  * provider switcher so there's exactly one connect/check UI.
  */
 
-/** The Lucide component for each registry icon id. */
-const HARNESS_ICONS: Record<HarnessIconId, LucideIcon> = {
-  terminal: Terminal,
-  code: Code2,
-  'square-terminal': SquareTerminal,
-  braces: Braces,
-  orbit: Orbit,
-};
-
-/**
- * The icon a harness is drawn with everywhere, chosen in its registry entry.
- * For lists built once at module scope. Inside a render, use `HarnessIcon`.
- */
-export function harnessIcon(id: ProviderId): LucideIcon {
-  return HARNESS_ICONS[harnessDefinition(id).icon];
+/** The brand mark a harness is drawn with everywhere, chosen in its registry entry. */
+export function harnessLogo(id: ProviderId): HarnessLogo {
+  return HARNESS_LOGOS[harnessDefinition(id).icon];
 }
 
-/** A harness's registry icon, rendered from a static set of components. */
-export function HarnessIcon({ id, size, className }: { id: ProviderId; size?: number; className?: string }) {
-  const icon: HarnessIconId = harnessDefinition(id).icon;
-  switch (icon) {
-    case 'terminal': return <Terminal size={size} className={className} />;
-    case 'code': return <Code2 size={size} className={className} />;
-    case 'square-terminal': return <SquareTerminal size={size} className={className} />;
-    case 'braces': return <Braces size={size} className={className} />;
-    case 'orbit': return <Orbit size={size} className={className} />;
-  }
-}
-
-export function ProviderIcon({ id, size = 15 }: { id: ProviderId; size?: number }) {
+/** A harness's real logo, in the current text color so it takes its surroundings' tint. */
+export function HarnessIcon({ id, size = 16, className }: { id: ProviderId; size?: number; className?: string }) {
+  const logo = harnessLogo(id);
   return (
-    <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
-      <HarnessIcon id={id} size={size} className="text-primary" />
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+      role="img"
+      aria-label={logo.title}
+      className={cn('shrink-0', className)}
+    >
+      <path d={logo.path} fillRule={logo.evenOdd ? 'evenodd' : undefined} clipRule={logo.evenOdd ? 'evenodd' : undefined} />
+    </svg>
+  );
+}
+
+/** The logo on a tile, in its brand color. Near-black marks take the text color so they show in dark mode. */
+export function ProviderIcon({ id, size = 15 }: { id: ProviderId; size?: number }) {
+  const { hex } = harnessLogo(id);
+  const dark = isDarkBrandMark(hex);
+  return (
+    <span
+      className={cn(
+        'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted/60 ring-1 ring-inset ring-border/50',
+        dark && 'text-foreground',
+      )}
+      style={dark ? undefined : { color: `#${hex}` }}
+    >
+      <HarnessIcon id={id} size={size} />
     </span>
   );
 }

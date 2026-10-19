@@ -29,7 +29,7 @@ export interface DefaultSelectionDraft {
 }
 
 /**
- * Pick the default for new work: harness and model from the same list the
+ * Pick the global default model: harness and model from the same list the
  * model menus use (every harness, each with its sign-in state, so one that
  * isn't signed in can't be picked), then the effort that model offers.
  * Nothing is saved until Save. Shared by Settings and first-run setup, which

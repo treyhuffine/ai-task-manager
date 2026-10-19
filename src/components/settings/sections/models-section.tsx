@@ -1,16 +1,18 @@
 'use client';
 
+import { DefaultModelSection } from '@/components/settings/default-model-section';
 import { HarnessSettingsPanel } from '@/components/settings/harness-settings-panel';
 import { BillingSection } from './billing-section';
 
 /**
- * Default agent provider/model (reuses HarnessSettingsPanel), and usage and
- * budget. The main chat's Skills / MCP choice that used to sit here was
- * retired on 2026-10-05: it acts through MCP only.
+ * The global default model, then each harness (sign-in, visible models, its
+ * own default), then usage and budget. The main chat's Skills / MCP choice
+ * that used to sit here was retired on 2026-10-05: it acts through MCP only.
  */
 export function ModelsSection() {
   return (
     <div className="space-y-7">
+      <DefaultModelSection />
       <HarnessSettingsPanel />
 
       <section className="space-y-3 text-[12px]">

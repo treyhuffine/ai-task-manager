@@ -11,10 +11,10 @@ export interface DefaultSelection {
 }
 
 /**
- * Make a harness, model and effort the home's default for new work: what new
+ * Make a harness, model and effort the global default model: what new
  * chats and executions start on, and what background calls use
  * (docs/default-selection.md). The one way the default changes from the app,
- * shared by Settings' "Default for new work", first-run setup and the "Make
+ * shared by Settings' "Default model", first-run setup and the "Make
  * default" line in the model menus. A harness's own default is a separate
  * setting and stays as it is.
  *

@@ -228,11 +228,11 @@ export async function dispatchExecutionSession(
     // The actual runner validates live capabilities on the execution device.
     // The home's binary cannot decide whether a connected device supports plan.
   }
-  // Explicit args (the launcher's model control) beat the default for new
-  // work, which beats the provider's own default on another harness. The
-  // launcher's remembered pick can outlive a model, so it's repaired too.
+  // Explicit args (the launcher's model control) win. The rest comes from the
+  // named harness's own default, or the global default when none is named.
+  // The launcher's remembered pick can outlive a model, so it's repaired too.
   const selection = await resolveStartSelection({
-    providerId,
+    providerId: args.harness ? providerId : undefined,
     model: args.model,
     variant: args.modelVariant,
     effort: args.effort,

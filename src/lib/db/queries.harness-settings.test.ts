@@ -227,12 +227,12 @@ describe('custom (pinned) harness models', () => {
 });
 
 /**
- * The home's default for new work and each harness's own default are two
+ * The global default model and each harness's own default are two
  * settings (docs/default-selection.md). They used to share a write path, and
  * a home ended up with Settings showing Claude's own Opus · Medium while every
  * new chat ran on the home's Fable · Extra high.
  */
-describe('the default for new work', () => {
+describe('the global default model', () => {
   beforeEach(() => {
     q.updateUserState({ defaultHarness: null, defaultModel: null, defaultVariant: null, defaultEffort: null });
   });
@@ -272,7 +272,7 @@ describe('the default for new work', () => {
   it('stays visible: its model cannot be hidden while it is the default', () => {
     q.ensureHarnessSettings('claude');
     q.setHomeDefaultSelection({ harness: 'claude', model: 'fable', variant: null, effort: 'xhigh' });
-    expect(() => q.setEnabledHarnessModels('claude', ['opus', 'sonnet'], 'opus')).toThrow(/default for new work/);
+    expect(() => q.setEnabledHarnessModels('claude', ['opus', 'sonnet'], 'opus')).toThrow(/global default model/);
     // Another harness's list is its own business.
     expect(q.setEnabledHarnessModels('codex', ['gpt-6.1-sol'], 'gpt-6.1-sol').enabledModels).toEqual(['gpt-6.1-sol']);
   });

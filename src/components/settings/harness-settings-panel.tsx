@@ -4,6 +4,7 @@ import { trpcClient } from '@/lib/trpc/client';
 import { HarnessPermissionNotice } from './harness-permission-notice';
 
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -27,56 +28,63 @@ import {
 	effortOptionsForModel,
 	type ModelOption,
 } from '@/lib/harness/options';
-import { DEFAULT_HARNESS, HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
 import { cn } from '@/lib/utils';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Cpu, Globe2, Loader2, RefreshCw, Search, X } from 'lucide-react';
+import { Globe2, Loader2, RefreshCw, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CursorCredentialPanel } from './cursor-credential-panel';
-import { DefaultForNewWork } from './default-for-new-work';
 import { ConnectionBadge, ConnectionPanel, ProviderIcon } from './harness-connection-ui';
-import { HarnessPicker } from './harness-picker';
 import { OpenCodeProviderPanel } from './opencode-provider-panel';
 import { PinModelInput } from './pin-model-input';
 import { Tip } from '@/components/ui/tip';
 
+/**
+ * Every harness as one row that opens in place: its sign-in, the models it
+ * shows and its own default. The global default model is its own section
+ * above (`DefaultModelSection`).
+ */
 export function HarnessSettingsPanel() {
   const { data: userState } = useUserState();
   const { data, isLoading } = useHarnesses();
-  const active: HarnessId = userState?.defaultHarness ?? DEFAULT_HARNESS;
-  const [selectedTab, setSelectedTab] = useState<HarnessId | null>(null);
-  const tab = selectedTab ?? (HARNESS_IDS.includes(active) ? active : DEFAULT_HARNESS);
 
   return (
-    <section className="@container space-y-4 text-[12px]">
-      <header className="space-y-1">
-        <div className="flex items-center gap-2 text-foreground">
-          <Cpu size={14} className="text-muted-foreground" />
-          <h3 className="text-[13px] font-semibold">Harnesses and models</h3>
-        </div>
+    <section className="@container space-y-3 text-[12px]">
+      <header className="space-y-0.5">
+        <h3 className="text-[13px] font-semibold text-foreground">Harnesses and models</h3>
         <p className="text-[11px] text-muted-foreground/85">
-          Connect providers, choose the models you want to see, and set the default for new work.
+          Connect each harness, choose the models it shows, and set its own default.
         </p>
       </header>
 
       {isLoading || !data ? <SettingsSkeleton rows={5} /> : (
-        <>
-          <DefaultForNewWork />
-          <HarnessPicker
-            harnesses={data.harnesses}
-            value={tab}
-            onChange={setSelectedTab}
-            defaultHarness={active}
-          />
-          {data.harnesses.filter((harness) => harness.id === tab).map((harness) => (
-            <HarnessPane
-              key={`${harness.id}:${harness.settings.updatedAt}`}
-              harness={harness}
-              homeDefaultModel={active === harness.id ? userState?.defaultModel ?? null : null}
-            />
+        <Accordion type="multiple" className="rounded-lg">
+          {data.harnesses.map((harness) => (
+            <AccordionItem key={harness.id} value={harness.id} data-harness-row={harness.id}>
+              <AccordionTrigger className="items-center gap-3 p-3 hover:no-underline">
+                <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <ProviderIcon id={harness.id} />
+                  <span className="min-w-0">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-[12.5px] font-semibold text-foreground">{harness.name}</span>
+                      <ConnectionBadge harness={harness.id} />
+                    </span>
+                    <span className="block truncate text-[11px] font-normal text-muted-foreground">
+                      {harness.description}
+                    </span>
+                  </span>
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="h-auto pb-3 [&_p:not(:last-child)]:mb-0 [&_a]:no-underline">
+                <HarnessPane
+                  key={`${harness.id}:${harness.settings.updatedAt}`}
+                  harness={harness}
+                  globalDefaultModel={userState?.defaultHarness === harness.id ? userState.defaultModel ?? null : null}
+                />
+              </AccordionContent>
+            </AccordionItem>
           ))}
-        </>
+        </Accordion>
       )}
 
       <GlobalSkillSetting />
@@ -152,20 +160,18 @@ function GlobalSkillSetting() {
 }
 
 /**
- * One harness: its sign-in, the models it shows, and its own default, used
- * when something picks this harness without a model. For the harness of the
- * default for new work, that default (set above, `DefaultForNewWork`) is what
- * its new work starts on, so this pane doesn't offer a second one.
+ * One harness, opened: its sign-in, the models it shows, and its own default,
+ * used when something picks this harness without a model. Separate from the
+ * global default model, even on the global default's harness.
  */
 function HarnessPane({
   harness,
-  homeDefaultModel,
+  globalDefaultModel,
 }: {
   harness: HarnessSettingsView;
-  /** The default for new work's model, when this is its harness. */
-  homeDefaultModel: string | null;
+  /** The global default model, when it's on this harness. It stays visible. */
+  globalDefaultModel: string | null;
 }) {
-  const active = homeDefaultModel !== null;
   const catalog = useHarnessModels(harness.id, { catalog: true });
   const save = useSaveHarnessModels();
   const removeCustom = useRemoveCustomModel();
@@ -205,23 +211,12 @@ function HarnessPane({
   };
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-card/30 p-3">
-      <div className="flex items-start gap-2.5">
-        <ProviderIcon id={harness.id} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h4 className="font-semibold text-foreground">{harness.name}</h4>
-            <ConnectionBadge harness={harness.id} />
-            {active && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">Default</span>}
-          </div>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">{harness.description}</p>
-          <p className="mt-1 text-[10.5px] text-muted-foreground/75">
-            {harness.runtime.binary.status === 'supported'
-              ? `Runtime ${harness.runtime.binary.version ?? 'detected'}`
-              : harness.runtime.binary.reason ?? `Runtime status: ${harness.runtime.binary.status}`}
-          </p>
-        </div>
-      </div>
+    <div className="space-y-4 text-[12px]">
+      <p className="text-[10.5px] text-muted-foreground/75">
+        {harness.runtime.binary.status === 'supported'
+          ? `Runtime ${harness.runtime.binary.version ?? 'detected'}`
+          : harness.runtime.binary.reason ?? `Runtime status: ${harness.runtime.binary.status}`}
+      </p>
 
       <HarnessPermissionNotice harness={harness.id} />
       <ConnectionPanel harness={harness.id} showSignedIn />
@@ -276,7 +271,7 @@ function HarnessPane({
           models={catalog.models}
           query={query}
           enabled={enabled}
-          homeDefaultModel={homeDefaultModel}
+          globalDefaultModel={globalDefaultModel}
           removing={removeCustom.isPending ? removeCustom.variables?.modelId ?? null : null}
           onRemove={(id) => {
             void removeCustom.mutateAsync({ harness: harness.id, modelId: id })
@@ -308,16 +303,12 @@ function HarnessPane({
         )}
       </div>
 
-      {active ? (
-        <p className="border-t border-border pt-3 text-[11px] text-muted-foreground">
-          {harness.name} is your default for new work. Its model and effort are set above.
-        </p>
-      ) : enabled.length > 0 && (
+      {enabled.length > 0 && (
         <div className="space-y-2 border-t border-border pt-3">
           <div>
             <p className="font-medium text-foreground">When something picks {harness.name} without a model</p>
             <p className="text-[10.5px] text-muted-foreground">
-              Separate from your default for new work above.
+              {harness.name}’s own default, separate from the global default model above.
             </p>
           </div>
           <div className="grid gap-2 @min-[400px]:grid-cols-3">
@@ -400,7 +391,7 @@ function VirtualModelChecklist({
   models,
   query,
   enabled,
-  homeDefaultModel,
+  globalDefaultModel,
   removing,
   onToggle,
   onRemove,
@@ -408,8 +399,8 @@ function VirtualModelChecklist({
   models: ModelOption[];
   query: string;
   enabled: string[];
-  /** The default for new work's model, when it's on this harness. It stays visible. */
-  homeDefaultModel?: string | null;
+  /** The global default model, when it's on this harness. It stays visible. */
+  globalDefaultModel?: string | null;
   /** Id of the pinned model whose removal is in flight. */
   removing?: string | null;
   onToggle: (id: string, checked: boolean) => void;
@@ -439,7 +430,7 @@ function VirtualModelChecklist({
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const model = rows[virtualRow.index]!;
           const checked = enabled.includes(model.id);
-          const isHomeDefault = model.id === homeDefaultModel && checked;
+          const isGlobalDefault = model.id === globalDefaultModel && checked;
           return (
             <div
               key={virtualRow.key}
@@ -454,7 +445,7 @@ function VirtualModelChecklist({
               >
                 <Checkbox
                   checked={checked}
-                  disabled={model.availability === 'unavailable' || isHomeDefault}
+                  disabled={model.availability === 'unavailable' || isGlobalDefault}
                   onCheckedChange={(value) => onToggle(model.id, value === true)}
                 />
                 <span className="min-w-0 flex-1">
@@ -465,10 +456,10 @@ function VirtualModelChecklist({
                         pinned
                       </span>
                     )}
-                    {isHomeDefault && (
-                      <Tip label="Your default for new work stays visible. Change it above to hide this model.">
+                    {isGlobalDefault && (
+                      <Tip label="Your global default model stays visible. Change the default model to hide this one.">
                         <span className="rounded bg-primary/10 px-1 py-px text-[9px] font-medium uppercase tracking-wide text-primary">
-                          default
+                          global default
                         </span>
                       </Tip>
                     )}

@@ -14,9 +14,13 @@ export interface StartOverride {
 
 /**
  * The harness, model, variant and effort a new chat or execution starts on
- * (docs/default-selection.md). What the start names wins. Otherwise, on the
- * harness of the home's default for new work, that default. On any other
- * harness, that harness's own default.
+ * (docs/default-selection.md). What the start names wins, and the rest comes
+ * from one of two defaults:
+ *
+ * - No harness named: the global default model (user state).
+ * - A harness named: that harness's own default (its settings row), even when
+ *   it's the global default's harness. Each harness's default is its own
+ *   setting, so naming the harness asks for it.
  *
  * `repairInvalidModel` replaces a model the catalog no longer offers instead of
  * failing. It defaults to on only when the model came from a default, so a
@@ -29,16 +33,16 @@ export async function resolveStartSelection(
   const home = getUserState();
   const providerId = override.providerId ?? home?.defaultHarness ?? DEFAULT_HARNESS;
   const harness = ensureHarnessSettings(providerId);
-  const homeDefault = home?.defaultHarness === providerId ? home : null;
-  const fallback = homeDefault?.defaultModel
-    ? { model: homeDefault.defaultModel, variant: homeDefault.defaultVariant ?? null }
-    : { model: harness.defaultModel, variant: harness.defaultVariant };
+  const global = !override.providerId && home?.defaultHarness === providerId && home.defaultModel ? home : null;
+  const fallback = global
+    ? { model: global.defaultModel, variant: global.defaultVariant ?? null, effort: global.defaultEffort ?? null }
+    : { model: harness.defaultModel, variant: harness.defaultVariant, effort: harness.defaultEffort };
   const model = override.model ?? fallback.model;
   return resolveHarnessSelection(providerId, {
     model,
     // A variant belongs to its model, so a default's variant only rides along with that model.
     variant: override.variant ?? (model === fallback.model ? fallback.variant : null),
-    effort: override.effort ?? homeDefault?.defaultEffort ?? harness.defaultEffort,
+    effort: override.effort ?? fallback.effort,
   }, {
     cwd: options.cwd,
     repairInvalidModel: options.repairInvalidModel ?? override.model == null,

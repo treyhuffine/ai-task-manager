@@ -7,7 +7,7 @@ import type { EffortLevel } from '@/db/types';
 import type { HarnessId } from '@/lib/harness/registry';
 
 /**
- * The home's default for new work (user state): the harness, model, variant
+ * The global default model (user state): the harness, model, variant
  * and effort new chats and executions start on. Null until one is chosen.
  */
 export function useDefaultSelection(): {
@@ -26,7 +26,7 @@ export function useDefaultSelection(): {
   };
 }
 
-/** Make a selection the default for new work, the way Settings does. */
+/** Make a selection the global default model, the way Settings does. */
 export function useSetDefaultSelection() {
   const qc = useQueryClient();
   return useMutation({

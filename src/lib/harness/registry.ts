@@ -1,10 +1,11 @@
 export type HarnessId = 'claude' | 'codex' | 'cursor' | 'opencode' | 'antigravity';
 /**
- * Which Lucide icon stands for a harness. The registry owns the choice so every
- * surface (settings, composer, onboarding, trigger picker) draws the same one.
- * The id-to-component map lives client-side in `harness-connection-ui.tsx`.
+ * Which brand mark stands for a harness: its real logo. The registry owns the
+ * choice so every surface (settings, composer, onboarding, trigger picker)
+ * draws the same one. The path data lives client-side in
+ * `src/components/settings/harness-logo-data.ts`.
  */
-export type HarnessIconId = 'code' | 'terminal' | 'square-terminal' | 'braces' | 'orbit';
+export type HarnessLogoId = 'codex' | 'claude' | 'cursor' | 'opencode' | 'antigravity';
 
 export interface HarnessCapabilities {
   sessions: boolean;
@@ -37,7 +38,7 @@ export interface HarnessDefinition {
   commandEnv: `${Uppercase<HarnessId>}_COMMAND`;
   name: string;
   description: string;
-  icon: HarnessIconId;
+  icon: HarnessLogoId;
   installHint: string;
   loginCommand: string | null;
   docsUrl: string;
@@ -87,7 +88,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     commandEnv: 'CODEX_COMMAND',
     name: 'Codex',
     description: 'OpenAI models with your ChatGPT account',
-    icon: 'code',
+    icon: 'codex',
     installHint: 'npm install -g @openai/codex',
     loginCommand: 'codex login',
     docsUrl: 'https://developers.openai.com/codex/',
@@ -115,7 +116,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     commandEnv: 'CLAUDE_COMMAND',
     name: 'Claude Code',
     description: 'Anthropic models through Claude Code',
-    icon: 'terminal',
+    icon: 'claude',
     installHint: 'npm install -g @anthropic-ai/claude-code',
     loginCommand: 'claude login',
     docsUrl: 'https://docs.anthropic.com/en/docs/claude-code',
@@ -145,7 +146,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     commandEnv: 'CURSOR_COMMAND',
     name: 'Cursor',
     description: 'Cursor models, including Grok when available',
-    icon: 'square-terminal',
+    icon: 'cursor',
     installHint: 'Install the Cursor CLI from cursor.com',
     loginCommand: 'agent login',
     docsUrl: 'https://cursor.com/cli',
@@ -165,7 +166,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     commandEnv: 'OPENCODE_COMMAND',
     name: 'OpenCode',
     description: 'Models from your OpenCode providers',
-    icon: 'braces',
+    icon: 'opencode',
     installHint: 'npm install -g opencode-ai',
     loginCommand: 'opencode auth login',
     docsUrl: 'https://opencode.ai/docs/',
@@ -194,7 +195,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     commandEnv: 'ANTIGRAVITY_COMMAND',
     name: 'Antigravity',
     description: 'Google Gemini models through Antigravity CLI',
-    icon: 'orbit',
+    icon: 'antigravity',
     installHint: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
     // There is no login subcommand: running `agy` once signs in through the
     // browser and caches the session in the OS keyring for headless runs.

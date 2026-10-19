@@ -113,7 +113,7 @@ describe('harness registry', () => {
       docsUrl: 'https://antigravity.google/docs/cli/overview',
       // GEMINI_API_KEY alone does nothing without the CLI's settings change.
       apiKeyVar: null,
-      icon: 'orbit',
+      icon: 'antigravity',
     });
     expect(antigravity.maximumCapabilities).toEqual({
       sessions: true,
