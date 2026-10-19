@@ -30,10 +30,11 @@ const FRESH_RESULT_MS = 2 * 60_000;
 type Pending = {ids: string[]; preview?: unknown; finish: (approve: boolean) => void};
 /**
  * `onClose` puts a Close control in the result's own header row, for a page that shows the result beside
- * other content. `appName` is the name the surrounding page already shows: a full-screen view titled the
+ * other content. `titled` says the surrounding pane already names this view (a thread tab), so it shows no
+ * title row of its own. `appName` is the name the surrounding page already shows: a full-screen view titled the
  * same skips its own title row rather than repeat it.
  */
-export function ConnectedView({captureId, chatId, expanded = false, onClose, appName, deepLink}: {captureId: string; chatId?: string; expanded?: boolean; onClose?: () => void; appName?: string; deepLink?: string}) {
+export function ConnectedView({captureId, chatId, expanded = false, onClose, appName, deepLink, titled = false}: {captureId: string; chatId?: string; expanded?: boolean; onClose?: () => void; appName?: string; deepLink?: string; titled?: boolean}) {
   const companion = useConnectedCompanion();
   const moved = !expanded && companion?.captureId === captureId;
   const [inlineMount, setInlineMount] = useState<HTMLDivElement | null>(null);
@@ -58,7 +59,7 @@ export function ConnectedView({captureId, chatId, expanded = false, onClose, app
     retry: false, staleTime: Infinity});
   const access = useQuery({queryKey: ['connected-app-status', query.data?.id], queryFn: () => trpcClient.connectedApps.status.query({viewId: query.data!.id}), enabled: !!query.data, retry: false, refetchInterval: 15_000});
   const failure = query.error ?? access.error;
-  const repeatsName = expanded && !!appName && query.data?.title?.toLocaleLowerCase() === appName.toLocaleLowerCase() && !onClose;
+  const repeatsName = expanded && !onClose && (titled || (!!appName && query.data?.title?.toLocaleLowerCase() === appName.toLocaleLowerCase()));
   // OpenAI's display modes: what the resource declares bounds where it may show.
   const modes = query.data?.resource?.displayModes;
   const canInline = !modes || modes.available.includes('inline');

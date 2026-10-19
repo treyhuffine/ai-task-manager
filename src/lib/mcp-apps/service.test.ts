@@ -6,7 +6,7 @@ vi.mock('@/lib/integrations/runtime', () => ({getIntegrationRuntime: mocks.runti
 vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: mocks.workspace, insertChatEvent: mocks.insert}));
 vi.mock('@/lib/integrations/approval', () => ({sessionCaller: (id: string) => ({type: 'mcp', id: `session:${id}`}), sessionIdFromCaller: (caller?: {type?: string; id?: string}) => caller?.type === 'mcp' && caller.id?.startsWith('session:') ? caller.id.slice(8) : null, listPendingApprovals: mocks.approvals, resolvePendingApprovals: mocks.decide, cancelConnectedAppApprovals: mocks.cancel}));
 vi.mock('@/lib/integrations/approval-events', () => ({recordApprovalDecision: vi.fn()}));
-import { prepareMcpResultCapture, connectedAppsCatalog, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource, connectedMessageSender } from './service';
+import { prepareMcpResultCapture, connectedAppsCatalog, connectedChatTabs, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource, connectedMessageSender } from './service';
 
 const chatId = randomUUID();
 const result = {content: [{type: 'text', text: 'Public summary'}], structuredContent: {total: 42}, _meta: {privateUi: 'Only for the interface'}};
@@ -242,6 +242,21 @@ describe('OpenAI entrypoints, deep links, resources and model context', () => {
       // A tab is not a recent result to reopen from the app's page.
       expect((await connectedAppsCatalog('viewer'))[0].recent).toEqual([]);
       expect(mocks.run).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('lists only the tabs a chat may open: every one without an agent, and its agent\'s accounts with one', async () => {
+    await withTools([tray], async () => {
+      expect(await connectedChatTabs(chatId, 'viewer')).toEqual([expect.objectContaining({serverId: 'server', name: 'tray', title: 'Parts Tray', app: 'Fixture'})]);
+      mocks.chat.mockReturnValue({id: chatId, status: 'idle', workspaceId: 'agent'});
+      mocks.workspace.mockReturnValue({integrationScopes: []});
+      expect(await connectedChatTabs(chatId, 'viewer')).toEqual([]);
+      mocks.workspace.mockReturnValue({integrationScopes: [{toolkitId: 'mcp_fixture', accounts: [{accountId: 'another-account'}]}]});
+      expect(await connectedChatTabs(chatId, 'viewer')).toEqual([]);
+      mocks.workspace.mockReturnValue({integrationScopes: [{toolkitId: 'mcp_fixture'}]});
+      expect(await connectedChatTabs(chatId, 'viewer')).toHaveLength(1);
+      mocks.chat.mockReturnValue({id: chatId, status: 'archived', workspaceId: null});
+      expect(await connectedChatTabs(chatId, 'viewer')).toEqual([]);
     });
   });
 

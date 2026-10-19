@@ -73,6 +73,41 @@ export async function connectedAppsCatalog(viewerId?: string) {
 }
 
 /** Current access to a server on its exact account, and for `chatId` when given: the one check every app operation repeats. */
+/**
+ * Whether a chat may use this exact account: a chat that can use connected
+ * apps at all, and, for an agent's chat, an agent whose integration scopes
+ * include the toolkit and pin this account if they pin any. Returns the
+ * agent's scopes (null for a chat without an agent), which an authority's
+ * revision includes, or throws why not.
+ */
+function chatAccess(chatId: string, toolkitId: string, connection: Parameters<typeof pinMatchesConnection>[1]) {
+  const chat = getChatSessionWithExecution(chatId);
+  if (!chat || chat.status === 'archived' || isImportMirror(chat) || ['result_review', 'app-builder', 'app-try'].includes(chat.surfaceKind ?? '')) throw new Error('This chat cannot use connected apps');
+  if (!chat.workspaceId) return null;
+  const scopes = normalizeIntegrationScopes(getWorkspace(chat.workspaceId)?.integrationScopes);
+  const scope = scopes.find(s => s.toolkitId === toolkitId);
+  if (!scope || (scopePins(scope).length && !scopePins(scope).some(pin => pinMatchesConnection(pin, connection)))) throw new Error('This exact account is not available to this chat');
+  return scopes;
+}
+
+/**
+ * The tabs a chat can open beside it (OpenAI's thread entrypoint): each
+ * available connection's thread entrypoints, only on accounts that chat may
+ * use. Cached metadata only, like the catalog.
+ */
+export async function connectedChatTabs(chatId: string, viewerId?: string) {
+  const apps = await connectedAppsCatalog(viewerId);
+  const metadata = await integrationSourceMetadata();
+  return apps.filter(app => app.available && app.threads.length).flatMap(app => {
+    const entry = metadata.servers.find(server => server.entry.id === app.id)?.entry;
+    const connection = metadata.connections.find(c => c.id === app.connectionId);
+    if (!entry || !connection) return [];
+    try { chatAccess(chatId, entry.providerId ?? `mcp_${entry.slug}`, connection); }
+    catch { return []; }
+    return app.threads.map(thread => ({serverId: app.id, app: app.toolkitName, account: app.account, ...thread}));
+  });
+}
+
 export async function authority(serverId: string, chatId?: string) {
   assertEnabled();
   const metadata = await integrationSourceMetadata();
@@ -82,16 +117,7 @@ export async function authority(serverId: string, chatId?: string) {
   const connection = (await runtime.listConnections({ownerId: getIntegrationOwnerId()})).find(c => c.id === hostedMcpConnectionId(remote.entry));
   if (!connection || connection.status !== 'active') throw new Error('Reconnect this exact account before opening its app');
   const toolkitId = remote.entry.providerId ?? `mcp_${remote.entry.slug}`;
-  let scopes: ReturnType<typeof normalizeIntegrationScopes> | null = null;
-  if (chatId) {
-    const chat = getChatSessionWithExecution(chatId);
-    if (!chat || chat.status === 'archived' || isImportMirror(chat) || ['result_review', 'app-builder', 'app-try'].includes(chat.surfaceKind ?? '')) throw new Error('This chat cannot use connected apps');
-    if (chat.workspaceId) {
-      scopes = normalizeIntegrationScopes(getWorkspace(chat.workspaceId)?.integrationScopes);
-      const scope = scopes.find(s => s.toolkitId === toolkitId);
-      if (!scope || (scopePins(scope).length && !scopePins(scope).some(pin => pinMatchesConnection(pin, connection)))) throw new Error('This exact account is not available to this chat');
-    }
-  }
+  const scopes = chatId ? chatAccess(chatId, toolkitId, connection) : null;
   const sourceRef = encodeSource({v: 1, kind: 'integration', toolkitId, account: {accountId: connection.accountId, authConfigId: connection.authConfigId ?? null}});
   const revision = inputDigest([sourceRef, connection.id, connection.scopes.slice().sort(), remote.entry.url, remote.entry.credentialRevision, remote.entry.capabilityRevision, remote.entry.toolOverrides, remote.entry.enabled, scopes]);
   const transport = await getMcpViewConnection(serverId);

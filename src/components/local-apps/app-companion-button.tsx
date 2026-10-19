@@ -11,10 +11,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tip } from '@/components/ui/tip';
-import { connectedAppsQuery } from '@/components/mcp-apps/catalog';
 import { EntrypointIcon } from '@/components/mcp-apps/entrypoint-icon';
 import { useConnectedCompanion, type ConnectedTab } from '@/lib/client/mcp-app-panel';
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 import { useLocalApps } from './app-hooks';
 import { AppMark } from './app-mark';
@@ -33,14 +32,14 @@ export function AppCompanionButton({ chatId, surfaceKind }: { chatId: string; su
   const { enabled, data } = useLocalApps({ live: false });
   const { busy, run } = useAppAction();
   const companion = useConnectedCompanion();
-  const connected = useQuery({ ...connectedAppsQuery(), enabled: !!companion?.openTab && !isAppSurface(surfaceKind) });
+  // Only the tabs this chat may open: an agent's chat sees the accounts its agent may use.
+  const connected = useQuery({ ...trpc.connectedApps.chatTabs.queryOptions({ chatId }, { staleTime: 15_000 }), enabled: !!companion?.openTab && !isAppSurface(surfaceKind) });
   if (isAppSurface(surfaceKind)) return null;
   const apps = enabled ? (data?.instances ?? [])
     .filter((item) => item.enabled && !item.archived && item.hasView && item.activation?.phase === 'active')
     .sort((a, b) => a.displayName.localeCompare(b.displayName)) : [];
   const tabs: (ConnectedTab & { app: string })[] = companion?.openTab ? (connected.data ?? [])
-    .filter((app) => app.available)
-    .flatMap((app) => app.threads.map((thread) => ({ serverId: app.id, name: thread.name, title: thread.title, icons: thread.icons, app: app.toolkitName })))
+    .map((tab) => ({ serverId: tab.serverId, name: tab.name, title: tab.title, icons: tab.icons, app: tab.app }))
     .sort((a, b) => a.title.localeCompare(b.title)) : [];
   if (apps.length === 0 && tabs.length === 0) return null;
   const current = enabled ? data?.panels.find((item) => item.chatId === chatId) : undefined;

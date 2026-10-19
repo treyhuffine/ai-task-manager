@@ -64,7 +64,7 @@ export function ConnectedCompanion({chatId, children}: {chatId: string; children
         <button aria-label="Close app" onClick={close} className="rounded p-1 hover:bg-muted"><X size={14}/></button>
       </div>
       {opening ? <TabStatus opening={opening} onRetry={() => void openTab(opening.tab)} onClose={close}/>
-        : <div ref={setMount} className="min-h-0 flex-1 overflow-auto">{captureId && !inlineIds.has(captureId) && <ConnectedView key={captureId} captureId={captureId} chatId={chatId} expanded appName={tab?.title}/>}</div>}
+        : <div ref={setMount} className="min-h-0 flex-1 overflow-auto">{captureId && !inlineIds.has(captureId) && <ConnectedView key={captureId} captureId={captureId} chatId={chatId} expanded titled={!!tab}/>}</div>}
     </aside>
   </div></ConnectedCompanionContext.Provider>;
 }

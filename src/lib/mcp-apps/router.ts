@@ -1,7 +1,7 @@
 import { z } from 'zod/v4';
 import { router } from '@/lib/trpc/init';
 import { connectedFormsRouter } from './forms-router';
-import { callConnectedView, cancelConnectedInvocation, clearConnectedContext, connectedAppsCatalog, connectedViewStatus, decideConnectedApproval, launchConnectedView, navigateConnectedScreen, prepareConnectedLaunch, openConnectedView, readConnectedResource, updateConnectedContext } from './service';
+import { callConnectedView, cancelConnectedInvocation, clearConnectedContext, connectedAppsCatalog, connectedChatTabs, connectedViewStatus, decideConnectedApproval, launchConnectedView, navigateConnectedScreen, prepareConnectedLaunch, openConnectedView, readConnectedResource, updateConnectedContext } from './service';
 import { connectedFilesRouter } from './files-router';
 import { connectedViewerProcedure as p } from './viewer-procedure';
 
@@ -11,6 +11,8 @@ export const connectedAppsRouter = router({
   files: connectedFilesRouter,
   forms: connectedFormsRouter,
   catalog: p.query(({ctx}) => connectedAppsCatalog(ctx.key!.apiKeyId)),
+  /** The thread tabs this chat may open beside it. */
+  chatTabs: p.input(z.object({chatId: id}).strict()).query(({input, ctx}) => connectedChatTabs(input.chatId, ctx.key!.apiKeyId)),
   status: p.input(z.object({viewId: id}).strict()).query(({input,ctx}) => connectedViewStatus(input.viewId,ctx.key!.apiKeyId)),
   open: p.input(z.object({captureId: id, chatId: id.optional()}).strict()).mutation(async ({input, ctx}) => {
     const result = await openConnectedView(input.captureId, ctx.key!.apiKeyId, input.chatId);
