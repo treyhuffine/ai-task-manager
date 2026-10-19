@@ -58,6 +58,16 @@ describe('expandMarkers', () => {
     expect(await expandMarkers(content, [notes])).toBe(content);
   });
 
+  it('hands a 3D model to the agent as its path, with nothing extracted', async () => {
+    const stl = await saveAttachment({ data: Buffer.from('solid dial\nendsolid dial\n'), originalName: 'agent-dial.stl', mimeType: 'application/vnd.ms-pki.stl' });
+    expect(stl).toMatchObject({ mimeType: 'model/stl', originalName: 'agent-dial.stl' });
+    expect(stl.fileName).toMatch(/\.stl$/);
+    const content = `open [[file:${stl.fileName}]]`;
+    const expanded = await expandMarkers(content, [stl]);
+    expect(expanded).toBe(content);
+    expect(placeFilesAtHome(expanded, [stl])).toBe(`open ${attachmentPath(stl.fileName)}`);
+  });
+
   it('hands a zip archive to the agent as its path, whichever name the browser gave the mime', async () => {
     for (const mimeType of ['application/zip', 'application/x-zip-compressed']) {
       const zip = await saveAttachment({ data: zipBytes(), originalName: 'backup.zip', mimeType });

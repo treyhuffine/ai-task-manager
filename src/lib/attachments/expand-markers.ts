@@ -11,6 +11,8 @@
  *     to text and inline it wrapped in `<attachment>` tags so the
  *     agent sees the content directly. Extraction runs at home, wherever
  *     the chat runs.
+ *   - For a 3D model (STL, 3MF, STEP): the marker stays, and becomes its
+ *     path, for the agent's own tools.
  *   - For a zip archive: the marker stays, like a file the agent reads
  *     itself. There is no text to extract, so the agent gets the path and
  *     unpacks it with its own tools. An Office document that arrived
@@ -25,7 +27,7 @@
  */
 
 import { extractTextFromAttachment, formatExtractedAttachment } from './extract-text';
-import { FILE_MARKER_RE, isArchive, readsNatively } from './markers';
+import { FILE_MARKER_RE, isArchive, isModel, readsNatively } from './markers';
 import type { Attachment } from '@/db/types';
 
 export async function expandMarkers(content: string, attachments: Attachment[]): Promise<string> {
@@ -42,7 +44,7 @@ export async function expandMarkers(content: string, attachments: Attachment[]):
     const end = start + m[0].length;
     const fileName = m[1]!;
     const a = map.get(fileName);
-    if (!a || readsNatively(a.mimeType)) {
+    if (!a || readsNatively(a.mimeType) || isModel(a.mimeType)) {
       matches.push({ start, end, replacement: m[0] });
       continue;
     }

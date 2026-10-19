@@ -34,6 +34,11 @@ export function isArchive(mime: string): boolean {
   return mime === 'application/zip';
 }
 
+/** A 3D model (STL, 3MF, STEP). No text to extract either: the agent gets the path and reads it with its own tools. */
+export function isModel(mime: string): boolean {
+  return mime.startsWith('model/');
+}
+
 /** The file names a message's markers name, each once. */
 export function markedFileNames(text: string): Set<string> {
   return new Set([...text.matchAll(FILE_MARKER_RE)].map((m) => m[1]!));

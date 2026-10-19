@@ -168,6 +168,21 @@ describe('isAllowedMime', () => {
     expect(isAllowedMime(resolveMime('application/x-zip-compressed', 'backup.zip'))).toBe(true);
   });
 
+  it('accepts 3D models, under whatever name a browser reports, and keeps their extension', () => {
+    // A browser that knows no type for a CAD file says nothing or octet-stream. Windows names an STL its own way.
+    for (const [mime, name, type, ext] of [
+      ['', 'hex-bolt.stl', 'model/stl', 'stl'], ['application/octet-stream', 'hex-bolt.stl', 'model/stl', 'stl'],
+      ['application/vnd.ms-pki.stl', 'hex-bolt.stl', 'model/stl', 'stl'], ['application/sla', 'hex-bolt.stl', 'model/stl', 'stl'],
+      ['', 'tray.3mf', 'model/3mf', '3mf'], ['application/vnd.ms-3mfdocument', 'tray.3mf', 'model/3mf', '3mf'],
+      ['', 'housing.step', 'model/step', 'step'], ['application/octet-stream', 'housing.stp', 'model/step', 'step'],
+    ] as const) {
+      const resolved = resolveMime(mime, name);
+      expect(resolved).toBe(type);
+      expect(isAllowedMime(resolved)).toBe(true);
+      expect(extForFile(resolved, name)).toBe(ext);
+    }
+  });
+
   it('rejects unknown / disallowed types', () => {
     expect(isAllowedMime('application/x-executable')).toBe(false);
     expect(isAllowedMime('text/html')).toBe(false);

@@ -83,6 +83,10 @@ export const ALLOWED_MIMES: ReadonlySet<string> = new Set([
   'application/vnd.oasis.opendocument.presentation', // .odp
   // Archives (never unpacked here: the agent gets the file and opens it itself)
   'application/zip',
+  // 3D models (the agent gets the file, and a connected app such as a CAD viewer can open it)
+  'model/stl',
+  'model/3mf',
+  'model/step',
 ]);
 
 /** Preferred file extension for a given canonical mime type. */
@@ -118,13 +122,18 @@ const MIME_TO_EXT: Record<string, string> = {
   'application/vnd.oasis.opendocument.text': 'odt',
   'application/vnd.oasis.opendocument.presentation': 'odp',
   'application/zip': 'zip',
+  'model/stl': 'stl',
+  'model/3mf': '3mf',
+  'model/step': 'step',
 };
 
 /** Extension → canonical mime. Used when a filename has an extension but the
  *  browser supplied an unhelpful mime (`application/octet-stream`). */
-const EXT_TO_MIME: Record<string, string> = Object.fromEntries(
-  Object.entries(MIME_TO_EXT).map(([mime, ext]) => [ext, mime]),
-);
+const EXT_TO_MIME: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(MIME_TO_EXT).map(([mime, ext]) => [ext, mime])),
+  // A second extension for the same type.
+  stp: 'model/step',
+};
 
 const FALLBACK_EXT = 'bin';
 
@@ -135,6 +144,15 @@ const ZIP_MIME = 'application/zip';
 const MIME_ALIASES: ReadonlyMap<string, string> = new Map([
   ['application/x-zip-compressed', ZIP_MIME],
   ['application/x-zip', ZIP_MIME],
+  // 3D models go by many names. Windows reports an STL as `application/vnd.ms-pki.stl`.
+  ['application/sla', 'model/stl'],
+  ['application/vnd.ms-pki.stl', 'model/stl'],
+  ['model/x.stl-ascii', 'model/stl'],
+  ['model/x.stl-binary', 'model/stl'],
+  ['application/vnd.ms-3mfdocument', 'model/3mf'],
+  ['application/step', 'model/step'],
+  ['application/x-step', 'model/step'],
+  ['model/x-step', 'model/step'],
 ]);
 
 /** Office formats that are zip containers. A browser that doesn't know one
