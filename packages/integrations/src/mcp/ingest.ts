@@ -251,7 +251,7 @@ export async function ingestMcpServers(
         if (account.opts.isCurrentTransport?.() === false) throw new NeedsReauthError(ctx.connection.id);
         let res: Awaited<ReturnType<McpClientLike['callTool']>>;
         try {
-          res = await account.opts.client.callTool({ name, arguments: selected.input }, ...(ctx.signal ? [{ signal: ctx.signal }] : []));
+          res = await account.opts.client.callTool({ name, arguments: selected.input, ...(ctx.callMeta ? { _meta: ctx.callMeta } : {}) }, ...(ctx.signal ? [{ signal: ctx.signal }] : []));
         } catch (error) {
           if (error instanceof IntegrationError && error.code === 'provider_timeout') {
             throw new IntegrationError(error.code, error.message, {

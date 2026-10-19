@@ -15,7 +15,7 @@ export function ConnectedCompanion({chatId, children}: {chatId: string; children
   }, []);
   const [ref, width] = useElementWidth<HTMLDivElement>();
   const side = width === null || width >= 820;
-  return <ConnectedCompanionContext.Provider value={{captureId, open, mount, register}}><div ref={ref} className={`flex min-h-0 min-w-0 flex-1 ${side ? 'flex-row' : 'flex-col'}`}>
+  return <ConnectedCompanionContext.Provider value={{chatId, captureId, open, mount, register}}><div ref={ref} className={`flex min-h-0 min-w-0 flex-1 ${side ? 'flex-row' : 'flex-col'}`}>
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children(!!captureId)}</div>
     <aside aria-label="Connected app beside this chat" className={`${captureId ? 'flex' : 'hidden'} min-h-0 flex-col bg-background ${side ? 'w-[min(45%,640px)] border-l' : 'h-[50%] border-t'} border-border`}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs"><span>App beside this chat</span><button aria-label="Close app" onClick={() => open(null)} className="rounded p-1 hover:bg-muted"><X size={14}/></button></div>

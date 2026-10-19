@@ -43,3 +43,16 @@ it('keeps each originating operation bound to its pre-dispatch capture even when
   expect(result.ok).toBe(true); expect(JSON.stringify(result)).toContain('Completed once');
   expect(captured).toEqual([]); expect(call).toHaveBeenCalledTimes(1);
 });
+
+it('sends host-owned call _meta with the tool call, and never takes it from tool input', async () => {
+  const registry = createRegistry(), store = inMemoryStore(), secretBox = plaintextSecretBox();
+  const call = vi.fn<(params: {name: string; arguments?: Record<string, unknown>; _meta?: Record<string, unknown>}) => Promise<{content: {type: string; text: string}[]}>>(async () => ({content: [{type: 'text', text: 'Added'}]}));
+  await ingestMcpServer(registry, store, secretBox, {name: 'fixture', client: {listTools: async () => ({tools: [{name: 'add_open_file', inputSchema: {type: 'object', properties: {fileName: {type: 'string'}}}}]}), callTool: call}});
+  const runtime = createIntegrationRuntime({registry, store, authRequests: store, secretBox, oauthApps: staticOAuthApps({}), approval: {check: async () => 'allow'}});
+  // OpenAI's file entrypoint: the host adds the opened file's path for a server on the same computer.
+  const path = {'openai/resource': {path: '/Users/example/parts/hex-bolt.stl'}};
+  expect((await runtime.runAction('mcp.fixture.add_open_file', {fileName: 'hex-bolt.stl'}, {callMeta: path})).ok).toBe(true);
+  expect(call.mock.calls[0]![0]).toEqual({name: 'add_open_file', arguments: {fileName: 'hex-bolt.stl'}, _meta: path});
+  expect((await runtime.runAction('mcp.fixture.add_open_file', {fileName: 'hex-bolt.stl', _meta: path})).ok).toBe(true);
+  expect(call.mock.calls[1]![0]).not.toHaveProperty('_meta');
+});

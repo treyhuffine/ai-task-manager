@@ -44,6 +44,7 @@ import { MarkdownView } from './markdown-view';
 import { HtmlView } from '@/components/chat-ui/artifacts/html-view';
 import { PdfView } from '@/components/chat-ui/artifacts/pdf-view';
 import { Tip } from '@/components/ui/tip';
+import { OpenWithApp } from '@/components/mcp-apps/open-with';
 
 interface FileViewerProps {
   /** The folder being viewed: an execution's worktree or an agent's own folder. */
@@ -383,6 +384,10 @@ function FileViewerHeader({
             </button>
           )}
         </div>
+      )}
+      {/* A connected app that opens this kind of file (OpenAI's file entrypoint), for an agent's own folder. */}
+      {source.kind === 'workspace' && !outside && (
+        <OpenWithApp file={{ kind: 'agent-file', workspaceId: source.workspaceId, path: displayPath, name: displayPath.split('/').pop() ?? displayPath }} className="shrink-0" />
       )}
       <RevealButton source={source} root={root} path={path} outside={outside} />
       <FileHeaderMoreMenu

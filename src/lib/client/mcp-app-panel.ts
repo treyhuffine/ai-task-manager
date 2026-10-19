@@ -3,6 +3,8 @@ import { createContext, useContext } from 'react';
 
 /** Chat navigation only. Text mentions do not import or load the UI renderer. */
 export const ConnectedCompanionContext = createContext<{
+  /** The chat this companion sits beside. */
+  chatId: string;
   captureId: string | null;
   open: (id: string | null) => void;
   mount: HTMLDivElement | null;

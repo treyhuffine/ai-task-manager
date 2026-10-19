@@ -335,6 +335,12 @@ export interface ActionContext {
   toolAudience?: 'model' | 'app';
   /** Trusted host capture before projection. Never supplied by a remote tool. */
   captureOriginalResult?: (result: unknown) => void;
+  /**
+   * Host-owned `_meta` for an MCP `tools/call`, such as OpenAI's
+   * `openai/resource.path` for a file a view opened. Set only by the host,
+   * never from tool input.
+   */
+  callMeta?: Record<string, unknown>;
 }
 
 // ───────────────────────────── Outcomes ─────────────────────────────────────
@@ -717,6 +723,8 @@ export interface RunActionOptions {
   caller?: Caller;
   toolAudience?: 'model' | 'app';
   captureOriginalResult?: (result: unknown) => void;
+  /** Host-owned MCP `tools/call` `_meta` (see `ActionContext.callMeta`). */
+  callMeta?: Record<string, unknown>;
   // Multi-client / hosted layer (authconfig spec §6): the tenant half of the resolution context,
   // used when the agent path auto-initiates auth and must pick a visible client per §4a.
   tenantId?: string;
