@@ -14,6 +14,7 @@ import * as operation12 from "@/lib/server/operations/integrations/connections";
 import * as operation7 from "@/lib/server/operations/integrations/disconnect";
 import * as operation13 from "@/lib/server/operations/integrations/mcp-servers";
 import * as operation8 from "@/lib/server/operations/integrations/mcp-servers/[id]";
+import * as operation264 from "@/lib/server/operations/integrations/mcp-servers/detect-auth";
 import * as operation14 from "@/lib/server/operations/integrations/pending-approvals";
 import * as operation16 from "@/lib/server/operations/integrations/requests/[eventId]";
 import * as operation17 from "@/lib/server/operations/integrations/run";
@@ -277,6 +278,8 @@ export const internalRouters = {
     mcpServersPatch: p.input(operation8.PATCHInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.PATCH(input, operationContext(ctx.request, input, "/integrations/mcp-servers/[id]")))),
     mcpServerPost: p.input(operation8.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.POST(input, operationContext(ctx.request, input, "/integrations/mcp-servers/[id]")))),
     mcpServersDelete: p.input(operation8.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation8.DELETE(input, operationContext(ctx.request, input, "/integrations/mcp-servers/[id]")))),
+    // Read-only probe of how a custom server authenticates, as its URL is typed (no REST route).
+    mcpServersDetectAuth: p.input(operation264.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation264.POST(input, operationContext(ctx.request, input, "/integrations/mcp-servers/detect-auth")))),
     // The accounts only the person can fix, for the rail's Connect accounts (src/lib/integrations/attention.ts).
     attentionGet: p.query(() => listAccountsNeedingYou()),
     approvePost: p.input(operation9.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation9.POST(input, operationContext(ctx.request, input, "/integrations/approve")))),

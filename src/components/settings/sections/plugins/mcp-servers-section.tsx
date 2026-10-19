@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
 import { openIntegrationAuthorization } from '@/lib/client/desktop';
+import { useMcpAuthDetection } from '@/hooks/use-mcp-auth-detection';
+import { detectionFor, resolveMcpFormAuth } from '../integrations/mcp-auth-detection';
 import { clearMcpToolApprovals, DEFAULT_MCP_APPROVAL_POLICY, patchMcpToolOverrides, type McpApprovalPolicy, type McpToolApprovalPatch } from '@/lib/integrations/mcp-approval-policy';
 import { CatalogTile, McpLogo } from '../integrations/parts';
 import { McpServerDetail, McpServerForm, mcpTone } from '../integrations/mcp-server-detail';
@@ -32,6 +34,8 @@ export function McpServersSection({ active, navigation }: {
   const [servers, setServers] = useState<McpServerEntry[]>([]);
   const [settings, setSettings] = useState<{ defaultPolicy: McpApprovalPolicy; override: McpApprovalPolicy | null }>({ defaultPolicy: DEFAULT_MCP_APPROVAL_POLICY, override: null });
   const [form, setForm] = useState<McpForm>(EMPTY_MCP_FORM);
+  // How the typed server authenticates, so the person doesn't have to choose.
+  const detection = useMcpAuthDetection(form.url, view.kind === 'new');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -130,10 +134,11 @@ export function McpServersSection({ active, navigation }: {
     }
   };
   const add = () => run(async () => {
-    const auth = form.authKind === 'header' ? { kind: 'header' as const, header: form.header.trim() } : { kind: form.authKind };
+    const { authKind, header } = resolveMcpFormAuth(form, detectionFor(detection, form.url));
+    const auth = authKind === 'header' ? { kind: 'header' as const, header } : { kind: authKind };
     const result = await trpcClient.integrations.mcpServersPost.mutate({ body: { name: form.name.trim(), url: form.url.trim(), auth,
       ...(navigation?.returnTo ? { returnTo: navigation.returnTo } : {}),
-      ...(['bearer', 'header'].includes(form.authKind) ? { secret: form.secret } : {}) } });
+      ...(['bearer', 'header'].includes(authKind) ? { secret: form.secret } : {}) } });
     setServers(list => [...list.filter(server => server.id !== result.entry.id), result.entry]);
     navigate({ kind: 'server', id: result.entry.id });
     if ('requiresAuth' in result && result.requiresAuth && 'authUrl' in result && result.authUrl) {
@@ -176,7 +181,9 @@ export function McpServersSection({ active, navigation }: {
       <Button size="xs" variant="outline" disabled={busy} onClick={() => run(async () => { await trpcClient.desktop.cancelOAuth.mutate({ body: { id: pendingOAuth } }); setPendingOAuth(null); setAwaitingServer(null); })}>Cancel</Button></div>}
     {banner && <div role="status" className="flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-600 dark:text-emerald-400"><CheckCircle2 size={15} className="shrink-0" /><p>{banner}</p></div>}
     {error && <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive"><AlertCircle size={15} className="shrink-0" /><p>{error}</p></div>}
-    {view.kind === 'new' ? <McpServerForm form={form} busy={busy} onChange={patch => setForm(form => ({ ...form, ...patch }))} onSubmit={add} onBack={back} />
+    {view.kind === 'new' ? <McpServerForm form={form} detection={detection} busy={busy} onSubmit={add} onBack={back}
+        // A new address gets a fresh verdict. The person's choice was for the old one.
+        onChange={patch => setForm(form => ({ ...form, ...patch, ...(patch.url !== undefined && patch.url.trim() !== form.url.trim() ? { authChosen: false } : {}) }))} />
       : loading ? <SettingsSkeleton rows={3} />
       : server ? <McpServerDetail server={server} busy={busy} defaultPolicy={settings.defaultPolicy} onBack={back}
         onSetPolicy={policy => setServerPolicy(server, policy)} onToolOverride={(name, patch) => setToolOverride(server, name, patch)}

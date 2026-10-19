@@ -7,7 +7,7 @@ const provider: ProviderStatus = { id: 'openseo', displayName: 'OpenSEO', method
   requiresAuth: true, authKind: 'oauth', error: 'Error echoing secret-token', accounts: [],
   endpointConfig: { kind: 'deployment', label: 'Deployment', placeholder: 'https://seo.example', locked: false },
 } };
-const form: McpForm = { name: 'Research', url: 'https://url-user:url-password@seo.example/mcp?token=query-secret#fragment-secret', authKind: 'header', header: 'X-API-Key', secret: 'private-key' };
+const form: McpForm = { name: 'Research', url: 'https://url-user:url-password@seo.example/mcp?token=query-secret#fragment-secret', authKind: 'header', authChosen: true, header: 'X-API-Key', secret: 'private-key' };
 function facts(message: string) { return JSON.parse(message.split('<plugin_setup_context>\n')[1].split('\n</plugin_setup_context>')[0]); }
 
 describe('plugin setup help context', () => {

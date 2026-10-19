@@ -16,6 +16,8 @@ const runtime = vi.hoisted(() => ({ coordinate: vi.fn(async () => {}) }));
 vi.mock('@/lib/sessions/workstream', () => ({ coordinateLifecycleChange: runtime.coordinate }));
 vi.mock('@/lib/sessions/workstream-runtime', () => ({ inProcessWorkstreamRuntime: {} }));
 vi.mock('@/lib/executor/status-snapshot', () => ({ listRunningSessions: () => [] }));
+// The MCP auth probe reaches the network. Here it answers from the address alone.
+vi.mock('@/lib/integrations/mcp-auth-detect', () => ({ detectMcpAuth: async (url: string) => ({ method: 'none', server: { name: `probe of ${url}` } }) }));
 
 let home: TestHome;
 let client: ReturnType<typeof createAppTRPCClient>;
@@ -69,6 +71,15 @@ describe('typed UI API over the authenticated HTTP adapter', () => {
     const session = appRouter.createCaller({ request: new Request('http://localhost/api/trpc'), key: { apiKeyId: 'session', scope: 'session', location: 'home', workerDeviceId: null, sessionChatId: 'chat' } });
     await expect(session.integrations.mcpApprovalPolicyPatch({ body: { defaultPolicy: 'auto' } })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(session.integrations.mcpServersPatch({ params: { id: server.id }, body: { approvalPolicy: 'auto' } })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+  it('probes how a custom MCP server authenticates without saving anything', async () => {
+    const { getMcpServerStore } = await import('@/lib/integrations/runtime');
+    const before = getMcpServerStore().list().length;
+    const result = await client.integrations.mcpServersDetectAuth.mutate({ body: { url: 'https://mcp.example/mcp' } });
+    expect(result).toEqual({ detection: { method: 'none', server: { name: 'probe of https://mcp.example/mcp' } } });
+    expect(getMcpServerStore().list()).toHaveLength(before);
+    expect(requests.at(-1)?.method).toBe('POST');
+    await expect(client.integrations.mcpServersDetectAuth.mutate({ body: { url: 'x'.repeat(3000) } })).rejects.toMatchObject({ data: { code: 'BAD_REQUEST' } });
   });
   it('round-trips hydrated records, one request per independent read, with compact list DTOs', async () => {
     const area = await client.areas.create.mutate({ name: 'Work' });

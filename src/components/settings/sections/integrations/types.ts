@@ -147,11 +147,13 @@ export interface McpForm {
   name: string;
   url: string;
   authKind: 'none' | 'bearer' | 'header' | 'oauth';
+  /** The person chose `authKind` for this URL. Otherwise the probe's verdict decides (`mcp-auth-detection.ts`). */
+  authChosen: boolean;
   header: string;
   secret: string;
 }
 
-export const EMPTY_MCP_FORM: McpForm = { name: '', url: '', authKind: 'none', header: '', secret: '' };
+export const EMPTY_MCP_FORM: McpForm = { name: '', url: '', authKind: 'none', authChosen: false, header: '', secret: '' };
 
 /** Prefer the API error body's reason ("API 400 …" hides it) so failures read clearly. */
 export function errMsg(e: unknown): string {
