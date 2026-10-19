@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { McpAuthDetection } from '@/lib/integrations/mcp-auth-detect';
-import { describeMcpAuthDetection, detectedAuthKind, detectionFor, resolveMcpFormAuth, type McpAuthDetectionState } from './mcp-auth-detection';
+import { describeMcpAuthDetection, detectedAuthKind, detectionFor, patchMcpForm, resolveMcpFormAuth, type McpAuthDetectionState } from './mcp-auth-detection';
 import { McpServerForm } from './mcp-server-detail';
 import { EMPTY_MCP_FORM, type McpForm } from './types';
 
@@ -45,6 +45,17 @@ describe('what a verdict preselects', () => {
     expect(resolveMcpFormAuth({ ...form, authKind: 'bearer', authChosen: true }, oauth)).toEqual({ authKind: 'bearer', header: '' });
     expect(resolveMcpFormAuth({ ...form, authKind: 'bearer' }, unreachable)).toEqual({ authKind: 'bearer', header: '' });
     expect(resolveMcpFormAuth(form, null)).toEqual({ authKind: 'none', header: '' });
+  });
+});
+
+describe('editing the form', () => {
+  it('starts over on a new address, keeping what the person typed elsewhere', () => {
+    const chosen: McpForm = { ...EMPTY_MCP_FORM, name: 'Fixture', url, authKind: 'bearer', authChosen: true, secret: 'key' };
+    expect(patchMcpForm(chosen, { url: 'https://other.example/mcp' })).toEqual({ ...chosen, url: 'https://other.example/mcp', authKind: 'none', authChosen: false });
+    // Whitespace around the same address is not a new address.
+    expect(patchMcpForm(chosen, { url: ` ${url} ` })).toEqual({ ...chosen, url: ` ${url} ` });
+    expect(patchMcpForm(chosen, { name: 'Renamed' })).toEqual({ ...chosen, name: 'Renamed' });
+    expect(patchMcpForm(chosen, { authKind: 'header', authChosen: true })).toEqual({ ...chosen, authKind: 'header' });
   });
 });
 

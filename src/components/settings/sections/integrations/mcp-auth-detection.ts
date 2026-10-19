@@ -38,6 +38,17 @@ export function resolveMcpFormAuth(form: McpForm, detected: McpAuthDetection | n
   return { authKind, header: form.header.trim() || (authKind === 'header' && hint ? hint : '') };
 }
 
+/**
+ * Apply an edit to the form. A new address starts over: it gets its own
+ * verdict, and a method chosen for the old address doesn't carry over to it.
+ * Name, header and secret stay, since they are visible in the form.
+ */
+export function patchMcpForm(form: McpForm, patch: Partial<McpForm>): McpForm {
+  const next = { ...form, ...patch };
+  const newAddress = patch.url !== undefined && patch.url.trim() !== form.url.trim();
+  return newAddress ? { ...next, authKind: 'none', authChosen: false } : next;
+}
+
 export interface McpAuthSummary {
   tone: 'ok' | 'warn';
   title: string;

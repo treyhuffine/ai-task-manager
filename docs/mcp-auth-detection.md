@@ -30,7 +30,8 @@ Two quiet controls: **Change** opens the ordinary picker with every method, and
 on an OAuth verdict **Use an API key instead** switches to a bearer token in one
 click. DataForSEO is the known case: it offers OAuth and also takes an API key.
 A choice made by hand belongs to that address. Editing the URL starts over with
-a fresh verdict. The form submits the detected method unless the person chose,
+a fresh verdict and the method back at None until it arrives, while the name,
+header and secret stay as typed. The form submits the detected method unless the person chose,
 and the add itself still validates by connecting, as before.
 
 ## How the probe works
