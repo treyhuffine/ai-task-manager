@@ -66,11 +66,20 @@ describe('appPlaces', () => {
     expect(places.map((p) => p.displayName)).toEqual(['MagicPath']);
   });
 
-  it('opens a connected app at its first screen, and an installed app at its root', () => {
+  it('gives each standalone screen a row titled and marked by its entrypoint, and an installed app its root', () => {
+    const icon = { src: 'data:image/svg+xml,%3Csvg%2F%3E', theme: 'dark' as const };
     const places = appPlaces([app({ slug: 'finances', displayName: 'Finances' })], [], [
-      connected({ id: 'canvas', toolkitName: 'Canvas', entrypoints: [{ name: 'open-canvas' }, { name: 'gallery' }] }),
+      connected({ id: 'canvas', toolkitName: 'Canvas', entrypoints: [{ name: 'open-canvas', title: 'Canvas', icons: [icon] }, { name: 'gallery', title: 'Gallery' }] }),
     ]);
-    expect(places.map((p) => [p.route, p.query])).toEqual([['~connected/canvas', { open: 'open-canvas' }], ['finances', undefined]]);
+    expect(places.map((p) => [p.displayName, p.route, p.query, p.mark])).toEqual([
+      ['Canvas', '~connected/canvas', { open: 'open-canvas' }, { kind: 'icons', icons: [icon] }],
+      ['Finances', 'finances', undefined, { kind: 'app', icon: undefined }],
+      ['Gallery', '~connected/canvas', { open: 'gallery' }, { kind: 'server' }],
+    ]);
+    // On the app's page, only its first screen's row is lit.
+    expect(places.filter((p) => isPlaceRoute(p, connectedRoute('canvas'))).map((p) => p.displayName)).toEqual(['Canvas']);
+    // ⌘K still finds a screen by its product's name.
+    expect(places.find((p) => p.displayName === 'Gallery')?.keywords).toContain('Canvas');
   });
 
   it("gives a provider's accounts one row, opening the first that can open", () => {

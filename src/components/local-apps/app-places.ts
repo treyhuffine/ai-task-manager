@@ -1,3 +1,5 @@
+import type { McpIcon } from '@/lib/integrations/mcp-icons';
+
 /**
  * Which apps the rail and ⌘K list, and when a rail row is the one on screen.
  * Pure, so the rail's rows, the palette and their tests agree (docs/rail.md).
@@ -19,8 +21,11 @@ export interface AppPlace {
   query?: Record<string, string>;
   /** Every route it stands for: an installed app's root, or each account's page of a connected app. */
   roots: string[];
-  /** Its glyph: an installed app's tile, a provider's logo, or a custom MCP server. */
-  mark: { kind: 'app'; icon?: string } | { kind: 'provider'; providerId: string } | { kind: 'server' };
+  /**
+   * Its glyph: an installed app's tile, an entrypoint's own icons (OpenAI's
+   * spec: the tool's, else its server's), a provider's logo, or a custom MCP server.
+   */
+  mark: { kind: 'app'; icon?: string } | { kind: 'icons'; icons: readonly McpIcon[] } | { kind: 'provider'; providerId: string } | { kind: 'server' };
   /** Words ⌘K matches beyond the name. */
   keywords: string;
   /** An action is waiting on the person's approval. */
@@ -45,8 +50,8 @@ interface ListedConnectedApp {
   available: boolean;
   /** Its server declares a screen that opens on its own, not only a tool result's view. */
   standalone: boolean;
-  /** Those screens, the global entrypoints. A row opens the first. */
-  entrypoints?: readonly { name: string }[];
+  /** Those screens, the global entrypoints, with their titles and icons. Each is a row. */
+  entrypoints?: readonly { name: string; title?: string; icons?: readonly McpIcon[] }[];
 }
 
 /** A connected app's page, for one account. */
@@ -58,9 +63,12 @@ export const connectedRoute = (serverId: string) => `~connected/${serverId}`;
  * library with its state rather than taking a row it can't honor. Neither
  * can a connection with no standalone screen: it has nothing to open.
  *
- * A connected app is one row per product, as the library shows it: a
- * provider's accounts share a row, which opens the first account that can
- * open (its page switches between them). A custom MCP server is its own product.
+ * A connected app is one row per standalone screen (OpenAI's global
+ * entrypoint), titled and marked as the spec has it: the tool's title, and
+ * its icon, else the server's, else the provider's logo. A product's accounts
+ * share rows, which open the first account that can open (its page switches
+ * between them). A custom MCP server is its own product. On the product's
+ * page, its first row is the one lit.
  */
 export function appPlaces(
   instances: readonly ListedInstance[],
@@ -87,18 +95,20 @@ export function appPlaces(
   const linked = [...products].flatMap(([product, accounts]): AppPlace[] => {
     const open = accounts.find((account) => account.available);
     if (!open) return [];
-    return [{
-      key: `connected:${product}`,
-      displayName: open.toolkitName,
+    const screens = open.entrypoints?.length ? open.entrypoints : [undefined];
+    return screens.map((screen, index): AppPlace => ({
+      key: index ? `connected:${product}:${screen!.name}` : `connected:${product}`,
+      displayName: screen?.title || open.toolkitName,
       route: connectedRoute(open.id),
       // Choosing it opens the screen itself, as ChatGPT's sidebar does, not the page about it.
-      ...(open.entrypoints?.[0] ? { query: { open: open.entrypoints[0].name } } : {}),
-      roots: accounts.map((account) => connectedRoute(account.id)),
-      mark: open.providerId ? { kind: 'provider', providerId: open.providerId } : { kind: 'server' },
-      keywords: `${open.providerId ?? 'mcp'} connector`,
+      ...(screen ? { query: { open: screen.name } } : {}),
+      roots: index ? [] : accounts.map((account) => connectedRoute(account.id)),
+      mark: screen?.icons?.length ? { kind: 'icons', icons: screen.icons }
+        : open.providerId ? { kind: 'provider', providerId: open.providerId } : { kind: 'server' },
+      keywords: `${open.toolkitName} ${open.providerId ?? 'mcp'} connector`,
       // Its approvals belong to the view that asked, and end when it closes.
       needsApproval: false,
-    }];
+    }));
   });
   return [...installed, ...linked].sort((a, b) => a.displayName.localeCompare(b.displayName));
 }

@@ -133,7 +133,7 @@ export function SearchOverlay() {
     connectedApps.data ?? [],
   ), [localAppsEnabled, localApps?.instances, connectedApps.data]);
   const appCommands: PaletteCommand[] = appList.map((app) => ({
-    id: `open-app:${app.route}`,
+    id: `open-app:${app.key}`,
     label: `Open ${app.displayName}`,
     keywords: `app ${app.keywords}`,
     icon: 'LayoutGrid',
@@ -237,8 +237,8 @@ export function SearchOverlay() {
         if (cmd.id.startsWith('open-app:')) {
           setOpen(false);
           // A connected app with a standalone screen opens that screen, as its flyout row does.
-          const app = appList.find((place) => `open-app:${place.route}` === cmd.id);
-          setActiveView({ kind: 'apps', route: cmd.id.slice('open-app:'.length), ...(app?.query ? { query: app.query } : {}) });
+          const app = appList.find((place) => `open-app:${place.key}` === cmd.id);
+          if (app) setActiveView({ kind: 'apps', route: app.route, ...(app.query ? { query: app.query } : {}) });
           break;
         }
         // go-* navigation commands

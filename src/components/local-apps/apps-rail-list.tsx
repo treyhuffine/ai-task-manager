@@ -5,6 +5,7 @@ import { ArrowRight, LayoutGrid, Plus, Server } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { IntegrationLogo } from '@/components/integrations/integration-logo';
 import { connectedAppsQuery } from '@/components/mcp-apps/catalog';
+import { EntrypointIcon } from '@/components/mcp-apps/entrypoint-icon';
 import { Tip } from '@/components/ui/tip';
 import { trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
@@ -91,10 +92,11 @@ export function AppsRailList() {
   );
 }
 
-/** A row's glyph, as the library draws it: an installed app's tile, the provider's logo, or a server for a custom MCP. */
+/** A row's glyph, as the library draws it: an installed app's tile, an entrypoint's icon, the provider's logo, or a server for a custom MCP. */
 function PlaceMark({ place }: { place: AppPlace }) {
   const { mark, displayName } = place;
   if (mark.kind === 'app') return <AppMark name={displayName} icon={mark.icon} size="xs" />;
+  if (mark.kind === 'icons') return <EntrypointIcon icons={mark.icons} size={16} className="rounded" />;
   if (mark.kind === 'provider')
     return (
       <span aria-hidden className="flex shrink-0">
