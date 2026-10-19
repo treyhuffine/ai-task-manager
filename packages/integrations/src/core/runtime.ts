@@ -1173,6 +1173,7 @@ export function createIntegrationRuntime(opts: IntegrationRuntimeOptions): Integ
         log: logger,
         toolAudience: options.toolAudience ?? 'model',
         ...(options.callMeta ? { callMeta: options.callMeta } : {}),
+        callOrigin: { ownerId, connectionId: connection.id, actionId, attemptId, caller, audience: options.toolAudience ?? 'model' },
         captureOriginalResult: options.captureOriginalResult || captureMcpResult ? (result: unknown) => {
           originalResult = redactor.redact(result);
           options.captureOriginalResult?.(originalResult);

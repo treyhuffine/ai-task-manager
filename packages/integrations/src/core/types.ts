@@ -341,6 +341,22 @@ export interface ActionContext {
    * never from tool input.
    */
   callMeta?: Record<string, unknown>;
+  /**
+   * Who started this run, for answering a server's form during it (an MCP
+   * elicitation reaches the chat or app view that caused the call). Host
+   * supplied, never by a provider.
+   */
+  callOrigin?: ActionCallOrigin;
+}
+
+/** The run an action belongs to: its owner, account, action, attempt, caller and audience. */
+export interface ActionCallOrigin {
+  ownerId: string;
+  connectionId: string;
+  actionId: string;
+  attemptId: string;
+  caller?: Caller;
+  audience: 'model' | 'app';
 }
 
 // ───────────────────────────── Outcomes ─────────────────────────────────────

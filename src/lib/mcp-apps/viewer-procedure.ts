@@ -1,8 +1,12 @@
 import { TRPCError } from '@trpc/server';
-import { getApiKey } from '@/lib/db/queries';
 import { viewerProcedure } from '@/lib/trpc/init';
+import { getApiKey } from '@/lib/db/queries';
 
-/** A signed-in viewer's procedure for connected app views, rechecked before and after the work. */
+/**
+ * A connected app procedure: a signed-in viewer, rechecked before and after
+ * the work, so a key revoked mid-request cannot carry an app's result or a
+ * form's answer.
+ */
 export const connectedViewerProcedure = viewerProcedure.use(async ({ctx, next}) => {
   const recheck = () => {
     ctx.authorize?.();

@@ -439,8 +439,11 @@ describe('hosted multi-account runtime discovery', () => {
     ] });
     expect(await runtime.runAction('todoist.read', { id: 'work-record' }, { account: 'Work' })).toMatchObject({ ok: true });
     expect(await runtime.runAction('todoist.read', { id: 'personal-record' }, { allowedConnectionIds: [personal.connectionId] })).toMatchObject({ ok: true });
-    expect(personal.state.calls).toHaveBeenCalledWith({ name: 'read', arguments: { id: 'personal-record' } });
-    expect(work.state.calls).toHaveBeenCalledWith({ name: 'read', arguments: { id: 'work-record' } });
+    // Each call also names its run, so a form the server asks for reaches the right chat or app.
+    expect(personal.state.calls).toHaveBeenCalledWith({ name: 'read', arguments: { id: 'personal-record' } },
+      expect.objectContaining({ origin: expect.objectContaining({ connectionId: personal.connectionId, actionId: 'todoist.read' }) }));
+    expect(work.state.calls).toHaveBeenCalledWith({ name: 'read', arguments: { id: 'work-record' } },
+      expect.objectContaining({ origin: expect.objectContaining({ connectionId: work.connectionId, actionId: 'todoist.read' }) }));
   });
 
   it('keeps a healthy account active when another setup is pending or another grant expires', async () => {

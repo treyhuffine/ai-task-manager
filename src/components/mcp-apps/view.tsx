@@ -20,6 +20,7 @@ import { initialDisplayMode } from '@/lib/mcp-apps/metadata';
 import { launchConnectedFile, showConnectedCapture } from '@/lib/client/mcp-app-file';
 import { viewHref } from '@/lib/client/active-view';
 import { attachmentUrl } from '@/lib/attachments/view';
+import { ConnectedViewForms } from './form/view-forms';
 
 type OpenView = RouterOutputs['connectedApps']['open'];
 /** Results this browser already placed by their display mode, so scrolling back never moves one again. */
@@ -279,6 +280,7 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
     {error && <p role="alert" className="border-b border-border p-3 text-xs text-destructive">{error}</p>}
     {notice && <p role="status" className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground"><span className="min-w-0 flex-1">{notice}</span><button type="button" className="shrink-0 hover:text-foreground" onClick={() => setNotice(null)}>Dismiss</button></p>}
     {!ready && !error && <p role="status" className="absolute left-3 top-3 text-xs text-muted-foreground">Loading interface…</p>}
+    <ConnectedViewForms viewId={view.id} />
     {/* Inline, the frame is exactly the height the view reports (the host clamps it to 160 to 900 px), capped
         at 80% of the window, and the view scrolls inside only past that. It must not flex: a 0% flex basis in an
         auto-height column resolves to this empty div's content, which collapsed every view to its minimum. */}

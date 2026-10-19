@@ -1,5 +1,6 @@
 import { z } from 'zod/v4';
 import { router } from '@/lib/trpc/init';
+import { connectedFormsRouter } from './forms-router';
 import { callConnectedView, cancelConnectedInvocation, clearConnectedContext, connectedAppsCatalog, connectedViewStatus, decideConnectedApproval, launchConnectedView, navigateConnectedScreen, prepareConnectedLaunch, openConnectedView, readConnectedResource, updateConnectedContext } from './service';
 import { connectedFilesRouter } from './files-router';
 import { connectedViewerProcedure as p } from './viewer-procedure';
@@ -8,6 +9,7 @@ const id = z.uuid();
 const args = z.record(z.string(), z.unknown());
 export const connectedAppsRouter = router({
   files: connectedFilesRouter,
+  forms: connectedFormsRouter,
   catalog: p.query(({ctx}) => connectedAppsCatalog(ctx.key!.apiKeyId)),
   status: p.input(z.object({viewId: id}).strict()).query(({input,ctx}) => connectedViewStatus(input.viewId,ctx.key!.apiKeyId)),
   open: p.input(z.object({captureId: id, chatId: id.optional()}).strict()).mutation(async ({input, ctx}) => {

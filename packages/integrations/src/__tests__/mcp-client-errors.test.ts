@@ -80,6 +80,8 @@ describe('connectMcpClient request handling', () => {
       .toEqual({ content: [{ type: 'text', text: 'Task list' }], structuredContent: { results: [] }, isError: false });
     expect(sdk.callTool).toHaveBeenCalledWith({ name: 'find-tasks', arguments: { limit: 100 }, _meta: { 'openai/resource': { path: '/tmp/part.stl' } } }, {
       timeout: 600_000, resetTimeoutOnProgress: true, maxTotalTimeout: 1_800_000, signal: expect.any(AbortSignal), onprogress: expect.any(Function),
+      // 2026-07-28 input rounds come back to Ri's own loop, which answers them for the call that asked.
+      allowInputRequired: true,
     });
   });
 
