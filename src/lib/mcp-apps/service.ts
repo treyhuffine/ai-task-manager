@@ -459,8 +459,5 @@ export async function connectedTurnContext(chatId: string, value: unknown) {
 function modelInput(context: unknown) {
   const value = object(context);
   if (!Array.isArray(value.content)) return context ?? null;
-  return {...value, content: value.content.map(block => {
-    const {_meta: _ignored, ...rest} = object(block);
-    return rest;
-  })};
+  return {...value, content: value.content.map(block => Object.fromEntries(Object.entries(object(block)).filter(([key]) => key !== '_meta')))};
 }
