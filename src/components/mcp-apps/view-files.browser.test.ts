@@ -74,8 +74,8 @@ it('reads, watches and saves the opened file through Ri, and opens another file 
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${(server.address() as {port: number}).port}`);
     await expect.poll(() => probes.map(probe => probe.event), {timeout: 15_000}).toEqual(['init', 'read', 'subscribed', 'updated', 'read', 'saved', 'opened']);
-    // A file view is told it may read, watch and write the file, and open files.
-    expect(probes[0]).toEqual({event: 'init', experimental: ['openai/files', 'openai/modelContext', 'openai/resource'], serverResources: true});
+    // A file view is told it may read, watch and write the file, open files, and send messages and context like any view in a chat.
+    expect(probes[0]).toEqual({event: 'init', experimental: ['openai/files', 'openai/message', 'openai/modelContext', 'openai/resource'], serverResources: true});
     expect(probes[1]).toEqual({event: 'read', text: 'solid v1', etag: 'v1', writable: true});
     expect(probes[3]).toEqual({event: 'updated', uri});
     expect(probes[4]).toMatchObject({text: 'solid v2', etag: 'v2'});

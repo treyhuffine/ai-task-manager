@@ -442,8 +442,22 @@ export async function freezeConnectedContext(chatId: string, viewerId: string, r
     // A global screen belongs to the person, so its context goes with whichever chat they send next.
     if (view.capture.chatId !== chatId && !(view.capture.kind === 'global' && !view.capture.chatId)) throw new Error('App context changed. Try sending again.');
     if (view.revision !== ref.revision) throw new Error('App context changed. Try sending again.');
-    return {sourceRef: view.capture.sourceRef, title: view.capture.title, serverId: view.capture.serverId, authority: view.capture.authority, context: view.context ?? null};
+    // Images and blobs become attachments the message names, so raw keeps no bytes.
+    const {context, files} = await (await import('./context-files')).materializeContextFiles(view);
+    return {sourceRef: view.capture.sourceRef, title: view.capture.title, serverId: view.capture.serverId, authority: view.capture.authority, context,
+      ...(files.length ? {files} : {})};
   }));
+}
+
+/**
+ * The app behind a message a view sends for its person (OpenAI's `ui/message`
+ * with `send`). The view must be this viewer's and still allowed its account.
+ * The message may go to another chat (`target: "new"`), since the person's
+ * own browser sends it. It names the app and grants nothing.
+ */
+export async function connectedMessageSender(viewId: string, viewerId: string) {
+  const {view, remote} = await checkedView(viewId, viewerId);
+  return {app: remote.entry.displayName, serverId: view.capture.serverId, viewId: view.id};
 }
 
 /** Recheck persisted context on every dispatch, including orphan/retry recovery. */

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { CallToolResult } from '@modelcontextprotocol/client';
+import type { Attachment } from '@/db/types';
 import type { prepareResource } from './resource';
 
 export const VIEW_TTL = 30 * 60_000;
@@ -42,6 +43,8 @@ export interface View {
   id: string; viewerId: string; capture: Capture; resource?: ReturnType<typeof prepareResource>;
   resourcePromise?: Promise<ReturnType<typeof prepareResource>>;
   created: number; bytes: number; delivered: number; reads?: number; context?: ModelContext; contextUpdateId?: string; revision: number; contextSecond: number; contextCount: number;
+  /** The context's images and blobs, saved as attachments once per update (`context-files.ts`). */
+  contextFiles?: { updateId?: string; source: ModelContext; context: ModelContext; files: Attachment[] };
   closed: boolean;
   calls: Map<string, {fingerprint?: string; retryable: boolean; cancelled: boolean; result?: Promise<ViewCall>}>;
 }

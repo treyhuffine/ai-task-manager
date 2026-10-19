@@ -42,7 +42,7 @@ import { trpcClient } from '@/lib/trpc/client';
  */
 
 import { registerChatDraftWriter } from '@/lib/client/chat-drafts';
-import { registerAppChatComposer } from '@/lib/client/app-chat-intent';
+import { registerAppChatComposer, serializeAppParts, type AppDraftPart, type AppProvenance } from '@/lib/client/app-chat-intent';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -84,6 +84,7 @@ import type { PrMentionItem } from './pr-menu/types';
 import { PrChipNode, PR_CHIP_NAME, type PrChipAttrs } from './pr-menu/pr-chip-node';
 import { formatPrRef } from './pr-menu/format';
 import { EntityChipNode, ENTITY_CHIP_NAME, type EntityChipAttrs } from './entity-chip-node';
+import { AppSnippetNode, APP_SNIPPET_NAME, type AppSnippetAttrs } from './app-snippet-node';
 import { scheduleEditorAutoFocus } from './auto-focus';
 
 // ─── Public types ────────────────────────────────────────────────
@@ -262,6 +263,12 @@ interface ChatInputEditorProps {
    * from its in-memory message list. Omit (or pass empty) to disable recall.
    */
   history?: string[];
+  /**
+   * Sends a message a connected app asked to send (OpenAI's `ui/message`
+   * with `send`), as the app, without touching the person's draft. When
+   * omitted, app messages always land in the draft.
+   */
+  onAppSend?: (message: { text: string; attachments: Attachment[] }, fromApp?: AppProvenance) => Promise<void>;
 }
 
 // ─── Tunables ──────────────────────────────────────────────────
@@ -380,9 +387,12 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       prs,
       draftKey,
       history,
+      onAppSend,
     },
     ref,
   ) {
+    const onAppSendRef = useRef(onAppSend);
+    onAppSendRef.current = onAppSend;
     const onSubmitRef = useRef(onSubmit);
     onSubmitRef.current = onSubmit;
     // Mirror in a ref so the keymap (built once via useMemo) always reads
@@ -754,6 +764,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         PrChipNode,
         MentionChipNode,
         EntityChipNode,
+        AppSnippetNode,
         SourceChipNode,
         PasteDropExtension,
         SlashMenuExtension.configure({
@@ -889,15 +900,29 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     }, [editor, sourceChatId, disabled]);
 
     // Register after this key's saved draft has been restored. App suggestions
-    // append a plain-text paragraph, preserving typed text, chips and history.
+    // append a paragraph, preserving typed text, chips and history: plain text
+    // from local apps, and text, titled items and files from connected apps.
+    // A connected app's send goes out as its own message and leaves the draft.
     useEffect(() => {
       if (!editor || !draftKey?.startsWith('exec:')) return;
-      return registerAppChatComposer(draftKey.slice(5), (text) => {
+      const appendParagraph = (content: Record<string, unknown>[]) => {
         if (editor.isDestroyed) return;
-        if (text) editor.commands.insertContentAt(editor.state.doc.content.size, {
-          type: 'paragraph', content: [{ type: 'text', text }],
-        });
+        if (content.length) {
+          const line = { type: 'paragraph', content };
+          if (editor.isEmpty) editor.commands.setContent({ type: 'doc', content: [line] }, { emitUpdate: true });
+          else editor.commands.insertContentAt(editor.state.doc.content.size, line);
+        }
         editor.commands.focus('end');
+      };
+      return registerAppChatComposer(draftKey.slice(5), (text) => appendParagraph(text ? [{ type: 'text', text }] : []), {
+        appendParts: (parts) => appendParagraph(appPartsContent(parts)),
+        send: async (parts, fromApp) => {
+          const send = onAppSendRef.current;
+          if (!send) throw new Error('This chat takes app messages as drafts only');
+          const message = serializeAppParts(parts);
+          if (!message.text) return;
+          await send(message, fromApp);
+        },
       });
     }, [editor, draftKey]);
 
@@ -1086,9 +1111,36 @@ function removePendingChip(editor: Editor, pendingId: string): void {
   editor.view.dispatch(tr);
 }
 
+// ─── App parts ───────────────────────────────────────────────────
+
+/**
+ * A connected app's message parts as one paragraph's content: text (with
+ * its line breaks), titled items as `AppSnippetNode` chips, and files as
+ * ordinary file chips, separated by spaces. Exported for tests.
+ */
+export function appPartsContent(parts: readonly AppDraftPart[]): Record<string, unknown>[] {
+  const content: Record<string, unknown>[] = [];
+  parts.forEach((part, index) => {
+    if (index > 0) content.push({ type: 'text', text: ' ' });
+    if (part.type === 'snippet') {
+      content.push({ type: APP_SNIPPET_NAME, attrs: { title: part.title, text: part.text } satisfies AppSnippetAttrs });
+    } else if (part.type === 'file') {
+      content.push({ type: FILE_CHIP_NAME, attrs: { ...part.attachment, pending: false, pendingId: '' } satisfies FileChipAttrs });
+    } else {
+      part.text.split('\n').forEach((line, lineIndex) => {
+        if (lineIndex > 0) content.push({ type: 'hardBreak' });
+        if (line) content.push({ type: 'text', text: line });
+      });
+    }
+  });
+  // A leading separator has nothing to separate.
+  while (content[0]?.type === 'text' && content[0].text === ' ') content.shift();
+  return content;
+}
+
 // ─── Output builders ─────────────────────────────────────────────
 
-function buildMarkerOutput(editor: Editor | null): { text: string; attachments: Attachment[] } {
+export function buildMarkerOutput(editor: Pick<Editor, 'state'> | null): { text: string; attachments: Attachment[] } {
   if (!editor) return { text: '', attachments: [] };
   const seenFileNames = new Set<string>();
   const attachments: Attachment[] = [];
@@ -1135,6 +1187,11 @@ function buildMarkerOutput(editor: Editor | null): { text: string; attachments: 
       lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + sourceMarker(node.attrs.sourceRef);
       return false;
     }
+    if (node.type.name === APP_SNIPPET_NAME) {
+      // A titled app item sends as its text. Its title is only for the person.
+      lines[lines.length - 1] = (lines[lines.length - 1] ?? '') + (node.attrs as AppSnippetAttrs).text;
+      return false;
+    }
     if (node.type.name === ENTITY_CHIP_NAME) {
       // Task / note / scratchpad chips emit `[[task:id]]`, `[[note:id]]`,
       // or `[[scratchpad]]`. The server-side expandEntityMarkers
@@ -1174,7 +1231,7 @@ function buildMarkerOutput(editor: Editor | null): { text: string; attachments: 
   return { text: lines.join('\n').trim(), attachments };
 }
 
-function buildUiMessageParts(editor: Editor | null): {
+export function buildUiMessageParts(editor: Pick<Editor, 'state'> | null): {
   parts: Array<{ type: 'text'; text: string } | FileUIPart>;
 } {
   if (!editor) return { parts: [] };
@@ -1221,6 +1278,10 @@ function buildUiMessageParts(editor: Editor | null): {
     }
     if (node.type.name === SOURCE_CHIP_NAME) {
       textBuf += sourceMarker(node.attrs.sourceRef);
+      return false;
+    }
+    if (node.type.name === APP_SNIPPET_NAME) {
+      textBuf += (node.attrs as AppSnippetAttrs).text;
       return false;
     }
     if (node.type.name === ENTITY_CHIP_NAME) {

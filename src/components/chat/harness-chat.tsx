@@ -270,6 +270,7 @@ export function HarnessChatSession({
             const event = await sendMessage.mutateAsync({
               content,
               attachments: opts?.attachments,
+              fromApp: opts?.fromApp,
             });
             if (opts?.viaVoice && event?.id) {
               setVoiceSentIds((prev) => {
