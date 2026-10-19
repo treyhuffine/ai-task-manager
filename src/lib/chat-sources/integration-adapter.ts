@@ -69,6 +69,10 @@ export const integrationSourceAdapter: SourceAdapter = {
     const href = `/apps/~connected/${current.remote.entry.id}`;
     return capture ? {captureId: capture.id, href: `${href}?result=${capture.id}`} : {href};
   },
+  // An item from the account's @ search, read again for this chat when the message goes out.
+  async mentionContext(ref, ctx) {
+    return (await import('@/lib/mcp-apps/mentions')).readMentionedResource(ref, ctx.chatId);
+  },
   async actions(ref, ctx) {
     const { toolkit, remote } = await exact(ref, ctx);
     return (toolkit?.actions ?? []).filter(a => a.modelVisible !== false).flatMap(a => {

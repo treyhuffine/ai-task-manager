@@ -24,9 +24,11 @@ import {
   GitPullRequestClosed,
   GitMerge,
   ListFilter,
+  FileText,
 } from 'lucide-react'
 import { FileIcon } from '@/components/file-icon'
 import { SourceMark } from '@/components/chat-ui/references/source-mark'
+import { McpIconImage } from '@/components/mcp-apps/mcp-icon'
 import type { SuggestionPopupRef } from '../suggestion/renderer'
 import { isSuggestionCommitKey, suggestionNavDelta } from '../suggestion/keys'
 import { parseMentionQuery } from './ranking'
@@ -45,10 +47,12 @@ function isCaption(item: MentionItem): item is MoreMentionItem {
 
 const KIND_NOUNS = { task: 'tasks', note: 'notes', file: 'files', pr: 'pull requests', app: 'apps', connector: 'apps' } as const
 
-type Section = 'app' | 'entity' | 'task' | 'note' | 'reference' | 'file' | 'pr' | `ref:${string}`
+type Section = 'app' | 'entity' | 'task' | 'note' | 'reference' | 'file' | 'pr' | `ref:${string}` | `mention:${string}`
 
 function sectionFor(item: MentionItem): Section {
   if (item.kind === 'source' || item.kind === 'sourceGroup') return 'app'
+  // One band per app whose @ search answered, headed by the app's name.
+  if (item.kind === 'appMention') return `mention:${item.serverId}`
   if (item.kind === 'scratchpad') return 'entity'
   if (item.kind === 'task') return 'task'
   if (item.kind === 'note') return 'note'
@@ -64,6 +68,7 @@ function sectionFor(item: MentionItem): Section {
 function keyFor(item: MentionItem): string {
   switch (item.kind) {
     case 'source': return item.source.sourceRef
+    case 'appMention': return `appMention:${item.sourceRef}`
     case 'sourceGroup': return `sourceGroup:${item.groupId}`
     case 'scratchpad':
       return 'scratchpad'
@@ -169,7 +174,7 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
       const section = sectionFor(item)
       if (section !== prevSection) {
         rows.push(
-          <SectionHeader key={`hdr-${section}-${index}`} kind={section} />,
+          <SectionHeader key={`hdr-${section}-${index}`} kind={section} label={item.kind === 'appMention' ? item.group : undefined} />,
         )
         prevSection = section
       }
@@ -215,9 +220,10 @@ function FilterHint() {
   )
 }
 
-function SectionHeader({ kind }: { kind: Section }) {
+function SectionHeader({ kind, label: named }: { kind: Section; label?: string }) {
   let label: string
-  if (kind === 'entity') label = 'This session'
+  if (named) label = named
+  else if (kind === 'entity') label = 'This session'
   else if (kind === 'app') label = 'Apps'
   else if (kind === 'task') label = 'Tasks'
   else if (kind === 'note') label = 'Notes'
@@ -276,6 +282,10 @@ function PrRowIcon({ state, isDraft }: { state: string; isDraft: boolean }) {
 function RowIcon({ item }: { item: MentionItem }) {
   if (item.kind === 'source') return <SourceMark mark={item.source.mark} name={item.source.service} size={13} />
   if (item.kind === 'sourceGroup') return <SourceMark mark={item.mark} name={item.label} size={13} />
+  if (item.kind === 'appMention') {
+    const generic = <FileText size={11} className="text-muted-foreground/80" />
+    return <McpIconImage icons={item.icons} size={13} fallback={<McpIconImage icons={item.appIcons} size={13} fallback={generic} />} />
+  }
   if (item.kind === 'more') {
     return <ListFilter size={11} className="text-muted-foreground/80" />
   }
@@ -306,6 +316,14 @@ function RowIcon({ item }: { item: MentionItem }) {
 
 function RowBody({ item }: { item: MentionItem }) {
   if (item.kind === 'sourceGroup') return <><span className="truncate text-[11px] font-medium">{item.label}</span><span className="ml-auto text-[10px] text-muted-foreground">{item.count} accounts ›</span></>
+  if (item.kind === 'appMention') {
+    return (
+      <>
+        <span className="text-[11px] text-foreground shrink-0 max-w-[60%] truncate">{item.title}</span>
+        {item.subtitle && <span className="text-[10.5px] text-muted-foreground/70 truncate min-w-0">{item.subtitle}</span>}
+      </>
+    )
+  }
   if (item.kind === 'source') {
     const capabilities = [item.source.chat && 'Chat', item.source.view === 'available' && 'View'].filter(Boolean).join(' + ')
     // The service leads, as it reads on the chip. The account says which one, unless it only repeats the name.

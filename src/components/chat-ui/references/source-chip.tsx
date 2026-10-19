@@ -125,6 +125,8 @@ export function SourceChip({ sourceRef, onRemove, tone = 'surface' }: { sourceRe
           <SourceMark mark={source?.mark} name={source?.service ?? chipLabel} size={16} className="mt-px" />
           <div className="min-w-0"><p className="font-medium break-words">{source && source.accountLabel?.toLocaleLowerCase() === source.service.toLocaleLowerCase() ? source.service : label}</p><p className="mt-1 text-muted-foreground">{SOURCE_STATUS_LABELS[status]}</p></div>
         </div>
+        {source?.resource && <p className="break-all font-mono text-[10.5px] text-muted-foreground">{source.resource.uri}</p>}
+        {source?.resource && <p className="text-muted-foreground">An item from {source.service}. Your agent gets what it is and its content, read from the app when you send.</p>}
         {source && <div className="flex gap-2 text-muted-foreground">{source.chat && <span className="inline-flex items-center gap-1"><MessageCircle size={12} />Ask Ri</span>}{source.view !== 'none' && <span>{source.view === 'available' ? 'Has a view' : 'View not available here yet'}</span>}</div>}
         {status === 'needs_access' && <p>Access applies to this agent. Selecting a mention does not grant access.</p>}
         <div className="flex flex-wrap gap-2">

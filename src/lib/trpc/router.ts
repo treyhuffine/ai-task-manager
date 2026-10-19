@@ -3,6 +3,7 @@ import { emailRouter } from '@/lib/email/router';
 import { chatSourcesRouter } from '@/lib/chat-sources/router';
 import { connectedAppsRouter } from '@/lib/mcp-apps/router';
 import { mcpSettingsRouter } from '@/lib/mcp-apps/settings-router';
+import { appMentionsRouter } from '@/lib/mcp-apps/mentions-router';
 import { localAppsRouter } from '@/lib/local-apps/router';
 import { integrationSourcesRouter } from '@/lib/integrations/sources/router';
 import { toNoteListDTOs, toTaskListDTOs } from '@/lib/api/dto/entity-list';
@@ -69,6 +70,7 @@ export const appRouter = router({
   chatSources: chatSourcesRouter,
   connectedApps: connectedAppsRouter,
   mcpSettings: mcpSettingsRouter,
+  appMentions: appMentionsRouter,
   // Managed connection sources (Composio) and their accounts (docs/connector-service-spec.md).
   integrationSources: integrationSourcesRouter,
   ...internalRouters,

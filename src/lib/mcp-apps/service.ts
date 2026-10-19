@@ -72,7 +72,8 @@ export async function connectedAppsCatalog(viewerId?: string) {
   });
 }
 
-async function authority(serverId: string, chatId?: string) {
+/** Current access to a server on its exact account, and for `chatId` when given: the one check every app operation repeats. */
+export async function authority(serverId: string, chatId?: string) {
   assertEnabled();
   const metadata = await integrationSourceMetadata();
   const remote = metadata.servers.find(s => s.entry.id === serverId);

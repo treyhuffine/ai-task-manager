@@ -22,6 +22,8 @@ export interface SourceDescriptor {
   view: 'available' | 'advertised' | 'none';
   openPath?: string;
   managePath?: string;
+  /** Set when the reference mentions one item an app's @ search returned, rather than the account itself. */
+  resource?: { uri: string; title: string; name?: string };
 }
 export interface SourceContext { chatId: string; workspaceId: string | null; harnessReady: boolean; messageId?: string }
 export interface SourceAction { id: string; description: string; inputSchema: unknown; outputSchema?: unknown; mutating?: boolean }
@@ -32,6 +34,19 @@ export interface SourceAdapter {
   call(reference: SourceReference, context: SourceContext, action: string, input: Record<string, unknown>, invocationId: string, signal?: AbortSignal): Promise<unknown>;
   /** Explicit human request to open a native summary or view beside this chat. */
   open?(reference: SourceReference, context: SourceContext): Promise<void | {captureId?: string; href?: string}>;
+  /** A mentioned resource's content for one turn, read again on the exact account for this chat. */
+  mentionContext?(reference: SourceReference, context: SourceContext): Promise<MentionedResourceContext>;
+}
+/** What the model receives for one mentioned resource. `error` says why there is no `content`. */
+export interface MentionedResourceContext {
+  app: string;
+  title: string;
+  uri: string;
+  name?: string;
+  mimeType?: string;
+  content?: string;
+  truncated?: boolean;
+  error?: string;
 }
 export type SourceSearchItem = { kind: 'source'; source: SourceDescriptor } | { kind: 'sourceGroup'; groupId: string; label: string; count: number; mark?: SourceMark };
 export interface SourceSearchResult { items: SourceSearchItem[]; total: number }
