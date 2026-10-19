@@ -25,6 +25,8 @@ beforeEach(async () => {
     if (message.method === 'initialize') return Response.json({ jsonrpc: '2.0', id: message.id, result: {
       protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'slow-provider', version: '1' },
     } });
+    // A 2025-era provider: the 2026-07-28 probe is an unknown method.
+    if (message.method === 'server/discover') return Response.json({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } });
     if (message.method === 'notifications/cancelled') cancellations.push(message.params.requestId);
     if (message.method !== 'tools/call') return new Response(null, { status: 202 });
     const signal = init.signal!;

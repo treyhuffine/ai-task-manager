@@ -68,7 +68,7 @@ async function handleGET(request: NextRequest, { params }: { params: Promise<{ s
   if (!code || !state) return redirect({ error: 'missing_code' });
 
   try {
-    await completeMcpAuthorization(entry, code, state);
+    await completeMcpAuthorization(entry, code, state, undefined, url.searchParams.get('iss'));
     return redirect({ connected: entry.displayName });
   } catch (e) {
     console.error(`[integrations] MCP OAuth callback failed`, e instanceof Error ? e.name : 'Error');

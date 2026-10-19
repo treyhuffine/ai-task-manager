@@ -1,4 +1,6 @@
-import { App, PostMessageTransport } from "@modelcontextprotocol/ext-apps";
+// The self-contained build: every app view bundles its own MCP client, so an app package never
+// resolves the host's SDK or zod.
+import { App, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-with-deps";
 export interface AppClientCallbacks {
   result?: (data: unknown) => void;
   theme?: (theme: "light" | "dark") => void;

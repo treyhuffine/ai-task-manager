@@ -3,12 +3,11 @@
  * the `query` and `update` tools as AI SDK ToolSet so they can be passed
  * directly to `streamText`. Used by the in-app playground route.
  *
- * Note: AI SDK v6 removed its built-in MCP client helper, so we wire
- * @modelcontextprotocol/sdk's Client directly.
+ * Note: AI SDK v6 removed its built-in MCP client helper, so we wire the MCP
+ * client directly. It speaks 2026-07-28 to Ri's own server (which serves both eras).
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { tool, jsonSchema, type ToolSet } from 'ai';
 import { APP_SHORT_ID } from '@/constants/app';
 
@@ -27,7 +26,7 @@ export async function createRiMcpClient(
     },
   });
 
-  const client = new Client({ name: `${APP_SHORT_ID}-playground`, version: '0.1.0' });
+  const client = new Client({ name: `${APP_SHORT_ID}-playground`, version: '0.1.0' }, { versionNegotiation: { mode: 'auto' } });
   await client.connect(transport);
 
   const listed = await client.listTools();

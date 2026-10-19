@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/client';
 import type { prepareResource } from './resource';
 
 export const VIEW_TTL = 30 * 60_000;

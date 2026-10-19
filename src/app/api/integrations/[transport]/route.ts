@@ -1,19 +1,19 @@
 /**
  * Integrations MCP server — projects the integration engine's actions (Gmail, Slack, …) as typed MCP
  * tools for an in-repo agent harness (Claude Code, Codex). Mirrors the orchestrator MCP route
- * (`/api/orchestrator/[transport]`): `createMcpHandler` + the engine's `serveMcp`, which registers
+ * (`/api/orchestrator/[transport]`): `riMcpHandler` + the engine's `serveMcp`, which registers
  * one tool per action over the SAME gated `runAction` — so the harness passes the identical trust
  * spine (scope, approval, redaction, audit) as every other caller.
  *
  * Bearer auth is enforced globally by the middleware; the harness attaches this with the app's
  * localToken (see `integrationsMcpServer` in orchestrator/harness-surface.ts).
  *
- * URLs:  POST /api/integrations/mcp  (Streamable HTTP) · GET /api/integrations/sse (legacy)
- * Static siblings (connect, run, status, …) take routing precedence; this catches mcp/sse.
+ * URL: POST /api/integrations/mcp, Streamable HTTP, serving MCP 2026-07-28 and 2025-era clients
+ * (src/lib/mcp/http-server.ts). Static siblings (connect, run, status, …) take routing precedence.
  *
  * Scoping: an optional `?ws=<workspaceId>` narrows the tool set to that workspace's integration
  * allowlist (executions); omitted = the broad connected set (orchestrator/content). The handler is
- * built PER REQUEST so it can read `?ws` (mcp-handler's init callback has no request access). The
+ * built PER REQUEST so it can read `?ws` and the calling chat. The
  * filter is always derived server-side from the validated workspace — never a client-asserted scope.
  *
  * Caller identity: a harness session at home carries its signed session credential (the same
@@ -24,8 +24,8 @@
  * still fully gated.
  */
 import { INTEGRATION_LABELS } from '@/constants/integrations';
-import { createMcpHandler } from 'mcp-handler';
-import { serveMcp, type McpToolRegistrar } from '@integrations/engine/mcp';
+import { isMcpTransport, mcpNotFound, riMcpHandler, type RiMcpServer } from '@/lib/mcp/http-server';
+import { serveMcp } from '@integrations/engine/mcp';
 import type { AccountChoice } from '@integrations/engine';
 import type { NextRequest } from 'next/server';
 import { serveAccountChat } from '@/lib/server/operations/plugins/account-chat';
@@ -40,15 +40,6 @@ import { actorFromSessionCredential, sessionCredentialFromHeaders } from '@/lib/
 import { getRequestKey } from '@/lib/auth/request-key';
 import { connectedButUnavailable, recordPausedConnection, requestConnection } from '@/lib/integrations/connection-requests';
 import { z } from 'zod';
-
-/** The slice of the SDK server this route registers its own tool through. */
-interface ConnectionToolRegistrar {
-  registerTool(
-    name: string,
-    config: { description: string; inputSchema: z.ZodRawShape },
-    handler: (args: Record<string, unknown>) => Promise<{ content: { type: 'text'; text: string }[] }>,
-  ): void;
-}
 
 /**
  * When to ask for a connection, stated once for the tool and once for the server's instructions.
@@ -72,8 +63,8 @@ Guidelines:
 function buildHandler(workspaceId: string | null, sessionId: string | null, signal: AbortSignal) {
   // Asking for a connection needs a chat to put the card in.
   const requestsOn = sessionId !== null;
-  return createMcpHandler(
-    async (server) => {
+  return riMcpHandler(
+    async (server: RiMcpServer) => {
       const ownerId = getIntegrationOwnerId();
       const runtime = await getIntegrationRuntime();
 
@@ -90,7 +81,7 @@ function buildHandler(workspaceId: string | null, sessionId: string | null, sign
         allowedAccounts = filter.allowedAccounts;
       } else {
         // Broad surface (orchestrator/content): every connected provider's toolkits. mcp-handler
-        // builds a fresh server per POST, so newly-connected accounts / MCP servers appear without
+        // handler builds a fresh server per POST, so newly-connected accounts / MCP servers appear without
         // a restart — the only lag is an already-running session caching its tool list.
         const connections = await runtime.listConnections({ ownerId });
         const connected = new Set(connections.map((c) => c.providerId));
@@ -100,9 +91,7 @@ function buildHandler(workspaceId: string | null, sessionId: string | null, sign
           .map((t) => t.id);
       }
 
-      // The SDK's McpServer has a more generic registerTool than the engine's structural
-      // McpToolRegistrar; runtime-compatible, so bridge the two type defs.
-      serveMcp(server as unknown as McpToolRegistrar, runtime, {
+      serveMcp(server, runtime, {
         signal,
         ownerId,
         caller: sessionId ? sessionCaller(sessionId) : { type: 'mcp' },
@@ -129,7 +118,7 @@ function buildHandler(workspaceId: string | null, sessionId: string | null, sign
         const description = others.length
           ? `${REQUEST_CONNECTION_RULE} Connected to ${APP_NAME} but not available to you yet (ask for access by name when a task needs one): ${others.join(', ')}.`
           : REQUEST_CONNECTION_RULE;
-        (server as unknown as ConnectionToolRegistrar).registerTool(
+        server.registerTool(
           'request_connection',
           {
             description,
@@ -169,15 +158,7 @@ function buildHandler(workspaceId: string | null, sessionId: string | null, sign
         );
       }
     },
-    {
-      serverInfo: { name: `${APP_NAME.toLowerCase()}-integrations`, version: '0.1.0' },
-      instructions: serverInstructions(requestsOn),
-    },
-    {
-      basePath: '/api/integrations',
-      maxDuration: 120,
-      verboseLogs: process.env.NODE_ENV !== 'production',
-    },
+    { name: `${APP_NAME.toLowerCase()}-integrations`, version: '0.1.0', instructions: serverInstructions(requestsOn) },
   );
 }
 
@@ -192,11 +173,12 @@ function callingChat(req: NextRequest): string | null {
 }
 
 function handle(req: NextRequest): Promise<Response> {
+  if (!isMcpTransport(new URL(req.url).pathname.split('/').pop())) return Promise.resolve(mcpNotFound());
   const ticket = new URL(req.url).searchParams.get('evaluation');
   if (ticket) {
     const key = getRequestKey(req.headers);
     if (key?.scope !== 'viewer' || key.location !== 'home' || !z.string().uuid().safeParse(ticket).success) return Promise.resolve(new Response('This demo gateway is restricted to its Home harness.', { status: 403 }));
-    return createMcpHandler(async server => { await serveAccountChat(server as unknown as McpToolRegistrar, ticket); }, { serverInfo: { name: 'account_demo', version: '1' } }, { basePath: '/api/integrations', maxDuration: 120 })(req);
+    return riMcpHandler(async server => { await serveAccountChat(server, ticket); }, { name: 'account_demo', version: '1' })(req);
   }
   const ws = new URL(req.url).searchParams.get('ws');
   return buildHandler(ws, callingChat(req), req.signal)(req);

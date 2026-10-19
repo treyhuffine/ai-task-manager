@@ -14,15 +14,8 @@ import {
 } from "./runtime.js";
 import { validateArtifact,prepareHtml,appKitToolchain,type buildPackage } from "./build.js";
 import {writeAppTemplate} from './templates.js';
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { InMemoryTransport, Server } from "@modelcontextprotocol/server";
+import { Client } from "@modelcontextprotocol/client";
 import type { InstalledArtifact } from "./runtime.js";
 
 /**
@@ -209,7 +202,7 @@ export function createFixtureMcpServer(
   const actions = instance.contract.actions.filter((action) =>
     action.audience.includes(audience),
   );
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  server.setRequestHandler('tools/list', async () => ({
     tools: actions.map((action) => ({
       name: action.name,
       description: action.description,
@@ -238,7 +231,7 @@ export function createFixtureMcpServer(
       },
     })),
   }));
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  server.setRequestHandler('tools/call', async (request, ctx) => {
     if (!actions.some((action) => action.name === request.params.name))
       throw new AppError("forbidden", "This fixture action is unavailable");
     try {
@@ -249,7 +242,7 @@ export function createFixtureMcpServer(
       principal,
       0,
       undefined,
-      extra.signal,
+      ctx.mcpReq.signal,
     );
     if (!result || typeof result !== "object" || Array.isArray(result))
       throw new AppError(
@@ -263,14 +256,14 @@ export function createFixtureMcpServer(
     }catch(error){const failure=publicError(error);return {isError:true,_meta:{'com.ri/errorCode':failure.code},content:[{type:'text' as const,text:failure.message}]};}
   });
   const resources = instance.manifest.extensions["com.ri"].ui?.resources ?? [];
-  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+  server.setRequestHandler('resources/list', async () => ({
     resources: resources.map((resource) => ({
       uri: resource.uri,
       name: resource.uri,
       mimeType: "text/html;profile=mcp-app",
     })),
   }));
-  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  server.setRequestHandler('resources/read', async (request) => {
     const resource = resources.find(
       (resource) => resource.uri === request.params.uri,
     );
@@ -301,7 +294,11 @@ export function createFixtureMcpServer(
   });
   return server;
 }
-/** Uses the standard SDK client and transport, never a shortcut action call. */
+/**
+ * Uses the standard SDK client and transport, never a shortcut action call. The in-memory pair
+ * speaks the 2025-era protocol (the SDK has no in-memory 2026-07-28 entry). HTTP services are
+ * qualified on both eras through `McpServiceTransport`.
+ */
 export async function standardFixtureClient(server: Server) {
   const [host, consumer] = InMemoryTransport.createLinkedPair(),
     client = new Client({

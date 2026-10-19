@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { mcpServerStore, readMcpMetadata, toSlug, type McpServerStore } from './mcp-servers';
+import { mcpKnownLegacy, mcpServerProtocol, mcpServerStore, readMcpMetadata, toSlug, type McpServerStore } from './mcp-servers';
 import { validateMcpUrl, validateHeaderName } from './mcp-validate';
 import { fileLock } from '@integrations/engine';
 
@@ -418,4 +418,55 @@ it('allows only one writer to win across independent stores sharing the file loc
   ]);
   expect(outcomes.filter(Boolean)).toHaveLength(1);
   expect(await firstStore.getOAuthState(entry.id)).toEqual(outcomes.find(Boolean));
+});
+
+describe('MCP server protocol facts', () => {
+  const icon = { src: 'data:image/svg+xml,%3Csvg%2F%3E', mimeType: 'image/svg+xml', sizes: ['any'], theme: 'light' as const };
+  it('keeps the negotiated revision, extension capabilities and display identity, bounded', () => {
+    const facts = mcpServerProtocol({
+      protocolVersion: '2026-07-28', era: 'modern', negotiation: 'probe',
+      capabilities: {
+        tools: { listChanged: true },
+        experimental: { 'openai/settings': { readTool: 'old.read', updateTool: 'old.update' }, legacy: { on: true } },
+        extensions: { 'openai/settings': { readTool: 'settings.read', updateTool: 'settings.update' }, 'openai/mentions': { searchTool: 'search_mentions' }, bogus: 'not an object' },
+      },
+      info: {
+        name: 'bits-and-bolts', title: 'Bits & Bolts', version: '0.1.0', websiteUrl: 'javascript:alert(1)',
+        icons: [icon, { src: 'http://insecure.example/icon.png' }, { src: 'javascript:alert(1)' }, { src: `data:image/png;base64,${'A'.repeat(70_000)}` }],
+      },
+    }, '2026-10-19T00:00:00.000Z');
+    expect(facts).toEqual({
+      version: '2026-07-28', era: 'modern', negotiation: 'probe', checkedAt: '2026-10-19T00:00:00.000Z',
+      extensions: {
+        'openai/settings': { readTool: 'settings.read', updateTool: 'settings.update' },
+        'openai/mentions': { searchTool: 'search_mentions' },
+        legacy: { on: true },
+      },
+      info: { name: 'bits-and-bolts', title: 'Bits & Bolts', version: '0.1.0', icons: [icon] },
+    });
+  });
+
+  it('remembers a probe fallback for a day, then probes again', async () => {
+    const store = freshStore();
+    const entry = await store.create({ slug: 'legacy_server', displayName: 'Legacy', url: 'https://legacy.example/mcp', auth: { kind: 'none' } });
+    const day = 24 * 60 * 60_000, start = Date.parse('2026-10-19T00:00:00.000Z');
+    await store.recordProtocol(entry.id, mcpServerProtocol({ protocolVersion: '2025-11-25', era: 'legacy', negotiation: 'fallback' }, new Date(start).toISOString()));
+    expect(mcpKnownLegacy(store.get(entry.id)!, start + day - 1)).toBe(true);
+    // A connection that skipped the probe keeps the original fallback time, so it expires.
+    await store.recordProtocol(entry.id, mcpServerProtocol({ protocolVersion: '2025-11-25', era: 'legacy', negotiation: 'known-legacy' }, new Date(start + day / 2).toISOString()), true);
+    expect(store.get(entry.id)!.protocol).toMatchObject({ negotiation: 'fallback', checkedAt: new Date(start).toISOString() });
+    expect(mcpKnownLegacy(store.get(entry.id)!, start + day + 1)).toBe(false);
+    // The server upgraded: the next probe answers and the fallback is forgotten.
+    await store.recordProtocol(entry.id, mcpServerProtocol({ protocolVersion: '2026-07-28', era: 'modern', negotiation: 'probe' }, new Date(start + day + 2).toISOString()));
+    expect(mcpKnownLegacy(store.get(entry.id)!, start + day + 3)).toBe(false);
+    expect(readMcpMetadata(dirs.at(-1)!).find(row => row.entry.id === entry.id)?.entry.protocol).toMatchObject({ version: '2026-07-28', negotiation: 'probe' });
+  });
+
+  it('writes facts only when they change, apart from when they were checked', async () => {
+    const store = freshStore();
+    const entry = await store.create({ slug: 'modern_server', displayName: 'Modern', url: 'https://modern.example/mcp', auth: { kind: 'none' } });
+    await store.recordProtocol(entry.id, mcpServerProtocol({ protocolVersion: '2026-07-28', era: 'modern', negotiation: 'probe' }, '2026-10-19T00:00:00.000Z'));
+    await store.recordProtocol(entry.id, mcpServerProtocol({ protocolVersion: '2026-07-28', era: 'modern', negotiation: 'probe' }, '2026-10-19T01:00:00.000Z'));
+    expect(store.get(entry.id)!.protocol?.checkedAt).toBe('2026-10-19T00:00:00.000Z');
+  });
 });

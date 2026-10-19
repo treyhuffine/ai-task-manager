@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { describe, expect, it, vi } from 'vitest';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 // Public GET-only SDK discovery observed 2026-09-29 UTC. Every request in these
 // tests is intercepted. Registration and token responses are synthetic. No live
@@ -82,7 +83,7 @@ describe('Robinhood hosted OAuth profile', () => {
     const interactive = makeMcpOAuthProvider({ ...deps, interactive: true, onRedirect: redirect });
     expect(await auth(interactive, { serverUrl: endpoint, fetchFn: fetchFixture })).toBe('REDIRECT');
     expect(registrations).toEqual([{
-      client_name: deps.clientName, redirect_uris: [redirectUrl],
+      client_name: deps.clientName, redirect_uris: [redirectUrl], application_type: expectedApplicationType(redirectUrl),
       grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
       token_endpoint_auth_method: 'none', scope: 'internal',
     }]);

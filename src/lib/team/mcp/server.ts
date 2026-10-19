@@ -1,6 +1,7 @@
 /**
  * The team's MCP endpoint, `/api/team/mcp` (docs/homes-spec.md §9.8, P8.2):
- * Streamable HTTP, stateless, for a member's own AI client.
+ * Streamable HTTP, stateless, for a member's own AI client. Serves MCP 2026-07-28 and
+ * 2025-era clients from one handler (src/lib/mcp/http-server.ts).
  *
  * The proxy admits two callers here: an active AI client key of an active
  * member (src/lib/team/credential.ts), and a running Team AI turn's own
@@ -10,7 +11,7 @@
  * a name that isn't listed is refused at discovery and at call alike.
  */
 
-import { createMcpHandler } from 'mcp-handler';
+import { riMcpHandler } from '@/lib/mcp/http-server';
 import { z } from 'zod';
 import { APP_NAME } from '@/constants/app';
 import { getRequestKey } from '@/lib/auth/request-key';
@@ -93,7 +94,7 @@ export async function handleTeamMcp(request: Request): Promise<Response> {
     }
   }
 
-  const handler = createMcpHandler(
+  const handler = riMcpHandler(
     (server) => {
       for (const tool of TEAM_TOOLS) {
         server.registerTool(
@@ -105,7 +106,7 @@ export async function handleTeamMcp(request: Request): Promise<Response> {
               ? { readOnlyHint: true, openWorldHint: false }
               : { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
           },
-          async (input: Record<string, unknown>) => {
+          async (input) => {
             // The client or the turn, and its member, again, for this call.
             const current = caller();
             if (!current) {
@@ -117,10 +118,11 @@ export async function handleTeamMcp(request: Request): Promise<Response> {
       }
     },
     {
-      serverInfo: { name: `${APP_NAME.toLowerCase()}-team`, version: '1.0.0' },
+      name: `${APP_NAME.toLowerCase()}-team`,
+      version: '1.0.0',
       instructions: instructions(getHome()?.name ?? 'Team', first.member.name, Boolean(turnId)),
+      maxRequestBodySize: MAX_REQUEST_BYTES,
     },
-    { basePath: '/api/team', disableSse: true, maxDuration: 60, verboseLogs: false },
   );
   return handler(forward);
 }

@@ -37,6 +37,8 @@ describe('DataForSEO API credentials', () => {
       const message = await request.json() as { id?: number; method: string };
       methods.push(message.method);
       if (message.method === 'notifications/initialized') return new Response(null, { status: 202 });
+      // A 2025-era server answers Ri's 2026-07-28 probe as an unknown method.
+      if (message.method === 'server/discover') return Response.json({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } });
       const result = message.method === 'initialize'
         ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'dataforseo-fixture', version: '1' } }
         : message.method === 'tools/list' ? { tools: [tool] }
@@ -51,7 +53,7 @@ describe('DataForSEO API credentials', () => {
     try {
       expect(await client.listTools()).toEqual({ tools: [tool] });
       expect(await client.callTool({ name: tool.name })).toMatchObject({ content: [{ type: 'text', text: 'Synthetic sections' }], isError: false });
-      expect(methods).toEqual(['initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
+      expect(methods).toEqual(['server/discover', 'initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
     } finally {
       await client.close();
     }
@@ -67,7 +69,7 @@ describe('DataForSEO API credentials', () => {
       } });
     });
     vi.stubGlobal('fetch', fetchFixture);
-    await expect(connectMcpClient({ url: endpoint, headers: mcpAuthHeaders({ kind: 'bearer' }, token, 'basic') })).rejects.toMatchObject({ code: 401 });
+    await expect(connectMcpClient({ url: endpoint, headers: mcpAuthHeaders({ kind: 'bearer' }, token, 'basic') })).rejects.toMatchObject({ status: 401 });
     expect(fetchFixture).toHaveBeenCalledOnce();
   });
 });

@@ -1,20 +1,57 @@
 /**
  * A real MCP client over Streamable HTTP or local stdio, adapted to `McpClientLike` for
- * `ingestMcpServer`. The `@modelcontextprotocol/sdk` import is **dynamic**, so this
- * module loads without the SDK present — a host that ingests with its own client
- * never pays for it. Typed loosely (the SDK is an optional peer) to avoid coupling
- * the build to a specific SDK version.
+ * `ingestMcpServer`. The `@modelcontextprotocol/client` import is **dynamic**, so this module loads
+ * without the SDK present — a host that ingests with its own client never pays for it. Typed loosely
+ * (the SDK is an optional peer) to avoid coupling the build to a specific SDK version.
+ *
+ * Protocol: every connection probes for MCP 2026-07-28 (`server/discover`) and falls back to the
+ * 2025-era `initialize` handshake for servers that predate it. A probe the SDK cannot classify (an
+ * unusable reply, a server error, or no answer within `MCP_HTTP_PROBE_TIMEOUT_MS`) is retried once
+ * as a plain 2025 connection, so a legacy server that mishandles the unknown probe keeps working.
+ * `server.negotiation` says which happened, so a host can skip the probe for such a server for a
+ * while. Authorization failures are never treated as era evidence: they surface unchanged.
+ *
+ * A local (stdio) server keeps the 2025 handshake unless the host asks to negotiate: the SDK probes
+ * a stdio server on a second, short-lived copy of its process, so every connection would start the
+ * local program twice, and the stdio channel already carries forms and change notifications.
  */
 import type { McpClientLike, McpToolDef } from './ingest';
 import { IntegrationError, NeedsReauthError } from '../core/errors';
 import { MCP_CONNECT_TIMEOUT_MS, MCP_DISCOVERY_TIMEOUT_MS, MCP_RESOURCE_TIMEOUT_MS, MCP_TOOL_TIMEOUT_MS, MCP_TOOL_TOTAL_TIMEOUT_MS } from './timeouts';
 import { mcpHttpFetch } from './http-fetch';
 
+/** The protocol revision Ri prefers. Older servers negotiate 2025-era revisions. */
+export const MCP_PREFERRED_PROTOCOL_VERSION = '2026-07-28';
+/** A stdio server that ignores the unknown probe is a legacy server. Do not wait the full connect budget. */
+export const MCP_STDIO_PROBE_TIMEOUT_MS = 10_000;
+/** An HTTP server silent on the probe gets one plain 2025 attempt after this, within the connect budget. */
+export const MCP_HTTP_PROBE_TIMEOUT_MS = 10_000;
+/** Messages larger than this close a stdio connection. CAD and media apps send multi-megabyte blobs. */
+export const MCP_STDIO_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+
+/** What Ri advertises to every server: MCP Apps views, plus whatever the host adds (elicitation). */
+export const MCP_APPS_EXTENSION = { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } as const;
+
 interface CommonMcpOptions {
   name?: string;
   version?: string;
   /** Advisory server notification. The host should refresh discovery and invalidate cached tool policy. */
   onToolsChanged?: () => void | Promise<void>;
+  /**
+   * Extra client capabilities, merged over the MCP Apps extension. A host advertises elicitation
+   * here only together with `onElicit`, since a server may rely on what is advertised.
+   */
+  capabilities?: Record<string, unknown>;
+  /**
+   * Answers a server's form request: standard `elicitation/create`, OpenAI's legacy
+   * `openai/elicitation/create`, and 2026-07-28 multi-round-trip `input_required` rounds (which
+   * the SDK routes through the same `elicitation/create` handler). `method` names which one arrived.
+   */
+  onElicit?: (request: { method: 'elicitation/create' | 'openai/elicitation/create'; params: Record<string, unknown> }, signal: AbortSignal) => Promise<Record<string, unknown>>;
+  /** Skip the 2026-07-28 probe for a server known to be legacy. Freshness is the host's job. */
+  knownLegacy?: boolean;
+  /** Whether to probe for 2026-07-28. Defaults to `auto` over HTTP and `legacy` for a local process. */
+  negotiate?: 'auto' | 'legacy';
 }
 
 export type ConnectMcpOptions = CommonMcpOptions & ({
@@ -28,37 +65,67 @@ export type ConnectMcpOptions = CommonMcpOptions & ({
    * is an optional peer); the host supplies a typed implementation.
    */
   authProvider?: unknown;
+  /** Only for an `authProvider` that applies RFC 8414's issuer rule itself, with trusted exceptions. */
+  skipIssuerMetadataValidation?: boolean;
 } | {
   /** Trusted host configuration only. Never take a command from model or remote tool input. */
   command: string;
   args?: string[];
+  /** Trusted host configuration only. The working directory a local server starts in. */
+  cwd?: string;
   url?: never;
   headers?: never;
   authProvider?: never;
+  skipIssuerMetadataValidation?: never;
 });
 
+/** What the server told Ri about itself when the connection opened. Self-reported, for display and feature discovery only. */
+export interface McpServerFacts {
+  /** The negotiated revision, such as `2026-07-28` or `2025-11-25`. */
+  protocolVersion?: string;
+  /** `modern` for 2026-07-28 and later, `legacy` for the 2025-era handshake. */
+  era?: 'modern' | 'legacy';
+  /** Advertised server capabilities, including `extensions` and legacy `experimental`. */
+  capabilities?: Record<string, unknown>;
+  /** `serverInfo`: name, title, version, icons and website. */
+  info?: Record<string, unknown>;
+  instructions?: string;
+  /**
+   * How the era was settled: `probe` (the server answered `server/discover`, either way),
+   * `fallback` (the probe failed or went unanswered, and a plain 2025 handshake worked), or
+   * `known-legacy` (the host skipped the probe).
+   */
+  negotiation?: 'probe' | 'fallback' | 'known-legacy';
+}
+
+export interface McpResourceContent { uri: string; mimeType?: string; text?: string; blob?: string; _meta?: Record<string, unknown> }
+
 export interface ConnectedMcpClient extends McpClientLike {
-  readResource(params: { uri: string }): Promise<{ contents: Array<{ uri: string; mimeType?: string; text?: string; blob?: string; _meta?: Record<string, unknown> }> }>;
+  readResource(params: { uri: string; _meta?: Record<string, unknown> }): Promise<{ contents: McpResourceContent[]; _meta?: Record<string, unknown> }>;
+  /** Facts from the opening exchange. Empty for a test double. */
+  readonly server?: McpServerFacts;
   close(): Promise<void>;
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Sdk = any;
+const sdk = (): Promise<Sdk> => import('@modelcontextprotocol/client');
 
 /** Only typed SDK rejection or the host's credential signal proves authorization failed. */
 export async function isMcpAuthenticationError(error: unknown): Promise<boolean> {
   if (error instanceof NeedsReauthError) return true;
-  const [authMod, httpMod] = await Promise.all([
-    import('@modelcontextprotocol/sdk/client/auth.js'),
-    import('@modelcontextprotocol/sdk/client/streamableHttp.js'),
-  ]);
-  return error instanceof authMod.UnauthorizedError ||
-    (error instanceof httpMod.StreamableHTTPError && error.code === 401);
+  const { UnauthorizedError, SdkHttpError, SdkErrorCode } = await sdk();
+  if (error instanceof UnauthorizedError) return true;
+  // A 401 the auth flow could not recover. A 403 is a permission answer, not proof the credential failed.
+  return error instanceof SdkHttpError && ((error as { status?: number }).status === 401 || (error as { code?: string }).code === SdkErrorCode.ClientHttpAuthentication);
 }
 
 /** A request timeout does not prove the shared transport or its credentials failed. */
 export async function isMcpRequestTimeout(error: unknown): Promise<boolean> {
   if (error instanceof IntegrationError && error.code === 'provider_timeout') return true;
   if (error instanceof DOMException && error.name === 'TimeoutError') return true;
-  const { McpError, ErrorCode } = await import('@modelcontextprotocol/sdk/types.js');
-  return error instanceof McpError && error.code === ErrorCode.RequestTimeout;
+  const { SdkError, SdkErrorCode } = await sdk();
+  return error instanceof SdkError && (error as { code?: string }).code === SdkErrorCode.RequestTimeout;
 }
 
 /**
@@ -67,72 +134,123 @@ export async function isMcpRequestTimeout(error: unknown): Promise<boolean> {
  * open a transport or reinterpret HTTP errors. The provider owns registration,
  * consent, and token storage. Scope must come from trusted host configuration.
  */
-export async function beginMcpOAuth(opts: { url: string; authProvider: unknown; scope?: string }): Promise<'AUTHORIZED' | 'REDIRECT'> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const authMod = (await import('@modelcontextprotocol/sdk/client/auth.js')) as any;
-  return authMod.auth(opts.authProvider, { serverUrl: opts.url, ...(opts.scope ? { scope: opts.scope } : {}) });
+export async function beginMcpOAuth(opts: { url: string; authProvider: unknown; scope?: string; skipIssuerMetadataValidation?: boolean }): Promise<'AUTHORIZED' | 'REDIRECT'> {
+  const { auth } = await sdk();
+  return auth(opts.authProvider, { serverUrl: opts.url, ...(opts.scope ? { scope: opts.scope } : {}), ...(opts.skipIssuerMetadataValidation ? { skipIssuerMetadataValidation: true } : {}) });
 }
 
-export async function connectMcpClient(opts: ConnectMcpOptions): Promise<ConnectedMcpClient> {
-  const url = opts.command === undefined ? new URL(opts.url) : undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const clientMod = (await import('@modelcontextprotocol/sdk/client/index.js')) as any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const httpMod = (await import('@modelcontextprotocol/sdk/client/streamableHttp.js')) as any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const authMod = (await import('@modelcontextprotocol/sdk/client/auth.js')) as any;
+const ERA_CLASSIFICATION_FAILURES = new Set(['ERA_NEGOTIATION_FAILED', 'EraNegotiationFailed']);
 
-  const client = new clientMod.Client({ name: opts.name ?? 'integrations-engine', version: opts.version ?? '0.0.1' }, {
-    capabilities: { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } },
-  });
+export async function connectMcpClient(opts: ConnectMcpOptions): Promise<ConnectedMcpClient> {
+  const mod = await sdk();
   const http = opts.command === undefined ? await mcpHttpFetch() : undefined;
-  if (opts.onToolsChanged) {
-    const { ToolListChangedNotificationSchema } = await import('@modelcontextprotocol/sdk/types.js');
-    // Install before connect so an early change cannot be lost between discovery
-    // and publication. This does not trust new tools or bypass host lifecycle checks.
-    client.setNotificationHandler(ToolListChangedNotificationSchema, async () => { await opts.onToolsChanged?.(); });
-  }
-  const transport = opts.command !== undefined
-    ? new (await import('@modelcontextprotocol/sdk/client/stdio.js')).StdioClientTransport({
-      command: opts.command, args: opts.args ?? [], stderr: 'pipe',
-    })
-    : new httpMod.StreamableHTTPClientTransport(url!, {
-      fetch: http!.fetch,
-      ...(opts.authProvider ? { authProvider: opts.authProvider } : {}),
-      ...(opts.headers ? { requestInit: { headers: opts.headers } } : {}),
+  const url = opts.command === undefined ? new URL(opts.url) : undefined;
+
+  const open = async (mode: 'auto' | 'legacy') => {
+    const capabilities = {
+      ...(opts.capabilities ?? {}),
+      extensions: { ...MCP_APPS_EXTENSION, ...((opts.capabilities?.extensions as Record<string, unknown> | undefined) ?? {}) },
+    };
+    const notify = () => { void Promise.resolve(opts.onToolsChanged?.()).catch(() => {}); };
+    const client = new mod.Client({ name: opts.name ?? 'integrations-engine', version: opts.version ?? '0.0.1' }, {
+      capabilities,
+      versionNegotiation: { mode, ...(mode === 'auto' ? { probe: { timeoutMs: opts.command !== undefined ? MCP_STDIO_PROBE_TIMEOUT_MS : MCP_HTTP_PROBE_TIMEOUT_MS } } : {}) },
+      // 2026-07-28 delivers list changes on a `subscriptions/listen` stream the client opens.
+      ...(opts.onToolsChanged ? { listChanged: { tools: { autoRefresh: false, debounceMs: 0, onChanged: notify } } } : {}),
     });
-  // Drain diagnostics without putting subprocess output into Ri's logs or blocking a full pipe.
-  if (opts.command !== undefined) transport.stderr?.resume();
+    if (opts.onToolsChanged) {
+      // 2025-era servers push the notification unsolicited, sometimes without advertising
+      // `tools.listChanged`. Install before connect so an early change cannot be lost between
+      // discovery and publication. This does not trust new tools or bypass host lifecycle checks.
+      client.setNotificationHandler('notifications/tools/list_changed', notify);
+    }
+    if (opts.onElicit) {
+      const elicit = (method: 'elicitation/create' | 'openai/elicitation/create') =>
+        async (request: { params?: Record<string, unknown> } | Record<string, unknown>, ctx: { mcpReq?: { signal?: AbortSignal }; signal?: AbortSignal }) => {
+          const params = (method === 'elicitation/create' ? (request as { params?: Record<string, unknown> }).params : request) ?? {};
+          return opts.onElicit!({ method, params: params as Record<string, unknown> }, ctx?.mcpReq?.signal ?? ctx?.signal ?? new AbortController().signal);
+        };
+      client.setRequestHandler('elicitation/create', elicit('elicitation/create'));
+      // OpenAI's superset for 2025-era connections. A custom method: the SDK validates neither side.
+      client.setRequestHandler('openai/elicitation/create', { params: passthrough(), result: passthrough() }, elicit('openai/elicitation/create'));
+    }
+    const transport = opts.command !== undefined
+      ? new (await import('@modelcontextprotocol/client/stdio')).StdioClientTransport({
+        command: opts.command, args: opts.args ?? [], stderr: 'pipe', maxBufferSize: MCP_STDIO_MAX_BUFFER_BYTES,
+        ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      })
+      : new mod.StreamableHTTPClientTransport(url!, {
+        fetch: http!.fetch,
+        // SDK 1.x followed redirects. Keep that: some servers and authorization servers move
+        // across origins, and fetch drops Authorization on a cross-origin redirect.
+        redirectPolicy: 'follow',
+        ...(opts.authProvider ? { authProvider: opts.authProvider } : {}),
+        ...(opts.skipIssuerMetadataValidation ? { skipIssuerMetadataValidation: true } : {}),
+        ...(opts.headers ? { requestInit: { headers: opts.headers } } : {}),
+      });
+    // Drain diagnostics without putting subprocess output into Ri's logs or blocking a full pipe.
+    if (opts.command !== undefined) transport.stderr?.resume();
+    try {
+      await client.connect(transport, { timeout: MCP_CONNECT_TIMEOUT_MS });
+      return client;
+    } catch (error) {
+      // The host cannot close a client that never returned from this function.
+      // Release the partially started transport without hiding the auth/network error.
+      try { await client.close(); } catch { /* best-effort cleanup */ }
+      throw error;
+    }
+  };
+
+  let client: Sdk;
+  const probe = !opts.knownLegacy && (opts.negotiate ?? (opts.command === undefined ? 'auto' : 'legacy')) === 'auto';
+  let negotiation: McpServerFacts['negotiation'] = probe ? 'probe' : 'known-legacy';
   try {
-    await client.connect(transport, { timeout: MCP_CONNECT_TIMEOUT_MS });
+    try {
+      client = await open(probe ? 'auto' : 'legacy');
+    } catch (error) {
+      // The probe got an answer the SDK cannot read as either era (an unusable reply, a 5xx to the
+      // unknown method), or none in time. Authorization and network outages are not this case: a
+      // refused connection or a 401/403 fails the same way on the 2025 handshake.
+      const code = String((error as { code?: unknown }).code);
+      const unclassified = error instanceof mod.SdkError && (ERA_CLASSIFICATION_FAILURES.has(code) || code === mod.SdkErrorCode.RequestTimeout);
+      if (!probe || !unclassified) throw error;
+      if (error instanceof mod.SdkHttpError && [401, 403].includes((error as { status?: number }).status ?? 0)) throw error;
+      client = await open('legacy');
+      negotiation = 'fallback';
+    }
   } catch (error) {
-    // The host cannot close a client that never returned from this function.
-    // Release the partially started transport without hiding the auth/network error.
-    try { await client.close(); } catch { /* best-effort cleanup */ }
     await http?.close().catch(() => {});
     throw error;
   }
 
+  const capabilities = client.getServerCapabilities?.() as Record<string, unknown> | undefined;
+  const info = client.getServerVersion?.() as Record<string, unknown> | undefined;
+  const server: McpServerFacts = {
+    protocolVersion: client.getNegotiatedProtocolVersion?.(),
+    era: client.getProtocolEra?.(),
+    ...(capabilities ? { capabilities: structuredClone(capabilities) } : {}),
+    ...(info ? { info: structuredClone(info) } : {}),
+    ...(client.getInstructions?.() ? { instructions: client.getInstructions() } : {}),
+    negotiation,
+  };
+
   return {
+    server,
     async readResource(params) {
       return client.readResource(params, { timeout: MCP_RESOURCE_TIMEOUT_MS });
     },
     async listTools() {
-      const tools: McpToolDef[] = [];
-      const seenCursors = new Set<string>();
-      let cursor: string | undefined;
-      do {
-        const res = await client.listTools(cursor === undefined ? undefined : { cursor }, { timeout: MCP_DISCOVERY_TIMEOUT_MS });
-        tools.push(...(res.tools ?? []).map((t: McpToolDef) => structuredClone(t)));
-        cursor = res.nextCursor;
-        if (cursor !== undefined) {
-          if (seenCursors.has(cursor)) {
-            throw new IntegrationError('provider_error', 'MCP server returned a repeated tool-list cursor.');
-          }
-          seenCursors.add(cursor);
+      try {
+        // No cursor: the SDK walks every page (bounded, so a cursor cycle fails rather than hangs).
+        // Always fetch: discovery is the moment Ri checks what the server offers now.
+        const res = await client.listTools(undefined, { timeout: MCP_DISCOVERY_TIMEOUT_MS, cacheMode: 'refresh' });
+        return { tools: (res.tools ?? []).map((t: McpToolDef) => structuredClone(t)) };
+      } catch (error) {
+        if (error instanceof mod.SdkError && (error as { code?: string }).code === mod.SdkErrorCode.ListPaginationExceeded) {
+          throw new IntegrationError('provider_error', 'MCP server returned a repeated tool-list cursor.', { cause: error });
         }
-      } while (cursor !== undefined);
-      return { tools };
+        throw error;
+      }
     },
     async callTool(params, options) {
       if (options?.signal?.aborted) throw new IntegrationError('denied', 'The request was cancelled before dispatch. No request was sent.');
@@ -141,7 +259,8 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
       const deadline = new AbortController();
       const timer = setTimeout(() => deadline.abort(new DOMException('Ri MCP total deadline exceeded', 'TimeoutError')), MCP_TOOL_TOTAL_TIMEOUT_MS);
       try {
-        const res = await client.callTool({ name: params.name, arguments: params.arguments ?? {} }, undefined, {
+        const meta = (params as { _meta?: Record<string, unknown> })._meta;
+        const res = await client.callTool({ name: params.name, arguments: params.arguments ?? {}, ...(meta ? { _meta: meta } : {}) }, {
           timeout: MCP_TOOL_TIMEOUT_MS,
           resetTimeoutOnProgress: true,
           maxTotalTimeout: MCP_TOOL_TOTAL_TIMEOUT_MS,
@@ -161,9 +280,7 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
         // Only the SDK's typed authentication rejection proves this request was
         // rejected before execution. Network failures and lookalike messages do
         // not, so leave those intact for the mutation's indeterminate handling.
-        if ((typeof authMod.UnauthorizedError === 'function' && error instanceof authMod.UnauthorizedError)
-          || (typeof httpMod.StreamableHTTPError === 'function' && error instanceof httpMod.StreamableHTTPError
-            && (error as { code: number }).code === 401)) {
+        if (await isMcpAuthenticationError(error)) {
           throw new NeedsReauthError(undefined, 'MCP transport requires authorization');
         }
         if (await isMcpRequestTimeout(error)) {
@@ -187,18 +304,25 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
   };
 }
 
+/** An accept-anything Standard Schema for a custom method whose payload Ri validates itself. */
+function passthrough() {
+  return { '~standard': { version: 1, vendor: 'ri', validate: (value: unknown) => ({ value }) } };
+}
+
 /**
  * Complete an OAuth handshake after the user is redirected back with an authorization code. Builds a
  * transport with the same `authProvider` (which persisted the client registration + PKCE verifier
- * during the initial attempt) and calls `finishAuth(code)`, which exchanges the code and saves the
- * tokens via the provider. Pure handshake — no client/connection is opened.
+ * during the initial attempt) and calls `finishAuth`, which exchanges the code and saves the tokens
+ * via the provider. Pass `iss` from the callback when present: the SDK checks it against the issuer
+ * the redirect targeted (RFC 9207). Pure handshake — no client/connection is opened.
  */
-export async function finishMcpOAuth(opts: { url: string; authProvider: unknown; authorizationCode: string }): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const httpMod = (await import('@modelcontextprotocol/sdk/client/streamableHttp.js')) as any;
-  const transport = new httpMod.StreamableHTTPClientTransport(new URL(opts.url), { authProvider: opts.authProvider });
+export async function finishMcpOAuth(opts: { url: string; authProvider: unknown; authorizationCode: string; iss?: string | null; skipIssuerMetadataValidation?: boolean }): Promise<void> {
+  const mod = await sdk();
+  const transport = new mod.StreamableHTTPClientTransport(new URL(opts.url), {
+    authProvider: opts.authProvider, redirectPolicy: 'follow', ...(opts.skipIssuerMetadataValidation ? { skipIssuerMetadataValidation: true } : {}),
+  });
   try {
-    await transport.finishAuth(opts.authorizationCode);
+    await transport.finishAuth(opts.authorizationCode, ...(opts.iss ? [opts.iss] : []));
   } finally {
     await transport.close?.().catch(() => {});
   }

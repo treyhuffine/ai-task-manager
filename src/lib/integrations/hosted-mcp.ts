@@ -20,6 +20,15 @@ export function hostedMcpDefinition(entry: McpServerEntry): HostedMcpProvider | 
 }
 
 /**
+ * Transport options for an OAuth server. A trusted profile with issuer aliases skips the SDK's
+ * issuer check, which its provider then applies itself with exactly those exceptions.
+ */
+export function mcpOAuthTransportOptions(entry: McpServerEntry): { skipIssuerMetadataValidation?: true } {
+  const hosted = hostedMcpDefinition(entry);
+  return hosted?.auth?.kind === 'oauth' && hosted.auth.issuerAliases ? { skipIssuerMetadataValidation: true } : {};
+}
+
+/**
  * The stored form of a pasted API key. Basic credentials accept `login:password`, the vendor's
  * Base64 token, or a copied `Basic …` header value, and are always stored as the Base64 token.
  */

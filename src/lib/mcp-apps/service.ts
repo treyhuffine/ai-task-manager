@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolResultSchema } from '@modelcontextprotocol/core';
 import { inputDigest, type IntegrationRuntimeOptions } from '@integrations/engine';
 import { processState } from '@/lib/process-state';
 import { integrationSourceMetadata } from '@/lib/integrations/source-metadata';

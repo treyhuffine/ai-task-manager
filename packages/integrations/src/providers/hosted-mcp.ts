@@ -31,6 +31,12 @@ export interface HostedMcpProvider {
     authorizationParams?: Readonly<Record<string, string>>;
     /** Start interactive OAuth from metadata, for explicit scopes or gateways without a 401 challenge. */
     authorizeBeforeConnect?: boolean;
+    /**
+     * Verified exceptions to RFC 8414's issuer rule, keyed by the authorization server URL the
+     * official resource names: its metadata states this issuer instead. Ri checks the pinned issuer
+     * itself before sending any credential, so only these exact pairs are accepted.
+     */
+    issuerAliases?: Readonly<Record<string, string>>;
   } | { kind: 'bearer'; label?: string; helpUrl?: string } | { kind: 'none' };
   /** Provider-specific write floor, for broad automation or administrative tools. */
   defaultMutationRisk?: 'medium' | 'high';
@@ -129,7 +135,10 @@ export const HOSTED_MCP_PROVIDERS: readonly HostedMcpProvider[] = [
   { id: 'docusign', displayName: 'Docusign', endpoint: { kind: 'region', label: 'Docusign environment', options: [
     { id: 'production', label: 'Production', url: 'https://mcp.docusign.com/mcp' },
     { id: 'demo', label: 'Developer demo', url: 'https://mcp-d.docusign.com/mcp' },
-  ] }, auth: { kind: 'oauth', registration: 'registered', tokenEndpointAuthMethod: 'client_secret_basic', authorizeBeforeConnect: true },
+  ] }, auth: { kind: 'oauth', registration: 'registered', tokenEndpointAuthMethod: 'client_secret_basic', authorizeBeforeConnect: true,
+    // Each environment's resource names the MCP host as its authorization server, and that
+    // host's metadata states the account host as issuer (docs/integration-audit/sixth-wave-discovery.json).
+    issuerAliases: { 'https://mcp.docusign.com': 'https://account.docusign.com', 'https://mcp-d.docusign.com': 'https://account-d.docusign.com' } },
     defaultMutationRisk: 'high' },
   { id: 'monday', displayName: 'monday.com', url: 'https://mcp.monday.com/mcp',
     auth: { kind: 'bearer', label: 'Personal API token', helpUrl: 'https://developer.monday.com/api-reference/docs/mcp-api-token' },

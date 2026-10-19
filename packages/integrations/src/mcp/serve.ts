@@ -2,8 +2,8 @@
  * serveMcp (§11): project the runtime's actions as MCP tools for *external* hosts,
  * over the SAME `runAction` — so an outside agent passes the identical gates as app
  * code. Transport-agnostic: it registers tools onto any object with a
- * `registerTool` method (the `@modelcontextprotocol/sdk` `McpServer` satisfies this,
- * as does a test double). Like the AI-SDK projection, it injects `account`, hides the
+ * `registerTool` method taking a zod raw shape (Ri's dual-era `riMcpHandler`
+ * registrar satisfies this, as does a test double). Like the AI-SDK projection, it injects `account`, hides the
  * opaque `connectionId`, and redacts results.
  */
 import { z } from 'zod';
@@ -28,7 +28,7 @@ export interface McpToolResult {
   isError?: boolean;
 }
 
-/** The subset of `@modelcontextprotocol/sdk`'s `McpServer` that serveMcp needs. */
+/** The registrar serveMcp needs: a tool name, its description and zod raw shape, and a handler. */
 export interface McpToolRegistrar {
   registerTool(
     name: string,

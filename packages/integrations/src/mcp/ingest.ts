@@ -34,6 +34,8 @@ export interface McpToolDef {
   inputSchema?: unknown;
   outputSchema?: unknown;
   _meta?: Record<string, unknown> & { ui?: { resourceUri?: string; visibility?: ('model' | 'app')[] } };
+  /** MCP `Icon` entries the server publishes for this tool (entrypoint icons, for example). */
+  icons?: unknown[];
   annotations?: {
     title?: string;
     readOnlyHint?: boolean;
@@ -46,7 +48,7 @@ export interface McpToolDef {
 /** The minimal MCP client surface ingestion needs (a test double or a real client). */
 export interface McpClientLike {
   listTools(): Promise<{ tools: McpToolDef[] }>;
-  callTool(params: { name: string; arguments?: Record<string, unknown> }, options?: { signal?: AbortSignal }): Promise<{
+  callTool(params: { name: string; arguments?: Record<string, unknown>; _meta?: Record<string, unknown> }, options?: { signal?: AbortSignal }): Promise<{
     content: unknown;
     structuredContent?: unknown;
     isError?: boolean;

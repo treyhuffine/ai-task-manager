@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { connectMcpClient } from '@integrations/engine/mcp';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { APP_ROOT_ENV } from '@/lib/config/paths';

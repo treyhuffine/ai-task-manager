@@ -1,7 +1,8 @@
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { describe, expect, it, vi } from 'vitest';
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 // Exact public discovery profiles captured in second-wave-discovery.json.
 // These fixtures exercise the SDK without contacting or registering with a vendor.
@@ -68,7 +69,7 @@ describe('hosted knowledge integration OAuth discovery', () => {
 
     expect(await auth(provider, { serverUrl: profile.url, fetchFn: fetchFixture })).toBe('REDIRECT');
     expect(registrations).toEqual([{
-      client_name: 'Knowledge fixture', redirect_uris: ['https://app.example/callback'],
+      client_name: 'Knowledge fixture', redirect_uris: ['https://app.example/callback'], application_type: expectedApplicationType('https://app.example/callback'),
       grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
       token_endpoint_auth_method: 'none', scope: profile.scopes.join(' '),
     }]);

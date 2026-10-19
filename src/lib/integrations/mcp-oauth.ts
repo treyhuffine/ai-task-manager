@@ -14,14 +14,15 @@
  * runtime dependency on the SDK here (no ESM/boot coupling).
  */
 import { INTEGRATION_LABELS } from '@/constants/integrations';
-import type { OAuthClientProvider, OAuthDiscoveryState } from '@modelcontextprotocol/sdk/client/auth.js';
-import { createHash, randomBytes } from 'node:crypto';
-import { NeedsReauthError } from '@integrations/engine';
 import type {
   OAuthClientInformationMixed,
   OAuthClientMetadata,
+  OAuthClientProvider,
+  OAuthDiscoveryState,
   OAuthTokens,
-} from '@modelcontextprotocol/sdk/shared/auth.js';
+} from '@modelcontextprotocol/client';
+import { createHash, randomBytes } from 'node:crypto';
+import { NeedsReauthError } from '@integrations/engine';
 
 export interface McpOAuthState {
   /** Store-generated revision for atomic conditional writes, including legacy state without one. */
@@ -34,6 +35,11 @@ export interface McpOAuthState {
   /** Preserve challenge-specific discovery through the browser callback's fresh transport. */
   discoveryState?: OAuthDiscoveryState;
   tokens?: OAuthTokens;
+  /**
+   * The exact RFC 8707 resource indicator this grant was requested and refreshed with. Absent on
+   * grants from MCP SDK 1.x, which always sent the URL-normalized form (`https://host/`).
+   */
+  resourceIndicator?: string;
   codeVerifier?: string;
   authorizationState?: string;
   authorizationExpiresAt?: number;
@@ -75,6 +81,32 @@ export interface McpOAuthProviderDeps {
   callbackChannel?: 'web' | 'desktop';
   /** Register secret values on both initial load and token rotation before they can reach errors or results. */
   onState?: (state: McpOAuthState) => void;
+  /**
+   * Trusted catalog exceptions to RFC 8414's issuer rule (authorization server URL to the issuer its
+   * metadata states). With these set, the transport skips the SDK's own issuer check and this
+   * provider applies the same rule, allowing only these exact pairs, before anything is sent.
+   */
+  issuerAliases?: Readonly<Record<string, string>>;
+}
+
+const trimSlash = (value: string) => value.endsWith('/') ? value.slice(0, -1) : value;
+
+/** The MCP SDK's rule: the server Ri connects to must lie within the resource its metadata names. */
+export function mcpResourceAllowed(serverUrl: URL | string, resource: string): boolean {
+  const requested = new URL(String(serverUrl)), configured = new URL(resource);
+  if (requested.origin !== configured.origin || requested.pathname.length < configured.pathname.length) return false;
+  const withSlash = (path: string) => path.endsWith('/') ? path : `${path}/`;
+  return withSlash(requested.pathname).startsWith(withSlash(configured.pathname));
+}
+const sameResource = (a: string, b: string) => { try { return new URL(a).href === new URL(b).href; } catch { return false; } };
+/** RFC 8414 §3.3: the issuer a server's metadata states must be the server it was fetched from. */
+export function assertMcpIssuer(state: OAuthDiscoveryState, aliases: Readonly<Record<string, string>> = {}) {
+  const server = trimSlash(String(state.authorizationServerUrl ?? ''));
+  const issuer = state.authorizationServerMetadata?.issuer;
+  const expected = Object.entries(aliases).find(([url]) => trimSlash(url) === server)?.[1] ?? server;
+  if (!issuer || trimSlash(issuer) !== trimSlash(expected)) {
+    throw new NeedsReauthError(undefined, 'The authorization server named a different issuer than expected. No credentials were sent.');
+  }
 }
 
 export function makeMcpOAuthProvider(deps: McpOAuthProviderDeps): OAuthClientProvider {
@@ -178,6 +210,7 @@ export function makeMcpOAuthProvider(deps: McpOAuthProviderDeps): OAuthClientPro
       return structuredClone(discovery ?? saved.discoveryState);
     },
     ...(!discovery ? { async saveDiscoveryState(state: OAuthDiscoveryState) {
+      if (deps.issuerAliases) assertMcpIssuer(state, deps.issuerAliases);
       const previous = await get();
       await put(previous, { ...previous, discoveryState: structuredClone(state) });
     } } : {}),
@@ -232,6 +265,31 @@ export function makeMcpOAuthProvider(deps: McpOAuthProviderDeps): OAuthClientPro
         delete next.codeVerifier;
       }
       credentialSnapshot = await put(previous, next);
+    },
+    /**
+     * Which resource indicator a request names. A new grant uses the server's advertised resource
+     * exactly (MCP's canonical URI). A grant keeps the string it was issued with, so a refresh never
+     * asks a strict authorization server for a different audience: including a grant from SDK 1.x,
+     * which normalized a bare origin to a trailing slash.
+     */
+    async validateResourceURL(serverUrl: URL, resource?: string) {
+      if (!resource) return undefined;
+      if (!mcpResourceAllowed(serverUrl, resource)) throw new Error(`Protected resource ${resource} does not match expected ${serverUrl.href} (or origin)`);
+      const saved = await get();
+      const indicator = saved.resourceIndicator && sameResource(saved.resourceIndicator, resource) ? saved.resourceIndicator
+        : saved.tokens && !saved.resourceIndicator ? new URL(resource).href : resource;
+      // The SDK serializes a string as written and a URL by its href.
+      return indicator as unknown as URL;
+    },
+    async saveResourceUrl(indicator: string) {
+      // Read fresh: discovery may have been saved in this same flow.
+      const previous = await get();
+      if (previous.resourceIndicator === indicator) return;
+      const saved = await put(previous, { ...previous, resourceIndicator: indicator });
+      // Later writes in this flow compare against the revision just written.
+      if (credentialSnapshot) credentialSnapshot = saved;
+      if (clientSnapshot) clientSnapshot = saved;
+      if (authorizationSnapshot) authorizationSnapshot = saved;
     },
     async redirectToAuthorization(url: URL) {
       const target = new URL(url);

@@ -84,6 +84,72 @@ export interface McpServerEntry {
   healthHistory?: Omit<McpServerHealth, 'tools'>[];
   /** Hash identifying the last successfully completed interactive authorization. */
   lastAuthorizationId?: string;
+  /** What the server reported about itself when Ri last connected. Self-reported, never authority. */
+  protocol?: McpServerProtocol;
+}
+
+/** A server's self-description from the opening exchange (`initialize` or `server/discover`). */
+export interface McpServerProtocol {
+  /** The negotiated revision, such as `2026-07-28` or `2025-11-25`. */
+  version?: string;
+  era?: 'modern' | 'legacy';
+  /**
+   * `probe`: the server answered the 2026-07-28 probe. `fallback`: it did not, and a 2025
+   * handshake worked, so Ri skips the probe until `checkedAt` is a day old.
+   */
+  negotiation?: 'probe' | 'fallback';
+  checkedAt: string;
+  /** Advertised extension capabilities (`extensions`, over legacy `experimental`), such as `openai/settings`. */
+  extensions?: Record<string, Record<string, unknown>>;
+  /** `serverInfo` for display: name, title, version, description, website and icons. */
+  info?: { name?: string; title?: string; version?: string; description?: string; websiteUrl?: string; icons?: McpServerIcon[] };
+}
+export interface McpServerIcon { src: string; mimeType?: string; sizes?: string[]; theme?: 'light' | 'dark' }
+
+/** A probe fallback is remembered this long before Ri tries 2026-07-28 again. */
+export const MCP_PROBE_FALLBACK_TTL_MS = 24 * 60 * 60_000;
+const MAX_EXTENSIONS_BYTES = 8 * 1024;
+const MAX_ICON_SRC_BYTES = 64 * 1024;
+
+/**
+ * Reduce what a server said about itself to the bounded, display-only facts Ri keeps. Icons are
+ * kept only as `https:` or image `data:` URLs. Unknown or oversized fields are dropped.
+ */
+export function mcpServerProtocol(facts: {
+  protocolVersion?: string; era?: 'modern' | 'legacy'; negotiation?: 'probe' | 'fallback' | 'known-legacy';
+  capabilities?: Record<string, unknown>; info?: Record<string, unknown>;
+}, checkedAt: string): McpServerProtocol {
+  const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const text = (value: unknown, max: number) => typeof value === 'string' && value.length <= max ? value : undefined;
+  const merged = { ...record(facts.capabilities?.experimental), ...record(facts.capabilities?.extensions) };
+  const extensions = Object.fromEntries(Object.entries(merged).filter(([key, value]) => key.length <= 200 && value && typeof value === 'object' && !Array.isArray(value))) as Record<string, Record<string, unknown>>;
+  const info = record(facts.info);
+  const icons = (Array.isArray(info.icons) ? info.icons : []).slice(0, 4).flatMap((raw): McpServerIcon[] => {
+    const icon = record(raw), src = text(icon.src, MAX_ICON_SRC_BYTES);
+    if (!src || !(/^https:\/\//i.test(src) || /^data:image\//i.test(src))) return [];
+    const sizes = Array.isArray(icon.sizes) ? icon.sizes.filter((size): size is string => typeof size === 'string').slice(0, 8) : undefined;
+    return [{ src, ...(text(icon.mimeType, 100) ? { mimeType: icon.mimeType as string } : {}), ...(sizes?.length ? { sizes } : {}),
+      ...(icon.theme === 'light' || icon.theme === 'dark' ? { theme: icon.theme } : {}) }];
+  });
+  const kept = {
+    ...(text(info.name, 200) ? { name: info.name as string } : {}), ...(text(info.title, 200) ? { title: info.title as string } : {}),
+    ...(text(info.version, 100) ? { version: info.version as string } : {}), ...(text(info.description, 1000) ? { description: info.description as string } : {}),
+    ...(text(info.websiteUrl, 2048) && /^https:\/\//i.test(info.websiteUrl as string) ? { websiteUrl: info.websiteUrl as string } : {}),
+    ...(icons.length ? { icons } : {}),
+  };
+  return {
+    ...(facts.protocolVersion ? { version: facts.protocolVersion } : {}),
+    ...(facts.era ? { era: facts.era } : {}),
+    ...(facts.negotiation === 'probe' || facts.negotiation === 'fallback' ? { negotiation: facts.negotiation } : {}),
+    checkedAt,
+    ...(Object.keys(extensions).length && Buffer.byteLength(JSON.stringify(extensions)) <= MAX_EXTENSIONS_BYTES ? { extensions } : {}),
+    ...(Object.keys(kept).length ? { info: kept } : {}),
+  };
+}
+
+/** Whether to skip the 2026-07-28 probe: the server needed the 2025 fallback within the last day. */
+export function mcpKnownLegacy(entry: Pick<McpServerEntry, 'protocol'>, now = Date.now()): boolean {
+  return entry.protocol?.negotiation === 'fallback' && now - Date.parse(entry.protocol.checkedAt) < MCP_PROBE_FALLBACK_TTL_MS;
 }
 
 export interface McpServerCreate {
@@ -188,6 +254,11 @@ export interface McpServerStore {
   setDefaultApprovalPolicy(policy: McpApprovalPolicy | null, applyToAll?: boolean): Promise<void>;
   setHealth(id: string, health: McpServerHealth): Promise<void>;
   recordCapabilities(id: string, tools: readonly McpCapabilityTool[]): Promise<McpServerEntry | null>;
+  /**
+   * Keep what the server reported at connect. A connection that skipped the probe keeps the
+   * recorded fallback and its time, so the probe is retried once that expires.
+   */
+  recordProtocol(id: string, protocol: McpServerProtocol, skippedProbe?: boolean): Promise<void>;
   acknowledgeCapabilities(id: string, revision: string): Promise<McpServerEntry | null>;
   /** The unsealed auth secret for a server, or null (no secret / no entry). */
   openSecret(id: string): Promise<string | null>;
@@ -393,6 +464,23 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
         row.entry.updatedAt = new Date().toISOString();
         writeAll(rows);
         return row.entry;
+      });
+    },
+
+    async recordProtocol(id, protocol, skippedProbe) {
+      await deps.lock.withLock('mcp-servers', async () => {
+        const rows = readAll();
+        const row = rows.find(candidate => candidate.entry.id === id);
+        if (!row) return;
+        const previous = row.entry.protocol;
+        const next: McpServerProtocol = skippedProbe && previous?.negotiation === 'fallback'
+          ? { ...protocol, negotiation: 'fallback', checkedAt: previous.checkedAt }
+          : protocol;
+        // A fallback is always stamped: its time decides when the probe runs again.
+        const same = (a?: McpServerProtocol, b?: McpServerProtocol) => JSON.stringify({ ...a, checkedAt: undefined }) === JSON.stringify({ ...b, checkedAt: undefined });
+        if (same(previous, next) && !(next.negotiation === 'fallback' && next.checkedAt !== previous?.checkedAt)) return;
+        row.entry.protocol = next;
+        writeAll(rows);
       });
     },
 

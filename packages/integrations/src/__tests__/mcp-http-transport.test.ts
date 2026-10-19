@@ -39,7 +39,12 @@ it('uses the real Node HTTP dispatcher for discovery, resources, tool responses 
           res.on('close', () => { heldClosed = true; });
         } else reply({ content: [{ type: 'text', text: 'done' }], structuredContent: { done: true } });
         break;
-      default: res.writeHead(202).end();
+      // A 2025-era server: notifications are accepted, an unknown request (the 2026-07-28
+      // `server/discover` probe) is a JSON-RPC method-not-found error.
+      default:
+        if (message.id === undefined) { res.writeHead(202).end(); break; }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } }));
     }
   });
   await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve));

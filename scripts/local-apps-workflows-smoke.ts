@@ -4,8 +4,7 @@ import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
 import {z} from 'zod';
-import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
-import {WebStandardStreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import {riMcpHandler} from '@/lib/mcp/http-server';
 import {createTestHome} from '@/test/fixtures/home';
 import {localApps} from '@/lib/local-apps/service';
 import {appAvailabilityBrief} from '@/lib/local-apps/brief';
@@ -31,13 +30,14 @@ async function main(){
    await apps.saveGrant({instanceId:instance.id,principal:{kind:'chat',id:chat.id},actions:['finance_status','finance_transactions','finance_budget','finance_findings'],riActions:[],connections:[],serviceScopeRef:scope.scopeRef},apps.store.read().revision);
    const calls:{name:string;workflow?:string}[]=[];
    const server=http.createServer((req,res)=>{void(async()=>{
-    const sdk=new McpServer({name:'fixture-apps',version:'1'}),context={remote:true,actor:{sessionId:chat.id}};
-    sdk.tool('describe_app','Read the authorized action contracts before using app tools',{instance_id:z.string().uuid()},async input=>{calls.push({name:'describe'});const result=await dispatchAppAction(context as never,'describe',input);return {content:[{type:'text',text:JSON.stringify(result)}]};});
-    sdk.tool('get_app_workflow','Read the current authorized app workflow on demand',{instance_id:z.string().uuid(),name:z.string()},async input=>{calls.push({name:'workflow',workflow:input.name});const result=await dispatchAppAction(context as never,'workflow',input);return {content:[{type:'text',text:JSON.stringify(result)}]};});
-    sdk.tool('call_app_action','Call an authorized app action',{instance_id:z.string().uuid(),action:z.string(),input:z.record(z.unknown())},async input=>{calls.push({name:input.action});const result=await dispatchAppAction(context as never,'call',input);return {content:[{type:'text',text:JSON.stringify(result)}]};});
-    const transport=new WebStandardStreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});await sdk.connect(transport);
-    const chunks=[];for await(const chunk of req)chunks.push(chunk);const request=new Request('http://fixture/mcp',{method:req.method,headers:Object.fromEntries(Object.entries(req.headers).filter((entry):entry is [string,string]=>typeof entry[1]==='string')),body:new Uint8Array(Buffer.concat(chunks))});
-    try{const response=await transport.handleRequest(request);res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));}finally{await sdk.close();}
+    const context={remote:true,actor:{sessionId:chat.id}};
+    const mcp=riMcpHandler(sdk=>{
+     sdk.registerTool('describe_app',{description:'Read the authorized action contracts before using app tools',inputSchema:{instance_id:z.string().uuid()}},async input=>{calls.push({name:'describe'});const result=await dispatchAppAction(context as never,'describe',input);return {content:[{type:'text',text:JSON.stringify(result)}]};});
+     sdk.registerTool('get_app_workflow',{description:'Read the current authorized app workflow on demand',inputSchema:{instance_id:z.string().uuid(),name:z.string()}},async input=>{calls.push({name:'workflow',workflow:String(input.name)});const result=await dispatchAppAction(context as never,'workflow',input);return {content:[{type:'text',text:JSON.stringify(result)}]};});
+     sdk.registerTool('call_app_action',{description:'Call an authorized app action',inputSchema:{instance_id:z.string().uuid(),action:z.string(),input:z.record(z.unknown())}},async input=>{calls.push({name:String(input.action)});const result=await dispatchAppAction(context as never,'call',input);return {content:[{type:'text',text:JSON.stringify(result)}]};});
+    },{name:'fixture-apps',version:'1'});
+    const chunks=[];for await(const chunk of req)chunks.push(chunk);const request=new Request('http://fixture/mcp',{method:req.method,headers:Object.fromEntries(Object.entries(req.headers).filter((entry):entry is [string,string]=>typeof entry[1]==='string')),...(req.method==='POST'?{body:new Uint8Array(Buffer.concat(chunks))}:{})});
+    const response=await mcp(request);res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
    })().catch(()=>{res.writeHead(500);res.end();});});await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
    const cwd=path.join(home.root,'workflow-cases',sample.name);await fs.mkdir(cwd,{recursive:true});
    try{

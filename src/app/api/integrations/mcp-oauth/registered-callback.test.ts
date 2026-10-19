@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import type { OAuthClientProvider } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider, HOSTED_MCP_PROVIDERS } from '@integrations/engine/providers';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
 import { ensureHostedMcpServer } from '@/lib/integrations/hosted-mcp';

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createRedactor, NeedsReauthError } from '@integrations/engine';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
 
 function setup(initial: McpOAuthState = {}) {

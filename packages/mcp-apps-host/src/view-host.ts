@@ -1,10 +1,6 @@
 import { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
-import {
-  JSONRPCMessageSchema,
-  type JSONRPCMessage,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { JSONRPCMessageSchema } from "@modelcontextprotocol/core";
+import type { CallToolResult, JSONRPCMessage, Transport } from "@modelcontextprotocol/client";
 
 export interface ViewHtml {
   html: string;
@@ -199,7 +195,7 @@ export class AppViewController {
     bridge.oncalltool = async (params, extra) => {
       if (!binding.mcp && params.name === 'ri_select_file') {
         if (!binding.files?.select || !this.callbacks.selectFile || Object.keys(params.arguments ?? {}).length) throw new Error('File selection is unavailable');
-        const file = await this.callbacks.selectFile(extra.signal);
+        const file = await this.callbacks.selectFile(extra.mcpReq.signal);
         return {content: [{type:'text', text:file ? 'File selected' : 'Selection cancelled'}], structuredContent:{file}};
       }
       const requested = (params as { _meta?: Record<string, unknown> })._meta?.[INVOCATION_META];
@@ -208,7 +204,7 @@ export class AppViewController {
       const result = await this.callbacks.call(
         params.name,
         params.arguments ?? {},
-        extra.signal,
+        extra.mcpReq.signal,
         requested ? { invocationId: requested } : undefined,
       );
       if (binding.mcp) return result as CallToolResult;
@@ -231,7 +227,7 @@ export class AppViewController {
         throw new Error("The app context is invalid or too large");
       const envelope = binding.mcp ? params : JSON.parse(text!.text);
       const request = this.contextTail.then(() =>
-        this.callbacks.context(envelope, extra.signal),
+        this.callbacks.context(envelope, extra.mcpReq.signal),
       );
       this.contextTail = request.then(
         () => {
@@ -258,7 +254,7 @@ export class AppViewController {
     };
     bridge.ondownloadfile = async (params, extra) => {
       if (!binding.files?.download || !this.callbacks.downloadFile) throw new Error('File downloads are unavailable');
-      await this.callbacks.downloadFile(params.contents, extra.signal);
+      await this.callbacks.downloadFile(params.contents, extra.mcpReq.signal);
       return {};
     };
     bridge.onsizechange = (params) => {

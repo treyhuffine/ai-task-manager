@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { discoverOAuthServerInfo } from '@modelcontextprotocol/sdk/client/auth.js';
+import { discoverOAuthServerInfo } from '@modelcontextprotocol/client';
 
 // This capture is intentionally read-only. Never register OAuth clients or
 // request account data while qualifying public discovery metadata.

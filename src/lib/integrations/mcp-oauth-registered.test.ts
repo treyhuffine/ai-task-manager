@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError, type OAuthDiscoveryState } from '@modelcontextprotocol/sdk/client/auth.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { auth, extractWWWAuthenticateParams, UnauthorizedError, type OAuthDiscoveryState } from '@modelcontextprotocol/client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createRedactor, fileLock, NeedsReauthError } from '@integrations/engine';
 import { aesGcmSecretBox, generateSecretKey } from '@integrations/engine/crypto';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
@@ -126,7 +126,8 @@ describe('registered MCP OAuth clients', () => {
     expect(target.searchParams.get('client_id')).toBe(clientId);
     const requestedScopes = profile.discovery.resourceMetadata?.scopes_supported?.join(' ') || policy.scopes?.join(' ') || null;
     expect(target.searchParams.get('scope')).toBe(requestedScopes);
-    expect(target.searchParams.get('resource')).toBe(new URL(profile.discovery.resourceMetadata!.resource).href);
+    // A new grant names the resource exactly as the server advertises it (MCP's canonical URI).
+    expect(target.searchParams.get('resource')).toBe(profile.discovery.resourceMetadata!.resource);
     expect(target.searchParams.get('state')).toBe(pending.authorizationState);
     expect(target.searchParams.get('code_challenge')).toBe(createHash('sha256').update(pending.codeVerifier!).digest('base64url'));
     expect(target.searchParams.get('code_challenge_method')).toBe('S256');
@@ -330,7 +331,9 @@ describe('registered MCP OAuth clients', () => {
     current = { clientId, clientSecret: 'rotated-secret' };
     release();
     await rejected;
-    expect(s.saved()).toEqual(before);
+    // The late token never lands. Before the request the SDK stamped the stored token with its
+    // issuer (SEP-2352), and Ri recorded the resource indicator the 1.x grant used.
+    expect(s.saved()).toEqual({ ...before, revision: expect.any(String), resourceIndicator: 'https://mcp.example.com/mcp', tokens: { ...before.tokens, issuer: 'https://oauth.example.com' } });
     expect(fetchFixture).toHaveBeenCalledTimes(1);
     await expect(provider.state!()).rejects.toBeInstanceOf(NeedsReauthError);
   });

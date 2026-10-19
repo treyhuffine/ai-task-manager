@@ -10,13 +10,12 @@
  *
  * Bearer auth is enforced globally by `src/middleware.ts`.
  *
- * URLs:
- *   POST /api/mcp   — Streamable HTTP (recommended)
- *   GET  /api/sse   — SSE (legacy)
+ * URL: POST /api/mcp, Streamable HTTP. Serves MCP 2026-07-28 and 2025-era clients from one
+ * handler (src/lib/mcp/http-server.ts). The HTTP+SSE transport is retired.
  */
 
-import { createMcpHandler } from 'mcp-handler';
 import { z } from 'zod';
+import { isMcpTransport, mcpNotFound, riMcpHandler } from '@/lib/mcp/http-server';
 import { runMcpAgent } from '@/lib/mcp/agent';
 import { APP_NAME } from '@/constants/app';
 
@@ -34,7 +33,7 @@ const MESSAGE_DESCRIPTION =
 const CONTEXT_DESCRIPTION =
   `Optional additional context you have available: conversation messages, decisions made in the session, workspace or folder you're in, contents of relevant files, outputs from recent work, results from prior calls to these tools, user preferences or constraints you've observed, anything else relevant. Only include information you actually have. It's fine to leave this empty or sparse, and don't fabricate or feel obligated to fill every category. If you're in a multi-turn conversation with the user, include recent messages in \`context\` with clear structure, marking which are user messages and which are AI responses. Don't hallucinate a conversation: if you've only received one user message, that message goes in \`message\` and you don't need to include conversation context. The server is intelligent and will decide which tools to call and what information to return based on this context and its own knowledge of the user's data.`;
 
-const handler = createMcpHandler(
+const mcp = riMcpHandler(
   (server) => {
     server.registerTool(
       'query',
@@ -47,7 +46,7 @@ const handler = createMcpHandler(
       },
       async ({ message, context }) => {
         try {
-          const payload = await runMcpAgent(message, 'query', context);
+          const payload = await runMcpAgent(String(message), 'query', context === undefined ? undefined : String(context));
           return {
             content: [{ type: 'text', text: JSON.stringify(payload) }],
           };
@@ -72,7 +71,7 @@ const handler = createMcpHandler(
       },
       async ({ message, context }) => {
         try {
-          const payload = await runMcpAgent(message, 'update', context);
+          const payload = await runMcpAgent(String(message), 'update', context === undefined ? undefined : String(context));
           return {
             content: [{ type: 'text', text: JSON.stringify(payload) }],
           };
@@ -87,18 +86,16 @@ const handler = createMcpHandler(
     );
   },
   {
-    serverInfo: {
-      name: APP_NAME.toLowerCase(),
-      version: '0.1.0',
-    },
+    name: APP_NAME.toLowerCase(),
+    version: '0.1.0',
     instructions: SERVER_INSTRUCTIONS,
   },
-  {
-    basePath: '/api',
-    maxDuration: 800,
-    verboseLogs: process.env.NODE_ENV !== 'production',
-  },
 );
+
+function handler(request: Request) {
+  if (!isMcpTransport(new URL(request.url).pathname.split('/').pop())) return Promise.resolve(mcpNotFound());
+  return mcp(request);
+}
 
 export const GET = handler;
 export const POST = handler;

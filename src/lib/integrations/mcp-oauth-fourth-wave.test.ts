@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { describe, expect, it, vi } from 'vitest';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 // Public GET-only discovery observed 2026-09-28. DCR and token responses below
 // are synthetic: every request is intercepted and no account is contacted.
@@ -97,14 +98,14 @@ describe('Airtable and Atlassian hosted OAuth profiles', () => {
     const interactive = makeMcpOAuthProvider({ ...deps, interactive: true, onRedirect: redirect });
     expect(await auth(interactive, { serverUrl: profile.url, fetchFn: fetchFixture })).toBe('REDIRECT');
     expect(registrations).toEqual([{
-      client_name: deps.clientName, redirect_uris: [deps.redirectUrl],
+      client_name: deps.clientName, redirect_uris: [deps.redirectUrl], application_type: expectedApplicationType(deps.redirectUrl),
       grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
       token_endpoint_auth_method: 'none', scope: profile.scopes.join(' '),
     }]);
     const consentUrl = redirect.mock.calls[0][0] as URL;
     expect(`${consentUrl.origin}${consentUrl.pathname}`).toBe(profile.authorizeUrl);
     expect(consentUrl.searchParams.get('scope')).toBe(profile.scopes.join(' '));
-    expect(consentUrl.searchParams.get('resource')).toBe(new URL(profile.resource).href);
+    expect(consentUrl.searchParams.get('resource')).toBe(profile.resource);
     expect(consentUrl.searchParams.get('prompt')).toBe(profile.id === 'atlassian' ? 'consent' : null);
     expect(consentUrl.searchParams.get('state')).toBe(saved.authorizationState);
     const verifier = saved.codeVerifier!;
@@ -118,13 +119,13 @@ describe('Airtable and Atlassian hosted OAuth profiles', () => {
     expect(await auth(callback, { serverUrl: profile.url, authorizationCode: 'fixture-code', fetchFn: fetchFixture })).toBe('AUTHORIZED');
     expect(Object.fromEntries(tokenBodies[0])).toMatchObject({
       grant_type: 'authorization_code', code: 'fixture-code', code_verifier: verifier,
-      client_id: `fixture-${profile.id}`, redirect_uri: deps.redirectUrl, resource: new URL(profile.resource).href,
+      client_id: `fixture-${profile.id}`, redirect_uri: deps.redirectUrl, resource: profile.resource,
     });
     const background = makeMcpOAuthProvider(deps);
     expect(await auth(background, { serverUrl: profile.url, fetchFn: fetchFixture })).toBe('AUTHORIZED');
     expect(Object.fromEntries(tokenBodies[1])).toMatchObject({
       grant_type: 'refresh_token', refresh_token: 'fixture-refresh-1', client_id: `fixture-${profile.id}`,
-      resource: new URL(profile.resource).href,
+      resource: profile.resource,
     });
     expect(registrations).toHaveLength(1);
     expect(saved.tokens?.access_token).toBe('fixture-access-2');

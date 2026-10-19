@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { Component, type ReactNode } from "react";
-import { App, PostMessageTransport } from "@modelcontextprotocol/ext-apps";
+import { App, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-with-deps";
 import { Workspace } from "./workspace";
 import type { FinanceClient, Home } from "./types";
 import "./workspace.css";

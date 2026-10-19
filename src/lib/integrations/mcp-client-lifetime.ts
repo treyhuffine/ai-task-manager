@@ -19,6 +19,7 @@ export function drainMcpClient(client: ConnectedMcpClient): ConnectedMcpClient {
   };
 
   return {
+    ...(client.server ? { server: client.server } : {}),
     // Discovery has its own deadline. A timed-out discovery must still be cancellable.
     listTools: () => client.listTools(),
     callTool: (params, options) => run(() => client.callTool(params, ...(options ? [options] : []))),

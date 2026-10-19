@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { describe, expect, it, vi } from 'vitest';
 import { makeMcpOAuthProvider, type McpOAuthState } from './mcp-oauth';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 // Public metadata observed with GET-only SDK discovery on 2026-09-28. Every
 // request in these tests is intercepted. DCR and consent never reach a service.
@@ -84,7 +85,7 @@ describe('hosted replacement OAuth profiles', () => {
     expect(await auth(provider, { serverUrl: profile.url, fetchFn: fetchFixture })).toBe('REDIRECT');
     expect(registrations).toHaveLength(1);
     expect(registrations[0]).toEqual({
-      client_name: 'Integration fixture', redirect_uris: ['https://app.example/oauth/callback'],
+      client_name: 'Integration fixture', redirect_uris: ['https://app.example/oauth/callback'], application_type: expectedApplicationType('https://app.example/oauth/callback'),
       grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none',
       ...(profile.scopes ? { scope: profile.scopes.join(' ') } : {}),
     });
@@ -92,7 +93,7 @@ describe('hosted replacement OAuth profiles', () => {
     const target = redirect.mock.calls[0][0] as URL;
     expect(`${target.origin}${target.pathname}`).toBe(authorizationUrl);
     expect(target.searchParams.get('scope')).toBe(profile.scopes?.join(' ') ?? null);
-    expect(target.searchParams.get('resource')).toBe(new URL(profile.resource).href);
+    expect(target.searchParams.get('resource')).toBe(profile.resource);
     expect(target.searchParams.get('client_id')).toBe('fixture-client');
     expect(target.searchParams.get('state')).toBe(saved.authorizationState);
     expect(saved.authorizationState).toBeTruthy();

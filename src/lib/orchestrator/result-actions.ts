@@ -121,7 +121,11 @@ export async function handleUndiscoveredResultCall(request: Request): Promise<Re
   const { runAction } = await import('./dispatch');
   const { mcpCallContext } = await import('./mcp-caller');
   const envelope = await runAction(name, call.params.arguments ?? {}, mcpCallContext(request.headers, { allowMissing: ['report_result', 'report_result_review'].includes(name) }));
+  // A 2026-07-28 request carries its protocol version in the `_meta` envelope, and its result
+  // must say it is complete. A 2025-era result has no such field.
+  const modern = typeof call.params?._meta?.['io.modelcontextprotocol/protocolVersion'] === 'string';
   return Response.json({ jsonrpc: '2.0', id: call.id, result: {
     content: [{ type: 'text', text: JSON.stringify(envelope) }], isError: !envelope.ok,
+    ...(modern ? { resultType: 'complete' } : {}),
   } });
 }

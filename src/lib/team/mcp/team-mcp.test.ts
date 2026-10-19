@@ -8,8 +8,8 @@
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createTeamTestHome, preloadTeamRoutes, serveTeam, TEAM_BASE, teamPost, teamTrpc, type TeamTestHome } from '@/test/fixtures/team-home';
 
 const ai = vi.hoisted(() => ({
@@ -43,7 +43,11 @@ async function assistant(token: string) {
     requestInit: { headers: { authorization: `Bearer ${token}` } },
   }));
   const call = async (name: string, args: Record<string, unknown> = {}) => {
-    const res = await client.callTool({ name, arguments: args });
+    // A tool the server never registered is refused at the protocol level (MCP SDK 2.x), not as a result.
+    const res = await client.callTool({ name, arguments: args }).catch((error: Error & { code?: number }) => {
+      if (error.code !== -32602 || !/not found/i.test(error.message)) throw error;
+      return { isError: true, content: [{ type: 'text', text: error.message }] };
+    });
     const text = (res.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
     let body: { ok: boolean; result?: Loose; replayed?: boolean; error?: Loose } | null = null;
     try { body = JSON.parse(text); } catch { /* an SDK refusal is plain text */ }

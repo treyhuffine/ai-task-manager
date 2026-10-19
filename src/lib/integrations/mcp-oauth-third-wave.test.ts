@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { describe, expect, it, vi } from 'vitest';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 // Public GET discovery and official GitLab DCR source, observed 2026-09-28.
 // Every request is intercepted, including registration, code exchange and refresh.
@@ -93,7 +94,7 @@ describe('GitLab and Stripe public MCP OAuth profiles', () => {
     const interactive = makeMcpOAuthProvider({ ...deps, interactive: true, onRedirect: redirect });
     expect(await auth(interactive, { serverUrl: profile.url, fetchFn: fetchFixture })).toBe('REDIRECT');
     expect(registrations).toEqual([{
-      client_name: deps.clientName, redirect_uris: [deps.redirectUrl], grant_types: [...profile.grants],
+      client_name: deps.clientName, redirect_uris: [deps.redirectUrl], application_type: expectedApplicationType(deps.redirectUrl), grant_types: [...profile.grants],
       response_types: ['code'], token_endpoint_auth_method: 'none',
       ...(profile.resourceScopes ? { scope: profile.resourceScopes.join(' ') } : {}),
     }]);
@@ -101,7 +102,7 @@ describe('GitLab and Stripe public MCP OAuth profiles', () => {
     const consentUrl = redirect.mock.calls[0][0] as URL;
     expect(`${consentUrl.origin}${consentUrl.pathname}`).toBe(profile.authorizeUrl);
     expect(consentUrl.searchParams.get('scope')).toBe(profile.resourceScopes?.join(' ') ?? null);
-    expect(consentUrl.searchParams.get('resource')).toBe(new URL(profile.resource).href);
+    expect(consentUrl.searchParams.get('resource')).toBe(profile.resource);
     expect(consentUrl.searchParams.get('state')).toBe(saved.authorizationState);
     expect(consentUrl.searchParams.get('code_challenge_method')).toBe('S256');
     const verifier = saved.codeVerifier!;

@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
-import { auth, UnauthorizedError, type OAuthDiscoveryState } from '@modelcontextprotocol/sdk/client/auth.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { auth, UnauthorizedError, type OAuthDiscoveryState } from '@modelcontextprotocol/client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { describe, expect, it, vi } from 'vitest';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 interface CapturedProfile {
   id: string;
@@ -116,7 +117,7 @@ describe('Webflow public hosted MCP OAuth profile', () => {
     const registration = remote.requests.filter((request) => request.url === metadata.registration_endpoint);
     expect(registration).toHaveLength(1);
     expect(JSON.parse(registration[0].body)).toEqual({
-      client_name: store.deps.clientName, redirect_uris: [redirectUrl], response_types: ['code'],
+      client_name: store.deps.clientName, redirect_uris: [redirectUrl], application_type: expectedApplicationType(redirectUrl), response_types: ['code'],
       grant_types: ['authorization_code', 'refresh_token'], token_endpoint_auth_method: 'none',
     });
     const pending = store.saved();

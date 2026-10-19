@@ -1,5 +1,4 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createServer } from "node:net";
 import { AppError, errorCodeSchema, LIMITS, type InvocationContext } from "./contract.js";
 import type { InstalledArtifact, OwnedTransport } from "./runtime.js";
@@ -91,7 +90,8 @@ export class McpServiceTransport implements OwnedTransport {
         "app_failed",
         "The service returned an invalid principal lease",
       );
-    const client = new Client({ name: "Ri app host", version: "1.0.0" });
+    // Prefer MCP 2026-07-28. A service built before it answers the 2025 handshake instead.
+    const client = new Client({ name: "Ri app host", version: "1.0.0" }, { versionNegotiation: { mode: "auto" } });
     const transport = new StreamableHTTPClientTransport(
       new URL(this.endpoint),
       {
@@ -243,7 +243,6 @@ export class McpServiceTransport implements OwnedTransport {
         );
       const result = await connection.client.callTool(
         { name: params.action, arguments: params.input },
-        undefined,
         { signal },
       );
       if (result.isError) {

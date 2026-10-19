@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import { auth, UnauthorizedError, type OAuthDiscoveryState } from '@modelcontextprotocol/sdk/client/auth.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { auth, UnauthorizedError, type OAuthDiscoveryState } from '@modelcontextprotocol/client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { NeedsReauthError } from '@integrations/engine';
 import { beginMcpOAuth, finishMcpOAuth } from '@integrations/engine/mcp';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 interface CapturedProfile {
   id: string;
@@ -125,7 +126,7 @@ describe('WordPress.com hosted OAuth', () => {
     // Client metadata is only a fallback. Without an explicit scope selection,
     // the installed SDK prioritizes the broader PRM scopes over ['auth'].
     expect(server.registrations).toEqual([{
-      client_name: 'WordPress fixture', redirect_uris: [redirectUri],
+      client_name: 'WordPress fixture', redirect_uris: [redirectUri], application_type: expectedApplicationType(redirectUri),
       grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
       token_endpoint_auth_method: 'none', scope: advertisedScope,
     }]);

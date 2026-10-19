@@ -1,7 +1,7 @@
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { IntegrationError, createRedactor, isIntegrationError } from '@integrations/engine';
 import { beginMcpOAuth, connectMcpClient, finishMcpOAuth } from '@integrations/engine/mcp';
-import { hostedMcpDefinition } from './hosted-mcp';
+import { hostedMcpDefinition, mcpOAuthTransportOptions } from './hosted-mcp';
 import { createHash } from 'node:crypto';
 import { desktopOAuth, desktopRelayFor, isDesktopRequest, type DesktopOAuthFlow } from './desktop-oauth';
 import { usesRegisteredOAuth } from './hosted-oauth-config';
@@ -11,11 +11,16 @@ import type { McpServerEntry } from './mcp-servers';
 import { rememberOAuthReturn } from './oauth-return';
 import { getIntegrationRuntime, getMcpServerStore, invalidateIntegrationRuntime, MCP_TIMEOUT_MS, mcpOAuthProviderFor, withTimeout } from './runtime';
 
-export async function completeMcpAuthorization(entry: McpServerEntry, code: string, state: string, provider = mcpOAuthProviderFor(entry)) {
+/**
+ * Finish a browser sign-in. `iss` is the authorization server's issuer from the callback, when it
+ * sent one: the SDK compares it with the server the sign-in started at (RFC 9207), so a response
+ * from a different server cannot complete this connection.
+ */
+export async function completeMcpAuthorization(entry: McpServerEntry, code: string, state: string, provider = mcpOAuthProviderFor(entry), iss?: string | null) {
   if (!await getMcpServerStore().consumeOAuthState(entry.id, state)) throw new Error('Invalid or expired authorization state');
   // Load the saved redirect URI before the SDK reads its synchronous getter.
   await provider.clientInformation();
-  await withTimeout(finishMcpOAuth({ url: entry.url, authProvider: provider, authorizationCode: code }), 30_000, 'finish authorization');
+  await withTimeout(finishMcpOAuth({ url: entry.url, authProvider: provider, authorizationCode: code, iss, ...mcpOAuthTransportOptions(entry) }), 30_000, 'finish authorization');
   invalidateIntegrationRuntime();
   const runtime = await getIntegrationRuntime();
   const saved = getMcpServerStore().get(entry.id);
@@ -65,12 +70,12 @@ export async function beginMcpAuthorization(entry: McpServerEntry, request?: Pic
       // Only a trusted catalog profile can opt into preauthorization. An
       // arbitrary 403 remains an error rather than an authentication signal.
       if (definition?.auth?.kind === 'oauth' && definition.auth.authorizeBeforeConnect) {
-        await withTimeout(beginMcpOAuth({ url: entry.url, authProvider: provider,
+        await withTimeout(beginMcpOAuth({ url: entry.url, authProvider: provider, ...mcpOAuthTransportOptions(entry),
           ...(definition.auth.scopes?.length ? { scope: definition.auth.scopes.join(' ') } : {}),
         }), MCP_TIMEOUT_MS, 'authorize');
       }
       if (!authUrl) {
-        const client = await withTimeout(connectMcpClient({ url: entry.url, name: entry.slug, authProvider: provider }), MCP_TIMEOUT_MS, 'authorize', (lateClient) => lateClient.close());
+        const client = await withTimeout(connectMcpClient({ url: entry.url, name: entry.slug, authProvider: provider, ...mcpOAuthTransportOptions(entry) }), MCP_TIMEOUT_MS, 'authorize', (lateClient) => lateClient.close());
         await client.close().catch(() => {});
       }
     } catch (error) { if (!authUrl) throw error; }
@@ -81,7 +86,7 @@ export async function beginMcpAuthorization(entry: McpServerEntry, request?: Pic
     }
     const state = new URL(authUrl).searchParams.get('state');
     if (!state) throw new Error('The authorization server did not preserve the sign-in state');
-    flow?.arm(state, async (params) => completeMcpAuthorization(entry, params.get('code')!, params.get('state')!, provider));
+    flow?.arm(state, async (params) => completeMcpAuthorization(entry, params.get('code')!, params.get('state')!, provider, params.get('iss')));
     if (!flow && request) rememberOAuthReturn(state, request, returnTo);
     return { requiresAuth: true as const, authUrl, authorizationId: authorizationId(state), ...(flow ? { desktopFlowId: flow.id } : {}) };
   } catch (error) {

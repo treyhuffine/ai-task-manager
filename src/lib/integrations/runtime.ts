@@ -42,7 +42,7 @@ import type { ToolSet } from 'ai';
 import { appApprovalPolicy } from './approval';
 import { getIntegrationsDir, getOrCreateKey } from './storage';
 import { getRemoteBaseUrl, getLocalBaseUrl } from '@/lib/auth/bootstrap';
-import { mcpServerStore, mcpToolInfo, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
+import { mcpKnownLegacy, mcpServerProtocol, mcpServerStore, mcpToolInfo, readMcpMetadata, type McpServerStore, type McpServerAuth, type McpServerEntry, type McpServerFailure } from './mcp-servers';
 import { mcpIngestOverrides, mcpToolApprovalOverride, resolveMcpToolApproval } from './mcp-approval-policy';
 import { getActionOverride } from './write-policy';
 import { drainMcpClient } from './mcp-client-lifetime';
@@ -52,7 +52,7 @@ import { APP_NAME } from '@/constants/app';
 import { getWorkspace } from '@/lib/db/queries';
 import { resolveIntegrationFilter, type WorkspaceIntegrationFilter } from './workspace-filter';
 import { withLiveCallback } from './live-callback';
-import { hostedMcpConnectionId, hostedMcpDefinition, hostedMcpRequiresAuth, markHostedMcpReconnectRequired, hostedMcpEndpointSetup, trustHostedMcpAnnotations } from './hosted-mcp';
+import { hostedMcpConnectionId, hostedMcpDefinition, hostedMcpRequiresAuth, markHostedMcpReconnectRequired, hostedMcpEndpointSetup, mcpOAuthTransportOptions, trustHostedMcpAnnotations } from './hosted-mcp';
 import { finalizeMcpServer, finalizeMcpServers, isCurrentMcpTransport } from './mcp-lifecycle';
 import { resolveHostedOAuthConfig, usesRegisteredOAuth } from './hosted-oauth-config';
 import { processState } from '@/lib/process-state';
@@ -389,6 +389,7 @@ export function mcpOAuthProviderFor(entry: { id: string }, onRedirect?: (url: UR
     interactive: options?.interactive,
     callbackChannel: options?.callbackChannel,
     onState: options?.onState,
+    ...(profile?.issuerAliases ? { issuerAliases: profile.issuerAliases } : {}),
   });
 }
 
@@ -465,6 +466,8 @@ export interface McpViewConnection {
   snapshot: McpServerEntry;
   tools: McpToolDef[];
   readResource: ConnectedMcpClient['readResource'];
+  /** What the server reported when this transport opened: protocol, extension capabilities, identity. */
+  server?: ConnectedMcpClient['server'];
 }
 
 /**
@@ -671,7 +674,7 @@ async function build(): Promise<Built> {
       if (hosted?.localCommand) {
         // The executable comes only from our catalog. A custom URL can never launch a process.
         client = await withTimeout(
-          connectMcpClient({ command: hosted.localCommand, name: entry.slug, onToolsChanged }),
+          connectMcpClient({ command: hosted.localCommand, name: entry.slug, onToolsChanged, knownLegacy: mcpKnownLegacy(entry) }),
           MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
         );
       } else if (entry.auth.kind === 'oauth') {
@@ -683,7 +686,7 @@ async function build(): Promise<Built> {
           continue;
         }
         client = await withTimeout(
-          connectMcpClient({ url: entry.url, name: entry.slug, onToolsChanged, authProvider: mcpOAuthProviderFor(entry, undefined, { onState: state => registerMcpSecrets(redactor, state) }) }),
+          connectMcpClient({ url: entry.url, name: entry.slug, onToolsChanged, knownLegacy: mcpKnownLegacy(entry), ...mcpOAuthTransportOptions(entry), authProvider: mcpOAuthProviderFor(entry, undefined, { onState: state => registerMcpSecrets(redactor, state) }) }),
           MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
         );
         const tokens = (await mcpStore.getOAuthState(entry.id))?.tokens as { access_token?: string } | undefined;
@@ -706,7 +709,7 @@ async function build(): Promise<Built> {
         }
         sessionToken = secret ?? 'mcp-session';
         client = await withTimeout(
-          connectMcpClient({ url: entry.url, name: entry.slug, headers: mcpAuthHeaders(entry.auth, secret, hosted?.tokenAuth?.scheme), onToolsChanged }),
+          connectMcpClient({ url: entry.url, name: entry.slug, headers: mcpAuthHeaders(entry.auth, secret, hosted?.tokenAuth?.scheme), onToolsChanged, knownLegacy: mcpKnownLegacy(entry) }),
           MCP_TIMEOUT_MS, `connect MCP "${entry.slug}"`, lateClient => lateClient.close(),
         );
       }
@@ -776,6 +779,10 @@ async function build(): Promise<Built> {
           account.tools = redactor.redact(account.tools);
           const snapshot = await mcpStore.recordCapabilities(current.id, account.tools);
           if (!snapshot) throw new Error(`The ${INTEGRATION_LABELS.singular.toLowerCase()} was removed during discovery.`);
+          const facts = account.client.server;
+          if (facts && !account.unavailable) {
+            await mcpStore.recordProtocol(current.id, redactor.redact(mcpServerProtocol(facts, new Date().toISOString())), facts.negotiation === 'known-legacy');
+          }
           account.entry = snapshot;
           const hosted = hostedMcpDefinition(snapshot);
           const runTransport = async <T>(operation: () => Promise<T>, phase: 'call' | 'resource'): Promise<T> => {
@@ -836,6 +843,7 @@ async function build(): Promise<Built> {
           mcpViews.set(account.entry.id, {
             snapshot: account.entry, tools: account.tools,
             readResource: account.readResource!,
+            ...(account.client.server ? { server: redactor.redact(account.client.server) } : {}),
           });
         }
       });

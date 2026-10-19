@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { describe, expect, it, vi } from 'vitest';
 import capture from '../../../docs/integration-audit/sixth-wave-discovery.json';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 describe('PostHog hosted OAuth', () => {
   it('uses the advertised resource scopes and preserves the unified regional issuer through code exchange and refresh', async () => {
@@ -53,7 +54,7 @@ describe('PostHog hosted OAuth', () => {
       serverUrl: definition.url!, fetchFn: fetchFixture,
     })).toBe('REDIRECT');
     expect(registrations).toEqual([{
-      client_name: deps.clientName, redirect_uris: [deps.redirectUrl],
+      client_name: deps.clientName, redirect_uris: [deps.redirectUrl], application_type: expectedApplicationType(deps.redirectUrl),
       grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
       token_endpoint_auth_method: 'none', scope: requestedScopes,
     }]);

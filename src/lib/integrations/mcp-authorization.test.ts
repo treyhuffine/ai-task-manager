@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntegrationError } from '@integrations/engine';
-import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import type { OAuthClientProvider } from '@modelcontextprotocol/client';
 import { beginMcpAuthorization, completeMcpAuthorization } from './mcp-authorization';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
 import type { McpServerEntry } from './mcp-servers';
@@ -127,7 +127,8 @@ describe('MCP interactive authorization secret confinement', () => {
       requiresAuth: true, authUrl: expect.stringContaining('https://account.docusign.com/oauth/auth?state='),
       authorizationId: expect.any(String),
     });
-    expect(mocks.beginMcpOAuth).toHaveBeenCalledWith({ url: docusign.url, authProvider: expect.any(Object) });
+    // Docusign's pinned issuer: Ri's provider checks it, so the SDK's own issuer check is skipped.
+    expect(mocks.beginMcpOAuth).toHaveBeenCalledWith({ url: docusign.url, authProvider: expect.any(Object), skipIssuerMetadataValidation: true });
     expect(mocks.connectMcpClient).not.toHaveBeenCalled();
   });
 

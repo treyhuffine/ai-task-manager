@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { discoverOAuthServerInfo } from '@modelcontextprotocol/sdk/client/auth.js';
+import { discoverOAuthServerInfo } from '@modelcontextprotocol/client';
 
 // Public discovery only. Do not register clients, authorize accounts or call tools.
 const candidates = [

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider, PROVIDER_CATALOG } from '@integrations/engine/providers';
 import { INTEGRATION_ICONS } from '@/components/integrations/integration-icon-data';
 import { INTEGRATION_META, starterPrompt } from '@/components/integrations/integration-meta';

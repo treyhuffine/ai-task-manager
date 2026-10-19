@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { describe, expect, it, vi } from 'vitest';
 import { resolveHostedMcpUrl } from './hosted-endpoint';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 // Public metadata and anonymous initialize responses observed 2026-09-28.
 // PayPal's quickstart still lists /http, which returned 404 in both environments.
@@ -89,7 +90,7 @@ describe('PayPal hosted MCP OAuth profiles', () => {
     const interactive = makeMcpOAuthProvider({ ...deps, interactive: true, onRedirect: redirect });
     expect(await auth(interactive, { serverUrl: url, fetchFn: fetchFixture })).toBe('REDIRECT');
     expect(registrations).toEqual([{
-      client_name: deps.clientName, redirect_uris: [deps.redirectUrl],
+      client_name: deps.clientName, redirect_uris: [deps.redirectUrl], application_type: expectedApplicationType(deps.redirectUrl),
       grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
       token_endpoint_auth_method: 'none', scope: scopes.join(' '),
     }]);

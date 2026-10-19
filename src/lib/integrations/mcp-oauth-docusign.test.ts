@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { beginMcpOAuth, finishMcpOAuth } from '@integrations/engine/mcp';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
-import type { OAuthDiscoveryState } from '@modelcontextprotocol/sdk/client/auth.js';
-import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { OAuthDiscoveryState } from '@modelcontextprotocol/client';
+import { SdkHttpError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
 
@@ -40,6 +40,7 @@ function stateStore() {
     tokenEndpointAuthMethod: policy.tokenEndpointAuthMethod,
     grantTypes: policy.grantTypes,
     scopes: policy.scopes,
+    issuerAliases: policy.issuerAliases,
     load: async () => structuredClone(saved),
     compareAndSave: async (expected, next) => {
       if (expected !== saved.revision) return null;
@@ -119,7 +120,7 @@ describe('Docusign registered OAuth profile', () => {
     const provider = makeMcpOAuthProvider({ ...store.deps, interactive: true, onRedirect: redirect });
     expect(provider.saveClientInformation).toBeUndefined();
 
-    expect(await beginMcpOAuth({ url: profile.endpoint, authProvider: provider })).toBe('REDIRECT');
+    expect(await beginMcpOAuth({ url: profile.endpoint, authProvider: provider, skipIssuerMetadataValidation: true })).toBe('REDIRECT');
     expect(remote.requests).toHaveLength(3);
     expect(remote.requests.every((request) => request.method === 'GET')).toBe(true);
     expect(remote.requests.map((request) => request.url)).toEqual([
@@ -143,9 +144,9 @@ describe('Docusign registered OAuth profile', () => {
     // A fresh callback transport has no WWW-Authenticate challenge. The sealed
     // discovery state must retain the correct environment's account token URL.
     store.consumeConsentState();
-    await finishMcpOAuth({ url: profile.endpoint, authProvider: makeMcpOAuthProvider(store.deps), authorizationCode: 'fixture-code' });
+    await finishMcpOAuth({ url: profile.endpoint, authProvider: makeMcpOAuthProvider(store.deps), authorizationCode: 'fixture-code', skipIssuerMetadataValidation: true });
     expect(store.saved().tokens?.access_token).toBe('fixture-access-1');
-    expect(await beginMcpOAuth({ url: profile.endpoint, authProvider: makeMcpOAuthProvider(store.deps) })).toBe('AUTHORIZED');
+    expect(await beginMcpOAuth({ url: profile.endpoint, authProvider: makeMcpOAuthProvider(store.deps), skipIssuerMetadataValidation: true })).toBe('AUTHORIZED');
     expect(store.saved().tokens).toMatchObject({ access_token: 'fixture-access-2', refresh_token: 'fixture-refresh-2' });
 
     const exchanges = remote.requests.filter((request) => request.method === 'POST');
@@ -167,6 +168,25 @@ describe('Docusign registered OAuth profile', () => {
     expect(JSON.stringify(store.saved())).not.toContain(clientSecret);
   });
 
+  it.each(profiles)('accepts only the pinned issuer for $id, before any credential is sent', async (profile) => {
+    // RFC 8414 says metadata fetched from an authorization server names that server as issuer.
+    // Docusign's names its account host: the SDK alone refuses it, the catalog pin admits exactly that pair.
+    const store = stateStore();
+    const remote = offlineServer(profile);
+    vi.stubGlobal('fetch', remote.fetchFixture);
+    await expect(beginMcpOAuth({ url: profile.endpoint, authProvider: makeMcpOAuthProvider({ ...store.deps, interactive: true }) }))
+      .rejects.toMatchObject({ name: 'IssuerMismatchError' });
+    const forged = { ...profile, discovery: { ...profile.discovery, authorizationServerMetadata: { ...profile.discovery.authorizationServerMetadata!, issuer: 'https://attacker.example' } } };
+    const spoofed = offlineServer(forged);
+    vi.stubGlobal('fetch', spoofed.fetchFixture);
+    const redirect = vi.fn();
+    await expect(beginMcpOAuth({ url: profile.endpoint, authProvider: makeMcpOAuthProvider({ ...store.deps, interactive: true, onRedirect: redirect }), skipIssuerMetadataValidation: true }))
+      .rejects.toThrow('different issuer');
+    expect(redirect).not.toHaveBeenCalled();
+    expect(spoofed.requests.every(request => request.method === 'GET')).toBe(true);
+    expect(store.saved().discoveryState).toBeUndefined();
+  });
+
   it.each(profiles)('does not reinterpret a transport 403 as a new sign-in for $id', async (profile) => {
     const store = stateStore();
     const redirect = vi.fn();
@@ -178,7 +198,7 @@ describe('Docusign registered OAuth profile', () => {
     });
     await transport.start();
     try {
-      await expect(transport.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })).rejects.toBeInstanceOf(StreamableHTTPError);
+      await expect(transport.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })).rejects.toBeInstanceOf(SdkHttpError);
       expect(denied).toHaveBeenCalledOnce();
       expect(redirect).not.toHaveBeenCalled();
       expect(store.saved().authorizationState).toBeUndefined();

@@ -84,6 +84,41 @@ export function generateContract(
     workflows,
   };
 }
+/** Standard Schema with JSON Schema conversion: what an MCP SDK v2 server accepts for a tool. */
+export interface McpToolSchema<T> {
+  readonly "~standard": {
+    readonly version: 1;
+    readonly vendor: string;
+    readonly types?: { readonly input: T; readonly output: T };
+    validate(value: unknown): { value: T; issues?: undefined } | { issues: { message: string; path?: PropertyKey[] }[] };
+    readonly jsonSchema: {
+      input(options: { target: string }): Record<string, unknown>;
+      output(options: { target: string }): Record<string, unknown>;
+    };
+  };
+}
+/**
+ * An action schema for an app's MCP service (`McpServer.registerTool` in `@modelcontextprotocol/server`).
+ * It publishes exactly the JSON Schema `generateContract` records (input with `io: "input"`, output
+ * as written), so the host's qualification of the running service matches the installed contract,
+ * and zod still validates with its own defaults and transforms.
+ */
+export function mcpSchema<T>(schema: z.ZodType<T>): McpToolSchema<T> {
+  return {
+    "~standard": {
+      version: 1,
+      vendor: "ri-app-kit",
+      validate(value) {
+        const parsed = schema.safeParse(value);
+        return parsed.success ? { value: parsed.data } : { issues: parsed.error.issues.map((issue) => ({ message: issue.message, path: issue.path as PropertyKey[] })) };
+      },
+      jsonSchema: {
+        input: () => z.toJSONSchema(schema, { io: "input" }) as Record<string, unknown>,
+        output: () => z.toJSONSchema(schema) as Record<string, unknown>,
+      },
+    },
+  };
+}
 export function contractDigest(contract: AppContract): string {
   return createHash("sha256").update(JSON.stringify(contract)).digest("hex");
 }

@@ -4,9 +4,9 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { serveMcp, type McpToolRegistrar } from '@integrations/engine/mcp';
 import type { ConnectMcpOptions, ConnectedMcpClient, McpToolDef } from '@integrations/engine/mcp';
-import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import type { OAuthClientProvider } from '@modelcontextprotocol/client';
 import { IntegrationError } from '@integrations/engine';
-import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
 import { ensureHostedMcpServer, hostedMcpConnectionId } from './hosted-mcp';
@@ -395,7 +395,7 @@ describe('hosted multi-account runtime discovery', () => {
   it('keeps a rejected API credential inactive even though tool discovery does not validate it', async () => {
     const research = await staticAccount();
     const old = await getIntegrationRuntime();
-    research.state.calls.mockRejectedValueOnce(new StreamableHTTPError(401, 'Unauthorized'));
+    research.state.calls.mockRejectedValueOnce(new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Unauthorized', { status: 401, statusText: 'Unauthorized' }));
     // The real client converts call rejection to NeedsReauthError. This fixture
     // deliberately leaves the typed HTTP rejection intact to cover host handling.
     expect(await old.runAction('dataforseo.api_request', {})).toMatchObject({ reason: 'auth_required' });

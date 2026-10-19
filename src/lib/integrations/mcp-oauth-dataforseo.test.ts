@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { describe, expect, it, vi } from 'vitest';
 import capture from '../../../docs/integration-audit/eighth-wave-discovery.json';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 const observed = capture.records.find(record => record.id === 'dataforseo')!;
 
@@ -70,15 +71,15 @@ describe('DataForSEO hosted OAuth', () => {
       serverUrl: definition.url!, fetchFn: fetchFixture,
     })).toBe('REDIRECT');
     expect(registrations).toEqual([{
-      client_name: deps.clientName, redirect_uris: [redirectUrl],
+      client_name: deps.clientName, redirect_uris: [redirectUrl], application_type: expectedApplicationType(redirectUrl),
       grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
       token_endpoint_auth_method: 'none', scope: 'api',
     }]);
     const consent = redirect.mock.calls[0][0] as URL;
     expect(`${consent.origin}${consent.pathname}`).toBe(metadata.authorization_endpoint);
     expect(consent.searchParams.get('scope')).toBe('api');
-    // The SDK normalizes the bare-origin resource, as for any client on this SDK.
-    expect(consent.searchParams.get('resource')).toBe('https://mcp.dataforseo.com/');
+    // A new grant names the resource exactly as the server advertises it, bare origin included.
+    expect(consent.searchParams.get('resource')).toBe('https://mcp.dataforseo.com');
     expect(consent.searchParams.get('state')).toBe(saved.authorizationState);
     expect(saved.discoveryState?.authorizationServerUrl).toBe('https://data.dataforseo.com');
     const verifier = saved.codeVerifier!;
@@ -91,10 +92,10 @@ describe('DataForSEO hosted OAuth', () => {
       serverUrl: definition.url!, authorizationCode: 'fixture-code', fetchFn: fetchFixture,
     })).toBe('AUTHORIZED');
     expect(Object.fromEntries(exchanges[0])).toMatchObject({ grant_type: 'authorization_code', code: 'fixture-code',
-      code_verifier: verifier, redirect_uri: redirectUrl, client_id: 'fixture-dataforseo-client', resource: 'https://mcp.dataforseo.com/' });
+      code_verifier: verifier, redirect_uri: redirectUrl, client_id: 'fixture-dataforseo-client', resource: 'https://mcp.dataforseo.com' });
     expect(await auth(makeMcpOAuthProvider(deps), { serverUrl: definition.url!, fetchFn: fetchFixture })).toBe('AUTHORIZED');
     expect(Object.fromEntries(exchanges[1])).toMatchObject({ grant_type: 'refresh_token',
-      refresh_token: 'fixture-refresh-1', client_id: 'fixture-dataforseo-client', resource: 'https://mcp.dataforseo.com/' });
+      refresh_token: 'fixture-refresh-1', client_id: 'fixture-dataforseo-client', resource: 'https://mcp.dataforseo.com' });
     expect(registrations).toHaveLength(1);
     expect(saved.tokens?.access_token).toBe('fixture-access-2');
     expect(saved.codeVerifier).toBeUndefined();

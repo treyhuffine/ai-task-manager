@@ -1,7 +1,7 @@
 import {AppError} from '@ri/app-kit/contract';
 import {boundedRequestBody} from '@/lib/http';
 import {isOperationError} from '@/lib/server/operation';
-import {WebStandardStreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import {createMcpHandler} from '@modelcontextprotocol/server';
 import {createFinanceMcpServer} from '@/lib/mcp/server';
 import {requestPrincipal} from '@/lib/auth';
 export const runtime='nodejs';
@@ -12,9 +12,10 @@ export async function POST(request:Request){
   if(Number(request.headers.get('content-length'))>1024*1024)return new Response(null,{status:413});
   const bytes=await boundedRequestBody(request,1024*1024);
   const bounded=new Request(request.url,{method:request.method,headers:request.headers,body:new Uint8Array(bytes)});
-  const server=createFinanceMcpServer(()=>{const current=requestPrincipal(request);if(!current)throw new AppError('revoked','The Finance permission changed. Review access and refresh');return current;}),transport=new WebStandardStreamableHTTPServerTransport({sessionIdGenerator:undefined,enableJsonResponse:true});
-  await server.connect(transport);
-  try{return await transport.handleRequest(bounded);}finally{await server.close();}
+  // One stateless handler per request, bound to its principal: MCP 2026-07-28 and 2025-era clients.
+  const handler=createMcpHandler(()=>createFinanceMcpServer(()=>{const current=requestPrincipal(request);if(!current)throw new AppError('revoked','The Finance permission changed. Review access and refresh');return current;}),{legacy:'stateless',maxRequestBodySize:1024*1024});
+  // No close(): a streamed modern response may still be in flight when fetch resolves. Each exchange closes its own instance.
+  return await handler.fetch(bounded);
  }catch(e){return new Response(null,{status:isOperationError(e)?e.status:403});}
 }
 export function GET(){return new Response(null,{status:405,headers:{Allow:'POST'}});}

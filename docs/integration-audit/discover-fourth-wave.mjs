@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { discoverOAuthServerInfo } from '@modelcontextprotocol/sdk/client/auth.js';
+import { discoverOAuthServerInfo } from '@modelcontextprotocol/client';
 
 // This audit deliberately permits only public GET requests. It never registers
 // a client, authorizes an account, exchanges tokens, or calls an MCP tool.

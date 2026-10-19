@@ -12,12 +12,18 @@ copyFileSync('src/owned-runner.cjs','dist/owned-runner.cjs');
 // The view host lives in the workspace-only @ri/mcp-apps-host, which no registry
 // serves. Apps install this SDK as a packed tarball outside the workspace, so the
 // host is inlined here and every other import must be a dependency of this SDK.
+// The MCP Apps bridge and its MCP SDK and zod 4 come with it, resolved from the
+// host package (browser builds), like ext-apps' own with-deps bundles: this
+// SDK's zod is 3.x, which the bridge does not support.
 const HOST = '@ri/mcp-apps-host';
+const INLINED = /^(@modelcontextprotocol\/|zod(\/|$))/;
 const { dependencies } = JSON.parse(readFileSync('package.json', 'utf8'));
 const packageName = specifier => specifier.split('/').slice(0, specifier.startsWith('@') ? 2 : 1).join('/');
-await build({ entryPoints: ['src/view-host.ts'], outdir: 'dist', bundle: true, format: 'esm', platform: 'neutral', target: 'es2023', plugins: [{ name: 'inline-view-host', setup(b) {
-  b.onResolve({ filter: /^[^./]/ }, ({ path }) => {
+await build({ entryPoints: ['src/view-host.ts'], outdir: 'dist', bundle: true, format: 'esm', platform: 'neutral', target: 'es2023', conditions: ['browser'], mainFields: ['module', 'main'], plugins: [{ name: 'inline-view-host', setup(b) {
+  b.onResolve({ filter: /^[^./]/ }, ({ path, importer }) => {
     if (path === HOST) return undefined;
+    // The bridge's own dependency tree comes along with it.
+    if (INLINED.test(path) || importer.includes('/node_modules/')) return undefined;
     if (dependencies[packageName(path)]) return { path, external: true };
     return { errors: [{ text: `${path} is not a dependency of @ri/app-kit, so the published view host could not load it` }] };
   });

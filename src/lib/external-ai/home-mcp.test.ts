@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { HOME_CONTENT_ACTIONS, HOME_MCP_PATH } from './policy';
@@ -62,7 +62,11 @@ async function settings(token = viewer) {
   return externalAiRouter.createCaller(createTRPCContext(new Request(request.url, { headers: forwarded(auth) })));
 }
 async function call(client: Client, name: string, args: Record<string, unknown> = {}) {
-  const result = await client.callTool({ name, arguments: args });
+  // A tool the server never registered is refused at the protocol level (MCP SDK 2.x), not as a result.
+  const result = await client.callTool({ name, arguments: args }).catch((error: Error & { code?: number }) => {
+      if (error.code !== -32602 || !/not found/i.test(error.message)) throw error;
+      return { isError: true, content: [{ type: 'text', text: error.message }] };
+    });
   const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? '';
   return { isError: !!result.isError, text, json: () => JSON.parse(text) };
 }

@@ -1,8 +1,9 @@
 import {z} from 'zod/v4';
 import {AppError,publicError} from '@ri/app-kit/contract';
+import {mcpSchema} from '@ri/app-kit/sdk';
 import {OperationError} from '@/lib/server/operation';
 import {ActionError} from '@/lib/orchestrator/types';
-import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
+import {McpServer} from '@modelcontextprotocol/server';
 import {registerAppResource,registerAppTool,RESOURCE_MIME_TYPE} from '@modelcontextprotocol/ext-apps/server';
 import {toolsDefinition} from '@/lib/local-app/definition';
 import {HOME_RESOURCE,VIEW_RESOURCE} from '@/lib/local-app/actions';
@@ -13,7 +14,7 @@ export const FINANCE_RESOURCE='ui://personal-finance/renderer-v1.html';
 export function createFinanceMcpServer(principal:()=>FinancePrincipal){
  const server=new McpServer({name:'personal-finance',version:'0.1.0'},{capabilities:{tools:{},resources:{}}});
  for(const action of toolsDefinition()){
-  registerAppTool(server,action.name,{description:action.description,inputSchema:action.input as z.ZodObject<z.ZodRawShape>,outputSchema:action.output as z.ZodObject<z.ZodRawShape>,annotations:{readOnlyHint:action.effect==='read',destructiveHint:false,idempotentHint:action.effect==='read',openWorldHint:false},_meta:{ui:{...(action.visibility==='app'?{visibility:['app']}:{}),...(action.name==='finance_open_view'?{resourceUri:VIEW_RESOURCE}:action.name==='finance_open_app'?{resourceUri:HOME_RESOURCE}:{})}}},async raw=>{
+  registerAppTool(server,action.name,{description:action.description,inputSchema:mcpSchema(action.input as z.ZodType<Record<string,unknown>>),outputSchema:mcpSchema(action.output as z.ZodType<Record<string,unknown>>),annotations:{readOnlyHint:action.effect==='read',destructiveHint:false,idempotentHint:action.effect==='read',openWorldHint:false},_meta:{ui:{...(action.visibility==='app'?{visibility:['app']}:{}),...(action.name==='finance_open_view'?{resourceUri:VIEW_RESOURCE}:action.name==='finance_open_app'?{resourceUri:HOME_RESOURCE}:{})}}},async (raw:Record<string,unknown>)=>{
    try{
     // Each callback revalidates the caller. A transport cannot retain a revoked grant.
     const result=await action.run(principal(),raw);

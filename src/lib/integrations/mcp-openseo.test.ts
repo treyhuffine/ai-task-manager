@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import { auth } from '@modelcontextprotocol/client';
 import { beginMcpOAuth, connectMcpClient, ingestMcpServer, type McpToolDef } from '@integrations/engine/mcp';
 import { createRegistry } from '@integrations/engine';
 import { getHostedMcpProvider, PROVIDER_CATALOG } from '@integrations/engine/providers';
@@ -9,6 +9,7 @@ import { INTEGRATION_META } from '@/components/integrations/integration-meta';
 import { makeMcpOAuthProvider, type McpOAuthProviderDeps, type McpOAuthState } from './mcp-oauth';
 import { mcpAuthHeaders } from './runtime';
 import { defaultApprovalMode } from './write-policy';
+import { expectedApplicationType } from '@/test/fixtures/oauth';
 
 vi.mock('@/lib/db/queries', () => ({ getWorkspace: vi.fn() }));
 afterEach(() => { vi.unstubAllGlobals(); });
@@ -55,6 +56,8 @@ describe('OpenSEO connector', () => {
       const message = await request.json() as { id?: number; method: string };
       methods.push(message.method);
       if (message.method === 'notifications/initialized') return new Response(null, { status: 202 });
+      // A 2025-era server answers Ri's 2026-07-28 probe as an unknown method.
+      if (message.method === 'server/discover') return Response.json({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } });
       const result = message.method === 'initialize'
         ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'OpenSEO', version: 'fixture' } }
         : message.method === 'tools/list' ? { tools }
@@ -65,7 +68,7 @@ describe('OpenSEO connector', () => {
     try {
       expect(await client.listTools()).toEqual({ tools });
       expect(await client.callTool({ name: 'list_projects' })).toMatchObject({ structuredContent: { projects: [{ id: 'fixture-project' }] } });
-      expect(methods).toEqual(['initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
+      expect(methods).toEqual(['server/discover', 'initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
     } finally { await client.close(); }
   });
 
@@ -75,7 +78,7 @@ describe('OpenSEO connector', () => {
       return new Response('Invalid API key', { status: 401, headers: { 'WWW-Authenticate': 'Bearer' } });
     });
     vi.stubGlobal('fetch', fetchFixture);
-    await expect(connectMcpClient({ url: endpoint, headers: mcpAuthHeaders({ kind: 'bearer' }, key) })).rejects.toMatchObject({ code: 401 });
+    await expect(connectMcpClient({ url: endpoint, headers: mcpAuthHeaders({ kind: 'bearer' }, key) })).rejects.toMatchObject({ status: 401 });
     expect(fetchFixture).toHaveBeenCalledOnce();
   });
 
@@ -138,7 +141,7 @@ describe('OpenSEO connector', () => {
     vi.stubGlobal('fetch', fetchFixture);
     expect(await beginMcpOAuth({ url: endpoint, authProvider: makeMcpOAuthProvider({ ...deps, interactive: true, onRedirect: redirect }), scope: profile.scopes?.join(' ') })).toBe('REDIRECT');
     expect(registrations).toEqual([{
-      client_name: 'OpenSEO fixture', redirect_uris: [redirectUrl], grant_types: ['authorization_code', 'refresh_token'],
+      client_name: 'OpenSEO fixture', redirect_uris: [redirectUrl], application_type: expectedApplicationType(redirectUrl), grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'], token_endpoint_auth_method: 'none', scope: 'mcp offline_access',
     }]);
     const consent = redirect.mock.calls[0][0] as URL;
