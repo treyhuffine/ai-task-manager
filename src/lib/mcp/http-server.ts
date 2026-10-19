@@ -76,7 +76,12 @@ const isZodType = (value: unknown): value is z.ZodTypeAny =>
  */
 export function zodStandardSchema(schema: z.ZodRawShape | z.ZodTypeAny): StandardSchemaWithJSON<Record<string, unknown>> {
   const object = isZodType(schema) ? schema : z.object(schema as z.ZodRawShape);
-  const convert = (pipeStrategy: 'input' | 'output') => zodToJsonSchema(object, { strictUnions: true, pipeStrategy }) as Record<string, unknown>;
+  // SDK 1.x published a parameterless tool's empty shape as a bare object, with no
+  // additionalProperties. Keep that, so a client's cached definition does not change.
+  const empty = !isZodType(schema) && Object.keys(schema).length === 0;
+  const convert = (pipeStrategy: 'input' | 'output') => empty
+    ? { type: 'object', properties: {}, $schema: 'http://json-schema.org/draft-07/schema#' }
+    : zodToJsonSchema(object, { strictUnions: true, pipeStrategy }) as Record<string, unknown>;
   return {
     '~standard': {
       version: 1,
