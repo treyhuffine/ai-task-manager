@@ -27,6 +27,18 @@ const AUTH_LABEL: Record<McpServerEntry['auth']['kind'], string> = {
   oauth: 'OAuth',
 };
 
+/**
+ * The MCP revision the last connection spoke, as a chip. Only the older
+ * protocol gets a tooltip, since that is the case someone checking a
+ * server's support needs explained.
+ */
+export function mcpProtocolChip(protocol: McpServerEntry['protocol']): { label: string; tip?: string } | null {
+  if (!protocol?.version) return null;
+  const label = `MCP ${protocol.version}`;
+  if (protocol.era !== 'legacy') return { label };
+  return { label, tip: 'This server answers only an older MCP version. Ri uses it automatically and tries the newest version again each day.' };
+}
+
 /** Health tone for a server: disabled reads as off regardless of the last probe. */
 export function mcpTone(s: McpServerEntry): { tone: Tone; label: string } {
   if (!s.enabled) return { tone: 'off', label: 'Off' };
@@ -65,6 +77,7 @@ export function McpServerDetail({
   const tools = s.tools ?? [];
   const toolCount = s.lastToolCount ?? tools.length;
   const needsSignIn = s.auth.kind === 'oauth' && s.lastStatus !== 'ok';
+  const protocol = mcpProtocolChip(s.protocol);
 
   return (
     <div className="space-y-6">
@@ -81,6 +94,9 @@ export function McpServerDetail({
               <Chip>
                 {toolCount} tool{toolCount === 1 ? '' : 's'}
               </Chip>
+              {protocol && (protocol.tip
+                ? <Tip label={protocol.tip}><span><Chip>{protocol.label}</Chip></span></Tip>
+                : <Chip>{protocol.label}</Chip>)}
             </>
           }
           actions={
