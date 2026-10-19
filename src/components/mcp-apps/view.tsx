@@ -20,7 +20,7 @@ type Pending = {ids: string[]; preview?: unknown; finish: (approve: boolean) => 
  * other content. `appName` is the name the surrounding page already shows: a full-screen view titled the
  * same skips its own title row rather than repeat it.
  */
-export function ConnectedView({captureId, chatId, expanded = false, onClose, appName}: {captureId: string; chatId?: string; expanded?: boolean; onClose?: () => void; appName?: string}) {
+export function ConnectedView({captureId, chatId, expanded = false, onClose, appName, deepLink}: {captureId: string; chatId?: string; expanded?: boolean; onClose?: () => void; appName?: string; deepLink?: string}) {
   const companion = useConnectedCompanion();
   const moved = !expanded && companion?.captureId === captureId;
   const [inlineMount, setInlineMount] = useState<HTMLDivElement | null>(null);
@@ -55,12 +55,12 @@ export function ConnectedView({captureId, chatId, expanded = false, onClose, app
     {moved && <p className="px-3 py-4 text-xs text-muted-foreground">Open beside this chat. <button className="text-primary underline" onClick={() => companion?.open(null)}>Show inline</button></p>}
     <div ref={setInlineMount} className={moved ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}/>
     {container && createPortal(failure ? <div role="alert" className="space-y-2 p-4 text-sm text-muted-foreground"><p>{failure.message}</p><p>Your original tool result is unchanged.</p><Button size="xs" variant="outline" onClick={() => {void query.refetch(); void access.refetch();}}>Check view again</Button></div>
-      : query.data?.resource ? <MountedView key={query.data.id} view={query.data} expanded={expanded || !!moved} onExpand={mode => companion?.open(mode === 'inline' ? null : captureId)} />
+      : query.data?.resource ? <MountedView key={query.data.id} view={query.data} expanded={expanded || !!moved} deepLink={deepLink} onExpand={mode => companion?.open(mode === 'inline' ? null : captureId)} />
       : query.data ? <div className="space-y-3 p-4 text-sm"><p className="text-muted-foreground">{query.data.unsupported ?? 'This result has no available interface.'}</p>{query.data.result.content.flatMap((item, index) => item.type === 'text' ? [<p key={index} className="whitespace-pre-wrap [overflow-wrap:anywhere]">{item.text}</p>] : [])}{query.data.result.structuredContent != null && <details><summary className="cursor-pointer text-xs text-muted-foreground">Result data</summary><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(query.data.result.structuredContent, null, 2).slice(0, 64_000)}</pre></details>}<Button size="xs" variant="outline" onClick={() => void query.refetch()}>Check interface again</Button></div>
       : <p role="status" className="flex items-center gap-2 p-4 text-xs text-muted-foreground"><Loader2 size={14} className="animate-spin"/>Opening app…</p>, container)}
   </section>;
 }
-function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: boolean; onExpand: (mode: 'inline' | 'fullscreen' | 'pip') => void}) {
+function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expanded: boolean; deepLink?: string; onExpand: (mode: 'inline' | 'fullscreen' | 'pip') => void}) {
   const queryClient = useQueryClient();
   const mount = useRef<HTMLDivElement>(null);
   const controller = useRef<AppViewController | null>(null);
@@ -126,7 +126,7 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
       displayModes: resource.displayModes.available, platform: 'web', fileResource: view.kind === 'file',
       hostContext: {
         // OpenAI's host state: where a global screen opens, and the context this view attached before a remount.
-        ...(view.deepLink ? {'openai/deepLink': {url: view.deepLink}} : {}),
+        ...(deepLink ?? view.deepLink ? {'openai/deepLink': {url: deepLink ?? view.deepLink}} : {}),
         'openai/modelContext': view.modelContext,
       }}).catch(e => setError(e.message));
     const timer = setTimeout(() => { if (!disposed) setReady(current => { if (!current) setError('The app did not connect to Ri’s UI bridge. Its tools and text results are still available.'); return current; }); }, 20_000);
@@ -134,6 +134,14 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
     // The capture is immutable. Refetch checks access without rebuilding the iframe.
   }, [view.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => controller.current?.theme(resolvedTheme === 'dark' ? 'dark' : 'light'), [resolvedTheme]);
+  // A deep link to this open screen moves it in place (OpenAI's deep links), and is kept for a remount.
+  const sentLink = useRef(deepLink ?? view.deepLink);
+  useEffect(() => {
+    if (!deepLink || view.kind !== 'global' || sentLink.current === deepLink) return;
+    sentLink.current = deepLink;
+    controller.current?.hostContextChanged({'openai/deepLink': {url: deepLink}});
+    void trpcClient.connectedApps.navigate.mutate({viewId: view.id, deepLink}).catch(error => setError(error instanceof Error ? error.message : 'The link could not open'));
+  }, [deepLink, view.id, view.kind]);
   useEffect(() => controller.current?.displayMode(expanded ? 'fullscreen' : 'inline'), [expanded]);
   return <div className="relative flex min-h-0 flex-1 flex-col">
     {pending && <div className="space-y-2 border-b border-amber-500/30 bg-amber-500/10 p-3 text-xs"><p className="font-medium">Allow this app operation?</p><pre className="max-h-32 overflow-auto whitespace-pre-wrap">{JSON.stringify(pending.preview, null, 2)}</pre><div className="flex gap-2"><Button size="xs" onClick={() => pending.finish(true)}>Allow once</Button><Button size="xs" variant="outline" onClick={() => pending.finish(false)}>Decline</Button></div></div>}

@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppWindow, ArrowLeft, Loader2, MessageCircle, Server, Settings2 } from 'lucide-react';
+import { AppWindow, ArrowLeft, FileBox, Loader2, MessageCircle, PanelRightOpen, RotateCcw, Server, Settings2 } from 'lucide-react';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import type { RouterOutputs } from '@/lib/trpc/router';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ import { ageLabel } from '@/lib/harness/rate-limit-display';
 import { cn } from '@/lib/utils';
 import { connectedAppsQuery } from './catalog';
 import { ConnectedView } from './view';
+import { EntrypointIcon } from './entrypoint-icon';
+import { Tip } from '@/components/ui/tip';
 
 type App = RouterOutputs['connectedApps']['catalog'][number];
 type Entrypoint = App['entrypoints'][number];
@@ -29,28 +31,33 @@ type Navigate = (route: string, options?: { replace?: boolean }) => void;
  * or a click on its row in the rail's Apps flyout or ⌘K (`open`), calls that
  * tool with `{}` as OpenAI's MCP extensions spec has it. Once it opens, the URL
  * names the screen (`screen`), so a refresh reopens it rather than running the
- * entrypoint again. `result` reopens one of the recent interactive results.
+ * entrypoint again. Opening it while it is open returns to it, and Reload
+ * starts it over. `path` is OpenAI's deep link, the app-relative URL the
+ * screen shows: it reaches a new screen at initialization and an open one as
+ * `host-context-changed`. `result` reopens one of the recent interactive results.
  */
-export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch}: {serverId: string; navigate: Navigate; resultId?: string; screenId?: string; launch?: string}) {
+export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch, deepLink}: {serverId: string; navigate: Navigate; resultId?: string; screenId?: string; launch?: string; deepLink?: string}) {
   const catalog = useQuery(connectedAppsQuery(0));
   const app = catalog.data?.find(item => item.id === serverId);
   const [open, setOpen] = useState<string | null>(resultId ?? null);
   const queryClient = useQueryClient();
   const page = `~connected/${serverId}`;
-  const onScreen = useCallback((captureId: string) => {
-    navigate(`${page}?screen=${encodeURIComponent(captureId)}`, {replace: true});
+  const onScreen = useCallback((captureId: string, link?: string | null) => {
+    navigate(`${page}?screen=${encodeURIComponent(captureId)}${link ? `&path=${encodeURIComponent(link)}` : ''}`, {replace: true});
     void queryClient.invalidateQueries({queryKey: trpc.connectedApps.catalog.queryKey()});
   }, [navigate, page, queryClient]);
   const screen = useScreenLaunch(app, onScreen);
-  // A click on the flyout row or ⌘K is the person asking to open it, once per visit.
-  const launched = useRef(false);
+  // A click on the flyout row, ⌘K or a deep link is the person asking to open it, once per request.
+  const handled = useRef<string | null>(null);
+  useEffect(() => { if (!launch) handled.current = null; }, [launch]);
   useEffect(() => {
-    if (!launch || launched.current || !app) return;
-    launched.current = true;
+    const request = launch ? `${launch}\n${deepLink ?? ''}` : null;
+    if (!request || handled.current === request || !app) return;
+    handled.current = request;
     const entry = app.entrypoints.find(item => item.name === launch) ?? app.entrypoints[0];
-    if (entry && app.available) void screen.open(entry);
+    if (entry && app.available) void screen.open(entry, {deepLink});
     else screen.fail(app.available ? `${app.toolkitName} has no screen to open on its own. Try it in chat instead.` : 'Reconnect or turn on this account to open it.');
-  }, [launch, app, screen]);
+  }, [launch, deepLink, app, screen]);
 
   if (!app) return <div className="space-y-3 p-6 text-sm"><Button variant="ghost" onClick={() => navigate('')}><ArrowLeft size={14}/>Apps</Button><p>{catalog.error?.message ?? (catalog.isPending ? 'Loading app…' : 'This connection does not currently offer an interface.')}</p></div>;
   const accounts = catalog.data?.filter(candidate => app.providerId ? candidate.providerId === app.providerId : candidate.id === app.id) ?? [];
@@ -60,12 +67,18 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
   const description = app.providerId ? integrationMeta(app.providerId).description : '';
   const fullScreen = !!screenId || screen.state.kind !== 'idle';
   const leaveScreen = () => { screen.reset(); navigate(page); };
+  // The open screen's entrypoint, so Reload can start it over. A screen opened a moment ago may not be in the cached list yet.
+  const screenTool = screenId ? app.recent.find(item => item.id === screenId)?.tool : undefined;
+  const screenEntry = screenId ? app.entrypoints.find(entry => entry.name === screenTool) ?? (app.entrypoints.length === 1 ? app.entrypoints[0] : undefined) : undefined;
 
   const header = <header className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-2.5">
     {fullScreen
       ? <Button variant="ghost" size="sm" onClick={leaveScreen}><ArrowLeft size={14}/>{app.toolkitName}</Button>
       : <Button variant="ghost" size="sm" onClick={() => navigate('')}><ArrowLeft size={14}/>Apps</Button>}
     <div className="flex-1"/>
+    {fullScreen && screenEntry && screen.state.kind === 'idle' && <Tip label={`Start ${screenEntry.title} over`}>
+      <Button size="sm" variant="ghost" aria-label={`Reload ${screenEntry.title}`} onClick={() => void screen.open(screenEntry, {fresh: true})}><RotateCcw size={14}/>Reload</Button>
+    </Tip>}
     {accounts.length > 1 && <select aria-label="Connected account" value={app.id} onChange={event => navigate(`~connected/${event.target.value}`)} className="max-w-48 rounded-md border bg-background p-1.5 text-xs">{accounts.map(account => <option key={account.id} value={account.id}>{account.account}</option>)}</select>}
     <Button size="sm" variant="ghost" onClick={() => navigate(app.providerId ? `?provider=${encodeURIComponent(app.providerId)}` : `?mcp=${encodeURIComponent(app.id)}`)}><Settings2 size={14}/>Connection</Button>
   </header>;
@@ -74,7 +87,7 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
     {header}
     <div className="flex min-h-0 flex-1 flex-col">
       {screen.state.kind === 'idle' && screenId
-        ? <ConnectedView key={screenId} captureId={screenId} expanded appName={app.toolkitName}/>
+        ? <ConnectedView key={screenId} captureId={screenId} expanded appName={app.toolkitName} deepLink={deepLink}/>
         : <ScreenStatus app={app} screen={screen} onBack={leaveScreen}/>}
     </div>
   </div>;
@@ -95,9 +108,10 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
           <div className="flex flex-wrap items-center gap-2">
             <TryInChat app={app}/>
             {app.entrypoints.map(entry => <Button key={entry.name} size="sm" variant="outline" disabled={!app.available} onClick={() => void screen.open(entry)}>
-              <AppWindow size={14}/>{app.entrypoints.length > 1 ? `Open ${entry.title}` : 'Open app'}
+              <EntrypointIcon icons={entry.icons} size={14}/>{app.entrypoints.length > 1 ? `Open ${entry.title}` : 'Open app'}
             </Button>)}
           </div>
+          <AppPlaces app={app}/>
           <p className="max-w-prose text-xs text-muted-foreground">
             {app.standalone
               ? `Open ${app.toolkitName} on its own, or ask in chat. Mention it with @ and your agent uses this account.`
@@ -126,6 +140,23 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
       </section>
     </div></div>
   </div>;
+}
+
+/**
+ * Where else the app opens: tabs it offers beside a chat (OpenAI's thread
+ * entrypoint), from the app button by the composer, and the file types it
+ * opens (its file entrypoint), from Open with on a file.
+ */
+function AppPlaces({app}: {app: App}) {
+  if (!app.threads.length && !app.files.length) return null;
+  return <ul className="space-y-1.5 text-xs text-muted-foreground">
+    {app.threads.map(thread => <li key={thread.name} className="flex items-center gap-2">
+      <PanelRightOpen size={13} className="shrink-0"/><span><span className="text-foreground">{thread.title}</span> opens beside any chat from the app button by the message box.</span>
+    </li>)}
+    {app.files.map(file => <li key={file.name} className="flex items-center gap-2">
+      <FileBox size={13} className="shrink-0"/><span><span className="text-foreground">{file.title}</span> opens {file.extensions.join(', ')} files from Open with on the file.</span>
+    </li>)}
+  </ul>;
 }
 
 function ServiceLogo({app}: {app: App}) {
@@ -167,7 +198,7 @@ function TryInChat({app}: {app: App}) {
 type ScreenState =
   | {kind: 'idle'}
   | {kind: 'opening'; entry: Entrypoint}
-  | {kind: 'approval'; entry: Entrypoint; viewId: string; invocationId: string; ids: string[]; preview?: unknown}
+  | {kind: 'approval'; entry: Entrypoint; viewId: string; invocationId: string; ids: string[]; preview?: unknown; deepLink?: string}
   | {kind: 'error'; entry?: Entrypoint; message: string};
 type ScreenLaunch = ReturnType<typeof useScreenLaunch>;
 
@@ -176,7 +207,7 @@ type ScreenLaunch = ReturnType<typeof useScreenLaunch>;
  * ordinary approval gate. Leaving cancels an unanswered launch. A failure shows
  * as it is, and trying again is a new request rather than a replay.
  */
-function useScreenLaunch(app: App | undefined, onScreen: (captureId: string) => void) {
+function useScreenLaunch(app: App | undefined, onScreen: (captureId: string, deepLink?: string | null) => void) {
   const [state, setState] = useState<ScreenState>({kind: 'idle'});
   const [busy, setBusy] = useState(false);
   const alive = useRef(true);
@@ -189,25 +220,26 @@ function useScreenLaunch(app: App | undefined, onScreen: (captureId: string) => 
       if (active.current) void trpcClient.connectedApps.cancel.mutate(active.current).catch(() => {});
     };
   }, []);
-  const launch = useCallback(async (entry: Entrypoint, request: {viewId: string; invocationId: string}) => {
+  const launch = useCallback(async (entry: Entrypoint, request: {viewId: string; invocationId: string}, link?: string) => {
     active.current = request;
     const result = await trpcClient.connectedApps.launch.mutate({viewId: request.viewId});
     if (!alive.current) return;
-    if (result.kind === 'approval') { setState({kind: 'approval', entry, viewId: result.viewId, invocationId: request.invocationId, ids: result.ids, preview: result.preview}); return; }
+    if (result.kind === 'approval') { setState({kind: 'approval', entry, viewId: result.viewId, invocationId: request.invocationId, ids: result.ids, preview: result.preview, deepLink: link}); return; }
     active.current = null;
     setState({kind: 'idle'});
-    onScreen(result.captureId);
+    onScreen(result.captureId, link);
   }, [onScreen]);
-  const open = useCallback(async (entry: Entrypoint) => {
+  const open = useCallback(async (entry: Entrypoint, options: {deepLink?: string; fresh?: boolean} = {}) => {
     if (!serverId) return;
-    setBusy(true); setState({kind: 'opening', entry});
+    setBusy(true);
     try {
-      const prepared = await trpcClient.connectedApps.prepare.mutate({serverId, name: entry.name});
-      // The screen is already open: return to it rather than calling the entrypoint again.
-      if (prepared.kind === 'open') { if (alive.current) { setState({kind: 'idle'}); onScreen(prepared.captureId); } return; }
+      const prepared = await trpcClient.connectedApps.prepare.mutate({serverId, name: entry.name, ...(options.deepLink ? {deepLink: options.deepLink} : {}), ...(options.fresh ? {fresh: true} : {})});
+      // The screen is already open: return to it, with the deep link if any, rather than calling the entrypoint again.
+      if (prepared.kind === 'open') { if (alive.current) { setState({kind: 'idle'}); onScreen(prepared.captureId, prepared.deepLink); } return; }
+      setState({kind: 'opening', entry});
       const request = {viewId: prepared.viewId, invocationId: prepared.invocationId};
       if (!alive.current) { await trpcClient.connectedApps.cancel.mutate(request); return; }
-      await launch(entry, request);
+      await launch(entry, request, options.deepLink);
     } catch (e) { if (alive.current) { active.current = null; setState({kind: 'error', entry, message: e instanceof Error ? e.message : 'The app could not open'}); } }
     finally { if (alive.current) setBusy(false); }
   }, [serverId, launch, onScreen]);
@@ -223,7 +255,7 @@ function useScreenLaunch(app: App | undefined, onScreen: (captureId: string) => 
       }
       if (!alive.current) return;
       setState({kind: 'opening', entry: state.entry});
-      await launch(state.entry, {viewId: state.viewId, invocationId: state.invocationId});
+      await launch(state.entry, {viewId: state.viewId, invocationId: state.invocationId}, state.deepLink);
     } catch (e) { if (alive.current) setState({kind: 'error', entry: state.entry, message: e instanceof Error ? e.message : 'The decision could not be saved'}); }
     finally { if (alive.current) setBusy(false); }
   }, [state, busy, launch]);

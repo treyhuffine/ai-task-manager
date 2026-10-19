@@ -68,7 +68,7 @@ export async function connectedAppsCatalog(viewerId?: string) {
       views: views.map(t => ({name: t.name, title: toolTitle(t)})),
       // A capture without a chat is a screen the person opened (Open app), which reopens full screen.
       recent: [...mcpViews().captures.values()].filter(c => c.serverId === entry.id && (!c.viewerId || c.viewerId === viewerId) && (c.kind ?? 'result') !== 'thread' && (c.kind ?? 'result') !== 'preview' && (c.kind ?? 'result') !== 'settings')
-        .map(c => ({id: c.id, chatId: c.chatId, title: c.title, created: c.created, launched: !c.chatId, kind: c.kind ?? 'result'}))}];
+        .map(c => ({id: c.id, chatId: c.chatId, title: c.title, created: c.created, launched: !c.chatId, kind: c.kind ?? 'result', tool: c.tool}))}];
   });
 }
 

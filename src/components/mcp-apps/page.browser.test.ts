@@ -22,15 +22,16 @@ const bundle = () => build({
     receiveChatSources('main-chat', offer => { window.offers.push(offer); return true; });
     const at = new URL(location.href);
     function Fixture() {
-      // The Apps shell: the route and its query, keyed so a new launch is a fresh page.
+      // The Apps shell: the route and its query, one page per connection.
       const [view, setView] = useState({server: at.searchParams.get('server'), query: Object.fromEntries([...at.searchParams].filter(([key]) => key !== 'server'))});
       const navigate = (value, options) => {
         window.routes.push(value + (options?.replace ? ' (replace)' : ''));
         const next = new URL(value, 'https://app.invalid/');
         setView({server: next.pathname.startsWith('/~connected/') ? next.pathname.slice(12) : null, query: Object.fromEntries(next.searchParams)});
       };
-      return view.server ? <ConnectedAppPage key={view.server + ':' + (view.query.open ?? '')} serverId={view.server} navigate={navigate}
-        resultId={view.query.result} screenId={view.query.screen} launch={view.query.open}/> : <p>Left apps</p>;
+      window.go = navigate;
+      return view.server ? <ConnectedAppPage key={view.server} serverId={view.server} navigate={navigate}
+        resultId={view.query.result} screenId={view.query.screen} launch={view.query.open} deepLink={view.query.path}/> : <p>Left apps</p>;
     }
     createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><Fixture/></QueryClientProvider>);
   `},
@@ -43,17 +44,18 @@ const bundle = () => build({
       ? `const record = name => () => window.dashboard.push(name);
          export const useDashboard = () => ({goHome: record('home'), showPanelTab: tab => window.dashboard.push('tab:' + tab), setMobileTab: () => {}, isFocusMode: false, exitFocusMode: () => {}});
          export const useOptionalDashboard = () => null;`
-      : 'export const ConnectedView=({captureId, chatId, expanded, onClose})=><div><p>{expanded ? "Full screen" : "Opened"} {captureId} for {chatId ?? "no chat"}</p>{onClose && <button onClick={onClose}>Close</button>}</div>;'}));
+      : 'export const ConnectedView=({captureId, chatId, expanded, onClose, deepLink})=><div><p>{expanded ? "Full screen" : "Opened"} {captureId} for {chatId ?? "no chat"}</p>{deepLink && <p>At {deepLink}</p>}{onClose && <button onClick={onClose}>Close</button>}</div>;'}));
   }}],
 });
 
 const todoistRef = encodeSource({v: 1, kind: 'integration', toolkitId: 'todoist', account: {accountId: 'todoist:default', authConfigId: null}});
-const todoist = {id: 'todoist-server', name: 'Todoist', toolkitName: 'Todoist', providerId: 'todoist', account: 'trey@example.com', sourceRef: todoistRef, available: true,
+const none = {icons: [], threads: [], files: [], settings: false, mentions: false};
+const todoist = {id: 'todoist-server', name: 'Todoist', toolkitName: 'Todoist', providerId: 'todoist', account: 'trey@example.com', sourceRef: todoistRef, available: true, ...none,
   standalone: false, entrypoints: [], views: [{name: 'find-tasks-by-date', title: 'Find tasks by date'}],
   recent: [{id: 'older', chatId: 'chat-1', title: 'Todoist · Find tasks by date', created: Date.now() - 20 * 60_000, launched: false}, {id: 'newer', chatId: 'chat-1', title: 'Todoist · Find tasks by date', created: Date.now() - 60_000, launched: false}]};
-const canvas = {id: 'canvas-server', name: 'Canvas', toolkitName: 'Canvas', account: 'Canvas', sourceRef: null, available: true,
-  standalone: true, entrypoints: [{name: 'open-canvas', title: 'Canvas'}], views: [],
-  recent: [{id: 'earlier-screen', title: 'Canvas · Canvas', created: Date.now() - 5 * 60_000, launched: true}]};
+const canvas = {id: 'canvas-server', name: 'Canvas', toolkitName: 'Canvas', account: 'Canvas', sourceRef: null, available: true, ...none,
+  standalone: true, entrypoints: [{name: 'open-canvas', title: 'Canvas', icons: []}], views: [],
+  recent: [{id: 'earlier-screen', title: 'Canvas · Canvas', created: Date.now() - 5 * 60_000, launched: true, tool: 'open-canvas'}]};
 
 async function serve(handle: (method: string, input: Record<string, unknown>) => Promise<unknown>) {
   const code = (await bundle()).outputFiles[0].text;
@@ -131,7 +133,7 @@ it('opens a standalone screen full screen with no inputs, through approval, and 
   let releaseLaunch!: () => void;
   const delayedLaunch = new Promise<void>(resolve => {releaseLaunch = resolve;});
   const {server, origin} = await serve(async (method, input) => {
-    if (method === 'connectedApps.prepare') {prepared.push(input); return {viewId: `view-${prepared.length}`, invocationId: `invocation-${prepared.length}`};}
+    if (method === 'connectedApps.prepare') {prepared.push(input); return {kind: 'launch', viewId: `view-${prepared.length}`, invocationId: `invocation-${prepared.length}`};}
     if (method === 'connectedApps.launch') {
       launches.push(input.viewId as string);
       if (holdLaunch) await delayedLaunch;
@@ -189,7 +191,7 @@ it('opens a standalone screen full screen with no inputs, through approval, and 
 it('shows an entrypoint that rejects {} as a plain error, and tries again as a new request', async () => {
   let attempts = 0;
   const {server, origin} = await serve(async method => {
-    if (method === 'connectedApps.prepare') return {viewId: `view-${++attempts}`, invocationId: `invocation-${attempts}`};
+    if (method === 'connectedApps.prepare') return {kind: 'launch', viewId: `view-${++attempts}`, invocationId: `invocation-${attempts}`};
     if (method === 'connectedApps.launch') return attempts === 1 ? new Error('Invalid arguments: project is required') : {kind: 'opened', captureId: 'screen-ok'};
     if (method === 'connectedApps.cancel') return null;
     return undefined;
@@ -205,5 +207,40 @@ it('shows an entrypoint that rejects {} as a plain error, and tries again as a n
     await page.getByRole('button', {name: 'Try again', exact: true}).click();
     await page.getByText('Full screen screen-ok for no chat', {exact: true}).waitFor();
     expect(attempts).toBe(2); expect(errors).toEqual([]);
+  } finally {await browser.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));}
+}, 30_000);
+
+it('opens a deep link into a new screen, moves an open screen to the next one without calling the tool, and reloads on request', async () => {
+  const prepared: Record<string, unknown>[] = [];
+  let launches = 0;
+  const {server, origin} = await serve(async (method, input) => {
+    if (method === 'connectedApps.prepare') {
+      prepared.push(input);
+      // The second request finds the screen open, as the server keeps one per person.
+      if (prepared.length === 2) return {kind: 'open', captureId: 'screen-1', deepLink: input.deepLink};
+      return {kind: 'launch', viewId: `view-${prepared.length}`, invocationId: `invocation-${prepared.length}`};
+    }
+    if (method === 'connectedApps.launch') { launches++; return {kind: 'opened', captureId: `screen-${launches}`}; }
+    if (method === 'connectedApps.cancel') return null;
+    return undefined;
+  });
+  const browser = await chromium.launch({executablePath: chromium.executablePath(), headless: true, chromiumSandbox: true});
+  try {
+    const page = await browser.newPage(), errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`${origin}/?server=canvas-server&open=open-canvas&path=${encodeURIComponent('/parts?tag=bolt&sort=asc')}`);
+    await page.getByText('At /parts?tag=bolt&sort=asc', {exact: true}).waitFor();
+    expect(prepared[0]).toEqual({serverId: 'canvas-server', name: 'open-canvas', deepLink: '/parts?tag=bolt&sort=asc'});
+    expect(await read(page, 'routes')).toEqual([`~connected/canvas-server?screen=screen-1&path=${encodeURIComponent('/parts?tag=bolt&sort=asc')} (replace)`]);
+
+    await page.evaluate(() => (window as unknown as {go: (route: string) => void}).go(`~connected/canvas-server?open=open-canvas&path=${encodeURIComponent('/parts/hex-bolt')}`));
+    await page.getByText('At /parts/hex-bolt', {exact: true}).waitFor();
+    await page.getByText('Full screen screen-1 for no chat', {exact: true}).waitFor();
+    expect(launches).toBe(1);
+
+    await page.getByRole('button', {name: 'Reload Canvas', exact: true}).click();
+    await page.getByText('Full screen screen-2 for no chat', {exact: true}).waitFor();
+    expect(prepared[2]).toEqual({serverId: 'canvas-server', name: 'open-canvas', fresh: true});
+    expect(launches).toBe(2); expect(errors).toEqual([]);
   } finally {await browser.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));}
 }, 30_000);

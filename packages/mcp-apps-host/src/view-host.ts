@@ -363,7 +363,8 @@ export class AppViewController {
       return {};
     };
     bridge.onrequestdisplaymode = async ({mode}) => {
-      if (!this.callbacks.displayMode || mode === 'pip') throw new Error('This display mode is unavailable');
+      // A mode the UI resource did not declare is refused, as is picture-in-picture, which Ri does not offer.
+      if (!this.callbacks.displayMode || mode === 'pip' || (binding.displayModes && !binding.displayModes.includes(mode))) throw new Error('This display mode is unavailable');
       await this.flushContext();
       this.callbacks.displayMode(mode);
       return {mode};

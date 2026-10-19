@@ -31,8 +31,8 @@ export function AppsShell({ route }: { route: string }) {
   }, [setActiveView]);
 
   const parts = route.split('/').filter(Boolean);
-  // A new `open` (a click on the app in the flyout or ⌘K) starts a fresh page, so each click opens it again.
-  if (parts[0] === '~connected' && parts[1]) return <ConnectedAppPage key={`${parts[1]}:${appQuery.open ?? ''}`} serverId={parts[1]} navigate={navigate} resultId={appQuery.result} screenId={appQuery.screen} launch={appQuery.open}/>;
+  // One page per connection, so a deep link to a screen that is open reaches its live view instead of a new one.
+  if (parts[0] === '~connected' && parts[1]) return <ConnectedAppPage key={parts[1]} serverId={parts[1]} navigate={navigate} resultId={appQuery.result} screenId={appQuery.screen} launch={appQuery.open} deepLink={appQuery.path}/>;
   // The library includes connections and skills even when local execution is off.
   if (parts.length === 0 || parts[0] === 'new') return <AppLibrary data={data} localEnabled={enabled}
     localLoading={checking || (enabled && !data && !error)} localError={error} query={appQuery} navigate={navigate} />;
