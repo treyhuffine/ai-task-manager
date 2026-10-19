@@ -2,6 +2,7 @@ import { externalAiRouter } from '@/lib/external-ai/router';
 import { emailRouter } from '@/lib/email/router';
 import { chatSourcesRouter } from '@/lib/chat-sources/router';
 import { connectedAppsRouter } from '@/lib/mcp-apps/router';
+import { mcpSettingsRouter } from '@/lib/mcp-apps/settings-router';
 import { localAppsRouter } from '@/lib/local-apps/router';
 import { integrationSourcesRouter } from '@/lib/integrations/sources/router';
 import { toNoteListDTOs, toTaskListDTOs } from '@/lib/api/dto/entity-list';
@@ -67,6 +68,7 @@ export const appRouter = router({
   localApps: localAppsRouter,
   chatSources: chatSourcesRouter,
   connectedApps: connectedAppsRouter,
+  mcpSettings: mcpSettingsRouter,
   // Managed connection sources (Composio) and their accounts (docs/connector-service-spec.md).
   integrationSources: integrationSourcesRouter,
   ...internalRouters,

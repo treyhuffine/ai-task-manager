@@ -36,6 +36,7 @@ import { randomUUID } from 'node:crypto';
 import type { ApprovalPolicy, ApprovalCheckInput, Caller } from '@integrations/engine';
 import { isNotifierDelivery } from '@/lib/notifications/caller';
 import { isEmailComposerSend } from '@/lib/email/caller';
+import { isMcpSettingsAction } from '@/lib/mcp-apps/settings-caller';
 import { publishIntegrationApprovals } from '@/lib/realtime/bus';
 import { resolveApprovalMode, type ApprovalMode } from './write-policy';
 
@@ -175,6 +176,8 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
       if (isNotifierDelivery(input.caller, input.actionId)) return 'allow';
       // The viewer already reviewed this exact revision and clicked Send.
       if (isEmailComposerSend(input.caller, input.actionId)) return 'allow';
+      // The viewer changed this server's settings, or clicked one of its settings buttons, themselves.
+      if (isMcpSettingsAction(input.caller, input.actionId)) return 'allow';
       if (opts.autoApprove) return 'allow';
       const key = grantKey(input) + (input.caller?.localApp ? `|app:${JSON.stringify(input.caller.localApp)}` : '') + (input.caller?.chatSource ? `|source:${JSON.stringify(input.caller.chatSource)}` : '') + (input.caller?.connectedApp ? connectedAppKey(input.caller.connectedApp) : '');
       const sessionId = sessionIdFromCaller(input.caller);

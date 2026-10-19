@@ -40,6 +40,15 @@ An inline view is exactly as tall as it reports with `ui/notifications/size-chan
 - Limits: 32 captures and 32 view sessions, 80 invocations per view, 512 KiB per result, 8 MiB cumulative result storage per view, 64 KiB input, and 12 MiB prepared HTML. Context is capped at 8 KiB and 10 updates per second. Guest messages have independent 1 MiB and 100/second containment limits.
 - Frozen context is stored only on an accepted human message and reauthorized on dispatch and recovery. Local authoritative app context and remote untrusted context remain separate fields.
 
+## Settings
+
+A server that publishes OpenAI's [structured settings](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md#structured-settings) (`capabilities.extensions["openai/settings"]`, with `readTool` and `updateTool`) gets a Settings section on its connection page: Settings, Plugins, MCP servers for a server you added, and on each account of a catalog provider. Ri asks the server only when its recorded capabilities name settings and its account is connected and on.
+
+- The read tool runs with `{}` and returns a schema, a value for every setting and an optional layout. Ri draws booleans as switches, string enums as choices, and text, numbers and whole numbers as fields that check `minLength`, `maxLength`, `pattern`, `minimum`, `maximum` and `multipleOf` before anything is sent. Groups appear in the server's order, and settings the layout leaves out follow in Other settings (Settings when there is no layout). A setting of another kind, or one without a valid value, shows why instead of a control. A layout naming an unknown setting, or one setting twice, fails the read, as OpenAI's SDK does.
+- A switch or a choice saves as it changes, and text or a number on blur or Enter. Ri reads the current schema first, checks the value against it, and sends only the settings that differ (`{"set": {...}}`). The values the server returns replace the page's. A refused change goes back to the saved value with the server's reason.
+- A tool button is titled by the tool (`title`, then `annotations.title`, then `name`). A plain tool runs with `{}` and its text shows beside the button. A tool with an interface opens it in a dialog, launched as a `settings` view through the ordinary approval gate. Only buttons the current layout names run.
+- The person changing a setting, or clicking a settings button, is the approval, as with the email composer's Send. These calls carry `mcpSettingsCaller(actionId)`, stamped only by the owner-viewer procedures in `lib/mcp-apps/settings.ts` and bound to that one action, and the approval policy lets exactly that action through. A tool turned off in the server's tool list stays off here too.
+
 ## Bits & Bolts test server
 
 [Bits & Bolts](https://github.com/openai/mcp-extensions/tree/main/plugins/bits-and-bolts) is OpenAI's sample app for its MCP extensions (Apache-2.0): a CAD parts library with a sidebar app, a thread tab, a file viewer, settings, @ search and forms. Ri uses it as the conformance fixture for connected apps, and it is also a useful app to try. `pnpm bits-and-bolts` runs it as a local MCP server.
