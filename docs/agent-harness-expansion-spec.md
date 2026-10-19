@@ -1013,6 +1013,8 @@ Route handlers must use these functions and must not write raw SQL.
 
 `setActiveHarness` must validate that the target harness has an enabled and usable default, update `defaultHarness`, and mirror the target row's model and effort into legacy fields in one transaction.
 
+Superseded 2026-10-19: `setActiveHarness` is gone. The home's default for new work is its own setting, set whole by `setHomeDefaultSelection`, and a harness row's default no longer mirrors into it (docs/default-selection.md).
+
 ### 9.6 Agent harness operations
 
 Persist cross-store operations that require retry.

@@ -2,12 +2,12 @@ import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import {
   createExecutionChat,
   deleteChatSessionIfEmpty,
-  ensureHarnessSettings,
   getChatSessionWithExecution,
   setExecutionLabel,
 } from '@/lib/db/queries';
 import { permissionsForNewChat, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
+import { resolveStartSelection } from '@/lib/harness/start-selection';
 import type { ProviderId } from '@/lib/harness/options';
 import { HarnessDisabledError, isKnownHarnessId } from '@/lib/harness/registry';
 import { reply, type OperationContext } from '@/lib/server/operation';
@@ -73,18 +73,14 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
     const providerId = override.providerId ?? current.harness;
     const permissions = permissionsForNewChat(providerId, current);
     const switchingProvider = providerId !== current.harness;
-    const harnessSettings = ensureHarnessSettings(providerId);
-    const requestedModel = override.model
-      ?? (switchingProvider ? harnessSettings.defaultModel : current.model);
-    const selection = await resolveHarnessSelection(providerId, {
-      model: requestedModel,
-      variant: override.variant
-        ?? (switchingProvider && requestedModel === harnessSettings.defaultModel
-          ? harnessSettings.defaultVariant
-          : current.modelVariant),
-      effort: override.effort
-        ?? (switchingProvider ? harnessSettings.defaultEffort : current.effort),
-    }, { cwd: current.worktreePath ?? undefined, repairInvalidModel: override.model === undefined });
+    const cwd = current.worktreePath ?? undefined;
+    const selection = switchingProvider
+      ? await resolveStartSelection({ ...override, providerId }, { cwd })
+      : await resolveHarnessSelection(providerId, {
+        model: override.model ?? current.model,
+        variant: override.variant ?? current.modelVariant,
+        effort: override.effort ?? current.effort,
+      }, { cwd, repairInvalidModel: override.model === undefined });
 
     // The execution's title is what the header shows and must not depend on
     // which chat is being viewed. New executions carry it on the execution

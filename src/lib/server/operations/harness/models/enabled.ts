@@ -2,8 +2,6 @@ import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import { getAppRoot } from '@/lib/config/paths';
 import {
   ensureHarnessSettings,
-  getUserState,
-  setActiveHarness,
   setEnabledHarnessModels,
   setHarnessDefaultSelection,
 } from '@/lib/db/queries';
@@ -22,6 +20,11 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: Operat
   return reply(ensureHarnessSettings(harness));
 }
 
+/**
+ * A harness's visible models and its own default: what a chat starts on when
+ * it picks this harness without a model. Never the home's default for new
+ * work, which has its own route (`PUT /harness/default`, docs/default-selection.md).
+ */
 export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
   try {
     const body = rpcInput.body as Record<string, unknown>;
@@ -43,13 +46,6 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
       return reply({ error: 'The default model must be enabled' }, { status: 400 });
     }
     const defaultAvailable = Boolean(defaultModel && catalogIds.has(defaultModel));
-    const remainsActive = getUserState()?.defaultHarness === body.harness;
-    if ((body.makeActive === true || remainsActive) && !defaultAvailable) {
-      return reply(
-        { error: 'The active harness must have an available default model' },
-        { status: 409 },
-      );
-    }
     if (body.defaultVariant != null && typeof body.defaultVariant !== 'string') {
       return reply({ error: 'defaultVariant must be a string or null' }, { status: 400 });
     }
@@ -82,7 +78,6 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
         effort: selection?.effort ?? (retainingUnavailable ? existing.defaultEffort : null),
       });
     }
-    if (body.makeActive === true) settings = setActiveHarness(body.harness);
     return reply(settings);
   } catch (error) {
     return reply({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
@@ -90,4 +85,4 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
 }
 
 export const GETInput = rpcZ.object({ query: rpcZ.object({ "harness": rpcZ.string().optional() }).strict().optional() }).strict().default({});
-export const PUTInput = rpcZ.object({ body: rpcZ.object({ "harness": rpcZ.enum(["cursor", "antigravity", "claude", "codex", "opencode"]), "enabledModelIds": rpcZ.array(rpcZ.string()), "defaultModel": rpcZ.string().nullable(), "defaultVariant": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "defaultEffort": rpcZ.union([rpcZ.null(), rpcZ.literal("low"), rpcZ.literal("medium"), rpcZ.literal("high"), rpcZ.literal("xhigh"), rpcZ.literal("max"), rpcZ.literal("ultra")]).optional(), "makeActive": rpcZ.boolean().optional() }).strict() }).strict();
+export const PUTInput = rpcZ.object({ body: rpcZ.object({ "harness": rpcZ.enum(["cursor", "antigravity", "claude", "codex", "opencode"]), "enabledModelIds": rpcZ.array(rpcZ.string()), "defaultModel": rpcZ.string().nullable(), "defaultVariant": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "defaultEffort": rpcZ.union([rpcZ.null(), rpcZ.literal("low"), rpcZ.literal("medium"), rpcZ.literal("high"), rpcZ.literal("xhigh"), rpcZ.literal("max"), rpcZ.literal("ultra")]).optional() }).strict() }).strict();

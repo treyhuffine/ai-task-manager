@@ -4,12 +4,11 @@ import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '
 import {
   archiveChatSession,
   createChatSession,
-  ensureHarnessSettings,
   getUserState,
   listChatSessions,
 } from '@/lib/db/queries';
 import { permissionsForNewChat, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
-import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
+import { resolveStartSelection } from '@/lib/harness/start-selection';
 import type { ProviderId } from '@/lib/harness/options';
 import { assertHarnessEnabled, DEFAULT_HARNESS, HarnessDisabledError, isKnownHarnessId } from '@/lib/harness/registry';
 import { contentChatSchema } from '@/lib/server/inputs';
@@ -129,23 +128,7 @@ async function createFocusedSession(
   override: ChatOverride = {},
   permissions?: Pick<ChatSessionWithExecution, 'permissionMode' | 'prePlanMode'>,
 ) {
-  const userState = getUserState();
-  const providerId = override.providerId
-    ?? userState?.defaultHarness
-    ?? DEFAULT_HARNESS;
-  const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
-  const harnessSettings = ensureHarnessSettings(providerId);
-  const requestedModel = override.model
-    ?? (savedTupleMatchesProvider ? userState?.defaultModel : null)
-    ?? harnessSettings.defaultModel;
-  const selection = await resolveHarnessSelection(providerId, {
-    model: requestedModel,
-    variant: override.variant
-      ?? (requestedModel === harnessSettings.defaultModel ? harnessSettings.defaultVariant : null),
-    effort: override.effort
-      ?? (savedTupleMatchesProvider ? userState?.defaultEffort : null)
-      ?? harnessSettings.defaultEffort,
-  }, { repairInvalidModel: override.model === undefined });
+  const selection = await resolveStartSelection(override);
   const session = createChatSession({
     ...permissions,
     type: 'content',

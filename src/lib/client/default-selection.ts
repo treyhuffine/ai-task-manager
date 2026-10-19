@@ -11,15 +11,15 @@ export interface DefaultSelection {
 }
 
 /**
- * Make a harness, model and effort the home's default: what new chats and
- * executions start on, and what background calls use (docs/default-selection.md).
- * The one way the default changes from the app, shared by first-run setup and
- * the "Make default" line in the model menus. Settings, Models goes through
- * the same route.
+ * Make a harness, model and effort the home's default for new work: what new
+ * chats and executions start on, and what background calls use
+ * (docs/default-selection.md). The one way the default changes from the app,
+ * shared by Settings' "Default for new work", first-run setup and the "Make
+ * default" line in the model menus. A harness's own default is a separate
+ * setting and stays as it is.
  *
- * The model is added to the harness's enabled models (never narrowing them),
- * made that harness's default, and the harness made active, which writes the
- * home's default tuple in the same transaction (`setActiveHarness`).
+ * Without a model (first-run setup naming only the harness), it starts from
+ * that harness's own default.
  */
 export async function setDefaultSelection(input: {
   harness: HarnessId;
@@ -27,21 +27,14 @@ export async function setDefaultSelection(input: {
   variant?: string | null;
   effort?: EffortLevel | null;
 }): Promise<DefaultSelection> {
-  const { harnesses } = await trpcClient.harness.harnessesGet.query({});
-  const settings = harnesses.find((h) => h.id === input.harness)?.settings;
-  const model = input.model ?? settings?.defaultModel ?? defaultModelFor(input.harness);
-  const enabled = settings?.enabledModels ?? [];
+  let model = input.model;
+  if (!model) {
+    const { harnesses } = await trpcClient.harness.harnessesGet.query({});
+    model = harnesses.find((h) => h.id === input.harness)?.settings.defaultModel ?? defaultModelFor(input.harness);
+  }
   const effort: EffortLevel | null =
     input.effort !== undefined ? input.effort : harnessSupportsEffort(input.harness) ? DEFAULT_EFFORT : null;
-  const variant = input.variant ?? null;
-
-  await trpcClient.harness.modelsEnabledPut.mutate({body: {
-    harness: input.harness,
-    enabledModelIds: enabled.includes(model) ? enabled : [model, ...enabled],
-    defaultModel: model,
-    defaultVariant: variant,
-    defaultEffort: effort,
-    makeActive: true,
-  }});
-  return { harness: input.harness, model, variant, effort };
+  return trpcClient.harness.defaultPut.mutate({
+    body: { harness: input.harness, model, variant: input.variant ?? null, effort },
+  });
 }

@@ -69,6 +69,7 @@ import * as operation63 from "@/lib/server/operations/fs/pick-folder";
 import * as operation64 from "@/lib/server/operations/gh/status";
 import * as operation65 from "@/lib/server/operations/harness/auth";
 import * as operation66 from "@/lib/server/operations/harness/cursor/key";
+import * as operation263 from "@/lib/server/operations/harness/default";
 import * as operation67 from "@/lib/server/operations/harness/harnesses";
 import * as operation262 from "@/lib/server/operations/harness/rate-limits";
 import * as operation68 from "@/lib/server/operations/harness/models";
@@ -384,6 +385,7 @@ export const internalRouters = {
     cursorKeyGet: p.input(operation66.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation66.GET(input, operationContext(ctx.request, input, "/harness/cursor/key")))),
     cursorKeyPut: p.input(operation66.PUTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation66.PUT(input, operationContext(ctx.request, input, "/harness/cursor/key")))),
     cursorKeyDelete: p.input(operation66.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation66.DELETE(input, operationContext(ctx.request, input, "/harness/cursor/key")))),
+    defaultPut: p.input(operation263.PUTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation263.PUT(input, operationContext(ctx.request, input, "/harness/default")))),
     harnessesGet: p.input(operation67.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation67.GET(input, operationContext(ctx.request, input, "/harness/harnesses")))),
     rateLimitsGet: p.input(operation262.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation262.GET(input, operationContext(ctx.request, input, "/harness/rate-limits")))),
     rateLimitsPost: p.input(operation262.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation262.POST(input, operationContext(ctx.request, input, "/harness/rate-limits")))),

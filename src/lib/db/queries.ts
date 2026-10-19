@@ -4522,9 +4522,14 @@ export function setEnabledHarnessModels(
     if (defaultModel && !enabledModels.includes(defaultModel)) {
       throw new Error('The default model must be enabled');
     }
-    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultHarness;
-    if (active === harness && enabledModels.length === 0) {
+    const home = tx.select().from(userState).where(eq(userState.id, 1)).get();
+    if (home?.defaultHarness === harness && enabledModels.length === 0) {
       throw new Error('The active harness must have at least one enabled model');
+    }
+    // The default for new work stays visible in the model menus that mark it.
+    if (home?.defaultHarness === harness && home.defaultModel
+      && existing?.enabledModels.includes(home.defaultModel) && !enabledModels.includes(home.defaultModel)) {
+      throw new Error(`${home.defaultModel} is your default for new work. Choose another default before hiding it.`);
     }
     // An explicit save means the user has now seen the whole current catalog,
     // so advance the known snapshot: a curated model they left off is recorded
@@ -4598,8 +4603,8 @@ export function removeCustomHarnessModel(harness: HarnessId, modelId: string): H
     const enabledModels = shadowsCatalogModel
       ? row.enabledModels
       : row.enabledModels.filter((entry) => entry !== id);
-    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultHarness;
-    if (active === harness && enabledModels.length === 0) {
+    const home = tx.select().from(userState).where(eq(userState.id, 1)).get();
+    if (home?.defaultHarness === harness && enabledModels.length === 0) {
       throw new Error('The active harness must have at least one enabled model');
     }
     const replacesDefault = row.defaultModel === id && !shadowsCatalogModel;
@@ -4614,10 +4619,13 @@ export function removeCustomHarnessModel(harness: HarnessId, modelId: string): H
       defaultEffort: replacesDefault ? null : row.defaultEffort,
       updatedAt: now,
     }).where(eq(harnessSettings.harness, harness)).returning().get();
-    if (replacesDefault && active === harness) {
+    // The default for new work was this pin: it moves to the harness's own
+    // default, since nothing can resolve the id any more.
+    if (home?.defaultHarness === harness && home.defaultModel === id && !shadowsCatalogModel) {
       tx.update(userState).set({
-        defaultModel: defaultModel,
-        defaultEffort: null,
+        defaultModel,
+        defaultVariant: replacesDefault ? null : row.defaultVariant,
+        defaultEffort: replacesDefault ? null : row.defaultEffort,
         updatedAt: now,
       }).where(eq(userState.id, 1)).run();
     }
@@ -4634,39 +4642,55 @@ export function setHarnessDefaultSelection(
     const row = tx.select().from(harnessSettings)
       .where(eq(harnessSettings.harness, harness)).get();
     if (!row || !row.enabledModels.includes(selection.model)) throw new Error('The default model must be enabled');
-    const updated = tx.update(harnessSettings).set({
+    // A harness's own default, used when something picks this harness
+    // without a model. The home's default for new work is separate and stays
+    // put (`setHomeDefaultSelection`, docs/default-selection.md).
+    return tx.update(harnessSettings).set({
       defaultModel: selection.model,
       defaultVariant: selection.variant ?? null,
       defaultEffort: selection.effort ?? null,
       updatedAt: new Date().toISOString(),
     }).where(eq(harnessSettings.harness, harness)).returning().get();
-    const active = tx.select().from(userState).where(eq(userState.id, 1)).get()?.defaultHarness;
-    if (active === harness) {
-      tx.update(userState).set({
-        defaultModel: selection.model,
-        defaultEffort: selection.effort ?? null,
-        updatedAt: new Date().toISOString(),
-      }).where(eq(userState.id, 1)).run();
-    }
-    return updated;
   });
 }
 
-export function setActiveHarness(harness: HarnessId): HarnessSettingsRecord {
+/**
+ * Set the home's default for new work: the harness, model, variant and effort
+ * new chats, executions and background calls start on. The model joins that
+ * harness's visible models (never narrowing them) so the model menus can mark
+ * it. The harness's own default is left alone: it's a separate setting.
+ * Callers validate the selection against the live catalog first
+ * (`src/lib/server/operations/harness/default.ts`).
+ */
+export function setHomeDefaultSelection(selection: {
+  harness: HarnessId;
+  model: string;
+  variant: string | null;
+  effort: UserStateRecord['defaultEffort'];
+}): UserStateRecord {
+  ensureHarnessSettings(selection.harness);
   const db = getDb();
   return db.transaction((tx) => {
     const row = tx.select().from(harnessSettings)
-      .where(eq(harnessSettings.harness, harness)).get();
-    if (!row?.defaultModel || !row.enabledModels.includes(row.defaultModel)) {
-      throw new Error('The selected harness needs an enabled default model');
+      .where(eq(harnessSettings.harness, selection.harness)).get()!;
+    const now = new Date().toISOString();
+    if (!row.enabledModels.includes(selection.model) || !row.defaultModel) {
+      tx.update(harnessSettings).set({
+        enabledModels: [...new Set([...row.enabledModels, selection.model])],
+        // A harness with nothing chosen yet takes this model as its own too.
+        defaultModel: row.defaultModel ?? selection.model,
+        updatedAt: now,
+      }).where(eq(harnessSettings.harness, selection.harness)).run();
     }
-    tx.update(userState).set({
-      defaultHarness: harness,
-      defaultModel: row.defaultModel,
-      defaultEffort: row.defaultEffort,
-      updatedAt: new Date().toISOString(),
-    }).where(eq(userState.id, 1)).run();
-    return row;
+    const saved = tx.update(userState).set({
+      defaultHarness: selection.harness,
+      defaultModel: selection.model,
+      defaultVariant: selection.variant,
+      defaultEffort: selection.effort,
+      updatedAt: now,
+    }).where(eq(userState.id, 1)).returning().get();
+    if (!saved) throw new Error('This home has no user state yet');
+    return hydrateUserState(saved);
   });
 }
 
@@ -4683,9 +4707,11 @@ export function beginProviderDisconnectSaga(input: {
       if (!replacement || !input.replacementModel || !replacement.enabledModels.includes(input.replacementModel)) {
         throw new Error('A valid enabled replacement selection is required');
       }
+      const sameAsHarness = replacement.defaultModel === input.replacementModel;
       tx.update(userState).set({
         defaultHarness: input.replacementHarness,
         defaultModel: input.replacementModel,
+        defaultVariant: sameAsHarness ? replacement.defaultVariant : null,
         defaultEffort: replacement.defaultEffort,
         updatedAt: new Date().toISOString(),
       }).where(eq(userState.id, 1)).run();

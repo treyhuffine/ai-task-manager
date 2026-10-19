@@ -127,6 +127,13 @@
       "when": 1792097562667,
       "tag": "0017_agent_coordination",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1792431894057,
+      "tag": "0018_home_default_variant",
+      "breakpoints": true
     }
   ]
 }

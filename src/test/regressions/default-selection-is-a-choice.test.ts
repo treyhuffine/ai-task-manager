@@ -43,6 +43,43 @@ describe('the default selection', () => {
     expect(q.getUserState()).toMatchObject({ defaultHarness: 'claude', defaultModel: 'opus', defaultEffort: 'high' });
   });
 
+  /**
+   * A home had Claude · Fable · Extra high as its default for new work and
+   * Opus · Medium as Claude's own default. Settings showed Claude's own, so it
+   * read as Opus while every new chat started on Fable. They're two settings
+   * now: new work follows the first, and saving the second never moves it.
+   */
+  it("starts new work on the default for new work, not the harness's own default", async () => {
+    home = await createTestHome();
+    const q = await import('@/lib/db/queries');
+    q.ensureHarnessSettings('claude');
+    q.setHarnessDefaultSelection('claude', { model: 'opus', effort: 'medium' });
+    q.setHomeDefaultSelection({ harness: 'claude', model: 'fable', variant: null, effort: 'xhigh' });
+    const { startNewMainChat } = await import('@/lib/sessions/main-chat');
+    const { resolveStartSelection } = await import('@/lib/harness/start-selection');
+
+    expect(await startNewMainChat(null, {})).toMatchObject({ harness: 'claude', model: 'fable', effort: 'xhigh' });
+    // Naming the default's harness without a model is the same as naming nothing.
+    expect(await resolveStartSelection({ providerId: 'claude' })).toMatchObject({ model: 'fable', effort: 'xhigh' });
+    // Naming a model keeps the default's effort, which the model offers.
+    expect(await resolveStartSelection({ providerId: 'claude', model: 'opus' })).toMatchObject({ model: 'opus', effort: 'xhigh' });
+
+    q.setHarnessDefaultSelection('claude', { model: 'sonnet', effort: 'low' });
+    expect(q.getUserState()).toMatchObject({ defaultHarness: 'claude', defaultModel: 'fable', defaultEffort: 'xhigh' });
+  });
+
+  it("starts another harness on that harness's own default", async () => {
+    home = await createTestHome();
+    const q = await import('@/lib/db/queries');
+    q.setHomeDefaultSelection({ harness: 'claude', model: 'fable', variant: null, effort: 'xhigh' });
+    const codex = q.ensureHarnessSettings('codex');
+    const { resolveStartSelection } = await import('@/lib/harness/start-selection');
+
+    const selection = await resolveStartSelection({ providerId: 'codex' });
+    expect(selection.providerId).toBe('codex');
+    expect(selection.model).toBe(codex.defaultModel);
+  });
+
   it('stays put when a new main chat starts on another harness', async () => {
     home = await createTestHome();
     const q = await import('@/lib/db/queries');

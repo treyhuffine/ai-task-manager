@@ -218,11 +218,81 @@ describe('custom (pinned) harness models', () => {
   it('refuses to leave the active harness with nothing to run', () => {
     q.setEnabledHarnessModels('cursor', [], null);
     q.addCustomHarnessModel('cursor', 'composer-1');
-    q.setActiveHarness('cursor');
+    q.setHomeDefaultSelection({ harness: 'cursor', model: 'composer-1', variant: null, effort: null });
     expect(() => q.removeCustomHarnessModel('cursor', 'composer-1')).toThrow(/at least one/);
     // `user_state` outlives the per-test settings reset, so hand the active
     // harness back rather than leaking it into whatever runs next.
     q.updateUserState({ defaultHarness: 'claude' });
+  });
+});
+
+/**
+ * The home's default for new work and each harness's own default are two
+ * settings (docs/default-selection.md). They used to share a write path, and
+ * a home ended up with Settings showing Claude's own Opus · Medium while every
+ * new chat ran on the home's Fable · Extra high.
+ */
+describe('the default for new work', () => {
+  beforeEach(() => {
+    q.updateUserState({ defaultHarness: null, defaultModel: null, defaultVariant: null, defaultEffort: null });
+  });
+
+  afterAll(() => {
+    q.updateUserState({ defaultHarness: null, defaultModel: null, defaultVariant: null, defaultEffort: null });
+  });
+
+  it("is saved whole and leaves the harness's own default alone", () => {
+    q.ensureHarnessSettings('claude');
+    q.setHarnessDefaultSelection('claude', { model: 'opus', effort: 'medium' });
+    const home = q.setHomeDefaultSelection({ harness: 'claude', model: 'fable', variant: null, effort: 'xhigh' });
+
+    expect(home).toMatchObject({ defaultHarness: 'claude', defaultModel: 'fable', defaultVariant: null, defaultEffort: 'xhigh' });
+    expect(q.ensureHarnessSettings('claude')).toMatchObject({ defaultModel: 'opus', defaultEffort: 'medium' });
+  });
+
+  it('keeps the variant with the model', () => {
+    q.setEnabledHarnessModels('opencode', ['xai/grok-4.5'], 'xai/grok-4.5');
+    q.setHomeDefaultSelection({ harness: 'opencode', model: 'xai/grok-4.5', variant: 'fast', effort: null });
+    expect(q.getUserState()).toMatchObject({ defaultModel: 'xai/grok-4.5', defaultVariant: 'fast' });
+  });
+
+  it('turns its model on without hiding any other', () => {
+    q.setEnabledHarnessModels('claude', ['opus', 'sonnet'], 'opus');
+    q.setHomeDefaultSelection({ harness: 'claude', model: 'haiku', variant: null, effort: 'low' });
+    expect(q.ensureHarnessSettings('claude')).toMatchObject({ enabledModels: ['opus', 'sonnet', 'haiku'], defaultModel: 'opus' });
+  });
+
+  it("doesn't move when the default harness's own default is saved", () => {
+    q.ensureHarnessSettings('claude');
+    q.setHomeDefaultSelection({ harness: 'claude', model: 'fable', variant: null, effort: 'xhigh' });
+    q.setHarnessDefaultSelection('claude', { model: 'opus', effort: 'medium' });
+    expect(q.getUserState()).toMatchObject({ defaultHarness: 'claude', defaultModel: 'fable', defaultEffort: 'xhigh' });
+  });
+
+  it('stays visible: its model cannot be hidden while it is the default', () => {
+    q.ensureHarnessSettings('claude');
+    q.setHomeDefaultSelection({ harness: 'claude', model: 'fable', variant: null, effort: 'xhigh' });
+    expect(() => q.setEnabledHarnessModels('claude', ['opus', 'sonnet'], 'opus')).toThrow(/default for new work/);
+    // Another harness's list is its own business.
+    expect(q.setEnabledHarnessModels('codex', ['gpt-6.1-sol'], 'gpt-6.1-sol').enabledModels).toEqual(['gpt-6.1-sol']);
+  });
+
+  it("moves to the harness's own default when its pinned model is unpinned", () => {
+    q.ensureHarnessSettings('claude');
+    q.setHarnessDefaultSelection('claude', { model: 'sonnet', effort: 'high' });
+    q.addCustomHarnessModel('claude', 'claude-opus-4-8');
+    q.setHomeDefaultSelection({ harness: 'claude', model: 'claude-opus-4-8', variant: null, effort: 'max' });
+
+    q.removeCustomHarnessModel('claude', 'claude-opus-4-8');
+    expect(q.getUserState()).toMatchObject({ defaultModel: 'sonnet', defaultEffort: 'high' });
+  });
+
+  it('is untouched when another pin on its harness is removed', () => {
+    q.ensureHarnessSettings('claude');
+    q.addCustomHarnessModel('claude', 'claude-opus-4-8');
+    q.setHomeDefaultSelection({ harness: 'claude', model: 'fable', variant: null, effort: 'xhigh' });
+    q.removeCustomHarnessModel('claude', 'claude-opus-4-8');
+    expect(q.getUserState()).toMatchObject({ defaultModel: 'fable', defaultEffort: 'xhigh' });
   });
 });
 

@@ -34,6 +34,7 @@ function record(overrides: Partial<UserStateRecord> = {}): UserStateRecord {
     voiceModel: null,
     defaultHarness: null,
     defaultModel: null,
+    defaultVariant: null,
     defaultEffort: null,
     orchestratorMode: null,
     monthlyBudgetUsd: null,

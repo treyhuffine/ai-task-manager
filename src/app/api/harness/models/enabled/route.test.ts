@@ -3,8 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getHarnessModelCatalog: vi.fn(),
   ensureHarnessSettings: vi.fn(),
-  getUserState: vi.fn(),
-  setActiveHarness: vi.fn(),
   setEnabledHarnessModels: vi.fn(),
   setHarnessDefaultSelection: vi.fn(),
 }));
@@ -15,8 +13,6 @@ vi.mock('@/lib/harness/model-discovery', () => ({
 
 vi.mock('@/lib/db/queries', () => ({
   ensureHarnessSettings: mocks.ensureHarnessSettings,
-  getUserState: mocks.getUserState,
-  setActiveHarness: mocks.setActiveHarness,
   setEnabledHarnessModels: mocks.setEnabledHarnessModels,
   setHarnessDefaultSelection: mocks.setHarnessDefaultSelection,
 }));
@@ -51,7 +47,6 @@ function request(body: Record<string, unknown>) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.ensureHarnessSettings.mockImplementation((harness: string) => settings(harness as 'cursor'));
-  mocks.getUserState.mockReturnValue({ defaultHarness: 'claude' });
   mocks.setEnabledHarnessModels.mockImplementation((harness: string, enabledModels: string[], defaultModel: string | null) => (
     settings(harness as 'cursor', { enabledModels, defaultModel })
   ));
@@ -63,7 +58,6 @@ beforeEach(() => {
       defaultEffort: selection.effort,
     })
   ));
-  mocks.setActiveHarness.mockImplementation((harness: string) => settings(harness as 'cursor', { isActive: true }));
 });
 
 describe('PUT /api/harness/models/enabled', () => {
@@ -73,12 +67,10 @@ describe('PUT /api/harness/models/enabled', () => {
       harness: 'cursor',
       enabledModelIds: ['grok-4.5'],
       defaultModel: 'grok-4.5',
-      makeActive: true,
     }));
 
     expect(response.status).toBe(200);
     expect(mocks.setEnabledHarnessModels).toHaveBeenCalledWith('cursor', ['grok-4.5'], 'grok-4.5');
-    expect(mocks.setActiveHarness).toHaveBeenCalledWith('cursor');
   });
 
   it('stores OpenCode variants separately from reasoning effort', async () => {
@@ -103,22 +95,39 @@ describe('PUT /api/harness/models/enabled', () => {
     });
   });
 
-  it('does not activate a harness whose retained default disappeared from discovery', async () => {
+  it('only saves the harness: making it the default for new work is another route', async () => {
+    mocks.getHarnessModelCatalog.mockResolvedValue([{ id: 'grok-4.5', label: 'Grok 4.5' }]);
+    const response = await PUT(request({
+      harness: 'cursor',
+      enabledModelIds: ['grok-4.5'],
+      defaultModel: 'grok-4.5',
+      makeActive: true,
+    }));
+
+    // `makeActive` is gone (PUT /api/harness/default sets the default for new work).
+    expect(response.status).toBe(400);
+    expect(mocks.setEnabledHarnessModels).not.toHaveBeenCalled();
+  });
+
+  it('keeps a retained default that disappeared from discovery', async () => {
     mocks.ensureHarnessSettings.mockReturnValue(settings('cursor', {
       enabledModels: ['old-model'],
       defaultModel: 'old-model',
+      defaultEffort: 'high',
     }));
     mocks.getHarnessModelCatalog.mockResolvedValue([{ id: 'new-model', label: 'New model' }]);
     const response = await PUT(request({
       harness: 'cursor',
       enabledModelIds: ['old-model'],
       defaultModel: 'old-model',
-      makeActive: true,
     }));
 
-    expect(response.status).toBe(409);
-    expect(mocks.setEnabledHarnessModels).not.toHaveBeenCalled();
-    expect(mocks.setActiveHarness).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.setHarnessDefaultSelection).toHaveBeenCalledWith('cursor', {
+      model: 'old-model',
+      variant: null,
+      effort: 'high',
+    });
   });
 
   it('rejects unknown model IDs instead of silently falling back', async () => {

@@ -41,7 +41,6 @@ import {
   resetExecutionForReprovision,
   archiveExecution,
   unarchiveExecution,
-  ensureHarnessSettings,
   getHome,
   getDevice,
   listEnrolledDeviceIds,
@@ -73,7 +72,7 @@ import { isDeviceConnected, wakeDevice } from '@/lib/workers/hub';
 import { cantRunAgentThere, runOnFor, setupProblem, setupUsable } from '@/lib/setups/run-on';
 import { checkDeviceFolders } from '@/lib/setups/folders';
 import { requireHarnessId } from '@/lib/harness/options';
-import { resolveHarnessSelection } from '@/lib/harness/model-discovery';
+import { resolveStartSelection } from '@/lib/harness/start-selection';
 import { admitChange } from '@/lib/transfer/moving';
 import { assertSupportedPermissionMode } from '@/lib/executor/permission-map';
 
@@ -132,7 +131,7 @@ export interface DispatchExecutionSessionArgs {
    * Explicit agent selection from the launcher's model control. When
    * omitted, the saved global default tuple is used (the historical
    * behavior). `model` is only meaningful alongside a matching `harness`
-   * — the launcher always sends the pair, and `resolveHarnessSelection`
+   * — the launcher always sends the pair, and `resolveStartSelection`
    * repairs a mismatch rather than dispatching an invalid model.
    */
   model?: string | null;
@@ -229,18 +228,14 @@ export async function dispatchExecutionSession(
     // The actual runner validates live capabilities on the execution device.
     // The home's binary cannot decide whether a connected device supports plan.
   }
-  const harnessSettings = ensureHarnessSettings(providerId);
-  const savedTupleMatchesProvider = userState?.defaultHarness === providerId;
-  // Explicit args (the launcher's model control) beat the saved default
-  // tuple, which in turn beats the provider's own default.
-  const selection = await resolveHarnessSelection(providerId, {
-    model: args.model
-      ?? (savedTupleMatchesProvider ? userState?.defaultModel : null)
-      ?? harnessSettings.defaultModel,
-    variant: args.modelVariant ?? harnessSettings.defaultVariant,
-    effort: args.effort
-      ?? (savedTupleMatchesProvider ? userState?.defaultEffort : null)
-      ?? harnessSettings.defaultEffort,
+  // Explicit args (the launcher's model control) beat the default for new
+  // work, which beats the provider's own default on another harness. The
+  // launcher's remembered pick can outlive a model, so it's repaired too.
+  const selection = await resolveStartSelection({
+    providerId,
+    model: args.model,
+    variant: args.modelVariant,
+    effort: args.effort,
   }, { cwd: ws.cwd, repairInvalidModel: true });
   // The launcher supplies this so it can navigate before the create resolves;
   // everything else lets us mint one. Same value either way — it just decides

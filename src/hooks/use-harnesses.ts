@@ -29,12 +29,10 @@ export function useSaveHarnessModels() {
       defaultModel: string | null;
       defaultVariant?: string | null;
       defaultEffort?: EffortLevel | null;
-      makeActive?: boolean;
     }) => trpcClient.harness.modelsEnabledPut.mutate({body: input}),
     onSuccess: (_data, input) => {
       void queryClient.invalidateQueries({ queryKey: ['agent-models', input.harness] });
       void queryClient.invalidateQueries({ queryKey: ['agent-harnesses'] });
-      void queryClient.invalidateQueries({ queryKey: ['user-state'] });
     },
   });
 }

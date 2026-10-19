@@ -12,6 +12,7 @@ vi.mock('@/lib/trpc/client', () => ({ trpcClient: { harness: {
   harnessesGet: { query: vi.fn(async () => ({ harnesses: [{ id: 'claude', settings: { enabledModels: ['opus', 'sonnet'], defaultModel: 'opus' } }] })) },
   skillsGlobalGet: { query: vi.fn(async () => skillStatus) },
   modelsEnabledPut: { mutate: vi.fn(async ({ body }: { body: unknown }) => { calls.push(`modelsEnabledPut ${JSON.stringify(body)}`); return {}; }) },
+  defaultPut: { mutate: vi.fn(async ({ body }: { body: Record<string, unknown> }) => { calls.push(`defaultPut ${JSON.stringify(body)}`); return body; }) },
   skillsGlobalPut: { mutate: vi.fn(async ({ body }: { body: unknown }) => { calls.push(`skillsGlobalPut ${JSON.stringify(body)}`); return {}; }) },
 } } }));
 
@@ -22,12 +23,22 @@ beforeEach(() => {
 });
 
 describe('saveHarnessSetup', () => {
-  it('makes the harness active and keeps the models already enabled', async () => {
+  it("makes the harness's own default model the default for new work", async () => {
     skillStatus = { enabled: true, configured: true };
     const saved = await saveHarnessSetup({ harness: 'claude' });
     expect(saved.model).toBe('opus');
     expect(calls).toContain(
-      `modelsEnabledPut ${JSON.stringify({ harness: 'claude', enabledModelIds: ['opus', 'sonnet'], defaultModel: 'opus', defaultVariant: null, defaultEffort: 'medium', makeActive: true })}`,
+      `defaultPut ${JSON.stringify({ harness: 'claude', model: 'opus', variant: null, effort: 'medium' })}`,
+    );
+    // The harness's own default is a separate setting and isn't written.
+    expect(calls.some((c) => c.startsWith('modelsEnabledPut'))).toBe(false);
+  });
+
+  it('saves the model and effort picked', async () => {
+    skillStatus = { enabled: true, configured: true };
+    await saveHarnessSetup({ harness: 'claude', model: 'sonnet', effort: 'high' });
+    expect(calls).toContain(
+      `defaultPut ${JSON.stringify({ harness: 'claude', model: 'sonnet', variant: null, effort: 'high' })}`,
     );
   });
 

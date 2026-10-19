@@ -30,10 +30,11 @@ import {
 import { DEFAULT_HARNESS, HARNESS_IDS, type HarnessId } from '@/lib/harness/registry';
 import { cn } from '@/lib/utils';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Cpu, Globe2, Loader2, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
+import { Cpu, Globe2, Loader2, RefreshCw, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CursorCredentialPanel } from './cursor-credential-panel';
+import { DefaultForNewWork } from './default-for-new-work';
 import { ConnectionBadge, ConnectionPanel, ProviderIcon } from './harness-connection-ui';
 import { HarnessPicker } from './harness-picker';
 import { OpenCodeProviderPanel } from './opencode-provider-panel';
@@ -61,6 +62,7 @@ export function HarnessSettingsPanel() {
 
       {isLoading || !data ? <SettingsSkeleton rows={5} /> : (
         <>
+          <DefaultForNewWork />
           <HarnessPicker
             harnesses={data.harnesses}
             value={tab}
@@ -68,7 +70,11 @@ export function HarnessSettingsPanel() {
             defaultHarness={active}
           />
           {data.harnesses.filter((harness) => harness.id === tab).map((harness) => (
-            <HarnessPane key={`${harness.id}:${harness.settings.updatedAt}`} harness={harness} active={active === harness.id} />
+            <HarnessPane
+              key={`${harness.id}:${harness.settings.updatedAt}`}
+              harness={harness}
+              homeDefaultModel={active === harness.id ? userState?.defaultModel ?? null : null}
+            />
           ))}
         </>
       )}
@@ -145,7 +151,21 @@ function GlobalSkillSetting() {
   );
 }
 
-function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active: boolean }) {
+/**
+ * One harness: its sign-in, the models it shows, and its own default, used
+ * when something picks this harness without a model. For the harness of the
+ * default for new work, that default (set above, `DefaultForNewWork`) is what
+ * its new work starts on, so this pane doesn't offer a second one.
+ */
+function HarnessPane({
+  harness,
+  homeDefaultModel,
+}: {
+  harness: HarnessSettingsView;
+  /** The default for new work's model, when this is its harness. */
+  homeDefaultModel: string | null;
+}) {
+  const active = homeDefaultModel !== null;
   const catalog = useHarnessModels(harness.id, { catalog: true });
   const save = useSaveHarnessModels();
   const removeCustom = useRemoveCustomModel();
@@ -157,7 +177,6 @@ function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active
   const [defaultEffort, setDefaultEffort] = useState<EffortLevel | null>(harness.settings.defaultEffort);
 
   const selectedDefault = catalog.models.find((model) => model.id === defaultModel) ?? null;
-  const defaultAvailable = Boolean(selectedDefault && selectedDefault.availability !== 'unavailable');
   const variants = selectedDefault?.variants?.filter((variant) => !variant.disabled) ?? [];
   const efforts = effortOptionsForModel(harness.id, selectedDefault);
   const dirty = useMemo(() => {
@@ -168,7 +187,7 @@ function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active
       || defaultEffort !== (catalog.data?.defaultEffort ?? harness.settings.defaultEffort);
   }, [catalog.data, defaultEffort, defaultModel, defaultVariant, enabled, harness.settings]);
 
-  const persist = async (makeActive = false) => {
+  const persist = async () => {
     try {
       await save.mutateAsync({
         harness: harness.id,
@@ -176,9 +195,8 @@ function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active
         defaultModel,
         defaultVariant,
         defaultEffort,
-        makeActive,
       });
-      toast.success(makeActive ? `${harness.name} is now the default` : `${harness.name} models saved`);
+      toast.success(`${harness.name} models saved`);
     } catch (error) {
       toast.error('Could not save harness settings', {
         description: error instanceof Error ? error.message : String(error),
@@ -258,6 +276,7 @@ function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active
           models={catalog.models}
           query={query}
           enabled={enabled}
+          homeDefaultModel={homeDefaultModel}
           removing={removeCustom.isPending ? removeCustom.variables?.modelId ?? null : null}
           onRemove={(id) => {
             void removeCustom.mutateAsync({ harness: harness.id, modelId: id })
@@ -289,55 +308,62 @@ function HarnessPane({ harness, active }: { harness: HarnessSettingsView; active
         )}
       </div>
 
-      {enabled.length > 0 && (
-        <div className="grid gap-2 border-t border-border pt-3 @min-[400px]:grid-cols-3">
-          <LabeledSelect
-            label="Default model"
-            value={defaultModel ?? enabled[0] ?? ''}
-            options={enabled.map((id) => {
-              const model = catalog.models.find((entry) => entry.id === id);
-              const unavailable = model?.availability === 'unavailable';
-              return {
-                id,
-                label: `${model?.label ?? id}${unavailable ? ' (Unavailable)' : ''}`,
-                disabled: unavailable,
-              };
-            })}
-            onValue={(value) => {
-              setDefaultModel(value);
-              const model = catalog.models.find((entry) => entry.id === value);
-              setDefaultVariant(model?.variants?.find((variant) => variant.isDefault)?.id ?? null);
-            }}
-          />
-          {variants.length > 0 && (
+      {active ? (
+        <p className="border-t border-border pt-3 text-[11px] text-muted-foreground">
+          {harness.name} is your default for new work. Its model and effort are set above.
+        </p>
+      ) : enabled.length > 0 && (
+        <div className="space-y-2 border-t border-border pt-3">
+          <div>
+            <p className="font-medium text-foreground">When something picks {harness.name} without a model</p>
+            <p className="text-[10.5px] text-muted-foreground">
+              Separate from your default for new work above.
+            </p>
+          </div>
+          <div className="grid gap-2 @min-[400px]:grid-cols-3">
             <LabeledSelect
-              label="Variant"
-              value={defaultVariant ?? '__default'}
-              options={[
-                { id: '__default', label: 'Provider default' },
-                ...variants.map((variant) => ({ id: variant.id, label: variant.name })),
-              ]}
-              onValue={(value) => setDefaultVariant(value === '__default' ? null : value)}
+              label="Model"
+              value={defaultModel ?? enabled[0] ?? ''}
+              options={enabled.map((id) => {
+                const model = catalog.models.find((entry) => entry.id === id);
+                const unavailable = model?.availability === 'unavailable';
+                return {
+                  id,
+                  label: `${model?.label ?? id}${unavailable ? ' (Unavailable)' : ''}`,
+                  disabled: unavailable,
+                };
+              })}
+              onValue={(value) => {
+                setDefaultModel(value);
+                const model = catalog.models.find((entry) => entry.id === value);
+                setDefaultVariant(model?.variants?.find((variant) => variant.isDefault)?.id ?? null);
+              }}
             />
-          )}
-          {efforts.length > 0 && (
-            <LabeledSelect
-              label="Reasoning"
-              value={defaultEffort ?? selectedDefault?.defaultEffort ?? 'medium'}
-              options={efforts.map((effort) => ({ id: effort.id, label: effort.label }))}
-              onValue={(value) => setDefaultEffort(value as EffortLevel)}
-            />
-          )}
+            {variants.length > 0 && (
+              <LabeledSelect
+                label="Variant"
+                value={defaultVariant ?? '__default'}
+                options={[
+                  { id: '__default', label: 'Provider default' },
+                  ...variants.map((variant) => ({ id: variant.id, label: variant.name })),
+                ]}
+                onValue={(value) => setDefaultVariant(value === '__default' ? null : value)}
+              />
+            )}
+            {efforts.length > 0 && (
+              <LabeledSelect
+                label="Reasoning"
+                value={defaultEffort ?? selectedDefault?.defaultEffort ?? 'medium'}
+                options={efforts.map((effort) => ({ id: effort.id, label: effort.label }))}
+                onValue={(value) => setDefaultEffort(value as EffortLevel)}
+              />
+            )}
+          </div>
         </div>
       )}
 
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
-        {!active && (
-          <Button type="button" size="sm" variant="outline" disabled={save.isPending || !defaultModel || !defaultAvailable} onClick={() => void persist(true)}>
-            <ShieldCheck /> Use as default
-          </Button>
-        )}
-        <Button type="button" size="sm" disabled={save.isPending || !dirty || !defaultModel || (active && !defaultAvailable)} onClick={() => void persist(false)}>
+        <Button type="button" size="sm" disabled={save.isPending || !dirty || !defaultModel} onClick={() => void persist()}>
           {save.isPending && <Loader2 className="animate-spin" />}
           Save models
         </Button>
@@ -374,6 +400,7 @@ function VirtualModelChecklist({
   models,
   query,
   enabled,
+  homeDefaultModel,
   removing,
   onToggle,
   onRemove,
@@ -381,6 +408,8 @@ function VirtualModelChecklist({
   models: ModelOption[];
   query: string;
   enabled: string[];
+  /** The default for new work's model, when it's on this harness. It stays visible. */
+  homeDefaultModel?: string | null;
   /** Id of the pinned model whose removal is in flight. */
   removing?: string | null;
   onToggle: (id: string, checked: boolean) => void;
@@ -410,6 +439,7 @@ function VirtualModelChecklist({
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const model = rows[virtualRow.index]!;
           const checked = enabled.includes(model.id);
+          const isHomeDefault = model.id === homeDefaultModel && checked;
           return (
             <div
               key={virtualRow.key}
@@ -424,7 +454,7 @@ function VirtualModelChecklist({
               >
                 <Checkbox
                   checked={checked}
-                  disabled={model.availability === 'unavailable'}
+                  disabled={model.availability === 'unavailable' || isHomeDefault}
                   onCheckedChange={(value) => onToggle(model.id, value === true)}
                 />
                 <span className="min-w-0 flex-1">
@@ -434,6 +464,13 @@ function VirtualModelChecklist({
                       <span className="rounded bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
                         pinned
                       </span>
+                    )}
+                    {isHomeDefault && (
+                      <Tip label="Your default for new work stays visible. Change it above to hide this model.">
+                        <span className="rounded bg-primary/10 px-1 py-px text-[9px] font-medium uppercase tracking-wide text-primary">
+                          default
+                        </span>
+                      </Tip>
                     )}
                     {model.providerName && <span className="truncate text-[10px] font-normal text-muted-foreground">{model.providerName}</span>}
                   </span>

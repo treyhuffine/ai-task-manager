@@ -3,19 +3,30 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUserState } from '@/hooks/use-user-state';
 import { setDefaultSelection } from '@/lib/client/default-selection';
+import type { EffortLevel } from '@/db/types';
 import type { HarnessId } from '@/lib/harness/registry';
 
 /**
- * The home's default harness and model (user state), what new chats and
- * executions start on. Null until one is chosen.
+ * The home's default for new work (user state): the harness, model, variant
+ * and effort new chats and executions start on. Null until one is chosen.
  */
-export function useDefaultSelection(): { harness: HarnessId; model: string | null } | null {
+export function useDefaultSelection(): {
+  harness: HarnessId;
+  model: string | null;
+  variant: string | null;
+  effort: EffortLevel | null;
+} | null {
   const { data } = useUserState();
   if (!data?.defaultHarness) return null;
-  return { harness: data.defaultHarness as HarnessId, model: data.defaultModel ?? null };
+  return {
+    harness: data.defaultHarness as HarnessId,
+    model: data.defaultModel ?? null,
+    variant: data.defaultVariant ?? null,
+    effort: (data.defaultEffort ?? null) as EffortLevel | null,
+  };
 }
 
-/** Make a selection the default, the way Settings, Models does. */
+/** Make a selection the default for new work, the way Settings does. */
 export function useSetDefaultSelection() {
   const qc = useQueryClient();
   return useMutation({
