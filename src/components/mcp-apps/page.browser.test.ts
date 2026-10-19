@@ -43,7 +43,7 @@ const bundle = () => build({
       ? `const record = name => () => window.dashboard.push(name);
          export const useDashboard = () => ({goHome: record('home'), showPanelTab: tab => window.dashboard.push('tab:' + tab), setMobileTab: () => {}, isFocusMode: false, exitFocusMode: () => {}});
          export const useOptionalDashboard = () => null;`
-      : 'export const ConnectedView=({captureId, chatId, expanded})=><p>{expanded ? "Full screen" : "Opened"} {captureId} for {chatId ?? "no chat"}</p>;'}));
+      : 'export const ConnectedView=({captureId, chatId, expanded, onClose})=><div><p>{expanded ? "Full screen" : "Opened"} {captureId} for {chatId ?? "no chat"}</p>{onClose && <button onClick={onClose}>Close</button>}</div>;'}));
   }}],
 });
 
@@ -107,6 +107,12 @@ it('uses a result-only service from chat: no forms, Try in chat writes the menti
     await page.getByText('Opened newer for chat-1', {exact: true}).waitFor();
     await rows.first().click();
     expect(await page.getByText('Opened newer for chat-1').count()).toBe(0);
+    // The open result carries its own Close, in its header rather than floating above it.
+    await rows.last().click();
+    await page.getByText('Opened older for chat-1', {exact: true}).waitFor();
+    expect(await page.getByRole('button', {name: 'Close', exact: true}).count()).toBe(1);
+    await page.getByRole('button', {name: 'Close', exact: true}).click();
+    expect(await page.getByText('Opened older for chat-1').count()).toBe(0);
     expect(calls).toEqual([]); expect(errors).toEqual([]);
 
     // A chip's Open lands here with that result already open.

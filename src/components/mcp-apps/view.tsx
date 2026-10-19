@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AppViewController } from '@ri/mcp-apps-host';
-import { Loader2, PanelRightOpen } from 'lucide-react';
+import { Loader2, PanelRightOpen, X } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { trpcClient } from '@/lib/trpc/client';
@@ -15,7 +15,12 @@ import { runConnectedInvocation } from '@/lib/client/mcp-app-invocation';
 
 type OpenView = RouterOutputs['connectedApps']['open'];
 type Pending = {ids: string[]; preview?: unknown; finish: (approve: boolean) => void};
-export function ConnectedView({captureId, chatId, expanded = false}: {captureId: string; chatId?: string; expanded?: boolean}) {
+/**
+ * `onClose` puts a Close control in the result's own header row, for a page that shows the result beside
+ * other content. `appName` is the name the surrounding page already shows: a full-screen view titled the
+ * same skips its own title row rather than repeat it.
+ */
+export function ConnectedView({captureId, chatId, expanded = false, onClose, appName}: {captureId: string; chatId?: string; expanded?: boolean; onClose?: () => void; appName?: string}) {
   const companion = useConnectedCompanion();
   const moved = !expanded && companion?.captureId === captureId;
   const [inlineMount, setInlineMount] = useState<HTMLDivElement | null>(null);
@@ -40,10 +45,12 @@ export function ConnectedView({captureId, chatId, expanded = false}: {captureId:
     retry: false, staleTime: Infinity});
   const access = useQuery({queryKey: ['connected-app-status', query.data?.id], queryFn: () => trpcClient.connectedApps.status.query({viewId: query.data!.id}), enabled: !!query.data, retry: false, refetchInterval: 15_000});
   const failure = query.error ?? access.error;
+  const repeatsName = expanded && !!appName && query.data?.title?.toLocaleLowerCase() === appName.toLocaleLowerCase() && !onClose;
   return <section aria-label="Interactive app result" className={`${expanded ? 'h-full' : 'my-3 overflow-hidden rounded-xl border border-border'} flex flex-col bg-background`}>
-    <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+    <div className={`${repeatsName ? 'hidden' : 'flex'} items-center gap-2 border-b border-border/60 px-3 py-2`}>
       <span className="min-w-0 flex-1 truncate text-xs font-medium">{query.data?.title ?? 'Interactive result'}</span>
       {chatId && companion && !expanded && !moved && <Button size="xs" variant="ghost" onClick={() => companion.open(captureId)}><PanelRightOpen size={13}/>Open beside chat</Button>}
+      {onClose && <Button size="xs" variant="ghost" onClick={onClose}><X size={13}/>Close</Button>}
     </div>
     {moved && <p className="px-3 py-4 text-xs text-muted-foreground">Open beside this chat. <button className="text-primary underline" onClick={() => companion?.open(null)}>Show inline</button></p>}
     <div ref={setInlineMount} className={moved ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}/>
@@ -119,6 +126,9 @@ function MountedView({view, expanded, onExpand}: {view: OpenView; expanded: bool
     {pending && <div className="space-y-2 border-b border-amber-500/30 bg-amber-500/10 p-3 text-xs"><p className="font-medium">Allow this app operation?</p><pre className="max-h-32 overflow-auto whitespace-pre-wrap">{JSON.stringify(pending.preview, null, 2)}</pre><div className="flex gap-2"><Button size="xs" onClick={() => pending.finish(true)}>Allow once</Button><Button size="xs" variant="outline" onClick={() => pending.finish(false)}>Decline</Button></div></div>}
     {error && <p role="alert" className="border-b border-border p-3 text-xs text-destructive">{error}</p>}
     {!ready && !error && <p role="status" className="absolute left-3 top-3 text-xs text-muted-foreground">Loading interface…</p>}
-    <div ref={mount} style={{height: expanded ? '100%' : height, minHeight: 240}} className="min-h-0 flex-1"/>
+    {/* Inline, the frame is exactly the height the view reports (the host clamps it to 160 to 900 px), capped
+        at 80% of the window, and the view scrolls inside only past that. It must not flex: a 0% flex basis in an
+        auto-height column resolves to this empty div's content, which collapsed every view to its minimum. */}
+    <div ref={mount} style={expanded ? undefined : {height, maxHeight: 'min(900px, 80vh)'}} className={expanded ? 'min-h-[240px] flex-1' : 'shrink-0'}/>
   </div>;
 }

@@ -74,7 +74,7 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
     {header}
     <div className="flex min-h-0 flex-1 flex-col">
       {screen.state.kind === 'idle' && screenId
-        ? <ConnectedView key={screenId} captureId={screenId} expanded/>
+        ? <ConnectedView key={screenId} captureId={screenId} expanded appName={app.toolkitName}/>
         : <ScreenStatus app={app} screen={screen} onBack={leaveScreen}/>}
     </div>
   </div>;
@@ -105,9 +105,8 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
           </p>
         </div>
       </section>
-      {opened && <section aria-label="Open result" className="space-y-1">
-        <div className="flex justify-end"><Button size="xs" variant="ghost" onClick={() => setOpen(null)}>Close</Button></div>
-        <ConnectedView key={opened.id} captureId={opened.id} chatId={opened.chatId}/>
+      {opened && <section aria-label="Open result">
+        <ConnectedView key={opened.id} captureId={opened.id} chatId={opened.chatId} onClose={() => setOpen(null)}/>
       </section>}
       <section aria-labelledby="recent-results" className="space-y-2">
         <h2 id="recent-results" className="text-sm font-medium">Recent results</h2>

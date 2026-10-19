@@ -84,6 +84,7 @@ The owner decided that Connector and app mentions are live everywhere, with no e
 ### Blockers found and fixed
 
 - **Todoist's task list never rendered.** Its resource declares ChatGPT's dedicated origin (`openai/widgetDomain`) with an empty CSP. `prepareResource` refused any declared origin as a network need. The MCP Apps spec makes that field host-specific and ties it to network uses the declared domains already rule out, so a declared origin alone no longer refuses a view. Network domains and permissions still do ([connected MCP apps](connected-mcp-apps.md)).
+- **Inline views were cut off at 240 px.** The frame's 0% flex basis resolved to its empty container's content, so every inline view collapsed to its minimum height whatever it reported. It now takes the reported height, capped at 80% of the window. Todoist's task list shows whole, and Microsoft Flint's chart, which asks for clipboard write, now renders instead of being refused.
 - **Chips stacked in sent messages.** The user bubble is a flex column, so each piece of a message became its own row and chips stretched to its width. The segments now flow as one block.
 - **An agent naming a bare tool got an opaque error.** Action ids carry the provider prefix (`mcp.todoist.find-tasks-by-date`). `describe_chat_source` and `call_chat_source` now name the full id.
 - Per-keystroke discovery reads the integration metadata files. Against a copy of the production Home's 1 MB server file it costs 3 to 5 ms per call once warm, so it is not a blocker.
