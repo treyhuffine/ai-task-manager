@@ -96,13 +96,39 @@ export function zodStandardSchema(schema: z.ZodRawShape | z.ZodTypeAny): Standar
   };
 }
 
+/**
+ * How often a tool call still in progress tells its client so. MCP clients
+ * built on the TypeScript SDK give up on a request after 60 seconds unless
+ * progress arrives, and Claude Code resets that timer on each notification.
+ * A call that waits on a person (a server's form, an approval) can take
+ * minutes, so it reports progress well inside that window.
+ */
+export const PROGRESS_KEEPALIVE_MS = 20_000;
+
+/**
+ * Run `work`, sending `notifications/progress` every `PROGRESS_KEEPALIVE_MS`
+ * while it is in flight, when the client gave a `progressToken`. A client
+ * that gave none asked for no progress, so none is sent.
+ */
+export async function withProgressKeepalive<T>(ctx: Pick<ServerContext, 'mcpReq'>, work: () => Promise<T>, every = PROGRESS_KEEPALIVE_MS): Promise<T> {
+  const progressToken = ctx.mcpReq._meta?.progressToken;
+  if (progressToken === undefined) return work();
+  let progress = 0;
+  const timer = setInterval(() => {
+    progress += 1;
+    void ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken, progress, message: 'Still working' } }).catch(() => {});
+  }, every);
+  try { return await work(); }
+  finally { clearInterval(timer); }
+}
+
 function registrar(server: McpServer, era: 'legacy' | 'modern'): RiMcpServer {
   return {
     era,
     registerTool(name, config, handler) {
       const { inputSchema, ...rest } = config;
-      const call = async (args: Record<string, unknown>, ctx: ServerContext) =>
-        await handler(args, { signal: ctx.mcpReq.signal, headers: ctx.http?.req?.headers, era }) as CallToolResult;
+      const call = (args: Record<string, unknown>, ctx: ServerContext) => withProgressKeepalive(ctx, async () =>
+        await handler(args, { signal: ctx.mcpReq.signal, headers: ctx.http?.req?.headers, era }) as CallToolResult);
       if (inputSchema) {
         server.registerTool(name, { ...rest, inputSchema: zodStandardSchema(inputSchema) }, (args, ctx) => call(args, ctx));
       } else {

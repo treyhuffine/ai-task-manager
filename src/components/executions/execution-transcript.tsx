@@ -1,5 +1,7 @@
 'use client';
 
+import { MCP_APP_EVENT } from '@/lib/mcp-apps/metadata';
+import { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT } from '@/lib/mcp-apps/form-events';
 import {
 	Conversation,
 	ConversationContent,
@@ -407,13 +409,14 @@ function ScrollOnSend({ trigger }: { trigger: string | null }) {
  * `thinking_tokens`, `task_started`/`task_notification`, `commands_changed`,
  * …). The set is open-ended — Claude Code / agentex add new subtypes freely
  * — so a denylist is endless whack-a-mole. We allowlist instead: render only
- * subtypes that carry genuine user value (currently none). Anything not
+ * subtypes that carry genuine user value: a connected app's interactive
+ * result, and a server's form and how it ended. Anything not
  * listed is dropped from the transcript but kept in `chat_events` (raw) for
  * debugging. If we later want to surface, say, a compaction boundary, it
  * should get a purpose-built styled affordance — not a raw divider — so add
  * it here only alongside that.
  */
-const RENDERABLE_SYSTEM_SUBTYPES = new Set<string>(['mcp_app_result']);
+const RENDERABLE_SYSTEM_SUBTYPES = new Set<string>([MCP_APP_EVENT, MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT]);
 
 /**
  * Drop transcript noise:

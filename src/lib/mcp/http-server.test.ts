@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { isMcpTransport, riMcpHandler, zodStandardSchema } from './http-server';
+import { isMcpTransport, riMcpHandler, withProgressKeepalive, zodStandardSchema } from './http-server';
 
 /** A client that talks to the handler in process: no socket, the real wire format. */
 async function connect(handler: (request: Request) => Promise<Response>, mode: 'auto' | 'legacy', headers: Record<string, string> = {}) {
@@ -54,5 +54,35 @@ describe('riMcpHandler', () => {
   it('answers MCP only at …/mcp', () => {
     expect(isMcpTransport('mcp')).toBe(true);
     for (const other of ['sse', 'message', 'anything', undefined]) expect(isMcpTransport(other)).toBe(false);
+  });
+});
+
+describe('withProgressKeepalive', () => {
+  // Claude Code gives up on a tool call after 60 seconds unless progress arrives. A call waiting on
+  // a person, such as a server's form, must say it is still working.
+  const context = (progressToken?: string | number) => {
+    const notify = vi.fn(async () => {});
+    return {notify, ctx: {mcpReq: {_meta: progressToken === undefined ? {} : {progressToken}, notify}} as never};
+  };
+
+  it('reports rising progress while the call waits, and stops when it answers', async () => {
+    const {notify, ctx} = context(1);
+    const result = await withProgressKeepalive(ctx, () => new Promise(resolve => setTimeout(() => resolve('answered'), 55)), 10);
+    expect(result).toBe('answered');
+    const calls = notify.mock.calls as unknown as [{method: string; params: {progressToken: number; progress: number}}][];
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    expect(calls.every(([message]) => message.method === 'notifications/progress' && message.params.progressToken === 1)).toBe(true);
+    expect(calls.map(([message]) => message.params.progress)).toEqual(calls.map((_, index) => index + 1));
+    const sent = notify.mock.calls.length;
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(notify.mock.calls.length).toBe(sent);
+  });
+
+  it('sends nothing to a client that asked for no progress, and passes failures through', async () => {
+    const {notify, ctx} = context();
+    expect(await withProgressKeepalive(ctx, () => new Promise(resolve => setTimeout(() => resolve('done'), 30)), 5)).toBe('done');
+    expect(notify).not.toHaveBeenCalled();
+    const tracked = context('call-7');
+    await expect(withProgressKeepalive(tracked.ctx, async () => { throw new Error('refused'); }, 5)).rejects.toThrow('refused');
   });
 });
