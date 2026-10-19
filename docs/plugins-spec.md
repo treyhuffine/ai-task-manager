@@ -240,7 +240,25 @@ A v1 view is not a long-lived document editor. Do not promise arbitrary third-pa
 
 V1 supports existing Ri skill drafts and installed skills, existing native service tools, and compatible remote MCP servers with optional MCP Apps views. Native tools continue working as they do today. Standalone public MCP servers need no OAuth ceremony when their protocol does not require one.
 
-Ri connects directly to the provider using credentials authorized for Ri. It does not embed ChatGPT, obtain ChatGPT's connections, or derive a UI from a tool-only endpoint. Qualify four things separately: endpoint reachability, client admission/authentication, actual MCP Apps resources, and the host features the view requires. Publicly reachable does not mean anonymous or universally supported. OpenAI-only navigation and file APIs require explicit adapters or an honest unsupported state.
+Ri connects directly to the provider using credentials authorized for Ri. It does not embed ChatGPT, obtain ChatGPT's connections, or derive a UI from a tool-only endpoint. Qualify four things separately: endpoint reachability, client admission/authentication, actual MCP Apps resources, and the host features the view requires. Publicly reachable does not mean anonymous or universally supported. OpenAI-only navigation and file APIs require explicit adapters or an honest unsupported state, and the table below says which is which.
+
+### OpenAI MCP extensions
+
+Ri speaks MCP 2026-07-28 as a client and a server, with a fallback to the 2025 handshake for older peers (`docs/mcp-protocol.md`). It hosts the extensions in OpenAI's [MCP extensions spec](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md) as follows. Each row's details, limits and decisions are in `docs/connected-mcp-apps.md`, whose table also names each test. Bits & Bolts, OpenAI's sample app, is the conformance fixture (`pnpm bits-and-bolts`), run end to end on October 19, 2026 with a real Claude Code chat.
+
+| Extension | Ri | Where it lives | How it is verified |
+| --- | --- | --- | --- |
+| Global, thread and file entrypoints, with icons and titles | Supported | App page, rail and ⌘K rows, the composer's app button, Open with on files | Unit and browser tests. Bits & Bolts' library, Parts Tray and STL viewer |
+| Deep links | Supported, as Ri's own app URL (`?open=<tool>&path=`) | App page, `host-context-changed` to an open screen | Unit and browser tests. Bits & Bolts moved to a part in place |
+| File resources: read, subscribe, write, tool call path, `openai/files/open` | Supported. Writes for agent folders and chat worktrees, paths only for servers on this computer | `lib/mcp-apps/files.ts` | Unit and browser tests. An STL attachment opened in Bits & Bolts |
+| Structured settings | Supported | The connection's page in Plugins | Unit and browser tests. Bits & Bolts' settings |
+| Display modes | Supported, inline and full screen | `ConnectedView` | Unit and browser tests |
+| Model context and messages | Supported. An app's message sends only while the person works in it | Composer context strip, `app-message.ts` | Unit and browser tests. Bits & Bolts' selection and Create part |
+| Composer at-mentions | Supported | The composer's @ menu | Unit and browser tests. Bits & Bolts parts |
+| Extended forms, with resource selection and previews | Supported. Person-added files only for servers on this computer | Form card in chat and over app views | Unit and browser tests. Bits & Bolts' `cad.pickFile` from a Claude Code chat |
+| Plugin onboarding (`onboardingSkill`) | Not supported | | Needs plugin bundles, below |
+
+Plugin onboarding runs a skill packaged with a plugin when the plugin is installed. Ri has no plugin install: it adds an MCP server by URL and installs skills one at a time. `onboardingSkill` belongs to the bundle manifest described below, if bundles are built, where installing a bundle would offer to run its onboarding skill in a new chat.
 
 It does **not** promise installation of anything in the ChatGPT directory or every Claude/Codex plugin. Provider client admission, account plans, authentication and package licensing still matter. Ri's current catalog already distinguishes connectable providers from vendors whose client admission is unestablished. UI protocol compatibility does not override that distinction.
 

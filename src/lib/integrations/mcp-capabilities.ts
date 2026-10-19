@@ -62,7 +62,7 @@ export function snapshotMcpCapabilities(input: readonly McpCapabilityTool[]): Mc
     return entry;
   }).sort((a, b) => compare(a.name, b.name));
   // Icons are presentation, so a new icon never asks the person to review a tool again.
-  return { revision: hash(tools.map(({ icons: _icons, ...tool }) => tool)), tools };
+  return { revision: hash(tools.map(tool => Object.fromEntries(Object.entries(tool).filter(([key]) => key !== 'icons')))), tools };
 }
 
 export function diffMcpCapabilities(reviewed: McpCapabilitySnapshot, current: McpCapabilitySnapshot): McpCapabilityChanges | undefined {
