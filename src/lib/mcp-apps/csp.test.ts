@@ -37,9 +37,9 @@ describe('a view\'s declared network', () => {
   it('keeps a remote app off the person\'s computer and local network, and names what it left out', () => {
     for (const local of ['http://localhost:3000', 'http://ri.localhost', 'https://printer.local', 'https://*.local', 'http://127.0.0.1:8080', 'http://127.9.9.9', 'http://0.0.0.0:80',
       'http://10.0.0.5', 'http://172.16.4.2', 'http://172.31.255.1', 'http://192.168.1.1', 'http://169.254.169.254', 'http://[::1]:3000', 'http://[::]', 'http://[fd12:3456::1]', 'http://[fc00::2]',
-      'http://[fe80::1]', 'http://[febf::1]', 'http://[::ffff:192.168.1.1]'])
+      'http://[fe80::1]', 'http://[febf::1]', 'http://[::ffff:192.168.1.1]', 'http://100.64.0.1', 'http://100.101.102.103:8080', 'http://100.127.255.254'])
       expect(isLocalNetworkSource(local), local).toBe(true);
-    for (const remote of ['https://esm.sh', 'https://172.32.0.1', 'https://172.15.0.1', 'https://11.0.0.1', 'https://192.169.1.1', 'https://localhost.example.com', 'https://[2001:db8::1]', 'https://[::ffff:8.8.8.8]', 'https://*.cloudflare.com'])
+    for (const remote of ['https://esm.sh', 'https://100.63.255.255', 'https://100.128.0.1', 'https://172.32.0.1', 'https://172.15.0.1', 'https://11.0.0.1', 'https://192.169.1.1', 'https://localhost.example.com', 'https://[2001:db8::1]', 'https://[::ffff:8.8.8.8]', 'https://*.cloudflare.com'])
       expect(isLocalNetworkSource(remote), remote).toBe(false);
     const meta = { ui: { csp: { connectDomains: ['https://api.example.com', 'http://localhost:3916', 'http://192.168.1.20:8123'], resourceDomains: ['http://localhost:3916', 'https://esm.sh'], frameDomains: ['http://router.local'] } } };
     expect(declaredCsp(meta)).toEqual({ connectDomains: ['https://api.example.com'], resourceDomains: ['https://esm.sh'], frameDomains: [], baseUriDomains: [],

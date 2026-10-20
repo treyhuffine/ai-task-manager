@@ -37,13 +37,16 @@ export interface DeclaredNetwork extends ViewCsp {
 /**
  * The switch for the one rule about local addresses (docs/connected-mcp-apps.md,
  * "Security"). While true, a screen from a remote app can't reach localhost,
- * loopback, `.local` names, private or link-local IPv4 and IPv6 ranges, or the
- * IPv6 loopback, even when it declares them: a remote app has no business on
+ * loopback, `.local` names, private or link-local IPv4 and IPv6 ranges, the
+ * shared range a tailnet gives the person's devices (100.64.0.0/10, as
+ * Tailscale uses), or the IPv6 loopback, even when it declares them: a remote app has no business on
  * the person's own network, and it is where unauthenticated services live. An
  * app whose server runs on this computer keeps them, since that is where it
  * lives. Set false to let every app reach the local addresses it declares.
  * A public name that resolves to a private address isn't caught here: that is
- * left to the browser.
+ * left to the browser. Nor is another spelling of an address (`127.1`,
+ * `0x7f000001`): a browser matches a CSP source against the host exactly as
+ * written, so those reach nothing.
  */
 export const KEEP_REMOTE_APPS_OFF_THE_LOCAL_NETWORK = true;
 
@@ -52,7 +55,7 @@ const ipv4 = (host: string) => {
   return parts && parts.every(part => part <= 255) ? parts : null;
 };
 const privateIpv4 = ([a, b]: number[]) =>
-  a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
 
 /** Whether a CSP source (`scheme://host[:port]`) names the person's computer or local network. */
 export function isLocalNetworkSource(source: string): boolean {
