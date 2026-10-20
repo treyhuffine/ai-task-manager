@@ -129,12 +129,18 @@ export function usePreviewLogs(
   const cursorRef = useRef(0);
   const idRef = useRef<string | null>(null);
 
-  // Reset the buffer when the execution changes.
+  // Reset the buffer when the execution changes. The lines while rendering, so
+  // the panel never shows the last execution's logs. The cursor in an effect,
+  // since refs aren't touched while rendering, and before the poll reads it.
+  const [linesFor, setLinesFor] = useState(executionId);
+  if (linesFor !== executionId) {
+    setLinesFor(executionId);
+    setLines([]);
+  }
   useEffect(() => {
     if (idRef.current !== executionId) {
       idRef.current = executionId;
       cursorRef.current = 0;
-      setLines([]);
     }
   }, [executionId]);
 

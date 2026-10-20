@@ -208,7 +208,7 @@ export function SourcesScreen(props: SourcesScreenProps) {
               ))}
             </ul>
           ) : (
-            <p className="ri-muted">No chat can use this app's records. Share from a chat's access settings in Ri.</p>
+            <p className="ri-muted">No chat can use this app&apos;s records. Share from a chat&apos;s access settings in Ri.</p>
           )}
         </div>
       )}

@@ -60,9 +60,13 @@ export const SlashMenuList = forwardRef<SlashMenuListRef, SlashMenuListProps>(
     const [selectedIndex, setSelectedIndex] = useState(0)
     const listRef = useRef<HTMLDivElement>(null)
 
-    useEffect(() => {
+    // A new list of matches starts from its first row. Reset while rendering,
+    // so Enter never acts on a row from the previous list.
+    const [itemsShown, setItemsShown] = useState(items)
+    if (items !== itemsShown) {
+      setItemsShown(items)
       setSelectedIndex(0)
-    }, [items])
+    }
 
     useEffect(() => {
       const el = listRef.current?.children[selectedIndex] as HTMLElement | undefined

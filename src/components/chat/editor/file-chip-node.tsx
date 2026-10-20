@@ -47,7 +47,7 @@ declare module '@tiptap/core' {
   }
 }
 
-export const FileChipNode = Node.create<{}>({
+export const FileChipNode = Node.create<Record<string, never>>({
   name: FILE_CHIP_NAME,
   group: 'inline',
   inline: true,

@@ -26,6 +26,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 import type { Attachment } from '@/db/types';
+import { countWords } from '@/lib/notes/word-count';
 
 export default function NotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: noteId } = use(params);
@@ -50,6 +51,14 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
 
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
+  // Counts start from the note as it loads, then follow typing. Set while
+  // rendering when another note arrives, so the footer never shows the last one's.
+  const [countedNoteId, setCountedNoteId] = useState<string | null>(null);
+  if (note && note.id !== countedNoteId) {
+    setCountedNoteId(note.id);
+    setWordCount(countWords(note.body));
+    setCharCount(note.body.length);
+  }
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
 
   const handleAttachment = useCallback((attachment: Attachment) => {
@@ -69,8 +78,7 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
   const handleBodyChange = useCallback(
     (body: string) => {
       if (!noteId) return;
-      const text = body.replace(/[#*_~`>\-\[\]()]/g, '').trim();
-      setWordCount(text ? text.split(/\s+/).length : 0);
+      setWordCount(countWords(body));
       setCharCount(body.length);
 
       const attachments = pendingAttachmentsRef.current;
@@ -81,15 +89,6 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
     },
     [noteId, autosave],
   );
-
-  // Initialize counts when note loads
-  useEffect(() => {
-    if (note) {
-      const text = note.body.replace(/[#*_~`>\-\[\]()]/g, '').trim();
-      setWordCount(text ? text.split(/\s+/).length : 0);
-      setCharCount(note.body.length);
-    }
-  }, [note?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAreaChange = useCallback(
     (areaId: string | null) => {

@@ -52,13 +52,19 @@ export function ProfileSection() {
     }
   };
 
-  useEffect(() => {
-    if (userState) setName(userState.name ?? '');
-  }, [userState?.name]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (userState) setDescription(userState.description);
-  }, [userState?.description]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The stored name and description fill their fields when they load or change
+  // elsewhere. Set while rendering, so a field never paints the previous value.
+  // Undefined means not filled yet: a stored name is a string or null.
+  const [nameFrom, setNameFrom] = useState<string | null | undefined>(undefined);
+  if (userState && userState.name !== nameFrom) {
+    setNameFrom(userState.name);
+    setName(userState.name ?? '');
+  }
+  const [descriptionFrom, setDescriptionFrom] = useState<string | undefined>(undefined);
+  if (userState && userState.description !== descriptionFrom) {
+    setDescriptionFrom(userState.description);
+    setDescription(userState.description);
+  }
 
   const handleDescriptionChange = useCallback(
     (value: string) => {

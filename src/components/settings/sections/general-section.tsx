@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import Link from 'next/link';
 import { closeSettings } from '@/components/settings/settings-store';
@@ -84,11 +84,14 @@ export function GeneralSection() {
 
   const [start, setStart] = useState(DEFAULT_START);
   const [end, setEnd] = useState(DEFAULT_END);
-  useEffect(() => {
-    if (!userState) return;
+  // The saved working hours fill the fields when they load or change. Set
+  // while rendering, so the fields never paint the defaults over saved hours.
+  const [workdayFrom, setWorkdayFrom] = useState<{ start: string | null; end: string | null } | null>(null);
+  if (userState && (userState.workdayStart !== workdayFrom?.start || userState.workdayEnd !== workdayFrom?.end)) {
+    setWorkdayFrom({ start: userState.workdayStart, end: userState.workdayEnd });
     setStart(userState.workdayStart ?? DEFAULT_START);
     setEnd(userState.workdayEnd ?? DEFAULT_END);
-  }, [userState?.workdayStart, userState?.workdayEnd]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   const browserTz = useMemo(() => browserTimezone(), []);
   const zones = useMemo(() => allTimezones(), []);
@@ -105,9 +108,12 @@ export function GeneralSection() {
   const { data: autonomyState } = useStreamAutonomy();
   const setAutonomy = useSetStreamAutonomy();
   const [morningTime, setMorningTime] = useState('04:00');
-  useEffect(() => {
-    if (morning) setMorningTime(morning.time);
-  }, [morning?.time]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Same for the morning deck's time.
+  const [morningTimeFrom, setMorningTimeFrom] = useState<string | null>(null);
+  if (morning && morning.time !== morningTimeFrom) {
+    setMorningTimeFrom(morning.time);
+    setMorningTime(morning.time);
+  }
   const morningEnabled = morning?.enabled ?? false;
 
   const { choice, customCommand, setChoice, setCustomCommand } = useEditorPreference();

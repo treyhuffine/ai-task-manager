@@ -31,6 +31,8 @@ import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib
 import { cn } from '@/lib/utils'
 import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 import type { Attachment } from '@/db/types'
+import { useEnterTransition } from '@/hooks/use-enter-transition'
+import { countWords } from '@/lib/notes/word-count'
 
 const DEFAULT_WIDTH = 1200
 const MIN_WIDTH = 420
@@ -74,9 +76,18 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
     defaultSize: DEFAULT_WIDTH,
     storageKey: 'ri.note-slideout.width',
   })
-  const [isVisible, setIsVisible] = useState(false)
+  // Slides in two frames after opening (see the hook).
+  const isVisible = useEnterTransition(isOpen)
   const [wordCount, setWordCount] = useState(0)
   const [charCount, setCharCount] = useState(0)
+  // Counts start from the note as it loads, then follow typing. Set while
+  // rendering when another note arrives, so the footer never shows the last one's.
+  const [countedNoteId, setCountedNoteId] = useState<string | null>(null)
+  if (note && note.id !== countedNoteId) {
+    setCountedNoteId(note.id)
+    setWordCount(countWords(note.body))
+    setCharCount(note.body.length)
+  }
   const containerRef = useRef<HTMLDivElement>(null)
   // Tracks attachments uploaded during this editing session so we can include
   // their metadata in save payloads. The server's derive step intersects these
@@ -88,16 +99,6 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
     pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment]
   }, [])
 
-  // Animate in
-  useEffect(() => {
-    if (isOpen) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => setIsVisible(true))
-      })
-    } else {
-      setIsVisible(false)
-    }
-  }, [isOpen])
 
   // Debounced save — separate timers so title and body don't cancel each other
   const handleTitleChange = useCallback(
@@ -113,8 +114,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
     (body: string) => {
       if (!noteId) return
       // Update word/char counts from the body text
-      const text = body.replace(/[#*_~`>\-\[\]()]/g, '').trim()
-      setWordCount(text ? text.split(/\s+/).length : 0)
+      setWordCount(countWords(body))
       setCharCount(body.length)
 
       const attachments = pendingAttachmentsRef.current
@@ -125,15 +125,6 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
     },
     [noteId, autosave]
   )
-
-  // Initialize counts when note loads
-  useEffect(() => {
-    if (note) {
-      const text = note.body.replace(/[#*_~`>\-\[\]()]/g, '').trim()
-      setWordCount(text ? text.split(/\s+/).length : 0)
-      setCharCount(note.body.length)
-    }
-  }, [note?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFoldedHeadingsChange = useCallback(
     (folded: string[]) => {

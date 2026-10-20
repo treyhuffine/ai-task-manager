@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { useRunsStats } from '@/hooks/use-runs-stats';
 import { SettingsSkeleton } from '@/components/settings/settings-skeleton';
@@ -24,9 +24,13 @@ export function BillingSection() {
 
 function BudgetField({ value, onSave }: { value: number | null; onSave: (next: number | null) => void }) {
   const [draft, setDraft] = useState<string>(value != null ? String(value) : '');
-  useEffect(() => {
+  // A saved budget replaces the draft. Set while rendering, so the field never
+  // paints the old number.
+  const [draftFor, setDraftFor] = useState(value);
+  if (value !== draftFor) {
+    setDraftFor(value);
     setDraft(value != null ? String(value) : '');
-  }, [value]);
+  }
   const unlimited = value == null;
 
   return (

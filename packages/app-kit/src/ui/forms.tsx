@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes, type Ref } from "react";
+import { createContext, useContext, useId, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes, type Ref } from "react";
 import { DangerIcon } from "./icons.js";
 import { currencyDigits, minorToDecimal, parseMoneyInput } from "./format.js";
 import { cx } from "./util.js";
@@ -216,14 +216,18 @@ export function MoneyInput({ label, value, onChange, currencies = DEFAULT_CURREN
   const [text, setText] = useState(() => (value.amountMinor === null ? "" : minorToDecimal(value.amountMinor, value.currency)));
   const [parseError, setParseError] = useState<string | null>(null);
   const currencyId = useId();
-  // Follow a new value from the caller unless it is what the typed text already means.
-  useEffect(() => {
+  // Follow a new value from the caller unless it is what the typed text already
+  // means. Adjusted while rendering, so the field never paints the stale text.
+  const [followed, setFollowed] = useState({ amountMinor: value.amountMinor, currency: value.currency });
+  if (followed.amountMinor !== value.amountMinor || followed.currency !== value.currency) {
+    setFollowed({ amountMinor: value.amountMinor, currency: value.currency });
     const parsed = parseMoneyInput(text, value.currency, { allowNegative });
-    if (parsed.ok && parsed.minor === value.amountMinor) return;
-    if (!parsed.ok && value.amountMinor === null) return;
-    setText(value.amountMinor === null ? "" : minorToDecimal(value.amountMinor, value.currency));
-    setParseError(null);
-  }, [value.amountMinor, value.currency]);
+    const alreadyMeant = parsed.ok ? parsed.minor === value.amountMinor : value.amountMinor === null;
+    if (!alreadyMeant) {
+      setText(value.amountMinor === null ? "" : minorToDecimal(value.amountMinor, value.currency));
+      setParseError(null);
+    }
+  }
   const emit = (nextText: string, currency: string) => {
     const parsed = parseMoneyInput(nextText, currency, { allowNegative });
     const message = parsed.ok ? null : parsed.error;

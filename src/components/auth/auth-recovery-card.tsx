@@ -56,11 +56,10 @@ export function AuthRecoveryCard() {
   // Dismissal is per-set-of-stuck-sessions: once the user closes the
   // card, it stays gone for THAT set. If a new session joins the list,
   // we reset dismissal so the card pops back up.
+  // Cleared while rendering, so a newly stuck chat brings the card back in the
+  // same paint.
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
-  useEffect(() => {
-    if (dismissedKey === null) return;
-    if (sessionIdsKey !== dismissedKey) setDismissedKey(null);
-  }, [dismissedKey, sessionIdsKey]);
+  if (dismissedKey !== null && dismissedKey !== sessionIdsKey) setDismissedKey(null);
 
   // After login flips to logged-in, refetch immediately to populate the
   // card. Polling would catch it within 30s anyway, but this avoids the

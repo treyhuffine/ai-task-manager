@@ -36,10 +36,14 @@ export function Dialog({ open, title, description, onClose, children, footer, wi
   const titleId = useId();
   const descriptionId = useId();
   const layout = useAppLayout();
+  // The native close and cancel listeners read the latest props through refs,
+  // kept current after each render so the listeners never need re-adding.
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
   const busyRef = useRef(busy);
-  busyRef.current = busy;
+  useIsomorphicLayoutEffect(() => {
+    onCloseRef.current = onClose;
+    busyRef.current = busy;
+  });
 
   // Refs survive StrictMode's repeated effects, so the opener is captured once per opening.
   const wasOpen = useRef(false);

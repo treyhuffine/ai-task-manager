@@ -24,7 +24,7 @@ export function TaskPicker({ value, onChange, className }: TaskPickerProps) {
   });
 
   const { data: linkedTask } = useTasks(
-    value ? { status: ['active', 'done'] as any, limit: 1 } : undefined,
+    value ? { status: ['active', 'done'], limit: 1 } : undefined,
   );
 
   const linkedTitle = linkedTask?.find(t => t.id === value)?.title;

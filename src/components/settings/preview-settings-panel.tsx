@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Globe, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePreviewSettings, useUpdatePreviewSettings } from '@/hooks/use-preview';
@@ -19,11 +19,13 @@ export function PreviewSettingsPanel() {
 
   const [manualTemplate, setManualTemplate] = useState('');
 
-  // Hydrate local fields from server settings once loaded.
-  useEffect(() => {
-    if (!settings) return;
+  // Fill the local fields from the server settings each time they arrive. Set
+  // while rendering, so the field never paints the previous value.
+  const [hydratedFrom, setHydratedFrom] = useState<typeof settings>(undefined);
+  if (settings && settings !== hydratedFrom) {
+    setHydratedFrom(settings);
     setManualTemplate(settings.manualTemplate ?? '');
-  }, [settings]);
+  }
 
   if (isLoading || !settings) {
     return <PanelShell><SettingsSkeleton rows={3} /></PanelShell>;

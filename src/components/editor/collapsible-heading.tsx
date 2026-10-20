@@ -7,6 +7,7 @@ import {
   NodeViewContent,
   type ReactNodeViewProps,
 } from '@tiptap/react'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { ChevronRight } from 'lucide-react'
@@ -15,8 +16,9 @@ import type { Editor } from '@tiptap/core'
 import { Tip } from '@/components/ui/tip'
 
 type Level = 1 | 2 | 3 | 4 | 5 | 6
+type HeadingTag = `h${Level}`
 
-const TAG_MAP: Record<Level, string> = {
+const TAG_MAP: Record<Level, HeadingTag> = {
   1: 'h1',
   2: 'h2',
   3: 'h3',
@@ -74,11 +76,11 @@ export function applyFoldedHeadingIds(editor: Editor, ids: readonly string[]): v
  * Uses ProseMirror's decoration system instead of direct DOM manipulation
  * to avoid triggering the mutation observer → infinite update loop.
  */
-function buildCollapsedDecorations(doc: any): DecorationSet {
+function buildCollapsedDecorations(doc: ProseMirrorNode): DecorationSet {
   const decorations: Decoration[] = []
   let activeCollapse: { level: number } | null = null
 
-  doc.forEach((node: any, offset: number) => {
+  doc.forEach((node, offset) => {
     if (node.type.name === 'collapsibleHeading') {
       const level = node.attrs.level as number
       // If we hit a heading at the same or higher level, end the collapse
@@ -105,10 +107,10 @@ function buildCollapsedDecorations(doc: any): DecorationSet {
 // Counts logical text lines inside a node. Each leaf block counts as 1 line
 // (paragraph, list item, heading), with extra newlines inside (e.g. code blocks)
 // adding to the count. Empty leaf blocks still count as 1 line.
-function countLinesInNode(node: any): number {
+function countLinesInNode(node: ProseMirrorNode): number {
   let lines = 0
   let isLeafBlock = true
-  node.forEach((child: any) => {
+  node.forEach((child) => {
     if (child.isBlock) {
       isLeafBlock = false
       lines += countLinesInNode(child)
@@ -207,8 +209,8 @@ function CollapsibleHeadingView(props: ReactNodeViewProps) {
           size={level === 1 ? 16 : level === 2 ? 15 : 14}
         />
       </button>
-      <NodeViewContent
-        as={TAG_MAP[level] as any}
+      <NodeViewContent<HeadingTag>
+        as={TAG_MAP[level]}
         className="collapsible-heading-content"
       />
       {collapsed && hiddenCount > 0 && (
@@ -238,7 +240,7 @@ export const CollapsibleHeading = Node.create({
   // Map to standard markdown heading tokens for round-trip serialization
   markdownTokenName: 'heading',
 
-  parseMarkdown: (token: any, helpers: any) => {
+  parseMarkdown: (token, helpers) => {
     const level = token.depth || 1
     const content = helpers.parseInline(token.tokens || [])
     return {
@@ -248,7 +250,7 @@ export const CollapsibleHeading = Node.create({
     }
   },
 
-  renderMarkdown: (node: any, helpers: any) => {
+  renderMarkdown: (node, helpers) => {
     const level = node.attrs?.level ? parseInt(node.attrs.level as string, 10) : 1
     const prefix = '#'.repeat(level)
 
@@ -279,13 +281,7 @@ export const CollapsibleHeading = Node.create({
     }))
   },
 
-  renderHTML({
-    node,
-    HTMLAttributes,
-  }: {
-    node: any
-    HTMLAttributes: Record<string, any>
-  }) {
+  renderHTML({ node, HTMLAttributes }) {
     const tag = `h${node.attrs.level}`
     return [tag, mergeAttributes(HTMLAttributes), 0]
   },

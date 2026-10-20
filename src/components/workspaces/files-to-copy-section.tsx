@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronDown, FileText, Loader2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { workspacesApi, type PreviewFilesToCopyResponse } from '@/lib/api/workspaces';
 import { cn } from '@/lib/utils';
 import { Tip } from '@/components/ui/tip';
@@ -42,21 +42,22 @@ export function FilesToCopySection({
   // without round-tripping through `string[]` and snapping the cursor.
   const [text, setText] = useState(() => globsToText(value));
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const [preview, setPreview] = useState<PreviewFilesToCopyResponse | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
   // Sync external value changes (e.g. settings sheet loaded a workspace)
   // back into the textarea — but only when the parsed arrays actually
-  // differ, so the user's typing isn't disrupted.
-  const lastSyncedRef = useRef<string>(globsToText(value));
-  useEffect(() => {
-    const incoming = globsToText(value);
-    if (incoming !== lastSyncedRef.current) {
-      lastSyncedRef.current = incoming;
+  // differ, so the user's typing isn't disrupted. Set while rendering, so the
+  // textarea never paints the old list. Compared as text, so a caller that
+  // passes an equal new array each render changes nothing.
+  const incoming = globsToText(value);
+  const [valueText, setValueText] = useState(incoming);
+  const [lastSynced, setLastSynced] = useState(incoming);
+  if (incoming !== valueText) {
+    setValueText(incoming);
+    if (incoming !== lastSynced) {
+      setLastSynced(incoming);
       setText(incoming);
     }
-  }, [value]);
+  }
 
   const globs = useMemo(() => textToGlobs(text), [text]);
   const trimmedCwd = cwd.trim();
@@ -68,30 +69,31 @@ export function FilesToCopySection({
     [shouldPreview, trimmedCwd, globs],
   );
 
+  // The last answer, with the key it answers. While the key moves on, that
+  // answer stays up and the section shows it's loading the new one. With
+  // nothing to preview it's dropped, so a later preview starts clean.
+  const [fetched, setFetched] = useState<{
+    key: string;
+    preview: PreviewFilesToCopyResponse | null;
+    error: string | null;
+  } | null>(null);
+  if (!shouldPreview && fetched !== null) setFetched(null);
+  const preview = fetched?.preview ?? null;
+  const previewError = fetched?.error ?? null;
+  const loading = shouldPreview && fetched?.key !== previewKey;
+
   useEffect(() => {
-    if (!shouldPreview) {
-      setPreview(null);
-      setPreviewError(null);
-      setLoading(false);
-      return;
-    }
+    if (!shouldPreview) return;
     let cancelled = false;
-    setLoading(true);
     const handle = setTimeout(() => {
       workspacesApi
         .previewFilesToCopy(trimmedCwd, globs)
         .then((res) => {
-          if (cancelled) return;
-          setPreview(res);
-          setPreviewError(null);
+          if (!cancelled) setFetched({ key: previewKey, preview: res, error: null });
         })
         .catch((err: unknown) => {
           if (cancelled) return;
-          setPreview(null);
-          setPreviewError(err instanceof Error ? err.message : String(err));
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
+          setFetched({ key: previewKey, preview: null, error: err instanceof Error ? err.message : String(err) });
         });
     }, PREVIEW_DEBOUNCE_MS);
     return () => {
@@ -103,7 +105,7 @@ export function FilesToCopySection({
   const handleTextChange = (next: string) => {
     setText(next);
     const nextGlobs = textToGlobs(next);
-    lastSyncedRef.current = globsToText(nextGlobs);
+    setLastSynced(globsToText(nextGlobs));
     onChange(nextGlobs);
   };
 

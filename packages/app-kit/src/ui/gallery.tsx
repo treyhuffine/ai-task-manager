@@ -560,7 +560,7 @@ function PeoplePage({ detailOpen, initialDialog, initialTab }: { detailOpen: boo
               <div className="ri-card" style={{ padding: "1rem 1.125rem" }}>
                 <div className="ri-stack ri-stack--tight">
                   <h3 className="ri-h3">Before you meet</h3>
-                  <p>You discussed the team's hiring plans and the portfolio review format. {person.name.split(" ")[0]} asked to see an example of a complex product decision.</p>
+                  <p>You discussed the team&apos;s hiring plans and the portfolio review format. {person.name.split(" ")[0]} asked to see an example of a complex product decision.</p>
                   <p className="ri-eyebrow" style={{ marginTop: "0.5rem" }}>Possible follow-up</p>
                   <p>You offered to introduce {person.name.split(" ")[0]} to a research lead.</p>
                   <p className="ri-small ri-muted">No confirming message found in the indexed history.</p>

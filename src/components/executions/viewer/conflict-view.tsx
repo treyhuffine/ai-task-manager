@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Loader2,
   FileX,
@@ -56,11 +56,14 @@ export function ConflictView({ source, path }: ConflictViewProps) {
   const blockCount = parsed?.count ?? 0;
 
   // One resolution slot per conflict block. Reset whenever we switch
-  // files or the parsed block count changes (e.g. after a refetch).
+  // files or the parsed block count changes (e.g. after a refetch). Reset
+  // while rendering, so no hunk ever paints another file's choice.
   const [resolutions, setResolutions] = useState<(ConflictResolution | null)[]>([]);
-  useEffect(() => {
+  const [resolutionsFor, setResolutionsFor] = useState<{ path: string; blockCount: number } | null>(null);
+  if (resolutionsFor?.path !== path || resolutionsFor.blockCount !== blockCount) {
+    setResolutionsFor({ path, blockCount });
     setResolutions(Array.from({ length: blockCount }, () => null));
-  }, [path, blockCount]);
+  }
 
   const chooseBlock = useCallback((index: number, choice: ConflictResolution | null) => {
     setResolutions((prev) => {
@@ -159,6 +162,12 @@ export function ConflictView({ source, path }: ConflictViewProps) {
     );
   }
 
+  // Each segment's place among the conflicts (-1 for context), so a hunk
+  // reads and sets its own resolution.
+  const conflictIndexes: number[] = [];
+  let conflictsSeen = 0;
+  for (const seg of parsed.segments) conflictIndexes.push(seg.type === 'context' ? -1 : conflictsSeen++);
+
   return (
     <div className="flex h-full w-full flex-col bg-background">
       {/* Toolbar */}
@@ -203,26 +212,22 @@ export function ConflictView({ source, path }: ConflictViewProps) {
 
       {/* Body */}
       <div className="min-h-0 flex-1 overflow-auto py-1 text-[12px] leading-[1.5]">
-        {(() => {
-          let blockIdx = -1;
-          return parsed.segments.map((seg, i) => {
-            if (seg.type === 'context') {
-              return <ContextBlock key={`ctx-${i}`} lines={seg.lines} />;
-            }
-            blockIdx += 1;
-            const idx = blockIdx;
-            return (
-              <ConflictHunk
-                key={`conflict-${i}`}
-                block={seg.block}
-                index={idx}
-                total={blockCount}
-                resolution={resolutions[idx] ?? null}
-                onChoose={(choice) => chooseBlock(idx, choice)}
-              />
-            );
-          });
-        })()}
+        {parsed.segments.map((seg, i) => {
+          if (seg.type === 'context') {
+            return <ContextBlock key={`ctx-${i}`} lines={seg.lines} />;
+          }
+          const idx = conflictIndexes[i];
+          return (
+            <ConflictHunk
+              key={`conflict-${i}`}
+              block={seg.block}
+              index={idx}
+              total={blockCount}
+              resolution={resolutions[idx] ?? null}
+              onChoose={(choice) => chooseBlock(idx, choice)}
+            />
+          );
+        })}
       </div>
     </div>
   );

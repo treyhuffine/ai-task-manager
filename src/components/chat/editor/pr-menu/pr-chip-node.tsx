@@ -44,7 +44,7 @@ declare module '@tiptap/core' {
   }
 }
 
-export const PrChipNode = Node.create<{}>({
+export const PrChipNode = Node.create<Record<string, never>>({
   name: PR_CHIP_NAME,
   group: 'inline',
   inline: true,
