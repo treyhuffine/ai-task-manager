@@ -116,7 +116,7 @@ export function ensureSessionCli(): { binDir: string; launcher: string } | null 
   if (!plan) return null;
   let current: string | null = null;
   try {
-    current = fs.readFileSync(plan.launcher, 'utf8');
+    current = fs.readFileSync(/* turbopackIgnore: true */ plan.launcher, 'utf8');
   } catch {
     // Missing: written below.
   }

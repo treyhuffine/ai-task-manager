@@ -330,8 +330,8 @@ export function copySkillFolder(from: string, to: string): SkillDocument {
 /** `.archive/<bucket>/<label>-<stamp>`, never overwriting an earlier archive. */
 function archiveTarget(root: string, label: string): string {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
-  let target = path.join(root, `${label}-${stamp}`);
-  for (let n = 2; fs.existsSync(target); n++) target = path.join(root, `${label}-${stamp}-${n}`);
+  let target = path.join(/* turbopackIgnore: true */ root, `${label}-${stamp}`);
+  for (let n = 2; fs.existsSync(/* turbopackIgnore: true */ target); n++) target = path.join(/* turbopackIgnore: true */ root, `${label}-${stamp}-${n}`);
   return target;
 }
 

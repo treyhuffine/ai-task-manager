@@ -42,7 +42,7 @@ export function isAttachmentGcEnabled(): boolean {
 
 /** Primary directory for a given entity type (plural form). */
 export function typeDir(type: EntityType): string {
-  return path.join(getBrainDir(), `${type}s`);
+  return path.join(/* turbopackIgnore: true */ getBrainDir(), `${type}s`);
 }
 
 /** Tmp subdir (hidden from the primary glob pattern). */

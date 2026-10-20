@@ -161,7 +161,7 @@ export async function resolveReferenceFolder(
   const absolutePath = referenceFolderPath(ref);
   if (!absolutePath) return null;
 
-  const exists = existsSync(absolutePath) && isDirectory(absolutePath);
+  const exists = existsSync(/* turbopackIgnore: true */ absolutePath) && isDirectory(absolutePath);
   const git =
     exists && options.probeGit !== false ? await probeGitState(absolutePath) : null;
 

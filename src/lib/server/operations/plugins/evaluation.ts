@@ -7,7 +7,7 @@ import { OperationError } from '@/lib/server/operation';
 // This experimental host has fixed public services and synthetic fixtures.
 // It has no account connection or authority in Ri's integration runtime.
 export function evaluationDirectory() {
-  return path.resolve(process.env.RI_MCP_APPS_EVAL_DIR || path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'ri-mcp-apps-0a'));
+  return path.resolve(/* turbopackIgnore: true */ process.env.RI_MCP_APPS_EVAL_DIR || path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'ri-mcp-apps-0a'));
 }
 
 const httpsOrigin = z.string().url().refine(value => {
