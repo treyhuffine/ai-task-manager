@@ -94,7 +94,7 @@ export async function packageIncludedApp(packageId: string, repository: string, 
       version: workspace.version,
       private: true,
       type: 'module',
-      packageManager: 'pnpm@10.33.0',
+      packageManager: 'pnpm@12.14.0',
       dependencies: { ...workspace.dependencies, '@ri/app-kit': `file:vendor/${tarball}` },
       ...(Object.keys(overrides).length ? { pnpm: { overrides } } : {}),
     };

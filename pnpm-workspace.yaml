@@ -10,6 +10,20 @@ packages:
   - "apps/people"
   - "apps/travel"
   - "apps/job-search"
+# Dependency install scripts run only where listed true. The packages listed
+# false work from what they publish (prebuilt binaries, platform packages), so
+# their scripts are skipped. node-pty must stay true: its postinstall makes
+# spawn-helper executable, and the terminal cannot start a shell without it.
 allowBuilds:
+  "@parcel/watcher": false
+  "@swc/core": false
   better-sqlite3: true
   electron: true
+  electron-winstaller: false
+  esbuild: false
+  msw: false
+  node-pty: true
+  pnpm: false
+  sharp: false
+  tesseract.js: false
+  unrs-resolver: false

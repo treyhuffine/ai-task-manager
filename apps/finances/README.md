@@ -21,7 +21,7 @@ The standalone commands below run from `apps/finances`. Its portable package and
 
 ## Run a fictional example
 
-Requires Node 22 or newer and pnpm 10. The qualified subscription extraction profile currently requires macOS, the installed Claude subscription CLI and optional Homebrew Poppler for PDF invoices. Other harnesses fail closed and allow manual review.
+Requires Node 22 or newer and pnpm 10 or newer. The qualified subscription extraction profile currently requires macOS, the installed Claude subscription CLI and optional Homebrew Poppler for PDF invoices. Other harnesses fail closed and allow manual review.
 
 ```sh
 pnpm install

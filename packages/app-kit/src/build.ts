@@ -412,7 +412,7 @@ export function appKitToolchain() {
   const require = kitRequire();
   const resolve = require.resolve.bind(require);
   const kitDir = path.resolve(path.dirname(resolve(['@ri/app-kit', 'build'].join('/'))), '..');
-  return { packageDir: kitDir, pnpm: path.join(path.dirname(require.resolve('pnpm')), 'bin/pnpm.cjs'), validationWorker: path.join(kitDir, 'dist/validation-worker.js') };
+  return { packageDir: kitDir, pnpm: path.join(path.dirname(require.resolve('pnpm/package.json')), 'bin/pnpm.mjs'), validationWorker: path.join(kitDir, 'dist/validation-worker.js') };
 }
 /** Run supported build operations with the kit's own pinned tools. No package
  * lifecycle scripts or arbitrary shell build commands are executed. */
@@ -511,13 +511,15 @@ export async function buildPackage(
   }
   try {
     await run([
-      path.join(path.dirname(require.resolve("pnpm")), "bin/pnpm.cjs"),
+      path.join(path.dirname(require.resolve("pnpm/package.json")), "bin/pnpm.mjs"),
       "install",
       "--frozen-lockfile",
       "--ignore-scripts",
       "--config.node-linker=isolated",
       "--config.verify-store-integrity=true",
       "--config.package-import-method=copy",
+      // The kit's pnpm runs the install even when the app pins another version.
+      "--config.pm-on-fail=ignore",
     ]);
   } catch (error) {
     if (options.signal?.aborted) throw error;

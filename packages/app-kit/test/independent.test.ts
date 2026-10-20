@@ -9,7 +9,7 @@ import {runtimeEnvironment} from '@ri/app-kit/runtime';
 import {nodeFixture} from './helpers';
 const exec=promisify(execFile);
 it('installs the packed kit in a clean consumer and exercises the ordinary MCP projection',async()=>{
- const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ri-kit-consumer-')),consumer=path.join(dir,'consumer'),require=createRequire(import.meta.url),kit=path.resolve(path.dirname(require.resolve('@ri/app-kit/sdk')),'..'),pnpm=path.join(path.dirname(require.resolve('pnpm')),'bin/pnpm.cjs');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ri-kit-consumer-')),consumer=path.join(dir,'consumer'),require=createRequire(import.meta.url),kit=path.resolve(path.dirname(require.resolve('@ri/app-kit/sdk')),'..'),pnpm=path.join(path.dirname(require.resolve('pnpm/package.json')),'bin/pnpm.mjs');
  try{fs.mkdirSync(consumer);const artifact=await nodeFixture(path.join(dir,'artifact'));await exec(process.execPath,[pnpm,'pack','--pack-destination',dir],{cwd:kit,env:runtimeEnvironment(process.execPath,dir),maxBuffer:1024*1024});
   fs.writeFileSync(path.join(consumer,'package.json'),JSON.stringify({name:'independent-app-host',version:'1.0.0',private:true,type:'module',dependencies:{'@ri/app-kit':'file:../ri-app-kit-0.1.0.tgz'}}));
   await exec(process.execPath,[pnpm,'install','--ignore-scripts'],{cwd:consumer,env:runtimeEnvironment(process.execPath,dir),timeout:120000,maxBuffer:1024*1024});

@@ -103,7 +103,7 @@ export async function writeAppTemplate(
         version: "0.1.0",
         private: true,
         type: "module",
-        packageManager: "pnpm@10.33.0",
+        packageManager: "pnpm@12.14.0",
         dependencies: {
           "@ri/app-kit": kitDependency,
           zod: "3.25.76",

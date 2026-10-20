@@ -83,13 +83,13 @@ If you want a real `ri` binary on your PATH (still from this repo, no npm publis
 
 ```bash
 pnpm cli:build            # bundle the CLI to ./dist/cli/index.mjs (also runs on install via `prepare`)
-pnpm link                 # expose this repo's `ri` command globally (pnpm 10)
+pnpm add -g .             # link this repo's `ri` command into pnpm's global bin folder
 ri --help                 # confirm the command is available
 ```
 
-`./dist` is a build artifact, not source, so it is gitignored and never committed. The `prepare` hook rebuilds it on every `pnpm install`, so a fresh clone gets a working binary automatically. Re-run `pnpm cli:build` after CLI changes to refresh the bundle the symlink points at. To undo the link: `pnpm unlink --global ri`.
+`./dist` is a build artifact, not source, so it is gitignored and never committed. The `prepare` hook rebuilds it on every `pnpm install`, so a fresh clone gets a working binary automatically. Re-run `pnpm cli:build` after CLI changes to refresh the bundle the symlink points at. To undo the link: `pnpm remove -g ai-task-manager`.
 
-For a source installation, run `ri start` from the repository directory so it can find the server build. On macOS, put pnpm's global bin directory before `/usr/bin` on `PATH`, since `/usr/bin/ri` is Ruby's documentation command.
+For a source installation, run `ri start` from the repository directory so it can find the server build. On macOS, put pnpm's global bin directory (`pnpm bin -g`) before `/usr/bin` on `PATH`, since `/usr/bin/ri` is Ruby's documentation command.
 
 To host a team alongside your personal Home, run one command from the repository:
 
