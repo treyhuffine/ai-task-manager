@@ -35,9 +35,6 @@ importers:
       '@beamd/cli':
         specifier: ^0.0.7
         version: 0.0.7
-      '@cfworker/json-schema':
-        specifier: 4.1.1
-        version: 4.1.1
       '@clack/prompts':
         specifier: ^1.2.0
         version: 1.2.0
@@ -11122,7 +11119,8 @@ snapshots:
       css-tree: 3.2.1
     optional: true
 
-  '@cfworker/json-schema@4.1.1': {}
+  '@cfworker/json-schema@4.1.1':
+    optional: true
 
   '@chevrotain/cst-dts-gen@11.1.2':
     dependencies:
