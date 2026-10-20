@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MCP_HTTP_MAX_CONTROL_MESSAGE_BYTES, MCP_HTTP_MAX_MESSAGE_BYTES, McpMessageTooLargeError, mcpHttpFetch, messageMeter } from '../mcp/http-fetch';
+import { MCP_HTTP_MAX_CONTROL_MESSAGE_BYTES, MCP_HTTP_MAX_MESSAGE_BYTES, MCP_TOOL_LIST_MAX_BYTES, McpMessageTooLargeError, mcpHttpFetch, messageMeter } from '../mcp/http-fetch';
 import { MCP_STDIO_MAX_BUFFER_BYTES } from '../mcp/client';
 import { MCP_HTTP_TIMEOUT_MS, MCP_TOOL_TOTAL_TIMEOUT_MS } from '../mcp/timeouts';
 
@@ -65,18 +65,21 @@ describe('scoped MCP HTTP fetch', () => {
     await http.close();
   });
 
-  it('lets only a tool result or a resource run large: a listing, the handshake and notifications stay small', async () => {
+  it('reads each message within the size that fits it: results large, a tool list whole, the rest small', async () => {
     const body = (size: number) => vi.fn(async () => new Response('z'.repeat(size), { headers: { 'content-type': 'application/json' } }));
-    const http = await mcpHttpFetch({ maxMessageBytes: 1024, maxControlMessageBytes: 64 });
-    const ask = (method: string) => http.fetch('https://provider.example/mcp', { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 3, method }) });
-    vi.stubGlobal('fetch', body(500));
-    for (const method of ['tools/call', 'resources/read']) expect(await (await ask(method)).text()).toHaveLength(500);
-    for (const method of ['tools/list', 'initialize', 'resources/list', 'subscriptions/listen'])
-      await expect((await ask(method)).text()).rejects.toBeInstanceOf(McpMessageTooLargeError);
-    // The stream a server opens on its own carries only notifications and requests.
+    const http = await mcpHttpFetch({ maxMessageBytes: 1024, maxControlMessageBytes: 64, maxToolListBytes: 300 });
+    const ask = (method: string, params?: unknown) => http.fetch('https://provider.example/mcp', { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 3, method, ...(params ? { params } : {}) }) });
+    vi.stubGlobal('fetch', body(200));
+    for (const method of ['tools/call', 'resources/read']) expect(await (await ask(method)).text()).toHaveLength(200);
+    // The handshake, a subscription's stream and the stream a server opens itself carry only small messages.
+    for (const method of ['initialize', 'subscriptions/listen']) await expect((await ask(method)).text()).rejects.toBeInstanceOf(McpMessageTooLargeError);
     await expect((await http.fetch('https://provider.example/mcp', { method: 'GET' })).text()).rejects.toBeInstanceOf(McpMessageTooLargeError);
+    // A tool list's pages count together: the page that takes it past its size is refused, and a new listing starts over.
+    expect(await (await ask('tools/list')).text()).toHaveLength(200);
+    await expect((await ask('tools/list', { cursor: '2' })).text()).rejects.toThrow('a tool list larger than');
+    expect(await (await ask('tools/list')).text()).toHaveLength(200);
     await http.close();
-    expect(MCP_HTTP_MAX_CONTROL_MESSAGE_BYTES).toBe(2 * 1024 * 1024);
+    expect([MCP_HTTP_MAX_CONTROL_MESSAGE_BYTES, MCP_TOOL_LIST_MAX_BYTES]).toEqual([2 * 1024 * 1024, 16 * 1024 * 1024]);
   });
 
   it('meters a body whole and an event stream per event, matching the stdio budget', () => {

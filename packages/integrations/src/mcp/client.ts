@@ -19,7 +19,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { McpClientLike, McpToolDef } from './ingest';
 import { IntegrationError, NeedsReauthError } from '../core/errors';
 import { MCP_CONNECT_TIMEOUT_MS, MCP_DISCOVERY_TIMEOUT_MS, MCP_RESOURCE_TIMEOUT_MS, MCP_TOOL_TIMEOUT_MS, MCP_TOOL_TOTAL_TIMEOUT_MS } from './timeouts';
-import { mcpHttpFetch } from './http-fetch';
+import { MCP_TOOL_LIST_MAX_BYTES, mcpHttpFetch } from './http-fetch';
 
 /** The protocol revision Ri prefers. Older servers negotiate 2025-era revisions. */
 export const MCP_PREFERRED_PROTOCOL_VERSION = '2026-07-28';
@@ -29,14 +29,8 @@ export const MCP_STDIO_PROBE_TIMEOUT_MS = 10_000;
 export const MCP_HTTP_PROBE_TIMEOUT_MS = 10_000;
 /** Messages larger than this close a stdio connection. CAD and media apps send multi-megabyte blobs. */
 export const MCP_STDIO_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
-/**
- * The most a server's whole tool list may hold, across its pages. Ri keeps
- * the list to show and review, and reads it on every access check, so a
- * larger one is refused rather than kept. Todoist's 47 tools are about 0.3 MiB.
- */
-export const MCP_TOOL_LIST_MAX_BYTES = 2 * 1024 * 1024;
-/** Pages a listing may run to: real servers list in one or a few. The SDK allows 64. */
-export const MCP_LIST_MAX_PAGES = 16;
+/** A server's whole tool list, as `mcpHttpFetch` counts it over HTTP, checked again here for every transport. */
+export { MCP_TOOL_LIST_MAX_BYTES };
 
 /** What Ri advertises to every server: MCP Apps views, plus whatever the host adds (elicitation). */
 export const MCP_APPS_EXTENSION = { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } as const;
@@ -210,7 +204,6 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
       versionNegotiation: { mode, ...(mode === 'auto' ? { probe: { timeoutMs: opts.command !== undefined ? MCP_STDIO_PROBE_TIMEOUT_MS : MCP_HTTP_PROBE_TIMEOUT_MS } } : {}) },
       // `callTool` answers 2026-07-28 input rounds itself, where it knows exactly which run asked.
       inputRequired: { autoFulfill: false },
-      listMaxPages: MCP_LIST_MAX_PAGES,
       // 2026-07-28 delivers list changes on a `subscriptions/listen` stream the client opens.
       ...(opts.onToolsChanged ? { listChanged: { tools: { autoRefresh: false, debounceMs: 0, onChanged: notify } } } : {}),
     });

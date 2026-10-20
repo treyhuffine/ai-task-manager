@@ -9,20 +9,27 @@ import { MCP_HTTP_TIMEOUT_MS } from './timeouts';
  */
 export const MCP_HTTP_MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
 /**
- * The most any other message may hold: a listing, the handshake, a
- * notification or a server's request, and every event of the stream a server
- * opens on its own. Only a tool's result and a resource's content are large,
- * so nothing else a server sends can make Ri parse megabytes on its one
- * thread. Todoist's whole tool list is about 0.3 MiB.
+ * The most a server's whole tool list may hold, all its pages together.
+ * Ri keeps the list in memory to run, show and review the tools, and reads
+ * it again whenever the server's tools change, so the list's size is paid in
+ * memory and at each rediscovery, never per check. 16 MiB is about 2,500
+ * tools of the size Todoist's 47 are (0.3 MiB in all), more than any agent
+ * can use.
+ */
+export const MCP_TOOL_LIST_MAX_BYTES = 16 * 1024 * 1024;
+/**
+ * The most any other message may hold: the handshake, a notification or a
+ * server's request, and every event of the stream a server opens on its own.
+ * They are small by nature, and each is parsed in one go on Ri's one thread.
  */
 export const MCP_HTTP_MAX_CONTROL_MESSAGE_BYTES = 2 * 1024 * 1024;
-/** The JSON-RPC requests whose answer may run to `MCP_HTTP_MAX_MESSAGE_BYTES`. */
+/** The JSON-RPC requests whose answer may run to `MCP_HTTP_MAX_MESSAGE_BYTES`: a tool's result and a resource's content. */
 const LARGE_ANSWERS = new Set(['tools/call', 'resources/read']);
 
-/** A server's message that passed `MCP_HTTP_MAX_MESSAGE_BYTES`. Ri stops reading the response. */
+/** A server's message, or tool list, that passed its size. Ri stops reading the response. */
 export class McpMessageTooLargeError extends Error {
-  constructor(max: number) {
-    super(`The MCP server sent a message larger than ${max / 1024 / 1024} MiB, so Ri stopped reading it.`);
+  constructor(max: number, what = 'a message') {
+    super(`The MCP server sent ${what} larger than ${max / 1024 / 1024} MiB, so Ri stopped reading it.`);
     this.name = 'McpMessageTooLargeError';
   }
 }
@@ -52,10 +59,19 @@ export function messageMeter(eventStream: boolean) {
   };
 }
 
-/** Per-client HTTP budgets and per-request cancellation, without changing global fetch. */
-export async function mcpHttpFetch(options: { maxMessageBytes?: number; maxControlMessageBytes?: number } = {}) {
+/**
+ * Per-client HTTP budgets and per-request cancellation, without changing
+ * global fetch. Each message is read within the size that fits what it is:
+ * a tool's result or a resource's content `maxMessageBytes`, the pages of a
+ * tool list `maxToolListBytes` together (a listing without a cursor starts
+ * the count again), and anything else `maxControlMessageBytes`.
+ */
+export async function mcpHttpFetch(options: { maxMessageBytes?: number; maxControlMessageBytes?: number; maxToolListBytes?: number } = {}) {
   const maxMessageBytes = options.maxMessageBytes ?? MCP_HTTP_MAX_MESSAGE_BYTES;
   const maxControlMessageBytes = options.maxControlMessageBytes ?? MCP_HTTP_MAX_CONTROL_MESSAGE_BYTES;
+  const maxToolListBytes = options.maxToolListBytes ?? MCP_TOOL_LIST_MAX_BYTES;
+  /** Bytes of the tool list being read so far, across its pages. */
+  let listed = 0;
   const { Agent } = await import('undici');
   const dispatcher = new Agent({ headersTimeout: MCP_HTTP_TIMEOUT_MS, bodyTimeout: MCP_HTTP_TIMEOUT_MS });
   const lifetime = new AbortController();
@@ -65,10 +81,15 @@ export async function mcpHttpFetch(options: { maxMessageBytes?: number; maxContr
     let id: string | number | undefined;
     let operation: AbortController | undefined;
     let limit = maxControlMessageBytes;
+    let listing = false;
     if (typeof init?.body === 'string') {
       try {
         const message = JSON.parse(init.body);
         if (LARGE_ANSWERS.has(message.method)) limit = maxMessageBytes;
+        else if (message.method === 'tools/list') {
+          listing = true;
+          if (message.params?.cursor === undefined) listed = 0;
+        }
         if (message.method === 'notifications/cancelled') {
           requests.get(message.params?.requestId)?.abort();
         } else if (typeof message.method === 'string' && (typeof message.id === 'string' || typeof message.id === 'number')) {
@@ -100,11 +121,14 @@ export async function mcpHttpFetch(options: { maxMessageBytes?: number; maxContr
           try {
             const chunk = await reader.read();
             if (chunk.done) { release(); reader.releaseLock(); controller.close(); return; }
-            if (measure(chunk.value) > limit) {
+            // A tool list's pages count together. Anything else is measured one message at a time.
+            if (listing) listed += chunk.value.byteLength;
+            const over = listing ? listed > maxToolListBytes : measure(chunk.value) > limit;
+            if (over) {
               release(); operation?.abort();
               await reader.cancel().catch(() => {});
               reader.releaseLock();
-              controller.error(new McpMessageTooLargeError(limit));
+              controller.error(listing ? new McpMessageTooLargeError(maxToolListBytes, 'a tool list') : new McpMessageTooLargeError(limit));
               return;
             }
             controller.enqueue(chunk.value);

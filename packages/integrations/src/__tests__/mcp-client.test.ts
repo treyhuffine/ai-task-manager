@@ -171,9 +171,9 @@ describe('connectMcpClient over Streamable HTTP', () => {
     expect(methods.filter(method => method === 'resources/read')).toHaveLength(2);
   });
 
-  it('refuses a tool list too large to keep, in one listing or across its pages', async () => {
-    // Twelve tools of 0.2 MiB each: as one listing it passes what a listing may hold, and in pages of three the whole is still too large.
-    const tool = (i: number) => ({ name: `tool${i}`, description: 'd'.repeat(200 * 1024), inputSchema: { type: 'object' } });
+  it('takes a large tool list, and refuses one too large to keep, in one listing or across its pages', async () => {
+    // Twelve tools of 1.5 MiB each, 18 MiB in all: too large whether it comes as one listing or in pages of three.
+    const tool = (i: number) => ({ name: `tool${i}`, description: 'd'.repeat(1536 * 1024), inputSchema: { type: 'object' } });
     const handler = createMcpHandler(appServer);
     for (const pageSize of [12, 3]) {
       const { url } = await serve(async request => {
@@ -184,8 +184,18 @@ describe('connectMcpClient over Streamable HTTP', () => {
       });
       const client = await connectMcpClient({ url });
       clients.push(client);
-      await expect(client.listTools()).rejects.toThrow(pageSize === 12 ? 'larger than 2 MiB' : `larger than Ri accepts (${MCP_TOOL_LIST_MAX_BYTES / 1024 / 1024} MiB)`);
+      await expect(client.listTools()).rejects.toThrow(`a tool list larger than ${MCP_TOOL_LIST_MAX_BYTES / 1024 / 1024} MiB`);
     }
+    // Eight such tools, 12 MiB in pages of three, are a list Ri takes.
+    const { url } = await serve(async request => {
+      const message = await request.clone().json().catch(() => null) as { id?: number; method?: string; params?: { cursor?: string } } | null;
+      if (message?.method !== 'tools/list') return handler.fetch(request);
+      const from = Number(message.params?.cursor ?? 0), next = Math.min(from + 3, 8);
+      return Response.json({ jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', ttlMs: 0, cacheScope: 'private', tools: Array.from({ length: next - from }, (_, i) => tool(from + i)), ...(next < 8 ? { nextCursor: String(next) } : {}) } });
+    });
+    const client = await connectMcpClient({ url });
+    clients.push(client);
+    expect((await client.listTools()).tools).toHaveLength(8);
   });
 
   it('falls back to the 2025 handshake for a server that predates 2026-07-28', async () => {
