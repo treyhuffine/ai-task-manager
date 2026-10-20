@@ -9,6 +9,7 @@ import type { McpServerEntry } from '@/lib/integrations/mcp-servers';
 import { processState } from '@/lib/process-state';
 import { agentDeviceFor } from '@/lib/setups/run-on';
 import { sanitizeRelPath } from '@/lib/workspaces/read-file';
+import { openNoFollow, replaceFile, statNoFollow } from './contained-fs';
 import { viewMetadata } from './metadata';
 import { MAX_DELIVERED, VIEW_TTL, type View } from './store';
 
@@ -25,19 +26,25 @@ import { MAX_DELIVERED, VIEW_TTL, type View } from './store';
  *
  * Inside a folder, a file is reached only through real directories: every
  * component of its path is checked with `lstat`, a symlink anywhere refuses
- * it, `.git` is never entered, and a file with a second hard link is
- * refused, so no link can alias a file outside the folder or inside `.git`.
- * Every read, watch and write resolves the handle
- * again, opens the file without following a final symlink, then checks the
- * path once more and that the open file is the same inode it names. Reads,
- * the `ifMatch` check and saves all go through that one descriptor, so a
- * folder swapped for a symlink mid-operation cannot redirect them. Only an
- * agent's own folder and a chat's worktree are writable: an attachment is
- * part of a message's history.
+ * it, `.git` is never entered (in any letter case, as macOS folders ignore
+ * it), and a file with a second hard link is refused, so no link can alias a
+ * file outside the folder or inside `.git`. Every read, watch and save
+ * resolves the handle again and opens the file without following a symlink
+ * anywhere in its path (`contained-fs.ts`), then checks that the open file is
+ * the inode the path names. Reads and the `ifMatch` check go through that
+ * descriptor, and a save replaces the file atomically beside it, so a folder
+ * swapped for a symlink mid-operation cannot redirect either. Only an agent's
+ * own folder and a chat's worktree are writable: an attachment is part of a
+ * message's history.
  */
 export const HOST_FILE_SCHEME = 'ri-file:';
-/** The largest file an app may open or save through Ri. */
+/** The largest file an app may open through Ri. */
 export const MAX_HOST_FILE_BYTES = 32 * 1024 * 1024;
+/**
+ * The largest file an app may save through Ri. A save crosses the view's
+ * relay as one message, which carries 12 MiB of binary as base64.
+ */
+export const MAX_HOST_WRITE_BYTES = 12 * 1024 * 1024;
 const MAX_HANDLES = 256;
 const MAX_WATCHES = 64;
 const MAX_WATCHES_PER_VIEW = 8;
@@ -72,6 +79,38 @@ const ATTACHMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
 export const etagOf = (bytes: Buffer) => `sha256:${createHash('sha256').update(bytes).digest('base64url')}`;
 /** A handle's file is gone, as opposed to refused. A watch reports it as `missing`. */
 class MissingFile extends Error {}
+/** A repository's internals, in any letter case: macOS folders are case-insensitive, so `.GIT` is `.git`. */
+const isGitDir = (part: string) => part.toLowerCase() === '.git';
+const symlinked = () => new Error('Apps open files only through real folders, not symlinks.');
+const changed = () => new Error('This file changed while it was being opened. Try again.');
+/** Saving is for an agent's folder and a chat's folder. Everything else an app opens stays read only. */
+const SAVES_WHERE = 'Apps can save files only in an agent\'s folder or a chat\'s folder.';
+
+/**
+ * The message an app sees for a file system error: a fixed sentence for its
+ * code, never the error's own text, which names this computer's paths.
+ * Ri's own errors pass through unchanged.
+ */
+function publicFsError(error: unknown): Error {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  if (typeof code !== 'string' || !/^E[A-Z]+$/.test(code)) return error instanceof Error ? error : new Error('Ri could not use this file.');
+  switch (code) {
+    case 'ENOENT': case 'ENOTDIR': return new Error('This file no longer exists.');
+    case 'EACCES': case 'EPERM': return new Error('Ri does not have permission to use this file.');
+    case 'ELOOP': return symlinked();
+    case 'EISDIR': return new Error('Only regular files open in apps.');
+    case 'ENOSPC': case 'EDQUOT': return new Error('The disk is full, so the file was not saved.');
+    case 'EROFS': return new Error('This file is on a read-only disk.');
+    case 'EFBIG': return tooLarge();
+    case 'EMFILE': case 'ENFILE': case 'EBUSY': case 'ETXTBSY': case 'EAGAIN': return new Error('This file is busy. Try again.');
+    default: return new Error('Ri could not use this file.');
+  }
+}
+/** Run a file operation for an app, so no raw file system error reaches it. */
+async function forApp<T>(work: () => Promise<T>): Promise<T> {
+  try { return await work(); }
+  catch (error) { throw publicFsError(error); }
+}
 
 /** Whether `uri` names a file Ri opened for a view, rather than one of the server's resources. */
 export function isHostResource(uri: string): boolean {
@@ -105,12 +144,15 @@ function remember(viewerId: string, source: HostFileSource, name: string): { han
   return { handle: file.id, name };
 }
 
-/** Where a handle's file is now, after checking it is still inside where it was opened. */
-async function resolveHostFile(source: HostFileSource): Promise<{ absolute: string; writable: boolean }> {
+/**
+ * Where a handle's file is now, after checking it is still inside where it
+ * was opened. `readOnly` says why it may not be saved, when it may not.
+ */
+async function resolveHostFile(source: HostFileSource): Promise<{ absolute: string; readOnly?: string }> {
   if (source.kind === 'attachment') {
     if (!ATTACHMENT_NAME.test(source.fileName)) throw new Error('This attachment name is not valid.');
     const root = await fsp.realpath(getAttachmentsDir()).catch(() => { throw new MissingFile('This attachment no longer exists.'); });
-    return { absolute: await containedFile(root, source.fileName, 'This attachment no longer exists.'), writable: false };
+    return { absolute: await containedFile(root, source.fileName, 'This attachment no longer exists.'), readOnly: `Attachments are read only. ${SAVES_WHERE}` };
   }
   if (source.kind === 'agent-folder') {
     const workspace = getWorkspace(source.workspaceId);
@@ -120,7 +162,7 @@ async function resolveHostFile(source: HostFileSource): Promise<{ absolute: stri
     if (!relative) throw new Error('This path is not inside the agent\'s folder.');
     const root = await fsp.realpath(workspace.cwd).catch(() => { throw new MissingFile('The agent\'s folder does not exist.'); });
     const absolute = await containedFile(root, relative, 'This file no longer exists in the agent\'s folder.');
-    return { absolute, writable: workspace.status !== 'archived' };
+    return { absolute, ...(workspace.status === 'archived' ? { readOnly: 'This agent is archived, so its files are read only.' } : {}) };
   }
   if (source.kind === 'session-file') {
     // The same rules as the execution's own file routes (`openSessionWorktree`): a worktree on
@@ -134,10 +176,29 @@ async function resolveHostFile(source: HostFileSource): Promise<{ absolute: stri
     if (!relative) throw new Error('This path is not inside the chat\'s folder.');
     const root = await fsp.realpath(session.worktreePath).catch(() => { throw new MissingFile('The chat\'s folder does not exist.'); });
     const absolute = await containedFile(root, relative, 'This file no longer exists in the chat\'s folder.');
-    return { absolute, writable: session.status !== 'archived' };
+    return { absolute, ...(session.status === 'archived' ? { readOnly: 'This chat is archived, so its files are read only.' } : {}) };
   }
   if (!path.isAbsolute(source.path)) throw new Error('Files open by absolute path.');
-  return { absolute: await regularFile(source.path, 'This file no longer exists.'), writable: false };
+  // A server-named file is held by its real path. If that now resolves anywhere else, a folder on
+  // the way became a link. Either way it is checked as at open: never Ri's own files.
+  const real = await regularFile(source.path, 'This file no longer exists.');
+  if (real !== source.path) throw new Error('This file moved since it was opened. Open it again.');
+  await localFileAllowed(real);
+  return { absolute: real, readOnly: `This file is read only here. ${SAVES_WHERE}` };
+}
+/**
+ * Whether a server on this computer may have Ri open a real path: never Ri's
+ * own home (attachments come in as attachments, not paths) and never inside
+ * an agent's `.git`. Checked when the file opens and again on every use.
+ */
+async function localFileAllowed(real: string): Promise<void> {
+  const home = await fsp.realpath(getAppRoot()).catch(() => getAppRoot());
+  if (inside(home, real)) throw new Error('Apps cannot open Ri\'s own files.');
+  for (const workspace of listWorkspaces()) {
+    if (agentDeviceFor(workspace.id)) continue;
+    const root = await fsp.realpath(workspace.cwd).catch(() => null);
+    if (root && inside(root, real) && path.relative(root, real).split(path.sep).some(isGitDir)) throw new Error('Apps cannot open files inside .git.');
+  }
 }
 /**
  * A regular file inside `root`, reached through real directories only. Each
@@ -149,14 +210,14 @@ async function resolveHostFile(source: HostFileSource): Promise<{ absolute: stri
  */
 async function containedFile(root: string, relative: string, missing: string): Promise<string> {
   const parts = relative.split('/');
-  if (!parts.length || parts.some(part => !part || part === '.' || part === '..' || part === '.git')) throw new Error('This path is not inside the folder it was opened from.');
+  if (!parts.length || parts.some(part => !part || part === '.' || part === '..' || isGitDir(part))) throw new Error('This path is not inside the folder it was opened from.');
   let current = root;
   for (const [index, part] of parts.entries()) {
     current = path.join(current, part);
     let stat: fs.Stats;
     try { stat = await fsp.lstat(current); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new MissingFile(missing); throw error; }
-    if (stat.isSymbolicLink()) throw new Error('Apps open files only through real folders, not symlinks.');
+    if (stat.isSymbolicLink()) throw symlinked();
     const last = index === parts.length - 1;
     if (!last && !stat.isDirectory()) throw new MissingFile(missing);
     if (last && !stat.isFile()) throw new Error('Only regular files open in apps.');
@@ -176,29 +237,45 @@ async function regularFile(candidate: string, missing: string): Promise<string> 
 const hardLinked = () => new Error('This file has another name elsewhere on disk (a hard link), so apps can\'t open it here.');
 /**
  * Open a handle's file and prove the descriptor is the file the handle names
- * now: resolve, open without following a final symlink, resolve again, and
- * compare the inode. A folder swapped for a symlink between the check and
- * the open gives a different inode, or a path that no longer resolves, and
- * is refused. Opening changes nothing (no create, no truncate), and never
- * blocks on a pipe swapped in, so a refused open is harmless. Everything
- * after this goes through the descriptor.
+ * now: resolve, open without following a symlink anywhere in the path
+ * (`openNoFollow`), then resolve again and compare the inode the path names.
+ * On macOS and Linux a folder swapped for a symlink fails the open itself.
+ * Elsewhere it gives a different inode and is refused. A file renamed over
+ * this one after the check, or given a second name, is refused too. Opening
+ * changes nothing (no create, no truncate), so a refused open is harmless.
  */
-async function openHostFile(source: HostFileSource, flags: number): Promise<{ handle: fsp.FileHandle; absolute: string; writable: boolean; size: number }> {
-  const { absolute, writable } = await resolveHostFile(source);
-  const handle = await fsp.open(absolute, flags | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+async function openHostFile(source: HostFileSource, flags: number): Promise<{ handle: fsp.FileHandle; absolute: string; readOnly?: string; size: number; mode: number }> {
+  const { absolute } = await resolveHostFile(source);
+  let handle: fsp.FileHandle;
+  try { handle = await openNoFollow(absolute, flags); }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ELOOP') throw symlinked();
+    // Opening to save is refused for a file its owner made read only.
+    if ((code === 'EACCES' || code === 'EPERM') && (flags & (fsConstants.O_WRONLY | fsConstants.O_RDWR))) throw new Error('This file is read only.');
+    throw error;
+  }
   try {
     const opened = await handle.stat();
     const again = await resolveHostFile(source);
-    const named = await fsp.lstat(again.absolute);
-    if (again.absolute !== absolute || !opened.isFile() || named.ino !== opened.ino || named.dev !== opened.dev)
-      throw new Error('This file changed while it was being opened. Try again.');
+    if (again.absolute !== absolute || !opened.isFile()) throw changed();
+    const named = await statNoFollow(again.absolute).catch(error => { throw (error as NodeJS.ErrnoException).code === 'ELOOP' ? symlinked() : changed(); });
+    if (named.ino !== opened.ino || named.dev !== opened.dev) throw changed();
     // A link made after the check still aliases the file. Only a server-named path may have more than one.
     if (source.kind !== 'local' && opened.nlink !== 1) throw hardLinked();
-    return { handle, absolute, writable, size: opened.size };
+    return { handle, absolute, ...(again.readOnly ? { readOnly: again.readOnly } : {}), size: opened.size, mode: opened.mode };
   } catch (error) {
     await handle.close();
     throw error;
   }
+}
+/** Whether a save could replace this file: the file is writable, and so is its folder, where the new file is made. */
+async function canSave(absolute: string): Promise<boolean> {
+  try {
+    await fsp.access(absolute, fsConstants.W_OK);
+    await fsp.access(path.dirname(absolute), fsConstants.W_OK);
+    return true;
+  } catch { return false; }
 }
 /** An open file's bytes, read by position and refused past `MAX_HOST_FILE_BYTES` even if it grows while being read. */
 async function readOpened(handle: fsp.FileHandle): Promise<Buffer> {
@@ -227,19 +304,19 @@ async function etagOfOpened(handle: fsp.FileHandle): Promise<string> {
 /** A handle for a chat attachment. Any signed-in viewer can already download one. */
 export async function attachmentHandle(viewerId: string, fileName: string, originalName?: string) {
   const source: HostFileSource = { kind: 'attachment', fileName };
-  await resolveHostFile(source);
+  await forApp(() => resolveHostFile(source));
   return remember(viewerId, source, displayName(originalName) ?? fileName);
 }
 /** A handle for a file in an agent's own folder, by the agent and a path inside it. */
 export async function agentFileHandle(viewerId: string, workspaceId: string, relativePath: string) {
   const source: HostFileSource = { kind: 'agent-folder', workspaceId, path: sanitizeRelPath(relativePath) ?? relativePath };
-  await resolveHostFile(source);
+  await forApp(() => resolveHostFile(source));
   return remember(viewerId, source, path.basename(source.path));
 }
 /** A handle for a file in an execution's worktree, by one of its chats and a path inside it. */
 export async function sessionFileHandle(viewerId: string, sessionId: string, relativePath: string) {
   const source: HostFileSource = { kind: 'session-file', sessionId, path: sanitizeRelPath(relativePath) ?? relativePath };
-  await resolveHostFile(source);
+  await forApp(() => resolveHostFile(source));
   return remember(viewerId, source, path.basename(source.path));
 }
 const displayName = (name?: string) => name && name.length <= 255 && !/[\\/\0]/.test(name) ? name : undefined;
@@ -257,7 +334,7 @@ export async function fileLaunchInput(request: { viewerId: string; serverId: str
   // A file a server named by path opens only in that server's own viewer.
   if (file.source.kind === 'local' && file.source.serverId !== request.serverId) throw new Error('This file can open only in the app that named it.');
   if (!request.extensions.includes(extensionOf(file.name))) throw new Error('This app does not open this kind of file.');
-  await resolveHostFile(file.source);
+  await forApp(() => resolveHostFile(file.source));
   return { input: { file: { name: file.name, resourceUri: uriOf(file) } }, file: { handle: file.id, name: file.name } };
 }
 
@@ -280,12 +357,14 @@ export interface HostResourceContent { uri: string; mimeType?: string; text?: st
  */
 export async function readHostResource(view: View, uri: string, meta?: Record<string, unknown>): Promise<{ contents: HostResourceContent[] }> {
   const file = viewFile(view, uri);
-  const { handle, writable, size } = await openHostFile(file.source, fsConstants.O_RDONLY);
-  let bytes: Buffer;
-  try {
-    if (size > MAX_HOST_FILE_BYTES) throw tooLarge();
-    bytes = await readOpened(handle);
-  } finally { await handle.close(); }
+  const { bytes, writable } = await forApp(async () => {
+    const { handle, absolute, readOnly, size } = await openHostFile(file.source, fsConstants.O_RDONLY);
+    try {
+      if (size > MAX_HOST_FILE_BYTES) throw tooLarge();
+      // `writable` is a promise the save will keep: a file or folder the person made read only is not offered.
+      return { bytes: await readOpened(handle), writable: !readOnly && await canSave(absolute) };
+    } finally { await handle.close(); }
+  });
   if (bytes.length + view.delivered > MAX_DELIVERED) throw new Error('This app view has read too much. Open the file again to continue.');
   view.delivered += bytes.length;
   const representation = (meta?.['openai/resource'] as { representation?: unknown } | undefined)?.representation;
@@ -337,10 +416,14 @@ export async function subscribeHostResource(view: View, uri: string): Promise<{ 
   if (existing) return { revision: existing.revision };
   if (watches().size >= MAX_WATCHES || [...watches().values()].filter(watch => watch.view === view).length >= MAX_WATCHES_PER_VIEW)
     throw new Error('Too many files are being watched. Close another app view first.');
-  const { absolute } = await resolveHostFile(file.source);
+  const { absolute, etag } = await forApp(async () => ({ ...await resolveHostFile(file.source), etag: await currentEtag(file.source) }));
+  // The view may have closed, or subscribed again, while this looked: start no watch nothing will end.
+  if (view.closed) return { revision: 0 };
+  const raced = watches().get(key);
+  if (raced) return { revision: raced.revision };
   const folder = path.dirname(absolute), base = path.basename(absolute);
   const watch: Watch = {
-    view, uri, absolute, revision: 0, etag: await currentEtag(file.source), waiters: new Set(),
+    view, uri, absolute, revision: 0, etag, waiters: new Set(),
     watcher: fs.watch(folder, { persistent: false }, (_event, changed) => {
       if (changed !== null && changed !== base) return;
       clearTimeout(watch.debounce);
@@ -395,38 +478,38 @@ const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$
 
 /**
  * `openai/resources/write`: only the opened file, only when it read as
- * writable, compared against `ifMatch` when given. The save is written in
- * place through the verified descriptor the `ifMatch` check read, so it can
- * only ever change that file: a folder swapped for a symlink mid-save cannot
- * redirect it, and the file keeps its inode and mode. Writes to one file run
- * one at a time.
+ * writable, compared against `ifMatch` when given, up to
+ * `MAX_HOST_WRITE_BYTES`. The `ifMatch` check reads the file through a
+ * verified descriptor, opened to write so a file its owner made read only is
+ * refused. The save then replaces the file atomically (`replaceFile`): a new
+ * file beside it with the same mode, renamed over it, so a reader never sees
+ * half a save and a failed save leaves the file as it was. Writes to one file
+ * run one at a time.
  */
 export async function writeHostResource(view: View, request: ResourceWrite): Promise<ResourceWriteResult> {
   const file = viewFile(view, request.uri);
-  const { absolute, writable } = await resolveHostFile(file.source);
-  if (!writable) throw new Error('This file is read only here. Ri saves only files in an agent\'s folder.');
+  const { absolute, readOnly } = await forApp(() => resolveHostFile(file.source));
+  if (readOnly) throw new Error(readOnly);
   if (request.blob !== undefined && !BASE64.test(request.blob)) throw new Error('The file contents are not valid base64.');
   const bytes = request.text !== undefined ? Buffer.from(request.text, 'utf8') : Buffer.from(request.blob!, 'base64');
-  if (bytes.length > MAX_HOST_FILE_BYTES) return { outcome: 'too-large', maxBytes: MAX_HOST_FILE_BYTES };
+  if (bytes.length > MAX_HOST_WRITE_BYTES) return { outcome: 'too-large', maxBytes: MAX_HOST_WRITE_BYTES };
   const previous = writes().get(absolute) ?? Promise.resolve();
-  const run = previous.catch(() => {}).then(async (): Promise<ResourceWriteResult> => {
+  const run = previous.catch(() => {}).then(() => forApp(async (): Promise<ResourceWriteResult> => {
     // Resolve and verify again inside the queue: the file may have moved while this write waited.
     const opened = await openHostFile(file.source, fsConstants.O_RDWR);
+    let current: string;
     try {
-      if (!opened.writable) throw new Error('This file is read only here. Ri saves only files in an agent\'s folder.');
-      const current = await etagOfOpened(opened.handle);
-      if (request.ifMatch !== undefined && request.ifMatch !== current) return { outcome: 'conflict', etag: current };
-      // Overwrite, then cut to length, so a reader never sees the file empty mid-save.
-      for (let offset = 0; offset < bytes.length;) offset += (await opened.handle.write(bytes, offset, bytes.length - offset, offset)).bytesWritten;
-      await opened.handle.truncate(bytes.length);
-      await opened.handle.sync();
+      if (opened.readOnly) throw new Error(opened.readOnly);
+      current = await etagOfOpened(opened.handle);
     } finally { await opened.handle.close(); }
+    if (request.ifMatch !== undefined && request.ifMatch !== current) return { outcome: 'conflict', etag: current };
+    await replaceFile(opened.absolute, bytes, opened.mode);
     const etag = etagOf(bytes);
     // The writer already knows its own save. Every other view watching this file hears about it.
     const own = watches().get(watchKey(view, request.uri));
     if (own) own.etag = etag;
     return { outcome: 'saved', etag };
-  });
+  }));
   writes().set(absolute, run);
   try { return await run; }
   finally { if (writes().get(absolute) === run) writes().delete(absolute); }
@@ -444,7 +527,7 @@ export async function fileCallMeta(view: View, entry: Pick<McpServerEntry, 'url'
   if (view.capture.kind !== 'file' || !view.capture.file || !serverRunsHere(entry)) return undefined;
   const file = handles().get(view.capture.file.handle);
   if (!file || file.viewerId !== view.viewerId) return undefined;
-  const { absolute } = await resolveHostFile(file.source);
+  const { absolute } = await forApp(() => resolveHostFile(file.source));
   return { 'openai/resource': { path: absolute } };
 }
 
@@ -467,9 +550,11 @@ export async function openFileTarget(view: View, entry: Pick<McpServerEntry, 'ur
   tools: readonly { name: string; _meta?: unknown }[], requested: string): Promise<OpenFileTarget> {
   if (!serverRunsHere(entry)) throw new Error('This app runs on another computer, so the path it named is not a file here.');
   if (typeof requested !== 'string' || !path.isAbsolute(requested) || requested.includes('\0')) throw new Error('Files open by absolute path.');
-  const real = await regularFile(path.normalize(requested), 'This file does not exist.');
-  if ((await fsp.stat(real)).size > MAX_HOST_FILE_BYTES) throw tooLarge();
-  const source = await classify(real, view.capture.serverId);
+  const { real, source } = await forApp(async () => {
+    const real = await regularFile(path.normalize(requested), 'This file does not exist.');
+    if ((await fsp.stat(real)).size > MAX_HOST_FILE_BYTES) throw tooLarge();
+    return { real, source: await classify(real, view.capture.serverId) };
+  });
   const name = source.kind === 'attachment' ? source.fileName : path.basename(real);
   const tool = tools.find(candidate => viewMetadata(candidate)?.file.includes(extensionOf(name)) && entry.toolOverrides?.[candidate.name]?.enabled !== false);
   if (tool) {
@@ -484,15 +569,14 @@ export async function openFileTarget(view: View, entry: Pick<McpServerEntry, 'ur
 async function classify(real: string, serverId: string): Promise<HostFileSource> {
   const attachments = await fsp.realpath(getAttachmentsDir()).catch(() => null);
   if (attachments && path.dirname(real) === attachments) return { kind: 'attachment', fileName: path.basename(real) };
-  const home = await fsp.realpath(getAppRoot()).catch(() => getAppRoot());
   for (const workspace of listWorkspaces()) {
     if (agentDeviceFor(workspace.id)) continue;
     const root = await fsp.realpath(workspace.cwd).catch(() => null);
     if (!root || !inside(root, real) || root === real) continue;
     const relative = path.relative(root, real).split(path.sep).join('/');
-    if (relative.split('/').includes('.git')) throw new Error('Apps cannot open files inside .git.');
+    if (relative.split('/').some(isGitDir)) throw new Error('Apps cannot open files inside .git.');
     return { kind: 'agent-folder', workspaceId: workspace.id, path: relative };
   }
-  if (inside(home, real)) throw new Error('Apps cannot open Ri\'s own files.');
+  await localFileAllowed(real);
   return { kind: 'local', path: real, serverId };
 }

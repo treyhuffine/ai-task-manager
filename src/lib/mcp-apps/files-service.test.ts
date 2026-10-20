@@ -6,7 +6,9 @@ import { randomUUID } from 'node:crypto';
 
 const mocks = vi.hoisted(() => ({metadata: vi.fn(), runtime: vi.fn(), transport: vi.fn(), connections: vi.fn(), run: vi.fn(), read: vi.fn(), chat: vi.fn(), approvals: vi.fn()}));
 vi.mock('@/lib/integrations/source-metadata', () => ({integrationSourceMetadata: mocks.metadata}));
-vi.mock('@/lib/integrations/runtime', () => ({getIntegrationRuntime: mocks.runtime, getIntegrationOwnerId: () => 'local', getMcpViewConnection: mocks.transport}));
+// One build answers an access check: its runtime, the owner's connections and the server's view transport.
+vi.mock('@/lib/integrations/runtime', () => ({getIntegrationRuntime: mocks.runtime, getIntegrationOwnerId: () => 'local', getMcpViewConnection: mocks.transport,
+  getMcpViewAuthority: async (serverId: string) => ({runtime: await mocks.runtime(), connections: await mocks.connections(), view: await mocks.transport(serverId)})}));
 vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: () => undefined, listWorkspaces: () => [], insertChatEvent: vi.fn()}));
 vi.mock('@/lib/setups/run-on', () => ({agentDeviceFor: () => null}));
 vi.mock('@/lib/integrations/approval', () => ({sessionCaller: (id: string) => ({type: 'mcp', id: `session:${id}`}), sessionIdFromCaller: () => null, listPendingApprovals: mocks.approvals, resolvePendingApprovals: vi.fn(), cancelConnectedAppApprovals: vi.fn(() => [])}));
@@ -33,7 +35,8 @@ beforeEach(() => {
   mocks.metadata.mockImplementation(async () => ({servers: [{entry, capabilities: {tools}}], connections: [connection], toolkits: []}));
   mocks.connections.mockResolvedValue([connection]);
   mocks.runtime.mockResolvedValue({listConnections: mocks.connections, runAction: mocks.run});
-  mocks.transport.mockResolvedValue({tools, readResource: mocks.read});
+  // The transport as its build opened it, for the server entry as it stands.
+  mocks.transport.mockImplementation(async () => ({snapshot: entry, tools, readResource: mocks.read}));
   mocks.approvals.mockReturnValue([]);
   mocks.chat.mockReturnValue({id: 'chat', status: 'idle', workspaceId: null});
   mocks.run.mockImplementation(async (_action, _args, options) => { const result = {content: [{type: 'text', text: 'ok'}]}; options.captureOriginalResult(result); return {ok: true, result}; });
