@@ -279,7 +279,7 @@ October 20, 2026, after the decisions on drafts, the local network, forms and re
 - Bits & Bolts asking to send to a new chat filled the composer of a new main chat and sent nothing. Later requests reused that chat, since nobody had written in it.
 - The file checks passed as before.
 
-October 20, 2026, after the re-review: the root suite passed 7251 tests, the integrations engine 453 and app-kit 96, and typecheck and lint were clean. Each fix's test fails without it, except the focus guard's quick click back into Ri, a race the old code lost about half the time. On the dev home:
+October 20, 2026, after the re-review: the root suite passed 7251 tests, the integrations engine 453 and app-kit 97, and typecheck and lint were clean. Each fix's test fails without it, except the focus guard's quick click back into Ri, a race the old code lost about half the time. On the dev home:
 - Bits & Bolts (local and remote), Excalidraw and Todoist were discovered under the new message and tool-list caps, and their screens and results opened and reopened after a reload as before.
 - With Todoist's server stopped, its result said it can't be reached. Two seconds after the server came back, Try again showed the task list.
 - Bits & Bolts asking for a new chat while the main chat had a conversation left that chat in place, with the draft in it and the notice saying why. Nothing was sent.
