@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { VIEW_TTL, type View } from './store';
-const mocks = vi.hoisted(() => ({metadata: vi.fn(), runtime: vi.fn(), transport: vi.fn(), connections: vi.fn(), run: vi.fn(), read: vi.fn(), chat: vi.fn(), workspace: vi.fn(), insert: vi.fn(), approvals: vi.fn(), decide: vi.fn(), cancel: vi.fn(), viewAuthority: vi.fn(), closeWatches: vi.fn()}));
+import { MAX_VIEWS, type View } from './store';
+import { toChatEventDTO } from '@/lib/api/dto/chat-event';
+const mocks = vi.hoisted(() => ({metadata: vi.fn(), runtime: vi.fn(), transport: vi.fn(), connections: vi.fn(), run: vi.fn(), read: vi.fn(), chat: vi.fn(), workspace: vi.fn(), insert: vi.fn(), event: vi.fn(), approvals: vi.fn(), decide: vi.fn(), cancel: vi.fn(), viewAuthority: vi.fn(), closeWatches: vi.fn()}));
 vi.mock('@/lib/integrations/source-metadata', () => ({integrationSourceMetadata: mocks.metadata}));
 vi.mock('@/lib/integrations/runtime', () => ({getIntegrationOwnerId: () => 'local', getMcpViewAuthority: mocks.viewAuthority}));
 vi.mock('./files', async importOriginal => ({...await importOriginal<typeof import('./files')>(), closeHostWatches: mocks.closeWatches}));
-vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: mocks.workspace, insertChatEvent: mocks.insert}));
+vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: mocks.workspace, insertChatEvent: mocks.insert, getChatEventById: mocks.event}));
 vi.mock('@/lib/integrations/approval', () => ({sessionCaller: (id: string) => ({type: 'mcp', id: `session:${id}`}), sessionIdFromCaller: (caller?: {type?: string; id?: string}) => caller?.type === 'mcp' && caller.id?.startsWith('session:') ? caller.id.slice(8) : null, listPendingApprovals: mocks.approvals, resolvePendingApprovals: mocks.decide, cancelConnectedAppApprovals: mocks.cancel}));
 vi.mock('@/lib/integrations/approval-events', () => ({recordApprovalDecision: vi.fn()}));
-import { connectedContextAccess, connectedViewStatus, prepareMcpResultCapture, connectedAppsCatalog, connectedChatTabs, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource, connectedMessageSender } from './service';
+import { connectedAppNetwork, connectedContextAccess, connectedViewStatus, prepareMcpResultCapture, connectedAppsCatalog, connectedChatTabs, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource, connectedMessageSender } from './service';
 
 const chatId = randomUUID();
 const result = {content: [{type: 'text', text: 'Public summary'}], structuredContent: {total: 42}, _meta: {privateUi: 'Only for the interface'}};
@@ -83,11 +84,16 @@ describe('connected MCP views', () => {
     await expect(callConnectedView(view.id, 'viewer', 'filter', {}, invocationId)).rejects.toThrow('cancelled');
     expect(mocks.run).not.toHaveBeenCalled();
   });
-  it.each(['credentialRevision', 'capabilityRevision', 'url', 'toolOverrides'])('rejects a late originating result after %s changes', async field => {
+  it('captures a late result on the account it came from, and refuses one once another account took its place', async () => {
+    // Refreshed credentials or a changed tool list are still that account: the result is captured.
     const complete = await prepareCapture();
-    entry[field] = field === 'toolOverrides' ? {calculate: {enabled: false}} : 'changed';
-    await expect(complete!(result)).rejects.toThrow('access changed');
-    expect(mcpViews().captures.size).toBe(0); expect(mocks.insert).not.toHaveBeenCalled();
+    entry.credentialRevision = 2; entry.capabilityRevision = 'v2';
+    await complete!(result);
+    expect(mocks.insert).toHaveBeenCalledTimes(1);
+    const late = await prepareCapture();
+    mocks.connections.mockResolvedValue([{id: 'mcp-fixture', providerId: 'mcp_fixture', ownerId: 'local', accountId: 'account-B', status: 'active', scopes: []}]);
+    await expect(late!(result)).rejects.toThrow('account changed');
+    expect(mocks.insert).toHaveBeenCalledTimes(1);
     expect(mocks.run).not.toHaveBeenCalled();
   });
   it('discovers from cached capabilities without executing or building a transport', async () => {
@@ -118,10 +124,12 @@ describe('connected MCP views', () => {
       toolkits: [{id: 'todoist', providerId: 'todoist', displayName: 'Todoist'}]}));
     expect((await connectedAppsCatalog()).map(app => [app.id, app.name, app.toolkitName])).toEqual([['server', 'Fixture', 'Fixture'], ['second', 'Todoist 2', 'Todoist']]);
   });
-  it('captures the original result, keeps private metadata out of the transcript, and never replays on open', async () => {
+  it('captures the original result, keeps private metadata from every client, and never replays on open', async () => {
     const id = await capture();
-    expect(JSON.stringify(mocks.insert.mock.calls)).not.toContain('Only for the interface');
-    expect(mocks.insert.mock.calls[0][0]).toMatchObject({id, sessionId: chatId, content: 'mcp_app_result'});
+    // The transcript event keeps the capture so it opens again later, and what clients get of it carries none of it.
+    const row = mocks.insert.mock.calls[0][0];
+    expect(row).toMatchObject({id, sessionId: chatId, content: 'mcp_app_result', raw: {subtype: 'mcp_app_result', capture: {id, chatId, result}}});
+    expect(JSON.stringify(toChatEventDTO(row))).not.toContain('Only for the interface');
     const first = await openConnectedView(id, 'viewer', chatId);
     const second = await openConnectedView(id, 'viewer', chatId);
     expect(first.id).toBe(second.id); expect(first.result).toEqual(result);
@@ -139,19 +147,33 @@ describe('connected MCP views', () => {
     await expect(callConnectedView(view.id, 'other', 'filter', {}, randomUUID())).rejects.toThrow('unavailable');
   });
   it('preserves a useful text result when a UI resource is unsupported', async () => {
-    mocks.read.mockResolvedValue({contents:[{uri:'ui://fixture/calculator.html',mimeType:'text/html;profile=mcp-app',text:'<script src="https://cdn.invalid/app.js"></script>'}]});
+    mocks.read.mockResolvedValue({contents:[{uri:'ui://fixture/calculator.html',mimeType:'text/html',text:'<p>Not an MCP app</p>'}]});
     const view = await openConnectedView(await capture(), 'viewer', chatId);
-    expect(view.resource).toBeNull(); expect(view.unsupported).toContain('outside'); expect(view.result.content).toEqual(result.content);
+    expect(view.resource).toBeNull(); expect(view.unsupported).toContain('supported'); expect(view.result.content).toEqual(result.content);
     expect(mocks.run).not.toHaveBeenCalled();
   });
-  it('withholds a completed result after revocation and rejects stale handles', async () => {
+  it('opens an interface that loads its code from the network, with the domains it declared', async () => {
+    mocks.read.mockResolvedValue({contents:[{uri:'ui://fixture/calculator.html',mimeType:'text/html;profile=mcp-app',text:'<script type="module">import "https://esm.sh/x"</script>',
+      _meta: {ui: {csp: {resourceDomains: ['https://esm.sh'], connectDomains: ['https://esm.sh']}}}}]});
     const view = await openConnectedView(await capture(), 'viewer', chatId);
-    mocks.run.mockImplementationOnce(async (_action, _args, options) => {options.captureOriginalResult(result); entry.credentialRevision = 2; return {ok: true};});
+    expect(view.unsupported).toBeUndefined();
+    expect(view.resource?.csp).toMatchObject({connectDomains: ['https://esm.sh'], resourceDomains: ['https://esm.sh']});
+  });
+  it('keeps a view working when its account\'s credentials refresh, and withholds a completed result once access is withdrawn', async () => {
+    const view = await openConnectedView(await capture(), 'viewer', chatId);
+    // The same account, with refreshed credentials or a changed tool list: the view carries on.
+    entry.credentialRevision = 2; entry.capabilityRevision = 'v2';
+    expect(await callConnectedView(view.id, 'viewer', 'filter', {}, randomUUID())).toMatchObject({kind: 'result'});
+    const revoked = {id: 'mcp-fixture', providerId: 'mcp_fixture', ownerId: 'local', accountId: 'account-A', status: 'revoked', scopes: []};
+    mocks.run.mockImplementationOnce(async (_action, _args, options) => {options.captureOriginalResult(result); mocks.connections.mockResolvedValue([revoked]); return {ok: true};});
     const invocation = randomUUID();
-    await expect(callConnectedView(view.id, 'viewer', 'filter', {}, invocation)).rejects.toThrow('access changed');
-    await expect(openConnectedView(view.captureId, 'viewer', chatId)).rejects.toThrow('access changed');
-    await expect(callConnectedView(view.id, 'viewer', 'filter', {}, invocation)).rejects.toThrow('access changed');
-    expect(mocks.run).toHaveBeenCalledTimes(1);
+    await expect(callConnectedView(view.id, 'viewer', 'filter', {}, invocation)).rejects.toThrow('Reconnect');
+    await expect(openConnectedView(view.captureId, 'viewer', chatId)).rejects.toThrow('Reconnect');
+    await expect(callConnectedView(view.id, 'viewer', 'filter', {}, invocation)).rejects.toThrow('Reconnect');
+    expect(mocks.run).toHaveBeenCalledTimes(2);
+    // Another account in its place is not the one the result came from.
+    mocks.connections.mockResolvedValue([{...revoked, status: 'active', accountId: 'account-B'}]);
+    await expect(openConnectedView(view.captureId, 'viewer', chatId)).rejects.toThrow('account changed');
   });
   it('never retries a transport error that might follow an effect', async () => {
     const view = await openConnectedView(await capture(), 'viewer', chatId), invocation = randomUUID();
@@ -191,7 +213,7 @@ describe('connected MCP views', () => {
     await launchConnectedView(viewId, 'viewer');
     expect(mocks.run).toHaveBeenCalledTimes(2);
     mcpViews().views.delete(viewId);
-    await expect(launchConnectedView(viewId, 'viewer')).rejects.toThrow('expired');
+    await expect(launchConnectedView(viewId, 'viewer')).rejects.toThrow('closed');
     expect(mocks.run).toHaveBeenCalledTimes(2);
     await expect(openConnectedView(invocation, 'other')).rejects.toThrow('different viewer');
     tools.splice(tools.indexOf(launcher), 1);
@@ -354,7 +376,7 @@ describe('OpenAI entrypoints, deep links, resources and model context', () => {
     });
   });
 
-  it('stamps a launch with the capabilities discovery records as the runtime starts', async () => {
+  it('opens a launch prepared before discovery recorded new capabilities', async () => {
     await withTools([launcher], async () => {
       // A fresh runtime runs discovery, which records a new capability revision on its first build.
       // Metadata is a snapshot of the store when read, as on disk.
@@ -428,15 +450,17 @@ describe('authority without waiting on the network', () => {
     expect(mocks.viewAuthority.mock.calls.every(([, options]) => options && typeof options.stale === 'boolean')).toBe(true);
   });
 
-  it('digests only the account\'s own toolkit access, staying closed to that toolkit\'s pins', async () => {
+  it('checks the agent\'s current access to this account, and nothing else about it', async () => {
     agentChat([{toolkitId: 'mcp_fixture'}]);
     const view = await openConnectedView(await capture(), 'viewer', chatId);
-    // Granting the agent another service leaves this app's view as it was.
+    // Granting the agent another service, or pinning this one to the same account, leaves the view as it was.
     agentChat([{toolkitId: 'mcp_fixture'}, {toolkitId: 'gmail'}]);
-    expect(await connectedViewStatus(view.id, 'viewer')).toMatchObject({revision: 0});
-    // Narrowing this toolkit to the same account still changes what the view rests on.
+    expect(await connectedViewStatus(view.id, 'viewer')).toEqual({revision: 0});
     agentChat([{toolkitId: 'mcp_fixture', accounts: [{accountId: 'account-A'}]}, {toolkitId: 'gmail'}]);
-    await expect(connectedViewStatus(view.id, 'viewer')).rejects.toThrow('access changed');
+    expect(await connectedViewStatus(view.id, 'viewer')).toEqual({revision: 0});
+    // Pinned to another account, the agent no longer reaches this one.
+    agentChat([{toolkitId: 'mcp_fixture', accounts: [{accountId: 'another-account'}]}]);
+    await expect(connectedViewStatus(view.id, 'viewer')).rejects.toThrow('not available');
   });
 
   it('leaves a global screen\'s context off only when the chat may not use its account, and says anything else', async () => {
@@ -476,12 +500,76 @@ describe('authority without waiting on the network', () => {
     } finally { tools.splice(tools.indexOf(launcher), 1); }
   });
 
+  it('opens a model result again after it left memory, for as long as its chat exists, with access checked again', async () => {
+    const id = await capture();
+    const row = mocks.insert.mock.calls[0][0];
+    mocks.event.mockImplementation((eventId: string) => eventId === id ? {...row, source: 'system'} : null);
+    mcpViews().captures.clear(); mcpViews().views.clear();
+    const reopened = await openConnectedView(id, 'viewer', chatId);
+    expect(reopened).toMatchObject({captureId: id, result, kind: 'result'});
+    expect(mocks.run).not.toHaveBeenCalled();
+    // Kept for its chat only, and checked against what the chat may use now.
+    mcpViews().captures.clear(); mcpViews().views.clear();
+    await expect(openConnectedView(id, 'viewer', randomUUID())).rejects.toThrow('different');
+    agentChat([{toolkitId: 'mcp_fixture', accounts: [{accountId: 'another-account'}]}]);
+    mcpViews().captures.clear(); mcpViews().views.clear();
+    await expect(openConnectedView(id, 'viewer', chatId)).rejects.toThrow('not available');
+    // A row that isn't that chat's app result opens nothing.
+    mocks.event.mockReturnValue({...row, source: 'system', sessionId: randomUUID()});
+    mcpViews().captures.clear();
+    await expect(openConnectedView(id, 'viewer', chatId)).rejects.toThrow('closed');
+  });
+
+  it('says a screen the person opened has closed once it left memory, so it opens again from the app', async () => {
+    tools.push(launcher);
+    try {
+      const launched = await launchRequest('server', 'viewer', 'home');
+      await launchConnectedView(launched.viewId, 'viewer');
+      mocks.event.mockReturnValue(null);
+      mcpViews().captures.clear(); mcpViews().views.clear();
+      await expect(openConnectedView(launched.invocationId, 'viewer')).rejects.toThrow('closed');
+      // Opening the app again starts a new instance.
+      expect((await prepareConnectedLaunch('server', 'viewer', 'home')).kind).toBe('launch');
+    } finally { tools.splice(tools.indexOf(launcher), 1); }
+  });
+
+  it('lists the network domains a server\'s screens declared, reading each interface once per capability revision', async () => {
+    // What earlier tests' views recorded is kept by capability revision, so this one starts from its own.
+    entry.capabilityRevision = randomUUID();
+    mocks.read.mockResolvedValue({contents: [{uri: 'ui://fixture/calculator.html', mimeType: 'text/html;profile=mcp-app', text: '<p>x</p>',
+      _meta: {ui: {csp: {connectDomains: ['https://api.example.com'], resourceDomains: ['https://esm.sh']}}, 'openai/widgetCSP': {frame_domains: ['https://www.youtube.com']}}}]});
+    const network = await connectedAppNetwork('server');
+    expect(network).toEqual({screens: 1, read: 1, connectDomains: ['https://api.example.com'], resourceDomains: ['https://esm.sh'], frameDomains: ['https://www.youtube.com'], baseUriDomains: []});
+    expect(await connectedAppNetwork('server')).toEqual(network);
+    expect(mocks.read).toHaveBeenCalledTimes(1);
+    // New capabilities may mean new interfaces: read again.
+    entry.capabilityRevision = 'v3';
+    mocks.read.mockResolvedValue({contents: [{uri: 'ui://fixture/calculator.html', mimeType: 'text/html;profile=mcp-app', text: '<p>x</p>'}]});
+    expect(await connectedAppNetwork('server')).toMatchObject({screens: 1, read: 1, connectDomains: [], resourceDomains: [], frameDomains: []});
+    expect(mocks.read).toHaveBeenCalledTimes(2);
+    // Opening a view records what it read, so the page reads nothing more.
+    entry.capabilityRevision = 'v4';
+    await openConnectedView(await capture(), 'viewer', chatId);
+    expect(await connectedAppNetwork('server')).toMatchObject({read: 1});
+    expect(mocks.read).toHaveBeenCalledTimes(3);
+  });
+
+  it('lists nothing for a server without screens, and what it knows while the server is unreachable', async () => {
+    entry.capabilityRevision = randomUUID();
+    const saved = [...tools];
+    tools.splice(0, tools.length, {name: 'plain'});
+    try { expect(await connectedAppNetwork('server')).toBeNull(); }
+    finally { tools.splice(0, tools.length, ...saved); }
+    mocks.read.mockRejectedValue(new Error('offline'));
+    expect(await connectedAppNetwork('server')).toMatchObject({screens: 1, read: 0, connectDomains: []});
+  });
+
   it('gives the browser a result\'s age by the home\'s clock', async () => {
     const id = await capture();
     mcpViews().capture(id).created -= 5_000;
     const view = await openConnectedView(id, 'viewer', chatId);
     expect(view.ageMs).toBeGreaterThanOrEqual(5_000);
-    expect(view.ageMs).toBeLessThan(VIEW_TTL);
+    expect(view.ageMs).toBeLessThan(60_000);
   });
 
   it('ends a closed file view\'s watches, and a failure there never becomes an unhandled rejection', async () => {
@@ -490,11 +578,11 @@ describe('authority without waiting on the network', () => {
     try {
       mocks.closeWatches.mockImplementation(() => { throw new Error('the watch was already gone'); });
       const id = await capture();
-      const long = Date.now() - VIEW_TTL - 1;
-      const capturedFile = {...mcpViews().capture(id), kind: 'file' as const, created: long};
-      const view: View = {id: randomUUID(), viewerId: 'viewer', capture: capturedFile, created: long, bytes: 0, delivered: 0, revision: 0, contextSecond: 0, contextCount: 0, closed: false, calls: new Map()};
+      const capturedFile = {...mcpViews().capture(id), kind: 'file' as const};
+      const view: View = {id: randomUUID(), viewerId: 'viewer', capture: capturedFile, created: capturedFile.created, bytes: 0, revision: 0, contextSecond: 0, contextCount: 0, closed: false, calls: new Map()};
       mcpViews().views.set(view.id, view);
-      mcpViews().prune();
+      // A view closes when newer ones push it out, the least recently used first.
+      for (let i = 0; i < MAX_VIEWS; i++) mcpViews().open({...capturedFile, id: randomUUID(), kind: 'result'}, 'viewer');
       await vi.waitFor(() => expect(mocks.closeWatches).toHaveBeenCalledWith(view));
       await new Promise(resolve => setTimeout(resolve, 20));
       expect(unhandled).not.toHaveBeenCalled();

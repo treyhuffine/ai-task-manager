@@ -62,7 +62,7 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
   if (!app) return <div className="space-y-3 p-6 text-sm"><Button variant="ghost" onClick={() => navigate('')}><ArrowLeft size={14}/>Apps</Button><p>{catalog.error?.message ?? (catalog.isPending ? 'Loading app…' : 'This connection does not currently offer an interface.')}</p></div>;
   const accounts = catalog.data?.filter(candidate => app.providerId ? candidate.providerId === app.providerId : candidate.id === app.id) ?? [];
   const recent = [...app.recent].sort((a, b) => b.created - a.created);
-  // A result opened just now may not be in the cached list yet, and an expired one says so when it opens.
+  // A result opened just now may not be in the cached list yet, and a screen that closed says so when it opens.
   const opened = open ? recent.find(item => item.id === open) ?? {id: open, chatId: undefined, title: app.toolkitName, launched: false} : null;
   const description = app.providerId ? integrationMeta(app.providerId).description : '';
   const fullScreen = !!screenId || screen.state.kind !== 'idle';
@@ -126,8 +126,8 @@ export function ConnectedAppPage({serverId, navigate, resultId, screenId, launch
         <h2 id="recent-results" className="text-sm font-medium">Recent results</h2>
         {recent.length === 0
           ? <p className="text-xs text-muted-foreground">{app.views.length
-            ? `When your agent uses ${app.views.map(view => view.title).join(', ')}, the interactive result shows in chat and here for 30 minutes.`
-            : `Screens you open show here for 30 minutes.`}</p>
+            ? `When your agent uses ${app.views.map(view => view.title).join(', ')}, the interactive result shows in its chat, where it opens again any time, and the latest show here.`
+            : `Screens you open show here.`}</p>
           : <ul className="divide-y divide-border rounded-lg border border-border">{recent.map(item => <li key={item.id}>
             {/* A screen reopens full screen. A chat's result opens here on the page. */}
             <button type="button" aria-pressed={item.id === open} onClick={() => item.launched ? navigate(`${page}?screen=${encodeURIComponent(item.id)}`) : setOpen(item.id === open ? null : item.id)}

@@ -76,6 +76,16 @@ describe('toChatEventDTO', () => {
     expect(toChatEventDTO(row({ source: 'system', content: 'other', raw: { outcome: 'declined', app: 'Bits & Bolts' } })).raw).toBeNull();
   });
 
+  it('never sends a connected app result kept in its transcript event, private metadata and all', () => {
+    const capture = { id: 'capture', chatId: 's1', serverId: 'server', connectionId: 'c', sourceRef: 'r', tool: 'cad.view', input: { part: 'bolt' },
+      result: { content: [{ type: 'text', text: 'Public' }], _meta: { privateUi: 'Only for the interface' } }, resourceUri: 'ui://a', legacy: false, title: 'Bits & Bolts', created: 1, kind: 'result' };
+    const dto = toChatEventDTO(row({ id: 'capture', source: 'system', role: 'system', content: 'mcp_app_result', raw: { subtype: 'mcp_app_result', capture } }));
+    expect(dto.raw).toBeNull();
+    expect(dto.rawSubtype).toBe('mcp_app_result');
+    expect(JSON.stringify(dto)).not.toContain('Only for the interface');
+    expect(JSON.stringify(dto)).not.toContain('cad.view');
+  });
+
   it('keeps raw on the legacy Claude unknown envelope', () => {
     // Agentex <=0.0.32 surfaced task lifecycle as `unknown` + providerType
     // claude. Stored transcripts still contain these.

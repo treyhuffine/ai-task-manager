@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { useState } from 'react';
@@ -16,6 +17,9 @@ import { Byo, ConnectPanel, ToolList, type ProviderDetailProps } from './provide
 import { CapabilityReview } from './capability-review';
 import { providerForHostedAccount, providerForHostedDeployment } from './hosted-account-request';
 import { connectionIdentity, isRegisteredMcp, type Connection, type HostedMcpAccount, type HostedConnectIntent } from './types';
+
+// What the server's screens may reach on the network, which the page asks the Home once it shows in the browser.
+const McpAppNetwork = dynamic(() => import('./mcp-app-network').then(module => module.McpAppNetwork), { ssr: false });
 
 /** Account-scoped controls for built-in services, including unfinished sign-ins. */
 export function HostedProviderDetail(props: ProviderDetailProps) {
@@ -80,6 +84,7 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
           {account.lastCheckedAt && <p className="text-[11px] text-muted-foreground">Last checked <time dateTime={account.lastCheckedAt} suppressHydrationWarning>{new Date(account.lastCheckedAt).toLocaleString()}</time></p>}
           <CapabilityReview changes={account.capabilityChanges} busy={busy} onReview={props.onReviewCapabilities ? revision => props.onReviewCapabilities!(account.serverId, revision) : undefined} />
           <McpServerSettings serverId={account.serverId} name={label} enabled={!!account.settings && !!connection && account.enabled !== false && !account.requiresAuth && account.status === 'ok'} />
+          <McpAppNetwork serverId={account.serverId} name={label} enabled={!!connection && account.enabled !== false && !account.requiresAuth && account.status === 'ok'} />
         </div>;
       })}</div>
       {previousConnections.map(connection => <div key={connection.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card/20 p-3">

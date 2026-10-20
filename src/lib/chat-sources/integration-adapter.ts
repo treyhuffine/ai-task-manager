@@ -64,7 +64,6 @@ export const integrationSourceAdapter: SourceAdapter = {
     const current = await exact(ref, ctx);
     if (!current.remote || process.env.RI_MCP_APPS === '0') throw new SourceError('unavailable', 'This connection has no available app view');
     const {mcpViews} = await import('@/lib/mcp-apps/service');
-    mcpViews().prune();
     const capture = [...mcpViews().captures.values()].findLast(c => c.chatId === ctx.chatId && c.sourceRef === encodeSource(ref));
     const href = `/apps/~connected/${current.remote.entry.id}`;
     return capture ? {captureId: capture.id, href: `${href}?result=${capture.id}`} : {href};

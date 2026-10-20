@@ -44,7 +44,7 @@ describe('connected app context at dispatch', () => {
   let previous: Record<string, string | undefined>;
   let q: typeof import('@/lib/db/queries');
   let executor: typeof import('./adapter');
-  const context = [{ sourceRef: 'fixture', title: 'Bits & Bolts', serverId: 'server-1', authority: 'a', context: { content: [{ type: 'text', text: 'Selected: M6 bolt' }] } }];
+  const context = [{ sourceRef: 'fixture', title: 'Bits & Bolts', serverId: 'server-1', context: { content: [{ type: 'text', text: 'Selected: M6 bolt' }] } }];
 
   beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-app-context-'));

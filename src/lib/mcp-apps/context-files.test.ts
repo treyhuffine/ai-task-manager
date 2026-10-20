@@ -15,8 +15,8 @@ beforeEach(async () => { home = await createTestHome({ prefix: 'ri-context-files
 afterEach(async () => { await home.cleanup(); });
 
 const viewWith = (context: ModelContext, updateId = 'update-1') => {
-  const store = new McpViewStore(() => 0);
-  const capture: Capture = { id: randomUUID(), serverId: 's', connectionId: 'c', sourceRef: 'r', authority: 'a', tool: 't', input: {}, result: { content: [] }, resourceUri: 'ui://a/index.html', legacy: false, title: 'Bits & Bolts', created: 0 };
+  const store = new McpViewStore();
+  const capture: Capture = { id: randomUUID(), serverId: 's', connectionId: 'c', sourceRef: 'r', tool: 't', input: {}, result: { content: [] }, resourceUri: 'ui://a/index.html', legacy: false, title: 'Bits & Bolts', created: 0 };
   const view = store.open(capture, 'viewer');
   view.context = context; view.contextUpdateId = updateId;
   return view;

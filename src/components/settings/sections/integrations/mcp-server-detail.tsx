@@ -6,6 +6,7 @@
  * treatment as a provider: status and controls up top, every tool listed below
  * with server-wide permissions and individual On and Ask first switches.
  */
+import dynamic from 'next/dynamic';
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { AlertCircle, KeyRound, Loader2, LogIn, Plus, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,9 @@ import { CapabilityReview } from './capability-review';
 import { McpServerSettings } from './mcp-settings';
 import { settingsCapability } from '@/lib/mcp-apps/metadata';
 import { Tip } from '@/components/ui/tip';
+
+// What the server's screens may reach on the network, which the page asks the Home once it shows in the browser.
+const McpAppNetwork = dynamic(() => import('./mcp-app-network').then(module => module.McpAppNetwork), { ssr: false });
 
 const AUTH_LABEL: Record<McpServerEntry['auth']['kind'], string> = {
   none: 'No auth',
@@ -157,6 +161,8 @@ export function McpServerDetail({
       </section>}
 
       <McpServerSettings serverId={s.id} name={s.displayName} enabled={s.enabled && s.lastStatus === 'ok' && !!settingsCapability(s.protocol?.extensions)} />
+
+      <McpAppNetwork serverId={s.id} name={s.displayName} enabled={s.enabled && s.lastStatus === 'ok'} />
 
       <PluginSetupHelpButton target={{ kind: 'mcp', server: s }} disabled={busy} />
 

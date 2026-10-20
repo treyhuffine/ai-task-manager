@@ -1,7 +1,7 @@
 import { z } from 'zod/v4';
 import { router } from '@/lib/trpc/init';
 import { connectedFormsRouter } from './forms-router';
-import { callConnectedView, cancelConnectedInvocation, clearConnectedContext, connectedAppsCatalog, connectedChatTabs, connectedContextAccess, connectedViewStatus, decideConnectedApproval, launchConnectedView, navigateConnectedScreen, prepareConnectedLaunch, openConnectedView, readConnectedResource, updateConnectedContext } from './service';
+import { callConnectedView, cancelConnectedInvocation, clearConnectedContext, connectedAppNetwork, connectedAppsCatalog, connectedChatTabs, connectedContextAccess, connectedViewStatus, decideConnectedApproval, launchConnectedView, navigateConnectedScreen, prepareConnectedLaunch, openConnectedView, readConnectedResource, updateConnectedContext } from './service';
 import { connectedFilesRouter } from './files-router';
 import { connectedViewerProcedure as p } from './viewer-procedure';
 
@@ -14,6 +14,8 @@ export const connectedAppsRouter = router({
   /** The thread tabs this chat may open beside it. */
   chatTabs: p.input(z.object({chatId: id}).strict()).query(({input, ctx}) => connectedChatTabs(input.chatId, ctx.key!.apiKeyId)),
   status: p.input(z.object({viewId: id}).strict()).query(({input,ctx}) => connectedViewStatus(input.viewId,ctx.key!.apiKeyId)),
+  /** The network domains a server's screens declared, for its connection page. */
+  network: p.input(z.object({serverId: z.string().min(1).max(200)}).strict()).query(({input}) => connectedAppNetwork(input.serverId)),
   /** Which of the person's views may send context with a message in this chat, so the composer shows only those. */
   contextAccess: p.input(z.object({chatId: id, viewIds: z.array(id).max(8)}).strict()).query(({input, ctx}) => connectedContextAccess(input.chatId, ctx.key!.apiKeyId, input.viewIds)),
   open: p.input(z.object({captureId: id, chatId: id.optional()}).strict()).mutation(async ({input, ctx}) => {
