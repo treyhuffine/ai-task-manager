@@ -14,9 +14,16 @@
  * Persistence mirrors the engine's file stores: a JSON document (legacy arrays also read) under
  * `.config/integrations/mcp-servers.json`, atomic write at mode 0600, guarded by the
  * shared cross-process file lock so the CLI and dev server don't corrupt it.
+ *
+ * Every access check and integration call reads this store, several times
+ * each, and it changes only when a server is added, changed or rediscovered.
+ * So a process keeps the parsed document in memory and reads the disk again
+ * only when the file is a different one (`readStoredDocument`): a check costs
+ * the same whatever the servers' tool lists hold.
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { processState } from '@/lib/process-state';
 import { uuidv7 } from 'uuidv7';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { snapshotMcpCapabilities, diffMcpCapabilities, type McpCapabilityTool, type McpCapabilitySnapshot, type McpCapabilityChanges } from './mcp-capabilities';
@@ -219,6 +226,51 @@ function parseDocument(parsed: StoredRow[] | StoredDocument): StoredDocument {
   return Array.isArray(parsed) ? { servers: parsed } : parsed;
 }
 
+/** The parsed store per file, with the identity of the file it was read from. Shared by every store in the process. */
+const documents = () => processState('integrations.mcp-server-documents', () => new Map<string, { stamp: string; document: StoredDocument }>());
+const EMPTY_DOCUMENT: StoredDocument = deepFreeze({ servers: [] });
+
+/** Which file this is: a write replaces it (a new inode), and any other change moves its size or time. */
+const stampOf = (stat: fs.Stats) => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+
+/**
+ * Freeze a document all the way down. Every reader shares it, so one that
+ * changed it in place would change what every later read sees: it throws
+ * instead. A write edits copies (`editable`). Parts already frozen are a
+ * previous document's, shared by the new one, and aren't walked again.
+ */
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const item of Object.values(value)) deepFreeze(item);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/**
+ * The store's document, from memory unless the file changed since it was
+ * read. The file's identity is taken before reading it, so a write that lands
+ * in between only makes the next read take the disk again.
+ */
+function readStoredDocument(file: string): StoredDocument {
+  let stat: fs.Stats;
+  try { stat = fs.statSync(file); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return EMPTY_DOCUMENT;
+    throw error;
+  }
+  const stamp = stampOf(stat);
+  const kept = documents().get(file);
+  if (kept?.stamp === stamp) return kept.document;
+  const document = parseDocument(JSON.parse(fs.readFileSync(file, 'utf8')));
+  if (!document || !Array.isArray(document.servers)) throw new McpStoreError('invalid', 'Invalid MCP server configuration.');
+  if (document.defaultApprovalPolicy !== undefined && !MCP_APPROVAL_POLICIES.includes(document.defaultApprovalPolicy)) {
+    throw new McpStoreError('invalid', 'Invalid MCP approval policy.');
+  }
+  documents().set(file, { stamp, document: deepFreeze(document) });
+  return document;
+}
+
 export function mcpToolInfo(tool: McpCapabilityTool): McpToolInfo {
   const annotations = tool.annotations as { readOnlyHint?: boolean } | undefined;
   return { name: tool.name, ...(tool.description !== undefined ? { description: tool.description } : {}),
@@ -279,24 +331,22 @@ export function toSlug(name: string): string {
 }
 
 export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lock: LockLike }): McpServerStore {
-  const file = path.join(deps.dir, 'mcp-servers.json');
+  const file = path.resolve(deps.dir, 'mcp-servers.json');
 
-  const readDocument = (): StoredDocument => {
-    try {
-      const raw = fs.readFileSync(file, 'utf8');
-      const parsed = JSON.parse(raw);
-      const document = parseDocument(parsed);
-      if (!document || !Array.isArray(document.servers)) throw new McpStoreError('invalid', 'Invalid MCP server configuration.');
-      if (document.defaultApprovalPolicy !== undefined && !MCP_APPROVAL_POLICIES.includes(document.defaultApprovalPolicy)) {
-        throw new McpStoreError('invalid', 'Invalid MCP approval policy.');
-      }
-      return document;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { servers: [] };
-      throw error;
-    }
+  /** The shared, frozen document: for reading only. */
+  const readDocument = (): StoredDocument => readStoredDocument(file);
+  const readAll = (): readonly StoredRow[] => readDocument().servers;
+  /**
+   * A document a write may change: its own rows and entries over the shared
+   * nested values, which a write replaces rather than changes in place.
+   */
+  const editable = (): StoredDocument => {
+    const document = readDocument();
+    return { ...document, servers: document.servers.map(row => ({ ...row, entry: { ...row.entry } })) };
   };
-  const readAll = (): StoredRow[] => readDocument().servers;
+  const editRows = (): StoredRow[] => editable().servers;
+  /** A sealed value, opened as the caller's own: whatever the secret box returns, the shared document is never changed through it. */
+  const unseal = async <T,>(sealed: unknown): Promise<T> => structuredClone(await deps.secretBox.open<T>(sealed));
 
   const writeDocument = (document: StoredDocument): void => {
     fs.mkdirSync(deps.dir, { recursive: true, mode: 0o700 });
@@ -309,6 +359,8 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
     } catch {
       /* best-effort */
     }
+    // What was just written is the document now: the next read takes it from memory.
+    documents().set(file, { stamp: stampOf(fs.statSync(file)), document: deepFreeze(document) });
   };
   const writeAll = (rows: StoredRow[]): void => writeDocument({ ...readDocument(), servers: rows });
 
@@ -329,7 +381,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
     async setDefaultApprovalPolicy(policy, applyToAll = false) {
       if (policy !== null && !MCP_APPROVAL_POLICIES.includes(policy)) throw new McpStoreError('invalid', 'Invalid MCP approval policy.');
       await deps.lock.withLock('mcp-servers', async () => {
-        const document = readDocument();
+        const document = editable();
         if (policy === null) delete document.defaultApprovalPolicy;
         else document.defaultApprovalPolicy = policy;
         if (applyToAll) for (const row of document.servers) {
@@ -354,7 +406,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
     async create(input, secret) {
       return deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         if (!input.slug) throw new McpStoreError('invalid', 'slug is required');
         if (rows.some((r) => r.entry.slug === input.slug)) {
           throw new McpStoreError('slug_taken', `an MCP server named "${input.slug}" already exists`);
@@ -386,7 +438,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
     async update(id, patch) {
       return deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         const row = rows.find((r) => r.entry.id === id);
         if (!row) return null;
         if (patch.displayName !== undefined) row.entry.displayName = patch.displayName;
@@ -410,7 +462,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
     async remove(id) {
       return deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         const next = rows.filter((r) => r.entry.id !== id);
         if (next.length === rows.length) return false;
         writeAll(next);
@@ -420,7 +472,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
     async setHealth(id, health) {
       await deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         const row = rows.find((r) => r.entry.id === id);
         if (!row) return;
         if (row.entry.lastStatus !== health.lastStatus || row.entry.lastError !== (health.lastError ?? undefined) ||
@@ -447,7 +499,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
     async recordCapabilities(id, tools) {
       const current = snapshotMcpCapabilities(tools);
       return deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         const row = rows.find(candidate => candidate.entry.id === id);
         if (!row) return null;
         if (row.capabilities?.current.revision === current.revision) {
@@ -471,7 +523,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
     async recordProtocol(id, protocol, skippedProbe) {
       await deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         const row = rows.find(candidate => candidate.entry.id === id);
         if (!row) return;
         const previous = row.entry.protocol;
@@ -488,13 +540,13 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
     async acknowledgeCapabilities(id, revision) {
       return deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         const row = rows.find(candidate => candidate.entry.id === id);
         if (!row) return null;
         if (!row.capabilities || row.capabilities.current.revision !== revision) {
           throw new McpStoreError('conflict', 'The tools changed again. Review the latest changes before marking them reviewed.');
         }
-        row.capabilities.reviewed = row.capabilities.current;
+        row.capabilities = { ...row.capabilities, reviewed: row.capabilities.current };
         row.entry.capabilityChanges = undefined;
         row.entry.updatedAt = new Date().toISOString();
         writeAll(rows);
@@ -507,7 +559,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
       const row = readAll().find((r) => r.entry.id === id);
       if (!row?.sealed) return null;
       try {
-        const opened = await deps.secretBox.open<{ secret: string }>(row.sealed);
+        const opened = await unseal<{ secret: string }>(row.sealed);
         return opened.secret;
       } catch {
         return null;
@@ -518,7 +570,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
       const row = readAll().find((r) => r.entry.id === id);
       if (!row?.sealedOAuth) return null;
       try {
-        return await deps.secretBox.open<Record<string, unknown>>(row.sealedOAuth);
+        return await unseal<Record<string, unknown>>(row.sealedOAuth);
       } catch {
         return null;
       }
@@ -526,10 +578,10 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
     async consumeOAuthState(id, state, now = Date.now()) {
       return deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         const row = rows.find((r) => r.entry.id === id);
         if (!row?.sealedOAuth || !state || state.length > 4096) return false;
-        const saved = await deps.secretBox.open<Record<string, unknown>>(row.sealedOAuth);
+        const saved = await unseal<Record<string, unknown>>(row.sealedOAuth);
         if (typeof saved.authorizationState !== 'string' || typeof saved.authorizationExpiresAt !== 'number' || saved.authorizationExpiresAt <= now) return false;
         const expected = Buffer.from(saved.authorizationState);
         const actual = Buffer.from(state);
@@ -546,10 +598,10 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
     async completeAuthorization(id, authorizationId) {
       return deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         const row = rows.find(candidate => candidate.entry.id === id);
         if (!row?.entry.enabled || row.entry.auth.kind !== 'oauth' || row.entry.lastStatus !== 'ok' || !row.sealedOAuth) return false;
-        const saved = await deps.secretBox.open<Record<string, unknown>>(row.sealedOAuth);
+        const saved = await unseal<Record<string, unknown>>(row.sealedOAuth);
         if (!authorizationId || saved.consumedAuthorizationId !== authorizationId || saved.authorizationState || !saved.tokens) return false;
         row.entry.lastAuthorizationId = authorizationId;
         writeAll(rows);
@@ -559,7 +611,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
     async setOAuthState(id, state) {
       await deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         const row = rows.find((r) => r.entry.id === id);
         if (!row) return;
         if (state.tokens) delete row.entry.lastFailure;
@@ -571,10 +623,10 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
     async compareAndSetOAuthState(id, expectedRevision, state) {
       return deps.lock.withLock('mcp-servers', async () => {
-        const rows = readAll();
+        const rows = editRows();
         const row = rows.find((r) => r.entry.id === id);
         if (!row || row.entry.auth.kind !== 'oauth') return null;
-        const current = row.sealedOAuth ? await deps.secretBox.open<Record<string, unknown>>(row.sealedOAuth) : {};
+        const current = row.sealedOAuth ? await unseal<Record<string, unknown>>(row.sealedOAuth) : {};
         if (current.revision !== expectedRevision) return null;
         const next: Record<string, unknown> = { ...state, revision: uuidv7() };
         const oldToken = (current.tokens as { access_token?: string } | undefined)?.access_token;
@@ -590,13 +642,7 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
   };
 }
 
-/** Safe inert catalog read. No credential key creation, unsealing or network discovery. */
+/** Safe inert catalog read, from the same document the store keeps. No credential key creation, unsealing or network discovery. */
 export function readMcpMetadata(dir: string): { entry: McpServerEntry; capabilities: McpCapabilitySnapshot | null }[] {
-  try {
-    const document = parseDocument(JSON.parse(fs.readFileSync(path.join(dir, 'mcp-servers.json'), 'utf8')));
-    return document.servers.map(row => ({ entry: row.entry, capabilities: row.capabilities?.current ?? null }));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw error;
-  }
+  return readStoredDocument(path.resolve(dir, 'mcp-servers.json')).servers.map(row => ({ entry: row.entry, capabilities: row.capabilities?.current ?? null }));
 }

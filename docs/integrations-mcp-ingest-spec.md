@@ -92,6 +92,15 @@ New host store, mirroring `authConfigFileStore`: `.config/integrations/mcp-serve
 (precious, never synced). Non-secret fields plain; the auth secret sealed via the
 existing `SecretBox` (same pattern as connection creds / client secrets).
 
+Every access check and integration call reads this store, several times each,
+and it changes only when a server is added, changed or rediscovered. So each
+process keeps the parsed document in memory, frozen, and reads the disk again
+only when the file is a different one (its inode, size or time changed, as a
+write from any process makes it). A check costs the same whatever the servers'
+tool lists hold: with a 2,000-tool server in a 28 MB store, 0.5 ms instead of
+54 ms. Writes edit copies of the rows they change and leave the new document
+in memory.
+
 ```ts
 interface McpServerEntry {
   id: string;            // uuidv7 (store row id)

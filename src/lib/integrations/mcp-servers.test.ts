@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,6 +23,53 @@ function freshStore(): McpServerStore {
 
 afterEach(() => {
   for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+});
+
+describe('the store kept in memory', () => {
+  const create = (store: McpServerStore) => store.create({ slug: 'notes', displayName: 'Notes', url: 'https://example.com/mcp', auth: { kind: 'none' } });
+
+  it('reads the file once, and again only when it changes, whoever changed it', async () => {
+    const store = freshStore();
+    const dir = dirs.at(-1)!, file = path.join(dir, 'mcp-servers.json');
+    const entry = await create(store);
+    const reads = vi.spyOn(fs, 'readFileSync');
+    const storeReads = () => reads.mock.calls.filter(([target]) => String(target).endsWith('mcp-servers.json')).length;
+    try {
+      // Checks read the store over and over. What the last write left is already in memory.
+      for (let i = 0; i < 50; i++) { store.list(); store.get(entry.id); store.getApprovalSettings(); readMcpMetadata(dir); }
+      expect(storeReads()).toBe(0);
+      // Another process replaces the file, as every store write does.
+      const other = JSON.parse(fs.readFileSync(file, 'utf8'));
+      other.servers[0].entry.displayName = 'Renamed elsewhere';
+      fs.writeFileSync(`${file}.other`, JSON.stringify(other));
+      fs.renameSync(`${file}.other`, file);
+      reads.mockClear();
+      expect(store.get(entry.id)?.displayName).toBe('Renamed elsewhere');
+      // Every store in this process, as the runtime and a route each make, shares the one document.
+      expect(mcpServerStore({ dir, secretBox: fakeSecretBox, lock: noopLock }).get(entry.id)?.displayName).toBe('Renamed elsewhere');
+      expect(readMcpMetadata(dir)[0]?.entry.displayName).toBe('Renamed elsewhere');
+      expect(storeReads()).toBe(1);
+      // Changed in place, with no new file, it is read again too.
+      fs.writeFileSync(file, JSON.stringify({ ...other, servers: [] }));
+      expect(store.list()).toEqual([]);
+    } finally { reads.mockRestore(); }
+  });
+
+  it('shares one frozen document: a reader can\'t change it, and a write leaves what others hold as it was', async () => {
+    const store = freshStore();
+    const entry = await create(store);
+    const held = store.get(entry.id)!;
+    expect(() => { (held as { displayName: string }).displayName = 'Changed by a reader'; }).toThrow(TypeError);
+    await store.update(entry.id, { displayName: 'Changed', toolOverrides: { read: { enabled: false } } });
+    expect(held.displayName).toBe('Notes');
+    expect(held.toolOverrides).toBeUndefined();
+    expect(store.get(entry.id)).toMatchObject({ displayName: 'Changed', toolOverrides: { read: { enabled: false } } });
+    // What the secret box opens is the caller's own, whatever the box returns.
+    await store.setOAuthState(entry.id, { tokens: { access_token: 'a' } });
+    const state = (await store.getOAuthState(entry.id))!;
+    state.tokens = { access_token: 'changed by the caller' };
+    expect(await store.getOAuthState(entry.id)).toMatchObject({ tokens: { access_token: 'a' } });
+  });
 });
 
 describe('mcpServerStore', () => {
