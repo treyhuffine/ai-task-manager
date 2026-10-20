@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { CallToolResult } from '@modelcontextprotocol/client';
 import type { Attachment } from '@/db/types';
+import { VIEW_CLOSED_MESSAGE } from './metadata';
 
 /**
  * Captures and view sessions kept in memory, each. The least recently used
  * goes first. A model's result is also stored (`mcp_tool_results`), so it
- * opens again after it leaves memory or the Home restarts. A screen the
+ * opens again after it leaves memory or the Home restarts: a result's card
+ * opens only near the screen, polls only there, and opens its view again
+ * quietly when it finds it gone (`ConnectedView`). A screen the
  * person opened lives only here: once it goes, opening the app starts it over.
  * No interface is kept: a view reads its `ui://` resource each time it opens.
  */
@@ -85,7 +88,7 @@ export class McpViewStore {
   }
   get(id: string, viewerId: string) {
     const view = this.views.get(id);
-    if (!view || view.viewerId !== viewerId) throw new Error('This app view closed or is unavailable. Open it again.');
+    if (!view || view.viewerId !== viewerId) throw new Error(VIEW_CLOSED_MESSAGE);
     touch(this.views, id, view);
     return view;
   }

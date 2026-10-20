@@ -115,6 +115,9 @@ export function mentionsSearchTool(extensions: unknown, tools: readonly Pick<Mcp
   return tools.find(tool => Object.hasOwn(record(record(tool._meta)['openai/extensions']), 'mentions/search'))?.name ?? null;
 }
 
+/** What the Home says of a view no longer in its memory (`McpViewStore`). A result's card opens it again quietly. */
+export const VIEW_CLOSED_MESSAGE = 'This app view closed or is unavailable. Open it again.';
+
 /**
  * The transcript marker of a model tool result with a view, in `content` and
  * `raw.subtype`. The event carries only its id: the result's data is its row

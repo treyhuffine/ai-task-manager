@@ -16,7 +16,7 @@ import { uploadAttachment } from '@/lib/attachments/client';
 import { useOptionalDashboard } from '@/contexts/dashboard-context';
 import { useConnectedCompanion } from '@/lib/client/mcp-app-panel';
 import { runConnectedInvocation } from '@/lib/client/mcp-app-invocation';
-import { initialDisplayMode } from '@/lib/mcp-apps/metadata';
+import { initialDisplayMode, VIEW_CLOSED_MESSAGE } from '@/lib/mcp-apps/metadata';
 import { launchConnectedFile, showConnectedCapture } from '@/lib/client/mcp-app-file';
 import { viewHref } from '@/lib/client/active-view';
 import { attachmentUrl } from '@/lib/attachments/view';
@@ -69,10 +69,27 @@ export function ConnectedView({captureId, chatId, expanded = false, onClose, app
     else destination.appendChild(container);
   }, [container, destination]);
   useEffect(() => () => {container?.remove();}, [container]);
+  // The Home keeps 32 views in memory. A card opens its view once it nears the screen and polls only while
+  // there, so a long chat of results never holds more open than are seen, and one whose view the Home let
+  // go opens it again quietly from the stored result.
+  const [visible, setVisible] = useState(() => expanded || typeof IntersectionObserver === 'undefined');
+  useEffect(() => {
+    if (!container || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(([entry]) => setVisible(!!entry?.isIntersecting), {rootMargin: '400px'});
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [container]);
+  const active = visible || expanded;
+  const [seen, setSeen] = useState(active);
+  if (active && !seen) setSeen(true);
   const query = useQuery({queryKey: ['connected-app-view', captureId, chatId], queryFn: () => trpcClient.connectedApps.open.mutate({captureId, chatId}),
-    retry: false, staleTime: Infinity});
-  const access = useQuery({queryKey: ['connected-app-status', query.data?.id], queryFn: () => trpcClient.connectedApps.status.query({viewId: query.data!.id}), enabled: !!query.data, retry: false, refetchInterval: 15_000});
-  const failure = query.error ?? access.error;
+    retry: false, staleTime: Infinity, enabled: seen});
+  const access = useQuery({queryKey: ['connected-app-status', query.data?.id], queryFn: () => trpcClient.connectedApps.status.query({viewId: query.data!.id}),
+    enabled: !!query.data && active, retry: false, refetchInterval: 15_000});
+  const gone = access.error?.message === VIEW_CLOSED_MESSAGE;
+  const reopen = query.refetch;
+  useEffect(() => { if (gone && active) void reopen(); }, [gone, active, reopen]);
+  const failure = query.error ?? (gone ? null : access.error);
   const repeatsName = expanded && !onClose && (titled || (!!appName && query.data?.title?.toLocaleLowerCase() === appName.toLocaleLowerCase()));
   // OpenAI's display modes: what the resource declares bounds where it may show.
   const modes = query.data?.resource?.displayModes;

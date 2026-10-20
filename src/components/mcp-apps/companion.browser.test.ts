@@ -107,7 +107,9 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     expect(await besideGuest.locator('#count').textContent()).toBe('2');
 
     // A fresh result now stays in the transcript and offers the pane, leaving the tab and its state alone.
+    // It arrives at the end of the transcript, which a chat follows down to it, and a card opens once seen.
     await page.getByRole('button', { name: 'Model result' }).click();
+    await result('result-3').scrollIntoViewIfNeeded();
     await result('result-3').getByRole('button', { name: 'Open beside chat' }).waitFor();
     await result('result-3').frameLocator('iframe[aria-label="App view"]').frameLocator('iframe').locator('h2').waitFor();
     expect(await paneTitle.textContent()).toBe('Parts tray');
