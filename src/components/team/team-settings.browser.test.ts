@@ -58,7 +58,7 @@ beforeAll(async () => {
             aiClients:{list:query('clients',()=>clients)},ai:{status:query('status',()=>status),chats:{list:query('chats')}}
           }};
           trpc.externalAi={list:query('personalClients',()=>clients),address:query('personalAddress',()=>({mcpUrl:(local?'http://localhost:4224':'https://home.example.test')+'/api/orchestrator/mcp',reachable:!local}))};
-          trpc.harness={skillsGlobalGet:query('skill',()=>({appOnly:false,enabled:true,configured:true,installed:true,conflicts:[]}))};
+          trpc.harness={skillsGlobalGet:query('skill',()=>({appOnly:false,enabled:true,configured:true,installed:true,conflicts:[],folders:['~/.agents/skills','~/.claude/skills','~/.gemini/config/skills']}))};
           const unreachable={mutate:async()=>({reachable:false})};
           export const trpcClient={team:{
             invitations:{createRemote:unreachable},signIns:{createRemote:unreachable},

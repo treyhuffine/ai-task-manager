@@ -3,16 +3,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { listJoin } from '@/components/chat/onboarding/onboarding-flow';
 import { APP_NAME } from '@/constants/app';
 import { apiErrorText } from '@/lib/api/client';
+import { HARNESS_IDS, HARNESS_REGISTRY } from '@/lib/harness/registry';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 import { agentSkillState } from './agent-skill-state';
 
 /**
- * Ri's user-level skills, which let Claude Code, Codex and the other coding
- * tools on this computer manage tasks and notes from any project. First-run
- * setup installs them (`src/components/onboarding/harness-save.ts`), and
+ * Ri's user-level skills, which let every coding tool Ri runs manage tasks
+ * and notes from any project on this computer. They go into each harness's
+ * own skill folder, so switching harnesses never loses them. A new home's
+ * first run installs them (`src/components/onboarding/agent-skill-install.ts`), and
  * Settings shows them twice with the same one-click install and uninstall:
  * a Get started item, and their home in External AI. Both read one query, so
  * they never disagree. Uninstalling removes only Ri's own links
@@ -48,8 +51,8 @@ export function useAgentSkillAccess(enabled = true) {
 const buttonClass =
   'inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted/50 disabled:opacity-50';
 
-/** Where the two skills land, for people who want to look. */
-const SKILL_FOLDERS = '~/.claude/skills and ~/.agents/skills';
+/** "Codex, Claude Code, Cursor, OpenCode and Antigravity": every harness this build offers. */
+const HARNESS_NAMES = listJoin(HARNESS_IDS.map((id) => HARNESS_REGISTRY[id].name));
 
 /** The External AI block: what the skills do, whether they're here, and the one button. */
 export function AgentSkillAccess() {
@@ -67,9 +70,9 @@ export function AgentSkillAccess() {
       ) : (
         <>
           <p className="mt-1 text-xs text-muted-foreground">
-            Claude Code, Codex and other coding tools on this computer can manage your tasks and notes from any project.
-            {' '}{APP_NAME} adds two skills to your home folder for this, one for tasks and notes and one for the agent
-            browser. Your projects are never changed. Uninstall in one click any time.
+            {HARNESS_NAMES} can manage your tasks and notes from any project on this computer, whichever one you
+            use. {APP_NAME} links two skills into each one&apos;s skill folder, one for tasks and notes and one for the
+            agent browser. Your projects are never changed. Uninstall in one click any time.
           </p>
           <div className="mt-2 flex items-center gap-3 rounded-md border border-border px-3 py-2 text-xs">
             {skill.failed ? (
@@ -92,7 +95,7 @@ export function AgentSkillAccess() {
                 />
                 <span className="min-w-0 flex-1">
                   {state === 'on' ? (
-                    <>Installed <span className="text-muted-foreground">in {SKILL_FOLDERS}</span></>
+                    <>Installed <span className="text-muted-foreground">in {listJoin(skill.status?.folders ?? [])}</span></>
                   ) : 'Not installed'}
                 </span>
                 <button

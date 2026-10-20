@@ -3,9 +3,10 @@
  *
  * The app-root install is always present so orchestrator and content sessions
  * discover the skill from their own cwd. The user-level install makes the same
- * skills available to ordinary coding-tool sessions in any project. First-run
- * setup turns it on unless the home already chose, and Settings (Get started,
- * External AI) shows it with one-click install and uninstall
+ * skills available to ordinary coding-tool sessions in any project, for every
+ * harness Ri can run. First-run setup turns it on as the conversation opens,
+ * unless the home already chose, and Settings (Get started, External AI)
+ * shows it with one-click install and uninstall
  * (`src/components/settings/agent-skill-access.tsx`). Project repositories are
  * never an ownership location for shipped skills.
  */
@@ -14,9 +15,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { SkillInstallResult, SkillRemoveResult } from '@agentex/agent';
+import type { SkillInstallEntry, SkillInstallResult, SkillRemoveEntry, SkillRemoveResult } from '@agentex/agent';
 import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
 import { getAppRoot, getWorkDir } from '@/lib/config/paths';
+import { HARNESS_REGISTRY, KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 import { readAuthConfig, writeAuthConfig } from '@/lib/auth/config-file';
 
 async function loadAgentex() {
@@ -104,55 +106,52 @@ export function getGlobalSkillPreference(): boolean | null {
   return readAuthConfig()?.globalSkillEnabled ?? null;
 }
 
+/**
+ * The user-level folders Ri's skills go in: each harness's folder for skills
+ * in every project (`globalSkillsDir` in the harness registry), once each.
+ * Every harness Ri can run, not just the default, so one switched to later
+ * already has them.
+ */
+export function globalSkillFolders(): string[] {
+  const home = os.homedir();
+  return [...new Set(KNOWN_HARNESS_IDS.map((id) => path.join(home, HARNESS_REGISTRY[id].globalSkillsDir)))];
+}
+
 /** Where the user-level install stands on disk, which can differ from the saved choice. */
 export interface GlobalSkillStatus {
-  /** Every shipped skill is linked from both user-level folders to this home's copy. */
+  /** Every shipped skill is linked from every user-level folder to this home's copy. */
   installed: boolean;
   /**
    * User-level entries holding something else under a shipped skill's name:
    * someone's own skill, or a link to another Ri home's live copy.
    * Installing leaves them alone, so they keep that skill from being
-   * installed. A dead link isn't one: installing replaces it. Written the
-   * way a person reads them, with `~` for the home folder.
+   * installed. A dead link isn't one: installing replaces it.
    */
   conflicts: string[];
+  /** The folders the skills go in. Paths here are written with `~` for the home folder. */
+  folders: string[];
 }
 
 /** Read the user-level skill folders, never change them. */
 export async function inspectGlobalSkills(): Promise<GlobalSkillStatus> {
   let installed = true;
   const conflicts: string[] = [];
-  for (const { link, state } of await globalShippedEntries()) {
+  for (const { link, state } of globalShippedEntries()) {
     if (state !== 'ours') installed = false;
     if (state === 'other') conflicts.push(displayHomePath(link));
   }
-  return { installed, conflicts };
+  return { installed, conflicts, folders: globalSkillFolders().map(displayHomePath) };
 }
 
-/** Each shipped skill's place in both user-level folders, and what's there now. */
-async function globalShippedEntries(): Promise<Array<{ link: string; state: LinkState }>> {
-  const { resolveSkillsHome } = await loadAgentex();
+/** Each shipped skill's place in every user-level folder, and what's there now. */
+function globalShippedEntries(): Array<{ folder: string; source: string; link: string; state: LinkState }> {
   const dirs = shippedSkillDirs();
-  return [resolveSkillsHome('claude'), resolveSkillsHome('agents')].flatMap((skillsHome) =>
-    dirs.map((dir) => {
-      const link = path.join(skillsHome, path.basename(dir));
-      return { link, state: linkState(link, dir) };
+  return globalSkillFolders().flatMap((folder) =>
+    dirs.map((source) => {
+      const link = path.join(folder, path.basename(source));
+      return { folder, source, link, state: linkState(link, source) };
     }),
   );
-}
-
-/**
- * Clear dead links at the shipped names in the user-level folders: links
- * whose target is gone, left by a Ri home that no longer exists (a deleted
- * worktree's demo home, say). No coding tool can read one, and agentex
- * won't replace a link it didn't make, so without this the name stays taken
- * for good. Only the shipped names are looked at. Live links and real
- * folders stay.
- */
-async function clearDeadGlobalLinks(): Promise<void> {
-  for (const { link, state } of await globalShippedEntries()) {
-    if (state === 'dead') fs.unlinkSync(link);
-  }
 }
 
 /** A path the way a person reads it, `~` for the home folder. */
@@ -187,10 +186,29 @@ export async function installAppRootSkills(): Promise<SkillInstallResult> {
   });
 }
 
+/**
+ * Link the shipped skills into every user-level folder. Agentex's installer
+ * only knows the two shared folders, so this links each one itself, with
+ * agentex's own idempotent link. A dead link at a shipped name (left by a Ri
+ * home that's gone, like a deleted worktree's demo home) is replaced: no tool
+ * can read it, and agentex won't replace a link it didn't make, so it would
+ * keep the name taken for good. Anything live there stays, as a conflict.
+ */
 export async function installGlobalSkills(): Promise<SkillInstallResult> {
-  await clearDeadGlobalLinks();
-  const { installSkills } = await loadAgentex();
-  return installSkills(shippedSkillDirs(), { location: 'global' });
+  const { ensureSkillSymlink } = await loadAgentex();
+  const entries: SkillInstallEntry[] = [];
+  for (const { folder, source, link, state } of globalShippedEntries()) {
+    const entry = { target: displayHomePath(folder), skillName: path.basename(source), targetPath: link };
+    try {
+      if (state === 'dead') fs.unlinkSync(link);
+      fs.mkdirSync(folder, { recursive: true });
+      entries.push({ ...entry, status: await ensureSkillSymlink(source, link) });
+    } catch (err) {
+      entries.push({ ...entry, status: 'error', error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  const count = (status: SkillInstallEntry['status']) => entries.filter((e) => e.status === status).length;
+  return { entries, installed: count('created'), skipped: count('skipped'), conflicts: count('conflict'), errors: count('error') };
 }
 
 export async function removeAppRootSkills(): Promise<SkillRemoveResult> {
@@ -201,9 +219,23 @@ export async function removeAppRootSkills(): Promise<SkillRemoveResult> {
   });
 }
 
+/** Remove only links to this home's copy. Anything else under a shipped name stays. */
 export async function removeGlobalSkills(): Promise<SkillRemoveResult> {
-  const { removeSkills } = await loadAgentex();
-  return removeSkills(shippedSkillDirs(), { location: 'global' });
+  const entries: SkillRemoveEntry[] = [];
+  for (const { folder, source, link, state } of globalShippedEntries()) {
+    const entry = { target: displayHomePath(folder), skillName: path.basename(source), targetPath: link };
+    if (state !== 'ours') {
+      entries.push({ ...entry, status: state === 'missing' ? 'not_found' : 'conflict' });
+      continue;
+    }
+    try {
+      fs.unlinkSync(link);
+      entries.push({ ...entry, status: 'removed' });
+    } catch (err) {
+      entries.push({ ...entry, status: 'error', error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return { entries, removed: entries.filter((e) => e.status === 'removed').length };
 }
 
 export type GlobalSkillEnabledResult = { enabled: true; install: SkillInstallResult };

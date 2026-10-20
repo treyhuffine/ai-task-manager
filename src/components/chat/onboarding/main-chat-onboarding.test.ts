@@ -20,6 +20,7 @@ const fixtures = vi.hoisted(() => ({
   createChat: vi.fn(async () => ({ session: { id: 'chat-2' } })),
   switchChat: vi.fn(),
   saveHarness: vi.fn(async () => ({ harness: 'codex', model: 'gpt-6.1-sol', variant: null, effort: 'medium' })),
+  installSkill: vi.fn(async () => {}),
   progress: { show: vi.fn(), record: vi.fn(), finish: vi.fn(async () => {}), moveChat: vi.fn(async () => {}) },
   refetch: vi.fn(async () => ({})),
 }));
@@ -39,6 +40,7 @@ vi.mock('@/hooks/use-main-chat', () => ({
   switchToMainChat: fixtures.switchChat,
 }));
 vi.mock('@/components/onboarding/harness-save', () => ({ saveHarnessSetup: fixtures.saveHarness }));
+vi.mock('@/components/onboarding/agent-skill-install', () => ({ installAgentSkill: fixtures.installSkill }));
 vi.mock('./use-harness-check', () => ({
   useHarnessCheck: (enabled: boolean) => {
     fixtures.check(enabled);
@@ -143,6 +145,27 @@ function expectSavedChoiceUntouched() {
   expect(fixtures.createChat).not.toHaveBeenCalled();
   expect(fixtures.update).not.toHaveBeenCalled();
 }
+
+describe("Ri's skills on a new home", () => {
+  it('go in as the conversation opens, before a harness is picked', async () => {
+    Object.assign(fixtures.state, { defaultHarness: null, defaultModel: null, defaultEffort: null });
+    await render();
+    expect(fixtures.installSkill).toHaveBeenCalledOnce();
+    // Still on the first question: nothing about a harness has been settled.
+    expect(fixtures.saveHarness).not.toHaveBeenCalled();
+    await continueIdentity();
+    await render();
+    // Picking the harness doesn't ask again.
+    expect(fixtures.saveHarness).toHaveBeenCalledOnce();
+    expect(fixtures.installSkill).toHaveBeenCalledOnce();
+  });
+
+  it('are left to Settings once a home has finished setting up', async () => {
+    Object.assign(fixtures.state, { onboardedAt: AT, orchestratorIntroducedAt: AT });
+    await render();
+    expect(fixtures.installSkill).not.toHaveBeenCalled();
+  });
+});
 
 describe('resuming setup with a saved default', () => {
   it('preserves the home choice in a fresh browser and moves directly from identity to the user name', async () => {

@@ -12,21 +12,23 @@ import { z as rpcZ } from 'zod/v4';
 
 /**
  * The saved choice (`enabled`, `configured`) and what's on disk (`installed`,
- * `conflicts`). They differ when someone deleted a link by hand or another
- * skill holds the name, and Settings shows what's on disk.
+ * `conflicts`, in `folders`: every harness's folder for skills in every
+ * project). They differ when someone deleted a link by hand or another skill
+ * holds the name, and Settings shows what's on disk.
  */
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   if (process.env.RI_DESKTOP === '1') {
-    return reply({ appOnly: true, enabled: false, configured: true, installed: false, conflicts: [] as string[] });
+    return reply({ appOnly: true, enabled: false, configured: true, installed: false, conflicts: [] as string[], folders: [] as string[] });
   }
   const preference = getGlobalSkillPreference();
-  const { installed, conflicts } = await inspectGlobalSkills();
+  const { installed, conflicts, folders } = await inspectGlobalSkills();
   return reply({
     appOnly: false,
     enabled: preference === true,
     configured: preference !== null,
     installed,
     conflicts,
+    folders,
   });
 }
 

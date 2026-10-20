@@ -8,6 +8,7 @@ import {
 	useSaveIdentity,
 	type IdentityDraft,
 } from '@/components/orchestrator/identity-editor';
+import { installAgentSkill } from '@/components/onboarding/agent-skill-install';
 import { WorkspaceCreateModal } from '@/components/workspaces/workspace-create-modal';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { useAreas } from '@/hooks/use-areas';
@@ -125,6 +126,17 @@ export function MainChatOnboarding() {
   const done = doneSteps(record, onFile);
 
   const newHome = !!userState && !userState.onboardedAt;
+
+  // Ri's skills go into every harness's skill folder as a new home's
+  // conversation opens, before a harness is picked, so whichever one is used
+  // or switched to later already has them (`installAgentSkill`).
+  const skillAsked = useRef(false);
+  useEffect(() => {
+    if (!newHome || skillAsked.current) return;
+    skillAsked.current = true;
+    void installAgentSkill();
+  }, [newHome]);
+
   // The default belongs to the home: a choice saved on another device counts.
   const needsHarness = newHome && !userState.defaultHarness;
   const harnessPending = needsHarness && !done.has('harness');

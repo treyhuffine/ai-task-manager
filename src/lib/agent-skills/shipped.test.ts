@@ -7,11 +7,15 @@ import { APP_ROOT_ENV } from '@/lib/config/paths';
 import {
   configureGlobalSkill,
   getGlobalSkillPreference,
+  globalSkillFolders,
   inspectGlobalSkills,
   installAppRootSkills,
   removeOwnedProjectSkillLinks,
   shippedSkillDirs,
 } from './shipped';
+
+const FOLDERS = ['~/.agents/skills', '~/.claude/skills', '~/.gemini/config/skills'];
+const CHANNELS = ['.agents', '.claude', path.join('.gemini', 'config')];
 
 let tmpHome: string;
 let appRoot: string;
@@ -63,15 +67,27 @@ describe('shipped agent skills', () => {
     }
   });
 
-  it('persists an explicit global opt-in and installs both user-level channels', async () => {
+  it('goes in the every-project folder of each harness Ri runs, once each', () => {
+    // Codex, Cursor and OpenCode share .agents, Claude Code has .claude, and
+    // Antigravity reads only its own config folder.
+    expect(globalSkillFolders()).toEqual(CHANNELS.map((channel) => path.join(tmpHome, channel, 'skills')));
+  });
+
+  it('persists an explicit global opt-in and installs into every user-level folder', async () => {
     const result = await configureGlobalSkill(true);
 
     expect(result.enabled).toBe(true);
+    expect(result.install).toMatchObject({ installed: 6, conflicts: 0, errors: 0 });
     expect(getGlobalSkillPreference()).toBe(true);
-    for (const channel of ['.agents', '.claude']) {
-      const link = path.join(tmpHome, channel, 'skills', AGENT_SKILL_NAME);
-      expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    for (const channel of CHANNELS) {
+      for (const [i, name] of [AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME].entries()) {
+        const link = path.join(tmpHome, channel, 'skills', name);
+        expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+        expect(fs.realpathSync(link)).toBe(fs.realpathSync(shippedSkillDirs()[i]));
+      }
     }
+    // A second install has nothing to do.
+    expect((await configureGlobalSkill(true)).install).toMatchObject({ installed: 0, skipped: 6 });
   });
 
   it('removes the global links when the user opts out', async () => {
@@ -79,22 +95,23 @@ describe('shipped agent skills', () => {
     const result = await configureGlobalSkill(false);
 
     expect(result.enabled).toBe(false);
-    expect(result.remove.removed).toBe(4);
+    expect(result.remove.removed).toBe(6);
     expect(getGlobalSkillPreference()).toBe(false);
-    expect(fs.existsSync(path.join(tmpHome, '.agents', 'skills', AGENT_SKILL_NAME))).toBe(false);
-    expect(fs.existsSync(path.join(tmpHome, '.claude', 'skills', AGENT_SKILL_NAME))).toBe(false);
+    for (const channel of CHANNELS) {
+      expect(fs.existsSync(path.join(tmpHome, channel, 'skills', AGENT_SKILL_NAME))).toBe(false);
+    }
   });
 
   it('reports what is on disk, not the saved choice', async () => {
-    expect(await inspectGlobalSkills()).toEqual({ installed: false, conflicts: [] });
+    expect(await inspectGlobalSkills()).toEqual({ installed: false, conflicts: [], folders: FOLDERS });
 
     await configureGlobalSkill(true);
-    expect(await inspectGlobalSkills()).toEqual({ installed: true, conflicts: [] });
+    expect(await inspectGlobalSkills()).toEqual({ installed: true, conflicts: [], folders: FOLDERS });
 
     // A link deleted by hand: still chosen, no longer installed, nothing in the way.
-    fs.unlinkSync(path.join(tmpHome, '.agents', 'skills', AGENT_BROWSER_SKILL_NAME));
+    fs.unlinkSync(path.join(tmpHome, '.gemini', 'config', 'skills', AGENT_BROWSER_SKILL_NAME));
     expect(getGlobalSkillPreference()).toBe(true);
-    expect(await inspectGlobalSkills()).toEqual({ installed: false, conflicts: [] });
+    expect(await inspectGlobalSkills()).toEqual({ installed: false, conflicts: [], folders: FOLDERS });
   });
 
   it('names what holds a shipped skill name, and installing leaves it alone', async () => {
@@ -109,10 +126,11 @@ describe('shipped agent skills', () => {
 
     const result = await configureGlobalSkill(true);
 
-    expect(result.install.conflicts).toBe(2);
+    expect(result.install).toMatchObject({ conflicts: 2, installed: 4 });
     expect(await inspectGlobalSkills()).toEqual({
       installed: false,
-      conflicts: [`~/.claude/skills/${AGENT_SKILL_NAME}`, `~/.agents/skills/${AGENT_SKILL_NAME}`],
+      conflicts: [`~/.agents/skills/${AGENT_SKILL_NAME}`, `~/.claude/skills/${AGENT_SKILL_NAME}`],
+      folders: FOLDERS,
     });
     expect(fs.readFileSync(path.join(own, 'SKILL.md'), 'utf8')).toBe('user-owned');
 
@@ -131,12 +149,12 @@ describe('shipped agent skills', () => {
     fs.symlinkSync(path.join(tmpHome, 'nowhere'), path.join(skills, 'someone-elses'), 'dir');
 
     // Not something to move by hand: not installed, and nothing in the way.
-    expect(await inspectGlobalSkills()).toEqual({ installed: false, conflicts: [] });
+    expect(await inspectGlobalSkills()).toEqual({ installed: false, conflicts: [], folders: FOLDERS });
 
     const result = await configureGlobalSkill(true);
 
     expect(result.install.conflicts).toBe(0);
-    expect(await inspectGlobalSkills()).toEqual({ installed: true, conflicts: [] });
+    expect(await inspectGlobalSkills()).toEqual({ installed: true, conflicts: [], folders: FOLDERS });
     expect(fs.realpathSync(path.join(skills, AGENT_SKILL_NAME))).toBe(fs.realpathSync(shippedSkillDirs()[0]));
     // A dead link under any other name is someone else's business.
     expect(fs.readlinkSync(path.join(skills, 'someone-elses'))).toBe(path.join(tmpHome, 'nowhere'));

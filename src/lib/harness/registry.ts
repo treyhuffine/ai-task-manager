@@ -53,6 +53,17 @@ export interface HarnessDefinition {
    * limits from chat events instead (`harness/rate-limits.ts`).
    */
   runtimeProbe: boolean;
+  /**
+   * Where this harness finds skills for every project, under the home
+   * folder. Ri links its shipped skills into each of these, whichever
+   * harness is the default, so one switched to later already has them
+   * (`src/lib/agent-skills/shipped.ts`). Checked against each CLI on
+   * 2026-10-20: Codex, Cursor and OpenCode read `.agents/skills` (Cursor and
+   * OpenCode read `.claude/skills` too), Claude Code reads only
+   * `.claude/skills`, and Antigravity (agy 1.4.3) reads only
+   * `.gemini/config/skills`.
+   */
+  globalSkillsDir: string;
   maximumCapabilities: HarnessCapabilities;
 }
 
@@ -95,6 +106,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     apiKeyVar: 'OPENAI_API_KEY',
     resumeCommandTemplate: 'codex resume {id}',
     runtimeProbe: false,
+    globalSkillsDir: '.agents/skills',
     maximumCapabilities: {
       ...base,
       durableCatchUp: true,
@@ -123,6 +135,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     apiKeyVar: 'ANTHROPIC_API_KEY',
     resumeCommandTemplate: 'claude --resume {id}',
     runtimeProbe: false,
+    globalSkillsDir: '.claude/skills',
     maximumCapabilities: {
       ...base,
       durableCatchUp: true,
@@ -153,6 +166,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     apiKeyVar: 'CURSOR_API_KEY',
     resumeCommandTemplate: 'agent --resume {id}',
     runtimeProbe: true,
+    globalSkillsDir: '.agents/skills',
     maximumCapabilities: {
       ...base,
       modelDiscovery: true,
@@ -173,6 +187,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     apiKeyVar: null,
     resumeCommandTemplate: null,
     runtimeProbe: true,
+    globalSkillsDir: '.agents/skills',
     maximumCapabilities: {
       ...base,
       durableCatchUp: true,
@@ -211,6 +226,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
     // the chat's own working folder, like `claude --resume`.
     resumeCommandTemplate: 'agy --conversation {id}',
     runtimeProbe: true,
+    globalSkillsDir: '.gemini/config/skills',
     maximumCapabilities: {
       ...base,
       modelDiscovery: true,

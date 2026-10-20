@@ -3,7 +3,7 @@ import { agentSkillState, type AgentSkillStatus } from './agent-skill-state';
 
 // The real type ties the desktop shape to literal values, so a patched mix is cast.
 const status = (patch: Partial<Record<keyof AgentSkillStatus, unknown>>) =>
-  ({ appOnly: false, enabled: true, configured: true, installed: true, conflicts: [], ...patch }) as AgentSkillStatus;
+  ({ appOnly: false, enabled: true, configured: true, installed: true, conflicts: [], folders: [], ...patch }) as AgentSkillStatus;
 
 describe('agentSkillState', () => {
   it('reads what is on disk before the saved choice', () => {

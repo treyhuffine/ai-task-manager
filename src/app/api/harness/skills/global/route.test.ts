@@ -38,24 +38,27 @@ beforeEach(() => {
 describe('global agent skill settings', () => {
   it('reports the saved choice next to what is on disk', async () => {
     mocks.getGlobalSkillPreference.mockReturnValue(null);
-    mocks.inspectGlobalSkills.mockResolvedValue({ installed: false, conflicts: [] });
+    const folders = ['~/.agents/skills', '~/.claude/skills', '~/.gemini/config/skills'];
+    mocks.inspectGlobalSkills.mockResolvedValue({ installed: false, conflicts: [], folders });
     expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({
       enabled: false,
       configured: false,
       appOnly: false,
       installed: false,
       conflicts: [],
+      folders,
     });
 
     // Chosen, but someone's own skill holds the name.
     mocks.getGlobalSkillPreference.mockReturnValue(true);
-    mocks.inspectGlobalSkills.mockResolvedValue({ installed: false, conflicts: ['~/.claude/skills/agent-work-tasks-notes_ri'] });
+    mocks.inspectGlobalSkills.mockResolvedValue({ installed: false, conflicts: ['~/.claude/skills/agent-work-tasks-notes_ri'], folders });
     expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({
       enabled: true,
       configured: true,
       appOnly: false,
       installed: false,
       conflicts: ['~/.claude/skills/agent-work-tasks-notes_ri'],
+      folders,
     });
   });
 
@@ -122,7 +125,7 @@ describe('global agent skill settings', () => {
 it('keeps desktop onboarding away from global skills and project cleanup', async () => {
   vi.stubEnv('RI_DESKTOP', '1');
   mocks.installAppRootSkills.mockResolvedValue({ installed: 2, errors: 0 });
-  expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({ enabled: false, configured: true, appOnly: true, installed: false, conflicts: [] });
+  expect(await (await GET(new Request('http://localhost/api/test'))).json()).toEqual({ enabled: false, configured: true, appOnly: true, installed: false, conflicts: [], folders: [] });
   expect(mocks.inspectGlobalSkills).not.toHaveBeenCalled();
   const response = await PUT(new NextRequest('http://localhost/api/harness/skills/global', { method: 'PUT', body: JSON.stringify({ enabled: true }) }));
   expect(response.status).toBe(200);

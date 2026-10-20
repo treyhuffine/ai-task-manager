@@ -130,7 +130,7 @@ function AgentSkillItem({ item, dismiss, restore }: ItemProps) {
 
   if (item.done) {
     return (
-      <Row item={item} note="On for Claude Code, Codex and other coding tools in every project. Uninstall in one click any time.">
+      <Row item={item} note="On for every coding tool you can use here, in every project. Uninstall in one click any time.">
         <button type="button" onClick={skill.uninstall} disabled={skill.busy} className={quietClass}>
           {spinner}
           Uninstall
@@ -175,7 +175,7 @@ function AgentSkillItem({ item, dismiss, restore }: ItemProps) {
   return (
     <Row
       item={item}
-      note="Claude Code, Codex and other coding tools get your tasks and notes in every project. Uninstall in one click any time."
+      note="Claude Code, Codex and every other coding tool you can use here get your tasks and notes in every project. Uninstall in one click any time."
     >
       <div className="flex shrink-0 items-center gap-1">
         <button type="button" onClick={skill.install} disabled={skill.busy} className={primaryClass}>

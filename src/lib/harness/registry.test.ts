@@ -32,6 +32,18 @@ describe('harness registry', () => {
     expect(new Set(icons).size).toBe(icons.length);
   });
 
+  it('names the folder each harness reads skills from in every project', () => {
+    // Checked against each CLI (agy 1.4.3 with probe skills): Antigravity reads
+    // neither shared folder outside a project, only its own config folder.
+    expect(Object.fromEntries(KNOWN_HARNESS_IDS.map((id) => [id, HARNESS_REGISTRY[id].globalSkillsDir]))).toEqual({
+      codex: '.agents/skills',
+      claude: '.claude/skills',
+      cursor: '.agents/skills',
+      opencode: '.agents/skills',
+      antigravity: '.gemini/config/skills',
+    });
+  });
+
   it('knows every stored harness id, rollout flag or not, and nothing else', () => {
     for (const id of ['claude', 'codex', 'cursor', 'opencode', 'antigravity']) expect(isKnownHarnessId(id)).toBe(true);
     // The retired agents-table spelling is not a harness id anymore.

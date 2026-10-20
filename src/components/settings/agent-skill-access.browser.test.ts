@@ -15,6 +15,7 @@ let address: string;
 
 const LABEL = 'Let your coding tools manage tasks and notes';
 const CONFLICT = '~/.claude/skills/agent-work-tasks-notes_ri';
+const FOLDERS = 'in ~/.agents/skills, ~/.claude/skills and ~/.gemini/config/skills';
 
 beforeAll(async () => {
   if (!enabled) return;
@@ -49,7 +50,7 @@ beforeAll(async () => {
           const params=new URLSearchParams(location.search);
           const desktop=params.has('desktop');const blocked=params.has('blocked');
           window.skillCalls=[];
-          let skill={appOnly:desktop,enabled:!desktop,configured:true,installed:!desktop&&!blocked,conflicts:blocked?['${CONFLICT}']:[]};
+          let skill={appOnly:desktop,enabled:!desktop,configured:true,installed:!desktop&&!blocked,conflicts:blocked?['${CONFLICT}']:[],folders:desktop?[]:['~/.agents/skills','~/.claude/skills','~/.gemini/config/skills']};
           const query=(name,fn)=>({queryKey:()=>[name],queryOptions:()=>({queryKey:[name],queryFn:async()=>fn()})});
           export const trpc={harness:{skillsGlobalGet:query('skill',()=>skill)}};
           export const trpcClient={
@@ -103,7 +104,9 @@ it.skipIf(!enabled)('says the skills are on and takes them off and back in one c
     await page.goto(address);
     const external = page.getByRole('complementary', { name: 'External AI' });
     await row(page).getByText('Uninstall in one click any time.', { exact: false }).waitFor();
-    await external.getByText('in ~/.claude/skills and ~/.agents/skills', { exact: true }).waitFor();
+    await external.getByText(FOLDERS, { exact: true }).waitFor();
+    // Every harness, so switching later loses nothing.
+    await external.getByText('Codex, Claude Code, Cursor, OpenCode and Antigravity can manage your tasks', { exact: false }).waitFor();
     await page.getByText('2/7 done', { exact: true }).waitFor();
     await screenshot(page, 'agent-skill-on.png');
 
@@ -115,7 +118,7 @@ it.skipIf(!enabled)('says the skills are on and takes them off and back in one c
     expect(await calls(page)).toEqual([false]);
     await screenshot(page, 'agent-skill-uninstalled.png');
     await page.getByRole('button', { name: 'Undo', exact: true }).click();
-    await external.getByText('in ~/.claude/skills and ~/.agents/skills', { exact: true }).waitFor();
+    await external.getByText(FOLDERS, { exact: true }).waitFor();
     expect(await calls(page)).toEqual([false, true]);
 
     // The same from the Get started row, which never asks to undo a choice.

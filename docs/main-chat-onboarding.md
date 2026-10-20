@@ -15,8 +15,9 @@ Only a harness that answers: a coding CLI (Codex, Claude Code, Cursor, OpenCode 
 signed in, and responding to a real request. Everything else has a default or can wait:
 
 - The model and effort: the harness's defaults, said in one line with a way to change them (below).
-- The agent skill: installed on setup without a question, as the wizard did. Settings tells the person it's on and
-  takes it off in one click, in Get started and External AI (docs/skills.md).
+- The agent skill: installed without a question as the conversation opens, before the harness step, into every
+  harness's skill folder (docs/skills.md), as the wizard does. Settings tells the person it's on and takes it off in
+  one click, in Get started and External AI.
 - Areas, imports, apps, a first agent: useful, asked in the conversation, all skippable.
 
 So the harness is the only step that can't be skipped, and usually the person never sees it.
@@ -28,7 +29,7 @@ Each step shows only when it applies to this home (`stepApplies`).
 | Step | Shown when | It asks | What the answer writes |
 |---|---|---|---|
 | Name and look | Always | "What should I go by?" Name, a look (emoji, a picture, art made in the app, a color), ideas to start from. For a new home, a note about `ri connect` for people who meant to connect another computer. | `orchestratorName`, `orchestratorEmoji`, `orchestratorColor`, `orchestratorImage` |
-| Harness | A home that was never set up, and the background check couldn't set one up | "I need a way to think." The harness picker (sign-in check, a real test request, model, billing consent for a key-only setup) | The active harness and its default model, user state's default tuple, the agent skill |
+| Harness | A home that was never set up, and the background check couldn't set one up | "I need a way to think." The harness picker (sign-in check, a real test request, model, billing consent for a key-only setup) | The active harness and its default model, user state's default tuple |
 | You | Always | "What should I call you?" | `user_state.name` |
 | Import | History from Claude Code, Codex or OpenCode in a folder still on disk (shown while the search runs, and finished silently if it finds nothing) | "I found 1,604 chats across 685 projects. Want to bring in the ones you're working on now?" The eight most recent projects, the latest three worked in within two weeks already ticked. Bringing them in starts the import in the background and moves straight on | Agents (one per project) and their chats |
 | What you're working on | There's history to draft from and no description yet | A one or two sentence draft written from the recent projects and their chat titles, to confirm ("That's right"), fix or skip. Never a blank box: with no history it isn't asked | `user_state.description` |
