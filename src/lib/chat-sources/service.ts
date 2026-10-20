@@ -33,6 +33,8 @@ function mentionDescriptor(reference: SourceReference, sourceRef: string, metada
 /** One mentioned item's content is capped, and so are all of a message's together. */
 export const MENTION_CONTENT_BYTES = 32 * 1024;
 export const MENTIONS_CONTENT_BYTES = 96 * 1024;
+/** What one mention's error may say. It is the app's own text, so it is cut, and it counts toward the budget too. */
+export const MENTION_ERROR_CHARS = 500;
 
 /** The shared layer knows no package runtime, provider credentials or transport. */
 export class ChatSources {
@@ -171,7 +173,10 @@ export class ChatSources {
       }
     }));
     let budget = MENTIONS_CONTENT_BYTES;
-    const bounded = items.map(item => {
+    const bounded = items.map(raw => {
+      const error = raw.error !== undefined && raw.error.length > MENTION_ERROR_CHARS ? `${raw.error.slice(0, MENTION_ERROR_CHARS)} [cut]` : raw.error;
+      const item = error === raw.error ? raw : { ...raw, error };
+      if (error !== undefined) budget = Math.max(0, budget - new TextEncoder().encode(error).length);
       if (item.content === undefined) return item;
       const bytes = new TextEncoder().encode(item.content);
       if (bytes.length <= budget) { budget -= bytes.length; return item; }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChatSources, MENTION_CONTENT_BYTES, MENTIONS_CONTENT_BYTES, type SourceMessage } from './service';
+import { ChatSources, MENTION_CONTENT_BYTES, MENTION_ERROR_CHARS, MENTIONS_CONTENT_BYTES, type SourceMessage } from './service';
 import { encodeSource, sourceMarker } from './reference';
 import type { SourceAdapter, SourceDescriptor } from './types';
 const one = encodeSource({ v: 1, kind: 'integration', toolkitId: 'mail', account: { accountId: 'same', authConfigId: 'work' } });
@@ -111,6 +111,20 @@ describe('items mentioned from an app\'s @ search', () => {
     const context = await service.turnContext('c1', 'm4');
     expect(context).toContain('"error":"The app did not answer \\u003c/ri-mentioned-resources>"');
     expect(context.match(/<\/ri-mentioned-resources>/g)).toHaveLength(1);
+  });
+
+  it('cuts an app\'s long error and counts it toward the message\'s budget', async () => {
+    // A server's two-million-character error, then an item with content: the error leaves less room for it.
+    adapter.mentionContext = vi.fn(async (ref) => {
+      if (ref.kind === 'integration' && ref.resource!.uri.endsWith('/broken')) throw new Error('e'.repeat(2_000_000));
+      return { app: 'Bits & Bolts', title: 'Part', uri: 'cad://parts/big', content: 'x'.repeat(MENTIONS_CONTENT_BYTES) };
+    });
+    rows.push({ id: 'm7', sessionId: 'c1', role: 'user', source: 'user', content: [mention('cad://parts/broken'), mention('cad://parts/big')].map(sourceMarker).join(' ') });
+    const context = await service.turnContext('c1', 'm7');
+    expect(context.length).toBeLessThan(MENTIONS_CONTENT_BYTES + 4096);
+    const items = JSON.parse(/<ri-mentioned-resources>\n[^\n]+\n(.+)\n<\/ri-mentioned-resources>/.exec(context)![1]);
+    expect(items[0].error).toBe(`${'e'.repeat(MENTION_ERROR_CHARS)} [cut]`);
+    expect(items[1].content.length).toBe(MENTIONS_CONTENT_BYTES - MENTION_ERROR_CHARS - ' [cut]'.length);
   });
 
   it('refuses the whole message, before reading anything, once the chat lost the account', async () => {
