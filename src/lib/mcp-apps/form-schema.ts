@@ -1,5 +1,6 @@
 import { Validator, type Schema } from '@cfworker/json-schema';
 import { safeMcpIcon, type McpIcon } from '@/lib/integrations/mcp-icons';
+import { matchesPattern, validPattern } from './safe-pattern';
 
 /**
  * The forms an MCP server can ask a person to fill: MCP's form elicitation
@@ -12,7 +13,9 @@ import { safeMcpIcon, type McpIcon } from '@/lib/integrations/mcp-icons';
  * whole form when one field matches none: OpenAI's spec reports such a form
  * as unsupported rather than showing part of it. Unknown keys are ignored, as
  * the SDK's schemas strip them. `formErrors` validates an answer the way the
- * SDK's `createOpenAIFormContentSchema` does, with the same validator.
+ * SDK's `createOpenAIFormContentSchema` does, with the same validator, except
+ * that a server's `pattern` runs in linear time (`safe-pattern.ts`) and never
+ * in the validator's backtracking engine.
  */
 
 export type FormValue = string | number | boolean | string[];
@@ -246,15 +249,40 @@ export function parseForm(schema: unknown): FormParse {
       const title = typeof record(raw)?.title === 'string' ? record(raw)!.title as string : name;
       return { ok: false, reason: `"${title}" uses an input type Ri does not support.` };
     }
-    // A pattern the browser cannot compile would make the field impossible to fill.
-    const patterns = [parsed.kind === 'text' || parsed.kind === 'resource' ? parsed.pattern : undefined, parsed.kind === 'texts' ? parsed.item.pattern : undefined];
-    for (const pattern of patterns) if (pattern !== undefined && !compiles(pattern)) return { ok: false, reason: `"${parsed.title ?? name}" has a pattern Ri cannot check.` };
+    // A pattern that is not a valid regular expression would make the field impossible to fill.
+    const {own, items} = propertyPatterns(raw);
+    for (const pattern of [own, items]) if (pattern !== undefined && !validPattern(pattern)) return { ok: false, reason: `"${parsed.title ?? name}" has a pattern Ri cannot check.` };
     fields.push(parsed);
   }
   return { ok: true, form: { fields, schema: form, hasResources: fields.some(f => f.kind === 'resource') } };
 }
-function compiles(pattern: string) {
-  try { new RegExp(pattern, 'u'); return true; } catch { return false; }
+
+/** The patterns a property's value is held to: its own, for a text value, and its items', for a list. */
+function propertyPatterns(raw: unknown): { own?: string; items?: string } {
+  const schema = record(raw);
+  return { own: str(schema?.pattern), items: str(record(schema?.items)?.pattern) };
+}
+
+const SUBSCHEMA = new Set(['items', 'additionalItems', 'contains', 'additionalProperties', 'propertyNames', 'not', 'if', 'then', 'else', 'unevaluatedItems', 'unevaluatedProperties', 'prefixItems', 'allOf', 'anyOf', 'oneOf']);
+const SUBSCHEMA_MAP = new Set(['properties', '$defs', 'definitions', 'dependentSchemas']);
+/**
+ * A schema without `pattern` and `patternProperties`, wherever a subschema
+ * can hold them, for the validator, which would run them in JavaScript's
+ * backtracking engine. Values (`enum`, `const`, `default`, suggestions) and
+ * property names, including one named `pattern`, are left as they are.
+ */
+function withoutPatterns(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(withoutPatterns);
+  const object = record(schema);
+  if (!object) return schema;
+  const copy: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(object)) {
+    if (key === 'pattern' || key === 'patternProperties') continue;
+    const map = SUBSCHEMA_MAP.has(key) ? record(value) : undefined;
+    copy[key] = map ? Object.fromEntries(Object.entries(map).map(([name, child]) => [name, withoutPatterns(child)]))
+      : SUBSCHEMA.has(key) ? withoutPatterns(value) : value;
+  }
+  return copy;
 }
 
 /** The answer each field starts with: its default, every option for implicit selection, or nothing. */
@@ -322,7 +350,7 @@ export function formErrors(form: ParsedForm, content: Record<string, unknown>): 
     const valid = typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (Array.isArray(value) && value.every(item => typeof item === 'string'));
     if (!valid) errors[name] = 'This value has the wrong type.';
   }
-  const validator = new Validator(structuredClone(form.schema) as Schema, '2020-12', false);
+  const validator = new Validator(structuredClone(withoutPatterns(form.schema)) as Schema, '2020-12', false);
   // The validator uses `in`, so inherited names must not count as submitted fields.
   for (const error of validator.validate(Object.setPrototypeOf({ ...content }, null)).errors) {
     if (error.keywordLocation === '#/required') continue;
@@ -332,6 +360,15 @@ export function formErrors(form: ParsedForm, content: Record<string, unknown>): 
     // `properties` and `items` only say a nested keyword failed. Its own error carries the reason.
     if (error.keyword === 'properties' || error.keyword === 'items' || error.keyword === 'prefixItems') continue;
     errors[name] = (FRIENDLY[error.keyword] ?? (() => 'This value is not accepted.'))(fields.get(name));
+  }
+  // Patterns, in linear time. One Ri cannot run that way, or a value too long to check, is left to the server.
+  const properties = record(record(form.schema)?.properties) ?? {};
+  for (const [name, value] of Object.entries(content)) {
+    if (errors[name] || !fields.has(name)) continue;
+    const {own, items} = propertyPatterns(properties[name]);
+    const checks: [string, string][] = typeof value === 'string' ? (own === undefined ? [] : [[own, value]])
+      : Array.isArray(value) && items !== undefined ? value.filter((item): item is string => typeof item === 'string').map(item => [items, item]) : [];
+    if (checks.some(([pattern, text]) => matchesPattern(pattern, text) === false)) errors[name] = FRIENDLY.pattern(fields.get(name));
   }
   for (const f of form.fields) {
     if (f.required && !Object.hasOwn(content, f.name)) errors[f.name] ??= 'This is required.';

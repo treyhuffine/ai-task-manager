@@ -3,7 +3,8 @@ import { integrationSourceMetadata } from '@/lib/integrations/source-metadata';
 import { getIntegrationRuntime, getIntegrationOwnerId } from '@/lib/integrations/runtime';
 import { hostedMcpConnectionId } from '@/lib/integrations/hosted-mcp';
 import type { McpCapabilityTool } from '@/lib/integrations/mcp-capabilities';
-import { modelToolVisible, settingsCapability } from './metadata';
+import { mcpToolApprovalOverride, type McpApprovalPreferences } from '@/lib/integrations/mcp-approval-policy';
+import { modelToolVisible, settingsCapability, toolTitle } from './metadata';
 import { mcpSettingsCaller } from './settings-caller';
 import { changedSettings, parseSettingsRead, settingsTools, SettingsReadError, type SettingValue, type SettingsView } from './settings-model';
 
@@ -15,8 +16,19 @@ import { changedSettings, parseSettingsRead, settingsTools, SettingsReadError, t
  *
  * Every call runs through the integration runtime like any other, with the
  * narrow `mcpSettingsCaller` the approval policy lets through: the person's
- * own change or button click is the approval. A tool turned off in the
- * server's tool list stays off here too.
+ * own change or button click is the approval. Two things come first:
+ *
+ * - The read tool runs when the page opens, with no click, so it runs only
+ *   when the server marks it read-only (`readOnlyHint`), as Ri requires of a
+ *   server's @ search tool. A server could otherwise name any tool as its
+ *   reader and have it run by opening the page.
+ * - The person's own Ask first wins. A tool they set to Ask first, or every
+ *   tool of a server they set to Ask first, is not run from settings at all,
+ *   since a click here is not the separate approval they asked for and an
+ *   approval with no chat has nowhere to show. Ri says so, and where to
+ *   change it.
+ *
+ * A tool turned off in the server's tool list stays off here too.
  */
 
 export class SettingsUnavailableError extends Error {}
@@ -44,11 +56,19 @@ function resultText(result: {content: unknown[]}) {
   }).join('\n').trim();
 }
 
+/** Whether the person chose Ask first for this tool, on the tool itself or for every tool of the server. */
+export function asksFirst(entry: McpApprovalPreferences, name: string): boolean {
+  const own = mcpToolApprovalOverride(entry.toolOverrides?.[name]);
+  return own ? own === 'ask' : entry.approvalPolicy === 'ask';
+}
+
 /** Run one of the server's tools for the person, through the gate, and return the MCP result. */
 async function run(target: Target, name: string, args: Record<string, unknown>) {
   if (target.remote.entry.toolOverrides?.[name]?.enabled === false) throw new SettingsUnavailableError(`${name} is turned off in this server's tools.`);
   const tool: McpCapabilityTool | undefined = target.tools.find(candidate => candidate.name === name);
   if (!tool) throw new SettingsUnavailableError(`This server no longer offers ${name}.`);
+  if (asksFirst(target.remote.entry, name))
+    throw new SettingsUnavailableError(`You set ${toolTitle(tool)} to Ask first, so Ri doesn't run it from settings. To use it here, let it run without asking in this server's tools.`);
   const actionId = `${target.remote.entry.providerId ?? `mcp.${target.remote.entry.slug}`}.${name}`;
   let original: unknown;
   const outcome = await target.runtime.runAction(actionId, args, {
@@ -65,6 +85,9 @@ async function run(target: Target, name: string, args: Record<string, unknown>) 
 }
 
 async function read(target: Target): Promise<SettingsView> {
+  const tool = target.tools.find(candidate => candidate.name === target.capability.readTool);
+  if (tool && (tool.annotations as {readOnlyHint?: unknown} | undefined)?.readOnlyHint !== true)
+    throw new SettingsUnavailableError(`This server's settings tool, ${toolTitle(tool)}, is not marked read-only, so Ri doesn't run it on its own.`);
   const result = await run(target, target.capability.readTool, {});
   return parseSettingsRead(result.structuredContent, target.tools);
 }

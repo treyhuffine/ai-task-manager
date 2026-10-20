@@ -5,13 +5,26 @@ import { ClipboardList, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
-import { uploadAttachment } from '@/lib/attachments/client';
+import { api } from '@/lib/api/client';
+import type { Attachment } from '@/db/types';
 import { formContent, formErrors, initialValues, parseForm, type ResourceOption } from '@/lib/mcp-apps/form-schema';
 import { cn } from '@/lib/utils';
 import { FormFields, type FormFiles, type FormValues } from './form-fields';
 import { FormPreview } from './form-preview';
 
 /** This chat's attachments, from the transcript already loaded beside the form. Nothing is fetched for it. */
+/**
+ * Upload a file the person chose for a server's form. It goes to this Home's
+ * attachments, where the form names it by path to a server on this computer,
+ * and as a form file it may be of any type (`POST /api/attachments`).
+ */
+function uploadFormFile(file: File): Promise<Attachment> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('purpose', 'form-file');
+  return api.upload<Attachment>('/attachments', formData);
+}
+
 function useChatAttachments(chatId: string | null | undefined) {
   const queryClient = useQueryClient();
   const events = chatId ? queryClient.getQueryData<ChatEventDTO[]>(['session', chatId, 'events']) : undefined;
@@ -56,7 +69,7 @@ export function ConnectedForm({formId, bare = false}: {formId: string; bare?: bo
     folders: form?.folders ?? [],
     attachments,
     add: (field, pick) => trpcClient.connectedApps.forms.file.mutate({formId, field, pick}),
-    upload: async file => (await uploadAttachment(file)).fileName,
+    upload: async file => (await uploadFormFile(file)).fileName,
   };
 
   if (query.isPending) return <Frame bare={bare}><p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 size={13} className="animate-spin" />Loading form…</p></Frame>;

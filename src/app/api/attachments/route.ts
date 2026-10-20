@@ -54,8 +54,15 @@ export async function POST(request: NextRequest) {
         : (formData.get('originalName') as string | null) ?? '';
     const originalName = originalNameRaw.trim() || 'file';
 
-    const mime = resolveMime(file.type, originalName);
-    if (!isAllowedMime(mime)) {
+    // A file chosen for an MCP server's form goes to that server by its path, never to a model
+    // or a page, so it may be of any type: OpenAI's spec has implicit selection take any file.
+    // Its type comes from its name, not the browser's label, and a type Ri has no name for is
+    // stored and served as a download (`application/octet-stream`, in the sandbox every
+    // attachment is served in). Any other upload keeps to the allowlist.
+    const formFile = formData.get('purpose') === 'form-file';
+    let mime = resolveMime(file.type, originalName);
+    if (formFile && !isAllowedMime(mime)) mime = resolveMime(null, originalName);
+    if (!isAllowedMime(mime) && !(formFile && mime === 'application/octet-stream')) {
       return Response.json(
         { error: `Disallowed mime type: ${mime}` },
         { status: 415 },

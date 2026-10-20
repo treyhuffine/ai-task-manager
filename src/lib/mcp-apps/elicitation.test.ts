@@ -135,11 +135,14 @@ describe('answering', () => {
 
 describe('files a person adds', () => {
   it('offers user files only for a server on this computer', async () => {
-    expect(isLocalMcpServer('http://localhost:3917/mcp')).toBe(true);
-    expect(isLocalMcpServer('http://127.0.0.1:3916/bits-and-bolts/mcp')).toBe(true);
-    expect(isLocalMcpServer('http://[::1]:3000/mcp')).toBe(true);
-    expect(isLocalMcpServer('stdio:1password-mcp')).toBe(true);
-    expect(isLocalMcpServer('https://mcp.example.com/mcp')).toBe(false);
+    // The same rule files use: a catalog command Ri starts, or anywhere on the loopback interface.
+    expect(isLocalMcpServer({ url: 'http://localhost:3917/mcp' })).toBe(true);
+    expect(isLocalMcpServer({ url: 'http://127.0.0.1:3916/bits-and-bolts/mcp' })).toBe(true);
+    expect(isLocalMcpServer({ url: 'http://127.0.0.2:3916/mcp' })).toBe(true);
+    expect(isLocalMcpServer({ url: 'http://[::1]:3000/mcp' })).toBe(true);
+    expect(isLocalMcpServer({ url: 'stdio:1password-mcp', providerId: 'onepassword', auth: { kind: 'none' } } as never)).toBe(true);
+    expect(isLocalMcpServer({ url: 'https://mcp.example.com/mcp' })).toBe(false);
+    expect(isLocalMcpServer({ url: 'https://localhost.example/mcp' })).toBe(false);
     const remote = await ask(chatOrigin(), openai(bitsAndBolts.pickReferences('single')), { local: false });
     expect(await getConnectedForm(remote.id, 'v')).toMatchObject({ local: false, folders: [] });
     await expect(connectedFormFile(remote.id, 'v', 'references', { attachment: 'x.stl' })).rejects.toThrow('only takes the items it listed');

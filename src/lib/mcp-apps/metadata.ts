@@ -75,6 +75,18 @@ export function resourceDisplayModes(meta: unknown): { available: DisplayMode[];
 }
 
 /**
+ * Whether a UI resource lists the display modes it supports. Only a list
+ * naming a mode Ri has counts: OpenAI's spec reads an omitted
+ * `availableDisplayModes` as every mode, opening inline on desktop, and any
+ * other `openai/ui` field (a preferred mode alone, a quick action) is not a
+ * list. A list of only modes Ri lacks (`pip`) is read as omitted.
+ */
+export function declaresDisplayModes(meta: unknown): boolean {
+  const list = record(record(meta)['openai/ui']).availableDisplayModes;
+  return Array.isArray(list) && list.some(value => value === 'inline' || value === 'fullscreen');
+}
+
+/**
  * How a model-run result first shows in chat. A preferred mode wins. A
  * resource that declares both modes opens full screen, as ChatGPT does, and
  * one that declares nothing stays inline, as ChatGPT desktop does.

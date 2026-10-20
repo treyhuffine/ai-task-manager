@@ -1,8 +1,17 @@
 import { createHash } from 'node:crypto';
-import { parseHTML } from 'linkedom';
-import { resourceDisplayModes } from './metadata';
+import { Parser } from 'htmlparser2';
+import { declaresDisplayModes, resourceDisplayModes } from './metadata';
 
 export const MAX_HTML_BYTES = 12 * 1024 * 1024;
+/**
+ * How deeply an interface's elements may nest, and how many tags (opening
+ * and closing) it may hold, for Ri to check it. Real interfaces are far
+ * inside both: Bits & Bolts' 1.1 MB app nests 11 deep with 107 elements.
+ * The parser's work per closing tag grows with depth, so both caps together
+ * keep the worst 12 MiB interface to a fraction of a second.
+ */
+export const MAX_HTML_DEPTH = 256;
+export const MAX_HTML_TAGS = 200_000;
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
 // Compatibility is an adapter into the same MCP bridge, not another privileged host.
@@ -35,17 +44,57 @@ export function prepareResource(result: unknown, uri: string, legacy: boolean) {
   // domain, and Microsoft Flint's chart asks for clipboard write. Both are otherwise self-contained.
   if (csp && Object.values(csp).some(value => Array.isArray(value) && value.length))
     throw new Error('This interface needs external network access. Ri currently supports self-contained MCP interfaces. Its tools and text results remain available.');
-  const {document} = parseHTML(html);
-  for (const el of document.querySelectorAll('[src], link[href], iframe, object, embed, base, meta[http-equiv]')) {
-    const url = el.getAttribute('src') ?? el.getAttribute('href');
-    if (['IFRAME','OBJECT','EMBED','BASE','LINK'].includes(el.tagName) || (el.tagName === 'SCRIPT' && url) || (url && !url.startsWith('data:')) || el.tagName === 'META')
-      throw new Error('This interface requires resources outside its self-contained HTML. Its tools and text results remain available.');
-  }
-  const scripts = [...document.querySelectorAll('script')].map(el => el.textContent ?? '');
+  const scripts = scanInterface(html);
   const prepared = legacy ? `<script>${LEGACY_BRIDGE}</script>${html}` : html;
   const scriptHashes = [...(legacy ? [LEGACY_BRIDGE] : []), ...scripts].map(script => `'sha256-${createHash('sha256').update(script).digest('base64')}'`);
   if (Buffer.byteLength(prepared) > MAX_HTML_BYTES) throw new Error('The prepared app interface exceeds 12 MiB');
   // OpenAI's display modes ride on the content item, so Ri can choose one before the app initializes.
-  const declared = !!resource._meta && typeof resource._meta['openai/ui'] === 'object' && resource._meta['openai/ui'] !== null;
-  return { html: prepared, scriptHashes, digest: digest(prepared), displayModes: { ...resourceDisplayModes(resource._meta), declared } };
+  return { html: prepared, scriptHashes, digest: digest(prepared), displayModes: { ...resourceDisplayModes(resource._meta), declared: declaresDisplayModes(resource._meta) } };
 }
+
+const EXTERNAL = 'This interface requires resources outside its self-contained HTML. Its tools and text results remain available.';
+/**
+ * Check an interface is self-contained and return its inline scripts' text,
+ * in document order, for the CSP hashes. It streams the markup through the
+ * same parser the HTML was always read with (htmlparser2, as linkedom uses
+ * it) without building a document, so the work grows with the markup's size,
+ * not with how it nests.
+ *
+ * Refused, as before: an iframe, object, embed, base or link with an `href`,
+ * a script with a `src` or `href`, a `meta` with `http-equiv`, and any `src`
+ * (or a matched element's `href`) that is not a `data:` URL. Attribute names
+ * are matched in any case, as a browser reads them.
+ */
+export function scanInterface(html: string): string[] {
+  const scripts: string[] = [];
+  /** Indexes into `scripts` of the script elements still open: each takes all text inside it. */
+  const open: number[] = [];
+  /** Per open element, whether it is a script, so closing it ends that script's text. */
+  const elements: boolean[] = [];
+  let tags = 0;
+  const counted = () => { if (++tags > MAX_HTML_TAGS) throw new InterfaceTooLarge(`This app interface has more than ${MAX_HTML_TAGS.toLocaleString('en-US')} tags, more than Ri can check. Its tools and text results remain available.`); };
+  class Scanner extends Parser {
+    // Every closing tag in the source, matched or not, costs the parser a look through its open elements.
+    override onclosetag(start: number, endIndex: number) { counted(); super.onclosetag(start, endIndex); }
+  }
+  const parser = new Scanner({
+    onopentag(name, attributes) {
+      counted();
+      if (elements.length >= MAX_HTML_DEPTH) throw new InterfaceTooLarge(`This app interface nests more than ${MAX_HTML_DEPTH} levels deep, more than Ri can check. Its tools and text results remain available.`);
+      const tag = name.toUpperCase();
+      const src = attributes.src, href = attributes.href, url = src ?? href;
+      const matched = src !== undefined || ['IFRAME', 'OBJECT', 'EMBED', 'BASE'].includes(tag) || (tag === 'LINK' && href !== undefined) || (tag === 'META' && attributes['http-equiv'] !== undefined);
+      if (matched && (['IFRAME', 'OBJECT', 'EMBED', 'BASE', 'LINK', 'META'].includes(tag) || (tag === 'SCRIPT' && url) || (url && !url.startsWith('data:'))))
+        throw new Error(EXTERNAL);
+      const script = tag === 'SCRIPT';
+      if (script) { open.push(scripts.length); scripts.push(''); }
+      elements.push(script);
+    },
+    ontext(text) { for (const index of open) scripts[index] += text; },
+    onclosetag() { if (elements.pop()) open.pop(); },
+  }, { lowerCaseAttributeNames: true, decodeEntities: true, xmlMode: false });
+  parser.write(html);
+  parser.end();
+  return scripts;
+}
+class InterfaceTooLarge extends Error {}

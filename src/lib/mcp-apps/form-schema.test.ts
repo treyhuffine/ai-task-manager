@@ -127,6 +127,38 @@ describe('answers', () => {
     expect(parsed(withoutUserOptions(bitsAndBolts.pickReferences('explicit'))).fields[0]).not.toHaveProperty('userOptions');
   });
 
+  it('checks a server\'s pattern in linear time, so a catastrophic one cannot stall the Home or the tab', () => {
+    const evil = '^(a+)+$', long = `${'a'.repeat(40_000)}!`;
+    const form = parsed({ type: 'object', properties: {
+      code: { type: 'string', pattern: evil },
+      tags: { type: 'array', items: { type: 'string', pattern: evil } },
+      parts: { type: 'array', items: { type: 'string', format: 'uri', pattern: '^cad:(a+)+$' }, 'x-openai-input': { type: 'resource', selection: 'explicit', options: [{ uri: 'cad:a', name: 'a' }], userOptions: { kind: 'file' } } },
+    } });
+    const start = performance.now();
+    expect(formErrors(form, { code: long, tags: ['aaa', long], parts: [`cad:${long}`] })).toEqual({
+      code: 'This does not match the expected format.', tags: 'This does not match the expected format.', parts: 'This does not match the expected format.' });
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(formErrors(form, { code: 'aaa', tags: ['a'], parts: ['cad:a'] })).toEqual({});
+  });
+
+  it('leaves to the server a pattern that cannot run in linear time, and still refuses one that is not a regular expression', () => {
+    const lookahead = parsed({ type: 'object', properties: { password: { type: 'string', pattern: '^(?=.*\\d).{8,}$' } } });
+    expect(formErrors(lookahead, { password: 'no digits here' })).toEqual({});
+    expect(parseForm({ type: 'object', properties: { code: { type: 'string', pattern: '(' } } })).toMatchObject({ ok: false, reason: '"code" has a pattern Ri cannot check.' });
+    expect(parseForm({ type: 'object', properties: { parts: { type: 'array', items: { type: 'string', format: 'uri', pattern: '(' }, 'x-openai-input': { type: 'resource', selection: 'explicit', options: [{ uri: 'cad:a', name: 'a' }] } } } }))
+      .toMatchObject({ ok: false });
+  });
+
+  it('keeps a field named pattern, and never runs patternProperties', () => {
+    const form = parsed({ type: 'object', required: ['pattern'], properties: { pattern: { type: 'string', minLength: 2 } }, patternProperties: { '^(a+)+$': { type: 'number' } } });
+    expect(formErrors(form, { pattern: 'x' })).toEqual({ pattern: 'Use at least 2 characters.' });
+    expect(formErrors(form, { pattern: 'xy' })).toEqual({});
+    // A forged answer key against a catastrophic patternProperties: the validator would have backtracked for minutes.
+    const start = performance.now();
+    expect(formErrors(form, { pattern: 'xy', [`${'a'.repeat(30)}!`]: 1 } as Record<string, unknown>)).toEqual({ '': 'The answer names a field the form does not have.' });
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
   it('matches files against accept the way an HTML file input does', () => {
     expect(acceptsFile(['.stl', '.STEP'], 'Bracket.step')).toBe(true);
     expect(acceptsFile(['.stl'], 'bracket.obj')).toBe(false);

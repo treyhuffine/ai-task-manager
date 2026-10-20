@@ -82,6 +82,18 @@ describe('validating a value', () => {
     expect(field({ type: 'string', pattern: '(' })).toMatchObject({ type: 'unsupported' });
   });
 
+  it('checks a server\'s pattern in linear time, and leaves one it cannot run that way to the server', () => {
+    const evil = field({ type: 'string', pattern: '^(a+)+$' });
+    const start = performance.now();
+    expect(validateSetting(evil, `${'a'.repeat(40_000)}!`)).toBe('This value is not in the expected format.');
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(validateSetting(evil, 'aaa')).toBeNull();
+    // Lookahead has no linear-time form, so Ri shows the setting and the server checks the value.
+    const lookahead = field({ type: 'string', pattern: '^(?=.*\\d).+$' });
+    expect(lookahead).toMatchObject({ type: 'string', pattern: '^(?=.*\\d).+$' });
+    expect(validateSetting(lookahead, 'no digits')).toBeNull();
+  });
+
   it('checks numbers, whole numbers, bounds and steps, including decimal steps', () => {
     const tolerance = field({ type: 'number', minimum: 0, maximum: 10, multipleOf: 0.1 });
     expect(validateSetting(tolerance, 0.3)).toBeNull();

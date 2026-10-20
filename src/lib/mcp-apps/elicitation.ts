@@ -10,6 +10,8 @@ import { chatPlacement, getChatSessionWithExecution, getWorkspace, insertChatEve
 import { sessionIdFromCaller } from '@/lib/integrations/approval';
 import { acceptsFile, formErrors, parseForm, type FormContent, type FormField, type ParsedForm, type PreviewTarget } from './form-schema';
 import { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT } from './form-events';
+import { serverRunsHere } from './files';
+import type { McpServerEntry } from '@/lib/integrations/mcp-servers';
 
 export { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT };
 
@@ -60,21 +62,21 @@ const forms = () => processState('mcp-forms', () => new Map<string, PendingForm>
  * What every MCP connection Ri opens gets for forms: the capabilities, and a
  * handler that brings each form to whoever caused the call.
  */
-export function mcpFormOptions(entry: { id: string; displayName: string; url: string }) {
+export function mcpFormOptions(entry: Pick<McpServerEntry, 'id' | 'displayName' | 'url' | 'providerId'> & Partial<McpServerEntry>) {
   return {
     capabilities: MCP_FORM_CAPABILITIES as unknown as Record<string, unknown>,
     onElicit: (request: { method: 'elicitation/create' | 'openai/elicitation/create'; params: Record<string, unknown>; round?: boolean }, signal: AbortSignal, origin?: unknown) =>
-      answerMcpForm({ serverId: entry.id, app: entry.displayName, local: isLocalMcpServer(entry.url), request, signal, origin }) as Promise<Record<string, unknown>>,
+      answerMcpForm({ serverId: entry.id, app: entry.displayName, local: isLocalMcpServer(entry), request, signal, origin }) as Promise<Record<string, unknown>>,
   };
 }
 
-/** A loopback URL or a local process: a server on this computer, for which a `file://` URI means something. */
-export function isLocalMcpServer(url: string) {
-  if (url.startsWith('stdio:')) return true;
-  try {
-    const host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    return host === 'localhost' || host.endsWith('.localhost') || host === '127.0.0.1' || host === '::1';
-  } catch { return false; }
+/**
+ * A server on this computer, for which a `file://` URI means something: the
+ * same rule files use (`serverRunsHere`), a catalog command Ri starts itself
+ * or a URL on the loopback interface.
+ */
+export function isLocalMcpServer(entry: Pick<McpServerEntry, 'url' | 'providerId'> & Partial<McpServerEntry>) {
+  return serverRunsHere(entry);
 }
 
 const record = (value: unknown): Record<string, unknown> | null => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;

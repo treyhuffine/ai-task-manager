@@ -122,3 +122,30 @@ describe('structured settings', () => {
     expect(mocks.run.mock.calls[0][2]).toMatchObject({toolAudience: 'app'});
   });
 });
+
+describe('the person\'s own approval choices', () => {
+  it('runs the read tool on its own only when the server marks it read-only', async () => {
+    const unmarked = tools.map(tool => tool.name === 'settings.read' ? {name: 'settings.read', title: 'Read settings'} : tool);
+    mocks.metadata.mockImplementation(async () => ({servers: [{entry, capabilities: {revision: 'r', tools: unmarked}}], connections: [connection], toolkits: []}));
+    await expect(readConnectedSettings('server')).rejects.toThrow('Read settings, is not marked read-only, so Ri doesn\'t run it on its own.');
+    expect(mocks.run).not.toHaveBeenCalled();
+  });
+
+  it('never runs a tool the person set to Ask first, on the tool or for the whole server', async () => {
+    entry.toolOverrides = {'settings.update': {approvalMode: 'ask'}};
+    await expect(updateConnectedSettings('server', {units: 'in'})).rejects.toThrow('You set settings.update to Ask first, so Ri doesn\'t run it from settings.');
+    expect(mocks.run.mock.calls.map(call => call[0])).toEqual(['mcp.bits_bolts.settings.read']);
+    // Reading still works: only the tool they chose asks first.
+    expect(await readConnectedSettings('server')).toMatchObject({available: true});
+    mocks.run.mockClear();
+    entry.toolOverrides = {};
+    entry.approvalPolicy = 'ask';
+    await expect(readConnectedSettings('server')).rejects.toThrow('Ask first');
+    await expect(runSettingsTool('server', 'cad.rebuild')).rejects.toThrow('Ask first');
+    expect(mocks.run).not.toHaveBeenCalled();
+    // A tool they let run without asking runs, even on a server that asks first.
+    entry.toolOverrides = {'settings.read': {approvalMode: 'auto'}};
+    expect(await readConnectedSettings('server')).toMatchObject({available: true});
+  });
+});
+
