@@ -80,11 +80,17 @@ describe('an app\'s message is always a draft', () => {
   });
 
   it('explains a draft quietly, without dashes or semicolons', () => {
-    for (const reason of ['drafted', 'busy'] as const) {
-      const notice = draftNotice('Bits & Bolts', reason);
+    for (const reason of ['drafted', 'busy'] as const) for (const mainChat of [false, true]) {
+      const notice = draftNotice('Bits & Bolts', reason, { mainChat });
       expect(notice).toMatch(/^Bits & Bolts/);
       expect(notice).not.toMatch(/[—;]/);
     }
+  });
+
+  it('names the main chat for a screen with no chat of its own, which may not be beside it', () => {
+    expect(draftNotice('Bits & Bolts', 'drafted', { mainChat: true })).toBe('Bits & Bolts wrote a message for you. It\'s in your main chat\'s draft, ready when you are.');
+    expect(draftNotice('Bits & Bolts', 'busy', { mainChat: true })).toContain('while your main chat is still working');
+    expect(draftNotice('Bits & Bolts', 'drafted')).toBe('Bits & Bolts wrote a message for you. It\'s in the draft, ready when you are.');
   });
 });
 

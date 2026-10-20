@@ -130,8 +130,15 @@ export function appUploadBudget(viewId: string): ViewUploadBudget {
   return budget;
 }
 
-/** The quiet note a view shows once its message is in a draft. */
-export function draftNotice(app: string, reason: 'drafted' | 'busy'): string {
+/**
+ * The quiet note a view shows once its message is in a draft. A view with no
+ * chat of its own (`mainChat`, a screen opened from Apps) names the main chat,
+ * which may not be on screen beside it.
+ */
+export function draftNotice(app: string, reason: 'drafted' | 'busy', options: { mainChat?: boolean } = {}): string {
+  if (options.mainChat) return reason === 'busy'
+    ? `${app} asked for a new chat while your main chat is still working, so its message is in that chat's draft.`
+    : `${app} wrote a message for you. It's in your main chat's draft, ready when you are.`;
   return reason === 'busy'
     ? `${app} asked for a new chat while this one is still working, so its message is in the draft here.`
     : `${app} wrote a message for you. It's in the draft, ready when you are.`;

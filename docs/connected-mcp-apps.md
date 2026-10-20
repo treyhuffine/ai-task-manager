@@ -147,6 +147,7 @@ OpenAI's [model context](https://github.com/openai/mcp-extensions/blob/0d606217/
 - `ui/message` content becomes a draft. Untitled text becomes draft text. Titled text becomes one chip in the composer. Images and blobs become attachment chips, a resource link becomes its title and URI, and an embedded text resource becomes a titled chip. `_meta["openai/message"].target` is read from the request's own `_meta`, and `send` is not read.
 - An app's message always lands as a draft the person sends, since agents act with the person's full access and the person reads every word first. Nothing an app sends is sent for it, and a `[[source:…]]` marker in what it writes is broken so a draft can't bind the person's accounts. A view's uploads are capped at 64 MiB.
 - `active` is the view's chat, or the main chat for a view without one. `new` opens a new chat on the same surface with the draft, and nothing is sent (`forApp`): a current chat nobody has written in is reused, a working one is never ended (the draft goes to the active chat instead), and an execution reuses its newest empty chat.
+- The view says where the draft went. A screen with no chat of its own names the main chat, since a screen open full page on Apps has no chat beside it until it closes.
 - Focus: an app can call `focus()` on its own elements. Ri puts focus back where it was unless a Tab key in Ri just moved it, and when the pointer is on the view, asks the relay and returns focus to the view only if a real click activated it (`view-focus.browser.test.ts`).
 
 ## Forms
@@ -267,3 +268,10 @@ October 20, 2026, after the re-derivation: the root suite passed 7196 tests (one
 - The connection pages listed each app's declared domains, or that it declared none.
 - The file checks passed: a symlink into `.git` or out of the folder is refused by where it lands, `.GIT` is refused, and a save replaces the file atomically.
 - Focus was measured with Playwright's Chromium, Firefox 153 and WebKit: the first two let a cross-origin frame take focus from the composer, and WebKit doesn't.
+
+October 20, 2026, after the decisions on drafts, the local network, forms and results: the root suite passed 7199 tests, the integrations engine 451 and app-kit 96, and typecheck was clean. Lint was clean on every file this round changed. On the dev home, migration 0019 created `mcp_tool_results`:
+- Bits & Bolts' local and remote libraries opened full screen. The remote one keeps `http://localhost:3916`, as its server runs on this computer, and loaded from it with no refusals. Excalidraw kept esm.sh, and no connection page listed a blocked domain.
+- A real agent turn's Excalidraw and Todoist results reopened after a reload from their rows, with only the result id in the transcript event.
+- With Todoist's server stopped, its result said it can't be reached, with Try again. Two seconds after the server came back, Try again showed the task list. Before this, Try again kept failing for 15 seconds, and earlier still the page came from the SDK's resource cache while the server was down.
+- Bits & Bolts asking to send to a new chat filled the composer of a new main chat and sent nothing. Later requests reused that chat, since nobody had written in it.
+- The file checks passed as before.
