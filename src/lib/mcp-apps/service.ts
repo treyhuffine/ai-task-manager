@@ -124,9 +124,11 @@ export async function connectedChatTabs(chatId: string, viewerId?: string) {
  * on the server (a status poll, context, a send) answer from the current
  * build past its age while it refreshes in the background. Operations that
  * reach the server (opening, reading, calling a tool, a launch) wait for a
- * current one.
+ * current one. `retry` is the person opening an app or pressing Try again,
+ * the one moment a server the build couldn't reach is tried again at once
+ * (`getMcpViewAuthority`).
  */
-export async function authority(serverId: string, chatId?: string, options: {stale?: boolean} = {}) {
+export async function authority(serverId: string, chatId?: string, options: {stale?: boolean; retry?: boolean} = {}) {
   assertEnabled();
   const {runtime, connections, view} = await getMcpViewAuthority(serverId, options);
   const metadata = await integrationSourceMetadata();
@@ -149,10 +151,10 @@ export async function authority(serverId: string, chatId?: string, options: {sta
  * Current access for a capture, on the account it was made with: the same
  * connection, so a result never runs on an account it didn't come from.
  * `stale` as for `authority`: a check that reaches nothing on the server.
- * Operations that do pass false.
+ * Operations that do pass false, and the person's open passes `retry`.
  */
-async function checkCapture(capture: Capture, stale = true) {
-  const current = await authority(capture.serverId, capture.chatId, {stale});
+async function checkCapture(capture: Capture, stale = true, retry = false) {
+  const current = await authority(capture.serverId, capture.chatId, {stale, retry});
   if (current.connection.id !== capture.connectionId || current.sourceRef !== capture.sourceRef) throw new Error('This app’s account changed. Open it again, or ask for a new result.');
   return current;
 }
@@ -229,8 +231,9 @@ export async function openConnectedView(captureId: string, viewerId: string, cha
   const capture = mcpViews().kept(captureId) ?? await storedResult(captureId);
   if (capture.chatId !== chatId || (capture.viewerId && capture.viewerId !== viewerId)) throw new Error('This result belongs to a different viewer or chat');
   const view = mcpViews().open(capture, viewerId);
-  // Reading the interface reaches the server, so opening waits for a current build.
-  const current = await checkCapture(capture, false);
+  // Reading the interface reaches the server, so opening waits for a current build, and tries a server
+  // that was down again now: this is the person opening it, or pressing Try again.
+  const current = await checkCapture(capture, false, true);
   const app = current.remote.entry.displayName;
   let resource: ReturnType<typeof prepareResource> | null = null, unsupported: string | undefined;
   const tool = current.transport.tools.find(t => t.name === capture.tool);
@@ -408,7 +411,7 @@ export async function prepareConnectedLaunch(serverId: string, viewerId: string,
   if (options.chatId && kind !== 'thread' && kind !== 'file' && kind !== 'preview') throw new Error('This app opens on its own, not in a chat.');
   const deepLink = normalizeDeepLink(options.deepLink);
   if (deepLink && kind !== 'global') throw new Error('Deep links open global screens only.');
-  const current = await authority(serverId, options.chatId);
+  const current = await authority(serverId, options.chatId, {retry: true});
   const tool = current.transport.tools.find(t => t.name === name);
   if (!tool || current.remote.entry.toolOverrides?.[name]?.enabled === false || !launchAllowed(kind, tool, current.remote)) throw new Error(LAUNCH_REFUSAL[kind]);
   const ui = viewMetadata(tool)!;

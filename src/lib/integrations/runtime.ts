@@ -514,6 +514,8 @@ export interface McpViewConnection {
 const rt = processState('integrations.runtime', () => ({
   generation: 0,
   cachedBuilt: null as Built | null,
+  /** The build an invalidation dropped, still good for checks while its replacement builds (`getBuilt`). */
+  retired: null as Built | null,
   inFlight: null as Promise<Built> | null,
 }));
 
@@ -897,7 +899,7 @@ function mcpConfigurationSignature(source: McpServerStore | readonly McpServerEn
 export const MCP_DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 /** A temporary outage keeps known tools and retries discovery on use after a short cooldown. */
 export const MCP_DISCOVERY_RETRY_MS = 15_000;
-/** How soon an operation on a server the build couldn't reach may rebuild to reach it again. */
+/** How soon the person opening an app on a server the build couldn't reach may rebuild to reach it again. */
 export const MCP_VIEW_RETRY_MS = 3_000;
 
 async function closeClients(b: Built): Promise<void> {
@@ -910,13 +912,21 @@ async function closeClients(b: Built): Promise<void> {
  * read what a build already knows (a connected app's access, its status poll,
  * the context a message carries): they get the current build even past its
  * age, and a refresh starts in the background, so a check never waits on
- * reconnecting every server. A changed configuration is never stale-served.
+ * reconnecting every server. The same holds after an invalidation (a server's
+ * tools changed, or its transport failed): checks read the build it dropped
+ * until the new one lands, so one slow server never holds up the checks for
+ * the rest. A changed configuration is never stale-served.
  */
 async function getBuilt(options: { stale?: boolean } = {}): Promise<Built> {
+  const isCurrent = (built: Built) => built.configuration === mcpConfigurationSignature(getMcpServerStore()) &&
+    built.managedConfiguration === managedSourcesSignature();
   const cached = rt.cachedBuilt;
+  if (!cached && options.stale && rt.retired && isCurrent(rt.retired)) {
+    void refreshBuilt().catch(() => {});
+    return rt.retired;
+  }
   if (cached) {
-    const current = cached.configuration === mcpConfigurationSignature(getMcpServerStore()) &&
-      cached.managedConfiguration === managedSourcesSignature();
+    const current = isCurrent(cached);
     const maxAge = cached.discoveryUnavailable ? MCP_DISCOVERY_RETRY_MS : MCP_DISCOVERY_MAX_AGE_MS;
     if (current && Date.now() - cached.builtAt < maxAge) return cached;
     if (current && options.stale) {
@@ -942,6 +952,7 @@ function refreshBuilt(): Promise<Built> {
       if (myGen === rt.generation) {
         const old = rt.cachedBuilt;
         rt.cachedBuilt = built;
+        rt.retired = null;
         if (old && old !== built) {
           old.liveness.superseded = true;
           void closeClients(old).catch(() => {});
@@ -974,13 +985,15 @@ export async function getMcpViewConnection(serverId: string): Promise<McpViewCon
  * between reads can't make a check refuse spuriously. The caller checks the
  * transport is still current (`isCurrentMcpTransport`) against the server
  * entry it reads. `stale` as for the build (`getBuilt`): checks pass it,
- * operations don't.
+ * operations don't. `retry` is the person opening an app (or its Try
+ * again): a server this build couldn't reach is tried again now rather than
+ * after the retry window, at most once every MCP_VIEW_RETRY_MS. Only the
+ * person's action does this, since a rebuild reconnects every server: a
+ * screen calling its down server again and again waits out the window.
  */
-export async function getMcpViewAuthority(serverId: string, options: { stale?: boolean } = {}): Promise<{ runtime: IntegrationRuntime; connections: Awaited<ReturnType<IntegrationRuntime['listConnections']>>; view: McpViewConnection | null }> {
+export async function getMcpViewAuthority(serverId: string, options: { stale?: boolean; retry?: boolean } = {}): Promise<{ runtime: IntegrationRuntime; connections: Awaited<ReturnType<IntegrationRuntime['listConnections']>>; view: McpViewConnection | null }> {
   let built = await getBuilt(options);
-  // An operation on a server this build couldn't reach (the person's Try again once it's back) tries
-  // again now rather than waiting out the retry window, at most once every MCP_VIEW_RETRY_MS.
-  if (!options.stale && built.discoveryUnavailable && !built.mcpViews.has(serverId) && getMcpServerStore().get(serverId)?.enabled
+  if (options.retry && built.discoveryUnavailable && !built.mcpViews.has(serverId) && getMcpServerStore().get(serverId)?.enabled
     && Date.now() - built.builtAt >= MCP_VIEW_RETRY_MS) built = await refreshBuilt();
   const connections = await built.runtime.listConnections({ ownerId: getIntegrationOwnerId() });
   return { runtime: built.runtime, connections, view: built.mcpViews.get(serverId) ?? null };
@@ -1006,6 +1019,7 @@ export function invalidateIntegrationRuntime(): void {
   rt.generation += 1;
   const old = rt.cachedBuilt;
   rt.cachedBuilt = null;
+  if (old) rt.retired = old;
   if (old) void closeClients(old).catch(() => {});
 }
 

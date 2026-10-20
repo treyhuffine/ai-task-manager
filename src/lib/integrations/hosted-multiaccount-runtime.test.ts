@@ -509,7 +509,7 @@ describe('hosted multi-account runtime discovery', () => {
     expect(await fresh.runAction('todoist.read', {}, { connectionId: personal.connectionId })).toMatchObject({ ok: true });
   });
 
-  it('reaches a server that was down again on the next operation, not after the retry window', async () => {
+  it('reaches a server that was down again when the person opens it, not after the retry window', async () => {
     const personal = await account('Personal');
     const now = Date.now();
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -517,18 +517,54 @@ describe('hosted multi-account runtime discovery', () => {
     const down = await getMcpViewAuthority(personal.entry.id);
     expect(down.view).toBeNull();
     const connects = mocks.connect.mock.calls.length;
-    // Checks and back-to-back operations keep the build: no reconnect per click.
+    // Checks and back-to-back opens keep the build: no reconnect per click.
     expect((await getMcpViewAuthority(personal.entry.id, { stale: true })).runtime).toBe(down.runtime);
     clock.mockReturnValue(now + MCP_VIEW_RETRY_MS - 1);
-    expect((await getMcpViewAuthority(personal.entry.id)).runtime).toBe(down.runtime);
+    expect((await getMcpViewAuthority(personal.entry.id, { retry: true })).runtime).toBe(down.runtime);
+    expect(mocks.connect.mock.calls.length).toBe(connects);
+    // A screen calling its down server again and again never reconnects every server: only the person's open does.
+    clock.mockReturnValue(now + MCP_VIEW_RETRY_MS);
+    for (let i = 0; i < 5; i++) expect((await getMcpViewAuthority(personal.entry.id)).runtime).toBe(down.runtime);
     expect(mocks.connect.mock.calls.length).toBe(connects);
     // The server is back and the person presses Try again: well inside MCP_DISCOVERY_RETRY_MS.
-    clock.mockReturnValue(now + MCP_VIEW_RETRY_MS);
-    const [again, alongside] = await Promise.all([getMcpViewAuthority(personal.entry.id), getMcpViewAuthority(personal.entry.id)]);
+    const [again, alongside] = await Promise.all([getMcpViewAuthority(personal.entry.id, { retry: true }), getMcpViewAuthority(personal.entry.id, { retry: true })]);
     expect(MCP_VIEW_RETRY_MS).toBeLessThan(MCP_DISCOVERY_RETRY_MS);
     expect(again.view).not.toBeNull();
     expect(alongside.runtime).toBe(again.runtime);
     expect(mocks.connect.mock.calls.length).toBe(connects + 1);
+  });
+
+  it('answers checks from the build an invalidation dropped while a slow server holds up its replacement', async () => {
+    const personal = await account('Personal');
+    const work = await account('Work', { add: true });
+    const first = await getMcpViewAuthority(work.entry.id);
+    // Personal says its tools changed, then stalls its next listing.
+    let answer!: () => void;
+    personal.state.list.mockImplementationOnce(() => new Promise(resolve => { answer = () => resolve({ tools: structuredClone(personal.state.tools) }); }));
+    await personal.state.notifications[0]!();
+    // A check for Work answers at once from the dropped build, starting one rebuild.
+    const checked = await getMcpViewAuthority(work.entry.id, { stale: true });
+    expect(checked.runtime).toBe(first.runtime);
+    expect(checked.view).toBe(first.view);
+    await vi.waitFor(() => expect(personal.state.list).toHaveBeenCalledTimes(2));
+    expect((await getMcpViewAuthority(work.entry.id, { stale: true })).runtime).toBe(first.runtime);
+    expect(personal.state.list).toHaveBeenCalledTimes(2);
+    // An operation waits for the current build.
+    const operation = getMcpViewAuthority(work.entry.id);
+    answer();
+    const fresh = await operation;
+    expect(fresh.runtime).not.toBe(first.runtime);
+    expect((await getMcpViewAuthority(work.entry.id, { stale: true })).runtime).toBe(fresh.runtime);
+  });
+
+  it('never answers a check from a dropped build once the configuration changed', async () => {
+    const personal = await account('Personal');
+    const first = await getMcpViewAuthority(personal.entry.id);
+    invalidateIntegrationRuntime();
+    await getMcpServerStore().update(personal.entry.id, { enabled: false });
+    const checked = await getMcpViewAuthority(personal.entry.id, { stale: true });
+    expect(checked.runtime).not.toBe(first.runtime);
+    expect(checked.view).toBeNull();
   });
 
   it('never answers a check from a build whose configuration changed', async () => {
