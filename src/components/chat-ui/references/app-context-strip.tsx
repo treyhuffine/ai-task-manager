@@ -4,6 +4,7 @@ import { AppWindow, ExternalLink, FileText, Loader2, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tip } from '@/components/ui/tip';
 import type { VisibleContextItem } from '@/lib/client/mcp-app-context';
+import { safeViewThumbnail } from '@/lib/integrations/mcp-icons';
 import { cn } from '@/lib/utils';
 
 /** One app's attached context, as the composer shows it. */
@@ -80,10 +81,12 @@ function ContextItem({ item }: { item: VisibleContextItem }) {
     <FileText size={12} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden />
     <div className="min-w-0"><p className="font-medium [overflow-wrap:anywhere]">{item.title}</p>{item.text && <p className="line-clamp-4 whitespace-pre-wrap text-muted-foreground [overflow-wrap:anywhere]">{item.text}</p>}</div>
   </div>;
+  // Only a data URL: the view must not be able to make Ri's page fetch an address it names.
+  const thumbnail = safeViewThumbnail(item.thumbnail);
   return <div className="flex min-w-0 items-start gap-2">
-    {item.thumbnail && (
-      // eslint-disable-next-line @next/next/no-img-element -- the app's thumbnail, an https or data URL
-      <img src={item.thumbnail.src} alt="" className="size-10 shrink-0 rounded border border-border object-cover" />
+    {thumbnail && (
+      // eslint-disable-next-line @next/next/no-img-element -- the app's thumbnail, an image data URL
+      <img src={thumbnail.src} alt="" className="size-10 shrink-0 rounded border border-border object-cover" />
     )}
     <div className="min-w-0">
       {item.title && <p className="font-medium [overflow-wrap:anywhere]">{item.title}</p>}

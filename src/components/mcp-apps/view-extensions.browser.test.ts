@@ -3,7 +3,9 @@
  * and React components, with a sandboxed guest and a synthetic API: titled,
  * thumbnailed and assistant-only context in the composer's strip, removal
  * that the app hears about, a send made while the person works in the app,
- * and one an app tries on its own, which becomes a draft.
+ * and one an app tries on its own, which becomes a draft of its text alone.
+ * The app's own `openai/message` options count: a draft it asks for stays a
+ * draft, and a new chat it asks for never ends a chat that is still working.
  */
 import { it, expect } from 'vitest';
 import { build } from 'esbuild';
@@ -21,22 +23,25 @@ it('shows an app\'s context as one removable group and sends only while the pers
   const postcss = createRequire(require.resolve('@tailwindcss/postcss'))('postcss');
   const css = await postcss([require('@tailwindcss/postcss')()]).process(fs.readFileSync('src/app/globals.css', 'utf8'), { from: path.resolve('src/app/globals.css') });
   const chatId = '01900111-1111-7111-8111-111111111112', captureId = '01900222-2222-7222-8222-222222222223', viewId = '01900333-3333-7333-8333-333333333334';
-  const resource = prepareResource({ contents: [{ uri: 'ui://fixture/parts.html', mimeType: 'text/html;profile=mcp-app', text: `<html><body style="font:14px system-ui;padding:16px"><h2>Parts</h2><output id="state">waiting</output><button id="share">Share selection</button><button id="send">Ask about this part</button><script>
+  const resource = prepareResource({ contents: [{ uri: 'ui://fixture/parts.html', mimeType: 'text/html;profile=mcp-app', text: `<html><body style="font:14px system-ui;padding:16px"><h2>Parts</h2><output id="state">waiting</output><button id="share">Share selection</button><button id="send">Ask about this part</button><button id="draft">Keep as draft</button><button id="fresh">Ask in a new chat</button><script>
 let id=0;const pending=new Map();const rpc=(method,params)=>new Promise((resolve,reject)=>{const request=++id;pending.set(request,{resolve,reject});parent.postMessage({jsonrpc:'2.0',id:request,method,params},'*')});
 const state=text=>{document.getElementById('state').textContent=text};
 addEventListener('message',event=>{if(event.source!==parent)return;const m=event.data;if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);return}
   if(m.method==='ui/notifications/host-context-changed'&&Object.hasOwn(m.params,'openai/modelContext'))state('context:'+JSON.stringify(m.params['openai/modelContext']))});
-const message=send=>rpc('ui/message',{role:'user',content:[{type:'text',text:'Explain the clearance of'},{type:'text',text:'Selected: M6 hex bolt',_meta:{'openai/title':'M6 hex bolt'}}],_meta:{'openai/message':{target:'active',send}}});
+const message=(send,target='active',extra=[])=>rpc('ui/message',{role:'user',content:[{type:'text',text:'Explain the clearance of'},{type:'text',text:'Selected: M6 hex bolt',_meta:{'openai/title':'M6 hex bolt'}},...extra],_meta:{'openai/message':{target,send}}});
 document.getElementById('share').onclick=async()=>{const result=await rpc('ui/update-model-context',{content:[
   {type:'text',text:'Selected: M6 hex bolt',_meta:{'openai/title':'M6 hex bolt','openai/thumbnail':{src:'data:image/png;base64,${PIXEL}'}}},
   {type:'text',text:'Viewer camera: isometric',annotations:{audience:['assistant']}},
+  {type:'text',text:'Selected: M6 washer',_meta:{'openai/title':'Washer','openai/thumbnail':{src:'https://thumbs.example/washer.png?selected=M6'}}},
   {type:'image',data:'${PIXEL}',mimeType:'image/png',_meta:{'openai/title':'Front view'}},
   {type:'resource_link',uri:'cad://parts/washer',name:'washer.stl',title:'M6 washer'}],structuredContent:{page:'viewer'}});state('updated:'+JSON.stringify(result._meta))};
 document.getElementById('send').onclick=()=>message(true).then(()=>state('sent'));
+document.getElementById('draft').onclick=()=>message(false).then(()=>state('drafted'));
+document.getElementById('fresh').onclick=()=>message(true,'new').then(()=>state('asked for new'));
 rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Parts',version:'1.0.0'},appCapabilities:{}}).then(result=>{state('caps:'+JSON.stringify(result.hostCapabilities.experimental));parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized',params:{}},'*');
   // An app that sends as soon as it loads, before the person has touched it, after focusing itself
-  // to look busy. Focus is not input, so this stays a draft.
-  setTimeout(()=>{document.getElementById('send').focus();message(true)},300)});
+  // to look busy. Focus is not input, so this stays a draft, and its image never uploads.
+  setTimeout(()=>{document.getElementById('send').focus();message(true,'active',[{type:'image',data:'${PIXEL}',mimeType:'image/png'}])},300)});
 </script></body></html>` }] }, 'ui://fixture/parts.html', false);
   const bundle = await build({ stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
 import React,{useState,useEffect} from 'react';import{createRoot}from'react-dom/client';import{QueryClient,QueryClientProvider}from'@tanstack/react-query';
@@ -48,7 +53,7 @@ return <main className="flex h-dvh flex-col bg-background text-foreground"><div 
 <div className="border-t p-4"><AppContextStrip groups={groups} onRemove={viewId=>groups.find(g=>g.viewId===viewId)?.remove()}/><output data-draft>{draft}</output><output data-sent>{JSON.stringify(sent)}</output><button onClick={async()=>setRefs(JSON.stringify(await flushConnectedContext('${chatId}')))}>Preview attached context</button><output data-refs>{refs}</output></div></main>}
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><Fixture/></QueryClientProvider>);
 ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}' } });
-  let revision = 0, cleared = 0;
+  let revision = 0, cleared = 0, uploads = 0;
   const contexts: unknown[] = [];
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url!, 'http://fixture');
@@ -61,8 +66,13 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
       if (method === 'connectedApps.status') data = { revision, expiresAt: Date.now() + 60_000 };
       if (method === 'connectedApps.context') { contexts.push(input.context); revision++; data = { revision, updateId: `update-${revision}` }; }
       if (method === 'connectedApps.clearContext') { cleared++; revision++; data = { revision }; }
+      // The view's chat is the main chat, and it is still working, so a new one would end it.
+      if (method === 'sessions.get') data = { id: chatId, type: 'orchestration', workspaceId: null };
+      if (method === 'orchestratorChat.list') data = { session: { id: chatId } };
+      if (method === 'sessions.runtimeStatusGet') data = { running: true, backgroundTasks: false, backgroundTaskIds: [] };
       res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ result: { data } })); return;
     }
+    if (url.pathname === '/api/attachments') { uploads++; res.statusCode = 500; res.end(); return; }
     if (url.pathname === '/fixture.js') { res.setHeader('content-type', 'text/javascript'); res.end(bundle.outputFiles[0].text); return; }
     if (url.pathname === '/fixture.css') { res.setHeader('content-type', 'text/css'); res.end(css.css); return; }
     res.setHeader('content-type', 'text/html'); res.end('<html><head><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>');
@@ -73,11 +83,14 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 } }), errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     // A step that never happens fails on its own locator, well inside the test's timeout.
     page.setDefaultTimeout(10_000);
+    const thumbnailRequests: string[] = [];
+    page.on('request', request => { if (request.url().includes('thumbs.example')) thumbnailRequests.push(request.url()); });
     await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
     const guest = page.frameLocator('iframe[aria-label="App view"]').frameLocator('iframe');
     // The app's send at load, before any interaction, lands in the draft with a quiet note. Read only the
     // page until then: Playwright evaluates in a frame with a user gesture, which would count as input.
-    await page.getByText('Bits & Bolts wrote a message for you. It\'s in the draft, ready when you are.').waitFor();
+    await page.getByText('Bits & Bolts wrote a message for you. It\'s in the draft, ready when you are. Bits & Bolts\'s message left out its file.').waitFor();
+    expect(uploads).toBe(0);
     // The host advertises the two extensions, so the app's SDK turns them on.
     await expect.poll(() => guest.locator('#state').textContent()).toContain('"openai/modelContext":{}');
     expect(await page.locator('[data-sent]').textContent()).toBe('[]');
@@ -90,13 +103,17 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     await guest.getByRole('button', { name: 'Share selection' }).click();
     await expect.poll(() => guest.locator('#state').textContent()).toBe('updated:{"openai/modelContext":{"updateId":"update-1"}}');
     const chip = page.getByRole('button', { name: 'Context from Bits & Bolts', exact: true });
-    await expect.poll(() => chip.textContent()).toBe('Bits & BoltsM6 hex bolt and 2 more');
+    await expect.poll(() => chip.textContent()).toBe('Bits & BoltsM6 hex bolt and 3 more');
     await chip.click();
     const popover = page.getByRole('dialog');
     await popover.getByText('M6 hex bolt', { exact: true }).waitFor();
     expect(await popover.getByText('Viewer camera: isometric').count()).toBe(0);
     expect(await popover.getByRole('img', { name: 'Front view' }).count()).toBe(1);
     expect(await popover.getByText('cad://parts/washer').count()).toBe(1);
+    // A thumbnail the view names by URL is not shown, so Ri's page never fetches it for the view.
+    await popover.getByText('Washer', { exact: true }).waitFor();
+    expect(await popover.locator('img[src^="https:"]').count()).toBe(0);
+    expect(thumbnailRequests).toEqual([]);
     await page.screenshot({ path: '/tmp/ri-mcp-context-strip.png' });
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Preview attached context' }).click();
@@ -109,6 +126,19 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     await page.getByRole('button', { name: 'Preview attached context' }).click();
     await expect.poll(() => page.locator('[data-refs]').textContent()).toBe('[]');
     expect(contexts).toHaveLength(1);
+    // Past the spacing between sends, a draft the app asks for stays a draft, even on the person's click.
+    await page.waitForTimeout(5_100);
+    const drafted = (await page.locator('[data-draft]').textContent())!;
+    await guest.getByRole('button', { name: 'Keep as draft' }).click();
+    await expect.poll(() => guest.locator('#state').textContent()).toBe('drafted');
+    expect((await page.locator('[data-draft]').textContent())!.length).toBeGreaterThan(drafted.length);
+    expect(JSON.parse((await page.locator('[data-sent]').textContent())!)).toHaveLength(1);
+    // A new chat would end the main chat, which is still working, so the message stays here as a draft.
+    await guest.getByRole('button', { name: 'Ask in a new chat' }).click();
+    await expect.poll(() => guest.locator('#state').textContent()).toBe('asked for new');
+    await page.getByText('Bits & Bolts asked for a new chat while this one is still working, so its message is in the draft here.').waitFor();
+    expect(JSON.parse((await page.locator('[data-sent]').textContent())!)).toHaveLength(1);
+    expect(uploads).toBe(0);
     expect(errors).toEqual([]);
   } finally { await browser.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
-}, 30_000);
+}, 45_000);

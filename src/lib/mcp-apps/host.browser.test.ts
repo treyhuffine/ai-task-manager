@@ -157,21 +157,33 @@ it('advertises OpenAI extensions only as the page supports them, and carries hos
 
 // What an app written for ChatGPT does that a locked-down frame used to refuse: a form whose
 // submit handler runs (Bits & Bolts' Create part), WebAssembly, and a worker it builds from a
-// blob (its STEP importer). The network stays closed to the view and to its worker, and a form
-// that is not cancelled, or submitted programmatically, leaves the view running.
+// blob (its STEP importer). The network stays closed to the view and to its worker, WebRTC
+// included (not even through a child frame), and a form that is not cancelled, or submitted
+// programmatically, leaves the view running. A request too large, or part of a flood, is
+// answered with an error rather than dropped, and a view its page cannot switch is offered
+// only the mode it is in.
 const capableGuest = `
 let sequence=0;const awaiting=new Map();
 const rpc=(method,params)=>new Promise((resolve,reject)=>{const id=++sequence;awaiting.set(id,{resolve,reject});parent.postMessage({jsonrpc:'2.0',id,method,params},'*')});
 const notify=(method,params)=>parent.postMessage({jsonrpc:'2.0',method,params},'*');
 const report=value=>rpc('tools/call',{name:'fixture_probe',arguments:value});
 addEventListener('message',event=>{if(event.source!==parent)return;const m=event.data;if(m.id&&awaiting.has(m.id)){const p=awaiting.get(m.id);awaiting.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result)}});
-rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Capable fixture',version:'1.0.0'},appCapabilities:{}}).then(async()=>{
+const settle=promise=>Promise.race([promise,new Promise(resolve=>setTimeout(()=>resolve('no answer'),2500))]);
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Capable fixture',version:'1.0.0'},appCapabilities:{}}).then(async(init)=>{
   notify('ui/notifications/initialized',{});
+  const modes=init.hostContext.availableDisplayModes;
+  let webrtc='open';try{new RTCPeerConnection()}catch{webrtc='closed'}
+  let childWebrtc='closed';try{const child=document.createElement('iframe');document.body.append(child);if(typeof child.contentWindow.RTCPeerConnection==='function')childWebrtc='open'}catch{}
+  const flood=(await Promise.all(Array.from({length:150},()=>settle(rpc('ping',{}).then(()=>'ok',error=>error.message))))).filter(answer=>/too quickly/.test(answer)).length;
+  await pause(1100);
+  const oversize=await settle(rpc('tools/call',{name:'fixture_big',arguments:{blob:'x'.repeat(17*1024*1024)}}).then(()=>'accepted',error=>error.message));
+  await pause(1100);
   let submitted=false;const form=document.getElementById('create');form.addEventListener('submit',()=>{submitted=true});form.requestSubmit();form.submit();await new Promise(r=>setTimeout(r,300));
   let wasm='refused';try{const bytes=new Uint8Array([0,97,115,109,1,0,0,0]);await WebAssembly.instantiate(bytes);wasm='compiled'}catch(error){wasm=String(error.message||error).slice(0,80)}
   let worker='refused';try{const url=URL.createObjectURL(new Blob(['onmessage=e=>postMessage(e.data*2)'],{type:'text/javascript'}));const w=new Worker(url);worker=await new Promise((resolve,reject)=>{w.onmessage=e=>resolve(String(e.data));w.onerror=()=>reject(new Error('worker failed'));setTimeout(()=>reject(new Error('worker timed out')),3000);w.postMessage(21)})}catch(error){worker=String(error.message||error).slice(0,80)}
   let network='open';try{await fetch('https://example.com/');}catch{network='closed'}
-  await report({submitted,wasm,worker,network});
+  await report({submitted,wasm,worker,network,webrtc,childWebrtc,flood,oversize,modes});
 });
 `;
 
@@ -196,9 +208,16 @@ it('runs form handlers, WebAssembly and blob workers inside the view, with the n
         call: async (name: string, args: unknown) => {if (name === 'fixture_probe') state.reports.push(args); return {content: []};},
         context: async () => {}, navigate: () => {}, externalLink: () => {}, error: () => {},
       });
-      await controller.open(prepared, {id, packageDigest: prepared.digest, path: '/', query: {}, theme: 'light', initialData: null, mcp: {input: {}, result: {content: []}}});
+      // A full-screen page with no way to switch the view: both modes declared, only the current one offered.
+      await controller.open(prepared, {id, packageDigest: prepared.digest, path: '/', query: {}, theme: 'light', initialData: null, mcp: {input: {}, result: {content: []}},
+        displayMode: 'fullscreen', displayModes: ['inline', 'fullscreen']});
     }, {prepared, id: randomUUID()});
-    await page.waitForFunction(() => (window as unknown as {reports: unknown[]}).reports.length > 0, undefined, {timeout: 15_000});
-    expect((await page.evaluate(() => (window as unknown as {reports: unknown[]}).reports))[0]).toEqual({submitted: true, wasm: 'compiled', worker: '42', network: 'closed'});
+    await page.waitForFunction(() => (window as unknown as {reports: unknown[]}).reports.length > 0, undefined, {timeout: 25_000});
+    const [capable] = await page.evaluate(() => (window as unknown as {reports: {flood: number}[]}).reports);
+    expect(capable).toEqual({submitted: true, wasm: 'compiled', worker: '42', network: 'closed',
+      webrtc: 'closed', childWebrtc: 'closed', flood: capable.flood, oversize: 'This message is larger than Ri accepts from an app (16 MiB).', modes: ['fullscreen']});
+    // 150 pings in one second against 100 a second, less the few messages the view sent before them.
+    expect(capable.flood).toBeGreaterThanOrEqual(50);
+    expect(capable.flood).toBeLessThan(60);
   } finally {await browser.close(); await new Promise<void>(resolve => server.close(() => resolve()));}
-}, 30_000);
+}, 45_000);

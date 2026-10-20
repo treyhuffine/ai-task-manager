@@ -23,4 +23,9 @@ describe('a fresh result placing itself beside a chat', () => {
   it('replaces a result that placed itself the same way', () => {
     expect(mayPlaceResult({...empty, captureId: 'earlier', placedId: 'earlier'})).toBe(true);
   });
+
+  it('replaces nothing where the browser cannot move a live view, since the replaced one would reload', () => {
+    expect(mayPlaceResult({...empty, captureId: 'earlier', placedId: 'earlier', canMove: false})).toBe(false);
+    expect(mayPlaceResult({...empty, canMove: false})).toBe(true);
+  });
 });

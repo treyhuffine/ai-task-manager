@@ -1,6 +1,7 @@
 'use client';
 import type { QueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api/sessions';
+import { apiErrorCode } from '@/lib/api/client';
 import { executionView } from '@/lib/client/active-view';
 import { createMainChat, mainChatKey, switchToMainChat } from '@/hooks/use-main-chat';
 import { trpcClient } from '@/lib/trpc/client';
@@ -28,9 +29,18 @@ export function appMessageRouting(queryClient: QueryClient, dashboard: Dashboard
       return main.session.id;
     },
     async newMainChat(scope) {
-      const created = await createMainChat(scope, {});
+      let created: Awaited<ReturnType<typeof createMainChat>>;
+      // The home refuses while the current chat is still working, which only it fully knows (a send waiting for a device).
+      try { created = await createMainChat(scope, { whenIdle: true }); }
+      catch (error) { if (apiErrorCode(error) === 'main_chat_busy') return null; throw error; }
       await switchToMainChat(queryClient, scope, created);
       return created.session.id;
+    },
+    async mainChatBusy(scope) {
+      const main = await queryClient.fetchQuery({ queryKey: mainChatKey(scope), staleTime: 30_000,
+        queryFn: () => scope === null ? trpcClient.orchestratorChat.list.query({}) : trpcClient.workspaces.chatGet.query({ params: { id: scope } }) });
+      const status = await sessionsApi.runtimeStatus(main.session.id) as { running?: boolean; backgroundTasks?: boolean };
+      return status.running === true || status.backgroundTasks === true;
     },
     async newExecutionChat(sessionId) {
       const created = await sessionsApi.newChat(sessionId);

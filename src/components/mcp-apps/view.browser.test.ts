@@ -58,6 +58,12 @@ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});function 
     await expect.poll(()=>probes.length).toBe(1);
     const frame=await page.locator('iframe').boundingBox();await page.mouse.click(frame!.x+probes[0].x,frame!.y+probes[0].y);
     await page.getByText('Allow this app operation?',{exact:true}).waitFor();expect(effects).toBe(0);
+    // The approval lies over the view without moving it, so the app cannot slide Allow once under the
+    // pointer, and a click that lands on it at once (one meant for the app) does nothing.
+    expect(await page.locator('iframe').boundingBox()).toEqual(frame);
+    const allow=(await page.getByRole('button',{name:'Allow once',exact:true}).boundingBox())!;
+    await page.mouse.click(allow.x+allow.width/2,allow.y+allow.height/2);
+    await page.waitForTimeout(150);expect(approved).toBe(false);await page.getByText('Allow this app operation?',{exact:true}).waitFor();
     await page.getByRole('button',{name:'Allow once',exact:true}).click();
     await expect.poll(()=>contextRequests).toBe(1);
     // The very first context update has not acknowledged. Send must await this

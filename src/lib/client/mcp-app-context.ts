@@ -1,4 +1,4 @@
-import { safeMcpIcon, type McpIcon } from '@/lib/integrations/mcp-icons';
+import { safeViewThumbnail, type McpIcon } from '@/lib/integrations/mcp-icons';
 
 /**
  * What connected app views attach to the next message (OpenAI's
@@ -116,7 +116,7 @@ const str = (value: unknown) => typeof value === 'string' ? value : undefined;
 export function visibleContextItems(content: readonly ContextBlock[] | null | undefined): VisibleContextItem[] {
   return (content ?? []).filter(visibleToPerson).flatMap((block): VisibleContextItem[] => {
     if (block.type === 'text' && typeof block.text === 'string') {
-      const thumbnail = safeMcpIcon((block._meta as Record<string, unknown> | undefined)?.['openai/thumbnail']);
+      const thumbnail = safeViewThumbnail((block._meta as Record<string, unknown> | undefined)?.['openai/thumbnail']);
       return [{ kind: 'text', ...(title(block) ? { title: title(block) } : {}), text: block.text, ...(thumbnail ? { thumbnail } : {}) }];
     }
     if (block.type === 'image' && typeof block.data === 'string' && /^image\/[a-z0-9.+-]+$/i.test(str(block.mimeType) ?? '')) {

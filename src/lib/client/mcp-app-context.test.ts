@@ -22,7 +22,8 @@ it('waits for context acknowledgement and propagates a failure to the send flow'
 });
 
 describe('what apps attached, as the composer shows it', () => {
-  const bolt = { type: 'text', text: 'Selected: M6 hex bolt', _meta: { 'openai/title': 'M6 hex bolt', 'openai/thumbnail': { src: 'https://example.com/bolt.png' } } };
+  const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+  const bolt = { type: 'text', text: 'Selected: M6 hex bolt', _meta: { 'openai/title': 'M6 hex bolt', 'openai/thumbnail': { src: PNG } } };
   const hidden = { type: 'text', text: 'Viewer camera: isometric', annotations: { audience: ['assistant'] } };
   const both = { type: 'text', text: 'Shared with both', annotations: { audience: ['user', 'assistant'] } };
 
@@ -35,13 +36,16 @@ describe('what apps attached, as the composer shows it', () => {
       { type: 'resource_link', uri: 'cad://parts/washer', name: 'washer.stl', title: 'M6 washer' },
       { type: 'resource', resource: { uri: 'cad://parts/nut', text: '# Nut' } },
       { type: 'text', text: 'Unsafe', _meta: { 'openai/thumbnail': { src: 'javascript:alert(1)' } } },
+      // A view has no network, so a remote thumbnail would have Ri's page fetch it for the app: never shown.
+      { type: 'text', text: 'Remote', _meta: { 'openai/thumbnail': { src: 'https://example.com/bolt.png?selected=M6' } } },
     ])).toEqual([
-      { kind: 'text', title: 'M6 hex bolt', text: 'Selected: M6 hex bolt', thumbnail: { src: 'https://example.com/bolt.png' } },
+      { kind: 'text', title: 'M6 hex bolt', text: 'Selected: M6 hex bolt', thumbnail: { src: PNG } },
       { kind: 'text', text: 'Shared with both' },
       { kind: 'image', title: 'Front view', src: 'data:image/png;base64,AAAA' },
       { kind: 'link', title: 'M6 washer', uri: 'cad://parts/washer' },
       { kind: 'resource', title: 'cad://parts/nut', uri: 'cad://parts/nut', text: '# Nut' },
       { kind: 'text', text: 'Unsafe' },
+      { kind: 'text', text: 'Remote' },
     ]);
   });
 

@@ -21,6 +21,17 @@ export function safeMcpIcon(raw: unknown): McpIcon | null {
     ...(icon.theme === 'light' || icon.theme === 'dark' ? { theme: icon.theme } : {}) };
 }
 
+/**
+ * A thumbnail a view supplies (`openai/thumbnail` on its context or message
+ * content), for display in Ri's own page. Only an image `data:` URL: an
+ * `https:` one would have Ri's page fetch whatever the view names, a way
+ * around the view's own `connect-src 'none'`.
+ */
+export function safeViewThumbnail(raw: unknown): McpIcon | null {
+  const icon = safeMcpIcon(raw);
+  return icon && /^data:image\//i.test(icon.src) ? icon : null;
+}
+
 export function safeMcpIcons(raw: unknown): McpIcon[] {
   return (Array.isArray(raw) ? raw : []).slice(0, MAX_ICONS).flatMap(icon => {
     const safe = safeMcpIcon(icon);

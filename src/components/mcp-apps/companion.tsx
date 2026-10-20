@@ -7,7 +7,7 @@ import { useElementWidth } from '@/hooks/use-element-width';
 import { launchConnectedApp, LaunchDeclined, type LaunchApproval } from '@/lib/client/mcp-app-launch';
 import { ConnectedView } from './view';
 import { EntrypointIcon } from './entrypoint-icon';
-import { ConnectedCompanionContext, mayPlaceResult, type ConnectedTab } from '@/lib/client/mcp-app-panel';
+import { canMoveLiveViews, ConnectedCompanionContext, mayPlaceResult, type ConnectedTab } from '@/lib/client/mcp-app-panel';
 
 type Opening = {tab: ConnectedTab; approval?: LaunchApproval & {answer: (approve: boolean) => void}; error?: string};
 
@@ -34,7 +34,7 @@ export function ConnectedCompanion({chatId, children}: {chatId: string; children
   useEffect(() => () => abort.current?.abort(), []);
   const open = useCallback((id: string | null) => { stopOpening(); setTab(null); setCaptureId(id); setPlacedId(null); }, [stopOpening]);
   const place = useCallback((id: string) => {
-    if (!mayPlaceResult({captureId, tab, opening: !!opening, placedId})) return;
+    if (!mayPlaceResult({captureId, tab, opening: !!opening, placedId, canMove: canMoveLiveViews()})) return;
     setCaptureId(id); setPlacedId(id);
   }, [captureId, tab, opening, placedId]);
   const openTab = useCallback(async (next: ConnectedTab, options: {fresh?: boolean} = {}) => {
@@ -69,8 +69,9 @@ export function ConnectedCompanion({chatId, children}: {chatId: string; children
         {tab && !opening && <Tip label="Start this tab over"><button aria-label={`Reload ${tab.title}`} onClick={() => void openTab(tab, {fresh: true})} className="rounded p-1 hover:bg-muted"><RotateCcw size={13}/></button></Tip>}
         <button aria-label="Close app" onClick={close} className="rounded p-1 hover:bg-muted"><X size={14}/></button>
       </div>
-      {opening ? <TabStatus opening={opening} onRetry={() => void openTab(opening.tab)} onClose={close}/>
-        : <div ref={setMount} className="min-h-0 flex-1 overflow-auto">{captureId && !inlineIds.has(captureId) && <ConnectedView key={captureId} captureId={captureId} chatId={chatId} expanded titled={!!tab}/>}</div>}
+      {opening && <TabStatus opening={opening} onRetry={() => void openTab(opening.tab)} onClose={close}/>}
+      {/* What the pane shows stays mounted, hidden, while a tab opens: declined, or the same tab returned to, it is just as the person left it. */}
+      <div ref={setMount} className={`${opening ? 'hidden' : ''} min-h-0 flex-1 overflow-auto`}>{captureId && !inlineIds.has(captureId) && <ConnectedView key={captureId} captureId={captureId} chatId={chatId} expanded titled={!!tab}/>}</div>
     </aside>
   </div></ConnectedCompanionContext.Provider>;
 }

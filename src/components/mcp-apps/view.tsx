@@ -10,7 +10,7 @@ import { trpcClient } from '@/lib/trpc/client';
 import type { RouterOutputs } from '@/lib/trpc/router';
 import { registerConnectedContext, selectConnectedContext, setConnectedContextContent, type ContextBlock } from '@/lib/client/mcp-app-context';
 import { requestAppChatMessage } from '@/lib/client/app-chat-intent';
-import { AppMessageGate, appMessageParts, draftNotice, routeAppMessage, type GateRefusal } from '@/lib/client/app-message';
+import { appMessageGate, appMessageParts, draftNotice, omittedNotice, routeAppMessage, type GateRefusal } from '@/lib/client/app-message';
 import { appMessageRouting } from '@/lib/client/app-message-routing';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { useOptionalDashboard } from '@/contexts/dashboard-context';
@@ -23,10 +23,24 @@ import { attachmentUrl } from '@/lib/attachments/view';
 import { ConnectedViewForms } from './form/view-forms';
 
 type OpenView = RouterOutputs['connectedApps']['open'];
-/** Results this browser already placed by their display mode, so scrolling back never moves one again. */
-const placed = new Set<string>();
+/**
+ * Results this tab already placed by their display mode, so scrolling back or reloading never moves one
+ * again. Kept for the tab's session, the most recent few hundred.
+ */
+const PLACED_KEY = 'ri.connected-apps.placed';
+const MAX_PLACED = 300;
+function placedBefore(captureId: string): boolean {
+  let ids: string[] = [];
+  try { ids = JSON.parse(sessionStorage.getItem(PLACED_KEY) ?? '[]'); } catch { /* Storage may be unavailable or hold something else. */ }
+  if (!Array.isArray(ids)) ids = [];
+  if (ids.includes(captureId)) return true;
+  try { sessionStorage.setItem(PLACED_KEY, JSON.stringify([...ids, captureId].slice(-MAX_PLACED))); } catch { /* Then only this mount remembers. */ }
+  return false;
+}
 /** Only a result this recent opens itself beside the chat. */
 const FRESH_RESULT_MS = 2 * 60_000;
+/** An approval card's buttons wait this long after it appears, so a click meant for the app never lands on them. */
+const APPROVAL_ARM_MS = 500;
 type Pending = {ids: string[]; preview?: unknown; finish: (approve: boolean) => void};
 /**
  * `onClose` puts a Close control in the result's own header row, for a page that shows the result beside
@@ -67,12 +81,14 @@ export function ConnectedView({captureId, chatId, expanded = false, onClose, app
   const placeBeside = companion?.place;
   useEffect(() => {
     const data = query.data;
-    if (!data?.resource || expanded || !placeBeside || !chatId || data.kind !== 'result' || placed.has(captureId)) return;
-    placed.add(captureId);
+    if (!data?.resource || expanded || !placeBeside || !chatId || data.kind !== 'result' || placedBefore(captureId)) return;
     // A model's result opens full screen (beside the chat) when its resource prefers it, or allows nothing else,
     // unless the person has something open there (`mayPlaceResult`). Then it offers Open beside chat instead.
+    // Its age is the Home's own measure when it gives one, so this browser's clock does not matter.
     const first = initialDisplayMode(data.resource.displayModes, data.resource.displayModes.declared);
-    if ((first === 'fullscreen' || !canInline) && Date.now() - data.created < FRESH_RESULT_MS) placeBeside(captureId);
+    const reported = (data as {ageMs?: unknown}).ageMs;
+    const age = typeof reported === 'number' ? reported : Date.now() - data.created;
+    if ((first === 'fullscreen' || !canInline) && age < FRESH_RESULT_MS) placeBeside(captureId);
   }, [query.data, expanded, placeBeside, chatId, captureId, canInline]);
   return <section aria-label="Interactive app result" className={`${expanded ? 'h-full' : 'my-3 overflow-hidden rounded-xl border border-border'} flex flex-col bg-background`}>
     <div className={`${repeatsName ? 'hidden' : 'flex'} items-center gap-2 border-b border-border/60 px-3 py-2`}>
@@ -89,6 +105,20 @@ export function ConnectedView({captureId, chatId, expanded = false, onClose, app
       : query.data ? <div className="space-y-3 p-4 text-sm"><p className="text-muted-foreground">{query.data.unsupported ?? 'This result has no available interface.'}</p>{query.data.result.content.flatMap((item, index) => item.type === 'text' ? [<p key={index} className="whitespace-pre-wrap [overflow-wrap:anywhere]">{item.text}</p>] : [])}{query.data.result.structuredContent != null && <details><summary className="cursor-pointer text-xs text-muted-foreground">Result data</summary><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(query.data.result.structuredContent, null, 2).slice(0, 64_000)}</pre></details>}<Button size="xs" variant="outline" onClick={() => void query.refetch()}>Check interface again</Button></div>
       : <p role="status" className="flex items-center gap-2 p-4 text-xs text-muted-foreground"><Loader2 size={14} className="animate-spin"/>Opening app…</p>, container)}
   </section>;
+}
+/**
+ * An app operation waiting on the person. It lies over the view rather than pushing it down, so the app
+ * cannot move its own content out from under the pointer and put Allow once there, and its buttons wait
+ * a moment after it appears, so a click already on its way to the app does not land on them.
+ */
+function ApprovalCard({pending}: {pending: Pending}) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => { const timer = setTimeout(() => setArmed(true), APPROVAL_ARM_MS); return () => clearTimeout(timer); }, []);
+  return <div role="alertdialog" aria-label="App operation approval" className="absolute inset-x-0 top-0 z-20 space-y-2 border-b border-amber-500/30 bg-amber-50 p-3 text-xs shadow-md dark:bg-amber-950">
+    <p className="font-medium">Allow this app operation?</p>
+    <pre className="max-h-32 overflow-auto whitespace-pre-wrap">{JSON.stringify(pending.preview, null, 2)}</pre>
+    <div className="flex gap-2"><Button size="xs" disabled={!armed} onClick={() => pending.finish(true)}>Allow once</Button><Button size="xs" variant="outline" disabled={!armed} onClick={() => pending.finish(false)}>Decline</Button></div>
+  </div>;
 }
 function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expanded: boolean; deepLink?: string; onExpand: (mode: 'inline' | 'fullscreen' | 'pip') => void}) {
   const queryClient = useQueryClient();
@@ -130,8 +160,9 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
       return content.length || value?.structuredContent !== undefined ? content : null;
     };
     let attached = blocks(view.modelContext) !== null;
-    // Sends need the person's own input inside this view (`AppMessageGate`, `ViewMessage.activated`).
-    const gate = new AppMessageGate();
+    // Sends need the person's own input inside this view (`AppMessageGate`, `ViewMessage.activated`). The gate is
+    // the view's, so remounting does not reset its count.
+    const gate = appMessageGate(view.id);
     let waiting: Pending | null = null;
     const ask = (request: Omit<Pending, 'finish'>, signal: AbortSignal) => new Promise<boolean>((resolve, reject) => {
       if (waiting) { reject(new Error('Answer the current app approval first')); return; }
@@ -212,21 +243,25 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
       error: error => { if (!disposed) setError(error.message); },
       ready: () => { if (!disposed) setReady(true); },
       resize: value => { if (!disposed) setHeight(value); },
-      // OpenAI's `ui/message` extension: rich content, to this chat or a new one, sent only while
-      // the person works in the view (docs/connected-mcp-apps.md, "Messages"). Otherwise a draft.
+      // OpenAI's `ui/message` extension: rich content, to this chat or a new one, sent only when the person's
+      // input in the view led to it (docs/connected-mcp-apps.md, "Messages"). Otherwise it is text in the draft
+      // of the view's own chat: no files upload, and no chat starts or comes into view.
       sendMessage: async (message, signal) => {
-        let send = message.send, refusal: GateRefusal | undefined;
+        const activated = message.activated;
+        let send = message.send, refusal: GateRefusal | 'busy' | undefined;
         if (send) {
-          const decision = gate.decide(message.activated);
+          const decision = gate.decide(activated);
           if (!decision.send) { send = false; refusal = decision.reason; }
         }
-        const parts = await appMessageParts(message.content, (file, name) => uploadAttachment(file, name));
+        const {parts, omitted} = await appMessageParts(message.content, (file, name) => uploadAttachment(file, name), {files: activated, budget: gate});
         if (signal.aborted) throw new Error('The app message was cancelled');
-        const chatId = await routeAppMessage(view.chatId, message.target, appMessageRouting(queryClient, dashboardRef.current));
-        const delivery = await requestAppChatMessage(chatId, {parts, send, fromApp: {viewId: view.id, app: view.app}});
+        const routed = await routeAppMessage(view.chatId, message.target, appMessageRouting(queryClient, dashboardRef.current), {activated});
+        if (routed.busy && send) { send = false; refusal = 'busy'; }
+        const delivery = await requestAppChatMessage(routed.chatId, {parts, send, fromApp: {viewId: view.id, app: view.app}});
         if (disposed) return;
-        if (refusal) setNotice(draftNotice(view.app, refusal));
-        else if (send && delivery === 'drafted') setNotice(draftNotice(view.app, 'failed'));
+        const notes = [refusal ? draftNotice(view.app, refusal) : send && delivery === 'drafted' ? draftNotice(view.app, 'failed') : null,
+          omitted ? omittedNotice(view.app, omitted) : null].filter(Boolean);
+        if (notes.length) setNotice(notes.join(' '));
       },
       ...(view.chatId ? {displayMode: (mode: 'inline' | 'fullscreen' | 'pip') => onExpandRef.current(mode)} : {}),
     });
@@ -271,7 +306,7 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
   }, [deepLink, view.id, view.kind]);
   useEffect(() => controller.current?.displayMode(expanded ? 'fullscreen' : 'inline'), [expanded]);
   return <div className="relative flex min-h-0 flex-1 flex-col">
-    {pending && <div className="space-y-2 border-b border-amber-500/30 bg-amber-500/10 p-3 text-xs"><p className="font-medium">Allow this app operation?</p><pre className="max-h-32 overflow-auto whitespace-pre-wrap">{JSON.stringify(pending.preview, null, 2)}</pre><div className="flex gap-2"><Button size="xs" onClick={() => pending.finish(true)}>Allow once</Button><Button size="xs" variant="outline" onClick={() => pending.finish(false)}>Decline</Button></div></div>}
+    {pending && <ApprovalCard key={pending.ids.join(',')} pending={pending} />}
     {error && <p role="alert" className="border-b border-border p-3 text-xs text-destructive">{error}</p>}
     {notice && <p role="status" className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground"><span className="min-w-0 flex-1">{notice}</span><button type="button" className="shrink-0 hover:text-foreground" onClick={() => setNotice(null)}>Dismiss</button></p>}
     {!ready && !error && <p role="status" className="absolute left-3 top-3 text-xs text-muted-foreground">Loading interface…</p>}

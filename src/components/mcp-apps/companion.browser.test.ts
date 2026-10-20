@@ -37,17 +37,24 @@ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
 function Transcript(){const companion=useConnectedCompanion();const[results,setResults]=useState([]);
 return <div className="flex-1 overflow-auto p-4"><button onClick={()=>setResults(r=>[...r,'result-'+(r.length+1)])}>Model result</button>
 <button onClick={()=>void companion.openTab({serverId:'fixture',name:'tray',title:'Parts tray'})}>Open Parts tray</button>
+<button onClick={()=>void companion.openTab({serverId:'fixture',name:'inspector',title:'Inspector'})}>Open Inspector</button>
 {results.map(id=><section key={id} data-result={id}><ConnectedView captureId={id} chatId="${chatId}"/></section>)}</div>}
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><main className="flex h-dvh bg-background text-foreground"><ConnectedCompanion chatId="${chatId}">{()=><Transcript/>}</ConnectedCompanion></main></QueryClientProvider>);
 ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}' } });
+  let trayOpen = false;
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url!, 'http://fixture');
     if (url.pathname.startsWith('/api/trpc/')) {
       let body = ''; for await (const chunk of req) body += chunk;
       const input = JSON.parse(body || url.searchParams.get('input') || '{}'), method = url.pathname.slice('/api/trpc/'.length);
       let data: unknown = null;
-      if (method === 'connectedApps.prepare') data = { kind: 'launch', viewId: 'view-tab', invocationId: 'tab' };
-      if (method === 'connectedApps.launch') data = { kind: 'opened', captureId: 'tab' };
+      // The tray opens once, then returns to the same instance. The inspector needs an approval.
+      if (method === 'connectedApps.prepare') data = input.name === 'inspector' ? { kind: 'launch', viewId: '01900333-3333-7333-8333-33333333aaaa', invocationId: 'inspector' }
+        : trayOpen ? { kind: 'open', captureId: 'tab' } : { kind: 'launch', viewId: 'view-tab', invocationId: 'tab' };
+      if (method === 'connectedApps.launch') {
+        if (input.viewId === 'view-tab') { trayOpen = true; data = { kind: 'opened', captureId: 'tab' }; }
+        else data = { kind: 'approval', viewId: input.viewId, ids: ['01900444-4444-7444-8444-44444444aaaa'], preview: { operation: 'Open the inspector' } };
+      }
       if (method === 'connectedApps.open') {
         const tab = input.captureId === 'tab';
         data = { id: `view-${input.captureId}`, captureId: input.captureId, chatId, serverId: 'fixture', sourceRef: 'fixture', title: tab ? 'Bits & Bolts · Parts tray' : 'Bits & Bolts · Part viewer',
@@ -89,6 +96,15 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     await besideGuest.getByRole('button', { name: 'Add' }).click();
     await besideGuest.getByRole('button', { name: 'Add' }).click();
     await expect.poll(() => besideGuest.locator('#count').textContent()).toBe('2');
+    // Returning to the open tab, or declining another one, leaves the pane just as it was.
+    await page.getByRole('button', { name: 'Open Parts tray' }).click();
+    await expect.poll(() => paneTitle.textContent()).toBe('Parts tray');
+    expect(await besideGuest.locator('#count').textContent()).toBe('2');
+    await page.getByRole('button', { name: 'Open Inspector' }).click();
+    await pane.getByText('Allow Inspector to open beside this chat?').waitFor();
+    await pane.getByRole('button', { name: 'Decline' }).click();
+    await expect.poll(() => paneTitle.textContent()).toBe('Parts tray');
+    expect(await besideGuest.locator('#count').textContent()).toBe('2');
 
     // A fresh result now stays in the transcript and offers the pane, leaving the tab and its state alone.
     await page.getByRole('button', { name: 'Model result' }).click();

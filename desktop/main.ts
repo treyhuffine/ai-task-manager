@@ -1189,6 +1189,10 @@ function startConnection() {
 app.on('before-quit', (event) => { if (!finished) { event.preventDefault(); void quit(); } });
 app.on('window-all-closed', () => void quit());
 app.on('activate', showWindow);
+// App views run in Ri's pages with no network, but CSP does not govern WebRTC. Ri itself makes no peer
+// connections (voice only records the microphone), so every page here sends WebRTC only through a proxy,
+// which in practice means not at all (docs/connected-mcp-apps.md, "Supported interfaces").
+app.on('web-contents-created', (_event, contents) => contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp'));
 process.once('SIGINT', () => void quit());
 process.once('SIGTERM', () => void quit());
 app.on('open-url', (event, url) => { event.preventDefault(); void handleDeepLink(url); });

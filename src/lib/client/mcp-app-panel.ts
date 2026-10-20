@@ -14,18 +14,28 @@ export interface CompanionState {
   opening: boolean;
   /** The capture a result's display mode placed there, rather than the person. */
   placedId: string | null;
+  /**
+   * The browser can move a live view between places (`moveBefore`), so a result replaced in the pane
+   * goes back into the transcript intact. Without it (Safari) the replaced view would reload.
+   */
+  canMove?: boolean;
 }
+
+/** Whether this browser moves a live iframe without reloading it. */
+export const canMoveLiveViews = () => typeof Element !== 'undefined' && 'moveBefore' in Element.prototype;
 
 /**
  * Whether a fresh result whose display mode prefers full screen may open
  * beside the chat on its own. Only into an empty pane, or over another result
  * placed the same way: what the person opened (a tab, a result they moved
  * there) stays until they choose to replace it. A replaced result goes back
- * into the transcript with its view intact.
+ * into the transcript with its view intact, so where the browser cannot keep
+ * it intact, a result never replaces another.
  */
 export function mayPlaceResult(state: CompanionState): boolean {
   if (state.opening || state.tab) return false;
-  return !state.captureId || state.captureId === state.placedId;
+  if (!state.captureId) return true;
+  return state.canMove !== false && state.captureId === state.placedId;
 }
 
 /** Chat navigation only. Text mentions do not import or load the UI renderer. */
