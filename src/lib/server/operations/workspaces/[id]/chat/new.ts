@@ -1,8 +1,8 @@
 import { UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 import { HarnessDisabledError } from '@/lib/harness/registry';
-import { chatOverrideSchema } from '@/lib/server/inputs';
+import { newMainChatSchema } from '@/lib/server/inputs';
 import { failureResponse, reply, type OperationContext } from '@/lib/server/operation';
-import { parseChatOverride, startNewMainChat } from '@/lib/sessions/main-chat';
+import { MainChatBusyError, parseChatOverride, startNewMainChat } from '@/lib/sessions/main-chat';
 import { archivedAgentResponse, resolveAgent } from "@/lib/workspaces/chat-agent";
 import { z as rpcZ } from 'zod/v4';
 
@@ -19,11 +19,12 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     if (!agent.ok) return failureResponse(agent.response);
     if (agent.ws.status === 'archived') return failureResponse(archivedAgentResponse());
     const body: unknown = rpcInput.body;
-    return reply({ session: await startNewMainChat(id, parseChatOverride(body)) });
+    return reply({ session: await startNewMainChat(id, parseChatOverride(body), { whenIdle: rpcInput.body.whenIdle === true }) });
   } catch (err) {
+    if (err instanceof MainChatBusyError) return reply({ error: err.message, code: err.code }, { status: 409 });
     console.error('[POST /api/workspaces/:id/chat/new]', err);
     return reply({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: chatOverrideSchema.default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: newMainChatSchema.default({}) }).strict();
