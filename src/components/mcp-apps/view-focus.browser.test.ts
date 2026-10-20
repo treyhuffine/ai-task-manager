@@ -39,7 +39,7 @@ import{ConnectedView}from'@/components/mcp-apps/view';import{registerAppChatComp
 const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
 function Fixture(){const[draft,setDraft]=useState('');
 useEffect(()=>registerAppChatComposer('${chatId}',text=>setDraft(d=>d+'|'+text),{appendParts:parts=>setDraft(d=>d+'|'+JSON.stringify(parts))}),[]);
-return <main className="flex h-dvh flex-col bg-background text-foreground"><textarea aria-label="Composer" className="m-4 h-16 border"/><div className="flex-1 overflow-auto p-5"><ConnectedView captureId="${captureId}" chatId="${chatId}"/></div>
+return <main className="flex h-dvh flex-col bg-background text-foreground"><textarea aria-label="Composer" className="m-4 h-16 border" onKeyDown={e=>{if(e.key==='Tab'&&e.shiftKey)e.preventDefault()}}/><div className="flex-1 overflow-auto p-5"><ConnectedView captureId="${captureId}" chatId="${chatId}"/></div>
 <output data-draft>{draft}</output></main>}
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><Fixture/></QueryClientProvider>);
 ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}' } });
@@ -85,6 +85,12 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     expect(await composer.inputValue()).toBe('hello there, Ri');
     expect(await page.locator('[data-draft]').textContent()).toBe('');
     expect(await guest.locator('#keys').textContent()).toBe('');
+    // A Shift+Tab the composer uses itself (as Ri's does for permission modes) moves no focus, so it opens
+    // no way in: the app keeps calling focus() through the second after it and still gets nothing.
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.type(' x', { delay: 120 });
+    expect(await composer.inputValue()).toBe('hello there, Ri x');
+    expect(await guest.locator('#keys').textContent()).toBe('');
     // A real click moves focus into the app, and its own field takes the person's typing.
     await guest.locator('#field').click();
     await focusSettledInApp();
@@ -94,7 +100,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     // Back in Ri, the app can't take focus again.
     await composer.click();
     await page.keyboard.type(' again', { delay: 70 });
-    expect(await composer.inputValue()).toBe('hello there, Ri again');
+    expect(await composer.inputValue()).toBe('hello there, Ri x again');
     expect(await guest.locator('#keys').textContent()).toBe('ok');
     // The pointer comes to rest on the app while the person keeps typing in Ri. The app takes focus the
     // moment it arrives, before their next key, and still gets nothing.
@@ -105,7 +111,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     await page.keyboard.type('!', { delay: 70 });
     await page.waitForTimeout(400);
     await page.keyboard.type('?', { delay: 70 });
-    expect(await composer.inputValue()).toBe('hello there, Ri again!?');
+    expect(await composer.inputValue()).toBe('hello there, Ri x again!?');
     expect(await guest.locator('#keys').textContent()).toBe('ok');
     // And a click on the app without moving the pointer there first still takes the person in.
     await guest.locator('#field').click();
@@ -114,6 +120,21 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     expect(await guest.locator('#keys').textContent()).toBe('okq');
     await expect.poll(() => page.locator('[data-draft]').textContent()).toContain('stolen:q');
     expect(await page.locator('[data-draft]').textContent()).not.toContain('stolen:!');
+    // Straight back to Ri the moment the app has the click: Ri's own return of focus to the app was one
+    // move, and the app's next focus() right after it is not.
+    await guest.locator('#field').click();
+    await focusSettledInApp();
+    await composer.click();
+    await page.keyboard.type('#', { delay: 120 });
+    expect(await composer.inputValue()).toBe('hello there, Ri x again!?#');
+    expect(await guest.locator('#keys').textContent()).toBe('okq');
+    // The keyboard still moves in: a Tab Ri's page leaves to the browser lets focus enter the app.
+    await composer.click();
+    await page.mouse.move(5, 5);
+    for (let i = 0; i < 4 && await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) !== 'App view'; i++) await page.keyboard.press('Tab');
+    await focusSettledInApp();
+    await page.keyboard.type('t', { delay: 40 });
+    expect(await guest.locator('#keys').textContent()).toBe('okqt');
     expect(errors).toEqual([]);
   } finally { await browser.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 }, 40_000);

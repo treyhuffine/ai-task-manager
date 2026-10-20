@@ -150,14 +150,15 @@ function passthrough() {
 function injectPolicy(html: string, policy: string) {
   return `<meta http-equiv="Content-Security-Policy" content="${policy}">${html}`;
 }
-/** Focus that arrives within this long of a Tab key in Ri's page came by keyboard. */
+/** Focus that arrives within this long of a Tab key in Ri's page came by keyboard. Only a Tab Ri's page left to the browser counts. */
 const TAB_MS = 1_000;
 /**
  * Focus moving into a view (docs/connected-mcp-apps.md, "Security"). Chromium
  * and Firefox let a cross-origin frame call `focus()` on its own elements and
  * take focus from Ri's page, so typing meant for Ri's composer would land in
  * the app (WebKit refuses that itself). Ri keeps focus entering a view only as
- * the person moves it there: right after a Tab key in Ri's page, or by a click
+ * the person moves it there: right after a Tab key in Ri's page that moves
+ * focus (one Ri uses itself, as Shift+Tab for permission modes, doesn't), or by a click
  * in the view. Ri's page can't see that click, so it puts focus back where it
  * was at once, asks the view's relay frame whether a click gave it activation,
  * and only then returns focus to the view. With the pointer off the view it
@@ -168,7 +169,7 @@ const TAB_MS = 1_000;
  * still on it, the view can take focus back.
  */
 const focusGuard = {
-  views: new Set<{ frame: HTMLIFrameElement; entered(): void }>(),
+  views: new Set<{ frame: HTMLIFrameElement; entered(): void; left(): void }>(),
   installed: false,
   /** The element in Ri's page that had focus before it entered a view. */
   last: null as HTMLElement | null,
@@ -176,7 +177,13 @@ const focusGuard = {
   install() {
     if (this.installed || typeof window === "undefined") return;
     this.installed = true;
-    document.addEventListener("keydown", (event) => { if (event.key === "Tab") this.tabAt = Date.now(); }, true);
+    // On the way out, after Ri's own handlers: a Tab one of them used (`preventDefault`) moves no focus.
+    window.addEventListener("keydown", (event) => { if (event.key === "Tab" && !event.defaultPrevented) this.tabAt = Date.now(); });
+    // Ri's page sees the pointer only outside frames, so a pointer event here means it has left every view
+    // but the one it is on, even when that view's `mouseout` never came (a jump straight out of a frame).
+    const pointer = (event: Event) => { for (const view of this.views) if (event.target !== view.frame) view.left(); };
+    document.addEventListener("pointermove", pointer, true);
+    document.addEventListener("pointerdown", pointer, true);
     document.addEventListener("focusin", (event) => { if (event.target instanceof HTMLElement && event.target.tagName !== "IFRAME") this.last = event.target; }, true);
     // A focus change made inside the blur that reports one is ignored, so decide just after it.
     window.addEventListener("blur", () => queueMicrotask(() => {
@@ -271,7 +278,7 @@ export class AppViewController {
   private frame?: HTMLIFrameElement;
   private bridge?: AppBridge;
   private transport?: OpaqueTransport;
-  private guarded?: { frame: HTMLIFrameElement; entered(): void };
+  private guarded?: { frame: HTMLIFrameElement; entered(): void; left(): void };
   private contextTail: Promise<void> = Promise.resolve();
   private contextError: Error | null = null;
   private disposed = false;
@@ -519,7 +526,7 @@ export class AppViewController {
   /** Accept focus entering this view only as the person moves it (`focusGuard`). */
   private guardFocus(iframe: HTMLIFrameElement, transport: OpaqueTransport) {
     focusGuard.install();
-    let over = false, ownMoveAt = -Infinity, checking = false;
+    let over = false, ownMoveAt = -Infinity, ownMove = false, checking = false;
     // The last mouse or touch position: a click or tap into the view is over it.
     iframe.addEventListener("mouseover", () => { over = true; });
     iframe.addEventListener("mouseout", () => { over = false; });
@@ -534,16 +541,19 @@ export class AppViewController {
       checking = false;
       if (!active) return;
       // A click in the view gave its relay activation: return the focus Ri held while it asked.
-      ownMoveAt = Date.now();
+      ownMoveAt = Date.now(); ownMove = true;
       iframe.focus({ preventScroll: true });
       transport.signal("ri-view-refocus");
     };
     const guarded = {
       frame: iframe,
+      left: () => { over = false; },
       entered: () => {
         const now = Date.now();
-        // Ri's own move, returning focus after the relay confirmed a click.
-        if (now - ownMoveAt < 300) return;
+        // Ri's own move, returning focus after the relay confirmed a click: that one entry, and no other
+        // the app makes right after (the person may already be clicking back into Ri).
+        if (ownMove && now - ownMoveAt < 300) { ownMove = false; return; }
+        ownMove = false;
         if (now - focusGuard.tabAt < TAB_MS) return;
         // Keep the person's keys in Ri until a click in the view is confirmed.
         restore();
