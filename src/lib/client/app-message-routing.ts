@@ -12,9 +12,8 @@ type Dashboard = ReturnType<typeof useOptionalDashboard>;
 
 /**
  * The live implementation of `MessageRouting`: the person's chats through the
- * query cache and tRPC, and the dashboard to bring the right one into view.
- * Without a dashboard (a standalone task or note page), chats still start and
- * receive the message, and the person finds it where Ri keeps that chat.
+ * query cache and tRPC, and the dashboard to show a new chat in an execution.
+ * Nothing else moves on screen: the view's notice says where the draft is.
  */
 export function appMessageRouting(queryClient: QueryClient, dashboard: Dashboard): MessageRouting {
   return {
@@ -30,9 +29,9 @@ export function appMessageRouting(queryClient: QueryClient, dashboard: Dashboard
     },
     async newMainChat(scope) {
       let created: Awaited<ReturnType<typeof createMainChat>>;
-      // The home keeps a chat nobody has written in, and refuses while the current one is still working (`forApp`).
+      // The home keeps a chat nobody has written in, and refuses one the person has written in (`forApp`).
       try { created = await createMainChat(scope, { forApp: true }); }
-      catch (error) { if (apiErrorCode(error) === 'main_chat_busy') return null; throw error; }
+      catch (error) { if (apiErrorCode(error) === 'main_chat_in_use') return null; throw error; }
       await switchToMainChat(queryClient, scope, created);
       return created.session.id;
     },
@@ -43,12 +42,6 @@ export function appMessageRouting(queryClient: QueryClient, dashboard: Dashboard
       void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'execution' && query.queryKey[2] === 'chats' });
       dashboard?.setActiveView(executionView(created.session.id));
       return created.session.id;
-    },
-    showMainChat() {
-      if (!dashboard) return;
-      dashboard.showPanelTab('chat');
-      dashboard.setMobileTab('chat');
-      if (dashboard.isFocusMode) dashboard.exitFocusMode();
     },
   };
 }

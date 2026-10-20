@@ -2,7 +2,7 @@ import { UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 import { HarnessDisabledError } from '@/lib/harness/registry';
 import { newMainChatSchema } from '@/lib/server/inputs';
 import { reply, type OperationContext } from '@/lib/server/operation';
-import { ensureMainChat, MainChatBusyError, parseChatOverride, startNewMainChat } from '@/lib/sessions/main-chat';
+import { ensureMainChat, MainChatInUseError, parseChatOverride, startNewMainChat } from '@/lib/sessions/main-chat';
 import { z as rpcZ } from 'zod/v4';
 
 /**
@@ -35,7 +35,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
   try {
     return reply({ session: await startNewMainChat(null, parseChatOverride(body), { forApp: rpcInput.body.forApp === true }) });
   } catch (err) {
-    if (err instanceof MainChatBusyError) return reply({ error: err.message, code: err.code }, { status: 409 });
+    if (err instanceof MainChatInUseError) return reply({ error: err.message, code: err.code }, { status: 409 });
     console.error('[POST /api/orchestrator-chat]', err);
     return reply({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });
   }

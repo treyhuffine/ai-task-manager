@@ -80,7 +80,7 @@ describe('an app\'s message is always a draft', () => {
   });
 
   it('explains a draft quietly, without dashes or semicolons', () => {
-    for (const reason of ['drafted', 'busy'] as const) for (const mainChat of [false, true]) {
+    for (const reason of ['drafted', 'kept'] as const) for (const mainChat of [false, true]) {
       const notice = draftNotice('Bits & Bolts', reason, { mainChat });
       expect(notice).toMatch(/^Bits & Bolts/);
       expect(notice).not.toMatch(/[—;]/);
@@ -89,21 +89,21 @@ describe('an app\'s message is always a draft', () => {
 
   it('names the main chat for a screen with no chat of its own, which may not be beside it', () => {
     expect(draftNotice('Bits & Bolts', 'drafted', { mainChat: true })).toBe('Bits & Bolts wrote a message for you. It\'s in your main chat\'s draft, ready when you are.');
-    expect(draftNotice('Bits & Bolts', 'busy', { mainChat: true })).toContain('while your main chat is still working');
+    expect(draftNotice('Bits & Bolts', 'kept', { mainChat: true })).toBe('Bits & Bolts asked for a new chat. Its message is in your main chat\'s draft, since that chat has your conversation in it.');
+    expect(draftNotice('Bits & Bolts', 'kept')).toBe('Bits & Bolts asked for a new chat. Its message is in the draft here, since this chat has your conversation in it.');
     expect(draftNotice('Bits & Bolts', 'drafted')).toBe('Bits & Bolts wrote a message for you. It\'s in the draft, ready when you are.');
   });
 });
 
 describe('which chat gets the message', () => {
-  const routing = (sessions: Record<string, RoutedSession>, busy: (string | null)[] = []) => {
+  const routing = (sessions: Record<string, RoutedSession>, inUse: (string | null)[] = []) => {
     const calls: string[] = [];
     const deps: MessageRouting = {
       session: async id => sessions[id] ?? null,
       mainChat: async () => { calls.push('main'); return 'main-chat'; },
-      // The home keeps a chat that is still working (`forApp`): null.
-      newMainChat: async scope => { calls.push(`new-main:${scope}`); return busy.includes(scope) ? null : scope ? `new-agent-chat-${scope}` : 'new-main-chat'; },
+      // The home keeps a chat the person has written in (`forApp`): null.
+      newMainChat: async scope => { calls.push(`new-main:${scope}`); return inUse.includes(scope) ? null : scope ? `new-agent-chat-${scope}` : 'new-main-chat'; },
       newExecutionChat: async id => { calls.push(`new-execution:${id}`); return `new-chat-in-${id}`; },
-      showMainChat: () => { calls.push('show'); },
     };
     return { deps, calls };
   };
@@ -114,11 +114,11 @@ describe('which chat gets the message', () => {
     note: { id: 'note', type: 'content', workspaceId: null },
   };
 
-  it('sends active messages to the view\'s chat, and a global screen\'s to the main chat beside it', async () => {
+  it('sends active messages to the view\'s chat, and a global screen\'s to the main chat, moving nothing on screen', async () => {
     const { deps, calls } = routing(sessions);
     expect(await routeAppMessage('work', 'active', deps)).toEqual({ chatId: 'work' });
     expect(await routeAppMessage(undefined, 'active', deps)).toEqual({ chatId: 'main-chat' });
-    expect(calls).toEqual(['show', 'main']);
+    expect(calls).toEqual(['main']);
   });
 
   it('starts a new conversation on the same surface', async () => {
@@ -128,16 +128,16 @@ describe('which chat gets the message', () => {
     expect(await routeAppMessage('work', 'new', deps)).toEqual({ chatId: 'new-chat-in-work' });
     expect(await routeAppMessage('note', 'new', deps)).toEqual({ chatId: 'new-main-chat' });
     expect(await routeAppMessage(null, 'new', deps)).toEqual({ chatId: 'new-main-chat' });
-    expect(calls).toEqual(['new-main:null', 'show', 'new-main:agent-1', 'new-execution:work', 'new-main:null', 'show', 'new-main:null', 'show']);
+    expect(calls).toEqual(['new-main:null', 'new-main:agent-1', 'new-execution:work', 'new-main:null', 'new-main:null']);
   });
 
-  it('never ends a main chat that is still working, leaving the message in the active chat', async () => {
+  it('never retires a main chat the person has written in, leaving the message in the active chat', async () => {
     const { deps, calls } = routing(sessions, [null, 'agent-1']);
-    expect(await routeAppMessage('main', 'new', deps)).toEqual({ chatId: 'main', busy: true });
-    expect(await routeAppMessage('agent', 'new', deps)).toEqual({ chatId: 'agent', busy: true });
-    expect(await routeAppMessage(null, 'new', deps)).toEqual({ chatId: 'main-chat', busy: true });
+    expect(await routeAppMessage('main', 'new', deps)).toEqual({ chatId: 'main', kept: true });
+    expect(await routeAppMessage('agent', 'new', deps)).toEqual({ chatId: 'agent', kept: true });
+    expect(await routeAppMessage(null, 'new', deps)).toEqual({ chatId: 'main-chat', kept: true });
     // A chat in an execution never ends another, so it opens as before.
     expect(await routeAppMessage('work', 'new', deps)).toEqual({ chatId: 'new-chat-in-work' });
-    expect(calls).toEqual(['new-main:null', 'new-main:agent-1', 'new-main:null', 'show', 'main', 'new-execution:work']);
+    expect(calls).toEqual(['new-main:null', 'new-main:agent-1', 'new-main:null', 'main', 'new-execution:work']);
   });
 });

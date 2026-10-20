@@ -131,16 +131,18 @@ export function appUploadBudget(viewId: string): ViewUploadBudget {
 }
 
 /**
- * The quiet note a view shows once its message is in a draft. A view with no
- * chat of its own (`mainChat`, a screen opened from Apps) names the main chat,
- * which may not be on screen beside it.
+ * The quiet note a view shows once its message is in a draft: where it is,
+ * since nothing else moves on screen. `kept` is a new chat the app asked for
+ * that wasn't started, as the person has written in the current one. A view
+ * with no chat of its own (`mainChat`, a screen opened from Apps) names the
+ * main chat, which may not be on screen beside it.
  */
-export function draftNotice(app: string, reason: 'drafted' | 'busy', options: { mainChat?: boolean } = {}): string {
-  if (options.mainChat) return reason === 'busy'
-    ? `${app} asked for a new chat while your main chat is still working, so its message is in that chat's draft.`
+export function draftNotice(app: string, reason: 'drafted' | 'kept', options: { mainChat?: boolean } = {}): string {
+  if (options.mainChat) return reason === 'kept'
+    ? `${app} asked for a new chat. Its message is in your main chat's draft, since that chat has your conversation in it.`
     : `${app} wrote a message for you. It's in your main chat's draft, ready when you are.`;
-  return reason === 'busy'
-    ? `${app} asked for a new chat while this one is still working, so its message is in the draft here.`
+  return reason === 'kept'
+    ? `${app} asked for a new chat. Its message is in the draft here, since this chat has your conversation in it.`
     : `${app} wrote a message for you. It's in the draft, ready when you are.`;
 }
 
@@ -156,40 +158,34 @@ export interface MessageRouting {
   /** The person's main chat, as it is now. */
   mainChat(): Promise<string>;
   /**
-   * A new main chat for an app, the app's (`null`) or an agent's, shown: the
+   * A new main chat for an app, the person's (`null`) or an agent's: the
    * current one when nobody has written in it yet. Null when the home kept
-   * the current one because it is still working (`forApp`).
+   * the current one because the person has written in it (`forApp`).
    */
   newMainChat(scope: string | null): Promise<string | null>;
   /** A new chat in an execution for an app, shown: its newest when nobody has written in it yet (`forApp`). */
   newExecutionChat(sessionId: string): Promise<string>;
-  /** Bring the main chat panel into view, beside a global screen. */
-  showMainChat(): void;
 }
 
 /**
  * Whose composer an app's draft goes to. `active` is the chat the view is in.
  * A view with no chat (a global screen, a settings or preview window) uses
- * the main chat, brought into view so the draft is seen. `new` opens a fresh
- * conversation on the same surface with the draft in it, and sends nothing: a
- * new main chat for the main chat or a view with no chat, a new chat for the
- * same agent from an agent's main chat, a new chat in the same execution from
- * one of its chats, and a new main chat from a task or note chat. A new main
- * chat ends the current one, so while that chat is still working the draft
- * goes to the active chat instead (`busy`).
+ * the main chat. Nothing is brought into view without a click: the view's
+ * notice says where the draft is. `new` is a fresh conversation on the same
+ * surface with the draft in it, and sends nothing: a new main chat for the
+ * main chat or a view with no chat, a new chat for the same agent from an
+ * agent's main chat, a new chat in the same execution from one of its chats,
+ * and a new main chat from a task or note chat. A new main chat would retire
+ * the current one, so once the person has written in it the draft goes to
+ * the active chat instead (`kept`).
  */
-export async function routeAppMessage(viewChatId: string | null | undefined, target: 'active' | 'new', routing: MessageRouting): Promise<{ chatId: string; busy?: true }> {
-  const active = async () => {
-    if (viewChatId) return viewChatId;
-    routing.showMainChat();
-    return routing.mainChat();
-  };
+export async function routeAppMessage(viewChatId: string | null | undefined, target: 'active' | 'new', routing: MessageRouting): Promise<{ chatId: string; kept?: true }> {
+  const active = async () => viewChatId || routing.mainChat();
   if (target === 'active') return { chatId: await active() };
   const session = viewChatId ? await routing.session(viewChatId) : null;
   if (session?.type === 'execution') return { chatId: await routing.newExecutionChat(session.id) };
   const scope = session?.type === 'orchestration' ? session.workspaceId : null;
   const chatId = await routing.newMainChat(scope);
-  if (chatId === null) return { chatId: await active(), busy: true };
-  if (scope === null) routing.showMainChat();
+  if (chatId === null) return { chatId: await active(), kept: true };
   return { chatId };
 }

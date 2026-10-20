@@ -13,7 +13,6 @@
 
 import {
   archiveChatSession,
-  chatRunState,
   createChatSession,
   getChatSession,
   getLastChatEventBySource,
@@ -130,16 +129,10 @@ async function retireMainChat(id: string): Promise<void> {
   void deriveRetrospectiveLabel(id);
 }
 
-/** A new main chat an app asked for, refused because the current one is still working (`forApp`). */
-export class MainChatBusyError extends Error {
-  readonly code = 'main_chat_busy';
-  constructor() { super('This chat is still working, so a new chat wasn\'t started.'); this.name = 'MainChatBusyError'; }
-}
-
-/** Whether retiring a chat would end work: a turn running, work in the background, or a message waiting for a device. */
-async function chatIsWorking(id: string): Promise<boolean> {
-  const { isRunning, hasBackgroundTasks } = await import('@/lib/executor/adapter');
-  return isRunning(id) || hasBackgroundTasks(id) || chatRunState(id).queuedSends.length > 0;
+/** A new main chat an app asked for, refused because the person has written in the current one (`forApp`). */
+export class MainChatInUseError extends Error {
+  readonly code = 'main_chat_in_use';
+  constructor() { super('This chat has your conversation in it, so a new chat wasn\'t started.'); this.name = 'MainChatInUseError'; }
 }
 
 /**
@@ -149,9 +142,11 @@ async function chatIsWorking(id: string): Promise<boolean> {
  *
  * `forApp` is a new chat a connected app asked for (`target: "new"`), where
  * the app's draft goes. An app needs no click to ask, and retiring a chat
- * stops its running turn and drops what it had queued, so: a current chat
- * nobody has written in is already new and is kept, and one still working is
- * never ended (`MainChatBusyError`). Only the person ends work in progress.
+ * archives the person's conversation and ends any work in it, so an app
+ * never retires one: a current chat nobody has written in is already new and
+ * is kept, and one the person has written in is refused
+ * (`MainChatInUseError`), its draft going there instead. Only the person
+ * starts over.
  */
 export async function startNewMainChat(scope: MainChatScope, override: ChatOverride = {}, options: { forApp?: boolean } = {}): Promise<ChatSessionRecord> {
   // A disabled explicit choice must fail before retiring the current chat.
@@ -160,7 +155,7 @@ export async function startNewMainChat(scope: MainChatScope, override: ChatOverr
   const current = currentMainChat(scope);
   if (options.forApp && current) {
     if (!getLastChatEventBySource(current.id, 'user')) return current;
-    if (await chatIsWorking(current.id)) throw new MainChatBusyError();
+    throw new MainChatInUseError();
   }
   const permissions = permissionsForNewChat(harness, current);
   if (current) await retireMainChat(current.id);

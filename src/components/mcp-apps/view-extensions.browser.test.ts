@@ -64,13 +64,13 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
       if (method === 'connectedApps.status') data = { revision };
       if (method === 'connectedApps.context') { contexts.push(input.context); revision++; data = { revision, updateId: `update-${revision}` }; }
       if (method === 'connectedApps.clearContext') { cleared++; revision++; data = { revision }; }
-      // The view's chat is the main chat, and it is still working, so the home keeps it (`forApp`).
+      // The view's chat is the main chat, and the person has written in it, so the home keeps it (`forApp`).
       if (method === 'sessions.get') data = { id: chatId, type: 'orchestration', workspaceId: null };
       if (method === 'orchestratorChat.list') data = { session: { id: chatId } };
       if (method === 'orchestratorChat.create') {
         newChatAsks.push(input);
         res.statusCode = 409; res.setHeader('content-type', 'application/json');
-        res.end(JSON.stringify({ error: { message: 'This chat is still working, so a new chat wasn\'t started.', code: -32009, data: { code: 'CONFLICT', httpStatus: 409, domainCode: 'main_chat_busy' } } }));
+        res.end(JSON.stringify({ error: { message: 'This chat has your conversation in it, so a new chat wasn\'t started.', code: -32009, data: { code: 'CONFLICT', httpStatus: 409, domainCode: 'main_chat_in_use' } } }));
         return;
       }
       res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ result: { data } })); return;
@@ -139,10 +139,10 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     await guest.getByRole('button', { name: 'Keep as draft' }).click();
     await expect.poll(() => guest.locator('#state').textContent()).toBe('drafted');
     expect((await page.locator('[data-draft]').textContent())!.length).toBeGreaterThan(drafted.length);
-    // A new chat would end the main chat, which is still working, so the home keeps it and the message is a draft here.
+    // A new chat would retire the main chat, which the person has written in, so the home keeps it and the message is a draft here.
     await guest.getByRole('button', { name: 'Ask in a new chat' }).click();
     await expect.poll(() => guest.locator('#state').textContent()).toBe('asked for new');
-    await page.getByText('Bits & Bolts asked for a new chat while this one is still working, so its message is in the draft here.').waitFor();
+    await page.getByText('Bits & Bolts asked for a new chat. Its message is in the draft here, since this chat has your conversation in it.').waitFor();
     expect(newChatAsks).toEqual([{ body: { forApp: true } }]);
     expect(uploads).toBe(1);
     expect(errors).toEqual([]);

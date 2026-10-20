@@ -250,7 +250,7 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
         const routed = await routeAppMessage(view.chatId, message.target, appMessageRouting(queryClient, dashboardRef.current));
         requestAppChatMessage(routed.chatId, {parts});
         if (disposed) return;
-        setNotice([draftNotice(view.app, routed.busy ? 'busy' : 'drafted', {mainChat: !view.chatId}), omitted ? omittedNotice(view.app, omitted) : null].filter(Boolean).join(' '));
+        setNotice([draftNotice(view.app, routed.kept ? 'kept' : 'drafted', {mainChat: !view.chatId}), omitted ? omittedNotice(view.app, omitted) : null].filter(Boolean).join(' '));
       },
       ...(view.chatId ? {displayMode: (mode: 'inline' | 'fullscreen' | 'pip') => onExpandRef.current(mode)} : {}),
     });
