@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { CallToolResult } from '@modelcontextprotocol/client';
 import type { Attachment } from '@/db/types';
-import type { prepareResource } from './resource';
 
 /**
  * Captures and view sessions kept in memory, each. The least recently used
- * goes first. A model's result is also kept in its transcript event, so it
+ * goes first. A model's result is also stored (`mcp_app_results`), so it
  * opens again after it leaves memory or the Home restarts. A screen the
  * person opened lives only here: once it goes, opening the app starts it over.
+ * No interface is kept: a view reads its `ui://` resource each time it opens.
  */
 export const MAX_VIEWS = 32;
 /** A captured result, and an app operation's result kept for a retried delivery. */
@@ -44,8 +44,7 @@ export interface Capture {
 }
 interface CallReceipt { fingerprint?: string; retryable: boolean; cancelled: boolean; result?: Promise<ViewCall>; kept?: number }
 export interface View {
-  id: string; viewerId: string; capture: Capture; resource?: ReturnType<typeof prepareResource>;
-  resourcePromise?: Promise<ReturnType<typeof prepareResource>>;
+  id: string; viewerId: string; capture: Capture;
   created: number; bytes: number; context?: ModelContext; contextUpdateId?: string; revision: number; contextSecond: number; contextCount: number;
   /** The context's images and blobs, saved as attachments once per update (`context-files.ts`). */
   contextFiles?: { updateId?: string; source: ModelContext; context: ModelContext; files: Attachment[] };
@@ -60,14 +59,11 @@ export type ViewCall = {kind: 'result'; result: CallToolResult} | ApprovalWait;
 /** A map that keeps its most recently used entry last, so the first is the one to drop. */
 function touch<K, V>(map: Map<K, V>, key: K, value: V) { map.delete(key); map.set(key, value); }
 
-/**
- * Home-owned state for connected app views. `persisted` finds a model result
- * that left memory in its transcript event (`service.ts`), or null.
- */
+/** Home-owned state for connected app views, in memory. A stored model result comes back through `put` (`service.ts`). */
 export class McpViewStore {
   captures = new Map<string, Capture>();
   views = new Map<string, View>();
-  constructor(private dispose: (view: View) => void = () => {}, private persisted: (id: string) => Capture | null = () => null) {}
+  constructor(private dispose: (view: View) => void = () => {}) {}
   private dropView(id: string) {
     const view = this.views.get(id);
     this.views.delete(id);
@@ -93,12 +89,11 @@ export class McpViewStore {
     touch(this.views, id, view);
     return view;
   }
-  capture(id: string) {
+  /** A capture still in memory, or undefined. */
+  kept(id: string) {
     const kept = this.captures.get(id);
-    if (kept) { touch(this.captures, id, kept); return kept; }
-    const stored = this.persisted(id);
-    if (!stored || !this.put(stored)) throw new Error('This app view closed. Open the app again, or ask for a new result.');
-    return stored;
+    if (kept) touch(this.captures, id, kept);
+    return kept;
   }
   /** Make room for one more receipt: the oldest goes, and what it kept no longer counts against the view. */
   private roll(view: View) {

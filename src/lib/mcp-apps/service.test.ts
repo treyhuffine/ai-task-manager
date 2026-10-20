@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { MAX_VIEWS, type View } from './store';
 import { toChatEventDTO } from '@/lib/api/dto/chat-event';
-const mocks = vi.hoisted(() => ({metadata: vi.fn(), runtime: vi.fn(), transport: vi.fn(), connections: vi.fn(), run: vi.fn(), read: vi.fn(), chat: vi.fn(), workspace: vi.fn(), insert: vi.fn(), event: vi.fn(), approvals: vi.fn(), decide: vi.fn(), cancel: vi.fn(), viewAuthority: vi.fn(), closeWatches: vi.fn()}));
+const mocks = vi.hoisted(() => ({metadata: vi.fn(), runtime: vi.fn(), transport: vi.fn(), connections: vi.fn(), run: vi.fn(), read: vi.fn(), chat: vi.fn(), workspace: vi.fn(), insert: vi.fn(), store: vi.fn(), stored: vi.fn(), approvals: vi.fn(), decide: vi.fn(), cancel: vi.fn(), viewAuthority: vi.fn(), closeWatches: vi.fn()}));
 vi.mock('@/lib/integrations/source-metadata', () => ({integrationSourceMetadata: mocks.metadata}));
 vi.mock('@/lib/integrations/runtime', () => ({getIntegrationOwnerId: () => 'local', getMcpViewAuthority: mocks.viewAuthority}));
 vi.mock('./files', async importOriginal => ({...await importOriginal<typeof import('./files')>(), closeHostWatches: mocks.closeWatches}));
-vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: mocks.workspace, insertChatEvent: mocks.insert, getChatEventById: mocks.event}));
+vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: mocks.workspace, insertChatEvent: mocks.insert, insertMcpAppResult: mocks.store, getMcpAppResult: mocks.stored}));
 vi.mock('@/lib/integrations/approval', () => ({sessionCaller: (id: string) => ({type: 'mcp', id: `session:${id}`}), sessionIdFromCaller: (caller?: {type?: string; id?: string}) => caller?.type === 'mcp' && caller.id?.startsWith('session:') ? caller.id.slice(8) : null, listPendingApprovals: mocks.approvals, resolvePendingApprovals: mocks.decide, cancelConnectedAppApprovals: mocks.cancel}));
 vi.mock('@/lib/integrations/approval-events', () => ({recordApprovalDecision: vi.fn()}));
-import { connectedAppNetwork, connectedContextAccess, connectedViewStatus, prepareMcpResultCapture, connectedAppsCatalog, connectedChatTabs, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource, connectedMessageSender } from './service';
+import { connectedAppNetwork, connectedContextAccess, connectedViewStatus, prepareMcpResultCapture, connectedAppsCatalog, connectedChatTabs, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource } from './service';
 
 const chatId = randomUUID();
 const result = {content: [{type: 'text', text: 'Public summary'}], structuredContent: {total: 42}, _meta: {privateUi: 'Only for the interface'}};
@@ -21,6 +21,8 @@ const tools: {name: string; title?: string; inputSchema?: unknown; _meta?: unkno
 /** A standalone screen as OpenAI's MCP extensions spec declares one: a global entrypoint on an app-only tool. */
 const launcher = {name: 'home', title: 'Fixture home', _meta: {ui: {resourceUri: 'ui://fixture/calculator.html', visibility: ['app']}, 'openai/ui': {entrypoints: [{type: 'global'}]}}};
 let entry: Record<string, unknown>;
+/** The `mcp_app_results` table, as the query layer reads and writes it. */
+const results = new Map<string, Record<string, unknown>>();
 beforeEach(() => {
   vi.resetAllMocks(); process.env.RI_LOCAL_APPS = '0'; delete process.env.RI_MCP_APPS;
   mcpViews().views.clear(); mcpViews().captures.clear();
@@ -42,6 +44,9 @@ beforeEach(() => {
   mocks.decide.mockReturnValue({resolved: [], missing: []});
   mocks.cancel.mockImplementation(() => {const pending = mocks.approvals(); mocks.approvals.mockReturnValue([]); return pending;});
   mocks.run.mockImplementation(async (_action, _args, options) => { options.captureOriginalResult(result); return {ok: true, result: {content: result.content, structuredContent: result.structuredContent}}; });
+  results.clear();
+  mocks.store.mockImplementation((row: Record<string, unknown>) => { results.set(row.id as string, {...row, createdAt: new Date().toISOString().slice(0, 19).replace('T', ' ')}); });
+  mocks.stored.mockImplementation((id: string) => results.get(id) ?? null);
 });
 const prepareCapture = () => prepareMcpResultCapture({ownerId: 'local', connectionId: 'mcp-fixture', actionId: 'mcp.fixture.calculate', attemptId: randomUUID(), caller: {type: 'mcp', id: `session:${chatId}`}, audience: 'model', input: {amount: 2}});
 async function capture() {
@@ -124,16 +129,20 @@ describe('connected MCP views', () => {
       toolkits: [{id: 'todoist', providerId: 'todoist', displayName: 'Todoist'}]}));
     expect((await connectedAppsCatalog()).map(app => [app.id, app.name, app.toolkitName])).toEqual([['server', 'Fixture', 'Fixture'], ['second', 'Todoist 2', 'Todoist']]);
   });
-  it('captures the original result, keeps private metadata from every client, and never replays on open', async () => {
+  it('stores the original result on its own, keeps private metadata from every client, and never replays on open', async () => {
     const id = await capture();
-    // The transcript event keeps the capture so it opens again later, and what clients get of it carries none of it.
+    // The result is stored with the connection it came from, and no interface. Its transcript event carries only its id.
+    expect(mocks.store).toHaveBeenCalledWith({id, chatSessionId: chatId, serverId: 'server', connectionId: 'mcp-fixture', sourceRef: expect.any(String), tool: 'calculate',
+      resourceUri: 'ui://fixture/calculator.html', input: {amount: 2}, result});
     const row = mocks.insert.mock.calls[0][0];
-    expect(row).toMatchObject({id, sessionId: chatId, content: 'mcp_app_result', raw: {subtype: 'mcp_app_result', capture: {id, chatId, result}}});
+    expect(row).toMatchObject({id, sessionId: chatId, content: 'mcp_app_result', raw: {subtype: 'mcp_app_result'}});
+    expect(JSON.stringify(row)).not.toContain('Only for the interface');
     expect(JSON.stringify(toChatEventDTO(row))).not.toContain('Only for the interface');
     const first = await openConnectedView(id, 'viewer', chatId);
     const second = await openConnectedView(id, 'viewer', chatId);
     expect(first.id).toBe(second.id); expect(first.result).toEqual(result);
-    expect(mocks.run).not.toHaveBeenCalled(); expect(mocks.read).toHaveBeenCalledTimes(1);
+    // Each open reads the interface from the server again: Ri keeps no copy of it.
+    expect(mocks.run).not.toHaveBeenCalled(); expect(mocks.read).toHaveBeenCalledTimes(2);
     await expect(openConnectedView(id, 'viewer', randomUUID())).rejects.toThrow('different');
     expect((await openConnectedView(id, 'another-viewer', chatId)).id).not.toBe(first.id);
   });
@@ -235,6 +244,19 @@ describe('connected MCP views', () => {
     expect(await connectedAppsCatalog()).toEqual([]);
     await expect(openConnectedView(view.captureId, 'viewer', chatId)).rejects.toThrow('disabled');
   });
+  it('says plainly when the app can\'t be reached or its account needs reconnecting, and opens once it can', async () => {
+    const id = await capture();
+    mocks.read.mockRejectedValueOnce(new Error('ECONNREFUSED 127.0.0.1:3917'));
+    await expect(openConnectedView(id, 'viewer', chatId)).rejects.toThrow('Fixture can\'t be reached right now.');
+    // Trying again reads the interface again.
+    expect((await openConnectedView(id, 'viewer', chatId)).resource).not.toBeNull();
+    mocks.viewAuthority.mockImplementation(async () => ({runtime: await mocks.runtime(), connections: await mocks.connections(), view: null}));
+    await expect(openConnectedView(id, 'viewer', chatId)).rejects.toThrow('Fixture can\'t be reached right now.');
+    mocks.connections.mockResolvedValue([]);
+    await expect(openConnectedView(id, 'viewer', chatId)).rejects.toThrow('Reconnect your Fixture account to open this.');
+    entry.enabled = false;
+    await expect(openConnectedView(id, 'viewer', chatId)).rejects.toThrow('Fixture is turned off.');
+  });
 });
 
 describe('OpenAI entrypoints, deep links, resources and model context', () => {
@@ -323,7 +345,7 @@ describe('OpenAI entrypoints, deep links, resources and model context', () => {
     await expect(readConnectedResource(view.id, 'other', {uri: 'cad://parts/x'})).rejects.toThrow('unavailable');
     await expect(readConnectedResource(view.id, 'viewer', {uri: 'not a uri'})).rejects.toThrow('Invalid resource URI');
     entry.enabled = false;
-    await expect(readConnectedResource(view.id, 'viewer', {uri: 'cad://parts/x'})).rejects.toThrow('disabled');
+    await expect(readConnectedResource(view.id, 'viewer', {uri: 'cad://parts/x'})).rejects.toThrow('turned off');
   });
 
   it('keeps titled, thumbnailed and assistant-only context, names each change, and keeps _meta from the model', async () => {
@@ -411,13 +433,6 @@ describe('OpenAI model context files and app messages', () => {
     expect((again[0] as unknown as {files: {fileName: string}[]}).files[0]!.fileName).toBe(item!.files[0]!.fileName);
   });
 
-  it('names the app behind a message only for the viewer of a live view it may still use', async () => {
-    const view = await openConnectedView(await capture(), 'viewer', chatId);
-    expect(await connectedMessageSender(view.id, 'viewer')).toEqual({app: 'Fixture', serverId: 'server', viewId: view.id});
-    await expect(connectedMessageSender(view.id, 'other')).rejects.toThrow('unavailable');
-    entry.enabled = false;
-    await expect(connectedMessageSender(view.id, 'viewer')).rejects.toThrow('disabled');
-  });
 });
 
 describe('authority without waiting on the network', () => {
@@ -478,7 +493,7 @@ describe('authority without waiting on the network', () => {
         const result = await build(serverId, options);
         return ++calls === 2 ? {...result, view: null} : result;
       });
-      await expect(freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}])).rejects.toThrow('reconnecting');
+      await expect(freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}])).rejects.toThrow('can\'t be reached');
     } finally { tools.splice(tools.indexOf(launcher), 1); }
   });
 
@@ -502,11 +517,11 @@ describe('authority without waiting on the network', () => {
 
   it('opens a model result again after it left memory, for as long as its chat exists, with access checked again', async () => {
     const id = await capture();
-    const row = mocks.insert.mock.calls[0][0];
-    mocks.event.mockImplementation((eventId: string) => eventId === id ? {...row, source: 'system'} : null);
     mcpViews().captures.clear(); mcpViews().views.clear();
     const reopened = await openConnectedView(id, 'viewer', chatId);
-    expect(reopened).toMatchObject({captureId: id, result, kind: 'result'});
+    // Its title and display come from the server's tools as they are now, and its input from what was stored.
+    expect(reopened).toMatchObject({captureId: id, result, kind: 'result', title: 'Fixture · calculate', legacy: false, input: {amount: 2}});
+    expect(reopened.resource).not.toBeNull();
     expect(mocks.run).not.toHaveBeenCalled();
     // Kept for its chat only, and checked against what the chat may use now.
     mcpViews().captures.clear(); mcpViews().views.clear();
@@ -514,10 +529,10 @@ describe('authority without waiting on the network', () => {
     agentChat([{toolkitId: 'mcp_fixture', accounts: [{accountId: 'another-account'}]}]);
     mcpViews().captures.clear(); mcpViews().views.clear();
     await expect(openConnectedView(id, 'viewer', chatId)).rejects.toThrow('not available');
-    // A row that isn't that chat's app result opens nothing.
-    mocks.event.mockReturnValue({...row, source: 'system', sessionId: randomUUID()});
+    // A result with no stored row (one from before the table, say) opens nothing.
+    results.delete(id);
     mcpViews().captures.clear();
-    await expect(openConnectedView(id, 'viewer', chatId)).rejects.toThrow('closed');
+    await expect(openConnectedView(id, 'viewer', chatId)).rejects.toThrow('no longer open');
   });
 
   it('says a screen the person opened has closed once it left memory, so it opens again from the app', async () => {
@@ -525,9 +540,8 @@ describe('authority without waiting on the network', () => {
     try {
       const launched = await launchRequest('server', 'viewer', 'home');
       await launchConnectedView(launched.viewId, 'viewer');
-      mocks.event.mockReturnValue(null);
       mcpViews().captures.clear(); mcpViews().views.clear();
-      await expect(openConnectedView(launched.invocationId, 'viewer')).rejects.toThrow('closed');
+      await expect(openConnectedView(launched.invocationId, 'viewer')).rejects.toThrow('no longer open');
       // Opening the app again starts a new instance.
       expect((await prepareConnectedLaunch('server', 'viewer', 'home')).kind).toBe('launch');
     } finally { tools.splice(tools.indexOf(launcher), 1); }
@@ -539,7 +553,7 @@ describe('authority without waiting on the network', () => {
     mocks.read.mockResolvedValue({contents: [{uri: 'ui://fixture/calculator.html', mimeType: 'text/html;profile=mcp-app', text: '<p>x</p>',
       _meta: {ui: {csp: {connectDomains: ['https://api.example.com'], resourceDomains: ['https://esm.sh']}}, 'openai/widgetCSP': {frame_domains: ['https://www.youtube.com']}}}]});
     const network = await connectedAppNetwork('server');
-    expect(network).toEqual({screens: 1, read: 1, connectDomains: ['https://api.example.com'], resourceDomains: ['https://esm.sh'], frameDomains: ['https://www.youtube.com'], baseUriDomains: []});
+    expect(network).toEqual({screens: 1, read: 1, connectDomains: ['https://api.example.com'], resourceDomains: ['https://esm.sh'], frameDomains: ['https://www.youtube.com'], baseUriDomains: [], blocked: []});
     expect(await connectedAppNetwork('server')).toEqual(network);
     expect(mocks.read).toHaveBeenCalledTimes(1);
     // New capabilities may mean new interfaces: read again.
@@ -554,6 +568,21 @@ describe('authority without waiting on the network', () => {
     expect(mocks.read).toHaveBeenCalledTimes(3);
   });
 
+  it('keeps a remote app\'s screens off the local network, and lets an app whose server runs here reach it', async () => {
+    entry.capabilityRevision = randomUUID();
+    mocks.read.mockResolvedValue({contents: [{uri: 'ui://fixture/calculator.html', mimeType: 'text/html;profile=mcp-app', text: '<p>x</p>',
+      _meta: {ui: {csp: {connectDomains: ['https://api.example.com', 'http://localhost:3916', 'http://192.168.1.20'], resourceDomains: ['http://localhost:3916']}}}}]});
+    // A server elsewhere: what it declared on the person's network is listed as not allowed, and its view's policy leaves it out.
+    expect(await connectedAppNetwork('server')).toMatchObject({connectDomains: ['https://api.example.com'], resourceDomains: [], blocked: ['http://192.168.1.20', 'http://localhost:3916']});
+    const remote = await openConnectedView(await capture(), 'viewer', chatId);
+    expect(remote.resource?.csp).toMatchObject({connectDomains: ['https://api.example.com'], resourceDomains: [], blocked: ['http://localhost:3916', 'http://192.168.1.20']});
+    // Bits & Bolts' remote build runs on this computer (a loopback URL), so its own origin stays.
+    entry.url = 'http://localhost:3916/bits-and-bolts/mcp';
+    expect(await connectedAppNetwork('server')).toMatchObject({connectDomains: ['http://192.168.1.20', 'http://localhost:3916', 'https://api.example.com'], resourceDomains: ['http://localhost:3916'], blocked: []});
+    const local = await openConnectedView(await capture(), 'viewer', chatId);
+    expect(local.resource?.csp).toMatchObject({connectDomains: ['https://api.example.com', 'http://localhost:3916', 'http://192.168.1.20'], blocked: []});
+  });
+
   it('lists nothing for a server without screens, and what it knows while the server is unreachable', async () => {
     entry.capabilityRevision = randomUUID();
     const saved = [...tools];
@@ -566,7 +595,7 @@ describe('authority without waiting on the network', () => {
 
   it('gives the browser a result\'s age by the home\'s clock', async () => {
     const id = await capture();
-    mcpViews().capture(id).created -= 5_000;
+    mcpViews().kept(id)!.created -= 5_000;
     const view = await openConnectedView(id, 'viewer', chatId);
     expect(view.ageMs).toBeGreaterThanOrEqual(5_000);
     expect(view.ageMs).toBeLessThan(60_000);
@@ -578,7 +607,7 @@ describe('authority without waiting on the network', () => {
     try {
       mocks.closeWatches.mockImplementation(() => { throw new Error('the watch was already gone'); });
       const id = await capture();
-      const capturedFile = {...mcpViews().capture(id), kind: 'file' as const};
+      const capturedFile = {...mcpViews().kept(id)!, kind: 'file' as const};
       const view: View = {id: randomUUID(), viewerId: 'viewer', capture: capturedFile, created: capturedFile.created, bytes: 0, revision: 0, contextSecond: 0, contextCount: 0, closed: false, calls: new Map()};
       mcpViews().views.set(view.id, view);
       // A view closes when newer ones push it out, the least recently used first.

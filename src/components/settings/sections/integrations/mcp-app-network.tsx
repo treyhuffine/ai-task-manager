@@ -3,15 +3,16 @@
 /**
  * What an MCP server's screens may reach on the network, on its connection
  * page (docs/connected-mcp-apps.md, "Security"). A screen reaches only the
- * domains its interface declared, so the person sees each one here. Nothing
- * renders for a server without screens, or one that isn't connected.
+ * domains its interface declared, so the person sees each one here, and what
+ * a remote app declared on their own network is listed as not allowed.
+ * Nothing renders for a server without screens, or one that isn't connected.
  */
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
 import { GroupHeading } from './parts';
 
-export interface AppNetwork { screens: number; read: number; connectDomains: string[]; resourceDomains: string[]; frameDomains: string[]; baseUriDomains: string[] }
+export interface AppNetwork { screens: number; read: number; connectDomains: string[]; resourceDomains: string[]; frameDomains: string[]; baseUriDomains: string[]; blocked: string[] }
 
 const KINDS = [
   ['connectDomains', 'Exchange data with'],
@@ -40,7 +41,9 @@ export function AppNetworkList({ network, name }: { network: AppNetwork; name: s
   const unread = network.screens - network.read;
   return <div className="space-y-2 text-xs">
     {declared.length === 0
-      ? <p className="text-muted-foreground">{`${name}'s screens declare no sites, so they can't reach the network. They work only through Ri.`}</p>
+      ? <p className="text-muted-foreground">{network.blocked.length
+        ? `${name}'s screens can't reach the network. They work only through Ri.`
+        : `${name}'s screens declare no sites, so they can't reach the network. They work only through Ri.`}</p>
       : <>
         <p className="text-muted-foreground">{`${name}'s screens may reach these sites, which they declared. They can reach nothing else.`}</p>
         <dl className="space-y-2">{declared.map(([key, label]) => <div key={key}>
@@ -48,6 +51,10 @@ export function AppNetworkList({ network, name }: { network: AppNetwork; name: s
           <dd><ul className="mt-1 space-y-0.5">{network[key].map(domain => <li key={domain}><code className="break-all text-[11px]">{domain}</code></li>)}</ul></dd>
         </div>)}</dl>
       </>}
+    {network.blocked.length > 0 && <div>
+      <p className="text-muted-foreground">{`Not allowed, because they're on your local network:`}</p>
+      <ul className="mt-1 space-y-0.5">{network.blocked.map(domain => <li key={domain}><code className="break-all text-[11px]">{domain}</code></li>)}</ul>
+    </div>}
     {unread > 0 && <p className="text-muted-foreground">{`Ri couldn't read ${unread === 1 ? 'one of its screens' : `${unread} of its screens`} just now, so there may be more. This page checks again next time.`}</p>}
   </div>;
 }

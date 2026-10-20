@@ -16,7 +16,7 @@ import { teamContentChanged } from '@/lib/spaces/generation';
 import {
   tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
   home, devices, deviceGrants, members, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
-  workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs,
+  workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpAppResults,
   triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent,
@@ -10865,6 +10865,16 @@ export function getChatEventById(id: string): ChatEventRecord | null {
   const db = getDb();
   const rows = db.select().from(chatEvents).where(eq(chatEvents.id, id)).limit(1).all();
   return rows[0] ? hydrateRow(rows[0]) : null;
+}
+
+/** A connected app's model result, kept so its view reopens for as long as its chat exists (`mcp_app_results`). */
+export function insertMcpAppResult(row: typeof mcpAppResults.$inferInsert): void {
+  getDb().insert(mcpAppResults).values(row).run();
+}
+
+/** One result by its id (the id its transcript event carries), read only when its view opens. */
+export function getMcpAppResult(id: string): typeof mcpAppResults.$inferSelect | null {
+  return getDb().select().from(mcpAppResults).where(eq(mcpAppResults.id, id)).get() ?? null;
 }
 
 /** One exact indexed event lookup, never a scan of a long chat. */

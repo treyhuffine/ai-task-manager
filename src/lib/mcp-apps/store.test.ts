@@ -8,7 +8,7 @@ it('bounds captures and view sessions by count, dropping the least recently used
   const second = capture(); store.put(second); store.open(second, 'viewer');
   for (let i=0;i<MAX_VIEWS-2;i++) {const c = capture(); store.put(c); store.open(c, 'viewer');}
   // Used again, the first stays when one more arrives, and the second, now oldest, goes.
-  expect(store.capture(first.id)).toBe(first); expect(store.get(firstView.id, 'viewer')).toBe(firstView);
+  expect(store.kept(first.id)).toBe(first); expect(store.get(firstView.id, 'viewer')).toBe(firstView);
   const last = capture(); store.put(last); store.open(last, 'viewer');
   expect(store.captures.size).toBe(MAX_VIEWS); expect(store.views.size).toBe(MAX_VIEWS);
   expect(store.captures.has(first.id)).toBe(true); expect(store.captures.has(second.id)).toBe(false);
@@ -16,12 +16,11 @@ it('bounds captures and view sessions by count, dropping the least recently used
   // No clock: a view open a day later is still open.
   expect(store.get(firstView.id, 'viewer')).toBe(firstView);
 });
-it('opens a model result again from where it was kept once it left memory, and says a screen closed', () => {
-  const kept = capture();
-  const store = new McpViewStore(() => {}, id => id === kept.id ? kept : null);
-  expect(store.capture(kept.id)).toBe(kept);
-  expect(store.captures.get(kept.id)).toBe(kept);
-  expect(() => store.capture(randomUUID())).toThrow('closed');
+it('keeps only what is in memory: a capture that left it is gone from here', () => {
+  const store = new McpViewStore(), kept = capture();
+  store.put(kept);
+  expect(store.kept(kept.id)).toBe(kept);
+  expect(store.kept(randomUUID())).toBeUndefined();
 });
 it('keeps failure receipts, rejects oversized results without replay, and keeps working past MAX_CALLS', async () => {
   const store = new McpViewStore(), view = store.open(capture(), 'viewer'); let calls = 0;

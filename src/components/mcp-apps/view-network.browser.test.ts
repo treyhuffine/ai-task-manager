@@ -2,7 +2,9 @@
  * A view's network (docs/connected-mcp-apps.md, "Security"), through the real
  * view host and component with a sandboxed guest: it reaches the domain its
  * UI resource declares, for a fetch and an image, and nothing else, even on
- * this same computer.
+ * this same computer. The test's servers can only be on this computer, so the
+ * app is one whose server runs here too. A remote app that declares the same
+ * local address is kept off it.
  */
 import { it, expect } from 'vitest';
 import { build } from 'esbuild';
@@ -26,7 +28,7 @@ async function origin() {
   return { server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}` };
 }
 
-it('reaches the domains a view declares, and no others', async () => {
+it('reaches the domains a view declares, and no others, and a remote app never the local network', async () => {
   const require = createRequire(import.meta.url);
   const postcss = createRequire(require.resolve('@tailwindcss/postcss'))('postcss');
   const css = await postcss([require('@tailwindcss/postcss')()]).process(fs.readFileSync('src/app/globals.css', 'utf8'), { from: path.resolve('src/app/globals.css') });
@@ -44,9 +46,11 @@ rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Network',versio
   document.getElementById('result').textContent=JSON.stringify(result);
 });
 </script></body></html>`;
-  // As the Home prepares it: the declared domains read from the resource's `_meta` (MCP Apps `ui.csp`).
-  const resource = { html, csp: declaredCsp({ ui: { csp: { connectDomains: [declared.url], resourceDomains: [declared.url] } } }), digest: 'network-fixture',
-    displayModes: { available: ['inline', 'fullscreen'], declared: false } };
+  // As the Home prepares it: the declared domains read from the resource's `_meta` (MCP Apps `ui.csp`),
+  // for an app whose server runs on this computer, or for a remote one.
+  const prepared = (serverIsLocal: boolean) => ({ html, csp: declaredCsp({ ui: { csp: { connectDomains: [declared.url], resourceDomains: [declared.url] } } }, { serverIsLocal }),
+    digest: 'network-fixture', displayModes: { available: ['inline', 'fullscreen'], declared: false } });
+  let resource = prepared(true);
   const bundle = await build({ stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
 import React from 'react';import{createRoot}from'react-dom/client';import{QueryClient,QueryClientProvider}from'@tanstack/react-query';
 import{ConnectedView}from'@/components/mcp-apps/view';
@@ -73,11 +77,17 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
   try {
     const page = await browser.newPage(), errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     page.setDefaultTimeout(10_000);
-    await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
     const guest = page.frameLocator('iframe[aria-label="App view"]').frameLocator('iframe');
-    await expect.poll(() => guest.locator('#result').textContent(), { timeout: 10_000 }).not.toBe('waiting');
-    expect(JSON.parse((await guest.locator('#result').textContent())!)).toEqual({
-      declaredFetch: 'ok:3', undeclaredFetch: 'blocked', declaredImage: 'loaded', undeclaredImage: 'blocked' });
+    const run = async () => {
+      await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
+      await expect.poll(() => guest.locator('#result').textContent(), { timeout: 10_000 }).not.toBe('waiting');
+      return JSON.parse((await guest.locator('#result').textContent())!);
+    };
+    expect(await run()).toEqual({ declaredFetch: 'ok:3', undeclaredFetch: 'blocked', declaredImage: 'loaded', undeclaredImage: 'blocked' });
+    // The same declaration from a remote app: its local address is left out of the policy, so nothing reaches it.
+    resource = prepared(false);
+    expect(resource.csp.blocked).toEqual([declared.url]);
+    expect(await run()).toEqual({ declaredFetch: 'blocked', undeclaredFetch: 'blocked', declaredImage: 'blocked', undeclaredImage: 'blocked' });
     expect(errors).toEqual([]);
   } finally {
     await browser.close();

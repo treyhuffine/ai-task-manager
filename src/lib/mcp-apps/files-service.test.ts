@@ -37,6 +37,8 @@ beforeEach(() => {
   mocks.runtime.mockResolvedValue({listConnections: mocks.connections, runAction: mocks.run});
   // The transport as its build opened it, for the server entry as it stands.
   mocks.transport.mockImplementation(async () => ({snapshot: entry, tools, readResource: mocks.read}));
+  // Its file viewer, read from the server on every open.
+  mocks.read.mockImplementation(async ({uri}: {uri: string}) => ({contents: [{uri, mimeType: 'text/html;profile=mcp-app', text: '<html><body>CAD viewer</body></html>'}]}));
   mocks.approvals.mockReturnValue([]);
   mocks.chat.mockReturnValue({id: 'chat', status: 'idle', workspaceId: null});
   mocks.run.mockImplementation(async (_action, _args, options) => { const result = {content: [{type: 'text', text: 'ok'}]}; options.captureOriginalResult(result); return {ok: true, result}; });

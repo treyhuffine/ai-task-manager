@@ -7,14 +7,14 @@ import type { McpCapabilityTool } from '@/lib/integrations/mcp-capabilities';
 import { getIntegrationOwnerId, getMcpViewAuthority } from '@/lib/integrations/runtime';
 import { isCurrentMcpTransport } from '@/lib/integrations/mcp-lifecycle';
 import { hostedMcpConnectionId } from '@/lib/integrations/hosted-mcp';
-import { getChatEventById, getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getMcpAppResult, getWorkspace, insertChatEvent, insertMcpAppResult } from '@/lib/db/queries';
 import { normalizeIntegrationScopes, pinMatchesConnection, scopePins } from '@/lib/integrations/scope-pins';
 import { sessionCaller, sessionIdFromCaller, listPendingApprovals, resolvePendingApprovals, cancelConnectedAppApprovals } from '@/lib/integrations/approval';
 import { isImportMirror } from '@/lib/import/mirror';
 import { encodeSource } from '@/lib/chat-sources/reference';
 import { safeMcpIcon } from '@/lib/integrations/mcp-icons';
 import { appToolVisible, entrypointIcons, mentionsSearchTool, modelToolVisible, settingsCapability, toolTitle, viewMetadata, MCP_APP_EVENT } from './metadata';
-import { declaredCsp, type ViewCsp } from '@ri/mcp-apps-host/csp';
+import { declaredCsp, type DeclaredNetwork, type ViewCsp } from '@ri/mcp-apps-host/csp';
 import { McpViewStore, MAX_DELIVERED_RESULT, MAX_RESULT, type Capture, type CaptureKind, type ModelContext, type View } from './store';
 import { prepareResource } from './resource';
 
@@ -25,7 +25,7 @@ export const mcpViews = () => processState('mcp-app-views', () => new McpViewSto
   // A view's file watches end with it. A failure here must not become an unhandled rejection: the
   // watch still ends at unsubscribe.
   if (view.capture.kind === 'file') void import('./files').then(files => files.closeHostWatches(view)).catch(() => {});
-}, persistedCapture));
+}));
 const assertEnabled = () => { if (!mcpAppsEnabled()) throw new Error('Connected app views are disabled for this Home'); };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
@@ -131,15 +131,17 @@ export async function authority(serverId: string, chatId?: string, options: {sta
   const {runtime, connections, view} = await getMcpViewAuthority(serverId, options);
   const metadata = await integrationSourceMetadata();
   const remote = metadata.servers.find(s => s.entry.id === serverId);
-  if (!remote?.entry.enabled) throw new Error('This connection is disabled or removed');
+  if (!remote) throw new Error('This app was removed from Ri.');
+  const app = remote.entry.displayName;
+  if (!remote.entry.enabled) throw new Error(`${app} is turned off. Turn it on in Settings to open this.`);
   const connection = connections.find(c => c.id === hostedMcpConnectionId(remote.entry));
-  if (!connection || connection.status !== 'active') throw new Error('Reconnect this exact account before opening its app');
+  if (!connection || connection.status !== 'active') throw new Error(`Reconnect your ${app} account to open this.`);
   const toolkitId = remote.entry.providerId ?? `mcp_${remote.entry.slug}`;
   if (chatId) chatAccess(chatId, toolkitId, connection);
   const sourceRef = encodeSource({v: 1, kind: 'integration', toolkitId, account: {accountId: connection.accountId, authConfigId: connection.authConfigId ?? null}});
   // The build's transport, still matching the entry just read.
   const transport = view && isCurrentMcpTransport(view.snapshot, {get: id => id === remote.entry.id ? remote.entry : null}) ? view : null;
-  if (!transport) throw new Error('This account is reconnecting or its capabilities changed');
+  if (!transport) throw new Error(`${app} can't be reached right now.`);
   return {remote, runtime, connection, sourceRef, transport};
 }
 
@@ -155,21 +157,25 @@ async function checkCapture(capture: Capture, stale = true) {
   return current;
 }
 
-const text = (value: unknown) => typeof value === 'string' && value ? value : null;
 /**
- * A model's result kept in its transcript event (`prepareMcpResultCapture`),
- * to open again after it left memory or the Home restarted, for as long as
- * its chat exists. Access is checked again when it opens, like any view.
+ * A model's result stored when it arrived (`mcp_app_results`), to open again
+ * after it left memory or the Home restarted, for as long as its chat exists.
+ * Its title and display come from the server's tools as they are now, and
+ * access is checked again when it opens, like any view.
  */
-function persistedCapture(id: string): Capture | null {
-  const row = getChatEventById(id);
-  if (!row || row.source !== 'system' || row.content !== MCP_APP_EVENT) return null;
-  const stored = object(object(row.raw).capture);
-  const serverId = text(stored.serverId), connectionId = text(stored.connectionId), sourceRef = text(stored.sourceRef), tool = text(stored.tool), resourceUri = text(stored.resourceUri), title = text(stored.title);
-  if (stored.id !== id || stored.chatId !== row.sessionId || !serverId || !connectionId || !sourceRef || !tool || !resourceUri || !title || typeof stored.created !== 'number') return null;
-  const result = CallToolResultSchema.safeParse(stored.result);
-  if (!result.success) return null;
-  return {id, serverId, connectionId, sourceRef, chatId: row.sessionId, tool, input: object(stored.input), result: result.data, resourceUri, legacy: stored.legacy === true, title, created: stored.created, kind: 'result'};
+async function storedResult(id: string): Promise<Capture> {
+  const row = getMcpAppResult(id);
+  const result = row && CallToolResultSchema.safeParse(row.result);
+  // A screen the person opened was never stored, and one that left memory has closed. So has a result from before this table.
+  if (!row || !result?.success) throw new Error('This view is no longer open. Open the app again, or ask for a new result.');
+  const metadata = await integrationSourceMetadata();
+  const remote = metadata.servers.find(s => s.entry.id === row.serverId);
+  const tool = remote?.capabilities?.tools.find(t => t.name === row.tool);
+  const capture: Capture = {id, serverId: row.serverId, connectionId: row.connectionId, sourceRef: row.sourceRef, chatId: row.chatSessionId, tool: row.tool,
+    input: object(row.input), result: result.data, resourceUri: row.resourceUri, legacy: (tool && viewMetadata(tool)?.legacy) ?? false,
+    title: viewTitle(remote?.entry.displayName ?? 'App', tool ? toolTitle(tool) : row.tool), created: Date.parse(`${row.createdAt.replace(' ', 'T')}Z`), kind: 'result'};
+  mcpViews().put(capture);
+  return capture;
 }
 /** A view, rechecked as a check (`stale`) unless `fresh`: pass that before anything reaches the server. */
 export async function checkedView(viewId: string, viewerId: string, options: {fresh?: boolean} = {}) {
@@ -201,33 +207,41 @@ export async function prepareMcpResultCapture(event: Parameters<NonNullable<Inte
     const capture: Capture = {...binding, id: randomUUID(), result: CallToolResultSchema.parse(result), created: Date.now()};
     await checkCapture(capture);
     if (!mcpViews().put(capture)) return;
-    // The transcript keeps the capture, so the result opens again for as long as the chat exists. The
-    // event's raw never reaches a client (`toChatEventDTO`), so its private metadata stays on the Home.
+    // The result is stored on its own, so it opens again for as long as the chat exists. The transcript
+    // event carries only its id, so transcript pages never read it and its private metadata stays here.
+    insertMcpAppResult({id: capture.id, chatSessionId: chatId, serverId: capture.serverId, connectionId: capture.connectionId, sourceRef: capture.sourceRef,
+      tool: capture.tool, resourceUri: capture.resourceUri, input: capture.input, result: capture.result as Record<string, unknown>});
     insertChatEvent({id: capture.id, sessionId: chatId, source: 'system', role: 'system', content: MCP_APP_EVENT,
-      externalEventId: `mcp-view:${event.attemptId}`, raw: {subtype: MCP_APP_EVENT, capture}, createdAt: new Date().toISOString()});
+      externalEventId: `mcp-view:${event.attemptId}`, raw: {subtype: MCP_APP_EVENT}, createdAt: new Date().toISOString()});
   };
 }
 
+/** The key a server's declared network is known under: its tools and where it runs both decide it. */
+const networkKey = (entry: {capabilityRevision?: string; url: string}) => `${entry.capabilityRevision ?? ''}\n${entry.url}`;
+
+/**
+ * Open a view. Its interface is read from the app's server every time,
+ * through the live access checks: Ri keeps no copy. A server that can't be
+ * reached, or an account that needs reconnecting, says so plainly, and the
+ * reply in the chat is unaffected.
+ */
 export async function openConnectedView(captureId: string, viewerId: string, chatId?: string) {
-  const capture = mcpViews().capture(captureId);
+  const capture = mcpViews().kept(captureId) ?? await storedResult(captureId);
   if (capture.chatId !== chatId || (capture.viewerId && capture.viewerId !== viewerId)) throw new Error('This result belongs to a different viewer or chat');
   const view = mcpViews().open(capture, viewerId);
-  // Reading the interface reaches the server, so the first open waits for a current build. A reopen only checks.
-  const current = await checkCapture(capture, !!view.resource);
-  let unsupported: string | undefined;
-  if (!view.resource) {
-    view.resourcePromise ??= (async () => {
-      const tool = current.transport.tools.find(t => t.name === capture.tool);
-      if (!tool || viewMetadata(tool)?.resourceUri !== capture.resourceUri) throw new Error('This app’s declared resource changed');
-      const raw = await current.transport.readResource({uri: capture.resourceUri});
-      await checkCapture(capture);
-      const prepared = prepareResource(raw, capture.resourceUri, capture.legacy);
-      noteNetwork(capture.serverId, current.remote.entry.capabilityRevision, capture.resourceUri, prepared.csp);
-      return prepared;
-    })();
-    try { view.resource = await view.resourcePromise; }
-    catch (error) { unsupported = error instanceof Error ? error.message : 'The app interface could not load'; }
-    finally { view.resourcePromise = undefined; }
+  // Reading the interface reaches the server, so opening waits for a current build.
+  const current = await checkCapture(capture, false);
+  const app = current.remote.entry.displayName;
+  let resource: ReturnType<typeof prepareResource> | null = null, unsupported: string | undefined;
+  const tool = current.transport.tools.find(t => t.name === capture.tool);
+  if (!tool || viewMetadata(tool)?.resourceUri !== capture.resourceUri) unsupported = 'This app’s declared resource changed';
+  else {
+    const raw = await current.transport.readResource({uri: capture.resourceUri}).catch(() => { throw new Error(`${app} can't be reached right now.`); });
+    await checkCapture(capture);
+    try {
+      resource = prepareResource(raw, capture.resourceUri, capture.legacy, {serverIsLocal: (await import('./files')).serverRunsHere(current.remote.entry)});
+      noteNetwork(capture.serverId, networkKey(current.remote.entry), capture.resourceUri, resource.csp);
+    } catch (error) { unsupported = error instanceof Error ? error.message : 'The app interface could not load'; }
   }
   await checkCapture(capture);
   mcpViews().get(view.id, viewerId);
@@ -238,11 +252,11 @@ export async function openConnectedView(captureId: string, viewerId: string, cha
     if (first.type === 'text' && typeof first.text === 'string') {try {widgetState = JSON.parse(first.text);} catch { /* Non-JSON context is still useful to chat. */ }}
   }
   return {id: view.id, captureId: capture.id, title: capture.title, serverId: capture.serverId, sourceRef: capture.sourceRef, chatId: capture.chatId,
-    resource: view.resource ?? null, unsupported, input: capture.input, result: capture.result, revision: view.revision, widgetState, legacy: capture.legacy,
+    resource, unsupported, input: capture.input, result: capture.result, revision: view.revision, widgetState, legacy: capture.legacy,
     kind: capture.kind ?? 'result', created: capture.created, deepLink: capture.deepLink ?? null, file: capture.file ? {name: capture.file.name} : null,
     // OpenAI's model context host state: what this view last attached, or null, given again on every remount.
     modelContext: view.context && view.contextUpdateId ? {updateId: view.contextUpdateId, ...view.context} : null,
-    tool: capture.tool, app: current.remote.entry.displayName, icons: current.remote.entry.protocol?.info?.icons ?? [],
+    tool: capture.tool, app, icons: current.remote.entry.protocol?.info?.icons ?? [],
     // How long ago the result arrived, by the home's clock, so a browser with a skewed clock still knows a fresh one.
     ageMs: Math.max(0, Date.now() - capture.created)};
 }
@@ -566,17 +580,6 @@ export async function connectedContextAccess(chatId: string, viewerId: string, v
 }
 
 /**
- * The app behind a message a view sends for its person (OpenAI's `ui/message`
- * with `send`). The view must be this viewer's and still allowed its account.
- * The message may go to another chat (`target: "new"`), since the person's
- * own browser sends it. It names the app and grants nothing.
- */
-export async function connectedMessageSender(viewId: string, viewerId: string) {
-  const {view, remote} = await checkedView(viewId, viewerId);
-  return {app: remote.entry.displayName, serverId: view.capture.serverId, viewId: view.id};
-}
-
-/**
  * Recheck persisted context on every dispatch, including orphan and retry
  * recovery and a device taking a queued send: the chat may still use the
  * account the context came from.
@@ -600,12 +603,12 @@ function modelInput(context: unknown) {
 }
 
 /** The network domains a server's interfaces declared, per interface, for its capability revision. Only domains are kept, never the HTML. */
-const networks = () => processState('mcp-app-networks', () => new Map<string, {revision?: string; screens: Map<string, ViewCsp>}>());
+const networks = () => processState('mcp-app-networks', () => new Map<string, {revision?: string; screens: Map<string, DeclaredNetwork>}>());
 /** Reads of a server's interfaces under way for its connection page, so two pages read them once. */
 const networkReads = () => processState('mcp-app-network-reads', () => new Map<string, Promise<void>>());
-function noteNetwork(serverId: string, revision: string | undefined, uri: string, csp: ViewCsp) {
+function noteNetwork(serverId: string, revision: string | undefined, uri: string, csp: DeclaredNetwork) {
   const known = networks().get(serverId);
-  const current = known && known.revision === revision ? known : {revision, screens: new Map<string, ViewCsp>()};
+  const current = known && known.revision === revision ? known : {revision, screens: new Map<string, DeclaredNetwork>()};
   current.screens.set(uri, csp);
   networks().set(serverId, current);
 }
@@ -621,13 +624,14 @@ export async function connectedAppNetwork(serverId: string) {
   if (!mcpAppsEnabled()) return null;
   const metadata = await integrationSourceMetadata();
   const remote = metadata.servers.find(s => s.entry.id === serverId);
-  if (!remote) throw new Error('This connection is disabled or removed');
+  if (!remote) throw new Error('This app was removed from Ri.');
   const uris = [...new Set((remote.capabilities?.tools ?? []).flatMap(tool => { const ui = viewMetadata(tool); return ui ? [ui.resourceUri] : []; }))];
   if (!uris.length) return null;
-  const revision = remote.entry.capabilityRevision;
-  const known = () => { const entry = networks().get(serverId); return entry && entry.revision === revision ? entry.screens : new Map<string, ViewCsp>(); };
+  const revision = networkKey(remote.entry);
+  const serverIsLocal = (await import('./files')).serverRunsHere(remote.entry);
+  const known = () => { const entry = networks().get(serverId); return entry && entry.revision === revision ? entry.screens : new Map<string, DeclaredNetwork>(); };
   if (uris.some(uri => !known().has(uri)) && remote.entry.enabled) {
-    const key = `${serverId}\n${revision ?? ''}`;
+    const key = `${serverId}\n${revision}`;
     let reading = networkReads().get(key);
     if (!reading) {
       reading = (async () => {
@@ -635,7 +639,7 @@ export async function connectedAppNetwork(serverId: string) {
         for (const uri of uris.filter(item => !known().has(item))) {
           const read = await current.transport.readResource({uri}).catch(() => null);
           const item = (read as {contents?: {_meta?: unknown}[]} | null)?.contents?.[0];
-          if (item) noteNetwork(serverId, revision, uri, declaredCsp(item._meta));
+          if (item) noteNetwork(serverId, revision, uri, declaredCsp(item._meta, {serverIsLocal}));
         }
       })().catch(() => { /* Not reachable now: the page lists what Ri already knows. */ }).finally(() => networkReads().delete(key));
       networkReads().set(key, reading);
@@ -643,7 +647,8 @@ export async function connectedAppNetwork(serverId: string) {
     await reading;
   }
   const screens = uris.flatMap(uri => { const csp = known().get(uri); return csp ? [csp] : []; });
-  const joined = (key: keyof ViewCsp) => [...new Set(screens.flatMap(csp => csp[key]))].sort();
+  const joined = (key: keyof ViewCsp | 'blocked') => [...new Set(screens.flatMap(csp => csp[key]))].sort();
+  // `blocked`: what they declared on the person's own computer or local network, which a remote app can't reach.
   return {screens: uris.length, read: screens.length, connectDomains: joined('connectDomains'), resourceDomains: joined('resourceDomains'),
-    frameDomains: joined('frameDomains'), baseUriDomains: joined('baseUriDomains')};
+    frameDomains: joined('frameDomains'), baseUriDomains: joined('baseUriDomains'), blocked: joined('blocked')};
 }

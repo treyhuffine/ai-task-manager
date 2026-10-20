@@ -2332,6 +2332,35 @@ export const chatEvents = sqliteTable(
   ],
 );
 
+// ─── Connected app results ────────────────────────────────────
+// A model's tool result that renders as an app view (docs/connected-mcp-apps.md),
+// kept so the view reopens for as long as its chat exists. Its transcript event
+// (`mcp_app_result`) carries only this row's id, so transcript pages never read it.
+// No interface is stored: the view reads its `ui://` resource from the app's server
+// each time it opens, and its title and display come from the server's current tools.
+export const mcpAppResults = sqliteTable(
+  'mcp_app_results',
+  {
+    id: text().primaryKey(),
+    ...timestamps,
+    chatSessionId: text()
+      .notNull()
+      .references(() => chatSessions.id, { onDelete: 'cascade' }),
+    // The connection the result came from. `sourceRef` names the account, which a
+    // connection can change: a view acts only on the account its result came from.
+    serverId: text().notNull(),
+    connectionId: text().notNull(),
+    sourceRef: text().notNull(),
+    tool: text().notNull(),
+    resourceUri: text().notNull(),
+    // The view receives the tool's input when it opens, and some draw from it.
+    input: text({ mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+    // The tool's output, the view's `_meta` included.
+    result: text({ mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  },
+  (table) => [index('idx_mcp_app_results_chat_session').on(table.chatSessionId)],
+);
+
 // ─── Entity Versions ──────────────────────────────────────────
 // Append-only snapshot history for notes and tasks. Powers the
 // in-document chat's "see what changed" diff + one-tap undo: every
