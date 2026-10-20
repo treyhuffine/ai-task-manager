@@ -28,6 +28,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { untraced } from '@/lib/utils/untraced';
 
 export interface ClaudeAuthStatus {
   loggedIn: boolean;
@@ -47,7 +48,7 @@ export interface ClaudeAuthStatus {
  */
 export async function getClaudeAuthStatus(): Promise<ClaudeAuthStatus> {
   return new Promise((resolve) => {
-    const proc = spawn(process.env.CLAUDE_COMMAND || 'claude', ['auth', 'status'], {
+    const proc = spawn(untraced(process.env.CLAUDE_COMMAND || 'claude'), ['auth', 'status'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -106,7 +107,7 @@ export function startClaudeLogin(): void {
   // `claude auth login` already validates auth state and short-circuits if
   // already logged in, so no need to gate it from here. The spawned
   // process opens the browser via the OS's default handler.
-  const proc = spawn(process.env.CLAUDE_COMMAND || 'claude', ['auth', 'login', '--claudeai'], {
+  const proc = spawn(untraced(process.env.CLAUDE_COMMAND || 'claude'), ['auth', 'login', '--claudeai'], {
     stdio: 'ignore',
     detached: true,
   });

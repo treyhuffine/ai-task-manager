@@ -117,7 +117,7 @@ export function stageRuntime(resources: string) {
       fs.mkdirSync(temporary, { mode: 0o700 });
       try {
         for (const name of ['node', 'server', 'runtime-manifest.json']) {
-          fs.cpSync(path.join(resources, name), path.join(temporary, name), { recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE });
+          fs.cpSync(path.join(/* turbopackIgnore: true */ resources, name), path.join(temporary, name), { recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE });
         }
         verifyRuntime(temporary);
         fs.renameSync(temporary, destination);

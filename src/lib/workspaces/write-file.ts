@@ -99,7 +99,7 @@ export async function writeWorkspaceFile(
     );
   }
 
-  const absolute = path.join(ws.path, safe);
+  const absolute = path.join(/* turbopackIgnore: true */ ws.path, safe);
 
   const kind = await pathKind(absolute);
   if (kind === 'dir') {
@@ -159,7 +159,7 @@ export async function deleteWorkspacePath(
   const safe = sanitizeRelPath(relPath);
   if (!safe) throw new FileWriteError('invalid_path', `Invalid path: ${relPath}`);
 
-  const absolute = path.join(ws.path, safe);
+  const absolute = path.join(/* turbopackIgnore: true */ ws.path, safe);
   const kind = await pathKind(absolute);
   if (kind === 'missing') {
     throw new FileReadError('not_found', `Path not found: ${relPath}`);
@@ -195,8 +195,8 @@ export async function renameWorkspacePath(
     return { from: safeFrom, to: safeTo, kind: 'file' };
   }
 
-  const fromAbs = path.join(ws.path, safeFrom);
-  const toAbs = path.join(ws.path, safeTo);
+  const fromAbs = path.join(/* turbopackIgnore: true */ ws.path, safeFrom);
+  const toAbs = path.join(/* turbopackIgnore: true */ ws.path, safeTo);
 
   const fromKind = await pathKind(fromAbs);
   if (fromKind === 'missing') {
@@ -227,7 +227,7 @@ export async function createWorkspaceDir(
   const safe = sanitizeRelPath(relPath);
   if (!safe) throw new FileWriteError('invalid_path', `Invalid path: ${relPath}`);
 
-  const absolute = path.join(ws.path, safe);
+  const absolute = path.join(/* turbopackIgnore: true */ ws.path, safe);
   const kind = await pathKind(absolute);
   if (kind === 'file') {
     throw new FileWriteError('is_file', `${relPath} already exists as a file`);
@@ -251,7 +251,7 @@ export async function createWorkspaceFile(
   const safe = sanitizeRelPath(relPath);
   if (!safe) throw new FileWriteError('invalid_path', `Invalid path: ${relPath}`);
 
-  const absolute = path.join(ws.path, safe);
+  const absolute = path.join(/* turbopackIgnore: true */ ws.path, safe);
   const kind = await pathKind(absolute);
   if (kind !== 'missing') {
     throw new FileWriteError('exists', `${relPath} already exists`);
@@ -262,7 +262,7 @@ export async function createWorkspaceFile(
     // O_EXCL guard against TOCTOU between the stat above and the open
     // (another agent action might race in). `wx` flag throws EEXIST if
     // the file appeared between the check and the open.
-    const handle = await fs.open(absolute, 'wx');
+    const handle = await fs.open(/* turbopackIgnore: true */ absolute, 'wx');
     await handle.close();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') {

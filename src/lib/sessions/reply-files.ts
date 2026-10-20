@@ -69,7 +69,7 @@ export async function findReplyFile(
   let real: string;
   let size: number;
   try {
-    real = await fs.realpath(resolved);
+    real = await fs.realpath(/* turbopackIgnore: true */ resolved);
     const stat = await fs.stat(real);
     if (!stat.isFile()) return { ok: false, status: 404, error: 'Not found' };
     size = stat.size;

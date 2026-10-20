@@ -938,7 +938,7 @@ export class LocalAppsService {
       if (source) {
         const artifact = await this.artifact(source.id);
         for (const file of artifact.files) {
-          const target = path.join(root, "package", file.name);
+          const target = path.join(/* turbopackIgnore: true */ root, "package", file.name);
           await fs.mkdir(path.dirname(target), { recursive: true });
           await fs.copyFile(
             packagePath(artifact.packageDir, file.name),

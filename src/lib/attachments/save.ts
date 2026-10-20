@@ -41,7 +41,7 @@ export async function saveAttachment(input: SaveAttachmentInput): Promise<Attach
 
   const buffer = await toBuffer(input.data);
   const dir = ensureAttachmentsDir();
-  await fs.writeFile(path.join(dir, fileName), buffer);
+  await fs.writeFile(path.join(/* turbopackIgnore: true */ dir, fileName), buffer);
 
   return {
     fileName,

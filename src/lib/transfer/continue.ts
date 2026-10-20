@@ -342,7 +342,7 @@ async function prepareDestination(
 
   // Here.
   const repo = homeAgentFolder(workspace.id);
-  if (!repo || !fs.existsSync(repo)) throw new StepFailed(`${workspace.name}'s folder isn't on ${to}.`);
+  if (!repo || !fs.existsSync(/* turbopackIgnore: true */ repo)) throw new StepFailed(`${workspace.name}'s folder isn't on ${to}.`);
   const before = previousWorktreeOn(execution.id, transfer.toDeviceId);
   const earlier = before && before !== repo ? before : null;
   const { buildWorktreeLeaf, defaultWorktreeRoot, runWorktreeScript } = await import('@/lib/workspaces/index');

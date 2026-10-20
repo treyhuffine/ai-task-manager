@@ -60,6 +60,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "@ri/app-kit",
     // Local apps' builder and the agent browser's page reader parse HTML with it, and it has optional native canvas adapters.
+    // Both require() it, never import it (src/lib/linkedom.ts says why).
     "linkedom",
     "better-sqlite3",
     "sqlite-vec",

@@ -118,7 +118,7 @@ export function executionFolder(chatSessionId: string): string | null {
   if (placement && !placement.isHome) return placement.worktreePath;
   // Here, only a worktree that's still on disk.
   const here = getChatSessionWithExecution(chatSessionId)?.worktreePath ?? null;
-  return here && existsSync(here) ? here : null;
+  return here && existsSync(/* turbopackIgnore: true */ here) ? here : null;
 }
 
 /** Compatibility HTTP adapter. UI procedures consume the answer as data. */
