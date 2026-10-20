@@ -5,7 +5,8 @@
  * settings, docs/connected-mcp-apps.md "Settings"). The server publishes a
  * schema, values and a layout, and Ri draws them with its own controls. A
  * switch or a choice saves as it changes, text and numbers on blur or Enter.
- * Buttons run a server tool, or open its interface in a dialog.
+ * The server judges each value: one it refuses stays as entered, with its
+ * message. Buttons run a server tool, or open its interface in a dialog.
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
@@ -18,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
-import { settingsFields, validateSetting, type SettingField, type SettingValue, type SettingsItem, type SettingsView } from '@/lib/mcp-apps/settings-model';
+import type { SettingField, SettingValue, SettingsItem, SettingsView } from '@/lib/mcp-apps/settings-model';
 import { GroupHeading } from './parts';
 
 // The app host loads only when a settings button opens an interface.
@@ -42,6 +43,8 @@ function LoadedSettings({ serverId, name }: { serverId: string; name: string }) 
   const settings = useQuery(options);
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // What the person entered that the server refused, shown in place of the saved value until they change it.
+  const [entered, setEntered] = useState<Record<string, SettingValue>>({});
   const update = useMutation({
     mutationFn: (set: Record<string, SettingValue>) => trpcClient.mcpSettings.update.mutate({ serverId, set }),
     // A typed value has no other copy until the server keeps it.
@@ -51,10 +54,8 @@ function LoadedSettings({ serverId, name }: { serverId: string; name: string }) 
 
   const save = useCallback(async (key: string, value: SettingValue) => {
     if (!data) return;
-    const field = settingsFields(data).get(key);
-    const problem = field ? validateSetting(field, value) : 'This setting is no longer available.';
-    if (problem) { setErrors(previous => ({ ...previous, [key]: problem })); return; }
     setErrors(current => without(current, key));
+    setEntered(current => without(current, key));
     const previous = data.values[key];
     if (previous === value) return;
     const patch = (values: Record<string, SettingValue>) => queryClient.setQueryData(options.queryKey, current => current?.available ? { ...current, values: { ...current.values, ...values } } : current);
@@ -64,7 +65,10 @@ function LoadedSettings({ serverId, name }: { serverId: string; name: string }) 
       const { values } = await update.mutateAsync({ [key]: value });
       patch(values);
     } catch (error) {
-      if (previous !== undefined) patch({ [key]: previous });
+      // The saved value stays as the server has it. The field keeps what the person entered, beside the server's reason.
+      queryClient.setQueryData(options.queryKey, current => current?.available
+        ? { ...current, values: previous === undefined ? without(current.values, key) : { ...current.values, [key]: previous } } : current);
+      setEntered(current => ({ ...current, [key]: value }));
       setErrors(current => ({ ...current, [key]: errorText(error, 'The server did not save this setting.') }));
     } finally {
       setSaving(current => without(current, key));
@@ -79,14 +83,14 @@ function LoadedSettings({ serverId, name }: { serverId: string; name: string }) 
       <p className="flex items-start gap-1.5 text-xs text-destructive"><AlertCircle size={13} className="mt-0.5 shrink-0" />{errorText(settings.error, 'The settings could not load.')}</p>
       <Button size="xs" variant="outline" onClick={() => void settings.refetch()}><RefreshCw size={12} />Try again</Button>
     </div>}
-    {data && <McpSettingsGroups serverId={serverId} view={data} saving={saving} errors={errors} onSave={save}
+    {data && <McpSettingsGroups serverId={serverId} view={data} saving={saving} errors={errors} entered={entered} onSave={save}
       onToolDone={() => void queryClient.invalidateQueries({ queryKey: options.queryKey })} />}
   </section>;
 }
 
-/** The groups themselves: fields with their current values, and tool buttons. Rendered alone in tests. */
-export function McpSettingsGroups({ serverId, view, saving = {}, errors = {}, onSave, onToolDone }: {
-  serverId: string; view: SettingsView; saving?: Record<string, boolean>; errors?: Record<string, string>;
+/** The groups themselves: fields with their current values (or a refused entry), and tool buttons. Rendered alone in tests. */
+export function McpSettingsGroups({ serverId, view, saving = {}, errors = {}, entered = {}, onSave, onToolDone }: {
+  serverId: string; view: SettingsView; saving?: Record<string, boolean>; errors?: Record<string, string>; entered?: Record<string, SettingValue>;
   onSave: (key: string, value: SettingValue) => void; onToolDone?: () => void;
 }) {
   return <div className="space-y-5">
@@ -94,7 +98,7 @@ export function McpSettingsGroups({ serverId, view, saving = {}, errors = {}, on
       <h4 className="text-xs font-medium">{group.title}</h4>
       <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border bg-background/40">
         {group.items.map(item => <SettingsRow key={item.kind === 'property' ? `property:${item.field.key}` : `tool:${item.tool}`} serverId={serverId} item={item}
-          value={item.kind === 'property' ? view.values[item.field.key] : undefined} saving={item.kind === 'property' && !!saving[item.field.key]}
+          value={item.kind === 'property' ? (Object.hasOwn(entered, item.field.key) ? entered[item.field.key] : view.values[item.field.key]) : undefined} saving={item.kind === 'property' && !!saving[item.field.key]}
           error={item.kind === 'property' ? errors[item.field.key] : undefined} onSave={onSave} onToolDone={onToolDone} />)}
       </div>
     </div>)}
@@ -137,25 +141,28 @@ function SettingControl({ id, field, value, invalid, onSave }: { id: string; fie
       return <DraftInput id={id} value={typeof value === 'string' ? value : ''} invalid={invalid} onCommit={draft => onSave(draft)} />;
     case 'number':
     case 'integer':
-      return <DraftInput id={id} value={typeof value === 'number' ? String(value) : ''} invalid={invalid} inputMode={field.type === 'integer' ? 'numeric' : 'decimal'}
-        // An empty or non-numeric entry becomes NaN, which validation names, rather than a silent zero.
-        onCommit={draft => onSave(draft.trim() === '' ? Number.NaN : Number(draft.trim()))} />;
+      return <DraftInput id={id} type="number" value={typeof value === 'number' ? String(value) : ''} invalid={invalid}
+        inputMode={field.type === 'integer' ? 'numeric' : 'decimal'} step={field.type === 'integer' ? 1 : 'any'}
+        // An empty field holds no number to send, so the saved value comes back.
+        onCommit={draft => draft.trim() === '' ? false : onSave(Number(draft))} />;
   }
 }
 
-/** Text the person is typing, saved on blur or Enter and put back on Escape. */
-function DraftInput({ id, value, invalid, inputMode, onCommit }: { id: string; value: string; invalid: boolean; inputMode?: 'numeric' | 'decimal'; onCommit: (draft: string) => void }) {
+/** Text the person is typing, saved on blur or Enter, and put back on Escape or when `onCommit` has nothing to save. */
+function DraftInput({ id, type, value, invalid, inputMode, step, onCommit }: {
+  id: string; type?: 'number'; value: string; invalid: boolean; inputMode?: 'numeric' | 'decimal'; step?: number | 'any'; onCommit: (draft: string) => false | void;
+}) {
   const [draft, setDraft] = useState(value);
   const [editing, setEditing] = useState(false);
   const [shown, setShown] = useState(value);
   // Follow the server's value unless the person is mid-edit.
   if (value !== shown && !editing) { setShown(value); setDraft(value); }
-  const commit = () => { setEditing(false); if (draft !== value) onCommit(draft); };
+  const commit = () => { setEditing(false); if (draft !== value && onCommit(draft) === false) setDraft(value); };
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') { event.preventDefault(); commit(); }
     if (event.key === 'Escape') { setEditing(false); setDraft(value); }
   };
-  return <Input id={id} value={draft} inputMode={inputMode} aria-invalid={invalid || undefined} className="h-8 w-full text-xs @md:w-56"
+  return <Input id={id} type={type} value={draft} inputMode={inputMode} step={step} aria-invalid={invalid || undefined} className="h-8 w-full text-xs @md:w-56"
     onFocus={() => setEditing(true)} onChange={event => { setEditing(true); setDraft(event.target.value); }} onBlur={commit} onKeyDown={onKeyDown} />;
 }
 

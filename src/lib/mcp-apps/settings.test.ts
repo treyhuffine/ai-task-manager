@@ -53,23 +53,27 @@ describe('structured settings', () => {
     expect(mocks.run).not.toHaveBeenCalled();
   });
 
-  it('sends only the settings that change, checked against a fresh read, and returns every value after', async () => {
-    expect(await updateConnectedSettings('server', {units: 'in', showGrid: true})).toEqual({values: {units: 'in', showGrid: true, defaultView: 'isometric'}});
-    expect(mocks.run.mock.calls.map(call => [call[0], call[1]])).toEqual([
-      ['mcp.bits_bolts.settings.read', {}],
-      ['mcp.bits_bolts.settings.update', {set: {units: 'in'}}],
-    ]);
-    expect(isMcpSettingsAction(mocks.run.mock.calls[1][2].caller, 'mcp.bits_bolts.settings.update')).toBe(true);
-    mocks.run.mockClear();
-    // Nothing changes, so nothing is sent.
+  it('sends what the person entered to the update tool, and returns every value after', async () => {
     expect(await updateConnectedSettings('server', {units: 'in'})).toEqual({values: {units: 'in', showGrid: true, defaultView: 'isometric'}});
-    expect(mocks.run.mock.calls.map(call => call[0])).toEqual(['mcp.bits_bolts.settings.read']);
+    expect(mocks.run.mock.calls.map(call => [call[0], call[1]])).toEqual([['mcp.bits_bolts.settings.update', {set: {units: 'in'}}]]);
+    expect(isMcpSettingsAction(mocks.run.mock.calls[0][2].caller, 'mcp.bits_bolts.settings.update')).toBe(true);
   });
 
-  it('refuses an invalid or unknown setting before the server sees it', async () => {
-    await expect(updateConnectedSettings('server', {units: 'cm'})).rejects.toThrow('Units: Choose one of the listed options.');
-    await expect(updateConnectedSettings('server', {theme: 'dark'})).rejects.toThrow('no setting named theme');
-    expect(mocks.run.mock.calls.map(call => call[0])).toEqual(['mcp.bits_bolts.settings.read', 'mcp.bits_bolts.settings.read']);
+  it('leaves every value to the server, which answers in its own words', async () => {
+    // A choice the schema doesn't list and a setting it doesn't name both reach the server, which refuses them itself.
+    mocks.run.mockImplementation(async (actionId: string, args: Record<string, unknown>, options: {captureOriginalResult: (value: unknown) => void}) => {
+      const set = args.set as Record<string, unknown>;
+      const result = set.units === 'cm' ? {content: [{type: 'text', text: 'Units must be mm or in'}], isError: true}
+        : 'theme' in set ? {content: [{type: 'text', text: 'Unknown setting: theme'}], isError: true} : respond(actionId.slice('mcp.bits_bolts.'.length), args);
+      options.captureOriginalResult(result);
+      return {ok: true, result};
+    });
+    await expect(updateConnectedSettings('server', {units: 'cm'})).rejects.toThrow('Units must be mm or in');
+    await expect(updateConnectedSettings('server', {theme: 'dark'})).rejects.toThrow('Unknown setting: theme');
+    expect(mocks.run.mock.calls.map(call => [call[0], call[1]])).toEqual([
+      ['mcp.bits_bolts.settings.update', {set: {units: 'cm'}}],
+      ['mcp.bits_bolts.settings.update', {set: {theme: 'dark'}}],
+    ]);
   });
 
   it('reports a server that does not confirm, or rejects, the change', async () => {
@@ -158,6 +162,6 @@ describe('the person\'s own approval choices', () => {
     const start = performance.now();
     await expect(updateConnectedSettings('server', {label: `${'a'.repeat(40_000)}!`})).rejects.toThrow('Labels use only the letter a.');
     expect(performance.now() - start).toBeLessThan(500);
-    expect(mocks.run.mock.calls.map(call => call[0])).toEqual(['mcp.bits_bolts.settings.read', 'mcp.bits_bolts.settings.update']);
+    expect(mocks.run.mock.calls.map(call => call[0])).toEqual(['mcp.bits_bolts.settings.update']);
   });
 });

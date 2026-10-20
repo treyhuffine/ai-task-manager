@@ -5,7 +5,7 @@ import { hostedMcpConnectionId } from '@/lib/integrations/hosted-mcp';
 import type { McpCapabilityTool } from '@/lib/integrations/mcp-capabilities';
 import { modelToolVisible, settingsCapability } from './metadata';
 import { mcpSettingsCaller } from './settings-caller';
-import { changedSettings, parseSettingsRead, settingsTools, SettingsReadError, type SettingValue, type SettingsView } from './settings-model';
+import { parseSettingsRead, settingsTools, SettingsReadError, type SettingValue, type SettingsView } from './settings-model';
 
 /**
  * OpenAI's structured settings on a connection's page (docs/connected-mcp-apps.md,
@@ -81,19 +81,16 @@ export async function readConnectedSettings(serverId: string): Promise<Connected
 }
 
 /**
- * Change settings. The current schema is read first, so the change is
- * checked against what the server declares now, and only the settings that
- * differ from their current values are sent (`{set}`), as OpenAI's spec has
- * the host do. Returns every value after the update, as the server reports
- * them.
+ * Change settings: what the person entered goes to the server's update tool
+ * as is (`{set}`), and the server judges it. The page sends only the setting
+ * that changed, as OpenAI's spec has the host do. Returns every value after
+ * the update, as the server reports them. A refusal throws with the server's
+ * own message.
  */
-export async function updateConnectedSettings(serverId: string, set: Record<string, unknown>): Promise<{values: Record<string, SettingValue>}> {
+export async function updateConnectedSettings(serverId: string, set: Record<string, SettingValue>): Promise<{values: Record<string, SettingValue>}> {
   const target = await settingsTarget(serverId);
   if (!target) throw new SettingsUnavailableError('This server has no settings.');
-  const current = await read(target);
-  const changed = changedSettings(current, set);
-  if (!Object.keys(changed).length) return {values: current.values};
-  const result = await run(target, target.capability.updateTool, {set: changed});
+  const result = await run(target, target.capability.updateTool, {set});
   const values = (result.structuredContent as {values?: unknown} | undefined)?.values;
   if (!values || typeof values !== 'object' || Array.isArray(values)) throw new SettingsReadError('The server did not confirm the new settings.');
   return {values: Object.fromEntries(Object.entries(values as Record<string, unknown>).filter((entry): entry is [string, SettingValue] => ['string', 'number', 'boolean'].includes(typeof entry[1])))};

@@ -1,10 +1,10 @@
 /**
  * OpenAI's structured settings on a connection page, with the real section,
  * real Tailwind CSS and Bits & Bolts' real settings. A fake Home records what
- * the page asks of the server: only changed settings are sent, a refused
- * change comes back, an invalid entry never leaves the browser, and the
- * library button opens Bits & Bolts' interface in a dialog through the
- * ordinary launch.
+ * the page asks of the server: only changed settings are sent, the server
+ * judges every value, a refused one stays as entered beside the server's
+ * reason, and the library button opens Bits & Bolts' interface in a dialog
+ * through the ordinary launch.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { build } from 'esbuild';
@@ -51,10 +51,12 @@ beforeAll(async () => {
       let data: unknown;
       if (method === 'mcpSettings.read') data = { available: true, ...parseSettingsRead({ ...read, values }, bitsAndBoltsTools) };
       if (method === 'mcpSettings.update') {
-        // The server refuses one change, as a real one may (a value locked by its own rules).
-        if ((input.set as Record<string, unknown>).defaultView === 'top') {
+        // The server refuses what its own rules don't allow: a locked choice, and a number past its maximum.
+        const set = input.set as Record<string, unknown>;
+        const refusal = set.defaultView === 'top' ? 'The top view is unavailable for this library' : typeof set.gridSize === 'number' && set.gridSize > 50 ? 'Grid size must be 50 or less' : null;
+        if (refusal) {
           res.statusCode = 500; res.setHeader('content-type', 'application/json');
-          res.end(JSON.stringify({ error: { message: 'The top view is unavailable for this library', code: -32603, data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 } } })); return;
+          res.end(JSON.stringify({ error: { message: refusal, code: -32603, data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 } } })); return;
         }
         values = { ...values, ...(input.set as Record<string, unknown>) }; data = { values };
       }
@@ -100,19 +102,28 @@ it('draws Bits & Bolts settings natively, saves only what changes, and opens its
     await page.getByRole('option', { name: 'in', exact: true }).click();
     await expect.poll(updates).toEqual([{ showGrid: false }, { units: 'in' }]);
 
-    // A refused change returns to the saved value, with the server's reason under it.
-    await section.getByRole('combobox', { name: 'Default view' }).click();
+    // A refused change stays as entered, with the server's reason under it. Choosing the saved value again sends nothing.
+    const view = section.getByRole('combobox', { name: 'Default view' });
+    await view.click();
     await page.getByRole('option', { name: 'top', exact: true }).click();
     await section.getByText('The top view is unavailable for this library').waitFor();
-    await expect.poll(() => section.getByRole('combobox', { name: 'Default view' }).textContent()).toBe('isometric');
+    await expect.poll(() => view.textContent()).toBe('top');
+    await view.click();
+    await page.getByRole('option', { name: 'isometric', exact: true }).click();
+    await section.getByText('The top view is unavailable for this library').waitFor({ state: 'detached' });
+    expect(updates()).toEqual([{ showGrid: false }, { units: 'in' }, { defaultView: 'top' }]);
 
-    // A typed number is checked here first, and saved on Enter only once it's valid.
-    const size = section.getByRole('textbox', { name: 'Grid size' });
+    // A typed number goes to the server as entered, which judges it. Ri checks no bounds.
+    const size = section.getByRole('spinbutton', { name: 'Grid size' });
     await size.fill('80'); await size.press('Enter');
-    await section.getByText('Use 50 or less.').waitFor();
-    expect(updates()).toHaveLength(3);
+    await section.getByText('Grid size must be 50 or less').waitFor();
+    expect(await size.inputValue()).toBe('80');
     await size.fill('20'); await size.press('Enter');
-    await expect.poll(updates).toEqual([{ showGrid: false }, { units: 'in' }, { defaultView: 'top' }, { gridSize: 20 }]);
+    await section.getByText('Grid size must be 50 or less').waitFor({ state: 'detached' });
+    // An empty field holds no number, so nothing is sent and the saved value comes back.
+    await size.fill(''); await size.press('Enter');
+    await expect.poll(() => size.inputValue()).toBe('20');
+    expect(updates()).toEqual([{ showGrid: false }, { units: 'in' }, { defaultView: 'top' }, { gridSize: 80 }, { gridSize: 20 }]);
     await section.screenshot({ path: path.join(process.env.MCP_SETTINGS_SCREENSHOTS ?? '/tmp', 'mcp-settings-section.png') });
 
     // The library button opens Bits & Bolts' interface through the ordinary launch, as a settings view.

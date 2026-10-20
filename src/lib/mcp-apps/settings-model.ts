@@ -1,10 +1,9 @@
 /**
  * OpenAI's structured settings (MCP extensions spec, "Structured Settings"),
- * as Ri reads and checks them. Pure, so the connection page checks a value
- * the same way the Home does before an update leaves it. A server's
- * `pattern` is never run here: it is a regular expression the server wrote,
- * so the server checks it, and the page shows the server's own message when
- * it refuses a value.
+ * as Ri reads them: which kind of control each setting gets, and the groups
+ * they appear in. Ri checks no value. The server judges what the person
+ * enters through its update tool, and the page shows the server's own
+ * message when it refuses one, as with a server's forms.
  *
  * A server names a read tool and an update tool in
  * `capabilities.extensions["openai/settings"]`. The read tool returns a JSON
@@ -19,8 +18,8 @@ export type SettingValue = string | number | boolean;
 interface FieldBase { key: string; title: string; description?: string }
 export type SettingField =
   | FieldBase & { type: 'boolean' }
-  | FieldBase & { type: 'string'; enum?: string[]; minLength?: number; maxLength?: number }
-  | FieldBase & { type: 'number' | 'integer'; minimum?: number; maximum?: number; multipleOf?: number }
+  | FieldBase & { type: 'string'; enum?: string[] }
+  | FieldBase & { type: 'number' | 'integer' }
   /** A property Ri can't offer a control for, shown with why rather than hidden or crashing the page. */
   | FieldBase & { type: 'unsupported'; reason: string };
 
@@ -37,7 +36,7 @@ export interface SettingsGroup { title: string; items: SettingsItem[] }
 
 export interface SettingsView {
   groups: SettingsGroup[];
-  /** Current values, one per supported setting. */
+  /** Current values, as the server sent them, for the settings Ri shows. */
   values: Record<string, SettingValue>;
 }
 
@@ -45,8 +44,6 @@ export class SettingsReadError extends Error {}
 
 const record = (value: unknown): Record<string, unknown> | null => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const text = (value: unknown, max = 500) => typeof value === 'string' && value.trim() && value.length <= max ? value : undefined;
-const count = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
-const finite = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
 /** The groups a settings page shows when the server sets no layout, or for what its layout leaves out. */
 export const OTHER_SETTINGS = 'Other settings';
@@ -66,52 +63,21 @@ export function settingField(key: string, raw: unknown): SettingField {
   if (type === 'string') {
     const options = Array.isArray(property.enum) ? property.enum : undefined;
     if (options && (!options.length || options.some(option => typeof option !== 'string'))) return { ...base, type: 'unsupported', reason: 'This setting lists choices that are not text.' };
-    const minLength = count(property.minLength), maxLength = count(property.maxLength);
-    return { ...base, type: 'string', ...(options ? { enum: [...new Set(options as string[])] } : {}),
-      ...(minLength !== undefined ? { minLength } : {}), ...(maxLength !== undefined ? { maxLength } : {}) };
+    return { ...base, type: 'string', ...(options ? { enum: [...new Set(options as string[])] } : {}) };
   }
   if (type === 'number' || type === 'integer') {
     if ('enum' in property) return { ...base, type: 'unsupported', reason: 'This setting lists numeric choices, which Ri does not show.' };
-    const minimum = finite(property.minimum), maximum = finite(property.maximum), multipleOf = finite(property.multipleOf);
-    return { ...base, type, ...(minimum !== undefined ? { minimum } : {}), ...(maximum !== undefined ? { maximum } : {}),
-      ...(multipleOf !== undefined && multipleOf > 0 ? { multipleOf } : {}) };
+    return { ...base, type };
   }
   return { ...base, type: 'unsupported', reason: 'Settings can be on or off, text, a choice, or a number. This one is another kind.' };
-}
-
-/** Why `value` is not a valid value for `field`, or null when it is. Messages are shown under the control. */
-export function validateSetting(field: SettingField, value: unknown): string | null {
-  switch (field.type) {
-    case 'unsupported': return field.reason;
-    case 'boolean': return typeof value === 'boolean' ? null : 'Choose on or off.';
-    case 'string': {
-      if (typeof value !== 'string') return 'Enter text.';
-      if (field.enum) return field.enum.includes(value) ? null : 'Choose one of the listed options.';
-      const length = [...value].length;
-      if (field.minLength !== undefined && length < field.minLength) return field.minLength === 1 ? 'Enter a value.' : `Use at least ${field.minLength} characters.`;
-      if (field.maxLength !== undefined && length > field.maxLength) return `Use at most ${field.maxLength} characters.`;
-      return null;
-    }
-    case 'number':
-    case 'integer': {
-      if (typeof value !== 'number' || !Number.isFinite(value)) return 'Enter a number.';
-      if (field.type === 'integer' && !Number.isInteger(value)) return 'Enter a whole number.';
-      if (field.minimum !== undefined && value < field.minimum) return `Use ${field.minimum} or more.`;
-      if (field.maximum !== undefined && value > field.maximum) return `Use ${field.maximum} or less.`;
-      if (field.multipleOf !== undefined) {
-        const steps = value / field.multipleOf;
-        if (Math.abs(steps - Math.round(steps)) > 1e-9 * Math.max(1, Math.abs(steps))) return `Use a multiple of ${field.multipleOf}.`;
-      }
-      return null;
-    }
-  }
 }
 
 /**
  * Read the `structuredContent` of the settings read tool. A malformed
  * envelope, or a layout that names an unknown setting or names one twice,
  * fails the whole read, as OpenAI's SDK refuses it. One property Ri can't
- * show, or a missing or invalid value, only marks that setting.
+ * show only marks that setting. Values are the server's, unjudged: a control
+ * shows one only when it is text, a number or on and off.
  */
 export function parseSettingsRead(raw: unknown, tools: readonly McpCapabilityTool[]): SettingsView {
   const content = record(raw);
@@ -123,13 +89,9 @@ export function parseSettingsRead(raw: unknown, tools: readonly McpCapabilityToo
   const fields = new Map<string, SettingField>();
   const kept: Record<string, SettingValue> = {};
   for (const [key, definition] of Object.entries(properties)) {
-    let field = settingField(key, definition);
-    if (field.type !== 'unsupported') {
-      const value = values[key];
-      const problem = !Object.hasOwn(values, key) ? 'The server sent no value for this setting.' : validateSetting(field, value);
-      if (problem) field = { key, title: field.title, ...(field.description ? { description: field.description } : {}), type: 'unsupported', reason: Object.hasOwn(values, key) ? `The server's current value is invalid. ${problem}` : problem };
-      else kept[key] = value as SettingValue;
-    }
+    const field = settingField(key, definition);
+    const value = values[key];
+    if (field.type !== 'unsupported' && ['string', 'number', 'boolean'].includes(typeof value)) kept[key] = value as SettingValue;
     fields.set(key, field);
   }
   const placed = new Set<string>();
@@ -161,30 +123,7 @@ export function parseSettingsRead(raw: unknown, tools: readonly McpCapabilityToo
   return { groups, values: kept };
 }
 
-/** Every field in a view, by key. */
-export function settingsFields(view: SettingsView): Map<string, SettingField> {
-  return new Map(view.groups.flatMap(group => group.items.flatMap(item => item.kind === 'property' ? [[item.field.key, item.field] as const] : [])));
-}
-
 /** The tool buttons a view offers, by name. */
 export function settingsTools(view: SettingsView): Map<string, Extract<SettingsItem, { kind: 'tool' }>> {
   return new Map(view.groups.flatMap(group => group.items.flatMap(item => item.kind === 'tool' ? [[item.tool, item] as const] : [])));
-}
-
-/**
- * The part of `set` that changes something, checked against the current
- * schema. OpenAI's spec has the host send only changed settings. Throws with
- * the first invalid or unknown key.
- */
-export function changedSettings(view: SettingsView, set: Record<string, unknown>): Record<string, SettingValue> {
-  const fields = settingsFields(view);
-  const changed: Record<string, SettingValue> = {};
-  for (const [key, value] of Object.entries(set)) {
-    const field = fields.get(key);
-    if (!field) throw new SettingsReadError(`This server has no setting named ${key}.`);
-    const problem = validateSetting(field, value);
-    if (problem) throw new SettingsReadError(`${field.title}: ${problem}`);
-    if (view.values[key] !== value) changed[key] = value as SettingValue;
-  }
-  return changed;
 }
