@@ -7,6 +7,7 @@
  * Use `fake.fetch` as the client's `fetch`.
  */
 import { randomBytes } from 'node:crypto';
+import { PINNED_TOOLKIT_VERSIONS } from './catalog';
 
 type Status = 'INITIALIZING' | 'INITIATED' | 'ACTIVE' | 'FAILED' | 'EXPIRED' | 'INACTIVE' | 'REVOKED';
 
@@ -366,7 +367,8 @@ export function seedCatalogTools(fake: FakeComposio): void {
     ['GOOGLECALENDAR_CREATE_EVENT', 'googlecalendar', object({ summary: { type: 'string' }, start_datetime: { type: 'string' }, calendar_id: { type: 'string' } })],
     ['GOOGLECALENDAR_GET_CALENDAR', 'googlecalendar', object({ calendar_id: { type: 'string' } })],
   ];
-  for (const [slug, toolkit, input_parameters] of tools) fake.addTool({ slug, toolkit, input_parameters });
+  // Each toolkit's tools at its pinned version, as Composio lists a toolkit's tools at one version.
+  for (const [slug, toolkit, input_parameters] of tools) fake.addTool({ slug, toolkit, input_parameters, ...(PINNED_TOOLKIT_VERSIONS[toolkit] ? { version: PINNED_TOOLKIT_VERSIONS[toolkit] } : {}) });
   fake.state.results.set('GMAIL_GET_PROFILE', (_args, account) => ({ emailAddress: account.email, messagesTotal: 10 }));
   fake.state.results.set('GOOGLECALENDAR_GET_CALENDAR', (_args, account) => ({ id: account.email, summary: account.email, timeZone: 'America/Denver' }));
 }

@@ -10,6 +10,7 @@ import type { ApprovalPolicy } from '@integrations/engine';
 import { readManagedAudit } from './audit';
 import { createAttempt, getAttempt, newAttemptId } from './attempts';
 import { managedToolkitId } from './applications';
+import { PINNED_TOOLKIT_VERSIONS } from './composio/catalog';
 import { readPreferences } from './preferences';
 import * as service from './service';
 import { createSourcesHarness, FAKE_KEY, type SourcesHarness } from './testing';
@@ -244,7 +245,7 @@ describe('execution', () => {
     expect(agentRuns().filter(e => e.slug === 'GMAIL_SEND_EMAIL')).toHaveLength(1);
     const audit = readManagedAudit();
     expect(audit.map(e => e.phase)).toEqual(['dispatch', 'outcome']);
-    expect(audit[0]).toMatchObject({ actionId: action, slug: 'GMAIL_SEND_EMAIL', version: '20261010_00', mutating: true, argumentNames: ['body', 'recipient_email', 'subject'] });
+    expect(audit[0]).toMatchObject({ actionId: action, slug: 'GMAIL_SEND_EMAIL', version: PINNED_TOOLKIT_VERSIONS.gmail, mutating: true, argumentNames: ['body', 'recipient_email', 'subject'] });
     expect(JSON.stringify(audit)).not.toContain('secret body text');
   });
 

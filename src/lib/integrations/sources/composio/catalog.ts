@@ -29,12 +29,14 @@ export interface CatalogApplication {
 }
 
 /**
- * The dated toolkit version Ri's typed reads (identity, Calendar view) are tested against. Typed
- * reads parse the output, so they never follow `latest` (spec §9). A retired version makes those
- * reads unavailable until this is moved forward and re-tested.
+ * The dated toolkit version Ri's typed reads (identity, Calendar view) use. Typed reads parse the
+ * output, so they never follow `latest` (spec §9). A retired version makes those reads unavailable
+ * until this is moved forward and re-tested. Versions are per toolkit (`YYYYMMDD_NN`), so each is
+ * one that toolkit actually published: the current version on Composio's toolkit pages on
+ * 2026-10-20, not yet checked against a real account's output.
  */
 export const PINNED_TOOLKIT_VERSIONS: Record<string, string> = {
-  gmail: '20261010_00',
+  gmail: '20261018_00',
   googlecalendar: '20261010_00',
 };
 

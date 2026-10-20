@@ -24,6 +24,7 @@ import { clearCalendarRangeCache, getCalendarRange } from '@/lib/calendar/servic
 import { setCalendarProvider, readCalendarDay } from '@/lib/deck/calendar';
 import { ensureCalendarProvider } from '@/lib/deck/calendar-integration';
 import { getAttempt } from './attempts';
+import { PINNED_TOOLKIT_VERSIONS } from './composio/catalog';
 import * as service from './service';
 import { createSourcesHarness, FAKE_KEY, type SourcesHarness } from './testing';
 import { currentPreferences, updatePreferences } from './preferences';
@@ -75,7 +76,7 @@ describe('managed Google Calendar in Ri\'s calendar', () => {
     expect(titles).toEqual(['standup', 'lunch']);
     expect(range.days[0]!.events.find(e => e.title === 'lunch')!.countsAsBusy).toBe(false);
     const reads = h.fake.state.executions.filter(e => e.slug.startsWith('GOOGLECALENDAR_') && e.slug !== 'GOOGLECALENDAR_GET_CALENDAR');
-    expect(reads.every(e => e.via === 'pinned' && e.version === '20261010_00')).toBe(true);
+    expect(reads.every(e => e.via === 'pinned' && e.version === PINNED_TOOLKIT_VERSIONS.googlecalendar)).toBe(true);
     expect(reads.find(e => e.slug === 'GOOGLECALENDAR_EVENTS_LIST')!.args).toMatchObject({ singleEvents: true, calendarId: 'work@example.com' });
   });
 
