@@ -43,7 +43,7 @@ import {
 } from '@/lib/db/queries';
 import { admitSend } from '@/lib/transfer/moving';
 import { getAppRoot } from '@/lib/config/paths';
-import type { Attachment, PermissionMode, WorkerCommandActor } from '@/db/types';
+import type { Attachment, PermissionMode, WorkerCommandActor, WorkerCommandRecord } from '@/db/types';
 import { budgetGate } from '@/lib/runs/budget';
 import { beginRun } from '@/lib/runs/artifact-bucket';
 import { finishRun } from '@/lib/runs/finish';
@@ -383,11 +383,14 @@ async function dispatchOnce(
     // Keep transfer holds and duplicate-send reservations synchronous before
     // loading app context. Recovery must see the saved message immediately.
     if (session.surfaceKind !== 'result_review') {
-      if (options.sourceEventId) userMessage += await (await import('@/lib/server/chat-sources')).chatSources.turnContext(chatSessionId, options.sourceEventId);
       if (options.sourceEventId) {
         const event = (await import('@/lib/db/queries')).getChatEventById(options.sourceEventId);
         if (event && event.sessionId !== chatSessionId) throw new ExecutorError('invalid_state', 'This message belongs to another chat');
         const raw = event?.raw as {connectedAppContext?: unknown; sentByApp?: unknown} | null;
+        // Sources are the person's to choose: a mention binds an account to the message for the
+        // agent's calls. A message an app sent binds none, whatever its text says (the send route
+        // refuses one that names a source).
+        if (!raw?.sentByApp) userMessage += await (await import('@/lib/server/chat-sources')).chatSources.turnContext(chatSessionId, options.sourceEventId);
         const context = raw?.connectedAppContext;
         if (context) {
           const authorized = await (await import('@/lib/mcp-apps/service')).connectedTurnContext(chatSessionId, context);
@@ -1015,3 +1018,43 @@ export async function closeIdleHarnessesForMaintenance(): Promise<void> {
   const { closeIdleForMaintenance } = await import('@/lib/runner/local-runner');
   await closeIdleForMaintenance();
 }
+
+/**
+ * A send waiting in a device's queue carries the app context its message
+ * froze, checked when it was queued. The device may take it much later, so
+ * the context is checked again just before it goes, as a send here is at
+ * dispatch: null when it may still go, else why not.
+ */
+export async function queuedSendRefusal(command: Pick<WorkerCommandRecord, 'kind' | 'chatSessionId' | 'sourceEventId'>): Promise<string | null> {
+  if (command.kind !== 'send' || !command.chatSessionId || !command.sourceEventId) return null;
+  const event = getChatEventById(command.sourceEventId);
+  const context = (event?.raw as {connectedAppContext?: unknown} | null)?.connectedAppContext;
+  if (!context) return null;
+  try {
+    await (await import('@/lib/mcp-apps/service')).connectedTurnContext(command.chatSessionId, context);
+    return null;
+  } catch (error) {
+    return `This message wasn't sent: ${error instanceof Error ? error.message : 'its app context is no longer available to the chat'}`;
+  }
+}
+
+/**
+ * Recheck sends about to leave for a device (`queuedSendRefusal`). One whose
+ * app context is no longer allowed is withdrawn (shown as not delivered, its
+ * run finished and turn settled) and the chat says why, as a final refusal.
+ * Returns the sends it withdrew.
+ */
+export async function recheckQueuedSends(commands: readonly WorkerCommandRecord[]): Promise<WorkerCommandRecord[]> {
+  const withdrawn: WorkerCommandRecord[] = [];
+  for (const command of commands) {
+    const reason = await queuedSendRefusal(command);
+    if (!reason) continue;
+    const done = (await import('@/lib/workers/undelivered')).withdrawQueuedSend(command.id, reason);
+    // Streamed meanwhile: it's the device's now, and its own run reports what happened.
+    if (!done) continue;
+    (await import('./health')).recordSendRefused(command.chatSessionId!, command.sourceEventId!, reason);
+    withdrawn.push(done);
+  }
+  return withdrawn;
+}
+

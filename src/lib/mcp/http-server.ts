@@ -108,18 +108,22 @@ export const PROGRESS_KEEPALIVE_MS = 20_000;
 /**
  * Run `work`, sending `notifications/progress` every `PROGRESS_KEEPALIVE_MS`
  * while it is in flight, when the client gave a `progressToken`. A client
- * that gave none asked for no progress, so none is sent.
+ * that gave none asked for no progress, so none is sent, and one that
+ * cancelled (or went away) hears no more: progress stops with its signal.
  */
 export async function withProgressKeepalive<T>(ctx: Pick<ServerContext, 'mcpReq'>, work: () => Promise<T>, every = PROGRESS_KEEPALIVE_MS): Promise<T> {
   const progressToken = ctx.mcpReq._meta?.progressToken;
-  if (progressToken === undefined) return work();
+  const signal = ctx.mcpReq.signal;
+  if (progressToken === undefined || signal?.aborted) return work();
   let progress = 0;
   const timer = setInterval(() => {
     progress += 1;
     void ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken, progress, message: 'Still working' } }).catch(() => {});
   }, every);
+  const stop = () => clearInterval(timer);
+  signal?.addEventListener('abort', stop, { once: true });
   try { return await work(); }
-  finally { clearInterval(timer); }
+  finally { stop(); signal?.removeEventListener('abort', stop); }
 }
 
 function registrar(server: McpServer, era: 'legacy' | 'modern'): RiMcpServer {

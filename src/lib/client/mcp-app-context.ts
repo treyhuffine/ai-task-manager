@@ -7,7 +7,10 @@ import { safeMcpIcon, type McpIcon } from '@/lib/integrations/mcp-icons';
  * A view registers per chat. A global screen has no chat of its own, so it
  * registers with no chat, and its context goes with whichever chat its person
  * sends in next: in practice the main chat beside it. Each chat attaches its
- * most recently updated view, plus the most recently updated global screen.
+ * most recently updated view, plus the most recently updated global screen
+ * when that chat may use the screen's account (an agent's chat only when its
+ * agent may). The home answers which (`connectedApps.contextAccess`), and
+ * until it has, a chat neither shows nor sends the screen's context.
  *
  * The composer shows what each app attached as one group per app, and
  * removing a group drops that app's context as a whole.
@@ -42,6 +45,9 @@ const GLOBAL = '\u0000global';
 const key = (scope: Scope) => scope ?? GLOBAL;
 const contexts = new Map<string, Map<string, Entry>>();
 const selected = new Map<string, string>();
+/** Per chat, whether a global screen's context may go with its messages. */
+const access = new Map<string, Map<string, boolean>>();
+const mayAttach = (chatId: string, scope: Scope, viewId: string) => scope !== null || access.get(chatId)?.get(viewId) === true;
 const listeners = new Set<() => void>();
 let version = 0;
 const changed = () => { version++; for (const listener of listeners) listener(); };
@@ -83,7 +89,7 @@ export async function flushConnectedContext(chatId: string) {
   const references: Reference[] = [];
   for (const scope of [chatId, null]) {
     const viewId = selected.get(key(scope));
-    const flush = viewId ? contexts.get(key(scope))?.get(viewId)?.flush : undefined;
+    const flush = viewId && mayAttach(chatId, scope, viewId) ? contexts.get(key(scope))?.get(viewId)?.flush : undefined;
     const reference = await flush?.();
     if (reference && !references.some(item => item.viewId === reference.viewId)) references.push(reference);
   }
@@ -138,12 +144,52 @@ export function connectedContextGroups(chatId: string | null): ContextGroup[] {
     const viewId = selected.get(key(scope));
     const entry = viewId ? contexts.get(key(scope))?.get(viewId) : undefined;
     if (!viewId || !entry?.app || !entry.clear || groups.some(group => group.viewId === viewId)) continue;
+    if (chatId && !mayAttach(chatId, scope, viewId)) continue;
     const items = visibleContextItems(entry.content);
     if (!items.length) continue;
     const clear = entry.clear;
     groups.push({ viewId, app: entry.app, items, remove: clear });
   }
   return groups;
+}
+
+/**
+ * The global screen whose context a chat would attach, when it attached any:
+ * what the composer asks access for. Context for the assistant alone counts,
+ * since it is sent though never shown.
+ */
+export function globalContextViewId(): string | null {
+  const viewId = selected.get(GLOBAL);
+  const entry = viewId ? contexts.get(GLOBAL)?.get(viewId) : undefined;
+  return viewId && entry?.content?.length ? viewId : null;
+}
+
+/** Record which views may send context with this chat's messages, as the home answered. */
+export function setConnectedContextAccess(chatId: string, allowed: Record<string, boolean>) {
+  const current = access.get(chatId) ?? new Map<string, boolean>();
+  let changes = false;
+  for (const [viewId, may] of Object.entries(allowed)) {
+    if (current.get(viewId) === may) continue;
+    current.set(viewId, may);
+    changes = true;
+  }
+  access.set(chatId, current);
+  if (changes) changed();
+}
+
+/** A global screen's context the home left off a message, as the send response names it. */
+export interface SkippedContext { viewId: string; app: string; reason: string }
+
+/**
+ * After a send: context the home left off is no longer shown or sent in that
+ * chat, and the notice to show the person, or null when nothing was left off.
+ */
+export function noteSkippedContext(chatId: string, skipped: readonly SkippedContext[] | undefined): string | null {
+  if (!skipped?.length) return null;
+  setConnectedContextAccess(chatId, Object.fromEntries(skipped.map(item => [item.viewId, false])));
+  const apps = [...new Set(skipped.map(item => item.app))];
+  const names = apps.length === 1 ? apps[0] : `${apps.slice(0, -1).join(', ')} and ${apps.at(-1)}`;
+  return `${names} context wasn't sent with this message. ${skipped[0]!.reason}`;
 }
 
 /** For `useSyncExternalStore`: a change to any view's context or selection. */

@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-const mocks = vi.hoisted(() => ({metadata: vi.fn(), runtime: vi.fn(), transport: vi.fn(), connections: vi.fn(), run: vi.fn(), read: vi.fn(), chat: vi.fn(), workspace: vi.fn(), insert: vi.fn(), approvals: vi.fn(), decide: vi.fn(), cancel: vi.fn()}));
+import { VIEW_TTL, type View } from './store';
+const mocks = vi.hoisted(() => ({metadata: vi.fn(), runtime: vi.fn(), transport: vi.fn(), connections: vi.fn(), run: vi.fn(), read: vi.fn(), chat: vi.fn(), workspace: vi.fn(), insert: vi.fn(), approvals: vi.fn(), decide: vi.fn(), cancel: vi.fn(), viewAuthority: vi.fn(), closeWatches: vi.fn()}));
 vi.mock('@/lib/integrations/source-metadata', () => ({integrationSourceMetadata: mocks.metadata}));
-vi.mock('@/lib/integrations/runtime', () => ({getIntegrationRuntime: mocks.runtime, getIntegrationOwnerId: () => 'local', getMcpViewConnection: mocks.transport}));
+vi.mock('@/lib/integrations/runtime', () => ({getIntegrationOwnerId: () => 'local', getMcpViewAuthority: mocks.viewAuthority}));
+vi.mock('./files', async importOriginal => ({...await importOriginal<typeof import('./files')>(), closeHostWatches: mocks.closeWatches}));
 vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: mocks.workspace, insertChatEvent: mocks.insert}));
 vi.mock('@/lib/integrations/approval', () => ({sessionCaller: (id: string) => ({type: 'mcp', id: `session:${id}`}), sessionIdFromCaller: (caller?: {type?: string; id?: string}) => caller?.type === 'mcp' && caller.id?.startsWith('session:') ? caller.id.slice(8) : null, listPendingApprovals: mocks.approvals, resolvePendingApprovals: mocks.decide, cancelConnectedAppApprovals: mocks.cancel}));
 vi.mock('@/lib/integrations/approval-events', () => ({recordApprovalDecision: vi.fn()}));
-import { prepareMcpResultCapture, connectedAppsCatalog, connectedChatTabs, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource, connectedMessageSender } from './service';
+import { connectedContextAccess, connectedViewStatus, prepareMcpResultCapture, connectedAppsCatalog, connectedChatTabs, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource, connectedMessageSender } from './service';
 
 const chatId = randomUUID();
 const result = {content: [{type: 'text', text: 'Public summary'}], structuredContent: {total: 42}, _meta: {privateUi: 'Only for the interface'}};
@@ -27,6 +29,12 @@ beforeEach(() => {
   mocks.connections.mockResolvedValue([connection]);
   mocks.runtime.mockResolvedValue({listConnections: mocks.connections, runAction: mocks.run});
   mocks.transport.mockResolvedValue({tools, readResource: mocks.read});
+  // One build: its runtime, connections and the server's transport as that build opened it.
+  mocks.viewAuthority.mockImplementation(async () => {
+    const runtime = await mocks.runtime();
+    const view = await mocks.transport();
+    return {runtime, connections: await runtime.listConnections({ownerId: 'local'}), view: view ? {snapshot: {...entry}, ...view} : null};
+  });
   mocks.read.mockResolvedValue({contents: [{uri: 'ui://fixture/calculator.html', mimeType: 'text/html;profile=mcp-app', text: '<html><body>Calculator</body></html>'}]});
   mocks.chat.mockReturnValue({id: chatId, status: 'idle', workspaceId: null, origin: 'ri'});
   mocks.approvals.mockReturnValue([]);
@@ -191,7 +199,7 @@ describe('connected MCP views', () => {
   it('requires chat account access and rechecks frozen context before redispatch', async () => {
     const view = await openConnectedView(await capture(), 'viewer', chatId);
     const {revision} = await updateConnectedContext(view.id, 'viewer', {content: [{type: 'text', text: 'Selected 7'}]});
-    const frozen = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision}]);
+    const {context: frozen} = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision}]);
     expect(await connectedTurnContext(chatId, frozen)).toMatchObject([{context: {content: [{text: 'Selected 7'}]}}]);
     await expect(freezeConnectedContext(randomUUID(), 'viewer', [{viewId: view.id, revision}])).rejects.toThrow('context changed');
     mocks.chat.mockReturnValue({id: chatId, status: 'idle', workspaceId: 'agent'}); mocks.workspace.mockReturnValue({integrationScopes: []});
@@ -307,7 +315,7 @@ describe('OpenAI entrypoints, deep links, resources and model context', () => {
     const reopened = await openConnectedView(view.captureId, 'viewer', chatId);
     expect(reopened.modelContext).toEqual({updateId: first.updateId, content: [
       {type: 'text', text: 'Selected: agent dial', _meta: {'openai/title': 'Agent dial', 'openai/thumbnail': {src: 'https://example.com/dial.png'}}}, hidden]});
-    const frozen = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision: same.revision}]);
+    const {context: frozen} = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision: same.revision}]);
     expect(await connectedTurnContext(chatId, frozen)).toMatchObject([{context: {content: [{type: 'text', text: 'Selected: agent dial'}, hidden]}}]);
     expect(JSON.stringify(await connectedTurnContext(chatId, frozen))).not.toContain('Agent dial');
     const changed = await updateConnectedContext(view.id, 'viewer', {content: [{type: 'text', text: 'Selected: washer'}]});
@@ -322,7 +330,7 @@ describe('OpenAI entrypoints, deep links, resources and model context', () => {
       await launchConnectedView(launched.viewId, 'viewer');
       const screen = await openConnectedView(launched.invocationId, 'viewer');
       const {revision} = await updateConnectedContext(screen.id, 'viewer', {content: [{type: 'text', text: 'Library page'}]});
-      expect(await freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}])).toMatchObject([{context: {content: [{text: 'Library page'}]}}]);
+      expect(await freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}])).toMatchObject({context: [{context: {content: [{text: 'Library page'}]}}], skipped: []});
     });
   });
 
@@ -335,11 +343,12 @@ describe('OpenAI entrypoints, deep links, resources and model context', () => {
       // The agent may use this account, so its chat's authority includes the agent's scopes.
       mocks.chat.mockReturnValue({id: chatId, status: 'idle', workspaceId: 'agent', origin: 'ri'});
       mocks.workspace.mockReturnValue({integrationScopes: [{toolkitId: 'mcp_fixture'}]});
-      const frozen = await freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}]);
+      const {context: frozen} = await freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}]);
       expect(await connectedTurnContext(chatId, frozen)).toMatchObject([{app: 'Fixture', context: {content: [{text: 'Library page'}]}}]);
-      // An agent that may not use the account refuses it before the message is saved.
+      // In a chat whose agent may not use the account, the context is left off and named, not a refused send.
       mocks.workspace.mockReturnValue({integrationScopes: [{toolkitId: 'mcp_fixture', accounts: [{accountId: 'another-account'}]}]});
-      await expect(freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}])).rejects.toThrow('isn\'t available in this chat');
+      expect(await freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}]))
+        .toEqual({context: [], skipped: [{viewId: screen.id, app: screen.title, reason: 'This chat can\'t use that account.'}]});
       // And context frozen for the agent is refused at dispatch once the agent loses the account.
       await expect(connectedTurnContext(chatId, frozen)).rejects.toThrow('not available');
     });
@@ -368,7 +377,7 @@ describe('OpenAI model context files and app messages', () => {
   it('freezes an image in context as an attachment marker, never its bytes, and hands the model the marker', async () => {
     const view = await openConnectedView(await capture(), 'viewer', chatId);
     const {revision} = await updateConnectedContext(view.id, 'viewer', {content: [{type: 'image', data: PIXEL, mimeType: 'image/png', _meta: {'openai/title': 'Front view'}}]});
-    const frozen = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision}]);
+    const {context: frozen} = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision}]);
     expect(JSON.stringify(frozen)).not.toContain(PIXEL);
     const [item] = frozen as unknown as {files: {fileName: string; mimeType: string}[]; context: {content: {file: string}[]}}[];
     expect(item!.files).toEqual([expect.objectContaining({mimeType: 'image/png', originalName: 'Front view'})]);
@@ -376,7 +385,7 @@ describe('OpenAI model context files and app messages', () => {
     const turn = await connectedTurnContext(chatId, frozen);
     expect(turn).toEqual([{sourceRef: view.sourceRef, app: 'Fixture', context: {content: [{type: 'image', mimeType: 'image/png', file: `[[file:${item!.files[0]!.fileName}]]`}]}}]);
     // A second send with the same context reuses the same file.
-    const again = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision}]) as unknown as typeof frozen;
+    const {context: again} = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision}]);
     expect((again[0] as unknown as {files: {fileName: string}[]}).files[0]!.fileName).toBe(item!.files[0]!.fileName);
   });
 
@@ -388,3 +397,109 @@ describe('OpenAI model context files and app messages', () => {
     await expect(connectedMessageSender(view.id, 'viewer')).rejects.toThrow('disabled');
   });
 });
+
+describe('authority without waiting on the network', () => {
+  const agentChat = (scopes: unknown[]) => {
+    mocks.chat.mockReturnValue({id: chatId, status: 'idle', workspaceId: 'agent', origin: 'ri'});
+    mocks.workspace.mockReturnValue({integrationScopes: scopes});
+  };
+
+  it('answers checks from the current build and waits for a current one only to reach the server', async () => {
+    const view = await openConnectedView(await capture(), 'viewer', chatId);
+    // A build past its age: a check answers from it at once, an operation waits for the refresh.
+    let refreshed!: () => void;
+    const refresh = new Promise<void>(resolve => { refreshed = resolve; });
+    const build = mocks.viewAuthority.getMockImplementation()!;
+    mocks.viewAuthority.mockImplementation(async (serverId: string, options?: {stale?: boolean}) => {
+      if (!options?.stale) await refresh;
+      return build(serverId, options);
+    });
+    expect(await connectedViewStatus(view.id, 'viewer')).toMatchObject({revision: 0});
+    const {revision} = await updateConnectedContext(view.id, 'viewer', {content: [{type: 'text', text: 'Selected 7'}]});
+    const {context} = await freezeConnectedContext(chatId, 'viewer', [{viewId: view.id, revision}]);
+    expect(await connectedTurnContext(chatId, context)).toHaveLength(1);
+    let called = false;
+    const invocation = callConnectedView(view.id, 'viewer', 'filter', {}, randomUUID()).then(result => { called = true; return result; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(called).toBe(false);
+    refreshed();
+    expect(await invocation).toMatchObject({kind: 'result'});
+    // Every check took one build for all it read.
+    expect(mocks.viewAuthority.mock.calls.every(([, options]) => options && typeof options.stale === 'boolean')).toBe(true);
+  });
+
+  it('digests only the account\'s own toolkit access, staying closed to that toolkit\'s pins', async () => {
+    agentChat([{toolkitId: 'mcp_fixture'}]);
+    const view = await openConnectedView(await capture(), 'viewer', chatId);
+    // Granting the agent another service leaves this app's view as it was.
+    agentChat([{toolkitId: 'mcp_fixture'}, {toolkitId: 'gmail'}]);
+    expect(await connectedViewStatus(view.id, 'viewer')).toMatchObject({revision: 0});
+    // Narrowing this toolkit to the same account still changes what the view rests on.
+    agentChat([{toolkitId: 'mcp_fixture', accounts: [{accountId: 'account-A'}]}, {toolkitId: 'gmail'}]);
+    await expect(connectedViewStatus(view.id, 'viewer')).rejects.toThrow('access changed');
+  });
+
+  it('leaves a global screen\'s context off only when the chat may not use its account, and says anything else', async () => {
+    tools.push(launcher);
+    try {
+      const launched = await launchRequest('server', 'viewer', 'home');
+      await launchConnectedView(launched.viewId, 'viewer');
+      const screen = await openConnectedView(launched.invocationId, 'viewer');
+      const {revision} = await updateConnectedContext(screen.id, 'viewer', {content: [{type: 'text', text: 'Library page'}]});
+      agentChat([{toolkitId: 'mcp_fixture'}]);
+      // The account is reconnecting as the message is sent: that refuses the send with its own reason.
+      const build = mocks.viewAuthority.getMockImplementation()!;
+      let calls = 0;
+      mocks.viewAuthority.mockImplementation(async (serverId: string, options?: {stale?: boolean}) => {
+        const result = await build(serverId, options);
+        return ++calls === 2 ? {...result, view: null} : result;
+      });
+      await expect(freezeConnectedContext(chatId, 'viewer', [{viewId: screen.id, revision}])).rejects.toThrow('reconnecting');
+    } finally { tools.splice(tools.indexOf(launcher), 1); }
+  });
+
+  it('tells the composer which views may send context with a chat\'s messages', async () => {
+    const own = await openConnectedView(await capture(), 'viewer', chatId);
+    tools.push(launcher);
+    try {
+      const launched = await launchRequest('server', 'viewer', 'home');
+      await launchConnectedView(launched.viewId, 'viewer');
+      const screen = await openConnectedView(launched.invocationId, 'viewer');
+      const unknown = randomUUID();
+      expect(await connectedContextAccess(chatId, 'viewer', [own.id, screen.id, unknown])).toEqual({[own.id]: true, [screen.id]: true, [unknown]: false});
+      // A chat's own view goes only with that chat, and another person's views with none.
+      expect(await connectedContextAccess(randomUUID(), 'viewer', [own.id])).toEqual({[own.id]: false});
+      expect(await connectedContextAccess(chatId, 'someone-else', [screen.id])).toEqual({[screen.id]: false});
+      // An agent chat whose agent may not use the account gets no global context.
+      agentChat([{toolkitId: 'mcp_fixture', accounts: [{accountId: 'another-account'}]}]);
+      expect(await connectedContextAccess(chatId, 'viewer', [screen.id])).toEqual({[screen.id]: false});
+    } finally { tools.splice(tools.indexOf(launcher), 1); }
+  });
+
+  it('gives the browser a result\'s age by the home\'s clock', async () => {
+    const id = await capture();
+    mcpViews().capture(id).created -= 5_000;
+    const view = await openConnectedView(id, 'viewer', chatId);
+    expect(view.ageMs).toBeGreaterThanOrEqual(5_000);
+    expect(view.ageMs).toBeLessThan(VIEW_TTL);
+  });
+
+  it('ends a closed file view\'s watches, and a failure there never becomes an unhandled rejection', async () => {
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      mocks.closeWatches.mockImplementation(() => { throw new Error('the watch was already gone'); });
+      const id = await capture();
+      const long = Date.now() - VIEW_TTL - 1;
+      const capturedFile = {...mcpViews().capture(id), kind: 'file' as const, created: long};
+      const view: View = {id: randomUUID(), viewerId: 'viewer', capture: capturedFile, created: long, bytes: 0, delivered: 0, revision: 0, contextSecond: 0, contextCount: 0, closed: false, calls: new Map()};
+      mcpViews().views.set(view.id, view);
+      mcpViews().prune();
+      await vi.waitFor(() => expect(mocks.closeWatches).toHaveBeenCalledWith(view));
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(view.closed).toBe(true);
+    } finally { process.off('unhandledRejection', unhandled); }
+  });
+});
+

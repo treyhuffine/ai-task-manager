@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { _internals } from './health';
+import { _internals, SEND_REFUSED_SUBTYPE } from './health';
 import type { ChatEventRecord } from '@/db/types';
 
 /**
@@ -116,4 +116,23 @@ describe('inspectActivity', () => {
     expect(probe.orphan?.id).toBe('pr');
     expect(probe.orphan?.source).toBe('permission_response');
   });
+
+  // A message the chat already said wasn't sent must never be sent later by
+  // orphan recovery when the chat opens.
+  it('treats a refused message as final, not an orphan', () => {
+    const refused = [
+      row({ role: 'system', source: 'error', content: "This message wasn't sent: its app context is no longer available", raw: { subtype: SEND_REFUSED_SUBTYPE, messageId: 'u' }, createdAt: recent() }),
+      row({ id: 'u', role: 'user', source: 'user', createdAt: stale() }),
+    ];
+    expect(inspectActivity(refused).orphan).toBeNull();
+    // An ordinary error after a message (a harness failure mid-turn) still leaves it an orphan.
+    const failed = [
+      row({ role: 'system', source: 'error', content: 'The harness exited', createdAt: recent() }),
+      row({ id: 'u', role: 'user', source: 'user', createdAt: stale() }),
+    ];
+    expect(inspectActivity(failed).orphan?.id).toBe('u');
+    // A newer message after a refused one is that newer message's to recover.
+    expect(inspectActivity([row({ id: 'u2', role: 'user', source: 'user', createdAt: recent() }), ...refused]).orphan?.id).toBe('u2');
+  });
 });
+

@@ -20,7 +20,8 @@ import {
 } from '@/lib/db/queries';
 import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
 import * as executor from '@/lib/executor/adapter';
-import { healthCheckSession } from '@/lib/executor/health';
+import { healthCheckSession, recordSendRefused } from '@/lib/executor/health';
+import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
 import { SESSION_CREDENTIAL_HEADER, verifySessionCredential } from '@/lib/orchestrator/session-credential';
 import { budgetGate } from '@/lib/runs/budget';
@@ -125,6 +126,12 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     if (existing && (existing.sessionId !== id || existing.role !== 'user' || existing.source !== 'user' || existing.content !== content || (existing.senderSessionId ?? null) !== senderSessionId))
       return reply({ error: 'This message ID already belongs to different content or a different chat.' }, { status: 409 });
     const isExistingRetry = !!existing;
+    // Sources are the person's to choose: a mention binds an account to the message for the agent's
+    // calls. Ri's composer never writes one into a message an app sends, so any there came from the
+    // app's own text, and the message is refused rather than sent without what the app wrote.
+    if (body.fromApp && !isExistingRetry && parseSourceMarkers(content).some(part => part.type === 'source')) {
+      return reply({ error: 'This app\'s message names one of your sources, which only you can choose. It wasn\'t sent.' }, { status: 400 });
+    }
     if (!isExistingRetry) {
       try { await chatSources.preflight(id, content); }
       catch (error) {
@@ -183,11 +190,15 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
       catch (error) { return reply({ error: publicError(error).message }, { status: 409 }); }
     }
     let connectedContext: unknown = null;
+    // A global screen's context this chat may not use is left off, and the response names it.
+    let connectedContextSkipped: { viewId: string; app: string; reason: string }[] = [];
     if (body.connectedAppContext?.length && !isExistingRetry) {
       try {
         const key = getRequestKey(request.headers);
         if (key?.scope !== 'viewer') return reply({error: 'App context requires the viewing owner'}, {status: 403});
-        connectedContext = await (await import('@/lib/mcp-apps/service')).freezeConnectedContext(id, key.apiKeyId, body.connectedAppContext);
+        const frozen = await (await import('@/lib/mcp-apps/service')).freezeConnectedContext(id, key.apiKeyId, body.connectedAppContext);
+        if (frozen.context.length) connectedContext = frozen.context;
+        connectedContextSkipped = frozen.skipped;
       } catch (error) { return reply({error: error instanceof Error ? error.message : 'App context is unavailable'}, {status: 409}); }
     }
     // The app is recorded as the message's provenance: shown in the transcript and named to the
@@ -326,9 +337,10 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
       // Refused before anything took it: the chat says why, rather than
       // the message sitting there with no answer and no reason.
       let taken = false;
+      // Final: orphan recovery never sends a refused message again (`SEND_REFUSED_SUBTYPE`).
       const refused = (reason: string) => {
         if (taken) return;
-        insertChatEvent({ sessionId: id, role: 'system', source: 'error', content: reason, createdAt: new Date().toISOString() });
+        recordSendRefused(id, row.id, reason);
         if (failAgentRequestForMessage(row.id, reason)) {
           void import('@/lib/coordination/service').then(({ drainAgentCoordination }) => drainAgentCoordination());
         }
@@ -372,7 +384,9 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
 
     // Same projection as GET /events and the SSE stream. This row lands in
     // the same client cache as those, so it has to carry the same fields.
-    return reply(toChatEventDTO(row), { status: 201 });
+    // `connectedContextSkipped` names any app context left off, so the
+    // composer can say so rather than the person believing it went.
+    return reply({ ...toChatEventDTO(row), ...(connectedContextSkipped.length ? { connectedContextSkipped } : {}) }, { status: 201 });
   } catch (err) {
     console.error('[POST /api/sessions/:id/messages]', err);
     return reply({ error: String(err) }, { status: 500 });

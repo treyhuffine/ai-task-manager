@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { registerConnectedContext, selectConnectedContext, flushConnectedContext, visibleToPerson, visibleContextItems, connectedContextGroups, setConnectedContextContent, subscribeConnectedContext, connectedContextVersion } from './mcp-app-context';
+import { registerConnectedContext, selectConnectedContext, flushConnectedContext, visibleToPerson, visibleContextItems, connectedContextGroups, setConnectedContextContent, subscribeConnectedContext, connectedContextVersion, globalContextViewId, setConnectedContextAccess, noteSkippedContext } from './mcp-app-context';
 
 it('attaches only the selected acknowledged view in the exact receiving chat', async () => {
   const a=registerConnectedContext('chat-a','view-a',async()=>({viewId:'view-a',revision:2}));
@@ -51,6 +51,11 @@ describe('what apps attached, as the composer shows it', () => {
     const offScreen = registerConnectedContext(null, 'view-screen', async () => ({ viewId: 'view-screen', revision: 4 }), { app: 'Parts Library', clear: clearScreen, content: [hidden] });
     selectConnectedContext('chat-g', 'view-chat');
     selectConnectedContext(null, 'view-screen');
+    // The screen goes with a chat's messages only once the home says that chat may use its account.
+    expect(globalContextViewId()).toBe('view-screen');
+    expect(await flushConnectedContext('chat-g')).toEqual([{ viewId: 'view-chat', revision: 1 }]);
+    setConnectedContextAccess('chat-g', { 'view-screen': true });
+    setConnectedContextAccess('chat-other', { 'view-screen': true });
     // The screen attached only assistant context: it is sent, but there is nothing to show.
     expect(connectedContextGroups('chat-g').map(group => group.app)).toEqual(['Bits & Bolts']);
     expect(await flushConnectedContext('chat-g')).toEqual([{ viewId: 'view-chat', revision: 1 }, { viewId: 'view-screen', revision: 4 }]);
@@ -66,6 +71,27 @@ describe('what apps attached, as the composer shows it', () => {
     expect(connectedContextGroups('chat-g').map(group => group.app)).toEqual(['Bits & Bolts']);
     offChat(); offScreen();
     expect(connectedContextGroups('chat-g')).toEqual([]);
+  });
+
+  it('neither shows nor sends a global screen\'s context in a chat that may not use its account, and says when one was left off', async () => {
+    const off = registerConnectedContext(null, 'view-global', async () => ({ viewId: 'view-global', revision: 2 }), { app: 'Parts Library', clear: async () => {}, content: [bolt] });
+    selectConnectedContext(null, 'view-global');
+    setConnectedContextAccess('chat-main', { 'view-global': true });
+    setConnectedContextAccess('chat-agent', { 'view-global': false });
+    expect(connectedContextGroups('chat-main').map(group => group.app)).toEqual(['Parts Library']);
+    expect(connectedContextGroups('chat-agent')).toEqual([]);
+    expect(await flushConnectedContext('chat-agent')).toEqual([]);
+    // Unasked yet: not shown, not sent. Outside any chat it still shows.
+    expect(connectedContextGroups('chat-new')).toEqual([]);
+    expect(await flushConnectedContext('chat-new')).toEqual([]);
+    expect(connectedContextGroups(null).map(group => group.app)).toEqual(['Parts Library']);
+    // Access changed between asking and sending: the home left it off, the notice says so, and it stops showing.
+    expect(noteSkippedContext('chat-main', [{ viewId: 'view-global', app: 'Parts Library', reason: 'This chat can\'t use that account.' }]))
+      .toBe('Parts Library context wasn\'t sent with this message. This chat can\'t use that account.');
+    expect(connectedContextGroups('chat-main')).toEqual([]);
+    expect(noteSkippedContext('chat-main', undefined)).toBeNull();
+    expect(noteSkippedContext('chat-main', [])).toBeNull();
+    off();
   });
 
   it('tells subscribers about every change', () => {

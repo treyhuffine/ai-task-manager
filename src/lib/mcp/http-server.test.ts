@@ -60,9 +60,9 @@ describe('riMcpHandler', () => {
 describe('withProgressKeepalive', () => {
   // Claude Code gives up on a tool call after 60 seconds unless progress arrives. A call waiting on
   // a person, such as a server's form, must say it is still working.
-  const context = (progressToken?: string | number) => {
+  const context = (progressToken?: string | number, signal?: AbortSignal) => {
     const notify = vi.fn(async () => {});
-    return {notify, ctx: {mcpReq: {_meta: progressToken === undefined ? {} : {progressToken}, notify}} as never};
+    return {notify, ctx: {mcpReq: {_meta: progressToken === undefined ? {} : {progressToken}, notify, ...(signal ? {signal} : {})}} as never};
   };
 
   it('reports rising progress while the call waits, and stops when it answers', async () => {
@@ -84,5 +84,20 @@ describe('withProgressKeepalive', () => {
     expect(notify).not.toHaveBeenCalled();
     const tracked = context('call-7');
     await expect(withProgressKeepalive(tracked.ctx, async () => { throw new Error('refused'); }, 5)).rejects.toThrow('refused');
+  });
+
+  it('stops reporting progress once the client cancels, even while the work goes on', async () => {
+    const cancel = new AbortController();
+    const {notify, ctx} = context(2, cancel.signal);
+    const working = withProgressKeepalive(ctx, () => new Promise(resolve => setTimeout(() => resolve('finished anyway'), 80)), 10);
+    await vi.waitFor(() => expect(notify.mock.calls.length).toBeGreaterThanOrEqual(2));
+    cancel.abort();
+    const sent = notify.mock.calls.length;
+    expect(await working).toBe('finished anyway');
+    expect(notify.mock.calls.length).toBe(sent);
+    // A call that arrives already cancelled starts no progress at all.
+    const late = context(3, AbortSignal.abort());
+    expect(await withProgressKeepalive(late.ctx, () => new Promise(resolve => setTimeout(() => resolve('late'), 30)), 5)).toBe('late');
+    expect(late.notify).not.toHaveBeenCalled();
   });
 });

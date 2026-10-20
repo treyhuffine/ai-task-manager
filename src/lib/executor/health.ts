@@ -29,6 +29,7 @@
 import {
   chatPlacement,
   getChatSession,
+  insertChatEvent,
   listRecentChatEvents,
   workResultOperationForMessage,
   workResultOperationMetadata,
@@ -92,6 +93,22 @@ export interface HealthCheckOptions {
    */
   force?: boolean;
 }
+
+/**
+ * A message refused before anything took it (its worktree was gone, its app
+ * context no longer allowed, the harness wouldn't start). The chat says so
+ * with an error row carrying this subtype, and the refusal is final: orphan
+ * recovery never sends that message again. The person sends anew.
+ */
+export const SEND_REFUSED_SUBTYPE = 'send_refused';
+
+/** Say in the chat that a message wasn't sent, and why. */
+export function recordSendRefused(sessionId: string, messageId: string, reason: string) {
+  insertChatEvent({ sessionId, role: 'system', source: 'error', content: reason, raw: { subtype: SEND_REFUSED_SUBTYPE, messageId }, createdAt: new Date().toISOString() });
+}
+
+const isSendRefusal = (event: ChatEventRecord) =>
+  event.source === 'error' && (event.raw as { subtype?: unknown } | null)?.subtype === SEND_REFUSED_SUBTYPE;
 
 /** Window we count as "agent is doing something" for the activity probe. */
 const RECENT_ACTIVITY_MS = 60_000;
@@ -237,20 +254,26 @@ export async function healthCheckSession(
       }
       redispatchThrottle.lastAttempt.set(sessionId, now);
       try {
-        const attachments = (activity.orphan.attachments ?? []) as Attachment[];
-        const expanded = await expandMarkers(activity.orphan.content ?? '', attachments);
+        const orphan = activity.orphan;
+        const attachments = (orphan.attachments ?? []) as Attachment[];
+        const expanded = await expandMarkers(orphan.content ?? '', attachments);
         // Fire-and-forget: awaiting the full turn would block the
         // sweep for minutes. Errors are logged and the throttle
         // prevents thrash if dispatch keeps failing.
         // Same label the messages route adds when another chat sent it.
         // The orphan's own id: if the original send did reach a connected
         // device's queue, this finds that command instead of sending twice.
-        void dispatch(sessionId, withSenderLabel(expanded, activity.orphan.senderSessionId), {
-          sourceEventId: activity.orphan.id,
+        // Refused before anything took it, as a fresh send would be, it is
+        // final: the chat says why, and no later check sends it again.
+        let taken = false;
+        void dispatch(sessionId, withSenderLabel(expanded, orphan.senderSessionId), {
+          sourceEventId: orphan.id,
           attachments,
-          actor: actorOfMessage(activity.orphan.senderSessionId),
+          actor: actorOfMessage(orphan.senderSessionId),
+          onTaken: () => { taken = true; },
         }).catch((err) => {
           console.error(`[health] orphan redispatch failed for ${sessionId}:`, err);
+          if (!taken) recordSendRefused(sessionId, orphan.id, `This message wasn't sent: ${err instanceof Error ? err.message : String(err)}`);
         });
         redispatched = true;
         fixes.push('re-fired orphan user message');
@@ -310,6 +333,8 @@ function inspectActivity(recentDesc: ChatEventRecord[]): ActivityProbe {
   // hit decides the outcome.
   let orphan: ChatEventRecord | null = null;
   for (const e of recentDesc) {
+    // The newest message was refused: final, not an orphan.
+    if (isSendRefusal(e)) break;
     if (e.role === 'user' || e.source === 'permission_response') {
       orphan = e;
       break;

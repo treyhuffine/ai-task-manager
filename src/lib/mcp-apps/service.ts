@@ -4,7 +4,8 @@ import { inputDigest, type IntegrationRuntimeOptions } from '@integrations/engin
 import { processState } from '@/lib/process-state';
 import { integrationSourceMetadata } from '@/lib/integrations/source-metadata';
 import type { McpCapabilityTool } from '@/lib/integrations/mcp-capabilities';
-import { getIntegrationRuntime, getIntegrationOwnerId, getMcpViewConnection } from '@/lib/integrations/runtime';
+import { getIntegrationOwnerId, getMcpViewAuthority } from '@/lib/integrations/runtime';
+import { isCurrentMcpTransport } from '@/lib/integrations/mcp-lifecycle';
 import { hostedMcpConnectionId } from '@/lib/integrations/hosted-mcp';
 import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
 import { normalizeIntegrationScopes, pinMatchesConnection, scopePins } from '@/lib/integrations/scope-pins';
@@ -20,7 +21,9 @@ export const mcpAppsEnabled = () => process.env.RI_MCP_APPS !== '0';
 export const mcpViews = () => processState('mcp-app-views', () => new McpViewStore(Date.now, view => {
   const ids = listPendingApprovals({ownerId: getIntegrationOwnerId()}).filter(p => p.connectedApp?.viewId === view.id).map(p => p.id);
   if (ids.length) resolvePendingApprovals(ids, 'deny');
-  if (view.capture.kind === 'file') void import('./files').then(files => files.closeHostWatches(view));
+  // A view's file watches end with it. A failure here must not become an unhandled rejection: the
+  // watch still ends on its own, at unsubscribe or when the view expires.
+  if (view.capture.kind === 'file') void import('./files').then(files => files.closeHostWatches(view)).catch(() => {});
 }));
 const assertEnabled = () => { if (!mcpAppsEnabled()) throw new Error('Connected app views are disabled for this Home'); };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -81,14 +84,22 @@ export async function connectedAppsCatalog(viewerId?: string) {
  * agent's scopes (null for a chat without an agent), which an authority's
  * revision includes, or throws why not.
  */
+/** A chat may not use this account, or connected apps at all. Every other refusal is about the account itself. */
+export class ChatAccessError extends Error {}
+
+/**
+ * Whether a chat may use this exact account. Returns the agent's scope for the
+ * account's toolkit (its pins), which is all of the agent's access that this
+ * account's authority depends on, or null for a chat with no agent.
+ */
 function chatAccess(chatId: string, toolkitId: string, connection: Parameters<typeof pinMatchesConnection>[1]) {
   const chat = getChatSessionWithExecution(chatId);
-  if (!chat || chat.status === 'archived' || isImportMirror(chat) || ['result_review', 'app-builder', 'app-try'].includes(chat.surfaceKind ?? '')) throw new Error('This chat cannot use connected apps');
+  if (!chat || chat.status === 'archived' || isImportMirror(chat) || ['result_review', 'app-builder', 'app-try'].includes(chat.surfaceKind ?? '')) throw new ChatAccessError('This chat cannot use connected apps');
   if (!chat.workspaceId) return null;
   const scopes = normalizeIntegrationScopes(getWorkspace(chat.workspaceId)?.integrationScopes);
   const scope = scopes.find(s => s.toolkitId === toolkitId);
-  if (!scope || (scopePins(scope).length && !scopePins(scope).some(pin => pinMatchesConnection(pin, connection)))) throw new Error('This exact account is not available to this chat');
-  return scopes;
+  if (!scope || (scopePins(scope).length && !scopePins(scope).some(pin => pinMatchesConnection(pin, connection)))) throw new ChatAccessError('This exact account is not available to this chat');
+  return scope;
 }
 
 /**
@@ -111,37 +122,49 @@ export async function connectedChatTabs(chatId: string, viewerId?: string) {
 
 /**
  * What a view's access rests on: the exact account, its server and tools, and
- * the chat's scopes. `revision` digests all of it, so a capture stamped with
- * one is refused once any of it changes.
+ * the agent's access to that account's toolkit. `revision` digests all of it,
+ * so a capture stamped with one is refused once any of it changes. Access to
+ * other toolkits is not part of it: granting an agent Gmail leaves its
+ * Bits & Bolts views as they were.
+ *
+ * The runtime, the connections and the transport come from one build, and the
+ * server entry is read after it, so a launch prepared on a fresh runtime is
+ * stamped with the revision it will be checked against (building runs
+ * discovery, which can record new capabilities). `stale` lets a check that
+ * calls nothing on the server (a status poll, context, a send) answer from the
+ * current build past its age while it refreshes in the background. Operations
+ * that reach the server (opening, reading, calling a tool, a launch) wait for
+ * a current one.
  */
-export async function authority(serverId: string, chatId?: string) {
+export async function authority(serverId: string, chatId?: string, options: {stale?: boolean} = {}) {
   assertEnabled();
-  // Building the runtime runs discovery, which can record new capabilities. Read the metadata after
-  // it, so a launch prepared on a fresh runtime is stamped with the revision it will be checked against.
-  const runtime = await getIntegrationRuntime();
+  const {runtime, connections, view} = await getMcpViewAuthority(serverId, options);
   const metadata = await integrationSourceMetadata();
   const remote = metadata.servers.find(s => s.entry.id === serverId);
   if (!remote?.entry.enabled) throw new Error('This connection is disabled or removed');
-  const connection = (await runtime.listConnections({ownerId: getIntegrationOwnerId()})).find(c => c.id === hostedMcpConnectionId(remote.entry));
+  const connection = connections.find(c => c.id === hostedMcpConnectionId(remote.entry));
   if (!connection || connection.status !== 'active') throw new Error('Reconnect this exact account before opening its app');
   const toolkitId = remote.entry.providerId ?? `mcp_${remote.entry.slug}`;
-  const scopes = chatId ? chatAccess(chatId, toolkitId, connection) : null;
+  const scope = chatId ? chatAccess(chatId, toolkitId, connection) : null;
   const sourceRef = encodeSource({v: 1, kind: 'integration', toolkitId, account: {accountId: connection.accountId, authConfigId: connection.authConfigId ?? null}});
-  const revision = inputDigest([sourceRef, connection.id, connection.scopes.slice().sort(), remote.entry.url, remote.entry.credentialRevision, remote.entry.capabilityRevision, remote.entry.toolOverrides, remote.entry.enabled, scopes]);
-  const transport = await getMcpViewConnection(serverId);
+  const revision = inputDigest([sourceRef, connection.id, connection.scopes.slice().sort(), remote.entry.url, remote.entry.credentialRevision, remote.entry.capabilityRevision, remote.entry.toolOverrides, remote.entry.enabled, scope]);
+  // The build's transport, still matching the entry just read.
+  const transport = view && isCurrentMcpTransport(view.snapshot, {get: id => id === remote.entry.id ? remote.entry : null}) ? view : null;
   if (!transport) throw new Error('This account is reconnecting or its capabilities changed');
   return {remote, runtime, connection, sourceRef, revision, transport};
 }
 
-async function checkCapture(capture: Capture) {
+/** `stale` as for `authority`: a check that reaches nothing on the server. Operations that do pass false. */
+async function checkCapture(capture: Capture, stale = true) {
   if (capture.created + VIEW_TTL <= Date.now()) throw new Error('This app view has expired. Request a new result.');
-  const current = await authority(capture.serverId, capture.chatId);
+  const current = await authority(capture.serverId, capture.chatId, {stale});
   if (current.revision !== capture.authority || current.connection.id !== capture.connectionId || current.sourceRef !== capture.sourceRef) throw new Error('This app’s account or access changed. Request a new result.');
   return current;
 }
-export async function checkedView(viewId: string, viewerId: string) {
+/** A view, rechecked as a check (`stale`) unless `fresh`: pass that before anything reaches the server. */
+export async function checkedView(viewId: string, viewerId: string, options: {fresh?: boolean} = {}) {
   const view = mcpViews().get(viewId, viewerId);
-  const current = await checkCapture(view.capture);
+  const current = await checkCapture(view.capture, !options.fresh);
   return {view, ...current};
 }
 
@@ -159,7 +182,8 @@ export async function prepareMcpResultCapture(event: Parameters<NonNullable<Inte
   const toolName = event.actionId.slice(prefix.length);
   const tool = remote.capabilities?.tools.find(t => t.name === toolName), ui = tool && viewMetadata(tool);
   if (!tool || !ui || !modelToolVisible(tool)) return;
-  const current = await authority(remote.entry.id, chatId);
+  // The engine is already running this call on its build, so this only checks.
+  const current = await authority(remote.entry.id, chatId, {stale: true});
   const binding = {serverId: remote.entry.id, connectionId: event.connectionId, sourceRef: current.sourceRef, authority: current.revision,
     chatId, tool: toolName, title: viewTitle(remote.entry.displayName, toolTitle(tool)), input: structuredClone(object(event.input)), resourceUri: ui.resourceUri, legacy: ui.legacy, kind: 'result' as const};
   return async (result: unknown) => {
@@ -175,8 +199,9 @@ export async function prepareMcpResultCapture(event: Parameters<NonNullable<Inte
 export async function openConnectedView(captureId: string, viewerId: string, chatId?: string) {
   const capture = mcpViews().capture(captureId);
   if (capture.chatId !== chatId || (capture.viewerId && capture.viewerId !== viewerId)) throw new Error('This result belongs to a different viewer or chat');
-  const current = await checkCapture(capture);
   const view = mcpViews().open(capture, viewerId);
+  // Reading the interface reaches the server, so the first open waits for a current build. A reopen only checks.
+  const current = await checkCapture(capture, !!view.resource);
   let unsupported: string | undefined;
   if (!view.resource) {
     view.resourcePromise ??= (async () => {
@@ -203,7 +228,9 @@ export async function openConnectedView(captureId: string, viewerId: string, cha
     kind: capture.kind ?? 'result', created: capture.created, deepLink: capture.deepLink ?? null, file: capture.file ? {name: capture.file.name} : null,
     // OpenAI's model context host state: what this view last attached, or null, given again on every remount.
     modelContext: view.context && view.contextUpdateId ? {updateId: view.contextUpdateId, ...view.context} : null,
-    tool: capture.tool, app: current.remote.entry.displayName, icons: current.remote.entry.protocol?.info?.icons ?? []};
+    tool: capture.tool, app: current.remote.entry.displayName, icons: current.remote.entry.protocol?.info?.icons ?? [],
+    // How long ago the result arrived, by the home's clock, so a browser with a skewed clock still knows a fresh one.
+    ageMs: Math.max(0, Date.now() - capture.created)};
 }
 
 /**
@@ -213,10 +240,12 @@ export async function openConnectedView(captureId: string, viewerId: string, cha
  * server's resources. Bits & Bolts reads its STEP importer this way.
  */
 export async function readConnectedResource(viewId: string, viewerId: string, params: {uri: string; _meta?: Record<string, unknown>}) {
-  const {view, transport} = await checkedView(viewId, viewerId);
   if (typeof params.uri !== 'string' || params.uri.length > 4096 || !/^[a-z][a-z0-9+.-]*:/i.test(params.uri)) throw new Error('Invalid resource URI');
   const files = await import('./files');
-  if (files.isHostResource(params.uri)) return files.readHostResource(view, params.uri, params._meta);
+  // A host file is Ri's own to read, so that only checks. Anything else reaches the server.
+  const host = files.isHostResource(params.uri);
+  const {view, transport} = await checkedView(viewId, viewerId, {fresh: !host});
+  if (host) return files.readHostResource(view, params.uri, params._meta);
   if ((view.reads = (view.reads ?? 0) + 1) > MAX_CALLS) throw new Error('This app view reached its operation limit. Open it again to continue.');
   const result = await transport.readResource({uri: params.uri, ...(params._meta ? {_meta: params._meta} : {})});
   await checkCapture(view.capture);
@@ -228,7 +257,7 @@ export async function readConnectedResource(viewId: string, viewerId: string, pa
 
 /** `entrypoint` is a person opening a standalone screen, which the spec lets past `ui.visibility`. */
 async function invoke(view: View, name: string, args: Record<string, unknown>, invocationId: string, caller: 'model' | 'app' | 'entrypoint') {
-  const current = await checkCapture(view.capture);
+  const current = await checkCapture(view.capture, false);
   const tool = current.transport.tools.find(t => t.name === name);
   const allowed = !!tool && (caller === 'entrypoint'
     ? name === view.capture.tool && (view.capture.kind ?? 'result') !== 'result' && launchAllowed(view.capture.kind as LaunchKind, tool, current.remote)
@@ -469,9 +498,19 @@ export async function clearConnectedContext(viewId: string, viewerId: string) {
   view.contextUpdateId = undefined;
   return {revision: ++view.revision};
 }
+/** A global screen's context left off a message because the chat it went to may not use that account. */
+export interface SkippedConnectedContext { viewId: string; app: string; reason: string }
+
+/**
+ * The context a message carries, frozen as the person sends it. A chat's own
+ * views must still be what the composer showed. A global screen's context goes
+ * only to a chat that may use its account: in one that may not, it is left off
+ * and named in `skipped`, so the person is told rather than the send refused.
+ */
 export async function freezeConnectedContext(chatId: string, viewerId: string, refs: {viewId: string; revision: number}[]) {
   if (refs.length > 8) throw new Error('Too many app views attached to this message');
-  return Promise.all(refs.map(async ref => {
+  const skipped: SkippedConnectedContext[] = [];
+  const frozen = await Promise.all(refs.map(async ref => {
     const {view} = await checkedView(ref.viewId, viewerId);
     // A global screen belongs to the person, so its context goes with whichever chat they send next.
     const global = view.capture.kind === 'global' && !view.capture.chatId;
@@ -482,7 +521,11 @@ export async function freezeConnectedContext(chatId: string, viewerId: string, r
     // may use the account: an agent's chat sees only the accounts its agent may use.
     let bound = view.capture.authority;
     if (global) {
-      const destination = await authority(view.capture.serverId, chatId).catch(() => { throw new Error(`${view.capture.title} isn't available in this chat. Remove its context to send.`); });
+      const destination = await authority(view.capture.serverId, chatId, {stale: true}).catch(error => {
+        if (error instanceof ChatAccessError) return null;
+        throw error;
+      });
+      if (!destination) { skipped.push({viewId: view.id, app: view.capture.title, reason: 'This chat can\'t use that account.'}); return null; }
       if (destination.sourceRef !== view.capture.sourceRef || destination.connection.id !== view.capture.connectionId) throw new Error('App context changed. Try sending again.');
       bound = destination.revision;
     }
@@ -491,6 +534,28 @@ export async function freezeConnectedContext(chatId: string, viewerId: string, r
     return {sourceRef: view.capture.sourceRef, title: view.capture.title, serverId: view.capture.serverId, authority: bound, context,
       ...(files.length ? {files} : {})};
   }));
+  return {context: frozen.filter(item => item !== null), skipped};
+}
+
+/**
+ * Which of the person's views may send context with a message in this chat:
+ * the chat's own, and global screens on an account this chat may use. The
+ * composer shows (and sends) only these, so a global screen's context never
+ * appears in a chat it couldn't go to. A view that is gone, or another
+ * person's, is simply not allowed.
+ */
+export async function connectedContextAccess(chatId: string, viewerId: string, viewIds: string[]) {
+  const access: Record<string, boolean> = {};
+  await Promise.all(viewIds.map(async viewId => {
+    access[viewId] = await (async () => {
+      const {view} = await checkedView(viewId, viewerId);
+      if (view.capture.chatId) return view.capture.chatId === chatId;
+      if (view.capture.kind !== 'global') return false;
+      const destination = await authority(view.capture.serverId, chatId, {stale: true});
+      return destination.sourceRef === view.capture.sourceRef && destination.connection.id === view.capture.connectionId;
+    })().catch(() => false);
+  }));
+  return access;
 }
 
 /**
@@ -510,7 +575,7 @@ export async function connectedTurnContext(chatId: string, value: unknown) {
   return Promise.all(value.map(async item => {
     const frozen = object(item);
     if (typeof frozen.serverId !== 'string') throw new Error('Invalid app context source');
-    const current = await authority(frozen.serverId, chatId);
+    const current = await authority(frozen.serverId, chatId, {stale: true});
     if (current.revision !== frozen.authority || current.sourceRef !== frozen.sourceRef) throw new Error('This app context is no longer available to the chat');
     return {sourceRef: current.sourceRef, app: current.remote.entry.displayName, context: modelInput(frozen.context)};
   }));

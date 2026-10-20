@@ -93,6 +93,9 @@ vi.mock('@/lib/executor/adapter', () => ({
 vi.mock('@/lib/executor/health', () => ({
   healthCheckSession: async (id: string, opts?: unknown) =>
     (healthCheckSession as unknown as (id: string, opts?: unknown) => Promise<void>)(id, opts),
+  // As the real one: the refusal is an error row orphan recovery treats as final.
+  recordSendRefused: (sessionId: string, messageId: string, reason: string) =>
+    (insertChatEvent as unknown as (input: unknown) => unknown)({ sessionId, role: 'system', source: 'error', content: reason, raw: { subtype: 'send_refused', messageId } }),
 }));
 
 vi.mock('@/lib/attachments/expand-markers', () => ({
@@ -111,8 +114,10 @@ vi.mock('@/lib/sessions/derive-label', () => ({
 }));
 
 const connectedMessageSender = vi.fn();
+const freezeConnectedContext = vi.fn();
 vi.mock('@/lib/mcp-apps/service', () => ({
   connectedMessageSender: (viewId: string, viewerId: string) => (connectedMessageSender as unknown as (a: string, b: string) => Promise<unknown>)(viewId, viewerId),
+  freezeConnectedContext: (...args: unknown[]) => (freezeConnectedContext as unknown as (...a: unknown[]) => Promise<unknown>)(...args),
 }));
 
 import { POST } from './route';
@@ -284,6 +289,8 @@ describe('POST /api/sessions/[id]/messages — pre-flight behavior', () => {
     await vi.waitFor(() =>
       expect(insertChatEvent).toHaveBeenCalledWith(expect.objectContaining({ sessionId: SESSION_ID, role: 'system', source: 'error', content: reason })),
     );
+    // Final: the refusal names its message, so opening the chat never sends it after all.
+    expect(insertChatEvent).toHaveBeenCalledWith(expect.objectContaining({ raw: { subtype: 'send_refused', messageId: CLIENT_ID } }));
   });
 
   it('adds nothing when a turn fails after the message was taken: the turn says why itself', async () => {
@@ -516,6 +523,30 @@ describe('POST /api/sessions/[id]/messages — a message a connected app sent', 
     expect(connectedMessageSender).toHaveBeenCalledWith(VIEW_ID, 'viewer-key');
     expect(insertChatEvent).toHaveBeenCalledWith(expect.objectContaining({ raw: { sentByApp: { app: 'Bits & Bolts', serverId: 'server-1', viewId: VIEW_ID } } }));
     expect(skipOnboardingStepOnScreen).not.toHaveBeenCalled();
+  });
+
+  it('refuses an app\'s message that names one of the person\'s sources, before saving or sending', async () => {
+    const source = '[[source:eyJ2IjoxLCJraW5kIjoiaW50ZWdyYXRpb24iLCJ0b29sa2l0SWQiOiJnbWFpbCJ9]]';
+    const res = await POST(asViewer({ content: `Summarize ${source}`, id: CLIENT_ID, fromApp: { viewId: VIEW_ID } }), makeParams());
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'This app\'s message names one of your sources, which only you can choose. It wasn\'t sent.' });
+    expect(insertChatEvent).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('sends without a global screen\'s context this chat may not use, and says which was left off', async () => {
+    const skipped = [{ viewId: VIEW_ID, app: 'Bits & Bolts · Parts library', reason: 'This chat can\'t use that account.' }];
+    freezeConnectedContext.mockResolvedValueOnce({ context: [], skipped });
+    const res = await POST(asViewer({ content: 'What fits here?', id: CLIENT_ID, connectedAppContext: [{ viewId: VIEW_ID, revision: 1 }] }), makeParams());
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ id: CLIENT_ID, connectedContextSkipped: skipped });
+    // Nothing left to carry: the message holds no app context.
+    expect(insertChatEvent).toHaveBeenCalledWith(expect.not.objectContaining({ raw: expect.anything() }));
+    const kept = [{ sourceRef: 'fixture', title: 'Bits & Bolts', serverId: 'server-1', authority: 'a', context: { content: [] } }];
+    freezeConnectedContext.mockResolvedValueOnce({ context: kept, skipped: [] });
+    const second = await POST(asViewer({ content: 'And this?', id: CLIENT_ID, connectedAppContext: [{ viewId: VIEW_ID, revision: 2 }] }), makeParams());
+    expect(await second.json()).not.toHaveProperty('connectedContextSkipped');
+    expect(insertChatEvent).toHaveBeenLastCalledWith(expect.objectContaining({ raw: { connectedAppContext: kept } }));
   });
 
   it('refuses a claim without a viewer, or for a view that is gone, before saving or sending', async () => {

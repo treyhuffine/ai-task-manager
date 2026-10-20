@@ -8,7 +8,6 @@
  */
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { desktopEnabled, desktopRelayFor } from './desktop-oauth';
-import fs from 'node:fs';
 import path from 'node:path';
 import {
   createIntegrationRuntime,
@@ -494,6 +493,8 @@ interface Built {
   managedConfiguration: string;
   managedSources: ManagedSourceStatus[];
   discoveryUnavailable: boolean;
+  /** Set once a newer build replaced this one: its transports take no new work. */
+  liveness: { superseded: boolean };
 }
 
 export interface McpViewConnection {
@@ -522,6 +523,7 @@ const rt = processState('integrations.runtime', () => ({
 // with row-level tenant isolation, spec §20). Until then this is single-user local.
 async function build(): Promise<Built> {
   const buildGeneration = rt.generation;
+  const liveness = { superseded: false };
   // Read before registering, so a change landing mid-build is seen as a change afterwards.
   const managedConfiguration = managedSourcesSignature();
   const mcpViews = new Map<string, McpViewConnection>();
@@ -822,7 +824,7 @@ async function build(): Promise<Built> {
               }
               // Retire a broken transport on the next access. Never retry the
               // action: paid requests may already have crossed the wire.
-              if (!account.unavailable && rt.generation === buildGeneration) {
+              if (!account.unavailable && rt.generation === buildGeneration && !liveness.superseded) {
                 const authRejected = await recordFailure(snapshot, error, phase);
                 invalidateIntegrationRuntime();
                 if (authRejected) throw new NeedsReauthError(hostedMcpConnectionId(snapshot), 'The service rejected the connection credentials.');
@@ -836,7 +838,7 @@ async function build(): Promise<Built> {
             ownerId: getIntegrationOwnerId(), connectionId: hostedMcpConnectionId(snapshot), sessionToken: account.sessionToken,
             ...(account.unavailable ? { preserveConnection: true } : {}),
             isCurrentTransport: () => {
-              if (rt.generation !== buildGeneration || account.changed || mcpStore.get(snapshot.id)?.capabilityRevision !== snapshot.capabilityRevision) {
+              if (rt.generation !== buildGeneration || liveness.superseded || account.changed || mcpStore.get(snapshot.id)?.capabilityRevision !== snapshot.capabilityRevision) {
                 throw new IntegrationError('tools_changed', `The ${INTEGRATION_LABELS.singular.toLowerCase()} tools changed. Refresh the available tools before trying again.`);
               }
               return isCurrentMcpTransport(snapshot, mcpStore);
@@ -877,7 +879,7 @@ async function build(): Promise<Built> {
   const configuration = mcpConfigurationSignature(entries.map(entry => prepared.find(candidate => candidate.entry.id === entry.id)?.entry ?? entry));
   if (configuration !== mcpConfigurationSignature(mcpStore)) invalidateIntegrationRuntime();
   if (managedConfiguration !== managedSourcesSignature()) invalidateIntegrationRuntime();
-  return { runtime, admin, mcpClients, mcpViews, builtAt: Date.now(), configuration, managedConfiguration, managedSources: managed.sources, discoveryUnavailable };
+  return { runtime, admin, mcpClients, mcpViews, builtAt: Date.now(), configuration, managedConfiguration, managedSources: managed.sources, discoveryUnavailable, liveness };
 }
 
 /** Changes made by another process must also refresh the tool projection. */
@@ -900,33 +902,56 @@ async function closeClients(b: Built): Promise<void> {
   await Promise.all(b.mcpClients.map((c) => c.close().catch(() => {})));
 }
 
-async function getBuilt(): Promise<Built> {
-  if (rt.cachedBuilt) {
-    const maxAge = rt.cachedBuilt.discoveryUnavailable ? MCP_DISCOVERY_RETRY_MS : MCP_DISCOVERY_MAX_AGE_MS;
-    if (Date.now() - rt.cachedBuilt.builtAt < maxAge &&
-      rt.cachedBuilt.configuration === mcpConfigurationSignature(getMcpServerStore()) &&
-      rt.cachedBuilt.managedConfiguration === managedSourcesSignature()) return rt.cachedBuilt;
+/**
+ * The built runtime. A build past its age is rebuilt before it answers, so a
+ * tool call always runs on current discovery. `stale` is for checks that only
+ * read what a build already knows (a connected app's access, its status poll,
+ * the context a message carries): they get the current build even past its
+ * age, and a refresh starts in the background, so a check never waits on
+ * reconnecting every server. A changed configuration is never stale-served.
+ */
+async function getBuilt(options: { stale?: boolean } = {}): Promise<Built> {
+  const cached = rt.cachedBuilt;
+  if (cached) {
+    const current = cached.configuration === mcpConfigurationSignature(getMcpServerStore()) &&
+      cached.managedConfiguration === managedSourcesSignature();
+    const maxAge = cached.discoveryUnavailable ? MCP_DISCOVERY_RETRY_MS : MCP_DISCOVERY_MAX_AGE_MS;
+    if (current && Date.now() - cached.builtAt < maxAge) return cached;
+    if (current && options.stale) {
+      void refreshBuilt().catch(() => {});
+      return cached;
+    }
+    // A refresh already under way started after this build aged out: wait for it. Taking it retires this one.
+    if (current && rt.inFlight) return rt.inFlight;
     invalidateIntegrationRuntime();
   }
+  return refreshBuilt();
+}
+
+/** One build at a time. A finished build replaces the cached one, which takes no new work and closes once its own work ends. */
+function refreshBuilt(): Promise<Built> {
   if (rt.inFlight) return rt.inFlight;
-  rt.inFlight = (async () => {
+  const inFlight = (async () => {
     // Loop so a config change that lands mid-build (a `generation` bump from
     // invalidateIntegrationRuntime) rebuilds with the latest config instead of caching stale state.
     for (;;) {
       const myGen = rt.generation;
       const built = await build();
       if (myGen === rt.generation) {
+        const old = rt.cachedBuilt;
         rt.cachedBuilt = built;
+        if (old && old !== built) {
+          old.liveness.superseded = true;
+          void closeClients(old).catch(() => {});
+        }
         return built;
       }
       await closeClients(built).catch(() => {});
     }
   })();
-  try {
-    return await rt.inFlight;
-  } finally {
-    rt.inFlight = null;
-  }
+  rt.inFlight = inFlight;
+  void inFlight.finally(() => { if (rt.inFlight === inFlight) rt.inFlight = null; }).catch(() => {});
+  return inFlight;
 }
 
 export async function getIntegrationRuntime(): Promise<IntegrationRuntime> {
@@ -935,12 +960,24 @@ export async function getIntegrationRuntime(): Promise<IntegrationRuntime> {
 
 /** Per-account UI definitions and resource access from the existing transport. */
 export async function getMcpViewConnection(serverId: string): Promise<McpViewConnection | null> {
-  const built = await getBuilt();
-  const view = built.mcpViews.get(serverId);
+  const { view, connections } = await getMcpViewAuthority(serverId);
   if (!view || !isCurrentMcpTransport(view.snapshot, getMcpServerStore())) return null;
-  const connection = (await built.runtime.listConnections({ ownerId: getIntegrationOwnerId() }))
-    .find(value => value.id === hostedMcpConnectionId(view.snapshot) && value.status === 'active');
-  return connection ? view : null;
+  return connections.some(value => value.id === hostedMcpConnectionId(view.snapshot) && value.status === 'active') ? view : null;
+}
+
+/**
+ * Everything a connected app's access check reads, from one build: its
+ * runtime, the owner's connections, and the server's view transport as that
+ * build opened it (null when it has none). One build, so a refresh landing
+ * between reads can't make a check refuse spuriously. The caller checks the
+ * transport is still current (`isCurrentMcpTransport`) against the server
+ * entry it reads. `stale` as for the build (`getBuilt`): checks pass it,
+ * operations don't.
+ */
+export async function getMcpViewAuthority(serverId: string, options: { stale?: boolean } = {}): Promise<{ runtime: IntegrationRuntime; connections: Awaited<ReturnType<IntegrationRuntime['listConnections']>>; view: McpViewConnection | null }> {
+  const built = await getBuilt(options);
+  const connections = await built.runtime.listConnections({ ownerId: getIntegrationOwnerId() });
+  return { runtime: built.runtime, connections, view: built.mcpViews.get(serverId) ?? null };
 }
 
 /** How each managed source fared in the current build (key rejected, unreachable, cached tools). */
