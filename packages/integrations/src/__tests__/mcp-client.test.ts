@@ -69,6 +69,10 @@ const appServer: McpServerFactory = () => {
   server.registerResource('app', 'ui://fixture/app.html', { mimeType: 'text/html;profile=mcp-app' }, async uri => ({
     contents: [{ uri: uri.href, mimeType: 'text/html;profile=mcp-app', text: '<main>View</main>', _meta: { 'openai/ui': { availableDisplayModes: ['fullscreen'] } } }],
   }));
+  // A page the server says may be reused for a minute (SEP-2549 `ttlMs`).
+  server.registerResource('cached', 'ui://fixture/cached.html', { mimeType: 'text/html;profile=mcp-app' }, async uri => ({
+    contents: [{ uri: uri.href, mimeType: 'text/html;profile=mcp-app', text: '<main>Cached</main>' }], ttlMs: 60_000,
+  }) as never);
   server.registerTool('ask', { inputSchema: object }, async (_args, ctx) => {
     const answer = ctx.mcpReq.inputResponses?.form as { action?: string; content?: Record<string, unknown> } | undefined;
     if (answer) return { content: [{ type: 'text', text: JSON.stringify(answer) }] };
@@ -156,6 +160,15 @@ describe('connectMcpClient over Streamable HTTP', () => {
     ]);
     expect(methods[0]).toBe('server/discover');
     expect(methods).not.toContain('initialize');
+  });
+
+  it('reads a resource from the server every time, whatever its cache hint', async () => {
+    const handler = createMcpHandler(appServer);
+    const { url, methods } = await serve(request => handler.fetch(request));
+    const client = await connectMcpClient({ url });
+    clients.push(client);
+    for (let i = 0; i < 2; i++) expect((await client.readResource({ uri: 'ui://fixture/cached.html' })).contents[0]).toMatchObject({ text: '<main>Cached</main>' });
+    expect(methods.filter(method => method === 'resources/read')).toHaveLength(2);
   });
 
   it('falls back to the 2025 handshake for a server that predates 2026-07-28', async () => {

@@ -291,8 +291,10 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
 
   return {
     server,
+    // Always from the server: the SDK would otherwise serve a body again for as long as the server's
+    // `ttlMs` allows, so an app page would come from memory instead of through the live access checks.
     async readResource(params) {
-      return tracked(null, () => client.readResource(params, { timeout: MCP_RESOURCE_TIMEOUT_MS }));
+      return tracked(null, () => client.readResource(params, { timeout: MCP_RESOURCE_TIMEOUT_MS, cacheMode: 'bypass' }));
     },
     async listTools() {
       return tracked(null, () => listTools());
