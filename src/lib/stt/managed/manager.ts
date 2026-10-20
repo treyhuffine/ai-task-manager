@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import { getConfigDir, getWorkDir } from '@/lib/config/paths';
 import { atomicWriteFile } from '@/lib/config/atomic-file';
 import { beginActivity } from '@/lib/service/maintenance';
+import { untraced } from '@/lib/utils/untraced';
 import { downloadModelFile, verifyModelFile } from './download';
 import { PARAKEET_BYTES, PARAKEET_FILES, PARAKEET_REVISION, modelUrl } from './model';
 
@@ -25,7 +26,7 @@ function helperPath() {
 }
 export function speechPreferences(): SpeechPreferences {
   try {
-    const value = JSON.parse(fs.readFileSync(speechPaths().settings, 'utf8'));
+    const value = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ speechPaths().settings, 'utf8'));
     return { enabled: value.enabled === true, cloudFallback: value.cloudFallback === true };
   } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { enabled: false, cloudFallback: false }; throw error; }
 }
@@ -54,7 +55,7 @@ export class ManagedSpeech {
       phase: this.phase === 'not-installed' && installed ? 'installed' : this.phase,
       supported, installed, ...preferences, downloadedBytes: this.downloaded, totalBytes: PARAKEET_BYTES,
       error: this.error, model: 'Parakeet v3 INT8', revision: PARAKEET_REVISION,
-      helperAvailable: supported && fs.existsSync(helperPath()),
+      helperAvailable: supported && fs.existsSync(/* turbopackIgnore: true */ helperPath()),
     };
   }
   private claim() {
@@ -103,7 +104,7 @@ export class ManagedSpeech {
   }
   private async installFiles(signal: AbortSignal) {
     const paths = speechPaths();
-    if (!fs.existsSync(paths.model) && fs.existsSync(`${paths.model}.previous`)) await fs.promises.rename(`${paths.model}.previous`, paths.model);
+    if (!fs.existsSync(/* turbopackIgnore: true */ paths.model) && fs.existsSync(`${paths.model}.previous`)) await fs.promises.rename(`${paths.model}.previous`, paths.model);
     fs.mkdirSync(paths.staging, { recursive: true, mode: 0o700 });
     const available = fs.statfsSync(paths.root);
     if (available.bavail * available.bsize < PARAKEET_BYTES + 256 * 1024 * 1024) throw new Error('Local speech needs at least 900 MiB of free disk space');
@@ -124,10 +125,10 @@ export class ManagedSpeech {
     // The prior verified model remains usable until the complete replacement is ready.
     const previous = `${paths.model}.previous`;
     await fs.promises.rm(previous, { recursive: true, force: true });
-    if (fs.existsSync(paths.model)) await fs.promises.rename(paths.model, previous);
+    if (fs.existsSync(/* turbopackIgnore: true */ paths.model)) await fs.promises.rename(paths.model, previous);
     try { await fs.promises.rename(paths.staging, paths.model); }
     catch (error) { if (fs.existsSync(previous)) await fs.promises.rename(previous, paths.model); throw error; }
-    const directory = await fs.promises.open(paths.root, 'r');
+    const directory = await fs.promises.open(/* turbopackIgnore: true */ paths.root, 'r');
     try { await directory.sync(); } finally { await directory.close(); }
     await fs.promises.rm(previous, { recursive: true, force: true });
     atomicWriteFile(speechPaths().settings, JSON.stringify({ ...speechPreferences(), enabled: true }));
@@ -173,7 +174,7 @@ export class ManagedSpeech {
       for (const spec of PARAKEET_FILES) if (!(await verifyModelFile(path.join(speechPaths().model, spec.name), spec))) throw new Error('Local speech model is damaged. Use Repair in Voice settings');
       signal.throwIfAborted();
       const token = randomBytes(32).toString('hex');
-      const child = spawn(helperPath(), [], { stdio: 'pipe', cwd: speechPaths().root, env: { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH, HOME: process.env.HOME, HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1' } });
+      const child = spawn(untraced(helperPath()), [], { stdio: 'pipe', cwd: speechPaths().root, env: { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH, HOME: process.env.HOME, HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1' } });
       this.child = child;
       child.stderr.on('data', () => {}); // No recordings/transcripts or unbounded helper logs.
       child.on('exit', () => {

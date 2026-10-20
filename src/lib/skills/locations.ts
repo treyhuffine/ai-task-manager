@@ -279,8 +279,8 @@ export function newSkillDir(location: SkillLocation, name: string): string {
  */
 export function linkMirror(location: SkillLocation, dir: string): void {
   const channels = channelsOf(location);
-  if (!channels.mirror || path.dirname(dir) !== path.resolve(channels.primary)) return;
-  const link = path.join(channels.mirror, path.basename(dir));
+  if (!channels.mirror || path.dirname(dir) !== path.resolve(/* turbopackIgnore: true */ channels.primary)) return;
+  const link = path.join(/* turbopackIgnore: true */ channels.mirror, path.basename(dir));
   try {
     fs.lstatSync(link);
     return;
@@ -301,7 +301,7 @@ export function unlinkMirror(location: SkillLocation, dir: string): void {
     return;
   }
   if (!channels.mirror) return;
-  const link = path.join(channels.mirror, path.basename(dir));
+  const link = path.join(/* turbopackIgnore: true */ channels.mirror, path.basename(dir));
   if (linkTarget(link) === path.resolve(dir)) fs.rmSync(link, { force: true });
 }
 
@@ -313,7 +313,7 @@ export function projectPaths(skill: LocatedSkill): { cwd: string; paths: string[
   if (skill.location.kind !== 'project') return null;
   const { cwd } = requireProject(skill.location.workspaceId);
   const channels = channelsOf(skill.location);
-  const candidates = [path.join(channels.primary, skill.name), ...(channels.mirror ? [path.join(channels.mirror, skill.name)] : [])];
+  const candidates = [path.join(channels.primary, skill.name), ...(channels.mirror ? [path.join(/* turbopackIgnore: true */ channels.mirror, skill.name)] : [])];
   const inside = skill.dir.startsWith(cwd + path.sep) ? [skill.dir] : [];
   const paths = [...new Set([...inside, ...candidates])].map((p) => path.relative(cwd, p));
   return { cwd, paths };

@@ -132,7 +132,7 @@ export function startPerfRecorder(options: { logPath?: string; maxBytes?: number
     const logPath = options.logPath ?? perfLogPaths().current;
     fs.mkdirSync(path.dirname(logPath), { recursive: true, mode: 0o700 });
     s.logPath = logPath;
-    s.logBytes = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
+    s.logBytes = fs.existsSync(/* turbopackIgnore: true */ logPath) ? fs.statSync(/* turbopackIgnore: true */ logPath).size : 0;
     s.maxBytes = options.maxBytes ?? MAX_LOG_BYTES;
   } catch (err) {
     console.warn('[perf] not recording:', err instanceof Error ? err.message : err);

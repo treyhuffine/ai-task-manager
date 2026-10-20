@@ -73,12 +73,12 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     }
 
     for (const rel of CANDIDATES) {
-      const candidate = path.join(resolved, rel);
+      const candidate = path.join(/* turbopackIgnore: true */ resolved, rel);
       // Confirm the candidate still resolves inside the workspace — guards
       // against symlinks pointing somewhere unexpected.
       let real: string;
       try {
-        real = await fs.realpath(candidate);
+        real = await fs.realpath(/* turbopackIgnore: true */ candidate);
       } catch {
         continue;
       }

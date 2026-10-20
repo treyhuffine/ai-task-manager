@@ -149,7 +149,7 @@ export function getConfigDir(): string {
 
 export function ensureConfigDir(): string {
   const dir = getConfigDir();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
@@ -196,7 +196,7 @@ export function getWorkDir(): string {
 
 export function ensureWorkDir(): string {
   const dir = getWorkDir();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
@@ -421,10 +421,10 @@ export function migrateLayout(
   // 1. brain/ → root (content) and brain/{icons,preview} → .work.
   if (fs.existsSync(brain)) {
     for (const name of CONTENT_ENTRIES) {
-      migrateMove(path.join(brain, name), path.join(root, name), moved, dryRun);
+      migrateMove(path.join(brain, name), path.join(/* turbopackIgnore: true */ root, name), moved, dryRun);
     }
     for (const name of WORK_ENTRIES) {
-      migrateMove(path.join(brain, name), path.join(getWorkDir(), name), moved, dryRun);
+      migrateMove(path.join(brain, name), path.join(/* turbopackIgnore: true */ getWorkDir(), name), moved, dryRun);
     }
     // Drop brain/ if we emptied it (best-effort; leaves it if user has extras).
     if (!dryRun) {
@@ -436,10 +436,10 @@ export function migrateLayout(
 
   // 2. root → .config (settings) and root → .work (scratch).
   for (const name of CONFIG_ENTRIES) {
-    migrateMove(path.join(root, name), path.join(getConfigDir(), name), moved, dryRun);
+    migrateMove(path.join(/* turbopackIgnore: true */ root, name), path.join(/* turbopackIgnore: true */ getConfigDir(), name), moved, dryRun);
   }
   for (const name of WORK_ENTRIES) {
-    migrateMove(path.join(root, name), path.join(getWorkDir(), name), moved, dryRun);
+    migrateMove(path.join(/* turbopackIgnore: true */ root, name), path.join(/* turbopackIgnore: true */ getWorkDir(), name), moved, dryRun);
   }
 
   return { migrated: moved.length > 0, moved };

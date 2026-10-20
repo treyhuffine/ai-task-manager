@@ -141,7 +141,7 @@ async function killPid(pid: number): Promise<void> {
 function clearSingletonLocks(profileDir: string): void {
   for (const name of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
     try {
-      fs.rmSync(path.join(profileDir, name), { force: true });
+      fs.rmSync(path.join(/* turbopackIgnore: true */ profileDir, name), { force: true });
     } catch {
       // ignore
     }

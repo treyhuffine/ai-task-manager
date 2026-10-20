@@ -30,7 +30,7 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
     const home = os.homedir();
     const expanded = raw.startsWith('~')
       ? path.join(home, raw.slice(1).replace(/^[/]/, ''))
-      : path.resolve(raw);
+      : path.resolve(/* turbopackIgnore: true */ raw);
 
     let resolved: string;
     try {

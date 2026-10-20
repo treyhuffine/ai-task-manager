@@ -92,9 +92,9 @@ function findExternalBeamdOnPath(bundledCliDir: string | null): string | null {
     if (!dir) continue;
     if (path.basename(dir) === '.bin') continue; // per-project shim dir — that's the bundled copy
     for (const name of names) {
-      const candidate = path.join(dir, name);
+      const candidate = path.join(/* turbopackIgnore: true */ dir, name);
       try {
-        if (!fs.statSync(candidate).isFile()) continue; // follows symlinks; skips dirs
+        if (!fs.statSync(/* turbopackIgnore: true */ candidate).isFile()) continue; // follows symlinks; skips dirs
         fs.accessSync(candidate, fs.constants.X_OK);
       } catch {
         continue;

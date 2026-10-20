@@ -40,7 +40,7 @@ export async function readWorkspaceFile(
   if (!safe) {
     throw new FileReadError('invalid_path', `Invalid path: ${relPath}`);
   }
-  return readFileAt(path.join(ws.path, safe), safe);
+  return readFileAt(path.join(/* turbopackIgnore: true */ ws.path, safe), safe);
 }
 
 /**
