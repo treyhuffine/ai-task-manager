@@ -115,5 +115,11 @@ export function mentionsSearchTool(extensions: unknown, tools: readonly Pick<Mcp
   return tools.find(tool => Object.hasOwn(record(record(tool._meta)['openai/extensions']), 'mentions/search'))?.name ?? null;
 }
 
-/** Private UI metadata is deliberately absent from transcript events. */
-export const MCP_APP_EVENT = 'mcp_app_result';
+/**
+ * The transcript marker of a model tool result with a view, in `content` and
+ * `raw.subtype`. The event carries only its id: the result's data is its row
+ * in `mcp_tool_results`, and private UI metadata never reaches the transcript.
+ */
+export const MCP_TOOL_RESULT_EVENT = 'mcp_tool_result';
+/** Every marker a tool result has been written with: rows from before October 20, 2026 say `mcp_app_result`. */
+export const MCP_TOOL_RESULT_EVENTS: ReadonlySet<string> = new Set([MCP_TOOL_RESULT_EVENT, 'mcp_app_result']);

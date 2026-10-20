@@ -135,7 +135,7 @@ describe('connected MCP views', () => {
     expect(mocks.store).toHaveBeenCalledWith({id, chatSessionId: chatId, serverId: 'server', connectionId: 'mcp-fixture', sourceRef: expect.any(String), tool: 'calculate',
       resourceUri: 'ui://fixture/calculator.html', input: {amount: 2}, result});
     const row = mocks.insert.mock.calls[0][0];
-    expect(row).toMatchObject({id, sessionId: chatId, content: 'mcp_app_result', raw: {subtype: 'mcp_app_result'}});
+    expect(row).toMatchObject({id, sessionId: chatId, content: 'mcp_tool_result', raw: {subtype: 'mcp_tool_result'}});
     expect(JSON.stringify(row)).not.toContain('Only for the interface');
     expect(JSON.stringify(toChatEventDTO(row))).not.toContain('Only for the interface');
     const first = await openConnectedView(id, 'viewer', chatId);

@@ -1,5 +1,5 @@
 /**
- * Transcript markers for a server's form, like `MCP_APP_EVENT`: the request
+ * Transcript markers for a server's form, like `MCP_TOOL_RESULT_EVENT`: the request
  * card (its event id is the form id) and the recorded end of the form. The
  * form itself stays in the Home's memory, never in the transcript.
  */

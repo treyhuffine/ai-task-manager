@@ -13,7 +13,7 @@ import { sessionCaller, sessionIdFromCaller, listPendingApprovals, resolvePendin
 import { isImportMirror } from '@/lib/import/mirror';
 import { encodeSource } from '@/lib/chat-sources/reference';
 import { safeMcpIcon } from '@/lib/integrations/mcp-icons';
-import { appToolVisible, entrypointIcons, mentionsSearchTool, modelToolVisible, settingsCapability, toolTitle, viewMetadata, MCP_APP_EVENT } from './metadata';
+import { appToolVisible, entrypointIcons, mentionsSearchTool, modelToolVisible, settingsCapability, toolTitle, viewMetadata, MCP_TOOL_RESULT_EVENT } from './metadata';
 import { declaredCsp, type DeclaredNetwork, type ViewCsp } from '@ri/mcp-apps-host/csp';
 import { McpViewStore, MAX_DELIVERED_RESULT, MAX_RESULT, type Capture, type CaptureKind, type ModelContext, type View } from './store';
 import { prepareResource } from './resource';
@@ -211,8 +211,8 @@ export async function prepareMcpResultCapture(event: Parameters<NonNullable<Inte
     // event carries only its id, so transcript pages never read it and its private metadata stays here.
     insertMcpToolResult({id: capture.id, chatSessionId: chatId, serverId: capture.serverId, connectionId: capture.connectionId, sourceRef: capture.sourceRef,
       tool: capture.tool, resourceUri: capture.resourceUri, input: capture.input, result: capture.result as Record<string, unknown>});
-    insertChatEvent({id: capture.id, sessionId: chatId, source: 'system', role: 'system', content: MCP_APP_EVENT,
-      externalEventId: `mcp-view:${event.attemptId}`, raw: {subtype: MCP_APP_EVENT}, createdAt: new Date().toISOString()});
+    insertChatEvent({id: capture.id, sessionId: chatId, source: 'system', role: 'system', content: MCP_TOOL_RESULT_EVENT,
+      externalEventId: `mcp-view:${event.attemptId}`, raw: {subtype: MCP_TOOL_RESULT_EVENT}, createdAt: new Date().toISOString()});
   };
 }
 

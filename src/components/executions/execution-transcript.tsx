@@ -1,6 +1,6 @@
 'use client';
 
-import { MCP_APP_EVENT } from '@/lib/mcp-apps/metadata';
+import { MCP_TOOL_RESULT_EVENTS } from '@/lib/mcp-apps/metadata';
 import { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT } from '@/lib/mcp-apps/form-events';
 import {
 	Conversation,
@@ -416,7 +416,7 @@ function ScrollOnSend({ trigger }: { trigger: string | null }) {
  * should get a purpose-built styled affordance — not a raw divider — so add
  * it here only alongside that.
  */
-const RENDERABLE_SYSTEM_SUBTYPES = new Set<string>([MCP_APP_EVENT, MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT]);
+const RENDERABLE_SYSTEM_SUBTYPES = new Set<string>([...MCP_TOOL_RESULT_EVENTS, MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT]);
 
 /**
  * Drop transcript noise:

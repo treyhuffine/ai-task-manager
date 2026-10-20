@@ -4,7 +4,7 @@ import { SourceText, SourceMetadataProvider } from '@/components/chat-ui/referen
 
 import {AppOpenControl} from '@/components/local-apps/open-control';
 import { ConnectedView } from '@/components/mcp-apps/view';
-import { MCP_APP_EVENT } from '@/lib/mcp-apps/metadata';
+import { MCP_TOOL_RESULT_EVENTS } from '@/lib/mcp-apps/metadata';
 import { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT } from '@/lib/mcp-apps/form-events';
 import { ConnectedForm } from '@/components/mcp-apps/form/connected-form';
 import { ConnectedFormOutcome } from '@/components/mcp-apps/form/form-outcome';
@@ -494,7 +494,7 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
     }
 
     case 'system':
-      if (event.content === MCP_APP_EVENT) return <ConnectedView captureId={event.id} chatId={event.sessionId} />;
+      if (MCP_TOOL_RESULT_EVENTS.has(event.content ?? '')) return <ConnectedView captureId={event.id} chatId={event.sessionId} />;
       if (event.content === MCP_FORM_EVENT) return <ConnectedForm formId={event.id} />;
       if (event.content === MCP_FORM_RESPONSE_EVENT) return <ConnectedFormOutcome raw={event.raw} />;
       return (

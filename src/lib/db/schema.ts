@@ -2335,7 +2335,7 @@ export const chatEvents = sqliteTable(
 // ─── Connected app results ────────────────────────────────────
 // A model's tool result that renders as an app view (docs/connected-mcp-apps.md),
 // kept so the view reopens for as long as its chat exists. Its transcript event
-// (`mcp_app_result`) carries only this row's id, so transcript pages never read it.
+// (`mcp_tool_result`) carries only this row's id, so transcript pages never read it.
 // No interface is stored: the view reads its `ui://` resource from the app's server
 // each time it opens, and its title and display come from the server's current tools.
 export const mcpToolResults = sqliteTable(
