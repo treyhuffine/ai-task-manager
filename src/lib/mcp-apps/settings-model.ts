@@ -1,7 +1,10 @@
 /**
  * OpenAI's structured settings (MCP extensions spec, "Structured Settings"),
- * as Ri reads and checks them. Pure, so the connection page validates the
- * same way the server does before an update leaves the Home.
+ * as Ri reads and checks them. Pure, so the connection page checks a value
+ * the same way the Home does before an update leaves it. A server's
+ * `pattern` is never run here: it is a regular expression the server wrote,
+ * so the server checks it, and the page shows the server's own message when
+ * it refuses a value.
  *
  * A server names a read tool and an update tool in
  * `capabilities.extensions["openai/settings"]`. The read tool returns a JSON
@@ -10,14 +13,13 @@
  */
 import type { McpCapabilityTool } from '@/lib/integrations/mcp-capabilities';
 import { toolTitle, viewMetadata } from './metadata';
-import { matchesPattern, validPattern } from './safe-pattern';
 
 export type SettingValue = string | number | boolean;
 
 interface FieldBase { key: string; title: string; description?: string }
 export type SettingField =
   | FieldBase & { type: 'boolean' }
-  | FieldBase & { type: 'string'; enum?: string[]; minLength?: number; maxLength?: number; pattern?: string }
+  | FieldBase & { type: 'string'; enum?: string[]; minLength?: number; maxLength?: number }
   | FieldBase & { type: 'number' | 'integer'; minimum?: number; maximum?: number; multipleOf?: number }
   /** A property Ri can't offer a control for, shown with why rather than hidden or crashing the page. */
   | FieldBase & { type: 'unsupported'; reason: string };
@@ -64,11 +66,9 @@ export function settingField(key: string, raw: unknown): SettingField {
   if (type === 'string') {
     const options = Array.isArray(property.enum) ? property.enum : undefined;
     if (options && (!options.length || options.some(option => typeof option !== 'string'))) return { ...base, type: 'unsupported', reason: 'This setting lists choices that are not text.' };
-    const pattern = typeof property.pattern === 'string' ? property.pattern : undefined;
-    if (pattern !== undefined && !validPattern(pattern)) return { ...base, type: 'unsupported', reason: 'This setting has a pattern Ri cannot check.' };
     const minLength = count(property.minLength), maxLength = count(property.maxLength);
     return { ...base, type: 'string', ...(options ? { enum: [...new Set(options as string[])] } : {}),
-      ...(minLength !== undefined ? { minLength } : {}), ...(maxLength !== undefined ? { maxLength } : {}), ...(pattern !== undefined ? { pattern } : {}) };
+      ...(minLength !== undefined ? { minLength } : {}), ...(maxLength !== undefined ? { maxLength } : {}) };
   }
   if (type === 'number' || type === 'integer') {
     if ('enum' in property) return { ...base, type: 'unsupported', reason: 'This setting lists numeric choices, which Ri does not show.' };
@@ -90,8 +90,6 @@ export function validateSetting(field: SettingField, value: unknown): string | n
       const length = [...value].length;
       if (field.minLength !== undefined && length < field.minLength) return field.minLength === 1 ? 'Enter a value.' : `Use at least ${field.minLength} characters.`;
       if (field.maxLength !== undefined && length > field.maxLength) return `Use at most ${field.maxLength} characters.`;
-      // Linear time, never JavaScript's backtracking engine. A pattern it cannot run is left to the server.
-      if (field.pattern !== undefined && matchesPattern(field.pattern, value) === false) return 'This value is not in the expected format.';
       return null;
     }
     case 'number':

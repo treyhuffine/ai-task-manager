@@ -88,8 +88,9 @@ describe('answering', () => {
   it('returns field errors and keeps the form open until the answer is valid', async () => {
     const { id, answer } = await ask(chatOrigin(), openai(bitsAndBolts.reviewForm, 'Review M6 hex bolt'));
     expect(await answerConnectedForm(id, 'v', { action: 'accept', content: { reference: 'https://example.com', priority: 'urgent' } })).toEqual({ status: 'open', errors: {
-      reference: 'This does not match the expected format.', priority: 'Choose one of the options.', approved: 'This is required.', tolerance: 'This is required.',
+      priority: 'Choose one of the options.', approved: 'This is required.', tolerance: 'This is required.',
     } });
+    // `reference` breaks the server's own pattern, which Ri leaves for the server to check: no error for it here.
     await answerConnectedForm(id, 'v', { action: 'accept', content: { reference: 'cad://parts/hex-bolt', priority: 'high', checks: ['clearance', 'custom-gasket'], approved: true, tolerance: 0.2 } });
     await expect(answer).resolves.toEqual({ action: 'accept', content: { reference: 'cad://parts/hex-bolt', priority: 'high', checks: ['clearance', 'custom-gasket'], approved: true, tolerance: 0.2 } });
     await expect(answerConnectedForm(id, 'v', { action: 'decline' })).rejects.toThrow('no longer waiting');

@@ -42,7 +42,9 @@ describe('parseForm', () => {
       ['checks', 'texts', false], ['approved', 'boolean', true], ['tolerance', 'number', true],
     ]);
     const [reference, , purpose, checks, , tolerance] = parsed(bitsAndBolts.reviewForm).fields;
-    expect(reference).toMatchObject({ format: 'uri', pattern: '^(mcp|cad|file):', default: 'cad://parts/hex-bolt' });
+    expect(reference).toMatchObject({ format: 'uri', default: 'cad://parts/hex-bolt' });
+    // The server's pattern is accepted and never carried to the field, so neither Ri nor the browser runs it.
+    expect(reference).not.toHaveProperty('pattern');
     expect(purpose).toMatchObject({ minLength: 1, suggestions: [{ value: 'prototype', title: 'Prototype' }] });
     expect(checks).toMatchObject({ item: { minLength: 1 }, suggestions: [{ value: 'clearance' }, { value: 'dimensions' }, { value: 'printability' }] });
     expect(tolerance).toMatchObject({ kind: 'number', integer: false, minimum: 0, maximum: 10 });
@@ -64,9 +66,8 @@ describe('parseForm', () => {
       { type: 'array', items: { type: 'string', format: 'uri' }, default: ['x'], 'x-openai-input': { type: 'resource', selection: 'implicit', options: [{ uri: 'x', name: 'x' }] } },
       // Defaults must name a supplied resource.
       { type: 'string', format: 'uri', default: 'cad://other', 'x-openai-input': { type: 'resource', options: [{ uri: 'cad://parts/a', name: 'a' }] } },
-      { type: 'string', pattern: '(' },
       { type: 'number', minimum: '1' },
-    ]) expect(refuse(property)).toMatchObject({ ok: false, reason: expect.stringMatching(/^"(odd|Nested)" (uses an input type|has a pattern)/) });
+    ]) expect(refuse(property)).toMatchObject({ ok: false, reason: expect.stringMatching(/^"(odd|Nested)" uses an input type/) });
     expect(parseForm({ type: 'array' })).toMatchObject({ ok: false });
     expect(parseForm({ type: 'object', properties: { odd: { type: 'object', title: 'Address' } } })).toEqual({ ok: false, reason: '"Address" uses an input type Ri does not support.' });
   });
@@ -94,10 +95,10 @@ describe('answers', () => {
     expect(formErrors(form, content)).toEqual({});
   });
 
-  it('names each broken constraint on its field', () => {
+  it('names each broken constraint on its field, and leaves the server\'s pattern to the server', () => {
     const form = parsed(bitsAndBolts.reviewForm);
+    // `reference` declares `^(mcp|cad|file):`, which the server checks when the answer reaches it.
     expect(formErrors(form, { reference: 'https://example.com/part', priority: 'urgent', tolerance: 12, checks: [''] })).toEqual({
-      reference: 'This does not match the expected format.',
       priority: 'Choose one of the options.',
       tolerance: 'Use 10 or less.',
       checks: 'This is too short.',
@@ -127,26 +128,21 @@ describe('answers', () => {
     expect(parsed(withoutUserOptions(bitsAndBolts.pickReferences('explicit'))).fields[0]).not.toHaveProperty('userOptions');
   });
 
-  it('checks a server\'s pattern in linear time, so a catastrophic one cannot stall the Home or the tab', () => {
+  it('never runs a server\'s pattern, in any field, and leaves it to the server', () => {
+    // Catastrophic, lookahead and invalid patterns alike: the form shows, and no answer is refused for a pattern.
     const evil = '^(a+)+$', long = `${'a'.repeat(40_000)}!`;
     const form = parsed({ type: 'object', properties: {
       code: { type: 'string', pattern: evil },
+      password: { type: 'string', pattern: '^(?=.*\\d).{8,}$' },
+      broken: { type: 'string', pattern: '(' },
       tags: { type: 'array', items: { type: 'string', pattern: evil } },
       parts: { type: 'array', items: { type: 'string', format: 'uri', pattern: '^cad:(a+)+$' }, 'x-openai-input': { type: 'resource', selection: 'explicit', options: [{ uri: 'cad:a', name: 'a' }], userOptions: { kind: 'file' } } },
     } });
+    expect(form.fields.map(f => f.kind)).toEqual(['text', 'text', 'text', 'texts', 'resource']);
+    for (const f of form.fields) expect(f).not.toHaveProperty('pattern');
     const start = performance.now();
-    expect(formErrors(form, { code: long, tags: ['aaa', long], parts: [`cad:${long}`] })).toEqual({
-      code: 'This does not match the expected format.', tags: 'This does not match the expected format.', parts: 'This does not match the expected format.' });
-    expect(performance.now() - start).toBeLessThan(1000);
-    expect(formErrors(form, { code: 'aaa', tags: ['a'], parts: ['cad:a'] })).toEqual({});
-  });
-
-  it('leaves to the server a pattern that cannot run in linear time, and still refuses one that is not a regular expression', () => {
-    const lookahead = parsed({ type: 'object', properties: { password: { type: 'string', pattern: '^(?=.*\\d).{8,}$' } } });
-    expect(formErrors(lookahead, { password: 'no digits here' })).toEqual({});
-    expect(parseForm({ type: 'object', properties: { code: { type: 'string', pattern: '(' } } })).toMatchObject({ ok: false, reason: '"code" has a pattern Ri cannot check.' });
-    expect(parseForm({ type: 'object', properties: { parts: { type: 'array', items: { type: 'string', format: 'uri', pattern: '(' }, 'x-openai-input': { type: 'resource', selection: 'explicit', options: [{ uri: 'cad:a', name: 'a' }] } } } }))
-      .toMatchObject({ ok: false });
+    expect(formErrors(form, { code: long, password: 'no digits here', broken: 'x', tags: ['aaa', long], parts: [`cad:${long}`] })).toEqual({});
+    expect(performance.now() - start).toBeLessThan(100);
   });
 
   it('keeps a field named pattern, and never runs patternProperties', () => {

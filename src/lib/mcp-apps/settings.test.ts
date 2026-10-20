@@ -124,28 +124,40 @@ describe('structured settings', () => {
 });
 
 describe('the person\'s own approval choices', () => {
-  it('runs the read tool on its own only when the server marks it read-only', async () => {
+  it('runs the settings tools on the person\'s own action, without asking, even ones set to Ask first', async () => {
+    // Opening the section, changing a value and clicking a button are the person\'s intent. A server\'s read tool
+    // need not be marked read-only: it is the app\'s own tool, on what the app already holds.
     const unmarked = tools.map(tool => tool.name === 'settings.read' ? {name: 'settings.read', title: 'Read settings'} : tool);
     mocks.metadata.mockImplementation(async () => ({servers: [{entry, capabilities: {revision: 'r', tools: unmarked}}], connections: [connection], toolkits: []}));
-    await expect(readConnectedSettings('server')).rejects.toThrow('Read settings, is not marked read-only, so Ri doesn\'t run it on its own.');
-    expect(mocks.run).not.toHaveBeenCalled();
+    entry.approvalPolicy = 'ask';
+    entry.toolOverrides = {'settings.update': {approvalMode: 'ask'}};
+    expect(await readConnectedSettings('server')).toMatchObject({available: true});
+    expect(await updateConnectedSettings('server', {units: 'in'})).toMatchObject({values: {units: 'in'}});
+    bitsAndBoltsSettings.layout.push({kind: 'group', title: 'Maintenance', items: [{kind: 'tool', tool: 'cad.rebuild'}]} as never);
+    try { expect(await runSettingsTool('server', 'cad.rebuild')).toEqual({kind: 'text', text: 'Rebuilt 12 previews'}); }
+    finally { bitsAndBoltsSettings.layout.pop(); }
+    // Each call carries the settings caller for exactly its own action.
+    for (const [actionId, , options] of mocks.run.mock.calls as [string, unknown, {caller: Parameters<typeof isMcpSettingsAction>[0]}][]) {
+      expect(isMcpSettingsAction(options.caller, actionId)).toBe(true);
+      expect(isMcpSettingsAction(options.caller, 'mcp.bits_bolts.cad.delete')).toBe(false);
+    }
   });
 
-  it('never runs a tool the person set to Ask first, on the tool or for the whole server', async () => {
-    entry.toolOverrides = {'settings.update': {approvalMode: 'ask'}};
-    await expect(updateConnectedSettings('server', {units: 'in'})).rejects.toThrow('You set settings.update to Ask first, so Ri doesn\'t run it from settings.');
-    expect(mocks.run.mock.calls.map(call => call[0])).toEqual(['mcp.bits_bolts.settings.read']);
-    // Reading still works: only the tool they chose asks first.
-    expect(await readConnectedSettings('server')).toMatchObject({available: true});
-    mocks.run.mockClear();
-    entry.toolOverrides = {};
-    entry.approvalPolicy = 'ask';
-    await expect(readConnectedSettings('server')).rejects.toThrow('Ask first');
-    await expect(runSettingsTool('server', 'cad.rebuild')).rejects.toThrow('Ask first');
-    expect(mocks.run).not.toHaveBeenCalled();
-    // A tool they let run without asking runs, even on a server that asks first.
-    entry.toolOverrides = {'settings.read': {approvalMode: 'auto'}};
-    expect(await readConnectedSettings('server')).toMatchObject({available: true});
+  it('never runs the server\'s pattern, and shows the server\'s own message when it refuses the value', async () => {
+    // A text setting with a catastrophic pattern: Ri sends the value as is, and the server checks it.
+    const named = {...bitsAndBoltsSettings, schema: {...bitsAndBoltsSettings.schema, properties: {...bitsAndBoltsSettings.schema.properties,
+      label: {type: 'string', title: 'Label', pattern: '^(a+)+$'}}}, layout: undefined};
+    values = {...values, label: 'aaa'};
+    mocks.run.mockImplementation(async (actionId: string, args: Record<string, unknown>, options: {captureOriginalResult: (value: unknown) => void}) => {
+      const name = actionId.slice('mcp.bits_bolts.'.length);
+      const result = name === 'settings.read' ? {content: [], structuredContent: {...named, values}}
+        : name === 'settings.update' ? {content: [{type: 'text', text: 'Labels use only the letter a.'}], isError: true} : respond(name, args);
+      options.captureOriginalResult(result);
+      return {ok: true, result};
+    });
+    const start = performance.now();
+    await expect(updateConnectedSettings('server', {label: `${'a'.repeat(40_000)}!`})).rejects.toThrow('Labels use only the letter a.');
+    expect(performance.now() - start).toBeLessThan(500);
+    expect(mocks.run.mock.calls.map(call => call[0])).toEqual(['mcp.bits_bolts.settings.read', 'mcp.bits_bolts.settings.update']);
   });
 });
-

@@ -1,6 +1,5 @@
 import { Validator, type Schema } from '@cfworker/json-schema';
 import { safeMcpIcon, type McpIcon } from '@/lib/integrations/mcp-icons';
-import { matchesPattern, validPattern } from './safe-pattern';
 
 /**
  * The forms an MCP server can ask a person to fill: MCP's form elicitation
@@ -14,8 +13,9 @@ import { matchesPattern, validPattern } from './safe-pattern';
  * as unsupported rather than showing part of it. Unknown keys are ignored, as
  * the SDK's schemas strip them. `formErrors` validates an answer the way the
  * SDK's `createOpenAIFormContentSchema` does, with the same validator, except
- * that a server's `pattern` runs in linear time (`safe-pattern.ts`) and never
- * in the validator's backtracking engine.
+ * that Ri never runs a server's `pattern`: a pattern is a regular expression
+ * the server wrote, and some take minutes on a short value. The server checks
+ * its own patterns when the answer reaches it.
  */
 
 export type FormValue = string | number | boolean | string[];
@@ -40,7 +40,7 @@ export interface UserResourceOptions { kind: 'file' | 'directory'; accept: strin
 
 interface FieldBase { name: string; title?: string; description?: string; required: boolean }
 export type FormField = FieldBase & (
-  | { kind: 'text'; format?: StringFormat; minLength?: number; maxLength?: number; pattern?: string; default?: string; suggestions: FormOption[] }
+  | { kind: 'text'; format?: StringFormat; minLength?: number; maxLength?: number; default?: string; suggestions: FormOption[] }
   | { kind: 'number'; integer: boolean; minimum?: number; maximum?: number; default?: number }
   | { kind: 'boolean'; default?: boolean }
   /** One of a fixed list: titled `oneOf`, or `enum` with optional `enumNames`. */
@@ -48,9 +48,9 @@ export type FormField = FieldBase & (
   /** Several of a fixed list: titled `items.anyOf`, or `items.enum`. */
   | { kind: 'multiselect'; options: FormOption[]; minItems?: number; maxItems?: number; default?: string[]; thumbnails: boolean }
   /** Free-form strings, with optional suggestions. */
-  | { kind: 'texts'; item: { format?: StringFormat; minLength?: number; maxLength?: number; pattern?: string }; suggestions: FormOption[]; minItems?: number; maxItems?: number; uniqueItems: boolean; default?: string[] }
+  | { kind: 'texts'; item: { format?: StringFormat; minLength?: number; maxLength?: number }; suggestions: FormOption[]; minItems?: number; maxItems?: number; uniqueItems: boolean; default?: string[] }
   /** OpenAI's resource selection (`x-openai-input`), one URI or several. */
-  | { kind: 'resource'; multiple: boolean; selection: 'explicit' | 'implicit'; options: ResourceOption[]; userOptions?: UserResourceOptions; minItems?: number; maxItems?: number; default?: string | string[]; pattern?: string }
+  | { kind: 'resource'; multiple: boolean; selection: 'explicit' | 'implicit'; options: ResourceOption[]; userOptions?: UserResourceOptions; minItems?: number; maxItems?: number; default?: string | string[] }
 );
 export type FieldKind = FormField['kind'];
 
@@ -101,7 +101,7 @@ function option(value: unknown): FormOption {
 
 const base = { title: optional(isString), description: optional(isString) };
 const arrayBase = { type: (v: unknown) => v === 'array', ...base, minItems: optional(isNumber), maxItems: optional(isNumber), default: optional(isStrings) };
-/** OpenAI's extended StringSchema: MCP's, plus `pattern` and suggestions. */
+/** OpenAI's extended StringSchema: MCP's, plus `pattern` (accepted, never run) and suggestions. */
 const stringShape = {
   type: (v: unknown) => v === 'string', ...base, minLength: optional(isNumber), maxLength: optional(isNumber),
   format: optional(v => typeof v === 'string' && FORMATS.has(v)), default: optional(isString), pattern: optional(isString),
@@ -177,8 +177,7 @@ function field(name: string, raw: unknown, required: boolean): FormField | null 
     return { ...common, kind: 'resource', multiple, selection, options,
       ...(userOptions ? { userOptions } : {}),
       ...(num(schema.minItems) !== undefined ? { minItems: num(schema.minItems) } : {}), ...(num(schema.maxItems) !== undefined ? { maxItems: num(schema.maxItems) } : {}),
-      ...(schema.default !== undefined ? { default: schema.default as string | string[] } : {}),
-      ...(str(schema.pattern) !== undefined ? { pattern: str(schema.pattern) } : {}) };
+      ...(schema.default !== undefined ? { default: schema.default as string | string[] } : {}) };
   }
 
   // Titled single select (`oneOf`).
@@ -229,7 +228,6 @@ function stringBounds(schema: Record<string, unknown>) {
   return {
     ...(typeof schema.format === 'string' ? { format: schema.format as StringFormat } : {}),
     ...(num(schema.minLength) !== undefined ? { minLength: num(schema.minLength) } : {}), ...(num(schema.maxLength) !== undefined ? { maxLength: num(schema.maxLength) } : {}),
-    ...(str(schema.pattern) !== undefined ? { pattern: str(schema.pattern) } : {}),
   };
 }
 
@@ -249,26 +247,17 @@ export function parseForm(schema: unknown): FormParse {
       const title = typeof record(raw)?.title === 'string' ? record(raw)!.title as string : name;
       return { ok: false, reason: `"${title}" uses an input type Ri does not support.` };
     }
-    // A pattern that is not a valid regular expression would make the field impossible to fill.
-    const {own, items} = propertyPatterns(raw);
-    for (const pattern of [own, items]) if (pattern !== undefined && !validPattern(pattern)) return { ok: false, reason: `"${parsed.title ?? name}" has a pattern Ri cannot check.` };
     fields.push(parsed);
   }
   return { ok: true, form: { fields, schema: form, hasResources: fields.some(f => f.kind === 'resource') } };
-}
-
-/** The patterns a property's value is held to: its own, for a text value, and its items', for a list. */
-function propertyPatterns(raw: unknown): { own?: string; items?: string } {
-  const schema = record(raw);
-  return { own: str(schema?.pattern), items: str(record(schema?.items)?.pattern) };
 }
 
 const SUBSCHEMA = new Set(['items', 'additionalItems', 'contains', 'additionalProperties', 'propertyNames', 'not', 'if', 'then', 'else', 'unevaluatedItems', 'unevaluatedProperties', 'prefixItems', 'allOf', 'anyOf', 'oneOf']);
 const SUBSCHEMA_MAP = new Set(['properties', '$defs', 'definitions', 'dependentSchemas']);
 /**
  * A schema without `pattern` and `patternProperties`, wherever a subschema
- * can hold them, for the validator, which would run them in JavaScript's
- * backtracking engine. Values (`enum`, `const`, `default`, suggestions) and
+ * can hold them, for the validator, which would otherwise run the server's
+ * regular expressions. Values (`enum`, `const`, `default`, suggestions) and
  * property names, including one named `pattern`, are left as they are.
  */
 function withoutPatterns(schema: unknown): unknown {
@@ -320,7 +309,6 @@ export function acceptsFile(accept: readonly string[], name: string, mimeType?: 
 }
 
 const FRIENDLY: Record<string, (f: FormField | undefined) => string> = {
-  pattern: () => 'This does not match the expected format.',
   format: f => f && (f.kind === 'text' || f.kind === 'resource') && (f.kind === 'resource' || f.format === 'uri') ? 'Enter a valid address.' : 'This is not in the expected format.',
   minLength: f => f?.kind === 'text' && f.minLength !== undefined ? `Use at least ${f.minLength} character${f.minLength === 1 ? '' : 's'}.` : 'This is too short.',
   maxLength: f => f?.kind === 'text' && f.maxLength !== undefined ? `Use at most ${f.maxLength} characters.` : 'This is too long.',
@@ -339,8 +327,9 @@ const FRIENDLY: Record<string, (f: FormField | undefined) => string> = {
 /**
  * What is wrong with an answer, by field (`''` for the form as a whole). Empty
  * when it is valid. The JSON Schema check is the one OpenAI's SDK runs,
- * required fields are checked by name, and a resource field must name one of
- * its options unless selection is implicit or the person may add their own.
+ * without the server's patterns, required fields are checked by name, and a
+ * resource field must name one of its options unless the person may add their
+ * own.
  */
 export function formErrors(form: ParsedForm, content: Record<string, unknown>): Record<string, string> {
   const errors: Record<string, string> = {};
@@ -360,15 +349,6 @@ export function formErrors(form: ParsedForm, content: Record<string, unknown>): 
     // `properties` and `items` only say a nested keyword failed. Its own error carries the reason.
     if (error.keyword === 'properties' || error.keyword === 'items' || error.keyword === 'prefixItems') continue;
     errors[name] = (FRIENDLY[error.keyword] ?? (() => 'This value is not accepted.'))(fields.get(name));
-  }
-  // Patterns, in linear time. One Ri cannot run that way, or a value too long to check, is left to the server.
-  const properties = record(record(form.schema)?.properties) ?? {};
-  for (const [name, value] of Object.entries(content)) {
-    if (errors[name] || !fields.has(name)) continue;
-    const {own, items} = propertyPatterns(properties[name]);
-    const checks: [string, string][] = typeof value === 'string' ? (own === undefined ? [] : [[own, value]])
-      : Array.isArray(value) && items !== undefined ? value.filter((item): item is string => typeof item === 'string').map(item => [items, item]) : [];
-    if (checks.some(([pattern, text]) => matchesPattern(pattern, text) === false)) errors[name] = FRIENDLY.pattern(fields.get(name));
   }
   for (const f of form.fields) {
     if (f.required && !Object.hasOwn(content, f.name)) errors[f.name] ??= 'This is required.';

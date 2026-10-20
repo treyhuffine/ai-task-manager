@@ -70,28 +70,26 @@ describe('reading settings', () => {
 
 describe('validating a value', () => {
   const field = (raw: Record<string, unknown>) => settingField('value', { title: 'Value', ...raw });
-  it('checks text length in characters, its pattern, and enum choices', () => {
-    const name = field({ type: 'string', minLength: 2, maxLength: 4, pattern: '^[a-z]+$' });
+  it('checks text length in characters and enum choices', () => {
+    const name = field({ type: 'string', minLength: 2, maxLength: 4 });
     expect(validateSetting(name, 'ab')).toBeNull();
     expect(validateSetting(name, 'a')).toBe('Use at least 2 characters.');
     expect(validateSetting(name, 'abcde')).toBe('Use at most 4 characters.');
-    expect(validateSetting(name, 'AB')).toBe('This value is not in the expected format.');
     expect(validateSetting(field({ type: 'string', maxLength: 2 }), '🔩🔩')).toBeNull();
     expect(validateSetting(field({ type: 'string', minLength: 1 }), '')).toBe('Enter a value.');
     expect(validateSetting(field({ type: 'string', enum: ['mm', 'in'] }), 'cm')).toBe('Choose one of the listed options.');
-    expect(field({ type: 'string', pattern: '(' })).toMatchObject({ type: 'unsupported' });
   });
 
-  it('checks a server\'s pattern in linear time, and leaves one it cannot run that way to the server', () => {
-    const evil = field({ type: 'string', pattern: '^(a+)+$' });
-    const start = performance.now();
-    expect(validateSetting(evil, `${'a'.repeat(40_000)}!`)).toBe('This value is not in the expected format.');
-    expect(performance.now() - start).toBeLessThan(1000);
-    expect(validateSetting(evil, 'aaa')).toBeNull();
-    // Lookahead has no linear-time form, so Ri shows the setting and the server checks the value.
-    const lookahead = field({ type: 'string', pattern: '^(?=.*\\d).+$' });
-    expect(lookahead).toMatchObject({ type: 'string', pattern: '^(?=.*\\d).+$' });
-    expect(validateSetting(lookahead, 'no digits')).toBeNull();
+  it('never runs a server\'s pattern: the server checks it, whatever the pattern', () => {
+    // A catastrophic pattern, one that is not a regular expression, and a value it would refuse: all left to the server.
+    for (const pattern of ['^(a+)+$', '(', '^[a-z]+$']) {
+      const shown = field({ type: 'string', pattern });
+      expect(shown).toEqual({ key: 'value', title: 'Value', type: 'string' });
+      const start = performance.now();
+      expect(validateSetting(shown, `${'a'.repeat(40_000)}!`)).toBeNull();
+      expect(validateSetting(shown, 'AB')).toBeNull();
+      expect(performance.now() - start).toBeLessThan(50);
+    }
   });
 
   it('checks numbers, whole numbers, bounds and steps, including decimal steps', () => {

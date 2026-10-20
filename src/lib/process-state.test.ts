@@ -49,7 +49,6 @@ const PER_COPY: Record<string, string> = {
   'src/lib/preview/providers/index.ts:registered': 'registers into the process-wide provider registry, idempotently',
   'src/lib/deck/calendar.ts:provider': 'every reader calls ensureCalendarProvider() first',
   'src/lib/triage/llm.ts:providerInitialized': 'lazy setup, safe to repeat per copy',
-  'src/lib/mcp-apps/safe-pattern.ts:compiled': 'a bounded memo of compiled patterns, the same in every copy',
   'src/lib/auth/host-key.ts:cache': 'cache: keyed by file path and mtime',
   'src/lib/integrations/write-policy.ts:cache': 'cache: keyed by file path and mtime',
   'src/lib/calendar/service.ts:cache': 'cache: TTL',
