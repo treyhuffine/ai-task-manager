@@ -81,46 +81,50 @@ export const FileView = forwardRef<FileViewHandle, FileViewProps>(function FileV
   // The clean baseline — what the buffer was when last loaded or saved.
   // Drives the dirty calculation without us having to thread separate
   // "savedContent" plumbing through the component tree.
-  const baselineRef = useRef<string | null>(null);
+  const [baseline, setBaseline] = useState<string | null>(null);
 
-  // Render-time path-change reset. Without this, navigating from file X
-  // to file Y leaves the buffer holding X's content for one frame
-  // (until the load-effect below fires for Y), which would render
-  // X's text under Y's path. Setting state during render is allowed
-  // when guarded by an equality check — React retriggers the render
-  // with the new state instead of looping.
-  const lastPathRef = useRef<string | null>(null);
-  if (lastPathRef.current !== path) {
-    lastPathRef.current = path;
-    if (buffer !== null) setBuffer(null);
-    baselineRef.current = null;
-  }
-
-  // Hook the buffer up to the freshly-loaded server content. Three cases:
-  //   1. Buffer is null (just navigated to this path) → adopt server.
-  //   2. Same path, agent wrote it (server changed) AND user has no
-  //      pending edits → silently rebase. The user's selection moves to
-  //      the doc start, but they hadn't been typing, so it's fine.
-  //   3. Same path, server changed BUT user has pending edits → leave
-  //      buffer alone, leave baseline alone (so dirty stays true). The
-  //      Save click will overwrite whatever the agent wrote; we accept
-  //      that — the user's edit wins. Adding a "file changed on disk"
-  //      banner is a future polish.
-  useEffect(() => {
-    if (!data) return;
+  // Both the path reset and the adoption below happen while rendering,
+  // guarded by equality checks, so React re-renders with the new state
+  // instead of looping, and no frame ever paints a stale buffer.
+  //
+  // Path change: without this, navigating from file X to file Y would
+  // render X's text under Y's path until Y's content was adopted.
+  const [shownPath, setShownPath] = useState(path);
+  // The content and buffer the adoption last looked at. It looks again
+  // only when one of them changes, never when only the baseline moves, so
+  // a save can't pull in server content that predates it.
+  const [adoptionSaw, setAdoptionSaw] = useState<{ data: typeof data; buffer: string | null } | null>(null);
+  if (shownPath !== path) {
+    setShownPath(path);
+    setBuffer(null);
+    setBaseline(null);
+  } else if (data && (adoptionSaw?.data !== data || adoptionSaw.buffer !== buffer)) {
+    // Hook the buffer up to the freshly-loaded server content. Three cases:
+    //   1. No baseline (just navigated to this path) → adopt server.
+    //   2. Same path, agent wrote it (server changed) AND user has no
+    //      pending edits → silently rebase. The user's selection moves to
+    //      the doc start, but they hadn't been typing, so it's fine.
+    //   3. Same path, server changed BUT user has pending edits → leave
+    //      buffer alone, leave baseline alone (so dirty stays true). The
+    //      Save click will overwrite whatever the agent wrote, and we
+    //      accept that: the user's edit wins. Adding a "file changed on
+    //      disk" banner is a future polish.
     const incoming = data.content ?? '';
-    const isInitial = baselineRef.current === null;
-    const dirty = !isInitial && buffer !== baselineRef.current;
-    if (isInitial || !dirty) {
+    const isInitial = baseline === null;
+    const unsaved = !isInitial && buffer !== baseline;
+    if (isInitial || !unsaved) {
       setBuffer(incoming);
-      baselineRef.current = incoming;
+      setBaseline(incoming);
+      setAdoptionSaw({ data, buffer: incoming });
+    } else {
+      setAdoptionSaw({ data, buffer });
     }
-  }, [data, buffer]);
+  }
 
   // Notify parent on any dirty-state transition. Tracked off the
   // current render's buffer/baseline pair so the header pill stays in
   // sync without parent-side polling.
-  const dirty = baselineRef.current !== null && buffer !== null && buffer !== baselineRef.current;
+  const dirty = baseline !== null && buffer !== null && buffer !== baseline;
   const lastDirtyRef = useRef(false);
   useEffect(() => {
     if (lastDirtyRef.current === dirty) return;
@@ -147,18 +151,17 @@ export const FileView = forwardRef<FileViewHandle, FileViewProps>(function FileV
     () => ({
       getValue: () => buffer ?? '',
       revertToServer: () => {
-        const baseline = baselineRef.current ?? '';
-        setBuffer(baseline);
+        setBuffer(baseline ?? '');
       },
       markSaved: (content: string) => {
         // Only update the baseline (the "what's on disk" reference).
         // Calling setBuffer here would clobber any keystrokes the user
         // typed while the save was in flight — autosave + fast typing
         // races would silently revert their last few characters.
-        baselineRef.current = content;
+        setBaseline(content);
       },
     }),
-    [buffer],
+    [buffer, baseline],
   );
 
   // Cmd/Ctrl+S → request save. We swallow the default (browser save
@@ -180,26 +183,18 @@ export const FileView = forwardRef<FileViewHandle, FileViewProps>(function FileV
     [onSaveRequest],
   );
 
-  // Autosave on blur. The extension is built once and reads the latest
-  // dirty + onSaveRequest values from refs so it doesn't churn on every
-  // render. `data-skip-autosave` on the new focus target opts an element
-  // out — Discard uses it so clicking Discard doesn't race the save.
-  const onSaveRequestRef = useRef(onSaveRequest);
-  useEffect(() => {
-    onSaveRequestRef.current = onSaveRequest;
-  }, [onSaveRequest]);
-  const blurAutosave = useMemo(
-    () =>
-      EditorView.domEventHandlers({
-        blur(event) {
-          if (!lastDirtyRef.current) return;
-          const next = (event as FocusEvent).relatedTarget as HTMLElement | null;
-          if (next && next.closest('[data-skip-autosave]')) return;
-          onSaveRequestRef.current?.();
-        },
-      }),
-    [],
-  );
+  // Autosave when focus leaves the editor. A plain handler on the editor's
+  // container, so it reads this render's values and no editor extension has
+  // to be rebuilt as they change. Moving within the editor (into its search
+  // panel) isn't leaving it. `data-skip-autosave` on the new focus target
+  // opts an element out. Discard uses it so clicking Discard doesn't race
+  // the save.
+  const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    if (!dirty) return;
+    const next = event.relatedTarget as HTMLElement | null;
+    if (next && (event.currentTarget.contains(next) || next.closest('[data-skip-autosave]'))) return;
+    onSaveRequest?.();
+  };
 
   // Built once per (path, baseContent) pair. We hold off rendering the
   // gutter until base content has resolved so it doesn't appear and
@@ -216,10 +211,9 @@ export const FileView = forwardRef<FileViewHandle, FileViewProps>(function FileV
       EditorView.editable.of(editable),
       EditorView.lineWrapping,
       saveKeymap,
-      blurAutosave,
       ...(diffGutter ? [diffGutter] : []),
     ],
-    [path, theme, editable, saveKeymap, blurAutosave, diffGutter],
+    [path, theme, editable, saveKeymap, diffGutter],
   );
 
   if (isLoading && buffer === null) {
@@ -278,6 +272,7 @@ export const FileView = forwardRef<FileViewHandle, FileViewProps>(function FileV
       ref={cmRef}
       value={buffer ?? ''}
       onChange={(v) => setBuffer(v)}
+      onBlur={handleBlur}
       extensions={extensions}
       theme={theme === 'dark' ? 'dark' : 'light'}
       editable={editable}

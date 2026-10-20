@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 
 /**
  * Whether the browser is running on the same machine that hosts the app.
@@ -30,14 +30,22 @@ export interface ClientLocation {
 }
 
 export const HOST_ORIGINS_KEY = 'ri.client.host-origins';
+const HOST_ORIGINS_EVENT = 'ri:host-origins-changed';
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
-function readOverrideList(): string[] {
-  if (typeof window === 'undefined') return [];
+function readOverrideText(): string {
+  if (typeof window === 'undefined') return '';
   try {
-    const raw = window.localStorage.getItem(HOST_ORIGINS_KEY);
-    if (!raw) return [];
+    return window.localStorage.getItem(HOST_ORIGINS_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function parseOverrideList(raw: string): string[] {
+  if (!raw) return [];
+  try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
   } catch {
@@ -55,38 +63,46 @@ function computeLocation(hostname: string, overrides: string[]): ClientLocation 
   return { kind: 'remote', reason: 'default-remote', hostname };
 }
 
-function readLocation(): ClientLocation {
-  if (typeof window === 'undefined') {
-    return { kind: 'remote', reason: 'default-remote', hostname: '' };
+function readOverrideList(): string[] {
+  return parseOverrideList(readOverrideText());
+}
+
+function subscribe(onChange: () => void): () => void {
+  function onStorage(event: StorageEvent) {
+    if (event.key === HOST_ORIGINS_KEY || event.key === null) onChange();
   }
-  return computeLocation(window.location.hostname, readOverrideList());
+  window.addEventListener('storage', onStorage);
+  window.addEventListener(HOST_ORIGINS_EVENT, onChange);
+  return () => {
+    window.removeEventListener('storage', onStorage);
+    window.removeEventListener(HOST_ORIGINS_EVENT, onChange);
+  };
+}
+
+/**
+ * What the location is read from, as one string: the hostname, a newline, and
+ * the stored claims. A string stays equal while neither changes, so React
+ * re-renders only when the answer can change.
+ */
+function readInputs(): string {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.hostname}\n${readOverrideText()}`;
+}
+
+/** The server render has no browser to ask, so it reads as remote. */
+function serverInputs(): string {
+  return '';
+}
+
+function locationFrom(inputs: string): ClientLocation {
+  if (!inputs) return { kind: 'remote', reason: 'default-remote', hostname: '' };
+  const newline = inputs.indexOf('\n');
+  return computeLocation(inputs.slice(0, newline), parseOverrideList(inputs.slice(newline + 1)));
 }
 
 export function useClientLocation(): ClientLocation {
-  const [location, setLocation] = useState<ClientLocation>(() => readLocation());
-
-  useEffect(() => {
-    setLocation(readLocation());
-
-    function onStorage(event: StorageEvent) {
-      if (event.key === HOST_ORIGINS_KEY || event.key === null) {
-        setLocation(readLocation());
-      }
-    }
-    window.addEventListener('storage', onStorage);
-
-    function onLocal() {
-      setLocation(readLocation());
-    }
-    window.addEventListener('ri:host-origins-changed', onLocal);
-
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('ri:host-origins-changed', onLocal);
-    };
-  }, []);
-
-  return location;
+  const inputs = useSyncExternalStore(subscribe, readInputs, serverInputs);
+  return useMemo(() => locationFrom(inputs), [inputs]);
 }
 
 export function isHostnameClaimed(hostname: string): boolean {
@@ -101,7 +117,7 @@ export function setHostnameClaim(hostname: string, claimed: boolean): void {
     : current.filter((h) => h !== hostname);
   try {
     window.localStorage.setItem(HOST_ORIGINS_KEY, JSON.stringify(next));
-    window.dispatchEvent(new Event('ri:host-origins-changed'));
+    window.dispatchEvent(new Event(HOST_ORIGINS_EVENT));
   } catch {
     // ignore
   }

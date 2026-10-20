@@ -4,7 +4,7 @@ import { useUserState } from '@/hooks/use-user-state';
 import { settingsApi } from '@/lib/api/settings';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { agentSkillState } from './agent-skill-state';
 import type { SectionId } from './settings-sections';
 
@@ -34,14 +34,41 @@ const DISMISS_KEY = 'ri.setup.dismissed';
  */
 export const AGENT_SKILL_ITEM = 'agent-skill';
 
-function loadDismissed(): Set<string> {
-  if (typeof window === 'undefined') return new Set();
+const DISMISS_CHANGE_EVENT = 'ri:setup-dismissed-changed';
+
+/** The stored list as text, so the snapshot only changes when the list does. */
+function readDismissed(): string | null {
+  if (typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(DISMISS_KEY);
+    return window.localStorage.getItem(DISMISS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function parseDismissed(raw: string | null): Set<string> {
+  try {
     return new Set(raw ? (JSON.parse(raw) as string[]) : []);
   } catch {
     return new Set();
   }
+}
+
+function subscribeDismissed(onChange: () => void): () => void {
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === DISMISS_KEY || e.key === null) onChange();
+  };
+  window.addEventListener('storage', onStorage);
+  window.addEventListener(DISMISS_CHANGE_EVENT, onChange);
+  return () => {
+    window.removeEventListener('storage', onStorage);
+    window.removeEventListener(DISMISS_CHANGE_EVENT, onChange);
+  };
+}
+
+/** Nothing is dismissed on the server render, and hydration then reads the browser's list. */
+function serverDismissed(): string | null {
+  return null;
 }
 
 function saveDismissed(ids: Set<string>): void {
@@ -50,6 +77,7 @@ function saveDismissed(ids: Set<string>): void {
   } catch {
     // best-effort; non-fatal
   }
+  window.dispatchEvent(new Event(DISMISS_CHANGE_EVENT));
 }
 
 export interface SetupChecklist {
@@ -84,27 +112,19 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
   });
   const skill = useQuery({ ...trpc.harness.skillsGlobalGet.queryOptions({}), enabled });
 
-  // SSR-safe: start empty, hydrate from localStorage on mount.
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    setDismissed(loadDismissed());
-  }, []);
+  // Per-browser, read from localStorage. Every copy of the checklist and every
+  // tab follows a dismissal, and the server render starts with none.
+  const dismissedRaw = useSyncExternalStore(subscribeDismissed, readDismissed, serverDismissed);
+  const dismissed = useMemo(() => parseDismissed(dismissedRaw), [dismissedRaw]);
 
   const dismiss = useCallback((id: string) => {
-    setDismissed((prev) => {
-      const next = new Set(prev).add(id);
-      saveDismissed(next);
-      return next;
-    });
+    saveDismissed(parseDismissed(readDismissed()).add(id));
   }, []);
 
   const restore = useCallback((id: string) => {
-    setDismissed((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      saveDismissed(next);
-      return next;
-    });
+    const next = parseDismissed(readDismissed());
+    next.delete(id);
+    saveDismissed(next);
   }, []);
 
   const items = useMemo<ChecklistItem[]>(() => {

@@ -38,6 +38,14 @@
  * Round-trip coverage: src/components/editor/toggle-block.test.ts.
  */
 
+import type {
+  JSONContent,
+  MarkdownLexerConfiguration,
+  MarkdownParseHelpers,
+  MarkdownRendererHelpers,
+  MarkdownToken,
+} from '@tiptap/core'
+
 /** The marked token type this tokenizer emits and the node's `markdownTokenName`. */
 export const TOGGLE_TOKEN = 'toggle'
 
@@ -71,7 +79,7 @@ export const toggleMarkdownTokenizer = {
     return i < 0 ? -1 : i
   },
 
-  tokenize(src: string, _tokens: unknown, helper: any): any {
+  tokenize(src: string, _tokens: MarkdownToken[], helper: MarkdownLexerConfiguration): MarkdownToken | undefined {
     const openMatch = src.match(OPEN_TAG_RE)
     if (!openMatch) return undefined
 
@@ -116,7 +124,7 @@ export const toggleMarkdownTokenizer = {
     const summaryTokens = helper.inlineTokens(summaryInner.trim())
 
     const bodyTrimmed = bodyRaw.replace(/^\n+/, '').replace(/\s+$/, '')
-    let bodyTokens: any[] = []
+    let bodyTokens: MarkdownToken[] = []
     if (bodyTrimmed) {
       bodyTokens = helper.blockTokens(bodyTrimmed)
       // Eagerly inline-tokenize top-level body blocks. `parse()` also drains the
@@ -143,9 +151,12 @@ export const toggleMarkdownTokenizer = {
 }
 
 /** Build the `toggle` node (summary + content) from a parsed `<details>` token. */
-export function parseToggleMarkdown(token: any, helpers: any): any {
+export function parseToggleMarkdown(token: MarkdownToken, helpers: MarkdownParseHelpers): JSONContent {
   const summary = helpers.parseInline(token.summaryTokens || [])
-  let body = (helpers.parseBlockChildren(token.bodyTokens || []) || []).filter(Boolean)
+  // parseBlockChildren keeps the empty paragraphs blank lines stand for. Every
+  // @tiptap/markdown we run provides it, and the type only marks it optional.
+  const parseBody = helpers.parseBlockChildren ?? helpers.parseChildren
+  let body = (parseBody(token.bodyTokens || []) || []).filter(Boolean)
   // toggleContent is `block+` — never let it be empty.
   if (body.length === 0) {
     body = [{ type: 'paragraph' }]
@@ -168,10 +179,10 @@ export function parseToggleMarkdown(token: any, helpers: any): any {
 }
 
 /** Serialize a `toggle` node back to `<details>` markdown. */
-export function renderToggleMarkdown(node: any, helpers: any): string {
+export function renderToggleMarkdown(node: JSONContent, helpers: MarkdownRendererHelpers): string {
   const children = Array.isArray(node.content) ? node.content : []
-  const summaryNode = children.find((n: any) => n.type === 'toggleSummary')
-  const contentNode = children.find((n: any) => n.type === 'toggleContent')
+  const summaryNode = children.find((n) => n.type === 'toggleSummary')
+  const contentNode = children.find((n) => n.type === 'toggleContent')
 
   const summaryMd = summaryNode
     ? helpers.renderChildren(summaryNode.content || [])

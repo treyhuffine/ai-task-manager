@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Dialog } from 'radix-ui'
 import {
   ChevronLeft, X, MoreHorizontal, Archive, RotateCcw,
@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils'
 import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave'
 import { formatLocalDate, isPastDate } from '@/lib/dates'
 import { Tip } from '@/components/ui/tip'
+import { useEnterTransition } from '@/hooks/use-enter-transition'
 
 const DEFAULT_WIDTH = 640
 const MIN_WIDTH = 400
@@ -53,7 +54,8 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
 
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
-  const [isVisible, setIsVisible] = useState(false)
+  // Slides in two frames after opening (see the hook).
+  const isVisible = useEnterTransition(isOpen)
   const [nameValue, setNameValue] = useState('')
   const [descValue, setDescValue] = useState('')
   const [addingTask, setAddingTask] = useState(false)
@@ -64,24 +66,18 @@ export function AreaSlideout({ areaId, onClose, onCloseAll, hasHistory }: AreaSl
   const taskInputRef = useRef<HTMLInputElement>(null)
   const noteInputRef = useRef<HTMLInputElement>(null)
 
-  // Sync local state when area loads
-  useEffect(() => {
-    if (area) {
-      setNameValue(area.name)
-      setDescValue(area.description ?? '')
+  // Follow the area into the fields when it loads or changes elsewhere. Set
+  // while rendering, so the fields never paint the previous area's values.
+  const areaFields = area ? { id: area.id, name: area.name, description: area.description } : null
+  const [syncedFrom, setSyncedFrom] = useState<typeof areaFields>(null)
+  if (areaFields?.id !== syncedFrom?.id || areaFields?.name !== syncedFrom?.name || areaFields?.description !== syncedFrom?.description) {
+    setSyncedFrom(areaFields)
+    if (areaFields) {
+      setNameValue(areaFields.name)
+      setDescValue(areaFields.description ?? '')
     }
-  }, [area?.id, area?.name, area?.description])
+  }
 
-  // Animate in
-  useEffect(() => {
-    if (isOpen) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => setIsVisible(true))
-      })
-    } else {
-      setIsVisible(false)
-    }
-  }, [isOpen])
 
   // Drag to resize
   const handleResizeStart = useCallback(

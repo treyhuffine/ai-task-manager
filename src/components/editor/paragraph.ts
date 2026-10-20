@@ -1,3 +1,4 @@
+import type { JSONContent, MarkdownRendererHelpers, RenderContext } from '@tiptap/core'
 import { Paragraph as UpstreamParagraph } from '@tiptap/extension-paragraph'
 
 const EMPTY_PARAGRAPH_MARKDOWN = '&nbsp;'
@@ -23,7 +24,7 @@ const EMPTY_PARAGRAPH_MARKDOWN = '&nbsp;'
  * Regression coverage: src/components/editor/blank-lines.test.ts.
  */
 export const Paragraph = UpstreamParagraph.extend({
-  renderMarkdown(node: any, h: any, ctx: any): string {
+  renderMarkdown(node: JSONContent, h: MarkdownRendererHelpers, ctx: RenderContext): string {
     if (!node) return ''
     const content = Array.isArray(node.content) ? node.content : []
     if (content.length === 0) {

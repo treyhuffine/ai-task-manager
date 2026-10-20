@@ -5,6 +5,13 @@ import { X, Camera, AlertCircle, Loader2 } from 'lucide-react';
 import QrScanner from 'qr-scanner';
 import { cn } from '@/lib/utils';
 
+type ScannerStatus =
+  | { kind: 'idle' }
+  | { kind: 'starting' }
+  | { kind: 'running' }
+  | { kind: 'decoded' }
+  | { kind: 'error'; message: string };
+
 interface QrScannerModalProps {
   open: boolean;
   onClose: () => void;
@@ -20,13 +27,14 @@ interface QrScannerModalProps {
 export function QrScannerModal({ open, onClose, onDecoded }: QrScannerModalProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<QrScanner | null>(null);
-  const [status, setStatus] = useState<
-    | { kind: 'idle' }
-    | { kind: 'starting' }
-    | { kind: 'running' }
-    | { kind: 'decoded' }
-    | { kind: 'error'; message: string }
-  >({ kind: 'idle' });
+  const [status, setStatus] = useState<ScannerStatus>(() => (open ? { kind: 'starting' } : { kind: 'idle' }));
+  // Each opening starts the camera afresh. Set while rendering, so the first
+  // paint says the camera is starting, not how the last opening ended.
+  const [openedFor, setOpenedFor] = useState(open);
+  if (open !== openedFor) {
+    setOpenedFor(open);
+    if (open) setStatus({ kind: 'starting' });
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -34,7 +42,6 @@ export function QrScannerModal({ open, onClose, onDecoded }: QrScannerModalProps
     if (!video) return;
 
     let cancelled = false;
-    setStatus({ kind: 'starting' });
 
     const scanner = new QrScanner(
       video,

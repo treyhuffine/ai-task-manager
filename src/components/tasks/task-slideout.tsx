@@ -57,6 +57,7 @@ import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib
 import { cn } from '@/lib/utils';
 import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
 import type { Attachment } from '@/db/types';
+import { useEnterTransition } from '@/hooks/use-enter-transition';
 
 const DEFAULT_WIDTH = 1200;
 const MIN_WIDTH = 420;
@@ -105,7 +106,8 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     defaultSize: DEFAULT_WIDTH,
     storageKey: 'ri.task-slideout.width',
   });
-  const [isVisible, setIsVisible] = useState(false);
+  // Slides in two frames after opening (see the hook).
+  const isVisible = useEnterTransition(isOpen);
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [editingBoomerang, setEditingBoomerang] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -116,16 +118,6 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment];
   }, []);
 
-  // Animate in
-  useEffect(() => {
-    if (isOpen) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => setIsVisible(true));
-      });
-    } else {
-      setIsVisible(false);
-    }
-  }, [isOpen]);
 
   // Auto-size title textarea when task loads, focus title if new
   useEffect(() => {

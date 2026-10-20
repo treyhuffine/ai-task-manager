@@ -29,7 +29,7 @@ import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useCreateTrigger } from '@/hooks/use-triggers';
 import { useUserState } from '@/hooks/use-user-state';
 import { useWorkspaces } from '@/hooks/use-workspaces';
-import { readProviderEfforts } from '@/lib/executions/provider-effort';
+import { parseProviderEfforts, readProviderEffortsText } from '@/lib/executions/provider-effort';
 import {
 	defaultModelFor,
 	explicitEffortForModel,
@@ -45,7 +45,7 @@ import {
 	FolderOpen,
 	Save,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 
 export interface WebhookCredentials {
   publicId: string;
@@ -59,6 +59,11 @@ export interface TriggerCreateFormProps {
   onCancel(): void;
 }
 
+// The form reads remembered efforts when it renders and never needs to hear
+// of a change, so its store has nothing to subscribe to.
+const readOnce = () => () => {};
+const noStoredEfforts = () => null;
+
 export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProps) {
   const createTrigger = useCreateTrigger();
   const { data: workspaces } = useWorkspaces();
@@ -71,7 +76,6 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
   // Who runs it. Null until the user picks, so the form opens on their default
   // provider and model, the same tuple the launcher starts from.
   const [harnessPick, setHarnessPick] = useState<LaunchHarnessSelection | null>(null);
-  const [efforts, setEfforts] = useState<Record<string, EffortLevel>>({});
   const [scheduleChoice, setScheduleChoice] = useState<ScheduleChoice>(() => ({
     kind: 'manual', time: '09:00', weekday: 1, dayOfMonth: 1,
     cronExpression: '0 9 * * *', intervalSeconds: 3600,
@@ -87,15 +91,17 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
     'skip_if_running' | 'coalesce_if_active' | 'allow_concurrent'
   >('coalesce_if_active');
 
-  useEffect(() => {
-    if (workspaces && workspaces.length === 1 && !workspaceId) {
-      setWorkspaceId(workspaces[0].id);
-    }
-  }, [workspaces, workspaceId]);
+  // With only one agent there's nothing to choose. Picked while rendering, so
+  // the form never paints without it.
+  if (workspaces && workspaces.length === 1 && !workspaceId) {
+    setWorkspaceId(workspaces[0].id);
+  }
 
   // Read, never written: a trigger is a standing job, so picking its effort
-  // shouldn't retune the effort your next chat starts with.
-  useEffect(() => setEfforts(readProviderEfforts()), []);
+  // shouldn't retune the effort your next chat starts with. The server render
+  // has none, and the browser's are read once the page hydrates.
+  const effortsText = useSyncExternalStore(readOnce, readProviderEffortsText, noStoredEfforts);
+  const efforts = useMemo(() => parseProviderEfforts(effortsText), [effortsText]);
 
   const fallbackProvider: ProviderId = userState?.defaultHarness ?? DEFAULT_HARNESS;
   const fallbackModel = userState?.defaultModel ?? defaultModelFor(fallbackProvider);

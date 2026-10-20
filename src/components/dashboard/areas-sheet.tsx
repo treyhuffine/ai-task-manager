@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Dialog } from 'radix-ui'
 import { X, Plus, GripVertical } from 'lucide-react'
 import {
@@ -27,6 +27,7 @@ import { AreaCreateModal } from '@/components/dashboard/area-create-modal'
 import type { AreaRecord } from '@/db/types'
 import { coverAttachmentUrl } from '@/lib/attachments/view'
 import { cn } from '@/lib/utils'
+import { useEnterTransition } from '@/hooks/use-enter-transition'
 
 const DEFAULT_WIDTH = 560
 const MIN_WIDTH = 380
@@ -124,7 +125,8 @@ export function AreasSheet({ open, onOpenChange }: AreasSheetProps) {
   const queryClient = useQueryClient()
   const [width, setWidth] = useState(DEFAULT_WIDTH)
   const [isResizing, setIsResizing] = useState(false)
-  const [isVisible, setIsVisible] = useState(false)
+  // Slides in two frames after opening (see the hook).
+  const isVisible = useEnterTransition(open)
   const [showArchived, setShowArchived] = useState(false)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -168,16 +170,6 @@ export function AreasSheet({ open, onOpenChange }: AreasSheetProps) {
     })
   }, [displayedAreas, queryClient, updateArea])
 
-  // Animate in
-  useEffect(() => {
-    if (open) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => setIsVisible(true))
-      })
-    } else {
-      setIsVisible(false)
-    }
-  }, [open])
 
   // Drag to resize
   const handleResizeStart = useCallback(

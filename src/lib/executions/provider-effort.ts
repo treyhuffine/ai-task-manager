@@ -36,11 +36,22 @@ const VALID: ReadonlySet<string> = new Set([
 
 type EffortMap = Record<string, EffortLevel>;
 
-function readMap(): EffortMap {
-  if (typeof window === 'undefined') return {};
+/**
+ * The stored map as text, the same text while nothing changes. A React reader
+ * passes it to `useSyncExternalStore` and parses it with `parseProviderEfforts`.
+ */
+export function readProviderEffortsText(): string | null {
+  if (typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return {};
+    return window.localStorage.getItem(KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function parseProviderEfforts(raw: string | null): EffortMap {
+  if (!raw) return {};
+  try {
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     // Filter on read: a value persisted by an older build (or hand-edited)
@@ -53,6 +64,10 @@ function readMap(): EffortMap {
   } catch {
     return {};
   }
+}
+
+function readMap(): EffortMap {
+  return parseProviderEfforts(readProviderEffortsText());
 }
 
 /** Every remembered provider→effort pair. */

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, type ReactElement } from "react";
+import { act, useLayoutEffect, type ReactElement } from "react";
 import { renderToString } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import {
@@ -503,6 +503,13 @@ describe("client hooks", () => {
     return { container, unmount: () => act(async () => root.unmount()) };
   }
   const settle = (ms: number) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
+  // Hands a probe's hook result to the test once its render commits. Assigning
+  // outer variables while rendering breaks the rules of React, and the
+  // committed value is the one each assertion means to read.
+  function useReported<T>(value: T, report: (value: T) => void): T {
+    useLayoutEffect(() => report(value));
+    return value;
+  }
 
   it("installs one style element, once", () => {
     const first = installStyles();
@@ -517,7 +524,10 @@ describe("client hooks", () => {
     let attempts = 0;
     const client = createMemoryClient({ handlers: { save: () => { if (++attempts === 1) throw new Error("Ri is busy"); return { ok: attempts }; } } });
     let api!: MutationResult<Record<string, unknown>, unknown>;
-    const Probe = () => { api = useMutation("save"); return <p>{api.pending ? "pending" : api.error ?? "idle"}</p>; };
+    const Probe = () => {
+      const result = useReported(useMutation("save"), (value) => { api = value; });
+      return <p>{result.pending ? "pending" : result.error ?? "idle"}</p>;
+    };
     const view = await mount(client, <Probe />);
     await act(async () => { await expect(api.run({ title: "A" })).rejects.toThrow("Ri is busy"); });
     expect(api.error).toBe("Ri is busy");
@@ -541,7 +551,7 @@ describe("client hooks", () => {
     // A second run while one is in flight shares it instead of writing twice.
     const slow = createMemoryClient({ latency: 30, handlers: { save: () => ({ ok: true }) } });
     let slowApi!: MutationResult<Record<string, unknown>, unknown>;
-    const SlowProbe = () => { slowApi = useMutation("save"); return null; };
+    const SlowProbe = () => { useReported(useMutation("save"), (value) => { slowApi = value; }); return null; };
     await mount(slow, <SlowProbe />);
     await act(async () => { await Promise.all([slowApi.run({}), slowApi.run({})]); });
     expect(slow.calls).toHaveLength(1);
@@ -557,10 +567,10 @@ describe("client hooks", () => {
     const { useState } = await import("react");
     const Probe = () => {
       const [input, set] = useState<Record<string, unknown>>({ a: 1, b: 2 });
-      setInput = set;
-      app = useRiApp();
-      query = useQuery<{ label: string }>("list", input);
-      return <p>{query.data?.label ?? "none"}</p>;
+      useReported(set, (value) => { setInput = value; });
+      useReported(useRiApp(), (value) => { app = value; });
+      const result = useReported(useQuery<{ label: string }>("list", input), (value) => { query = value; });
+      return <p>{result.data?.label ?? "none"}</p>;
     };
     await mount(client, <Probe />);
     expect(app.revision).toBe(0);
@@ -601,8 +611,8 @@ describe("client hooks", () => {
     const { useState } = await import("react");
     const Probe = () => {
       const [on, set] = useState(false);
-      enabled = set;
-      query = useQuery<{ n: number }>("list", {}, { enabled: on });
+      useReported(set, (value) => { enabled = value; });
+      useReported(useQuery<{ n: number }>("list", {}, { enabled: on }), (value) => { query = value; });
       return null;
     };
     await mount(client, <Probe />);
@@ -620,7 +630,11 @@ describe("client hooks", () => {
     const client = createMemoryClient();
     let app!: RiApp;
     let announce!: ReturnType<typeof useAnnounce>;
-    const Probe = () => { app = useRiApp(); announce = useAnnounce(); return null; };
+    const Probe = () => {
+      useReported(useRiApp(), (value) => { app = value; });
+      useReported(useAnnounce(), (value) => { announce = value; });
+      return null;
+    };
     const view = await mount(client, <Probe />);
     await act(async () => {
       await app.ask("Prepare me for the Northstar interview.");
@@ -670,11 +684,47 @@ describe("client hooks", () => {
   it("tracks the theme pushed by the host", async () => {
     const client = createMemoryClient();
     let app!: RiApp;
-    const Probe = () => { app = useRiApp(); return null; };
+    const Probe = () => { useReported(useRiApp(), (value) => { app = value; }); return null; };
     await mount(client, <Probe />);
     expect(app.theme).toBe("light");
     await act(async () => client.setTheme("dark"));
     expect(app.theme).toBe("dark");
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  });
+
+  it("keeps the amount being typed and follows a new amount from the caller", async () => {
+    type Money = { amountMinor: number | null; currency: string };
+    const { useState } = await import("react");
+    let setMoney!: (value: Money) => void;
+    const Form = () => {
+      const [value, set] = useState<Money>({ amountMinor: null, currency: "USD" });
+      useReported(set, (next) => { setMoney = next; });
+      return <MoneyInput label="Amount" value={value} onChange={(next) => set(next)} />;
+    };
+    const view = await mount(createMemoryClient(), <Form />);
+    // Linkedom has no input event tracking, so call and read React's own props.
+    const props = () => {
+      const input = view.container.querySelector("input.ri-input")!;
+      const key = Object.keys(input).find((k) => k.startsWith("__reactProps$"))!;
+      return (input as unknown as Record<string, { value: string; onChange: (e: { target: { value: string } }) => void }>)[key];
+    };
+    const type = (text: string) => act(async () => props().onChange({ target: { value: text } }));
+
+    await type("12.");
+    expect(props().value).toBe("12.");
+    await type("12.5");
+    expect(props().value).toBe("12.5");
+
+    await act(async () => setMoney({ amountMinor: 500, currency: "USD" }));
+    expect(props().value).toBe("5.00");
+
+    await type("not money");
+    expect(props().value).toBe("not money");
+    await act(async () => setMoney({ amountMinor: null, currency: "USD" }));
+    expect(props().value).toBe("not money");
+
+    await act(async () => setMoney({ amountMinor: 250, currency: "USD" }));
+    expect(props().value).toBe("2.50");
+    await view.unmount();
   });
 });

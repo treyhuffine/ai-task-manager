@@ -54,12 +54,12 @@ describe('blank-line round-trip', () => {
       // can mine. Headings break that invariant.
       const marked = buildManager().instance
       const headingPara = new marked.Lexer().lex('## yes\n\n\n\nasdfasd')
-      expect(headingPara.map((t: any) => t.type)).toEqual(['heading', 'paragraph'])
-      expect((headingPara[0] as any).raw).toBe('## yes\n\n\n\n')
+      expect(headingPara.map((t) => t.type)).toEqual(['heading', 'paragraph'])
+      expect(headingPara[0].raw).toBe('## yes\n\n\n\n')
 
       // Paragraph↔paragraph keeps the space token, which is why that case works:
       const paraPara = new marked.Lexer().lex('first\n\n\n\nsecond')
-      expect(paraPara.map((t: any) => t.type)).toEqual(['paragraph', 'space', 'paragraph'])
+      expect(paraPara.map((t) => t.type)).toEqual(['paragraph', 'space', 'paragraph'])
     })
 
     it('without the patch: heading→empty→paragraph collapses to heading→paragraph', () => {
@@ -72,7 +72,7 @@ describe('blank-line round-trip', () => {
           { type: 'paragraph', content: [{ type: 'text', text: 'asdfasd' }] },
         ],
       }
-      const blocks = (mgr.parse(mgr.serialize(initial)).content ?? []) as any[]
+      const blocks = mgr.parse(mgr.serialize(initial)).content ?? []
       expect(blocks).toHaveLength(2) // empty paragraph dropped
     })
   })
@@ -90,7 +90,7 @@ describe('blank-line round-trip', () => {
       }
       const md = mgr.serialize(initial)
       expect(md).toBe('## yes\n\n&nbsp;\n\nasdfasd')
-      const blocks = (mgr.parse(md).content ?? []) as any[]
+      const blocks = mgr.parse(md).content ?? []
       expect(blocks).toHaveLength(3)
       expect(blocks[0].type).toBe('collapsibleHeading')
       expect(blocks[1].type).toBe('paragraph')
@@ -108,7 +108,7 @@ describe('blank-line round-trip', () => {
           { type: 'collapsibleHeading', attrs: { level: 2, collapsed: false }, content: [{ type: 'text', text: 'b' }] },
         ],
       }
-      const blocks = (mgr.parse(mgr.serialize(initial)).content ?? []) as any[]
+      const blocks = mgr.parse(mgr.serialize(initial)).content ?? []
       expect(blocks).toHaveLength(3)
       expect(blocks[1].type).toBe('paragraph')
       expect(blocks[1].content ?? []).toHaveLength(0)
@@ -126,7 +126,7 @@ describe('blank-line round-trip', () => {
           { type: 'collapsibleHeading', attrs: { level: 2, collapsed: false }, content: [{ type: 'text', text: 'b' }] },
         ],
       }
-      const blocks = (mgr.parse(mgr.serialize(initial)).content ?? []) as any[]
+      const blocks = mgr.parse(mgr.serialize(initial)).content ?? []
       expect(blocks).toHaveLength(5)
       expect(blocks[1].content ?? []).toHaveLength(0)
       expect(blocks[2].content ?? []).toHaveLength(0)
@@ -145,7 +145,7 @@ describe('blank-line round-trip', () => {
           { type: 'paragraph', content: [{ type: 'text', text: 'second' }] },
         ],
       }
-      const blocks = (mgr.parse(mgr.serialize(initial)).content ?? []) as any[]
+      const blocks = mgr.parse(mgr.serialize(initial)).content ?? []
       expect(blocks).toHaveLength(5)
       expect(blocks[1].content ?? []).toHaveLength(0)
       expect(blocks[2].content ?? []).toHaveLength(0)
@@ -162,7 +162,7 @@ describe('blank-line round-trip', () => {
           { type: 'paragraph', content: [{ type: 'text', text: 'after blanks' }] },
         ],
       }
-      const blocks = (mgr.parse(mgr.serialize(initial)).content ?? []) as any[]
+      const blocks = mgr.parse(mgr.serialize(initial)).content ?? []
       expect(blocks).toHaveLength(3)
       expect(blocks[0].content ?? []).toHaveLength(0)
       expect(blocks[1].content ?? []).toHaveLength(0)
@@ -179,7 +179,7 @@ describe('blank-line round-trip', () => {
           { type: 'paragraph', content: [] },
         ],
       }
-      const blocks = (mgr.parse(mgr.serialize(initial)).content ?? []) as any[]
+      const blocks = mgr.parse(mgr.serialize(initial)).content ?? []
       expect(blocks).toHaveLength(4)
       expect(blocks[1].content ?? []).toHaveLength(0)
       expect(blocks[2].content ?? []).toHaveLength(0)
@@ -205,7 +205,7 @@ describe('blank-line round-trip', () => {
       const once = mgr.serialize(mgr.parse(mgr.serialize(initial)))
       const twice = mgr.serialize(mgr.parse(once))
       expect(twice).toBe(once)
-      const blocks = (mgr.parse(once).content ?? []) as any[]
+      const blocks = mgr.parse(once).content ?? []
       expect(blocks).toHaveLength(initial.content.length)
     })
   })

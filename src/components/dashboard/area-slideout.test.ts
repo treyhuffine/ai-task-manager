@@ -45,6 +45,7 @@ beforeEach(async () => {
   vi.stubGlobal('document', document);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('requestAnimationFrame', vi.fn());
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
   fixtures.write.mockClear();
   container = document.createElement('div');
   root = createRoot(container);

@@ -200,13 +200,15 @@ function PreviewBody({ sessionId }: { sessionId: string }) {
   const { data: areas } = useAreas();
   const { data: events, isLoading } = useSessionEvents(sessionId);
 
+  const workspaceId = session?.workspaceId;
   const workspace = useMemo(
-    () => (session?.workspaceId ? workspaces?.find((w) => w.id === session.workspaceId) : undefined),
-    [session?.workspaceId, workspaces],
+    () => (workspaceId ? workspaces?.find((w) => w.id === workspaceId) : undefined),
+    [workspaceId, workspaces],
   );
+  const areaId = workspace?.areaId;
   const area = useMemo(
-    () => (workspace?.areaId ? areas?.find((a) => a.id === workspace.areaId) : undefined),
-    [workspace?.areaId, areas],
+    () => (areaId ? areas?.find((a) => a.id === areaId) : undefined),
+    [areaId, areas],
   );
 
   const messages = useMemo(
@@ -433,10 +435,9 @@ function MessageBody({ text, full }: { text: string; full?: boolean }) {
   const [clipped, setClipped] = useState(false);
 
   useLayoutEffect(() => {
-    if (full) {
-      setClipped(false);
-      return;
-    }
+    // A message shown in full is never clipped (see below), so only a capped
+    // one is measured.
+    if (full) return;
     const el = innerRef.current;
     if (!el) return;
     const measure = () => setClipped(el.offsetHeight > OLDER_MESSAGE_MAX_HEIGHT);
@@ -463,7 +464,7 @@ function MessageBody({ text, full }: { text: string; full?: boolean }) {
           {text}
         </MessageResponse>
       </div>
-      {clipped && (
+      {clipped && !full && (
         <div
           className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-popover to-transparent"
           aria-hidden

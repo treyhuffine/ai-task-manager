@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MarkdownManager } from '@tiptap/markdown'
-import { getSchema } from '@tiptap/core'
+import { getSchema, type JSONContent } from '@tiptap/core'
 import { EditorState, TextSelection } from '@tiptap/pm/state'
 import type { Schema } from '@tiptap/pm/model'
 import StarterKit from '@tiptap/starter-kit'
@@ -55,7 +55,12 @@ function buildManager() {
   return new MarkdownManager({ extensions: EDITOR_EXTENSIONS })
 }
 
-function toggleDoc(attrs: { open: boolean }, summary: string, body: any[]) {
+// Parsed nodes as the assertions walk them. A missing child fails the test at
+// the step that reads it, so the walk needs no guard at every level.
+type Block = JSONContent & { attrs: Record<string, unknown>; content: Block[] }
+const blocksOf = (doc: JSONContent) => (doc.content ?? []) as Block[]
+
+function toggleDoc(attrs: { open: boolean }, summary: string, body: JSONContent[]) {
   return {
     type: 'doc',
     content: [
@@ -93,7 +98,7 @@ describe('toggle block markdown round-trip', () => {
     const mgr = buildManager()
     for (const open of [true, false]) {
       const md = mgr.serialize(toggleDoc({ open }, 'S', [para('B')]))
-      const blocks = (mgr.parse(md).content ?? []) as any[]
+      const blocks = blocksOf(mgr.parse(md))
       expect(blocks).toHaveLength(1)
       expect(blocks[0].type).toBe('toggle')
       expect(blocks[0].attrs.open).toBe(open)
@@ -103,7 +108,7 @@ describe('toggle block markdown round-trip', () => {
   it('preserves the summary/content structure through a round-trip', () => {
     const mgr = buildManager()
     const md = mgr.serialize(toggleDoc({ open: true }, 'Click me', [para('Hidden one'), para('Hidden two')]))
-    const blocks = (mgr.parse(md).content ?? []) as any[]
+    const blocks = blocksOf(mgr.parse(md))
     const toggle = blocks[0]
     expect(toggle.type).toBe('toggle')
     expect(toggle.content[0].type).toBe('toggleSummary')
@@ -134,7 +139,7 @@ describe('toggle block markdown round-trip', () => {
     expect(once).toContain('- one')
     expect(once).toContain('**bold**')
 
-    const blocks = (mgr.parse(once).content ?? []) as any[]
+    const blocks = blocksOf(mgr.parse(once))
     const body = blocks[0].content[1].content
     expect(body[0].type).toBe('collapsibleHeading')
     expect(body[1].type).toBe('bulletList')
@@ -164,7 +169,7 @@ describe('toggle block markdown round-trip', () => {
     }
     const md = mgr.serialize(doc)
     expect(md).toContain('<summary>**strong** plain</summary>')
-    const summary = ((mgr.parse(md).content ?? []) as any[])[0].content[0]
+    const summary = blocksOf(mgr.parse(md))[0].content[0]
     expect(summary.content[0].marks?.[0].type).toBe('bold')
     expect(summary.content[0].text).toBe('strong')
   })
@@ -184,7 +189,7 @@ describe('toggle block markdown round-trip', () => {
     const twice = mgr.serialize(mgr.parse(once))
     expect(twice).toBe(once)
 
-    const outer = ((mgr.parse(once).content ?? []) as any[])[0]
+    const outer = blocksOf(mgr.parse(once))[0]
     const nested = outer.content[1].content[0]
     expect(nested.type).toBe('toggle')
     expect(nested.attrs.open).toBe(false)
@@ -196,7 +201,7 @@ describe('toggle block markdown round-trip', () => {
     const mgr = buildManager()
     const doc = toggleDoc({ open: true }, 'Empty', [para()])
     const md = mgr.serialize(doc)
-    const blocks = (mgr.parse(md).content ?? []) as any[]
+    const blocks = blocksOf(mgr.parse(md))
     expect(blocks[0].type).toBe('toggle')
     const body = blocks[0].content[1]
     expect(body.type).toBe('toggleContent')
@@ -220,7 +225,7 @@ describe('toggle block markdown round-trip', () => {
     const once = mgr.serialize(mgr.parse(mgr.serialize(doc)))
     const twice = mgr.serialize(mgr.parse(once))
     expect(twice).toBe(once)
-    const blocks = (mgr.parse(once).content ?? []) as any[]
+    const blocks = blocksOf(mgr.parse(once))
     expect(blocks.map((b) => b.type)).toEqual([
       'paragraph',
       'toggle',
@@ -306,7 +311,7 @@ describe('toggle block DOM rendering (CSS coupling)', () => {
   })
 })
 
-function stateFrom(schema: Schema, doc: any, cursor: number) {
+function stateFrom(schema: Schema, doc: JSONContent, cursor: number) {
   const pmDoc = schema.nodeFromJSON(doc)
   return EditorState.create({
     schema,

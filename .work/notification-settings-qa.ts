@@ -6,6 +6,13 @@ import { getConfigPath, getDevAppRoot, APP_ROOT_ENV } from '../src/lib/config/pa
 import { AUTH_TOKEN_STORAGE_KEY } from '../src/lib/api/client';
 import { SESSION_COOKIE_NAME } from '../src/lib/auth/session';
 
+// The stand-ins the init script puts on window, so each evaluate reads them typed.
+type QaWindow = Window & {
+  qaNotifications: { supported: boolean; enabled: boolean };
+  qaActions: string[];
+  qaReadError: boolean;
+};
+
 async function main() {
 process.env[APP_ROOT_ENV] = getDevAppRoot();
 const token = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8')).localToken;
@@ -45,8 +52,8 @@ try {
   await card.getByRole('status').filter({ hasText: 'Off' }).waitFor();
   await page.screenshot({ path: path.join(output, 'off-desktop.png') });
   await card.getByRole('button', { name: 'Enable desktop notifications', exact: true }).click();
-  assert(await page.evaluate(() => (window as any).qaActions.includes('notifications')));
-  await page.evaluate(() => { (window as any).qaNotifications.enabled = true; window.dispatchEvent(new Event('focus')); });
+  assert(await page.evaluate(() => (window as QaWindow).qaActions.includes('notifications')));
+  await page.evaluate(() => { (window as QaWindow).qaNotifications.enabled = true; window.dispatchEvent(new Event('focus')); });
   await card.getByRole('status').filter({ hasText: 'On' }).waitFor();
   await card.getByRole('button', { name: 'Open notification settings', exact: true }).waitFor();
   await page.screenshot({ path: path.join(output, 'on-desktop.png') });
@@ -54,25 +61,25 @@ try {
   await card.scrollIntoViewIfNeeded();
   assert(await card.evaluate(element => element.scrollWidth <= element.clientWidth + 1));
   await page.screenshot({ path: path.join(output, 'on-narrow.png') });
-  await page.evaluate(() => { (window as any).qaReadError = true; });
+  await page.evaluate(() => { (window as QaWindow).qaReadError = true; });
   await card.getByRole('status').filter({ hasText: 'Needs attention' }).waitFor();
   await card.getByRole('button', { name: 'Check again', exact: true }).waitFor();
-  await page.evaluate(() => { (window as any).qaReadError = false; (window as any).qaNotifications.enabled = false; });
+  await page.evaluate(() => { (window as QaWindow).qaReadError = false; (window as QaWindow).qaNotifications.enabled = false; });
   await card.getByRole('button', { name: 'Check again', exact: true }).click();
   await card.getByRole('status').filter({ hasText: 'Off' }).waitFor();
   await page.screenshot({ path: path.join(output, 'off-narrow.png') });
-  await page.evaluate(() => { (window as any).qaNotifications.supported = false; });
+  await page.evaluate(() => { (window as QaWindow).qaNotifications.supported = false; });
   await card.getByRole('status').filter({ hasText: 'Unavailable' }).waitFor();
   assert.equal(await card.getByRole('button', { name: 'Enable desktop notifications', exact: true }).count(), 0);
   await page.evaluate(() => sessionStorage.setItem('qa-legacy', '1'));
   await page.reload({ waitUntil: 'domcontentloaded' });
   await card.getByRole('status').filter({ hasText: 'Check setup' }).waitFor();
   await card.getByRole('button', { name: 'Enable desktop notifications', exact: true }).click();
-  assert(await page.evaluate(() => (window as any).qaActions.includes('settings')));
+  assert(await page.evaluate(() => (window as QaWindow).qaActions.includes('settings')));
   await page.evaluate(() => sessionStorage.setItem('qa-local', '1'));
   await page.reload({ waitUntil: 'domcontentloaded' });
   await card.getByRole('status').filter({ hasText: 'Off' }).waitFor();
-  assert(!(await page.evaluate(() => (window as any).qaActions.includes('enable'))));
+  assert(!(await page.evaluate(() => (window as QaWindow).qaActions.includes('enable'))));
   await card.getByRole('button', { name: 'Enable desktop notifications', exact: true }).click();
   await card.getByRole('status').filter({ hasText: 'On' }).waitFor();
   await card.getByRole('button', { name: 'Disable desktop notifications', exact: true }).click();

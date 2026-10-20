@@ -55,13 +55,16 @@ export function TriggersModal({ open, onClose }: TriggersModalProps) {
   const [view, setView] = useState<View>('list');
   const [createdWebhook, setCreatedWebhook] = useState<WebhookCredentials | null>(null);
 
-  // Reset to list view whenever the modal reopens.
-  useEffect(() => {
+  // Each opening starts on the list. Reset while rendering, so a reopened
+  // modal never flashes the form it was closed on.
+  const [openedFor, setOpenedFor] = useState(open);
+  if (open !== openedFor) {
+    setOpenedFor(open);
     if (open) {
       setView('list');
       setCreatedWebhook(null);
     }
-  }, [open]);
+  }
 
   // ESC closes the modal at the top level. The form's Cancel button
   // returns to the list view first (handled inline).

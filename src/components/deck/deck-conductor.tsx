@@ -20,9 +20,9 @@ import { Tip } from '@/components/ui/tip';
 
 type Urgency = 'low' | 'medium' | 'high' | 'critical';
 
-function getUrgency(generatedAt: string | undefined): Urgency {
+function getUrgency(generatedAt: string | undefined, now: number): Urgency {
   if (!generatedAt) return 'low';
-  const hoursAgo = (Date.now() - new Date(generatedAt).getTime()) / (1000 * 60 * 60);
+  const hoursAgo = (now - new Date(generatedAt).getTime()) / (1000 * 60 * 60);
   if (hoursAgo >= 24) return 'critical';
   if (hoursAgo >= 4) return 'high';
   if (hoursAgo >= 2) return 'medium';
@@ -64,15 +64,14 @@ export function DeckConductor({
   const { data: areas } = useAreas();
   const selectedArea = areas?.find(a => a.id === areaFilter);
 
-  const [urgency, setUrgency] = useState<Urgency>(() => getUrgency(generatedAt));
-
+  // Urgency is read from a clock that ticks each minute, never from the wall
+  // clock while rendering. A minute is far finer than any urgency threshold.
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    setUrgency(getUrgency(generatedAt));
-    const interval = setInterval(() => {
-      setUrgency(getUrgency(generatedAt));
-    }, 60_000);
+    const interval = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(interval);
-  }, [generatedAt]);
+  }, []);
+  const urgency = getUrgency(generatedAt, now);
 
   // Morning auto-refresh (cron) config — shared cache with the settings pane.
   const { data: morning } = useMorningDeck();
