@@ -7,7 +7,7 @@ import type { McpCapabilityTool } from '@/lib/integrations/mcp-capabilities';
 import { getIntegrationOwnerId, getMcpViewAuthority } from '@/lib/integrations/runtime';
 import { isCurrentMcpTransport } from '@/lib/integrations/mcp-lifecycle';
 import { hostedMcpConnectionId } from '@/lib/integrations/hosted-mcp';
-import { getChatSessionWithExecution, getMcpAppResult, getWorkspace, insertChatEvent, insertMcpAppResult } from '@/lib/db/queries';
+import { getChatSessionWithExecution, getMcpToolResult, getWorkspace, insertChatEvent, insertMcpToolResult } from '@/lib/db/queries';
 import { normalizeIntegrationScopes, pinMatchesConnection, scopePins } from '@/lib/integrations/scope-pins';
 import { sessionCaller, sessionIdFromCaller, listPendingApprovals, resolvePendingApprovals, cancelConnectedAppApprovals } from '@/lib/integrations/approval';
 import { isImportMirror } from '@/lib/import/mirror';
@@ -158,13 +158,13 @@ async function checkCapture(capture: Capture, stale = true) {
 }
 
 /**
- * A model's result stored when it arrived (`mcp_app_results`), to open again
+ * A model's result stored when it arrived (`mcp_tool_results`), to open again
  * after it left memory or the Home restarted, for as long as its chat exists.
  * Its title and display come from the server's tools as they are now, and
  * access is checked again when it opens, like any view.
  */
 async function storedResult(id: string): Promise<Capture> {
-  const row = getMcpAppResult(id);
+  const row = getMcpToolResult(id);
   const result = row && CallToolResultSchema.safeParse(row.result);
   // A screen the person opened was never stored, and one that left memory has closed. So has a result from before this table.
   if (!row || !result?.success) throw new Error('This view is no longer open. Open the app again, or ask for a new result.');
@@ -209,7 +209,7 @@ export async function prepareMcpResultCapture(event: Parameters<NonNullable<Inte
     if (!mcpViews().put(capture)) return;
     // The result is stored on its own, so it opens again for as long as the chat exists. The transcript
     // event carries only its id, so transcript pages never read it and its private metadata stays here.
-    insertMcpAppResult({id: capture.id, chatSessionId: chatId, serverId: capture.serverId, connectionId: capture.connectionId, sourceRef: capture.sourceRef,
+    insertMcpToolResult({id: capture.id, chatSessionId: chatId, serverId: capture.serverId, connectionId: capture.connectionId, sourceRef: capture.sourceRef,
       tool: capture.tool, resourceUri: capture.resourceUri, input: capture.input, result: capture.result as Record<string, unknown>});
     insertChatEvent({id: capture.id, sessionId: chatId, source: 'system', role: 'system', content: MCP_APP_EVENT,
       externalEventId: `mcp-view:${event.attemptId}`, raw: {subtype: MCP_APP_EVENT}, createdAt: new Date().toISOString()});

@@ -2338,8 +2338,8 @@ export const chatEvents = sqliteTable(
 // (`mcp_app_result`) carries only this row's id, so transcript pages never read it.
 // No interface is stored: the view reads its `ui://` resource from the app's server
 // each time it opens, and its title and display come from the server's current tools.
-export const mcpAppResults = sqliteTable(
-  'mcp_app_results',
+export const mcpToolResults = sqliteTable(
+  'mcp_tool_results',
   {
     id: text().primaryKey(),
     ...timestamps,
@@ -2358,7 +2358,7 @@ export const mcpAppResults = sqliteTable(
     // The tool's output, the view's `_meta` included.
     result: text({ mode: 'json' }).$type<Record<string, unknown>>().notNull(),
   },
-  (table) => [index('idx_mcp_app_results_chat_session').on(table.chatSessionId)],
+  (table) => [index('idx_mcp_tool_results_chat_session').on(table.chatSessionId)],
 );
 
 // ─── Entity Versions ──────────────────────────────────────────

@@ -4,7 +4,7 @@ import type { Attachment } from '@/db/types';
 
 /**
  * Captures and view sessions kept in memory, each. The least recently used
- * goes first. A model's result is also stored (`mcp_app_results`), so it
+ * goes first. A model's result is also stored (`mcp_tool_results`), so it
  * opens again after it leaves memory or the Home restarts. A screen the
  * person opened lives only here: once it goes, opening the app starts it over.
  * No interface is kept: a view reads its `ui://` resource each time it opens.

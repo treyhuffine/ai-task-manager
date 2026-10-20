@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({metadata: vi.fn(), runtime: vi.fn(), transport:
 vi.mock('@/lib/integrations/source-metadata', () => ({integrationSourceMetadata: mocks.metadata}));
 vi.mock('@/lib/integrations/runtime', () => ({getIntegrationOwnerId: () => 'local', getMcpViewAuthority: mocks.viewAuthority}));
 vi.mock('./files', async importOriginal => ({...await importOriginal<typeof import('./files')>(), closeHostWatches: mocks.closeWatches}));
-vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: mocks.workspace, insertChatEvent: mocks.insert, insertMcpAppResult: mocks.store, getMcpAppResult: mocks.stored}));
+vi.mock('@/lib/db/queries', () => ({getChatSessionWithExecution: mocks.chat, getWorkspace: mocks.workspace, insertChatEvent: mocks.insert, insertMcpToolResult: mocks.store, getMcpToolResult: mocks.stored}));
 vi.mock('@/lib/integrations/approval', () => ({sessionCaller: (id: string) => ({type: 'mcp', id: `session:${id}`}), sessionIdFromCaller: (caller?: {type?: string; id?: string}) => caller?.type === 'mcp' && caller.id?.startsWith('session:') ? caller.id.slice(8) : null, listPendingApprovals: mocks.approvals, resolvePendingApprovals: mocks.decide, cancelConnectedAppApprovals: mocks.cancel}));
 vi.mock('@/lib/integrations/approval-events', () => ({recordApprovalDecision: vi.fn()}));
 import { connectedAppNetwork, connectedContextAccess, connectedViewStatus, prepareMcpResultCapture, connectedAppsCatalog, connectedChatTabs, openConnectedView, callConnectedView, cancelConnectedInvocation, launchConnectedView, prepareConnectedLaunch, mcpViews, updateConnectedContext, clearConnectedContext, freezeConnectedContext, connectedTurnContext, decideConnectedApproval, navigateConnectedScreen, normalizeDeepLink, readConnectedResource } from './service';
@@ -21,7 +21,7 @@ const tools: {name: string; title?: string; inputSchema?: unknown; _meta?: unkno
 /** A standalone screen as OpenAI's MCP extensions spec declares one: a global entrypoint on an app-only tool. */
 const launcher = {name: 'home', title: 'Fixture home', _meta: {ui: {resourceUri: 'ui://fixture/calculator.html', visibility: ['app']}, 'openai/ui': {entrypoints: [{type: 'global'}]}}};
 let entry: Record<string, unknown>;
-/** The `mcp_app_results` table, as the query layer reads and writes it. */
+/** The `mcp_tool_results` table, as the query layer reads and writes it. */
 const results = new Map<string, Record<string, unknown>>();
 beforeEach(() => {
   vi.resetAllMocks(); process.env.RI_LOCAL_APPS = '0'; delete process.env.RI_MCP_APPS;
