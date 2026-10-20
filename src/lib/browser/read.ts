@@ -13,12 +13,12 @@
  */
 
 import { Readability } from '@mozilla/readability';
-import { parseHTML } from 'linkedom';
 import type { Page } from 'playwright-core';
 import { saveAttachment } from '@/lib/attachments/save';
 import type { Attachment } from '@/db/types';
 import { ActionError } from '@/lib/orchestrator/types';
 import { handoffsEnabled } from '@/lib/work-results/capabilities';
+import { parseHTML } from '@/lib/linkedom';
 import { applyCap } from './cap';
 import { redactSecrets } from './redact';
 import { baselineOf, captureSnapshot, type SnapshotBaseline } from './snapshot';
