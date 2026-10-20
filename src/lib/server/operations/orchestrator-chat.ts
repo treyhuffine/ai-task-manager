@@ -33,7 +33,7 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: Oper
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: OperationContext) {
   const body: unknown = rpcInput.body;
   try {
-    return reply({ session: await startNewMainChat(null, parseChatOverride(body), { whenIdle: rpcInput.body.whenIdle === true }) });
+    return reply({ session: await startNewMainChat(null, parseChatOverride(body), { forApp: rpcInput.body.forApp === true }) });
   } catch (err) {
     if (err instanceof MainChatBusyError) return reply({ error: err.message, code: err.code }, { status: 409 });
     console.error('[POST /api/orchestrator-chat]', err);

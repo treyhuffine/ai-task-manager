@@ -42,7 +42,7 @@ import { trpcClient } from '@/lib/trpc/client';
  */
 
 import { registerChatDraftWriter } from '@/lib/client/chat-drafts';
-import { registerAppChatComposer, serializeAppParts, type AppDraftPart, type AppProvenance } from '@/lib/client/app-chat-intent';
+import { registerAppChatComposer, type AppDraftPart } from '@/lib/client/app-chat-intent';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -263,12 +263,6 @@ interface ChatInputEditorProps {
    * from its in-memory message list. Omit (or pass empty) to disable recall.
    */
   history?: string[];
-  /**
-   * Sends a message a connected app asked to send (OpenAI's `ui/message`
-   * with `send`), as the app, without touching the person's draft. When
-   * omitted, app messages always land in the draft.
-   */
-  onAppSend?: (message: { text: string; attachments: Attachment[] }, fromApp?: AppProvenance) => Promise<void>;
 }
 
 // ─── Tunables ──────────────────────────────────────────────────
@@ -387,12 +381,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       prs,
       draftKey,
       history,
-      onAppSend,
     },
     ref,
   ) {
-    const onAppSendRef = useRef(onAppSend);
-    onAppSendRef.current = onAppSend;
     const onSubmitRef = useRef(onSubmit);
     onSubmitRef.current = onSubmit;
     // Mirror in a ref so the keymap (built once via useMemo) always reads
@@ -902,7 +893,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     // Register after this key's saved draft has been restored. App suggestions
     // append a paragraph, preserving typed text, chips and history: plain text
     // from local apps, and text, titled items and files from connected apps.
-    // A connected app's send goes out as its own message and leaves the draft.
+    // What a connected app writes lands in the draft, for the person to send.
     useEffect(() => {
       if (!editor || !draftKey?.startsWith('exec:')) return;
       const appendParagraph = (content: Record<string, unknown>[]) => {
@@ -916,13 +907,6 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       };
       return registerAppChatComposer(draftKey.slice(5), (text) => appendParagraph(text ? [{ type: 'text', text }] : []), {
         appendParts: (parts) => appendParagraph(appPartsContent(parts)),
-        send: async (parts, fromApp) => {
-          const send = onAppSendRef.current;
-          if (!send) throw new Error('This chat takes app messages as drafts only');
-          const message = serializeAppParts(parts);
-          if (!message.text) return;
-          await send(message, fromApp);
-        },
       });
     }, [editor, draftKey]);
 

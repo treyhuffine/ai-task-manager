@@ -10,7 +10,7 @@ import { trpcClient } from '@/lib/trpc/client';
 import type { RouterOutputs } from '@/lib/trpc/router';
 import { registerConnectedContext, selectConnectedContext, setConnectedContextContent, type ContextBlock } from '@/lib/client/mcp-app-context';
 import { requestAppChatMessage } from '@/lib/client/app-chat-intent';
-import { appMessageGate, appMessageParts, draftNotice, omittedNotice, routeAppMessage, type GateRefusal } from '@/lib/client/app-message';
+import { appMessageParts, appUploadBudget, draftNotice, omittedNotice, routeAppMessage } from '@/lib/client/app-message';
 import { appMessageRouting } from '@/lib/client/app-message-routing';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { useOptionalDashboard } from '@/contexts/dashboard-context';
@@ -100,9 +100,9 @@ export function ConnectedView({captureId, chatId, expanded = false, onClose, app
     {!moved && !expanded && !canInline && <p className="px-3 py-4 text-xs text-muted-foreground">This app shows beside the chat.</p>}
     {/* A full-screen-only view still mounts here, hidden, so opening it beside the chat keeps its state. */}
     <div ref={setInlineMount} className={moved || (!expanded && !canInline) ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}/>
-    {container && createPortal(failure ? <div role="alert" className="space-y-2 p-4 text-sm text-muted-foreground"><p>{failure.message}</p><p>Your original tool result is unchanged.</p><Button size="xs" variant="outline" onClick={() => {void query.refetch(); void access.refetch();}}>Check view again</Button></div>
+    {container && createPortal(failure ? <div role="alert" className="space-y-2 p-4 text-sm text-muted-foreground"><p>{failure.message}</p><Button size="xs" variant="outline" onClick={() => {void query.refetch(); void access.refetch();}}>Try again</Button></div>
       : query.data?.resource ? <MountedView key={query.data.id} view={query.data} expanded={expanded || !!moved} deepLink={deepLink} onExpand={mode => companion?.open(mode === 'inline' ? null : captureId)} />
-      : query.data ? <div className="space-y-3 p-4 text-sm"><p className="text-muted-foreground">{query.data.unsupported ?? 'This result has no available interface.'}</p>{query.data.result.content.flatMap((item, index) => item.type === 'text' ? [<p key={index} className="whitespace-pre-wrap [overflow-wrap:anywhere]">{item.text}</p>] : [])}{query.data.result.structuredContent != null && <details><summary className="cursor-pointer text-xs text-muted-foreground">Result data</summary><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(query.data.result.structuredContent, null, 2).slice(0, 64_000)}</pre></details>}<Button size="xs" variant="outline" onClick={() => void query.refetch()}>Check interface again</Button></div>
+      : query.data ? <div className="space-y-3 p-4 text-sm"><p className="text-muted-foreground">{query.data.unsupported ?? 'This result has no available interface.'}</p>{query.data.result.content.flatMap((item, index) => item.type === 'text' ? [<p key={index} className="whitespace-pre-wrap [overflow-wrap:anywhere]">{item.text}</p>] : [])}{query.data.result.structuredContent != null && <details><summary className="cursor-pointer text-xs text-muted-foreground">Result data</summary><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(query.data.result.structuredContent, null, 2).slice(0, 64_000)}</pre></details>}<Button size="xs" variant="outline" onClick={() => void query.refetch()}>Try again</Button></div>
       : <p role="status" className="flex items-center gap-2 p-4 text-xs text-muted-foreground"><Loader2 size={14} className="animate-spin"/>Opening app…</p>, container)}
   </section>;
 }
@@ -160,9 +160,8 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
       return content.length || value?.structuredContent !== undefined ? content : null;
     };
     let attached = blocks(view.modelContext) !== null;
-    // Sends need the person's own input inside this view (`AppMessageGate`, `ViewMessage.activated`). The gate is
-    // the view's, so remounting does not reset its spacing.
-    const gate = appMessageGate(view.id);
+    // The view's upload allowance for the files its drafts carry, kept across remounts.
+    const uploads = appUploadBudget(view.id);
     let waiting: Pending | null = null;
     const ask = (request: Omit<Pending, 'finish'>, signal: AbortSignal) => new Promise<boolean>((resolve, reject) => {
       if (waiting) { reject(new Error('Answer the current app approval first')); return; }
@@ -243,25 +242,15 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
       error: error => { if (!disposed) setError(error.message); },
       ready: () => { if (!disposed) setReady(true); },
       resize: value => { if (!disposed) setHeight(value); },
-      // OpenAI's `ui/message` extension: rich content, to this chat or a new one, sent only when the person's
-      // input in the view led to it (docs/connected-mcp-apps.md, "Messages"). Otherwise it is a draft in the
-      // view's own chat for the person to send, and no chat starts or comes into view.
+      // OpenAI's `ui/message` extension: rich content, put in the draft of this chat or a new one for the person
+      // to send (docs/connected-mcp-apps.md, "Messages"). Ri never sends it for the app.
       sendMessage: async (message, signal) => {
-        const activated = message.activated;
-        let send = message.send, refusal: GateRefusal | 'busy' | undefined;
-        if (send) {
-          const decision = gate.decide(activated);
-          if (!decision.send) { send = false; refusal = decision.reason; }
-        }
-        const {parts, omitted} = await appMessageParts(message.content, (file, name) => uploadAttachment(file, name), {budget: gate});
+        const {parts, omitted} = await appMessageParts(message.content, (file, name) => uploadAttachment(file, name), {budget: uploads});
         if (signal.aborted) throw new Error('The app message was cancelled');
-        const routed = await routeAppMessage(view.chatId, message.target, appMessageRouting(queryClient, dashboardRef.current), {activated});
-        if (routed.busy && send) { send = false; refusal = 'busy'; }
-        const delivery = await requestAppChatMessage(routed.chatId, {parts, send, fromApp: {viewId: view.id, app: view.app}});
+        const routed = await routeAppMessage(view.chatId, message.target, appMessageRouting(queryClient, dashboardRef.current));
+        requestAppChatMessage(routed.chatId, {parts});
         if (disposed) return;
-        const notes = [refusal ? draftNotice(view.app, refusal) : send && delivery === 'drafted' ? draftNotice(view.app, 'failed') : null,
-          omitted ? omittedNotice(view.app, omitted) : null].filter(Boolean);
-        if (notes.length) setNotice(notes.join(' '));
+        setNotice([draftNotice(view.app, routed.busy ? 'busy' : 'drafted'), omitted ? omittedNotice(view.app, omitted) : null].filter(Boolean).join(' '));
       },
       ...(view.chatId ? {displayMode: (mode: 'inline' | 'fullscreen' | 'pip') => onExpandRef.current(mode)} : {}),
     });

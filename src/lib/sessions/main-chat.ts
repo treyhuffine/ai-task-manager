@@ -130,7 +130,7 @@ async function retireMainChat(id: string): Promise<void> {
   void deriveRetrospectiveLabel(id);
 }
 
-/** A new main chat refused because the current one is still working (`whenIdle`). */
+/** A new main chat an app asked for, refused because the current one is still working (`forApp`). */
 export class MainChatBusyError extends Error {
   readonly code = 'main_chat_busy';
   constructor() { super('This chat is still working, so a new chat wasn\'t started.'); this.name = 'MainChatBusyError'; }
@@ -146,16 +146,22 @@ async function chatIsWorking(id: string): Promise<boolean> {
  * Start fresh: retire the current chat and create a new one. Used by "New
  * chat", by the composer's provider switch, and by mode switches (spawn
  * flags are read when the process starts, so a new chat is the clean cut).
- * `whenIdle` refuses instead while the current chat is still working, for a
- * new chat a connected app asked for (`target: "new"`): only the person ends
- * work in progress.
+ *
+ * `forApp` is a new chat a connected app asked for (`target: "new"`), where
+ * the app's draft goes. An app needs no click to ask, and retiring a chat
+ * stops its running turn and drops what it had queued, so: a current chat
+ * nobody has written in is already new and is kept, and one still working is
+ * never ended (`MainChatBusyError`). Only the person ends work in progress.
  */
-export async function startNewMainChat(scope: MainChatScope, override: ChatOverride = {}, options: { whenIdle?: boolean } = {}): Promise<ChatSessionRecord> {
+export async function startNewMainChat(scope: MainChatScope, override: ChatOverride = {}, options: { forApp?: boolean } = {}): Promise<ChatSessionRecord> {
   // A disabled explicit choice must fail before retiring the current chat.
   const harness = override.providerId ?? getUserState()?.defaultHarness ?? DEFAULT_HARNESS;
   assertHarnessEnabled(harness);
   const current = currentMainChat(scope);
-  if (options.whenIdle && current && await chatIsWorking(current.id)) throw new MainChatBusyError();
+  if (options.forApp && current) {
+    if (!getLastChatEventBySource(current.id, 'user')) return current;
+    if (await chatIsWorking(current.id)) throw new MainChatBusyError();
+  }
   const permissions = permissionsForNewChat(harness, current);
   if (current) await retireMainChat(current.id);
   return createMainChat(scope, override, permissions);

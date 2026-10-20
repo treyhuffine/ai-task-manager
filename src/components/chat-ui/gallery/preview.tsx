@@ -87,7 +87,7 @@ function Mentions() {
   </div>;
 }
 
-/** A composer with two apps' context, removable, and a message an app sent, through the real transcript. */
+/** A composer with two apps' context, removable. */
 function AppContext() {
   const [groups, setGroups] = useState<AppContextGroupView[]>([
     { viewId: 'parts', app: 'Parts Library', items: [
@@ -96,9 +96,6 @@ function AppContext() {
     ] },
     { viewId: 'board', app: 'Planning Board', items: [{ kind: 'text', text: 'Column: This week, 4 cards' }] },
   ]);
-  if (config.state === 'sent') return <section aria-label="Sent message">
-    <ExecutionEvent event={event('user', { id: 'app-message', role: 'user', content: 'Create a new part with Parts Library: a bracket for a 40 mm motor', raw: { sentByApp: { app: 'Parts Library' } } })} sessionId={CHAT_ID} handoffActions={false} />
-  </section>;
   return <section aria-label="Composer" className="rounded-xl border border-border bg-card">
     <AppContextStrip groups={groups} onRemove={viewId => setGroups(current => current.filter(group => group.viewId !== viewId))} />
     <p className="px-3 pb-3 pt-2 text-[13px] text-muted-foreground">Ask about the selected part</p>

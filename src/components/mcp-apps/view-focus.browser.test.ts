@@ -2,9 +2,9 @@
  * An app taking focus from Ri (docs/connected-mcp-apps.md, "Messages"), through
  * the real view host and component with a sandboxed guest: the person types in
  * Ri's composer while the app keeps calling `focus()` on its own input and
- * tries to send on every key it receives. Ri keeps the focus, so every
- * keystroke stays in the composer and nothing sends. A real click into the
- * app still moves focus there, and a send the person makes in it goes through.
+ * writes a message with every key it receives. Ri keeps the focus, so every
+ * keystroke stays in the composer and the app gets none. A real click into
+ * the app still moves focus there. What the app writes is only ever a draft.
  */
 import { it, expect } from 'vitest';
 import { build } from 'esbuild';
@@ -35,12 +35,12 @@ rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Thief',version:
 </script></body></html>` }] }, 'ui://fixture/thief.html', false);
   const bundle = await build({ stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
 import React,{useState,useEffect} from 'react';import{createRoot}from'react-dom/client';import{QueryClient,QueryClientProvider}from'@tanstack/react-query';
-import{ConnectedView}from'@/components/mcp-apps/view';import{registerAppChatComposer,serializeAppParts}from'@/lib/client/app-chat-intent';
+import{ConnectedView}from'@/components/mcp-apps/view';import{registerAppChatComposer}from'@/lib/client/app-chat-intent';
 const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
-function Fixture(){const[draft,setDraft]=useState('');const[sent,setSent]=useState([]);
-useEffect(()=>registerAppChatComposer('${chatId}',text=>setDraft(d=>d+'|'+text),{appendParts:parts=>setDraft(d=>d+'|'+JSON.stringify(parts)),send:async(parts)=>setSent(s=>[...s,serializeAppParts(parts).text])}),[]);
+function Fixture(){const[draft,setDraft]=useState('');
+useEffect(()=>registerAppChatComposer('${chatId}',text=>setDraft(d=>d+'|'+text),{appendParts:parts=>setDraft(d=>d+'|'+JSON.stringify(parts))}),[]);
 return <main className="flex h-dvh flex-col bg-background text-foreground"><textarea aria-label="Composer" className="m-4 h-16 border"/><div className="flex-1 overflow-auto p-5"><ConnectedView captureId="${captureId}" chatId="${chatId}"/></div>
-<output data-draft>{draft}</output><output data-sent>{JSON.stringify(sent)}</output></main>}
+<output data-draft>{draft}</output></main>}
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><Fixture/></QueryClientProvider>);
 ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}' } });
   const server = http.createServer(async (req, res) => {
@@ -68,27 +68,30 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     const composer = page.getByRole('textbox', { name: 'Composer' });
     // Ri checks a click into the app with the relay (two hops) before the app keeps focus. Wait until focus
     // has stayed in the view, read from Ri's page only, so nothing here gives the app activation of its own.
-    const focusSettledInApp = () => expect.poll(async () => {
-      const at = () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
-      const first = await at();
-      await page.waitForTimeout(80);
-      return first === 'App view' && await at() === 'App view';
-    }).toBe(true);
+    const focusSettledInApp = async () => {
+      await expect.poll(async () => {
+        const at = () => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
+        const first = await at();
+        await page.waitForTimeout(80);
+        return first === 'App view' && await at() === 'App view';
+      }).toBe(true);
+      // The relay hands focus back to the app's own field one hop later.
+      await guest.locator('#field:focus').waitFor();
+    };
     await guest.locator('#field').waitFor();
     // The person clicks the composer and types, slowly enough that the app takes focus between keys many times.
     await composer.click();
     await page.keyboard.type('hello there, Ri', { delay: 70 });
     expect(await composer.inputValue()).toBe('hello there, Ri');
-    expect(await page.locator('[data-sent]').textContent()).toBe('[]');
     expect(await page.locator('[data-draft]').textContent()).toBe('');
     expect(await guest.locator('#keys').textContent()).toBe('');
-    // A real click moves focus into the app, its own field takes the person's typing, and a send there goes through.
+    // A real click moves focus into the app, and its own field takes the person's typing.
     await guest.locator('#field').click();
     await focusSettledInApp();
     await page.keyboard.type('ok', { delay: 40 });
     expect(await guest.locator('#keys').textContent()).toBe('ok');
-    await expect.poll(() => page.locator('[data-sent]').textContent()).toBe(JSON.stringify(['stolen:o']));
-    // Back in Ri, the activation that click gave the app no longer lets it take focus or send.
+    await expect.poll(() => page.locator('[data-draft]').textContent()).toContain('stolen:o');
+    // Back in Ri, the app can't take focus again.
     await composer.click();
     await page.keyboard.type(' again', { delay: 70 });
     expect(await composer.inputValue()).toBe('hello there, Ri again');
@@ -109,8 +112,8 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     await focusSettledInApp();
     await page.keyboard.type('q', { delay: 40 });
     expect(await guest.locator('#keys').textContent()).toBe('okq');
-    await expect.poll(() => page.locator('[data-sent]').textContent()).toBe(JSON.stringify(['stolen:o', 'stolen:q']));
-    expect(await page.locator('[data-draft]').textContent()).toContain('stolen:k');
+    await expect.poll(() => page.locator('[data-draft]').textContent()).toContain('stolen:q');
+    expect(await page.locator('[data-draft]').textContent()).not.toContain('stolen:!');
     expect(errors).toEqual([]);
   } finally { await browser.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 }, 40_000);

@@ -1,10 +1,12 @@
 import type { Attachment } from '@/db/types';
-import type { AppDraftPart } from './app-chat-intent';
+import { withoutSourceMarkers, type AppDraftPart } from './app-chat-intent';
 
 /**
  * OpenAI's `ui/message` extension in Ri (docs/connected-mcp-apps.md,
- * "Messages"): what an app's content becomes in a composer, which chat it
- * goes to, and whether it may be sent without the person pressing Send.
+ * "Messages"): what an app's content becomes in a composer, and which chat's
+ * composer it goes to. It always becomes a draft the person sends: agents
+ * act with the person's full access, so the person reads every word an app
+ * wants sent before an agent acts on it.
  */
 
 /** A content block from `ui/message`: text, image, resource link or embedded resource. */
@@ -62,7 +64,8 @@ export async function appMessageParts(content: readonly MessageBlock[], upload: 
   const addText = (part: Extract<AppDraftPart, { type: 'text' | 'snippet' }>) => {
     const room = MAX_MESSAGE_TEXT - textBytes;
     if (room <= 0) return;
-    const text = part.text.length > room ? `${part.text.slice(0, room)} [cut]` : part.text;
+    const safe = withoutSourceMarkers(part.text);
+    const text = safe.length > room ? `${safe.slice(0, room)} [cut]` : safe;
     textBytes += text.length;
     parts.push({ ...part, text });
   };
@@ -78,7 +81,7 @@ export async function appMessageParts(content: readonly MessageBlock[], upload: 
     if (block.type === 'text') {
       const text = str(block.text);
       if (!text) continue;
-      addText(title ? { type: 'snippet', title, text } : { type: 'text', text });
+      addText(title ? { type: 'snippet', title: withoutSourceMarkers(title), text } : { type: 'text', text });
     } else if (block.type === 'image') {
       const data = str(block.data), mimeType = str(block.mimeType);
       if (!data || !mimeType?.startsWith('image/')) throw new Error('The app sent an image Ri cannot read.');
@@ -91,7 +94,7 @@ export async function appMessageParts(content: readonly MessageBlock[], upload: 
     } else if (block.type === 'resource') {
       const resource = record(block.resource), uri = str(resource.uri) ?? 'resource';
       const label = title ?? str(resource.title) ?? str(resource.name) ?? uri;
-      if (typeof resource.text === 'string') addText({ type: 'snippet', title: label, text: resource.text });
+      if (typeof resource.text === 'string') addText({ type: 'snippet', title: withoutSourceMarkers(label), text: resource.text });
       else if (typeof resource.blob === 'string') await addFile(resource.blob, str(resource.mimeType) ?? 'application/octet-stream', label);
     } else {
       throw new Error(`An app message cannot include ${block.type} content.`);
@@ -101,59 +104,37 @@ export async function appMessageParts(content: readonly MessageBlock[], upload: 
 }
 
 /**
- * Whether an app may send without the person pressing Send. OpenAI's spec
- * sends by default, so Ri sends, but only a request the person's own input
- * inside that view led to: Ri's relay frame had transient user activation
- * when it passed the request on (`ViewMessage.activated`). Script focusing
- * itself grants none, and neither does input elsewhere in Ri, so an app that
- * sends on its own, at load or in the background, gets a draft instead, which
- * the person sends themselves. Sends are spaced at least 5 seconds apart, the
- * browser's activation window, so one click or key press sends once. The gate
- * belongs to the view, so a remount keeps its spacing (`appMessageGate`). It
- * also holds the view's upload allowance.
+ * A view's upload allowance, kept across remounts of it (`appUploadBudget`).
+ * Every app message is a draft, which needs no click, so this is what keeps a
+ * screen from filling the Home's disk with draft attachments.
  */
-export const SEND_SPACING_MS = 5_000;
-export type GateRefusal = 'no-interaction' | 'too-fast';
-export class AppMessageGate implements UploadBudget {
-  private lastSend = -Infinity;
+export class ViewUploadBudget implements UploadBudget {
   private uploaded = 0;
-  constructor(private readonly now: () => number = Date.now) {}
   take(bytes: number) {
     if (this.uploaded + bytes > MAX_UPLOAD_BYTES_PER_VIEW) return false;
     this.uploaded += bytes;
     return true;
   }
-  /** Decide one send. `activated`: the person's input inside the view led to this request. */
-  decide(activated: boolean): { send: true } | { send: false; reason: GateRefusal } {
-    const now = this.now();
-    if (!activated) return { send: false, reason: 'no-interaction' };
-    if (now - this.lastSend < SEND_SPACING_MS) return { send: false, reason: 'too-fast' };
-    this.lastSend = now;
-    return { send: true };
-  }
 }
 
-const gates = new Map<string, AppMessageGate>();
-const MAX_GATES = 256;
-/** The gate for one view, kept across remounts of it. */
-export function appMessageGate(viewId: string): AppMessageGate {
-  let gate = gates.get(viewId);
-  if (!gate) {
-    if (gates.size >= MAX_GATES) gates.delete(gates.keys().next().value!);
-    gate = new AppMessageGate();
-    gates.set(viewId, gate);
+const budgets = new Map<string, ViewUploadBudget>();
+const MAX_BUDGETS = 256;
+/** The upload allowance for one view, kept across remounts of it. */
+export function appUploadBudget(viewId: string): ViewUploadBudget {
+  let budget = budgets.get(viewId);
+  if (!budget) {
+    if (budgets.size >= MAX_BUDGETS) budgets.delete(budgets.keys().next().value!);
+    budget = new ViewUploadBudget();
+    budgets.set(viewId, budget);
   }
-  return gate;
+  return budget;
 }
 
-/** The quiet note a view shows when its send became a draft. */
-export function draftNotice(app: string, reason: GateRefusal | 'busy' | 'failed'): string {
-  switch (reason) {
-    case 'no-interaction': return `${app} wrote a message for you. It's in the draft, ready when you are.`;
-    case 'too-fast': return `${app} sent messages too quickly, so this one is in the draft.`;
-    case 'busy': return `${app} asked for a new chat while this one is still working, so its message is in the draft here.`;
-    default: return `${app}'s message couldn't be sent, so it's in the draft.`;
-  }
+/** The quiet note a view shows once its message is in a draft. */
+export function draftNotice(app: string, reason: 'drafted' | 'busy'): string {
+  return reason === 'busy'
+    ? `${app} asked for a new chat while this one is still working, so its message is in the draft here.`
+    : `${app} wrote a message for you. It's in the draft, ready when you are.`;
 }
 
 /** The note for files a message left out, past the view's upload allowance. */
@@ -167,34 +148,30 @@ export interface MessageRouting {
   session(chatId: string): Promise<RoutedSession | null>;
   /** The person's main chat, as it is now. */
   mainChat(): Promise<string>;
-  /** Start a fresh main chat, the app's (`null`) or an agent's, and show it. Null when the home refused because the current one is still working. */
+  /**
+   * A new main chat for an app, the app's (`null`) or an agent's, shown: the
+   * current one when nobody has written in it yet. Null when the home kept
+   * the current one because it is still working (`forApp`).
+   */
   newMainChat(scope: string | null): Promise<string | null>;
-  /** Whether the scope's current main chat has a turn running or work in the background, which a new one would end. */
-  mainChatBusy(scope: string | null): Promise<boolean>;
-  /** Start a fresh chat in an execution, and show it. */
+  /** A new chat in an execution for an app, shown: its newest when nobody has written in it yet (`forApp`). */
   newExecutionChat(sessionId: string): Promise<string>;
   /** Bring the main chat panel into view, beside a global screen. */
   showMainChat(): void;
 }
 
 /**
- * Which chat an app's message goes to. `active` is the chat the view is in.
+ * Whose composer an app's draft goes to. `active` is the chat the view is in.
  * A view with no chat (a global screen, a settings or preview window) uses
- * the main chat, shown beside it. `new` starts a fresh conversation on the
- * same surface: a new main chat for the main chat or a view with no chat,
- * a new chat for the same agent from an agent's main chat, a new chat in the
- * same execution from one of its chats (Ri's New chat there), and a new main
- * chat from a task or note chat.
- *
- * Only a message the person's input in the view led to (`activated`) may
- * start a chat or bring one into view. Any other goes to the active chat,
- * quietly. A new main chat ends the current one, so while that chat is still
- * working the message stays in the active chat instead (`busy`), to be sent
- * by the person.
+ * the main chat, brought into view so the draft is seen. `new` opens a fresh
+ * conversation on the same surface with the draft in it, and sends nothing: a
+ * new main chat for the main chat or a view with no chat, a new chat for the
+ * same agent from an agent's main chat, a new chat in the same execution from
+ * one of its chats, and a new main chat from a task or note chat. A new main
+ * chat ends the current one, so while that chat is still working the draft
+ * goes to the active chat instead (`busy`).
  */
-export async function routeAppMessage(viewChatId: string | null | undefined, target: 'active' | 'new', routing: MessageRouting,
-  { activated }: { activated: boolean }): Promise<{ chatId: string; busy?: true }> {
-  if (!activated) return { chatId: viewChatId ?? await routing.mainChat() };
+export async function routeAppMessage(viewChatId: string | null | undefined, target: 'active' | 'new', routing: MessageRouting): Promise<{ chatId: string; busy?: true }> {
   const active = async () => {
     if (viewChatId) return viewChatId;
     routing.showMainChat();
@@ -204,7 +181,6 @@ export async function routeAppMessage(viewChatId: string | null | undefined, tar
   const session = viewChatId ? await routing.session(viewChatId) : null;
   if (session?.type === 'execution') return { chatId: await routing.newExecutionChat(session.id) };
   const scope = session?.type === 'orchestration' ? session.workspaceId : null;
-  if (await routing.mainChatBusy(scope)) return { chatId: await active(), busy: true };
   const chatId = await routing.newMainChat(scope);
   if (chatId === null) return { chatId: await active(), busy: true };
   if (scope === null) routing.showMainChat();

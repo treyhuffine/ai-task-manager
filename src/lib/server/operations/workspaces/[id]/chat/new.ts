@@ -19,7 +19,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     if (!agent.ok) return failureResponse(agent.response);
     if (agent.ws.status === 'archived') return failureResponse(archivedAgentResponse());
     const body: unknown = rpcInput.body;
-    return reply({ session: await startNewMainChat(id, parseChatOverride(body), { whenIdle: rpcInput.body.whenIdle === true }) });
+    return reply({ session: await startNewMainChat(id, parseChatOverride(body), { forApp: rpcInput.body.forApp === true }) });
   } catch (err) {
     if (err instanceof MainChatBusyError) return reply({ error: err.message, code: err.code }, { status: 409 });
     console.error('[POST /api/workspaces/:id/chat/new]', err);

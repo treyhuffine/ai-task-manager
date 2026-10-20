@@ -14,7 +14,6 @@ import { CopyMessageButton } from '@/components/chat-ui/messages/copy-message-bu
 import { MessageEntityChip, type EntityLookup } from '@/components/chat-ui/references/message-entity-chip';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
 import { SenderChip } from '@/components/chat-ui/messages/sender-chip';
-import { AppSenderChip, sentByApp } from '@/components/chat-ui/messages/app-sender-chip';
 import { VoiceSentBadge } from '@/components/chat-ui/messages/voice-sent-badge';
 import { EntityEditChip, parseEntityEditTool } from '@/components/chat-ui/edits/entity-edit-chip';
 import type { Attachment } from '@/db/types';
@@ -165,7 +164,6 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
       return (
         <div className="group flex flex-col">
           {event.senderSessionId && <SenderChip senderSessionId={event.senderSessionId} />}
-          {!event.senderSessionId && sentByApp(event.raw) && <AppSenderChip app={sentByApp(event.raw)!} />}
           <Message from="user">
             <MessageContent
               className={cn(

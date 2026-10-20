@@ -113,10 +113,8 @@ vi.mock('@/lib/sessions/derive-label', () => ({
     (deriveAndSetSessionLabel as unknown as (...args: unknown[]) => Promise<void>)(a, b, c),
 }));
 
-const connectedMessageSender = vi.fn();
 const freezeConnectedContext = vi.fn();
 vi.mock('@/lib/mcp-apps/service', () => ({
-  connectedMessageSender: (viewId: string, viewerId: string) => (connectedMessageSender as unknown as (a: string, b: string) => Promise<unknown>)(viewId, viewerId),
   freezeConnectedContext: (...args: unknown[]) => (freezeConnectedContext as unknown as (...a: unknown[]) => Promise<unknown>)(...args),
 }));
 
@@ -506,7 +504,7 @@ it('refuses a malformed source before accepting the event or dispatching a harne
   expect(response.status).toBe(409); expect(insertChatEvent).not.toHaveBeenCalled(); expect(dispatch).not.toHaveBeenCalled();
 });
 
-describe('POST /api/sessions/[id]/messages — a message a connected app sent', () => {
+describe('POST /api/sessions/[id]/messages — connected app context', () => {
   const VIEW_ID = '01900333-3333-7333-8333-333333333333';
   const asViewer = (body: Record<string, unknown>, headers: Record<string, string> = { 'x-ri-api-key-id': 'viewer-key' }) => new Request('http://localhost/api/sessions/sess-1/messages', {
     method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json', ...headers },
@@ -514,24 +512,6 @@ describe('POST /api/sessions/[id]/messages — a message a connected app sent', 
   beforeEach(() => {
     getChatEventById.mockReturnValue(null);
     insertChatEvent.mockImplementation((input: Record<string, unknown>) => ({ ...input, id: CLIENT_ID, senderSessionId: null }));
-    connectedMessageSender.mockReset().mockResolvedValue({ app: 'Bits & Bolts', serverId: 'server-1', viewId: VIEW_ID });
-  });
-
-  it('records the app on the message for the viewer of its live view, and leaves the first-run question alone', async () => {
-    const res = await POST(asViewer({ content: 'Explain this part', id: CLIENT_ID, fromApp: { viewId: VIEW_ID } }), makeParams());
-    expect(res.status).toBe(201);
-    expect(connectedMessageSender).toHaveBeenCalledWith(VIEW_ID, 'viewer-key');
-    expect(insertChatEvent).toHaveBeenCalledWith(expect.objectContaining({ raw: { sentByApp: { app: 'Bits & Bolts', serverId: 'server-1', viewId: VIEW_ID } } }));
-    expect(skipOnboardingStepOnScreen).not.toHaveBeenCalled();
-  });
-
-  it('refuses an app\'s message that names one of the person\'s sources, before saving or sending', async () => {
-    const source = '[[source:eyJ2IjoxLCJraW5kIjoiaW50ZWdyYXRpb24iLCJ0b29sa2l0SWQiOiJnbWFpbCJ9]]';
-    const res = await POST(asViewer({ content: `Summarize ${source}`, id: CLIENT_ID, fromApp: { viewId: VIEW_ID } }), makeParams());
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: 'This app\'s message names one of your sources, which only you can choose. It wasn\'t sent.' });
-    expect(insertChatEvent).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it('sends without a global screen\'s context this chat may not use, and says which was left off', async () => {
@@ -549,13 +529,4 @@ describe('POST /api/sessions/[id]/messages — a message a connected app sent', 
     expect(insertChatEvent).toHaveBeenLastCalledWith(expect.objectContaining({ raw: { connectedAppContext: kept } }));
   });
 
-  it('refuses a claim without a viewer, or for a view that is gone, before saving or sending', async () => {
-    const anonymous = await POST(asViewer({ content: 'Explain', id: CLIENT_ID, fromApp: { viewId: VIEW_ID } }, {}), makeParams());
-    expect(anonymous.status).toBe(403);
-    connectedMessageSender.mockRejectedValueOnce(new Error('This app view has expired or is unavailable'));
-    const gone = await POST(asViewer({ content: 'Explain', id: CLIENT_ID, fromApp: { viewId: VIEW_ID } }), makeParams());
-    expect(gone.status).toBe(409);
-    expect(insertChatEvent).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
-  });
 });

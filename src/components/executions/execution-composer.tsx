@@ -71,7 +71,6 @@ import { usePrList } from '@/hooks/use-prs';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { DEFAULT_HARNESS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { Tip } from '@/components/ui/tip';
-import type { AppProvenance } from '@/lib/client/app-chat-intent';
 import { AppContextStrip } from '@/components/chat-ui/references/app-context-strip';
 import { useConnectedContextGroups } from '@/hooks/use-connected-context';
 
@@ -151,7 +150,7 @@ interface ExecutionComposerProps {
    */
   onSend: (
     message: string,
-    opts?: { viaVoice?: boolean; attachments?: Attachment[]; fromApp?: AppProvenance },
+    opts?: { viaVoice?: boolean; attachments?: Attachment[] },
   ) => Promise<void> | void;
   /** Required when `isRunning` can be true. Cancels the agent turn. */
   onStop?: () => Promise<void> | void;
@@ -561,21 +560,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       [sending, disabled, onSend, sessionId, markRead, queryClient],
     );
 
-    // A connected app's message sent for the person (OpenAI's `ui/message`
-    // with `send`): its own message, labeled with the app, leaving the
-    // person's draft as it is. Refused here, it lands in the draft instead.
-    const handleAppSend = useCallback(
-      async (message: { text: string; attachments: Attachment[] }, fromApp?: AppProvenance) => {
-        if (disabled || !sessionId) throw new Error('This chat cannot take messages right now');
-        markRead.mutate(sessionId);
-        await onSend(message.text, {
-          attachments: message.attachments.length > 0 ? message.attachments : undefined,
-          fromApp,
-        });
-      },
-      [disabled, sessionId, markRead, onSend],
-    );
-
     // What connected apps attached to the next message, one group per app.
     const contextGroups = useConnectedContextGroups(sessionId || null);
 
@@ -734,7 +718,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   prs={prMentions}
                   draftKey={sessionId ? `exec:${sessionId}` : undefined}
                   history={messageHistory}
-                  onAppSend={handleAppSend}
                 />
               )}
               {/* Floating focus hint — only when the editor is the empty

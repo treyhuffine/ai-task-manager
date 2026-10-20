@@ -240,7 +240,7 @@ describe("a main chat opened before its agent was set up where it lives now (Bou
     expect(sends.map((c) => [c.state, c.error])).toEqual([['cancelled', 'This chat was closed before it was delivered.']]);
     expect(q.getChatSession(chat.id)?.status).toBe('archived');
   });
-  it('keeps a chat still waiting on its device when an app asks for a new one (whenIdle)', async () => {
+  it('keeps a chat still waiting on its device when an app asks for a new one (forApp)', async () => {
     await setUpOn(laptopId);
     const q = await import('@/lib/db/queries');
     const { ensureMainChat, startNewMainChat, MainChatBusyError } = await import('./main-chat');
@@ -250,20 +250,34 @@ describe("a main chat opened before its agent was set up where it lives now (Bou
     const onQueue = new Promise<void>((r) => { queued = r; });
     void (await import('@/lib/executor/adapter')).dispatch(chat.id, 'Later', { sourceEventId: message.id, onQueued: () => queued() }).catch(() => {});
     await onQueue;
-    await expect(startNewMainChat(agentId, {}, { whenIdle: true })).rejects.toBeInstanceOf(MainChatBusyError);
+    await expect(startNewMainChat(agentId, {}, { forApp: true })).rejects.toBeInstanceOf(MainChatBusyError);
     // Nothing was withdrawn or archived: the message still waits for the MacBook.
     expect(q.listWorkerCommands(laptopId).filter((c) => c.kind === 'send').map((c) => c.state)).toEqual(['queued']);
     expect(q.getChatSession(chat.id)?.status).not.toBe('archived');
     expect((await ensureMainChat(agentId)).id).toBe(chat.id);
   });
 
-  it('starts a new chat for an app when the current one is idle (whenIdle)', async () => {
+  it('starts a new chat for an app when the current one is idle and someone wrote in it (forApp)', async () => {
     await setUpOn(laptopId);
+    const q = await import('@/lib/db/queries');
     const { ensureMainChat, startNewMainChat } = await import('./main-chat');
     const chat = await ensureMainChat(agentId);
-    const next = await startNewMainChat(agentId, {}, { whenIdle: true });
+    q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'Earlier', createdAt: new Date().toISOString() });
+    const next = await startNewMainChat(agentId, {}, { forApp: true });
     expect(next.id).not.toBe(chat.id);
-    expect((await import('@/lib/db/queries')).getChatSession(chat.id)?.status).toBe('archived');
+    expect(q.getChatSession(chat.id)?.status).toBe('archived');
+  });
+
+  it('keeps a chat nobody has written in when an app asks for a new one, so an app can\'t churn chats (forApp)', async () => {
+    await setUpOn(laptopId);
+    const q = await import('@/lib/db/queries');
+    const { ensureMainChat, startNewMainChat } = await import('./main-chat');
+    const chat = await ensureMainChat(agentId);
+    // An app asking again and again gets the same fresh chat, and nothing is archived.
+    for (let i = 0; i < 3; i++) expect((await startNewMainChat(agentId, {}, { forApp: true })).id).toBe(chat.id);
+    expect(q.getChatSession(chat.id)?.status).not.toBe('archived');
+    // The person's own New chat still starts over.
+    expect((await startNewMainChat(agentId)).id).not.toBe(chat.id);
   });
 });
 

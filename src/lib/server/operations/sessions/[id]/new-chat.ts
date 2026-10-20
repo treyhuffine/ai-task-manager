@@ -3,6 +3,8 @@ import {
   createExecutionChat,
   deleteChatSessionIfEmpty,
   getChatSessionWithExecution,
+  getLastChatEventBySource,
+  listExecutionChatIds,
   setExecutionLabel,
 } from '@/lib/db/queries';
 import { permissionsForNewChat, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
@@ -26,6 +28,11 @@ import { z as rpcZ } from 'zod/v4';
  * two independent threads on the same worktree). The chat tab strip is the
  * management surface; closing a conversation is an explicit X there
  * (`POST /:id/close-chat`), never a side effect of opening a new one.
+ *
+ * `forApp` is a new chat a connected app asked for (`target: "new"`), where
+ * its draft goes. An app needs no click to ask, so the execution's newest
+ * chat is reused while nobody has written in it, and asking again can't pile
+ * up chats.
  */
 interface ChatOverride {
   providerId?: ProviderId;
@@ -65,6 +72,11 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
     if (!current) return reply({ error: 'Session not found' }, { status: 404 });
     if (!current.executionId) {
       return reply({ error: 'Not an execution chat' }, { status: 400 });
+    }
+    if (rpcInput.body.forApp === true) {
+      const newest = listExecutionChatIds(current.executionId).map(getChatSessionWithExecution)
+        .filter((chat) => chat && chat.status === 'active' && chat.surfaceKind !== 'result_review').at(-1);
+      if (newest && !getLastChatEventBySource(newest.id, 'user')) return reply({ session: newest });
     }
 
     // Resolve one provider-bound tuple before archiving the current chat. A
@@ -126,4 +138,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "providerId": rpcZ.enum(["cursor", "antigravity", "claude", "codex", "opencode"]).optional(), "model": rpcZ.string().optional(), "variant": rpcZ.string().optional(), "effort": rpcZ.enum(["low", "medium", "high", "xhigh", "max", "ultra"]).optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "providerId": rpcZ.enum(["cursor", "antigravity", "claude", "codex", "opencode"]).optional(), "model": rpcZ.string().optional(), "variant": rpcZ.string().optional(), "effort": rpcZ.enum(["low", "medium", "high", "xhigh", "max", "ultra"]).optional(), "forApp": rpcZ.boolean().optional() }).strict().default({}) }).strict();

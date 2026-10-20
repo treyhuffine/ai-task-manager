@@ -5,34 +5,32 @@ import type { Attachment } from "@/db/types";
  * target composer loads.
  *
  * Local apps suggest plain text (`requestAppChatDraft`). Connected MCP apps
- * send OpenAI's extended `ui/message` (`requestAppChatMessage`): ordinary
- * text, titled items the person can remove as a unit, and files, either
- * left as a draft or sent. A send carries the app as its provenance and
- * grants no permission. Whether an app may send at all is decided before it
- * gets here (`app-message.ts`, the interaction gate).
+ * write OpenAI's extended `ui/message` (`requestAppChatMessage`): ordinary
+ * text, titled items the person can remove as a unit, and files. Either way
+ * it is a draft, and the person sends it (docs/connected-mcp-apps.md,
+ * "Messages").
  */
 export type AppDraftPart =
   | { type: "text"; text: string }
   | { type: "snippet"; title: string; text: string }
   | { type: "file"; attachment: Attachment };
-/** The app a message came from, for the transcript and the harness. */
-export interface AppProvenance {
-  viewId: string;
-  app: string;
-}
 export interface AppChatMessage {
   parts: AppDraftPart[];
-  send: boolean;
-  fromApp?: AppProvenance;
 }
-/** What happened to a message: sent, put in the draft, or waiting for its composer. */
-export type AppChatDelivery = "sent" | "drafted" | "queued";
+/** What happened to a message: put in the draft, or waiting for its composer. */
+export type AppChatDelivery = "drafted" | "queued";
 export interface AppChatComposerHandlers {
   /** Appends parts to the draft: text, titled items and file chips. */
   appendParts?(parts: AppDraftPart[]): void;
-  /** Sends parts as a message from the app, without touching the draft. */
-  send?(parts: AppDraftPart[], fromApp?: AppProvenance): Promise<void>;
 }
+
+/**
+ * App text with any source marker (`[[source:…]]`) broken, so the person's
+ * send never binds one of their accounts because an app wrote it: only the
+ * person chooses sources. Brackets before `source:` become `(`, so two parts
+ * side by side can't make one either.
+ */
+export const withoutSourceMarkers = (text: string) => text.replace(/\[+(?=source:)/g, "(");
 
 type Request = { at: number } & ({ text: string } | { message: AppChatMessage });
 type Composer = { append: (text: string) => void } & AppChatComposerHandlers;
@@ -71,8 +69,9 @@ export function serializeAppParts(parts: readonly AppDraftPart[]): { text: strin
   return { text: pieces.join(" ").trim(), attachments };
 }
 
-export function requestAppChatDraft(chatId: string, text: string) {
-  if (text.length > 2000) throw new Error("The app question is too long.");
+export function requestAppChatDraft(chatId: string, draft: string) {
+  if (draft.length > 2000) throw new Error("The app question is too long.");
+  const text = withoutSourceMarkers(draft);
   const composer = composers.get(chatId);
   if (composer) {
     composer.append(text);
@@ -82,12 +81,10 @@ export function requestAppChatDraft(chatId: string, text: string) {
 }
 
 /**
- * Deliver an app's message to a chat's composer: sent when `send` is set and
- * the composer can send, otherwise appended to the draft. A send that fails
- * lands in the draft instead, so nothing the app wrote is lost. Queued for a
- * minute when the composer has not loaded yet, such as a new chat opening.
+ * Put an app's message in a chat's draft. Queued for a minute when the
+ * composer has not loaded yet, such as a new chat opening.
  */
-export async function requestAppChatMessage(chatId: string, message: AppChatMessage): Promise<AppChatDelivery> {
+export function requestAppChatMessage(chatId: string, message: AppChatMessage): AppChatDelivery {
   const composer = composers.get(chatId);
   if (!composer) {
     enqueue(chatId, { message, at: Date.now() });
@@ -96,15 +93,7 @@ export async function requestAppChatMessage(chatId: string, message: AppChatMess
   return deliver(composer, message);
 }
 
-async function deliver(composer: Composer, message: AppChatMessage): Promise<AppChatDelivery> {
-  if (message.send && composer.send) {
-    try {
-      await composer.send(message.parts, message.fromApp);
-      return "sent";
-    } catch {
-      // Refused or unreachable: keep what the app wrote where the person can send it.
-    }
-  }
+function deliver(composer: Composer, message: AppChatMessage): AppChatDelivery {
   if (composer.appendParts) composer.appendParts(message.parts);
   else {
     const text = appPartsText(message.parts);
@@ -130,7 +119,7 @@ export function registerAppChatComposer(
   for (const request of requests) {
     if (Date.now() - request.at >= QUEUE_MS) continue;
     if ("text" in request) append(request.text);
-    else void deliver(composer, request.message);
+    else deliver(composer, request.message);
   }
   return () => {
     if (composers.get(chatId) === composer) composers.delete(chatId);

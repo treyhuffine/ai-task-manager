@@ -103,18 +103,12 @@ describe('connected app context at dispatch', () => {
     expect(await executor.queuedSendRefusal({ kind: 'stop', chatSessionId: command.chatSessionId, sourceEventId: command.sourceEventId })).toBeNull();
   });
 
-  it('binds the person\'s sources to their own message, and none to one an app sent', async () => {
+  it('binds the person\'s sources to their own message', async () => {
     const session = q.createChatSession({ harness: 'claude', type: 'content' });
     const own = q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'Summarize my inbox' })!;
     await executor.dispatch(session.id, 'Summarize my inbox', { sourceEventId: own.id });
     expect(mock.turnContext).toHaveBeenCalledWith(session.id, own.id);
     expect(JSON.stringify(mock.send.mock.calls.at(-1))).toContain('bound account');
     await vi.waitFor(() => expect(executor.listRunningSessions()).toHaveLength(0));
-    mock.turnContext.mockClear();
-    const fromApp = q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'Explain this part',
-      raw: { sentByApp: { app: 'Bits & Bolts', serverId: 'server-1', viewId: '01900333-3333-7333-8333-333333333333' } } })!;
-    await executor.dispatch(session.id, 'Explain this part', { sourceEventId: fromApp.id });
-    expect(mock.turnContext).not.toHaveBeenCalled();
-    expect(JSON.stringify(mock.send.mock.calls.at(-1))).not.toContain('bound account');
   });
 });

@@ -104,7 +104,7 @@ export class GalleryRuntime {
       return { review: this.decisions[0], result: HANDOFF, idempotentReplay: false };
     }
     if (path === 'connectedApps.open') {
-      if (this.state === 'expired') throw new Error('This example view expired. The original tool result is still in the conversation');
+      if (this.state === 'expired') throw new Error('This example view expired. Open the app again, or ask for a new result.');
       return { id: DRAFT_ID, captureId: DRAFT_ID, title: 'Example app · Project estimate', serverId: 'gallery-app', sourceRef: 'gallery-source', chatId: CHAT_ID, resource: this.resource, input: { hours: 8 }, result: { content: [{ type: 'text', text: 'The estimate is $960 for eight hours.' }], structuredContent: { total: 960 } }, revision: 0, legacy: false };
     }
     if (path === 'connectedApps.status') return { revision: this.revision };

@@ -21,7 +21,6 @@ import {
 import { expandEntityMarkers } from '@/lib/entity-refs/expand-markers';
 import * as executor from '@/lib/executor/adapter';
 import { healthCheckSession, recordSendRefused } from '@/lib/executor/health';
-import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
 import { SESSION_CREDENTIAL_HEADER, verifySessionCredential } from '@/lib/orchestrator/session-credential';
 import { budgetGate } from '@/lib/runs/budget';
@@ -34,8 +33,6 @@ import { z as rpcZ } from 'zod/v4';
 interface PostBody {
   appContext?: { viewId: string; revision: number };
   connectedAppContext?: {viewId: string; revision: number}[];
-  /** A connected app view sent this for the viewer (OpenAI's `ui/message` with `send`). */
-  fromApp?: { viewId: string };
   content?: string;
   /**
    * Files attached to this message — same `Attachment` shape as
@@ -126,12 +123,6 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     if (existing && (existing.sessionId !== id || existing.role !== 'user' || existing.source !== 'user' || existing.content !== content || (existing.senderSessionId ?? null) !== senderSessionId))
       return reply({ error: 'This message ID already belongs to different content or a different chat.' }, { status: 409 });
     const isExistingRetry = !!existing;
-    // Sources are the person's to choose: a mention binds an account to the message for the agent's
-    // calls. Ri's composer never writes one into a message an app sends, so any there came from the
-    // app's own text, and the message is refused rather than sent without what the app wrote.
-    if (body.fromApp && !isExistingRetry && parseSourceMarkers(content).some(part => part.type === 'source')) {
-      return reply({ error: 'This app\'s message names one of your sources, which only you can choose. It wasn\'t sent.' }, { status: 400 });
-    }
     if (!isExistingRetry) {
       try { await chatSources.preflight(id, content); }
       catch (error) {
@@ -201,17 +192,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
         connectedContextSkipped = frozen.skipped;
       } catch (error) { return reply({error: error instanceof Error ? error.message : 'App context is unavailable'}, {status: 409}); }
     }
-    // The app is recorded as the message's provenance: shown in the transcript and named to the
-    // harness. It grants nothing. Only the viewer's own live view of the app may claim it.
-    let sentByApp: { app: string; serverId: string; viewId: string } | null = null;
-    if (body.fromApp && !isExistingRetry) {
-      const key = getRequestKey(request.headers);
-      if (key?.scope !== 'viewer' || senderSessionId) return reply({error: 'Only a connected app the viewer is using can send this'}, {status: 403});
-      try { sentByApp = await (await import('@/lib/mcp-apps/service')).connectedMessageSender(body.fromApp.viewId, key.apiKeyId); }
-      catch (error) { return reply({error: error instanceof Error ? error.message : 'The app is unavailable'}, {status: 409}); }
-    }
     const inserted = insertChatEvent({
-      ...(frozenContext || connectedContext || sentByApp ? { raw: {...(frozenContext ? {localAppContext: frozenContext} : {}), ...(connectedContext ? {connectedAppContext: connectedContext} : {}), ...(sentByApp ? {sentByApp} : {})} } : {}),
+      ...(frozenContext || connectedContext ? { raw: {...(frozenContext ? {localAppContext: frozenContext} : {}), ...(connectedContext ? {connectedAppContext: connectedContext} : {})} } : {}),
       id: body.id,
       sessionId: id,
       role: 'user',
@@ -236,7 +218,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     // question on screen there has passed it over: it's skipped, and the rest
     // come back on their next new chat (docs/main-chat-onboarding.md). Only
     // their own message counts, never one another chat sent.
-    if (!isRetry && !senderSessionId && !sentByApp) {
+    if (!isRetry && !senderSessionId) {
       try {
         skipOnboardingStepOnScreen(id);
       } catch (err) {
@@ -393,4 +375,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "content": rpcZ.string().optional(), "attachments": rpcZ.array(rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict()).optional(), "id": rpcZ.string().optional(), "connectedAppContext": rpcZ.array(rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict()).max(8).optional(), "appContext": rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict().optional(), "fromApp": rpcZ.object({viewId: rpcZ.uuid()}).strict().optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "content": rpcZ.string().optional(), "attachments": rpcZ.array(rpcZ.object({ "fileName": rpcZ.string(), "originalName": rpcZ.string(), "mimeType": rpcZ.string(), "size": rpcZ.number().finite(), "uploadedAt": rpcZ.string() }).strict()).optional(), "id": rpcZ.string().optional(), "connectedAppContext": rpcZ.array(rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict()).max(8).optional(), "appContext": rpcZ.object({viewId: rpcZ.uuid(), revision: rpcZ.number().int().nonnegative()}).strict().optional() }).strict().default({}) }).strict();

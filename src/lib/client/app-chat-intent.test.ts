@@ -46,37 +46,36 @@ it("serializes app parts as the composer sends chips: titled items as their text
   expect(serializeAppParts(parts)).toEqual({ text: `Explain the clearance of Selected: M6 hex bolt [[file:${attachment.fileName}]]`, attachments: [attachment] });
   expect(appPartsText(parts)).toBe("Explain the clearance of Selected: M6 hex bolt");
 });
-it("sends through a composer that can send, as the app, and drafts otherwise", async () => {
-  const fromApp = { viewId: "view-1", app: "Bits & Bolts" };
-  const send = vi.fn(async () => {}), appendParts = vi.fn(), append = vi.fn();
-  const off = registerAppChatComposer("rich", append, { appendParts, send });
-  expect(await requestAppChatMessage("rich", { parts, send: true, fromApp })).toBe("sent");
-  expect(send).toHaveBeenCalledExactlyOnceWith(parts, fromApp);
-  expect(await requestAppChatMessage("rich", { parts, send: false, fromApp })).toBe("drafted");
+it("puts an app's message in the draft, never sends it", () => {
+  const appendParts = vi.fn(), append = vi.fn();
+  const off = registerAppChatComposer("rich", append, { appendParts });
+  expect(requestAppChatMessage("rich", { parts })).toBe("drafted");
   expect(appendParts).toHaveBeenCalledExactlyOnceWith(parts);
-  // A refused send keeps what the app wrote, in the draft.
-  send.mockRejectedValueOnce(new Error("Archived"));
-  expect(await requestAppChatMessage("rich", { parts, send: true, fromApp })).toBe("drafted");
-  expect(appendParts).toHaveBeenCalledTimes(2);
   expect(append).not.toHaveBeenCalled();
   off();
   // A text-only composer gets the text.
   const offText = registerAppChatComposer("plain", append);
-  expect(await requestAppChatMessage("plain", { parts, send: true })).toBe("drafted");
+  expect(requestAppChatMessage("plain", { parts })).toBe("drafted");
   expect(append).toHaveBeenCalledExactlyOnceWith("Explain the clearance of Selected: M6 hex bolt");
   offText();
 });
-it("holds a send for a chat that is still opening, then sends it once", async () => {
-  expect(await requestAppChatMessage("opening", { parts, send: true, fromApp: { viewId: "view-2", app: "Bits & Bolts" } })).toBe("queued");
-  const send = vi.fn(async () => {});
-  const off = registerAppChatComposer("opening", vi.fn(), { appendParts: vi.fn(), send });
-  await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+it("holds a draft for a chat that is still opening, then puts it there once", () => {
+  expect(requestAppChatMessage("opening", { parts })).toBe("queued");
+  const appendParts = vi.fn();
+  const off = registerAppChatComposer("opening", vi.fn(), { appendParts });
+  expect(appendParts).toHaveBeenCalledExactlyOnceWith(parts);
   off();
-  const again = vi.fn(async () => {});
-  const offAgain = registerAppChatComposer("opening", vi.fn(), { send: again });
-  await Promise.resolve();
+  const again = vi.fn();
+  const offAgain = registerAppChatComposer("opening", vi.fn(), { appendParts: again });
   expect(again).not.toHaveBeenCalled();
   offAgain();
+});
+it("never lets a local app's draft carry a source marker", () => {
+  const append = vi.fn();
+  const off = registerAppChatComposer("local", append);
+  requestAppChatDraft("local", "Look at [[source:eyJ2IjoxfQ]]");
+  expect(append).toHaveBeenCalledExactlyOnceWith("Look at (source:eyJ2IjoxfQ]]");
+  off();
 });
 it("does not put an old abandoned question into a later composer", () => {
   vi.useFakeTimers();

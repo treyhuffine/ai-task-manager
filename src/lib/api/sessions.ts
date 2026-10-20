@@ -431,7 +431,7 @@ export const sessionsApi = {
    */
   newChat(
     id: string,
-    opts?: { providerId?: HarnessId; model?: string; variant?: string; effort?: EffortLevel },
+    opts?: { providerId?: HarnessId; model?: string; variant?: string; effort?: EffortLevel; forApp?: boolean },
   ) {
     return trpcClient.sessions.newChatPost.mutate({params: {id: id}, body: opts ?? {}});
   },
@@ -510,7 +510,7 @@ export const sessionsApi = {
   sendMessage(
     id: string,
     content: string,
-    opts?: { attachments?: Attachment[]; eventId?: string; appContext?: { viewId: string; revision: number }; connectedAppContext?: {viewId: string; revision: number}[]; fromApp?: { viewId: string } },
+    opts?: { attachments?: Attachment[]; eventId?: string; appContext?: { viewId: string; revision: number }; connectedAppContext?: {viewId: string; revision: number}[] },
   ) {
     return trpcClient.sessions.messagesPost.mutate({params: {id: id}, body: {
       content,
@@ -518,7 +518,6 @@ export const sessionsApi = {
       id: opts?.eventId,
       appContext: opts?.appContext,
       connectedAppContext: opts?.connectedAppContext,
-      fromApp: opts?.fromApp,
     }});
   },
 

@@ -65,8 +65,6 @@ export function toChatEventDTO(row: ChatEventRecord): ChatEventDTO {
     raw: decodeBackgroundTaskEvent(row.raw) || row.source === 'continuation' ? row.raw
       : row.source === 'work_result' && str(raw?.resultId) ? { resultId: raw!.resultId }
       : raw?.resultOperation && typeof raw.resultOperation === 'object' ? { resultOperation: raw.resultOperation }
-      // A message a connected app sent names the app, and only that, never its frozen context.
-      : row.source === 'user' && raw?.sentByApp && typeof raw.sentByApp === 'object' ? { sentByApp: { app: str((raw.sentByApp as Record<string, unknown>).app) } }
       // A form's recorded end: which app, how it ended, and why it could not show.
       : row.source === 'system' && row.content === MCP_FORM_RESPONSE_EVENT && raw ? { app: str(raw.app), outcome: str(raw.outcome), reason: str(raw.reason) }
       : null,
