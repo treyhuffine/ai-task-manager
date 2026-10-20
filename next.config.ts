@@ -59,7 +59,7 @@ const nextConfig: NextConfig = {
   // their ~160-module graph from every server-route compile.
   serverExternalPackages: [
     "@ri/app-kit",
-    // The server-side MCP HTML parser has optional native canvas adapters.
+    // Local apps' builder and the agent browser's page reader parse HTML with it, and it has optional native canvas adapters.
     "linkedom",
     "better-sqlite3",
     "sqlite-vec",
