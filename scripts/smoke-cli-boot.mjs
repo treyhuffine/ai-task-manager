@@ -10,12 +10,15 @@ import { fileURLToPath } from 'node:url';
 const repo = fileURLToPath(new URL('../', import.meta.url));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-cli-boot-'));
 const env = { ...process.env, RI_ROOT: root, PORT: '9' };
+// Workspace symlinks can let Node strip a source package outside node_modules,
+// hiding a failure in the deployed copy. Require emitted JavaScript here too.
+const runtimeArgs = process.allowedNodeEnvironmentFlags.has('--no-strip-types') ? ['--no-strip-types'] : [];
 for (const name of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR', 'RI_BRAIN_PATH',
   'RI_SESSION_CREDENTIAL', 'RI_SESSION_CLI', 'NODE_OPTIONS', 'ELECTRON_RUN_AS_NODE']) delete env[name];
 
 try {
   for (const args of [['--help'], ['start', '--help'], ['team', 'create', '--help']]) {
-    const output = execFileSync(process.execPath, [path.join(repo, 'dist/cli/index.mjs'), ...args], {
+    const output = execFileSync(process.execPath, [...runtimeArgs, path.join(repo, 'dist/cli/index.mjs'), ...args], {
       cwd: repo, env, encoding: 'utf8', timeout: 30_000,
     });
     assert.match(output, /Usage: ri/);
@@ -26,7 +29,7 @@ try {
   }
   assert.deepEqual(fs.readdirSync(root), [], 'CLI help must not initialize a Home');
   const teamRoot = path.join(root, 'team root');
-  execFileSync(process.execPath, [path.join(repo, 'dist/cli/index.mjs'), 'team', 'create', '--root', teamRoot,
+  execFileSync(process.execPath, [...runtimeArgs, path.join(repo, 'dist/cli/index.mjs'), 'team', 'create', '--root', teamRoot,
     '--no-start'], { cwd: repo, env, encoding: 'utf8', timeout: 30_000 });
   assert.deepEqual(fs.readdirSync(root), ['team root'], 'explicit team target must be selected before CLI activity writes');
   assert.equal(JSON.parse(fs.readFileSync(path.join(teamRoot, '.config/team.json'), 'utf8')).kind, 'team');

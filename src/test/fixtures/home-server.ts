@@ -24,6 +24,14 @@ interface RouteEntry {
 const ROUTES: RouteEntry[] = [
   { pattern: /^\/api\/health$/, load: () => import('@/app/api/health/route') as Promise<RouteModule> },
   { pattern: /^\/api\/home$/, load: () => import('@/app/api/home/route') as Promise<RouteModule> },
+  {
+    pattern: /^\/api\/orchestrator\/actions\/(register_device)$/,
+    params: ['name'],
+    load: async () => {
+      const { POST } = await import('@/app/api/orchestrator/actions/[name]/route');
+      return { POST: (request, { params }) => POST(request, { params: params.then(({ name }) => ({ name })) }) };
+    },
+  },
   { pattern: /^\/api\/workers\/grants$/, load: () => import('@/app/api/workers/grants/route') as Promise<RouteModule> },
   { pattern: /^\/api\/workers\/enroll$/, load: () => import('@/app/api/workers/enroll/route') as Promise<RouteModule> },
   { pattern: /^\/api\/workers\/me$/, load: () => import('@/app/api/workers/me/route') as Promise<RouteModule> },

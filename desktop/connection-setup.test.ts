@@ -5,12 +5,14 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { connectionSetup, parseDesktopPairingLink, type ConnectionSetupStatus } from './connection-setup';
-import { getDbPath, getConfigDir, getWorkerConfigPath } from '../src/lib/config/paths';
-import { readConnection, rememberDeviceId, writeConnection } from '../src/lib/connection/config';
+import { getDbPath, getConfigDir, getWorkerConfigPath, getWorkDir } from '../src/lib/config/paths';
+import { readConnection, rememberDeviceId, rememberedDeviceId, writeConnection } from '../src/lib/connection/config';
 import { readWorkerConfig, writeWorkerConfig } from '../src/lib/worker/config';
 import { desktopHomeIntentPath, hasDesktopHomeIntent } from '../src/lib/service/desktop-role-intent';
 import { acquireWorkerLock } from '../src/lib/worker/lock';
 import { exclusiveDatabaseAccess } from '../src/lib/service/maintenance';
+import { EventJournal, eventJournalPath } from '../src/lib/worker/event-journal';
+import { CommandJournal, commandJournalPath } from '../src/lib/worker/command-journal';
 
 vi.mock('../src/lib/home/device-name', () => ({ thisDeviceFacts: () => ({ name: 'This laptop', hostname: 'test-laptop', platform: 'darwin' }) }));
 const development = { development: true };
@@ -23,13 +25,17 @@ let handler: (url: string, body: unknown, response: http.ServerResponse) => void
 let calls: Array<{ url: string; body: unknown; authorization?: string }>;
 let remoteHomeId: string;
 let remoteDeviceId: string;
+let otherDevices: Array<{ id: string; status: 'active' | 'revoked' }>;
 const reply = (res: http.ServerResponse, body: unknown, status = 200) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
 function defaultHandler(url: string, body: unknown, res: http.ServerResponse) {
   if (url === '/api/home') return reply(res, { id: remoteHomeId, kind: 'personal', name: 'My Ri', host: { id: 'home-device', name: 'Mini', platform: 'darwin' } });
-  if (url === '/api/devices') return reply(res, [{ id: remoteDeviceId, kind: 'computer', status: 'active', isHome: remoteDeviceId === 'home-device', keys: [{ role: 'sign_in', current: true }] }]);
+  if (url.startsWith('/api/devices')) return reply(res, [
+    { id: remoteDeviceId, kind: 'computer', status: 'active', isHome: remoteDeviceId === 'home-device', keys: [{ role: 'sign_in', current: true }] },
+    ...otherDevices.filter(device => device.id !== remoteDeviceId).map(device => ({ ...device, kind: 'computer', isHome: false, keys: [] })),
+  ]);
   if (url.endsWith('/register_device')) {
     const preferred = (body as { deviceId?: string }).deviceId;
-    if (preferred) remoteDeviceId = preferred;
+    if (preferred && otherDevices.some(device => device.id === preferred && device.status === 'active')) remoteDeviceId = preferred;
     return reply(res, { ok: true, result: { device: { id: remoteDeviceId } } });
   }
   if (url === '/api/workers/grants') return reply(res, { code: 'grant-once', device: { id: remoteDeviceId } }, 201);
@@ -54,7 +60,7 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-desktop-setup-'));
   vi.stubEnv('RI_ROOT', root);
   for (const key of ['RI_CONFIG_DIR', 'RI_DB_PATH', 'RI_WORK_DIR']) vi.stubEnv(key, '');
-  calls = []; remoteHomeId = 'home-1'; remoteDeviceId = 'laptop-device'; handler = defaultHandler;
+  calls = []; remoteHomeId = 'home-1'; remoteDeviceId = 'laptop-device'; otherDevices = []; handler = defaultHandler;
 });
 afterEach(() => { vi.unstubAllEnvs(); fs.rmSync(root, { recursive: true, force: true }); });
 
@@ -148,6 +154,7 @@ describe('pairing and local execution are distinct', () => {
   });
   it('enrolls the same remembered device only after separate explicit consent', async () => {
     rememberDeviceId('home-1', 'remembered-laptop');
+    otherDevices = [{ id: 'remembered-laptop', status: 'active' }];
     await connect();
     expect((calls.find(call => call.url.endsWith('/register_device'))!.body as { deviceId: string }).deviceId).toBe('remembered-laptop');
     await expect(connectionSetup({ action: 'enable-worker' }, development)).rejects.toThrow(/Invalid/);
@@ -177,6 +184,7 @@ describe('pairing and local execution are distinct', () => {
   });
   it('does not duplicate or replace a remembered device when registration refuses its identity', async () => {
     rememberDeviceId('home-1', 'remembered-laptop');
+    otherDevices = [{ id: 'remembered-laptop', status: 'active' }];
     handler = (url, body, res) => url.endsWith('/register_device') ? reply(res, { ok: true, result: { device: { id: 'unexpected' } } }) : defaultHandler(url, body, res);
     await expect(connect()).rejects.toThrow(/existing device identity/);
     expect(readConnection()).toBeNull();
@@ -212,6 +220,100 @@ describe('pairing and local execution are distinct', () => {
 });
 
 describe('same-Home repair', () => {
+  it.each(['revoked', 'missing'] as const)('replaces a %s remembered identity with the fresh pairing identity', async status => {
+    rememberDeviceId('home-1', 'deleted-laptop');
+    if (status === 'revoked') otherDevices = [{ id: 'deleted-laptop', status }];
+    expect(await connect()).toMatchObject({ role: 'viewer', deviceId: 'laptop-device' });
+    expect(rememberedDeviceId('home-1')).toBe('laptop-device');
+    expect(await connectionSetup({ action: 'session' }, development)).toMatchObject({ deviceId: 'laptop-device' });
+    expect(calls.find(call => call.url.endsWith('/register_device'))?.body).toMatchObject({ deviceId: 'laptop-device' });
+    expect(readWorkerConfig()).toBeNull();
+    expect(fs.existsSync(getDbPath())).toBe(false);
+  });
+  it('reconnects a deleted viewer without losing its original connection date', async () => {
+    await connect();
+    const connectedAt = readConnection()!.connectedAt;
+    otherDevices = [{ id: remoteDeviceId, status: 'revoked' }];
+    remoteDeviceId = 'replacement-laptop';
+    expect(await connect()).toMatchObject({ role: 'viewer', deviceId: 'replacement-laptop' });
+    expect(readConnection()).toMatchObject({ deviceId: 'replacement-laptop', connectedAt });
+  });
+  it('preserves deleted worker records separately before enrolling the new identity', async () => {
+    await connect();
+    await connectionSetup({ action: 'enable-worker', consent: true }, development);
+    const enrollment = fs.readFileSync(getWorkerConfigPath(), 'utf8');
+    const events = new EventJournal('home-1');
+    events.append({ kind: 'chat_event', eventId: 'old-event', chatSessionId: 'old-chat', occurredAt: new Date().toISOString(), generation: null, cumulative: false, chatEvent: { role: 'assistant', source: 'agent', content: 'Saved reply' } });
+    events.ack(1);
+    events.append({ kind: 'chat_event', eventId: 'pending-event', chatSessionId: 'old-chat', occurredAt: new Date().toISOString(), generation: null, cumulative: false, chatEvent: { role: 'assistant', source: 'agent', content: 'Undelivered reply' } });
+    const eventBytes = fs.readFileSync(eventJournalPath('home-1'), 'utf8');
+    const commands = new CommandJournal('home-1');
+    commands.received({ id: 'old-command', seq: 20, kind: 'send', target: { executionId: null, chatSessionId: 'old-chat', generation: null }, actor: { source: 'human' }, issuedAt: new Date().toISOString(), payload: { turnId: 'old-turn' } });
+    const commandBytes = fs.readFileSync(commandJournalPath('home-1'), 'utf8');
+    otherDevices = [{ id: remoteDeviceId, status: 'revoked' }];
+    remoteDeviceId = 'replacement-laptop';
+
+    expect(await connect()).toMatchObject({ role: 'viewer', deviceId: 'replacement-laptop', workerEnrolled: false });
+    expect(readWorkerConfig()).toBeNull();
+    expect(fs.existsSync(eventJournalPath('home-1'))).toBe(false);
+    expect(fs.existsSync(commandJournalPath('home-1'))).toBe(false);
+    const retainedFiles = fs.readdirSync(path.join(getWorkDir(), 'retired-workers'), { recursive: true })
+      .map(file => path.join(getWorkDir(), 'retired-workers', String(file))).filter(file => fs.statSync(file).isFile());
+    const retainedBytes = retainedFiles.map(file => fs.readFileSync(file, 'utf8'));
+    expect(retainedBytes).toEqual(expect.arrayContaining([enrollment, eventBytes, commandBytes]));
+    expect(retainedFiles.every(file => (fs.statSync(file).mode & 0o777) === 0o600)).toBe(true);
+    expect(calls.filter(call => call.url === '/api/workers/enroll')).toHaveLength(1);
+
+    expect(await connectionSetup({ action: 'enable-worker', consent: true }, development)).toMatchObject({ role: 'worker', deviceId: 'replacement-laptop' });
+    expect(readWorkerConfig()?.deviceId).toBe('replacement-laptop');
+    expect(new EventJournal('home-1').pending()).toEqual([]);
+    expect(new EventJournal('home-1').lastPosition()).toBe(0);
+    expect(new CommandJournal('home-1').cursor()).toBe(0);
+    expect(new CommandJournal('home-1').get('old-command')).toBeNull();
+  });
+  it('leaves a deleted worker unchanged while its journal is owned by a running worker', async () => {
+    await connect();
+    await connectionSetup({ action: 'enable-worker', consent: true }, development);
+    const connection = readConnection();
+    const enrollment = fs.readFileSync(getWorkerConfigPath(), 'utf8');
+    otherDevices = [{ id: remoteDeviceId, status: 'revoked' }];
+    remoteDeviceId = 'replacement-laptop';
+    calls = [];
+    const lock = await acquireWorkerLock();
+    try { await expect(connect()).rejects.toThrow(/Stop.*worker|Stop local execution/); }
+    finally { lock.release(); }
+    expect(readConnection()).toEqual(connection);
+    expect(fs.readFileSync(getWorkerConfigPath(), 'utf8')).toBe(enrollment);
+    expect(calls.some(call => call.url.endsWith('/register_device'))).toBe(false);
+  });
+  it('refuses an unrelated registration identity when replacing a removed device', async () => {
+    rememberDeviceId('home-1', 'deleted-laptop');
+    otherDevices = [{ id: 'deleted-laptop', status: 'revoked' }];
+    handler = (url, body, res) => url.endsWith('/register_device') ? reply(res, { ok: true, result: { device: { id: 'unrelated' } } }) : defaultHandler(url, body, res);
+    await expect(connect()).rejects.toThrow(/device identity/);
+    expect(readConnection()).toBeNull();
+    expect(rememberedDeviceId('home-1')).toBe('deleted-laptop');
+  });
+  it('preserves enrollment and journals if sign-in identity changes after replacement registration', async () => {
+    await connect();
+    await connectionSetup({ action: 'enable-worker', consent: true }, development);
+    const connection = readConnection();
+    const enrollment = fs.readFileSync(getWorkerConfigPath(), 'utf8');
+    const events = new EventJournal('home-1');
+    events.append({ kind: 'chat_event', eventId: 'old-event', chatSessionId: 'old-chat', occurredAt: new Date().toISOString(), generation: null, cumulative: false, chatEvent: { role: 'assistant', source: 'agent', content: 'Saved reply' } });
+    const journalBytes = fs.readFileSync(eventJournalPath('home-1'), 'utf8');
+    otherDevices = [{ id: remoteDeviceId, status: 'revoked' }];
+    remoteDeviceId = 'replacement-laptop';
+    handler = (url, body, res) => {
+      defaultHandler(url, body, res);
+      if (url.endsWith('/register_device')) remoteDeviceId = 'different-device';
+    };
+    await expect(connect()).rejects.toThrow(/device identity changed/);
+    expect(readConnection()).toEqual(connection);
+    expect(fs.readFileSync(getWorkerConfigPath(), 'utf8')).toBe(enrollment);
+    expect(fs.readFileSync(eventJournalPath('home-1'), 'utf8')).toBe(journalBytes);
+    expect(fs.existsSync(path.join(getWorkDir(), 'retired-workers'))).toBe(false);
+  });
   it('renews the sign-in key without rotating worker enrollment or losing device identity', async () => {
     await connect(); await connectionSetup({ action: 'enable-worker', consent: true }, development);
     const before = fs.readFileSync(getWorkerConfigPath(), 'utf8');
@@ -264,11 +366,11 @@ it('returns the verified device for a legacy viewer without changing its saved c
 
 
 it.each(['phone', 'other'])('refuses a %s sign-in before it can reclassify an existing device', async kind => {
-  handler = (url, body, res) => url === '/api/devices'
+  handler = (url, body, res) => url.startsWith('/api/devices')
     ? reply(res, [{ id: 'existing-device', kind, status: 'active', isHome: false, keys: [{ role: 'sign_in', current: true }] }])
     : defaultHandler(url, body, res);
   await expect(connect()).rejects.toThrow(/separate computer pairing link/);
-  expect(calls.map(call => call.url)).toEqual(['/api/home', '/api/devices']);
+  expect(calls.map(call => call.url.split('?')[0])).toEqual(['/api/home', '/api/devices']);
   expect(readConnection()).toBeNull();
   expect(readWorkerConfig()).toBeNull();
 });

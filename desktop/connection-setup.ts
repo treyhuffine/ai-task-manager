@@ -11,6 +11,7 @@ import { resolveServiceRole, type ServiceRole } from '../src/lib/service/role';
 import { hasDesktopHomeIntent, writeDesktopHomeIntent } from '../src/lib/service/desktop-role-intent';
 import { serviceStatus } from '../src/lib/service/client';
 import { acquireWorkerLock } from '../src/lib/worker/lock';
+import { retireWorkerEnrollment } from '../src/lib/worker/retire-enrollment';
 import { exclusiveDatabaseAccess } from '../src/lib/service/maintenance';
 import { WORKER_PROTOCOL } from '../src/lib/workers/protocol';
 import { runtimeReleaseIdentity, runtimePeerRelease } from '../src/lib/releases/runtime-identity';
@@ -114,16 +115,17 @@ async function verifiedHome(connection: ConnectionConfig, development: boolean, 
 }
 
 
-const devicesSchema = z.array(z.object({ id: z.string(), kind: z.string(), status: z.string(), isHome: z.boolean(), keys: z.array(z.object({ role: z.string(), current: z.boolean() })) }));
-async function verifySignInDevice(connection: ConnectionConfig, home: HomeSummary): Promise<string> {
-  const devices = devicesSchema.safeParse(await jsonAtHome(connection, '/api/devices'));
-  const current = devices.success ? devices.data.filter(device => device.keys.some(key => key.current)) : [];
+const devicesSchema = z.array(z.object({ id: z.string(), kind: z.string(), status: z.enum(['active', 'revoked']), isHome: z.boolean(), keys: z.array(z.object({ role: z.string(), current: z.boolean() })) }));
+async function verifySignInDevice(connection: ConnectionConfig, home: HomeSummary, includeRevoked = false) {
+  const devices = devicesSchema.safeParse(await jsonAtHome(connection, `/api/devices${includeRevoked ? '?includeRevoked=1' : ''}`));
+  if (!devices.success) throw new Error('Your Home returned an invalid device list. Check its version and device access, then retry.');
+  const current = devices.data.filter(device => device.keys.some(key => key.current));
   if (current.length !== 1 || current[0].status !== 'active') throw new Error('This pairing key does not identify an active device. Make a new pairing link in Devices settings.');
   const device = current[0];
   if (device.isHome || device.id === home.host.id) throw new Error('That link belongs to the Home computer. Make a separate pairing link for this computer in Devices settings.');
   if (!device.keys.some(key => key.current && key.role === 'sign_in')) throw new Error('Use a device sign-in link to connect. A worker credential cannot sign in to the desktop.');
   if (device.kind !== 'computer') throw new Error('That pairing link belongs to a phone or another kind of device. Make a separate computer pairing link in Devices settings.');
-  return device.id;
+  return { deviceId: device.id, devices: devices.data };
 }
 
 function inspect(): ConnectionSetupStatus {
@@ -154,27 +156,35 @@ async function connect(pairingLink: string, development: boolean): Promise<Conne
   const link = parseDesktopPairingLink(pairingLink, development);
   const candidate: ConnectionConfig = { version: 1, homeId: '', homeName: 'your Ri', homeUrl: link.homeUrl, homeHostName: null, credential: link.token, connectedAt: previous?.connectedAt ?? new Date().toISOString(), deviceId: null };
   const home = await verifiedHome(candidate, development, previous?.homeId);
-  await verifySignInDevice(candidate, home);
+  const signIn = await verifySignInDevice(candidate, home, true);
   const priorWorker = readWorkerConfig();
   if (priorWorker && priorWorker.homeId !== home.id) throw new Error('This installation has an enrollment for another Home. Disable it before connecting elsewhere.');
+  const preferred = priorWorker?.deviceId ?? previous?.deviceId ?? rememberedDeviceId(home.id);
+  // Removal revokes identity as well as keys. A new pairing is the owner's
+  // authorization for a replacement, never permission to revive the old id.
+  const replacing = preferred && preferred !== signIn.deviceId && !signIn.devices.some(device => device.id === preferred && device.status === 'active');
+  const changingAddress = priorWorker && previous && previous.homeUrl !== candidate.homeUrl;
+  const change = replacing ? 'reconnecting this removed device' : 'changing your Home address';
   let workerLock: Awaited<ReturnType<typeof acquireWorkerLock>> | undefined;
-  if (priorWorker && previous && previous.homeUrl !== candidate.homeUrl) {
+  if (replacing || changingAddress) {
     const owner = await serviceStatus();
     // Stop is a deliberate local action. A momentarily idle worker could receive
     // new work immediately, so an idle snapshot cannot authorize replacement.
-    if (owner && (owner.worker?.enabled !== false || owner.worker.pid)) throw new Error('Stop local execution before changing your Home address. Saved work and enrollment stay here, and you can resume after reconnecting.');
+    if ((changingAddress && owner && (owner.worker?.enabled !== false || owner.worker.pid)) || (owner?.worker && (owner.worker.enabled || owner.worker.pid))) throw new Error(`Stop local execution before ${change}. Saved work stays here, and you can enable local execution after reconnecting.`);
     try { workerLock = await acquireWorkerLock(); }
-    catch { throw new Error('Stop the worker running on this device before changing your Home address.'); }
+    catch { throw new Error(`Stop the worker running on this device before ${change}.`); }
   }
   try {
     candidate.homeId = home.id; candidate.homeName = home.name; candidate.homeHostName = home.host.name;
-    const preferred = priorWorker?.deviceId ?? previous?.deviceId ?? rememberedDeviceId(home.id);
-    candidate.deviceId = await registerDevice(candidate, home, preferred);
+    candidate.deviceId = await registerDevice(candidate, home, replacing ? signIn.deviceId : preferred ?? signIn.deviceId);
     await verifiedHome(candidate, development, home.id);
+    const registered = await verifySignInDevice(candidate, home, true);
+    if (registered.deviceId !== candidate.deviceId || (replacing && registered.devices.some(device => device.id === preferred && device.status === 'active'))) throw new Error('The device identity changed during setup. Your saved connection was left unchanged. Retry with a pairing link for this computer.');
     // Recheck immediately before publishing. The access lock excludes a managed
     // Home boot; comparison also catches another CLI changing the connection.
     const expectedRole = previous ? 'connected' : 'fresh';
-    if (getInstallationRole() !== expectedRole || JSON.stringify(readConnection()) !== JSON.stringify(previous)) throw new Error('This installation changed during setup. Nothing was saved.');
+    if (getInstallationRole() !== expectedRole || JSON.stringify(readConnection()) !== JSON.stringify(previous) || JSON.stringify(readWorkerConfig()) !== JSON.stringify(priorWorker)) throw new Error('This installation changed during setup. Nothing was saved.');
+    if (replacing) retireWorkerEnrollment(home.id, preferred);
     rememberDeviceId(home.id, candidate.deviceId);
     writeConnection(candidate);
     return inspect();
@@ -185,7 +195,7 @@ async function enableWorker(development: boolean): Promise<ConnectionSetupStatus
   if (getInstallationRole() !== 'connected') throw new Error('Connect this device to a Home before enabling local execution.');
   const connection = readConnection()!;
   const home = await verifiedHome(connection, development, connection.homeId);
-  const signInDeviceId = await verifySignInDevice(connection, home);
+  const { deviceId: signInDeviceId } = await verifySignInDevice(connection, home);
   const existing = readWorkerConfig();
   if (existing) {
     if (existing.homeId !== connection.homeId || existing.deviceId !== signInDeviceId || (connection.deviceId && existing.deviceId !== connection.deviceId)) throw new Error('This installation has a different worker enrollment. Stop and resolve it before enrolling again.');
@@ -231,7 +241,7 @@ export async function connectionSetup(raw: unknown, options: { development?: boo
     if (getInstallationRole() !== 'connected') throw new Error('This installation is not connected to a Home.');
     const connection = readConnection()!;
     const home = await verifiedHome(connection, development, connection.homeId);
-    const deviceId = await verifySignInDevice(connection, home);
+    const { deviceId } = await verifySignInDevice(connection, home);
     const localWorker = readWorkerConfig();
     const expectedDeviceId = connection.deviceId ?? (localWorker?.homeId === home.id ? localWorker.deviceId : null);
     if (expectedDeviceId && deviceId !== expectedDeviceId) throw new Error('This sign-in key belongs to a different device. Update the Home connection with a pairing link for this computer before opening it.');

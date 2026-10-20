@@ -71,6 +71,7 @@
     "desktop:interaction-smoke": "tsx desktop/interaction-smoke.ts",
     "desktop:version-smoke": "tsx desktop/version-smoke.ts",
     "desktop:companion-smoke": "tsx desktop/companion-smoke.ts",
+    "desktop:reconnect-smoke": "tsx desktop/reconnect-smoke.ts",
     "desktop:oauth-smoke": "tsx desktop/oauth-smoke.ts",
     "desktop:endurance-smoke": "tsx desktop/endurance-smoke.ts",
     "desktop:notifications-smoke": "tsx desktop/notifications-smoke.ts",

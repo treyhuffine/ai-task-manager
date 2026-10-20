@@ -21,6 +21,10 @@ Your Home must have an address that the other computer can reach. The pairing li
 
 Connecting opens the same Ri. It does not create or copy a tasks database on the connected computer. That computer stores its connection and local preferences. On future launches, Ri opens the saved connection automatically.
 
+If you removed this computer from Devices and want to connect it again, create a new pairing link on your Home. On the disconnected computer, choose **Sign in again** and paste the new link. Ri accepts the new device while keeping the previous device's local work records separately. You do not need to clear the app's data.
+
+Removing a device also turns off its access to run agents. After reconnecting, you can enable agents again in **Desktop Settings**, under **Agents on this computer**.
+
 ## Decide where agents can work
 
 Your Home runs agents locally. A connected computer can also run work using its own agent folders, tools and sign-ins. This is useful when a project, a signed-in tool or a more powerful machine is available there.

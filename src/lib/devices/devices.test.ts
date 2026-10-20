@@ -232,6 +232,18 @@ describe('the devices API', () => {
 });
 
 describe('one computer, one device', () => {
+  it('keeps a new pairing when its remembered device was removed, without restoring old access', async () => {
+    const { q, macbook, workerKeyId } = await homeWithWorker();
+    q.removeDevice(macbook.device.id, 'Removed by owner');
+    const replacement = q.pairDevice({ name: 'Laptop again', kind: 'computer' });
+    const registered = q.registerDeviceForApiKey({ apiKeyId: replacement.key.id, name: 'AI-MacBook', deviceId: macbook.device.id });
+    expect(registered.device.id).toBe(replacement.device.id);
+    expect(q.getDevice(macbook.device.id)?.status).toBe('revoked');
+    expect(q.getApiKey(macbook.key.id)?.revokedAt).not.toBeNull();
+    expect(q.getApiKey(workerKeyId)?.revokedAt).not.toBeNull();
+    expect(q.getApiKey(replacement.key.id)?.deviceId).toBe(replacement.device.id);
+    expect(q.getWorkerKeyId(replacement.device.id)).toBeNull();
+  });
   it("joins a computer's own key to the device it enrolled as, and removes the one its pairing made", async () => {
     const { q, macbook } = await homeWithWorker();
     // The laptop connected with a link made for "Laptop", then enrolled as the MacBook the home knew.
