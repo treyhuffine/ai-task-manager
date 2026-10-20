@@ -897,6 +897,8 @@ function mcpConfigurationSignature(source: McpServerStore | readonly McpServerEn
 export const MCP_DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 /** A temporary outage keeps known tools and retries discovery on use after a short cooldown. */
 export const MCP_DISCOVERY_RETRY_MS = 15_000;
+/** How soon an operation on a server the build couldn't reach may rebuild to reach it again. */
+export const MCP_VIEW_RETRY_MS = 3_000;
 
 async function closeClients(b: Built): Promise<void> {
   await Promise.all(b.mcpClients.map((c) => c.close().catch(() => {})));
@@ -975,7 +977,11 @@ export async function getMcpViewConnection(serverId: string): Promise<McpViewCon
  * operations don't.
  */
 export async function getMcpViewAuthority(serverId: string, options: { stale?: boolean } = {}): Promise<{ runtime: IntegrationRuntime; connections: Awaited<ReturnType<IntegrationRuntime['listConnections']>>; view: McpViewConnection | null }> {
-  const built = await getBuilt(options);
+  let built = await getBuilt(options);
+  // An operation on a server this build couldn't reach (the person's Try again once it's back) tries
+  // again now rather than waiting out the retry window, at most once every MCP_VIEW_RETRY_MS.
+  if (!options.stale && built.discoveryUnavailable && !built.mcpViews.has(serverId) && getMcpServerStore().get(serverId)?.enabled
+    && Date.now() - built.builtAt >= MCP_VIEW_RETRY_MS) built = await refreshBuilt();
   const connections = await built.runtime.listConnections({ ownerId: getIntegrationOwnerId() });
   return { runtime: built.runtime, connections, view: built.mcpViews.get(serverId) ?? null };
 }

@@ -11,7 +11,7 @@ import { getHostedMcpProvider } from '@integrations/engine/providers';
 import { APP_ROOT_ENV } from '@/lib/config/paths';
 import { ensureHostedMcpServer, hostedMcpConnectionId } from './hosted-mcp';
 import { removeMcpServer } from './mcp-lifecycle';
-import { getIntegrationConnectionStore, getIntegrationRuntime, getMcpServerStore, getMcpViewAuthority, invalidateIntegrationRuntime, MCP_DISCOVERY_MAX_AGE_MS, MCP_DISCOVERY_RETRY_MS } from './runtime';
+import { getIntegrationConnectionStore, getIntegrationRuntime, getMcpServerStore, getMcpViewAuthority, invalidateIntegrationRuntime, MCP_DISCOVERY_MAX_AGE_MS, MCP_DISCOVERY_RETRY_MS, MCP_VIEW_RETRY_MS } from './runtime';
 import type { McpServerEntry } from './mcp-servers';
 import { _resetApprovals } from './approval';
 import { GET as getWritePolicy, POST as setWritePolicy } from '@/lib/server/operations/integrations/write-policy';
@@ -507,6 +507,28 @@ describe('hosted multi-account runtime discovery', () => {
     expect(await first.runtime.runAction('todoist.read', {}, { connectionId: personal.connectionId })).toMatchObject({ code: 'tools_changed' });
     await vi.waitFor(() => expect(personal.state.closes).toHaveBeenCalledOnce());
     expect(await fresh.runAction('todoist.read', {}, { connectionId: personal.connectionId })).toMatchObject({ ok: true });
+  });
+
+  it('reaches a server that was down again on the next operation, not after the retry window', async () => {
+    const personal = await account('Personal');
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    mocks.connect.mockRejectedValueOnce(new Error('fetch failed'));
+    const down = await getMcpViewAuthority(personal.entry.id);
+    expect(down.view).toBeNull();
+    const connects = mocks.connect.mock.calls.length;
+    // Checks and back-to-back operations keep the build: no reconnect per click.
+    expect((await getMcpViewAuthority(personal.entry.id, { stale: true })).runtime).toBe(down.runtime);
+    clock.mockReturnValue(now + MCP_VIEW_RETRY_MS - 1);
+    expect((await getMcpViewAuthority(personal.entry.id)).runtime).toBe(down.runtime);
+    expect(mocks.connect.mock.calls.length).toBe(connects);
+    // The server is back and the person presses Try again: well inside MCP_DISCOVERY_RETRY_MS.
+    clock.mockReturnValue(now + MCP_VIEW_RETRY_MS);
+    const [again, alongside] = await Promise.all([getMcpViewAuthority(personal.entry.id), getMcpViewAuthority(personal.entry.id)]);
+    expect(MCP_VIEW_RETRY_MS).toBeLessThan(MCP_DISCOVERY_RETRY_MS);
+    expect(again.view).not.toBeNull();
+    expect(alongside.runtime).toBe(again.runtime);
+    expect(mocks.connect.mock.calls.length).toBe(connects + 1);
   });
 
   it('never answers a check from a build whose configuration changed', async () => {
