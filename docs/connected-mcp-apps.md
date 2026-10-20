@@ -261,3 +261,10 @@ pnpm --filter @ri/app-kit test
 ```
 
 History: the extensions landed on October 19, 2026, and two independent reviews that day added rules that this section's table re-derived on October 20, removing those that stopped no realistic attacker (git history has each round).
+
+October 20, 2026, after the re-derivation: the root suite passed 7196 tests (one backup test, untouched here, failed under load and passes alone), the integrations engine 450 and app-kit 96, and typecheck and lint were clean. On the dev home:
+- Bits & Bolts' local and remote libraries opened full screen. The remote one loaded its parts from the origin it declares (9 requests, none refused), where Ri used to refuse it.
+- A real agent turn drew Excalidraw's diagram inline from esm.sh (161 requests, no CSP refusals) and showed Todoist's task list inline.
+- The connection pages listed each app's declared domains, or that it declared none.
+- The file checks passed: a symlink into `.git` or out of the folder is refused by where it lands, `.GIT` is refused, and a save replaces the file atomically.
+- Focus was measured with Playwright's Chromium, Firefox 153 and WebKit: the first two let a cross-origin frame take focus from the composer, and WebKit doesn't.
