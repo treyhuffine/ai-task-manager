@@ -1,21 +1,19 @@
-import { Validator, type Schema } from '@cfworker/json-schema';
 import { safeMcpIcon, type McpIcon } from '@/lib/integrations/mcp-icons';
 
 /**
  * The forms an MCP server can ask a person to fill: MCP's form elicitation
  * and OpenAI's extended forms (openai/mcp-extensions docs/spec.md, "OpenAI
- * Form Elicitation"). Shared by the Home, which checks a form before showing
- * it and an answer before returning it, and the browser, which renders it.
+ * Form Elicitation"). Shared by the Home, which checks a form can be shown,
+ * and the browser, which renders it.
  *
  * `parseForm` accepts exactly the field shapes OpenAI's SDK accepts
  * (typescript/src/shared/forms), tried in the same order, and refuses the
  * whole form when one field matches none: OpenAI's spec reports such a form
  * as unsupported rather than showing part of it. Unknown keys are ignored, as
- * the SDK's schemas strip them. `formErrors` validates an answer the way the
- * SDK's `createOpenAIFormContentSchema` does, with the same validator, except
- * that Ri never runs a server's `pattern`: a pattern is a regular expression
- * the server wrote, and some take minutes on a short value. The server checks
- * its own patterns when the answer reaches it.
+ * the SDK's schemas strip them. A field's shape decides only which control
+ * shows it. Ri never checks an answer against the schema (required fields,
+ * types, bounds, patterns): the server validates its own form, and when it
+ * asks again Ri brings back what the person entered (`elicitation.ts`).
  */
 
 export type FormValue = string | number | boolean | string[];
@@ -38,28 +36,27 @@ export interface ResourceOption {
 
 export interface UserResourceOptions { kind: 'file' | 'directory'; accept: string[] }
 
+/** `required` only marks the field for the person. The server decides what it needs. */
 interface FieldBase { name: string; title?: string; description?: string; required: boolean }
 export type FormField = FieldBase & (
-  | { kind: 'text'; format?: StringFormat; minLength?: number; maxLength?: number; default?: string; suggestions: FormOption[] }
-  | { kind: 'number'; integer: boolean; minimum?: number; maximum?: number; default?: number }
+  | { kind: 'text'; format?: StringFormat; default?: string; suggestions: FormOption[] }
+  | { kind: 'number'; integer: boolean; default?: number }
   | { kind: 'boolean'; default?: boolean }
   /** One of a fixed list: titled `oneOf`, or `enum` with optional `enumNames`. */
   | { kind: 'select'; options: FormOption[]; default?: string; thumbnails: boolean }
   /** Several of a fixed list: titled `items.anyOf`, or `items.enum`. */
-  | { kind: 'multiselect'; options: FormOption[]; minItems?: number; maxItems?: number; default?: string[]; thumbnails: boolean }
+  | { kind: 'multiselect'; options: FormOption[]; default?: string[]; thumbnails: boolean }
   /** Free-form strings, with optional suggestions. */
-  | { kind: 'texts'; item: { format?: StringFormat; minLength?: number; maxLength?: number }; suggestions: FormOption[]; minItems?: number; maxItems?: number; uniqueItems: boolean; default?: string[] }
+  | { kind: 'texts'; item: { format?: StringFormat }; suggestions: FormOption[]; default?: string[] }
   /** OpenAI's resource selection (`x-openai-input`), one URI or several. */
-  | { kind: 'resource'; multiple: boolean; selection: 'explicit' | 'implicit'; options: ResourceOption[]; userOptions?: UserResourceOptions; minItems?: number; maxItems?: number; default?: string | string[] }
+  | { kind: 'resource'; multiple: boolean; selection: 'explicit' | 'implicit'; options: ResourceOption[]; userOptions?: UserResourceOptions; default?: string | string[] }
 );
 export type FieldKind = FormField['kind'];
 
 export interface ParsedForm {
   fields: FormField[];
-  /** The requested schema as sent, which `formErrors` validates answers against. */
+  /** The requested schema as sent, which the browser reads again to render the form. */
   schema: Record<string, unknown>;
-  /** Whether any field takes a resource, so the answer gets the file-selection check. */
-  hasResources: boolean;
 }
 export type FormParse = { ok: true; form: ParsedForm } | { ok: false; reason: string };
 
@@ -176,7 +173,6 @@ function field(name: string, raw: unknown, required: boolean): FormField | null 
       : selection === 'implicit' ? { kind: 'file', accept: [] } : undefined;
     return { ...common, kind: 'resource', multiple, selection, options,
       ...(userOptions ? { userOptions } : {}),
-      ...(num(schema.minItems) !== undefined ? { minItems: num(schema.minItems) } : {}), ...(num(schema.maxItems) !== undefined ? { maxItems: num(schema.maxItems) } : {}),
       ...(schema.default !== undefined ? { default: schema.default as string | string[] } : {}) };
   }
 
@@ -189,12 +185,12 @@ function field(name: string, raw: unknown, required: boolean): FormField | null 
   const items = record(schema.items);
   if (items && matches(schema, arrayBase) && matches(items, { enum: absent, anyOf: isOptions })) {
     const options = (items.anyOf as unknown[]).map(option);
-    return { ...common, kind: 'multiselect', options, thumbnails: options.some(o => o.thumbnail), ...arrayBounds(schema), ...(Array.isArray(schema.default) ? { default: schema.default as string[] } : {}) };
+    return { ...common, kind: 'multiselect', options, thumbnails: options.some(o => o.thumbnail), ...(Array.isArray(schema.default) ? { default: schema.default as string[] } : {}) };
   }
   // Untitled multi-select (`items.enum`).
   if (items && matches(schema, arrayBase) && matches(items, { type: v => v === 'string', enum: isStrings, anyOf: absent })) {
     const options = (items.enum as string[]).map(value => ({ value, title: value }));
-    return { ...common, kind: 'multiselect', options, thumbnails: false, ...arrayBounds(schema), ...(Array.isArray(schema.default) ? { default: schema.default as string[] } : {}) };
+    return { ...common, kind: 'multiselect', options, thumbnails: false, ...(Array.isArray(schema.default) ? { default: schema.default as string[] } : {}) };
   }
   // Single select from `enum`, titled by `enumNames` when given.
   if (matches(schema, { type: v => v === 'string', ...base, enum: isStrings, enumNames: optional(isStrings), default: optional(isString), oneOf: absent, anyOf: absent })) {
@@ -203,32 +199,26 @@ function field(name: string, raw: unknown, required: boolean): FormField | null 
     return { ...common, kind: 'select', options, thumbnails: false, ...(str(schema.default) !== undefined ? { default: str(schema.default) } : {}) };
   }
   if (matches(schema, { ...stringShape, ...noChoices })) {
-    return { ...common, kind: 'text', suggestions: ((schema['x-openai-suggestions'] as unknown[] | undefined) ?? []).map(option), ...stringBounds(schema),
+    return { ...common, kind: 'text', suggestions: ((schema['x-openai-suggestions'] as unknown[] | undefined) ?? []).map(option), ...stringFormat(schema),
       ...(str(schema.default) !== undefined ? { default: str(schema.default) } : {}) };
   }
   if (matches(schema, { type: v => v === 'number' || v === 'integer', ...base, minimum: optional(isNumber), maximum: optional(isNumber), default: optional(isNumber) })) {
     return { ...common, kind: 'number', integer: schema.type === 'integer',
-      ...(num(schema.minimum) !== undefined ? { minimum: num(schema.minimum) } : {}), ...(num(schema.maximum) !== undefined ? { maximum: num(schema.maximum) } : {}),
       ...(num(schema.default) !== undefined ? { default: num(schema.default) } : {}) };
   }
   if (matches(schema, { type: v => v === 'boolean', ...base, default: optional(isBoolean) })) {
     return { ...common, kind: 'boolean', ...(typeof schema.default === 'boolean' ? { default: schema.default } : {}) };
   }
-  // Free-form strings, each with the string field's constraints and suggestions.
+  // Free-form strings, each with the string field's suggestions.
   if (items && matches(schema, { ...arrayBase, uniqueItems: optional(isBoolean) }) && matches(items, { ...stringShape, ...noChoices })) {
-    return { ...common, kind: 'texts', item: stringBounds(items), suggestions: ((items['x-openai-suggestions'] as unknown[] | undefined) ?? []).map(option),
-      uniqueItems: schema.uniqueItems === true, ...arrayBounds(schema), ...(Array.isArray(schema.default) ? { default: schema.default as string[] } : {}) };
+    return { ...common, kind: 'texts', item: stringFormat(items), suggestions: ((items['x-openai-suggestions'] as unknown[] | undefined) ?? []).map(option),
+      ...(Array.isArray(schema.default) ? { default: schema.default as string[] } : {}) };
   }
   return null;
 }
-function arrayBounds(schema: Record<string, unknown>) {
-  return { ...(num(schema.minItems) !== undefined ? { minItems: num(schema.minItems) } : {}), ...(num(schema.maxItems) !== undefined ? { maxItems: num(schema.maxItems) } : {}) };
-}
-function stringBounds(schema: Record<string, unknown>) {
-  return {
-    ...(typeof schema.format === 'string' ? { format: schema.format as StringFormat } : {}),
-    ...(num(schema.minLength) !== undefined ? { minLength: num(schema.minLength) } : {}), ...(num(schema.maxLength) !== undefined ? { maxLength: num(schema.maxLength) } : {}),
-  };
+/** A string's `format`, which picks its control (email, address, date, date and time). */
+function stringFormat(schema: Record<string, unknown>) {
+  return typeof schema.format === 'string' ? { format: schema.format as StringFormat } : {};
 }
 
 /** Read a requested schema into fields, or say which field makes it unsupported. */
@@ -249,29 +239,7 @@ export function parseForm(schema: unknown): FormParse {
     }
     fields.push(parsed);
   }
-  return { ok: true, form: { fields, schema: form, hasResources: fields.some(f => f.kind === 'resource') } };
-}
-
-const SUBSCHEMA = new Set(['items', 'additionalItems', 'contains', 'additionalProperties', 'propertyNames', 'not', 'if', 'then', 'else', 'unevaluatedItems', 'unevaluatedProperties', 'prefixItems', 'allOf', 'anyOf', 'oneOf']);
-const SUBSCHEMA_MAP = new Set(['properties', '$defs', 'definitions', 'dependentSchemas']);
-/**
- * A schema without `pattern` and `patternProperties`, wherever a subschema
- * can hold them, for the validator, which would otherwise run the server's
- * regular expressions. Values (`enum`, `const`, `default`, suggestions) and
- * property names, including one named `pattern`, are left as they are.
- */
-function withoutPatterns(schema: unknown): unknown {
-  if (Array.isArray(schema)) return schema.map(withoutPatterns);
-  const object = record(schema);
-  if (!object) return schema;
-  const copy: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(object)) {
-    if (key === 'pattern' || key === 'patternProperties') continue;
-    const map = SUBSCHEMA_MAP.has(key) ? record(value) : undefined;
-    copy[key] = map ? Object.fromEntries(Object.entries(map).map(([name, child]) => [name, withoutPatterns(child)]))
-      : SUBSCHEMA.has(key) ? withoutPatterns(value) : value;
-  }
-  return copy;
+  return { ok: true, form: { fields, schema: form } };
 }
 
 /** The answer each field starts with: its default, every option for implicit selection, or nothing. */
@@ -284,13 +252,18 @@ export function initialValues(form: ParsedForm): Partial<FormContent> {
   return values;
 }
 
-/** The submitted content: every answered field, without empty optional ones. */
+/**
+ * The submitted content: what the person entered, field by field. A field
+ * left empty is left out, except a resource selection, where an empty list
+ * says the person removed every item. Nothing is checked here: the server
+ * says what it needs.
+ */
 export function formContent(form: ParsedForm, values: Partial<FormContent>): FormContent {
   const content: FormContent = {};
   for (const f of form.fields) {
     const value = values[f.name];
-    if (value === undefined || (value === '' && !f.required)) continue;
-    if (Array.isArray(value) && !value.length && !f.required && f.kind !== 'resource') continue;
+    if (value === undefined || value === '') continue;
+    if (Array.isArray(value) && !value.length && f.kind !== 'resource') continue;
     content[f.name] = value;
   }
   return content;
@@ -306,56 +279,4 @@ export function acceptsFile(accept: readonly string[], name: string, mimeType?: 
     if (!mime) return false;
     return rule.endsWith('/*') ? mime.startsWith(rule.slice(0, -1)) : mime === rule;
   });
-}
-
-const FRIENDLY: Record<string, (f: FormField | undefined) => string> = {
-  format: f => f && (f.kind === 'text' || f.kind === 'resource') && (f.kind === 'resource' || f.format === 'uri') ? 'Enter a valid address.' : 'This is not in the expected format.',
-  minLength: f => f?.kind === 'text' && f.minLength !== undefined ? `Use at least ${f.minLength} character${f.minLength === 1 ? '' : 's'}.` : 'This is too short.',
-  maxLength: f => f?.kind === 'text' && f.maxLength !== undefined ? `Use at most ${f.maxLength} characters.` : 'This is too long.',
-  minimum: f => f?.kind === 'number' && f.minimum !== undefined ? `Use ${f.minimum} or more.` : 'This is too small.',
-  maximum: f => f?.kind === 'number' && f.maximum !== undefined ? `Use ${f.maximum} or less.` : 'This is too large.',
-  minItems: f => f && 'minItems' in f && f.minItems !== undefined ? `Choose at least ${f.minItems}.` : 'Choose more.',
-  maxItems: f => f && 'maxItems' in f && f.maxItems !== undefined ? `Choose at most ${f.maxItems}.` : 'Choose fewer.',
-  uniqueItems: () => 'Each value can appear once.',
-  type: f => f?.kind === 'number' ? (f.integer ? 'Enter a whole number.' : 'Enter a number.') : 'This value has the wrong type.',
-  enum: () => 'Choose one of the options.',
-  const: () => 'Choose one of the options.',
-  anyOf: () => 'Choose from the options.',
-  oneOf: () => 'Choose one of the options.',
-};
-
-/**
- * What is wrong with an answer, by field (`''` for the form as a whole). Empty
- * when it is valid. The JSON Schema check is the one OpenAI's SDK runs,
- * without the server's patterns, required fields are checked by name, and a
- * resource field must name one of its options unless the person may add their
- * own.
- */
-export function formErrors(form: ParsedForm, content: Record<string, unknown>): Record<string, string> {
-  const errors: Record<string, string> = {};
-  const fields = new Map(form.fields.map(f => [f.name, f]));
-  for (const [name, value] of Object.entries(content)) {
-    if (!fields.has(name)) { errors[''] = 'The answer names a field the form does not have.'; continue; }
-    const valid = typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (Array.isArray(value) && value.every(item => typeof item === 'string'));
-    if (!valid) errors[name] = 'This value has the wrong type.';
-  }
-  const validator = new Validator(structuredClone(withoutPatterns(form.schema)) as Schema, '2020-12', false);
-  // The validator uses `in`, so inherited names must not count as submitted fields.
-  for (const error of validator.validate(Object.setPrototypeOf({ ...content }, null)).errors) {
-    if (error.keywordLocation === '#/required') continue;
-    const [name] = error.instanceLocation.split('/').slice(1).map(part => part.replace(/~1/g, '/').replace(/~0/g, '~'));
-    if (name === undefined) { if (error.keyword !== 'properties') errors[''] ??= 'The answer does not fit the form.'; continue; }
-    if (errors[name]) continue;
-    // `properties` and `items` only say a nested keyword failed. Its own error carries the reason.
-    if (error.keyword === 'properties' || error.keyword === 'items' || error.keyword === 'prefixItems') continue;
-    errors[name] = (FRIENDLY[error.keyword] ?? (() => 'This value is not accepted.'))(fields.get(name));
-  }
-  for (const f of form.fields) {
-    if (f.required && !Object.hasOwn(content, f.name)) errors[f.name] ??= 'This is required.';
-    if (f.kind !== 'resource' || !Object.hasOwn(content, f.name)) continue;
-    const chosen = content[f.name];
-    const uris = Array.isArray(chosen) ? chosen : [chosen];
-    if (!(f.userOptions || uris.every(uri => f.options.some(option => option.uri === uri)))) errors[f.name] ??= 'Choose from the listed items.';
-  }
-  return errors;
 }

@@ -14,14 +14,17 @@ import { bitsAndBoltsForms } from '@/test/fixtures/bits-and-bolts-forms';
 
 const ids = {
   review: '01900aaa-0000-7000-8000-000000000001', pick: '01900aaa-0000-7000-8000-000000000002', implicit: '01900aaa-0000-7000-8000-000000000003',
-  local: '01900aaa-0000-7000-8000-000000000004', reference: '01900aaa-0000-7000-8000-000000000005',
+  local: '01900aaa-0000-7000-8000-000000000004', reference: '01900aaa-0000-7000-8000-000000000005', again: '01900aaa-0000-7000-8000-000000000006',
 };
 const chatId = '01900bbb-0000-7000-8000-000000000001';
 const form = (id: string, message: string, schema: unknown, extra: Record<string, unknown> = {}) => ({
   id, app: 'Bits & Bolts', serverId: 'bb', message, schema, status: 'open', expiresAt: Date.now() + 60_000, place: 'chat', chatId, viewId: null, local: false, folders: [], ...extra,
 });
+/** What the person entered in the review form, out of the server's bounds: the server asks again with it. */
+const entered = { reference: 'cad://parts/hex-bolt', priority: 'high', purpose: 'prototype', checks: ['clearance', 'custom-gasket'], approved: true, tolerance: 12 };
 const forms: Record<string, ReturnType<typeof form>> = {
   [ids.review]: form(ids.review, 'Review M6 hex bolt', bitsAndBoltsForms.reviewForm),
+  [ids.again]: form(ids.again, 'Tolerance must be 10 mm or less.', bitsAndBoltsForms.reviewForm, { again: entered }),
   [ids.pick]: form(ids.pick, 'Choose a CAD part', bitsAndBoltsForms.pickFile),
   [ids.implicit]: form(ids.implicit, 'Choose CAD references', bitsAndBoltsForms.pickReferences('implicit')),
   [ids.local]: form(ids.local, 'Choose CAD references', bitsAndBoltsForms.pickReferences('single'), { local: true, folders: [{ label: 'Parts', uri: 'file:///Users/me/parts' }] }),
@@ -55,7 +58,7 @@ beforeAll(async () => {
       if (method === 'connectedApps.forms.answer') {
         answers.push(input);
         forms[input.formId] = { ...forms[input.formId]!, status: input.answer.action === 'accept' ? 'accepted' : 'declined' };
-        return reply({ status: forms[input.formId]!.status, errors: {} });
+        return reply({ status: forms[input.formId]!.status });
       }
       if (method === 'connectedApps.forms.file') return reply({ uri: `file:///Users/me/parts/${input.pick.path}`, name: path.basename(input.pick.path) });
       if (method === 'connectedApps.forms.preview') return reply({ contents: [{ uri: input.uri, mimeType: 'text/markdown', text: '# M6 hex bolt\n\nA fastener for the main joint.' }] });
@@ -82,29 +85,37 @@ const shot = async (page: Page, name: string) => { if (shots) { fs.mkdirSync(sho
 const lastAnswer = () => answers.at(-1)!;
 
 describe('a server form in Ri', () => {
-  it('fills the review form: a default, an enum, suggestions on a string and on a list, a switch and a bounded number', async () => {
+  it('fills the review form and sends it as entered: a default, an enum, suggestions on a string and on a list, a switch and a number', async () => {
     const page = await open(ids.review);
     await shot(page, 'review-form');
-    await page.getByRole('button', { name: 'Submit' }).click();
-    // Nothing reaches the Home until the answer is valid, and each field says what it needs.
-    await expect.poll(() => page.getByRole('alert').allTextContents()).toEqual(expect.arrayContaining(['This is required.']));
-    expect(answers.filter(a => a.formId === ids.review)).toHaveLength(0);
     await page.getByRole('radio', { name: 'high' }).click();
     await page.getByRole('button', { name: 'Prototype' }).click();
     await page.getByRole('button', { name: 'Clearance' }).click();
     await page.getByLabel('Add to Checks').fill('custom-gasket');
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     await page.getByRole('switch', { name: 'Ready for review' }).click();
+    // Out of the server's bounds: Ri sends it anyway, and the server is the one to say so.
     await page.getByLabel('Tolerance (mm)').fill('12');
-    await page.getByRole('button', { name: 'Submit' }).click();
-    await expect.poll(() => page.getByRole('alert').allTextContents()).toEqual(['Use 10 or less.']);
-    await page.getByLabel('Tolerance (mm)').fill('0.5');
     await shot(page, 'review-form-filled');
     await page.getByRole('button', { name: 'Submit' }).click();
     await page.getByText('Sent.').waitFor();
-    expect(lastAnswer()).toEqual({ formId: ids.review, answer: { action: 'accept', content: {
-      reference: 'cad://parts/hex-bolt', priority: 'high', purpose: 'prototype', checks: ['clearance', 'custom-gasket'], approved: true, tolerance: 0.5,
-    } } });
+    expect(await page.getByRole('alert').count()).toBe(0);
+    expect(lastAnswer()).toEqual({ formId: ids.review, answer: { action: 'accept', content: entered } });
+    await page.close();
+  });
+
+  it('opens a form the server asks again with what the person entered and the server\'s reason beside it', async () => {
+    const page = await open(ids.again);
+    await page.getByText('Bits & Bolts is asking again').waitFor();
+    expect(await page.getByRole('alert').allTextContents()).toEqual(['Tolerance must be 10 mm or less.']);
+    expect(await page.getByLabel('Tolerance (mm)').inputValue()).toBe('12');
+    expect(await page.getByRole('switch', { name: 'Ready for review' }).getAttribute('aria-checked')).toBe('true');
+    expect(await page.getByRole('radio', { name: 'high' }).getAttribute('aria-checked')).toBe('true');
+    await shot(page, 'review-form-again');
+    await page.getByLabel('Tolerance (mm)').fill('0.5');
+    await page.getByRole('button', { name: 'Submit' }).click();
+    await page.getByText('Sent.').waitFor();
+    expect(lastAnswer()).toEqual({ formId: ids.again, answer: { action: 'accept', content: { ...entered, tolerance: 0.5 } } });
     await page.close();
   });
 

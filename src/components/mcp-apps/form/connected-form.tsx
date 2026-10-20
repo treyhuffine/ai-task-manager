@@ -7,7 +7,7 @@ import { trpc, trpcClient } from '@/lib/trpc/client';
 import type { ChatEventDTO } from '@/lib/api/dto/chat-event';
 import { api } from '@/lib/api/client';
 import type { Attachment } from '@/db/types';
-import { formContent, formErrors, initialValues, parseForm, type ResourceOption } from '@/lib/mcp-apps/form-schema';
+import { formContent, initialValues, parseForm, type FormContent, type ResourceOption } from '@/lib/mcp-apps/form-schema';
 import { cn } from '@/lib/utils';
 import { FormFields, type FormFiles, type FormValues } from './form-fields';
 import { FormPreview } from './form-preview';
@@ -46,8 +46,10 @@ const CLOSED: Record<string, string> = {
 
 /**
  * A server's form, filled in place: in a chat card, or over the app view
- * whose call asked. The answer is checked here as the server will check it,
- * and again at the Home. `bare` drops the frame for a surface that has one.
+ * whose call asked. What the person entered is sent as it is: the server
+ * validates it, and when it asks again the form comes back with those values
+ * and the server's message as the reason (`again`). `bare` drops the frame
+ * for a surface that has one.
  */
 export function ConnectedForm({formId, bare = false}: {formId: string; bare?: boolean}) {
   const queryClient = useQueryClient();
@@ -57,12 +59,12 @@ export function ConnectedForm({formId, bare = false}: {formId: string; bare?: bo
   const parsed = useMemo(() => form ? parseForm(form.schema) : null, [form]);
   const [values, setValues] = useState<FormValues | null>(null);
   const [labels, setLabels] = useState<Record<string, string>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [preview, setPreview] = useState<ResourceOption | null>(null);
   const attachments = useChatAttachments(form?.chatId);
-  const current = values ?? (parsed?.ok ? initialValues(parsed.form) : {});
+  const again = form?.again as FormContent | null | undefined;
+  const current = values ?? (parsed?.ok ? {...initialValues(parsed.form), ...(again ?? {})} : {});
 
   const files: FormFiles = {
     local: !!form?.local,
@@ -80,17 +82,11 @@ export function ConnectedForm({formId, bare = false}: {formId: string; bare?: bo
     if (!parsed?.ok) return;
     setFailure(null);
     let payload: Parameters<typeof trpcClient.connectedApps.forms.answer.mutate>[0]['answer'];
-    if (answer.action === 'accept') {
-      const content = formContent(parsed.form, current);
-      const local = formErrors(parsed.form, content);
-      setErrors(local);
-      if (Object.keys(local).length) return;
-      payload = {action: 'accept', content};
-    } else payload = answer;
+    if (answer.action === 'accept') payload = {action: 'accept', content: formContent(parsed.form, current)};
+    else payload = answer;
     setBusy(true);
     try {
-      const result = await trpcClient.connectedApps.forms.answer.mutate({formId, answer: payload});
-      setErrors(result.errors);
+      await trpcClient.connectedApps.forms.answer.mutate({formId, answer: payload});
       await queryClient.invalidateQueries({queryKey: options.queryKey});
     } catch (error) {
       setFailure(error instanceof Error ? error.message : 'Your answer could not be sent.');
@@ -102,8 +98,8 @@ export function ConnectedForm({formId, bare = false}: {formId: string; bare?: bo
     <div className="flex items-start gap-2">
       <ClipboardList size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-xs font-medium">{form.app} is asking</p>
-        {form.message && <p className="whitespace-pre-wrap text-xs text-muted-foreground [overflow-wrap:anywhere]">{form.message}</p>}
+        <p className="text-xs font-medium">{form.app} {again && !closed ? 'is asking again' : 'is asking'}</p>
+        {form.message && <p role={again && !closed ? 'alert' : undefined} className={cn('whitespace-pre-wrap text-xs [overflow-wrap:anywhere]', again && !closed ? 'text-destructive' : 'text-muted-foreground')}>{form.message}</p>}
       </div>
     </div>
     {!parsed?.ok
@@ -111,11 +107,10 @@ export function ConnectedForm({formId, bare = false}: {formId: string; bare?: bo
       : closed
         ? <p className="text-xs text-muted-foreground">{CLOSED[form.status] ?? 'Closed.'}</p>
         : <>
-          {parsed.form.fields.length > 0 && <FormFields fields={parsed.form.fields} values={current} errors={errors} disabled={busy} files={files} labels={labels}
+          {parsed.form.fields.length > 0 && <FormFields fields={parsed.form.fields} values={current} disabled={busy} files={files} labels={{...againLabels(again), ...labels}}
             onLabel={(uri, name) => setLabels(previous => ({...previous, [uri]: name}))}
-            onChange={(name, value) => { setValues({...current, [name]: value}); setErrors(previous => { const next = {...previous}; delete next[name]; return next; }); }}
+            onChange={(name, value) => setValues({...current, [name]: value})}
             onPreview={setPreview} />}
-          {errors[''] && <p role="alert" className="text-xs text-destructive">{errors['']}</p>}
           {failure && <p role="alert" className="text-xs text-destructive">{failure}</p>}
           <div className="flex flex-wrap gap-2">
             <Button size="sm" className="h-8 text-xs" disabled={busy} onClick={() => void send({action: 'accept'})}>{busy && <Loader2 size={12} className="animate-spin" />}{parsed.form.fields.length ? 'Submit' : 'OK'}</Button>
@@ -124,6 +119,15 @@ export function ConnectedForm({formId, bare = false}: {formId: string; bare?: bo
         </>}
     {preview && <FormPreview formId={formId} chatId={form.chatId} option={preview} onClose={() => setPreview(null)} />}
   </Frame>;
+}
+
+/** Names for files the person added last time, from their paths: the names they were added under aren't kept. */
+function againLabels(again: FormContent | null | undefined): Record<string, string> {
+  const labels: Record<string, string> = {};
+  for (const value of Object.values(again ?? {})) for (const uri of Array.isArray(value) ? value : [value]) {
+    if (typeof uri === 'string' && uri.startsWith('file://')) labels[uri] = decodeURIComponent(uri.slice(uri.lastIndexOf('/') + 1));
+  }
+  return labels;
 }
 
 function Frame({bare, children}: {bare: boolean; children: React.ReactNode}) {

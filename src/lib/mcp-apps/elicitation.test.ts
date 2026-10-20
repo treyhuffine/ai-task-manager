@@ -85,15 +85,35 @@ describe('placing a form', () => {
 });
 
 describe('answering', () => {
-  it('returns field errors and keeps the form open until the answer is valid', async () => {
+  it('sends the answer as the person entered it, for the server to judge', async () => {
     const { id, answer } = await ask(chatOrigin(), openai(bitsAndBolts.reviewForm, 'Review M6 hex bolt'));
-    expect(await answerConnectedForm(id, 'v', { action: 'accept', content: { reference: 'https://example.com', priority: 'urgent' } })).toEqual({ status: 'open', errors: {
-      priority: 'Choose one of the options.', approved: 'This is required.', tolerance: 'This is required.',
-    } });
-    // `reference` breaks the server's own pattern, which Ri leaves for the server to check: no error for it here.
-    await answerConnectedForm(id, 'v', { action: 'accept', content: { reference: 'cad://parts/hex-bolt', priority: 'high', checks: ['clearance', 'custom-gasket'], approved: true, tolerance: 0.2 } });
-    await expect(answer).resolves.toEqual({ action: 'accept', content: { reference: 'cad://parts/hex-bolt', priority: 'high', checks: ['clearance', 'custom-gasket'], approved: true, tolerance: 0.2 } });
+    // Outside the server's pattern and its options, and missing required fields: Ri sends it anyway.
+    expect(await answerConnectedForm(id, 'v', { action: 'accept', content: { reference: 'https://example.com', priority: 'urgent' } })).toEqual({ status: 'accepted' });
+    await expect(answer).resolves.toEqual({ action: 'accept', content: { reference: 'https://example.com', priority: 'urgent' } });
     await expect(answerConnectedForm(id, 'v', { action: 'decline' })).rejects.toThrow('no longer waiting');
+  });
+
+  it('brings back what the person entered when the same call asks the same fields again, with the server\'s reason', async () => {
+    const call = { ...chatOrigin(), attemptId: 'reask-1' };
+    const first = await ask(call, openai(bitsAndBolts.reviewForm, 'Review M6 hex bolt'));
+    const entered = { reference: 'cad://parts/hex-bolt', priority: 'high', approved: true, tolerance: 12 };
+    await answerConnectedForm(first.id, 'v', { action: 'accept', content: entered });
+    await first.answer;
+    // The server refused the tolerance and asks again, in the same call.
+    const again = await ask(call, openai(bitsAndBolts.reviewForm, 'Tolerance must be 10 or less.'));
+    expect(await getConnectedForm(again.id, 'v')).toMatchObject({ message: 'Tolerance must be 10 or less.', again: entered });
+    await answerConnectedForm(again.id, 'v', { action: 'cancel' });
+    // A different form from that call, or the same form from another call, starts fresh.
+    const other = await ask(call, openai(bitsAndBolts.pickFile, 'Now choose a part'));
+    expect(await getConnectedForm(other.id, 'v')).toMatchObject({ again: null });
+    await answerConnectedForm(other.id, 'v', { action: 'cancel' });
+    const fresh = await ask({ ...call, attemptId: 'reask-2' }, openai(bitsAndBolts.reviewForm, 'Review M6 washer'));
+    expect(await getConnectedForm(fresh.id, 'v')).toMatchObject({ again: null });
+    await answerConnectedForm(fresh.id, 'v', { action: 'cancel' });
+    // Another chat never sees it, even for the same call id.
+    const elsewhere = await ask({ ...call, caller: { type: 'mcp' as const, id: `session:${otherChat}` } }, openai(bitsAndBolts.reviewForm, 'Tolerance must be 10 or less.'));
+    expect(await getConnectedForm(elsewhere.id, 'v')).toMatchObject({ again: null });
+    await answerConnectedForm(elsewhere.id, 'v', { action: 'cancel' });
   });
 
   it('cancels a form when its call ends or it expires, and says so in the chat', async () => {
@@ -147,7 +167,7 @@ describe('files a person adds', () => {
     const remote = await ask(chatOrigin(), openai(bitsAndBolts.pickReferences('single')), { local: false });
     expect(await getConnectedForm(remote.id, 'v')).toMatchObject({ local: false, folders: [] });
     await expect(connectedFormFile(remote.id, 'v', 'references', { attachment: 'x.stl' })).rejects.toThrow('only takes the items it listed');
-    expect(await answerConnectedForm(remote.id, 'v', { action: 'accept', content: { references: 'file:///Users/me/bracket.step' } })).toMatchObject({ errors: { references: 'Choose from the listed items.' } });
+    await expect(answerConnectedForm(remote.id, 'v', { action: 'accept', content: { references: 'file:///Users/me/bracket.step' } })).rejects.toThrow('Choose from the listed items.');
     await answerConnectedForm(remote.id, 'v', { action: 'cancel' });
   });
 
@@ -196,7 +216,7 @@ describe('files a person adds', () => {
     const remote = await ask(chatOrigin(), openai(schema as never), { local: false });
     expect(await getConnectedForm(remote.id, 'v')).toMatchObject({ local: false, folders: [] });
     await expect(connectedFormFile(remote.id, 'v', 'references', { folder: pathToFileURL(agent).href, path: 'bracket.obj' })).rejects.toThrow('only takes the items it listed');
-    expect(await answerConnectedForm(remote.id, 'v', { action: 'accept', content: { references: [added.uri] } })).toMatchObject({ errors: { references: 'Choose from the listed items.' } });
+    await expect(answerConnectedForm(remote.id, 'v', { action: 'accept', content: { references: [added.uri] } })).rejects.toThrow('Choose from the listed items.');
     await answerConnectedForm(remote.id, 'v', { action: 'cancel' });
   });
 

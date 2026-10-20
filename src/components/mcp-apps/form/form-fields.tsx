@@ -29,7 +29,6 @@ export interface FormFiles {
 export interface FormFieldsProps {
   fields: FormField[];
   values: FormValues;
-  errors: Record<string, string>;
   disabled?: boolean;
   files: FormFiles;
   onChange(name: string, value: FormContent[string] | undefined): void;
@@ -40,18 +39,17 @@ export interface FormFieldsProps {
 }
 
 export function FormFields(props: FormFieldsProps) {
-  return <div className="space-y-4">{props.fields.map(field => <FieldShell key={field.name} field={field} error={props.errors[field.name]}>
+  return <div className="space-y-4">{props.fields.map(field => <FieldShell key={field.name} field={field}>
     <Control field={field} {...props} />
   </FieldShell>)}</div>;
 }
 
-function FieldShell({field, error, children}: {field: FormField; error?: string; children: React.ReactNode}) {
+function FieldShell({field, children}: {field: FormField; children: React.ReactNode}) {
   const label = field.title ?? field.name;
-  return <fieldset className="min-w-0 space-y-1.5" aria-invalid={!!error || undefined}>
+  return <fieldset className="min-w-0 space-y-1.5">
     {field.kind !== 'boolean' && <legend className="text-xs font-medium text-foreground">{label}{field.required && <span aria-hidden className="text-muted-foreground"> *</span>}</legend>}
     {field.description && field.kind !== 'boolean' && <p className="text-[11px] leading-snug text-muted-foreground">{field.description}</p>}
     {children}
-    {error && <p role="alert" className="text-[11px] text-destructive">{error}</p>}
   </fieldset>;
 }
 
@@ -77,13 +75,13 @@ function Control(props: FormFieldsProps & {field: FormField}) {
       const text = typeof value === 'string' ? (field.format === 'date-time' ? fromDateTime(value) : value) : '';
       return <div className="space-y-1.5">
         <Input id={id} type={type} value={text} disabled={disabled} aria-label={field.title ?? field.name}
-          minLength={field.minLength} maxLength={field.maxLength} className="h-8 text-xs"
+          className="h-8 text-xs"
           onChange={event => onChange(field.name, event.target.value === '' ? undefined : field.format === 'date-time' ? toDateTime(event.target.value) : event.target.value)} />
         <Suggestions options={field.suggestions} disabled={disabled} chosen={option => option.value === value} onPick={option => onChange(field.name, option.value)} />
       </div>;
     }
     case 'number':
-      return <Input id={id} type="number" inputMode={field.integer ? 'numeric' : 'decimal'} min={field.minimum} max={field.maximum} step={field.integer ? 1 : 'any'}
+      return <Input id={id} type="number" inputMode={field.integer ? 'numeric' : 'decimal'} step={field.integer ? 1 : 'any'}
         aria-label={field.title ?? field.name} disabled={disabled} className="h-8 w-40 text-xs" value={typeof value === 'number' ? value : ''}
         onChange={event => onChange(field.name, event.target.value === '' ? undefined : Number(event.target.value))} />;
     case 'boolean':
@@ -94,7 +92,7 @@ function Control(props: FormFieldsProps & {field: FormField}) {
       </label>;
     case 'select':
       return <Options options={field.options} thumbnails={field.thumbnails} multiple={false} disabled={disabled} label={field.title ?? field.name}
-        chosen={option => option.value === value} onToggle={option => onChange(field.name, option.value === value && !field.required ? undefined : option.value)} />;
+        chosen={option => option.value === value} onToggle={option => onChange(field.name, option.value === value ? undefined : option.value)} />;
     case 'multiselect': {
       const chosen = Array.isArray(value) ? value : [];
       return <Options options={field.options} thumbnails={field.thumbnails} multiple disabled={disabled} label={field.title ?? field.name}
@@ -156,7 +154,7 @@ function TextsControl({field, values, onChange, disabled}: FormFieldsProps & {fi
   const current = Array.isArray(values[field.name]) ? values[field.name] as string[] : [];
   const add = (text: string) => {
     const value = text.trim();
-    if (!value || (field.uniqueItems && current.includes(value))) return;
+    if (!value) return;
     onChange(field.name, [...current, value]);
     setDraft('');
   };
@@ -188,7 +186,7 @@ function ResourceControl(props: FormFieldsProps & {field: Extract<FormField, {ki
   const chosen = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
   const set = (uris: string[]) => onChange(field.name, field.multiple ? uris : uris[0]);
   const toggle = (uri: string) => {
-    if (!field.multiple) return set(chosen[0] === uri && !field.required ? [] : [uri]);
+    if (!field.multiple) return set(chosen[0] === uri ? [] : [uri]);
     set(chosen.includes(uri) ? chosen.filter(v => v !== uri) : [...chosen, uri]);
   };
   const implicit = field.multiple && field.selection === 'implicit';

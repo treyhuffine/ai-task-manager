@@ -8,7 +8,7 @@ import { processState } from '@/lib/process-state';
 import { getAttachmentsDir } from '@/lib/config/paths';
 import { chatPlacement, getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
 import { sessionIdFromCaller } from '@/lib/integrations/approval';
-import { acceptsFile, formErrors, parseForm, type FormContent, type FormField, type ParsedForm, type PreviewTarget } from './form-schema';
+import { acceptsFile, parseForm, type FormContent, type FormField, type ParsedForm, type PreviewTarget } from './form-schema';
 import { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT } from './form-events';
 import { serverRunsHere } from './files';
 import type { McpServerEntry } from '@/lib/integrations/mcp-servers';
@@ -25,6 +25,11 @@ export { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT };
  *
  * Pending forms live in `processState`: a form holds a tool call open, so it
  * ends when the call does, and a restart cancels it.
+ *
+ * Ri doesn't validate an answer: the server does. A server that refuses one
+ * asks again, with another round or request from the same call. When that
+ * form has the same fields, it opens with what the person entered last time
+ * and the server's new message as the reason (`again`), so they can fix it.
  */
 
 /** What Ri tells every server it supports: MCP form elicitation and OpenAI's extended forms. */
@@ -53,10 +58,19 @@ interface PendingForm {
   id: string; serverId: string; app: string; local: boolean; place: FormPlace;
   message: string; schema: Record<string, unknown>; form: ParsedForm;
   created: number; expires: number; status: FormStatus; settled?: number;
+  /** The call and place this form came from, and its fields, to know when the same call asks again. */
+  asked?: { key: string; fields: string };
+  /** What the person entered when the same call asked these fields before. */
+  again?: FormContent;
   resolve: (answer: FormAnswer) => void;
 }
 
 const forms = () => processState('mcp-forms', () => new Map<string, PendingForm>());
+/** The last answer per call and place, kept as long as an answered form, for a server that asks again. */
+const lastAnswers = () => processState('mcp-form-last-answers', () => new Map<string, { fields: string; content: FormContent; at: number }>());
+const MAX_LAST_ANSWERS = 64;
+const placeKey = (p: FormPlace) => p.kind === 'chat' ? `chat:${p.chatId}` : `view:${p.viewId}`;
+const fieldsKey = (form: ParsedForm) => JSON.stringify(form.fields.map(f => [f.name, f.kind]));
 
 /**
  * What every MCP connection Ri opens gets for forms: the capabilities, and a
@@ -107,6 +121,7 @@ function placeFor(origin: ActionCallOrigin | undefined): FormPlace | null {
 
 function prune(now = Date.now()) {
   for (const [id, form] of forms()) if (form.status !== 'open' && (form.settled ?? 0) + KEEP_ANSWERED_MS <= now) forms().delete(id);
+  for (const [key, answer] of lastAnswers()) if (answer.at + KEEP_ANSWERED_MS <= now) lastAnswers().delete(key);
 }
 
 function recordOutcome(form: PendingForm, outcome: FormStatus) {
@@ -151,18 +166,22 @@ export async function answerMcpForm(input: {
   }
   prune();
   const open = [...forms().values()].filter(form => form.status === 'open');
-  const key = (p: FormPlace) => p.kind === 'chat' ? `chat:${p.chatId}` : `view:${p.viewId}`;
-  if (open.length >= MAX_FORMS || open.filter(form => key(form.place) === key(place)).length >= MAX_PER_PLACE) {
+  if (open.length >= MAX_FORMS || open.filter(form => placeKey(form.place) === placeKey(place)).length >= MAX_PER_PLACE) {
     throw new McpFormError('Too many forms are already waiting for an answer here.', 'unavailable');
   }
   if (input.signal.aborted) return { action: 'cancel' };
   const now = Date.now();
   // A server on another computer cannot read this one's files, so it gets only the items it offered.
   const form: ParsedForm = input.local ? parsed.form : { ...parsed.form, fields: parsed.form.fields.map(f => f.kind === 'resource' ? { ...f, userOptions: undefined } : f) };
+  // The same call asking the same fields again: the server refused what the person entered.
+  const attempt = (input.origin as ActionCallOrigin | undefined)?.attemptId;
+  const asked = attempt ? { key: `${placeKey(place)}|${input.serverId}|${attempt}`, fields: fieldsKey(form) } : undefined;
+  const previous = asked ? lastAnswers().get(asked.key) : undefined;
   return new Promise<FormAnswer>(resolve => {
     const pending: PendingForm = {
       id: randomUUID(), serverId: input.serverId, app: input.app, local: input.local, place, message,
       schema: parsed.form.schema, form, created: now, expires: now + (input.request.round ? ROUND_FORM_TTL_MS : FORM_TTL_MS), status: 'open',
+      ...(asked ? { asked } : {}), ...(previous && previous.fields === asked?.fields ? { again: previous.content } : {}),
       resolve: answer => { clearTimeout(timer); input.signal.removeEventListener('abort', abort); resolve(answer); },
     };
     const timer = setTimeout(() => settle(pending, 'expired', { action: 'cancel' }), pending.expires - now);
@@ -234,6 +253,8 @@ export async function getConnectedForm(formId: string, viewerId: string) {
     viewId: form.place.kind === 'view' ? form.place.viewId : null,
     // Whether the person may add their own files or folders, for a server on this computer.
     local: form.local, folders: folders.map(folder => ({ label: folder.label, uri: pathToFileURL(folder.path).href })),
+    // The same call asked these fields before: what the person entered then, and the message is the server's reason.
+    again: form.again ?? null,
   };
 }
 
@@ -288,9 +309,10 @@ export async function connectedFormFile(formId: string, viewerId: string, fieldN
 async function checkUserFiles(form: PendingForm, content: FormContent) {
   for (const f of form.form.fields) {
     if (f.kind !== 'resource' || !Object.hasOwn(content, f.name)) continue;
-    const values = Array.isArray(content[f.name]) ? content[f.name] as string[] : [content[f.name] as string];
+    const values = Array.isArray(content[f.name]) ? content[f.name] as unknown[] : [content[f.name]];
     for (const uri of values) {
-      if (f.options.some(option => option.uri === uri)) continue;
+      // Anything but a URI is the server's to judge. Only an added file is Ri's to check.
+      if (typeof uri !== 'string' || f.options.some(option => option.uri === uri)) continue;
       if (!f.userOptions || !form.local) throw new Error('Choose from the listed items.');
       if (!uri.startsWith('file://')) throw new Error('An added item must be a file on this computer.');
       const file = fileURLToPath(uri);
@@ -302,21 +324,23 @@ async function checkUserFiles(form: PendingForm, content: FormContent) {
 }
 
 /**
- * The person's answer. An accept is checked as the server will check it,
- * plus where added files are, before it goes back. Errors say which field.
+ * The person's answer, sent as they entered it. The server validates it.
+ * Ri checks only that a file the person added is still where it was allowed.
  */
 export async function answerConnectedForm(formId: string, viewerId: string, answer: { action: 'accept'; content: Record<string, unknown> } | { action: 'decline' | 'cancel' }) {
   const form = find(formId, viewerId);
   if (form.status !== 'open') throw new Error('This form is no longer waiting for an answer.');
   if (answer.action !== 'accept') {
     settle(form, answer.action === 'decline' ? 'declined' : 'cancelled', { action: answer.action });
-    return { status: form.status, errors: {} };
+    return { status: form.status };
   }
-  const errors = formErrors(form.form, answer.content);
-  if (Object.keys(errors).length) return { status: form.status, errors };
-  await checkUserFiles(form, answer.content as FormContent);
-  settle(form, 'accepted', { action: 'accept', content: answer.content as FormContent });
-  return { status: form.status, errors: {} };
+  const content = answer.content as FormContent;
+  await checkUserFiles(form, content);
+  if (settle(form, 'accepted', { action: 'accept', content }) && form.asked) {
+    if (lastAnswers().size >= MAX_LAST_ANSWERS) lastAnswers().delete(lastAnswers().keys().next().value!);
+    lastAnswers().set(form.asked.key, { fields: form.asked.fields, content, at: Date.now() });
+  }
+  return { status: form.status };
 }
 
 function previewIn(form: PendingForm, matchesTarget: (target: PreviewTarget) => boolean) {
