@@ -29,6 +29,14 @@ export const MCP_STDIO_PROBE_TIMEOUT_MS = 10_000;
 export const MCP_HTTP_PROBE_TIMEOUT_MS = 10_000;
 /** Messages larger than this close a stdio connection. CAD and media apps send multi-megabyte blobs. */
 export const MCP_STDIO_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+/**
+ * The most a server's whole tool list may hold, across its pages. Ri keeps
+ * the list to show and review, and reads it on every access check, so a
+ * larger one is refused rather than kept. Todoist's 47 tools are about 0.3 MiB.
+ */
+export const MCP_TOOL_LIST_MAX_BYTES = 2 * 1024 * 1024;
+/** Pages a listing may run to: real servers list in one or a few. The SDK allows 64. */
+export const MCP_LIST_MAX_PAGES = 16;
 
 /** What Ri advertises to every server: MCP Apps views, plus whatever the host adds (elicitation). */
 export const MCP_APPS_EXTENSION = { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } as const;
@@ -202,6 +210,7 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
       versionNegotiation: { mode, ...(mode === 'auto' ? { probe: { timeoutMs: opts.command !== undefined ? MCP_STDIO_PROBE_TIMEOUT_MS : MCP_HTTP_PROBE_TIMEOUT_MS } } : {}) },
       // `callTool` answers 2026-07-28 input rounds itself, where it knows exactly which run asked.
       inputRequired: { autoFulfill: false },
+      listMaxPages: MCP_LIST_MAX_PAGES,
       // 2026-07-28 delivers list changes on a `subscriptions/listen` stream the client opens.
       ...(opts.onToolsChanged ? { listChanged: { tools: { autoRefresh: false, debounceMs: 0, onChanged: notify } } } : {}),
     });
@@ -314,7 +323,11 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
       // No cursor: the SDK walks every page (bounded, so a cursor cycle fails rather than hangs).
       // Always fetch: discovery is the moment Ri checks what the server offers now.
       const res = await client.listTools(undefined, { timeout: MCP_DISCOVERY_TIMEOUT_MS, cacheMode: 'refresh' });
-      return { tools: (res.tools ?? []).map((t: McpToolDef) => structuredClone(t)) };
+      const tools = res.tools ?? [];
+      if (Buffer.byteLength(JSON.stringify(tools)) > MCP_TOOL_LIST_MAX_BYTES) {
+        throw new IntegrationError('provider_error', `The MCP server's tool list is larger than Ri accepts (${MCP_TOOL_LIST_MAX_BYTES / 1024 / 1024} MiB).`);
+      }
+      return { tools: tools.map((t: McpToolDef) => structuredClone(t)) };
     } catch (error) {
       if (error instanceof mod.SdkError && (error as { code?: string }).code === mod.SdkErrorCode.ListPaginationExceeded) {
         throw new IntegrationError('provider_error', 'MCP server returned a repeated tool-list cursor.', { cause: error });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MCP_HTTP_MAX_MESSAGE_BYTES, McpMessageTooLargeError, mcpHttpFetch, messageMeter } from '../mcp/http-fetch';
+import { MCP_HTTP_MAX_CONTROL_MESSAGE_BYTES, MCP_HTTP_MAX_MESSAGE_BYTES, McpMessageTooLargeError, mcpHttpFetch, messageMeter } from '../mcp/http-fetch';
 import { MCP_STDIO_MAX_BUFFER_BYTES } from '../mcp/client';
 import { MCP_HTTP_TIMEOUT_MS, MCP_TOOL_TOTAL_TIMEOUT_MS } from '../mcp/timeouts';
 
@@ -51,7 +51,7 @@ describe('scoped MCP HTTP fetch', () => {
     }), { headers: { 'content-type': 'text/event-stream' } });
     const many = events(Array.from({ length: 40 }, () => 30));
     vi.stubGlobal('fetch', vi.fn(async () => stream(many)));
-    const http = await mcpHttpFetch({ maxMessageBytes: 64 });
+    const http = await mcpHttpFetch({ maxMessageBytes: 1024, maxControlMessageBytes: 64 });
     // A standalone GET stream: no JSON-RPC request, so no operation of its own.
     expect(await (await http.fetch('https://provider.example/mcp', { method: 'GET' })).text()).toBe(many);
     vi.stubGlobal('fetch', vi.fn(async () => stream(events([30, 200]))));
@@ -63,6 +63,20 @@ describe('scoped MCP HTTP fetch', () => {
     vi.stubGlobal('fetch', vi.fn(async () => stream(cr)));
     expect(await (await http.fetch('https://provider.example/mcp', { method: 'GET' })).text()).toBe(cr);
     await http.close();
+  });
+
+  it('lets only a tool result or a resource run large: a listing, the handshake and notifications stay small', async () => {
+    const body = (size: number) => vi.fn(async () => new Response('z'.repeat(size), { headers: { 'content-type': 'application/json' } }));
+    const http = await mcpHttpFetch({ maxMessageBytes: 1024, maxControlMessageBytes: 64 });
+    const ask = (method: string) => http.fetch('https://provider.example/mcp', { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 3, method }) });
+    vi.stubGlobal('fetch', body(500));
+    for (const method of ['tools/call', 'resources/read']) expect(await (await ask(method)).text()).toHaveLength(500);
+    for (const method of ['tools/list', 'initialize', 'resources/list', 'subscriptions/listen'])
+      await expect((await ask(method)).text()).rejects.toBeInstanceOf(McpMessageTooLargeError);
+    // The stream a server opens on its own carries only notifications and requests.
+    await expect((await http.fetch('https://provider.example/mcp', { method: 'GET' })).text()).rejects.toBeInstanceOf(McpMessageTooLargeError);
+    await http.close();
+    expect(MCP_HTTP_MAX_CONTROL_MESSAGE_BYTES).toBe(2 * 1024 * 1024);
   });
 
   it('meters a body whole and an event stream per event, matching the stdio budget', () => {

@@ -301,7 +301,8 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
   const writeDocument = (document: StoredDocument): void => {
     fs.mkdirSync(deps.dir, { recursive: true, mode: 0o700 });
     const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(document, null, 2), { mode: 0o600 });
+    // Compact: the store is read on every access check, and indentation is a third of its size.
+    fs.writeFileSync(tmp, JSON.stringify(document), { mode: 0o600 });
     fs.renameSync(tmp, file);
     try {
       fs.chmodSync(file, 0o600);

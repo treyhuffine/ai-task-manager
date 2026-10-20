@@ -14,7 +14,7 @@ import {
   createMcpHandler, fromJsonSchema, inputRequired, legacyStatelessFallback, McpServer,
   type McpServerFactory,
 } from '@modelcontextprotocol/server';
-import { connectMcpClient, isMcpAuthenticationError, McpFormError, type ConnectedMcpClient } from '../mcp/client';
+import { connectMcpClient, isMcpAuthenticationError, MCP_TOOL_LIST_MAX_BYTES, McpFormError, type ConnectedMcpClient } from '../mcp/client';
 import { IntegrationError } from '../core/errors';
 
 const text = (result: { content: unknown }) => (result.content as { text: string }[])[0]!.text;
@@ -169,6 +169,23 @@ describe('connectMcpClient over Streamable HTTP', () => {
     clients.push(client);
     for (let i = 0; i < 2; i++) expect((await client.readResource({ uri: 'ui://fixture/cached.html' })).contents[0]).toMatchObject({ text: '<main>Cached</main>' });
     expect(methods.filter(method => method === 'resources/read')).toHaveLength(2);
+  });
+
+  it('refuses a tool list too large to keep, in one listing or across its pages', async () => {
+    // Twelve tools of 0.2 MiB each: as one listing it passes what a listing may hold, and in pages of three the whole is still too large.
+    const tool = (i: number) => ({ name: `tool${i}`, description: 'd'.repeat(200 * 1024), inputSchema: { type: 'object' } });
+    const handler = createMcpHandler(appServer);
+    for (const pageSize of [12, 3]) {
+      const { url } = await serve(async request => {
+        const message = await request.clone().json().catch(() => null) as { id?: number; method?: string; params?: { cursor?: string } } | null;
+        if (message?.method !== 'tools/list') return handler.fetch(request);
+        const from = Number(message.params?.cursor ?? 0), next = from + pageSize;
+        return Response.json({ jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', ttlMs: 0, cacheScope: 'private', tools: Array.from({ length: pageSize }, (_, i) => tool(from + i)), ...(next < 12 ? { nextCursor: String(next) } : {}) } });
+      });
+      const client = await connectMcpClient({ url });
+      clients.push(client);
+      await expect(client.listTools()).rejects.toThrow(pageSize === 12 ? 'larger than 2 MiB' : `larger than Ri accepts (${MCP_TOOL_LIST_MAX_BYTES / 1024 / 1024} MiB)`);
+    }
   });
 
   it('falls back to the 2025 handshake for a server that predates 2026-07-28', async () => {

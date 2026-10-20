@@ -8,6 +8,16 @@ import { MCP_HTTP_TIMEOUT_MS } from './timeouts';
  * an app view (24 MiB) with room for base64 and the JSON-RPC envelope.
  */
 export const MCP_HTTP_MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
+/**
+ * The most any other message may hold: a listing, the handshake, a
+ * notification or a server's request, and every event of the stream a server
+ * opens on its own. Only a tool's result and a resource's content are large,
+ * so nothing else a server sends can make Ri parse megabytes on its one
+ * thread. Todoist's whole tool list is about 0.3 MiB.
+ */
+export const MCP_HTTP_MAX_CONTROL_MESSAGE_BYTES = 2 * 1024 * 1024;
+/** The JSON-RPC requests whose answer may run to `MCP_HTTP_MAX_MESSAGE_BYTES`. */
+const LARGE_ANSWERS = new Set(['tools/call', 'resources/read']);
 
 /** A server's message that passed `MCP_HTTP_MAX_MESSAGE_BYTES`. Ri stops reading the response. */
 export class McpMessageTooLargeError extends Error {
@@ -43,8 +53,9 @@ export function messageMeter(eventStream: boolean) {
 }
 
 /** Per-client HTTP budgets and per-request cancellation, without changing global fetch. */
-export async function mcpHttpFetch(options: { maxMessageBytes?: number } = {}) {
+export async function mcpHttpFetch(options: { maxMessageBytes?: number; maxControlMessageBytes?: number } = {}) {
   const maxMessageBytes = options.maxMessageBytes ?? MCP_HTTP_MAX_MESSAGE_BYTES;
+  const maxControlMessageBytes = options.maxControlMessageBytes ?? MCP_HTTP_MAX_CONTROL_MESSAGE_BYTES;
   const { Agent } = await import('undici');
   const dispatcher = new Agent({ headersTimeout: MCP_HTTP_TIMEOUT_MS, bodyTimeout: MCP_HTTP_TIMEOUT_MS });
   const lifetime = new AbortController();
@@ -53,9 +64,11 @@ export async function mcpHttpFetch(options: { maxMessageBytes?: number } = {}) {
   const scopedFetch: typeof fetch = async (input, init) => {
     let id: string | number | undefined;
     let operation: AbortController | undefined;
+    let limit = maxControlMessageBytes;
     if (typeof init?.body === 'string') {
       try {
         const message = JSON.parse(init.body);
+        if (LARGE_ANSWERS.has(message.method)) limit = maxMessageBytes;
         if (message.method === 'notifications/cancelled') {
           requests.get(message.params?.requestId)?.abort();
         } else if (typeof message.method === 'string' && (typeof message.id === 'string' || typeof message.id === 'number')) {
@@ -87,11 +100,11 @@ export async function mcpHttpFetch(options: { maxMessageBytes?: number } = {}) {
           try {
             const chunk = await reader.read();
             if (chunk.done) { release(); reader.releaseLock(); controller.close(); return; }
-            if (measure(chunk.value) > maxMessageBytes) {
+            if (measure(chunk.value) > limit) {
               release(); operation?.abort();
               await reader.cancel().catch(() => {});
               reader.releaseLock();
-              controller.error(new McpMessageTooLargeError(maxMessageBytes));
+              controller.error(new McpMessageTooLargeError(limit));
               return;
             }
             controller.enqueue(chunk.value);
