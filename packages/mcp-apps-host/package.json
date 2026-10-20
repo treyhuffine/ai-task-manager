@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/view-host.ts"
+    ".": "./src/view-host.ts",
+    "./csp": "./src/csp.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.3.1",
