@@ -86,10 +86,11 @@ export function mentionItem(raw: unknown, account: SourceReference): AppMention 
 }
 
 /**
- * Why a server's search tool may not run, or null. OpenAI's spec has the tool
- * marked read-only and visible to apps. Ri also skips one the person turned
- * off or set to ask first, since a search runs on every keystroke and must
- * never stop for approval.
+ * Why a server's search tool may not run, or null. A search runs on every
+ * keystroke, so it must never stop for approval: one the person set to Ask
+ * first is skipped, and so is one not marked read-only, which approvals treat
+ * as a write and would ask about, one card per letter. It must also be
+ * visible to apps and not turned off.
  */
 export function searchRefusal(tool: McpCapabilityTool | undefined, enabled: boolean, wouldAsk: boolean): string | null {
   if (!tool) return 'It names a search tool it does not list.';
