@@ -1,5 +1,5 @@
 import { flushAppContext } from '@/lib/client/app-context';
-import { flushConnectedContext } from '@/lib/client/mcp-app-context';
+import { flushConnectedContext, noteSkippedContext, type SkippedContext } from '@/lib/client/mcp-app-context';
 import type { AppProvenance } from '@/lib/client/app-chat-intent';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import type { Attachment, EffortLevel, PermissionMode } from '@/db/types';
@@ -848,7 +848,12 @@ export function useSendMessage(id: string) {
       // gap. The next authoritative runtime SSE frame replaces this value.
       qc.setQueryData<SessionRuntimeStatus>(runtimeKey, (prev) => withRunningStatus(prev, true));
     },
-    onSuccess: (realEvent) => {
+    onSuccess: (sent) => {
+      // An app's context the home left off at send time (its account no longer
+      // allowed here) is hidden in this chat and named, never dropped silently.
+      const { connectedContextSkipped, ...realEvent } = sent as ChatEventDTO & { connectedContextSkipped?: SkippedContext[] };
+      const left = noteSkippedContext(id, connectedContextSkipped);
+      if (left) toast(left);
       // The persisted row carries the same id as the placeholder, so
       // the cache row is already at the right key. Replace in place so
       // any server-defaulted columns the client didn't synthesize are

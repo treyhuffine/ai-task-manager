@@ -6946,6 +6946,13 @@ export function staleQueuedCommands(deviceId: string): WorkerCommandRecord[] {
   return stale;
 }
 
+/** A device's sends still waiting to leave, oldest first, to check again before it takes them. */
+export function queuedSendsForDevice(deviceId: string): WorkerCommandRecord[] {
+  return getDb().select().from(workerCommands)
+    .where(and(eq(workerCommands.deviceId, deviceId), eq(workerCommands.state, 'queued'), eq(workerCommands.kind, 'send')))
+    .orderBy(asc(workerCommands.id)).all();
+}
+
 export function takeCommandsForStream(deviceId: string, after: number): WorkerCommandRecord[] {
   const db = getDb();
   return db.transaction((tx) => {

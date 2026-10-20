@@ -6,7 +6,9 @@
  * `ping` every 15 seconds. Each ping re-checks the key, so a revoked worker
  * gets `revoked` and is cut off within that interval, if the revoke itself
  * didn't already close the stream. A queued command whose chat or execution
- * no longer runs here at its generation is marked stale instead of sent.
+ * no longer runs here at its generation is marked stale instead of sent, and
+ * a send whose app context is no longer allowed is withdrawn just before the
+ * device would take it (`createStreamPump`).
  */
 
 import { readMaintenance } from '@/lib/service/maintenance';
@@ -15,7 +17,7 @@ import { checkDeviceFolders, folderSetupsFor } from '@/lib/setups/folders';
 import type { NextRequest } from 'next/server';
 import { uuidv7 } from 'uuidv7';
 import type { WorkerCommandRecord } from '@/db/types';
-import { getAckedEventSeq, getHome, getWorkerDevice, staleQueuedCommands, takeCommandsForStream } from '@/lib/db/queries';
+import { getAckedEventSeq, getHome, getWorkerDevice, queuedSendsForDevice, staleQueuedCommands, takeCommandsForStream } from '@/lib/db/queries';
 import { inTransaction } from '@/lib/effects/after-commit';
 import { isDeviceConnected, registerConnection } from '@/lib/workers/hub';
 import { deviceTerminalsGone } from '@/lib/terminal/remote';
@@ -24,6 +26,7 @@ import { requireWorker } from '@/lib/workers/route-auth';
 import { settleUndelivered } from '@/lib/workers/undelivered';
 import { announceDelivery, announceOpenSends } from '@/lib/workers/delivery';
 import { publishDeviceUpdated } from '@/lib/realtime/bus';
+import { createStreamPump } from '@/lib/workers/stream-pump';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,27 +75,35 @@ export async function GET(request: NextRequest) {
       };
       // What this stream has sent, starting from what the worker has received.
       let cursor = after;
-      const pump = () => {
-        if (closed || readMaintenance()) return;
+      const pump = createStreamPump({
+        stopped: () => closed || !!readMaintenance(),
         // Ownership first: a command for a placement this device no longer
         // holds is never sent, and a send among them finishes its run (P2.6).
-        inTransaction((after) => {
+        settleStale: () => inTransaction((after) => {
           for (const command of staleQueuedCommands(worker.device.id)) settleUndelivered(command, after);
-        });
-        for (const command of takeCommandsForStream(worker.device.id, cursor)) {
-          send({ type: 'command', command: toWire(command) });
-          cursor = Math.max(cursor, command.seq ?? cursor);
-          // A message on its way to this device (P3.2).
-          announceDelivery(command);
-        }
-      };
+        }),
+        // A send carrying app context is checked again as it leaves, not only when it was queued.
+        recheck: async () => {
+          const queued = queuedSendsForDevice(worker.device.id);
+          if (queued.length) await (await import('@/lib/executor/adapter')).recheckQueuedSends(queued);
+        },
+        deliver: () => {
+          for (const command of takeCommandsForStream(worker.device.id, cursor)) {
+            send({ type: 'command', command: toWire(command) });
+            cursor = Math.max(cursor, command.seq ?? cursor);
+            // A message on its way to this device (P3.2).
+            announceDelivery(command);
+          }
+        },
+        onError: (error) => console.error('[workers] delivery pass failed', error),
+      });
       const unregister = registerConnection({
         id: uuidv7(),
         deviceId: worker.device.id,
         openedAt: Date.now(),
         capabilities: worker.agreement.capabilities,
         send,
-        wake: pump,
+        wake: () => void pump(),
         close,
       });
       // Every screen showing this device's work learns it connected (P3.2).
@@ -104,7 +115,7 @@ export async function GET(request: NextRequest) {
           return;
         }
         send({ type: 'ping' });
-        pump(); // Resume queued delivery when an idle update was deferred.
+        void pump(); // Resume queued delivery when an idle update was deferred.
       }, WORKER_STREAM_PING_MS);
       cleanup = () => {
         clearInterval(ping);
@@ -129,7 +140,7 @@ export async function GET(request: NextRequest) {
       // Its folders, as the home records them, before any command that needs
       // them: the worker keeps no copy of its own (docs/homes-spec.md §4.1).
       send({ type: 'folders', setups: folderSetupsFor(worker.device.id) });
-      pump();
+      void pump();
       // And whether they're still there.
       void checkDeviceFolders(worker.device.id).catch(() => {});
       // Terminal history imported from this device catches up (P2.9).
