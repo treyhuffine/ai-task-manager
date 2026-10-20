@@ -14,6 +14,7 @@ Every MCP server Ri connects to (hosted catalog servers, servers you add, manage
 - What the server said about itself is kept on its record (`McpServerEntry.protocol`): the negotiated version and era, how it was reached, its extension capabilities (`openai/settings`, `openai/mentions` and others, from `capabilities.extensions` and the legacy `capabilities.experimental`, 8 KiB at most) and its `serverInfo` (name, title, version, description, an `https` website and up to four icons, each an `https` or image `data` URL of 64 KiB at most). Each MCP server's page shows the version as a chip, for example "MCP 2026-07-28". An older version gets a tooltip that says Ri falls back to it automatically.
 - Tool lists are fetched fresh each time (`cacheMode: "refresh"`). A server that repeats a pagination cursor fails with a plain error instead of looping.
 - HTTP redirects are followed, as SDK 1.x followed them (`redirectPolicy: "follow"`). The v2 default refuses cross-origin redirects, which broke servers that move their endpoint.
+- A remote server's response is capped at 64 MiB per message, the same budget a local process gets per message: a JSON body is counted whole and a stream per event, so a long-lived stream stays open. Past the cap Ri cancels the request and reports the message as too large (`McpMessageTooLargeError`).
 
 ### OAuth under the v2 SDK
 
@@ -28,6 +29,7 @@ All of Ri's MCP endpoints are built on one wrapper, `src/lib/mcp/http-server.ts`
 
 - Tool schemas are zod 3 raw shapes, published as the same JSON Schema SDK 1.x published (`zodToJsonSchema`), so clients that cached a tool list see no change. A parameterless tool keeps the bare `{type: "object", properties: {}}` schema.
 - Request headers reach every tool handler, so the signed chat credential still identifies the calling chat.
+- A tool call that carries a `progressToken` gets progress every 20 seconds while it runs (`withProgressKeepalive`), since Claude Code drops a request after 60 seconds without it. Progress stops when the client cancels.
 - Each Claude Code chat now keeps a `subscriptions/listen` stream open to the endpoints it uses. The SDK closes the per-request server before streaming, sends a keepalive every 15 seconds and allows 1024 streams per handler.
 - Only `…/mcp` answers. The old SSE transport (`…/sse` and `…/message`, which `mcp-handler` served) is gone. Every harness Ri configures uses `…/mcp`.
 - An unknown tool now answers with a protocol error (`-32602`, "Tool … not found") rather than a tool result with `isError`, as the 2026 SDK does for both eras. A tool that fails still returns `isError`.
