@@ -34,6 +34,8 @@ export function prepareResource(result: unknown, uri: string, legacy: boolean, o
   if (!Array.isArray(contents) || contents.length !== 1 || contents[0].uri !== uri) throw new Error('The app returned a different UI resource');
   const resource = contents[0];
   if (resource.mimeType !== 'text/html;profile=mcp-app' && !(legacy && resource.mimeType === 'text/html+skybridge')) throw new Error('This app does not provide a supported MCP interface');
+  // Base64 holds 3 bytes in 4 characters, so a blob that can't fit is refused before it's decoded.
+  if (resource.text === undefined && resource.blob && resource.blob.length > Math.ceil(MAX_HTML_BYTES / 3) * 4 + 4) throw new Error('This app interface is empty or exceeds 12 MiB');
   const html = resource.text ?? (resource.blob ? Buffer.from(resource.blob, 'base64').toString('utf8') : '');
   if (!html || Buffer.byteLength(html) > MAX_HTML_BYTES) throw new Error('This app interface is empty or exceeds 12 MiB');
   const prepared = legacy ? `<script>${LEGACY_BRIDGE}</script>${html}` : html;

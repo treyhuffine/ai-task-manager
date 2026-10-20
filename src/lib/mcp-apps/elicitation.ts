@@ -212,7 +212,12 @@ async function notifyForm(form: PendingForm) {
   } catch { /* A missed notification leaves the card in the chat. */ }
 }
 
-/** Only the chat's people, or the viewer whose app view asked. */
+/**
+ * Only the chat's people, or the viewer whose app view asked. Form procedures
+ * admit only the owner's own sign-ins (`connectedViewerProcedure`, the
+ * `viewer` scope), each of which may read every chat in the home, and never
+ * a team member, so a chat's form needs no further check.
+ */
 function reachable(form: PendingForm, viewerId: string) {
   return form.place.kind === 'chat' || form.place.viewerId === viewerId;
 }

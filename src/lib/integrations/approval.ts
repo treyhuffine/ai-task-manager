@@ -176,7 +176,7 @@ export function appApprovalPolicy(opts: AppApprovalOptions = {}): ApprovalPolicy
       if (isNotifierDelivery(input.caller, input.actionId)) return 'allow';
       // The viewer already reviewed this exact revision and clicked Send.
       if (isEmailComposerSend(input.caller, input.actionId)) return 'allow';
-      // The viewer changed this server's settings, or clicked one of its settings buttons, themselves.
+      // The viewer opened this server's settings, changed one, or clicked one of its settings buttons, themselves.
       if (isMcpSettingsAction(input.caller, input.actionId)) return 'allow';
       if (opts.autoApprove) return 'allow';
       const key = grantKey(input) + (input.caller?.localApp ? `|app:${JSON.stringify(input.caller.localApp)}` : '') + (input.caller?.chatSource ? `|source:${JSON.stringify(input.caller.chatSource)}` : '') + (input.caller?.connectedApp ? connectedAppKey(input.caller.connectedApp) : '');

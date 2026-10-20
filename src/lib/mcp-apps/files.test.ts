@@ -301,6 +301,18 @@ describe('resources/subscribe', () => {
     expect(await waitHostResource(view, uri, 1)).toEqual({revision: 1, watching: false});
   }, 15_000);
 
+  it('says a watch that can\'t start in the app\'s terms, never with the folder\'s path', async () => {
+    const {uri, view} = await openedAgentFile();
+    const failed = vi.spyOn(fs, 'watch').mockImplementationOnce(() => {
+      throw Object.assign(new Error(`EMFILE: too many open files, watch '${path.join(folder, 'parts')}'`), {code: 'EMFILE'});
+    });
+    try {
+      const refusal = await subscribeHostResource(view, uri).then(() => null, (error: Error) => error.message);
+      expect(refusal).toBe('This file is busy. Try again.');
+      expect(refusal).not.toContain(folder);
+    } finally { failed.mockRestore(); }
+  });
+
   it('ends a view\'s watches when it closes, waking a waiting poll', async () => {
     const {uri, view} = await openedAgentFile();
     const other = await openedAgentFile('parts/hex-bolt.stl', 'someone-else');

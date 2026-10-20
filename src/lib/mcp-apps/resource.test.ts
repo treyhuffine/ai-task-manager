@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { prepareResource, LEGACY_BRIDGE } from './resource';
 import { initialDisplayMode, viewMetadata } from './metadata';
 import { snapshotMcpCapabilities } from '@/lib/integrations/mcp-capabilities';
@@ -26,6 +26,17 @@ it('rejects substituted resources, unsupported MIME and oversized interfaces', (
   expect(() => prepareResource(resource('x', {mimeType: 'text/html'}), uri, false)).toThrow('supported');
   expect(() => prepareResource(resource('x'.repeat(12*1024*1024+1)), uri, false)).toThrow('12 MiB');
   expect(() => prepareResource(resource(''), uri, false)).toThrow('empty');
+});
+it('decodes a blob interface, and refuses one too large before decoding it', () => {
+  const blob = (html: string) => ({contents: [{uri, blob: Buffer.from(html).toString('base64'), mimeType: 'text/html;profile=mcp-app'}]});
+  expect(prepareResource(blob('<h1>Blob</h1>'), uri, false).html).toBe('<h1>Blob</h1>');
+  const decode = vi.spyOn(Buffer, 'from');
+  try {
+    expect(() => prepareResource({contents: [{uri, blob: 'A'.repeat(48 * 1024 * 1024), mimeType: 'text/html;profile=mcp-app'}]}, uri, false)).toThrow('12 MiB');
+    expect(decode).not.toHaveBeenCalled();
+  } finally { decode.mockRestore(); }
+  // The largest that fits still opens.
+  expect(prepareResource(blob('x'.repeat(12 * 1024 * 1024)), uri, false).html).toHaveLength(12 * 1024 * 1024);
 });
 it('opens interfaces that declare network domains, and carries the domains to their view', () => {
   // Excalidraw, as its server returns it: its code comes from esm.sh.

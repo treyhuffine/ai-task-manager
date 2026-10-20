@@ -373,20 +373,22 @@ export async function subscribeHostResource(view: View, uri: string): Promise<{ 
   const raced = watches().get(key);
   if (raced) return { revision: raced.revision };
   const folder = path.dirname(absolute), base = path.basename(absolute);
-  const watch: Watch = {
-    view, uri, absolute, revision: 0, etag, waiters: new Set(),
-    watcher: fs.watch(folder, { persistent: false }, (_event, changed) => {
-      if (changed !== null && changed !== base) return;
-      clearTimeout(watch.debounce);
-      watch.debounce = setTimeout(() => void (async () => {
-        if (view.closed) { closeWatch(key); return; }
-        const etag = await currentEtag(file.source).catch(() => watch.etag);
-        if (etag === watch.etag || watches().get(key) !== watch) return;
-        watch.etag = etag; watch.revision++;
-        for (const wake of watch.waiters) wake();
-      })(), WATCH_DEBOUNCE_MS);
-    }),
+  const changed = (_event: string, name: string | null) => {
+    if (name !== null && name !== base) return;
+    clearTimeout(watch.debounce);
+    watch.debounce = setTimeout(() => void (async () => {
+      if (view.closed) { closeWatch(key); return; }
+      const etag = await currentEtag(file.source).catch(() => watch.etag);
+      if (etag === watch.etag || watches().get(key) !== watch) return;
+      watch.etag = etag; watch.revision++;
+      for (const wake of watch.waiters) wake();
+    })(), WATCH_DEBOUNCE_MS);
   };
+  // A watch that can't start (no permission, too many open files) says so in the app's terms, never with the folder's path.
+  let watcher: fs.FSWatcher;
+  try { watcher = fs.watch(folder, { persistent: false }, changed); }
+  catch (error) { throw publicFsError(error); }
+  const watch: Watch = { view, uri, absolute, revision: 0, etag, waiters: new Set(), watcher };
   watch.watcher.on('error', () => closeWatch(key));
   watches().set(key, watch);
   return { revision: 0 };
