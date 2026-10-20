@@ -61,7 +61,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
           resource: tab ? tray : viewer, input: {}, result: { content: [] }, revision: 0, legacy: false, kind: tab ? 'thread' : 'result', created: Date.now(),
           deepLink: null, file: null, modelContext: null, tool: tab ? 'tray' : 'cad.view', app: 'Bits & Bolts', icons: [] };
       }
-      if (method === 'connectedApps.status') data = { revision: 0, expiresAt: Date.now() + 60_000 };
+      if (method === 'connectedApps.status') data = { revision: 0 };
       res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ result: { data } })); return;
     }
     if (url.pathname === '/fixture.js') { res.setHeader('content-type', 'text/javascript'); res.end(bundle.outputFiles[0].text); return; }

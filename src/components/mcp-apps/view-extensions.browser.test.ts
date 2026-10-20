@@ -3,7 +3,7 @@
  * and React components, with a sandboxed guest and a synthetic API: titled,
  * thumbnailed and assistant-only context in the composer's strip, removal
  * that the app hears about, a send made while the person works in the app,
- * and one an app tries on its own, which becomes a draft of its text alone.
+ * and one an app tries on its own, which becomes a draft the person sends.
  * The app's own `openai/message` options count: a draft it asks for stays a
  * draft, and a new chat it asks for never ends a chat that is still working.
  */
@@ -40,7 +40,7 @@ document.getElementById('draft').onclick=()=>message(false).then(()=>state('draf
 document.getElementById('fresh').onclick=()=>message(true,'new').then(()=>state('asked for new'));
 rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Parts',version:'1.0.0'},appCapabilities:{}}).then(result=>{state('caps:'+JSON.stringify(result.hostCapabilities.experimental));parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized',params:{}},'*');
   // An app that sends as soon as it loads, before the person has touched it, after focusing itself
-  // to look busy. Focus is not input, so this stays a draft, and its image never uploads.
+  // to look busy. Focus is not input, so this stays a draft, image included, for the person to send.
   setTimeout(()=>{document.getElementById('send').focus();message(true,'active',[{type:'image',data:'${PIXEL}',mimeType:'image/png'}])},300)});
 </script></body></html>` }] }, 'ui://fixture/parts.html', false);
   const bundle = await build({ stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
@@ -63,7 +63,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
       let data: unknown = null;
       if (method === 'connectedApps.open') data = { id: viewId, captureId, chatId, serverId: 'fixture', sourceRef: 'fixture', title: 'Bits & Bolts · Parts', resource, input: {}, result: { content: [] }, revision, legacy: false,
         kind: 'result', deepLink: null, file: null, modelContext: null, tool: 'cad.view', app: 'Bits & Bolts', icons: [] };
-      if (method === 'connectedApps.status') data = { revision, expiresAt: Date.now() + 60_000 };
+      if (method === 'connectedApps.status') data = { revision };
       if (method === 'connectedApps.context') { contexts.push(input.context); revision++; data = { revision, updateId: `update-${revision}` }; }
       if (method === 'connectedApps.clearContext') { cleared++; revision++; data = { revision }; }
       // The view's chat is the main chat, and it is still working, so a new one would end it.
@@ -72,7 +72,12 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
       if (method === 'sessions.runtimeStatusGet') data = { running: true, backgroundTasks: false, backgroundTaskIds: [] };
       res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ result: { data } })); return;
     }
-    if (url.pathname === '/api/attachments') { uploads++; res.statusCode = 500; res.end(); return; }
+    if (url.pathname === '/api/attachments') {
+      uploads++;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ fileName: '01900444-4444-7444-8444-444444444444.png', originalName: 'image.png', mimeType: 'image/png', size: 68, uploadedAt: '2026-10-20T00:00:00.000Z' }));
+      return;
+    }
     if (url.pathname === '/fixture.js') { res.setHeader('content-type', 'text/javascript'); res.end(bundle.outputFiles[0].text); return; }
     if (url.pathname === '/fixture.css') { res.setHeader('content-type', 'text/css'); res.end(css.css); return; }
     res.setHeader('content-type', 'text/html'); res.end('<html><head><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>');
@@ -89,13 +94,14 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     const guest = page.frameLocator('iframe[aria-label="App view"]').frameLocator('iframe');
     // The app's send at load, before any interaction, lands in the draft with a quiet note. Read only the
     // page until then: Playwright evaluates in a frame with a user gesture, which would count as input.
-    await page.getByText('Bits & Bolts wrote a message for you. It\'s in the draft, ready when you are. Bits & Bolts\'s message left out its file.').waitFor();
-    expect(uploads).toBe(0);
+    await page.getByText('Bits & Bolts wrote a message for you. It\'s in the draft, ready when you are.').waitFor();
+    expect(uploads).toBe(1);
     // The host advertises the two extensions, so the app's SDK turns them on.
     await expect.poll(() => guest.locator('#state').textContent()).toContain('"openai/modelContext":{}');
     expect(await page.locator('[data-sent]').textContent()).toBe('[]');
     expect(JSON.parse((await page.locator('[data-draft]').textContent())!.slice(1))).toEqual([
-      { type: 'text', text: 'Explain the clearance of' }, { type: 'snippet', title: 'M6 hex bolt', text: 'Selected: M6 hex bolt' }]);
+      { type: 'text', text: 'Explain the clearance of' }, { type: 'snippet', title: 'M6 hex bolt', text: 'Selected: M6 hex bolt' },
+      { type: 'file', attachment: { fileName: '01900444-4444-7444-8444-444444444444.png', originalName: 'image.png', mimeType: 'image/png', size: 68, uploadedAt: '2026-10-20T00:00:00.000Z' } }]);
     // Working in the app, the same request sends, named as the app's.
     await guest.getByRole('button', { name: 'Ask about this part' }).click();
     await expect.poll(() => page.locator('[data-sent]').textContent()).toBe(JSON.stringify([{ text: 'Explain the clearance of Selected: M6 hex bolt', attachments: [], fromApp: { viewId, app: 'Bits & Bolts' } }]));
@@ -138,7 +144,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
     await expect.poll(() => guest.locator('#state').textContent()).toBe('asked for new');
     await page.getByText('Bits & Bolts asked for a new chat while this one is still working, so its message is in the draft here.').waitFor();
     expect(JSON.parse((await page.locator('[data-sent]').textContent())!)).toHaveLength(1);
-    expect(uploads).toBe(0);
+    expect(uploads).toBe(1);
     expect(errors).toEqual([]);
   } finally { await browser.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 }, 45_000);

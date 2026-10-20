@@ -161,7 +161,7 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
     };
     let attached = blocks(view.modelContext) !== null;
     // Sends need the person's own input inside this view (`AppMessageGate`, `ViewMessage.activated`). The gate is
-    // the view's, so remounting does not reset its count.
+    // the view's, so remounting does not reset its spacing.
     const gate = appMessageGate(view.id);
     let waiting: Pending | null = null;
     const ask = (request: Omit<Pending, 'finish'>, signal: AbortSignal) => new Promise<boolean>((resolve, reject) => {
@@ -244,8 +244,8 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
       ready: () => { if (!disposed) setReady(true); },
       resize: value => { if (!disposed) setHeight(value); },
       // OpenAI's `ui/message` extension: rich content, to this chat or a new one, sent only when the person's
-      // input in the view led to it (docs/connected-mcp-apps.md, "Messages"). Otherwise it is text in the draft
-      // of the view's own chat: no files upload, and no chat starts or comes into view.
+      // input in the view led to it (docs/connected-mcp-apps.md, "Messages"). Otherwise it is a draft in the
+      // view's own chat for the person to send, and no chat starts or comes into view.
       sendMessage: async (message, signal) => {
         const activated = message.activated;
         let send = message.send, refusal: GateRefusal | 'busy' | undefined;
@@ -253,7 +253,7 @@ function MountedView({view, expanded, deepLink, onExpand}: {view: OpenView; expa
           const decision = gate.decide(activated);
           if (!decision.send) { send = false; refusal = decision.reason; }
         }
-        const {parts, omitted} = await appMessageParts(message.content, (file, name) => uploadAttachment(file, name), {files: activated, budget: gate});
+        const {parts, omitted} = await appMessageParts(message.content, (file, name) => uploadAttachment(file, name), {budget: gate});
         if (signal.aborted) throw new Error('The app message was cancelled');
         const routed = await routeAppMessage(view.chatId, message.target, appMessageRouting(queryClient, dashboardRef.current), {activated});
         if (routed.busy && send) { send = false; refusal = 'busy'; }

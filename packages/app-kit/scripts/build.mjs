@@ -21,7 +21,8 @@ const { dependencies } = JSON.parse(readFileSync('package.json', 'utf8'));
 const packageName = specifier => specifier.split('/').slice(0, specifier.startsWith('@') ? 2 : 1).join('/');
 await build({ entryPoints: ['src/view-host.ts'], outdir: 'dist', bundle: true, format: 'esm', platform: 'neutral', target: 'es2023', conditions: ['browser'], mainFields: ['module', 'main'], plugins: [{ name: 'inline-view-host', setup(b) {
   b.onResolve({ filter: /^[^./]/ }, ({ path, importer }) => {
-    if (path === HOST) return undefined;
+    // The host and its own subpaths (its CSP module) are inlined together.
+    if (path === HOST || path.startsWith(`${HOST}/`)) return undefined;
     // The bridge's own dependency tree comes along with it.
     if (INLINED.test(path) || importer.includes('/node_modules/')) return undefined;
     if (dependencies[packageName(path)]) return { path, external: true };
@@ -34,9 +35,11 @@ const hostEntry = require.resolve(HOST);
 const hostProgram = ts.createProgram([hostEntry], options);
 const hostErrors = ts.getPreEmitDiagnostics(hostProgram);
 if (hostErrors.length) throw new Error(ts.formatDiagnostics(hostErrors, { getCanonicalFileName: name => name, getCurrentDirectory: () => process.cwd(), getNewLine: () => '\n' }));
-let hostTypes;
+let hostTypes, cspTypes;
 hostProgram.emit(hostProgram.getSourceFile(hostEntry), (_name, text) => { hostTypes = text; }, undefined, true);
-writeFileSync('dist/mcp-apps-host.d.ts', hostTypes);
+hostProgram.emit(hostProgram.getSourceFile(require.resolve(`${HOST}/csp`)), (_name, text) => { cspTypes = text; }, undefined, true);
+writeFileSync('dist/mcp-apps-host-csp.d.ts', cspTypes);
+writeFileSync('dist/mcp-apps-host.d.ts', hostTypes.replaceAll(`"${HOST}/csp"`, '"./mcp-apps-host-csp.js"'));
 writeFileSync('dist/view-host.d.ts', readFileSync('dist/view-host.d.ts', 'utf8').replaceAll(`"${HOST}"`, '"./mcp-apps-host.js"'));
 for (const name of readdirSync('dist', { recursive: true }))
   if (/\.(c?js|d\.ts)$/.test(name) && /["']@ri\/mcp-apps-host["'/]/.test(readFileSync(`dist/${name}`, 'utf8')))

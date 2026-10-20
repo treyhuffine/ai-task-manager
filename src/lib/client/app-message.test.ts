@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Attachment } from '@/db/types';
-import { AppMessageGate, MAX_MESSAGE_TEXT, MAX_SENDS_PER_VIEW, MAX_UPLOAD_BYTES_PER_VIEW, SEND_SPACING_MS, appMessageGate, appMessageParts, draftNotice, omittedNotice, routeAppMessage, type MessageRouting, type RoutedSession } from './app-message';
+import { AppMessageGate, MAX_MESSAGE_TEXT, MAX_UPLOAD_BYTES_PER_VIEW, SEND_SPACING_MS, appMessageGate, appMessageParts, draftNotice, omittedNotice, routeAppMessage, type MessageRouting, type RoutedSession } from './app-message';
 
 const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const uploaded = (name: string, mimeType: string): Attachment => ({ fileName: `01900000-0000-7000-8000-00000000000${name.length % 10}.bin`, originalName: name, mimeType, size: 1, uploadedAt: '2026-10-19T00:00:00.000Z' });
@@ -43,13 +43,6 @@ describe('a message\'s content in the composer', () => {
     expect(parts[0]).toMatchObject({ type: 'text', text: `${'x'.repeat(MAX_MESSAGE_TEXT)} [cut]` });
   });
 
-  it('leaves files out of a message the person did not lead to, uploading nothing', async () => {
-    const upload = vi.fn();
-    const content = [{ type: 'text', text: 'Look at this' }, { type: 'image', data: PIXEL, mimeType: 'image/png' }, { type: 'resource', resource: { uri: 'cad://a.stl', blob: PIXEL } }];
-    expect(await appMessageParts(content, upload, { files: false })).toEqual({ parts: [{ type: 'text', text: 'Look at this' }], omitted: 2 });
-    expect(upload).not.toHaveBeenCalled();
-  });
-
   it('holds each view to an upload allowance, across its messages', async () => {
     const upload = vi.fn(async (file: Blob, name: string) => uploaded(name, file.type));
     const gate = new AppMessageGate();
@@ -63,7 +56,7 @@ describe('a message\'s content in the composer', () => {
 });
 
 describe('sending without Send', () => {
-  it('sends only what the person\'s own input in the view led to, spaced and bounded', () => {
+  it('sends only what the person\'s own input in the view led to, one send per activation window', () => {
     let now = 1_000_000;
     const gate = new AppMessageGate(() => now);
     // On load, or after the app focused itself: no input in the view, so a draft.
@@ -74,12 +67,11 @@ describe('sending without Send', () => {
     now += SEND_SPACING_MS;
     // Earlier input never carries over to a request it did not lead to.
     expect(gate.decide(false)).toEqual({ send: false, reason: 'no-interaction' });
-    for (let i = 1; i < MAX_SENDS_PER_VIEW; i++) { now += SEND_SPACING_MS; expect(gate.decide(true).send).toBe(true); }
-    now += SEND_SPACING_MS;
-    expect(gate.decide(true)).toEqual({ send: false, reason: 'limit' });
+    // Each new click sends again, with no count past which a view stops.
+    for (let i = 0; i < 50; i++) { now += SEND_SPACING_MS; expect(gate.decide(true).send).toBe(true); }
   });
 
-  it('keeps one gate per view, so a remount does not reset its count', () => {
+  it('keeps one gate per view, so a remount does not reset its spacing', () => {
     const viewId = crypto.randomUUID();
     const gate = appMessageGate(viewId);
     expect(gate.decide(true)).toEqual({ send: true });
@@ -93,7 +85,7 @@ describe('sending without Send', () => {
   });
 
   it('explains a draft quietly, without dashes or semicolons', () => {
-    for (const reason of ['no-interaction', 'too-fast', 'limit', 'busy', 'failed'] as const) {
+    for (const reason of ['no-interaction', 'too-fast', 'busy', 'failed'] as const) {
       const notice = draftNotice('Bits & Bolts', reason);
       expect(notice).toMatch(/^Bits & Bolts/);
       expect(notice).not.toMatch(/[—;]/);

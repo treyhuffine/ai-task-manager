@@ -13,8 +13,8 @@ describe('portable artifacts',()=>{
   it('rejects malformed guest JavaScript before activation',()=>{
     expect(()=>prepareHtml('<script>function broken( {</script>')).toThrow(/invalid JavaScript/);
     expect(()=>prepareHtml('<script type="module">export function broken( {</script>')).toThrow(/invalid JavaScript/);
-    expect(prepareHtml('<script type="module">export const value = 1;</script>').scriptHashes).toHaveLength(1);
-    expect(prepareHtml('<script>const template = `$` + "literal";</script>').scriptHashes).toHaveLength(1);
+    expect(prepareHtml('<script type="module">export const value = 1;</script>').html).toContain('export const value = 1;');
+    expect(prepareHtml('<script>const template = `$` + "literal";</script>').html).toContain('const template = `$` + "literal";');
   });
   it('inventories qualified runtime dependencies under dist while excluding build dependencies',()=>{
     const dir=root();fs.mkdirSync(path.join(dir,'dist/node_modules/sqlite'),{recursive:true});fs.mkdirSync(path.join(dir,'node_modules/build-only'),{recursive:true});

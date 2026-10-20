@@ -10,11 +10,11 @@ import fs from "node:fs";
 import os from "node:os";
 import http from "node:http";
 import path from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { prepareHtml } from "@ri/app-kit/build";
-import { restrictivePolicy } from "@ri/app-kit/view-host";
+import { viewPolicy } from "@ri/app-kit/view-host";
 
 const require = createRequire(import.meta.url);
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -51,10 +51,9 @@ async function compile(source: string, development = true): Promise<string> {
   });
   return result.outputFiles[0].text.replace(/<\/script/gi, "<\\/script");
 }
-const hash = (script: string) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`;
-/** A page with the same CSP as an app view: hashed inline script, inline styles, no network. */
+/** A page with the same CSP as an app view: inline scripts and styles, no network. */
 const viewPage = (script: string) =>
-  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${restrictivePolicy([hash(script)])}"><title>UI kit gallery</title></head><body><div id="root"></div><script>${script}</script></body></html>`;
+  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${viewPolicy()}"><title>UI kit gallery</title></head><body><div id="root"></div><script>${script}</script></body></html>`;
 
 let browser: Browser;
 let server: http.Server;

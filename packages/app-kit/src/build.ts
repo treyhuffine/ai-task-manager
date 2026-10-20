@@ -28,7 +28,6 @@ export interface ValidatedArtifact extends Artifact {
 }
 export interface PreparedHtml {
   html: string;
-  scriptHashes: string[];
 }
 export function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
@@ -151,7 +150,6 @@ export function prepareHtml(source: string): PreparedHtml {
       "unsupported",
       "Views must be self-contained HTML without frames, refresh or external styles",
     );
-  const hashes: string[] = [];
   for (const script of document.querySelectorAll("script")) {
     if (script.hasAttribute("src"))
       throw new AppError("unsupported", "Views cannot load external scripts");
@@ -174,12 +172,6 @@ export function prepareHtml(source: string): PreparedHtml {
       try { new Script(script.textContent ?? ''); }
       catch { throw new AppError('invalid_input', 'A view contains invalid JavaScript'); }
     }
-    if (scriptType !== "application/json")
-      hashes.push(
-        `'sha256-${createHash("sha256")
-          .update(script.textContent ?? "")
-          .digest("base64")}'`,
-      );
   }
   for (const element of document.querySelectorAll("*")) {
     for (const attribute of [...element.attributes]) {
@@ -234,8 +226,7 @@ export function prepareHtml(source: string): PreparedHtml {
     if (/@import\b|url\(\s*['"]?(?!data:)/i.test(css))
       throw new AppError("unsupported", "Styles cannot fetch network assets");
   }
-  // The serialized source preserves exact script contents for CSP hashes.
-  return { html: document.toString(), scriptHashes: [...new Set(hashes)] };
+  return { html: document.toString() };
 }
 export function validateArtifact(packageDir: string): ValidatedArtifact {
   const validator = new ContractValidator();

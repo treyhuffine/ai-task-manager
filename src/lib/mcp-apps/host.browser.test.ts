@@ -155,13 +155,12 @@ it('advertises OpenAI extensions only as the page supports them, and carries hos
   } finally {await browser.close(); await new Promise<void>(resolve => server.close(() => resolve()));}
 }, 30_000);
 
-// What an app written for ChatGPT does that a locked-down frame used to refuse: a form whose
-// submit handler runs (Bits & Bolts' Create part), WebAssembly, and a worker it builds from a
-// blob (its STEP importer). The network stays closed to the view and to its worker, WebRTC
-// included (not even through a child frame), and a form that is not cancelled, or submitted
-// programmatically, leaves the view running. A request too large, or part of a flood, is
-// answered with an error rather than dropped, and a view its page cannot switch is offered
-// only the mode it is in.
+// What an app written for ChatGPT does inside its frame: a form whose submit handler runs
+// (Bits & Bolts' Create part), WebAssembly, and a worker it builds from a blob (its STEP
+// importer). A view that declared no network can't reach any, and a form that is not
+// cancelled, or submitted programmatically, leaves the view running. A request too large, or
+// part of a flood, is answered with an error rather than dropped, and a view its page cannot
+// switch is offered only the mode it is in.
 const capableGuest = `
 let sequence=0;const awaiting=new Map();
 const rpc=(method,params)=>new Promise((resolve,reject)=>{const id=++sequence;awaiting.set(id,{resolve,reject});parent.postMessage({jsonrpc:'2.0',id,method,params},'*')});
@@ -173,8 +172,6 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Capable fixture',version:'1.0.0'},appCapabilities:{}}).then(async(init)=>{
   notify('ui/notifications/initialized',{});
   const modes=init.hostContext.availableDisplayModes;
-  let webrtc='open';try{new RTCPeerConnection()}catch{webrtc='closed'}
-  let childWebrtc='closed';try{const child=document.createElement('iframe');document.body.append(child);if(typeof child.contentWindow.RTCPeerConnection==='function')childWebrtc='open'}catch{}
   const flood=(await Promise.all(Array.from({length:150},()=>settle(rpc('ping',{}).then(()=>'ok',error=>error.message))))).filter(answer=>/too quickly/.test(answer)).length;
   await pause(1100);
   const oversize=await settle(rpc('tools/call',{name:'fixture_big',arguments:{blob:'x'.repeat(17*1024*1024)}}).then(()=>'accepted',error=>error.message));
@@ -183,11 +180,11 @@ rpc('ui/initialize',{protocolVersion:'2026-01-26',appInfo:{name:'Capable fixture
   let wasm='refused';try{const bytes=new Uint8Array([0,97,115,109,1,0,0,0]);await WebAssembly.instantiate(bytes);wasm='compiled'}catch(error){wasm=String(error.message||error).slice(0,80)}
   let worker='refused';try{const url=URL.createObjectURL(new Blob(['onmessage=e=>postMessage(e.data*2)'],{type:'text/javascript'}));const w=new Worker(url);worker=await new Promise((resolve,reject)=>{w.onmessage=e=>resolve(String(e.data));w.onerror=()=>reject(new Error('worker failed'));setTimeout(()=>reject(new Error('worker timed out')),3000);w.postMessage(21)})}catch(error){worker=String(error.message||error).slice(0,80)}
   let network='open';try{await fetch('https://example.com/');}catch{network='closed'}
-  await report({submitted,wasm,worker,network,webrtc,childWebrtc,flood,oversize,modes});
+  await report({submitted,wasm,worker,network,flood,oversize,modes});
 });
 `;
 
-it('runs form handlers, WebAssembly and blob workers inside the view, with the network still closed', async () => {
+it('runs form handlers, WebAssembly and blob workers inside the view, with no network it did not declare', async () => {
   const executablePath = [chromium.executablePath(),'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome','/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'].find(existsSync);
   if (!executablePath) throw new Error('MCP UI qualification requires Chromium');
   const require = createRequire(import.meta.url);
@@ -215,7 +212,7 @@ it('runs form handlers, WebAssembly and blob workers inside the view, with the n
     await page.waitForFunction(() => (window as unknown as {reports: unknown[]}).reports.length > 0, undefined, {timeout: 25_000});
     const [capable] = await page.evaluate(() => (window as unknown as {reports: {flood: number}[]}).reports);
     expect(capable).toEqual({submitted: true, wasm: 'compiled', worker: '42', network: 'closed',
-      webrtc: 'closed', childWebrtc: 'closed', flood: capable.flood, oversize: 'This message is larger than Ri accepts from an app (16 MiB).', modes: ['fullscreen']});
+      flood: capable.flood, oversize: 'This message is larger than Ri accepts from an app (16 MiB).', modes: ['fullscreen']});
     // 150 pings in one second against 100 a second, less the few messages the view sent before them.
     expect(capable.flood).toBeGreaterThanOrEqual(50);
     expect(capable.flood).toBeLessThan(60);

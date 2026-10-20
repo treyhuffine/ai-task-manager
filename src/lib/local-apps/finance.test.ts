@@ -29,7 +29,7 @@ it.skipIf(!process.env.RI_FINANCE_FIXTURE)(
         "fixture-owner",
       );
       expect(opened.prepared.html.includes("<title>Finances</title>")).toBe(true);
-      expect(opened.prepared.scriptHashes.length).toBeGreaterThan(0);
+      expect(opened.prepared.html).toContain("<script");
       await service.viewCall(
         opened.viewId,
         "fixture-owner",

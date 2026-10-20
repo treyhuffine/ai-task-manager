@@ -107,7 +107,7 @@ export class GalleryRuntime {
       if (this.state === 'expired') throw new Error('This example view expired. The original tool result is still in the conversation');
       return { id: DRAFT_ID, captureId: DRAFT_ID, title: 'Example app · Project estimate', serverId: 'gallery-app', sourceRef: 'gallery-source', chatId: CHAT_ID, resource: this.resource, input: { hours: 8 }, result: { content: [{ type: 'text', text: 'The estimate is $960 for eight hours.' }], structuredContent: { total: 960 } }, revision: 0, legacy: false };
     }
-    if (path === 'connectedApps.status') return { revision: this.revision, expiresAt: Date.now() + 30 * 60_000 };
+    if (path === 'connectedApps.status') return { revision: this.revision };
     if (path === 'connectedApps.invoke') {
       const args = input.args as { hours: number };
       this.changed(`Example app recalculated ${args.hours} hours`);

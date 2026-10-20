@@ -37,7 +37,7 @@ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});function 
       const input=JSON.parse(body||url.searchParams.get('input')||'{}'), method=url.pathname.slice('/api/trpc/'.length);
       let data:unknown;
       if(method==='connectedApps.open'){opens++;data={id:viewId,captureId,chatId,serverId:'fixture',sourceRef:'fixture',title:'Total Finance · Portfolio calculator',resource,input:{},result:{content:[{type:'text',text:'A fictional portfolio'}],structuredContent:{value:'$70,000'},_meta:{privateUi:'Private fixture data'}},revision,legacy:false};}
-      if(method==='connectedApps.status')data={revision,expiresAt:Date.now()+60_000};
+      if(method==='connectedApps.status')data={revision};
       if(method==='connectedApps.invoke'){
         if(input.name==='probe'){probes.push(input.args);data={kind:'result',result:{content:[]}};}
         else{invocationIds.push(input.invocationId);if(!approved)data={kind:'approval',ids:['01900444-4444-7444-8444-444444444444'],preview:{operation:'Recalculate portfolio',amount:9}};else{effects++;data={kind:'result',result:{content:[{type:'text',text:'Updated portfolio'}],structuredContent:{value:'$90,000'}}};}}

@@ -41,7 +41,7 @@ beforeAll(async () => {
       const method = url.pathname.slice('/api/trpc/'.length);
       const height = Number(new URL(req.headers.referer ?? 'http://fixture').searchParams.get('height'));
       const data = method === 'connectedApps.open' ? {id: viewId, captureId, chatId, serverId: 'fixture', sourceRef: 'fixture', title: 'Lists · Today', resource, input: {}, result: {content: [{type: 'text', text: 'Today'}], structuredContent: {height}}, revision: 0, legacy: false}
-        : method === 'connectedApps.status' ? {revision: 0, expiresAt: Date.now() + 60_000}
+        : method === 'connectedApps.status' ? {revision: 0}
         : method === 'transport.capabilities' ? {websocket: false} : undefined;
       if (data === undefined) { res.statusCode = 500; res.end(`Unexpected ${method}`); return; }
       res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({result: {data}})); return;
