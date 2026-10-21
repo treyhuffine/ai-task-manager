@@ -107,6 +107,18 @@ async function main() {
     await frame.getByRole('img', { name: 'Page 1 of friday-review.pdf' }).waitFor();
     await frame.getByRole('dialog').getByRole('link', { name: 'Download' }).waitFor();
     await frame.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+    // Beside the chat: the PDF opens as a tab, × puts it away, its card brings it back, and the switch moves it.
+    frame = await select('files', 'beside');
+    await frame.getByRole('button', { name: 'Open PDF: friday-review.pdf' }).click();
+    const beside = frame.getByRole('region', { name: 'friday-review.pdf, beside the chat' });
+    await beside.getByRole('img', { name: 'Page 1 of friday-review.pdf' }).waitFor();
+    await frame.getByRole('button', { name: 'Close friday-review.pdf' }).click();
+    await beside.waitFor({ state: 'detached' });
+    await frame.getByRole('button', { name: 'Open PDF: friday-review.pdf' }).click();
+    await beside.getByRole('button', { name: 'Show large' }).click();
+    await frame.getByRole('dialog').getByRole('img', { name: 'Page 1 of friday-review.pdf' }).waitFor();
+    await frame.getByRole('dialog').getByRole('button', { name: 'Show beside the chat' }).click();
+    await beside.waitFor();
     frame = await select('html');
     await frame.getByTitle('Thumbnail: review-plan.html').waitFor();
     await frame.getByRole('button', { name: 'Open HTML: review-plan.html' }).click();

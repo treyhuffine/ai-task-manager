@@ -11,6 +11,7 @@ import { ChangesView } from './changes-view';
 import { FilesView } from './files-view';
 import type { PanelView } from './workbench-state';
 import { Tip } from '@/components/ui/tip';
+import { BesideFileView } from '@/components/chat-ui/artifacts/artifact-beside';
 
 /** Everything the workbench's views need, gathered once by the execution view. */
 export interface WorkbenchViewContext {
@@ -39,6 +40,8 @@ export interface WorkbenchViewContext {
   jump: (view: PanelView) => void;
   /** The user opened this view during this visit, so it may take focus. */
   autoFocus: (view: PanelView) => boolean;
+  /** The surface the chat's files open beside (`artifact-preview-store.ts`), for the `file` view. */
+  besideHost: string;
 }
 
 const WORKTREE_VIEWS: ReadonlySet<PanelView> = new Set(['run', 'preview', 'changes', 'files']);
@@ -128,5 +131,7 @@ export function WorkbenchViewBody({ view, ctx }: { view: PanelView; ctx: Workben
           </div>
         </div>
       );
+    case 'file':
+      return <BesideFileView host={ctx.besideHost} />;
   }
 }

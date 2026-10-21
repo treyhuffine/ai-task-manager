@@ -79,7 +79,7 @@ export function PanelLayout() {
           maxSize={MAX_SIZE}
           className="flex flex-col min-w-0 min-h-0"
         >
-          <ContentPanel panelId="a" />
+          <ContentPanel panelId="a" besideOf="b" />
         </ResizablePanel>
 
         <ResizableHandle
@@ -97,7 +97,7 @@ export function PanelLayout() {
           maxSize={MAX_SIZE}
           className="flex flex-col min-w-0 min-h-0"
         >
-          <ContentPanel panelId="b" />
+          <ContentPanel panelId="b" besideOf="a" />
         </ResizablePanel>
       </ResizablePanelGroup>
 

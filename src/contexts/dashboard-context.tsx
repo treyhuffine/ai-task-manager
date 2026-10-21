@@ -57,6 +57,8 @@ interface DashboardState {
   activeExecutionId: string | null;
   panelATab: AnyPanelTab;
   panelBTab: AnyPanelTab;
+  /** Which Home panels show the file opened from the other one's chat in front of their own tab. */
+  filesInFront: Readonly<Record<PanelId, boolean>>;
   focusedPanel: PanelId;
   isFocusMode: boolean;
   focusTask: FocusTask | null;
@@ -122,8 +124,10 @@ interface DashboardActions {
   goHome: () => void;
   setActiveExecutionId: (id: string | null) => void;
   setPanelTab: (panel: PanelId, tab: AnyPanelTab) => void;
-  /** Bring a home tab on screen without covering the chat. No-op when it's already showing. */
+  /** Bring a home tab on screen without covering the chat. A tab already showing only comes forward over a file. */
   showPanelTab: (tab: AnyPanelTab) => void;
+  /** Bring the file beside the chat forward in `panel`, or put it behind the panel's own tab. */
+  setFileInFront: (panel: PanelId, inFront: boolean) => void;
   setFocusedPanel: (panel: PanelId) => void;
   resetLayout: () => void;
   // PanelLayout registers an imperative reset (e.g. setLayout([50, 50])) so
@@ -200,6 +204,7 @@ const MOCK_STREAM_EVENTS: StreamEvent[] = [
 
 // Chat (the orchestrator) on the left, the deck on the right.
 const DEFAULT_PANEL_A_TAB: AnyPanelTab = DEFAULT_HOME_PANELS.a;
+const NO_FILES_IN_FRONT: Readonly<Record<PanelId, boolean>> = { a: false, b: false };
 const DEFAULT_PANEL_B_TAB: AnyPanelTab = DEFAULT_HOME_PANELS.b;
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
@@ -237,6 +242,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
   const [panelATab, setPanelATab] = useState<AnyPanelTab>(DEFAULT_PANEL_A_TAB);
   const [panelBTab, setPanelBTab] = useState<AnyPanelTab>(DEFAULT_PANEL_B_TAB);
+  const [filesInFront, setFilesInFront] = useState<Readonly<Record<PanelId, boolean>>>(NO_FILES_IN_FRONT);
+  const setFileInFront = useCallback((panel: PanelId, inFront: boolean) => {
+    setFilesInFront(current => (current[panel] === inFront ? current : { ...current, [panel]: inFront }));
+  }, []);
   const [focusedPanel, setFocusedPanel] = useState<PanelId>('a');
   const panelLayoutResetRef = useRef<(() => void) | null>(null);
   const registerPanelLayoutReset = useCallback((fn: (() => void) | null) => {
@@ -463,21 +472,26 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setIsFocusMode(prev => !prev);
   }, []);
 
+  // Picking a tab in a panel brings that tab forward, over a file it showed.
   const setPanelTab = useCallback((panel: PanelId, tab: AnyPanelTab) => {
     if (panel === 'a') setPanelATab(tab);
     else setPanelBTab(tab);
-  }, []);
+    setFileInFront(panel, false);
+  }, [setFileInFront]);
 
-  // Bring a tab on screen without covering the chat (see panelForTab).
+  // Bring a tab on screen without covering the chat (see panelForTab). A
+  // tab already showing under a file comes forward.
   const showPanelTab = useCallback((tab: AnyPanelTab) => {
-    const panel = panelForTab({ a: panelATab, b: panelBTab }, tab);
+    const panel = panelForTab({ a: panelATab, b: panelBTab }, tab) ?? (panelATab === tab ? 'a' : 'b');
     if (panel === 'a') setPanelATab(tab);
-    else if (panel === 'b') setPanelBTab(tab);
-  }, [panelATab, panelBTab]);
+    else setPanelBTab(tab);
+    setFileInFront(panel, false);
+  }, [panelATab, panelBTab, setFileInFront]);
 
   const resetLayout = useCallback(() => {
     setPanelATab(DEFAULT_PANEL_A_TAB);
     setPanelBTab(DEFAULT_PANEL_B_TAB);
+    setFilesInFront(NO_FILES_IN_FRONT);
     panelLayoutResetRef.current?.();
     setFocusedPanel('a');
   }, []);
@@ -497,10 +511,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       // Neither has chat: bring it back on the left, where it lives.
       target = 'a';
       setPanelATab('chat');
+      setFileInFront('a', false);
     }
 
     setVoiceChatPanelTarget(target);
-  }, [panelATab, panelBTab, focusedPanel]);
+  }, [panelATab, panelBTab, focusedPanel, setFileInFront]);
 
   const clearVoiceChatTrigger = useCallback(() => {
     setVoiceChatPanelTarget(null);
@@ -560,6 +575,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       activeExecutionId,
       panelATab,
       panelBTab,
+      filesInFront,
       focusedPanel,
       isFocusMode,
       focusTask,
@@ -577,6 +593,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setActiveExecutionId,
       setPanelTab,
       showPanelTab,
+      setFileInFront,
       setFocusedPanel,
       resetLayout,
       registerPanelLayoutReset,

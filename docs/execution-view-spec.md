@@ -141,6 +141,10 @@ plus More ▾ holding Notes & tasks and Scratchpad (More takes the name of
 whichever is open). Expand (⤢ or double-click a tab) gives the panel the
 width and folds the chat to a strip. Views stay mounted once visited, so
 switching keeps the preview loaded, the open file, and scroll positions.
+A PDF, image or HTML card in the chat opens its file here as one more tab
+after More, named for the file with × to close it (the `file` view,
+docs/chat-sessions.md "Files beside the chat"), unless files are set to
+open large.
 
 - **Run** (`preview/run-view.tsx`): the process. Status, Start / Stop /
   Restart, full-height output, the start command, setup-script recovery,
@@ -188,6 +192,12 @@ kills a shell: PTYs live on the server and reattach with their output.
    terminal height are global.
 6. Chat tabs hold conversations only, never files. Switching chats keeps
    the workbench, the preview, the files and the terminal.
+7. A file opened from the chat is a jump to the `file` view. Closing it
+   (its ×, or Escape inside it) goes back to the tool it came forward over,
+   or closes the panel when the panel was closed then, also after the panel
+   was hidden and restored. Its tab stays while the file is open, and
+   picking it again brings it forward over the tool showing. With the file
+   gone after a reload, the panel opens on the tool it covered.
 
 **Input region.** No rule above the composer. Pending questions sit above
 it, and running background work is a borderless strip attached to the top

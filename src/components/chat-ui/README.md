@@ -17,7 +17,7 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 | `permissions/` | Tool permission requests and their input preview |
 | `approvals/` | Account action approvals and account access requests |
 | `references/` | Task, note, scratchpad and app-source reference chips |
-| `artifacts/` | Files, images, HTML previews, the preview provider and file diffs |
+| `artifacts/` | Files, images, HTML previews, the preview provider (large or beside the chat) and file diffs |
 | `edits/` | Entity change chips, comparison dialogs, undo and history controls |
 | `handoffs/` | Saved handoff rendering, feedback, review and presentation helpers |
 | `activity/` | Transcript events, grouped activity and background task displays |

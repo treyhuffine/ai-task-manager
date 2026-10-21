@@ -32,8 +32,15 @@ describe('artifactSequence', () => {
     const doc = page();
     doc.getElementById('a3')!.remove();
     expect(ids(artifactSequence(doc.getElementById('a1')!, every, every))).toEqual(['a1', 'a2']);
-    expect(ids(artifactSequence(doc.getElementById('a2')!, every, card => card.id !== 'a1' && card.id !== 'a2'))).toEqual(['a2']);
+    expect(ids(artifactSequence(doc.getElementById('a2')!, every, card => card.id !== 'a1'))).toEqual(['a2']);
     expect(ids(artifactSequence(doc.getElementById('a2')!, card => card.id !== 'a1', every))).toEqual(['a2']);
+  });
+
+  it('steps through a transcript hidden as a whole, as an expanded tools panel hides the chat', () => {
+    const doc = page();
+    const hidden = () => false;
+    expect(ids(artifactSequence(doc.getElementById('a2')!, every, hidden))).toEqual(['a1', 'a2', 'a3']);
+    expect(ids(artifactSequence(doc.getElementById('b1')!, every, hidden))).toEqual(['b1']);
   });
 });
 
