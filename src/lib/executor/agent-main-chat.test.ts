@@ -323,7 +323,7 @@ describe('skillDirsWriteIntoCwd', () => {
     const { skillDirsWriteIntoCwd } = await import('./agent-main-chat');
     expect(skillDirsWriteIntoCwd('codex')).toBe(true);
     expect(skillDirsWriteIntoCwd('claude')).toBe(false);
-    // agentex links Antigravity skillDirs into ~/.gemini/antigravity-cli/skills, not the cwd.
+    // agentex stages Antigravity skillDirs in a temp dir added with --add-dir, never the cwd.
     expect(skillDirsWriteIntoCwd('antigravity')).toBe(false);
   });
 });

@@ -391,6 +391,7 @@ One registry generates both surfaces, so every item lands on both.
 **Tools panel**
 
 - [x] A tab strip with Overview, Files, Terminal, Preview and Setup. The last-used tab persists per agent.
+  - A file opened from the main chat joins the strip as one more tab, in front until another tab is picked, with × to close it (docs/chat-sessions.md, "Files beside the chat"). Collapsed tools open for it and fold away again when it closes. In one-pane (narrow) mode files open large.
   - A tab stays mounted once visited, so a terminal keeps its scrollback. Inactive tabs are transparent and `inert`, not `visibility: hidden`: the terminal panel sets `visibility: visible` on its active terminal, which painted through the Overview (caught in the light screenshots).
 - [x] **Overview**
   - Executions grouped with the rail's classification (`StatusView`): **Needs you** (approval and unread), **Working**, **Recent**. Rows show label, diff stats, harness and last activity. Clicking opens the execution view.

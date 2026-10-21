@@ -176,6 +176,14 @@ const ERA_CLASSIFICATION_FAILURES = new Set(['ERA_NEGOTIATION_FAILED', 'EraNegot
 
 export async function connectMcpClient(opts: ConnectMcpOptions): Promise<ConnectedMcpClient> {
   const mod = await sdk();
+  /**
+   * The definitions the last listing returned, by name. A call hands the SDK
+   * its own tool's (`toolDefinition`), so it checks that result against that
+   * one output schema. Otherwise the first call on a client compiles a
+   * validator for every tool the server lists, in one go on Ri's one thread.
+   */
+  const definitions = new Map<string, McpToolDef>();
+
   const http = opts.command === undefined ? await mcpHttpFetch() : undefined;
   const url = opts.command === undefined ? new URL(opts.url) : undefined;
 
@@ -320,10 +328,12 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
       if (Buffer.byteLength(JSON.stringify(tools)) > MCP_TOOL_LIST_MAX_BYTES) {
         throw new IntegrationError('provider_error', `The MCP server's tool list is larger than Ri accepts (${MCP_TOOL_LIST_MAX_BYTES / 1024 / 1024} MiB).`);
       }
+      definitions.clear();
+      for (const tool of tools as McpToolDef[]) definitions.set(tool.name, tool);
       return { tools: tools.map((t: McpToolDef) => structuredClone(t)) };
     } catch (error) {
       if (error instanceof mod.SdkError && (error as { code?: string }).code === mod.SdkErrorCode.ListPaginationExceeded) {
-        throw new IntegrationError('provider_error', 'MCP server returned a repeated tool-list cursor.', { cause: error });
+        throw new IntegrationError('provider_error', 'The MCP server\'s tool list didn\'t end within 64 pages.', { cause: error });
       }
       throw error;
     }
@@ -353,6 +363,7 @@ export async function connectMcpClient(opts: ConnectMcpOptions): Promise<Connect
           signal,
           onprogress: () => {},
           allowInputRequired: true,
+          ...(definitions.has(params.name) ? { toolDefinition: definitions.get(params.name) as never } : {}),
         });
         if (res?.resultType !== 'input_required') break;
         if (round > MCP_INPUT_ROUNDS) {

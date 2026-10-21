@@ -19,6 +19,9 @@
  * Who may open which file is the caller's business (the `html` routes, and
  * `session-file-target.ts` for a chat). Errors render as a small page in the
  * frame, since the frame is where the person is looking.
+ *
+ * The same routes download the file (`download=1`): exactly as written, none
+ * of Ri's parts added, under its own name. The checks are the preview's.
  */
 
 import { createReadStream, promises as fs } from 'node:fs';
@@ -26,6 +29,7 @@ import { Readable, pipeline } from 'node:stream';
 import { constants, createBrotliCompress, createGzip } from 'node:zlib';
 import { negotiateEncoding } from '@/lib/api/compression';
 import { MAX_PREVIEW_BYTES } from '@/lib/workspaces/read-file';
+import { contentDisposition } from '@/lib/attachments/delivery';
 import {
   HTML_PREVIEW_RESPONSE_CSP,
   HTML_PREVIEW_TAIL,
@@ -104,6 +108,11 @@ function baseHeaders(): Record<string, string> {
   };
 }
 
+/** The file as written, saved under `name`. */
+function downloadHeaders(name: string): Record<string, string> {
+  return { ...baseHeaders(), 'Content-Disposition': contentDisposition('attachment', name), 'Cache-Control': 'private, no-store' };
+}
+
 /** A weak validator: the file's identity and version, and Ri's parts for the theme. */
 function fileEtag(stat: { size: number; mtimeMs: number; ino: number }, theme: HtmlPreviewTheme): string {
   return `W/"${stat.size.toString(36)}-${Math.trunc(stat.mtimeMs).toString(36)}-${stat.ino.toString(36)}-${htmlPreviewPartsVersion(theme)}"`;
@@ -147,8 +156,9 @@ export function htmlPreviewErrorResponse(status: number, message: string, theme:
  * Serve an HTML file from this home's disk. The caller has already decided
  * the file may be shown. This checks it is still a readable HTML file within
  * the bound, by its real path so a link named `.html` can't serve another type.
+ * With `download`, the file goes out as written, saved under that name.
  */
-export async function htmlFilePreviewResponse(request: Request, file: string, theme: HtmlPreviewTheme): Promise<Response> {
+export async function htmlFilePreviewResponse(request: Request, file: string, theme: HtmlPreviewTheme, download?: string): Promise<Response> {
   let real: string;
   let stat: import('node:fs').Stats;
   try {
@@ -164,7 +174,7 @@ export async function htmlFilePreviewResponse(request: Request, file: string, th
 
   const etag = fileEtag(stat, theme);
   const cache = { ETag: etag, 'Cache-Control': 'private, no-cache' };
-  if (matchesEtag(request.headers.get('if-none-match'), etag)) {
+  if (download === undefined && matchesEtag(request.headers.get('if-none-match'), etag)) {
     return new Response(null, { status: 304, headers: { ...baseHeaders(), ...cache, Vary: 'Accept-Encoding' } });
   }
 
@@ -179,6 +189,14 @@ export async function htmlFilePreviewResponse(request: Request, file: string, th
   const opening = head.subarray(0, headLength);
   if (looksBinary(opening)) return htmlPreviewErrorResponse(415, NOT_READABLE, theme);
 
+  if (download !== undefined) {
+    async function* asWritten() {
+      yield opening;
+      if (headLength < stat.size) yield* createReadStream(real, { start: headLength }) as AsyncIterable<Buffer>;
+    }
+    return streamedResponse(request, asWritten(), 200, downloadHeaders(download));
+  }
+
   async function* body() {
     yield* documentOpening(opening, theme);
     // Opened only once the browser reads past the head, and closed when the
@@ -192,13 +210,14 @@ export async function htmlFilePreviewResponse(request: Request, file: string, th
 /**
  * Serve HTML another device read for us (a chat or agent that lives there).
  * Its worker answers with the file viewer's bounded read, so this has the
- * content already, or an answer saying why not.
+ * content already, or an answer saying why not. With `download`, as written.
  */
 export function htmlAnswerPreviewResponse(
   request: Request,
   answer: { status: number; body: unknown },
   theme: HtmlPreviewTheme,
   where: string,
+  download?: string,
 ): Response {
   const body = (answer.body ?? {}) as { content?: unknown; isBinary?: unknown; tooLarge?: unknown; size?: unknown; error?: unknown; message?: unknown };
   if (answer.status !== 200) {
@@ -207,10 +226,13 @@ export function htmlAnswerPreviewResponse(
   }
   if (body.tooLarge === true) {
     const size = typeof body.size === 'number' ? `${formatPreviewBytes(body.size)} ` : '';
-    return htmlPreviewErrorResponse(413, `This HTML file is ${size}on ${where}. Previews from another device stop at ${formatPreviewBytes(MAX_PREVIEW_BYTES)}.`, theme);
+    return htmlPreviewErrorResponse(413, `This HTML file is ${size}on ${where}. ${download === undefined ? 'Previews' : 'Downloads'} from another device stop at ${formatPreviewBytes(MAX_PREVIEW_BYTES)}.`, theme);
   }
   if (body.isBinary === true || typeof body.content !== 'string') return htmlPreviewErrorResponse(415, NOT_READABLE, theme);
   const content = Buffer.from(body.content, 'utf8');
+  if (download !== undefined) {
+    return streamedResponse(request, (async function* () { yield content; })(), 200, downloadHeaders(download));
+  }
   async function* parts() {
     yield* documentOpening(content, theme);
     yield TAIL;

@@ -14,7 +14,9 @@ import { MessageEntityChip } from '@/components/chat-ui/references/message-entit
 import { SourceChip, SourceMetadataProvider } from '@/components/chat-ui/references/source-chip';
 import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
-import { ArtifactPreviewProvider } from '@/components/chat-ui/artifacts/artifact-preview-provider';
+import { ArtifactPreviewProvider, useBesidePreview, useBesideRegion } from '@/components/chat-ui/artifacts/artifact-preview-provider';
+import { PREVIEW_HOST_ATTRIBUTE } from '@/components/chat-ui/artifacts/artifact-preview-store';
+import { BesideFileTab, BesideFileView } from '@/components/chat-ui/artifacts/artifact-beside';
 import { HtmlPreviewLink } from '@/components/chat-ui/artifacts/html-preview-link';
 import { EntityEditChip } from '@/components/chat-ui/edits/entity-edit-chip';
 import { ResultRenderer } from '@/components/chat-ui/handoffs/result-renderer';
@@ -102,6 +104,32 @@ function AppContext() {
   </section>;
 }
 
+function FileChips() {
+  return <div className="space-y-5 text-sm"><p>Here are the review materials:</p><MessageFileChip attachment={{ fileName: 'gallery-agenda.txt', originalName: 'friday-agenda.txt', mimeType: 'text/plain', size: 99, uploadedAt: NOW }} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-image.svg', originalName: 'a-little-room-to-think.svg', mimeType: 'image/svg+xml', size: 720, uploadedAt: NOW }} fileUrl={() => IMAGE_URL} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-report.pdf', originalName: 'friday-review.pdf', mimeType: 'application/pdf', size: 48210, uploadedAt: NOW }} variant="block" /></div>;
+}
+
+/** A chat with a panel beside it, as Home's second panel or an execution's tools: its files open there as a tab. */
+function FilesBeside() {
+  const host = 'gallery';
+  const [fileShown, setFileShown] = useState(false);
+  const file = useBesidePreview(host);
+  const shown = fileShown && !!file;
+  useBesideRegion(host, { available: true, side: 'right', showing: shown, show: () => setFileShown(true) });
+  return <div className="flex h-[580px] overflow-hidden rounded-lg border border-border">
+    <div {...{ [PREVIEW_HOST_ATTRIBUTE]: host }} role="log" aria-label="Chat" className="min-w-0 flex-1 overflow-y-auto p-4"><FileChips /></div>
+    <aside aria-label="Beside the chat" className="flex w-[55%] min-w-0 flex-col border-l border-border">
+      <div className="flex h-9 shrink-0 items-stretch border-b border-border">
+        <button type="button" aria-pressed={!shown} onClick={() => setFileShown(false)} className={`border-b-2 px-3 text-[11px] font-medium ${shown ? 'border-transparent text-muted-foreground' : 'border-primary text-primary'}`}>Deck</button>
+        <BesideFileTab host={host} active={shown} onSelect={() => setFileShown(true)} className={`border-b-2 px-3 text-[11px] font-medium ${shown ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`} />
+      </div>
+      <div className="relative min-h-0 flex-1">
+        <div inert={shown} className="space-y-2 p-4 text-sm text-muted-foreground"><p className="font-medium text-foreground">Today</p><p>Prepare the Friday review</p><p>Reply to Alex about the agenda</p></div>
+        {file && <div inert={!shown} className={`absolute inset-0 ${shown ? '' : 'pointer-events-none opacity-0'}`}><BesideFileView host={host} /></div>}
+      </div>
+    </aside>
+  </div>;
+}
+
 function ChatMessages() {
   const { received, sent } = chatMessageExample(config.state);
   return <div className="space-y-7">
@@ -121,7 +149,8 @@ function ChatMessages() {
 function Example() {
   const revision = useSyncExternalStore(runtime.subscribe, runtime.snapshot, runtime.snapshot);
   const example = galleryExample(__GALLERY_EXAMPLE__);
-  return <div className={__GALLERY_EXAMPLE__ === 'app-kit' ? '' : 'mx-auto max-w-3xl p-4 sm:p-6'} data-gallery-example={__GALLERY_EXAMPLE__} data-gallery-state={config.state}>
+  const wide = __GALLERY_EXAMPLE__ === 'files' && config.state === 'beside';
+  return <div className={__GALLERY_EXAMPLE__ === 'app-kit' ? '' : wide ? 'p-4 sm:p-6' : 'mx-auto max-w-3xl p-4 sm:p-6'} data-gallery-example={__GALLERY_EXAMPLE__} data-gallery-state={config.state}>
     {__GALLERY_EXAMPLE__ !== 'app-kit' && <p className="mb-5 text-xs leading-relaxed text-muted-foreground">{example.tryThis}</p>}
     {__GALLERY_EXAMPLE__ === 'email' && <EmailComposer id={DRAFT_ID} sessionId={CHAT_ID} initial={runtime.email} />}
     {(__GALLERY_EXAMPLE__ === 'questions' || __GALLERY_EXAMPLE__ === 'permissions') && <PendingInputArea sessionId={CHAT_ID} />}
@@ -132,7 +161,7 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'chat-messages' && <ChatMessages />}
     {__GALLERY_EXAMPLE__ === 'app-context' && <AppContext />}
     {__GALLERY_EXAMPLE__ === 'edits' && <div className="space-y-4 text-sm"><p>I clarified the agenda and made the next steps easier to scan.</p><EntityEditChip entityType="note" entityId={RECORD_ID} /></div>}
-    {__GALLERY_EXAMPLE__ === 'files' && <div className="space-y-5 text-sm"><p>Here are the review materials:</p><MessageFileChip attachment={{ fileName: 'gallery-agenda.txt', originalName: 'friday-agenda.txt', mimeType: 'text/plain', size: 99, uploadedAt: NOW }} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-image.svg', originalName: 'a-little-room-to-think.svg', mimeType: 'image/svg+xml', size: 720, uploadedAt: NOW }} fileUrl={() => IMAGE_URL} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-report.pdf', originalName: 'friday-review.pdf', mimeType: 'application/pdf', size: 48210, uploadedAt: NOW }} variant="block" /></div>}
+    {__GALLERY_EXAMPLE__ === 'files' && (config.state === 'beside' ? <FilesBeside /> : <FileChips />)}
     {__GALLERY_EXAMPLE__ === 'html' && <HtmlPreviewLink sessionId={CHAT_ID} path="review-plan.html">An interactive plan for the Friday review</HtmlPreviewLink>}
     {__GALLERY_EXAMPLE__ === 'handoffs' && <ResultRenderer resultId={RECORD_ID} />}
     {__GALLERY_EXAMPLE__ === 'activity' && <div className="space-y-5"><ExecutionEvent event={event('tool_call', { toolName: 'Bash', toolInput: { command: 'pnpm test --filter=calendar' } })} /><ExecutionEvent event={event('tool_result', { content: config.state === 'error' ? 'The calendar test failed. Friday overlaps with the existing review.' : 'All 12 calendar tests passed.', toolIsError: config.state === 'error' })} /><ExecutionEvent event={event(config.state === 'error' ? 'error' : 'agent', { content: config.state === 'error' ? 'The schedule needs one more adjustment.' : 'The review plan is ready.' })} handoffActions={false} /></div>}

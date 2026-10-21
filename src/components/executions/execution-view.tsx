@@ -4,7 +4,7 @@ import { LinkedChatView } from '@/components/chat-ui/messages/linked-chat-view';
 import { AppCompanion } from '@/components/local-apps/app-companion';
 import { AppCompanionButton } from '@/components/local-apps/app-companion-button';
 import type { HarnessId } from '@/lib/harness/registry';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
 import { preparedFolder } from '@/lib/executions/location';
@@ -67,6 +67,8 @@ import { MobileDestination, MobileToolsSheet } from './workbench/mobile-workbenc
 import type { WorkbenchViewContext } from './workbench/workbench-views';
 import { isImportMirror } from '@/lib/import/mirror';
 import { Tip } from '@/components/ui/tip';
+import { useBesidePreview, useBesideRegion } from '@/components/chat-ui/artifacts/artifact-preview-provider';
+import { PREVIEW_HOST_ATTRIBUTE } from '@/components/chat-ui/artifacts/artifact-preview-store';
 
 interface ExecutionViewProps {
   sessionId: string;
@@ -316,6 +318,27 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   const wb = workbench.state;
   const workbenchRef = useRef(workbench);
   workbenchRef.current = workbench;
+
+  // ── Files from the chat, beside it ──────────────────────────────────
+  // A file card in the chat opens in the panel as the `file` view, a jump so
+  // closing it goes back to what it covered. Per execution, like the panel.
+  // The phone has no panel beside the chat, so its cards open large.
+  const besideHost = `execution:${worktreeId}`;
+  const besideFile = useBesidePreview(besideHost);
+  useBesideRegion(besideHost, {
+    available: desktopVisible,
+    side: 'right',
+    showing: desktopVisible && wb.view === 'file',
+    show: () => workbenchRef.current.jump('file'),
+  });
+  // Closed (its tab's ×, Escape, moved to the large view), or gone with the
+  // page: leave its view before the empty one paints. On the whole state, so
+  // another execution's restored state is checked too.
+  const workbenchDispatch = workbench.dispatch;
+  useLayoutEffect(() => {
+    if (besideFile) return;
+    if (wb.view === 'file' || wb.last === 'file' || wb.from === 'file' || wb.covered !== null) workbenchDispatch({ type: 'fileClosed' });
+  }, [besideFile, wb, workbenchDispatch]);
 
   // The phone's own navigation: a tool opened full width, and the sheet.
   const [mobileView, setMobileView] = useState<PanelView | null>(null);
@@ -594,6 +617,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     show: surface === 'desktop' ? workbench.show : (v) => setMobileView(v),
     jump: surface === 'desktop' ? workbench.jump : (v) => setMobileView(v),
     autoFocus: surface === 'desktop' ? workbench.openedThisVisit : () => true,
+    besideHost,
   });
 
   // Chat body — tabs, WIP banner, transcript, composer. Rendered in both
@@ -835,7 +859,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
                 </span>
               </div>
             )}
-            <div key="chat" className={cn('@container/chat relative flex min-h-0 min-w-0 flex-1 flex-col bg-background', maximized && 'hidden')}>
+            <div key="chat" {...{ [PREVIEW_HOST_ATTRIBUTE]: besideHost }} className={cn('@container/chat relative flex min-h-0 min-w-0 flex-1 flex-col bg-background', maximized && 'hidden')}>
               {/* Desktop: Enter submits (Shift+Enter for a newline). */}
               {wide !== false && renderChatBody(true, !panelOpen)}
             </div>

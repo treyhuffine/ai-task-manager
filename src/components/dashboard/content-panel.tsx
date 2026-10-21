@@ -21,6 +21,10 @@ import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
 import { MainChatOnboarding } from '@/components/chat/onboarding/main-chat-onboarding';
 import { HomeTerminal } from '@/components/dashboard/home-terminal';
 import { Tip } from '@/components/ui/tip';
+import { useElementWidth } from '@/hooks/use-element-width';
+import { useBesidePreview, useBesideRegion } from '@/components/chat-ui/artifacts/artifact-preview-provider';
+import { PREVIEW_HOST_ATTRIBUTE } from '@/components/chat-ui/artifacts/artifact-preview-store';
+import { BesideFileTab, BesideFileView } from '@/components/chat-ui/artifacts/artifact-beside';
 
 // ─── Tab definitions ───────────────────────────────────────────
 
@@ -121,17 +125,42 @@ interface ContentPanelProps {
   panelId: PanelId;
   /** When set, skip the tab bar and render only this content (used by mobile layout) */
   mobileTab?: 'chat' | 'deck' | 'tasks' | 'notes' | 'stream';
+  /** The other panel beside this one (Home's two-panel layout). Files opened
+   *  from its chat show here as a tab, and this one's files show there. */
+  besideOf?: PanelId;
 }
 
-export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
+/** The surface a Home panel's files open beside (`artifact-preview-store.ts`). */
+const homeHost = (panel: PanelId) => `home:${panel}`;
+
+export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps) {
   const {
     panelATab, panelBTab,
     setPanelTab, setFocusedPanel, theme,
     openAreasList,
+    filesInFront, setFileInFront,
   } = useDashboard();
   const isDark = theme === 'dark';
 
   const activeTab = mobileTab ?? (panelId === 'a' ? panelATab : panelBTab);
+
+  // A file opened from the chat in the other panel shows here, over this
+  // panel's tab, as one more tab. Only while that chat is on screen: move
+  // the chat away and its file goes with it, put it back and the file is
+  // back. Only while this copy of the layout is on screen (the dashboard
+  // keeps hidden ones).
+  const fileHost = besideOf ? homeHost(besideOf) : null;
+  const file = useBesidePreview(fileHost);
+  const fileChatShown = besideOf !== undefined && (besideOf === 'a' ? panelATab : panelBTab) === 'chat';
+  const fileHere = !!file && fileChatShown;
+  const fileShown = fileHere && filesInFront[panelId];
+  const [measureRef, width] = useElementWidth<HTMLDivElement>();
+  useBesideRegion(fileHost, {
+    available: !!width && fileChatShown,
+    side: panelId === 'b' ? 'right' : 'left',
+    showing: !!width && fileShown,
+    show: () => setFileInFront(panelId, true),
+  });
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
@@ -152,6 +181,8 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
 
   return (
     <div
+      ref={measureRef}
+      {...(besideOf ? { [PREVIEW_HOST_ATTRIBUTE]: homeHost(panelId) } : {})}
       className="flex flex-col h-full min-w-0 bg-background"
       onMouseDown={() => setFocusedPanel(panelId)}
     >
@@ -167,7 +198,7 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
               onClick={() => setPanelTab(panelId, tab.id)}
               className={cn(
                 'px-3 py-2.5 text-[9.5px] font-bold uppercase tracking-[0.08em] transition-all border-b-2',
-                activeTab === tab.id && !isMoreTab
+                activeTab === tab.id && !isMoreTab && !fileShown
                   ? 'text-primary border-primary'
                   : 'text-muted-foreground border-transparent hover:text-foreground'
               )}
@@ -182,6 +213,18 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
             </button>
           ))}
 
+          {fileHost && fileHere && (
+            <BesideFileTab
+              host={fileHost}
+              active={fileShown}
+              onSelect={() => setFileInFront(panelId, true)}
+              className={cn(
+                'self-stretch border-b-2 px-3 text-[11px] font-medium transition-all',
+                fileShown ? 'text-primary border-primary' : 'text-muted-foreground border-transparent hover:text-foreground',
+              )}
+            />
+          )}
+
           <div className="flex-1" />
 
           {/* More button */}
@@ -190,7 +233,7 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
               onClick={() => setMoreOpen(!moreOpen)}
               className={cn(
                 'px-3 py-2.5 text-[9.5px] font-bold uppercase tracking-[0.08em] transition-all border-b-2 flex items-center gap-1',
-                isMoreTab
+                isMoreTab && !fileShown
                   ? 'text-primary border-primary'
                   : 'text-muted-foreground border-transparent hover:text-foreground'
               )}
@@ -232,14 +275,23 @@ export function ContentPanel({ panelId, mobileTab }: ContentPanelProps) {
         </div>
       )}
 
-      {/* Tab content */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        {activeTab === 'deck' && <DeckContainer />}
-        {activeTab === 'chat' && <ChatContent isMobile={!!mobileTab} />}
-        {activeTab === 'tasks' && <TaskSurface />}
-        {activeTab === 'stream' && <StreamList />}
-        {activeTab === 'notes' && <NoteList />}
-        {isMoreTab && <MoreTabContent tab={activeTab as MorePanelTab} />}
+      {/* Tab content. The panel's own tab stays mounted under the file, and
+          the file under the panel's tab, so each is as left when the other
+          comes forward (a PDF keeps its page, an HTML file its state). */}
+      <div className="relative flex-1 min-h-0 overflow-hidden">
+        <div inert={fileShown} aria-hidden={fileShown || undefined} className="h-full">
+          {activeTab === 'deck' && <DeckContainer />}
+          {activeTab === 'chat' && <ChatContent isMobile={!!mobileTab} />}
+          {activeTab === 'tasks' && <TaskSurface />}
+          {activeTab === 'stream' && <StreamList />}
+          {activeTab === 'notes' && <NoteList />}
+          {isMoreTab && <MoreTabContent tab={activeTab as MorePanelTab} />}
+        </div>
+        {fileHere && fileHost && (
+          <div inert={!fileShown} aria-hidden={!fileShown || undefined} className={cn('absolute inset-0 z-10', !fileShown && 'pointer-events-none opacity-0')}>
+            <BesideFileView host={fileHost} />
+          </div>
+        )}
       </div>
 
     </div>

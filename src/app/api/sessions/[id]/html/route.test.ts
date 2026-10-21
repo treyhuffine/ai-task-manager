@@ -41,10 +41,11 @@ async function setup() {
   const { execution, session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Gallery', worktreePath: folder });
   const reply = (content: string) => q.insertChatEvent({ sessionId: session.id, role: 'assistant', source: 'agent', content });
   const { GET } = await import('./route');
-  const get = async (requested: string, opts: { id?: string; theme?: string } = {}) => {
+  const get = async (requested: string, opts: { id?: string; theme?: string; download?: boolean } = {}) => {
     const url = new URL(`http://ri.local/api/sessions/${opts.id ?? session.id}/html`);
     url.searchParams.set('path', requested);
     if (opts.theme) url.searchParams.set('theme', opts.theme);
+    if (opts.download) url.searchParams.set('download', '1');
     const response = await GET(new NextRequest(url), { params: Promise.resolve({ id: opts.id ?? session.id }) });
     return { status: response.status, headers: response.headers, body: Buffer.from(await response.arrayBuffer()).toString('utf8') };
   };
@@ -73,6 +74,21 @@ it('serves HTML in the chat folder by relative or absolute path, and refuses tra
   }
   expect((await get('../tmp/gallery/member-offers-all-cases.html')).status).toBe(400);
   expect(await get('reports/missing.html')).toMatchObject({ status: 404 });
+});
+
+it('downloads the file as written, under its own name, with the same reach as the preview', async () => {
+  const { outside, reply, get } = await setup();
+  const summary = await get('reports/summary.html', { download: true });
+  expect(summary.status).toBe(200);
+  expect(summary.body).toBe('<!doctype html><h1>Summary</h1>');
+  expect(summary.headers.get('content-disposition')).toBe(`attachment; filename="summary.html"; filename*=UTF-8''summary.html`);
+  const gallery = path.join(outside, 'member-offers-all-cases.html');
+  reply(`[Open the searchable gallery](${gallery}) works offline.`);
+  expect((await get(gallery, { download: true })).body).toBe(GALLERY);
+  const unshared = await get(path.join(outside, 'not-mentioned.html'), { download: true });
+  expect(unshared.status).not.toBe(200);
+  expect(unshared.body).not.toContain('private HTML');
+  expect(unshared.headers.get('content-disposition')).toBeNull();
 });
 
 it('refuses outside HTML the agent never shared or touched', async () => {

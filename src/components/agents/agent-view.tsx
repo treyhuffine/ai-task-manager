@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
   useDefaultLayout,
@@ -20,6 +20,8 @@ import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { AgentHeader } from './agent-header';
 import { AgentChatPanel } from './agent-chat-panel';
 import { AgentTools } from './agent-tools';
+import { useBesidePreview, useBesideRegion } from '@/components/chat-ui/artifacts/artifact-preview-provider';
+import { PREVIEW_HOST_ATTRIBUTE } from '@/components/chat-ui/artifacts/artifact-preview-store';
 
 /**
  * An agent's view (docs/agents-view-spec.md Phase 7): its main chat on the
@@ -79,8 +81,26 @@ export function AgentView({
     () => DEFAULT_AGENT_TAB,
   );
   const activeTab = tab ?? lastTab;
+
+  // A file opened from the main chat shows in the tools as one more tab, in
+  // front until another tab is picked (here or through the URL). Narrow,
+  // with one pane at a time, files open large instead.
+  const besideHost = `agent:${workspaceId}`;
+  const besideFile = useBesidePreview(besideHost);
+  const [fileActive, setFileActive] = useState(false);
+  const [shownTab, setShownTab] = useState(activeTab);
+  if (shownTab !== activeTab) {
+    setShownTab(activeTab);
+    setFileActive(false);
+  }
+  // Tools collapsed to make the chat full width open for a file, and fold
+  // away again when it closes, unless a tool was picked meanwhile.
+  const openedForFile = useRef(false);
+
   const selectTab = useCallback(
     (next: AgentTab) => {
+      setFileActive(false);
+      openedForFile.current = false;
       writeLastAgentTab(workspaceId, next);
       openAgent(workspaceId, next);
     },
@@ -95,14 +115,38 @@ export function AgentView({
   const toggleTools = useCallback(() => {
     const panel = toolsRef.current;
     if (!panel) return;
+    // Set by hand now, so closing the file leaves them as they are.
+    openedForFile.current = false;
     if (panel.isCollapsed()) panel.expand();
     else panel.collapse();
   }, [toolsRef]);
+
+  const showFile = useCallback(() => {
+    const panel = toolsRef.current;
+    if (panel?.isCollapsed()) {
+      panel.expand();
+      openedForFile.current = true;
+    }
+    setFileActive(true);
+  }, [toolsRef]);
+  useEffect(() => {
+    if (besideFile || !openedForFile.current) return;
+    openedForFile.current = false;
+    toolsRef.current?.collapse();
+  }, [besideFile, toolsRef]);
+  // A tool picked through the URL is a tool in use, as one picked here is.
+  useEffect(() => { openedForFile.current = false; }, [activeTab]);
 
   // The tools hotkey, as in an execution: shows or hides the tools panel, or
   // switches panes when there's room for one. Only the copy on screen listens
   // (the dashboard mounts a layout per screen size and hides the others).
   const onScreen = !!width;
+  useBesideRegion(besideHost, {
+    available: onScreen && !narrow,
+    side: 'right',
+    showing: onScreen && !narrow && !toolsCollapsed && fileActive && !!besideFile,
+    show: showFile,
+  });
   useEffect(() => {
     if (!onScreen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -148,7 +192,15 @@ export function AgentView({
   }
 
   const chat = <AgentChatPanel key={workspace.id} workspace={workspace} />;
-  const tools = <AgentTools key={workspace.id} workspace={workspace} tab={activeTab} onSelectTab={selectTab} />;
+  const tools = (
+    <AgentTools
+      key={workspace.id}
+      workspace={workspace}
+      tab={activeTab}
+      onSelectTab={selectTab}
+      file={narrow ? null : { host: besideHost, active: fileActive && !!besideFile, onShow: showFile }}
+    />
+  );
 
   return frame(
     <>
@@ -180,8 +232,8 @@ export function AgentView({
       >
         <ResizablePanel id={CHAT_PANEL} minSize={360} className="flex flex-col min-w-0 min-h-0">
           {/* Keyed by agent so a switch between agents never shows the
-              previous agent's chat for a frame. */}
-          {chat}
+              previous agent's chat for a frame. Its files open in the tools. */}
+          <div {...{ [PREVIEW_HOST_ATTRIBUTE]: besideHost }} className="contents">{chat}</div>
         </ResizablePanel>
         <ResizableHandle
           className={cn(

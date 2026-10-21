@@ -11,6 +11,7 @@ import { AgentTerminal } from './agent-terminal';
 import { AgentPreview } from './agent-preview';
 import { AgentSetup } from './agent-setup';
 import { Tip } from '@/components/ui/tip';
+import { BesideFileClose, BesideFileTab, BesideFileView } from '@/components/chat-ui/artifacts/artifact-beside';
 
 const TABS: ReadonlyArray<{ id: AgentTab; label: string; icon: ReactNode }> = [
   { id: 'overview', label: 'Overview', icon: <LayoutGrid size={12} /> },
@@ -30,11 +31,15 @@ export function AgentTools({
   workspace,
   tab,
   onSelectTab,
+  file,
 }: {
   workspace: WorkspaceRecord;
   tab: AgentTab;
   onSelectTab: (tab: AgentTab) => void;
+  /** The file beside the main chat: its surface, whether its tab is in front, and how to bring it there. */
+  file?: { host: string; active: boolean; onShow: () => void } | null;
 }) {
+  const fileActive = !!file?.active;
   // Every tab the user has opened in this agent, the current one included.
   // Derived during render, so a tab that arrives through the URL mounts
   // straight away.
@@ -58,16 +63,17 @@ export function AgentTools({
 
   return (
     <div className="@container flex flex-col h-full min-h-0">
-      <div role="tablist" aria-label="Agent tools" className="shrink-0 flex items-center gap-0.5 border-b border-border px-2 py-1 overflow-x-auto">
+      <div className="shrink-0 flex items-center gap-0.5 border-b border-border px-2 py-1">
+      <div role="tablist" aria-label="Agent tools" className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
         {TABS.map((t) => (
           <Tip key={t.id} label={t.label} onlyWhenTextHidden>
             <button
               role="tab"
-              aria-selected={tab === t.id}
+              aria-selected={tab === t.id && !fileActive}
               onClick={() => onSelectTab(t.id)}
               className={cn(
                 'flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap',
-                tab === t.id
+                tab === t.id && !fileActive
                   ? 'bg-secondary text-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
               )}
@@ -77,6 +83,22 @@ export function AgentTools({
             </button>
           </Tip>
         ))}
+        {file && (
+          <BesideFileTab
+            host={file.host}
+            active={fileActive}
+            onSelect={file.onShow}
+            withClose={false}
+            selectProps={{ role: 'tab', 'aria-selected': fileActive }}
+            className={cn(
+              'px-2 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap',
+              fileActive ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+            )}
+          />
+        )}
+      </div>
+      {/* Outside the tab list, which may hold only tabs. */}
+      {file && <BesideFileClose host={file.host} />}
       </div>
       <div className="flex-1 min-h-0 relative">
         {TABS.filter((t) => visited.has(t.id)).map((t) => (
@@ -87,12 +109,18 @@ export function AgentTools({
           <div
             key={t.id}
             role="tabpanel"
-            inert={tab !== t.id}
+            inert={tab !== t.id || fileActive}
             className={cn('absolute inset-0 flex flex-col min-h-0', tab === t.id ? 'z-10' : 'opacity-0')}
           >
             {body(t.id)}
           </div>
         ))}
+        {/* Mounted while there's a file, like a visited tab, so a PDF keeps its page behind another tab. */}
+        {file && (
+          <div role="tabpanel" inert={!fileActive} className={cn('absolute inset-0 flex flex-col min-h-0', fileActive ? 'z-20' : 'pointer-events-none opacity-0')}>
+            <BesideFileView host={file.host} />
+          </div>
+        )}
       </div>
     </div>
   );

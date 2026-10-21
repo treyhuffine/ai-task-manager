@@ -198,6 +198,50 @@ describe('connectMcpClient over Streamable HTTP', () => {
     expect((await client.listTools()).tools).toHaveLength(8);
   });
 
+  it('fails a tool list too large at once when it comes as an event stream, not when the request times out', async () => {
+    const handler = createMcpHandler(appServer);
+    const { url } = await serve(async request => {
+      const message = await request.clone().json().catch(() => null) as { id?: number; method?: string } | null;
+      if (message?.method !== 'tools/list') return handler.fetch(request);
+      // One event that never fits, sent the way a streaming server answers.
+      const tools = Array.from({ length: 12 }, (_, i) => ({ name: `tool${i}`, description: 'd'.repeat(1536 * 1024), inputSchema: { type: 'object' } }));
+      const body = `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', ttlMs: 0, cacheScope: 'private', tools } })}\n\n`;
+      return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const client = await connectMcpClient({ url });
+    clients.push(client);
+    const started = Date.now();
+    await expect(client.listTools()).rejects.toThrow(`a tool list larger than ${MCP_TOOL_LIST_MAX_BYTES / 1024 / 1024} MiB`);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  }, 90_000);
+
+  it('checks a result against its own tool\'s output schema, compiling no other tool\'s on the way', async () => {
+    // Two hundred tools with output schemas. The SDK alone would compile all of them on the first call.
+    const counted = fromJsonSchema({ type: 'object', properties: { n: { type: 'number' } }, required: ['n'] });
+    const many: McpServerFactory = () => {
+      const server = new McpServer({ name: 'many', version: '1.0.0' }, { capabilities: { tools: {} } });
+      for (let i = 0; i < 200; i++) server.registerTool(`tool${i}`, { inputSchema: object, outputSchema: counted }, async () => ({ content: [], structuredContent: { n: i } }));
+      return server;
+    };
+    const handler = createMcpHandler(many);
+    const { url } = await serve(async request => {
+      const message = await request.clone().json().catch(() => null) as { id?: number; method?: string; params?: { name?: string } } | null;
+      // A result that breaks its schema, which the server itself would never send.
+      if (message?.method === 'tools/call' && message.params?.name === 'tool7') return Response.json({ jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', content: [], structuredContent: { n: 'seven' } } });
+      return handler.fetch(request);
+    });
+    const client = await connectMcpClient({ url });
+    clients.push(client);
+    expect((await client.listTools()).tools).toHaveLength(200);
+    const { Client } = await import('@modelcontextprotocol/client');
+    const compile = vi.spyOn(Client.prototype as unknown as { _compileOutputValidator: (tool: unknown) => unknown }, '_compileOutputValidator');
+    try {
+      expect(await client.callTool({ name: 'tool3', arguments: {} })).toMatchObject({ structuredContent: { n: 3 } });
+      expect(compile).toHaveBeenCalledTimes(1);
+      await expect(client.callTool({ name: 'tool7', arguments: {} })).rejects.toThrow();
+    } finally { compile.mockRestore(); }
+  });
+
   it('falls back to the 2025 handshake for a server that predates 2026-07-28', async () => {
     const legacy = legacyStatelessFallback(appServer);
     const { url, methods } = await serve(request => legacy(request));
@@ -350,7 +394,7 @@ describe('connectMcpClient over Streamable HTTP', () => {
     expect(seen[0]).toEqual({ extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } });
   });
 
-  it('rejects a repeated tool-list cursor instead of looping', async () => {
+  it('rejects a tool list that never ends instead of looping, and says so', async () => {
     let page = 0;
     const { url } = await serve(async request => {
       const message = await request.json().catch(() => ({})) as { id?: number; method?: string };
@@ -361,7 +405,7 @@ describe('connectMcpClient over Streamable HTTP', () => {
     });
     const client = await connectMcpClient({ url, knownLegacy: true });
     clients.push(client);
-    await expect(client.listTools()).rejects.toMatchObject({ code: 'provider_error', message: expect.stringContaining('repeated') });
+    await expect(client.listTools()).rejects.toMatchObject({ code: 'provider_error', message: 'The MCP server\'s tool list didn\'t end within 64 pages.' });
   });
 });
 

@@ -1,85 +1,36 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
-import { Tip } from '@/components/ui/tip';
-import { HtmlView } from '@/components/chat-ui/artifacts/html-view';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
-import { sessionFolder } from '@/lib/folders/source';
-import { artifactImageSource } from '@/lib/sessions/artifact-image';
-import { pdfDownloadUrl } from '@/lib/sessions/reply-pdf';
-import { artifactSequence, cardShown, sameArtifact, type ArtifactPreview } from './artifact-previews';
-import { PreviewImage } from './preview-image';
-import { PdfView } from './pdf-view';
+import { readPreviewPlace, usePreviewPlace, writePreviewPlace } from '@/lib/client/preview-place';
+import { type ArtifactPreview } from './artifact-previews';
+import { ArtifactPreviewStore, type BesideRegion, type CardMode, type OpenPreview } from './artifact-preview-store';
+import { PlaceSwitch, PreviewBody, PreviewDownload, PreviewSteps, previewName, previewSource } from './artifact-preview-parts';
 
 export type { ArtifactPreview } from './artifact-previews';
+export type { OpenPreview } from './artifact-preview-store';
 
-type ArtifactPreviews = {
-  open: (preview: ArtifactPreview, trigger: HTMLElement) => void;
-  /** Make a card a stop for the dialog's Previous and Next. Returns its release. */
-  register: (card: HTMLElement, preview: ArtifactPreview) => () => void;
-};
+const ArtifactPreviewContext = createContext<ArtifactPreviewStore | null>(null);
 
-/** The open preview, the card it came from, and that card's group in order. */
-type View = { preview: ArtifactPreview; trigger: HTMLElement; sequence: HTMLElement[] };
+const noDialog = () => null;
 
-const ArtifactPreviewContext = createContext<ArtifactPreviews | null>(null);
-
-/** Keep the preview outside responsive transcript subtrees so resizing or
- * remounting its original message does not discard the artifact's state. */
+/** Keep previews outside responsive transcript subtrees so resizing or
+ * remounting a message does not discard the artifact's state. One store for
+ * the page holds the large dialog and the file beside each chat surface
+ * (`artifact-preview-store.ts`). The dialog renders here. A file beside a
+ * chat renders in the surface's own panel (`artifact-beside.tsx`). */
 export function ArtifactPreviewProvider({ children }: { children: ReactNode }) {
-  const [view, setView] = useState<View | null>(null);
-  // Mirrors `view` for handlers and card registration, which run outside render.
-  const viewRef = useRef<View | null>(null);
-  // The card focus returns to on close: the last one shown, after any Previous or Next.
-  const triggerRef = useRef<HTMLElement | null>(null);
-  const cards = useRef(new Map<HTMLElement, ArtifactPreview>());
+  const [store] = useState(() => new ArtifactPreviewStore({ place: readPreviewPlace(), writePlace: writePreviewPlace }));
+  // Another tab of Ri moving a file changes where files open here too.
+  const [place] = usePreviewPlace();
+  useEffect(() => store.syncPlace(place), [store, place]);
 
-  const show = useCallback((next: View | null) => {
-    viewRef.current = next;
-    if (next) triggerRef.current = next.trigger;
-    setView(next);
-  }, []);
+  const dialog = useSyncExternalStore(store.subscribe, () => store.getState().dialog, noDialog);
+  // Whether the chat it came from has a panel to move it into, and on which side.
+  const besideSide = useSyncExternalStore(store.subscribe, () => store.region(store.getState().dialog?.host ?? null)?.side ?? null, noDialog);
 
-  /** Place `preview` among the cards as they are now. A transcript that
-   * remounted under the dialog has new cards, so find the same artifact again. */
-  const place = useCallback((preview: ArtifactPreview, trigger: HTMLElement): View => {
-    let card = trigger;
-    if (!card.isConnected) {
-      for (const [candidate, candidatePreview] of cards.current) {
-        if (candidate.isConnected && sameArtifact(candidatePreview, preview) && cardShown(candidate)) { card = candidate; break; }
-      }
-    }
-    return { preview, trigger: card, sequence: artifactSequence(card, candidate => cards.current.has(candidate as HTMLElement)) as HTMLElement[] };
-  }, []);
-
-  const open = useCallback((preview: ArtifactPreview, trigger: HTMLElement) => show(place(preview, trigger)), [place, show]);
-
-  const register = useCallback((card: HTMLElement, preview: ArtifactPreview) => {
-    cards.current.set(card, preview);
-    // A reply still streaming can add a card while the dialog is open.
-    const replace = () => { const current = viewRef.current; if (current) show(place(current.preview, current.trigger)); };
-    replace();
-    return () => {
-      if (cards.current.get(card) === preview) cards.current.delete(card);
-      replace();
-    };
-  }, [place, show]);
-
-  const step = useCallback((delta: 1 | -1) => {
-    const current = viewRef.current;
-    if (!current) return;
-    const placed = place(current.preview, current.trigger);
-    const index = placed.sequence.indexOf(placed.trigger);
-    // A preview opened from something other than a card has no place to move from.
-    const next = index < 0 ? undefined : placed.sequence[index + delta];
-    const preview = next && cards.current.get(next);
-    show(next && preview ? place(preview, next) : placed);
-  }, [place, show]);
-
-  const isOpen = !!view;
+  const isOpen = !!dialog;
   useEffect(() => {
     if (!isOpen) return;
     // On the window, so it works wherever focus sits in the dialog, even on a
@@ -90,74 +41,90 @@ export function ArtifactPreviewProvider({ children }: { children: ReactNode }) {
       const delta = matchesHotkey(event, HOTKEYS.previewNext) ? 1 : matchesHotkey(event, HOTKEYS.previewPrevious) ? -1 : 0;
       if (!delta || (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])'))) return;
       event.preventDefault();
-      step(delta);
+      store.step('dialog', delta);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, step]);
+  }, [isOpen, store]);
 
-  const value = useMemo(() => ({ open, register }), [open, register]);
-  const preview = view?.preview;
-  const index = view ? view.sequence.indexOf(view.trigger) : -1;
-  const count = view?.sequence.length ?? 0;
+  const preview = dialog?.preview;
+  const index = dialog?.trigger ? dialog.sequence.indexOf(dialog.trigger) : -1;
+  const count = dialog?.sequence.length ?? 0;
   return (
-    <ArtifactPreviewContext.Provider value={value}>
+    <ArtifactPreviewContext.Provider value={store}>
       {children}
-      <Dialog open={isOpen} onOpenChange={value => { if (!value) show(null); }}>
+      <Dialog open={isOpen} onOpenChange={value => { if (!value) store.closeDialog(); }}>
         <DialogContent
           className="flex h-[90dvh] w-[calc(100%-2rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0 sm:max-w-[min(90vw,1440px)]"
           onCloseAutoFocus={event => {
             event.preventDefault();
-            if (triggerRef.current?.isConnected) triggerRef.current.focus();
+            // The card last shown, after any Previous or Next.
+            if (store.dialogReturn?.isConnected) store.dialogReturn.focus();
           }}
         >
           <div className="flex min-w-0 shrink-0 items-center gap-3 border-b border-border px-4 py-3 pr-14">
             <div className="min-w-0 flex-1">
-              <DialogTitle className="w-fit max-w-full truncate text-sm">{preview?.kind === 'html' ? preview.path.split('/').at(-1) : preview?.name}</DialogTitle>
+              <DialogTitle className="w-fit max-w-full truncate text-sm">{preview && previewName(preview)}</DialogTitle>
               {/* Every kind shows where the file is, so the header keeps its height from one to the next. */}
-              <DialogDescription className="mt-1 truncate font-mono text-[11px] select-text">{preview?.kind === 'image' ? artifactImageSource(preview.src) : preview?.kind === 'pdf' ? preview.source : preview?.path}</DialogDescription>
+              <DialogDescription className="mt-1 truncate font-mono text-[11px] select-text">{preview && previewSource(preview)}</DialogDescription>
             </div>
-            {preview?.kind === 'pdf' && (
-              <Button asChild variant="ghost" size="sm" className="shrink-0">
-                <a href={pdfDownloadUrl(preview.src)} download={preview.name}><Download />Download</a>
-              </Button>
-            )}
-            {count > 1 && index >= 0 && (
-              <div className="flex shrink-0 items-center gap-1">
-                <Tip label="Previous" shortcut={HOTKEYS.previewPrevious.label}>
-                  <Button variant="ghost" size="icon-sm" aria-label="Previous preview" disabled={index === 0} onClick={() => step(-1)}><ChevronLeft /></Button>
-                </Tip>
-                <span className="min-w-12 text-center text-[11px] text-muted-foreground tabular-nums">{index + 1} of {count}</span>
-                <Tip label="Next" shortcut={HOTKEYS.previewNext.label}>
-                  <Button variant="ghost" size="icon-sm" aria-label="Next preview" disabled={index === count - 1} onClick={() => step(1)}><ChevronRight /></Button>
-                </Tip>
-              </div>
-            )}
+            {preview && <PreviewDownload preview={preview} />}
+            <PreviewSteps index={index} count={count} onStep={delta => store.step('dialog', delta)} />
+            {besideSide && <PlaceSwitch place="large" side={besideSide} onMove={() => store.toBeside()} />}
           </div>
-          <div className="min-h-0 flex-1">
-            {preview?.kind === 'html' && <HtmlView key={`${preview.sessionId}:${preview.path}`} source={sessionFolder(preview.sessionId)} path={preview.path} />}
-            {preview?.kind === 'image' && <PreviewImage key={preview.src} src={preview.src} alt={preview.alt || preview.name} className="h-full w-full object-contain p-3" />}
-            {preview?.kind === 'pdf' && <PdfView key={preview.src} src={preview.src} name={preview.name} />}
-          </div>
+          <div className="min-h-0 flex-1">{preview && <PreviewBody preview={preview} />}</div>
         </DialogContent>
       </Dialog>
     </ArtifactPreviewContext.Provider>
   );
 }
 
-function useArtifactPreviews(): ArtifactPreviews {
-  const previews = useContext(ArtifactPreviewContext);
-  if (!previews) throw new Error('useArtifactPreview must be used within ArtifactPreviewProvider');
-  return previews;
+export function useArtifactPreviewStore(): ArtifactPreviewStore {
+  const store = useContext(ArtifactPreviewContext);
+  if (!store) throw new Error('useArtifactPreview must be used within ArtifactPreviewProvider');
+  return store;
 }
 
-/** Open a preview from `trigger`, the element focus returns to on close. */
+/** Open a preview from `trigger`, the card it came from: beside its chat, or large. */
 export function useArtifactPreview() {
-  return useArtifactPreviews().open;
+  return useArtifactPreviewStore().open;
 }
 
 /** A card's ref: registers it as a Previous and Next stop while mounted. */
 export function useArtifactPreviewCard(preview: ArtifactPreview) {
-  const { register } = useArtifactPreviews();
+  const { register } = useArtifactPreviewStore();
   return useCallback((card: HTMLElement | null) => (card ? register(card, preview) : undefined), [register, preview]);
+}
+
+const largeMode = (): CardMode => 'large';
+
+/** How the card `card` opens now, and whether its file is the one beside its chat. */
+export function useArtifactCardMode(card: HTMLElement | null): CardMode {
+  const store = useArtifactPreviewStore();
+  return useSyncExternalStore(store.subscribe, () => store.cardMode(card), largeMode);
+}
+
+/** The file beside the chat on surface `host`, or null. */
+export function useBesidePreview(host: string | null): OpenPreview | null {
+  const store = useArtifactPreviewStore();
+  return useSyncExternalStore(store.subscribe, () => (host ? store.getState().beside.get(host) ?? null : null), noDialog);
+}
+
+/**
+ * Make this panel the place `host`'s chat opens files beside it, while
+ * `available` (on screen, with room). `show` brings the file's tab forward
+ * each time one opens there, and `showing` says it is in front and on
+ * screen. Several copies of a surface (the dashboard's hidden layouts) may
+ * register: the one available shows it.
+ */
+export function useBesideRegion(host: string | null, { available, side, showing, show }: BesideRegion) {
+  const store = useArtifactPreviewStore();
+  const [key] = useState(() => Symbol('beside-region'));
+  const showRef = useRef(show);
+  useEffect(() => { showRef.current = show; });
+  useEffect(() => {
+    if (!host) return;
+    store.setRegion(host, key, { available, side, showing, show: () => showRef.current() });
+    return () => store.setRegion(host, key, null);
+  }, [store, host, key, available, side, showing]);
 }

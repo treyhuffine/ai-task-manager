@@ -5,6 +5,7 @@ import {
   AppWindow,
   ChevronDown,
   ChevronLeft,
+  File,
   FileText,
   GitCompareArrows,
   ListTodo,
@@ -27,6 +28,7 @@ import type { Workbench } from './use-workbench';
 import { WorkbenchViewBody, type WorkbenchViewContext } from './workbench-views';
 import { MORE_VIEWS, PANEL_VIEW_LABELS, PRIMARY_VIEWS, type PanelView } from './workbench-state';
 import { Tip } from '@/components/ui/tip';
+import { BesideFileTab } from '@/components/chat-ui/artifacts/artifact-beside';
 
 export const VIEW_ICONS: Record<PanelView, React.ComponentType<{ size?: number; className?: string }>> = {
   run: Play,
@@ -35,6 +37,7 @@ export const VIEW_ICONS: Record<PanelView, React.ComponentType<{ size?: number; 
   files: FileText,
   notes: ListTodo,
   scratch: NotebookPen,
+  file: File,
 };
 
 interface WorkbenchPanelProps {
@@ -49,15 +52,16 @@ interface WorkbenchPanelProps {
 /**
  * The right-hand panel. Its header navigates: Run · Preview · Changes ·
  * Files as tabs, Notes & tasks and Scratchpad under More (which takes the
- * name of whichever is open), then expand and close. A jump from the chat
- * or from one view into another shows a "‹ Changes" pill to go back.
+ * name of whichever is open), then the file opened from the chat as its own
+ * tab while there is one, then expand and close. A jump from the chat or
+ * from one view into another shows a "‹ Changes" pill to go back.
  *
  * Views stay mounted once visited while the panel is open, so switching
  * tabs keeps the preview loaded, the open file in place, and the output
  * scrolled where it was.
  */
 export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scratchHasContent }: WorkbenchPanelProps) {
-  const { state, dispatch, show } = workbench;
+  const { state, dispatch, show, jump } = workbench;
   const view = state.view;
   const [visited, setVisited] = useState<ReadonlySet<PanelView>>(() => new Set(view ? [view] : []));
   // Derived during render (React's pattern for state that follows a prop),
@@ -134,6 +138,16 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
             })}
           </DropdownMenuContent>
         </DropdownMenu>
+        {/* Opening it is a jump, from the chat or from here, so closing it goes back to what it covered. */}
+        <BesideFileTab
+          host={ctx.besideHost}
+          active={view === 'file'}
+          onSelect={() => jump('file')}
+          className={cn(
+            '-mb-px gap-0.5 border-b-2 px-2.5 text-[12.5px] font-medium transition-colors',
+            view === 'file' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        />
 
         <span className="flex-1" />
         <Tip

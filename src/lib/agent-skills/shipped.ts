@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SkillInstallEntry, SkillInstallResult, SkillRemoveEntry, SkillRemoveResult } from '@agentex/agent';
-import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME } from '@/constants/app';
+import { AGENT_SKILL_NAME, AGENT_BROWSER_SKILL_NAME, APP_SHORT_ID } from '@/constants/app';
 import { getAppRoot, getWorkDir } from '@/lib/config/paths';
 import { HARNESS_REGISTRY, KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 import { readAuthConfig, writeAuthConfig } from '@/lib/auth/config-file';
@@ -108,24 +108,31 @@ export function getGlobalSkillPreference(): boolean | null {
 
 /**
  * The user-level folders Ri's skills go in: each harness's folder for skills
- * in every project (`globalSkillsDir` in the harness registry), once each.
- * Every harness Ri can run, not just the default, so one switched to later
- * already has them.
+ * in every project (`globalSkills` in the harness registry), once each, and
+ * whether the skills go there as links or copies. Every harness Ri can run,
+ * not just the default, so one switched to later already has them. A folder
+ * shared by harnesses gets copies if any of them can't use a link.
  */
-export function globalSkillFolders(): string[] {
+export function globalSkillFolders(): Array<{ folder: string; links: boolean }> {
   const home = os.homedir();
-  return [...new Set(KNOWN_HARNESS_IDS.map((id) => path.join(home, HARNESS_REGISTRY[id].globalSkillsDir)))];
+  const folders = new Map<string, boolean>();
+  for (const id of KNOWN_HARNESS_IDS) {
+    const { dir, links } = HARNESS_REGISTRY[id].globalSkills;
+    const folder = path.join(home, dir);
+    folders.set(folder, (folders.get(folder) ?? true) && links);
+  }
+  return [...folders].map(([folder, links]) => ({ folder, links }));
 }
 
 /** Where the user-level install stands on disk, which can differ from the saved choice. */
 export interface GlobalSkillStatus {
-  /** Every shipped skill is linked from every user-level folder to this home's copy. */
+  /** Every shipped skill is in every user-level folder, as this home's link or copy. */
   installed: boolean;
   /**
    * User-level entries holding something else under a shipped skill's name:
-   * someone's own skill, or a link to another Ri home's live copy.
-   * Installing leaves them alone, so they keep that skill from being
-   * installed. A dead link isn't one: installing replaces it.
+   * someone's own skill, or another live Ri home's link or copy. Installing
+   * leaves them alone, so they keep that skill from being installed. A dead
+   * link, or a copy from a home that's gone, isn't one: installing replaces it.
    */
   conflicts: string[];
   /** The folders the skills go in. Paths here are written with `~` for the home folder. */
@@ -136,20 +143,20 @@ export interface GlobalSkillStatus {
 export async function inspectGlobalSkills(): Promise<GlobalSkillStatus> {
   let installed = true;
   const conflicts: string[] = [];
-  for (const { link, state } of globalShippedEntries()) {
+  for (const { dest, state } of globalShippedEntries()) {
     if (state !== 'ours') installed = false;
-    if (state === 'other') conflicts.push(displayHomePath(link));
+    if (state === 'other') conflicts.push(displayHomePath(dest));
   }
-  return { installed, conflicts, folders: globalSkillFolders().map(displayHomePath) };
+  return { installed, conflicts, folders: globalSkillFolders().map(({ folder }) => displayHomePath(folder)) };
 }
 
 /** Each shipped skill's place in every user-level folder, and what's there now. */
-function globalShippedEntries(): Array<{ folder: string; source: string; link: string; state: LinkState }> {
+function globalShippedEntries() {
   const dirs = shippedSkillDirs();
-  return globalSkillFolders().flatMap((folder) =>
+  return globalSkillFolders().flatMap(({ folder, links }) =>
     dirs.map((source) => {
-      const link = path.join(folder, path.basename(source));
-      return { folder, source, link, state: linkState(link, source) };
+      const dest = path.join(folder, path.basename(source));
+      return { folder, links, source, dest, state: entryState(dest, source, links) };
     }),
   );
 }
@@ -160,22 +167,83 @@ export function displayHomePath(p: string): string {
   return p.startsWith(`${home}/`) ? `~${p.slice(home.length)}` : p;
 }
 
-type LinkState = 'ours' | 'missing' | 'dead' | 'other';
+/**
+ * Marks a copied skill folder as one home's, so status and uninstall can tell
+ * it from someone's own skill of that name or another home's copy. Holds the
+ * home's path.
+ */
+const COPY_MARKER = `.${APP_SHORT_ID}-home`;
 
 /**
- * Agentex's test before it installs or removes a link (a link to exactly this
- * source is ours), plus whether a link to anything else still leads anywhere.
+ * What's at a shipped skill's name in a user-level folder:
+ * - `ours`: this home's skill, linked or copied as the folder takes it.
+ * - `replace`: this home's skill in the other form (a link where a copy
+ *   belongs, from before copies), so not usable as it is.
+ * - `missing`: nothing.
+ * - `dead`: a link that leads nowhere, or a copy marked with a home that's
+ *   gone. Nothing can be using it, so installing replaces it.
+ * - `other`: something live that isn't this home's.
+ * A link to exactly this home's copy counts as its, the test agentex applies.
  */
-function linkState(link: string, source: string): LinkState {
+type EntryState = 'ours' | 'replace' | 'missing' | 'dead' | 'other';
+
+function entryState(dest: string, source: string, links: boolean): EntryState {
   let stat: fs.Stats;
   try {
-    stat = fs.lstatSync(link);
+    stat = fs.lstatSync(dest);
   } catch {
     return 'missing';
   }
-  if (!stat.isSymbolicLink()) return 'other';
-  if (path.resolve(path.dirname(link), fs.readlinkSync(link)) === path.resolve(source)) return 'ours';
-  return fs.existsSync(link) ? 'other' : 'dead';
+  if (stat.isSymbolicLink()) {
+    if (path.resolve(path.dirname(dest), fs.readlinkSync(dest)) === path.resolve(source)) return links ? 'ours' : 'replace';
+    return fs.existsSync(dest) ? 'other' : 'dead';
+  }
+  const home = stat.isDirectory() ? readCopyMarker(dest) : null;
+  if (home === null) return 'other';
+  if (path.resolve(home) === path.resolve(getAppRoot())) return links ? 'replace' : 'ours';
+  return fs.existsSync(home) ? 'other' : 'dead';
+}
+
+function readCopyMarker(dir: string): string | null {
+  try {
+    return fs.readFileSync(path.join(dir, COPY_MARKER), 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Copy this home's materialized skill to `dest` with the home's marker, or
+ * leave it when it already matches. Built beside it and swapped in, so a
+ * harness reading the folder never finds half a skill.
+ */
+function writeCopy(source: string, dest: string): 'created' | 'skipped' {
+  const home = getAppRoot();
+  if (readCopyMarker(dest) === home && sameFiles(source, dest)) return 'skipped';
+  const staging = path.join(path.dirname(dest), `.${path.basename(dest)}.${process.pid}.tmp`);
+  fs.rmSync(staging, { recursive: true, force: true });
+  fs.cpSync(source, staging, { recursive: true, dereference: true });
+  fs.writeFileSync(path.join(staging, COPY_MARKER), `${home}\n`);
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.renameSync(staging, dest);
+  return 'created';
+}
+
+/** The copy holds exactly the source's files, byte for byte, besides its marker. */
+function sameFiles(source: string, dest: string): boolean {
+  const files = (dir: string) =>
+    (fs.readdirSync(dir, { recursive: true }) as string[])
+      .filter((file) => file !== COPY_MARKER && fs.statSync(path.join(dir, file)).isFile())
+      .sort();
+  try {
+    const wanted = files(source);
+    const have = files(dest);
+    return wanted.length === have.length
+      && wanted.every((file, i) => file === have[i]
+        && fs.readFileSync(path.join(source, file)).equals(fs.readFileSync(path.join(dest, file))));
+  } catch {
+    return false;
+  }
 }
 
 export async function installAppRootSkills(): Promise<SkillInstallResult> {
@@ -187,22 +255,28 @@ export async function installAppRootSkills(): Promise<SkillInstallResult> {
 }
 
 /**
- * Link the shipped skills into every user-level folder. Agentex's installer
- * only knows the two shared folders, so this links each one itself, with
- * agentex's own idempotent link. A dead link at a shipped name (left by a Ri
- * home that's gone, like a deleted worktree's demo home) is replaced: no tool
- * can read it, and agentex won't replace a link it didn't make, so it would
- * keep the name taken for good. Anything live there stays, as a conflict.
+ * Put the shipped skills in every user-level folder, as links or copies as
+ * each folder takes them, with agentex's own idempotent link. Copies are
+ * refreshed when this home's skill changed, so a restart after an update
+ * carries it. A dead link or a copy from a gone home at a shipped name is
+ * replaced (nothing can read it, and agentex won't replace what it didn't
+ * make, so it would keep the name taken for good), and this home's skill in
+ * the other form is swapped for the right one. Anything live and not this
+ * home's stays, as a conflict.
  */
 export async function installGlobalSkills(): Promise<SkillInstallResult> {
   const { ensureSkillSymlink } = await loadAgentex();
   const entries: SkillInstallEntry[] = [];
-  for (const { folder, source, link, state } of globalShippedEntries()) {
-    const entry = { target: displayHomePath(folder), skillName: path.basename(source), targetPath: link };
+  for (const { folder, links, source, dest, state } of globalShippedEntries()) {
+    const entry = { target: folder, skillName: path.basename(source), targetPath: dest };
+    if (state === 'other') {
+      entries.push({ ...entry, status: 'conflict' });
+      continue;
+    }
     try {
-      if (state === 'dead') fs.unlinkSync(link);
+      if (state === 'dead' || state === 'replace') fs.rmSync(dest, { recursive: true, force: true });
       fs.mkdirSync(folder, { recursive: true });
-      entries.push({ ...entry, status: await ensureSkillSymlink(source, link) });
+      entries.push({ ...entry, status: links ? await ensureSkillSymlink(source, dest) : writeCopy(source, dest) });
     } catch (err) {
       entries.push({ ...entry, status: 'error', error: err instanceof Error ? err.message : String(err) });
     }
@@ -219,17 +293,18 @@ export async function removeAppRootSkills(): Promise<SkillRemoveResult> {
   });
 }
 
-/** Remove only links to this home's copy. Anything else under a shipped name stays. */
+/** Remove only this home's links and copies. Anything else under a shipped name stays. */
 export async function removeGlobalSkills(): Promise<SkillRemoveResult> {
   const entries: SkillRemoveEntry[] = [];
-  for (const { folder, source, link, state } of globalShippedEntries()) {
-    const entry = { target: displayHomePath(folder), skillName: path.basename(source), targetPath: link };
-    if (state !== 'ours') {
+  for (const { folder, source, dest, state } of globalShippedEntries()) {
+    const entry = { target: folder, skillName: path.basename(source), targetPath: dest };
+    if (state !== 'ours' && state !== 'replace') {
       entries.push({ ...entry, status: state === 'missing' ? 'not_found' : 'conflict' });
       continue;
     }
     try {
-      fs.unlinkSync(link);
+      // A link goes, never what it points at: rm doesn't follow links.
+      fs.rmSync(dest, { recursive: true, force: true });
       entries.push({ ...entry, status: 'removed' });
     } catch (err) {
       entries.push({ ...entry, status: 'error', error: err instanceof Error ? err.message : String(err) });

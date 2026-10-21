@@ -85,11 +85,90 @@ describe('workbenchReducer', () => {
   });
 });
 
+describe('the file opened from the chat', () => {
+  it('opens over the view it was opened on, and closing it goes back there', () => {
+    const s = run([{ type: 'show', view: 'changes' }, { type: 'jump', view: 'file' }]);
+    expect(s).toMatchObject({ view: 'file', from: 'changes', last: 'file', tool: 'changes', covered: 'changes' });
+    expect(workbenchReducer(s, { type: 'fileClosed' })).toMatchObject({ view: 'changes', from: null, last: 'changes' });
+  });
+
+  it('opened on a closed panel, closing it closes the panel and Tools reopens the last tool', () => {
+    const s = run([{ type: 'show', view: 'run' }, { type: 'close' }, { type: 'jump', view: 'file' }]);
+    expect(s).toMatchObject({ view: 'file', from: null });
+    const closed = workbenchReducer(s, { type: 'fileClosed' });
+    expect(closed).toMatchObject({ view: null, last: 'run' });
+    expect(workbenchReducer(closed, { type: 'togglePanel' }).view).toBe('run');
+  });
+
+  it('flipping to a tool and back to the file still returns to that tool when it closes', () => {
+    const s = run([{ type: 'show', view: 'changes' }, { type: 'jump', view: 'file' }, { type: 'show', view: 'files' }, { type: 'jump', view: 'file' }]);
+    expect(workbenchReducer(s, { type: 'fileClosed' })).toMatchObject({ view: 'files', last: 'files' });
+  });
+
+  it('hidden and restored (Tools twice, or Escape then Tools), closing it still goes back to what it covered', () => {
+    const open = run([{ type: 'show', view: 'changes' }, { type: 'jump', view: 'file' }]);
+    for (const hide of [{ type: 'togglePanel' }, { type: 'escape' }] as const) {
+      const restored = run([hide, { type: 'togglePanel' }], open);
+      expect(restored).toMatchObject({ view: 'file', from: null, covered: 'changes' });
+      expect(workbenchReducer(restored, { type: 'fileClosed' })).toMatchObject({ view: 'changes', last: 'changes', covered: null });
+    }
+  });
+
+  it('brought back from its card with the panel closed, closing it closes the panel again', () => {
+    const s = run([{ type: 'show', view: 'changes' }, { type: 'jump', view: 'file' }, { type: 'escape' }, { type: 'jump', view: 'file' }]);
+    expect(s).toMatchObject({ view: 'file', covered: null });
+    expect(workbenchReducer(s, { type: 'fileClosed' })).toMatchObject({ view: null, last: 'changes' });
+  });
+
+  it('the Tools toggle hides it and brings it back while it stays open', () => {
+    const s = run([{ type: 'jump', view: 'file' }, { type: 'togglePanel' }]);
+    expect(s.view).toBeNull();
+    expect(workbenchReducer(s, { type: 'togglePanel' }).view).toBe('file');
+  });
+
+  it('closed while hidden, the panel reopens on the last tool, not an empty file view', () => {
+    const s = run([{ type: 'show', view: 'preview' }, { type: 'jump', view: 'file' }, { type: 'close' }, { type: 'fileClosed' }]);
+    expect(s).toMatchObject({ view: null, last: 'preview' });
+  });
+
+  it('a jump out of the file drops the back pill to it once it closes', () => {
+    const s = run([{ type: 'jump', view: 'file' }, { type: 'jump', view: 'files' }]);
+    expect(s.from).toBe('file');
+    expect(workbenchReducer(s, { type: 'fileClosed' })).toMatchObject({ view: 'files', from: null });
+  });
+
+  it('expanded, it stays expanded going back to a tool and ends with the panel', () => {
+    const over = run([{ type: 'show', view: 'changes' }, { type: 'jump', view: 'file' }, { type: 'toggleMaximize' }]);
+    expect(workbenchReducer(over, { type: 'fileClosed' })).toMatchObject({ view: 'changes', maximized: true });
+    const alone = run([{ type: 'jump', view: 'file' }, { type: 'toggleMaximize' }]);
+    expect(workbenchReducer(alone, { type: 'fileClosed' })).toMatchObject({ view: null, maximized: false });
+  });
+
+  it('closing with no file view open changes nothing', () => {
+    const s = run([{ type: 'show', view: 'run' }]);
+    expect(workbenchReducer(s, { type: 'fileClosed' })).toBe(s);
+  });
+});
+
 describe('persistence', () => {
   it('round-trips the durable fields only', () => {
     const s = run([{ type: 'show', view: 'changes' }, { type: 'jump', view: 'files' }, { type: 'toggleMaximize' }, { type: 'toggleTerminal' }]);
     const restored = fromPersisted(JSON.parse(JSON.stringify(toPersisted(s))));
     expect(restored).toMatchObject({ view: 'files', last: 'files', terminalOpen: true, from: null, maximized: false });
+  });
+
+  it('keeps the file view with what it covered, so a reload without the file goes back there', () => {
+    const s = run([{ type: 'show', view: 'changes' }, { type: 'jump', view: 'file' }]);
+    const restored = fromPersisted(JSON.parse(JSON.stringify(toPersisted(s))));
+    expect(restored).toMatchObject({ view: 'file', covered: 'changes', last: 'file', tool: 'changes' });
+    expect(workbenchReducer(restored, { type: 'fileClosed' })).toMatchObject({ view: 'changes', last: 'changes' });
+  });
+
+  it('reads an entry stored before the file view', () => {
+    expect(fromPersisted({ view: 'files', last: 'files', terminalOpen: false })).toMatchObject({ view: 'files', tool: 'files', from: null, covered: null });
+    // What the file covered survives the panel being closed over it.
+    const hidden = run([{ type: 'show', view: 'run' }, { type: 'jump', view: 'file' }, { type: 'togglePanel' }]);
+    expect(fromPersisted(JSON.parse(JSON.stringify(toPersisted(hidden))))).toMatchObject({ view: null, last: 'file', covered: 'run' });
   });
 
   it('falls back field by field on malformed input', () => {
