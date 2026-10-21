@@ -7,10 +7,9 @@ import { HtmlView } from '@/components/chat-ui/artifacts/html-view';
 import { HOTKEYS } from '@/constants/commands';
 import { sessionFolder } from '@/lib/folders/source';
 import { artifactImageSource } from '@/lib/sessions/artifact-image';
-import { pdfDownloadUrl } from '@/lib/sessions/reply-pdf';
 import type { PreviewPlace } from '@/lib/client/preview-place';
 import { cn } from '@/lib/utils';
-import type { ArtifactPreview } from './artifact-previews';
+import { previewDownload, type ArtifactPreview } from './artifact-previews';
 import { PreviewImage } from './preview-image';
 import { PdfView } from './pdf-view';
 
@@ -37,10 +36,15 @@ export function PreviewBody({ preview }: { preview: ArtifactPreview }) {
   return <PdfView key={preview.src} src={preview.src} name={preview.name} />;
 }
 
-/** A PDF downloads under its own name. `compact` is the icon alone, for a narrow panel. */
+/** Every file Ri holds downloads under its own name: PDFs, images and HTML
+ * (`previewDownload`). The browser's PDF viewer has its own button too, but
+ * not every browser shows that viewer (Android's Chrome gets page images),
+ * and this one sits in the same place for every kind. `compact` is the icon
+ * alone, for a narrow panel. */
 export function PreviewDownload({ preview, compact = false }: { preview: ArtifactPreview; compact?: boolean }) {
-  if (preview.kind !== 'pdf') return null;
-  const link = <a href={pdfDownloadUrl(preview.src)} download={preview.name} aria-label={compact ? `Download ${preview.name}` : undefined}><Download />{!compact && 'Download'}</a>;
+  const download = previewDownload(preview);
+  if (!download) return null;
+  const link = <a href={download.href} download={download.name} aria-label={compact ? `Download ${download.name}` : undefined}><Download />{!compact && 'Download'}</a>;
   if (!compact) return <Button asChild variant="ghost" size="sm" className="shrink-0">{link}</Button>;
   return <Tip label="Download"><Button asChild variant="ghost" size="icon-sm" className="shrink-0">{link}</Button></Tip>;
 }

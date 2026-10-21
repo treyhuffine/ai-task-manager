@@ -1,3 +1,7 @@
+import { htmlDownloadUrl, sessionFolder } from '@/lib/folders/source';
+import { protectedImageUrl } from '@/lib/sessions/artifact-image';
+import { pdfDownloadUrl } from '@/lib/sessions/reply-pdf';
+
 /** What a preview shows, large or beside the chat (`artifact-preview-provider.tsx`). */
 export type ArtifactPreview =
   | { kind: 'html'; sessionId: string; path: string }
@@ -5,6 +9,17 @@ export type ArtifactPreview =
   /** `src` serves the PDF (`reply-pdf.ts`). `source` is where it is: the path
    * the agent wrote, or the uploaded file's name. */
   | { kind: 'pdf'; src: string; name: string; source: string };
+
+/** Where a preview's file downloads from, and under what name: the PDF
+ * route's download, the HTML route's (the file as written, not the preview),
+ * or an image's own URL when Ri serves it or the reply embeds it. A web
+ * image stays the web's, so it has none. */
+export function previewDownload(preview: ArtifactPreview): { href: string; name: string } | null {
+  if (preview.kind === 'pdf') return { href: pdfDownloadUrl(preview.src), name: preview.name };
+  if (preview.kind === 'html') return { href: htmlDownloadUrl(sessionFolder(preview.sessionId), preview.path), name: preview.path.split('/').at(-1) || preview.path };
+  if (protectedImageUrl(preview.src) || preview.src.startsWith('data:')) return { href: preview.src, name: preview.name };
+  return null;
+}
 
 /** The cards Previous and Next move between, large or beside the chat: the
  * ones in the same chat transcript (the `role="log"` around a conversation),

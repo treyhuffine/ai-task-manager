@@ -24,9 +24,10 @@ async function setup() {
   fs.writeFileSync(path.join(home.root, 'outside.html'), '<p>outside</p>');
   const ws = q.createWorkspace({ name: 'Site', cwd: folder, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
   const { GET } = await import('./route');
-  const get = async (requested: string, id = ws.id) => {
+  const get = async (requested: string, id = ws.id, download = false) => {
     const url = new URL(`http://ri.local/api/workspaces/${id}/html`);
     url.searchParams.set('path', requested);
+    if (download) url.searchParams.set('download', '1');
     const response = await GET(new NextRequest(url), { params: Promise.resolve({ id }) });
     return { status: response.status, headers: response.headers, body: Buffer.from(await response.arrayBuffer()).toString('utf8') };
   };
@@ -40,6 +41,17 @@ it("streams HTML from the agent's folder, larger than the file viewer cap", asyn
   expect(response.headers.get('content-security-policy')).toMatch(/^sandbox allow-scripts; /);
   expect(response.body.length).toBeGreaterThan(1024 * 1024);
   expect(response.body).toContain('<h1>Site</h1>');
+});
+
+it('downloads the file as written, under its own name, inside the folder only', async () => {
+  const { ws, folder, get } = await setup();
+  const response = await get('site/index.html', ws.id, true);
+  expect(response.status).toBe(200);
+  expect(response.body).toBe(fs.readFileSync(path.join(folder, 'site', 'index.html'), 'utf8'));
+  expect(response.headers.get('content-disposition')).toBe(`attachment; filename="index.html"; filename*=UTF-8''index.html`);
+  const outside = await get('../outside.html', ws.id, true);
+  expect(outside.status).toBe(400);
+  expect(outside.headers.get('content-disposition')).toBeNull();
 });
 
 it('stays inside the folder', async () => {

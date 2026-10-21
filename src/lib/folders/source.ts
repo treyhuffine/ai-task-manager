@@ -34,6 +34,11 @@ export function htmlPreviewUrl(source: FolderSource, path: string, theme: 'light
   return `/api${folderApiBase(source)}/html?path=${encodeURIComponent(path)}&theme=${theme}`;
 }
 
+/** An HTML file in the folder, saved as written under its own name (its `html` route's `download=1`). */
+export function htmlDownloadUrl(source: FolderSource, path: string): string {
+  return `/api${folderApiBase(source)}/html?path=${encodeURIComponent(path)}&download=1`;
+}
+
 /** A PDF in the folder, through its `pdf` route (`src/lib/attachments/pdf-delivery.ts`). */
 export function folderPdfUrl(source: FolderSource, path: string): string {
   return `/api${folderApiBase(source)}/pdf?path=${encodeURIComponent(path)}`;

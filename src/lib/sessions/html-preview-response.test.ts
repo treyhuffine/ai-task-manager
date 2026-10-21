@@ -176,6 +176,41 @@ describe('htmlFilePreviewResponse', () => {
   });
 });
 
+describe('downloading the file (download=1)', () => {
+  it('saves the file exactly as written, none of Ri\'s parts, under its own name', async () => {
+    const html = '\uFEFF<!doctype html><html><head><title>Plan</title></head><body><h1>Q3</h1></body></html>';
+    const response = await htmlFilePreviewResponse(request({ 'if-none-match': '*' }), write('plan.html', html), 'dark', 'Q3 plan é.html');
+    expect(response.status).toBe(200);
+    expect(await text(response)).toBe(html);
+    expect(response.headers.get('content-disposition')).toBe(`attachment; filename="Q3 plan _.html"; filename*=UTF-8''Q3%20plan%20%C3%A9.html`);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('etag')).toBeNull();
+  });
+
+  it('streams a large file whole', async () => {
+    const big = `<!doctype html><pre>${'0123456789abcdef'.repeat(MAX_PREVIEW_BYTES / 8)}</pre>`;
+    const response = await htmlFilePreviewResponse(request(), write('big.html', big), 'dark', 'big.html');
+    expect(await text(response)).toBe(big);
+  });
+
+  it('refuses what the preview refuses', async () => {
+    const secret = write('secret.txt', 'never shown');
+    fs.symlinkSync(secret, path.join(dir, 'disguised.html'));
+    const response = await htmlFilePreviewResponse(request(), path.join(dir, 'disguised.html'), 'dark', 'disguised.html');
+    expect(response.status).toBe(415);
+    expect(response.headers.get('content-disposition')).toBeNull();
+    expect(await text(response)).not.toContain('never shown');
+  });
+
+  it('saves what a connected device read, and names its cap as a download\'s', async () => {
+    const saved = htmlAnswerPreviewResponse(request(), { status: 200, body: { content: '<!doctype html><p>From the laptop</p>', isBinary: false } }, 'dark', 'Laptop', 'laptop.html');
+    expect(await text(saved)).toBe('<!doctype html><p>From the laptop</p>');
+    expect(saved.headers.get('content-disposition')).toContain('attachment; filename="laptop.html"');
+    const tooLarge = htmlAnswerPreviewResponse(request(), { status: 200, body: { content: null, tooLarge: true, size: 3 * 1024 * 1024 } }, 'dark', 'Laptop', 'big.html');
+    expect(await text(tooLarge)).toContain('Downloads from another device stop at 1 MiB.');
+  });
+});
+
 describe('htmlAnswerPreviewResponse', () => {
   it('serves HTML a connected device read, with the same head and tail', async () => {
     const response = htmlAnswerPreviewResponse(request(), { status: 200, body: { content: '<!doctype html><p>From the laptop</p>', isBinary: false } }, 'dark', 'Laptop');

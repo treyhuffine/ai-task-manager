@@ -4,7 +4,8 @@
  * An HTML file from an agent's own folder, served as the document its
  * preview iframe loads (`src/lib/sessions/html-preview-response.ts`). The
  * same reach as `/api/workspaces/:id/file`: inside the folder only, on the
- * device the agent lives on.
+ * device the agent lives on. With `&download=1` it saves the file as
+ * written, under its own name, instead.
  *
  * Auth: bearer token or the session cookie (`src/proxy.ts`), which is what an
  * iframe sends.
@@ -27,6 +28,9 @@ import { sanitizeRelPath } from '@/lib/workspaces/read-file';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const theme = htmlPreviewTheme(request.nextUrl.searchParams.get('theme'));
+  // `download=1`: the file as written, under its own name, instead of the preview.
+  const requestedPath = request.nextUrl.searchParams.get('path');
+  const download = request.nextUrl.searchParams.get('download') === '1' && requestedPath ? path.basename(requestedPath) : undefined;
   try {
     const { id } = await params;
     const requested = request.nextUrl.searchParams.get('path');
@@ -40,13 +44,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const deviceId = agentDeviceFor(id);
     if (deviceId) {
       const answer = await agentFolderAnswer(id, { kind: 'file', path: requested, base: false });
-      return htmlAnswerPreviewResponse(request, answer, theme, getDevice(deviceId)?.name ?? 'its device');
+      return htmlAnswerPreviewResponse(request, answer, theme, getDevice(deviceId)?.name ?? 'its device', download);
     }
 
     if (!isExistingDir(ws.cwd)) return htmlPreviewErrorResponse(409, `The agent's folder does not exist: ${ws.cwd}`, theme);
     const relative = sanitizeRelPath(requested);
     if (!relative) return htmlPreviewErrorResponse(400, `Invalid path: ${requested}`, theme);
-    return await htmlFilePreviewResponse(request, path.join(ws.cwd, relative), theme);
+    return await htmlFilePreviewResponse(request, path.join(ws.cwd, relative), theme, download);
   } catch (err) {
     console.error('[GET /api/workspaces/:id/html]', err);
     return htmlPreviewErrorResponse(500, 'This preview could not be loaded.', theme);

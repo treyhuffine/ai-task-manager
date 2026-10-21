@@ -1,6 +1,6 @@
 import { DOMParser } from 'linkedom';
 import { describe, expect, it } from 'vitest';
-import { artifactSequence, sameArtifact } from './artifact-previews';
+import { artifactSequence, previewDownload, sameArtifact } from './artifact-previews';
 
 // Two chats on one page, a slideout, and loose cards: Previous and Next stay
 // in the clicked card's own group, in document order.
@@ -55,5 +55,20 @@ describe('sameArtifact', () => {
     expect(sameArtifact(pdf, { ...pdf, name: 'Renamed' })).toBe(true);
     expect(sameArtifact(pdf, { ...pdf, src: '/api/attachments/x.pdf' })).toBe(false);
     expect(sameArtifact(pdf, { kind: 'image', src: pdf.src, name: 'r.pdf', alt: '' })).toBe(false);
+  });
+});
+
+describe('previewDownload', () => {
+  it('downloads every file Ri holds under its own name, and leaves a web image to the web', () => {
+    expect(previewDownload({ kind: 'pdf', src: '/api/attachments/x.pdf?name=Plan.pdf', name: 'Plan.pdf', source: 'Plan.pdf' }))
+      .toEqual({ href: '/api/attachments/x.pdf?name=Plan.pdf&download=1', name: 'Plan.pdf' });
+    expect(previewDownload({ kind: 'html', sessionId: 's1', path: '/tmp/out/summary.html' }))
+      .toEqual({ href: '/api/sessions/s1/html?path=%2Ftmp%2Fout%2Fsummary.html&download=1', name: 'summary.html' });
+    expect(previewDownload({ kind: 'image', src: '/api/attachments/01a.png', name: 'Screenshot.png', alt: '' }))
+      .toEqual({ href: '/api/attachments/01a.png', name: 'Screenshot.png' });
+    expect(previewDownload({ kind: 'image', src: '/api/sessions/s1/reply-image?path=%2Ftmp%2Fshot.png', name: 'shot.png', alt: '' }))
+      .toEqual({ href: '/api/sessions/s1/reply-image?path=%2Ftmp%2Fshot.png', name: 'shot.png' });
+    expect(previewDownload({ kind: 'image', src: 'data:image/png;base64,AAAA', name: 'image.png', alt: '' })?.href).toBe('data:image/png;base64,AAAA');
+    expect(previewDownload({ kind: 'image', src: 'https://github.com/x/y/raw/shot.png', name: 'shot.png', alt: '' })).toBeNull();
   });
 });

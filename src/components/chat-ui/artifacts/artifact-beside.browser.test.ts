@@ -9,6 +9,7 @@ import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { makePdf } from '@/test/fixtures/pdf';
 import { pdfResponse } from '@/lib/attachments/pdf-delivery';
 import { HTML_PREVIEW_RESPONSE_CSP, HTML_PREVIEW_TAIL, htmlPreviewHead } from '@/lib/sessions/html-preview-document';
+import { htmlFilePreviewResponse } from '@/lib/sessions/html-preview-response';
 import { PREVIEW_PLACE_KEY } from '@/lib/client/preview-place';
 
 // Files beside the chat, in a real Chromium with its PDF viewer: a chat and
@@ -33,6 +34,7 @@ beforeAll(async () => {
   fs.mkdirSync(files);
   fs.writeFileSync(path.join(files, 'member-offers.pdf'), REPORT);
   fs.writeFileSync(path.join(files, 'agenda.pdf'), AGENDA);
+  fs.writeFileSync(path.join(files, 'gallery.html'), galleryArtifact);
   const bundle = await build({
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
       import React, { useEffect, useState } from 'react';
@@ -71,6 +73,10 @@ beforeAll(async () => {
         return <QueryClientProvider client={client}><TipProvider><ArtifactPreviewProvider>
           <div className="flex h-dvh">
             <div data-preview-host={host} className="flex min-w-0 flex-1 flex-col">
+              {/* An earlier conversation in the same surface: its own Previous and Next. */}
+              <section role="log" aria-label="Earlier chat" className="px-6 pt-3">
+                <MessageFileChip attachment={{ fileName: 'diagram.svg', originalName: 'Team diagram.svg', mimeType: 'image/svg+xml', size: 160, uploadedAt: '2026-10-19T10:00:00Z' }} variant="block" />
+              </section>
               <section role="log" aria-label="Chat" className="min-h-0 flex-1 overflow-y-auto p-6 space-y-3">
                 <p>Here is the report:</p>
                 <PdfPreviewCard src={sessionPdfUrl('fixture', '/tmp/exports/member-offers.pdf')} name="member-offers.pdf" source="/tmp/exports/member-offers.pdf" />
@@ -116,6 +122,11 @@ beforeAll(async () => {
     } else if (url.pathname.endsWith('.svg')) {
       res.setHeader('Content-Type', 'image/svg+xml');
       res.end('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#0f766e"/></svg>');
+    } else if (url.pathname === '/api/sessions/fixture/html' && url.searchParams.get('download') === '1') {
+      // The real download: the file as written, under its name.
+      const response = await htmlFilePreviewResponse(new Request(`http://fixture${req.url}`), path.join(files, 'gallery.html'), 'dark', 'gallery.html');
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      res.end(Buffer.from(await response.arrayBuffer()));
     } else if (url.pathname === '/api/sessions/fixture/html') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Security-Policy', HTML_PREVIEW_RESPONSE_CSP);
@@ -145,7 +156,7 @@ afterAll(async () => {
 });
 
 async function openPage() {
-  const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
   await page.goto(address);
@@ -330,6 +341,34 @@ it.skipIf(!enabled)('keeps the arrow keys working after Next disables at the las
     await expect.poll(() => last.evaluate(element => element.contains(document.activeElement))).toBe(true);
     await page.keyboard.press('ArrowLeft');
     await view(page, 'gallery.html').getByText('3 of 4', { exact: true }).waitFor();
+  } finally { await page.context().close(); }
+}, 60_000);
+
+it.skipIf(!enabled)('downloads every kind of file under its own name, HTML as written rather than as previewed', async () => {
+  const page = await openPage();
+  const save = async (link: ReturnType<Page['locator']>) => {
+    const [download] = await Promise.all([page.waitForEvent('download'), link.click()]);
+    return { name: download.suggestedFilename(), bytes: fs.readFileSync((await download.path())!) };
+  };
+  try {
+    await card(page, 'Open HTML: gallery.html').click();
+    const html = await save(view(page, 'gallery.html').getByRole('link', { name: 'Download gallery.html' }));
+    expect(html.name).toBe('gallery.html');
+    expect(html.bytes.toString('utf8')).toBe(galleryArtifact);
+
+    await card(page, 'Open image: Team diagram.svg').click();
+    const image = await save(view(page, 'Team diagram.svg').getByRole('link', { name: 'Download Team diagram.svg' }));
+    expect(image.name).toBe('Team diagram.svg');
+    expect(image.bytes.toString('utf8')).toContain('<svg');
+
+    await card(page, 'Open PDF: member-offers.pdf').click();
+    const pdf = await save(view(page, 'member-offers.pdf').getByRole('link', { name: 'Download member-offers.pdf' }));
+    expect(pdf.name).toBe('member-offers.pdf');
+    expect(pdf.bytes.equals(REPORT)).toBe(true);
+
+    // An image Ri doesn't serve (from the web) has no Download: the header shows where it is.
+    await card(page, 'Open image: shot.svg').click();
+    expect(await view(page, 'shot.svg').getByRole('link', { name: /^Download/ }).count()).toBe(0);
   } finally { await page.context().close(); }
 }, 60_000);
 

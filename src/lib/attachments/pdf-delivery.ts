@@ -20,7 +20,7 @@
 
 import { createReadStream, promises as fs } from 'node:fs';
 import { Readable } from 'node:stream';
-import { UNTRUSTED_DOCUMENT_HEADERS } from './delivery';
+import { UNTRUSTED_DOCUMENT_HEADERS, contentDisposition } from './delivery';
 import { PDF_PAGE_WIDTH, PDF_THUMBNAIL_WIDTH, PdfRenderError, pdfVersion, renderPdfPage } from './pdf-render';
 
 /** The extension this serves, checked on the requested and the real path. */
@@ -39,12 +39,6 @@ const PDF_HEADERS = {
 
 export function pdfError(status: number, error: string): Response {
   return Response.json({ error }, { status, headers: { 'Cache-Control': 'no-store' } });
-}
-
-/** `inline` or `attachment`, with the name in both header forms. */
-function disposition(kind: 'inline' | 'attachment', name: string): string {
-  const fallback = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
-  return `${kind}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 function matches(header: string | null, etag: string): boolean {
@@ -99,7 +93,7 @@ export async function pdfResponse(request: Request, file: string, name: string):
   const etag = `"${stat.size.toString(36)}-${Math.trunc(stat.mtimeMs).toString(36)}-${stat.ino.toString(36)}"`;
   const headers: Record<string, string> = {
     ...PDF_HEADERS,
-    'Content-Disposition': disposition(query.get('download') === '1' ? 'attachment' : 'inline', name),
+    'Content-Disposition': contentDisposition(query.get('download') === '1' ? 'attachment' : 'inline', name),
     'Accept-Ranges': 'bytes',
     ETag: etag,
     'Cache-Control': 'private, no-cache',
