@@ -74,8 +74,11 @@ the skill's chats follow it.
   none), OpenCode gets them through its session config, and Antigravity
   gets a temporary `.agents/skills` folder added with `--add-dir`, plus each
   skill's real folder, since headless agy won't read a linked file outside
-  its workspace (agentex 0.0.46). Cursor sessions don't take them yet
-  (agentex reads `skillDirs` only on Cursor's one-shot path).
+  its workspace (agentex 0.0.46). Cursor gets a temporary plugin of copies
+  passed with `--plugin-dir`, copied in fresh before every turn, since a new
+  `--add-dir` folder needs Cursor's workspace trust and a plugin loads only
+  real folders (agentex 0.0.47). Before that, Cursor chats linked them into
+  `~/.cursor/skills` for good. agentex 0.0.47 clears those links.
 - Global and project skills aren't attached: every harness reads those
   folders on its own, from the user's home and from the chat's working folder.
   An execution's worktree has the project's committed skills. An uncommitted
@@ -111,7 +114,8 @@ manage tasks and notes from any project. That global install:
   with the home's path (`.ri-home`) so status and uninstall can tell it from
   someone else's. Copies refresh on install and every `ri start`, so an
   update reaches them, and a link left there from before copies is swapped
-  for one. Cursor and OpenCode weren't installed to check links with. Ri
+  for one. Cursor read a linked skill outside its workspace in agentex's
+  checks (CLI 2026.10.19). OpenCode wasn't installed to check links with. Ri
   does this itself (`installGlobalSkills`), since agentex only links.
 - Happens at the very start of first-run setup without a question: in the
   web, as a new home's conversation opens, before a harness is checked or

@@ -149,11 +149,12 @@ export async function prepareAgentMainChatSpawn(args: AgentMainChatSpawnArgs): P
 
 /**
  * Providers that materialize `skillDirs` inside the session's cwd (Codex
- * symlinks them into `<cwd>/.agents/skills`, agentex 0.0.37). Claude and
- * Antigravity build a temp dir added with `--add-dir` (Antigravity since
- * agentex 0.0.46), and the rest use the user's home. An agent's main chat
- * runs in the user's own folder, so on these it gets no `skillDirs` rather
- * than leaving files behind.
+ * symlinks them into `<cwd>/.agents/skills`, agentex 0.0.37). The rest never
+ * write there: Claude and Antigravity get a temp dir added with `--add-dir`,
+ * Cursor a temporary plugin (agentex 0.0.47), OpenCode a temporary config,
+ * and Pi each skill by path. An agent's main chat runs in the user's own
+ * folder, so on these it gets no `skillDirs` rather than leaving files
+ * behind.
  */
 const WRITES_SKILLS_INTO_CWD = new Set(['codex']);
 

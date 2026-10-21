@@ -65,7 +65,8 @@ export interface HarnessDefinition {
    * `.gemini/config/skills`. Claude Code and Codex use a linked skill. agy
    * lists one but, headless and without skipping permissions, is denied
    * reading it when its real folder is outside the chat's workspace, so it
-   * gets copies. Cursor and OpenCode weren't installed to check links with.
+   * gets copies. Cursor (CLI 2026.10.19) read a linked skill outside its
+   * workspace in agentex's checks. OpenCode wasn't installed to check.
    */
   globalSkills: { dir: string; links: boolean };
   maximumCapabilities: HarnessCapabilities;
