@@ -95,11 +95,13 @@ existing `SecretBox` (same pattern as connection creds / client secrets).
 Every access check and integration call reads this store, several times each,
 and it changes only when a server is added, changed or rediscovered. So each
 process keeps the parsed document in memory, frozen, and reads the disk again
-only when the file is a different one (its inode, size or time changed, as a
-write from any process makes it). A check costs the same whatever the servers'
-tool lists hold: with a 2,000-tool server in a 28 MB store, 0.5 ms instead of
-54 ms. Writes edit copies of the rows they change and leave the new document
-in memory.
+only when the file is a different one (its inode, size or time changed). Every
+write, from any process, sets the file's time past the one it replaces, so each
+version is a different file even where a filesystem reuses the freed inode and
+moves time once per kernel tick (Linux). A check costs the same whatever the
+servers' tool lists hold: with a 2,000-tool server in a 28 MB store, 0.5 ms
+instead of 54 ms. Writes edit copies of the rows they change, still write the
+whole store, and leave the new document in memory.
 
 ```ts
 interface McpServerEntry {

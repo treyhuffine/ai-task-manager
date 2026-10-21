@@ -128,7 +128,8 @@ export function mcpServerProtocol(facts: {
 }, checkedAt: string): McpServerProtocol {
   const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const text = (value: unknown, max: number) => typeof value === 'string' && value.length <= max ? value : undefined;
-  const merged = { ...record(facts.capabilities?.experimental), ...record(facts.capabilities?.extensions) };
+  // Copied: what's kept is frozen with the store, and these objects belong to the client that reported them.
+  const merged = structuredClone({ ...record(facts.capabilities?.experimental), ...record(facts.capabilities?.extensions) });
   const extensions = Object.fromEntries(Object.entries(merged).filter(([key, value]) => key.length <= 200 && value && typeof value === 'object' && !Array.isArray(value))) as Record<string, Record<string, unknown>>;
   const info = record(facts.info);
   const icons = safeMcpIcons(info.icons);
@@ -351,8 +352,14 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
   const writeDocument = (document: StoredDocument): void => {
     fs.mkdirSync(deps.dir, { recursive: true, mode: 0o700 });
     const tmp = `${file}.${process.pid}.tmp`;
+    const before = fs.statSync(file, { throwIfNoEntry: false });
     // Compact: the store is read on every access check, and indentation is a third of its size.
     fs.writeFileSync(tmp, JSON.stringify(document), { mode: 0o600 });
+    // Each version is newer than the last, so its stamp is new even where a filesystem reuses the
+    // freed inode and times move once per kernel tick (Linux): another process can never take an
+    // older document for this one. Writes are serialized by the lock, so the times only go up.
+    const at = new Date(Math.max(Date.now(), (before?.mtimeMs ?? 0) + 1));
+    fs.utimesSync(tmp, at, at);
     fs.renameSync(tmp, file);
     try {
       fs.chmodSync(file, 0o600);

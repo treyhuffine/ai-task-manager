@@ -55,6 +55,26 @@ describe('the store kept in memory', () => {
     } finally { reads.mockRestore(); }
   });
 
+  it('gives every version of the file a newer time, so another process never takes an older one for it', async () => {
+    // Linux reuses the freed inode on each rename and moves times once per tick, so two versions of the
+    // same size could share a stamp. With the clock standing still, every write is still newer than the last.
+    const store = freshStore();
+    const file = path.join(dirs.at(-1)!, 'mcp-servers.json');
+    const entry = await create(store);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(0);
+    try {
+      const times: number[] = [], sizes = new Set<number>();
+      for (const name of ['Alpha', 'Bravo', 'Delta', 'Gamma']) {
+        await store.update(entry.id, { displayName: name });
+        times.push(fs.statSync(file).mtimeMs);
+        sizes.add(fs.statSync(file).size);
+      }
+      expect(sizes.size).toBe(1);
+      // Each version is set one millisecond past the one it replaced, whatever the clock says.
+      for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeCloseTo(1, 3);
+    } finally { clock.mockRestore(); }
+  });
+
   it('shares one frozen document: a reader can\'t change it, and a write leaves what others hold as it was', async () => {
     const store = freshStore();
     const entry = await create(store);
