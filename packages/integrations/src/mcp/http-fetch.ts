@@ -115,7 +115,8 @@ export async function mcpHttpFetch(options: { maxMessageBytes?: number; maxContr
       // Keep the request cancellable after headers arrive, including an SSE body, and count
       // what each message holds so no server can make Ri buffer without bound.
       const reader = response.body.getReader();
-      const measure = messageMeter((response.headers.get('content-type') ?? '').toLowerCase().includes('text/event-stream'));
+      const eventStream = (response.headers.get('content-type') ?? '').toLowerCase().includes('text/event-stream');
+      const measure = messageMeter(eventStream);
       const body = new ReadableStream<Uint8Array>({
         async pull(controller) {
           try {
@@ -128,7 +129,13 @@ export async function mcpHttpFetch(options: { maxMessageBytes?: number; maxContr
               release(); operation?.abort();
               await reader.cancel().catch(() => {});
               reader.releaseLock();
-              controller.error(listing ? new McpMessageTooLargeError(maxToolListBytes, 'a tool list') : new McpMessageTooLargeError(limit));
+              const error = listing ? new McpMessageTooLargeError(maxToolListBytes, 'a tool list') : new McpMessageTooLargeError(limit);
+              // An event stream that breaks off leaves its request waiting for an answer until it times out,
+              // so answer the request itself with the error, after ending the event that was cut short.
+              if (eventStream && id !== undefined) {
+                controller.enqueue(new TextEncoder().encode(`\n\nevent: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: error.message } })}\n\n`));
+                controller.close();
+              } else controller.error(error);
               return;
             }
             controller.enqueue(chunk.value);
