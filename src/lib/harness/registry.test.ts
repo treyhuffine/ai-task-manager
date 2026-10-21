@@ -32,15 +32,16 @@ describe('harness registry', () => {
     expect(new Set(icons).size).toBe(icons.length);
   });
 
-  it('names the folder each harness reads skills from in every project', () => {
-    // Checked against each CLI (agy 1.4.3 with probe skills): Antigravity reads
-    // neither shared folder outside a project, only its own config folder.
-    expect(Object.fromEntries(KNOWN_HARNESS_IDS.map((id) => [id, HARNESS_REGISTRY[id].globalSkillsDir]))).toEqual({
-      codex: '.agents/skills',
-      claude: '.claude/skills',
-      cursor: '.agents/skills',
-      opencode: '.agents/skills',
-      antigravity: '.gemini/config/skills',
+  it('names the folder each harness reads skills from in every project, and whether a link works there', () => {
+    // Checked against each CLI with probe skills: Antigravity reads neither
+    // shared folder outside a project, and headless agy can't read a linked
+    // skill whose real folder is outside the chat, so it gets copies.
+    expect(Object.fromEntries(KNOWN_HARNESS_IDS.map((id) => [id, HARNESS_REGISTRY[id].globalSkills]))).toEqual({
+      codex: { dir: '.agents/skills', links: true },
+      claude: { dir: '.claude/skills', links: true },
+      cursor: { dir: '.agents/skills', links: true },
+      opencode: { dir: '.agents/skills', links: true },
+      antigravity: { dir: '.gemini/config/skills', links: false },
     });
   });
 

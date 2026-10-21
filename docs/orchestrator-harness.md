@@ -236,7 +236,8 @@ set and no execution:
   the orchestrator MCP over the session config. Codex would symlink
   `skillDirs` into the folder, so it gets none. Antigravity reads the
   instructions file and sends it ahead of the chat's first message (its
-  `skillDirs` go to `~/.gemini/antigravity-cli/skills`, never the folder).
+  `skillDirs` go in a temporary folder added with `--add-dir`, never the
+  folder, since agentex 0.0.46).
   Cursor and OpenCode drop session instructions, so the brief rides the
   first message of a fresh chat.
 - **Scope.** The same as its executions: its integration scopes (when the

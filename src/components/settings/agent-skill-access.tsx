@@ -71,7 +71,7 @@ export function AgentSkillAccess() {
         <>
           <p className="mt-1 text-xs text-muted-foreground">
             {HARNESS_NAMES} can manage your tasks and notes from any project on this computer, whichever one you
-            use. {APP_NAME} links two skills into each one&apos;s skill folder, one for tasks and notes and one for the
+            use. {APP_NAME} puts two skills in each one&apos;s skill folder, one for tasks and notes and one for the
             agent browser. Your projects are never changed. Uninstall in one click any time.
           </p>
           <div className="mt-2 flex items-center gap-3 rounded-md border border-border px-3 py-2 text-xs">

@@ -72,9 +72,10 @@ the skill's chats follow it.
   is agentex's business: Claude gets a temporary folder, Codex links them
   into the chat's `.agents/skills` (so an agent's main chat on Codex gets
   none), OpenCode gets them through its session config, and Antigravity
-  links them into `~/.gemini/antigravity-cli/skills`, which agy 1.4.3 doesn't
-  read (see Not built yet). Cursor sessions don't take them yet (agentex reads
-  `skillDirs` only on Cursor's one-shot path).
+  gets a temporary `.agents/skills` folder added with `--add-dir`, plus each
+  skill's real folder, since headless agy won't read a linked file outside
+  its workspace (agentex 0.0.46). Cursor sessions don't take them yet
+  (agentex reads `skillDirs` only on Cursor's one-shot path).
 - Global and project skills aren't attached: every harness reads those
   folders on its own, from the user's home and from the chat's working folder.
   An execution's worktree has the project's committed skills. An uncommitted
@@ -91,40 +92,49 @@ the skill's chats follow it.
 Ri ships two skills of its own, `agent-work-tasks-notes_ri` (tasks, notes, the
 deck) and `agent-browser_ri` (the agent browser). They're always linked into
 the home's own `.claude/skills` and `.agents/skills`, so chats started there
-have them. Linked into the global folders too, they let every coding tool Ri
-runs manage tasks and notes from any project. That global install:
+have them. Put in the global folders too, they let every coding tool Ri runs
+manage tasks and notes from any project. That global install:
 
 - Goes into every harness's own folder for skills in every project
-  (`globalSkillsDir` in `src/lib/harness/registry.ts`), not just the
+  (`globalSkills` in `src/lib/harness/registry.ts`), not just the
   default's, so a person who switches harnesses later finds them there:
   `~/.agents/skills` (Codex, Cursor, OpenCode), `~/.claude/skills` (Claude
   Code, also read by Cursor and OpenCode) and `~/.gemini/config/skills`
-  (Antigravity). Checked 2026-10-20 against each CLI's docs, and for
-  Antigravity with probe skills in each candidate folder: agy 1.4.3 reads
-  only `~/.gemini/config/skills` outside a project, neither shared folder nor
-  `~/.gemini/antigravity-cli/skills`. Agentex's installer knows only the two
-  shared folders, so Ri links each folder itself (`installGlobalSkills`).
+  (Antigravity). Checked 2026-10-20 and 21 against each CLI's docs, and with
+  probe skills whose body held a codeword: agy 1.4.3 reads only
+  `~/.gemini/config/skills` outside a project, neither shared folder nor
+  `~/.gemini/antigravity-cli/skills`.
+- Links where a link works and copies where it doesn't. Claude Code and
+  Codex use a linked skill. agy lists one, but headless agy that doesn't
+  skip permissions is denied reading it when its real folder is outside the
+  chat's workspace, so Antigravity's folder gets real copies, each marked
+  with the home's path (`.ri-home`) so status and uninstall can tell it from
+  someone else's. Copies refresh on install and every `ri start`, so an
+  update reaches them, and a link left there from before copies is swapped
+  for one. Cursor and OpenCode weren't installed to check links with. Ri
+  does this itself (`installGlobalSkills`), since agentex only links.
 - Happens at the very start of first-run setup without a question: in the
   web, as a new home's conversation opens, before a harness is checked or
   picked (`agent-skill-install.ts`), and in the terminal wizard through
   `configureGlobalSkill`. Either way only when the home hasn't chosen. Most
   people want it, and few could answer the question before they've used
   Ri. A home seeded with `globalSkillEnabled: false` (an isolated or dev
-  home) is never switched on, since the global links belong to whichever Ri
+  home) is never switched on, since the global skills belong to whichever Ri
   installed them.
 - Is shown, with one-click install and uninstall, in two places: a Get started
   item (usually where someone learns it's on) and External AI, its home, next
   to the keyed connections for assistants elsewhere
   (`src/components/settings/agent-skill-access.tsx`). Models no longer carries it.
 - Reports what's on disk, not the saved choice (`inspectGlobalSkills`): a
-  link deleted by hand reads as not installed, and an entry holding the name
-  that isn't Ri's link (someone's own skill, another live home's copy) is
-  named so the person can move it. A dead link at a shipped name (left by a
-  home that's gone, like a deleted worktree's demo home) is neither: no tool
-  can read it, so installing replaces it. Otherwise installing and
-  uninstalling touch only Ri's own links, never a project.
+  link or copy deleted by hand reads as not installed, and an entry holding
+  the name that isn't this home's (someone's own skill, another live home's
+  link or copy) is named so the person can move it. A dead link, or a copy
+  marked with a home that's gone (like a deleted worktree's demo home), is
+  neither: no tool can be using it, so installing replaces it. Otherwise
+  installing and uninstalling touch only this home's links and copies, never
+  a project.
 - Uninstalled on purpose counts as skipped in Get started, so it isn't asked
-  again. `ri start` re-links it only while the saved choice is on.
+  again. `ri start` reinstalls it only while the saved choice is on.
 - Isn't offered in the desktop app, which keeps the skills in its own home
   (docs/desktop.md).
 
@@ -262,20 +272,16 @@ home backups and comparisons include `skill-drafts` (`src/lib/home/`).
 | `src/lib/skills/manage.ts` | Everything the routes and actions do, keeping folders, links and chats in step |
 | `src/lib/skills/exclusions.ts` | What a builder or try chat gets differently |
 | `src/lib/skills/builder-brief.ts` | The builder chat's brief |
-| `src/lib/agent-skills/shipped.ts` | Ri's shipped skills: materializing, the home and global links, `inspectGlobalSkills` |
+| `src/lib/agent-skills/shipped.ts` | Ri's shipped skills: materializing, the home links, the global links and copies, `inspectGlobalSkills` |
 | `src/components/settings/agent-skill-access.tsx` | The one-click install and uninstall in Get started and External AI |
 
 ## Not built yet
 
-- **Antigravity outside the two shared folders.** Two things still assume
-  Antigravity reads `~/.agents/skills` or `~/.gemini/antigravity-cli/skills`,
-  and agy 1.4.3 reads neither outside a project (checked 2026-10-20): agentex
-  links a chat's `skillDirs` into `~/.gemini/antigravity-cli/skills`, so Ri's
-  own skills don't reach Antigravity chats Ri starts, and a **Global** skill
-  made in Plugins lands in `~/.claude/skills` and `~/.agents/skills` only.
-  The fix for the first is agentex's Antigravity folder
-  (`~/.gemini/config/skills`). The second can follow the shipped skills and
-  link into every `globalSkillsDir`.
+- **Global skills for Antigravity.** A **Global** skill made in Plugins
+  lands in `~/.claude/skills` and `~/.agents/skills` only, and agy reads
+  neither outside a project. Following the shipped skills means a marked
+  copy in `~/.gemini/config/skills`, kept in step with every edit, since agy
+  can't read a link there.
 
 - **Skills on other devices.** A chat running on a connected device reads that
   device's own Ri skills folder, and Ri's skills aren't synced there (true of
