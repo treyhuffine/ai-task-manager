@@ -56,6 +56,8 @@ export interface RunnerState {
    * generation cannot consume replacement-dispatch references.
    */
   dispatchGenerations: Map<string, number>;
+  /** Stop fences survive asynchronous harness startup on both the home and workers. */
+  interruptGenerations: Map<string, number>;
   /** Monotonic source for dispatch generations, retained across HMR resets. */
   nextDispatchGeneration: number;
   /** Active provider-neutral background task ids, grouped by chat session. */
@@ -116,6 +118,7 @@ function initState(): RunnerState {
     inflightCount: existing.inflightCount ?? new Map(),
     activeDispatchCount: existing.activeDispatchCount ?? new Map(),
     dispatchGenerations: existing.dispatchGenerations ?? new Map(),
+    interruptGenerations: existing.interruptGenerations ?? new Map(),
     nextDispatchGeneration: typeof existing.nextDispatchGeneration === 'number' ? existing.nextDispatchGeneration : 0,
     backgroundTasks: existing.backgroundTasks ?? new Map(),
     openStreamTurns: existing.openStreamTurns ?? new Set(),

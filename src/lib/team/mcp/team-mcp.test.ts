@@ -102,7 +102,7 @@ describe('what an AI client can see', () => {
     expect(create.inputSchema.additionalProperties).toBe(false);
 
     // The personal registry, administration and hidden doors are not there.
-    for (const name of ['delete_task', 'delete_note', 'describe_paths', 'describe_schema', 'remove_member', 'create_area', 'start_execution', 'report_result', 'query', 'update', 'run_sql']) {
+    for (const name of ['delete_task', 'delete_note', 'describe_paths', 'describe_schema', 'remove_member', 'create_area', 'delegate_work', 'report_result', 'query', 'update', 'run_sql']) {
       const res = await me.call(name, {});
       expect(res.isError, name).toBe(true);
       expect(res.text, name).toMatch(/not found/i);

@@ -1,4 +1,4 @@
-import { approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS } from './fixtures';
+import { approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS, SENDER_CHAT_ID } from './fixtures';
 import type { ChatEventRecord, EmailDraft, WorkResultDecisionRecord } from '@/db/types';
 import type { ChatUiExampleId } from './catalog';
 
@@ -52,6 +52,8 @@ export class GalleryRuntime {
       return { id: DRAFT_ID, sessionId: CHAT_ID, draft: this.email };
     }
     if (path === 'sessions.eventsGet') return this.events;
+    if (path === 'sessions.deliveriesGet') return {};
+    if (path === 'connectedApps.forms.forView') return [];
     if (path === 'sessions.prGet') return { pr: null };
     if (path === 'sessions.fileGet' && (input.query as { path?: string })?.path === 'review-plan.html') return { path: 'review-plan.html', content: HTML_DOCUMENT, encoding: 'utf8', mime: 'text/html', size: HTML_DOCUMENT.length, isBinary: false, tooLarge: false };
     if (path === 'sessions.pendingInputGet') return this.pending;
@@ -60,7 +62,16 @@ export class GalleryRuntime {
       this.changed(body.answers ? `Example answer: ${Object.values(body.answers as object).join(' · ')}` : body.allow ? 'Example permission allowed' : 'Example permission declined');
       return { ok: true };
     }
-    if (path === 'sessions.get') return { id: CHAT_ID, type: 'orchestration', status: 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: null, scratchPad: '', userId: 'local', label: 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
+    if (path === 'sessions.get') {
+      const id = String((input.params as { id?: string })?.id ?? CHAT_ID);
+      if (this.example === 'chat-messages' && this.state === 'deleted' && id === SENDER_CHAT_ID) throw Object.assign(new Error('Chat not found'), { status: 404 });
+      const label = id === SENDER_CHAT_ID
+        ? this.state === 'long' ? 'Finish bounded full-date GEX runner and dated RUT input verification before the production handoff' : 'Prepare the runner handoff'
+        : 'Review date handling';
+      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: this.example === 'chat-messages' ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
+    }
+    if (path === 'workspaces.get') return { id: RECORD_ID, name: 'Research', status: 'active' };
+    if (path === 'userState.list') return { orchestratorName: 'Ri' };
     if (path === 'sessions.messagesPost') { this.changed('Example message received'); return { event: event('user', { content: String(body.content ?? '') }) }; }
     if (path === 'integrations.pendingApprovalsGet') return { pending: this.state === 'expired' ? [] : this.events.filter(row => row.source === 'approval_request' && !this.events.some(answer => answer.source === 'approval_response' && (answer.toolInput as { approvalIds?: string[] })?.approvalIds?.includes((row.toolInput as { approvalId: string }).approvalId))).map(row => ({ id: (row.toolInput as { approvalId: string }).approvalId })) };
     if (path === 'integrations.approvePost') {

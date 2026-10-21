@@ -34,6 +34,7 @@ import type { Serialize } from '@trpc/server/unstable-core-do-not-import';
 import type { ChatEventRecord } from '@/db/types';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { MCP_FORM_RESPONSE_EVENT } from '@/lib/mcp-apps/form-events';
+import { decodeChatMessageReceipt } from '@/lib/sessions/chat-message';
 
 export type ChatEventDTO = Serialize<Omit<ChatEventRecord, 'raw'> & {
   /** Provider payload, present only when it is actually decodable. */
@@ -59,10 +60,12 @@ function str(value: unknown): string | null {
 /** Project one row onto the wire shape. */
 export function toChatEventDTO(row: ChatEventRecord): ChatEventDTO {
   const raw = asRecord(row.raw);
+  const sentReceipt = decodeChatMessageReceipt(row);
   return {
     ...row,
     // Background tasks and device continuations retain their existing payloads.
     raw: decodeBackgroundTaskEvent(row.raw) || row.source === 'continuation' ? row.raw
+      : sentReceipt ? { chatMessageSent: sentReceipt }
       : row.source === 'work_result' && str(raw?.resultId) ? { resultId: raw!.resultId }
       : raw?.resultOperation && typeof raw.resultOperation === 'object' ? { resultOperation: raw.resultOperation }
       // A form's recorded end: which app, how it ended, and why it could not show.

@@ -80,7 +80,7 @@ describe('execution oversight actions', () => {
     const names = actions.map((a) => a.name);
     expect(names).toEqual(
       expect.arrayContaining([
-        'list_executions', 'get_session_messages', 'send_session_message',
+        'list_executions', 'get_session_messages', 'message_agent',
         'get_pending_input', 'answer_pending_input',
       ]),
     );
@@ -301,19 +301,22 @@ describe('execution oversight actions', () => {
     ).rejects.toMatchObject({ code: 'not_found' });
   });
 
-  it('send_session_message validates target state and fails cleanly without a server', async () => {
+  it('message_agent refuses unavailable, read-only and unsigned targets', async () => {
     await resetDb();
-    const send = await findAction('send_session_message');
+    const send = await findAction('message_agent');
+    const q = await import('@/lib/db/queries');
+    const caller = q.createChatSession({ type: 'orchestration', harness: 'claude' });
+    const signed = { remote: true, actor: { source: 'ai', sessionId: caller.id } };
+    const input = (id: string, content = 'hi') => ({ target: `session:${id}`, content, response: 'none', request_id: `message-${id}` });
 
     await expect(
-      (async () => send.handler(ctx, { sessionId: 'nope', content: 'hi' } as never))(),
+      (async () => send.handler(signed as never, input('nope') as never))(),
     ).rejects.toMatchObject({ code: 'not_found' });
 
     const { session } = await seedExecutionSession();
-    const q = await import('@/lib/db/queries');
     q.archiveChatSession(session.id);
     await expect(
-      (async () => send.handler(ctx, { sessionId: session.id, content: 'hi' } as never))(),
+      (async () => send.handler(signed as never, input(session.id) as never))(),
     ).rejects.toMatchObject({ code: 'conflict' });
 
     // An import nobody took over is read-only: refused here, before the
@@ -321,15 +324,11 @@ describe('execution oversight actions', () => {
     const { session: imported } = await seedExecutionSession();
     q.updateChatSession(imported.id, { surfaceKind: 'imported_agent' });
     await expect(
-      (async () => send.handler(ctx, { sessionId: imported.id, content: 'Hello' } as never))(),
+      (async () => send.handler(signed as never, input(imported.id, 'Hello') as never))(),
     ).rejects.toMatchObject({ code: 'conflict', message: expect.stringMatching(/can only be read here/) });
     expect(q.listChatEvents(imported.id).some((e) => e.content === 'Hello')).toBe(false);
 
-    const { session: active } = await seedExecutionSession();
-    // No config.json in the isolated root → the server client refuses
-    // before any network call.
-    await expect(
-      (async () => send.handler(ctx, { sessionId: active.id, content: 'hi' } as never))(),
-    ).rejects.toMatchObject({ code: 'unsupported' });
+    // A request cannot establish return provenance without a signed source.
+    await expect(send.handler(ctx, input(caller.id) as never)).rejects.toMatchObject({ code: 'unsupported' });
   });
 });

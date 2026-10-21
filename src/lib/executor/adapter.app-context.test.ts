@@ -103,6 +103,72 @@ describe('connected app context at dispatch', () => {
     expect(await executor.queuedSendRefusal({ kind: 'stop', chatSessionId: command.chatSessionId, sourceEventId: command.sourceEventId })).toBeNull();
   });
 
+  it('refuses a cancelled assignment after preparation and in the device queue', async () => {
+    const { session, message, command } = queuedSend();
+    const source = q.createChatSession({ type: 'orchestration', harness: 'claude' });
+    const request = q.createAgentRequest({ id: 'cancelled-assignment', sourceSessionId: source.id, sourceAddress: 'orchestrator', targetAddress: `session:${session.id}`, targetSessionId: session.id, requestKey: 'cancelled', kind: 'question', content: 'Review', messageEventId: message.id });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    mock.turnContext.mockImplementationOnce(async () => { await gate; return ''; });
+    const pending = executor.dispatch(session.id, 'Review', { sourceEventId: message.id });
+    const refused = expect(pending).rejects.toMatchObject({ code: 'invalid_state' });
+    await vi.waitFor(() => expect(mock.turnContext).toHaveBeenCalled());
+    q.finishAgentRequest(request.id, 'cancelled', 'Cancelled');
+    release();
+    await refused;
+    expect(q.getRunForSourceEvent(message.id)).toBeNull();
+    expect(mock.createSession).not.toHaveBeenCalled();
+    expect(await executor.queuedSendRefusal(command)).toContain('request has ended');
+    expect((await executor.recheckQueuedSends([command])).map(row => row.id)).toEqual([command.id]);
+  });
+
+  it.each(['input', 'continuation'])('does not send a cancelled assignment %s when harness startup finishes after abort', async (kind) => {
+    const session = q.createChatSession({ type: 'content', harness: 'claude' });
+    const source = q.createChatSession({ type: 'orchestration', harness: 'claude' });
+    const message = q.insertChatEvent({ sessionId: session.id, senderSessionId: source.id, role: 'user', source: 'user', content: 'Review' })!;
+    const request = q.createAgentRequest({ id: 'cancel-during-spawn', sourceSessionId: source.id, sourceAddress: 'orchestrator', targetAddress: `session:${session.id}`, targetSessionId: session.id, requestKey: 'during-spawn', kind: 'question', content: 'Review', messageEventId: message.id });
+    let eventId = message.id;
+    if (kind === 'continuation') {
+      q.updateAgentRequest(request.id, { status: 'waiting' });
+      const child = q.createAgentRequest({ id: 'completed-child', sourceSessionId: session.id, sourceAddress: `session:${session.id}`, targetAddress: `session:${source.id}`, targetSessionId: source.id, requestKey: 'child-context', parentRequestId: request.id, kind: 'question', content: 'Context', messageEventId: 'child-input' });
+      q.finishAgentRequest(child.id, 'completed', 'Here is the context.');
+      eventId = q.listAgentDeliveries(child.id)[0].eventId;
+      q.insertChatEvent({ id: eventId, sessionId: session.id, senderSessionId: source.id, source: 'user', role: 'user', content: 'Here is the context.' });
+    }
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const create = mock.createSession.getMockImplementation()!;
+    mock.createSession.mockImplementationOnce(async (...args) => { await gate; return create(...args); });
+    const pending = executor.dispatch(session.id, 'Review', { sourceEventId: eventId });
+    const refused = expect(pending).rejects.toMatchObject({ code: 'invalid_state' });
+    await vi.waitFor(() => expect(mock.createSession).toHaveBeenCalled());
+    expect(q.getAgentRequest(request.id)?.runId).toBeTruthy();
+    q.finishAgentRequest(request.id, 'cancelled', 'Cancelled');
+    await executor.abort(session.id);
+    release();
+    await refused;
+    expect(mock.send).not.toHaveBeenCalled();
+    expect(q.getAgentRequest(request.id)?.status).toBe('cancelled');
+  });
+
+  it('honors Stop during startup without a home admission callback, as a worker must', async () => {
+    const session = q.createChatSession({ type: 'content', harness: 'claude' });
+    const message = q.insertChatEvent({ sessionId: session.id, source: 'user', role: 'user', content: 'Review' })!;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const create = mock.createSession.getMockImplementation()!;
+    mock.createSession.mockImplementationOnce(async (...args) => { await gate; return create(...args); });
+    const pending = executor.dispatch(session.id, 'Review', { sourceEventId: message.id });
+    const refused = expect(pending).rejects.toMatchObject({ code: 'invalid_state', message: expect.stringContaining('Interrupted') });
+    await vi.waitFor(() => expect(mock.createSession).toHaveBeenCalled());
+    await executor.abort(session.id);
+    release();
+    await refused;
+    expect(mock.send).not.toHaveBeenCalled();
+    await executor.dispatch(session.id, 'A later explicit message');
+    expect(mock.send).toHaveBeenCalledOnce();
+  });
+
   it('binds the person\'s sources to their own message', async () => {
     const session = q.createChatSession({ harness: 'claude', type: 'content' });
     const own = q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'Summarize my inbox' })!;

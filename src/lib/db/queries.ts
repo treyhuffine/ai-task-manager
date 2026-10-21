@@ -96,6 +96,8 @@ import { normalizeWorkResultGuidance } from '@/lib/instructions/preferences';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { AttachmentMetadataRepairError, planNoteAttachmentMetadataRepair } from '@/lib/attachments/repair-metadata';
 import { publishChatEvent } from '@/lib/realtime/bus';
+import { stableCoordinationId } from '@/lib/coordination/ids';
+import { CHAT_MESSAGE_SENT, chatMessagePreview } from '@/lib/sessions/chat-message';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
 import { normalizeIntegrationScopes } from '@/lib/integrations/scope-pins';
 import {
@@ -10580,6 +10582,32 @@ function isSubagentLaunchCall(sessionId: string, callId: string): boolean {
  * can read `.id` off the row.
  */
 export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | null {
+  // Record both ends together at the shared message boundary. MCP, CLI,
+  // delegation and automatic returns all get the same retry-safe receipt.
+  const senderSessionId = input.source === 'user' ? input.senderSessionId : null;
+  if (senderSessionId && senderSessionId !== input.sessionId) {
+    const broadcasts: ChatEventRecord[] = [];
+    const row = getDb().transaction(() => {
+      const received = insertChatEventRow(input, broadcasts);
+      const senderExists = received && getDb().select({ id: chatSessions.id }).from(chatSessions).where(eq(chatSessions.id, senderSessionId)).get();
+      if (received && senderExists) {
+        insertChatEventRow({
+          id: stableCoordinationId('sent-receipt', senderSessionId, received.id),
+          sessionId: senderSessionId, role: 'system', source: 'system', content: CHAT_MESSAGE_SENT,
+          createdAt: received.createdAt,
+          raw: { chatMessageSent: { version: 1, targetSessionId: received.sessionId, targetEventId: received.id,
+            preview: chatMessagePreview(received.content ?? '', senderSessionId) } },
+        }, broadcasts);
+      }
+      return received;
+    });
+    for (const event of broadcasts) publishChatEvent(event);
+    return row;
+  }
+  return insertChatEventRow(input);
+}
+
+function insertChatEventRow(input: CreateChatEventInput, broadcasts?: ChatEventRecord[]): ChatEventRecord | null {
   const db = getDb();
   // Caller-supplied id wins; mint a UUIDv7 otherwise. Letting callers
   // pass an id lets the user-message write path use the *same* id the
@@ -10614,7 +10642,8 @@ export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | 
   // policy allows. See src/lib/sessions/activity.ts.
   touchSessionActivity(input.sessionId, activityReasonForEventSource(input.source), { at });
 
-  publishChatEvent(row);
+  if (broadcasts) broadcasts.push(row);
+  else publishChatEvent(row);
   return row;
 }
 

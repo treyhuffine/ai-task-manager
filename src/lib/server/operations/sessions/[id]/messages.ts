@@ -10,6 +10,7 @@ import { expandMarkers } from '@/lib/attachments/expand-markers';
 import { actorFromRequest } from '@/lib/auth/actor';
 import {
   getChatEventById,
+  agentRequestMessageRefusal,
   getChatSessionWithExecution,
   getExecution,
   insertChatEvent,
@@ -108,7 +109,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     // executor — confusing and wrong. The orphan-healing path below
     // (via `healthCheckSession`) handles the actual re-dispatch
     // decision. `getChatEventById` is a cheap PK lookup.
-    // A message another chat sent (send_session_message, start_execution)
+    // A message another chat sent (message_agent, delegate_work)
     // carries that chat's signed credential. Verified, never trusted as a
     // bare id, so a client can't make a message look like it came from a
     // chat that didn't send it. See src/lib/orchestrator/session-credential.ts.
@@ -192,6 +193,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
         connectedContextSkipped = frozen.skipped;
       } catch (error) { return reply({error: error instanceof Error ? error.message : 'App context is unavailable'}, {status: 409}); }
     }
+    const requestRefusal = agentRequestMessageRefusal(body.id);
+    if (requestRefusal) return reply({ error: requestRefusal }, { status: 409 });
     const inserted = insertChatEvent({
       ...(frozenContext || connectedContext ? { raw: {...(frozenContext ? {localAppContext: frozenContext} : {}), ...(connectedContext ? {connectedAppContext: connectedContext} : {})} } : {}),
       id: body.id,

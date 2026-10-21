@@ -1,6 +1,6 @@
 'use client';
 import { parseSourceMarkers } from '@/lib/chat-sources/reference';
-import { SourceText, SourceMetadataProvider } from '@/components/chat-ui/references/source-chip';
+import { SourceText, SourceMetadataProvider, type SourceChipTone } from '@/components/chat-ui/references/source-chip';
 
 import {AppOpenControl} from '@/components/local-apps/open-control';
 import { ConnectedView } from '@/components/mcp-apps/view';
@@ -14,6 +14,8 @@ import { CopyMessageButton } from '@/components/chat-ui/messages/copy-message-bu
 import { MessageEntityChip, type EntityLookup } from '@/components/chat-ui/references/message-entity-chip';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
 import { SenderChip } from '@/components/chat-ui/messages/sender-chip';
+import { ChatMessageLink } from '@/components/chat-ui/messages/chat-message-link';
+import { agentMessagePresentation, decodeChatMessageReceipt } from '@/lib/sessions/chat-message';
 import { VoiceSentBadge } from '@/components/chat-ui/messages/voice-sent-badge';
 import { EntityEditChip, parseEntityEditTool } from '@/components/chat-ui/edits/entity-edit-chip';
 import type { Attachment } from '@/db/types';
@@ -156,15 +158,16 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
       return id ? <ResultRenderer resultId={id} /> : <p className="text-xs text-muted-foreground">Saved handoff reference is unavailable.</p>;
     }
     case 'user': {
-      const content = event.content ?? '';
+      const origin = event.senderSessionId ? agentMessagePresentation(event.content ?? '', event.senderSessionId) : null;
+      const content = origin?.body ?? event.content ?? '';
       const segments = parseEntitySegments(content);
       const hasMarkers = segments.some((s) => s.kind === 'marker') || content.includes('[[source:');
       const isFailed = clientStatus?.status === 'failed';
       const isSending = clientStatus?.status === 'sending';
       return (
-        <div className="group flex flex-col">
-          {event.senderSessionId && <SenderChip senderSessionId={event.senderSessionId} />}
-          <Message from="user">
+        <div className={cn('group flex flex-col', origin && 'max-w-[95%] rounded-xl border border-border bg-muted/20')}>
+          {event.senderSessionId && <SenderChip senderSessionId={event.senderSessionId} label={origin?.label} />}
+          <Message from={origin ? 'assistant' : 'user'} className={origin ? 'max-w-full border-t border-border/70 px-3 py-3' : undefined}>
             <MessageContent
               className={cn(
                 'text-[12.5px] whitespace-pre-wrap break-words',
@@ -176,12 +179,17 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
                   segments={segments}
                   attachments={event.attachments ?? []}
                   sessionId={sessionId}
+                  tone={origin ? 'surface' : 'bubble'}
                 />
               ) : (
                 content
               )}
             </MessageContent>
           </Message>
+          {origin?.originalRequest && <details className="mx-3 mb-2 text-[11px] text-muted-foreground">
+            <summary className="w-fit cursor-pointer rounded py-1 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Original request</summary>
+            <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5">{origin.originalRequest}</p>
+          </details>}
           {voiceSent && <VoiceSentBadge />}
           <PreparationStatus event={event} />
           {isFailed && sessionId && (
@@ -199,8 +207,10 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
           {event.content && (
             <CopyMessageButton
               text={event.content}
-              align="right"
+              align={origin ? 'left' : 'right'}
+              alwaysVisible={!!origin}
               timestamp={event.createdAt}
+              className={origin ? 'mx-3 mb-2' : undefined}
             />
           )}
         </div>
@@ -493,7 +503,11 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
       );
     }
 
-    case 'system':
+    case 'system': {
+      const receipt = decodeChatMessageReceipt(event);
+      if (receipt) {
+        return <ChatMessageLink sessionId={receipt.targetSessionId} label="Sent to" direction="outgoing" preview={receipt.preview} />;
+      }
       if (MCP_TOOL_RESULT_EVENTS.has(event.content ?? '')) return <ConnectedView captureId={event.id} chatId={event.sessionId} />;
       if (event.content === MCP_FORM_EVENT) return <ConnectedForm formId={event.id} />;
       if (event.content === MCP_FORM_RESPONSE_EVENT) return <ConnectedFormOutcome raw={event.raw} />;
@@ -504,6 +518,7 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
           <div className="flex-1 h-px bg-border/60" />
         </div>
       );
+    }
 
     case 'rate_limit':
       return (
@@ -1318,10 +1333,12 @@ function RenderMessageSegments({
   segments,
   attachments,
   sessionId,
+  tone,
 }: {
   segments: EntitySegment[];
   attachments: Attachment[];
   sessionId?: string;
+  tone: SourceChipTone;
 }) {
   hot('render RenderMessageSegments');
   const entitiesQuery = useSessionEntities(sessionId ?? null);
@@ -1340,8 +1357,7 @@ function RenderMessageSegments({
       <div className="min-w-0">
       {segments.map((seg, i) => {
         if (seg.kind === 'text') {
-          // Only a user message carries source chips, inside its inverted bubble.
-          return <SourceText key={i} text={seg.text} resolve={false} tone="bubble" />;
+          return <SourceText key={i} text={seg.text} resolve={false} tone={tone} />;
         }
         const m = seg.marker;
         if (m.kind === 'file') {

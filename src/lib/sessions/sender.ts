@@ -3,7 +3,7 @@
  * (docs/agents-view-spec.md Phase 4, "Provenance").
  *
  * When an agent's main chat or the app's main chat steers an execution with
- * `send_session_message`, the stored event keeps the message exactly as sent
+ * `message_agent`, the stored event keeps the message exactly as sent
  * and records `sender_session_id`. What the receiving harness is handed gets a
  * one-line label first, so it never mistakes the message for the user typing
  * and knows where a reply will be read. Messages the user types are unchanged.

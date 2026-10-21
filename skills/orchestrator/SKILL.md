@@ -28,8 +28,8 @@ You have two equivalent surfaces. Prefer MCP tools when the user's Claude Code h
 - Deck: `get_deck`, `update_deck`, `regenerate_deck`
 - Search: `search`
 - User state: `get_user_state`, `update_user_state`
-- Memory, from a session that can't read the home's files (on a connected device): `read_memory`, `submit_memory_finding` (sends it to the home's main chat, which keeps MEMORY.md)
-- Execution oversight: `list_executions`, `get_session_messages`, `send_session_message`, `get_pending_input`, `answer_pending_input`, `start_execution`, `archive_execution`
+- Memory, from a session that can't read the home's files (on a connected device): `read_memory`. Send findings with `message_agent`, target `orchestrator`, response `none`, and a stable `request_id`. Ask the main chat to consider recording the finding in MEMORY.md, which it keeps
+- Execution oversight: `list_executions`, `get_session_messages`, `message_agent`, `get_pending_input`, `answer_pending_input`, `delegate_work`, `archive_execution`
 - Workspaces (the user calls a workspace an "agent"): `list_workspaces`, `get_workspace`, `create_workspace`, `update_workspace`, `archive_workspace`, `list_workspace_sessions`
 - Triggers / runs: `list_triggers`, `get_trigger`, `create_trigger`, `update_trigger`, `delete_trigger`, `run_trigger`, `list_runs`, `get_run`, `cancel_run`, `reset_trigger_failures`
 - Skills (what the user builds under Plugins): `list_skills`, `get_skill`, `create_skill`, `save_skill`, `move_skill`. A new skill is a draft (`draft:<name>`), which no agent uses until it's installed. Installed, it lives in Ri (every chat Ri runs uses it), globally (`~/.claude/skills`, every agent on this computer), or in a project (an agent's repo, shared by committing it), and each has a `ref` like `ri:weekly-review`. `move_skill` installs a draft, moves an installed skill, or uninstalls it (`to: "draft"`). Install or move only when the user asks or agrees. Pass the `hash` from `get_skill` as `baseHash` to `save_skill`: the user may be editing the same skill, and a stale save is refused instead of overwriting them.
@@ -92,18 +92,23 @@ folder, what it can use, a `purpose`, and standing `instructions` that every
 execution in it receives. The oversight loop: `list_executions` (`running` /
 `awaitingInput` / `unread` flags — unread mirrors the rail's Unread section) →
 `get_session_messages` (condensed transcript tail — **read before acting**) →
-`send_session_message` (nudge, add context, redirect). Sends are
-asynchronous — re-check the transcript for the response. A message you send is
+`message_agent` (target `session:<chat id>`, content, stable `request_id`,
+and required `response`). Choose `response: "required"` for an automatic
+returned outcome, or `response: "none"` for information or steering without
+an automatic return. Both modes wake the recipient when available. A message you send is
 labeled with the chat it came from, in the transcript and for the receiving
 agent, so it is never mistaken for the user typing. An imported terminal
 session is read-only until the user takes it over in the app, so a send to one
 is refused.
 
-Start new work with `start_execution` (workspace, a complete first prompt, and
-a fresh `requestId` per piece of work: retrying with the same one returns the
+Start new work with `delegate_work` (`workspace_id`, a complete `prompt`, and
+a fresh `request_id` per piece of work: retrying with the same one returns the
 same execution rather than starting a second). It runs on the agent's default
-device unless you pass `deviceId`: `get_workspace` shows its `runOn`
+device unless you pass `device_id`: `get_workspace` shows its `runOn`
 choices, and `update_workspace` sets `defaultDeviceId` when the user asks.
+Completion, failure, and blocked updates return automatically. An acceptance
+receipt is not the outcome. Continue independent work or finish your turn
+when waiting. Use `get_agent_request` for inspection instead of transcript polling.
 Close out finished work with
 `archive_execution`. It refuses when the worktree holds uncommitted or unpushed
 work and says so. Only pass `force` when the user has said that work can go.

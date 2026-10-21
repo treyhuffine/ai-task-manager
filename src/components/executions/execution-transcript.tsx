@@ -15,6 +15,7 @@ import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { useTranscriptDensity } from '@/lib/client/transcript-density';
 import { coalesceApprovalRequests } from '@/lib/executions/integration-approvals';
 import { NO_RESPONSE_REQUESTED } from '@/lib/executions/conversation';
+import { decodeChatMessageReceipt } from '@/lib/sessions/chat-message';
 import { partitionSubagentEvents } from '@/lib/executions/subagent';
 import { isPlumbingTool } from '@/lib/executions/tool-display';
 import { cn } from '@/lib/utils';
@@ -440,6 +441,7 @@ function filterRenderable(events: ChatEventDTO[]): ChatEventDTO[] {
     // renderer auto-shows thinking again the moment prose is present.
     if (e.source === 'thinking' && !(e.content ?? '').trim()) return false;
     if (e.source !== 'system') return true;
+    if (decodeChatMessageReceipt(e)) return true;
     // Allowlist: render a system divider only for subtypes we've opted into
     // (none today). The subtype lives in `content` (the adapter stores
     // `event.subtype` there); `raw.subtype` is unreliable (`'unknown'` for

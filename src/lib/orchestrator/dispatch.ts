@@ -62,7 +62,7 @@ async function dispatch(
   }
 
   const objectSchema = z.object(action.params);
-  const schema = ['get_handoff_context', 'report_result', 'get_result', 'list_results', 'request_result_review', 'report_result_review'].includes(name) ? objectSchema.strict() : objectSchema;
+  const schema = action.strictParams || ['get_handoff_context', 'report_result', 'get_result', 'list_results', 'request_result_review', 'report_result_review'].includes(name) ? objectSchema.strict() : objectSchema;
   const parsed = schema.safeParse(rawInput ?? {});
   if (!parsed.success) {
     return {

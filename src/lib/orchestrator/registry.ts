@@ -1,7 +1,5 @@
 import { coordinationActions } from '@/lib/coordination/actions';
 import { historyActions } from '@/lib/coordination/history-actions';
-import { requestScopedId } from '@/lib/coordination/start-id';
-import { stableCoordinationId } from '@/lib/coordination/ids';
 import { chatSourceActions } from '@/lib/chat-sources/actions';
 import { localAppActions } from '@/lib/local-apps/actions';
 import { localAppsEnabled } from '@/lib/config/features';
@@ -118,7 +116,7 @@ import {
 } from '@/lib/heartbeat/constants';
 import { ensureHeartbeatTrigger, getHeartbeatConfig, getHeartbeatTrigger, updateHeartbeat } from '@/lib/heartbeat/trigger';
 import type { HeartbeatPatch } from '@/lib/heartbeat/types';
-import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
+import { isImportMirror } from '@/lib/import/mirror';
 import { getNotifierUserId } from '@/lib/notifications/user';
 import { computeNextRun, validateCronExpression } from '@/lib/scheduler/cron';
 import { stripHighlight } from '@/lib/search/highlight';
@@ -161,8 +159,6 @@ import { MAX_WORK_DAYS, getWorkRange } from '@/lib/work/service';
 import { formatDuration, summaryLines } from '@/lib/work/equivalents';
 import { mondayOf } from '@/lib/calendar/dates';
 import { todayLocalDate } from '@/lib/deck/date';
-import { assertSupportedPermissionMode, UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
-import { PERMISSION_MODES } from '@/lib/permissions/modes';
 import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
 import { isReadOnly } from '@/lib/reference-folders/read-only';
 import { isSessionInactive, resolveInactiveAfterDays } from '@/lib/sessions/inactive';
@@ -173,7 +169,7 @@ import { createSkillShape, locationFrom, moveSkillShape, saveSkillShape } from '
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import path from 'node:path';
 import { fetchLiveSignals, serverFetch, ServerResponseError } from './server-client';
-import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from './session-credential';
+import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER } from './session-credential';
 import { condenseEvents, derivePendingFromEvents } from './session-oversight';
 
 // ── Schema fragments ─────────────────────────────────────────────
@@ -1543,7 +1539,7 @@ const get_workspace_action = defineAction({
   description:
     'Fetch a single workspace by id (the user calls it an agent), including its `purpose` and standing ' +
     '`instructions`, and `runOn`: the devices it can run on (each with whether it can take work now, ' +
-    'and why not) and `defaultId`, where a new execution runs when start_execution names no device.',
+    'and why not) and `defaultId`, where a new execution runs when delegate_work names no device.',
   params: { id: z.string().min(1) },
   cli: { positional: ['id'] },
   handler: (_ctx, { id }) => {
@@ -1972,7 +1968,7 @@ const list_executions_action = defineAction({
     'the rail\'s Unread section shows, minus currently-running sessions), inactive (no activity ' +
     'for longer than the user\'s inactive threshold, so the rail folds it away; leave these out of ' +
     '"what needs my attention" unless the user asks about older work). The returned sessionId ' +
-    'is the handle for get_session_messages, send_session_message, and [[execution:SESSION_ID]] links. ' +
+    'is the handle for get_session_messages, message_agent, and [[execution:SESSION_ID]] links. ' +
     'When available, resumeCommand is the provider CLI command for the external session id.',
   params: {},
   handler: async () => {
@@ -2025,7 +2021,7 @@ const get_session_messages_action = defineAction({
     'tail (user/agent text, one-line tool calls, errors), plus whether the session is running or ' +
     'blocked on a permission/question prompt. The response includes app and provider ids plus a ' +
     'provider resume command when one is available. A user row with `sentBy` was sent by that chat ' +
-    '(send_session_message or start_execution), not typed by the user. Read this before nudging a session.',
+    '(message_agent or delegate_work), not typed by the user. Read this before nudging a session.',
   params: {
     sessionId: z.string().min(1),
     limit: z.number().int().positive().max(200).optional(),
@@ -2117,70 +2113,6 @@ const answer_pending_input_action = defineAction({
   },
 });
 
-/**
- * Headers that tell the messages route which chat is sending, signed so the
- * route can trust it (session-credential.ts). Empty for a human at the CLI.
- */
-function senderHeaders(ctx: ActionContext): Record<string, string> {
-  const credential = ctx.actor?.sessionId ? sessionCredential(ctx.actor.sessionId) : null;
-  return credential ? { [SESSION_CREDENTIAL_HEADER]: credential } : {};
-}
-
-const send_session_message_action = defineAction({
-  name: 'send_session_message',
-  description:
-    'Send a message into a session: nudge a stalled execution, answer a question in prose, or steer ' +
-    'direction. Delivered through the app server: it lands in the agent\'s queue mid-turn or starts a ' +
-    'new turn. Fire-and-forget. Poll get_session_messages for the response. The message is labeled with ' +
-    'the chat it came from, in the transcript and for the receiving agent, so it is never mistaken for ' +
-    'the user typing. Supply requestId to deduplicate retries. For a returned answer, use ask_agent. ' +
-    'You cannot send to your own session, or to an imported terminal session the user ' +
-    'has not taken over in the app (it is read-only).',
-  params: {
-    sessionId: z.string().min(1),
-    content: z.string().min(1),
-    requestId: z.string().min(1).max(200).optional(),
-  },
-  mutating: true,
-  cli: { positional: ['sessionId'] },
-  handler: async (ctx, { sessionId, content, requestId }) => {
-    const session = getChatSession(sessionId);
-    if (!session) throw new ActionError('not_found', `Session not found: ${sessionId}`);
-    if (ctx.actor?.sessionId === sessionId) {
-      throw new ActionError(
-        'invalid_params',
-        'That is your own session. send_session_message is for messaging another chat.',
-      );
-    }
-    if (session.status === 'archived') {
-      throw new ActionError(
-        'conflict',
-        'Session is archived. Resume it from the app before messaging it.',
-      );
-    }
-    if (isImportMirror(session)) throw new ActionError('conflict', IMPORT_MIRROR_REFUSAL);
-
-    // Through the server, never executor.dispatch from here: the messages
-    // route owns marker expansion, label derivation, health checks, and
-    // run-row accounting — and the server process owns the harness
-    // subprocess. Dispatching from a CLI-invoked handler would spawn a
-    // duplicate harness process against the same session.
-    const event = await serverFetch<{ id: string }>(`/sessions/${sessionId}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content, ...(requestId ? { id: stableCoordinationId('send', ctx.actor?.sessionId ?? 'human', sessionId, requestId) } : {}) }),
-      headers: senderHeaders(ctx),
-    });
-
-    return {
-      delivered: true,
-      sessionId,
-      eventId: event?.id ?? null,
-      sentFrom: ctx.actor?.sessionId ?? null,
-      note: 'Dispatched. The session processes asynchronously. Check get_session_messages shortly.',
-    };
-  },
-});
-
 // ── Memory (docs/homes-build.md, P2.7) ──────────────────────
 // MEMORY.md stays at the home, with no copy anywhere else. A session that
 // can't read the home's files, on a connected device, reads it here and
@@ -2191,44 +2123,11 @@ const read_memory_action = defineAction({
   description:
     'Read MEMORY.md, the durable memory this home keeps across conversations. It lives at the home ' +
     "only. A session that can't read the home's files reads it here, and sends anything worth " +
-    'remembering with submit_memory_finding.',
+    'remembering to target orchestrator with message_agent, response:"none", and a stable request_id. Ask the orchestrator to consider recording it in MEMORY.md.',
   params: {},
   handler: () => {
     const file = path.join(getAppRoot(), 'MEMORY.md');
     return { text: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '' };
-  },
-});
-
-const submit_memory_finding_action = defineAction({
-  name: 'submit_memory_finding',
-  description:
-    "Send something worth remembering to this home's main chat, which keeps MEMORY.md and decides " +
-    'whether to record it. Labeled with the chat that found it. For a session that cannot edit ' +
-    "the home's files, on a connected device, say. The main chat edits MEMORY.md itself.",
-  params: { finding: z.string().min(1).max(4000) },
-  mutating: true,
-  cli: { positional: ['finding'] },
-  handler: async (ctx, { finding }) => {
-    const { ensureMainChat } = await import('@/lib/sessions/main-chat');
-    const main = await ensureMainChat(null);
-    if (ctx.actor?.sessionId === main.id) {
-      throw new ActionError('invalid_params', 'You keep MEMORY.md yourself. Edit it directly.');
-    }
-    // Through the messages route, like send_session_message: it labels the
-    // message with the sending chat and dispatches the main chat's turn.
-    const event = await serverFetch<{ id: string }>(`/sessions/${main.id}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({
-        content: `Memory finding: ${finding.trim()}\n\nIf this is worth keeping, record it in MEMORY.md. If not, leave the file as it is.`,
-      }),
-      headers: senderHeaders(ctx),
-    });
-    return {
-      submitted: true,
-      mainChatId: main.id,
-      eventId: event?.id ?? null,
-      note: "The home's main chat decides whether to record it.",
-    };
   },
 });
 
@@ -2900,122 +2799,6 @@ const update_heartbeat_action = defineAction({
 
 // ── Starting and closing out executions ─────────────────────
 
-const start_execution_action = defineAction({
-  name: 'start_execution',
-  description:
-    'Start a new execution in a workspace (the user calls a workspace an agent) and send it its first ' +
-    'prompt. Git workspaces get their own worktree, so it never touches the checkout other work is using. ' +
-    'Delivered through the app server and fire-and-forget: poll get_session_messages for progress. ' +
-    '`requestId` makes it safe to retry: the same requestId in the same workspace always returns the same ' +
-    'execution instead of starting a second one, so pick a fresh one per piece of work. provider, model ' +
-    'and effort default to the user\'s defaults. taskId links a task and moves it to in progress. The ' +
-    'prompt is labeled with the chat that started it.',
-  params: {
-    workspaceId: z.string().min(1),
-    prompt: z.string().min(1),
-    requestId: z.string().min(1).max(200),
-    provider: triggerProvider.optional(),
-    model: z.string().min(1).optional(),
-    effort: effortLevel.optional(),
-    permissionMode: z.enum(PERMISSION_MODES).optional(),
-    taskId: z.string().min(1).optional(),
-    label: z.string().min(1).optional(),
-    deviceId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("The device to run on (see get_workspace runOn). Omitted: the agent's default device. One that can't take it is refused with the reason, never replaced."),
-  },
-  mutating: true,
-  cli: { positional: ['workspaceId'] },
-  handler: async (ctx, input) => {
-    const workspace = getWorkspace(input.workspaceId);
-    if (!workspace) throw new ActionError('not_found', `Workspace not found: ${input.workspaceId}`);
-    if (workspace.status === 'archived') {
-      throw new ActionError('conflict', `Workspace "${workspace.name}" is archived. Restore it before starting work there.`);
-    }
-    const sessionId = requestScopedId('session', workspace.id, input.requestId);
-    const eventId = requestScopedId('prompt', workspace.id, input.requestId);
-    const existing = getChatSession(sessionId);
-    if (input.permissionMode) {
-      try {
-        assertSupportedPermissionMode(input.permissionMode, existing?.harness ?? input.provider ?? defaultTriggerHarness());
-      } catch (err) {
-        if (err instanceof UnsupportedPermissionModeError) throw new ActionError('invalid_params', err.message);
-        throw err;
-      }
-    }
-
-    // 1. The execution and its chat. The route is idempotent on sessionId, so
-    //    a retry converges on the execution the first attempt created.
-    let created: { id: string; executionId: string | null };
-    try {
-      created = existing
-        ? { id: existing.id, executionId: existing.executionId ?? null }
-        : await serverFetch<{ id: string; executionId: string | null }>(`/workspaces/${workspace.id}/sessions`, {
-            method: 'POST',
-            // Started by the calling chat, when a chat is calling (P2.6).
-            headers: senderHeaders(ctx),
-            body: JSON.stringify({
-              sessionId,
-              ...(input.label ? { label: input.label } : {}),
-              ...(input.provider ? { harness: input.provider } : {}),
-              ...(input.model ? { model: input.model } : {}),
-              ...(input.effort ? { effort: input.effort } : {}),
-              ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
-              ...(input.taskId ? { taskId: input.taskId } : {}),
-              ...(input.deviceId ? { deviceId: input.deviceId } : {}),
-            }),
-          });
-    } catch (err) {
-      if (err instanceof ServerResponseError && (err.status === 404 || err.status === 409 || err.status === 400)) {
-        const body = err.json();
-        const message = (body?.message ?? body?.error) as string | undefined;
-        throw new ActionError(
-          err.status === 404 ? 'not_found' : err.status === 409 ? 'conflict' : 'invalid_params',
-          message ?? err.message,
-        );
-      }
-      throw err;
-    }
-
-    // 2. Permission mode, only when it differs, so a retry after the first
-    //    turn started doesn't try to change it mid-run.
-    if (existing && input.permissionMode && existing.permissionMode !== input.permissionMode) {
-      try {
-        await serverFetch(`/sessions/${created.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ permissionMode: input.permissionMode }),
-        });
-      } catch (err) {
-        if (err instanceof ServerResponseError && (err.status === 400 || err.status === 409)) {
-          throw new ActionError(err.status === 409 ? 'conflict' : 'invalid_params',
-            (err.json()?.error as string | undefined) ?? err.message);
-        }
-        throw err;
-      }
-    }
-
-    // 3. The prompt, idempotent on its event id, labeled with who sent it.
-    await serverFetch(`/sessions/${created.id}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content: input.prompt, id: eventId }),
-      headers: senderHeaders(ctx),
-    });
-
-    return {
-      started: !existing,
-      sessionId: created.id,
-      executionId: created.executionId ?? getChatSession(created.id)?.executionId ?? null,
-      workspace: { id: workspace.id, name: workspace.name },
-      requestId: input.requestId,
-      note: existing
-        ? 'Already started by an earlier call with this requestId. Returned the same execution.'
-        : 'Started. The execution works asynchronously. Check get_session_messages for progress.',
-    };
-  },
-});
-
 const archive_execution_action = defineAction({
   name: 'archive_execution',
   description:
@@ -3604,10 +3387,7 @@ export const typedActions = [
   get_session_messages_action,
   get_pending_input_action,
   answer_pending_input_action,
-  send_session_message_action,
   read_memory_action,
-  submit_memory_finding_action,
-  start_execution_action,
   archive_execution_action,
   list_triggers_action,
   get_trigger_action,

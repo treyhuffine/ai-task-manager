@@ -97,6 +97,8 @@ export interface SendRequest {
   currentStandingInstructions?: () => string;
   /** Local-only admission callback, rechecked after runtime and spawn awaits. */
   admission?: () => boolean | Promise<boolean>;
+  /** Result operations require a failed outcome on Stop. Ordinary turns retain Stop's completion semantics. */
+  stopIsFailure?: boolean;
   /** Names this turn in `turn_result`. */
   turnId: string;
   runId: string | null;

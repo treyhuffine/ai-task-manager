@@ -263,8 +263,8 @@ One registry generates both surfaces, so every item lands on both.
 
 **New actions**
 
-- [x] `start_execution`: `workspaceId`, `prompt`, optional `provider`, `model`, `effort`, `permissionMode`, `taskId`, `label`, and a required `requestId` for retry safety. Goes through the server, like `send_session_message`: create via `POST /api/workspaces/:id/sessions`, then send the prompt through the messages route. A retry with the same `requestId` returns the same execution. Returns `sessionId` and `executionId`.
-  - Retry safety without a new table: the chat id and the prompt's event id are UUIDv8s derived from `sha256("ri:start_execution:<kind>:<workspaceId>:<requestId>")`. A retry finds the chat already there and skips the create. It resends the prompt under the same event id, which the messages route already dedupes. `requestId` is scoped per agent, so two agents reusing one id never collide. `permissionMode` is PATCHed before the prompt, and only when it differs from the session default. Server refusals map to `not_found`, `conflict` (with the route's reason, e.g. a task that cannot start) or `invalid_params`.
+- [x] `delegate_work`: `workspace_id`, `prompt`, required `request_id`, optional `provider`, `model`, `effort`, `permission_mode`, `task_id`, `device_id`, and `label`. Creates a durable assignment through the server's execution-create and message operations. Same-ID unchanged retries reuse the assignment and execution. Changed intent conflicts. Completion, failure, and blocked updates return automatically. The receipt identifies the request and its return policy. See [Agent coordination](agent-coordination.md).
+  - Execution and prompt IDs remain deterministic and stable across tool-interface changes. The internal launch operation preserves device, worktree, task-link, model and permission validation. Server refusals become durable failed outcomes when launch cannot proceed.
 - [x] `archive_execution`: `sessionId`, optional `force`. Goes through the server's archive route. A dirty worktree without `force` fails with `conflict` and says what would be lost. Archiving an archived execution succeeds as a no-op.
   - Refuses non-execution chats with `invalid_params`. The conflict carries the route's detail and a `force: true` suggestion.
 - [x] `update_workspace`: `name`, `emoji`, `areaId`, `purpose`, `instructions`, `integrationScopes`, `browserEnabled`. **The folder, scripts (setup, teardown, start) and files-to-copy are not in this action.** Those execute commands or move files on the machine, so they stay in the app UI.
@@ -276,8 +276,8 @@ One registry generates both surfaces, so every item lands on both.
 
 - [x] Add `chat_events.sender_session_id`: text, nullable, foreign key to `chat_sessions`, `ON DELETE SET NULL`. Plain `ADD COLUMN`. (In `0001_late_magus.sql`.)
   - **Changed to a soft reference (no FK).** A scratch generate showed drizzle-kit emits `ADD sender_session_id text REFERENCES chat_sessions(id)` and silently drops the `ON DELETE SET NULL`, so existing databases would get a stricter constraint than fresh installs, and deleting a chat that had sent a message would fail. Fixing that needs hand-edited SQL, so the column is a plain nullable text id and readers treat an unresolvable id as "a deleted chat".
-- [x] `send_session_message` passes `ctx.actor.sessionId` to the messages route, which stores it on the event.
-  - Passed as a signed `x-ri-session` header, not a body field, so the route verifies it and a request cannot claim a sender. The result carries `sentFrom`.
+- [x] `message_agent` and `delegate_work` pass `ctx.actor.sessionId` to the messages route, which stores it on the event.
+  - Passed as a signed `x-ri-session` header, not a body field, so the route verifies it and a request cannot claim a sender. The acceptance receipt identifies the durable request.
 - [x] The receiving harness gets the message with a one-line header naming the sender, for example `[Message from the ri agent's main chat]` or `[Message from the orchestrator]`. Messages you type are unchanged.
   - `src/lib/sessions/sender.ts`: `[Message from the "ri" agent's main chat, sent on the user's behalf]`, then a blank line. The stored event keeps the text as sent, so the label is only in what the harness receives. Orphan redispatch (`health.ts`) applies the same label.
 - [x] Enforce "never send to your own session" using the actor.
@@ -339,7 +339,7 @@ One registry generates both surfaces, so every item lands on both.
   - the scope: name, folder, purpose, instructions
   - the role: manage this agent's executions (see, answer, steer, start, close out)
   - how to read them: `list_workspace_sessions`, `get_session_messages`, `search_sessions`
-  - the git rule: changes go through `start_execution`
+  - the git rule: changes go through `delegate_work`
   - permission prompts: answer questions when the user's intent is clear, pass permission prompts to the user
   - provenance: its messages are labeled as coming from it
   - `renderAgentMainChatBrief`. It also reuses the orchestrator brief's shared sections (the domain brief was split into named sections, and the app main chat's brief was verified byte-identical before and after). Home-relative paths (`@USER.md`, `attachments/`) are absolute here, since the working directory is the agent's folder.

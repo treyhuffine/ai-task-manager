@@ -2259,7 +2259,7 @@ export const chatEvents = sqliteTable(
       .references(() => chatSessions.id, { onDelete: 'cascade' }),
     // The chat that sent this message into the session, when another chat did
     // (an agent's main chat or the app's main chat steering an execution via
-    // `send_session_message`). Null for messages the user typed and for
+    // `message_agent`). Null for messages the user typed and for
     // everything the harness emits. A soft reference on purpose: drizzle-kit
     // drops ON DELETE clauses from ADD COLUMN, so a real FK would give
     // existing databases a stricter constraint than fresh ones. Readers treat
@@ -2596,6 +2596,7 @@ export const agentRequests = sqliteTable('agent_requests', {
     provider?: HarnessId;
     model?: string;
     effort?: string;
+    permissionMode?: (typeof PERMISSION_MODES)[number];
     taskId?: string;
     deviceId?: string;
     label?: string;

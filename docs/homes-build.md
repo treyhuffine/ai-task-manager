@@ -2,6 +2,8 @@
 
 Working notes for building [the homes build specification](homes-spec.md). The spec is the contract. This file records how the build runs, what was found, and the design decisions the spec leaves to implementation. Sections are numbered by the spec task they serve.
 
+Historical tool names below record what was exercised at the time. The current agent-facing interface is documented in [Agent coordination](agent-coordination.md).
+
 ## P0.1 Isolated development setup
 
 Production must stay untouched while this is built (spec §10.4). A worktree isolates code, not data: every path helper falls back to `~/ri` when `RI_ROOT` is unset, and a shell started inside a harness session inherits that session's caller credential and Claude Code's own session variables. Isolation therefore comes from paths, checked before anything runs.

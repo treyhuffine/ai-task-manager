@@ -67,6 +67,13 @@ export function serverBaseUrl(): string {
  * (`conflict`) for callers that just surface it, but carries the status and
  * body so a caller can turn a known failure into a clearer message.
  */
+export class ServerTransportError extends ActionError {
+  constructor(message: string) {
+    super('conflict', message);
+    this.name = 'ServerTransportError';
+  }
+}
+
 export class ServerResponseError extends ActionError {
   constructor(
     public status: number,
@@ -110,8 +117,7 @@ export async function serverFetch<T>(path: string, init: RequestInit = {}): Prom
       },
     });
   } catch {
-    throw new ActionError(
-      'conflict',
+    throw new ServerTransportError(
       `App server unreachable at ${base}. Live session state and sends require the app to be running.`,
     );
   }

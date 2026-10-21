@@ -31,7 +31,7 @@ describe('execution coordination tools', () => {
     expect(coordination).toMatchObject({ type: 'http', url: expect.stringContaining('/api/orchestrator/coordination/mcp') });
     expect(verifySessionCredential((coordination as { headers: Record<string, string> }).headers['x-ri-session'], home.token)).toBe(session.id);
     expect(spec.instructions).toContain('resumes the requesting chat automatically');
-    expect(spec.instructions).toContain('ask_agent');
+    expect(spec.instructions).toContain('message_agent');
     expect(spec.instructions).toContain('RI_SESSION_CLI');
     expect(spec.mcpServers.find(server => server.name === 'integrations')).toMatchObject({ url: expect.stringContaining(`ws=${workspace.id}`) });
     expect(spec.mcpServers.find(server => server.name === 'browser')).toMatchObject({ url: expect.stringContaining(`profile=ws-${workspace.id}`) });

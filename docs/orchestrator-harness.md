@@ -147,8 +147,8 @@ characters by `PATCH /api/user-state`.
 
 For work whose outcome should return automatically, use the durable
 coordination tools described in [Agent coordination](agent-coordination.md).
-`get_session_context` supplies stable agent addresses, `ask_agent` consults
-an agent's main chat, and `delegate_work` starts a visible execution with a
+`get_session_context` supplies stable agent addresses, `message_agent` with `response: "required"` consults
+an existing chat, and `delegate_work` starts a visible execution with a
 return path. Completion and blocked-state updates resume the requesting
 chat through a durable outbox. Executions receive a focused native
 coordination MCP surface and retain the signed CLI fallback.
@@ -161,14 +161,15 @@ is frozen and doesn't get these):
 - `get_session_messages` — condensed transcript tail (`session-oversight.ts`
   drops noise, one-lines tool calls, truncates content) + pending-prompt
   detail derived from the event log.
-- `send_session_message` — message into a session, delivered **through the
-  server's messages route**, never `executor.dispatch` from the handler.
-  Optional `requestId` makes retrying the same message safe.
-- `start_execution` — create an execution in a workspace and send its first
-  prompt, both through the server. A required `requestId` makes it
-  retry-safe: the chat id and the prompt's event id are UUIDv8s derived from
-  `ri:start_execution:<kind>:<workspaceId>:<requestId>`, so a retry finds the
-  chat and the messages route dedupes the prompt.
+- `message_agent`: message an existing chat by stable agent address or
+  `session:<chat id>`. `response` must be `required` (automatic returned
+  outcome) or `none` (delivery only). `request_id` deduplicates unchanged
+  intent. Both modes run through the server's messages operation.
+- `delegate_work`: create a chat in `workspace_id` and deliver a complete
+  `prompt`, with a required `request_id`. Worktree, device, model, permission
+  and task-link rules still apply. The durable request tracks the work and
+  returns its outcome automatically. The launch primitive is an ordinary
+  internal operation, without a second agent-facing tool.
 - `archive_execution` — close out through the server's archive route. A
   dirty worktree fails with `conflict` and a `force` suggestion.
 - `update_workspace` — an agent's name, emoji, area, purpose and standing
@@ -202,7 +203,7 @@ signature or a credential for a deleted chat resolves to no actor, which is
 what a human at the CLI gets. This is identity, not authorization:
 `ctx.remote` still decides what a transport may do.
 
-**Provenance.** `send_session_message` and `start_execution` pass the
+**Provenance.** `message_agent` and `delegate_work` pass the
 caller's credential to the messages route, which verifies it, stores the
 sender on the event (`chat_events.sender_session_id`, a soft reference), and
 hands the receiving harness the message behind a one-line label such as
@@ -245,13 +246,13 @@ set and no execution:
 - **Building is an execution.** When the user asks the main chat to build,
   fix, or change something, it starts an execution rather than doing the
   work in the chat, so the work is something the user can watch, steer and
-  review. It doesn't hand work to another agent's main chat (a conversation
-  between agents is work the user can't see). The app's main chat follows
+  review. Project context and decisions can be requested in an existing
+  agent main chat, where those conversations remain visible. The app's main chat follows
   the same rule: building in an agent starts an execution there, never a
   message to that agent's main chat. This is prompt-level, since
-  `send_session_message` may still reach any session.
+  `message_agent` may still reach any session.
 - **The git rule.** In a git agent the file-editing tools are denied and the
-  brief sends every change through `start_execution`, because the checkout
+  brief sends every change through `delegate_work`, because the checkout
   is what every execution's worktree branches from. Only Claude enforces
   the tool filter, so elsewhere it is prompt-only and the adapter logs it. A
   non-git agent has no guard, and its brief edits a file directly only when

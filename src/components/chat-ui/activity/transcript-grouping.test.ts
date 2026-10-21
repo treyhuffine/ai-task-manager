@@ -19,6 +19,12 @@ function ev(source: string, extra: Partial<ChatEventRecord> = {}): ChatEventReco
 const kinds = (nodes: TranscriptNode[]) => nodes.map((n) => (n.kind === 'event' ? n.event.source : n.kind));
 
 describe('buildTranscriptNodes', () => {
+  it('keeps a sent receipt visible between collapsed activity groups', () => {
+    const receipt = ev('system', { content: 'chat_message_sent' });
+    const nodes = buildTranscriptNodes([ev('user'), ev('tool_call'), receipt, ev('tool_result'), ev('agent')], { isRunning: false, density: 'condensed' });
+    expect(kinds(nodes)).toEqual(['user', 'group', 'system', 'group', 'agent']);
+    expect(nodes.some(node => node.kind === 'event' && node.event.id === receipt.id)).toBe(true);
+  });
   it('keeps an email composer visible between folded tools in both transcript densities', () => {
     const events = [ev('user'), ev('tool_call'), ev('email_draft'), ev('tool_result'), ev('agent', { content: 'Review your draft' })];
     for (const density of ['full', 'condensed'] as const) {

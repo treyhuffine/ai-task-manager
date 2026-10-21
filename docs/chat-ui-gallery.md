@@ -16,9 +16,9 @@ Examples are always available with fictional records, independent of installed
 apps and real account access. The gallery is a reference, not a report of what
 the current Home has installed or enabled.
 
-The 13 families cover email, questions, tool permissions, account approvals,
+The examples cover email, questions, tool permissions, account approvals,
 account access, entity references, edit comparisons, attachments, HTML artifacts,
-handoffs, transcript activity, connected app results and app-kit components.
+handoffs, messages between chats, transcript activity, connected app results and app-kit components.
 
 ## Where the UI lives
 
@@ -116,6 +116,7 @@ example navigation inside the fixture. Native component code remains unchanged.
 pnpm gallery:build
 pnpm exec vitest run src/components/chat-ui/gallery/catalog.test.ts
 pnpm exec tsx scripts/chat-ui-gallery-browser-smoke.ts
+pnpm exec tsx scripts/chat-ui-gallery-browser-smoke.ts --example=chat-messages
 pnpm ts
 ```
 

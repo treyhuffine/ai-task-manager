@@ -67,7 +67,7 @@ it('runs an orchestrator delegation through executor consultation and returns th
     } else if (chat.id === agentMain.id) {
       await turn.say('Preserve the destination through login.');
     } else if (chat.type === 'execution' && !turn.message.includes('[Ri agent request')) {
-      expect(await runAction('ask_agent', { target: 'agent', request_id: 'runtime-context', content: 'What should happen after login?' }, ctx)).toMatchObject({ ok: true });
+      expect(await runAction('message_agent', { response: 'required', target: 'agent', request_id: 'runtime-context', content: 'What should happen after login?' }, ctx)).toMatchObject({ ok: true });
       await turn.say('Waiting for the project context.');
     } else if (chat.type === 'execution') {
       expect(turn.message).toContain('Preserve the destination');

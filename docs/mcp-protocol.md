@@ -36,7 +36,7 @@ All of Ri's MCP endpoints are built on one wrapper, `src/lib/mcp/http-server.ts`
 
 ### Verified with real harnesses (October 19, 2026)
 
-On the dev home, a Claude Code chat and a Codex chat (agent main chats, which carry the orchestrator server) each ran `list_tasks` and `create_note`. A message from the Claude chat reached the Codex chat, and an `ask_agent` question from Codex was answered by Claude and resumed the Codex chat. Executions ran `get_session_context`, `list_email_accounts` and `browser_status` on the coordination, email and browser servers in both harnesses. Through a logging proxy, Claude Code 2.1.302 negotiated 2026-07-28 (`server/discover`, `subscriptions/listen`, `tools/list`, `tools/call`) and Codex 0.162.1 negotiated 2025-06-18 through `initialize`.
+On the dev home, a Claude Code chat and a Codex chat (agent main chats, which carry the orchestrator server) each ran `list_tasks` and `create_note`. A message from the Claude chat reached the Codex chat, and a tracked consultation (then named `ask_agent`) from Codex was answered by Claude and resumed the Codex chat. Executions ran `get_session_context`, `list_email_accounts` and `browser_status` on the coordination, email and browser servers in both harnesses. Through a logging proxy, Claude Code 2.1.302 negotiated 2026-07-28 (`server/discover`, `subscriptions/listen`, `tools/list`, `tools/call`) and Codex 0.162.1 negotiated 2025-06-18 through `initialize`.
 
 ## Checking a server
 

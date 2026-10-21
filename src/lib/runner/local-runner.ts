@@ -285,6 +285,7 @@ export function _resetExecutorState(): void {
   state.inflightCount.clear();
   state.activeDispatchCount.clear();
   state.dispatchGenerations.clear();
+  state.interruptGenerations.clear();
   state.backgroundTasks.clear();
   state.openStreamTurns.clear();
   state.sessionInventories.clear();
@@ -393,6 +394,14 @@ function currentDispatchGeneration(chatSessionId: string): number {
   return next;
 }
 
+function interruptGeneration(chatSessionId: string): number {
+  const existing = state.interruptGenerations.get(chatSessionId);
+  if (existing !== undefined) return existing;
+  const next = ++state.nextDispatchGeneration;
+  state.interruptGenerations.set(chatSessionId, next);
+  return next;
+}
+
 function advanceDispatchGeneration(chatSessionId: string): number {
   const next = ++state.nextDispatchGeneration;
   state.dispatchGenerations.set(chatSessionId, next);
@@ -490,6 +499,10 @@ function liveHandle(chatSessionId: string): AgentSession | null {
  */
 export async function send(req: SendRequest): Promise<SendResult> {
   const { chatSessionId } = req;
+  const admittedGeneration = interruptGeneration(chatSessionId);
+  const assertNotInterrupted = () => {
+    if (interruptGeneration(chatSessionId) !== admittedGeneration) throw new ExecutorError('invalid_state', 'Interrupted before the message was sent.');
+  };
   if (req.admission && !await req.admission()) throw new ExecutorError('unsupported', 'This result operation is no longer eligible to send.');
   const live = liveHandle(chatSessionId);
   const info = live ? state.sessionInfo.get(chatSessionId) : undefined;
@@ -501,6 +514,7 @@ export async function send(req: SendRequest): Promise<SendResult> {
   if (!runtime.capabilities.sessions.supported) {
     throw new ExecutorError('unsupported', runtime.capabilities.sessions.reason ?? `${harness} sessions are unavailable`);
   }
+  assertNotInterrupted();
   const ref = _beginActiveDispatch(chatSessionId, runtime.capabilities.concurrentSend.supported);
   let result: Promise<unknown>;
   let commandUuid: string;
@@ -513,6 +527,7 @@ export async function send(req: SendRequest): Promise<SendResult> {
       if (state.sessionInfo.get(chatSessionId)?.readOnlyReview) await close(chatSessionId);
       throw new ExecutorError('unsupported', 'This result operation ended while its runtime was starting.');
     }
+    assertNotInterrupted();
     const currentInfo = state.sessionInfo.get(chatSessionId);
     const assigned = currentInfo?.readOnlyReview;
     if (assigned && (req.runId !== assigned.runId || req.message !== assigned.message)) {
@@ -540,9 +555,9 @@ export async function send(req: SendRequest): Promise<SendResult> {
       // A turn the person stopped ends normally: its run completes and the
       // dispatch resolves. Every other unfinished status is a failure, and a
       // result operation must complete to count.
-      const stopped = turn?.status === 'aborted' && !req.admission;
+      const stopped = turn?.status === 'aborted' && !req.stopIsFailure;
       const error = turn?.status && turn.status !== 'completed' && !stopped
-        ? turn.errorMessage ?? `The ${req.admission ? 'result operation' : 'turn'} ended with runtime status ${turn.status}.`
+        ? turn.errorMessage ?? `The ${req.stopIsFailure ? 'result operation' : 'turn'} ended with runtime status ${turn.status}.`
         : null;
       finishTurn(req, ref, error, commandUuid, turn?.summary ?? null, stopped);
     },
@@ -930,6 +945,7 @@ async function persist(
  * with a `result` event flagged as aborted).
  */
 export async function abort(chatSessionId: string): Promise<void> {
+  state.interruptGenerations.set(chatSessionId, ++state.nextDispatchGeneration);
   const handle = state.harnessSessions.get(chatSessionId);
   if (!handle) return;
   await handle.interrupt();

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import * as q from '@/lib/db/queries';
-import { EFFORT_LEVELS } from '@/db/types';
+import type { AgentRequestRecord } from '@/db/types';
+import { EFFORT_LEVELS, PERMISSION_MODES } from '@/db/types';
 import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
 import { isBrowserEnabled } from '@/lib/browser/config';
@@ -12,6 +13,18 @@ const requestShape = {
   request_id: z.string().min(1).max(200),
   content: z.string().trim().min(1).max(100_000),
 };
+
+/** The same receipt contract applies to messages and new assignments. */
+function agentRequestReceipt(request: AgentRequestRecord) {
+  const responseRequired = request.kind !== 'message';
+  return {
+    id: request.id, status: request.status, target: request.targetAddress, targetSessionId: request.targetSessionId,
+    response_required: responseRequired, return_delivery: responseRequired ? 'automatic' as const : 'none' as const,
+    note: responseRequired
+      ? 'Accepted for tracked delivery. This is not the answer. The outcome returns automatically. Continue independent work, or end your turn if waiting.'
+      : 'Accepted for delivery. No automatic response will be returned. Inspect get_agent_request if you need delivery state.',
+  };
+}
 
 export const coordinationActions = [
   defineAction({
@@ -33,34 +46,32 @@ export const coordinationActions = [
     },
   }),
   defineAction({
-    name: 'send_agent_message',
-    description: 'Send an informational message to a stable agent address. request_id deduplicates retries and rejects changed intent. It is visible in the receiving chat with your provenance. Use ask_agent when you need an answer returned automatically.',
-    params: requestShape,
+    name: 'message_agent',
+    strictParams: true,
+    description: 'Message an existing Ri chat using a stable agent address or session:<chat id>. Both modes deliver the message and start a turn when the recipient is available. Choose response:"required" for an automatic return of its final answer, failure, or blocked-state update. Choose response:"none" for information or steering with no automatic return. Returns an acceptance receipt, not a completed answer. Reuse request_id only for unchanged intent. Continue independent work, or finish your turn if waiting. Read get_agent_request when inspection is needed, rather than polling transcripts.',
+    params: { ...requestShape, response: z.enum(['required', 'none']).describe('Required: track the outcome and resume this chat automatically. None: deliver only, with no automatic return.') },
     mutating: true,
-    handler: (ctx, input) => inCoordinationServer(ctx, 'send_agent_message', input, () => submitAgentRequest(ctx, { target: input.target, requestId: input.request_id, content: input.content, kind: 'message' })),
-  }),
-  defineAction({
-    name: 'ask_agent',
-    description: 'Ask the orchestrator or an agent main chat for context or a decision within the user\'s intent. Returns a durable request. The answer resumes your chat automatically, including after reconnects. Finish your turn if waiting, rather than polling or claiming the assignment is complete. Use a stable request_id on retry. Consultation is visible in both chats.',
-    params: requestShape,
-    mutating: true,
-    handler: (ctx, input) => inCoordinationServer(ctx, 'ask_agent', input, () => submitAgentRequest(ctx, { target: input.target, requestId: input.request_id, content: input.content, kind: 'question' })),
+    handler: (ctx, input) => inCoordinationServer(ctx, 'message_agent', input, async () => agentRequestReceipt(await submitAgentRequest(ctx, { target: input.target, requestId: input.request_id, content: input.content, kind: input.response === 'required' ? 'question' : 'message' }))),
   }),
   defineAction({
     name: 'delegate_work',
-    description: 'Delegate a complete assignment to a new execution in an agent. Records the requesting chat and returns a durable request. Completion, failure, and blocked-state updates return to your chat automatically. Code work stays visible in an execution and uses the existing worktree/device/model rules. Use a stable request_id on retry.',
+    strictParams: true,
+    description: 'Assign work to a new chat in an agent. Use message_agent to contact an existing chat. Records the requesting chat and returns a durable request. Completion, failure, and blocked-state updates return to your chat automatically. Returns an acceptance receipt, not completed work. Finish your turn if waiting. Code work stays visible in a chat and uses the existing worktree/device/model rules. Use a stable request_id on retry.',
     params: {
       request_id: requestShape.request_id,
       workspace_id: z.string().min(1),
       prompt: requestShape.content,
       provider: z.enum(KNOWN_HARNESS_IDS).optional(), model: z.string().min(1).optional(), effort: z.enum(EFFORT_LEVELS).optional(),
-      task_id: z.string().optional(), device_id: z.string().optional(), label: z.string().optional(),
+      permission_mode: z.enum(PERMISSION_MODES).optional(),
+      task_id: z.string().min(1).optional(),
+      device_id: z.string().min(1).optional().describe('Requested device, otherwise the agent default. An unavailable device is refused, never silently replaced.'),
+      label: z.string().min(1).optional(),
     },
     mutating: true,
-    handler: (ctx, input) => inCoordinationServer(ctx, 'delegate_work', input, () => submitAgentRequest(ctx, {
+    handler: (ctx, input) => inCoordinationServer(ctx, 'delegate_work', input, async () => agentRequestReceipt(await submitAgentRequest(ctx, {
       target: `agent:${input.workspace_id}`, requestId: input.request_id, content: input.prompt, kind: 'delegation',
-      options: { workspaceId: input.workspace_id, ...(input.provider ? { provider: input.provider } : {}), ...(input.model ? { model: input.model } : {}), ...(input.effort ? { effort: input.effort } : {}), ...(input.task_id ? { taskId: input.task_id } : {}), ...(input.device_id ? { deviceId: input.device_id } : {}), ...(input.label ? { label: input.label } : {}) },
-    })),
+      options: { workspaceId: input.workspace_id, ...(input.provider ? { provider: input.provider } : {}), ...(input.model ? { model: input.model } : {}), ...(input.effort ? { effort: input.effort } : {}), ...(input.permission_mode ? { permissionMode: input.permission_mode } : {}), ...(input.task_id ? { taskId: input.task_id } : {}), ...(input.device_id ? { deviceId: input.device_id } : {}), ...(input.label ? { label: input.label } : {}) },
+    }))),
   }),
   defineAction({
     name: 'get_agent_request', description: 'Read a durable request, its exact responding chat/run, answer, and delivery state. Reading never restarts work.',
@@ -86,6 +97,7 @@ export const coordinationActions = [
       const caller = callerChat(ctx);
       const request = q.getAgentRequest(input.id);
       if (!request || request.targetSessionId !== caller.id) throw new ActionError('unsupported', 'Only the assigned responding chat can answer this request.');
+      if (request.kind === 'message') throw new ActionError('invalid_params', 'This message requested no automatic response. Use message_agent to send a separate message if useful.');
       if (request.status === 'completed' && request.response !== input.content) throw new ActionError('conflict', 'This request already has a different answer.');
       if (['failed', 'cancelled'].includes(request.status)) throw new ActionError('conflict', 'This request has already ended.');
       q.finishAgentRequest(request.id, 'completed', input.content);

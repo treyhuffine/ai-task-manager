@@ -2,13 +2,16 @@ import * as q from '@/lib/db/queries';
 import type { AgentRequestRecord, AgentDeliveryRecord, ChatSessionRecord } from '@/db/types';
 import type { ActionContext } from '@/lib/orchestrator/types';
 import { ActionError } from '@/lib/orchestrator/types';
-import { serverFetch, ServerResponseError } from '@/lib/orchestrator/server-client';
+import { serverFetch, ServerResponseError, ServerTransportError } from '@/lib/orchestrator/server-client';
 import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } from '@/lib/orchestrator/session-credential';
 import { assertPersonalCapability, isTeamAuthority } from '@/lib/home/authority';
 import { processState } from '@/lib/process-state';
 import { perfScope } from '@/lib/perf/recorder';
 import { stableCoordinationId } from './ids';
 import { requestScopedId } from './start-id';
+import { startDelegatedExecution } from './start-execution';
+import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
+import { AGENT_MESSAGE_INSTRUCTIONS, AGENT_REQUEST_REPLY_INSTRUCTIONS, AGENT_RESPONSE_INSTRUCTIONS, AGENT_BLOCKED_INSTRUCTIONS } from '@/lib/sessions/chat-message';
 
 const state = processState('coordination.delivery', () => ({ draining: null as Promise<void> | null, again: false, reconcileAfterId: null as string | null, timer: null as ReturnType<typeof setInterval> | null }));
 
@@ -57,6 +60,7 @@ export async function resolveAddress(address: string, userId: string): Promise<C
   } else if (address.startsWith('session:')) chat = personalChat(address.slice(8), userId);
   else throw new ActionError('invalid_params', 'Unknown agent address.');
   personalChat(chat.id, userId);
+  if (isImportMirror(chat)) throw new ActionError('conflict', IMPORT_MIRROR_REFUSAL);
   if (chat.status !== 'active') throw new ActionError('conflict', 'The addressed chat is archived.');
   return chat;
 }
@@ -123,6 +127,19 @@ async function busy(id: string): Promise<boolean> {
   return executor.isRunning(id) || executor.hasBackgroundTasks(id);
 }
 
+async function mustWaitForRecipient(request: AgentRequestRecord, target: ChatSessionRecord): Promise<boolean> {
+  if (!await busy(target.id)) return false;
+  // Tracked requests need a separate turn so an unrelated final answer cannot
+  // settle them. Informational steering can enter a supported native queue.
+  if (request.kind !== 'message') return true;
+  const { harnessCapabilitiesOn } = await import('@/lib/executor/devices');
+  const placement = q.chatPlacement(target.id);
+  const workspace = target.workspaceId ? q.getWorkspace(target.workspaceId) : null;
+  const cwd = q.getChatSessionWithExecution(target.id)?.execution?.worktreePath ?? workspace?.cwd;
+  const caps = await harnessCapabilitiesOn(placement ?? { deviceId: '', isHome: true }, target.harness, placement?.isHome === false ? undefined : cwd);
+  return !caps.concurrentSend;
+}
+
 async function dispatchRequest(request: AgentRequestRecord): Promise<void> {
   try {
     const source = personalChat(request.sourceSessionId);
@@ -131,20 +148,18 @@ async function dispatchRequest(request: AgentRequestRecord): Promise<void> {
       return;
     }
     if (request.kind === 'delegation') {
-      const { runAction } = await import('@/lib/orchestrator/dispatch');
-      const outcome = await runAction('start_execution', { ...request.options, requestId: request.id, prompt: requestPrompt(request) }, { remote: true, actor: { source: 'ai', sessionId: source.id } });
-      if (!outcome.ok) throw new ServerResponseError(outcome.error.code === 'not_found' ? 404 : outcome.error.code === 'unsupported' ? 403 : 409, JSON.stringify(outcome.error), outcome.error.message);
+      const outcome = await startDelegatedExecution(request.id, requestPrompt(request, requestScopedId('session', request.options!.workspaceId, request.id)));
       const current = q.getAgentRequest(request.id);
-      q.updateAgentRequest(request.id, { targetSessionId: outcome.result.sessionId, ...(current?.status === 'queued' ? { status: 'sent' as const } : {}), nextAttemptAt: null });
+      q.updateAgentRequest(request.id, { targetSessionId: outcome.sessionId, ...(current?.status === 'queued' ? { status: 'sent' as const } : {}), nextAttemptAt: null });
       return;
     }
     const target = await resolveAddress(request.targetAddress, source.userId);
-    if (await busy(target.id)) {
+    if (await mustWaitForRecipient(request, target)) {
       q.updateAgentRequest(request.id, { nextAttemptAt: new Date(Date.now() + 5000).toISOString() });
       return;
     }
     q.updateAgentRequest(request.id, { targetSessionId: target.id });
-    await serverFetch(`/sessions/${target.id}/messages`, { method: 'POST', headers: senderHeaders(source.id), body: JSON.stringify({ id: request.messageEventId, content: requestPrompt(request) }) });
+    await serverFetch(`/sessions/${target.id}/messages`, { method: 'POST', headers: senderHeaders(source.id), body: JSON.stringify({ id: request.messageEventId, content: requestPrompt(request, target.id) }) });
     if (q.getAgentRequest(request.id)?.status === 'queued') q.updateAgentRequest(request.id, { status: 'sent', nextAttemptAt: null });
   } catch (error) {
     if (permanent(error)) q.finishAgentRequest(request.id, 'failed', error instanceof Error ? error.message : String(error));
@@ -152,15 +167,26 @@ async function dispatchRequest(request: AgentRequestRecord): Promise<void> {
   }
 }
 
-export function requestPrompt(request: AgentRequestRecord): string {
-  return `[Ri agent ${request.kind}. Request ID: ${request.id}. Requesting chat: ${request.sourceSessionId}.]
+/** Retries keep the accepted bytes even if the app's routing instructions change. */
+function preserveAcceptedMessage(eventId: string, senderId: string, targetId: string, content: string): string {
+  const saved = q.getChatEventById(eventId);
+  if (!saved) return content;
+  if (saved.sessionId !== targetId || saved.senderSessionId !== senderId || saved.source !== 'user' || saved.role !== 'user' || saved.content === null) {
+    throw new ActionError('conflict', 'This accepted message belongs to a different chat or sender. Inspect the request before continuing.');
+  }
+  return saved.content;
+}
+
+function requestPrompt(request: AgentRequestRecord, targetId: string): string {
+  return preserveAcceptedMessage(request.messageEventId, request.sourceSessionId, targetId, `[Ri agent ${request.kind}. Request ID: ${request.id}. Requesting chat: ${request.sourceSessionId}.]
 ${request.content}
 
-${request.kind === 'message' ? 'This is an informational message. Respond when useful.' : 'Answer this request in your final response, or use reply_agent_request with this request ID. Ri returns the answer to the requesting chat automatically. If you need another agent, use ask_agent and finish your turn while waiting. Its answer resumes this chat. Keep work and consultations visible in their chats.'}`;
+${request.kind === 'message' ? AGENT_MESSAGE_INSTRUCTIONS : AGENT_REQUEST_REPLY_INSTRUCTIONS}`);
 }
 
 function permanent(error: unknown): boolean {
-  return error instanceof ServerResponseError ? [400, 403, 404, 409].includes(error.status)
+  if (error instanceof ServerTransportError) return false;
+  return error instanceof ServerResponseError ? error.status >= 400 && error.status < 500 && ![408, 425, 429].includes(error.status)
     : error instanceof ActionError && ['not_found', 'invalid_params', 'unsupported', 'conflict'].includes(error.code);
 }
 
@@ -191,10 +217,10 @@ Request: ${request.content}
 Responding chat: ${request.targetSessionId ?? 'Ri coordination service (work could not start)'}
 ${delivery.content}
 
-${delivery.kind === 'blocked' ? 'Inspect get_pending_input for the responding chat. Answer questions only within the user\'s intent. Human-only permission approvals remain with the user.' : 'Continue the original work using this outcome. This is a response to your earlier request, not a new user instruction.'}`;
+${delivery.kind === 'blocked' ? AGENT_BLOCKED_INSTRUCTIONS : AGENT_RESPONSE_INSTRUCTIONS}`;
     if (request.targetSessionId) {
       personalChat(request.targetSessionId, source.userId);
-      await serverFetch(`/sessions/${destination.id}/messages`, { method: 'POST', headers: senderHeaders(request.targetSessionId), body: JSON.stringify({ id: delivery.eventId, content }) });
+      await serverFetch(`/sessions/${destination.id}/messages`, { method: 'POST', headers: senderHeaders(request.targetSessionId), body: JSON.stringify({ id: delivery.eventId, content: preserveAcceptedMessage(delivery.eventId, request.targetSessionId, destination.id, content) }) });
     } else {
       // A launch failure has no responding chat. Record it truthfully as a
       // system event, and deliver only in the server that owns the runner.

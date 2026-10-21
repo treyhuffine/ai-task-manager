@@ -1,7 +1,7 @@
 /**
  * Memory stays at the home (docs/homes-build.md, P2.7, spec §7): a session
  * that can't read the home's files reads MEMORY.md through `read_memory`,
- * and sends findings with `submit_memory_finding` to the home's main chat,
+ * and sends findings with `message_agent` to the home's main chat,
  * which keeps the file. Through a real server, so the finding arrives the
  * way any message from another chat does: labeled, and dispatched.
  */
@@ -37,6 +37,7 @@ beforeEach(async () => {
 afterEach(async () => {
   if (savedBase === undefined) delete process.env.RI_PUBLIC_BASE_URL;
   else process.env.RI_PUBLIC_BASE_URL = savedBase;
+  await (await import('@/lib/coordination/service')).stopAgentCoordination();
   fake.restore();
   const { _resetExecutorState } = await import('@/lib/executor/adapter');
   _resetExecutorState();
@@ -72,13 +73,17 @@ describe('memory', () => {
     const q = await import('@/lib/db/queries');
     const ws = q.createWorkspace({ name: 'Demo', cwd: home.root, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
     const execution = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Fix the readme' });
-    const submit = await action('submit_memory_finding');
+    const submit = await action('message_agent');
     const ctx = { remote: true, actor: { source: 'ai' as const, sessionId: execution.session.id }, caller: { location: 'elsewhere' as const } };
-    const result = (await submit.handler(ctx, { finding: 'The user wants pnpm, never npm.' } as never)) as { mainChatId: string };
+    const content = 'Memory finding: The user wants pnpm, never npm. Consider recording it in MEMORY.md.';
+    const input = { target: 'orchestrator', response: 'none', request_id: 'pnpm-memory', content };
+    const result = (await submit.handler(ctx, input as never)) as { id: string; targetSessionId: string };
+    await (await import('@/lib/coordination/service')).drainAgentCoordination();
+    expect((await submit.handler(ctx, input as never)) as { id: string }).toMatchObject({ id: result.id });
 
     const { currentMainChat } = await import('@/lib/sessions/main-chat');
-    expect(result.mainChatId).toBe(currentMainChat(null)!.id);
-    const stored = q.listChatEvents(result.mainChatId).find((e) => e.role === 'user')!;
+    expect(result.targetSessionId).toBe(currentMainChat(null)!.id);
+    const stored = q.listChatEvents(result.targetSessionId).find((e) => e.role === 'user')!;
     expect(stored).toMatchObject({ senderSessionId: execution.session.id });
     expect(stored.content).toContain('Memory finding: The user wants pnpm, never npm.');
     // The main chat's harness hears who it's from, not the user typing.
@@ -89,8 +94,8 @@ describe('memory', () => {
   it('is kept by the main chat itself, which edits the file', async () => {
     const { ensureMainChat } = await import('@/lib/sessions/main-chat');
     const main = await ensureMainChat(null);
-    const submit = await action('submit_memory_finding');
+    const submit = await action('message_agent');
     const ctx = { remote: true, actor: { source: 'ai' as const, sessionId: main.id } };
-    await expect(submit.handler(ctx, { finding: 'anything' } as never)).rejects.toMatchObject({ code: 'invalid_params' });
+    await expect(submit.handler(ctx, { target: 'orchestrator', response: 'none', request_id: 'self-memory', content: 'anything' } as never)).rejects.toMatchObject({ code: 'invalid_params' });
   });
 });

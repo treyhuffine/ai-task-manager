@@ -47,7 +47,7 @@ import type { Attachment, PermissionMode, WorkerCommandActor, WorkerCommandRecor
 import { budgetGate } from '@/lib/runs/budget';
 import { beginRun } from '@/lib/runs/artifact-bucket';
 import { finishRun } from '@/lib/runs/finish';
-import { bindAgentRequestRun } from '@/lib/db/queries';
+import { bindAgentRequestRun, agentRequestMessageRefusal, agentMessageAdmission } from '@/lib/db/queries';
 import { explicitHarnessSelection, type ProviderId } from '@/lib/harness/options';
 import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
 import { isHarnessEnabled } from '@/lib/harness/registry';
@@ -704,6 +704,8 @@ async function sendAdmitted(
   // guards are honest. The scheduled wrapper sets `internalCall: true`
   // because it has already created the row + registered the run; we
   // only spawn a `triggerKind='manual'` row for top-level callers.
+  const requestRefusal = agentRequestMessageRefusal(options.sourceEventId);
+  if (requestRefusal) throw new ExecutorError('invalid_state', requestRefusal);
   let runId = options.runId ?? null;
   if (!options.internalCall) {
     const created = createRunRow({
@@ -734,7 +736,11 @@ async function sendAdmitted(
       message: withWorkResultSessionInstructions(remote ? userMessage : placeFilesAtHome(userMessage, attachments), session.surfaceKind),
       standingInstructions: renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),
       currentStandingInstructions: () => renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),
-      admission: options.resultOperationRunId ? async () => {
+      stopIsFailure: !!options.resultOperationRunId,
+      admission: options.resultOperationRunId || agentMessageAdmission(options.sourceEventId) ? async () => {
+        const refusal = agentRequestMessageRefusal(options.sourceEventId);
+        if (refusal) throw new ExecutorError('invalid_state', refusal);
+        if (!options.resultOperationRunId) return true;
         const runtime = await import('@/lib/work-results/runtime');
         return await runtime.verifyQueuedWorkResultReviewScope(options.resultOperationRunId!)
           && runtime.canContinueWorkResultOperationDispatch(options.resultOperationRunId!, chatSessionId, resultAuthorBusy);
@@ -1024,6 +1030,8 @@ export async function closeIdleHarnessesForMaintenance(): Promise<void> {
  */
 export async function queuedSendRefusal(command: Pick<WorkerCommandRecord, 'kind' | 'chatSessionId' | 'sourceEventId'>): Promise<string | null> {
   if (command.kind !== 'send' || !command.chatSessionId || !command.sourceEventId) return null;
+  const requestRefusal = agentRequestMessageRefusal(command.sourceEventId);
+  if (requestRefusal) return requestRefusal;
   const event = getChatEventById(command.sourceEventId);
   const context = (event?.raw as {connectedAppContext?: unknown} | null)?.connectedAppContext;
   if (!context) return null;

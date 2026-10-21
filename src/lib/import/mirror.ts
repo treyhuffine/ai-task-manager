@@ -3,7 +3,7 @@
  * user takes it over ("Continue here", `takeOverImportedSession`). It has no
  * provider session to resume, so a send would start a fresh agent with none
  * of the context the chat shows. Every sender refuses one: the composer, the
- * messages route, the orchestrator's send_session_message, dispatch itself,
+ * messages route, the orchestrator's message_agent, dispatch itself,
  * and the health re-fire.
  *
  * Pure and dependency-free: imported by client components.

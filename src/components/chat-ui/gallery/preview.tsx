@@ -25,7 +25,7 @@ import { AppContextStrip, type AppContextGroupView } from '@/components/chat-ui/
 import { galleryExample, type ChatUiExampleId } from './catalog';
 
 declare const __GALLERY_EXAMPLE__: ChatUiExampleId;
-import { CHAT_ID, DRAFT_ID, event, IMAGE_URL, mentionExample, NOW, PDF_PAGES, RECORD_ID } from './fixtures';
+import { CHAT_ID, DRAFT_ID, event, IMAGE_URL, mentionExample, NOW, PDF_PAGES, RECORD_ID, chatMessageExample } from './fixtures';
 import { fixtureConfig as config, fixtureQueryClient as client, fixtureRuntime as runtime } from './fixture-client';
 
 document.documentElement.classList.toggle('dark', config.theme === 'dark');
@@ -102,6 +102,22 @@ function AppContext() {
   </section>;
 }
 
+function ChatMessages() {
+  const { received, sent } = chatMessageExample(config.state);
+  return <div className="space-y-7">
+    <section aria-label="Receiving chat" className="space-y-3">
+      <p className="text-xs text-muted-foreground">In the receiving chat</p>
+      <ExecutionEvent event={received} handoffActions={false} />
+      <p className="text-[12.5px] leading-relaxed">{config.state === 'reply' ? 'I’ll include these findings in the handoff.' : 'I’ll check the boundary cases and report back with the results.'}</p>
+    </section>
+    <section aria-label="Sending chat" className="space-y-3">
+      <p className="text-xs text-muted-foreground">In the sending chat</p>
+      <p className="text-[12.5px] leading-relaxed">{config.state === 'reply' ? 'The review is complete. I’m sending the findings back.' : 'I’m asking the date handling chat to review this before the handoff.'}</p>
+      <ExecutionEvent event={sent} handoffActions={false} />
+    </section>
+  </div>;
+}
+
 function Example() {
   const revision = useSyncExternalStore(runtime.subscribe, runtime.snapshot, runtime.snapshot);
   const example = galleryExample(__GALLERY_EXAMPLE__);
@@ -113,6 +129,7 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'connections' && <ConnectionRequestCard event={runtime.events[0]} sessionId={CHAT_ID} />}
     {__GALLERY_EXAMPLE__ === 'mentions' && <Mentions />}
     {__GALLERY_EXAMPLE__ === 'references' && <References />}
+    {__GALLERY_EXAMPLE__ === 'chat-messages' && <ChatMessages />}
     {__GALLERY_EXAMPLE__ === 'app-context' && <AppContext />}
     {__GALLERY_EXAMPLE__ === 'edits' && <div className="space-y-4 text-sm"><p>I clarified the agenda and made the next steps easier to scan.</p><EntityEditChip entityType="note" entityId={RECORD_ID} /></div>}
     {__GALLERY_EXAMPLE__ === 'files' && <div className="space-y-5 text-sm"><p>Here are the review materials:</p><MessageFileChip attachment={{ fileName: 'gallery-agenda.txt', originalName: 'friday-agenda.txt', mimeType: 'text/plain', size: 99, uploadedAt: NOW }} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-image.svg', originalName: 'a-little-room-to-think.svg', mimeType: 'image/svg+xml', size: 720, uploadedAt: NOW }} fileUrl={() => IMAGE_URL} variant="block" /><MessageFileChip attachment={{ fileName: 'gallery-report.pdf', originalName: 'friday-review.pdf', mimeType: 'application/pdf', size: 48210, uploadedAt: NOW }} variant="block" /></div>}

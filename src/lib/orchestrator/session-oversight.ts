@@ -39,8 +39,8 @@ export interface CondensedEvent {
    */
   nestedUnder?: string;
   /**
-   * Present on a user row that another chat sent with send_session_message
-   * or start_execution: the sending chat's session id. Absent means the user
+   * Present on a user row that another chat sent with message_agent
+   * or delegate_work: the sending chat's session id. Absent means the user
    * typed it.
    */
   sentBy?: string;

@@ -74,6 +74,8 @@ export interface Action<Shape extends z.ZodRawShape = z.ZodRawShape, Name extend
   name: Name;
   description: string;
   params: Shape;
+  /** Reject unrecognized arguments consistently at dispatch and MCP validation. */
+  strictParams?: boolean;
   mutating?: boolean;
   handler: (
     ctx: ActionContext,

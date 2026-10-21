@@ -118,6 +118,28 @@ export function settleAgentRequestsForRun(runId: string, outcome: { ok: boolean;
   return requests.length > 0;
 }
 
+/** Indexed admission for initial inputs and automatic continuations, without reading bodies. */
+export function agentMessageAdmission(eventId: string | null | undefined): { id: string; refusal: string | null } | null {
+  if (!eventId) return null;
+  const db = getDb();
+  const ended = (status: AgentRequestRecord['status']) => ['completed', 'failed', 'cancelled'].includes(status);
+  const direct = db.select({ id: agentRequests.id, status: agentRequests.status }).from(agentRequests).where(eq(agentRequests.messageEventId, eventId)).get();
+  if (direct) return { id: direct.id, refusal: ended(direct.status) ? 'This agent request has ended. Its work will not be started.' : null };
+  const delivery = db.select({ requestId: agentDeliveries.requestId, kind: agentDeliveries.kind }).from(agentDeliveries).where(eq(agentDeliveries.eventId, eventId)).get();
+  if (!delivery) return null;
+  const request = db.select({ status: agentRequests.status, parentRequestId: agentRequests.parentRequestId }).from(agentRequests).where(eq(agentRequests.id, delivery.requestId)).get();
+  let refusal = !request || (delivery.kind === 'blocked' && ended(request.status)) ? 'This request has ended. Its blocked update is no longer current.' : null;
+  if (request?.parentRequestId) {
+    const parent = db.select({ status: agentRequests.status }).from(agentRequests).where(eq(agentRequests.id, request.parentRequestId)).get();
+    if (!parent || ended(parent.status)) refusal = 'The requesting assignment has ended. Its work will not be resumed.';
+  }
+  return { id: delivery.requestId, refusal };
+}
+
+export function agentRequestMessageRefusal(eventId: string | null | undefined): string | null {
+  return agentMessageAdmission(eventId)?.refusal ?? null;
+}
+
 export function failAgentRequestForMessage(eventId: string, reason: string): boolean {
   const request = getDb().select().from(agentRequests).where(eq(agentRequests.messageEventId, eventId)).get();
   if (request) finishAgentRequest(request.id, 'failed', reason);

@@ -99,14 +99,14 @@ describe('the brief', () => {
       'get_session_messages',
       'search_sessions',
       '**Never edit files in this folder.**',
-      'start_execution',
-      'requestId',
+      'delegate_work',
+      'request_id',
       'Permission prompts requiring human approval go to the user',
       'Answer its questions when the user\'s intent is clear',
       'labeled as\ncoming from the "ri" agent\'s main chat',
       '"ws-1"',
-      '**When the user asks you to build something, start an execution.**',
-      'Consult another agent\'s main chat with `ask_agent`',
+      '**When the user asks you to build something, use `delegate_work`.**',
+      'Consult another agent\'s main chat with `message_agent`',
       'delegate_work',
     ]) {
       expect(brief).toContain(expected);
@@ -273,7 +273,8 @@ describe('on a connected device (P2.7)', () => {
     expect(elsewhere).toContain('### USER.md\n\nTrey. Prefers terse answers.');
     expect(elsewhere).toContain('### SOUL.md\n\nDry, direct.');
     expect(elsewhere).toContain('`read_memory`');
-    expect(elsewhere).toContain('`submit_memory_finding`');
+    expect(elsewhere).toContain('`message_agent`');
+    expect(elsewhere).toContain('"orchestrator", `response` "none"');
     expect(elsewhere).toContain('- Folder: `/Users/trey/code/ri`');
     expect(elsewhere).not.toContain(ROOT);
     const atHome = renderAgentMainChatBrief(ws, { integrations: false, browser: false });

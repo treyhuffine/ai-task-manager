@@ -21,7 +21,7 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 | `edits/` | Entity change chips, comparison dialogs, undo and history controls |
 | `handoffs/` | Saved handoff rendering, feedback, review and presentation helpers |
 | `activity/` | Transcript events, grouped activity and background task displays |
-| `messages/` | Agent response markup, copy controls, sender and voice indicators |
+| `messages/` | Agent response markup, copy controls, linked chat origins and sent receipts, voice indicators |
 | `gallery/` | The catalog, gallery page and isolated preview fixtures |
 
 `PendingInputArea` is the small shared wrapper that selects a question or

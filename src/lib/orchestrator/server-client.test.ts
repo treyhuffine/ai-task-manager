@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { serverBaseUrl, serverFetch, ServerResponseError } from './server-client';
+import { serverBaseUrl, serverFetch, ServerResponseError, ServerTransportError } from './server-client';
 import { PUBLIC_BASE_URL_ENV, publishServerRuntime } from '@/lib/server-runtime/record';
 
 let tmpRoot: string;
@@ -98,6 +98,12 @@ describe('serverFetch errors', () => {
     expect(failure.code).toBe('conflict');
     expect(failure.json()).toEqual({ error: 'DirtyWorktreeError', code: 'dirty_worktree' });
     expect(failure.message).toContain('POST /sessions/s1/archive → 409');
+  });
+
+  it('distinguishes transport uncertainty from a server refusal', async () => {
+    withToken();
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('connection closed after acceptance'); }));
+    await expect(serverFetch('/sessions/s1/messages', { method: 'POST' })).rejects.toBeInstanceOf(ServerTransportError);
   });
 
   it('returns null from json() for a body that is not a JSON object', async () => {

@@ -5,8 +5,8 @@ import path from 'node:path';
 
 /**
  * The orchestrator actions an agent's main chat (and the app's main chat) use
- * to manage work (docs/agents-view-spec.md Phase 4): start_execution,
- * archive_execution, update_workspace, and send_session_message's
+ * to manage work (docs/agents-view-spec.md Phase 4): delegation,
+ * archive_execution, update_workspace, and authenticated message
  * provenance. The app server is mocked and every call recorded; the database
  * and the credentials are real.
  */
@@ -60,6 +60,27 @@ async function run(name: string, input: Record<string, unknown>, ctx: Record<str
   return runAction(name, input, ctx as never);
 }
 
+async function launch(input: Record<string, unknown>, ctx: Record<string, unknown> = { remote: true }) {
+  const { startDelegatedExecution } = await import('@/lib/coordination/start-execution');
+  const { ActionError } = await import('./types');
+  try {
+    const q = await import('@/lib/db/queries');
+    const { stableCoordinationId } = await import('@/lib/coordination/ids');
+    const { requestScopedId } = await import('@/lib/coordination/start-id');
+    const id = stableCoordinationId('test-delegation', String(input.workspaceId), String(input.requestId));
+    if (!q.getAgentRequest(id)) {
+      const actor = ctx.actor as { sessionId?: string } | undefined;
+      const source = actor?.sessionId ?? q.createChatSession({ type: 'orchestration', harness: 'claude' }).id;
+      const { requestId: key, prompt, ...options } = input;
+      q.createAgentRequest({ id, sourceSessionId: source, sourceAddress: `session:${source}`, targetAddress: `agent:${input.workspaceId}`, requestKey: String(key), kind: 'delegation', content: String(prompt), options: options as never, messageEventId: requestScopedId('prompt', String(input.workspaceId), id) });
+    }
+    return { ok: true, result: await startDelegatedExecution(id, String(input.prompt)) };
+  } catch (error) {
+    if (error instanceof ActionError) return { ok: false, error: { code: error.code, message: error.message } };
+    throw error;
+  }
+}
+
 async function seed() {
   const q = await import('@/lib/db/queries');
   const ws = q.createWorkspace({ name: 'ri', cwd: ROOT, isGit: false, filesToCopy: [], status: 'active' });
@@ -72,64 +93,45 @@ function headerOf(init: RequestInit | undefined, name: string): string | undefin
   return (init?.headers as Record<string, string> | undefined)?.[name];
 }
 
+function mockLaunchServer() {
+  serverFetch.mockImplementation(async (route, init) => {
+    if (!route.endsWith('/sessions')) return { id: 'evt' };
+    const q = await import('@/lib/db/queries');
+    const body = JSON.parse(String(init?.body));
+    const workspaceId = route.split('/')[2];
+    const { session } = q.createExecutionWithChat({ workspaceId, chatSessionId: body.sessionId, harness: body.harness ?? 'claude', label: body.label ?? null });
+    if (body.permissionMode) q.updateChatSession(session.id, { permissionMode: body.permissionMode });
+    return q.getChatSession(session.id);
+  });
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 describe('the registry surface', () => {
   it('exposes the new actions on both CLI and MCP', async () => {
     const { actions } = await import('./registry');
     expect(actions.map((a) => a.name)).toEqual(
-      expect.arrayContaining(['start_execution', 'archive_execution', 'update_workspace']),
+      expect.arrayContaining(['message_agent', 'delegate_work', 'archive_execution', 'update_workspace']),
     );
+    for (const removed of ['start_execution', 'send_session_message', 'ask_agent', 'send_agent_message', 'submit_memory_finding']) {
+      expect(actions.map(a => a.name)).not.toContain(removed);
+      expect(await run(removed, {})).toMatchObject({ ok: false, error: { code: 'unknown_action' } });
+    }
   });
 });
 
-describe('send_session_message provenance', () => {
-  it('signs the message with the calling chat, so the route can record the sender', async () => {
-    const { execution, agentChat } = await seed();
-    serverFetch.mockResolvedValue({ id: 'evt-1' });
-    const envelope = await run('send_session_message', { sessionId: execution.id, content: 'Fix the test' }, {
-      remote: true,
-      actor: { source: 'ai', sessionId: agentChat.id },
-    });
-    expect(envelope).toMatchObject({ ok: true, result: { delivered: true, sentFrom: agentChat.id } });
-    const [p, init] = serverFetch.mock.calls[0];
-    expect(p).toBe(`/sessions/${execution.id}/messages`);
-    const { verifySessionCredential } = await import('./session-credential');
-    expect(verifySessionCredential(headerOf(init, 'x-ri-session'), TOKEN)).toBe(agentChat.id);
-  });
-
-  it('sends unsigned for a human at the CLI', async () => {
-    const { execution } = await seed();
-    serverFetch.mockResolvedValue({ id: 'evt-1' });
-    await run('send_session_message', { sessionId: execution.id, content: 'hi' }, { remote: false });
-    expect(headerOf(serverFetch.mock.calls[0][1], 'x-ri-session')).toBeUndefined();
-  });
-
-  it('refuses a chat messaging itself', async () => {
-    const { execution } = await seed();
-    const envelope = await run('send_session_message', { sessionId: execution.id, content: 'hi' }, {
-      remote: true,
-      actor: { source: 'ai', sessionId: execution.id },
-    });
-    expect(envelope).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
-    expect(serverFetch).not.toHaveBeenCalled();
-  });
-});
-
-describe('start_execution', () => {
+describe('delegation launch operation', () => {
   it('creates the execution, then sends the prompt, both under ids derived from requestId', async () => {
     const { ws, agentChat } = await seed();
-    serverFetch.mockImplementation(async (p) =>
-      p.endsWith('/sessions') ? { id: 'created', executionId: 'exec-new' } : { id: 'evt' },
-    );
-    const envelope = await run('start_execution', {
+    mockLaunchServer();
+    const envelope = await launch({
       workspaceId: ws.id,
       prompt: 'Add rate limiting to the login route',
       requestId: 'rate-limit-1',
       provider: 'codex',
       label: 'Rate limiting',
     }, { remote: true, actor: { source: 'ai', sessionId: agentChat.id } });
-    expect(envelope).toMatchObject({ ok: true, result: { started: true, executionId: 'exec-new' } });
+    expect(envelope).toMatchObject({ ok: true, result: { started: true, executionId: expect.any(String) } });
 
     const [createPath, createInit] = serverFetch.mock.calls[0];
     expect(createPath).toBe(`/workspaces/${ws.id}/sessions`);
@@ -138,7 +140,7 @@ describe('start_execution', () => {
     expect(createBody.sessionId).toMatch(UUID);
 
     const [sendPath, sendInit] = serverFetch.mock.calls[1];
-    expect(sendPath).toBe('/sessions/created/messages');
+    expect(sendPath).toBe(`/sessions/${createBody.sessionId}/messages`);
     const sendBody = JSON.parse(sendInit!.body as string);
     expect(sendBody.content).toBe('Add rate limiting to the login route');
     expect(sendBody.id).toMatch(UUID);
@@ -147,17 +149,16 @@ describe('start_execution', () => {
   });
 
   it('returns the same execution on retry instead of starting a second', async () => {
-    const { q, ws } = await seed();
-    serverFetch.mockImplementation(async (p) => (p.endsWith('/sessions') ? { id: 'x', executionId: 'e' } : { id: 'evt' }));
-    await run('start_execution', { workspaceId: ws.id, prompt: 'Do it', requestId: 'job-7' });
+    const { ws } = await seed();
+    mockLaunchServer();
+    await launch({ workspaceId: ws.id, prompt: 'Do it', requestId: 'job-7' });
     const first = JSON.parse(serverFetch.mock.calls[0][1]!.body as string);
     const firstPrompt = JSON.parse(serverFetch.mock.calls[1][1]!.body as string);
 
     // The first attempt's server call created this chat under the derived id.
-    q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: null, chatSessionId: first.sessionId });
     serverFetch.mockClear();
 
-    const retry = await run('start_execution', { workspaceId: ws.id, prompt: 'Do it', requestId: 'job-7' });
+    const retry = await launch({ workspaceId: ws.id, prompt: 'Do it', requestId: 'job-7' });
     expect(retry).toMatchObject({ ok: true, result: { started: false, sessionId: first.sessionId } });
     // No second create. The prompt goes again under the same event id, which the route dedupes.
     expect(serverFetch).toHaveBeenCalledTimes(1);
@@ -168,9 +169,9 @@ describe('start_execution', () => {
   it('scopes requestId by workspace, so two agents never collide', async () => {
     const { q, ws } = await seed();
     const other = q.createWorkspace({ name: 'bounce', cwd: ROOT, isGit: false, filesToCopy: [], status: 'active' });
-    serverFetch.mockImplementation(async (p) => (p.endsWith('/sessions') ? { id: 'x', executionId: 'e' } : { id: 'evt' }));
-    await run('start_execution', { workspaceId: ws.id, prompt: 'a', requestId: 'same' });
-    await run('start_execution', { workspaceId: other.id, prompt: 'b', requestId: 'same' });
+    mockLaunchServer();
+    await launch({ workspaceId: ws.id, prompt: 'a', requestId: 'same' });
+    await launch({ workspaceId: other.id, prompt: 'b', requestId: 'same' });
     const a = JSON.parse(serverFetch.mock.calls[0][1]!.body as string).sessionId;
     const b = JSON.parse(serverFetch.mock.calls[2][1]!.body as string).sessionId;
     expect(a).not.toBe(b);
@@ -178,11 +179,11 @@ describe('start_execution', () => {
 
   it('creates with the requested permission mode before sending a prompt', async () => {
     const { ws } = await seed();
-    serverFetch.mockImplementation(async (p) => (p.endsWith('/sessions') ? { id: 'created', executionId: 'e' } : { id: 'evt' }));
-    await run('start_execution', { workspaceId: ws.id, prompt: 'Plan it', requestId: 'plan-1', permissionMode: 'plan' });
+    mockLaunchServer();
+    await launch({ workspaceId: ws.id, prompt: 'Plan it', requestId: 'plan-1', permissionMode: 'plan' });
     expect(serverFetch.mock.calls.map(([p, init]) => `${init?.method} ${p}`)).toEqual([
       `POST /workspaces/${ws.id}/sessions`,
-      'POST /sessions/created/messages',
+      `POST /sessions/${JSON.parse(serverFetch.mock.calls[0][1]!.body as string).sessionId}/messages`,
     ]);
     expect(JSON.parse(serverFetch.mock.calls[0][1]!.body as string)).toMatchObject({ permissionMode: 'plan' });
   });
@@ -195,18 +196,18 @@ describe('start_execution', () => {
       JSON.stringify({ error: 'TaskNotStartableForDispatch', message: 'Task is done, it cannot be started.' }),
       'POST → 409',
     ));
-    const envelope = await run('start_execution', { workspaceId: ws.id, prompt: 'x', requestId: 'r', taskId: 't' });
+    const envelope = await launch({ workspaceId: ws.id, prompt: 'x', requestId: 'r', taskId: 't' });
     expect(envelope).toMatchObject({ ok: false, error: { code: 'conflict', message: 'Task is done, it cannot be started.' } });
   });
 
   it('refuses unknown and archived workspaces without calling the server', async () => {
     const { q, ws } = await seed();
-    expect(await run('start_execution', { workspaceId: 'nope', prompt: 'x', requestId: 'r' })).toMatchObject({
+    expect(await launch({ workspaceId: 'nope', prompt: 'x', requestId: 'r' })).toMatchObject({
       ok: false,
       error: { code: 'not_found' },
     });
     q.archiveWorkspace(ws.id);
-    expect(await run('start_execution', { workspaceId: ws.id, prompt: 'x', requestId: 'r' })).toMatchObject({
+    expect(await launch({ workspaceId: ws.id, prompt: 'x', requestId: 'r' })).toMatchObject({
       ok: false,
       error: { code: 'conflict' },
     });
@@ -398,10 +399,10 @@ describe('workspace reads and create', () => {
 });
 
 
-describe('start_execution permissions', () => {
+describe('delegation launch permissions', () => {
   it.each(['ask', 'auto_edits'])('refuses Antigravity %s before creating an execution', async (permissionMode) => {
     const { ws } = await seed();
-    const result = await run('start_execution', {
+    const result = await launch({
       workspaceId: ws.id, prompt: 'Do it', requestId: 'unsupported-mode', provider: 'antigravity', permissionMode,
     });
     expect(result).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
@@ -411,22 +412,20 @@ describe('start_execution permissions', () => {
   it('checks the saved default when the caller omits provider', async () => {
     const { ws, q } = await seed();
     q.updateUserState({ defaultHarness: 'antigravity' });
-    expect(await run('start_execution', {
+    expect(await launch({
       workspaceId: ws.id, prompt: 'Do it', requestId: 'default-mode', permissionMode: 'ask',
     })).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
     expect(serverFetch).not.toHaveBeenCalled();
   });
 
-  it('applies a requested mode to an existing execution before retrying the prompt', async () => {
+  it('refuses to overwrite a changed permission mode when retrying an existing execution', async () => {
     const { ws, q } = await seed();
-    serverFetch.mockImplementation(async (p) => p.endsWith('/sessions') ? { id: 'created', executionId: 'e' } : { id: 'evt' });
-    await run('start_execution', { workspaceId: ws.id, prompt: 'Do it', requestId: 'retry-mode' });
+    mockLaunchServer();
+    await launch({ workspaceId: ws.id, prompt: 'Do it', requestId: 'retry-mode', permissionMode: 'plan' });
     const { sessionId } = JSON.parse(serverFetch.mock.calls[0][1]!.body as string);
-    q.createExecutionWithChat({ workspaceId: ws.id, harness: 'antigravity', label: null, chatSessionId: sessionId });
+    q.updateChatSession(sessionId, { permissionMode: 'auto_all' });
     serverFetch.mockClear();
-    await run('start_execution', { workspaceId: ws.id, prompt: 'Plan it', requestId: 'retry-mode', permissionMode: 'plan' });
-    expect(serverFetch.mock.calls.map(([p, init]) => `${init?.method} ${p}`)).toEqual([
-      `PATCH /sessions/${sessionId}`, `POST /sessions/${sessionId}/messages`,
-    ]);
+    expect(await launch({ workspaceId: ws.id, prompt: 'Do it', requestId: 'retry-mode', permissionMode: 'plan' })).toMatchObject({ ok: false, error: { code: 'conflict', message: expect.stringContaining('permission mode') } });
+    expect(serverFetch).not.toHaveBeenCalled();
   });
 });

@@ -88,7 +88,7 @@ it('discovers only content tools and refuses calls to private or hidden tools by
   const { token } = await (await settings()).create({ name: 'Codex' });
   const client = await connect(token, { 'x-ri-api-key-scope': 'viewer', 'x-ri-caller-location': 'home', 'x-ri-member-id': 'owner', 'x-ri-session': 'forged.session' });
   expect((await client.listTools()).tools.map(tool => tool.name).sort()).toEqual([...HOME_CONTENT_ACTIONS].sort());
-  for (const name of ['describe_paths', 'describe_schema', 'start_execution', 'list_sessions', 'send_session_message', 'regenerate_deck', 'report_result', 'get_result', 'list_results', 'query', 'run_sql']) {
+  for (const name of ['describe_paths', 'describe_schema', 'delegate_work', 'list_sessions', 'message_agent', 'regenerate_deck', 'report_result', 'get_result', 'list_results', 'query', 'run_sql']) {
     expect((await call(client, name)).isError, name).toBe(true);
   }
 });
@@ -174,7 +174,7 @@ it('does not claim external keys as host sign-ins at restart or revoke browser k
 
 it('still gives a regular viewer the full orchestrator tools', async () => {
   const client = await connect(viewer);
-  expect((await client.listTools()).tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['describe_paths', 'start_execution', 'search']));
+  expect((await client.listTools()).tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['describe_paths', 'delegate_work', 'search']));
 });
 
 it('checks expiration and the scoped dispatcher again, even if a request passed the proxy earlier', async () => {

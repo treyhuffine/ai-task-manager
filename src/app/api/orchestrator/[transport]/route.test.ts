@@ -7,7 +7,7 @@ import path from 'node:path';
  * The orchestrator MCP route resolves the calling chat from the signed
  * `x-ri-session` header (docs/agents-view-spec.md Phase 4, "Caller
  * identity"). Driven through the real MCP handler with a JSON-RPC tools/call.
- * The observable effect: `send_session_message` refuses a chat messaging
+ * The observable effect: `message_agent` refuses a chat messaging
  * itself, which it can only know when the route resolved the caller.
  */
 
@@ -75,11 +75,11 @@ describe('orchestrator MCP caller identity', () => {
   it('resolves a signed header to the calling chat', async () => {
     const session = await seedExecution();
     const { sessionCredential } = await import('@/lib/orchestrator/session-credential');
-    const envelope = await callTool('send_session_message', { sessionId: session.id, content: 'hi' }, {
+    const envelope = await callTool('message_agent', { target: `session:${session.id}`, content: 'hi', response: 'none', request_id: 'identity-test' }, {
       'x-ri-session': sessionCredential(session.id)!,
     });
     expect(envelope).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
-    expect(envelope.error!.message).toContain('own session');
+    expect(envelope.error!.message).toContain('this chat');
     expect(serverFetch).not.toHaveBeenCalled();
   });
 
@@ -87,17 +87,17 @@ describe('orchestrator MCP caller identity', () => {
     const session = await seedExecution();
     for (const header of [`${session.id}.forged`, session.id]) {
       serverFetch.mockClear();
-      const envelope = await callTool('send_session_message', { sessionId: session.id, content: 'hi' }, {
+      const envelope = await callTool('message_agent', { target: `session:${session.id}`, content: 'hi', response: 'none', request_id: 'identity-test' }, {
         'x-ri-session': header,
       });
-      expect(envelope.ok).toBe(true);
-      expect(serverFetch).toHaveBeenCalledTimes(1);
+      expect(envelope).toMatchObject({ ok: false, error: { code: 'unsupported' } });
+      expect(serverFetch).not.toHaveBeenCalled();
     }
   });
 
   it('runs with no actor when the header is absent', async () => {
     const session = await seedExecution();
-    const envelope = await callTool('send_session_message', { sessionId: session.id, content: 'hi' });
-    expect(envelope.ok).toBe(true);
+    const envelope = await callTool('message_agent', { target: `session:${session.id}`, content: 'hi', response: 'none', request_id: 'identity-test' });
+    expect(envelope).toMatchObject({ ok: false, error: { code: 'unsupported' } });
   });
 });

@@ -13,6 +13,7 @@
  * from one handler (src/lib/mcp/http-server.ts). The HTTP+SSE transport is retired.
  */
 
+import { z } from 'zod';
 import { isMcpTransport, mcpNotFound, riMcpHandler } from '@/lib/mcp/http-server';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { permitsHomeContentAction } from '@/lib/external-ai/policy';
@@ -50,7 +51,7 @@ async function handle(request: Request) {
           action.name,
           {
             description: contentOnly && action.name === 'search' ? 'Search this Home’s tasks and notes by meaning or keyword.' : action.description,
-            inputSchema: action.params,
+            inputSchema: action.strictParams ? z.object(action.params).strict() : action.params,
           },
           async (input, { headers }) => {
             // Which chat and which key called, as the proxy validated them. The

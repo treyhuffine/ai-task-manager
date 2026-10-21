@@ -8,7 +8,7 @@ Two separate settings decide what a chat starts on when nobody picks a model.
   background calls (deck, briefs, image capture, the NL MCP) start on it.
 - **A harness's own default** (`harness_settings.default_model`, `default_variant`,
   `default_effort`, one row per harness). Used when something picks that harness without a model:
-  an agent asking `start_execution` for Codex, a chat switching to Codex with no model named. That
+  an agent asking `delegate_work` for Codex, a chat switching to Codex with no model named. That
   includes the global default's harness: picking Claude Code asks for Claude Code's own default.
 
 Neither writes the other. Until 2026-10-19 they shared a write path: the home's value was a copy of

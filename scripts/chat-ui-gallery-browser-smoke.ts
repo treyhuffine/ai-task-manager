@@ -17,6 +17,8 @@ async function waitForText(frame: Frame, value: string) {
 }
 
 async function main() {
+  const focusedExample = process.argv.find(argument => argument.startsWith('--example='))?.slice('--example='.length);
+  if (focusedExample) assert(CHAT_UI_EXAMPLES.some(example => example.id === focusedExample), 'Choose a known gallery example');
   if (!process.argv.includes('--skip-build')) await buildChatUiGallery();
   const source = `import React from 'react';import{createRoot}from'react-dom/client';import{ChatUiGallery}from'./src/components/chat-ui/gallery/gallery';import{TipProvider}from'./src/components/ui/tip';createRoot(document.getElementById('root')).render(<TipProvider><ChatUiGallery/></TipProvider>);`;
   const bundle = await build({ stdin: { contents: source, loader: 'tsx', resolveDir: process.cwd() }, bundle: true, write: false, jsx: 'automatic', platform: 'browser', define: { 'process.env': '{"NODE_ENV":"production"}' }, plugins: [{ name: 'fixture-link', setup(builder) {
@@ -63,12 +65,49 @@ async function main() {
       await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       return frame;
     }
-    for (const example of CHAT_UI_EXAMPLES) {
+    async function exerciseChatMessages() {
+      let frame = await select('chat-messages');
+      await frame.getByRole('link', { name: 'Request from Prepare the runner handoff. Open chat', exact: true }).waitFor();
+      const sentLink = frame.getByRole('link', { name: 'Sent to Review date handling. Open chat', exact: true });
+      assert.equal(await sentLink.getAttribute('href'), '/?session=019a0000-0000-7000-8000-000000000005');
+      assert.equal(await frame.getByText('Request ID:', { exact: false }).count(), 0, 'Transport wrapper stays out of the visible message');
+      frame = await select('chat-messages', 'reply');
+      await frame.getByRole('link', { name: 'Reply from Review date handling. Open chat', exact: true }).waitFor();
+      await frame.getByText('Original request', { exact: true }).click();
+      await frame.getByText('Please review the date handling', { exact: false }).first().waitFor();
+      frame = await select('chat-messages', 'deleted');
+      await frame.getByText('Deleted chat', { exact: true }).waitFor();
+      assert.equal(await frame.getByRole('link', { name: /^Request from/ }).count(), 0, 'Deleted sender is not a broken link');
+    }
+    for (const example of CHAT_UI_EXAMPLES.filter(example => !focusedExample || example.id === focusedExample)) {
       for (const state of example.states) {
         const frame = await select(example.id, state.id);
         assert((await frame.locator('body').innerText()).trim().length > 0, `${example.id}/${state.id} rendered`);
       }
       console.log(`Rendered ${example.id} in all states`);
+    }
+    if (focusedExample) {
+      if (focusedExample === 'chat-messages') await exerciseChatMessages();
+      const focusedStates: readonly { id: string }[] = CHAT_UI_EXAMPLES.find(example => example.id === focusedExample)!.states;
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 1050 });
+        for (const exampleState of focusedStates) {
+          for (const theme of ['light', 'dark']) {
+            await select(focusedExample, exampleState.id);
+            await page.getByRole('button', { name: theme, exact: true }).click();
+            const active = await (await page.locator('iframe').first().elementHandle())!.contentFrame(); assert(active);
+            await active.locator(`html[data-theme="${theme}"] [data-gallery-example]`).waitFor();
+            assert.equal(await page.locator('body').evaluate(body => body.scrollWidth > innerWidth + 1), false, `Parent fits at ${width}`);
+            assert.equal(await active.locator('body').evaluate(body => body.scrollWidth > innerWidth + 1), false, `${exampleState.id} fits at ${width}`);
+            await page.screenshot({ path: path.join(output, `${focusedExample}-${exampleState.id}-${width}-${theme}.png`), fullPage: true });
+          }
+        }
+      }
+      assert.deepEqual(errors, [], 'No browser exceptions');
+      assert.deepEqual(diagnostics, [], 'Every operation has a local fixture');
+      assert.deepEqual(realRequests, [], 'No interaction reaches a real API');
+      console.log(`${focusedExample}: interactions and all states passed on desktop and phone in both themes`);
+      return;
     }
     let frame = await select('email');
     await frame.getByLabel('Message', { exact: true }).fill('A message typed in the gallery');
@@ -99,6 +138,7 @@ async function main() {
     await frame.getByRole('dialog').waitFor();
     await frame.getByRole('button', { name: /Undo/ }).click();
     await waitForText(frame, 'Example note restored to its earlier version');
+    await exerciseChatMessages();
     frame = await select('files');
     await frame.getByRole('button', { name: /friday-agenda/ }).click();
     await frame.getByText('1. Look at the new dashboard', { exact: false }).waitFor();
@@ -151,7 +191,7 @@ async function main() {
     await page.getByRole('button', { name: /^All sources/ }).click();
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1050 });
-      for (const id of ['email', 'questions', 'approvals', 'html', 'connected-app', 'app-kit']) {
+      for (const id of ['email', 'questions', 'approvals', 'chat-messages', 'html', 'connected-app', 'app-kit']) {
         await select(id);
         for (const theme of ['light', 'dark']) {
           await page.getByRole('button', { name: theme, exact: true }).click();
@@ -166,6 +206,10 @@ async function main() {
           await page.screenshot({ path: path.join(output, `${id}-${width}-${theme}.png`), fullPage: true });
         }
       }
+      await select('chat-messages', 'long');
+      const longPreview = await (await page.locator('iframe').first().elementHandle())!.contentFrame(); assert(longPreview);
+      assert.equal(await longPreview.locator('body').evaluate(body => body.scrollWidth > innerWidth + 1), false, `Long chat name fits at ${width}`);
+      await page.screenshot({ path: path.join(output, `chat-messages-long-${width}.png`), fullPage: true });
     }
     assert.deepEqual(errors, [], 'No browser exceptions');
     assert.deepEqual(diagnostics, [], 'Every requested operation has a local fixture');

@@ -1,60 +1,12 @@
 'use client';
 
-import { CornerDownRight } from 'lucide-react';
-import { useDashboard } from '@/contexts/dashboard-context';
-import { useSession } from '@/hooks/use-execution';
-import { useWorkspace } from '@/hooks/use-workspaces';
-import { useOrchestratorName } from '@/hooks/use-user-state';
-import { Tip } from '@/components/ui/tip';
+import { ChatMessageLink } from './chat-message-link';
 
 /**
- * Who sent a message that another chat sent (docs/agents-view-spec.md Phase
- * 7, "Provenance in transcripts"). Messages carry `senderSessionId` when an
- * agent's main chat or the app's main chat sent them with
- * `send_session_message` or `start_execution`. The chip names the sender
- * and opens it. Messages the user typed have no chip.
+ * Authenticated sender identity, shared by requests, ordinary messages and
+ * automatic returns. It belongs to the incoming message's header. Messages
+ * the user typed have no sender reference.
  */
-export function SenderChip({ senderSessionId }: { senderSessionId: string }) {
-  const { openAgent, openExecution, goHome } = useDashboard();
-  const { data: sender, isError } = useSession(senderSessionId);
-  const agentId = sender?.type === 'orchestration' ? sender.workspaceId ?? null : null;
-  const { data: agent } = useWorkspace(agentId);
-  const orchestratorName = useOrchestratorName();
-
-  let label: string;
-  let open: (() => void) | null = null;
-  if (isError) {
-    label = 'From a chat that was deleted';
-  } else if (!sender) {
-    label = 'From another chat';
-  } else if (sender.type === 'orchestration' && agentId) {
-    label = `From ${agent?.name ?? 'an agent'}`;
-    open = () => openAgent(agentId);
-  } else if (sender.type === 'orchestration') {
-    label = `From ${orchestratorName}`;
-    open = goHome;
-  } else if (sender.type === 'execution') {
-    label = `From ${sender.execution?.label ?? sender.label ?? 'another chat'}`;
-    open = () => openExecution(sender.id);
-  } else {
-    label = 'From a document chat';
-  }
-
-  const className =
-    'self-end mb-0.5 inline-flex max-w-[18rem] items-center gap-1 rounded-full px-1.5 py-px text-[10.5px] text-muted-foreground';
-  const content = (
-    <>
-      <CornerDownRight size={10} className="flex-shrink-0" aria-hidden />
-      <span className="truncate">{label}</span>
-    </>
-  );
-  return open ? (
-    <Tip label={label} onlyWhenTextHidden>
-      <button onClick={open} className={`${className} hover:text-foreground hover:bg-muted/60 transition-colors`}>
-        {content}
-      </button>
-    </Tip>
-  ) : (
-    <span className={className}>{content}</span>
-  );
+export function SenderChip({ senderSessionId, label = 'Message from' }: { senderSessionId: string; label?: string }) {
+  return <ChatMessageLink sessionId={senderSessionId} label={label} direction="incoming" header />;
 }

@@ -223,22 +223,17 @@ You are the conductor over the executing agents:
   leaving out inactive ones unless the user asks about older work.
 - \`get_session_messages\`: the condensed transcript tail of a session.
   **Always read before acting.** Know where the agent actually is.
-- \`send_session_message\`: drop a message into an execution: nudge a
-  stalled one, add context, redirect. Delivery is asynchronous. Re-check
-  the transcript for the response. Your message is labeled as coming from
-  you, in the transcript and for the receiving agent, so it is never
-  mistaken for the user typing. An imported terminal session is read-only
-  until the user takes it over in the app, so a send to one is refused.
-- \`start_execution\`: start new work in a workspace with a first prompt
-  (its own worktree for git workspaces). Pass a fresh \`requestId\` per piece
-  of work: retrying with the same one returns the same execution instead of
-  starting a second. Write the prompt as a complete brief, since the new
-  session starts with none of this conversation. Prefer \`delegate_work\`
-  when you need the outcome returned automatically. Consult an agent's main
-  chat with \`ask_agent\` when its project context would help. Code changes
-  stay in executions, which the user can see, steer, and review. It runs on the
-  agent's default device unless you pass \`deviceId\` (\`get_workspace\`
-  shows its \`runOn\` choices). One that can't take it is refused with the reason.
+- \`message_agent\`: contact an existing chat. Use \`target\`
+  \"session:<chat id>\" to steer an execution, or a stable agent address
+  for project context. Set \`response\` to \"required\" for an automatic
+  returned outcome, or \"none\" for information without an automatic return.
+  An imported terminal session is read-only until the user takes it over.
+- \`delegate_work\`: assign new work to a new chat in an agent using
+  \`workspace_id\`, a complete \`prompt\`, and a fresh \`request_id\` per
+  assignment. Its outcome returns automatically. Reuse the same ID only to
+  retry unchanged intent. Git agents get an isolated worktree. The agent's
+  default device is used unless you pass \`device_id\` (\`get_workspace\`
+  shows \`runOn\` choices). An unavailable device is refused with the reason.
 - \`archive_execution\`: close out finished work. It refuses when the
   worktree has uncommitted or unpushed work, and says so. Only pass
   \`force\` when the user has said that work can go.
@@ -374,8 +369,8 @@ tool per action: \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`,
 \`list_areas\`, \`get_area\`, \`create_area\`, \`update_area\`, \`get_deck\`,
 \`update_deck\`, \`regenerate_deck\`, \`reconcile_deck\`, \`search\`, \`get_user_state\`,
 \`update_user_state\`. Execution oversight via \`list_executions\`,
-\`get_session_messages\`, \`send_session_message\`, \`get_pending_input\`,
-\`answer_pending_input\`, \`start_execution\`, \`archive_execution\`. Workspaces
+\`get_session_messages\`, \`message_agent\`, \`get_pending_input\`,
+\`answer_pending_input\`, \`delegate_work\`, \`archive_execution\`. Workspaces
 (agents) via \`list_workspaces\`, \`get_workspace\`, \`update_workspace\`. Browser via \`browser_read\`, \`browser_act\`,
 \`browser_batch\`, \`browser_tabs\`, \`browser_open\`, \`browser_profiles\`,
 \`browser_status\`, \`browser_close\`. Skills (the home skill library the user builds in
@@ -499,8 +494,10 @@ ${read(SOUL_MD_FILENAME)}
 
 Your durable cross-session memory is MEMORY.md, which stays at the home.
 Read it with \`read_memory\` when past context would help. When you learn
-something worth remembering, send it with \`submit_memory_finding\`: the
-home's main chat keeps the file.`;
+something worth remembering, use \`message_agent\` with \`target\`
+"orchestrator", \`response\` "none", and a stable \`request_id\`. In the
+content, ask the home's main chat to consider recording the finding in
+MEMORY.md. The main chat keeps the file.`;
 }
 
 /**
@@ -532,17 +529,17 @@ execution's worktree branches from, so an edit here collides with running
 work. File-editing tools are turned off for this chat. Reading files to
 answer questions is fine.
 
-Every change goes through \`start_execution\` with \`workspaceId\` "${id}".
+Every change goes through \`delegate_work\` with \`workspace_id\` "${id}".
 Write the prompt as a complete brief, because the execution starts with none
-of this conversation. Pass a fresh \`requestId\` for each piece of work:
+of this conversation. Pass a fresh \`request_id\` for each piece of work:
 retrying with the same one returns the same execution instead of starting a
 second.`
     : `## Changing code
 
 This folder is not a git repository, so there are no worktrees to collide
 with, but building still happens in an execution: start one with
-\`start_execution\` and \`workspaceId\` "${id}". Write its prompt as a
-complete brief, and pass a fresh \`requestId\` for each piece of work. Edit
+\`delegate_work\` and \`workspace_id\` "${id}". Write its prompt as a
+complete brief, and pass a fresh \`request_id\` for each piece of work. Edit
 a file here directly only when the user asks you to make that edit in this
 chat.`;
 
@@ -573,9 +570,8 @@ This is that agent's main chat. Your job here is to manage the agent's work:
 see what its executions are doing, answer questions about them, steer them,
 start new ones, and close them out.
 
-**When the user asks you to build something, start an execution.** Prefer
-\`delegate_work\` for a durable assignment whose outcome returns here.
-\`start_execution\` remains available as a lower-level send. Building,
+**When the user asks you to build something, use \`delegate_work\`.** Its
+durable assignment returns an outcome here automatically. Building,
 fixing, or changing anything in this agent's folder is an execution's
 job, not this chat's. The execution is where the user watches the work, steers
 it, and reviews what changed. Start it with \`delegate_work\`, then tell the
@@ -584,7 +580,7 @@ brief well, ask one question first.`,
     `## This agent
 
 - Name: ${ws.name}
-- Workspace id: \`${id}\` (pass it as \`workspaceId\`)
+- Workspace id: \`${id}\` (pass it as \`workspace_id\` to \`delegate_work\`)
 - Folder: \`${reach.elsewhere?.folder ?? ws.cwd}\`, ${ws.isGit ? 'a git repository' : 'not a git repository'}. It is your working directory.
 - Purpose: ${purpose}
 
@@ -607,9 +603,9 @@ ${instructions}`,
     changingCode,
     `## Steering and closing out
 
-- \`send_session_message\`: nudge a stalled execution, add context, or
-  redirect it. Delivery is asynchronous, so re-read the transcript for the
-  response. Never send to your own session, or to an imported terminal
+- \`message_agent\`: nudge a stalled execution, add context, or
+  redirect it. Address \`session:<chat id>\` and choose \`response\`
+  \"required\" for an automatic return or \"none\" for delivery only. Never send to your own session, or to an imported terminal
   session the user hasn't taken over (it's read-only, and refused).
 - \`archive_execution\`: close out finished work. It refuses when the
   worktree has uncommitted or unpushed work and says what would be lost.
@@ -630,7 +626,8 @@ You can reach all of ${APP_NAME} (tasks, notes, the deck, the stream, other
 agents). Use it when the user asks. Otherwise keep your attention on this
 agent's work.
 
-Consult another agent's main chat with \`ask_agent\` when its context helps
+Consult another agent's main chat with \`message_agent\` and
+\`response\` \"required\" when its context helps
 the user's requested work. Consultation is visible in the participating
 chats. Delegate changes to the appropriate agent's executions within the
 user's requested scope. Replies return here automatically.`,

@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkedChatView } from '@/components/chat-ui/messages/linked-chat-view';
 import { AppCompanion } from '@/components/local-apps/app-companion';
 import { AppCompanionButton } from '@/components/local-apps/app-companion-button';
 import type { HarnessId } from '@/lib/harness/registry';
@@ -102,7 +103,14 @@ function isEditableTarget(el: HTMLElement | null): boolean {
  * Marks the session as viewed on open so it leaves the Needs Review
  * surface — opening the session is the read receipt.
  */
-export function ExecutionView({ sessionId }: ExecutionViewProps) {
+export function ExecutionView(props: ExecutionViewProps) {
+  const { data: session, error } = useSession(props.sessionId);
+  if (!session && !error) return <ExecutionSkeleton />;
+  if (session && session.type !== 'execution' && !session.executionId) return <LinkedChatView session={session} />;
+  return <ExecutionWorkbenchView {...props} />;
+}
+
+function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   const { setActiveView, setActiveExecutionId, setSessionStreaming, openAgent, pendingInputSessionIds } = useDashboard();
   const qc = useQueryClient();
   const { data: session, isLoading, error } = useSession(sessionId);

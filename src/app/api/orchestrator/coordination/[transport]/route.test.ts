@@ -32,6 +32,26 @@ describe('native coordination MCP', () => {
     expect(response.ok).toBe(true);
     const raw = await response.text();
     const message = JSON.parse(raw.includes('data:') ? raw.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('') : raw);
+    const messageTool = message.result.tools.find((tool: { name: string }) => tool.name === 'message_agent');
+    expect(messageTool.inputSchema.required).toEqual(expect.arrayContaining(['target', 'content', 'request_id', 'response']));
+    expect(messageTool.inputSchema.additionalProperties).toBe(false);
+    for (const removed of ['ask_agent', 'send_agent_message', 'send_session_message', 'start_execution', 'submit_memory_finding']) {
+      expect(message.result.tools.map((tool: { name: string }) => tool.name)).not.toContain(removed);
+    }
     expect(message.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual([...COORDINATION_TOOLS].sort());
   });
+
+  it('rejects unknown message arguments at the MCP boundary before accepting work', async () => {
+    const chat = q.createChatSession({ harness: 'claude', type: 'orchestration' });
+    const response = await POST(new Request('http://localhost/api/orchestrator/coordination/mcp', {
+      method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'x-ri-session': sessionCredential(chat.id)! },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'message_agent', arguments: { target: 'orchestrator', content: 'Hello', request_id: 'strict-mcp', response: 'none', sessionId: 'extra' } } }),
+    }));
+    const raw = await response.text();
+    const message = JSON.parse(raw.includes('data:') ? raw.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('') : raw);
+    expect(message.result.isError).toBe(true);
+    expect(message.result.content[0].text).toMatch(/sessionId|unrecognized/i);
+    expect(q.listAgentRequests(chat.id)).toEqual([]);
+  });
+
 });

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { APP_SHORT_ID } from '@/constants/app';
 
-/** Preserve the public start_execution idempotency namespace. */
+/** Durable execution identity namespace. Keep these bytes stable across API changes. */
 export function requestScopedId(kind: 'session' | 'prompt', workspaceId: string, requestId: string): string {
   const hash = createHash('sha256').update(`${APP_SHORT_ID}:start_execution:${kind}:${workspaceId}:${requestId}`).digest();
   hash[6] = (hash[6] & 0x0f) | 0x80;

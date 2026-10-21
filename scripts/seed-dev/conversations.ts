@@ -37,7 +37,7 @@ interface ConversationDef {
   steps: Step[];
 }
 
-function defs(task: (title: string) => string): ConversationDef[] {
+function defs(task: (title: string) => string, ws: (slug: AgentSlug) => string): ConversationDef[] {
   return [
     {
       kind: 'main',
@@ -46,7 +46,7 @@ function defs(task: (title: string) => string): ConversationDef[] {
       steps: [
         { user: 'Can you get an agent going on the voice notes task? It has to work offline.' },
         ri('get_task', { id: task('Voice notes: transcribe on device') }, { ok: true, result: { id: task('Voice notes: transcribe on device'), title: 'Voice notes: transcribe on device', status: 'in_progress' } }),
-        ri('start_execution', { workspace: 'fieldnote-ios', taskId: task('Voice notes: transcribe on device'), prompt: 'Next up for 1.0: when someone records a voice note, turn it into text for the note field. Has to work offline, that is the whole pitch.' }, { ok: true, result: { label: 'Voice notes: transcribe on device', workspace: 'Fieldnote iOS' } }),
+        ri('delegate_work', { workspace_id: ws('fieldnote-ios'), request_id: 'voice-notes-transcription', task_id: task('Voice notes: transcribe on device'), prompt: 'Next up for 1.0: when someone records a voice note, turn it into text for the note field. Has to work offline, that is the whole pitch.' }, { ok: true, result: { label: 'Voice notes: transcribe on device', workspace: 'Fieldnote iOS' } }),
         { say: "Started in **Fieldnote iOS**: \"Voice notes: transcribe on device\". I passed along that it has to work offline. I'll flag it when it needs a decision from you." },
         // This morning's planning, a couple of hours ago whenever the seed runs.
         { user: 'What is on my plate today?', gapMin: minutesBetween(daysAgo(1, 20, 34), hoursAgo(2.5)) },
@@ -120,7 +120,11 @@ export async function seedConversations(ctx: ConversationCtx): Promise<void> {
     if (!id) throw new Error(`conversation: no note "${title}"`);
     return id;
   };
-  const all = defs(task);
+  const all = defs(task, slug => {
+    const id = workspaceIds.get(slug);
+    if (!id) throw new Error(`conversation: no agent "${slug}"`);
+    return id;
+  });
   for (const def of all) {
     let session;
     let cwd = getAppRoot();

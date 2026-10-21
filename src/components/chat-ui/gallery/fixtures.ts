@@ -4,11 +4,28 @@ import type { ApprovalRequestView } from '@/lib/integrations/approval-describe';
 import type { ConnectionRequestView } from '@/lib/integrations/connection-catalog';
 import { encodeSource, sourceMarker } from '@/lib/chat-sources/reference';
 import type { SourceDescriptor } from '@/lib/chat-sources/types';
+import { CHAT_MESSAGE_SENT, AGENT_REQUEST_REPLY_INSTRUCTIONS, AGENT_RESPONSE_INSTRUCTIONS } from '@/lib/sessions/chat-message';
 
 export const CHAT_ID = '019a0000-0000-7000-8000-000000000001';
 export const DRAFT_ID = '019a0000-0000-7000-8000-000000000002';
 export const RECORD_ID = '019a0000-0000-7000-8000-000000000003';
 export const NOW = '2026-10-19T14:00:00.000Z';
+
+export const SENDER_CHAT_ID = '019a0000-0000-7000-8000-000000000004';
+export const RECEIVER_CHAT_ID = '019a0000-0000-7000-8000-000000000005';
+export function chatMessageExample(state: string) {
+  const question = 'Please review the date handling in the new runner. Check the boundary at midnight and return your findings before I prepare the handoff.';
+  const answer = 'The midnight boundary is correct. I found one missing daylight saving test and added it. All 18 date tests now pass.';
+  const senderId = state === 'reply' ? RECEIVER_CHAT_ID : SENDER_CHAT_ID;
+  const receiverId = state === 'reply' ? SENDER_CHAT_ID : RECEIVER_CHAT_ID;
+  const content = state === 'reply'
+    ? `[Ri agent request gallery-question: response.]\nRequest: ${question}\nResponding chat: ${senderId}\n${answer}\n\n${AGENT_RESPONSE_INSTRUCTIONS}`
+    : `[Ri agent question. Request ID: gallery-question. Requesting chat: ${SENDER_CHAT_ID}.]\n${question}\n\n${AGENT_REQUEST_REPLY_INSTRUCTIONS}`;
+  return {
+    received: event('user', { id: 'gallery-received', sessionId: receiverId, senderSessionId: senderId, role: 'user', content }),
+    sent: event('system', { id: 'gallery-sent', sessionId: senderId, content: CHAT_MESSAGE_SENT, role: 'system', raw: { chatMessageSent: { version: 1, targetSessionId: receiverId, targetEventId: 'gallery-received', preview: state === 'reply' ? answer : question } } }),
+  };
+}
 
 export const HTML_DOCUMENT = `<!doctype html><html><head><style>
 body{font:16px system-ui;padding:28px;background:light-dark(#f5f6f2,#20241e);color:light-dark(#293026,#e6ebdf)}h1{font-size:26px}p{line-height:1.6}button{font:inherit;padding:10px 16px;border:0;border-radius:8px;background:#516641;color:white;cursor:pointer}output{display:block;margin-top:16px;font-size:20px;font-weight:600}
