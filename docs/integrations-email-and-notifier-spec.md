@@ -113,7 +113,8 @@ interface NotificationEvent {
   userId: string;               // app convention: NOT NULL, default 'local' (2.13) — NOT 'ownerId'
   dedupeKey: string;            // stable per occurrence ("execution.finished:<runId>") — idempotency (2.16)
   title: string;                // headline ("Fix auth bug")
-  body: string;                 // human detail ("Added token refresh, tests pass") — NOT 'summary'/'message'
+  body: string;                 // human detail on one line ("Added token refresh, tests pass") — NOT 'summary'/'message'
+  fullBody?: string;            // the whole detail, for message channels with room for it (built: Telegram)
   url: string;                  // deep link (/executions/<id>, /deck, the approval)
   // optional structured extras (status, executionId, …) a richer channel can format from
 }
@@ -199,9 +200,9 @@ transient UI churn can't fire it:
 | type | fires at (durable transition) | title | body | deepLink | dedupeKey |
 |---|---|---|---|---|---|
 | `execution.needs_input` | after the `permission_request`/`question_request` **chat_event is persisted** (not the in-memory `pending_input` signal) | execution title | the agent's question/prompt | `/executions/<id>` | `…:<requestEventId>` |
-| `execution.finished` | the **shared run terminal path** (covers manual AND scheduled executions) | `✅/❌ <title>` | derived `result.summary` (fallback: status) | `/executions/<id>` | `…:<runId>` |
+| `execution.finished` | the **shared run terminal path** (covers manual AND scheduled executions) | `✅/❌ <title>` | built: the turn's final reply as plain text, one line as `body` and whole as `fullBody` (fallback: the failure's message, then status) | `/executions/<id>` | `…:<runId>` |
 | `integration.approval_required` | integrations `approval-events.ts`, once per burst of one kind after register-pending (`'ask'`) | `Approval needed` | toolkit + account + action (× count) | the asking chat, `/?session=<id>`, where the approval card is | `…:<first approvalId>` |
-| `schedule.run_completed` | `runs/dispatch.ts` terminal, **orchestrator-target runs only** (execution-target → `execution.finished`, §2.8) | schedule name | run summary (for a digest, the produced content, §2.9) | `/schedules/<id>` | `…:<runId>` |
+| `schedule.run_completed` | `runs/dispatch.ts` terminal, **orchestrator-target runs only** (execution-target → `execution.finished`, §2.8) | schedule name | built: the turn's final reply, as `execution.finished` (for a digest, the produced content, §2.9) | `/schedules/<id>` | `…:<runId>` |
 | `deck.surfaced` | when proactive-deck logic writes a **durable deck/change record** (**pending** that work, §2.11) | `New on your deck` | what surfaced | `/deck` | `…:<deckChangeId>` |
 
 The `dedupeKey` makes each emission point safe to fire more than once (reconcile replays, retries,
@@ -510,9 +511,17 @@ arbitrary integration tools (delivery is product infrastructure, not free-form a
 ```ts
 const TELEGRAM_NOTIFICATION_ADAPTER = {
   kind: 'integration', providerId: 'telegram', actionId: 'telegram.send_message',
-  input: (channel, r) => ({ chatId: channel.config.chatId, text: `${r.title}\n\n${r.body}\n${r.url}` }),
+  input: (channel, r) => ({ chatId: channel.config.chatId, text: `${r.title}\n\n${r.body}\n\n${r.url}` }),
 };
 ```
+
+Built: `render()` gives message channels (`integration`) the event's `fullBody` and OS notifications
+(`web_push`, desktop) the one-line `body`, up to 1,000 characters. The OS trims what it shows, and the
+web push adapter fits the payload to the 4,096 bytes a push service must accept. The Telegram adapter never cuts: past the 4096 message limit,
+counted cautiously (UTF-8 bytes, line breaks twice), it sends several messages, broken at the last
+paragraph, line, sentence or word that fits (`src/lib/notifications/message-text.ts`), a second apart,
+one notification at a time per chat. `fullBody` stops at 50,000 characters, past every agent reply on
+record, so only a runaway reply is cut.
 
 The `actionId` lives here (the registry), not on the channel row — single source of truth, and it IS
 the allowlist the narrow approval bypass (§2.3) checks against.

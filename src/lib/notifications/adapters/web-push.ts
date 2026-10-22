@@ -5,8 +5,18 @@
  */
 import webpush from 'web-push';
 import { listWebPushSubscriptions, deleteWebPushSubscriptionByEndpoint } from '@/lib/db/queries';
-import type { NotificationChannelAdapter } from '../types';
+import type { NotificationChannelAdapter, RenderedNotification } from '../types';
 import { configureWebPush } from '../web-push/vapid';
+import { fitText } from '../message-text';
+
+/** A push service must accept 4,096 bytes. Encryption (aes128gcm) takes 103 of them. */
+export const WEB_PUSH_PAYLOAD_MAX = 4096 - 103;
+
+/** The payload, its body fitted so no push service refuses it for size. The OS trims what it shows. */
+export function webPushPayload({ title, body, url }: RenderedNotification): string {
+  const payload = (text: string) => JSON.stringify({ title, body: text, url });
+  return payload(fitText(body, WEB_PUSH_PAYLOAD_MAX, (text) => Buffer.byteLength(payload(text), 'utf8')));
+}
 
 export const webPushAdapter: NotificationChannelAdapter = {
   kind: 'web_push',
@@ -16,7 +26,7 @@ export const webPushAdapter: NotificationChannelAdapter = {
     if (subscriptions.length === 0) throw new Error('no web push subscriptions for this user');
 
     configureWebPush();
-    const payload = JSON.stringify({ title: rendered.title, body: rendered.body, url: rendered.url });
+    const payload = webPushPayload(rendered);
 
     let sent = 0;
     const errors: string[] = [];

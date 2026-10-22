@@ -1,6 +1,9 @@
 /**
- * Render an event into the neutral, channel-ready shape (spec §2.17). The only channel-specific
- * concern here is the deep-link base: external channels (Telegram, email) need an absolute,
+ * Render an event into the neutral, channel-ready shape (spec §2.17). Two concerns are
+ * channel-specific here. The body: a chat app (Telegram) has room for an event's `fullBody`,
+ * while an OS notification (web push, desktop) shows a few lines and trims the rest itself, so it
+ * gets the one-line `body`.
+ * The deep-link base: external channels (Telegram, email) need an absolute,
  * phone-reachable URL; same-origin channels (web push) keep it relative. We reuse the app's
  * existing base-url resolution (remote tunnel → LAN), and OMIT the link when only localhost is
  * available rather than ship a dead `/?session=…` a phone can't open.
@@ -12,8 +15,12 @@ import type { NotificationEvent, RenderedNotification } from './types';
 /** Channel kinds reached OFF this device — they need an absolute URL. */
 const EXTERNAL_KINDS = new Set<NotificationChannelRecord['kind']>(['integration']);
 
+/** Channel kinds that send a message, not an OS alert, so they carry the whole `fullBody`. Each adapter fits it to its own limit. */
+const FULL_BODY_KINDS = new Set<NotificationChannelRecord['kind']>(['integration']);
+
 export function render(event: NotificationEvent, channel: NotificationChannelRecord): RenderedNotification {
-  return { title: event.title, body: event.body, url: resolveUrl(event.url, channel.kind) };
+  const full = FULL_BODY_KINDS.has(channel.kind) && typeof event.fullBody === 'string' && event.fullBody ? event.fullBody : null;
+  return { title: event.title, body: full ?? event.body, url: resolveUrl(event.url, channel.kind) };
 }
 
 function resolveUrl(path: string, kind: NotificationChannelRecord['kind']): string {

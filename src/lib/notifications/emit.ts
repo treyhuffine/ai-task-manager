@@ -3,9 +3,12 @@
  * They build the `NotificationEvent` (stable dedupeKey, title/body/deep-link) and hand it to
  * `notify()`. All best-effort — callers `void` them; nothing here throws into the lifecycle path.
  */
+import type { RunRecord } from '@/db/types';
 import { getRun, getExecution, getTrigger, getChatSession } from '@/lib/db/queries';
 import { notify, queueNotification, type NotifyOptions, type QueuedNotification } from './notify';
 import type { NotificationEvent } from './types';
+import { FULL_BODY_MAX, LINE_BODY_MAX, fitText, oneLine } from './message-text';
+import { turnReplyText } from './turn-reply';
 import { isQuietHeartbeatRun } from '@/lib/heartbeat/quiet';
 
 /**
@@ -33,7 +36,7 @@ export function runTerminalNotification(runId: string): { event: NotificationEve
         userId: trigger.userId,
         dedupeKey: `trigger.run_completed:${runId}`,
         title: trigger.name,
-        body: run.summary ?? (ok ? 'Scheduled run completed.' : 'Scheduled run failed.'),
+        ...runText(run, ok ? 'Scheduled run completed.' : 'Scheduled run failed.'),
         url: `/triggers/${trigger.id}`,
       },
       options: { deliverTo },
@@ -49,7 +52,7 @@ export function runTerminalNotification(runId: string): { event: NotificationEve
       userId: execution.userId,
       dedupeKey: `execution.finished:${runId}`,
       title: `${ok ? '✅' : '❌'} ${execution.label ?? 'Execution'}`,
-      body: run.summary ?? (ok ? 'Execution completed.' : 'Execution failed.'),
+      ...runText(run, ok ? 'Execution completed.' : 'Execution failed.'),
       // Deep-link opens the chat where the transcript lives. The home route is
       // the only surface that renders a session (`?session=<chatSessionId>`);
       // there is no `/executions/<id>` page. `runs.chatSessionId` is the exact
@@ -57,6 +60,19 @@ export function runTerminalNotification(runId: string): { event: NotificationEve
       url: run.chatSessionId ? `/?session=${run.chatSessionId}` : '/',
     },
   };
+}
+
+/**
+ * What a finished run says: its reply as one `body` line every channel can show, and whole as
+ * `fullBody` for channels with room for it (render.ts). The reply is the turn that just ended,
+ * so a turn that wrote nothing never sends an earlier one's. Without one, a failed run says why.
+ */
+function runText(run: RunRecord, fallback: string): Pick<NotificationEvent, 'body' | 'fullBody'> {
+  const reply = run.chatSessionId ? turnReplyText(run.chatSessionId) : run.summary;
+  const text = reply || (run.status === 'failed' && run.errorMessage?.trim()) || fallback;
+  const body = fitText(oneLine(text), LINE_BODY_MAX);
+  const fullBody = fitText(text, FULL_BODY_MAX);
+  return fullBody === body ? { body } : { body, fullBody };
 }
 
 /**

@@ -12,8 +12,10 @@ export interface NotificationEvent {
   /** Stable per occurrence ("execution.finished:<runId>") — idempotency across re-fires (§2.16). */
   dedupeKey: string;
   title: string;
-  /** Human detail; for execution.finished this is the run summary. */
+  /** Human detail on one line, for OS notifications; for a finished run, its reply on one line. */
   body: string;
+  /** The whole detail, for channels with room for it (Telegram). Absent when `body` already holds all of it. */
+  fullBody?: string;
   /** Relative app deep link ("/?session=<chatSessionId>"); `render()` resolves an absolute base for external channels. */
   url: string;
   /** Optional structured extras a richer channel could format from. */
