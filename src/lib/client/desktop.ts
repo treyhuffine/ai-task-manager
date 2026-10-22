@@ -14,7 +14,10 @@ export interface RiDesktop {
   settings?(action: DesktopSettingsAction): Promise<DesktopSettingsStatus>;
   /** Read-only status for this computer, including its local consent. */
   notificationStatus?(): Promise<DesktopNotificationStatus>;
+  /** Change this computer's notifications. From a connected Home, the desktop asks the person natively before turning them on. */
   notifications?(action: DesktopNotificationAction): Promise<DesktopNotificationStatus>;
+  /** Open the computer's notification settings (System Settings on macOS). */
+  openNotificationSettings?(): Promise<void>;
 }
 
 declare global { interface Window { riDesktop?: RiDesktop } }

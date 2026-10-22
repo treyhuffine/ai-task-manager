@@ -49,16 +49,20 @@ it('capture registers its listener before announcing readiness and never exposes
 });
 
 
-it('remote Home viewers get save/capture hooks without native settings or notification authority', async () => {
+it('remote Home viewers get save/capture hooks and may ask for notifications, without native settings', async () => {
   vi.resetModules(); mocks.expose.mockClear(); mocks.sendSync.mockReturnValue('viewer');
   vi.stubGlobal('process', { ...process, isMainFrame: true });
   await import('./preload');
   const bridge = mocks.expose.mock.calls[0][1];
   expect(bridge.settings).toBeUndefined();
-  expect(bridge.notifications).toBeUndefined();
   expect(bridge.notificationStatus).toBeTypeOf('function');
   await bridge.notificationStatus('enable');
   expect(mocks.invoke).toHaveBeenLastCalledWith('desktop:notifications', 'status');
+  // The request crosses as-is. The main process asks the person before anything turns on.
+  await bridge.notifications('enable');
+  expect(mocks.invoke).toHaveBeenLastCalledWith('desktop:notifications', 'enable');
+  await bridge.openNotificationSettings();
+  expect(mocks.invoke).toHaveBeenLastCalledWith('desktop:notification-settings');
   expect(bridge.onPrepareClose).toBeTypeOf('function');
   expect(bridge.onQuickCapture).toBeTypeOf('function');
   expect(bridge.connection).toBeTypeOf('function');

@@ -26,7 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { NotificationChannelRecord } from '@/db/types';
-import { isDesktopNotificationChannel, type DesktopNotificationAction } from '@/lib/notifications/desktop-contract';
+import { desktopNeedsSignedBuild, isDesktopNotificationChannel, type DesktopNotificationAction } from '@/lib/notifications/desktop-contract';
 import { EVENT_CATALOG } from '@/lib/notifications/events';
 import { removeDesktopWebPushSubscription } from '@/lib/notifications/web-push-client';
 import { cn } from '@/lib/utils';
@@ -45,7 +45,7 @@ import {
 	ShieldCheck,
 	Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { BrowserNotifications } from './browser-notifications';
 import { DesktopNotifications } from './desktop-notifications';
 import { NotificationHistory } from './notification-history';
@@ -114,6 +114,7 @@ export function NotificationsSection() {
 
   // Telegram add flow
   const [addTgOpen, setAddTgOpen] = useState(false);
+  const telegramButton = useRef<HTMLButtonElement>(null);
   const [newConnId, setNewConnId] = useState('');
   const [newChatId, setNewChatId] = useState('');
   const [newLabel, setNewLabel] = useState('');
@@ -373,6 +374,15 @@ export function NotificationsSection() {
           busy={busy}
           localControls={!!window.riDesktop?.notifications}
           canOpenSettings={!!window.riDesktop?.connection}
+          needsSignedBuild={desktopNeedsSignedBuild(window.riDesktop?.platform, desktopStatus)}
+          telegramReady={channels.some((c) => c.enabled && c.kind === 'integration' && c.providerId === 'telegram')}
+          canOpenSystemSettings={!!window.riDesktop?.openNotificationSettings}
+          onOpenSystemSettings={() => void run(async () => { await window.riDesktop!.openNotificationSettings!(); })}
+          onUseTelegram={() => {
+            setAddTgOpen(true);
+            telegramButton.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            telegramButton.current?.focus({ preventScroll: true });
+          }}
           onToggle={() => void run(async () => {
             if (!desktopStatus?.enabled) await removeDesktopWebPushSubscription();
             await desktopAction(desktopStatus?.enabled ? 'disable' : 'enable');
@@ -454,6 +464,7 @@ export function NotificationsSection() {
 
           {/* Telegram */}
           <button
+            ref={telegramButton}
             type="button"
             onClick={() => setAddTgOpen((v) => !v)}
             aria-expanded={addTgOpen}

@@ -29,5 +29,16 @@ export interface DesktopNotificationStatus {
   enabled: boolean;
   channelId?: string;
   error?: string;
+  /**
+   * On macOS, whether this app carries an Apple-issued signature. macOS shows notifications only
+   * from such an app and turns any other away without asking (UNErrorDomain error 1). Absent on
+   * other systems, and from shells older than this field, none of which were signed.
+   */
+  appSigned?: boolean;
+}
+
+/** macOS refuses notifications from a build without an Apple-issued signature, so it can't ask. */
+export function desktopNeedsSignedBuild(platform: string | undefined, status: Pick<DesktopNotificationStatus, 'appSigned'> | null): boolean {
+  return platform === 'darwin' && status?.appSigned !== true;
 }
 export type DesktopNotificationAction = 'status' | 'enable' | 'disable' | 'test';

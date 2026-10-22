@@ -238,6 +238,13 @@ describe('configured desktop settings', () => {
     expect(ui.element('notifications').hasAttribute('open')).toBe(false);
   });
 
+  it('says why an unsigned Mac build can’t show notifications, and offers no switch for them', async () => {
+    const ui = await renderPage({ ...viewer, notifications: { supported: false, enabled: false, appSigned: false } }, { view: 'notifications' });
+    expect(ui.element('notification-detail').textContent).toBe('macOS shows notifications only from apps signed with an Apple Developer ID, and this build of Ri isn’t signed. Telegram and browser push still reach you.');
+    expect(ui.input('native-notifications').disabled).toBe(true);
+    expect(ui.input('notification-test').disabled).toBe(true);
+  });
+
   it('keeps intentional settings usable while an existing viewer reconnects, without a duplicate retry', async () => {
     const ui = await renderPage({ ...viewer, connecting: true, hasViewer: true }, { view: 'settings' });
     expect(ui.visible('settings')).toBe(true);

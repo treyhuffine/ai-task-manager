@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DesktopNotifications } from './notifications';
+import { DesktopNotifications, presentationError } from './notifications';
 import { desktopRequestHeaders } from './trust';
 import type { DesktopNotificationClaim } from '../src/lib/notifications/desktop-contract';
 
@@ -140,4 +140,27 @@ it('server channel enablement cannot grant local OS presentation permission', as
   expect((await controller.action('status')).enabled).toBe(false);
   permitted = true; await controller.pump(); expect(f.created).toHaveLength(1);
   permitted = false; await controller.pump(); expect(f.created).toHaveLength(1);
+});
+
+it('reports the app’s signature with the status, and an unsigned Mac build can’t be turned on', async () => {
+  const f = fixture({ count: 0 });
+  expect((await f.controller.action('status')).appSigned).toBeUndefined();
+  const unsigned = new DesktopNotifications({ ...f.deps, supported: () => false, appSigned: () => false }); controllers.push(unsigned);
+  expect(await unsigned.action('status')).toMatchObject({ supported: false, appSigned: false });
+  await expect(unsigned.action('enable')).rejects.toThrow('unavailable');
+  await unsigned.pump();
+  expect(f.created).toHaveLength(0);
+});
+
+describe('presentationError', () => {
+  it('tells the person how to allow Ri when macOS has notifications turned off for it', () => {
+    for (const reason of ['The operation couldn’t be completed. (UNErrorDomain error 1.)', 'Notifications are not allowed for this application']) {
+      expect(presentationError(reason)).toBe('macOS is blocking notifications from Ri. Open System Settings, then Notifications, choose Ri and turn on Allow notifications.');
+    }
+  });
+
+  it('keeps the system’s reason for anything else', () => {
+    expect(presentationError('Denied')).toBe('The operating system could not show this notification. Denied Check notification settings and use a signed Ri build on macOS.');
+    expect(presentationError(undefined)).toBe('The operating system could not show this notification. Check notification settings and use a signed Ri build on macOS.');
+  });
 });

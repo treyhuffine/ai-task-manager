@@ -12,9 +12,9 @@ export function trustedViewerFrame(input: { senderId: number; windowId?: number;
   return input.senderId === input.windowId && input.mainFrame && !!input.origin && sameOrigin(input.url, input.origin);
 }
 
-/** Connected renderers may inspect effective consent, never grant it. */
-export function viewerNotificationAction(action: unknown, local: boolean): DesktopNotificationAction {
-  if (!local && action !== 'status') throw new Error('Open this computer’s notification settings to make changes.');
+/** The notification actions a viewer may ask for. A connected Home's renderer may ask, never grant:
+ * its changes go through `remoteNotificationChanges`, where only the person's native answer enables. */
+export function viewerNotificationAction(action: unknown): DesktopNotificationAction {
   if (typeof action !== 'string' || !['status', 'enable', 'disable', 'test'].includes(action)) throw new Error('Invalid notification action');
   return action as DesktopNotificationAction;
 }

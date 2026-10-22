@@ -19,6 +19,8 @@ import { redactServiceLine } from '../src/lib/service/logging';
 import { assertExistingInstallation, installationEnvironment, localInstallation, readInstallation, saveInstallation, type InstallationInspection } from './installation';
 import { maintenanceWindow } from './maintenance-window';
 import { RemoteNotificationPermission } from './notification-permission';
+import { remoteNotificationChanges } from './notification-consent';
+import { appleSigned } from './app-signature';
 import { DesktopNotifications } from './notifications';
 import { backgroundWindow, revealWindow } from './window-visibility';
 import { createDesktopTray, desktopMenuCommands, activityMenuItems, updateDesktopTray } from './tray';
@@ -131,6 +133,9 @@ let oauthAbort = new AbortController();
 let notifications: DesktopNotifications | undefined;
 let notificationPermission: RemoteNotificationPermission | undefined;
 let notificationAbort = new AbortController();
+// On macOS, whether this app carries an Apple-issued signature, read once at startup. macOS shows
+// notifications only from such an app, so an unsigned build reports them unavailable.
+let appSigned: boolean | undefined;
 let navigating = false;
 let tray: ReturnType<typeof createDesktopTray>;
 let updatingShell = false;
@@ -537,6 +542,35 @@ function changeDesktopPreferences(raw: unknown) {
   return { shortcut: captureShortcut.status(), login };
 }
 
+/** Turn this computer's notifications on or off, or send a test, once the person has decided. */
+async function changeNotifications(kind: 'enable' | 'disable' | 'test') {
+  if (!notifications) throw new Error('Open your Home before configuring notifications.');
+  if (kind !== 'test') notificationPermission?.set(kind === 'enable');
+  try { return await notifications.action(kind); }
+  catch (error) { if (kind === 'enable') notificationPermission?.set(false); throw error; }
+}
+
+/** The person's answer, in a native dialog over the app window. A page in the background can't raise it. */
+async function confirmNotificationsHere(): Promise<boolean> {
+  if (!window || window.isDestroyed() || !window.isVisible() || !window.isFocused() || !appOrigin) return false;
+  const { response } = await dialog.showMessageBox(window, {
+    type: 'question', buttons: ['Allow', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true,
+    message: 'Show notifications from Ri on this computer?',
+    detail: `Alerts from ${new URL(appOrigin).host} appear here when an agent needs you or finishes a chat. You can turn them off in notification settings at any time.`,
+  });
+  return response === 0;
+}
+
+const remoteNotifications = remoteNotificationChanges({
+  confirm: confirmNotificationsHere,
+  permitted: () => !!notificationPermission?.enabled(),
+  change: changeNotifications,
+  status: async () => {
+    if (!notifications) throw new Error('Open your Home before configuring notifications.');
+    return notifications.action('status');
+  },
+});
+
 const companion = companionWindow(async (action, value) => {
   if (action === 'status') {
     const setup = await connectionRequest<ConnectionSetupStatus>({ action: 'inspect' }).catch(error => ({
@@ -653,11 +687,7 @@ const companion = companionWindow(async (action, value) => {
     return {};
   }
   if (action === 'notification-enable' || action === 'notification-disable' || action === 'notification-test') {
-    if (!notifications) throw new Error('Open your Home before configuring notifications.');
-    const kind = action.slice(13) as 'enable' | 'disable' | 'test';
-    if (kind !== 'test') notificationPermission?.set(kind === 'enable');
-    try { return await notifications.action(kind); }
-    catch (error) { if (kind === 'enable') notificationPermission?.set(false); throw error; }
+    return changeNotifications(action.slice(13) as 'enable' | 'disable' | 'test');
   }
   if (action === 'recovery') { await showRecovery(); return {}; }
   if (action === 'updates') return serviceRequest('/update');
@@ -932,7 +962,8 @@ function activateViewerMonitors(ready: BackendReady, revealViewer: boolean) {
     const endpoint = localViewer ? '/api/desktop/notifications' : '/api/devices/me/desktop-notifications';
     const signal = notificationAbort.signal;
     notifications = new DesktopNotifications({
-      supported: () => Notification.isSupported(),
+      supported: () => Notification.isSupported() && appSigned !== false,
+      appSigned: () => appSigned,
       permitted: () => localViewer || !!notificationPermission?.enabled(),
       request: async <T>(body?: object): Promise<T> => {
         const response = await ses.fetch(`${ready.origin}${endpoint}`, {
@@ -974,8 +1005,13 @@ function activateViewerMonitors(ready: BackendReady, revealViewer: boolean) {
   console.info(localViewer ? '[desktop] Local Home connected with a pinned certificate.' : '[desktop] Remote Home connected with standard TLS and no local native capability.');
 }
 
+/** macOS System Settings, opened at Notifications. */
+const MAC_NOTIFICATION_SETTINGS = 'x-apple.systempreferences:com.apple.Notifications-Settings.extension';
+
 async function start() {
   await app.whenReady();
+  // Read before any viewer connects. The bundle is three levels above Contents/MacOS/<executable>.
+  if (process.platform === 'darwin') appSigned = await appleSigned(path.resolve(app.getPath('exe'), '../../..'));
   if (process.platform === 'linux') app.setDesktopName('app.ri.desktop.desktop');
   const backgroundLaunch = desktopLogin.launchedInBackground();
   const icon = nativeImage.createFromPath(path.join(repo, 'public/brand/ri-desktop-icon.png'));
@@ -1066,11 +1102,16 @@ async function start() {
   });
   ipcMain.handle('desktop:notifications', async (event, action: unknown) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) throw new Error('Untrusted window');
-    // A connected Home can read this computer's effective status. Consent and
-    // test actions still belong exclusively to the trusted local companion.
-    const kind = viewerNotificationAction(action, localViewer);
+    const kind = viewerNotificationAction(action);
     if (!notifications) throw new Error('This computer has not connected to Ri yet.');
-    return notifications.action(kind);
+    // A local Home's page acts for this computer. A connected Home's page may only ask: the
+    // person turns alerts on in a native dialog, in place, without leaving the page.
+    return localViewer ? notifications.action(kind) : remoteNotifications(kind);
+  });
+  ipcMain.handle('desktop:notification-settings', async event => {
+    if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !appOrigin || !sameOrigin(event.senderFrame.url, appOrigin)) throw new Error('Untrusted window');
+    if (process.platform !== 'darwin') throw new Error('Open your computer’s notification settings to allow Ri.');
+    await shell.openExternal(MAC_NOTIFICATION_SETTINGS);
   });
   await localSurface.show({ id: 'loading', html: startingPage(randomUUID().replaceAll('-', ''), localStyleOptions()) });
   teams = teamFlow({

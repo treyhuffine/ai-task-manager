@@ -12,12 +12,24 @@ interface State {
 interface Dependencies {
   request<T>(body?: object): Promise<T>;
   supported(): boolean;
+  /** On macOS, whether the app carries an Apple-issued signature, which macOS requires to show notifications. */
+  appSigned?(): boolean | undefined;
   permitted?(): boolean;
   create(id: string, title: string, body: string): NativeNotification;
   history?(): Promise<NativeNotification[]>;
   navigate(path: string): void;
   intervalMs?: number;
   confirmationMs?: number;
+}
+
+/** What a refused presentation tells the person. In a signed build, UNErrorDomain error 1 means
+ * notifications for Ri are turned off in System Settings, and only they can turn them back on. */
+export function presentationError(reason?: unknown): string {
+  const detail = typeof reason === 'string' ? reason.slice(0, 500).trim() : '';
+  if (/UNErrorDomain error 1\b|not allowed for this application/i.test(detail)) {
+    return 'macOS is blocking notifications from Ri. Open System Settings, then Notifications, choose Ri and turn on Allow notifications.';
+  }
+  return `The operating system could not show this notification.${detail ? ` ${detail}` : ''} Check notification settings and use a signed Ri build on macOS.`;
 }
 
 /** A single main-process consumer. The server claims each delivery atomically
@@ -83,9 +95,11 @@ export class DesktopNotifications {
   }
   private snapshot(): DesktopNotificationStatus {
     const error = this.error ?? this.transportError;
+    const appSigned = this.deps.appSigned?.();
     return { supported: this.deps.supported(), enabled: (this.deps.permitted?.() ?? true) && (this.state.channel?.enabled ?? false),
       ...(this.state.channel ? { channelId: this.state.channel.id } : {}),
-      ...(error ? { error } : {}) };
+      ...(error ? { error } : {}),
+      ...(appSigned !== undefined ? { appSigned } : {}) };
   }
   async action(action: DesktopNotificationAction): Promise<DesktopNotificationStatus> {
     if (this.stopped) throw new Error('The desktop is reconnecting. Please retry.');
@@ -131,7 +145,7 @@ export class DesktopNotifications {
         resolve(result);
       };
       const shown = () => finish({ status: 'sent' });
-      const failed = (_event: unknown, reason?: string) => finish({ status: 'failed', error: `The operating system could not show this notification. ${typeof reason === 'string' ? reason.slice(0, 500) : ''} Check notification settings and use a signed Ri build on macOS.` });
+      const failed = (_event: unknown, reason?: string) => finish({ status: 'failed', error: presentationError(reason) });
       const timer = setTimeout(() => finish({ status: 'skipped', error: 'The operating system did not confirm this notification. Check its notification settings. It will not be repeated automatically.' }), this.deps.confirmationMs ?? 10_000);
       this.cancelPresentation = () => finish({ status: 'skipped', error: 'Ri reconnected before the operating system confirmed delivery.' });
       try {

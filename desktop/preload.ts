@@ -10,6 +10,9 @@ if (process.isMainFrame) {
     platform: process.platform,
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('desktop:open-external', url),
     notificationStatus: () => ipcRenderer.invoke('desktop:notifications', 'status'),
+    // A connected Home's page may ask. The main process asks the person natively before enabling.
+    notifications: (action: unknown) => ipcRenderer.invoke('desktop:notifications', action),
+    openNotificationSettings: (): Promise<void> => ipcRenderer.invoke('desktop:notification-settings'),
     connection: (action: DesktopConnectionAction): Promise<DesktopConnectionState> => ipcRenderer.invoke('desktop:connection', action),
     onConnectionChange: (callback: (state: DesktopConnectionState) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, state: DesktopConnectionState) => callback(state);
@@ -17,7 +20,6 @@ if (process.isMainFrame) {
       return () => ipcRenderer.removeListener('desktop:connection', listener);
     },
     ...(local ? {
-      notifications: (action: unknown) => ipcRenderer.invoke('desktop:notifications', action),
       settings: (action: unknown) => ipcRenderer.invoke('desktop:settings', action),
     } : {}),
     onQuickCapture: (callback: () => void) => {
