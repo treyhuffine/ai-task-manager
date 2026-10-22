@@ -281,6 +281,26 @@ Transcripts are searchable by content — principle §3 ("transcripts are the re
 - **Surfaces** — the chat search modal (`ChatSearchModal`, opened from the rail's search icon or ⌘K's "Search chats" command, scoped to one agent by the chip beside its query), the `GET /api/sessions/search` endpoint, and the orchestrator `search_sessions` action (which strips the highlight sentinels for plain-text tool output). Transcript hits are deliberately **not** among ⌘K's own results, to keep that launcher high-precision.
 - **Reserved / deferred** — a `tool_summary` FTS column exists but is empty; indexing tool-call names/args is an additive follow-up needing no reindex of message rows. Semantic/vector search over chats is likewise deferred (FTS-only today; the entity search stack already degrades to FTS-only without an OpenAI key). Orchestration and content chats aren't searched yet — the surface is the execution rail.
 
+### Links in chat replies
+
+Web links open immediately in a new browser tab. Hovering or focusing one shows
+its full destination in a compact, selectable panel with a Copy action. Long
+destinations wrap within the viewport. Keyboard users can Tab from the link to
+Copy, Shift+Tab back, or dismiss the panel with Escape.
+
+`markdownWebUrl` in `src/components/chat-ui/messages/markdown-link-target.ts`
+validates HTTP(S) URLs with the URL parser. Markdown destinations without a
+scheme use HTTPS when they start with `//`, `www.`, or a domain followed by a path.
+Autolinks keep the explicit protocol supplied by the Markdown parser.
+Explicit HTTP(S) links support localhost, IP addresses and ports. Plain
+filenames, relative paths, fragments and other permitted schemes keep the copy/open
+dialog. Prefix a domain-shaped local folder with `./` to make it a path.
+The remark plugin carries local destinations through sanitization as encoded
+path references so copying keeps their original spelling, including `./` and `../`.
+Incomplete links stay inactive, and Markdown's existing URL sanitization still
+runs before rendering. Image, PDF and HTML artifact previews keep their own
+renderers. This changes presentation only, leaving saved and copied replies intact.
+
 ### Attachments (multimodal content)
 
 Chat reuses the **same generic attachment system** that tasks, notes, and areas use — files live on disk under `<brain>/attachments/<file_name>` and are referenced by an `Attachment[]` JSON column on the owning entity. No separate `chat_attachments` table.

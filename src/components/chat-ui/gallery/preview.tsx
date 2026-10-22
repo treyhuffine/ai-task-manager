@@ -21,6 +21,7 @@ import { HtmlPreviewLink } from '@/components/chat-ui/artifacts/html-preview-lin
 import { EntityEditChip } from '@/components/chat-ui/edits/entity-edit-chip';
 import { ResultRenderer } from '@/components/chat-ui/handoffs/result-renderer';
 import { ExecutionEvent } from '@/components/chat-ui/activity/execution-event';
+import { AgentResponse } from '@/components/chat-ui/messages/agent-response';
 import { ConnectedView } from '@/components/mcp-apps/view';
 import { ConnectedCompanion } from '@/components/mcp-apps/companion';
 import { AppContextStrip, type AppContextGroupView } from '@/components/chat-ui/references/app-context-strip';
@@ -152,6 +153,9 @@ function Example() {
   const wide = __GALLERY_EXAMPLE__ === 'files' && config.state === 'beside';
   return <div className={__GALLERY_EXAMPLE__ === 'app-kit' ? '' : wide ? 'p-4 sm:p-6' : 'mx-auto max-w-3xl p-4 sm:p-6'} data-gallery-example={__GALLERY_EXAMPLE__} data-gallery-state={config.state}>
     {__GALLERY_EXAMPLE__ !== 'app-kit' && <p className="mb-5 text-xs leading-relaxed text-muted-foreground">{example.tryThis}</p>}
+    {__GALLERY_EXAMPLE__ === 'links' && <AgentResponse text={config.state === 'paths'
+      ? 'Review [the notes](./notes/review.md), [the source](/tmp/example/src/app.tsx), or [README](README.md).'
+      : 'Read [the website](https://example.com/guide?view=review#next), visit https://example.com, or use [a longer destination](https://example.com/research/planning/a-longer-document-name?view=review&section=next-steps#decisions).'} />}
     {__GALLERY_EXAMPLE__ === 'email' && <EmailComposer id={DRAFT_ID} sessionId={CHAT_ID} initial={runtime.email} />}
     {(__GALLERY_EXAMPLE__ === 'questions' || __GALLERY_EXAMPLE__ === 'permissions') && <PendingInputArea sessionId={CHAT_ID} />}
     {__GALLERY_EXAMPLE__ === 'approvals' && <IntegrationApprovalCard rows={runtime.events.filter(row => row.source === 'approval_request')} sessionId={CHAT_ID} isLatest />}

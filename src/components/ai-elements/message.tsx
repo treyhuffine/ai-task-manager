@@ -28,7 +28,9 @@ import {
   useMemo,
   useState,
 } from "react";
-import { Streamdown } from "streamdown";
+import { defaultRemarkPlugins, Streamdown } from "streamdown";
+import { MarkdownLink } from "@/components/chat-ui/messages/markdown-link";
+import { remarkChatLinks } from "@/components/chat-ui/messages/markdown-link-target";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -326,19 +328,26 @@ export const MessageBranchPage = ({
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
+const markdownComponents = { a: MarkdownLink };
+const markdownRemarkPlugins = [...Object.values(defaultRemarkPlugins), remarkChatLinks];
 
 export const MessageResponse = memo(
-  ({ className, lineNumbers = false, ...props }: MessageResponseProps) => (
-    <Streamdown
-      className={cn(
-        "chat-markdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        className
-      )}
-      lineNumbers={lineNumbers}
-      plugins={streamdownPlugins}
-      {...props}
-    />
-  ),
+  ({ className, lineNumbers = false, components, ...props }: MessageResponseProps) => {
+    const renderers = useMemo(() => components ? { ...markdownComponents, ...components } : markdownComponents, [components]);
+    return (
+      <Streamdown
+        className={cn(
+          "chat-markdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+          className
+        )}
+        lineNumbers={lineNumbers}
+        plugins={streamdownPlugins}
+        remarkPlugins={markdownRemarkPlugins}
+        {...props}
+        components={renderers}
+      />
+    );
+  },
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&
     prevProps.components === nextProps.components &&
