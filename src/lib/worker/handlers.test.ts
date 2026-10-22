@@ -9,12 +9,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerCommand } from '@/lib/workers/protocol';
+import { runnerState, sessionSelectionKey } from '@/lib/runner/live-state';
+import type { SessionSpec } from '@/lib/runner/types';
+import type { AgentSession } from '@agentex/agent';
 
 const runner = vi.hoisted(() => ({
   send: vi.fn(async () => ({ status: 'delivered' as const })),
   abort: vi.fn(async () => {}),
   stopTask: vi.fn(async () => ({ stopped: true })),
-  close: vi.fn(async () => ({ closed: true })),
+  close: vi.fn(async (): Promise<{ closed: boolean; error?: string }> => ({ closed: true })),
   answerPendingInput: vi.fn((): { ok: false; refused?: string } => ({ ok: false })),
 }));
 const titleRunner = vi.hoisted(() => ({ generateTitle: vi.fn(async () => {}), setTitle: vi.fn(async () => {}) }));
@@ -47,6 +50,10 @@ beforeEach(() => {
   inputFiles.fetched = [];
   inputFiles.fail = null;
   for (const fn of Object.values(runner)) fn.mockClear();
+  runner.close.mockResolvedValue({ closed: true });
+  runnerState.sessionInfo.clear();
+  runnerState.harnessSessions.clear();
+  runnerState.runningSessions.clear();
 });
 afterEach(() => {
   if (savedConfigDir === undefined) delete process.env.RI_CONFIG_DIR;
@@ -81,7 +88,64 @@ async function setup(findInHistory?: (spec: unknown, message: string) => Promise
 
 const spec = { chatSessionId: 'chat-1', harness: 'claude', cwd: '/w', nativeSessionId: 'native-1' };
 
+describe('recycle', () => {
+  it('waits for earlier work, then records the acquired native identity before retiring the handle', async () => {
+    const { journal, handlers, ctx } = await setup();
+    const c = command('recycle', null);
+    journal.received(c);
+    runnerState.sessionInfo.set('chat-1', { harness: 'claude', cwd: '/w', permissionMode: 'ask', prePlanMode: null, nativeSessionId: 'native-new' });
+    runnerState.runningSessions.add('chat-1');
+    const result = handlers.recycle!.run(c, ctx(c));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(runner.close).not.toHaveBeenCalled();
+    runnerState.runningSessions.delete('chat-1');
+    expect(await result).toMatchObject({ state: 'delivered' });
+    expect(journal.get(c.id)?.notes.nativeSessionId).toBe('native-new');
+    expect(runner.close).toHaveBeenCalledWith('chat-1');
+  });
+
+  it('leaves a tracked handle on close failure and refuses a later send if retrying the close fails', async () => {
+    const { journal, handlers, ctx } = await setup();
+    const c = command('recycle', null);
+    journal.received(c);
+    runnerState.harnessSessions.set('chat-1', {} as AgentSession);
+    runnerState.sessionInfo.set('chat-1', { harness: 'claude', cwd: '/w', permissionMode: 'ask', prePlanMode: null,
+      nativeSessionId: 'native-fast', selectionKey: sessionSelectionKey({ ...spec, serviceTier: 'fast' } as SessionSpec) });
+    runner.close.mockResolvedValue({ closed: false, error: 'Could not stop the process' });
+    const result = await handlers.recycle!.run(c, ctx(c));
+    journal.finished(c.id, result);
+    expect(result.state).toBe('failed');
+    const next = command('send', { spec: { ...spec, serviceTier: 'default' }, message: 'hello', turnId: 'later', runId: null }, 1, 2);
+    journal.received(next);
+    expect(await handlers.send!.run(next, ctx(next))).toMatchObject({ state: 'failed', error: 'Could not stop the process' });
+    expect(runner.send).not.toHaveBeenCalled();
+    expect(runnerState.harnessSessions.has('chat-1')).toBe(true);
+  });
+
+  it('rechecks the placement after its idle wait and never closes work from a newer generation', async () => {
+    const { journal, handlers, ctx } = await setup();
+    const c = command('recycle', null);
+    journal.received(c);
+    runnerState.runningSessions.add('chat-1');
+    const result = handlers.recycle!.run(c, ctx(c));
+    journal.received(command('interrupt', null, 2, 2));
+    expect(await result).toMatchObject({ state: 'stale' });
+    expect(runner.close).not.toHaveBeenCalled();
+    runnerState.runningSessions.delete('chat-1');
+  });
+});
+
 describe('send', () => {
+  it('uses its journaled native identity for recovery even when its queued spec had none', async () => {
+    const seen: unknown[] = [];
+    const { journal, handlers, ctx } = await setup(async actual => { seen.push(actual); return 'found'; });
+    const c = command('send', { spec: { ...spec, nativeSessionId: null }, message: 'hello', turnId: 't', runId: null });
+    journal.received(c);
+    journal.note(c.id, { nativeSessionId: 'native-acquired-on-worker' });
+    expect(await handlers.send!.recover(c, 'started', ctx(c))).toMatchObject({ state: 'delivered' });
+    expect(seen[0]).toMatchObject({ nativeSessionId: 'native-acquired-on-worker' });
+    expect(runner.send).not.toHaveBeenCalled();
+  });
   it('after a restart, counts as delivered when the message is in the native history, and never sends again', async () => {
     const { journal, handlers, ctx } = await setup(async () => 'found');
     const c = command('send', { spec, message: 'hello', turnId: 't', runId: null });

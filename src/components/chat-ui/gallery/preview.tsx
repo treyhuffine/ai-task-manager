@@ -25,6 +25,7 @@ import { AgentResponse } from '@/components/chat-ui/messages/agent-response';
 import { ConnectedView } from '@/components/mcp-apps/view';
 import { ConnectedCompanion } from '@/components/mcp-apps/companion';
 import { AppContextStrip, type AppContextGroupView } from '@/components/chat-ui/references/app-context-strip';
+import { ModelMenuPreview } from './model-menu-preview';
 import { galleryExample, type ChatUiExampleId } from './catalog';
 
 declare const __GALLERY_EXAMPLE__: ChatUiExampleId;
@@ -164,6 +165,7 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'references' && <References />}
     {__GALLERY_EXAMPLE__ === 'chat-messages' && <ChatMessages />}
     {__GALLERY_EXAMPLE__ === 'app-context' && <AppContext />}
+    {__GALLERY_EXAMPLE__ === 'model-menu' && <ModelMenuPreview state={config.state} />}
     {__GALLERY_EXAMPLE__ === 'edits' && <div className="space-y-4 text-sm"><p>I clarified the agenda and made the next steps easier to scan.</p><EntityEditChip entityType="note" entityId={RECORD_ID} /></div>}
     {__GALLERY_EXAMPLE__ === 'files' && (config.state === 'beside' ? <FilesBeside /> : <FileChips />)}
     {__GALLERY_EXAMPLE__ === 'html' && <HtmlPreviewLink sessionId={CHAT_ID} path="review-plan.html">An interactive plan for the Friday review</HtmlPreviewLink>}

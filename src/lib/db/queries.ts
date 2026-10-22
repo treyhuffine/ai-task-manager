@@ -130,6 +130,7 @@ import {
   modelsForProvider,
   normalizeCustomModelId,
   reconcileEnabledModels,
+  type ModelOption,
 } from '@/lib/harness/options';
 import { TRIGGERS_WITH_OWN_REVIEW_SURFACE } from '@/lib/triggers/reserved';
 import {
@@ -4497,6 +4498,7 @@ export function upsertHarnessSettings(
         defaultModel: input.defaultModel,
         defaultVariant: input.defaultVariant,
         defaultEffort: input.defaultEffort,
+        defaultServiceTier: input.defaultServiceTier,
         catalogRefreshedAt: input.catalogRefreshedAt,
         updatedAt: now,
       },
@@ -4547,12 +4549,13 @@ export function setEnabledHarnessModels(
         defaultModel,
         defaultVariant: existing?.defaultVariant,
         defaultEffort: existing?.defaultEffort,
+        defaultServiceTier: defaultModel === existing?.defaultModel ? existing.defaultServiceTier : null,
         catalogRefreshedAt: existing?.catalogRefreshedAt,
         updatedAt: now,
       })
       .onConflictDoUpdate({
         target: harnessSettings.harness,
-        set: { enabledModels, knownModels, defaultModel, updatedAt: now },
+        set: { enabledModels, knownModels, defaultModel, defaultServiceTier: defaultModel === existing?.defaultModel ? existing.defaultServiceTier : null, updatedAt: now },
       })
       .returning().get();
   });
@@ -4619,6 +4622,7 @@ export function removeCustomHarnessModel(harness: HarnessId, modelId: string): H
       // The pinned model owned this pair; the replacement advertises its own.
       defaultVariant: replacesDefault ? null : row.defaultVariant,
       defaultEffort: replacesDefault ? null : row.defaultEffort,
+      defaultServiceTier: replacesDefault ? null : row.defaultServiceTier,
       updatedAt: now,
     }).where(eq(harnessSettings.harness, harness)).returning().get();
     // The global default model was this pin: it moves to the harness's own
@@ -4628,6 +4632,7 @@ export function removeCustomHarnessModel(harness: HarnessId, modelId: string): H
         defaultModel,
         defaultVariant: replacesDefault ? null : row.defaultVariant,
         defaultEffort: replacesDefault ? null : row.defaultEffort,
+        defaultServiceTier: replacesDefault ? null : row.defaultServiceTier,
         updatedAt: now,
       }).where(eq(userState.id, 1)).run();
     }
@@ -4637,7 +4642,7 @@ export function removeCustomHarnessModel(harness: HarnessId, modelId: string): H
 
 export function setHarnessDefaultSelection(
   harness: HarnessId,
-  selection: { model: string; variant?: string | null; effort?: HarnessSettingsRecord['defaultEffort'] },
+  selection: { model: string; variant?: string | null; effort?: HarnessSettingsRecord['defaultEffort']; serviceTier?: string | null },
 ): HarnessSettingsRecord {
   const db = getDb();
   return db.transaction((tx) => {
@@ -4651,6 +4656,7 @@ export function setHarnessDefaultSelection(
       defaultModel: selection.model,
       defaultVariant: selection.variant ?? null,
       defaultEffort: selection.effort ?? null,
+      defaultServiceTier: selection.serviceTier ?? null,
       updatedAt: new Date().toISOString(),
     }).where(eq(harnessSettings.harness, harness)).returning().get();
   });
@@ -4669,6 +4675,7 @@ export function setHomeDefaultSelection(selection: {
   model: string;
   variant: string | null;
   effort: UserStateRecord['defaultEffort'];
+  serviceTier?: string | null;
 }): UserStateRecord {
   ensureHarnessSettings(selection.harness);
   const db = getDb();
@@ -4689,6 +4696,7 @@ export function setHomeDefaultSelection(selection: {
       defaultModel: selection.model,
       defaultVariant: selection.variant,
       defaultEffort: selection.effort,
+      defaultServiceTier: selection.serviceTier ?? null,
       updatedAt: now,
     }).where(eq(userState.id, 1)).returning().get();
     if (!saved) throw new Error('This home has no user state yet');
@@ -4715,6 +4723,7 @@ export function beginProviderDisconnectSaga(input: {
         defaultModel: input.replacementModel,
         defaultVariant: sameAsHarness ? replacement.defaultVariant : null,
         defaultEffort: replacement.defaultEffort,
+        defaultServiceTier: sameAsHarness ? replacement.defaultServiceTier : null,
         updatedAt: new Date().toISOString(),
       }).where(eq(userState.id, 1)).run();
     }
@@ -9511,7 +9520,7 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
   if (input.prePlanMode) assertSupportedPermissionMode(input.prePlanMode, providerId);
   const selection = explicitHarnessSelection(
     providerId,
-    { model: input.model, variant: input.modelVariant, effort: input.effort },
+    { model: input.model, variant: input.modelVariant, effort: input.effort, serviceTier: input.serviceTier },
   );
   const row = db
     .insert(chatSessions)
@@ -9523,6 +9532,7 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
+      serviceTier: selection.serviceTier,
       externalProviderType: input.externalProviderType
         ?? (input.externalSessionId ? providerId : null),
       id: input.id ?? uuidv7(),
@@ -9752,6 +9762,10 @@ export function createExecutionWithChat(params: {
   modelVariant?: string | null;
   /** Optional preferred effort, normalized against the selected model. */
   effort?: ChatSessionRecord['effort'];
+  serviceTier?: ChatSessionRecord['serviceTier'];
+  /** Live catalog used by the caller to resolve this tuple. Keep its model
+   *  metadata through insertion instead of applying a bundled fallback. */
+  modelCatalog?: readonly ModelOption[];
   permissionMode?: ChatSessionRecord['permissionMode'];
   /** Start-with-agent: associate this task with the new execution AND Start it
    * (Consider/Todo -> In progress) in the SAME transaction, so execution + chat
@@ -9765,7 +9779,8 @@ export function createExecutionWithChat(params: {
   const now = new Date().toISOString();
   const selection = explicitHarnessSelection(
     params.harness,
-    { model: params.model, variant: params.modelVariant, effort: params.effort },
+    { model: params.model, variant: params.modelVariant, effort: params.effort, serviceTier: params.serviceTier },
+    params.modelCatalog,
   );
   const result = db.transaction((tx) => {
     const executionId = uuidv7();
@@ -9812,6 +9827,7 @@ export function createExecutionWithChat(params: {
         model: selection.model,
         modelVariant: selection.variant,
         effort: selection.effort,
+        serviceTier: selection.serviceTier,
       })
       .returning()
       .get();
@@ -9897,6 +9913,7 @@ export function createExecutionChat(args: {
   model?: string | null;
   modelVariant?: string | null;
   effort?: ChatSessionRecord['effort'];
+  serviceTier?: ChatSessionRecord['serviceTier'];
   permissionMode?: ChatSessionRecord['permissionMode'];
   prePlanMode?: ChatSessionRecord['prePlanMode'];
   label?: string | null;
@@ -9915,6 +9932,7 @@ export function createExecutionChat(args: {
     ...(args.model !== undefined ? { model: args.model } : {}),
     ...(args.modelVariant !== undefined ? { modelVariant: args.modelVariant } : {}),
     ...(args.effort !== undefined ? { effort: args.effort } : {}),
+    ...(args.serviceTier !== undefined ? { serviceTier: args.serviceTier } : {}),
   });
 }
 

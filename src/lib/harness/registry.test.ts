@@ -137,6 +137,7 @@ describe('harness registry', () => {
       upstreamProviderDisconnect: false,
       modelVariants: false,
       reasoningEffort: true,
+      serviceTiers: false,
       permissionRequests: false,
       questionRequests: false,
       planMode: true,

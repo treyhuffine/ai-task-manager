@@ -20,7 +20,7 @@ import {
 } from '@/lib/harness/options';
 import { readProviderEfforts } from '@/lib/executions/provider-effort';
 import { ProviderIcon } from '@/components/settings/harness-connection-ui';
-import { EffortControl, ModelControl } from '@/components/workspaces/launcher/launch-controls';
+import { ModelControl } from '@/components/workspaces/launcher/launch-controls';
 import type { EffortLevel } from '@/db/types';
 import type { HarnessId } from '@/lib/harness/registry';
 
@@ -30,12 +30,14 @@ export interface RunsOnValue {
   model: string | null;
   /** Null means the model's default effort. */
   effort: EffortLevel | null;
+  serviceTier?: string | null;
 }
 
 export interface RunsOnChange {
   provider?: HarnessId;
   model?: string | null;
   effort?: EffortLevel | null;
+  serviceTier?: string | null;
 }
 
 export function RunsOnPicker({
@@ -83,14 +85,10 @@ export function RunsOnPicker({
           selection={{ harness: provider, model: model ?? '' }}
           label={selectedModelOption?.label ?? model ?? 'Default model'}
           rememberedEfforts={efforts}
-          onChange={(next) => onChange({ provider: next.harness, model: next.model, effort: next.effort })}
-          disabled={disabled}
-        />
-        <EffortControl
-          harness={provider}
-          model={selectedModelOption}
           effort={effort}
-          onChange={(next) => onChange({ effort: next })}
+          serviceTier={value.serviceTier ?? null}
+          onEffortChange={(next) => onChange({ effort: next })}
+          onChange={(next) => onChange({ provider: next.harness, model: next.model, effort: next.effort, serviceTier: next.serviceTier })}
           disabled={disabled}
         />
       </div>

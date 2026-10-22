@@ -12,6 +12,7 @@
  */
 
 import type { EffortLevel } from '@/db/types';
+import type { ProviderServiceTier } from '@agentex/agent';
 import { prettifyModelId } from '@/lib/executor/context-window';
 import {
   HARNESS_IDS,
@@ -31,6 +32,9 @@ export interface ModelOption {
   supportedEfforts?: EffortLevel[];
   /** Provider-recommended effort when no per-session override is selected. */
   defaultEffort?: EffortLevel;
+  /** Only live discovery supplies speed choices. Unknown account access remains selectable. */
+  serviceTiers?: ProviderServiceTier[];
+  defaultServiceTier?: string;
   provider?: string;
   providerName?: string;
   variants?: Array<{
@@ -162,6 +166,7 @@ export interface HarnessModelsResponse {
   defaultModel?: string | null;
   defaultVariant?: string | null;
   defaultEffort?: EffortLevel | null;
+  defaultServiceTier?: string | null;
   catalogRefreshedAt?: string | null;
 }
 
@@ -340,6 +345,7 @@ export interface ExplicitHarnessSelection {
   model: string;
   variant: string | null;
   effort: EffortLevel | null;
+  serviceTier?: string | null;
 }
 
 export function explicitVariantForModel(
@@ -362,6 +368,7 @@ export function explicitHarnessSelection(
     model?: string | null;
     variant?: string | null;
     effort?: EffortLevel | null;
+    serviceTier?: string | null;
   } = {},
   models: readonly ModelOption[] = modelsForProvider(providerId),
 ): ExplicitHarnessSelection {
@@ -370,6 +377,7 @@ export function explicitHarnessSelection(
     providerId,
     model: model.id,
     variant: explicitVariantForModel(model, preferred.variant),
+    serviceTier: preferred.serviceTier ?? null,
     effort: harnessSupportsEffort(providerId)
       ? explicitEffortForModel(providerId, model, preferred.effort)
       : null,

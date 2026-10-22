@@ -172,6 +172,7 @@ export function EntityAgentView({
                 model: next.model,
                 variant: next.variant,
                 effort: next.effort,
+                serviceTier: next.serviceTier,
               })
             }
             switchingProvider={chat.newChat.isPending}

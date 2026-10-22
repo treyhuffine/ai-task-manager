@@ -365,14 +365,16 @@ describe('durable agent conversations', () => {
   });
 
   it('accepts all launch options in a durable delegation and rejects changed retry intent', async () => {
-    const input = { workspace_id: agent.id, request_id: 'all-options', prompt: 'Review the implementation.', provider: 'claude', model: 'sonnet', effort: 'high', permission_mode: 'plan', task_id: 'task-1', device_id: 'device-1', label: 'Review' };
+    const input = { workspace_id: agent.id, request_id: 'all-options', prompt: 'Review the implementation.', provider: 'claude', model: 'sonnet', effort: 'high', service_tier: 'fast', permission_mode: 'plan', task_id: 'task-1', device_id: 'device-1', label: 'Review' };
     const result = await act(main, 'delegate_work', input);
     expect(result).toMatchObject({ ok: true, result: { response_required: true, return_delivery: 'automatic' } });
     await drainAgentCoordination();
     const create = fake.fetch.mock.calls.find(([path]) => String(path).startsWith('/workspaces/'))!;
-    expect(JSON.parse(String(create[1].body))).toMatchObject({ harness: 'claude', model: 'sonnet', effort: 'high', permissionMode: 'plan', taskId: 'task-1', deviceId: 'device-1', label: 'Review' });
+    expect(JSON.parse(String(create[1].body))).toMatchObject({ harness: 'claude', model: 'sonnet', effort: 'high', serviceTier: 'fast', permissionMode: 'plan', taskId: 'task-1', deviceId: 'device-1', label: 'Review' });
+    expect(q.getAgentRequest((result.result as { id: string }).id)?.options).toMatchObject({ serviceTier: 'fast' });
     expect(await act(main, 'delegate_work', input)).toMatchObject({ ok: true, result: { id: (result.result as { id: string }).id } });
     expect(await act(main, 'delegate_work', { ...input, permission_mode: 'auto_all' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+    expect(await act(main, 'delegate_work', { ...input, service_tier: 'default' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
     expect(fake.fetch.mock.calls.filter(([path]) => String(path).startsWith('/workspaces/'))).toHaveLength(1);
   });
 

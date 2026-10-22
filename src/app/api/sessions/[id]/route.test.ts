@@ -54,6 +54,7 @@ const existing = {
   model: 'opus',
   modelVariant: null,
   effort: 'medium',
+  serviceTier: null,
   prNumber: null,
 };
 
@@ -94,6 +95,17 @@ beforeEach(() => {
 });
 
 describe('PATCH /api/sessions/[id] selection changes', () => {
+  it('rejects a speed change during an active turn before saving or recycling', async () => {
+    isRunning.mockReturnValue(true);
+    getHarnessModelCatalog.mockResolvedValue([{ id: 'opus', label: 'Opus', serviceTiers: [
+      { id: 'default', name: 'Standard' }, { id: 'fast', name: 'Fast', availability: 'unknown' },
+    ] }]);
+    const response = await PATCH(request({ serviceTier: 'fast' }), params());
+    expect(response.status).toBe(409);
+    expect(updateChatSession).not.toHaveBeenCalled();
+    expect(recycleForModeChange).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['effort', { effort: 'xhigh' }],
     ['model', { model: 'sonnet' }],
@@ -106,7 +118,7 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
       error: 'selection_change_while_running',
-      reason: 'Wait for the active turn to finish before changing its model, variant, effort, or mode.',
+      reason: 'Wait for the active turn to finish before changing its model, variant, effort, speed, or mode.',
     });
     expect(updateChatSession).not.toHaveBeenCalled();
     expect(updateUserState).not.toHaveBeenCalled();

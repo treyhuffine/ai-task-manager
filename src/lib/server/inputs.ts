@@ -5,7 +5,7 @@ import { z } from 'zod/v4';
 
 export const chatOverrideSchema = z.object({
   providerId: z.enum(KNOWN_HARNESS_IDS).optional(), model: z.string().optional(),
-  variant: z.string().optional(), effort: z.enum(EFFORT_LEVELS).optional(),
+  variant: z.string().optional(), serviceTier: z.string().trim().min(1).optional(), effort: z.enum(EFFORT_LEVELS).optional(),
 }).strict();
 /** A new main chat: the composer's switches, and `forApp` for one a connected app asked for (`startNewMainChat`). */
 export const newMainChatSchema = chatOverrideSchema.extend({ forApp: z.boolean().optional() });

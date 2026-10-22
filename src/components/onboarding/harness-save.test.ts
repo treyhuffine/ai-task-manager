@@ -26,7 +26,7 @@ describe('saveHarnessSetup', () => {
     const saved = await saveHarnessSetup({ harness: 'claude' });
     expect(saved.model).toBe('opus');
     expect(calls).toContain(
-      `defaultPut ${JSON.stringify({ harness: 'claude', model: 'opus', variant: null, effort: 'medium' })}`,
+      `defaultPut ${JSON.stringify({ harness: 'claude', model: 'opus', variant: null, effort: 'medium', serviceTier: null })}`,
     );
     // The harness's own default is a separate setting and isn't written.
     expect(calls.some((c) => c.startsWith('modelsEnabledPut'))).toBe(false);
@@ -35,7 +35,7 @@ describe('saveHarnessSetup', () => {
   it('saves the model and effort picked', async () => {
     await saveHarnessSetup({ harness: 'claude', model: 'sonnet', effort: 'high' });
     expect(calls).toContain(
-      `defaultPut ${JSON.stringify({ harness: 'claude', model: 'sonnet', variant: null, effort: 'high' })}`,
+      `defaultPut ${JSON.stringify({ harness: 'claude', model: 'sonnet', variant: null, effort: 'high', serviceTier: null })}`,
     );
   });
 

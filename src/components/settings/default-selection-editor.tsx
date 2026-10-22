@@ -20,12 +20,14 @@ import {
 import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import { cn } from '@/lib/utils';
 import type { EffortLevel } from '@/db/types';
+import { serviceTierForModel, serviceTierOptions } from '@/lib/harness/service-tiers';
 
 export interface DefaultSelectionDraft {
   harness: ProviderId;
   model: string;
   variant: string | null;
   effort: EffortLevel | null;
+  serviceTier?: string | null;
 }
 
 /**
@@ -55,18 +57,21 @@ export function DefaultSelectionEditor({
   const { models } = useHarnessModels(draft.harness);
   const option = models.find((m) => m.id === draft.model) ?? null;
   const efforts = effortOptionsForModel(draft.harness, option);
+  const speeds = serviceTierOptions(option);
   const changed =
     !current ||
     draft.harness !== current.harness ||
     draft.model !== current.model ||
     draft.variant !== current.variant ||
-    draft.effort !== current.effort;
+    draft.effort !== current.effort ||
+    draft.serviceTier !== current.serviceTier;
 
   const pick = (harness: ProviderId, model: ModelOption) =>
     setDraft((d) => ({
       harness,
       model: model.id,
       variant: explicitVariantForModel(model, d.harness === harness ? d.variant : null),
+      serviceTier: serviceTierForModel(model, d.harness === harness ? d.serviceTier : null),
       // Keep the effort already chosen when the new model has it, else its own.
       effort: harnessSupportsEffort(harness) ? explicitEffortForModel(harness, model, d.effort) : null,
     }));
@@ -74,7 +79,7 @@ export function DefaultSelectionEditor({
   const save = async () => {
     setSaving(true);
     try {
-      await onSave(draft);
+      await onSave({ ...draft, serviceTier: draft.serviceTier ?? serviceTierForModel(option) });
       onClose();
     } catch (err) {
       toast.error('Couldn’t change the default', { description: apiErrorText(err) });
@@ -111,6 +116,23 @@ export function DefaultSelectionEditor({
                 </Tip>
               );
             })}
+          </div>
+        </div>
+      )}
+      {speeds.some(speed => speed.id !== 'default') && (
+        <div className="mt-3 border-t border-border pt-3">
+          <div className="mb-1.5 px-1 text-[11px] font-medium text-muted-foreground">Speed</div>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Speed">
+            {speeds.map(speed => (
+              <Tip key={speed.id} label={speed.hint}>
+                <button type="button" role="radio" aria-checked={(draft.serviceTier ?? 'default') === speed.id}
+                  disabled={speed.disabled} onClick={() => setDraft(d => ({ ...d, serviceTier: speed.id }))}
+                  className={cn('rounded-full border px-2.5 py-1 text-[11.5px] disabled:opacity-50',
+                    (draft.serviceTier ?? 'default') === speed.id ? 'border-primary/60 bg-primary/10' : 'border-border text-muted-foreground')}>
+                  {speed.label}
+                </button>
+              </Tip>
+            ))}
           </div>
         </div>
       )}

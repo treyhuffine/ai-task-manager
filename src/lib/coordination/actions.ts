@@ -62,6 +62,7 @@ export const coordinationActions = [
       workspace_id: z.string().min(1),
       prompt: requestShape.content,
       provider: z.enum(KNOWN_HARNESS_IDS).optional(), model: z.string().min(1).optional(), effort: z.enum(EFFORT_LEVELS).optional(),
+      service_tier: z.string().regex(/^[a-z][a-z0-9_-]*$/).optional(),
       permission_mode: z.enum(PERMISSION_MODES).optional(),
       task_id: z.string().min(1).optional(),
       device_id: z.string().min(1).optional().describe('Requested device, otherwise the agent default. An unavailable device is refused, never silently replaced.'),
@@ -70,7 +71,7 @@ export const coordinationActions = [
     mutating: true,
     handler: (ctx, input) => inCoordinationServer(ctx, 'delegate_work', input, async () => agentRequestReceipt(await submitAgentRequest(ctx, {
       target: `agent:${input.workspace_id}`, requestId: input.request_id, content: input.prompt, kind: 'delegation',
-      options: { workspaceId: input.workspace_id, ...(input.provider ? { provider: input.provider } : {}), ...(input.model ? { model: input.model } : {}), ...(input.effort ? { effort: input.effort } : {}), ...(input.permission_mode ? { permissionMode: input.permission_mode } : {}), ...(input.task_id ? { taskId: input.task_id } : {}), ...(input.device_id ? { deviceId: input.device_id } : {}), ...(input.label ? { label: input.label } : {}) },
+      options: { workspaceId: input.workspace_id, ...(input.provider ? { provider: input.provider } : {}), ...(input.model ? { model: input.model } : {}), ...(input.effort ? { effort: input.effort } : {}), ...(input.service_tier ? { serviceTier: input.service_tier } : {}), ...(input.permission_mode ? { permissionMode: input.permission_mode } : {}), ...(input.task_id ? { taskId: input.task_id } : {}), ...(input.device_id ? { deviceId: input.device_id } : {}), ...(input.label ? { label: input.label } : {}) },
     }))),
   }),
   defineAction({

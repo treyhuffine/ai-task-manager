@@ -36,6 +36,7 @@ export interface ChatOverride {
   model?: string;
   variant?: string;
   effort?: EffortLevel;
+  serviceTier?: string;
 }
 
 export function parseChatOverride(src: unknown): ChatOverride {
@@ -43,7 +44,7 @@ export function parseChatOverride(src: unknown): ChatOverride {
     providerId?: unknown;
     model?: unknown;
     variant?: unknown;
-    effort?: unknown;
+    effort?: unknown; serviceTier?: unknown;
   };
   const out: ChatOverride = {};
   if (isKnownHarnessId(body.providerId)) out.providerId = body.providerId;
@@ -52,6 +53,7 @@ export function parseChatOverride(src: unknown): ChatOverride {
   if (typeof body.effort === 'string' && EFFORT_LEVELS.includes(body.effort as EffortLevel)) {
     out.effort = body.effort as EffortLevel;
   }
+  if (typeof body.serviceTier === 'string') out.serviceTier = body.serviceTier;
   return out;
 }
 
@@ -77,6 +79,7 @@ async function createMainChat(
     model: selection.model,
     modelVariant: selection.variant,
     effort: selection.effort,
+    serviceTier: selection.serviceTier,
     // Label stays null while the chat is live. Main chats get a
     // retrospective summary when they are retired (`retireMainChat`), and
     // the messages route never derives a first-message title for

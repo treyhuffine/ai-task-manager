@@ -55,7 +55,7 @@ export function DefaultModelLine({ found }: { found: boolean }) {
       {open && (
         <Card>
           <DefaultSelectionEditor
-            current={{ harness, model, variant: userState?.defaultVariant ?? null, effort }}
+            current={{ harness, model, variant: userState?.defaultVariant ?? null, effort, serviceTier: userState?.defaultServiceTier ?? null }}
             onSave={apply}
             onClose={() => setOpen(false)}
             note="New chats and executions start on it. You can change it later in Settings."

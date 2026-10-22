@@ -16,6 +16,7 @@ export async function saveHarnessSetup(input: {
   model?: string;
   variant?: string | null;
   effort?: EffortLevel | null;
+  serviceTier?: string | null;
 }): Promise<DefaultSelection> {
   return setDefaultSelection(input);
 }

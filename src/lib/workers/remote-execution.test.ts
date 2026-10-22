@@ -10,6 +10,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getProvider } from '@agentex/agent';
+import { installFakeHarness, type FakeHarness } from '@/test/fixtures/fake-harness';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import { startWorkerProcess, type WorkerProcess } from '@/test/fixtures/worker-process';
@@ -26,6 +28,7 @@ let homeId: string;
 let laptopKey: { id: string; token: string };
 let workerKey: string;
 let workspaceId: string;
+let homeHarness: FakeHarness | null = null;
 
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-remote-exec-' });
@@ -80,6 +83,8 @@ afterEach(async () => {
   const { _resetRemoteLive } = await import('@/lib/executor/remote-live');
   _resetRemoteLive();
   await server.close();
+  homeHarness?.restore();
+  homeHarness = null;
   const identity = await import('@/lib/home/identity');
   identity.resetHomeIdentityCache();
   await home.cleanup();
@@ -100,7 +105,250 @@ async function userMessage(content: string) {
   return q.insertChatEvent({ sessionId: chatId, role: 'user', source: 'user', content, createdAt: new Date().toISOString() })!;
 }
 
+async function configureRemoteSpeed() {
+  homeHarness = installFakeHarness('claude');
+  getProvider('claude').listModels = async () => [{ id: 'opus', name: 'Opus', serviceTiers: [
+    { id: 'default', name: 'Standard', availability: 'available' },
+    { id: 'fast', name: 'Fast', availability: 'unknown' },
+  ] }];
+  const q = await import('@/lib/db/queries');
+  q.updateChatSession(chatId, { model: 'opus', serviceTier: 'fast' });
+}
+
+async function changeSpeedToNormal() {
+  const { PATCH } = await import('@/lib/server/operations/sessions/[id]');
+  const response = await PATCH({ params: { id: chatId }, body: { serviceTier: 'default' } }, {
+    url: server.url, nextUrl: new URL(server.url), headers: new Headers(), signal: new AbortController().signal,
+  });
+  expect(response.status).toBe(200);
+}
+
+async function queueMessage(content: string, targetId = chatId) {
+  const q = await import('@/lib/db/queries');
+  const { dispatch } = await import('@/lib/executor/adapter');
+  const message = q.insertChatEvent({ sessionId: targetId, role: 'user', source: 'user', content, createdAt: new Date().toISOString() })!;
+  const outcome = dispatch(targetId, content, { sourceEventId: message.id }).then(
+    () => ({ ok: true, error: null }),
+    (error: unknown) => ({ ok: false, error: String(error) }),
+  );
+  await until(() => q.listWorkerCommands(deviceId).some(command => command.sourceEventId === message.id), 'the queued send');
+  const command = q.listWorkerCommands(deviceId).find(command => command.sourceEventId === message.id)!;
+  return { outcome, commandId: command.id, runId: (command.payload as { runId: string }).runId };
+}
+
 describe('an execution on a connected device', () => {
+  it.each(['answer', 'interrupt', 'close', 'close-idle'] as const)('keeps a sibling chat\'s %s control usable during another chat\'s recycle', async control => {
+    const closing = control.startsWith('close');
+    await configureRemoteSpeed();
+    await worker!.stop();
+    worker = null;
+    const q = await import('@/lib/db/queries');
+    const { abort, close, answerPendingInput, isRunning } = await import('@/lib/executor/adapter');
+    const live = await import('@/lib/executor/live-state');
+    const first = await queueMessage('LONG');
+    const sibling = q.createExecutionChat({ executionId, harness: 'claude', model: 'opus', permissionMode: 'ask', serviceTier: 'fast' })!;
+    const other = await queueMessage(control === 'answer' ? 'ASK before listing' : control === 'close-idle' ? 'SESSION_CONFIG' : 'LONG', sibling.id);
+    await changeSpeedToNormal();
+    const siblingFollowup = await queueMessage('SESSION_CONFIG', sibling.id);
+    const ownFollowup = await queueMessage('SESSION_CONFIG');
+    worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
+    try {
+      if (control === 'close-idle') expect(await other.outcome).toMatchObject({ ok: true });
+      else await until(() => control === 'answer' ? live.listForSession(sibling.id).length === 1 : isRunning(sibling.id), 'the sibling turn to start');
+      if (control === 'answer') {
+        const { requestId } = live.listForSession(sibling.id)[0]!;
+        expect(answerPendingInput(sibling.id, requestId, { allow: true, updatedInput: { command: 'ls' } }, { source: 'human', apiKeyId: laptopKey.id }).ok).toBe(true);
+      } else if (control === 'interrupt') await abort(sibling.id);
+      else await close(sibling.id);
+      await until(() => q.getRun(other.runId)?.completedAt != null,
+        'the sibling control to finish its turn while the first chat keeps running', 5_000);
+      expect(await other.outcome).toMatchObject({ ok: control !== 'close' });
+      expect(isRunning(chatId)).toBe(true);
+      const recycle = q.listWorkerCommands(deviceId).find(command => command.kind === 'recycle')!;
+      expect(q.getWorkerCommand(recycle.id)?.state).toBe('sent');
+      if (closing) {
+        expect(await siblingFollowup.outcome).toMatchObject({ ok: false });
+      } else {
+        expect(q.getWorkerCommand(siblingFollowup.commandId)?.state).not.toBe('delivered');
+      }
+      expect(q.getWorkerCommand(ownFollowup.commandId)?.state).not.toBe('delivered');
+    } finally {
+      await abort(chatId);
+      await Promise.all([first.outcome, other.outcome, siblingFollowup.outcome, ownFollowup.outcome]);
+    }
+    expect(await ownFollowup.outcome).toMatchObject({ ok: true });
+    if (!closing) expect(await siblingFollowup.outcome).toMatchObject({ ok: true });
+  }, 60_000);
+
+  it('finishes offline queued work before recycling, holds the next send, and preserves its newly acquired native identity', async () => {
+    await configureRemoteSpeed();
+    await worker!.stop();
+    worker = null;
+    const q = await import('@/lib/db/queries');
+    const first = await queueMessage('SLOW SESSION_CONFIG');
+    await changeSpeedToNormal();
+    const second = await queueMessage('SESSION_CONFIG');
+    const commands = q.listWorkerCommands(deviceId);
+    expect(commands.map(command => command.kind)).toEqual(['send', 'recycle', 'send']);
+    // Neither spec knows the native ID yet. The worker must carry it across
+    // the recycle instead of starting an unrelated conversation.
+    expect(commands.filter(command => command.kind === 'send').map(command => (command.payload as { spec: { nativeSessionId: string | null } }).spec.nativeSessionId)).toEqual([null, null]);
+    worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
+    expect(await first.outcome).toMatchObject({ ok: true });
+    expect(await second.outcome).toMatchObject({ ok: true });
+    const replies = q.listChatEvents(chatId).filter(event => event.source === 'agent').map(event => JSON.parse(event.content!));
+    expect(replies).toEqual([
+      { serviceTier: 'fast', model: 'opus', nativeSessionId: expect.any(String), sessionsStarted: 1 },
+      { serviceTier: 'default', model: 'opus', nativeSessionId: replies[0].nativeSessionId, sessionsStarted: 2 },
+    ]);
+    expect(q.listRuns({}).filter(run => run.chatSessionId === chatId).map(run => run.status)).toEqual(['completed', 'completed']);
+  }, 60_000);
+
+  it('accepts a permission answer past a waiting recycle and queued follow-up', async () => {
+    await configureRemoteSpeed();
+    await worker!.stop();
+    worker = null;
+    const q = await import('@/lib/db/queries');
+    q.updateChatSession(chatId, { permissionMode: 'ask' });
+    const first = await queueMessage('ASK before listing');
+    await changeSpeedToNormal();
+    const second = await queueMessage('SESSION_CONFIG');
+    worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
+    const live = await import('@/lib/executor/live-state');
+    const { answerPendingInput } = await import('@/lib/executor/adapter');
+    await until(() => live.listForSession(chatId).length === 1, 'the earlier turn to ask permission');
+    const native = q.getChatSession(chatId)!.externalSessionId;
+    const { requestId } = live.listForSession(chatId)[0]!;
+    expect(q.listChatEvents(chatId).some(event => event.source === 'agent')).toBe(false);
+    expect(answerPendingInput(chatId, requestId, { allow: true, updatedInput: { command: 'ls' } }, { source: 'human', apiKeyId: laptopKey.id }).ok).toBe(true);
+    expect(await first.outcome).toMatchObject({ ok: true });
+    expect(await second.outcome).toMatchObject({ ok: true });
+    const replies = q.listChatEvents(chatId).filter(event => event.source === 'agent');
+    expect(replies[0].content).toBe('allowed');
+    expect(JSON.parse(replies[1].content!)).toMatchObject({ serviceTier: 'default', nativeSessionId: native, sessionsStarted: 2 });
+  }, 60_000);
+
+  it('honors each send snapshot even when an older prepared send arrives after the settings recycle', async () => {
+    await configureRemoteSpeed();
+    await worker!.stop();
+    worker = null;
+    const q = await import('@/lib/db/queries');
+    const first = await queueMessage('SESSION_CONFIG');
+    const original = q.listWorkerCommands(deviceId)[0]!;
+    await changeSpeedToNormal();
+    const message = await userMessage('SLOW SESSION_CONFIG prepared before the settings change');
+    q.queueWorkerCommand({ deviceId, kind: 'send', chatSessionId: chatId, executionId, generation: 1,
+      actor: { source: 'human' }, sourceEventId: message.id,
+      payload: { ...(original.payload as object), message: message.content!, turnId: 'stale-preparation', runId: null },
+    });
+    const next = await queueMessage('SESSION_CONFIG');
+    worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
+    expect(await first.outcome).toMatchObject({ ok: true });
+    expect(await next.outcome).toMatchObject({ ok: true });
+    const replies = q.listChatEvents(chatId).filter(event => event.source === 'agent').map(event => JSON.parse(event.content!));
+    expect(replies.map(reply => reply.serviceTier)).toEqual(['fast', 'fast', 'default']);
+    expect(replies.map(reply => reply.sessionsStarted)).toEqual([1, 2, 3]);
+    expect(new Set(replies.map(reply => reply.nativeSessionId)).size).toBe(1);
+  }, 60_000);
+
+  it('receives permission answers while recovering a received send and recycle after restart', async () => {
+    await configureRemoteSpeed();
+    await worker!.stop();
+    worker = null;
+    const q = await import('@/lib/db/queries');
+    q.updateChatSession(chatId, { permissionMode: 'ask' });
+    const first = await queueMessage('ASK after restart');
+    await changeSpeedToNormal();
+    const second = await queueMessage('SESSION_CONFIG');
+    // The predecessor received these but exited before handling them. Its
+    // successor must recover them and keep reading the stream for controls.
+    const { CommandJournal } = await import('@/lib/worker/command-journal');
+    const journal = new CommandJournal(homeId, path.join(laptopRoot, '.work', 'commands', `${homeId}.jsonl`));
+    for (const c of q.takeCommandsForStream(deviceId, 0)) {
+      journal.received({ id: c.id, seq: c.seq!, kind: c.kind, payload: c.payload, actor: c.actor, issuedAt: c.createdAt,
+        target: { chatSessionId: c.chatSessionId, executionId: c.executionId, generation: c.generation } });
+    }
+    worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
+    const live = await import('@/lib/executor/live-state');
+    const { answerPendingInput } = await import('@/lib/executor/adapter');
+    await until(() => live.listForSession(chatId).length === 1, 'the recovered permission prompt');
+    const { requestId } = live.listForSession(chatId)[0]!;
+    expect(answerPendingInput(chatId, requestId, { allow: true, updatedInput: { command: 'ls' } }, { source: 'human', apiKeyId: laptopKey.id }).ok).toBe(true);
+    expect(await first.outcome).toMatchObject({ ok: true });
+    expect(await second.outcome).toMatchObject({ ok: true });
+    const replies = q.listChatEvents(chatId).filter(event => event.source === 'agent');
+    expect(replies[0].content).toBe('allowed');
+    expect(JSON.parse(replies[1].content!)).toMatchObject({ serviceTier: 'default', sessionsStarted: 2 });
+  }, 60_000);
+
+  it('allows interruption while recycling waits, then delivers the next message with Normal', async () => {
+    await configureRemoteSpeed();
+    await worker!.stop();
+    worker = null;
+    const q = await import('@/lib/db/queries');
+    const first = await queueMessage('LONG');
+    await changeSpeedToNormal();
+    const second = await queueMessage('SESSION_CONFIG');
+    worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
+    const { abort, isRunning } = await import('@/lib/executor/adapter');
+    await until(() => isRunning(chatId), 'the earlier turn to start');
+    await abort(chatId);
+    expect(await first.outcome).toMatchObject({ ok: true });
+    expect(await second.outcome).toMatchObject({ ok: true });
+    const reply = q.listChatEvents(chatId).find(event => event.source === 'agent')!;
+    expect(JSON.parse(reply.content!)).toMatchObject({ serviceTier: 'default', sessionsStarted: 2 });
+  }, 60_000);
+
+  it('lets an explicit close cancel sends waiting behind a recycle without restarting the chat', async () => {
+    await configureRemoteSpeed();
+    await worker!.stop();
+    worker = null;
+    const q = await import('@/lib/db/queries');
+    const first = await queueMessage('LONG');
+    await changeSpeedToNormal();
+    const second = await queueMessage('SESSION_CONFIG');
+    worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
+    const { close, isRunning } = await import('@/lib/executor/adapter');
+    await until(() => isRunning(chatId), 'the earlier turn to start');
+    expect(await close(chatId)).toMatchObject({ queued: true });
+    expect(await first.outcome).toMatchObject({ ok: false });
+    expect(await second.outcome).toMatchObject({ ok: false, error: expect.stringContaining('closed before this message') });
+    expect(q.listChatEvents(chatId).some(event => event.source === 'agent')).toBe(false);
+    const stop = q.listWorkerCommands(deviceId).find(command => command.kind === 'stop')!;
+    await until(() => q.getWorkerCommand(stop.id)?.state === 'delivered', 'the explicit close');
+  }, 60_000);
+
+  it('changes Fast to Normal in the owning worker before resuming the same conversation', async () => {
+    homeHarness = installFakeHarness('claude');
+    getProvider('claude').listModels = async () => [{ id: 'opus', name: 'Opus', serviceTiers: [
+      { id: 'default', name: 'Standard', availability: 'available' },
+      { id: 'fast', name: 'Fast', availability: 'unknown' },
+    ] }];
+    const q = await import('@/lib/db/queries');
+    const { dispatch } = await import('@/lib/executor/adapter');
+    const { PATCH } = await import('@/lib/server/operations/sessions/[id]');
+    q.updateChatSession(chatId, { model: 'opus', serviceTier: 'fast' });
+    const inspect = async () => {
+      const message = await userMessage('SESSION_CONFIG');
+      await dispatch(chatId, 'SESSION_CONFIG', { sourceEventId: message.id });
+      const reply = q.listChatEvents(chatId).filter(event => event.source === 'agent').at(-1)!;
+      return JSON.parse(reply.content!) as { serviceTier: string; nativeSessionId: string; sessionsStarted: number };
+    };
+    const fast = await inspect();
+    expect(fast).toMatchObject({ serviceTier: 'fast', sessionsStarted: 1 });
+    const response = await PATCH({ params: { id: chatId }, body: { serviceTier: 'default' } }, {
+      url: server.url, nextUrl: new URL(server.url), headers: new Headers(), signal: new AbortController().signal,
+    });
+    expect(response.status).toBe(200);
+    expect(q.getChatSession(chatId)?.serviceTier).toBe('default');
+    // Send immediately. The queued recycle must precede it on the worker.
+    const normal = await inspect();
+    expect(normal).toEqual({ serviceTier: 'default', model: 'opus', nativeSessionId: fast.nativeSessionId, sessionsStarted: 2 });
+    const kinds = q.listWorkerCommands(deviceId).map(command => command.kind);
+    expect(kinds).toEqual(['send', 'recycle', 'send']);
+    expect(homeHarness.sessions).toHaveLength(0);
+  }, 60_000);
+
   it('runs a turn there, and the home gets its conversation and finishes its run', async () => {
     const { dispatch } = await import('@/lib/executor/adapter');
     const q = await import('@/lib/db/queries');

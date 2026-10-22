@@ -87,6 +87,7 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: Operat
     defaultModel: settings.defaultModel,
     defaultVariant: settings.defaultVariant,
     defaultEffort: settings.defaultEffort,
+    defaultServiceTier: settings.defaultServiceTier,
     catalogRefreshedAt: settings.catalogRefreshedAt,
   });
 }

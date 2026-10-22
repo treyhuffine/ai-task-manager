@@ -44,6 +44,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
       model?: string | null;
       modelVariant?: string | null;
       effort?: EffortLevel | null;
+      serviceTier?: string | null;
       permissionMode?: PermissionMode;
       baseBranch?: string;
       prNumber?: number | null;
@@ -90,6 +91,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
       model: body.model ?? null,
       modelVariant: body.modelVariant ?? null,
       effort: body.effort ?? null,
+      serviceTier: body.serviceTier ?? null,
       permissionMode: body.permissionMode,
       baseBranch: body.baseBranch?.trim() || null,
       prNumber: typeof body.prNumber === 'number' ? body.prNumber : null,
@@ -127,4 +129,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
 }
 
 export const GETInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), query: rpcZ.object({ "includeArchived": rpcZ.string().optional() }).strict().optional() }).strict();
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "sessionId": rpcZ.string().optional(), "label": rpcZ.string().optional(), "harness": rpcZ.string().optional(), "model": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "modelVariant": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "effort": rpcZ.union([rpcZ.null(), rpcZ.literal("low"), rpcZ.literal("medium"), rpcZ.literal("high"), rpcZ.literal("xhigh"), rpcZ.literal("max"), rpcZ.literal("ultra")]).optional(), "permissionMode": rpcZ.enum(["auto_all", "auto_edits", "ask", "plan"]).optional(), "baseBranch": rpcZ.string().optional(), "prNumber": rpcZ.union([rpcZ.null(), rpcZ.number().finite()]).optional(), "liveMode": rpcZ.boolean().optional(), "taskId": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "deviceId": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "sessionId": rpcZ.string().optional(), "label": rpcZ.string().optional(), "harness": rpcZ.string().optional(), "model": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "modelVariant": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "serviceTier": rpcZ.string().trim().min(1).nullable().optional(), "effort": rpcZ.union([rpcZ.null(), rpcZ.literal("low"), rpcZ.literal("medium"), rpcZ.literal("high"), rpcZ.literal("xhigh"), rpcZ.literal("max"), rpcZ.literal("ultra")]).optional(), "permissionMode": rpcZ.enum(["auto_all", "auto_edits", "ask", "plan"]).optional(), "baseBranch": rpcZ.string().optional(), "prNumber": rpcZ.union([rpcZ.null(), rpcZ.number().finite()]).optional(), "liveMode": rpcZ.boolean().optional(), "taskId": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "deviceId": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional() }).strict().default({}) }).strict();

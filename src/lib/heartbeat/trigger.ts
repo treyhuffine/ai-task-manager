@@ -41,6 +41,7 @@ import {
 } from './constants';
 import { isQuietHeartbeatRun } from './quiet';
 import type { HeartbeatCheckIn, HeartbeatConfig, HeartbeatPatch } from './types';
+import { speedForTriggerModel } from '@/lib/triggers/model-speed';
 
 export const HEARTBEAT_TRIGGER_ID = RESERVED_TRIGGER_IDS.heartbeat;
 
@@ -63,9 +64,16 @@ function defaultTimezone(): string {
  * restarts. Called once per server boot from instrumentation.ts, and lazily by
  * `getHeartbeatConfig` so a CLI on a fresh database sees it too.
  */
-export function ensureHeartbeatTrigger(): TriggerRecord | null {
+export async function ensureHeartbeatTrigger(): Promise<TriggerRecord | null> {
   const existing = getTrigger(HEARTBEAT_TRIGGER_ID);
   if (existing) return existing;
+
+  const harness = defaultTriggerHarness();
+  const serviceTier = await speedForTriggerModel(harness, null);
+  // Concurrent first reads may both discover metadata. Only the first one
+  // seeds, and an existing legacy NULL is never rewritten after that await.
+  const seeded = getTrigger(HEARTBEAT_TRIGGER_ID);
+  if (seeded) return seeded;
 
   // The brain-level name index is unique. If the user already made their own
   // trigger called "Heartbeat", leave it alone and take the fallback name.
@@ -81,7 +89,8 @@ export function ensureHeartbeatTrigger(): TriggerRecord | null {
     name,
     description: HEARTBEAT_TRIGGER_DESCRIPTION,
     enabled: false,
-    harness: defaultTriggerHarness(),
+    harness,
+    serviceTier,
     workspaceId: null,
     targetKind: 'orchestrator',
     prompt: DEFAULT_HEARTBEAT_INSTRUCTIONS,
@@ -173,8 +182,9 @@ function toCheckIn(run: RunRecord): HeartbeatCheckIn {
 }
 
 /** The heartbeat's settings and status, seeding the row first if needed. */
-export function getHeartbeatConfig(): HeartbeatConfig {
-  const trigger = ensureHeartbeatTrigger() ?? getHeartbeatTrigger();
+export async function getHeartbeatConfig(): Promise<HeartbeatConfig> {
+  await ensureHeartbeatTrigger();
+  const trigger = getHeartbeatTrigger();
   if (!trigger) throw new Error('The heartbeat trigger could not be created');
   const [last] = listRuns({
     triggerId: trigger.id,
@@ -193,6 +203,7 @@ export function getHeartbeatConfig(): HeartbeatConfig {
     provider: trigger.harness,
     model: trigger.model ?? null,
     effort: trigger.effort ?? null,
+    serviceTier: trigger.serviceTier ?? null,
     deliverResultTo: trigger.deliverResultTo ?? [],
     nextCheckInAt: nextCheckInAt(trigger),
     running: !!findActiveRunForTrigger(trigger.id),
@@ -209,8 +220,9 @@ export function getHeartbeatConfig(): HeartbeatConfig {
  * app-set `disabledReason` (e.g. the budget pause), since the user just chose
  * to run it.
  */
-export function updateHeartbeat(patch: HeartbeatPatch, now: Date = new Date()): HeartbeatConfig {
-  const current = ensureHeartbeatTrigger() ?? getHeartbeatTrigger();
+export async function updateHeartbeat(patch: HeartbeatPatch, now: Date = new Date()): Promise<HeartbeatConfig> {
+  await ensureHeartbeatTrigger();
+  const current = getHeartbeatTrigger();
   if (!current) throw new Error('The heartbeat trigger could not be created');
 
   const update: UpdateTriggerInput = {};
@@ -222,6 +234,7 @@ export function updateHeartbeat(patch: HeartbeatPatch, now: Date = new Date()): 
   if (patch.harness !== undefined) update.harness = patch.harness;
   if (patch.model !== undefined) update.model = patch.model;
   if (patch.effort !== undefined) update.effort = patch.effort;
+  if (patch.serviceTier !== undefined) update.serviceTier = patch.serviceTier;
   if (patch.deliverResultTo !== undefined) update.deliverResultTo = patch.deliverResultTo;
   if (patch.enabled !== undefined) update.enabled = patch.enabled;
 

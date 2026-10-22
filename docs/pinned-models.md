@@ -80,15 +80,16 @@ so on the first send.
 
 | Where | What it gets |
 | --- | --- |
-| Composer model menu | Pins at the top of their provider group, an inline pin input inside the expandable drawer |
-| Launcher model control | Same, via `ModelList` |
+| Composer model menu | Visible pins first within their harness, search, an expander per provider, Manage models opens Settings |
+| Launcher model control | Same compact menu, with no provider-switch confirmation |
 | Settings default picker | Same, via `ModelList` |
 | Settings → Models | Pin input under the model search, unpin control on pinned rows |
 | Trigger model pill | Lists the provider's visible models plus pins, and pins from the same input |
 | Onboarding | Pins appear in the catalog grid |
 
-`ModelList` (`src/components/settings/model-list.tsx`) is the shared list, so
-the first three come from one implementation. `PinModelInput`
+The composer and launcher share `ModelMenuContent` and `VisibleModelOptions`
+(see [the combined menu](model-menu.md)). Settings' default selector retains
+`ModelList` (`src/components/settings/model-list.tsx`). `PinModelInput`
 (`src/components/settings/pin-model-input.tsx`) is the shared input.
 
 Saving also selects: typing a model id is already an unambiguous statement of

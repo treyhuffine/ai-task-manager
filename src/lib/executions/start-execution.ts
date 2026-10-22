@@ -18,6 +18,7 @@ export interface StartExecutionArgs {
   model?: string | null;
   modelVariant?: string | null;
   effort?: EffortLevel | null;
+  serviceTier?: string | null;
   /**
    * Sent as the first message once the row exists. Kept inside this call so
    * the caller doesn't have to stay mounted to chain it — the launcher closes
@@ -73,6 +74,7 @@ export function startExecution(qc: QueryClient, args: StartExecutionArgs): Start
         model: args.model ?? null,
         modelVariant: args.modelVariant ?? null,
         effort: args.effort ?? null,
+        serviceTier: args.serviceTier ?? null,
         taskId: args.taskId ?? null,
         deviceId: args.deviceId ?? null,
       });

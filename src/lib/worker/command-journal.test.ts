@@ -42,6 +42,33 @@ function deliver(journal: CommandJournal, command: WorkerCommand, reconciled = f
 }
 
 describe('the command journal', () => {
+  it('retains the latest native identity and recycle outcome through restart and compaction, scoped to the placement', () => {
+    const journal = new CommandJournal('home', file);
+    const first = send('chat-1', 1, 'native-first');
+    deliver(journal, first);
+    journal.note(first.id, { nativeSessionId: 'native-acquired-offline' });
+    journal.turnEnded('native-first');
+    const recycle: WorkerCommand = { ...send('chat-1', 1, 'recycle'), kind: 'recycle', payload: null };
+    deliver(journal, recycle);
+    journal.note(recycle.id, { nativeSessionId: 'native-acquired-offline' });
+    const next = send('chat-1', 1, 'next');
+    expect(journal.nativeSessionFor(next)).toBe('native-acquired-offline');
+    deliver(journal, next);
+    journal.note(next.id, { nativeSessionId: 'native-promoted' });
+    journal.turnEnded('next');
+    // Later controls must not make compaction forget the identity or the
+    // recycle whose outcome determines whether a stale handle is reusable.
+    deliver(journal, { ...send('chat-1', 1, 'title'), kind: 'set_title', payload: {} });
+    journal.compact(0);
+    const reopened = new CommandJournal('home', file);
+    const followup = send('chat-1', 1, 'followup');
+    expect(reopened.nativeSessionFor(followup)).toBe('native-promoted');
+    expect(reopened.recycleBefore(followup)?.ack?.state).toBe('delivered');
+    expect(reopened.nativeSessionFor(send('chat-1', 2, 'moved'))).toBeNull();
+    expect(reopened.nativeSessionFor(send('other-chat', 1, 'other'))).toBeNull();
+    expect(reopened.nativeSessionFor({ ...followup, seq: 0 })).toBeNull();
+  });
+
   it('keeps a released placement fenced across a restart', () => {
     const journal = new CommandJournal('home', file);
     journal.release('exec-1', 2);

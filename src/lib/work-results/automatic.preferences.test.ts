@@ -39,7 +39,7 @@ describe('durable unavailable automatic reviewer snapshot', () => {
     state.defaults = { harness: 'codex', model: null, variant: null, effort: null };
     const plan = await prepareAutomaticWorkResultReview(actor, actor.sessionId);
     const request = plan!(detail)!;
-    expect(request.selection).toEqual({ harness: 'codex', model: 'gpt-5.5', variant: null, effort: 'medium' });
+    expect(request.selection).toEqual({ serviceTier: null, harness: 'codex', model: 'gpt-5.5', variant: null, effort: 'medium' });
     expect(request.failureReason).toBe('reviewer_unavailable');
     expect(request.scope.requested.codeRevision?.commitSha).toBe('known-captured-sha');
     expect(request.scope.observed?.codeRevision).toBeNull();
@@ -48,7 +48,7 @@ describe('durable unavailable automatic reviewer snapshot', () => {
   it('keeps an unavailable saved model and effort visible without presenting them as observed', async () => {
     state.defaults = { harness: 'codex', model: 'unavailable-model', effort: 'ultra' };
     const request = (await prepareAutomaticWorkResultReview(actor, actor.sessionId))!(detail)!;
-    expect(request.selection).toEqual({ harness: 'codex', model: 'unavailable-model', variant: null, effort: 'ultra' });
+    expect(request.selection).toEqual({ serviceTier: null, harness: 'codex', model: 'unavailable-model', variant: null, effort: 'ultra' });
     expect(request.provenance).toMatchObject({ independence: 'unknown', automaticWorkspaceId: 'research' });
     expect(request.provenance.observedModel).toBeUndefined();
     expect(request.failureReason).toBe('reviewer_unavailable');

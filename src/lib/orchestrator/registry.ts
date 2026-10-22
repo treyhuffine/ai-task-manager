@@ -16,6 +16,7 @@ import { localAppsEnabled } from '@/lib/config/features';
  */
 
 import { INTEGRATION_LABELS } from '@/constants/integrations';
+import { speedForTriggerModel, triggerSpeedModel } from '@/lib/triggers/model-speed';
 import { HUMAN_LINES_PER_HOUR } from '@/lib/work/lines';
 import { resultActions } from './result-actions';
 import { emailActions } from './email-actions';
@@ -2258,6 +2259,16 @@ const get_trigger_action = defineAction({
   },
 });
 
+async function validateTriggerSpeed(harness: HarnessId, model: string | null | undefined, serviceTier: string | null | undefined) {
+  if (serviceTier == null) return;
+  try {
+    const { assertServiceTier } = await import('@/lib/harness/service-tiers');
+    assertServiceTier(await triggerSpeedModel(harness, model), serviceTier);
+  } catch (error) {
+    throw new ActionError('invalid_params', error instanceof Error ? error.message : String(error));
+  }
+}
+
 const createTriggerShape = {
   name: z.string().min(1),
   description: z.string().nullable().optional(),
@@ -2282,6 +2293,7 @@ const createTriggerShape = {
   maxCatchUpRuns: z.number().int().positive().max(10).optional(),
   model: z.string().nullable().optional(),
   effort: effortLevel.nullable().optional(),
+  serviceTier: z.string().regex(/^[a-z][a-z0-9_-]*$/).nullable().optional(),
   timeoutSeconds: z.number().int().positive().nullable().optional(),
   // Notifier digest binding: notification_channel ids the run result is
   // delivered to when an orchestrator-target run completes
@@ -2311,7 +2323,7 @@ const create_trigger_action = defineAction({
     'provider picks who runs it (defaults to the user\'s default provider); model and effort are validated against that provider.',
   params: createTriggerShape,
   mutating: true,
-  handler: (_ctx, input) => {
+  handler: async (_ctx, input) => {
     assertValidTriggerTimezone(input.timezone);
     // Per-kind validation: catch bad rows here rather than at the tick.
     if (input.kind === 'cron') {
@@ -2372,6 +2384,8 @@ const create_trigger_action = defineAction({
     };
     const nextRunAt = computeNextRun(draft);
 
+    await validateTriggerSpeed(harness, input.model, input.serviceTier);
+    const serviceTier = input.serviceTier ?? await speedForTriggerModel(harness, input.model, null);
     const row = createTrigger({
       name: input.name,
       description: input.description ?? null,
@@ -2395,6 +2409,7 @@ const create_trigger_action = defineAction({
       webhookSecretHash,
       model: input.model ?? null,
       effort: input.effort ?? null,
+      serviceTier,
       // Null when the caller omits it — no wall-clock cap. The
       // runtime `runWithTimeout` skips the race when seconds is null
       // or <= 0; the run completes whenever the executor returns.
@@ -2440,6 +2455,7 @@ const update_trigger_action = defineAction({
     catchUpPolicy: triggerCatchUpPolicy.optional(),
     model: z.string().nullable().optional(),
     effort: effortLevel.nullable().optional(),
+    serviceTier: z.string().regex(/^[a-z][a-z0-9_-]*$/).nullable().optional(),
     timeoutSeconds: z.number().int().positive().optional(),
     disabledReason: z.string().nullable().optional(),
     // Replace the notifier digest binding (full set, not a delta). Pass []
@@ -2448,7 +2464,7 @@ const update_trigger_action = defineAction({
   },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (_ctx, input) => {
+  handler: async (_ctx, input) => {
     const { id, provider, ...rest } = input;
     const current = getTrigger(id);
     if (!current) throw new ActionError('not_found', `Trigger not found: ${id}`);
@@ -2478,6 +2494,14 @@ const update_trigger_action = defineAction({
       if (rest.effort === undefined) rest.effort = null;
     }
     assertModelFitsProvider(provider ?? current.harness, rest.model);
+    if (rest.serviceTier !== undefined || rest.model !== undefined || harness) {
+      const model = rest.model !== undefined ? rest.model : current.model;
+      if (rest.serviceTier !== undefined) {
+        await validateTriggerSpeed(provider ?? current.harness, model, rest.serviceTier);
+      } else if (harness || (rest.model !== undefined && rest.model !== current.model)) {
+        rest.serviceTier = await speedForTriggerModel(provider ?? current.harness, model, harness ? null : current.serviceTier);
+      }
+    }
 
     // Verify the digest binding against the (immutable) target_kind before write.
     if (rest.deliverResultTo !== undefined) {
@@ -2729,11 +2753,13 @@ const update_heartbeat_action = defineAction({
     provider: triggerProvider.optional(),
     model: z.string().nullable().optional(),
     effort: effortLevel.nullable().optional(),
+    serviceTier: z.string().regex(/^[a-z][a-z0-9_-]*$/).nullable().optional(),
     deliverResultTo: z.array(z.string().min(1)).optional(),
   },
   mutating: true,
-  handler: (_ctx, input) => {
-    const current = ensureHeartbeatTrigger() ?? getHeartbeatTrigger();
+  handler: async (_ctx, input) => {
+    await ensureHeartbeatTrigger();
+    const current = getHeartbeatTrigger();
     if (!current) throw new ActionError('conflict', 'The heartbeat trigger could not be created.');
 
     if (input.instructions !== undefined && input.resetInstructions) {
@@ -2773,12 +2799,19 @@ const update_heartbeat_action = defineAction({
     const patch: HeartbeatPatch = {};
     let model = input.model;
     let effort = input.effort;
+    let serviceTier = input.serviceTier;
     if (input.provider && input.provider !== current.harness) {
       patch.harness = input.provider;
       if (model === undefined) model = null;
       if (effort === undefined) effort = null;
     }
     assertModelFitsProvider(input.provider ?? current.harness, model);
+    const targetModel = model !== undefined ? model : current.model;
+    if (serviceTier !== undefined) {
+      await validateTriggerSpeed(input.provider ?? current.harness, targetModel, serviceTier);
+    } else if (patch.harness || (model !== undefined && model !== current.model)) {
+      serviceTier = await speedForTriggerModel(input.provider ?? current.harness, targetModel, patch.harness ? null : current.serviceTier);
+    }
 
     if (input.enabled !== undefined) patch.enabled = input.enabled;
     if (input.resetInstructions) patch.instructions = DEFAULT_HEARTBEAT_INSTRUCTIONS;
@@ -2789,6 +2822,7 @@ const update_heartbeat_action = defineAction({
     if (input.timezone !== undefined) patch.timezone = input.timezone;
     if (model !== undefined) patch.model = model;
     if (effort !== undefined) patch.effort = effort;
+    if (serviceTier !== undefined) patch.serviceTier = serviceTier;
     if (input.deliverResultTo !== undefined) {
       patch.deliverResultTo = validateDeliverResultTo(input.deliverResultTo, current.targetKind);
     }

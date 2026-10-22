@@ -3,8 +3,8 @@ import type { ExplicitHarnessSelection } from '@/lib/harness/options';
 import type { HarnessId } from '@/lib/harness/registry';
 
 type Overrides = Partial<{ harness: HarnessId; model: string | null; variant: ExplicitHarnessSelection['variant']; effort: ExplicitHarnessSelection['effort'] }>;
-type NormalDefaults = Pick<UserStateRecord, 'defaultHarness' | 'defaultModel' | 'defaultEffort'>;
-type HarnessDefaults = Pick<HarnessSettingsRecord, 'defaultModel' | 'defaultVariant' | 'defaultEffort'>;
+type NormalDefaults = Pick<UserStateRecord, 'defaultHarness' | 'defaultModel' | 'defaultEffort'> & Partial<Pick<UserStateRecord, 'defaultServiceTier'>>;
+type HarnessDefaults = Pick<HarnessSettingsRecord, 'defaultModel' | 'defaultVariant' | 'defaultEffort'> & Partial<Pick<HarnessSettingsRecord, 'defaultServiceTier'>>;
 
 export function reviewerPreferenceHarness(overrides: Overrides, agent: WorkspaceReviewDefaults | null | undefined, normal: NormalDefaults | null | undefined): HarnessId {
   return overrides.harness ?? agent?.harness ?? normal?.defaultHarness ?? 'claude';
@@ -32,5 +32,7 @@ export function preferredWorkResultReviewerSelection(
     effort: overrides.effort !== undefined ? overrides.effort
       : (sameAgentModel ? agentTuple?.effort : null) ?? (sameNormalModel ? normalTuple?.defaultEffort : null)
         ?? (sameSettingsModel ? settings.defaultEffort : null),
+    serviceTier: sameNormalModel ? normalTuple?.defaultServiceTier ?? null
+      : sameSettingsModel ? settings.defaultServiceTier ?? null : null,
   };
 }

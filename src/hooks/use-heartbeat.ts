@@ -28,6 +28,7 @@ export interface HeartbeatUpdate {
   provider?: HarnessId;
   model?: string | null;
   effort?: EffortLevel | null;
+  serviceTier?: string | null;
   deliverResultTo?: string[];
 }
 
@@ -54,9 +55,11 @@ function optimisticConfig(prev: HeartbeatConfig, patch: HeartbeatUpdate): Heartb
     next.provider = patch.provider;
     next.model = patch.model ?? null;
     next.effort = patch.effort ?? null;
+    next.serviceTier = patch.serviceTier ?? null;
   }
   if (patch.model !== undefined) next.model = patch.model;
   if (patch.effort !== undefined) next.effort = patch.effort;
+  if (patch.serviceTier !== undefined) next.serviceTier = patch.serviceTier;
   if (patch.deliverResultTo !== undefined) next.deliverResultTo = patch.deliverResultTo;
   return next;
 }

@@ -238,7 +238,7 @@ export async function resolveWorkResultReviewerSelection(input: WorkResultReview
     if (preferred.effort != null && model?.supportedEfforts && !model.supportedEfforts.includes(preferred.effort)) {
       throw new Error(`Effort ${preferred.effort} is unavailable for model ${selection.model}. Choose a compatible effort before reviewing.`);
     }
-    return { harness, model: selection.model, variant: selection.variant, effort: selection.effort,
+    return { harness, model: selection.model, variant: selection.variant, effort: selection.effort, serviceTier: selection.serviceTier ?? null,
       explicit: { ...(input.harness !== undefined ? { harness: input.harness } : {}),
         ...(input.model !== undefined ? { model: input.model } : {}),
         ...(input.variant !== undefined ? { variant: input.variant } : {}),
@@ -289,6 +289,8 @@ export function compatibleWorkResultReviewEvidence(
 ): boolean {
   if (review.status !== 'completed' || !review.reportResultId || review.provenance.independence !== 'observed'
     || review.focus !== (focus?.trim() || null) || review.scope.requested.resultId !== scope.requested.resultId) return false;
+  // Speed is a dispatch policy, not evidence quality. Reusing an existing
+  // completed report performs no inference and incurs no new tier choice.
   const tuple = (value: WorkResultReviewSelection) => [value.harness, value.model, value.variant, value.effort];
   if (hash(tuple(review.selection)) !== hash(tuple(selection))) return false;
   if (review.scope.requested.repository !== scope.requested.repository
@@ -348,7 +350,8 @@ export function bindWorkResultReviewRuntime(actor: WorkResultActor, review: Work
       surfaceKind: 'result_review', surfaceRef: review.id, label: 'AI review',
       workspaceId: source?.workspaceId ?? execution?.workspaceId ?? null,
       executionId: null,
-      permissionMode: 'plan', model: review.selection.model, modelVariant: review.selection.variant, effort: review.selection.effort });
+      permissionMode: 'plan', model: review.selection.model, modelVariant: review.selection.variant, effort: review.selection.effort,
+      serviceTier: review.selection.serviceTier ?? null });
     ensureWorkResultOperationMessage(actor, { id: messageId, runId, sessionId, content: review.brief!,
       attachments: review.scope.requested.attachments.map((file) => ({ fileName: file.file_name,
         originalName: file.original_name, mimeType: file.mime_type, size: file.size, uploadedAt: file.uploaded_at })), metadata: {
@@ -387,7 +390,8 @@ export async function requestWorkResultAiReview(actor: WorkResultActor, input: W
     throw new ActionError('unsupported', runtime.capabilities.sessions.reason ?? 'The selected reviewer cannot safely inspect this work in a fresh read-only session.');
   }
   if ((selection.effort && runtime.capabilities.reasoningEffort?.supported === false)
-    || (selection.variant && runtime.capabilities.modelVariants?.supported === false)) {
+    || (selection.variant && runtime.capabilities.modelVariants?.supported === false)
+    || (selection.serviceTier && !runtime.capabilities.serviceTiers?.supported)) {
     throw new ActionError('unsupported', 'The selected harness cannot apply these reviewer settings. Choose compatible settings before reviewing.');
   }
   const brief = assignedWorkResultReviewBrief(detail, scope, reviewId, input.requestId, !!runtime.capabilities.mcp?.supported, input.focus);

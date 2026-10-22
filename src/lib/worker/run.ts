@@ -305,7 +305,13 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
     handlers,
     target,
     onStopped: (err) => stop({ reason: err.reason, message: err.message }),
-    onHandled: () => void recordProcesses(),
+    onHandled: () => {
+      void recordProcesses();
+      // A started send found in native history belongs to the predecessor.
+      // Settle it as soon as recovery identifies it, independently of later
+      // recovered work that may now be waiting for a person's input.
+      reportInterruptedTurns(commandJournal.openTurns().filter(turn => turn.reconciled));
+    },
   });
   options.onSink?.(
     createWorkerSink({
@@ -367,35 +373,35 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
     });
   };
 
-  // Once, on the first stream the home accepts: ownership, then recovery,
-  // then turns cut off. A failure leaves it for the next connection.
-  let recovered = false;
-  const recover = async () => {
-    await heartbeat();
-    await processor.recoverAll();
-    // Recovery can find a send in the native history: delivered before the
-    // restart, and its turn cut off by it too.
-    const found = commandJournal.openTurns().filter((t) => t.reconciled && !cutOff.some((c) => c.turnId === t.turnId));
-    for (const turn of [...cutOff, ...found]) {
+  const reportInterruptedTurns = (turns: ReturnType<CommandJournal['openTurns']>) => {
+    for (const turn of turns) {
       eventJournal.append({
         kind: 'signal',
         eventId: uuidv7(),
         chatSessionId: turn.chatSessionId,
-        // The placement that ran the turn, which the home checks its run against.
         generation: turn.generation,
         occurredAt: new Date().toISOString(),
         signal: {
-          type: 'turn_result',
-          turnId: turn.turnId,
-          runId: turn.runId,
-          ok: false,
+          type: 'turn_result', turnId: turn.turnId, runId: turn.runId, ok: false,
           error: `The turn stopped when Ri's worker on ${target.deviceName} restarted.`,
         },
       });
       commandJournal.turnEnded(turn.turnId);
     }
+    if (turns.length) void poster.kick();
+  };
+
+  // Once, after the home verifies ownership: enqueue all recovery before
+  // admitting new commands. Do not wait for its turns to finish. A received
+  // send can now need permission while a later recycle waits for its turn,
+  // and the answer must be read from this stream to let recovery progress.
+  let recoveryStarted = false;
+  const recover = async () => {
+    await heartbeat();
+    reportInterruptedTurns(cutOff);
+    void processor.recoverAll().catch(error => console.error('[worker] recovery failed:', error));
     void poster.kick();
-    recovered = true;
+    recoveryStarted = true;
   };
   const heartbeatTimer = setInterval(beat, heartbeatMs);
   heartbeatTimer.unref?.();
@@ -441,8 +447,8 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
             attempt = 0;
             // A journal that was cleared numbers on after what the home holds.
             eventJournal.rebase(event.ackedEventSeq);
-            // Commands wait on the stream until this is done.
-            if (!recovered) {
+            // Placement verification and recovery admission happen first.
+            if (!recoveryStarted) {
               await recover();
               lastEventAt = Date.now();
             } else {
@@ -485,6 +491,7 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
       await sleep(retryInMs, signal);
     }
   } finally {
+    processor.stop();
     clearInterval(heartbeatTimer);
     clearInterval(postRetry);
     // Stopping the worker stops the shells it started.

@@ -16,6 +16,12 @@
 import type { AgentSession, RuntimeCommandInventory } from '@agentex/agent';
 import type { PermissionMode } from '@/db/types';
 import type { HarnessId } from '@/lib/harness/registry';
+import type { SessionSpec } from './types';
+
+/** Settings captured at spawn, compared with each remote send's snapshot. */
+export function sessionSelectionKey(spec: SessionSpec): string {
+  return JSON.stringify([spec.permissionMode, spec.prePlanMode ?? null, spec.model, spec.modelVariant, spec.effort, spec.serviceTier ?? null]);
+}
 
 /** What the runner remembers about a live session from the spec that started it. */
 export interface LiveSessionInfo {
@@ -25,6 +31,7 @@ export interface LiveSessionInfo {
   prePlanMode: PermissionMode | null;
   /** The native session id last reported to the sink. */
   nativeSessionId: string | null;
+  selectionKey?: string;
   standingInstructions?: string;
   messagePreamble?: string | null;
   requiresMessageSnapshot?: boolean;

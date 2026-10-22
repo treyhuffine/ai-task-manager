@@ -17,6 +17,7 @@ import { localAppsEnabled } from '@/lib/config/features';
  * are the local runner's, re-exported.
  */
 
+import { assertServiceTier } from '@/lib/harness/service-tiers';
 import { withActivity, readMaintenance } from '@/lib/service/maintenance';
 import { existsSync } from 'node:fs';
 import { uuidv7 } from 'uuidv7';
@@ -60,6 +61,7 @@ import {
   isHarnessSessionAlive,
   persistStreamEvent as runnerPersistStreamEvent,
   recycleHarnessSessions as runnerRecycleHarnessSessions,
+  recycleForModeChange as localRecycleForModeChange,
   recycleWhenIdle,
 } from '@/lib/runner/local-runner';
 import type { EventWriter, SendRequest } from '@/lib/runner/types';
@@ -159,7 +161,6 @@ export {
   beginDispatchPreparation,
   endDispatchPreparation,
   recycleWhenIdle,
-  recycleForModeChange,
   closeIdleSessions,
   _beginActiveDispatch,
   _endActiveDispatch,
@@ -497,14 +498,19 @@ async function dispatchTo(
   }
   const selection = explicitHarnessSelection(
     providerId,
-    { model: session.model, variant: session.modelVariant, effort: session.effort },
+    { model: session.model, variant: session.modelVariant, effort: session.effort, serviceTier: session.serviceTier },
     catalog,
   );
+  const selectedModel = catalog.find(model => model.id === selection.model);
+  try { assertServiceTier(selectedModel, session.serviceTier); }
+  catch (error) { throw new ExecutorError('unsupported', error instanceof Error ? error.message : String(error)); }
+  selection.serviceTier = session.serviceTier ?? null;
   if (session.surfaceKind === 'result_review' && session.surfaceRef) {
     const assigned = getWorkResultAiReview(session.surfaceRef, session.userId);
     if (!assigned || assigned.reviewerSessionId !== session.id || assigned.selection.harness !== selection.providerId
       || assigned.selection.model !== selection.model || assigned.selection.variant !== selection.variant
-      || assigned.selection.effort !== selection.effort) {
+      || assigned.selection.effort !== selection.effort
+      || (assigned.selection.serviceTier ?? null) !== (selection.serviceTier ?? null)) {
       throw new ExecutorError('unsupported', 'The saved reviewer selection is no longer available. Start a deliberate new review with an available selection.');
     }
   }
@@ -518,11 +524,13 @@ async function dispatchTo(
     selection.model !== session.model
     || selection.variant !== session.modelVariant
     || selection.effort !== session.effort
+    || selection.serviceTier !== (session.serviceTier ?? null)
   ) {
     updateChatSession(session.id, {
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
+      serviceTier: selection.serviceTier,
     });
   }
   // Sending never changes the home's default harness, model or effort: that's
@@ -563,6 +571,9 @@ async function dispatchTo(
         ? cantRunAgentThere(session.workspaceId, getDevice(remote.deviceId)?.name ?? 'That device')
         : (caps.sessionsReason ?? `${selection.providerId} sessions are unavailable`),
     );
+  }
+  if (selection.serviceTier && !caps.serviceTiers) {
+    throw new ExecutorError('unsupported', 'Speed selection is unavailable on this device. Update its worker or choose another model.');
   }
   if (session.surfaceKind === 'result_review' && (!caps.planMode
     || (selection.effort && !caps.reasoningEffort) || (selection.variant && !caps.modelVariants))) {
@@ -645,6 +656,7 @@ async function deliver(
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
+      serviceTier: selection.serviceTier,
       },
       remote ?? undefined,
     )),
@@ -832,6 +844,17 @@ export async function close(
   actor?: WorkerCommandActor,
 ): Promise<{ closed: boolean; error?: string; queued?: boolean }> {
   return runnerFor(chatSessionId).stop(chatSessionId, actor);
+}
+
+/** Retire the handle where it actually lives. A remote recycle waits for
+ * earlier turns, then lets later sends resume with their saved selection. */
+export async function recycleForModeChange(chatSessionId: string): Promise<void> {
+  const placement = chatPlacement(chatSessionId);
+  if (placement && !placement.isHome) {
+    await runnerFor(chatSessionId).recycle(chatSessionId);
+    return;
+  }
+  await localRecycleForModeChange(chatSessionId);
 }
 
 /**

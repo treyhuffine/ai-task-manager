@@ -16,6 +16,7 @@ export interface HarnessCapabilities {
   upstreamProviderDisconnect: boolean;
   modelVariants: boolean;
   reasoningEffort: boolean;
+  serviceTiers: boolean;
   permissionRequests: boolean;
   questionRequests: boolean;
   planMode: boolean;
@@ -81,6 +82,7 @@ const base = {
   upstreamProviderDisconnect: false,
   modelVariants: false,
   reasoningEffort: false,
+  serviceTiers: false,
   permissionRequests: false,
   questionRequests: false,
   planMode: false,
@@ -116,6 +118,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
       ...base,
       durableCatchUp: true,
       reasoningEffort: true,
+      serviceTiers: true,
       permissionRequests: true,
       questionRequests: true,
       planMode: true,
@@ -145,6 +148,7 @@ export const HARNESS_REGISTRY: Record<HarnessId, HarnessDefinition> = {
       ...base,
       durableCatchUp: true,
       reasoningEffort: true,
+      serviceTiers: true,
       permissionRequests: true,
       questionRequests: true,
       planMode: true,

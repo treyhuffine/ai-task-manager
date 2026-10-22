@@ -43,6 +43,7 @@ export interface HeartbeatConfig {
   model: string | null;
   /** Null means the model's default effort. */
   effort: EffortLevel | null;
+  serviceTier?: string | null;
   /** Notification channel ids that also receive each report. */
   deliverResultTo: string[];
   /** The next check-in that will actually run (inside the active hours), or null when off. */
@@ -67,5 +68,6 @@ export interface HeartbeatPatch {
   harness?: HarnessId;
   model?: string | null;
   effort?: EffortLevel | null;
+  serviceTier?: string | null;
   deliverResultTo?: string[];
 }

@@ -100,6 +100,26 @@ export class CommandJournal {
       if (!current || entry.command.seq > current.command.seq) newestByChat.set(chat, entry);
     }
     for (const entry of newestByChat.values()) keep.add(entry);
+    // A recycle remembers the native identity that earlier offline work
+    // acquired. Later already-queued specs may still name NULL (or an older
+    // identity), including after the worker restarts.
+    const newestRecycle = new Map<string, JournaledCommand>();
+    const newestNative = new Map<string, JournaledCommand>();
+    for (const entry of this.entries.values()) {
+      const { command } = entry;
+      const chat = command.target.chatSessionId;
+      if (!chat) continue;
+      if (command.kind === 'recycle') {
+        const current = newestRecycle.get(chat);
+        if (!current || command.seq > current.command.seq) newestRecycle.set(chat, entry);
+      }
+      if (typeof entry.notes.nativeSessionId === 'string') {
+        const current = newestNative.get(chat);
+        if (!current || command.seq > current.command.seq) newestNative.set(chat, entry);
+      }
+    }
+    for (const entry of newestRecycle.values()) keep.add(entry);
+    for (const entry of newestNative.values()) keep.add(entry);
     const open = new Set(this.openTurns().map((t) => t.commandId));
     for (const entry of this.entries.values()) if (open.has(entry.command.id)) keep.add(entry);
     const lines: string[] = [];
@@ -157,6 +177,31 @@ export class CommandJournal {
 
   get(commandId: string): JournaledCommand | null {
     return this.entries.get(commandId) ?? null;
+  }
+
+  /** The preceding recycle for this chat at this placement, never another device's generation. */
+  recycleBefore(command: WorkerCommand): JournaledCommand | null {
+    let newest: JournaledCommand | null = null;
+    for (const entry of this.entries.values()) {
+      const candidate = entry.command;
+      if (candidate.kind !== 'recycle' || candidate.seq >= command.seq
+        || candidate.target.chatSessionId !== command.target.chatSessionId
+        || candidate.target.generation !== command.target.generation) continue;
+      if (!newest || candidate.seq > newest.command.seq) newest = entry;
+    }
+    return newest;
+  }
+
+  /** Latest identity actually used here, including this send's recovery note. */
+  nativeSessionFor(command: WorkerCommand): string | null {
+    let newest: JournaledCommand | null = null;
+    for (const entry of this.entries.values()) {
+      const candidate = entry.command;
+      if (candidate.seq > command.seq || candidate.target.chatSessionId !== command.target.chatSessionId
+        || candidate.target.generation !== command.target.generation || typeof entry.notes.nativeSessionId !== 'string') continue;
+      if (!newest || candidate.seq > newest.command.seq) newest = entry;
+    }
+    return newest ? newest.notes.nativeSessionId as string : null;
   }
 
   /** Journal a command's receipt. Returns false when it was already received: never apply it twice. */

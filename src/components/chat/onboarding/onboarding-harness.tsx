@@ -30,7 +30,7 @@ export function useApplyHarness() {
   const qc = useQueryClient();
   const { data: mainChat } = useMainChat(null);
   const progress = useOnboardingProgress();
-  return async (input: { harness: HarnessId; model?: string; variant?: string | null; effort?: EffortLevel | null }) => {
+  return async (input: { harness: HarnessId; model?: string; variant?: string | null; effort?: EffortLevel | null; serviceTier?: string | null }) => {
     const saved = await saveHarnessSetup(input);
     // What reads the default (the model line, the model menus) catches up,
     // as it does after "Make default" (`useSetDefaultSelection`).
@@ -42,13 +42,15 @@ export function useApplyHarness() {
       session?.harness !== saved.harness ||
       session.model !== saved.model ||
       (session.modelVariant ?? null) !== saved.variant ||
-      (session.effort ?? null) !== saved.effort
+      (session.effort ?? null) !== saved.effort ||
+      (session.serviceTier ?? null) !== (saved.serviceTier ?? null)
     ) {
       const fresh = await createMainChat(null, {
         providerId: saved.harness,
         model: saved.model,
         variant: saved.variant ?? undefined,
         effort: saved.effort ?? undefined,
+        serviceTier: saved.serviceTier ?? undefined,
       });
       // The conversation goes to the new chat before it's shown, so its
       // answers are there when the chat opens (even after a reload).

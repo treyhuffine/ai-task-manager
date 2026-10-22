@@ -58,7 +58,7 @@ import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { withAppSessionInstructions } from '@/lib/executor/prompts/standing-instructions';
 import { ExecutorError } from './errors';
 import { withFirstTurnPreamble } from './first-turn';
-import { runnerState, isRunning, hasBackgroundTasks } from './live-state';
+import { runnerState, isRunning, hasBackgroundTasks, sessionSelectionKey } from './live-state';
 import { parseStreamEvent } from './parse';
 import {
   answerRefusal,
@@ -649,6 +649,13 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
   // Canonical id straight through. agentex owns the per-provider vocabulary
   // and translates at the flag boundary.
   if (spec.effort && runtime.capabilities.reasoningEffort.supported) config.effort = spec.effort;
+  if (spec.serviceTier) {
+    if (!runtime.capabilities.serviceTiers?.supported) {
+      throw new ExecutorError('unsupported', 'Speed selection is unavailable for this harness on this device. Update it or choose another model.');
+    }
+    // Agentex validates this exact model, CLI, account routing and config before inference.
+    config.serviceTier = spec.serviceTier;
+  }
   if (spec.strictMcpConfig) config.strictMcpConfig = true;
   if (spec.mcpServers.length > 0) config.mcpServers = spec.mcpServers;
   const disallowedTools = [...spec.disallowedTools];
@@ -787,6 +794,7 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
     permissionMode: spec.permissionMode,
     prePlanMode: spec.prePlanMode,
     nativeSessionId: spec.nativeSessionId,
+    selectionKey: sessionSelectionKey(spec),
     standingInstructions: spec.standingInstructions,
     messagePreamble,
     requiresMessageSnapshot: spec.harness === 'antigravity' && !!spec.nativeSessionId,
@@ -1153,6 +1161,7 @@ export const localRunner: ExecutionRunner = {
     await setRunnerTitle(chatSessionId, liveHandle(chatSessionId), title, revision);
   },
   send,
+  recycle: recycleWhenIdle,
   interrupt: abort,
   stopTask,
   stop: close,

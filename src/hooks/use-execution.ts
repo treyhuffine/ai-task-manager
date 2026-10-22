@@ -544,7 +544,7 @@ export function useNewExecutionChat(id: string) {
       providerId?: HarnessId;
       model?: string;
       variant?: string;
-      effort?: EffortLevel;
+      effort?: EffortLevel; serviceTier?: string;
     } | void) =>
       sessionsApi.newChat(id, opts ?? undefined),
     onError: (error) => toast.error('Could not start a new chat', { description: apiErrorText(error) }),
@@ -1008,6 +1008,7 @@ export function useUpdateSession() {
       model?: string;
       modelVariant?: string | null;
       effort?: EffortLevel | null;
+      serviceTier?: string | null;
       prNumber?: number | null;
     }) => sessionsApi.update(id, input),
     onSuccess: (data) => {

@@ -141,6 +141,13 @@
       "when": 1792517439336,
       "tag": "0019_groovy_may_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1792688985076,
+      "tag": "0020_aspiring_rocket_raccoon",
+      "breakpoints": true
     }
   ]
 }

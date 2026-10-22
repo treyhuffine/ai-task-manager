@@ -162,6 +162,7 @@ export function parseStreamEvent(
     // not shown yet. Neither belongs in the transcript, where each would be an
     // `unknown` row per turn.
     case 'rate_limits':
+    case 'service_tier':
     case 'context_usage':
     case 'context_usage_invalidated':
       return null;

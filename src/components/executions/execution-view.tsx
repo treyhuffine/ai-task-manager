@@ -161,7 +161,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     providerId?: HarnessId;
     model?: string;
     variant?: string;
-    effort?: EffortLevel;
+    effort?: EffortLevel; serviceTier?: string;
   }, draft?: EditorSnapshot | null) => {
     newExecutionChat
       .mutateAsync(opts ?? undefined)
@@ -709,6 +709,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
             model={session.model}
             modelVariant={session.modelVariant}
             effort={session.effort}
+          serviceTier={session.serviceTier}
             harness={session.harness}
             leadingActions={<AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />}
             disabled={composerDisabled}
@@ -720,6 +721,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
               model: next.model,
               variant: next.variant,
               effort: next.effort,
+              serviceTier: next.serviceTier,
             }, draft)}
             switchingProvider={newExecutionChat.isPending}
             onSend={async (content, opts) => {

@@ -16,6 +16,7 @@ import { assertHarnessEnabled, HARNESS_REGISTRY } from '@/lib/harness/registry';
 import { getAppRoot } from '@/lib/config/paths';
 import { CHEAP_MODEL_CANDIDATES } from '@/lib/executor/harness';
 import type { ProviderRuntimeContext, UpstreamProvider } from '@agentex/agent';
+import { assertServiceTier, serviceTierForModel } from './service-tiers';
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const FAILURE_TTL_MS = 30 * 1000;
@@ -139,6 +140,8 @@ function providerModelOption(
     ...(model.variants ? { variants: model.variants } : {}),
     ...(supportedEfforts.length > 0 ? { supportedEfforts } : {}),
     ...(defaultEffort ? { defaultEffort } : {}),
+    ...(model.serviceTiers ? { serviceTiers: model.serviceTiers } : {}),
+    ...(model.defaultServiceTier ? { defaultServiceTier: model.defaultServiceTier } : {}),
     ...(model.contextWindow !== undefined ? { contextWindow: model.contextWindow } : {}),
     ...(model.maxOutputTokens !== undefined ? { maxOutputTokens: model.maxOutputTokens } : {}),
     ...(model.inputCostPerMillion !== undefined ? { inputCostPerMillion: model.inputCostPerMillion } : {}),
@@ -316,6 +319,7 @@ export async function resolveHarnessSelection(
     model?: string | null;
     variant?: string | null;
     effort?: EffortLevel | null;
+    serviceTier?: string | null;
   } = {},
   options: { cwd?: string; refresh?: boolean; repairInvalidModel?: boolean } = {},
 ): Promise<ExplicitHarnessSelection> {
@@ -342,6 +346,9 @@ export async function resolveHarnessSelection(
   if (preferred.variant && selection.variant !== preferred.variant) {
     throw new Error(`Variant ${preferred.variant} is unavailable for model ${selection.model}`);
   }
+  const selectedModel = catalog.find(model => model.id === selection.model);
+  assertServiceTier(selectedModel, preferred.serviceTier);
+  selection.serviceTier = serviceTierForModel(selectedModel, preferred.serviceTier);
   return selection;
 }
 

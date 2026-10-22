@@ -8,6 +8,7 @@ import { useDefaultSelection, useSetDefaultSelection } from '@/hooks/use-default
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { effortOptionsForModel, findProvider } from '@/lib/harness/options';
 import { DEFAULT_HARNESS } from '@/lib/harness/registry';
+import { serviceTierLabel } from '@/lib/harness/service-tiers';
 
 /**
  * The global default model, first in Settings, Models: the harness, model and
@@ -29,6 +30,7 @@ export function DefaultModelSection() {
         option?.label ?? saved.model,
         option?.variants?.find((v) => v.id === saved.variant)?.name,
         effortOptionsForModel(saved.harness, option).find((o) => o.id === saved.effort)?.label,
+        saved.serviceTier ? serviceTierLabel(saved.serviceTier) : null,
       ].filter(Boolean).join(' · ')
     : `Not chosen yet. New work starts on ${findProvider(DEFAULT_HARNESS)?.name ?? DEFAULT_HARNESS}.`;
 
@@ -52,7 +54,7 @@ export function DefaultModelSection() {
         {open && (
           <div className="border-t border-border pt-3">
             <DefaultSelectionEditor
-              current={saved?.model ? { harness: saved.harness, model: saved.model, variant: saved.variant, effort: saved.effort } : null}
+              current={saved?.model ? { harness: saved.harness, model: saved.model, variant: saved.variant, effort: saved.effort, serviceTier: saved.serviceTier } : null}
               onSave={(selection) => setDefault.mutateAsync(selection)}
               onClose={() => setOpen(false)}
               note="Chats already started keep their model."

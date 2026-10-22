@@ -36,6 +36,7 @@ function record(overrides: Partial<UserStateRecord> = {}): UserStateRecord {
     defaultModel: null,
     defaultVariant: null,
     defaultEffort: null,
+    defaultServiceTier: null,
     orchestratorMode: null,
     monthlyBudgetUsd: null,
     streamAutonomy: null,

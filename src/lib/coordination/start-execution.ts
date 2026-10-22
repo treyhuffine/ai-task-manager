@@ -51,6 +51,7 @@ export async function startDelegatedExecution(requestId: string, prompt: string)
             ...(input.provider ? { harness: input.provider } : {}),
             ...(input.model ? { model: input.model } : {}),
             ...(input.effort ? { effort: input.effort } : {}),
+            ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
             ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
             ...(input.taskId ? { taskId: input.taskId } : {}),
             ...(input.deviceId ? { deviceId: input.deviceId } : {}),

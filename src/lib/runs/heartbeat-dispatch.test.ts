@@ -86,7 +86,7 @@ async function fireHeartbeat() {
   const { ensureHeartbeatTrigger } = await import('@/lib/heartbeat/trigger');
   const { dispatchRun } = await import('./dispatch');
   const queries = await import('@/lib/db/queries');
-  const trigger = ensureHeartbeatTrigger()!;
+  const trigger = (await ensureHeartbeatTrigger())!;
   const { run, chatSession } = await dispatchRun({ trigger: queries.getTrigger(trigger.id)!, triggerKind: 'manual' });
   for (let i = 0; i < 200; i++) {
     const current = queries.getRun(run.id)!;
@@ -118,7 +118,7 @@ describe('heartbeat dispatch', () => {
     expect(run).toMatchObject({ status: 'completed', statusReason: 'heartbeat_quiet', summary: 'Nothing needed' });
     expect(chat.status).toBe('archived');
     expect(queries.listNeedsReviewSessionCandidates().map((s) => s.id)).not.toContain(chat.id);
-    expect(getHeartbeatConfig().lastCheckIn).toMatchObject({ quiet: true, unread: false });
+    expect((await getHeartbeatConfig()).lastCheckIn).toMatchObject({ quiet: true, unread: false });
   });
 
   it('a report stays in Unread', async () => {
@@ -154,7 +154,7 @@ describe('heartbeat dispatch', () => {
   it('delivers reports to bound channels but never delivers a quiet check-in', async () => {
     const queries = await import('@/lib/db/queries');
     const { ensureHeartbeatTrigger } = await import('@/lib/heartbeat/trigger');
-    const trigger = ensureHeartbeatTrigger()!;
+    const trigger = (await ensureHeartbeatTrigger())!;
     queries.updateTrigger(trigger.id, { deliverResultTo: ['channel-1'] });
 
     await fireHeartbeat();

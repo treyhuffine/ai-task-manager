@@ -114,6 +114,7 @@ export function HarnessChat({
         model: next.model,
         variant: next.variant,
         effort: next.effort,
+        serviceTier: next.serviceTier,
       })}
       switchingProvider={newChat.isPending}
     />
@@ -156,7 +157,7 @@ export function HarnessChatSession({
     harness: HarnessId;
     model: string;
     variant?: string;
-    effort?: EffortLevel;
+    effort?: EffortLevel; serviceTier?: string;
   }) => void;
   switchingProvider?: boolean;
 }) {
@@ -260,6 +261,7 @@ export function HarnessChatSession({
           model={session.model}
           modelVariant={session.modelVariant}
           effort={session.effort}
+          serviceTier={session.serviceTier}
           harness={session.harness}
           leadingActions={<AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />}
           submitOnEnter={!isMobile}

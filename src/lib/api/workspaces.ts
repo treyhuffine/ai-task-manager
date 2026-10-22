@@ -62,6 +62,7 @@ export const workspacesApi = {
       model?: string | null;
       modelVariant?: string | null;
       effort?: EffortLevel | null;
+      serviceTier?: string | null;
       /** "Start with agent": the task this workstream is associated with. Server
        *  records the association and atomically Starts the task (Consider/Todo -> In progress). */
       taskId?: string | null;
@@ -79,6 +80,7 @@ export const workspacesApi = {
       model: options.model ?? null,
       modelVariant: options.modelVariant ?? null,
       effort: options.effort ?? null,
+      serviceTier: options.serviceTier ?? null,
       taskId: options.taskId ?? null,
       deviceId: options.deviceId ?? undefined,
     }});

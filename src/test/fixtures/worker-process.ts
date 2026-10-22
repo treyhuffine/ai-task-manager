@@ -11,6 +11,7 @@
  * - one containing `SERVERS` replies with the MCP servers its session was
  *   given, as JSON;
  * - one containing `INSTRUCTIONS` replies with its session instructions;
+ * - one containing `SESSION_CONFIG` replies with its saved model/speed and native identity;
  * - one containing `SLOW` works for a second and a half, then replies
  *   `slow done`;
  * - anything else replies `ok: <message>`.
@@ -40,8 +41,10 @@ async function main(): Promise<void> {
     }
     if (turn.message.includes('SLOW')) {
       await new Promise((resolve) => setTimeout(resolve, 1_500));
-      await turn.say('slow done');
-      return;
+      if (!turn.message.includes('SESSION_CONFIG')) {
+        await turn.say('slow done');
+        return;
+      }
     }
     if (turn.message.includes('INSTRUCTIONS')) {
       const file = turn.session.ctx.config?.instructionsFile;
@@ -50,6 +53,15 @@ async function main(): Promise<void> {
     }
     if (turn.message.includes('SERVERS')) {
       await turn.say(JSON.stringify(turn.session.ctx.config?.mcpServers ?? []));
+      return;
+    }
+    if (turn.message.includes('SESSION_CONFIG')) {
+      await turn.say(JSON.stringify({
+        serviceTier: turn.session.ctx.config?.serviceTier ?? null,
+        model: turn.session.ctx.config?.model ?? null,
+        nativeSessionId: turn.session.sessionId,
+        sessionsStarted: fake.sessions.length,
+      }));
       return;
     }
     if (turn.message.includes('LONG')) {
@@ -85,6 +97,7 @@ async function main(): Promise<void> {
           permissionRequests: capability,
           questionRequests: capability,
           planMode: capability,
+          serviceTiers: capability,
         },
       },
     ],

@@ -19,14 +19,14 @@ import { Tip } from '@/components/ui/tip';
 export function MakeDefaultRow({
   current,
 }: {
-  current: { harness: ProviderId; model: string; variant?: string | null; effort?: EffortLevel | null };
+  current: { harness: ProviderId; model: string; variant?: string | null; serviceTier?: string | null; effort?: EffortLevel | null };
 }) {
   const saved = useDefaultSelection();
   const setDefault = useSetDefaultSelection();
   const { models: currentModels } = useHarnessModels(current.harness);
   const { models: defaultModels } = useHarnessModels(saved?.harness);
 
-  if (saved && saved.harness === current.harness && saved.model === current.model) return null;
+  if (saved && saved.harness === current.harness && saved.model === current.model && (saved.serviceTier ?? null) === (current.serviceTier ?? null)) return null;
 
   const currentLabel = currentModels.find((m) => m.id === current.model)?.label ?? current.model;
   const defaultModelLabel = saved?.model ? defaultModels.find((m) => m.id === saved.model)?.label ?? saved.model : null;
@@ -39,7 +39,7 @@ export function MakeDefaultRow({
 
   const make = () =>
     setDefault.mutate(
-      { harness: current.harness, model: current.model, variant: current.variant ?? null, effort: current.effort ?? null },
+      { harness: current.harness, model: current.model, variant: current.variant ?? null, effort: current.effort ?? null, serviceTier: current.serviceTier ?? null },
       {
         onSuccess: () => toast.success(`${currentLabel} is now your default`, { description: 'New chats start on it.' }),
         onError: (err) => toast.error('Couldn’t change the default', { description: apiErrorText(err) }),

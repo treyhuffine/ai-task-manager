@@ -6,25 +6,35 @@ const settings = { defaultModel: 'opus', defaultVariant: null, defaultEffort: 'm
 
 describe('coherent reviewer preference inheritance', () => {
   it('resolves normal defaults for absent agent association and null preferences', () => {
-    expect(preferredWorkResultReviewerSelection({}, null, normal, settings)).toEqual({ harness: 'claude', model: 'opus', variant: null, effort: 'high' });
-    expect(preferredWorkResultReviewerSelection({}, { harness: null, model: null, variant: null, effort: null }, normal, settings)).toEqual({ harness: 'claude', model: 'opus', variant: null, effort: 'high' });
+    expect(preferredWorkResultReviewerSelection({}, null, normal, settings)).toEqual({ serviceTier: null, harness: 'claude', model: 'opus', variant: null, effort: 'high' });
+    expect(preferredWorkResultReviewerSelection({}, { harness: null, model: null, variant: null, effort: null }, normal, settings)).toEqual({ serviceTier: null, harness: 'claude', model: 'opus', variant: null, effort: 'high' });
   });
 
   it('does not carry the global model or effort into another agent harness', () => {
     expect(preferredWorkResultReviewerSelection({}, { harness: 'codex' }, normal, { defaultModel: 'gpt-5.5', defaultVariant: null, defaultEffort: 'low' }))
-      .toEqual({ harness: 'codex', model: 'gpt-5.5', variant: null, effort: 'low' });
+      .toEqual({ serviceTier: null, harness: 'codex', model: 'gpt-5.5', variant: null, effort: 'low' });
   });
 
   it('keeps same-model agent choices and permits a per-request override without mutating input', () => {
     const agent = { harness: 'claude' as const, model: 'opus', effort: 'low' as const, variant: 'deep' };
     expect(preferredWorkResultReviewerSelection({ effort: 'medium' }, agent, normal, settings))
-      .toEqual({ harness: 'claude', model: 'opus', effort: 'medium', variant: 'deep' });
+      .toEqual({ serviceTier: null, harness: 'claude', model: 'opus', effort: 'medium', variant: 'deep' });
     expect(agent).toEqual({ harness: 'claude', model: 'opus', effort: 'low', variant: 'deep' });
   });
 
   it('drops model-specific settings when choosing a different model', () => {
     expect(preferredWorkResultReviewerSelection({ model: 'sonnet' }, { model: 'opus', effort: 'ultra', variant: 'deep' }, normal, settings))
-      .toEqual({ harness: 'claude', model: 'sonnet', effort: null, variant: null });
+      .toEqual({ serviceTier: null, harness: 'claude', model: 'sonnet', effort: null, variant: null });
+  });
+
+  it('inherits speed only from a matching harness and model, preferring the global tuple', () => {
+    const fastNormal = { ...normal, defaultServiceTier: 'fast' };
+    const normalHarness = { ...settings, defaultServiceTier: 'default' };
+    expect(preferredWorkResultReviewerSelection({}, null, fastNormal, normalHarness).serviceTier).toBe('fast');
+    expect(preferredWorkResultReviewerSelection({}, null, { ...fastNormal, defaultServiceTier: null }, { ...settings, defaultServiceTier: 'fast' }).serviceTier).toBeNull();
+    expect(preferredWorkResultReviewerSelection({ model: 'sonnet' }, null, fastNormal, normalHarness).serviceTier).toBeNull();
+    expect(preferredWorkResultReviewerSelection({ model: 'sonnet' }, null, fastNormal, { ...normalHarness, defaultModel: 'sonnet' }).serviceTier).toBe('default');
+    expect(preferredWorkResultReviewerSelection({ harness: 'codex' }, null, fastNormal, { ...settings, defaultModel: 'gpt-5.5', defaultServiceTier: 'priority' }).serviceTier).toBe('priority');
   });
 
   it('retains an unavailable saved choice rather than silently downgrading and permits explicit provider defaults', () => {

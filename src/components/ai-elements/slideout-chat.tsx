@@ -78,7 +78,7 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
   const newChat = useMutation({
     // Optional provider/model = the composer's "switch provider" → fresh chat
     // on the chosen provider. No args (void) = a plain new chat on the default.
-    mutationFn: (opts: { providerId?: ProviderId; model?: string; variant?: string; effort?: EffortLevel } | void) =>
+    mutationFn: (opts: { providerId?: ProviderId; model?: string; variant?: string; effort?: EffortLevel; serviceTier?: string } | void) =>
       trpcClient.documentChat.create.mutate({body: {
         entityType: documentType,
         entityId: entityId ?? '',
@@ -304,6 +304,7 @@ function ChatBody({
           model: next.model,
           variant: next.variant,
           effort: next.effort,
+          serviceTier: next.serviceTier,
         })}
         switchingProvider={chat.newChat.isPending}
       />

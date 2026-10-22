@@ -29,6 +29,7 @@ export function useSaveHarnessModels() {
       defaultModel: string | null;
       defaultVariant?: string | null;
       defaultEffort?: EffortLevel | null;
+      defaultServiceTier?: string | null;
     }) => trpcClient.harness.modelsEnabledPut.mutate({body: input}),
     onSuccess: (_data, input) => {
       void queryClient.invalidateQueries({ queryKey: ['agent-models', input.harness] });

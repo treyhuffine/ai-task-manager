@@ -39,9 +39,10 @@ interface ChatOverride {
   model?: string;
   variant?: string;
   effort?: EffortLevel;
+  serviceTier?: string;
 }
 
-function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: unknown; effort?: unknown }): ChatOverride {
+function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: unknown; effort?: unknown; serviceTier?: unknown }): ChatOverride {
   const out: ChatOverride = {};
   if (isKnownHarnessId(src.providerId)) out.providerId = src.providerId;
   if (typeof src.model === 'string' && src.model.trim()) out.model = src.model.trim();
@@ -49,6 +50,7 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
   if (typeof src.effort === 'string' && EFFORT_LEVELS.includes(src.effort as EffortLevel)) {
     out.effort = src.effort as EffortLevel;
   }
+  if (typeof src.serviceTier === 'string') out.serviceTier = src.serviceTier;
   return out;
 }
 
@@ -64,7 +66,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
     providerId?: unknown;
     model?: unknown;
     variant?: unknown;
-    effort?: unknown;
+    effort?: unknown; serviceTier?: unknown;
   });
 
   try {
@@ -92,6 +94,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
         model: override.model ?? current.model,
         variant: override.variant ?? current.modelVariant,
         effort: override.effort ?? current.effort,
+        serviceTier: override.serviceTier ?? (!override.model || override.model === current.model ? current.serviceTier : null),
       }, { cwd, repairInvalidModel: override.model === undefined });
 
     // The execution's title is what the header shows and must not depend on
@@ -110,6 +113,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
+      serviceTier: selection.serviceTier,
     });
     if (!session) return reply({ error: 'Execution not found' }, { status: 404 });
 
@@ -138,4 +142,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "providerId": rpcZ.enum(["cursor", "antigravity", "claude", "codex", "opencode"]).optional(), "model": rpcZ.string().optional(), "variant": rpcZ.string().optional(), "effort": rpcZ.enum(["low", "medium", "high", "xhigh", "max", "ultra"]).optional(), "forApp": rpcZ.boolean().optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "providerId": rpcZ.enum(["cursor", "antigravity", "claude", "codex", "opencode"]).optional(), "model": rpcZ.string().optional(), "variant": rpcZ.string().optional(), "serviceTier": rpcZ.string().trim().min(1).optional(), "effort": rpcZ.enum(["low", "medium", "high", "xhigh", "max", "ultra"]).optional(), "forApp": rpcZ.boolean().optional() }).strict().default({}) }).strict();

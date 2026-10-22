@@ -602,7 +602,7 @@ describe('a quiet heartbeat check-in', () => {
     const { RESERVED_TRIGGER_IDS } = await import('@/lib/triggers/reserved');
     const { _cacheHarnessSession, hasHarnessSession } = await import('./adapter');
     const { finishRun } = await import('@/lib/runs/finish');
-    ensureHeartbeatTrigger();
+    await ensureHeartbeatTrigger();
     const session = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active', permissionMode: 'auto_all' });
     q.insertChatEvent({ sessionId: session.id, role: 'assistant', source: 'agent', content: HEARTBEAT_QUIET_REPLY, createdAt: new Date().toISOString() });
     const run = q.createRun({

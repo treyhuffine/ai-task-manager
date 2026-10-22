@@ -178,7 +178,7 @@ Written before P2 code, as the review asked. It refines the P0.3 records below; 
 interface WorkerCommand {
   id: string;            // UUIDv7, stable: the idempotency key
   seq: number;           // per device, assigned when first streamed: where a stream resumes
-  kind: 'prepare' | 'send' | 'interrupt' | 'stop_task' | 'stop' | 'answer_pending_input'
+  kind: 'prepare' | 'send' | 'recycle' | 'interrupt' | 'stop_task' | 'stop' | 'answer_pending_input'
       | 'run_script' | 'write_setup' | 'git';
   target: { executionId?: string; chatSessionId?: string; generation?: number };
   actor: { source: 'human' | 'ai' | 'system'; sessionId?: string | null; apiKeyId?: string | null };
@@ -203,6 +203,8 @@ interface WorkerCommand {
   - attachments as `{ fileName, originalName, mimeType, size, sha256 }`, which the worker downloads through the worker attachment route (see Attachments and artifacts). A home disk path is never sent;
   - the `runId` the home created for the turn.
 - **Reads are not commands.** Tree, file, diff, status, diff stats, folder discovery and history listing go as `request` with a timeout and are never persisted.
+- **`recycle` waits for earlier work.** Acceptance of a `send` does not mean its turn finished. A selection change queues a recycle barrier that waits for earlier turns, background tasks and prompts before closing the handle. Later sends wait. During the idle wait, permission answers and controls may pass for that chat or a sibling chat with a live handle, active turn, background work or pending prompt. A quiesce that includes the waiting chat may also pass. Controls for a chat that has not started remain behind its initial send. An explicit close fails earlier unsent messages for the closed chat held behind the wait, preventing a new process from starting after that close. A later send with a different selection applies the same idle barrier, covering snapshots prepared before a settings change but queued after its recycle.
+- **The worker preserves native identity.** Recycles and accepted sends journal the native session id actually used. A later queued spec can predate that identity, so the worker resumes its latest recorded identity for the same chat and placement. These notes survive journal compaction. Close failures never permit a later send to reuse a handle with stale settings.
 
 ### Command receipt and recovery
 
@@ -218,6 +220,7 @@ Seeing a command on the stream is not receipt, and applying it is not acknowledg
 | --- | --- |
 | `send` | Look for the message in the native history: found is `delivered`, missing is `uncertain`. Never re-sent automatically |
 | `interrupt`, `stop_task`, `stop` | Safe to repeat. Re-apply if the placement is still this device's |
+| `recycle` | Safe to repeat after verifying placement. Wait for idle, preserve native identity, then close. Later sends remain ordered behind it |
 | `answer_pending_input` | Re-apply if the prompt with that request id is still pending, otherwise `stale` |
 | `prepare` | Journaled step by step, because only some steps can safely be repeated. Creating the worktree, checking out the branch at the checkpoint and copying files are idempotent: inspect and continue from the step that stopped. The setup script is not. It records its own `started` and `finished`, and `started` without `finished` is `uncertain`, as for `run_script`. Preparation stops there, and the home shows "Setup may not have finished" with Run again and Continue without it. It is never re-run automatically |
 | `write_setup` | Revision-checked: the file at the target revision means done, at the base revision means apply, anything else means conflict |
@@ -225,6 +228,7 @@ Seeing a command on the stream is not receipt, and applying it is not acknowledg
 | `git` | Push: done if the remote ref equals the local one, otherwise push again, which is safe. Base update: done if the base is already merged. Checkpoint commit: done if HEAD is the recorded commit |
 
 - **Recovery waits for the home.** A restarted worker recovers nothing until the home has opened its stream and a heartbeat has confirmed which placements are still its own. A placement the home releases is journaled and fences every older command for it (P2 review fixes).
+- **Recovery admits controls.** All interrupted commands enter their target queues before new stream commands. Recovery then runs alongside stream consumption, so a received send waiting for permission can receive an answer even if its later recycle has not finished. A worker stopping leaves unsent commands journaled for restart, rather than releasing a blocked send when shutdown makes the old session idle.
 - **A delivered send's turn is tracked until it ends.** The journal records when a turn's result is journaled. A turn still open when the worker restarts was cut off with the process, and is reported to the home as failed, never sent again.
 - **The home's own runner keeps the same states** in `worker_commands`, writing `started` before and `finished` after each effect outside the database. After a home restart the same recovery table applies, using the home's own native history and worktrees. The home's restart reaps only runs it ran itself: a connected device's runs end when its worker reports them.
 
@@ -454,10 +458,11 @@ P2.4 puts the protocol to work: an execution can be started on a connected devic
 
 ### On the worker
 
-`executionHandlers` carries out `send`, `interrupt`, `stop_task`, `stop`, `answer_pending_input`, `prepare` and `run_script` through the local runner. Each kind has its own recovery rule after a restart:
+`executionHandlers` carries out `send`, `recycle`, `interrupt`, `stop_task`, `stop`, `answer_pending_input`, `prepare` and `run_script` through the local runner. Each kind has its own recovery rule after a restart:
 
 - **send:** received but never started is sent. Started is looked up in Claude's transcript for the session: found is `delivered`, and missing or not checkable is `uncertain`.
 - **interrupt, stops:** repeated.
+- **recycle:** waits for idle and repeats, preserving the worker's known native identity.
 - **answer_pending_input:** stale once the prompt is gone.
 - **prepare:** resumes from its note.
 - **run_script:** uncertain.

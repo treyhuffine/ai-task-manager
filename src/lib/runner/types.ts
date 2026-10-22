@@ -41,6 +41,8 @@ export interface SessionSpec {
   model: string | null;
   modelVariant: string | null;
   effort: EffortLevel | null;
+  /** Optional for compatibility with a home running an older worker protocol. */
+  serviceTier?: ChatSessionRecord['serviceTier'];
   /** Provider config the home decided: servers, tool filters and flags. */
   mcpServers: McpServerConfig[];
   strictMcpConfig: boolean;
@@ -201,6 +203,8 @@ export interface ExecutionRunner {
   generateTitle?(chatSessionId: string, request: TitleRequest): Promise<void>;
   setTitle?(chatSessionId: string, title: string | null, revision: number): Promise<void>;
   send(req: SendRequest): Promise<SendResult>;
+  /** Retire an idle handle before later sends, preserving earlier work. */
+  recycle(chatSessionId: string): Promise<void>;
   interrupt(chatSessionId: string, actor?: WorkerCommandActor): Promise<void>;
   stopTask(chatSessionId: string, taskId: string, actor?: WorkerCommandActor): Promise<{ stopped: boolean; queued?: boolean }>;
   /** Close the harness and clear its live state. */

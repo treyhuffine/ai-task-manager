@@ -192,6 +192,7 @@ export interface SessionSpecInput {
   model: string | null;
   modelVariant: string | null;
   effort: EffortLevel | null;
+  serviceTier?: string | null;
 }
 
 /** Take the provider config fields a spec carries. These are the only ones the surfaces set. */
@@ -230,6 +231,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     model: args.model,
     modelVariant: args.modelVariant,
     effort: args.effort,
+    serviceTier: args.serviceTier ?? null,
     mcpServers: [],
     strictMcpConfig: false,
     disallowedTools: [],

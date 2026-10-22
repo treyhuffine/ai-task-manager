@@ -42,7 +42,7 @@ describe('ensureHeartbeatTrigger', () => {
   it('seeds the reserved row off, orchestrator-targeted, with the default instructions and bounded behavior', async () => {
     const { ensureHeartbeatTrigger } = await import('./trigger');
     const { DEFAULT_HEARTBEAT_INSTRUCTIONS } = await import('./constants');
-    const row = ensureHeartbeatTrigger()!;
+    const row = (await ensureHeartbeatTrigger())!;
     expect(row).toMatchObject({
       id: HEARTBEAT_ID,
       name: 'Heartbeat',
@@ -64,11 +64,11 @@ describe('ensureHeartbeatTrigger', () => {
   it('is idempotent and never turns a row back on', async () => {
     const { ensureHeartbeatTrigger, updateHeartbeat } = await import('./trigger');
     const queries = await import('@/lib/db/queries');
-    ensureHeartbeatTrigger();
-    updateHeartbeat({ enabled: true });
-    updateHeartbeat({ enabled: false });
-    ensureHeartbeatTrigger();
-    ensureHeartbeatTrigger();
+    await ensureHeartbeatTrigger();
+    await updateHeartbeat({ enabled: true });
+    await updateHeartbeat({ enabled: false });
+    await ensureHeartbeatTrigger();
+    await ensureHeartbeatTrigger();
     expect(queries.listTriggers({}).filter((t) => t.id === HEARTBEAT_ID)).toHaveLength(1);
     expect(queries.getTrigger(HEARTBEAT_ID)!.enabled).toBe(false);
   });
@@ -80,7 +80,7 @@ describe('ensureHeartbeatTrigger', () => {
       prompt: 'my own', kind: 'manual',
     });
     const { ensureHeartbeatTrigger } = await import('./trigger');
-    const row = ensureHeartbeatTrigger()!;
+    const row = (await ensureHeartbeatTrigger())!;
     expect(row.id).toBe(HEARTBEAT_ID);
     expect(row.name).toBe('Ri heartbeat');
     expect(queries.getTrigger(mine.id)).toMatchObject({ name: 'Heartbeat', prompt: 'my own' });
@@ -100,14 +100,14 @@ describe('scheduling inside the active hours', () => {
   it('turning on schedules one interval out, moved into the window', async () => {
     const { ensureHeartbeatTrigger, updateHeartbeat } = await import('./trigger');
     const queries = await import('@/lib/db/queries');
-    ensureHeartbeatTrigger();
+    await ensureHeartbeatTrigger();
     queries.updateTrigger(HEARTBEAT_ID, { timezone: 'UTC' });
 
-    updateHeartbeat({ enabled: true }, new Date('2026-09-22T14:00:00Z'));
+    await updateHeartbeat({ enabled: true }, new Date('2026-09-22T14:00:00Z'));
     expect(queries.getTrigger(HEARTBEAT_ID)!.nextRunAt).toBe('2026-09-22T15:00:00.000Z');
 
-    updateHeartbeat({ enabled: false });
-    updateHeartbeat({ enabled: true }, new Date('2026-09-22T20:30:00Z'));
+    await updateHeartbeat({ enabled: false });
+    await updateHeartbeat({ enabled: true }, new Date('2026-09-22T20:30:00Z'));
     // 21:30 is after hours, so the first check-in waits for 09:00.
     expect(queries.getTrigger(HEARTBEAT_ID)!.nextRunAt).toBe('2026-09-23T09:00:00.000Z');
   });
@@ -115,9 +115,9 @@ describe('scheduling inside the active hours', () => {
   it('a daily cadence turned on late at night anchors inside the window instead of never firing', async () => {
     const { ensureHeartbeatTrigger, updateHeartbeat } = await import('./trigger');
     const queries = await import('@/lib/db/queries');
-    ensureHeartbeatTrigger();
+    await ensureHeartbeatTrigger();
     queries.updateTrigger(HEARTBEAT_ID, { timezone: 'UTC' });
-    updateHeartbeat({ enabled: true, intervalSeconds: 86400 }, new Date('2026-09-22T22:30:00Z'));
+    await updateHeartbeat({ enabled: true, intervalSeconds: 86400 }, new Date('2026-09-22T22:30:00Z'));
     expect(queries.getTrigger(HEARTBEAT_ID)!.nextRunAt).toBe('2026-09-23T09:00:00.000Z');
   });
 
@@ -134,20 +134,20 @@ describe('scheduling inside the active hours', () => {
   it('retrying the same interval does not push the next check-in back', async () => {
     const { ensureHeartbeatTrigger, updateHeartbeat } = await import('./trigger');
     const queries = await import('@/lib/db/queries');
-    ensureHeartbeatTrigger();
+    await ensureHeartbeatTrigger();
     queries.updateTrigger(HEARTBEAT_ID, { timezone: 'UTC' });
-    updateHeartbeat({ enabled: true, intervalSeconds: 7200 }, new Date('2026-09-22T10:00:00Z'));
+    await updateHeartbeat({ enabled: true, intervalSeconds: 7200 }, new Date('2026-09-22T10:00:00Z'));
     const first = queries.getTrigger(HEARTBEAT_ID)!.nextRunAt;
-    updateHeartbeat({ enabled: true, intervalSeconds: 7200 }, new Date('2026-09-22T11:00:00Z'));
+    await updateHeartbeat({ enabled: true, intervalSeconds: 7200 }, new Date('2026-09-22T11:00:00Z'));
     expect(queries.getTrigger(HEARTBEAT_ID)!.nextRunAt).toBe(first);
   });
 
   it('turning on clears an app-set pause reason', async () => {
     const { ensureHeartbeatTrigger, updateHeartbeat } = await import('./trigger');
     const queries = await import('@/lib/db/queries');
-    ensureHeartbeatTrigger();
+    await ensureHeartbeatTrigger();
     queries.updateTrigger(HEARTBEAT_ID, { enabled: false, disabledReason: 'budget_exceeded' });
-    expect(updateHeartbeat({ enabled: true }).disabledReason).toBeNull();
+    expect((await updateHeartbeat({ enabled: true })).disabledReason).toBeNull();
   });
 
   it('nextCheckInAt skips slots the scheduler will drop for falling after hours', async () => {
@@ -164,7 +164,7 @@ describe('scheduling inside the active hours', () => {
 describe('getHeartbeatConfig', () => {
   it('seeds on first read and reports defaults', async () => {
     const { getHeartbeatConfig } = await import('./trigger');
-    const config = getHeartbeatConfig();
+    const config = await getHeartbeatConfig();
     expect(config).toMatchObject({
       triggerId: HEARTBEAT_ID,
       enabled: false,
@@ -180,7 +180,7 @@ describe('getHeartbeatConfig', () => {
   it('reports the latest real check-in (skips skipped slots), with quiet, unread, and change count', async () => {
     const { getHeartbeatConfig, ensureHeartbeatTrigger } = await import('./trigger');
     const queries = await import('@/lib/db/queries');
-    ensureHeartbeatTrigger();
+    await ensureHeartbeatTrigger();
     const chat = queries.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active' });
 
     queries.createRun({
@@ -196,7 +196,7 @@ describe('getHeartbeatConfig', () => {
       statusReason: 'trigger_busy', createdAt: '2026-09-22T11:00:00.000Z',
     });
 
-    const { lastCheckIn } = getHeartbeatConfig();
+    const { lastCheckIn } = await getHeartbeatConfig();
     expect(lastCheckIn).toMatchObject({
       status: 'completed', quiet: false, chatSessionId: chat.id, unread: true, changedCount: 2,
       at: '2026-09-22T10:00:00.000Z',
@@ -206,7 +206,7 @@ describe('getHeartbeatConfig', () => {
   it('marks a quiet check-in as quiet and not unread', async () => {
     const { getHeartbeatConfig, ensureHeartbeatTrigger } = await import('./trigger');
     const queries = await import('@/lib/db/queries');
-    ensureHeartbeatTrigger();
+    await ensureHeartbeatTrigger();
     const chat = queries.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active' });
     queries.bumpSessionOutcome(chat.id);
     queries.archiveChatSession(chat.id);
@@ -214,6 +214,6 @@ describe('getHeartbeatConfig', () => {
       triggerId: HEARTBEAT_ID, harness: 'claude', triggerKind: 'every', status: 'completed',
       statusReason: 'heartbeat_quiet', summary: 'Nothing needed', chatSessionId: chat.id,
     });
-    expect(getHeartbeatConfig().lastCheckIn).toMatchObject({ quiet: true, unread: false, changedCount: 0 });
+    expect((await getHeartbeatConfig()).lastCheckIn).toMatchObject({ quiet: true, unread: false, changedCount: 0 });
   });
 });

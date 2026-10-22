@@ -28,6 +28,7 @@ import {
 	type ModelOption,
 } from '@/lib/harness/options';
 import { cn } from '@/lib/utils';
+import { serviceTierForModel, serviceTierOptions } from '@/lib/harness/service-tiers';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Loader2, RefreshCw, Search, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
@@ -111,17 +112,20 @@ function HarnessPane({
   const [defaultModel, setDefaultModel] = useState<string | null>(harness.settings.defaultModel);
   const [defaultVariant, setDefaultVariant] = useState<string | null>(harness.settings.defaultVariant);
   const [defaultEffort, setDefaultEffort] = useState<EffortLevel | null>(harness.settings.defaultEffort);
+  const [defaultServiceTier, setDefaultServiceTier] = useState<string | null>(harness.settings.defaultServiceTier);
 
   const selectedDefault = catalog.models.find((model) => model.id === defaultModel) ?? null;
   const variants = selectedDefault?.variants?.filter((variant) => !variant.disabled) ?? [];
   const efforts = effortOptionsForModel(harness.id, selectedDefault);
+  const speeds = serviceTierOptions(selectedDefault);
   const dirty = useMemo(() => {
     const initial = catalog.data?.enabledModelIds ?? harness.settings.enabledModels;
     return [...initial].sort().join('\n') !== [...enabled].sort().join('\n')
       || defaultModel !== (catalog.data?.defaultModel ?? harness.settings.defaultModel)
       || defaultVariant !== (catalog.data?.defaultVariant ?? harness.settings.defaultVariant)
-      || defaultEffort !== (catalog.data?.defaultEffort ?? harness.settings.defaultEffort);
-  }, [catalog.data, defaultEffort, defaultModel, defaultVariant, enabled, harness.settings]);
+      || defaultEffort !== (catalog.data?.defaultEffort ?? harness.settings.defaultEffort)
+      || defaultServiceTier !== (catalog.data?.defaultServiceTier ?? harness.settings.defaultServiceTier);
+  }, [catalog.data, defaultEffort, defaultModel, defaultVariant, defaultServiceTier, enabled, harness.settings]);
 
   const persist = async () => {
     try {
@@ -131,6 +135,7 @@ function HarnessPane({
         defaultModel,
         defaultVariant,
         defaultEffort,
+        defaultServiceTier,
       });
       toast.success(`${harness.name} models saved`);
     } catch (error) {
@@ -258,6 +263,7 @@ function HarnessPane({
                 setDefaultModel(value);
                 const model = catalog.models.find((entry) => entry.id === value);
                 setDefaultVariant(model?.variants?.find((variant) => variant.isDefault)?.id ?? null);
+                setDefaultServiceTier(serviceTierForModel(model, defaultServiceTier));
               }}
             />
             {variants.length > 0 && (
@@ -278,6 +284,10 @@ function HarnessPane({
                 options={efforts.map((effort) => ({ id: effort.id, label: effort.label }))}
                 onValue={(value) => setDefaultEffort(value as EffortLevel)}
               />
+            )}
+            {(speeds.some(speed => speed.id !== 'default') || (defaultServiceTier && speeds.length > 0)) && (
+              <LabeledSelect label="Speed" value={defaultServiceTier ?? 'default'}
+                options={speeds} onValue={setDefaultServiceTier} />
             )}
           </div>
         </div>

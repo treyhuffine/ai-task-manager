@@ -137,6 +137,7 @@ export interface DispatchExecutionSessionArgs {
   model?: string | null;
   modelVariant?: string | null;
   effort?: EffortLevel | null;
+  serviceTier?: string | null;
   permissionMode?: PermissionMode;
   /** Override the workspace's default base branch. Used when the launcher
    *  has a `base` chip attached from a branch pick (e.g. `origin/feat-foo`).
@@ -236,6 +237,7 @@ export async function dispatchExecutionSession(
     model: args.model,
     variant: args.modelVariant,
     effort: args.effort,
+    serviceTier: args.serviceTier,
   }, { cwd: ws.cwd, repairInvalidModel: true });
   // The launcher supplies this so it can navigate before the create resolves;
   // everything else lets us mint one. Same value either way — it just decides
@@ -313,6 +315,7 @@ export async function dispatchExecutionSession(
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
+      serviceTier: selection.serviceTier,
       permissionMode: args.permissionMode,
       label,
       worktreePath: liveMode && !elsewhere ? ws.cwd : null,

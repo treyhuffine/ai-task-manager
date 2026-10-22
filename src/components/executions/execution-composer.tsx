@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ArrowUp, Mic, Square, Loader2, Cpu, Check, Zap, X } from 'lucide-react';
+import { ArrowUp, Mic, Square, Loader2, Check, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LiveWaveform } from '@/components/ui/live-waveform';
@@ -36,15 +36,14 @@ import {
   type Attachment,
 } from '@/db/types';
 import {
-  EFFORT_OPTIONS,
   explicitEffortForModel,
   explicitModelForProvider,
   explicitVariantForModel,
-  effortOptionsForModel,
   harnessSupportsEffort,
   type ProviderId,
 } from '@/lib/harness/options';
 import { writeProviderEffort } from '@/lib/executions/provider-effort';
+import { writeProviderSpeed } from '@/lib/executions/provider-speed';
 import { ComposerProviderMenu } from './composer-provider-menu';
 import {
   ChatInputEditor,
@@ -112,6 +111,7 @@ interface ExecutionComposerProps {
   modelVariant?: string | null;
   /** Per-session effort. Null is accepted only for legacy rows and repaired. */
   effort: EffortLevel | null;
+  serviceTier?: string | null;
   /** The session's harness: picks the model catalog and supported controls. */
   harness: HarnessId | null;
   /** Rendered after Attach, in the left cluster: something else to bring into the chat (an app). */
@@ -161,7 +161,7 @@ interface ExecutionComposerProps {
    * don't support switching provider (executions keep the model-only picker).
    */
   onSwitchProvider?: (
-    next: { harness: ProviderId; model: string; variant?: string; effort?: EffortLevel },
+    next: { harness: ProviderId; model: string; variant?: string; effort?: EffortLevel; serviceTier?: string },
     draft: EditorSnapshot | null,
   ) => void;
   /** A provider switch (new chat) is in flight. */
@@ -189,6 +189,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       model,
       modelVariant,
       effort,
+      serviceTier,
       harness,
       leadingActions,
       disabled,
@@ -211,8 +212,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const [stopping, setStopping] = useState(false);
     const [modeMenuOpen, setModeMenuOpen] = useState(false);
     const [modelMenuOpen, setModelMenuOpen] = useState(false);
-    const [effortMenuOpen, setEffortMenuOpen] = useState(false);
-    const [variantMenuOpen, setVariantMenuOpen] = useState(false);
     const [editorFocused, setEditorFocused] = useState(false);
     const editorRef = useRef<ChatInputEditorHandle | null>(null);
 
@@ -372,7 +371,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     );
     const explicitModel = pinnedModelOption.id;
     const displayModelLabel = pinnedModelOption.label;
-    const variants = pinnedModelOption.variants?.filter((variant) => !variant.disabled) ?? [];
     const explicitVariant = explicitVariantForModel(pinnedModelOption, modelVariant);
     const runtime = harnesses.data?.harnesses.find((entry) => entry.id === providerId)?.runtime;
     // Until the runtime probe answers, the registry maximum stands in: the
@@ -390,7 +388,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       [providerId, runtime?.capabilities.planMode.supported],
     );
     const showEffort = harness ? harnessSupportsEffort(harness) : false;
-    const effortOptions = effortOptionsForModel(harness, pinnedModelOption);
     const explicitEffort = explicitEffortForModel(
       providerId ?? DEFAULT_HARNESS,
       pinnedModelOption,
@@ -452,7 +449,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     };
 
     const setVariant = (variant: string) => {
-      setVariantMenuOpen(false);
+      setModelMenuOpen(false);
       if (isRunning) return;
       if (variant === explicitVariant) return;
       if (!canChangeVariant && onSwitchProvider && providerId) {
@@ -468,7 +465,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     };
 
     const setEffort = (level: EffortLevel) => {
-      setEffortMenuOpen(false);
+      setModelMenuOpen(false);
       if (isRunning) return;
       if (level === explicitEffort) return;
       // An explicit pick, so it's worth remembering for this provider — both
@@ -484,6 +481,14 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
         return;
       }
       updateSession.mutate({ id: sessionId, effort: level });
+    };
+
+    const setSpeed = (tier: string) => {
+      setModelMenuOpen(false);
+      if (isRunning || selectionControlsDisabled) return;
+      updateSession.mutate({ id: sessionId, serviceTier: tier }, {
+        onSuccess: () => { if (providerId) writeProviderSpeed(providerId, tier); },
+      });
     };
 
     const handleSend = useCallback(
@@ -771,64 +776,29 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
                   <div className="flex-1" />
 
-                  {/* ─── Right: model · effort · context ─────── */}
-                  {onSwitchProvider ? (
-                    <ComposerProviderMenu
-                      open={modelMenuOpen}
-                      onOpenChange={setModelMenuOpen}
-                      currentProvider={providerId ?? DEFAULT_HARNESS}
-                      model={explicitModel}
-                      fallbackLabel={displayModelLabel}
-                      onSelectModel={setModel}
-                      onSwitchProvider={(next) => {
-                        onSwitchProvider(next, editorRef.current?.snapshot() ?? null);
-                      }}
-                      canChangeModel={canChangeModel && !isRunning}
-                      switching={switchingProvider}
-                      disabled={updateSession.isPending}
-                      variant={modelVariant}
-                      effort={effort}
-                    />
-                  ) : (
-                    harnessModels.length > 0 && (
-                      <ModelPicker
-                        open={modelMenuOpen}
-                        onOpenChange={setModelMenuOpen}
-                        options={harnessModels}
-                        pinnedId={explicitModel}
-                        fallbackLabel={displayModelLabel}
-                        onSelect={setModel}
-                        disabled={selectionControlsDisabled}
-                      />
-                    )
-                  )}
-
-                  {variants.length > 0 && (
-                    <ModelPicker
-                      open={variantMenuOpen}
-                      onOpenChange={setVariantMenuOpen}
-                      options={variants.map((variant) => ({
-                        id: variant.id,
-                        label: variant.name,
-                        hint: variant.description,
-                      }))}
-                      pinnedId={explicitVariant ?? variants[0]!.id}
-                      fallbackLabel={variants.find((variant) => variant.id === explicitVariant)?.name ?? 'Default'}
-                      onSelect={setVariant}
-                      disabled={selectionControlsDisabled}
-                    />
-                  )}
-
-                  {showEffort && (
-                    <EffortPicker
-                      open={effortMenuOpen}
-                      onOpenChange={setEffortMenuOpen}
-                      current={explicitEffort}
-                      options={effortOptions}
-                      onSelect={setEffort}
-                      disabled={selectionControlsDisabled}
-                    />
-                  )}
+                  {/* Model, effort and variant share one searchable menu. */}
+                  <ComposerProviderMenu
+                    open={modelMenuOpen}
+                    onOpenChange={setModelMenuOpen}
+                    currentProvider={providerId ?? DEFAULT_HARNESS}
+                    model={explicitModel}
+                    fallbackLabel={displayModelLabel}
+                    onSelectModel={setModel}
+                    onSwitchProvider={onSwitchProvider ? (next) => {
+                      onSwitchProvider(next, editorRef.current?.snapshot() ?? null);
+                    } : undefined}
+                    currentProviderOnly={!onSwitchProvider}
+                    canChangeModel={canChangeModel && !isRunning}
+                    switching={switchingProvider}
+                    disabled={updateSession.isPending}
+                    selectionDisabled={selectionControlsDisabled}
+                    variant={explicitVariant}
+                    effort={showEffort ? explicitEffort : null}
+                    serviceTier={serviceTier}
+                    onSelectSpeed={setSpeed}
+                    onSelectEffort={setEffort}
+                    onSelectVariant={setVariant}
+                  />
 
                   {sessionMeta.contextUsedFraction != null && (
                     <ContextRing fraction={sessionMeta.contextUsedFraction} />
@@ -1036,153 +1006,6 @@ function ModePicker({ harness, open, onOpenChange, current, options, onSelect, d
                 <div className={cn('text-[12px] font-medium', mm.classes.text)}>{mm.title}</div>
                 <div className="text-[10.5px] text-muted-foreground/80 mt-0.5 leading-snug">
                   {descriptionFor(m)}
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-// ─── ModelPicker ───────────────────────────────────────────────
-
-interface ModelPickerProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  options: ReadonlyArray<{ id: string; label: string; hint?: string }>;
-  pinnedId: string;
-  fallbackLabel: string;
-  onSelect: (id: string) => void;
-  disabled?: boolean;
-}
-
-function ModelPicker({
-  open,
-  onOpenChange,
-  options,
-  pinnedId,
-  fallbackLabel,
-  onSelect,
-  disabled,
-}: ModelPickerProps) {
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <Tip label={`Model: ${pinnedId}`}>
-          <button
-            type="button"
-            disabled={disabled}
-            className={cn(
-              'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
-              'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
-              'disabled:opacity-50',
-            )}
-          >
-            <Cpu size={11} className="text-primary/70" />
-            <span>{fallbackLabel}</span>
-          </button>
-        </Tip>
-      </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={6} className="w-72 p-1">
-        <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
-          Model
-        </div>
-        {options.map((opt) => {
-          const active = opt.id === pinnedId;
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => onSelect(opt.id)}
-              className={cn(
-                'w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md text-left transition-colors',
-                active ? 'bg-primary/10' : 'hover:bg-muted/50',
-              )}
-            >
-              <div className="w-4 h-4 mt-0.5 flex items-center justify-center shrink-0">
-                {active && <Check size={12} className="text-primary" strokeWidth={3} />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-medium text-foreground">{opt.label}</div>
-                {opt.hint && (
-                  <div className="text-[10.5px] text-muted-foreground/80 mt-0.5 leading-snug">
-                    {opt.hint}
-                  </div>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-// ─── EffortPicker ──────────────────────────────────────────────
-
-interface EffortPickerProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  current: EffortLevel;
-  options: typeof EFFORT_OPTIONS;
-  onSelect: (level: EffortLevel) => void;
-  disabled?: boolean;
-}
-
-function EffortPicker({
-  open,
-  onOpenChange,
-  current,
-  options,
-  onSelect,
-  disabled,
-}: EffortPickerProps) {
-  const opt = options.find((option) => option.id === current)
-    ?? EFFORT_OPTIONS.find((option) => option.id === current);
-  const label = opt?.shortLabel ?? current;
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <Tip label={`Effort: ${label}`}>
-          <button
-            type="button"
-            disabled={disabled}
-            className={cn(
-              'inline-flex items-center gap-1.5 text-[11px] font-medium rounded-md px-2 py-1 border transition-colors',
-              'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
-              'disabled:opacity-50',
-            )}
-          >
-            <Zap size={10} className="text-amber-500" />
-            <span>{label}</span>
-          </button>
-        </Tip>
-      </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={6} className="w-64 p-1">
-        <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold">
-          Reasoning effort
-        </div>
-        {options.map((opt) => {
-          const active = opt.id === current;
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => onSelect(opt.id)}
-              className={cn(
-                'w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md text-left transition-colors',
-                active ? 'bg-primary/10' : 'hover:bg-muted/50',
-              )}
-            >
-              <div className="w-4 h-4 mt-0.5 flex items-center justify-center shrink-0">
-                {active && <Check size={12} className="text-primary" strokeWidth={3} />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-medium text-foreground">{opt.label}</div>
-                <div className="text-[10.5px] text-muted-foreground/80 mt-0.5 leading-snug">
-                  {opt.hint}
                 </div>
               </div>
             </button>

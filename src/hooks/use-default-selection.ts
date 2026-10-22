@@ -15,6 +15,7 @@ export function useDefaultSelection(): {
   model: string | null;
   variant: string | null;
   effort: EffortLevel | null;
+  serviceTier?: string | null;
 } | null {
   const { data } = useUserState();
   if (!data?.defaultHarness) return null;
@@ -22,6 +23,7 @@ export function useDefaultSelection(): {
     harness: data.defaultHarness as HarnessId,
     model: data.defaultModel ?? null,
     variant: data.defaultVariant ?? null,
+    serviceTier: data.defaultServiceTier ?? null,
     effort: (data.defaultEffort ?? null) as EffortLevel | null,
   };
 }

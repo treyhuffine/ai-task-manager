@@ -18,7 +18,7 @@ the current Home has installed or enabled.
 
 The examples cover email, questions, tool permissions, account approvals,
 account access, entity references, edit comparisons, attachments, HTML artifacts,
-handoffs, messages between chats, transcript activity, connected app results and app-kit components.
+handoffs, messages between chats, transcript activity, model controls, connected app results and app-kit components.
 
 ## Where the UI lives
 
@@ -39,6 +39,7 @@ Built-in interfaces share one home at `src/components/chat-ui/`:
 - Saved handoffs, feedback and review controls: `handoffs/`.
 - Transcript events, grouping and background task displays: `activity/`.
 - Message presentation and controls: `messages/`.
+- Combined model, effort, variant and speed controls: `model-menu/`.
 
 Both production surfaces and the gallery import those same modules directly.
 Component-specific presentation helpers and tests are colocated with them.

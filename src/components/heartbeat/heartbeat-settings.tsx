@@ -259,7 +259,7 @@ function HeartbeatSettingsBody({
           <div className="flex flex-wrap items-center gap-2">
             <span className="w-14 shrink-0 text-[12px] text-muted-foreground">Runs on</span>
             <RunsOnPicker
-              value={{ provider: config.provider, model: config.model, effort: config.effort }}
+              value={{ provider: config.provider, model: config.model, effort: config.effort, serviceTier: config.serviceTier }}
               onChange={(change) => save(change)}
               disabled={update.isPending}
             />

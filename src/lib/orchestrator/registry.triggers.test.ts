@@ -79,7 +79,7 @@ describe('orchestrator trigger + run actions', () => {
       prompt: trigger.prompt, enabled: false, model: trigger.model, effort: trigger.effort,
       activeHoursStart: '08:00', activeHoursEnd: '18:00' });
     expect(edited.nextRunAt).toBe(computeNextRun(edited));
-    expect(() => update.handler({ remote: false }, { id: trigger.id, cronExpression: 'broken' } as never)).toThrow(/Invalid cron/);
+    await expect(update.handler({ remote: false }, { id: trigger.id, cronExpression: 'broken' } as never)).rejects.toThrow(/Invalid cron/);
     expect(q.getTrigger(trigger.id)?.cronExpression).toBe('30 10 * * 1-5');
   });
 
@@ -104,13 +104,13 @@ describe('orchestrator trigger + run actions', () => {
     await seed();
     const create = await findAction('create_trigger');
     for (const extra of [{ runAt: 'bad-date' }, { runAt: '2030-01-01T09:00:00Z', timezone: 'Bad/Zone' }]) {
-      expect(() => create.handler({ remote: false }, { name: 'bad-date', targetKind: 'orchestrator', prompt: 'X', kind: 'at', ...extra } as never)).toThrow();
+      await expect(create.handler({ remote: false }, { name: 'bad-date', targetKind: 'orchestrator', prompt: 'X', kind: 'at', ...extra } as never)).rejects.toThrow();
     }
     const q = await import('@/lib/db/queries');
     const trigger = q.createTrigger({ name: 'valid-date', targetKind: 'orchestrator', harness: 'codex', prompt: 'X', kind: 'at', runAt: '2030-01-01T09:00:00Z' });
     const update = await findAction('update_trigger');
     for (const runAt of ['', 'bad-date']) {
-      expect(() => update.handler({ remote: false }, { id: trigger.id, runAt } as never)).toThrow(/valid date/);
+      await expect(update.handler({ remote: false }, { id: trigger.id, runAt } as never)).rejects.toThrow(/valid date/);
     }
     expect(q.getTrigger(trigger.id)?.runAt).toBe(trigger.runAt);
     const disarmed = await update.handler({ remote: false }, { id: trigger.id, runAt: null } as never) as TriggerRecord;
@@ -151,12 +151,11 @@ describe('orchestrator trigger + run actions', () => {
   it('create_trigger rejects an invalid cron expression', async () => {
     const { wsId } = await seed();
     const action = await findAction('create_trigger');
-    expect(() =>
-      action.handler({ remote: false }, {
+    await expect(action.handler({ remote: false }, {
         name: 'bad', workspaceId: wsId, targetKind: 'workspace',
         prompt: 'X', kind: 'cron', cronExpression: 'not-cron',
       } as never),
-    ).toThrow(/Invalid cron/);
+    ).rejects.toThrow(/Invalid cron/);
   });
 
   it('create_trigger + create_trigger (webhook) returns plaintext secret once', async () => {
@@ -269,21 +268,21 @@ describe('orchestrator trigger + run actions', () => {
     const { wsId } = await seed();
     const ch = await seedTelegramChannel();
     const action = await findAction('create_trigger');
-    expect(() => action.handler({ remote: false }, {
+    await expect(action.handler({ remote: false }, {
       name: 'ws-digest', targetKind: 'workspace', workspaceId: wsId,
       prompt: 'X', kind: 'at', runAt: new Date(Date.now() + 60_000).toISOString(),
       deliverResultTo: [ch.id],
-    } as never)).toThrow(/orchestrator/);
+    } as never)).rejects.toThrow(/orchestrator/);
   });
 
   it('create_trigger rejects an unknown digest channel id', async () => {
     await seed();
     const action = await findAction('create_trigger');
-    expect(() => action.handler({ remote: false }, {
+    await expect(action.handler({ remote: false }, {
       name: 'bad-digest', targetKind: 'orchestrator',
       prompt: 'X', kind: 'cron', cronExpression: '0 8 * * *',
       deliverResultTo: ['no-such-channel'],
-    } as never)).toThrow(/notification channel not found/);
+    } as never)).rejects.toThrow(/notification channel not found/);
   });
 
   it('update_trigger replaces the digest binding (and [] unbinds)', async () => {
@@ -345,12 +344,11 @@ describe('orchestrator trigger + run actions', () => {
     it('create_trigger rejects a model from another provider', async () => {
       await seed();
       const action = await findAction('create_trigger');
-      expect(() =>
-        action.handler({ remote: false }, {
+      await expect(action.handler({ remote: false }, {
           name: 'mismatch', targetKind: 'orchestrator', provider: 'codex',
           prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *', model: 'opus',
         } as never),
-      ).toThrow(/does not run on codex/);
+      ).rejects.toThrow(/does not run on codex/);
     });
 
     it('create_trigger accepts a model the user pinned by hand', async () => {
@@ -374,12 +372,11 @@ describe('orchestrator trigger + run actions', () => {
       const action = await findAction('create_trigger');
       // Silently dropping it would run the trigger on the default engine
       // rather than the one the caller meant to pin.
-      expect(() =>
-        action.handler({ remote: false }, {
+      await expect(action.handler({ remote: false }, {
           name: 'legacy', agentId: 'any-old-id', provider: 'codex', targetKind: 'orchestrator',
           prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
         } as never),
-      ).toThrow(/agentId was removed. Use provider/);
+      ).rejects.toThrow(/agentId was removed. Use provider/);
     });
 
     it('list_runs filters by harness and rejects the removed agentId filter', async () => {
@@ -423,11 +420,10 @@ describe('orchestrator trigger + run actions', () => {
       } as never) as { trigger: { id: string } };
       const update = await findAction('update_trigger');
 
-      expect(() =>
-        update.handler({ remote: false }, {
+      await expect(update.handler({ remote: false }, {
           id: created.trigger.id, provider: 'codex', model: 'sonnet',
         } as never),
-      ).toThrow(/does not run on codex/);
+      ).rejects.toThrow(/does not run on codex/);
 
       const switched = await update.handler({ remote: false }, {
         id: created.trigger.id, provider: 'codex', model: 'gpt-5.5', effort: 'low',
@@ -443,9 +439,8 @@ describe('orchestrator trigger + run actions', () => {
         prompt: 'X', kind: 'cron', cronExpression: '0 9 * * *',
       } as never) as { trigger: { id: string } };
       const update = await findAction('update_trigger');
-      expect(() =>
-        update.handler({ remote: false }, { id: created.trigger.id, model: 'opus' } as never),
-      ).toThrow(/does not run on codex/);
+      await expect(update.handler({ remote: false }, { id: created.trigger.id, model: 'opus' } as never),
+      ).rejects.toThrow(/does not run on codex/);
     });
 
     it('update_trigger lets an app-managed trigger switch provider but keeps its identity locked', async () => {
@@ -469,11 +464,10 @@ describe('orchestrator trigger + run actions', () => {
       } as never) as { provider: string; name: string };
       expect(switched).toMatchObject({ provider: 'codex', name: 'Morning deck refresh' });
 
-      expect(() =>
-        update.handler({ remote: false }, {
+      await expect(update.handler({ remote: false }, {
           id: RESERVED_TRIGGER_IDS.morningDeck, prompt: 'hijack',
         } as never),
-      ).toThrow(/managed by the app/);
+      ).rejects.toThrow(/managed by the app/);
     });
 
     it('list_triggers and get_trigger report each trigger\'s provider', async () => {

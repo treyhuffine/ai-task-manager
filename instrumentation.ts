@@ -349,7 +349,7 @@ export async function register() {
   // See src/lib/heartbeat/trigger.ts and docs/heartbeat-spec.md.
   try {
     const { ensureHeartbeatTrigger } = await import('@/lib/heartbeat/trigger');
-    ensureHeartbeatTrigger();
+    await ensureHeartbeatTrigger();
   } catch (err) {
     console.warn('[heartbeat] trigger seed failed', err);
   }

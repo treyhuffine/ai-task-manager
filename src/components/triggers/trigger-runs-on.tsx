@@ -22,6 +22,7 @@ export function TriggerRunsOn({ trigger }: { trigger: TriggerView }) {
         provider: pending?.provider ?? trigger.provider,
         model: pending?.model !== undefined ? pending.model : trigger.model,
         effort: pending?.effort !== undefined ? pending.effort : trigger.effort,
+        serviceTier: pending?.serviceTier !== undefined ? pending.serviceTier : trigger.serviceTier,
       }}
       onChange={(change) => update.mutate({ id: trigger.id, ...change })}
       disabled={update.isPending}

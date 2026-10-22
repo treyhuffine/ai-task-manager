@@ -90,7 +90,7 @@ describe('agent effort options', () => {
 
   it('resolves null values to an explicit model and effort', () => {
     expect(explicitHarnessSelection('claude')).toEqual({
-      providerId: 'claude',
+      serviceTier: null, providerId: 'claude',
       model: 'opus',
       variant: null,
       effort: 'medium',
@@ -173,7 +173,7 @@ describe('Antigravity selection', () => {
 
   it('keeps a supported effort and resolves an unsupported one to medium', () => {
     expect(explicitHarnessSelection('antigravity', { model: 'gemini-3.1-pro-high', effort: 'max' }, catalog))
-      .toEqual({ providerId: 'antigravity', model: 'gemini-3.1-pro-high', variant: null, effort: 'max' });
+      .toEqual({ serviceTier: null, providerId: 'antigravity', model: 'gemini-3.1-pro-high', variant: null, effort: 'max' });
     // `xhigh` and `ultra` belong to Claude and Codex. Carried over, they fall
     // back rather than reaching `agy` as a value it would reject.
     expect(explicitHarnessSelection('antigravity', { model: 'gemini-3.1-pro-high', effort: 'xhigh' }, catalog).effort)
@@ -191,7 +191,7 @@ describe('Antigravity selection', () => {
     expect(discoversModelsOnly('claude')).toBe(false);
     expect(discoversModelsOnly('codex')).toBe(false);
     expect(explicitHarnessSelection('antigravity', { model: 'gemini-3.8-flash-medium', effort: 'high' })).toEqual({
-      providerId: 'antigravity',
+      serviceTier: null, providerId: 'antigravity',
       model: 'gemini-3.8-flash-medium',
       variant: null,
       effort: 'high',
@@ -258,7 +258,7 @@ describe('pinned model ids', () => {
   it('resolves a pin like any other catalog model once merged in', () => {
     const catalog = [...MODEL_OPTIONS.claude, customModelOption('claude-opus-4-8')];
     expect(explicitHarnessSelection('claude', { model: 'claude-opus-4-8' }, catalog)).toEqual({
-      providerId: 'claude',
+      serviceTier: null, providerId: 'claude',
       model: 'claude-opus-4-8',
       variant: null,
       effort: 'medium',

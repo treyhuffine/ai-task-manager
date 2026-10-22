@@ -36,6 +36,7 @@ const cache = new Map<string, CachedRuntime>();
 
 const CAPABILITY_KEYS: Partial<Record<keyof HarnessCapabilities, keyof ProviderCapabilities>> = {
   sessions: 'sessions',
+  serviceTiers: 'serviceTiers',
   resume: 'resume',
   durableCatchUp: 'durableHistory',
   modelDiscovery: 'modelDiscovery',

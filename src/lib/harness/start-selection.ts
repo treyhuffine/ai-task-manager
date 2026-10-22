@@ -10,6 +10,7 @@ export interface StartOverride {
   model?: string | null;
   variant?: string | null;
   effort?: EffortLevel | null;
+  serviceTier?: string | null;
 }
 
 /**
@@ -35,14 +36,15 @@ export async function resolveStartSelection(
   const harness = ensureHarnessSettings(providerId);
   const global = !override.providerId && home?.defaultHarness === providerId && home.defaultModel ? home : null;
   const fallback = global
-    ? { model: global.defaultModel, variant: global.defaultVariant ?? null, effort: global.defaultEffort ?? null }
-    : { model: harness.defaultModel, variant: harness.defaultVariant, effort: harness.defaultEffort };
+    ? { model: global.defaultModel, variant: global.defaultVariant ?? null, effort: global.defaultEffort ?? null, serviceTier: global.defaultServiceTier ?? null }
+    : { model: harness.defaultModel, variant: harness.defaultVariant, effort: harness.defaultEffort, serviceTier: harness.defaultServiceTier };
   const model = override.model ?? fallback.model;
   return resolveHarnessSelection(providerId, {
     model,
     // A variant belongs to its model, so a default's variant only rides along with that model.
     variant: override.variant ?? (model === fallback.model ? fallback.variant : null),
     effort: override.effort ?? fallback.effort,
+    serviceTier: override.serviceTier ?? (model === fallback.model ? fallback.serviceTier : null),
   }, {
     cwd: options.cwd,
     repairInvalidModel: options.repairInvalidModel ?? override.model == null,

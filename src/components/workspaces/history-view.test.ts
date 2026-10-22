@@ -11,6 +11,7 @@ function s(id: string, iso: string): RailSession {
     createdAt: iso,
     updatedAt: iso,
     userId: 'local',
+    serviceTier: null,
     harness: 'claude',
     type: 'execution',
     surfaceKind: null,

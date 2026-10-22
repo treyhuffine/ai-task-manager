@@ -23,6 +23,7 @@ export interface HarnessCapabilities {
   planMode: boolean;
   modelVariants: boolean;
   reasoningEffort: boolean;
+  serviceTiers: boolean;
 }
 
 export async function harnessCapabilitiesOn(
@@ -41,6 +42,7 @@ export async function harnessCapabilitiesOn(
       planMode: c.planMode.supported,
       modelVariants: c.modelVariants.supported,
       reasoningEffort: c.reasoningEffort.supported,
+      serviceTiers: c.serviceTiers?.supported === true,
     };
   }
   const device = getDevice(placement.deviceId);
@@ -61,6 +63,7 @@ export async function harnessCapabilitiesOn(
       planMode: false,
       modelVariants: false,
       reasoningEffort: false,
+      serviceTiers: false,
     };
   }
   return {
@@ -71,6 +74,7 @@ export async function harnessCapabilitiesOn(
     planMode: supported('planMode'),
     modelVariants: supported('modelVariants'),
     reasoningEffort: supported('reasoningEffort'),
+    serviceTiers: supported('serviceTiers'),
   };
 }
 

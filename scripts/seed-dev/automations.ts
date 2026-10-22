@@ -211,7 +211,7 @@ export async function pauseReservedTriggers(): Promise<void> {
   const { RESERVED_TRIGGER_IDS } = await import('../../src/lib/triggers/reserved');
   const { updateTrigger } = await import('../../src/lib/db/queries');
   setMorningDeckConfig({ enabled: false, time: '05:00' });
-  ensureHeartbeatTrigger();
+  await ensureHeartbeatTrigger();
   ensureStreamTriageTriggers();
   for (const id of [RESERVED_TRIGGER_IDS.morningStreamSweep, RESERVED_TRIGGER_IDS.weeklyStreamDigest]) {
     updateTrigger(id, { enabled: false, nextRunAt: null });

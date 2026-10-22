@@ -85,7 +85,8 @@ export async function prepareAutomaticWorkResultReview(actor: WorkResultActor, s
       throw new ActionError('unsupported', 'The saved reviewer cannot safely inspect this work in a fresh read-only session.');
     }
     if ((selection.effort && !runtime.capabilities.reasoningEffort.supported)
-      || (selection.variant && !runtime.capabilities.modelVariants.supported)) {
+      || (selection.variant && !runtime.capabilities.modelVariants.supported)
+      || (selection.serviceTier && !runtime.capabilities.serviceTiers?.supported)) {
       throw new ActionError('unsupported', 'The saved reviewer settings are unavailable. Change this agent\'s review defaults before trying again.');
     }
     mcpSupported = !!runtime.capabilities.mcp?.supported;
@@ -95,7 +96,7 @@ export async function prepareAutomaticWorkResultReview(actor: WorkResultActor, s
     const harness = reviewerPreferenceHarness({}, workspace.reviewDefaults, normal);
     const preferred = preferredWorkResultReviewerSelection({}, workspace.reviewDefaults, normal, ensureHarnessSettings(harness));
     selection = { harness: preferred.harness, model: preferred.model,
-      variant: preferred.variant, effort: preferred.effort };
+      variant: preferred.variant, effort: preferred.effort, serviceTier: preferred.serviceTier };
   }
   return (detail) => {
     // Preference changes and gate changes during catalog discovery do not grant new work.

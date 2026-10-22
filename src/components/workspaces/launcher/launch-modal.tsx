@@ -41,6 +41,8 @@ import {
 	writeProviderEffort,
 } from '@/lib/executions/provider-effort';
 import { startExecution } from '@/lib/executions/start-execution';
+import { readProviderSpeed, writeProviderSpeed } from '@/lib/executions/provider-speed';
+import { serviceTierForModel } from '@/lib/harness/service-tiers';
 import {
 	defaultModelFor,
 	explicitEffortForModel,
@@ -73,7 +75,6 @@ import { uuidv7 } from 'uuidv7';
 import { LaunchBrowse } from './launch-browse';
 import {
 	BaseControl,
-	EffortControl,
 	LiveFreshnessControl,
 	LiveModeNotice,
 	ModeControl,
@@ -235,6 +236,7 @@ function LaunchModalInner({
             model: prefs.model,
             variant: null,
             effort: readProviderEffort(prefs.harness),
+            serviceTier: readProviderSpeed(prefs.harness),
           }
         : null,
     );
@@ -265,6 +267,8 @@ function LaunchModalInner({
     [models, selection.model],
   );
   const modelLabel = selectedModelOption?.label ?? selection.model;
+  const serviceTier = serviceTierForModel(selectedModelOption, harnessPick?.serviceTier
+    ?? (selection.harness === userState?.defaultHarness && selection.model === userState.defaultModel ? userState.defaultServiceTier : null));
   // Fall back to what the model itself would pick, so the control reads as the
   // effort that will actually be used rather than an empty placeholder.
   const effort: EffortLevel | null =
@@ -400,6 +404,7 @@ function LaunchModalInner({
       // what the picked model supports (see ModelControl), so record it back to
       // the shared store the composer also reads.
       writeProviderEffort(next.harness, next.effort);
+      if (next.serviceTier) writeProviderSpeed(next.harness, next.serviceTier);
       setEfforts(readProviderEfforts());
       persistPrefs({ harness: next.harness, model: next.model });
     },
@@ -414,11 +419,12 @@ function LaunchModalInner({
         model: prev?.model ?? fallbackModel,
         variant: prev?.variant ?? null,
         effort: next,
+        serviceTier: prev?.serviceTier ?? serviceTier,
       }));
       writeProviderEffort(harness, next);
       setEfforts(readProviderEfforts());
     },
-    [efforts, harnessPick?.harness, fallbackProvider, fallbackModel],
+    [harnessPick?.harness, fallbackProvider, fallbackModel, serviceTier],
   );
 
   /**
@@ -534,6 +540,7 @@ function LaunchModalInner({
           model: selection.model,
           modelVariant: harnessPick?.variant ?? null,
           effort,
+          serviceTier,
           message: send ? { content, attachments: output.attachments } : null,
           taskId: seed?.taskId ?? null,
           deviceId: runOnTarget,
@@ -839,15 +846,10 @@ function LaunchModalInner({
                     label={modelLabel}
                     variant={harnessPick?.variant ?? null}
                     effort={effort}
+                    serviceTier={serviceTier}
+                    onEffortChange={handleEffortChange}
                     rememberedEfforts={efforts}
                     onChange={handleHarnessChange}
-                    disabled={launching}
-                  />
-                  <EffortControl
-                    harness={selection.harness}
-                    model={selectedModelOption}
-                    effort={effort}
-                    onChange={handleEffortChange}
                     disabled={launching}
                   />
                 </>

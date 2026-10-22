@@ -5,7 +5,9 @@
  * A command is journaled `received` before anything acts on it, and a
  * command already journaled is never applied again: its recorded outcome is
  * acknowledged instead. Commands for the same chat or execution run in the
- * order they came; different ones run side by side. After a restart, each
+ * order they came; different ones run side by side. While a recycle waits
+ * for a turn to end, controls for ongoing work may pass it so a permission answer
+ * or interrupt can finish the turn. Later sends still wait. After a restart, each
  * command left received or started goes through its kind's recovery rule,
  * so an effect that isn't safe to repeat never runs twice. Acknowledgements
  * are sent after the outcome is journaled, and resent until the home
@@ -24,9 +26,13 @@ export interface CommandContext {
   target: WorkerTarget;
   /** Journal `started`. Call it before any effect outside the journal. */
   markStarted(): void;
+  /** An idle wait before changing settings, during which this chat's controls remain usable. */
+  waitForTurnEnd?(wait: () => Promise<void>): Promise<void>;
 }
 
 export interface CommandKindHandler {
+  /** Whether another chat already has work this control can service during an idle wait. */
+  canPassIdleWait?(command: WorkerCommand): boolean;
   run(command: WorkerCommand, ctx: CommandContext): Promise<WorkerCommandAckBody>;
   /**
    * A restart interrupted this command after it was received (`received`) or
@@ -48,13 +54,33 @@ export interface CommandProcessorOptions {
   onHandled?: (command: WorkerCommand) => void;
 }
 
+interface QueuedCommand {
+  command: WorkerCommand;
+  run: () => Promise<void>;
+  done: () => void;
+  cancelled?: boolean;
+}
+
+interface TargetQueue {
+  pending: QueuedCommand[];
+  active: QueuedCommand | null;
+  control: Promise<void> | null;
+  waitingForTurn: boolean;
+}
+
+class ClosedBeforeSendError extends Error {}
+class ProcessorStoppedError extends Error {}
+
 export class CommandProcessor {
-  private readonly chains = new Map<string, Promise<void>>();
+  private readonly queues = new Map<string, TargetQueue>();
+  private readonly tasks = new Set<Promise<void>>();
+  private stopped = false;
 
   constructor(private readonly options: CommandProcessorOptions) {}
 
   /** A command arrived on the stream. */
   receive(command: WorkerCommand): void {
+    if (this.stopped) return;
     const { journal } = this.options;
     const existing = journal.get(command.id);
     if (existing) {
@@ -71,7 +97,7 @@ export class CommandProcessor {
   /** On start: settle what a restart interrupted, then resend acknowledgements the home hasn't confirmed. */
   recoverAll(): Promise<void> {
     const recovering = this.options.journal.interrupted().map(
-      (entry) => new Promise<void>((resolve) => this.enqueue(entry.command, () => this.recoverOne(entry).finally(resolve))),
+      entry => this.enqueue(entry.command, () => this.recoverOne(entry)),
     );
     return Promise.all(recovering).then(() => this.resendAcks());
   }
@@ -85,23 +111,144 @@ export class CommandProcessor {
 
   /** Wait for everything queued so far. For tests and shutdown. */
   async idle(): Promise<void> {
-    await Promise.all([...this.chains.values()]);
+    await Promise.all([...this.tasks]);
   }
 
-  private enqueue(command: WorkerCommand, run: () => Promise<void>): void {
-    const key = command.target.executionId ?? command.target.chatSessionId ?? '_device';
-    const previous = this.chains.get(key) ?? Promise.resolve();
-    const next = previous.then(run).catch((err: unknown) => {
-      console.error(`[worker] command ${command.id} (${command.kind}) failed unexpectedly:`, err);
+  /** Leave unsent commands received for restart, rather than waking them
+   * when worker teardown makes the old session idle. */
+  stop(): void {
+    this.stopped = true;
+    for (const queue of this.queues.values()) {
+      for (const entry of queue.pending) entry.done();
+      queue.pending = [];
+    }
+  }
+
+  private enqueue(command: WorkerCommand, run: () => Promise<void>): Promise<void> {
+    const key = this.key(command);
+    let queue = this.queues.get(key);
+    if (!queue) {
+      queue = { pending: [], active: null, control: null, waitingForTurn: false };
+      this.queues.set(key, queue);
+    }
+    let done!: () => void;
+    const task = new Promise<void>((resolve) => { done = resolve; });
+    this.tasks.add(task);
+    void task.then(() => this.tasks.delete(task));
+    queue.pending.push({ command, run, done });
+    this.drain(key, queue);
+    return task;
+  }
+
+  private key(command: WorkerCommand): string {
+    return command.target.executionId ?? command.target.chatSessionId ?? '_device';
+  }
+
+  private canPassRecycle(command: WorkerCommand, chat: string | null): boolean {
+    if (!chat) return false;
+    if (command.kind === 'quiesce') {
+      return (command.payload as { chatSessionIds?: string[] })?.chatSessionIds?.includes(chat) === true;
+    }
+    return ['answer_pending_input', 'interrupt', 'stop_task', 'stop'].includes(command.kind)
+      && (command.target.chatSessionId === chat || this.options.handlers[command.kind]?.canPassIdleWait?.(command) === true);
+  }
+
+  private drain(key: string, queue: TargetQueue): void {
+    if (this.stopped) return;
+    if (queue.control) return;
+    if (queue.active) {
+      if (!queue.waitingForTurn) return;
+      const index = queue.pending.findIndex(entry => this.canPassRecycle(entry.command, queue.active!.command.target.chatSessionId));
+      if (index < 0) return;
+      const [entry] = queue.pending.splice(index, 1);
+      // Defer run until control is assigned: a synchronously completed wait
+      // must still see and await this control before it retires the handle.
+      queue.control = Promise.resolve().then(() => this.runEntry(entry!, queue)).finally(() => {
+        queue.control = null;
+        this.drain(key, queue);
+      });
+      return;
+    }
+    const entry = queue.pending.shift();
+    if (!entry) {
+      this.queues.delete(key);
+      return;
+    }
+    queue.active = entry;
+    void this.runEntry(entry, queue).finally(() => {
+      queue.active = null;
+      this.drain(key, queue);
     });
-    this.chains.set(key, next);
-    void next.finally(() => {
-      if (this.chains.get(key) === next) this.chains.delete(key);
-    });
+  }
+
+  private async runEntry(entry: QueuedCommand, queue: TargetQueue): Promise<void> {
+    try {
+      await entry.run();
+      const { command } = entry;
+      if ((command.kind === 'stop' || command.kind === 'quiesce')
+        && this.options.journal.get(command.id)?.ack?.state === 'delivered') {
+        const chats = command.kind === 'stop' ? [command.target.chatSessionId]
+          : (command.payload as { chatSessionIds: string[] }).chatSessionIds;
+        if (queue.active?.command.kind === 'send'
+          && queue.active.command.seq < command.seq && chats.includes(queue.active.command.target.chatSessionId)) {
+          queue.active.cancelled = true;
+        }
+        // A close that passed a recycle also cancels the earlier sends held
+        // behind it. Otherwise they would start a new process after the close.
+        const cancelled = queue.pending.filter(item => item.command.kind === 'send'
+          && item.command.seq < command.seq && chats.includes(item.command.target.chatSessionId!));
+        queue.pending = queue.pending.filter(item => !cancelled.includes(item));
+        await Promise.all(cancelled.map(async item => {
+          try {
+            await this.settle(item.command, { state: 'failed', error: 'The chat was closed before this message could be sent.' });
+          } finally {
+            item.done();
+          }
+        }));
+      }
+    } catch (err) {
+      console.error(`[worker] command ${entry.command.id} (${entry.command.kind}) failed unexpectedly:`, err);
+    } finally {
+      entry.done();
+    }
+  }
+
+  private async waitForTurnEnd(command: WorkerCommand, wait: () => Promise<void>): Promise<void> {
+    if (this.stopped) throw new ProcessorStoppedError();
+    const key = this.key(command);
+    const queue = this.queues.get(key)!;
+    if (!['recycle', 'send'].includes(command.kind) || queue.active?.command.id !== command.id) {
+      throw new Error('Only an active recycle or send can wait for a turn.');
+    }
+    queue.waitingForTurn = true;
+    this.drain(key, queue);
+    try {
+      await wait();
+    } finally {
+      queue.waitingForTurn = false;
+      // A stop may have made the runner idle while its teardown is still in
+      // progress. Finish it before recycling or admitting any later send.
+      await queue.control;
+    }
+    if (this.stopped) throw new ProcessorStoppedError();
+    if (queue.active.cancelled) throw new ClosedBeforeSendError('The chat was closed before this message could be sent.');
+  }
+
+  private async settle(command: WorkerCommand, ack: WorkerCommandAckBody): Promise<void> {
+    this.options.journal.finished(command.id, ack);
+    this.options.onHandled?.(command);
+    await this.sendAck(command.id, ack);
   }
 
   private context(command: WorkerCommand): CommandContext {
-    return { target: this.options.target, markStarted: () => this.options.journal.started(command.id) };
+    return {
+      target: this.options.target,
+      markStarted: () => {
+        if (this.stopped) throw new ProcessorStoppedError();
+        this.options.journal.started(command.id);
+      },
+      waitForTurnEnd: wait => this.waitForTurnEnd(command, wait),
+    };
   }
 
   private async execute(command: WorkerCommand): Promise<void> {
@@ -113,12 +260,11 @@ export class CommandProcessor {
       try {
         ack = await handler.run(command, this.context(command));
       } catch (err) {
+        if (err instanceof ProcessorStoppedError) return;
         ack = { state: 'failed', error: err instanceof Error ? err.message : String(err) };
       }
     }
-    this.options.journal.finished(command.id, ack);
-    this.options.onHandled?.(command);
-    await this.sendAck(command.id, ack);
+    await this.settle(command, ack);
   }
 
   private async recoverOne(entry: JournaledCommand): Promise<void> {
@@ -131,14 +277,14 @@ export class CommandProcessor {
       try {
         ack = await handler.recover(command, entry.stage === 'started' ? 'started' : 'received', this.context(command));
       } catch (err) {
+        if (err instanceof ProcessorStoppedError) return;
         // A recovery that can't decide leaves the outcome unknown: shown as
         // such, and retried only when the person asks.
-        ack = { state: 'uncertain', error: `Recovery after a restart failed: ${err instanceof Error ? err.message : String(err)}` };
+        ack = err instanceof ClosedBeforeSendError ? { state: 'failed', error: err.message }
+          : { state: 'uncertain', error: `Recovery after a restart failed: ${err instanceof Error ? err.message : String(err)}` };
       }
     }
-    this.options.journal.finished(command.id, ack);
-    this.options.onHandled?.(command);
-    await this.sendAck(command.id, ack);
+    await this.settle(command, ack);
   }
 
   private async sendAck(commandId: string, ack: WorkerCommandAckBody): Promise<void> {

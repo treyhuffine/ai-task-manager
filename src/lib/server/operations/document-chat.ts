@@ -22,9 +22,10 @@ interface ChatOverride {
   model?: string;
   variant?: string;
   effort?: EffortLevel;
+  serviceTier?: string;
 }
 
-function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: unknown; effort?: unknown }): ChatOverride {
+function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: unknown; effort?: unknown; serviceTier?: unknown }): ChatOverride {
   const out: ChatOverride = {};
   if (isKnownHarnessId(src.providerId)) out.providerId = src.providerId;
   if (typeof src.model === 'string' && src.model.trim()) out.model = src.model.trim();
@@ -32,6 +33,7 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
   if (typeof src.effort === 'string' && EFFORT_LEVELS.includes(src.effort as EffortLevel)) {
     out.effort = src.effort as EffortLevel;
   }
+  if (typeof src.serviceTier === 'string') out.serviceTier = src.serviceTier;
   return out;
 }
 
@@ -140,6 +142,7 @@ async function createFocusedSession(
     model: selection.model,
     modelVariant: selection.variant,
     effort: selection.effort,
+    serviceTier: selection.serviceTier,
     // Label stays null until the first send — the messages route's label
     // derivation only fires on unlabeled sessions.
     label: null,
@@ -185,7 +188,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
     providerId?: unknown;
     model?: unknown;
     variant?: unknown;
-    effort?: unknown;
+    effort?: unknown; serviceTier?: unknown;
   };
   const ref = parseEntity(src);
   if (!ref) {

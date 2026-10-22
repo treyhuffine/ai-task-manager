@@ -58,6 +58,7 @@ import { budgetGate, BUDGET_DISABLED_REASON } from './budget';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 import { composeHeartbeatPrompt } from '@/lib/heartbeat/prompt';
 import { homeCantRun } from '@/lib/setups/run-on';
+import { resolveTriggerSelection } from '@/lib/triggers/model-speed';
 
 export interface DispatchRunArgs {
   trigger: TriggerRecord;
@@ -108,34 +109,26 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
     return { run: skipped, chatSession: null };
   }
 
+  // Resolve before inserting any chat. A NULL model follows the same live
+  // catalog used for speed validation, for both new and existing executions.
+  let selected: Awaited<ReturnType<typeof resolveTriggerSelection>>;
+  try {
+    selected = await resolveTriggerSelection(trigger);
+  } catch (err) {
+    return recordTargetFailure(args, 'invalid_selection', err instanceof Error ? err.message : String(err));
+  }
+
   // 1. Resolve the target execution (or null for orchestrator triggers)
   //    + the chat session this run will speak through.
   let resolved: ReturnType<typeof resolveTarget>;
   try {
-    resolved = resolveTarget(trigger);
+    resolved = resolveTarget(trigger, selected);
   } catch (err) {
     if (!(err instanceof NotRunnableHere)) throw err;
     // New work starts on the home and nowhere else (spec §7): an agent
     // with no folder here fails this fire, saying why, rather than run in
     // the wrong place or start a second execution elsewhere.
-    const now = new Date().toISOString();
-    const failed = createRun({
-      triggerId: trigger.id,
-      workspaceId: trigger.workspaceId ?? null,
-      executionId: null,
-      chatSessionId: null,
-      harness: trigger.harness,
-      triggerKind,
-      triggerPayload,
-      scheduledFor,
-      status: 'failed',
-      errorCode: 'not_set_up_here',
-      errorMessage: err.message,
-      queuedAt: now,
-      completedAt: now,
-    });
-    setTriggerLastRun(trigger.id, failed.id, 'failed');
-    return { run: failed, chatSession: null };
+    return recordTargetFailure(args, 'not_set_up_here', err.message);
   }
 
   // 2. Concurrency gate per docs/executions-spec.md §5. Defer the new
@@ -214,7 +207,7 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
   //    triggers accumulate chats inside the owned execution; one-offs
   //    and orchestrator triggers get a fresh chat each fire. If
   //    resolveTarget already created one (eager-creation path), reuse it.
-  const chat = resolved.chat ?? createChatForFire(trigger, resolved.execution);
+  const chat = resolved.chat ?? createChatForFire(trigger, resolved.execution, selected.selection);
 
   // 4. Insert the run row in `queued`. Trigger payload is JSON.stringified
   //    by the column's json mode automatically.
@@ -270,7 +263,7 @@ function assertHomeCanRun(workspaceId: string): void {
   if (problem) throw new NotRunnableHere(problem);
 }
 
-function resolveTarget(trigger: TriggerRecord): {
+function resolveTarget(trigger: TriggerRecord, selected: Awaited<ReturnType<typeof resolveTriggerSelection>>): {
   execution: ExecutionRecord | null;
   /** Pre-existing reusable chat — set only when we explicitly want to
    *  coalesce into a known target. Otherwise null = create a fresh chat. */
@@ -296,8 +289,11 @@ function resolveTarget(trigger: TriggerRecord): {
       harness: trigger.harness,
       label: trigger.name,
       setupStartedAt: ws?.isGit ? new Date().toISOString() : null,
-      model: trigger.model,
-      effort: trigger.effort,
+      model: selected.selection.model,
+      modelVariant: selected.selection.variant,
+      effort: selected.selection.effort,
+      serviceTier: selected.selection.serviceTier,
+      modelCatalog: selected.modelCatalog,
     });
     return { execution, chat: session };
   }
@@ -308,8 +304,12 @@ function resolveTarget(trigger: TriggerRecord): {
     throw new Error(`Trigger ${trigger.id} targets workspace but has no workspace_id`);
   }
   let execution: ExecutionRecord | null = null;
-  if (trigger.owningExecutionId) {
-    const existing = getExecution(trigger.owningExecutionId);
+  // Discovery yielded. Another fire may have created the owning execution
+  // since this trigger snapshot was read. Keep resolution, the concurrency
+  // check and run insertion synchronous after refreshing that binding.
+  const owningExecutionId = getTrigger(trigger.id)?.owningExecutionId ?? trigger.owningExecutionId;
+  if (owningExecutionId) {
+    const existing = getExecution(owningExecutionId);
     if (existing && existing.status === 'active') execution = existing;
   }
   if (!execution) {
@@ -320,8 +320,11 @@ function resolveTarget(trigger: TriggerRecord): {
       harness: trigger.harness,
       label: trigger.name,
       setupStartedAt: ws?.isGit ? new Date().toISOString() : null,
-      model: trigger.model,
-      effort: trigger.effort,
+      model: selected.selection.model,
+      modelVariant: selected.selection.variant,
+      effort: selected.selection.effort,
+      serviceTier: selected.selection.serviceTier,
+      modelCatalog: selected.modelCatalog,
     });
     execution = created.execution;
     updateTrigger(trigger.id, { owningExecutionId: execution.id });
@@ -341,6 +344,7 @@ function resolveTarget(trigger: TriggerRecord): {
 function createChatForFire(
   trigger: TriggerRecord,
   execution: ExecutionRecord | null,
+  selection: Awaited<ReturnType<typeof resolveTriggerSelection>>['selection'],
 ): ChatSessionRecord {
   const db = getDb();
   const id = uuidv7();
@@ -363,8 +367,10 @@ function createChatForFire(
       // session row (it reads model/effort/permissionMode/etc. fresh
       // each turn). Trigger edits to model/effort take effect on the
       // next fire's chat — existing chats keep their snapshot.
-      ...(trigger.model !== null ? { model: trigger.model } : {}),
-      ...(trigger.effort !== null ? { effort: trigger.effort } : {}),
+      model: selection.model,
+      modelVariant: selection.variant,
+      effort: selection.effort,
+      serviceTier: selection.serviceTier,
     })
     .returning()
     .get();
@@ -446,6 +452,27 @@ function composeCoalescedContent(
 ): string {
   const header = `[from trigger ${trigger.name}]`;
   return `${header}\n\n${promptForTrigger(trigger, triggerPayload)}`;
+}
+
+function recordTargetFailure(args: DispatchRunArgs, errorCode: string, errorMessage: string): DispatchedRunResult {
+  const now = new Date().toISOString();
+  const run = createRun({
+    triggerId: args.trigger.id,
+    workspaceId: args.trigger.workspaceId ?? null,
+    executionId: null,
+    chatSessionId: null,
+    harness: args.trigger.harness,
+    triggerKind: args.triggerKind,
+    triggerPayload: args.triggerPayload ?? null,
+    scheduledFor: args.scheduledFor ?? null,
+    status: 'failed',
+    errorCode,
+    errorMessage,
+    queuedAt: now,
+    completedAt: now,
+  });
+  setTriggerLastRun(args.trigger.id, run.id, 'failed');
+  return { run, chatSession: null };
 }
 
 function recordSkipped(args: RecordSkippedArgs): RunRecord {

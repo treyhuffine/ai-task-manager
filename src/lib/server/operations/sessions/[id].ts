@@ -11,6 +11,7 @@ import * as executor from '@/lib/executor/adapter';
 import { supportedPermissionModes } from '@/lib/executor/permission-map';
 import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
 import { explicitHarnessSelection } from '@/lib/harness/options';
+import { assertServiceTier, serviceTierForModel } from '@/lib/harness/service-tiers';
 import { getHarnessRuntime } from '@/lib/harness/runtime';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -46,6 +47,7 @@ interface PatchBody {
   modelVariant?: string | null;
   /** Explicit provider reasoning effort. */
   effort?: EffortLevel | null;
+  serviceTier?: string | null;
   /** Explicit PR link. `null` clears the link. */
   prNumber?: number | null;
   /** Manual chat-tab order (fractional index). `null` resets to creation order. */
@@ -55,7 +57,7 @@ interface PatchBody {
 function selectionChangeWhileRunningResponse() {
   return reply({
     error: 'selection_change_while_running',
-    reason: 'Wait for the active turn to finish before changing its model, variant, effort, or mode.',
+    reason: 'Wait for the active turn to finish before changing its model, variant, effort, speed, or mode.',
   }, { status: 409 });
 }
 
@@ -137,7 +139,7 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
       }
     }
     let nextSelection: ReturnType<typeof explicitHarnessSelection> | null = null;
-    if ('model' in body || 'modelVariant' in body || 'effort' in body) {
+    if ('model' in body || 'modelVariant' in body || 'effort' in body || 'serviceTier' in body) {
       const providerId = existing.harness;
       const cwd = executor.resolveCwd(existing) ?? getAppRoot();
       const [catalog, runtime] = await Promise.all([
@@ -168,6 +170,22 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
         { model: requestedModel, variant: requestedVariant, effort: requestedEffort },
         catalog,
       );
+      const targetModel = catalog.find(model => model.id === nextSelection!.model);
+      // Explicit speed must be honored. A different model may safely drop an
+      // incompatible old speed, without enabling another paid tier.
+      if ('serviceTier' in body) {
+        assertServiceTier(targetModel, body.serviceTier);
+      }
+      const nextTier = 'serviceTier' in body ? serviceTierForModel(targetModel, body.serviceTier) : requestedModel !== existing.model
+        ? serviceTierForModel(targetModel, existing.serviceTier) : existing.serviceTier;
+      if (nextTier !== (existing.serviceTier ?? null)) {
+        if (executor.isRunning(id)) return selectionChangeWhileRunningResponse();
+        if (nextTier && !runtime.capabilities.serviceTiers.supported) {
+          return reply({ error: 'Speed selection is unavailable for this harness.' }, { status: 409 });
+        }
+        updates.serviceTier = nextTier;
+        executorChanged = true;
+      }
       if ('modelVariant' in body && nextSelection.variant !== requestedVariant) {
         return reply(
           { error: `Variant ${requestedVariant ?? 'default'} is not supported by model ${nextSelection.model}.` },
@@ -296,4 +314,4 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
 }
 
 export const GETInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict() }).strict();
-export const PATCHInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "label": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "executionLabel": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "permissionMode": rpcZ.enum(["auto_all", "auto_edits", "ask", "plan"]).optional(), "model": rpcZ.string().optional(), "modelVariant": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "effort": rpcZ.union([rpcZ.null(), rpcZ.literal("low"), rpcZ.literal("medium"), rpcZ.literal("high"), rpcZ.literal("xhigh"), rpcZ.literal("max"), rpcZ.literal("ultra")]).optional(), "prNumber": rpcZ.union([rpcZ.null(), rpcZ.number().finite()]).optional(), "tabSortKey": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional() }).strict().default({}) }).strict();
+export const PATCHInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "label": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "executionLabel": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "permissionMode": rpcZ.enum(["auto_all", "auto_edits", "ask", "plan"]).optional(), "model": rpcZ.string().optional(), "modelVariant": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "serviceTier": rpcZ.string().trim().min(1).nullable().optional(), "effort": rpcZ.union([rpcZ.null(), rpcZ.literal("low"), rpcZ.literal("medium"), rpcZ.literal("high"), rpcZ.literal("xhigh"), rpcZ.literal("max"), rpcZ.literal("ultra")]).optional(), "prNumber": rpcZ.union([rpcZ.null(), rpcZ.number().finite()]).optional(), "tabSortKey": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional() }).strict().default({}) }).strict();

@@ -6,6 +6,7 @@ import {
   setHarnessDefaultSelection,
 } from '@/lib/db/queries';
 import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
+import { assertServiceTier, serviceTierForModel } from '@/lib/harness/service-tiers';
 import { explicitHarnessSelection } from '@/lib/harness/options';
 import { isHarnessId } from '@/lib/harness/registry';
 import { reply, type OperationContext } from '@/lib/server/operation';
@@ -68,12 +69,20 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
     if (selection && requestedEffort && selection.effort !== requestedEffort) {
       return reply({ error: 'The selected effort is not supported by the default model' }, { status: 400 });
     }
+    const selectedModel = catalog.find(model => model.id === selection?.model);
+    const requestedTier = body.defaultServiceTier === undefined
+      ? (defaultModel === existing.defaultModel ? existing.defaultServiceTier : null)
+      : typeof body.defaultServiceTier === 'string' ? body.defaultServiceTier : null;
+    if (body.defaultServiceTier != null) assertServiceTier(selectedModel, requestedTier);
+    const speed = body.defaultServiceTier === undefined && defaultModel === existing.defaultModel
+      ? existing.defaultServiceTier : serviceTierForModel(selectedModel, requestedTier);
     let settings = setEnabledHarnessModels(body.harness, enabled, defaultModel);
     if (settings.defaultModel) {
       const retainingUnavailable = !catalogIds.has(settings.defaultModel)
         && settings.defaultModel === existing.defaultModel;
       settings = setHarnessDefaultSelection(body.harness, {
         model: settings.defaultModel,
+        serviceTier: speed,
         variant: selection?.variant ?? (retainingUnavailable ? existing.defaultVariant : null),
         effort: selection?.effort ?? (retainingUnavailable ? existing.defaultEffort : null),
       });
@@ -85,4 +94,4 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
 }
 
 export const GETInput = rpcZ.object({ query: rpcZ.object({ "harness": rpcZ.string().optional() }).strict().optional() }).strict().default({});
-export const PUTInput = rpcZ.object({ body: rpcZ.object({ "harness": rpcZ.enum(["cursor", "antigravity", "claude", "codex", "opencode"]), "enabledModelIds": rpcZ.array(rpcZ.string()), "defaultModel": rpcZ.string().nullable(), "defaultVariant": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "defaultEffort": rpcZ.union([rpcZ.null(), rpcZ.literal("low"), rpcZ.literal("medium"), rpcZ.literal("high"), rpcZ.literal("xhigh"), rpcZ.literal("max"), rpcZ.literal("ultra")]).optional() }).strict() }).strict();
+export const PUTInput = rpcZ.object({ body: rpcZ.object({ "harness": rpcZ.enum(["cursor", "antigravity", "claude", "codex", "opencode"]), "enabledModelIds": rpcZ.array(rpcZ.string()), "defaultModel": rpcZ.string().nullable(), "defaultVariant": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "defaultServiceTier": rpcZ.string().trim().min(1).nullable().optional(), "defaultEffort": rpcZ.union([rpcZ.null(), rpcZ.literal("low"), rpcZ.literal("medium"), rpcZ.literal("high"), rpcZ.literal("xhigh"), rpcZ.literal("max"), rpcZ.literal("ultra")]).optional() }).strict() }).strict();

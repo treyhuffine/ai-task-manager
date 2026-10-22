@@ -8,6 +8,7 @@ export interface DefaultSelection {
   model: string;
   variant: string | null;
   effort: EffortLevel | null;
+  serviceTier?: string | null;
 }
 
 /**
@@ -25,7 +26,7 @@ export async function setDefaultSelection(input: {
   harness: HarnessId;
   model?: string;
   variant?: string | null;
-  effort?: EffortLevel | null;
+  serviceTier?: string | null; effort?: EffortLevel | null;
 }): Promise<DefaultSelection> {
   let model = input.model;
   if (!model) {
@@ -35,6 +36,6 @@ export async function setDefaultSelection(input: {
   const effort: EffortLevel | null =
     input.effort !== undefined ? input.effort : harnessSupportsEffort(input.harness) ? DEFAULT_EFFORT : null;
   return trpcClient.harness.defaultPut.mutate({
-    body: { harness: input.harness, model, variant: input.variant ?? null, effort },
+    body: { harness: input.harness, model, variant: input.variant ?? null, effort, serviceTier: input.serviceTier ?? null },
   });
 }

@@ -20,7 +20,6 @@
  */
 
 import {
-	EffortControl,
 	ModelControl,
 	type LaunchHarnessSelection,
 } from '@/components/workspaces/launcher/launch-controls';
@@ -30,6 +29,7 @@ import { useCreateTrigger } from '@/hooks/use-triggers';
 import { useUserState } from '@/hooks/use-user-state';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { parseProviderEfforts, readProviderEffortsText } from '@/lib/executions/provider-effort';
+import { serviceTierForModel } from '@/lib/harness/service-tiers';
 import {
 	defaultModelFor,
 	explicitEffortForModel,
@@ -112,6 +112,8 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
   const { models } = useHarnessModels(selection.harness);
   const selectedModelOption = models.find((m) => m.id === selection.model) ?? null;
   const harnessKey = selection.harness;
+  const serviceTier = serviceTierForModel(selectedModelOption, harnessPick?.serviceTier
+    ?? (selection.harness === userState?.defaultHarness && selection.model === userState.defaultModel ? userState.defaultServiceTier : null));
   // Until the user picks, show the effort the run will actually use rather
   // than an empty control.
   const effort: EffortLevel | null =
@@ -126,6 +128,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
       model: prev?.model ?? fallbackModel,
       variant: prev?.variant ?? null,
       effort: next,
+      serviceTier: prev?.serviceTier ?? serviceTier,
     }));
   }
 
@@ -156,6 +159,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
       activeHoursEnd: activeHoursEnd || null,
       model: selection.model || null,
       effort,
+      serviceTier,
       timeoutSeconds,
       concurrencyPolicy,
     };
@@ -222,14 +226,10 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
               selection={selection}
               label={selectedModelOption?.label ?? selection.model}
               rememberedEfforts={efforts}
-              onChange={setHarnessPick}
-              disabled={createTrigger.isPending}
-            />
-            <EffortControl
-              harness={selection.harness}
-              model={selectedModelOption}
               effort={effort}
-              onChange={handleEffortChange}
+              serviceTier={serviceTier}
+              onEffortChange={handleEffortChange}
+              onChange={setHarnessPick}
               disabled={createTrigger.isPending}
             />
           </div>

@@ -17,10 +17,10 @@ import { z as rpcZ } from 'zod/v4';
  * swapped: a model, variant or effort it can't run is refused, saying which.
  */
 export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
-  const { harness, model, variant = null, effort = null } = rpcInput.body;
+  const { harness, model, variant = null, effort = null, serviceTier = null } = rpcInput.body;
   let selection;
   try {
-    selection = await resolveHarnessSelection(harness, { model, variant, effort }, { cwd: getAppRoot() });
+    selection = await resolveHarnessSelection(harness, { model, variant, effort, serviceTier }, { cwd: getAppRoot() });
   } catch (error) {
     return reply({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
   }
@@ -32,6 +32,7 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
     model: selection.model,
     variant: selection.variant,
     effort: selection.effort,
+    serviceTier: selection.serviceTier ?? null,
   };
   setHomeDefaultSelection(saved);
   return reply(saved);
@@ -43,5 +44,6 @@ export const PUTInput = rpcZ.object({
     model: rpcZ.string().trim().min(1),
     variant: rpcZ.string().trim().min(1).nullable().optional(),
     effort: rpcZ.enum(EFFORT_LEVELS).nullable().optional(),
+    serviceTier: rpcZ.string().trim().min(1).nullable().optional(),
   }).strict(),
 }).strict();

@@ -33,7 +33,8 @@ import { agentFolderHere } from './agent-folder';
 import type { WorkerTerminals } from './terminals';
 import type { EventJournal } from './event-journal';
 import { CheckpointError, saveCheckpoint, worktreeAtCheckpoint } from '@/lib/transfer/git-checkpoint';
-import { hasBackgroundTasks, isRunning } from '@/lib/runner/live-state';
+import { hasBackgroundTasks, isRunning, runnerState, sessionSelectionKey } from '@/lib/runner/live-state';
+import { listForSession } from '@/lib/runner/pending';
 import { openHere } from './open-here';
 import { reviewHere } from '@/lib/transfer/review';
 import { runGithub, type GithubRequest } from '@/lib/github/execution-github';
@@ -348,6 +349,17 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
     return handler;
   };
 
+  const liveControl = (handler: CommandKindHandler): CommandKindHandler => ({
+    ...handler,
+    canPassIdleWait(command) {
+      const chat = chatOf(command);
+      // Sibling chats share an execution queue, but their accepted turns
+      // must remain controllable. A not-yet-started chat still waits behind
+      // its own send, so an interrupt cannot run too early and be lost.
+      return runnerState.harnessSessions.has(chat) || isRunning(chat) || hasBackgroundTasks(chat) || listForSession(chat).length > 0;
+    },
+  });
+
   const filesDir = (command: WorkerCommand, ctx: CommandContext) => inputFilesDir(ctx.target.homeId, chatOf(command));
   /** The text as this device's harness gets it: this device's path where each sent file's marker was. */
   const placedMessage = (command: WorkerCommand, ctx: CommandContext) => {
@@ -355,10 +367,58 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
     return placeInputFiles(payload.message, filesDir(command, ctx), payload.attachments ?? []);
   };
 
+  const resumedSpec = (command: WorkerCommand): SessionSpec => {
+    const spec = (command.payload as SendPayload).spec;
+    const native = journal.nativeSessionFor(command);
+    return typeof native === 'string' ? { ...spec, nativeSessionId: native } : spec;
+  };
+
+  const recycle: CommandKindHandler = {
+    async run(command, ctx) {
+      if (fenced(journal, command)) return stale(command);
+      const chat = chatOf(command);
+      const rememberNative = () => {
+        const native = runnerState.sessionInfo.get(chat)?.nativeSessionId ?? journal.nativeSessionFor(command);
+        if (typeof native === 'string') journal.note(command.id, { nativeSessionId: native });
+      };
+      // Keep the identity even if a stop passes this wait and clears live state.
+      rememberNative();
+      const wait = async () => {
+        // A finished background task can open a continuation in this turn of
+        // the event loop. Give it the same grace as local deferred recycling.
+        await new Promise<void>(resolve => setImmediate(resolve));
+        while (!fenced(journal, command) && (isRunning(chat) || hasBackgroundTasks(chat) || listForSession(chat).length > 0)) {
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+      };
+      if (ctx.waitForTurnEnd) await ctx.waitForTurnEnd(wait);
+      else await wait();
+      if (fenced(journal, command)) return stale(command);
+      rememberNative();
+      // Closing is repeatable. A send remains received until its actual
+      // handoff below, so a crash during this wait can safely recover it.
+      if (command.kind === 'recycle') ctx.markStarted();
+      // Unlike best-effort invalidation, a failed close leaves a tracked
+      // handle and must not admit a later send with its stale paid settings.
+      const result = await runner.close(chat);
+      return result.closed ? { state: 'delivered' } : { state: 'failed', error: result.error ?? 'The session could not be recycled.' };
+    },
+    recover: (command, _stage, ctx) => recycle.run(command, ctx),
+  };
+
   const send: CommandKindHandler = {
     async run(command, ctx) {
       if (fenced(journal, command)) return stale(command);
       const payload = command.payload as SendPayload;
+      const earlierRecycle = journal.recycleBefore(command);
+      const info = runnerState.sessionInfo.get(chatOf(command));
+      // A send prepared before a settings change may arrive after its recycle.
+      // Never reuse that send's handle for a later, different selection.
+      if ((info && info.selectionKey !== sessionSelectionKey(payload.spec))
+        || (earlierRecycle?.ack?.state === 'failed' && runnerState.harnessSessions.has(chatOf(command)))) {
+        const result = await recycle.run(command, ctx);
+        if (result.state !== 'delivered') return result;
+      }
       // Queued while the execution was still being prepared here: its folder
       // is the worktree that prepare made, which ran first.
       if (!payload.spec.cwd && payload.spec.preparedWorktreeOf) {
@@ -378,6 +438,8 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       }
       // `started` before the message goes in: from here, a crash leaves the
       // outcome to be checked against the native history, never re-sent.
+      const spec = resumedSpec(command);
+      if (spec.nativeSessionId) journal.note(command.id, { nativeSessionId: spec.nativeSessionId });
       ctx.markStarted();
       try {
         const sent = await runner.send({
@@ -385,8 +447,10 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
           message: placedMessage(command, ctx),
           turnId: payload.turnId,
           runId: payload.runId,
-          spec: atHome(payload.spec, ctx.target.homeUrl),
+          spec: atHome(spec, ctx.target.homeUrl),
         });
+        const native = runnerState.sessionInfo.get(chatOf(command))?.nativeSessionId;
+        if (sent.status === 'delivered' && native) journal.note(command.id, { nativeSessionId: native });
         return sent.status === 'delivered'
           ? { state: 'delivered' }
           : { state: 'failed', error: 'The session could not be started.' };
@@ -398,8 +462,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       // Received but never started: the message never went in, so send it now.
       if (stage === 'received') return send.run(command, ctx);
       if (fenced(journal, command)) return stale(command);
-      const payload = command.payload as SendPayload;
-      const found = await findInHistory(payload.spec, placedMessage(command, ctx));
+      const found = await findInHistory(resumedSpec(command), placedMessage(command, ctx));
       if (found === 'found') return { state: 'delivered', result: { reconciled: true } };
       return {
         state: 'uncertain',
@@ -655,14 +718,15 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
 
   return {
     send,
+    recycle,
     prepare,
     quiesce,
     git: gitCommand,
     run_script: runScript,
-    interrupt: repeatable(async (command) => {
+    interrupt: liveControl(repeatable(async (command) => {
       await runner.abort(chatOf(command));
       return { state: 'delivered' };
-    }),
+    })),
     generate_title: repeatable(async (command) => {
       const chatId = command.target.chatSessionId;
       if (chatId) void runner.localRunner.generateTitle?.(chatId, command.payload as TitleRequest).catch((error) => {
@@ -676,15 +740,15 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       if (chatId) await runner.localRunner.setTitle?.(chatId, payload.title, payload.revision);
       return { state: 'delivered' };
     }),
-    stop_task: repeatable(async (command) => {
+    stop_task: liveControl(repeatable(async (command) => {
       const { taskId } = command.payload as { taskId: string };
       const result = await runner.stopTask(chatOf(command), taskId);
       return { state: 'delivered', result };
-    }),
-    stop: repeatable(async (command) => {
+    })),
+    stop: liveControl(repeatable(async (command) => {
       const result = await runner.close(chatOf(command));
       return result.closed ? { state: 'delivered', result } : { state: 'failed', error: result.error ?? 'The session did not close.' };
-    }),
-    answer_pending_input: answer,
+    })),
+    answer_pending_input: liveControl(answer),
   };
 }

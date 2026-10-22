@@ -135,6 +135,7 @@ export const userState = sqliteTable('user_state', {
   defaultModel: text(),
   defaultVariant: text(),
   defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
+  defaultServiceTier: text(),
   // Retired 2026-10-05, no longer read or written: the main chat acts
   // through MCP only. It once chose between 'harness_skills' (actions via the
   // CLI and skills), 'harness_mcp' and the built-in 'legacy' chat. Kept so
@@ -203,6 +204,7 @@ export const harnessSettings = sqliteTable('harness_settings', {
   defaultModel: text(),
   defaultVariant: text(),
   defaultEffort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
+  defaultServiceTier: text(),
   catalogRefreshedAt: text(),
 });
 
@@ -904,6 +906,7 @@ export const deviceGrants = sqliteTable(
 export const WORKER_COMMAND_KINDS = [
   'prepare',
   'send',
+  'recycle',
   'interrupt',
   'stop_task',
   'generate_title',
@@ -1762,6 +1765,8 @@ export type WorkResultReviewSelection = {
   model: string | null;
   variant: string | null;
   effort: ExplicitHarnessSelection['effort'];
+  /** Absent on legacy saved assignments, which retain native defaults. */
+  serviceTier?: ExplicitHarnessSelection['serviceTier'];
   explicit?: {
     harness?: ExplicitHarnessSelection['providerId'];
     model?: string | null;
@@ -2111,6 +2116,8 @@ export const chatSessions = sqliteTable(
     model: text(),
     modelVariant: text(),
     effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
+    // Provider-native speed id. NULL preserves a legacy chat's native setting.
+    serviceTier: text(),
 
     // When entering plan mode we stash the prior permission_mode here so
     // ExitPlanMode can revert. Cleared when a non-plan mode is set directly.
@@ -2596,6 +2603,7 @@ export const agentRequests = sqliteTable('agent_requests', {
     provider?: HarnessId;
     model?: string;
     effort?: string;
+    serviceTier?: string;
     permissionMode?: (typeof PERMISSION_MODES)[number];
     taskId?: string;
     deviceId?: string;
@@ -2793,6 +2801,7 @@ export const triggers = sqliteTable(
     // the harness default.
     model: text(),
     effort: text({ enum: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }),
+    serviceTier: text(),
     // Optional hard cap on wall-clock runtime per fire. NULL = no
     // timeout (the default for new triggers); positive int = seconds.
     // The honest signal for "is this run stuck" lives in the observe-

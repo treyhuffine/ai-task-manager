@@ -197,6 +197,7 @@ export const sessionsApi = {
       model?: string;
       modelVariant?: string | null;
       effort?: EffortLevel | null;
+      serviceTier?: string | null;
       prNumber?: number | null;
       /** Manual chat-tab order (fractional index). `null` resets to creation order. */
       tabSortKey?: string | null;
@@ -431,7 +432,7 @@ export const sessionsApi = {
    */
   newChat(
     id: string,
-    opts?: { providerId?: HarnessId; model?: string; variant?: string; effort?: EffortLevel; forApp?: boolean },
+    opts?: { providerId?: HarnessId; model?: string; variant?: string; effort?: EffortLevel; serviceTier?: string; forApp?: boolean },
   ) {
     return trpcClient.sessions.newChatPost.mutate({params: {id: id}, body: opts ?? {}});
   },
