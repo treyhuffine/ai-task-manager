@@ -3,7 +3,7 @@
 The desktop shell has two pieces of chrome, and each has one job:
 
 - **The header (top HUD)** shows what's happening, from every view: work by status (the Needs approval, Unread, Working and Waiting pills), the harness usage limits on hover beside them, the way out of an execution or agent (or back into the latest one, ⌘E), the next calendar event, and the budget warning.
-- **The rail (left)** holds the things you start and the places you go: home, New chat, Search chats, Apps, Task Board, Calendar, Schedules and Triggers, the list of work, and Settings.
+- **The rail (left)** holds the things you start and the places you go: home, New chat, Search chats, Apps, Board, Calendar, Schedules and Triggers, the list of work, and Settings.
 
 Reworked 2026-10-05 from a rail that listed every execution even when collapsed, and a header that mixed status with buttons (Inbox, Board, Settings). Reworked again 2026-10-08 so everything above the list is one kind of row and the list has one header (see "What went away").
 
@@ -21,7 +21,7 @@ Run `pnpm exec tsx scripts/top-hud-browser-smoke.ts` against `pnpm dev` to quali
 |---|---|---|
 | Home row | The orchestrator by name, the way home. Collapse toggle (⌘\) at its right. | Fixed |
 | New chat, Search chats | Rows in the same style as the places, first under the home row, the way New chat and Search sit at the top of a chat app's sidebar. New chat opens the launcher with no agent picked. Search chats opens chat search (every transcript). A hairline separates them from the places. The UI says chat for what the code calls an execution (`AGENTS.md`). | Fixed |
-| Places | **Apps** comes first, with a chevron: clicking it opens the library, resting on it peeks your apps beside the rail (below). An app whose action waits on you puts an amber count on the row. Next come Task Board (full screen), Calendar (full screen, `CalendarModal`), and Schedules and Triggers (with the live run count). Pointing at Calendar prefetches the week. | Scroll away with the list |
+| Places | **Apps** comes first, with a chevron: clicking it opens the library, resting on it peeks your apps beside the rail (below). An app whose action waits on you puts an amber count on the row. Next come Board (full screen), Calendar (full screen, `CalendarModal`), and Schedules and Triggers (with the live run count). Pointing at Calendar prefetches the week. | Scroll away with the list |
 | The list header | One row: Agents and Recent as labels in the group-label grammar (the same as Pinned and Needs you under it), the one in force bright and the other quiet, so the switch is the list's title rather than a second row of buttons. On Agents, select-to-archive and New agent sit at its right. While selecting, the toolbar (count, Archive, Cancel) takes the row. | Sticky |
 | Agents, Recent | Agents is the agent tree with each agent's executions. Recent is every execution newest first, archived included, with an agent filter. | Scrolls |
 | The list | Pinned, then the chosen tab's list. Every row carries the same status dot (`chat-status.tsx`: needs input, working, unread, background), unread titles are bold, and no row shows diff stats (they don't help decide where to go, they live in the execution's header). In Recent the dot sits on the agent's avatar, which tells agents apart in a mixed list, and an active execution reads the rail's live record rather than the once-a-minute history feed. | Scrolls |
@@ -46,7 +46,7 @@ One rule hides a row: what can't open waits in the library with its state. A res
 
 ## Collapsed rail
 
-44px of icons in the same order as the wide rail: home, expand, New chat, Search chats, Apps (an amber dot while an app waits on you), Task Board, Calendar, Schedules (a dot while runs are active), then **one Agents button**, and Settings at the foot. Connect accounts needs its words, so the collapsed rail leaves it to Settings, except while an account needs you: then a plug with an amber dot sits above Settings, named for the accounts, and opens where they're fixed.
+44px of icons in the same order as the wide rail: home, expand, New chat, Search chats, Apps (an amber dot while an app waits on you), Board, Calendar, Schedules (a dot while runs are active), then **one Agents button**, and Settings at the foot. Connect accounts needs its words, so the collapsed rail leaves it to Settings, except while an account needs you: then a plug with an amber dot sits above Settings, named for the accounts, and opens where they're fixed.
 
 Apps and Agents both open a flyout (`RailFlyout`). Agents peeks on hover and holds on click. Apps peeks on hover, and a click opens the library.
 
@@ -63,7 +63,7 @@ The execution view starts with the rail collapsed (`executionRailOpen`, separate
 
 ## Tablet
 
-768 to 1024px uses the same collapsed rail with no expand toggle (`PowerRail fixed`): the window can't spare 256px. Tap Agents for the flyout. Task Board and Calendar open full screen, as on a desktop.
+768 to 1024px uses the same collapsed rail with no expand toggle (`PowerRail fixed`): the window can't spare 256px. Tap Agents for the flyout. Board and Calendar open full screen, as on a desktop.
 
 ## What went away
 
@@ -71,7 +71,7 @@ The execution view starts with the rail collapsed (`executionRailOpen`, separate
 - **The Status tab.** The same four buckets, with the same counts, as the header's pills, which show from every view. `bucketSessions` (`src/lib/sessions/classification.ts`) is now the one reading of them, shared by the pills and the Agents badge. A stored `status` tab reads as Agents.
 - **History** is now **Recent**: the word people know for "everything, newest first". Code keeps `history` (`HistoryView`, the `ri.rail.tab` value).
 - **The pencil on the home row** and its dialog. The name and look are edited in Settings, Profile.
-- **Board and Settings in the header** moved to the rail. The board is now labeled Task Board, and ⌘K has "Open Task Board" and "Settings".
+- **Board and Settings in the header** moved to the rail. Board has Agent Activity and Tasks views, and ⌘K has "Open Board" and "Settings". The rail remembers the last view, initially Agent Activity. See [Board trial](board-trial.md).
 
 ## Apps, and the mode switch that went away
 
@@ -93,3 +93,7 @@ New chat and Search chats each exist twice. The rail's are the agent side (a new
 - `src/components/dashboard/top-hud.tsx`, `rail-status-pills.tsx`: the header.
 - `src/components/dashboard/rate-limits-pill.tsx`: the Usage icon. Its hover lists each harness account's windows (5-hour, weekly, a model family's weekly), credits and extra usage, each with its own reset. Usage counts up toward the limit: the bar is blue, yellow from 80% and red from 90% or once the provider says the limit is reached. Limits belong to the harness account, so every chat on one harness shares them. They come from the `rate_limits` events this home's chats report (agentex 0.0.43), merged per harness in `src/lib/harness/rate-limits.ts` and saved to `<config>/harness-rate-limits.json`. Nothing is polled. When the card opens on a harness whose numbers are over a minute old, the server reads them fresh with agentex's sessionless `readRateLimits` (0.0.44: no prompt, no conversation history, about a second), at most once a minute per harness, and the card shows the stored numbers marked Updating until it returns. Each block says how old its numbers are. Claude Code and Codex report limits. Other harnesses and chats on connected devices don't appear.
 - `src/lib/client/rail-tab.ts`, `rail-flyout.ts`: the tab choice and the flyout rules.
+
+## Board views
+
+Board opens a spacious dialog with visible Agent Activity and Tasks buttons. Agent Activity and the HUD use the same live status buckets, including agent main chats needing attention. Each HUD status popover can expand into its bucket in Board. Both views have a Columns menu and separate saved visibility choices. Tasks starts with unfinished columns, with Done and Archived available in Columns. See [Board trial](board-trial.md) for links, preferences and verification.

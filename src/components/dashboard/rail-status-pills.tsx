@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useSessionBuckets } from '@/hooks/use-session-buckets';
+import { useActivityBuckets } from '@/hooks/use-activity-buckets';
+import type { ActivityItem } from '@/lib/sessions/activity-buckets';
+import { openBoard } from '@/lib/client/task-board';
 import { useRailSessions } from '@/hooks/use-workspaces';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -10,33 +12,25 @@ import {
   BUCKET_ORDER,
   type BucketId,
 } from '@/components/workspaces/bucket-config';
-import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
 import { executionView } from '@/lib/client/active-view';
-import { useAgentAttention, type AgentAttentionItem } from '@/hooks/use-agent-attention';
 import { AgentAttentionRow } from '@/components/workspaces/agent-attention-row';
-import { WorkspaceAvatar } from '@/components/workspaces/history-row';
+import { AgentIcon } from '@/components/agents/agent-icon';
 import { Tip } from '@/components/ui/tip';
 import Link from 'next/link';
-import { ClipboardCheck, ShieldAlert } from 'lucide-react';
+import { ClipboardCheck, ShieldAlert, Maximize2 } from 'lucide-react';
 import type { RailResponse } from '@/lib/api/sessions';
 
-// Top-HUD status pills: every active execution by status, as a compact
-// dot+count strip that stays visible regardless of rail collapse state or
-// current view. This is the app's one by-status view (the rail lists work by
-// agent and by time). Click → popover of sessions; click a row → jumps to that
-// execution. Zero-count pills render dimmed so the strip's positions are
-// stable and the eye learns where to look.
+// The HUD's compact status overview stays visible regardless of rail collapse.
+// Its popovers and Agent Activity share the same rows. A row opens the chat,
+// and Board expands that bucket. Empty pills stay dimmed in stable positions.
 
 export function RailStatusPills() {
   const { data } = useRailSessions();
   // Inactive work and settled imports are left out (`bucketSessions`), the
   // same reading the collapsed rail's Agents badge counts.
-  const buckets = useSessionBuckets();
-  // Agents that want you count where their work counts, so "needs you"
-  // anywhere in the app is one number. Thinking stays out of Working.
-  const agents = useAgentAttention();
+  const buckets = useActivityBuckets();
 
   return (
     <div className="flex items-center gap-1">
@@ -44,8 +38,7 @@ export function RailStatusPills() {
         <StatusPill
           key={bucketId}
           bucketId={bucketId}
-          sessions={buckets[bucketId]}
-          agents={agents.filter((a) => a.bucket === bucketId)}
+          items={buckets[bucketId]}
         />
       ))}
       <ReviewAttentionPill reviews={data?.resultReviewAttention ?? []} pendingSessionIds={data?.pendingSessionIds ?? []} />
@@ -79,15 +72,13 @@ export function ReviewAttentionPill({ reviews, pendingSessionIds }: { reviews: N
 
 interface StatusPillProps {
   bucketId: BucketId;
-  sessions: RailSession[];
-  /** Agents in this bucket, listed first. */
-  agents: AgentAttentionItem[];
+  items: ActivityItem[];
 }
 
-function StatusPill({ bucketId, sessions, agents }: StatusPillProps) {
+function StatusPill({ bucketId, items }: StatusPillProps) {
   const [open, setOpen] = useState(false);
   const cfg = BUCKET_CONFIG[bucketId];
-  const count = sessions.length + agents.length;
+  const count = items.length;
   const empty = count === 0;
 
   // Empty pill: dim, non-interactive, no popover. Stable position lets
@@ -148,17 +139,21 @@ function StatusPill({ bucketId, sessions, agents }: StatusPillProps) {
           )}>
             {count}
           </span>
+          <Tip label={`Show ${cfg.label} in Agent Activity`}>
+            <button type="button" aria-label={`Expand ${cfg.label} in Board`}
+              className="ml-1 inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => {
+                setOpen(false);
+                // Let the popover restore focus before the Board captures its opener.
+                requestAnimationFrame(() => openBoard({ focusBucket: bucketId }));
+              }}><Maximize2 className="size-3" />Board</button>
+          </Tip>
         </div>
         <div className="max-h-72 overflow-y-auto py-1">
-          {agents.map((item) => (
-            <AgentAttentionRow key={item.workspace.id} item={item} variant="pill" onPick={() => setOpen(false)} />
-          ))}
-          {sessions.map((s) => (
-            <PillSessionRow
-              key={s.id}
-              session={s}
-              onPick={() => setOpen(false)}
-            />
+          {items.map((row) => row.kind === 'agent' ? (
+            <AgentAttentionRow key={row.id} item={row.item} variant="pill" onPick={() => setOpen(false)} />
+          ) : (
+            <PillSessionRow key={row.id} session={row.session} onPick={() => setOpen(false)} />
           ))}
         </div>
       </PopoverContent>
@@ -179,8 +174,6 @@ function PillSessionRow({ session, onPick }: PillSessionRowProps) {
   const label = session.execution?.label ?? session.label ?? 'Untitled';
   const labelIsPlaceholder = !(session.execution?.label ?? session.label);
   const wsName = session.workspaceName ?? 'No agent';
-  const wsImage = coverAttachmentUrl(session.workspaceAttachments);
-  const wsEmoji = session.workspaceEmoji;
 
   const handleOpen = () => {
     setActiveView(executionView(session.id));
@@ -196,7 +189,7 @@ function PillSessionRow({ session, onPick }: PillSessionRowProps) {
         isActive ? 'bg-secondary' : 'hover:bg-muted/50',
       )}
     >
-      <WorkspaceAvatar wsImage={wsImage} wsEmoji={wsEmoji} wsName={wsName} />
+      <AgentIcon workspace={{ name: wsName, attachments: session.workspaceAttachments, emoji: session.workspaceEmoji, areaId: session.workspaceAreaId }} size="sm" />
       <div className="flex-1 min-w-0 leading-tight">
         <div className={cn(
           'text-[11.5px] truncate',

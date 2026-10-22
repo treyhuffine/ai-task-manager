@@ -40,11 +40,16 @@ import type { RailMainChat } from '@/lib/sessions/contracts';
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   try {
     // Redacted to what the rail draws. See lib/api/dto/rail-session.ts.
-    const sessions = toRailSessionDTOs(listRailSessions());
+    const rows = toRailSessionDTOs(listRailSessions());
     const pendingSessionIds = listSessionsWithPending();
     const runningSessionIds = listRunningSessions();
     const backgroundSessionIds = listBackgroundTaskSessions();
     const pending = new Set(pendingSessionIds);
+    // Existing in-memory requests provide useful Board context without reading transcripts.
+    const sessions = rows.map((session) => {
+      const request = pending.has(session.id) ? listForSession(session.id)[0] : undefined;
+      return { ...session, ...(request ? { waitingOn: pendingSummary(request) } : {}) };
+    });
     const mainChats: RailMainChat[] = listAgentMainChats().map((chat) => {
       const request = pending.has(chat.id) ? listForSession(chat.id)[0] : undefined;
       return { ...chat, waitingOn: request ? pendingSummary(request) : null };

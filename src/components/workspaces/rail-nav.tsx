@@ -8,7 +8,7 @@ import { useRunsStats } from '@/hooks/use-runs-stats';
 import { openCalendarModal, useCalendarModal } from '@/lib/client/calendar-modal';
 import { mondayOf } from '@/lib/calendar/dates';
 import { todayLocalDate } from '@/lib/deck/date';
-import { openTaskBoard, useTaskBoardOpen } from '@/lib/client/task-board';
+import { openBoard, useTaskBoardOpen } from '@/lib/client/task-board';
 import { cn } from '@/lib/utils';
 import { openLauncher } from './launcher/launcher-store';
 import { openChatSearch } from './chat-search-store';
@@ -26,7 +26,7 @@ export { RailIconButton } from './rail-icon-button';
  *     chats (every transcript, in a modal). First under the home row and
  *     fixed there, the way New chat and Search sit at the top of a chat
  *     app's sidebar.
- *   - **Places**: Apps (`use-app-places.tsx`), Task Board, Calendar, then
+ *   - **Places**: Apps (`use-app-places.tsx`), Board, Calendar, then
  *     Schedules and Triggers. They scroll away with the list. Each opens
  *     full screen or in a dialog over whatever is on screen. A place with a
  *     `flyout` (Apps) opens its list beside the rail instead, on hover or
@@ -79,10 +79,10 @@ export function useRailPlaces({
     ...apps,
     {
       id: 'board',
-      label: 'Task Board',
-      title: 'Task Board',
+      label: 'Board',
+      title: 'Board',
       icon: SquareKanban,
-      onClick: openTaskBoard,
+      onClick: () => openBoard(),
       active: boardOpen,
     },
     {

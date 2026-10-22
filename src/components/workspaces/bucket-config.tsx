@@ -3,9 +3,8 @@ import type { ReactNode } from 'react';
 import type { BucketId } from '@/lib/sessions/classification';
 export { bucketSessions, classifySession, executionActivity, type BucketId } from '@/lib/sessions/classification';
 
-// Bucket identity for the header's status pills (rail-status-pills.tsx), the
-// one place work is shown by status. Counted through `bucketSessions`, which
-// the collapsed rail's Agents badge reads too, so the two always agree.
+// Shared identity for the HUD's status pills and Agent Activity in Board.
+// Both use the same classified sessions and agent main-chat attention.
 
 // Left-to-right order of the header pills. Reorder by editing this array.
 export const BUCKET_ORDER: readonly BucketId[] = [

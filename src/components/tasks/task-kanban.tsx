@@ -42,17 +42,21 @@ import type { TaskAttentionSignals, TaskStatus } from '@/db/types';
 import {
   ListToolbar,
   ToolbarActiveDot,
-  ToolbarToggle,
   toolbarButtonClass,
 } from '@/components/shared/list-toolbar';
 import { cn } from '@/lib/utils';
 import { Tip } from '@/components/ui/tip';
+import { ColumnPicker, HiddenColumnsEmpty } from '@/components/board/column-picker';
+import { useBoardColumns } from '@/hooks/use-board-columns';
 
 
 /** How often the board looks for changes made elsewhere: an agent moving a
  * task in the middle of a long turn, the CLI, another device. Turn starts and
  * ends refresh it sooner (src/lib/query/invalidate-tasks.ts). */
 const BOARD_POLL_MS = 15_000;
+const ALL_COLUMNS: TaskLane[] = [...KANBAN_COLUMNS, 'archived'];
+const UNFINISHED_COLUMNS: TaskLane[] = ['consider', 'todo', 'current'];
+const COLUMN_OPTIONS = ALL_COLUMNS.map((id) => ({ id, label: LANE_BY_KEY[id].label }));
 
 export type AreaMode = 'all' | 'none' | string; // 'all', 'none', or an area id
 
@@ -305,6 +309,7 @@ export function TaskKanban({
   createDefaults,
   areaFilter,
   onAreaFilterChange,
+  columnPreferenceKey,
 }: {
   leading: ReactNode;
   trailing?: ReactNode;
@@ -326,6 +331,8 @@ export function TaskKanban({
   /** The Area filter, when the host keeps it (a team's rail filters its board and notes alike). */
   areaFilter?: AreaMode;
   onAreaFilterChange?: (mode: AreaMode) => void;
+  /** Separate team preferences from the personal Board. */
+  columnPreferenceKey?: string;
 }) {
   const qc = useQueryClient();
   const dashboard = useOptionalDashboard();
@@ -337,7 +344,11 @@ export function TaskKanban({
   const [ownAreaMode, setOwnAreaMode] = useState<AreaMode>('all');
   const areaMode = areaFilter ?? ownAreaMode;
   const setAreaMode = onAreaFilterChange ?? setOwnAreaMode;
-  const [showArchived, setShowArchived] = useState(false);
+  const { visible: columns, setVisible: setColumns } = useBoardColumns(
+    columnPreferenceKey ?? (agents ? 'ri.board.columns.tasks' : 'ri.board.columns.team-tasks'),
+    ALL_COLUMNS, agents ? UNFINISHED_COLUMNS : KANBAN_COLUMNS,
+  );
+  const showArchived = columns.includes('archived');
   const [activeId, setActiveId] = useState<string | null>(null);
 
   // Create into a column with its status pre-set. In progress, Done and
@@ -364,7 +375,6 @@ export function TaskKanban({
     [createTask, areaMode, lifecycle, createDefaults],
   );
 
-  const columns: TaskLane[] = showArchived ? [...KANBAN_COLUMNS, 'archived'] : KANBAN_COLUMNS;
 
   // One query per column, ordered by the shared sort contract.
   const live = { refetchInterval: BOARD_POLL_MS };
@@ -542,12 +552,15 @@ export function TaskKanban({
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-        <ToolbarToggle active={showArchived} onClick={() => setShowArchived((v) => !v)}>
-          Archived
-        </ToolbarToggle>
+        <ColumnPicker columns={COLUMN_OPTIONS} visible={columns} onChange={setColumns} />
         {trailing}
       </ListToolbar>
 
+      {[consider, todo, current, done, archived].some((query, index) => columns.includes(ALL_COLUMNS[index]) && query.isError) && (
+        <div role="alert" className="px-4 py-2 text-xs text-destructive">
+          Some tasks could not be loaded. <button type="button" className="underline" onClick={() => void Promise.all([consider, todo, current, done, archived].map((query) => query.refetch()))}>Try again</button>
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-x-auto p-3">
         <DndContext
           sensors={sensors}
@@ -557,6 +570,7 @@ export function TaskKanban({
           onDragCancel={() => setActiveId(null)}
         >
           <div className="flex h-full gap-3">
+            {columns.length === 0 && <HiddenColumnsEmpty onShowAll={() => setColumns(ALL_COLUMNS)} />}
             {columns.map((lane) => (
               <KanbanColumn
                 key={lane}

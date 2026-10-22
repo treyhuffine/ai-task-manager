@@ -19,7 +19,7 @@ import { useSearch } from '@/hooks/use-search';
 import { useCreateTask } from '@/hooks/use-tasks';
 import { useStartSkill } from '@/hooks/use-start-skill';
 import type { SearchResult } from '@/lib/api/search';
-import { closeTaskBoard, openTaskBoard } from '@/lib/client/task-board';
+import { closeTaskBoard, openBoard } from '@/lib/client/task-board';
 import { closeCalendarModal, openCalendarModal } from '@/lib/client/calendar-modal';
 import { useLocalApps } from '@/components/local-apps/app-hooks';
 import { appPlaces } from '@/components/local-apps/app-places';
@@ -223,7 +223,7 @@ export function SearchOverlay() {
         break;
       case 'open-board':
         setOpen(false);
-        openTaskBoard();
+        openBoard();
         break;
       case 'open-calendar':
         setOpen(false);

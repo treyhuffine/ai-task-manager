@@ -21,7 +21,7 @@ import { WorkspaceSelectionProvider } from './workspace-selection-context';
  *     toggle at its right (`RailHome`). Fixed.
  *   - **New execution, Search chats**: rows, fixed under the home row
  *     (`rail-nav.tsx`).
- *   - **Places**: Apps, Task Board, Calendar, Schedules and Triggers. Rows that
+ *   - **Places**: Apps, Board, Calendar, Schedules and Triggers. Rows that
  *     scroll away with the list. Apps opens your apps beside the rail.
  *   - **The list header**: Agents | Recent as the list's title, with the
  *     list's actions. Sticky at the top once the places have scrolled off.

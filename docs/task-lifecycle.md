@@ -76,9 +76,9 @@ proves clunky. Reviews (`execution_reviews`) are keyed to the exact output event
 - Stream: `promote_stream` can park an item in Consider or commit it to Todo.
 - Lanes (List and Board): Current Work, Todo, Consider, Done, Archived — two
   views over the same records and the same lifecycle (`src/lib/tasks/lanes.ts`).
-  The Board shows in the Tasks panel (its List/Board switcher) and nearly full
-  screen from the rail's Board row or "Open board" in ⌘K
-  (`src/components/tasks/task-board-modal.tsx`, linkable as `?board=1`).
+  The Tasks panel's Board control opens the nearly full-screen Board on Tasks.
+  The rail's Board row and "Open Board" in ⌘K remember the last selected view
+  (`src/components/tasks/task-board-modal.tsx`, the Tasks view of Board, linkable as `?board=tasks`, with legacy `?board=1` links preserved).
   In progress cards carry the attention badges (Working, Update, Stalled,
   Blocked) and an Open button to the agent's chat (`agentSessionId` on
   `getTaskAttentionSignals`). Working means a turn is running right now, and
@@ -117,3 +117,5 @@ Version revert is content-only: it restores title/body/description and other
 content fields but never `status` or completion metadata. An undo of an edit
 cannot silently un-complete a task or move it between lanes. Lifecycle changes
 only ever happen through an explicit lifecycle command.
+
+The personal Board starts with Consider, Todo and In progress visible. The Columns menu can show or hide each lane, including Done and Archived, and remembers the choice. The Tasks panel's Board control opens this same Board on Tasks. The adjacent Agent Activity view describes conversation attention, not task lifecycle. See [Board trial](board-trial.md).

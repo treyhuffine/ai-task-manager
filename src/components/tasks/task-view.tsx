@@ -2,10 +2,10 @@
 
 import { SegmentedTabs } from '@/components/shared/list-toolbar';
 
-/** List vs Kanban — two views over the same records, same lifecycle. */
+/** List and the Tasks view of the shared Board use the same lifecycle. */
 export type TaskView = 'list' | 'board';
 
-/** Persisted across reloads. */
+/** Legacy inline-board preference key. Board now remembers its own view. */
 export const TASK_VIEW_KEY = 'ri.tasks.view';
 
 const VIEW_TABS = [

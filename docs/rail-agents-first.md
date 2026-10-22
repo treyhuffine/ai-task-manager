@@ -51,3 +51,7 @@ Opening an agent marks its main chat read (`HarnessChat` does on mount), and the
 ## Retiring the switch
 
 If it wins: make `AgentRailRow` the only agents row, delete `WorkspaceRow` and `rail-style.ts`, and move the Pinned group to the compact row. If it loses: delete `agent-rail-row.tsx`, `rail-style.ts` and the compact density. Keep `useAgentAttention` either way, since agents counting where attention is counted doesn't depend on the style.
+
+## Board trial
+
+The rail now has one Board destination with Agent Activity and Tasks views. Agent Activity expands the HUD's existing status populations, including agent main chats needing attention, without merging task lifecycle and conversation status. HUD popovers remain available and can expand their bucket into Board. Column visibility is a separate saved presentation preference for each view. See [Board trial](board-trial.md).

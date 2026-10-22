@@ -7,51 +7,31 @@ import { Dialog, DialogDescription, DialogOverlay, DialogPortal, DialogTitle } f
 import { useDashboard } from '@/contexts/dashboard-context';
 import { viewKey } from '@/lib/client/active-view';
 import { closeCalendarModal } from '@/lib/client/calendar-modal';
-import { closeTaskBoard, openTaskBoard, useTaskBoardOpen } from '@/lib/client/task-board';
+import { closeTaskBoard, openBoard, syncBoardFromUrl, useBoardState } from '@/lib/client/task-board';
+import { AgentActivityBoard } from '@/components/board/agent-activity-board';
+import { SegmentedTabs } from '@/components/shared/list-toolbar';
+import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { TaskKanban } from './task-kanban';
 import { Tip } from '@/components/ui/tip';
 
-/** `?board=1` keeps the board open across a reload and makes it linkable. */
-const BOARD_PARAM = 'board';
-
-/**
- * The task board, nearly full screen, over whatever is on screen. Opened from
- * the rail's Task Board or "Open Task Board" in ⌘K, and closed with Esc, the X
- * or a click outside, which leaves you exactly where you were (often an
- * execution you were watching). Same board as the Tasks panel's Board view,
- * just with the width to read it.
- *
- * Layering: the board sits at z-40, the task slideout's own layer, so a card
- * opens its task on top with the board dimmed behind it. On desktop it starts
- * below the HUD, which the desktop app makes a window drag region that would
- * otherwise swallow clicks on the board's toolbar.
- */
+/** One spacious Board over the current view. Task slideouts can stack above it.
+ * The HUD stays above its desktop edge so window dragging cannot swallow controls. */
 export function TaskBoardModal() {
-  const open = useTaskBoardOpen();
+  const { open, view, focusBucket } = useBoardState();
+  const params = useSearchParams();
   const { activeView, closeAllSlideouts, openExecution } = useDashboard();
-  // Whatever had focus when the board opened (the rail's Task Board button). Radix
+  // Whatever had focus when the board opened (the rail's Board button). Radix
   // hands focus back to a `Dialog.Trigger`, and this board has none.
   const openerRef = useRef<HTMLElement | null>(null);
 
-  // Open from a `?board` link on first mount.
+  // Handle initial bookmarks, query navigation and browser back/forward.
+  const search = params.toString();
+  useEffect(() => { syncBoardFromUrl(); }, [search]);
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).has(BOARD_PARAM)) openTaskBoard();
+    window.addEventListener('popstate', syncBoardFromUrl);
+    return () => window.removeEventListener('popstate', syncBoardFromUrl);
   }, []);
-
-  // Reflect the open state in the URL without a router round-trip. A null
-  // state lets Next's router take the new URL as its own. Passing its current
-  // state skips that, and a navigation in flight (Open on a card) would then
-  // write `?board=1` back.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (open === params.has(BOARD_PARAM)) return;
-    if (open) params.set(BOARD_PARAM, '1');
-    else params.delete(BOARD_PARAM);
-    const qs = params.toString();
-    const url = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
-    window.history.replaceState(null, '', url);
-  }, [open]);
 
   // Going somewhere else closes the board, so "Start with agent" from a task
   // opened here lands on the new execution instead of under the board.
@@ -74,7 +54,7 @@ export function TaskBoardModal() {
   }, [open, closeAllSlideouts]);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (next ? openTaskBoard() : closeTaskBoard())}>
+    <Dialog open={open} onOpenChange={(next) => (next ? openBoard() : closeTaskBoard())}>
       <DialogPortal>
         <DialogOverlay className="z-40" />
         <DialogPrimitive.Content
@@ -105,32 +85,24 @@ export function TaskBoardModal() {
           }}
         >
           <DialogDescription className="sr-only">
-            Every task by lane. Drag a card to move it, or click it to open the task.
+            Switch between live agent activity and tasks. Choose which columns to show.
           </DialogDescription>
-          <TaskKanban
-            // Close explicitly: the agent's chat may already be the view
-            // underneath, so the view-change close above wouldn't fire.
-            onOpenAgent={(sessionId) => {
-              closeTaskBoard();
-              openExecution(sessionId);
-            }}
-            leading={
-              <DialogTitle className="flex items-center gap-1.5 px-1 text-sm font-semibold">
-                <SquareKanban className="size-4 text-muted-foreground" />
-                Task Board
-              </DialogTitle>
-            }
-            trailing={
-              <Tip label="Close Task Board" shortcut="Esc">
-                <DialogPrimitive.Close
-                  className="ml-1 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  aria-label="Close Task Board"
-                >
-                  <X className="size-4" />
-                </DialogPrimitive.Close>
-              </Tip>
-            }
-          />
+          <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-3 py-2">
+            <DialogTitle className="mr-1 flex items-center gap-1.5 text-sm font-semibold">
+              <SquareKanban className="size-4 text-muted-foreground" />Board
+            </DialogTitle>
+            <SegmentedTabs ariaLabel="Board view" value={view} onChange={(next) => openBoard({ view: next })}
+              options={[{ value: 'activity', label: 'Agent Activity' }, { value: 'tasks', label: 'Tasks' }]} grow={false} />
+            <Tip label="Close Board" shortcut="Esc">
+              <DialogPrimitive.Close className="ml-auto flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close Board">
+                <X className="size-4" />
+              </DialogPrimitive.Close>
+            </Tip>
+          </div>
+          {view === 'activity' ? <AgentActivityBoard focusBucket={focusBucket} /> : <div className="min-h-0 flex-1">
+            <TaskKanban leading={<span className="text-xs text-muted-foreground">Tasks by lifecycle</span>}
+              onOpenAgent={(sessionId) => { closeTaskBoard(); openExecution(sessionId); }} />
+          </div>}
         </DialogPrimitive.Content>
       </DialogPortal>
     </Dialog>
