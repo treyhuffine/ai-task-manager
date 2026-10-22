@@ -96,6 +96,7 @@ export async function GET(request: NextRequest) {
         subscribe(globalSessionChannel, (message) => {
           if (message.kind === 'device_updated') enqueue(sse('device_updated', message));
           if (message.kind === 'session_updated') enqueue(sse('session_updated', message));
+          if (message.kind === 'rate_limits_updated') enqueue(sse('rate_limits_updated', message));
         }),
       );
 

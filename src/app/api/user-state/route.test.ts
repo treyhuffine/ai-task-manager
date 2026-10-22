@@ -41,6 +41,20 @@ beforeEach(() => {
   updateUserState.mockClear();
 });
 
+describe('subscription usage warning preference', () => {
+  it.each([true, false, null])('saves %s without changing the main chat', async (usageWarnings) => {
+    const res = await patch({ usageWarnings });
+    expect(res.status).toBe(200);
+    expect(updateUserState).toHaveBeenCalledWith({ usageWarnings });
+    expect(recycleAppMainChats).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-boolean preference', async () => {
+    expect((await patch({ usageWarnings: 'off' })).status).toBe(400);
+    expect(updateUserState).not.toHaveBeenCalled();
+  });
+});
+
 describe('PATCH /api/user-state orchestratorName', () => {
   it('stores a new name on one line and recycles the main chat', async () => {
     const res = await patch({ orchestratorName: '  Chief\nof   Staff ' });

@@ -51,7 +51,7 @@ describe('reading rate limits outside a chat', () => {
     expect(getHarnessRateLimits()).toEqual(result);
   });
 
-  it('skips a harness a chat reported on in the last minute, and reads it once that is older', async () => {
+  it('skips a harness a chat reported on in the last two minutes, and reads it once that is older', async () => {
     recordRateLimits('claude', observation('claude', 9, T0).value!);
     reads.codex.mockResolvedValue(observation('codex', 40, T0));
     await readHarnessRateLimits(T0 + 30_000);
@@ -77,13 +77,14 @@ describe('reading rate limits outside a chat', () => {
     expect(b.find((entry) => entry.harness === 'claude')?.buckets[0]?.usedPercent).toBe(15);
   });
 
-  it('keeps the last numbers when a read fails, and waits a minute before trying again', async () => {
+  it('keeps the last numbers when a read fails, and waits two minutes before trying again', async () => {
     recordRateLimits('claude', observation('claude', 9, T0 - 5 * 60_000).value!);
     reads.claude.mockResolvedValue(unavailable);
     reads.codex.mockRejectedValue(new Error('spawn failed'));
     const result = await readHarnessRateLimits(T0);
     expect(result).toEqual([expect.objectContaining({ harness: 'claude', buckets: [expect.objectContaining({ usedPercent: 9 })] })]);
     expect(rateLimitsNeedRead(T0 + 30_000)).toBe(false);
+    expect(rateLimitsNeedRead(T0 + 119_999)).toBe(false);
     await readHarnessRateLimits(T0 + 30_000);
     expect(reads.claude).toHaveBeenCalledTimes(1);
     expect(rateLimitsNeedRead(T0 + RATE_LIMIT_READ_AFTER_MS)).toBe(true);

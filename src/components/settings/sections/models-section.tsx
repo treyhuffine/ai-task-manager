@@ -3,6 +3,7 @@
 import { DefaultModelSection } from '@/components/settings/default-model-section';
 import { HarnessSettingsPanel } from '@/components/settings/harness-settings-panel';
 import { BillingSection } from './billing-section';
+import { UsageWarningsSetting } from '../usage-warnings-setting';
 
 /**
  * The global default model, then each harness (sign-in, visible models, its
@@ -22,6 +23,7 @@ export function ModelsSection() {
             What your agents have spent, and an optional monthly cap.
           </p>
         </header>
+        <UsageWarningsSetting />
         <BillingSection />
       </section>
     </div>

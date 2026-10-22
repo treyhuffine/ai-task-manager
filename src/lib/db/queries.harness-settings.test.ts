@@ -45,6 +45,13 @@ beforeEach(() => {
 });
 
 describe('ensureHarnessSettings', () => {
+  it('keeps the usage warning choice nullable and persists explicit choices', () => {
+    expect(q.getUserState()?.usageWarnings).toBeNull();
+    expect(q.updateUserState({ usageWarnings: false })?.usageWarnings).toBe(false);
+    expect(q.getUserState()?.usageWarnings).toBe(false);
+    expect(q.updateUserState({ usageWarnings: true })?.usageWarnings).toBe(true);
+    expect(q.updateUserState({ usageWarnings: null })?.usageWarnings).toBeNull();
+  });
   it('seeds every Claude tier alias, Fable included', () => {
     // The aliases resolve to whatever the installed CLI ships as that tier, so
     // none of them go stale and there is no reason to withhold one.

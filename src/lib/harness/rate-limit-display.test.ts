@@ -1,11 +1,52 @@
 import { describe, expect, it } from 'vitest';
-import { ageLabel, rateLimitRows, rateLimitTone, resetLabel } from './rate-limit-display';
+import { ageLabel, rateLimitRows, rateLimitTone, resetLabel, rateLimitWarning, rateLimitStatus } from './rate-limit-display';
 import type { StoredRateLimitBucket } from './rate-limits';
 
 const NOW = new Date(2026, 9, 9, 14, 0, 0);
 const at = (hours: number) => new Date(NOW.getTime() + hours * 3_600_000).toISOString();
 const bucket = (id: string, extra: Partial<StoredRateLimitBucket> = {}): StoredRateLimitBucket => ({
   id, owner: { kind: 'account' }, applicability: { kind: 'all_models' }, observedAt: at(-0.1), ...extra,
+});
+
+describe('header usage warnings', () => {
+  it('chooses the fullest independent window, and names its actual scope', () => {
+    const warning = rateLimitWarning([
+      bucket('five_hour', { usedPercent: 84 }),
+      bucket('seven_day_opus', { usedPercent: 94, applicability: { kind: 'model_family', family: 'opus' } }),
+    ], NOW);
+    expect(warning).toMatchObject({ label: 'Weekly Opus', percent: 94, tone: 'critical' });
+    expect(rateLimitStatus(warning!)).toBe('Almost used up');
+    expect(rateLimitWarning([bucket('five_hour', { usedPercent: 79.9 })], NOW)).toBeUndefined();
+    expect(rateLimitStatus(rateLimitWarning([bucket('five_hour', { usedPercent: 80 })], NOW)!)).toBe('Near limit');
+  });
+
+  it('prioritizes confirmed enforcement without inventing a percentage', () => {
+    const warning = rateLimitWarning([
+      bucket('five_hour', { usedPercent: 92 }),
+      bucket('enforcement', { enforcement: { allowed: false } }),
+    ], NOW);
+    expect(warning).toMatchObject({ key: 'enforcement', blocked: true });
+    expect(warning?.percent).toBeUndefined();
+    expect(rateLimitStatus(warning!)).toBe('Limit reached');
+    expect(rateLimitStatus({ ...warning!, blocked: false, percent: 100 })).toBe('Plan allowance used up');
+  });
+
+  it('clears warnings after reset, including enforcement with no percentage', () => {
+    const buckets = [
+      bucket('five_hour', { usedPercent: 100, resetAt: at(-0.01) }),
+      bucket('enforcement', { enforcement: { allowed: false }, resetAt: at(-0.01) }),
+    ];
+    expect(rateLimitWarning(buckets, NOW)).toBeUndefined();
+  });
+
+  it('does not let a fresh bucket keep another bucket’s old warning alive', () => {
+    expect(rateLimitWarning([
+      bucket('five_hour', { usedPercent: 98, observedAt: at(-1) }),
+      bucket('seven_day', { usedPercent: 10 }),
+      bucket('extra_usage', { overage: { enabled: false, reason: 'out_of_credits' } }),
+    ], NOW)).toBeUndefined();
+    expect(rateLimitWarning([bucket('five_hour', { usedPercent: 98, observedAt: 'invalid' })], NOW)).toBeUndefined();
+  });
 });
 
 describe('rateLimitRows', () => {

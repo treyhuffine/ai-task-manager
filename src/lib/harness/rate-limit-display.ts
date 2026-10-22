@@ -32,6 +32,29 @@ export interface RateLimitRow {
 
 export type RateLimitTone = 'normal' | 'warn' | 'critical';
 
+/** Old cached readings remain inspectable, but cannot keep a warning lit forever. */
+export const RATE_LIMIT_WARNING_MAX_AGE_MS = 10 * 60_000;
+
+/** The most urgent current allowance, never a sum of independent windows. */
+export function rateLimitWarning(buckets: StoredRateLimitBucket[], now = new Date()): RateLimitRow | undefined {
+  // Normalize duplicates before filtering freshness: an old named window
+  // must not make its repeated collection look like a separate allowance.
+  const fresh = new Set(buckets.filter((bucket) => {
+    const age = now.getTime() - Date.parse(bucket.observedAt);
+    return Number.isFinite(age) && age < RATE_LIMIT_WARNING_MAX_AGE_MS;
+  }).map((bucket) => bucket.id));
+  return rateLimitRows(buckets, now)
+    .filter((row) => fresh.has(row.key) && row.tone !== 'normal')
+    .sort((a, b) => Number(b.blocked) - Number(a.blocked) || (b.percent ?? 0) - (a.percent ?? 0))[0];
+}
+
+export function rateLimitStatus(row: RateLimitRow): string | undefined {
+  if (row.blocked) return 'Limit reached';
+  if ((row.percent ?? 0) >= 100) return 'Plan allowance used up';
+  if (row.tone === 'critical') return 'Almost used up';
+  if (row.tone === 'warn') return 'Near limit';
+}
+
 /** Usage counts up toward the limit, so the color rises with it. */
 export function rateLimitTone(percent: number | undefined, blocked: boolean): RateLimitTone {
   if (blocked || (percent ?? 0) >= 90) return 'critical';
@@ -174,7 +197,7 @@ export function rateLimitRows(buckets: StoredRateLimitBucket[], now = new Date()
     if (unnamedPool(bucket) && !((bucket.usedPercent ?? 0) > 0) && !blocked) continue;
     if (bucket.usedPercent === undefined) {
       // An allowance without a measurement shows only when the provider says it blocks.
-      if (blocked) rows.push({ key: bucket.id, label, detail: 'Limit reached', blocked, ...(bucket.resetAt && !expired ? { reset: resetLabel(bucket.resetAt, now) } : {}) });
+      if (blocked && !expired) rows.push({ key: bucket.id, label, detail: 'Limit reached', blocked, ...(bucket.resetAt ? { reset: resetLabel(bucket.resetAt, now) } : {}) });
       continue;
     }
     rows.push(expired

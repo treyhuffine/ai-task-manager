@@ -109,7 +109,7 @@ export class PageStream {
     },
   ) {}
 
-  /** The dashboard's signals: `session_updated`, `device_updated`, `ready`. */
+  /** Dashboard lifecycle, device and usage signals, plus `ready`. */
   subscribeGlobal(listener: Listener): () => void {
     this.globals.add(listener);
     this.changed();
@@ -230,6 +230,7 @@ export class PageStream {
     source.addEventListener('ready', toGlobals('ready'));
     source.addEventListener('session_updated', toGlobals('session_updated'));
     source.addEventListener('device_updated', toGlobals('device_updated'));
+    source.addEventListener('rate_limits_updated', toGlobals('rate_limits_updated'));
     source.addEventListener('session', (raw) => {
       if (this.source !== source) return;
       const frame = parse(raw as MessageEvent) as { s: string; e: string; d: unknown; i?: string } | null;

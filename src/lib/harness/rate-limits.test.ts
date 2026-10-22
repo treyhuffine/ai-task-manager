@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RateLimitBucket, RateLimitUpdate, StreamEvent } from '@agentex/agent';
 import { parseStreamEvent } from '@/lib/runner/parse';
 import { getHarnessRateLimits, mergeRateLimits, recordRateLimits } from './rate-limits';
+import { subscribe, globalSessionChannel } from '@/lib/realtime/bus';
 
 const bucket = (id: string, observedAt: string, extra: Partial<RateLimitBucket> = {}): RateLimitBucket => ({
   id, owner: { kind: 'account' }, applicability: { kind: 'all_models' }, observedAt, ...extra,
@@ -86,6 +87,17 @@ describe('recorded harness limits', () => {
 
   it('starts empty when nothing was saved', () => {
     expect(getHarnessRateLimits()).toEqual([]);
+  });
+
+  it('notifies the existing page stream after a new observation is stored', () => {
+    let percent: number | undefined;
+    const unsubscribe = subscribe(globalSessionChannel, (message) => {
+      if (message.kind === 'rate_limits_updated') percent = getHarnessRateLimits()[0]?.buckets[0]?.usedPercent;
+    });
+    try {
+      recordRateLimits('claude', update([bucket('five_hour', T1, { usedPercent: 84 })], T1));
+      expect(percent).toBe(84);
+    } finally { unsubscribe(); }
   });
 });
 

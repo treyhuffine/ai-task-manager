@@ -33,7 +33,8 @@ export type GlobalSessionStreamMessage =
    * A device's worker connected, dropped, or reported a new state (awake,
    * asleep, stopped): what executions there say about it changes (P3.2).
    */
-  | { kind: 'device_updated'; deviceId: string };
+  | { kind: 'device_updated'; deviceId: string }
+  | { kind: 'rate_limits_updated' };
 
 /** Payload variants carried by the in-process realtime bus. */
 export type SessionStreamMessage =

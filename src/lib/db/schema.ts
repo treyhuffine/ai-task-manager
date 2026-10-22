@@ -177,6 +177,8 @@ export const userState = sqliteTable('user_state', {
   // (src/lib/onboarding/progress.ts). On the home so every window agrees.
   // Null → never started, or finished before steps were recorded.
   onboarding: text({ mode: 'json' }).$type<OnboardingRecord>(),
+  // NULL follows the product default (on). A preference, never a DB default.
+  usageWarnings: integer({ mode: 'boolean' }),
 });
 
 // ─── Harness Settings ─────────────────────────────────────────

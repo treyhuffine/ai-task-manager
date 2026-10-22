@@ -31,6 +31,7 @@ function record(overrides: Partial<UserStateRecord> = {}): UserStateRecord {
     description: 'Original profile',
     workResultGuidance: 'Original guidance',
     voiceAutoSend: false,
+    usageWarnings: null,
     voiceModel: null,
     defaultHarness: null,
     defaultModel: null,

@@ -48,6 +48,14 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('one stream per page', () => {
+  it('delivers usage changes over the existing global connection', () => {
+    const listener = vi.fn();
+    stream.subscribeGlobal(listener);
+    vi.advanceTimersByTime(50);
+    sources[0]!.frame('rate_limits_updated', { kind: 'rate_limits_updated' });
+    expect(listener).toHaveBeenCalledWith('rate_limits_updated', { kind: 'rate_limits_updated' });
+    expect(sources).toHaveLength(1);
+  });
   it('follows the dashboard, two chats and two terminals over one connection, each frame to its own', () => {
     const got: string[] = [];
     stream.subscribeGlobal((e) => got.push(`global ${e}`));

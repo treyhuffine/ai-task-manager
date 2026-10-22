@@ -7,13 +7,13 @@ const named = (entries: HarnessRateLimits[]) => entries.map((entry) => ({ ...ent
 
 /**
  * The latest account rate limits each harness reported, for the top bar's rate limits pill.
- * `stale` says a hover should ask for a fresh read (POST).
+ * `stale` says the visible-page refresh should ask for a fresh read (POST).
  */
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   return reply({ harnesses: named(getHarnessRateLimits()), stale: rateLimitsNeedRead() });
 }
 
-/** Read the due harnesses' limits outside a chat, at most once a minute each, and return them all. */
+/** Read due harnesses outside a chat, at most once every two minutes each. */
 export async function POST(_rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
   return reply({ harnesses: named(await readHarnessRateLimits()), stale: false });
 }
