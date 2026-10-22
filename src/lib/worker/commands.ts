@@ -52,7 +52,11 @@ export interface CommandProcessorOptions {
   onStopped?: (err: WorkerStoppedError) => void;
   /** A command was carried out or recovered, and its outcome journaled. */
   onHandled?: (command: WorkerCommand) => void;
+  /** A safe update has paused new effects while preserving received work. */
+  paused?: () => boolean;
 }
+
+export class WorkerCommandDeferredError extends Error {}
 
 interface QueuedCommand {
   command: WorkerCommand;
@@ -74,6 +78,8 @@ class ProcessorStoppedError extends Error {}
 export class CommandProcessor {
   private readonly queues = new Map<string, TargetQueue>();
   private readonly tasks = new Set<Promise<void>>();
+  private readonly deferred = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly deferredAttempts = new Map<string, number>();
   private stopped = false;
 
   constructor(private readonly options: CommandProcessorOptions) {}
@@ -118,6 +124,9 @@ export class CommandProcessor {
    * when worker teardown makes the old session idle. */
   stop(): void {
     this.stopped = true;
+    for (const timer of this.deferred.values()) clearTimeout(timer);
+    this.deferred.clear();
+    this.deferredAttempts.clear();
     for (const queue of this.queues.values()) {
       for (const entry of queue.pending) entry.done();
       queue.pending = [];
@@ -205,6 +214,15 @@ export class CommandProcessor {
             item.done();
           }
         }));
+        // Deferred inputs are outside the active queue while admission waits.
+        // Closing the chat must retire these older sends as well.
+        for (const [id, timer] of this.deferred) {
+          const deferred = this.options.journal.get(id)?.command;
+          if (deferred?.kind !== 'send' || deferred.seq >= command.seq || !chats.includes(deferred.target.chatSessionId)) continue;
+          clearTimeout(timer);
+          this.deferred.delete(id);
+          await this.settle(deferred, { state: 'failed', error: 'The chat was closed before this message could be sent.' });
+        }
       }
     } catch (err) {
       console.error(`[worker] command ${entry.command.id} (${entry.command.kind}) failed unexpectedly:`, err);
@@ -235,6 +253,7 @@ export class CommandProcessor {
   }
 
   private async settle(command: WorkerCommand, ack: WorkerCommandAckBody): Promise<void> {
+    this.deferredAttempts.delete(command.id);
     this.options.journal.finished(command.id, ack);
     this.options.onHandled?.(command);
     await this.sendAck(command.id, ack);
@@ -245,6 +264,7 @@ export class CommandProcessor {
       target: this.options.target,
       markStarted: () => {
         if (this.stopped) throw new ProcessorStoppedError();
+        if (this.options.paused?.()) throw new WorkerCommandDeferredError('The worker paused before command admission.');
         this.options.journal.started(command.id);
       },
       waitForTurnEnd: wait => this.waitForTurnEnd(command, wait),
@@ -252,6 +272,7 @@ export class CommandProcessor {
   }
 
   private async execute(command: WorkerCommand): Promise<void> {
+    if (this.options.paused?.()) { this.retryDeferred(command); return; }
     const handler = this.options.handlers[command.kind];
     let ack: WorkerCommandAckBody;
     if (!handler) {
@@ -260,6 +281,7 @@ export class CommandProcessor {
       try {
         ack = await handler.run(command, this.context(command));
       } catch (err) {
+        if (err instanceof WorkerCommandDeferredError) { this.retryDeferred(command); return; }
         if (err instanceof ProcessorStoppedError) return;
         ack = { state: 'failed', error: err instanceof Error ? err.message : String(err) };
       }
@@ -277,6 +299,7 @@ export class CommandProcessor {
       try {
         ack = await handler.recover(command, entry.stage === 'started' ? 'started' : 'received', this.context(command));
       } catch (err) {
+        if (err instanceof WorkerCommandDeferredError) { this.retryDeferred(command); return; }
         if (err instanceof ProcessorStoppedError) return;
         // A recovery that can't decide leaves the outcome unknown: shown as
         // such, and retried only when the person asks.
@@ -285,6 +308,18 @@ export class CommandProcessor {
       }
     }
     await this.settle(command, ack);
+  }
+
+  private retryDeferred(command: WorkerCommand): void {
+    if (this.stopped || this.deferred.has(command.id)) return;
+    const attempt = this.deferredAttempts.get(command.id) ?? 0;
+    this.deferredAttempts.set(command.id, attempt + 1);
+    const timer = setTimeout(() => {
+      this.deferred.delete(command.id);
+      if (!this.stopped && this.options.journal.get(command.id)?.stage === 'received') void this.enqueue(command, () => this.execute(command));
+    }, Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5)));
+    this.deferred.set(command.id, timer);
+    timer.unref?.();
   }
 
   private async sendAck(commandId: string, ack: WorkerCommandAckBody): Promise<void> {

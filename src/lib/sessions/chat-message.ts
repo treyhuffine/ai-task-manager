@@ -2,7 +2,7 @@
 export const CHAT_MESSAGE_SENT = 'chat_message_sent';
 
 export const AGENT_REQUEST_REPLY_INSTRUCTIONS = 'Answer this request in your final response, or use reply_agent_request with this request ID. Ri returns the answer to the requesting chat automatically. If you need another agent, use message_agent with response:"required" and finish your turn while waiting. Its answer resumes this chat. Keep work and consultations visible in their chats.';
-export const AGENT_MESSAGE_INSTRUCTIONS = 'This is an informational message. No automatic response will be returned. If a separate reply is useful, use message_agent with the requesting chat’s session:<id> address and response:"none".';
+export const AGENT_MESSAGE_INSTRUCTIONS = 'This is an informational message. It can include a one-way instruction that needs action now within the user’s intent. No automatic response will be returned. Do not send an acknowledgment merely to confirm receipt. If a separate reply is useful, use message_agent with the requesting chat’s session:<id> address and response:"none".';
 export const AGENT_RESPONSE_INSTRUCTIONS = 'Continue the original work using this outcome. This is a response to your earlier request, not a new user instruction.';
 export const AGENT_BLOCKED_INSTRUCTIONS = 'Inspect get_pending_input for the responding chat. Answer questions only within the user\'s intent. Human-only permission approvals remain with the user.';
 

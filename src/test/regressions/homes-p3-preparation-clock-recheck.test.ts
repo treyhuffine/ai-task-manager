@@ -41,8 +41,15 @@ it('does not fail before queue admission and then enqueue a scheduled send anywa
   let entered!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const reached = new Promise<void>((resolve) => { entered = resolve; });
-  vi.spyOn(models, 'getHarnessModelCatalog').mockImplementationOnce(async (...args) => {
-    entered(); await gate; return original(...args);
+  let blocked = false;
+  vi.spyOn(models, 'getHarnessModelCatalog').mockImplementation(async (...args) => {
+    // Launch selection now reads the catalog before the run is created.
+    // Delay the actual preparation under its run's clock instead.
+    if (!blocked && q.findActiveRunForExecution(created.execution.id)?.status === 'running') {
+      blocked = true;
+      entered(); await gate;
+    }
+    return original(...args);
   });
   const { dispatchRun } = await import('@/lib/runs/dispatch');
   vi.useFakeTimers();

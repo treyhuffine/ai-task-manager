@@ -1,4 +1,5 @@
 import type { EffortLevel, PermissionMode } from '@/db/types';
+import { ActionError } from '@/lib/orchestrator/types';
 import { actorFromRequest } from '@/lib/auth/actor';
 import { getWorkspace, listWorkspaceExecutions } from '@/lib/db/queries';
 import { UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
@@ -102,6 +103,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     });
     return reply(row, { status: 201 });
   } catch (err) {
+    if (err instanceof ActionError) return reply({ error: err.code, message: err.message }, { status: err.code === 'not_found' ? 404 : err.code === 'invalid_params' ? 400 : 409 });
     if (err instanceof HarnessDisabledError) {
       return reply({ error: err.message }, { status: 409 });
     }

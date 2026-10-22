@@ -13,6 +13,7 @@ import type { Attachment } from '@/db/types';
 import type { WorkerTarget } from '@/lib/worker/client';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
+import { runtimePeerRelease } from '@/lib/releases/runtime-identity';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
@@ -105,7 +106,7 @@ async function sentWith(files: Attachment[]) {
 async function get(key: string, fileName: string, commandId: string | null) {
   const query = commandId === null ? '' : `?command=${commandId}`;
   const res = await fetch(`${server.url}/api/workers/me/attachments/${fileName}${query}`, {
-    headers: { authorization: `Bearer ${key}`, 'x-ri-worker-protocol': String(WORKER_PROTOCOL) },
+    headers: { authorization: `Bearer ${key}`, 'x-ri-worker-compatibility': Buffer.from(JSON.stringify(runtimePeerRelease())).toString('base64url'), 'x-ri-worker-protocol': String(WORKER_PROTOCOL) },
   });
   return { status: res.status, body: res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text() };
 }

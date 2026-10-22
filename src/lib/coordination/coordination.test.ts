@@ -2,422 +2,347 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { uuidv7 } from 'uuidv7';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import * as q from '@/lib/db/queries';
-import type { ChatSessionRecord } from '@/db/types';
+import type { AgentDeliveryRecord, ChatSessionRecord } from '@/db/types';
 import { runAction } from '@/lib/orchestrator/dispatch';
-import { verifySessionCredential } from '@/lib/orchestrator/session-credential';
 import { drainAgentCoordination, recoverAgentCoordination } from './service';
 import { finishRun } from '@/lib/runs/finish';
 import { applyChatEvent } from '@/lib/executor/apply';
 import { stableCoordinationId } from './ids';
 import { requestScopedId } from './start-id';
 import { decodeChatMessageReceipt } from '@/lib/sessions/chat-message';
+import { forwardToChat } from './human';
 
-const fake = vi.hoisted(() => ({ busy: new Set<string>(), concurrentSend: true, fetch: vi.fn(), dispatch: vi.fn(), abort: vi.fn() }));
-vi.mock('@/lib/orchestrator/server-client', async (original) => ({ ...await original<object>(), serverFetch: fake.fetch }));
-vi.mock('@/lib/executor/devices', async (original) => ({ ...await original<object>(), harnessCapabilitiesOn: async () => ({ sessions: true, concurrentSend: fake.concurrentSend }) }));
+const fake = vi.hoisted(() => ({ busy: new Set<string>(), producers: new Map<string, string>(), concurrentSend: true, dispatch: vi.fn(), abort: vi.fn(), launch: vi.fn() }));
+vi.mock('@/lib/runner/local-runner', async original => ({ ...await original<object>(), producingRun: (id: string) => fake.producers.get(id) ?? null }));
+vi.mock('@/lib/executor/devices', async original => ({ ...await original<object>(), harnessCapabilitiesOn: async () => ({ sessions: true, concurrentSend: fake.concurrentSend }) }));
 vi.mock('@/lib/executor/adapter', () => ({ isRunning: (id: string) => fake.busy.has(id), hasBackgroundTasks: () => false, dispatch: fake.dispatch, abort: fake.abort }));
+vi.mock('@/lib/sessions/dispatch', () => ({ WorkspaceNotFoundForDispatch: class extends Error {}, DeviceUnavailableForDispatch: class extends Error {}, TaskNotStartableForDispatch: class extends Error {}, dispatchExecutionSession: (...args: unknown[]) => fake.launch(...args) }));
 
 let home: TestHome;
 let main: ChatSessionRecord;
 let agent: ReturnType<typeof q.createWorkspace>;
 let agentMain: ChatSessionRecord;
-let accepted: Array<{ sessionId: string; content: string; eventId: string; sender: string | null; runId: string }>;
-
+let accepted: Array<{ sessionId: string; content: string; eventId: string; runId: string }>;
 beforeEach(async () => {
   home = await createTestHome({ prefix: 'ri-coordination-' });
-  main = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active' });
+  q.setAgentCoordinationPolicy('global', '1', 'allow');
+  main = q.createChatSession({ type: 'orchestration', harness: 'claude' });
   agent = q.createWorkspace({ name: 'Frontend', cwd: home.root, isGit: false, filesToCopy: [] });
-  agentMain = q.createChatSession({ type: 'orchestration', harness: 'claude', workspaceId: agent.id, status: 'active' });
-  accepted = [];
-  fake.busy.clear();
-  fake.concurrentSend = true;
-  fake.fetch.mockReset();
-  fake.abort.mockReset();
-  fake.dispatch.mockReset();
-  fake.fetch.mockImplementation(async (path: string, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body ?? '{}'));
-    const create = path.match(/^\/workspaces\/([^/]+)\/sessions$/);
-    if (create) return q.createExecutionWithChat({ workspaceId: create[1], chatSessionId: body.sessionId, harness: body.harness ?? 'claude', label: body.label ?? null }).session;
-    const send = path.match(/^\/sessions\/([^/]+)\/messages$/);
-    if (!send) throw new Error(`Unexpected test server path: ${path}`);
-    const sessionId = send[1];
-    const existing = q.getChatEventById(body.id);
-    if (existing) {
-      if (existing.sessionId !== sessionId || existing.content !== body.content) throw new Error('message conflict');
-      return existing;
-    }
-    const headers = init?.headers as Record<string, string> | undefined;
-    const sender = verifySessionCredential(headers?.['x-ri-session'], home.token);
-    const event = q.insertChatEvent({ id: body.id, sessionId, role: 'user', source: 'user', content: body.content, senderSessionId: sender })!;
-    const chat = q.getChatSession(sessionId)!;
-    const run = q.createRun({ harness: chat.harness, triggerKind: 'manual', status: 'queued', chatSessionId: sessionId, sourceEventId: event.id, executionId: chat.executionId });
-    q.markRunStarted(run.id);
-    q.bindAgentRequestRun(event.id, sessionId, run.id);
-    fake.busy.add(sessionId);
-    accepted.push({ sessionId, content: body.content, eventId: event.id, sender, runId: run.id });
-    return event;
-  });
-  fake.dispatch.mockImplementation(async (id: string, _content: string, options: { sourceEventId: string; onTaken?: () => void }) => {
-    const run = q.createRun({ harness: 'claude', triggerKind: 'manual', status: 'queued', chatSessionId: id, sourceEventId: options.sourceEventId });
-    q.markRunStarted(run.id);
+  agentMain = q.createChatSession({ type: 'orchestration', harness: 'claude', workspaceId: agent.id });
+  accepted = []; fake.busy.clear(); fake.producers.clear(); fake.concurrentSend = true; fake.dispatch.mockReset(); fake.abort.mockReset(); fake.launch.mockReset();
+  fake.dispatch.mockImplementation(async (sessionId: string, content: string, options: { runId: string; sourceEventId: string; coordinationDeliveryIds: string[]; onTaken?: () => void }) => {
+    q.markRunStarted(options.runId);
+    q.acceptAgentDeliveriesForRun(options.runId, sessionId, options.coordinationDeliveryIds, fake.producers.get(sessionId));
+    fake.busy.add(sessionId); fake.producers.set(sessionId, options.runId);
+    accepted.push({ sessionId, content, eventId: options.sourceEventId, runId: options.runId });
     options.onTaken?.();
   });
+  fake.launch.mockImplementation(async (input) => {
+    const existing = q.getChatSessionWithExecution(input.sessionId);
+    if (existing) return existing;
+    const session = q.createExecutionWithChat({ workspaceId: input.workspaceId, chatSessionId: input.sessionId, harness: input.harness ?? 'claude', label: input.label, permissionMode: input.permissionMode }).session;
+    if (input.actor.source === 'ai') q.initializeAgentChildPolicy(input.actor.sessionId, session.id);
+    return q.getChatSessionWithExecution(session.id)!;
+  });
 });
-
-afterEach(async () => {
-  await drainAgentCoordination();
-  await home.cleanup();
-});
-
+afterEach(async () => { await drainAgentCoordination(); await home.cleanup(); });
 function act(chat: ChatSessionRecord, name: string, input: unknown) {
   return runAction(name, input, { remote: true, actor: { source: 'ai', sessionId: chat.id } });
 }
-
-async function request(chat: ChatSessionRecord, name: string, input: unknown) {
-  const result = await act(chat, name, input);
+async function send(chat = main, input: Record<string, unknown> = {}): Promise<AgentDeliveryRecord> {
+  const result = await act(chat, 'message_agent', { response: 'required', target: `session:${agentMain.id}`, request_id: uuidv7(), content: 'Review the change.', ...input });
   expect(result.ok, JSON.stringify(result)).toBe(true);
   if (!result.ok) throw new Error(result.error.message);
   await drainAgentCoordination();
-  return q.getAgentRequest((result.result as { id: string }).id)!;
+  return q.getAgentDelivery((result.result as { id: string }).id)!;
 }
-
-async function complete(sessionId: string, content: string) {
+async function complete(sessionId: string, content: string, stopped = false) {
   const send = accepted.filter(row => row.sessionId === sessionId).at(-1)!;
   const id = uuidv7();
   applyChatEvent({ id, sessionId, role: 'assistant', source: 'agent', content }, { cumulative: false, runId: send.runId });
-  fake.busy.delete(sessionId);
-  finishRun(send.runId, { ok: true });
+  fake.busy.delete(sessionId); fake.producers.delete(sessionId);
+  finishRun(send.runId, { ok: true, ...(stopped ? { stopped: true } : {}) });
   await drainAgentCoordination();
   return id;
 }
 
-describe('durable agent conversations', () => {
-  it('returns a consultation to its requester, with provenance and exactly one accepted send on retries', async () => {
-    const input = { response: 'required', target: `agent:${agent.id}`, request_id: 'question-1', content: 'How should expired sessions behave?' };
-    const ask = await request(main, 'message_agent', input);
+describe('durable symmetric delivery', () => {
+  it('wakes a one-way recipient without creating work or returning its final output', async () => {
+    const delivery = await send(main, { response: 'none' });
+    expect(delivery).toMatchObject({ requestId: null, status: 'accepted', acceptedByRunId: accepted[0].runId });
+    expect(q.listAgentRequests(main.id)).toEqual([]);
+    await complete(agentMain.id, 'The useful action is finished.');
     expect(accepted).toHaveLength(1);
-    expect(accepted[0]).toMatchObject({ sessionId: agentMain.id, sender: main.id });
-    expect(q.listChatEvents(main.id).map(decodeChatMessageReceipt).filter(Boolean)).toMatchObject([{ targetSessionId: agentMain.id, targetEventId: accepted[0].eventId, preview: input.content }]);
-    const again = await request(main, 'message_agent', input);
-    expect(again.id).toBe(ask.id);
+    expect(q.listChatEvents(main.id).map(decodeChatMessageReceipt).filter(Boolean)).toMatchObject([{ targetSessionId: agentMain.id, targetEventId: delivery.eventId }]);
+    expect(q.listChatEvents(main.id).some(event => event.content === 'coordination_proposed')).toBe(false);
+  });
+  it('returns one terminal answer and never automatically answers a reply', async () => {
+    const delivery = await send();
+    const output = await complete(agentMain.id, 'Reviewed and fixed.');
+    expect(q.getAgentRequest(delivery.requestId!)).toMatchObject({ status: 'completed', responseEventId: output });
+    expect(q.terminalAgentDelivery(delivery.requestId!)).toMatchObject({ kind: 'answer', status: 'accepted', targetSessionId: main.id });
+    await complete(main.id, 'Ready for the user.');
+    expect(accepted).toHaveLength(2);
+    q.finishAgentRequest(delivery.requestId!, 'failed', 'Late failure');
+    expect(q.listAgentDeliveries(delivery.requestId!).filter(row => ['answer','failed','cancelled'].includes(row.kind))).toHaveLength(1);
+  });
+  it('survives unchanged retries without changing the accepted payload, event, run or destination', async () => {
+    const input = { request_id: 'stable-key', response: 'none', content: 'Exact bytes' };
+    const delivery = await send(main, input);
+    expect((await send(main, input)).id).toBe(delivery.id);
     expect(accepted).toHaveLength(1);
-    const answerId = await complete(agentMain.id, 'Redirect to login and preserve the destination.');
-    expect(q.getAgentRequest(ask.id)).toMatchObject({ status: 'completed', responseEventId: answerId });
-    expect(accepted.at(-1)).toMatchObject({ sessionId: main.id, sender: agentMain.id });
-    expect(accepted.at(-1)!.content).toContain('preserve the destination');
-    expect(q.listAgentDeliveries(ask.id)).toMatchObject([{ status: 'sent' }]);
-    expect(q.listChatEvents(agentMain.id).map(decodeChatMessageReceipt).filter(Boolean)).toMatchObject([{ targetSessionId: main.id, preview: 'Redirect to login and preserve the destination.' }]);
-    expect(await act(main, 'message_agent', { ...input, content: 'Changed intent' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+    expect(await act(main, 'message_agent', { ...input, content: 'Changed', target: `session:${agentMain.id}` })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+    expect(q.getAgentDelivery(delivery.id)?.payload).toEqual(delivery.payload);
   });
-
-  it('closes the complete delegation, executor consultation, answer and resumed work loop', async () => {
-    const delegated = await request(main, 'delegate_work', { workspace_id: agent.id, request_id: 'build-login', prompt: 'Fix session expiry.' });
-    const work = q.getChatSession(q.getAgentRequest(delegated.id)!.targetSessionId!)!;
-    const question = await request(work, 'message_agent', { response: 'required', target: 'agent', request_id: 'expiry-context', content: 'What behavior did we agree on?' });
-    expect(question.parentRequestId).toBe(delegated.id);
-    await complete(work.id, 'Waiting for the project context.');
-    expect(q.getAgentRequest(delegated.id)?.status).toBe('waiting');
-    expect(accepted.filter(row => row.sessionId === main.id)).toHaveLength(0);
-    await complete(agentMain.id, 'Preserve the destination after login.');
-    expect(accepted.at(-1)!.sessionId).toBe(work.id);
-    expect(q.getAgentRequest(delegated.id)?.status).toBe('sent');
-    await complete(work.id, 'Implemented and verified the redirect.');
-    expect(q.getAgentRequest(delegated.id)).toMatchObject({ status: 'completed', response: 'Implemented and verified the redirect.' });
-    expect(accepted.at(-1)).toMatchObject({ sessionId: main.id, sender: work.id });
+  it('keeps different required assignments in separate producing turns', async () => {
+    const first = await send(); const second = await send();
+    expect(second.status).toBe('delivered');
+    expect(q.getAgentRequest(second.requestId!)?.runId).toBeNull();
+    await complete(agentMain.id, 'First outcome.');
+    expect(q.getAgentRequest(first.requestId!)?.status).toBe('completed');
+    expect(q.getAgentRequest(second.requestId!)?.status).toBe('working');
+    await complete(agentMain.id, 'Second outcome.');
+    expect(q.terminalAgentDelivery(first.requestId!)?.payload.content).toBe('First outcome.');
+    expect(q.terminalAgentDelivery(second.requestId!)?.payload.content).toBe('Second outcome.');
   });
-
-  it('resolves an agent address after New chat instead of sending to the archived conversation', async () => {
-    fake.busy.add(agentMain.id);
-    const ask = await request(main, 'message_agent', { response: 'required', target: `agent:${agent.id}`, request_id: 'later', content: 'Review this plan.' });
-    expect(q.getAgentRequest(ask.id)?.status).toBe('queued');
-    q.archiveChatSession(agentMain.id);
-    const replacement = q.createChatSession({ type: 'orchestration', harness: 'claude', workspaceId: agent.id, status: 'active' });
-    q.updateAgentRequest(ask.id, { nextAttemptAt: new Date(0).toISOString() });
-    await drainAgentCoordination();
-    expect(accepted[0].sessionId).toBe(replacement.id);
-  });
-
-  it('returns the result to the current orchestrator when its original main chat was replaced', async () => {
-    const ask = await request(main, 'message_agent', { response: 'required', target: `agent:${agent.id}`, request_id: 'keep-return', content: 'Explain this.' });
-    q.archiveChatSession(main.id);
-    const replacement = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active' });
-    await complete(agentMain.id, 'Here is the explanation.');
-    expect(q.getAgentRequest(ask.id)?.status).toBe('completed');
-    expect(accepted.at(-1)!.sessionId).toBe(replacement.id);
-  });
-
-  it('does not launch a queued consultation after its exact requesting chat is closed', async () => {
-    const { session } = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: 'Work' });
-    fake.busy.add(agentMain.id);
-    const ask = await request(session, 'message_agent', { response: 'required', target: 'agent', request_id: 'close-before-start', content: 'Need context.' });
-    q.archiveChatSession(session.id);
-    fake.busy.clear();
-    q.updateAgentRequest(ask.id, { nextAttemptAt: new Date(0).toISOString() });
-    await drainAgentCoordination();
-    expect(q.getAgentRequest(ask.id)?.status).toBe('cancelled');
-    expect(accepted).toHaveLength(0);
-  });
-
-  it('returns a failure when an exact target closes before queued work starts', async () => {
-    fake.busy.add(agentMain.id);
-    const ask = await request(main, 'message_agent', { response: 'required', target: `session:${agentMain.id}`, request_id: 'target-closed', content: 'Need context.' });
-    q.archiveChatSession(agentMain.id);
-    fake.busy.clear();
-    q.updateAgentRequest(ask.id, { nextAttemptAt: new Date(0).toISOString() });
-    await drainAgentCoordination();
-    expect(q.getAgentRequest(ask.id)).toMatchObject({ status: 'failed', nextAttemptAt: null });
-    expect(accepted).toHaveLength(1);
-    expect(accepted[0].sessionId).toBe(main.id);
-    expect(accepted[0].content).toContain('archived');
-    expect(q.listAgentDeliveries(ask.id)[0].status).toBe('sent');
-  });
-
-  it('retries delivery after an uncertain acknowledgment without repeating the recipient work', async () => {
-    const ask = await request(main, 'message_agent', { response: 'required', target: `agent:${agent.id}`, request_id: 'lost-ack', content: 'Explain.' });
-    const normal = fake.fetch.getMockImplementation()!;
-    let lose = true;
-    fake.fetch.mockImplementation(async (...args) => {
-      const result = await normal(...args);
-      if (lose && args[0] === `/sessions/${main.id}/messages`) { lose = false; throw new (await import('@/lib/orchestrator/server-client')).ServerTransportError('connection closed after acceptance'); }
-      return result;
-    });
-    await complete(agentMain.id, 'The answer.');
-    const delivery = q.listAgentDeliveries(ask.id)[0];
-    expect(delivery.status).toBe('pending');
-    fake.busy.delete(main.id);
-    q.updateAgentDelivery(delivery.id, { nextAttemptAt: new Date(0).toISOString() });
-    await drainAgentCoordination();
-    expect(q.listAgentDeliveries(ask.id)[0].status).toBe('sent');
-    expect(accepted.filter(row => row.sessionId === main.id)).toHaveLength(1);
-  });
-
-  it('keeps accepted work tracked after a lost input acknowledgment', async () => {
-    const normal = fake.fetch.getMockImplementation()!;
-    let lost = false;
-    fake.fetch.mockImplementation(async (...args) => {
-      const accepted = await normal(...args);
-      if (!lost && args[0] === `/sessions/${agentMain.id}/messages`) {
-        lost = true;
-        throw new (await import('@/lib/orchestrator/server-client')).ServerTransportError('lost acknowledgment');
-      }
-      return accepted;
-    });
-    const input = await request(main, 'message_agent', { target: `agent:${agent.id}`, content: 'Review the dates.', response: 'required', request_id: 'input-lost-ack' });
-    expect(q.getAgentRequest(input.id)).toMatchObject({ status: 'sent', attempts: 1 });
-    expect(q.listAgentDeliveries(input.id)).toHaveLength(0);
-    await complete(agentMain.id, 'The date review passed.');
-    expect(q.getAgentRequest(input.id)).toMatchObject({ status: 'completed', response: 'The date review passed.' });
-    expect(accepted.filter(row => row.sessionId === agentMain.id)).toHaveLength(1);
-  });
-
-  it('returns a terminal budget refusal instead of retrying the delegation forever', async () => {
-    const normal = fake.fetch.getMockImplementation()!;
-    fake.fetch.mockImplementation(async (...args) => {
-      if (String(args[0]).includes('/messages') && !String(args[0]).includes(main.id)) {
-        throw new (await import('@/lib/orchestrator/server-client')).ServerResponseError(402, '{"error":"budget_exceeded"}', 'Monthly budget exceeded');
-      }
-      return normal(...args);
-    });
-    const work = await request(main, 'delegate_work', { workspace_id: agent.id, prompt: 'Review the dates.', request_id: 'over-budget' });
-    expect(q.getAgentRequest(work.id)).toMatchObject({ status: 'failed', nextAttemptAt: null });
-    expect(q.listAgentDeliveries(work.id)).toMatchObject([{ kind: 'failed', status: 'sent' }]);
-    expect(accepted.at(-1)?.content).toContain('Monthly budget exceeded');
-  });
-
-  it('does not send a first prompt when cancellation wins during execution creation', async () => {
-    const normal = fake.fetch.getMockImplementation()!;
-    let release!: () => void;
-    const gate = new Promise<void>(resolve => { release = resolve; });
-    fake.fetch.mockImplementation(async (...args) => {
-      if (String(args[0]).startsWith('/workspaces/')) await gate;
-      return normal(...args);
-    });
-    const receipt = await act(main, 'delegate_work', { workspace_id: agent.id, prompt: 'Review the dates.', request_id: 'cancel-create' });
-    const id = (receipt.result as { id: string }).id;
-    await vi.waitFor(() => expect(fake.fetch).toHaveBeenCalled());
-    expect(await act(main, 'cancel_agent_request', { id })).toMatchObject({ ok: true });
-    release();
-    await drainAgentCoordination();
-    expect(q.getAgentRequest(id)).toMatchObject({ status: 'cancelled', targetSessionId: expect.any(String), runId: null });
-    expect(accepted.filter(row => row.sessionId !== main.id)).toHaveLength(0);
-  });
-
-  it('makes explicit replies idempotent and refuses another chat forging an answer', async () => {
-    const ask = await request(main, 'message_agent', { response: 'required', target: `agent:${agent.id}`, request_id: 'reply', content: 'Question.' });
-    expect(await act(main, 'reply_agent_request', { id: ask.id, content: 'Forged' })).toMatchObject({ ok: false, error: { code: 'unsupported' } });
-    expect(await act(agentMain, 'reply_agent_request', { id: ask.id, content: 'Answer' })).toMatchObject({ ok: true });
-    expect(await act(agentMain, 'reply_agent_request', { id: ask.id, content: 'Answer' })).toMatchObject({ ok: true });
-    expect(await act(agentMain, 'reply_agent_request', { id: ask.id, content: 'Different' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
-    await drainAgentCoordination();
-    expect(q.listAgentDeliveries(ask.id)).toHaveLength(1);
-  });
-
-  it('delivers a durable blocked update while leaving human-only permission approval intact', async () => {
-    const ask = await request(main, 'message_agent', { response: 'required', target: `agent:${agent.id}`, request_id: 'blocked', content: 'Investigate.' });
-    q.queueAgentBlockedUpdates(agentMain.id, 'permission-one', 'Only a person can approve this permission.');
-    q.queueAgentBlockedUpdates(agentMain.id, 'permission-one', 'Only a person can approve this permission.');
-    await drainAgentCoordination();
-    expect(q.listAgentDeliveries(ask.id)).toHaveLength(1);
-    expect(accepted.at(-1)!.content).toContain('Human-only permission approvals remain with the user');
-    expect(q.getAgentRequest(ask.id)?.status).toBe('sent');
-  });
-
-  it('marks interrupted local work failed on restart and never launches it again', async () => {
-    const ask = await request(main, 'message_agent', { response: 'required', target: `agent:${agent.id}`, request_id: 'restart', content: 'Investigate.' });
-    fake.busy.clear();
-    recoverAgentCoordination();
-    await drainAgentCoordination();
-    expect(q.getAgentRequest(ask.id)).toMatchObject({ status: 'failed' });
-    expect(accepted.filter(row => row.sessionId === agentMain.id)).toHaveLength(1);
-    expect(accepted.at(-1)!.content).toContain('was not repeated');
-  });
-
-  it('tells the requester when a person stops the responding work, while the run itself completes', async () => {
-    const ask = await request(main, 'message_agent', { response: 'required', target: `agent:${agent.id}`, request_id: 'stopped', content: 'Investigate.' });
-    const send = accepted.at(-1)!;
-    applyChatEvent({ id: uuidv7(), sessionId: agentMain.id, role: 'assistant', source: 'agent', content: 'Halfway through the logs.' }, { cumulative: false, runId: send.runId });
-    fake.busy.delete(agentMain.id);
-    finishRun(send.runId, { ok: true, stopped: true });
-    await drainAgentCoordination();
-    expect(q.getRun(send.runId)?.status).toBe('completed');
-    expect(q.getAgentRequest(ask.id)).toMatchObject({ status: 'failed' });
-    expect(accepted.at(-1)).toMatchObject({ sessionId: main.id });
-    expect(accepted.at(-1)!.content).toContain('stopped this work before it finished');
-  });
-
-  it('cancels delegated work, stops its execution and refuses cancellation by an unrelated chat', async () => {
-    const work = await request(main, 'delegate_work', { workspace_id: agent.id, request_id: 'cancel', prompt: 'Investigate.' });
-    expect(await act(agentMain, 'cancel_agent_request', { id: work.id })).toMatchObject({ ok: false });
-    expect(await act(main, 'cancel_agent_request', { id: work.id })).toMatchObject({ ok: true });
-    expect(fake.abort).toHaveBeenCalledWith(q.getAgentRequest(work.id)!.targetSessionId);
-    expect(q.getAgentRequest(work.id)?.status).toBe('cancelled');
-  });
-
-  it('cancels descendant consultations without waking the cancelled execution', async () => {
-    const work = await request(main, 'delegate_work', { workspace_id: agent.id, request_id: 'cancel-tree', prompt: 'Investigate.' });
-    const execution = q.getChatSession(q.getAgentRequest(work.id)!.targetSessionId!)!;
-    const child = await request(execution, 'message_agent', { response: 'required', target: 'agent', request_id: 'child', content: 'Need context.' });
-    expect(await act(main, 'cancel_agent_request', { id: work.id })).toMatchObject({ ok: true });
-    fake.busy.delete(execution.id);
-    await drainAgentCoordination();
-    expect(q.getAgentRequest(child.id)?.status).toBe('cancelled');
-    expect(q.listAgentDeliveries(child.id)[0]).toMatchObject({ status: 'failed' });
-    expect(accepted.filter(row => row.sessionId === execution.id)).toHaveLength(1);
-    expect(fake.abort).not.toHaveBeenCalledWith(agentMain.id);
-  });
-
-  it('returns launch failure as a system-authored update without starting a second execution', async () => {
-    const normal = fake.fetch.getMockImplementation()!;
-    fake.fetch.mockImplementation(async (...args) => {
-      if (String(args[0]).startsWith('/workspaces/')) {
-        const { ServerResponseError } = await import('@/lib/orchestrator/server-client');
-        throw new ServerResponseError(409, JSON.stringify({ error: 'The device is unavailable.' }), 'Device unavailable');
-      }
-      return normal(...args);
-    });
-    const work = await request(main, 'delegate_work', { workspace_id: agent.id, request_id: 'failed-launch', prompt: 'Investigate.' });
-    expect(q.getAgentRequest(work.id)).toMatchObject({ status: 'failed', targetSessionId: null });
-    const delivery = q.listAgentDeliveries(work.id)[0];
-    expect(delivery.status).toBe('sent');
-    expect(q.getChatEventById(delivery.eventId)).toMatchObject({ source: 'error', role: 'system', senderSessionId: null });
-    expect(fake.dispatch).toHaveBeenCalledOnce();
-    expect(q.listChatSessions({ type: 'execution' })).toHaveLength(0);
-  });
-
-  it('delivers information to an exact chat once without automatically returning its answer', async () => {
-    const input = { target: `session:${agentMain.id}`, content: 'An update.', request_id: 'one-update', response: 'none' };
-    const result = await act(main, 'message_agent', input);
-    expect(result).toMatchObject({ ok: true, result: { response_required: false, return_delivery: 'none', targetSessionId: agentMain.id } });
-    await drainAgentCoordination();
-    expect(await act(main, 'message_agent', input)).toMatchObject({ ok: true });
-    expect(accepted).toHaveLength(1);
-    await complete(agentMain.id, 'Thanks for the update.');
-    expect(accepted).toHaveLength(1);
-    const id = (result.result as { id: string }).id;
-    expect(q.getAgentRequest(id)?.status).toBe('completed');
-    expect(q.listAgentDeliveries(id)).toEqual([]);
-    expect(await act(agentMain, 'reply_agent_request', { id, content: 'A reply' })).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
-    expect(await act(main, 'message_agent', { ...input, response: 'required' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
-  });
-
-  it.each([true, false])('steers a busy recipient according to its actual concurrent-send capability (%s)', async (concurrentSend) => {
-    fake.concurrentSend = concurrentSend;
-    fake.busy.add(agentMain.id);
-    const sent = await request(main, 'message_agent', { target: `session:${agentMain.id}`, request_id: 'busy-steering', content: 'Include the date regression.', response: 'none' });
-    expect(accepted).toHaveLength(concurrentSend ? 1 : 0);
-    if (!concurrentSend) {
-      expect(q.getAgentRequest(sent.id)?.status).toBe('queued');
-      fake.busy.delete(agentMain.id);
-      q.updateAgentRequest(sent.id, { nextAttemptAt: new Date(0).toISOString() });
-      await drainAgentCoordination();
-    }
-    expect(accepted).toMatchObject([{ sessionId: agentMain.id, sender: main.id }]);
-    expect(q.listAgentDeliveries(sent.id)).toEqual([]);
-  });
-
-  it('requires an explicit return policy and rejects misspelled or extraneous parameters', async () => {
-    const input = { target: `agent:${agent.id}`, request_id: 'policy', content: 'Review.' };
-    for (const bad of [input, { ...input, response: 'maybe' }, { ...input, response: 'required', sessionId: agentMain.id }]) {
-      expect(await act(main, 'message_agent', bad)).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
-    }
-    expect(accepted).toHaveLength(0);
-    expect(await act(main, 'message_agent', { ...input, response: 'required' })).toMatchObject({ ok: true, result: { response_required: true, return_delivery: 'automatic' } });
-  });
-
-  it('accepts all launch options in a durable delegation and rejects changed retry intent', async () => {
+  it('preserves provider speed and every launch option through delegation and immutable retries', async () => {
     const input = { workspace_id: agent.id, request_id: 'all-options', prompt: 'Review the implementation.', provider: 'claude', model: 'sonnet', effort: 'high', service_tier: 'fast', permission_mode: 'plan', task_id: 'task-1', device_id: 'device-1', label: 'Review' };
     const result = await act(main, 'delegate_work', input);
-    expect(result).toMatchObject({ ok: true, result: { response_required: true, return_delivery: 'automatic' } });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error.message);
     await drainAgentCoordination();
-    const create = fake.fetch.mock.calls.find(([path]) => String(path).startsWith('/workspaces/'))!;
-    expect(JSON.parse(String(create[1].body))).toMatchObject({ harness: 'claude', model: 'sonnet', effort: 'high', serviceTier: 'fast', permissionMode: 'plan', taskId: 'task-1', deviceId: 'device-1', label: 'Review' });
-    expect(q.getAgentRequest((result.result as { id: string }).id)?.options).toMatchObject({ serviceTier: 'fast' });
-    expect(await act(main, 'delegate_work', input)).toMatchObject({ ok: true, result: { id: (result.result as { id: string }).id } });
-    expect(await act(main, 'delegate_work', { ...input, permission_mode: 'auto_all' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+    const id = (result.result as { request_id: string }).request_id;
+    expect(q.getAgentRequest(id)?.options).toMatchObject({ model: 'sonnet', effort: 'high', serviceTier: 'fast', permissionMode: 'plan', taskId: 'task-1', deviceId: 'device-1', label: 'Review' });
+    expect(fake.launch).toHaveBeenCalledWith(expect.objectContaining({ harness: 'claude', model: 'sonnet', effort: 'high', serviceTier: 'fast', permissionMode: 'plan', taskId: 'task-1', deviceId: 'device-1', label: 'Review' }));
+    expect(await act(main, 'delegate_work', input)).toMatchObject({ ok: true, result: { request_id: id } });
     expect(await act(main, 'delegate_work', { ...input, service_tier: 'default' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
-    expect(fake.fetch.mock.calls.filter(([path]) => String(path).startsWith('/workspaces/'))).toHaveLength(1);
+    expect(await act(main, 'delegate_work', { ...input, permission_mode: 'auto_all' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+    expect(new Set(fake.launch.mock.calls.map(([call]) => call.sessionId)).size).toBe(1);
   });
-
-  it('continues stored queued delegations under their original request, chat and prompt identities', async () => {
-    const key = 'saved-before-consolidation';
-    const id = stableCoordinationId('request', main.id, key);
-    const promptId = requestScopedId('prompt', agent.id, id);
-    const sessionId = requestScopedId('session', agent.id, id);
-    q.createAgentRequest({ id, sourceSessionId: main.id, sourceAddress: 'orchestrator', targetAddress: `agent:${agent.id}`, requestKey: key, kind: 'delegation', content: 'Finish the saved assignment.', options: { workspaceId: agent.id }, messageEventId: promptId });
-    expect(await act(main, 'delegate_work', { workspace_id: agent.id, request_id: key, prompt: 'Finish the saved assignment.' })).toMatchObject({ ok: true, result: { id } });
+  it('only injects steering related to the current producing assignment', async () => {
+    const initial = await send();
+    const unrelated = await send(main, { response: 'none' });
+    expect(unrelated.status).toBe('delivered');
+    const related = await send(main, { response: 'none', related_request_id: initial.requestId, content: 'Also preserve the API.' });
+    expect(related.status).toBe('accepted');
+    expect(q.getAgentRequest(initial.requestId!)?.runId).toBe(accepted[0].runId);
+  });
+  it('queues steering when the harness cannot accept concurrent input', async () => {
+    const initial = await send(); fake.concurrentSend = false;
+    const update = await send(main, { response: 'none', related_request_id: initial.requestId });
+    expect(update.status).toBe('delivered'); expect(accepted).toHaveLength(1);
+  });
+  it('lets a one-way follow-up wake completed work without reopening its obligation', async () => {
+    const initial = await send(); await complete(agentMain.id, 'Done.');
+    const outcome = q.terminalAgentDelivery(initial.requestId!)!;
+    const followup = await send(main, { response: 'none', related_request_id: initial.requestId, content: 'There is a new constraint.' });
+    expect(followup.status).toBe('accepted');
+    expect(q.getAgentRequest(initial.requestId!)?.status).toBe('completed');
+    expect(q.terminalAgentDelivery(initial.requestId!)?.payload).toEqual(outcome.payload);
+  });
+  it('attributes nested clarification to the actual producing parent and resumes it', async () => {
+    const initial = await send();
+    const child = await send(agentMain, { target: 'requester', content: 'Keep the old API?' });
+    expect(q.getAgentRequest(child.requestId!)?.parentRequestId).toBe(initial.requestId);
+    await complete(agentMain.id, 'Waiting for clarification.');
+    expect(q.getAgentRequest(initial.requestId!)?.status).toBe('waiting');
+    await complete(main.id, 'Yes, preserve it.');
+    expect(q.getAgentRequest(initial.requestId!)?.status).toBe('working');
+    await complete(agentMain.id, 'Implemented with compatibility.');
+    expect(q.terminalAgentDelivery(initial.requestId!)?.payload.content).toBe('Implemented with compatibility.');
+  });
+  it('makes explicit replies idempotent while refusing another chat or an unbound human turn', async () => {
+    const delivery = await send(); const id = delivery.requestId!;
+    expect(await act(main, 'reply_agent_request', { id, content: 'Forged' })).toMatchObject({ ok: false });
+    const producer = fake.producers.get(agentMain.id)!; fake.producers.delete(agentMain.id);
+    expect(await act(agentMain, 'reply_agent_request', { id, content: 'Human context only' })).toMatchObject({ ok: false });
+    fake.producers.set(agentMain.id, producer);
+    expect(await act(agentMain, 'reply_agent_request', { id, content: 'Explicit answer' })).toMatchObject({ ok: true });
+    const answer = q.terminalAgentDelivery(id)!;
+    expect(answer.sourceEventId).toBe(q.getAgentRequest(id)?.responseEventId);
+    expect(q.getChatEventById(answer.sourceEventId!)).toMatchObject({ sessionId: agentMain.id, role: 'assistant', content: 'Explicit answer' });
+    fake.producers.delete(agentMain.id);
+    expect(await act(agentMain, 'reply_agent_request', { id, content: 'Explicit answer' })).toMatchObject({ ok: true });
+    expect(await act(agentMain, 'reply_agent_request', { id, content: 'Different answer' })).toMatchObject({ ok: false, error: { code: 'conflict' } });
+  });
+  it('marks stopped partial work as failed and never re-executes interrupted accepted work', async () => {
+    const delivery = await send(); await complete(agentMain.id, 'Partial work', true);
+    expect(q.getAgentRequest(delivery.requestId!)?.status).toBe('failed');
+    expect(q.terminalAgentDelivery(delivery.requestId!)?.payload.content).toContain('stopped');
+    expect(q.terminalAgentDelivery(delivery.requestId!)).toMatchObject({ senderKind: 'system', sourceEventId: null });
+    const count = accepted.length; recoverAgentCoordination(); await drainAgentCoordination(); expect(accepted).toHaveLength(count);
+  });
+  it('cancels descendants and fences late outcomes from waking cancelled work', async () => {
+    const initial = await send(); const child = await send(agentMain, { target: 'requester' });
+    await complete(agentMain.id, 'Waiting.');
+    expect(await act(main, 'cancel_agent_request', { id: initial.requestId })).toMatchObject({ ok: true });
+    expect(q.getAgentRequest(child.requestId!)?.status).toBe('cancelled');
+    const count = accepted.filter(row => row.sessionId === agentMain.id).length;
+    await complete(main.id, 'Too late.');
+    expect(accepted.filter(row => row.sessionId === agentMain.id)).toHaveLength(count);
+  });
+  it('keeps blocked updates durable without treating them as completed answers', async () => {
+    const initial = await send(); q.queueAgentBlockedUpdates(agentMain.id, 'approval-one', 'Only a person can approve.', accepted[0].runId);
+    q.queueAgentBlockedUpdates(agentMain.id, 'approval-one', 'Only a person can approve.', accepted[0].runId);
     await drainAgentCoordination();
-    expect(q.getAgentRequest(id)).toMatchObject({ status: 'sent', targetSessionId: sessionId, messageEventId: promptId });
-    expect(accepted).toMatchObject([{ sessionId, eventId: promptId }]);
-    await complete(sessionId, 'The saved work is finished.');
-    expect(q.getAgentRequest(id)).toMatchObject({ status: 'completed' });
-    expect(accepted.at(-1)).toMatchObject({ sessionId: main.id, sender: sessionId });
+    expect(q.listAgentDeliveries(initial.requestId!).filter(row => row.kind === 'blocked')).toHaveLength(1);
+    expect(q.getAgentRequest(initial.requestId!)?.status).toBe('working');
   });
+});
 
-  it.each(['question', 'delegation'] as const)('reuses accepted %s message bytes when routing instructions have changed', async (kind) => {
-    const key = 'saved-envelope';
-    const id = stableCoordinationId('request', main.id, key);
-    const targetId = kind === 'delegation' ? requestScopedId('session', agent.id, id) : agentMain.id;
-    const eventId = kind === 'delegation' ? requestScopedId('prompt', agent.id, id) : stableCoordinationId('input', id);
-    if (kind === 'delegation') q.createExecutionWithChat({ workspaceId: agent.id, chatSessionId: targetId, harness: 'claude', label: null });
-    const saved = `[Ri agent ${kind}. Request ID: ${id}. Requesting chat: ${main.id}.]\nReview the dates.\n\nEarlier routing instructions.`;
-    q.createAgentRequest({ id, sourceSessionId: main.id, sourceAddress: 'orchestrator', targetAddress: `agent:${agent.id}`, targetSessionId: targetId, requestKey: key, kind, content: 'Review the dates.', options: kind === 'delegation' ? { workspaceId: agent.id } : null, messageEventId: eventId });
-    q.insertChatEvent({ id: eventId, sessionId: targetId, senderSessionId: main.id, role: 'user', source: 'user', content: saved });
-    await drainAgentCoordination();
-    expect(q.getAgentRequest(id)).toMatchObject({ status: 'sent', targetSessionId: targetId });
-    expect(fake.fetch).toHaveBeenCalledOnce();
-    expect(JSON.parse(String(fake.fetch.mock.calls[0][1].body))).toMatchObject({ id: eventId, content: saved });
-    expect(accepted).toHaveLength(0);
+describe('permission and Hold', () => {
+  it('resolves live chat, execution, agent and global preferences, defaulting to ask', () => {
+    q.setAgentCoordinationPolicy('global','1',null);
+    const { session, execution } = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: null });
+    const sibling = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: agent.id, executionId: execution.id });
+    expect(q.agentCoordinationPolicy(session.id)).toMatchObject({ policy: 'ask', source: 'default' });
+    q.setAgentCoordinationPolicy('global','1','allow'); expect(q.agentCoordinationPolicy(session.id).source).toBe('global');
+    q.setAgentCoordinationPolicy('agent',agent.id,'ask'); expect(q.agentCoordinationPolicy(session.id).source).toBe('agent');
+    q.setAgentCoordinationPolicy('execution',execution.id,'allow'); expect(q.agentCoordinationPolicy(sibling.id)).toMatchObject({ policy: 'allow', source: 'execution' });
+    q.setAgentCoordinationPolicy('chat',session.id,'ask'); expect(q.agentCoordinationPolicy(session.id).source).toBe('chat');
   });
+  it('persists pending approval, approves once and does not re-request on policy changes or retries', async () => {
+    q.setAgentCoordinationPolicy('global','1','ask');
+    const delivery = await send(main, { request_id: 'approval' });
+    expect(delivery.status).toBe('awaiting_approval'); expect(accepted).toHaveLength(0);
+    recoverAgentCoordination(); expect(q.pendingAgentApprovals(main.id)).toHaveLength(1);
+    q.decideAgentDelivery(delivery.id,'allow'); q.setAgentCoordinationHold(agentMain.id,true); await drainAgentCoordination();
+    expect(q.getAgentDelivery(delivery.id)?.status).toBe('delivered');
+    expect((await send(main,{request_id:'approval'})).status).toBe('delivered');
+    q.setAgentCoordinationHold(agentMain.id,false); await drainAgentCoordination(); expect(accepted).toHaveLength(1);
+  });
+  it('always allow permits arbitrary destinations while denial creates no target work', async () => {
+    q.setAgentCoordinationPolicy('global','1','ask');
+    const denied = await send(); q.decideAgentDelivery(denied.id,'deny'); await drainAgentCoordination();
+    expect(q.getAgentRequest(denied.requestId!)?.status).toBe('cancelled'); expect(accepted.filter(row=>row.sessionId===agentMain.id)).toHaveLength(0);
+    const approved = await send(); q.decideAgentDelivery(approved.id,'always'); await drainAgentCoordination();
+    expect(q.agentCoordinationPolicy(main.id)).toMatchObject({policy:'allow',source:'chat'});
+    const third = q.createChatSession({ type:'content', harness:'claude' });
+    expect((await send(main,{target:`session:${third.id}`,response:'none'})).status).toBe('accepted');
+  });
+  it('covers verified current-requester clarifications while requiring approval for third-chat contact', async () => {
+    const initial = await send(); q.setAgentCoordinationPolicy('chat',agentMain.id,'ask');
+    expect((await send(agentMain,{target:'requester'})).status).toBe('accepted');
+    const third = q.createChatSession({type:'content',harness:'claude'});
+    expect((await send(agentMain,{target:`session:${third.id}`})).status).toBe('awaiting_approval');
+    expect(q.getAgentRequest(initial.requestId!)?.status).toBe('working');
+  });
+  it('keeps held messages visible and batches them into one human-authorized forward without releasing Hold', async () => {
+    q.setAgentCoordinationHold(agentMain.id,true);
+    const messages = [];
+    for (let n=0;n<5;n++) messages.push(await send(main,{response:'none',content:`Message ${n}`}));
+    expect(accepted).toHaveLength(0); expect(q.pendingAgentDeliveries(agentMain.id)).toHaveLength(5);
+    const material = q.insertChatEvent({sessionId:main.id,source:'agent',role:'assistant',content:'Human-selected review'})!;
+    await forwardToChat({sendId:'forward',sourceEventId:material.id,directions:'Use these together.',target:agentMain.id}); await drainAgentCoordination();
+    expect(accepted).toHaveLength(1); expect(accepted[0].content).toContain('Message 0'); expect(accepted[0].content).toContain('Message 4');
+    expect(q.pendingAgentDeliveries(agentMain.id)).toHaveLength(0); expect(q.getChatSession(agentMain.id)?.coordinationHeldAt).toBeTruthy();
+  });
+  it('does not assign held required work to a human turn and starts it once on release', async () => {
+    q.setAgentCoordinationHold(agentMain.id,true); const initial = await send();
+    const human = q.createRun({chatSessionId:agentMain.id,harness:'claude',triggerKind:'manual',status:'running'});
+    q.acceptAgentDeliveriesForRun(human.id,agentMain.id,[initial.id]);
+    expect(q.getAgentRequest(initial.requestId!)?.runId).toBeNull();
+    q.recordAgentRequestOutput(human.id,q.insertChatEvent({sessionId:agentMain.id,source:'agent',role:'assistant',content:'Human turn output'})!.id);
+    q.settleAgentRequestsForRun(human.id,{ok:true}); expect(q.getAgentRequest(initial.requestId!)?.status).toBe('queued');
+    q.setAgentCoordinationHold(agentMain.id,false); await drainAgentCoordination(); await drainAgentCoordination();
+    expect(accepted).toHaveLength(1); expect(accepted[0].content).toContain('Inspect the current state');
+    expect(q.getAgentDelivery(initial.id)?.acceptedByRunId).toBe(human.id);
+  });
+  it('reserves one parent continuation after a human reads a held child answer', async () => {
+    const initial = await send(); const child = await send(agentMain,{target:'requester'});
+    await complete(agentMain.id,'Waiting.'); q.setAgentCoordinationHold(agentMain.id,true); await complete(main.id,'Child answer.');
+    const answer = q.terminalAgentDelivery(child.requestId!)!;
+    const human = q.createRun({chatSessionId:agentMain.id,harness:'claude',triggerKind:'manual',status:'running'});
+    q.acceptAgentDeliveriesForRun(human.id,agentMain.id,[answer.id]);
+    expect(q.getAgentRequest(initial.requestId!)?.status).toBe('waiting');
+    q.setAgentCoordinationHold(agentMain.id,false); await drainAgentCoordination(); const reserved = q.getAgentRequest(initial.requestId!)?.runId;
+    await drainAgentCoordination(); expect(q.getAgentRequest(initial.requestId!)?.runId).toBe(reserved);
+    expect(q.getAgentDelivery(answer.id)).toMatchObject({acceptedByRunId:human.id,continuationRunId:reserved});
+    expect(accepted.filter(row=>row.sessionId===agentMain.id)).toHaveLength(2);
+  });
+  it('never overwrites destination ask when initializing child permission', () => {
+    const {session} = q.createExecutionWithChat({workspaceId:agent.id,harness:'claude',label:null});
+    q.setAgentCoordinationPolicy('agent',agent.id,'ask'); q.initializeAgentChildPolicy(main.id,session.id);
+    expect(q.agentCoordinationPolicy(session.id)).toMatchObject({policy:'ask',source:'chat'});
+    q.setAgentCoordinationPolicy('global','1','allow'); expect(q.agentCoordinationPolicy(session.id).policy).toBe('ask');
+  });
+});
 
-  it('does not accept unsigned, self-directed, team or internal reviewer requests', async () => {
-    const input = { response: 'required', target: 'orchestrator', request_id: 'restricted', content: 'Do something.' };
-    expect(await runAction('message_agent', input, { remote: true })).toMatchObject({ ok: false, error: { code: 'unsupported' } });
-    expect(await act(main, 'message_agent', input)).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
-    for (const surfaceKind of ['team_chat', 'result_review']) {
-      const restricted = q.createChatSession({ harness: 'claude', type: 'orchestration', status: 'active', surfaceKind });
-      expect(await act(restricted, 'message_agent', input)).toMatchObject({ ok: false, error: { code: 'unsupported' } });
-    }
+describe('launch, provenance and guards', () => {
+  it('waits for approval before creating a destination, then reserves stable launch and prompt identities', async () => {
+    q.setAgentCoordinationPolicy('global','1','ask');
+    const input = {workspace_id:agent.id,request_id:'launch',prompt:'Implement the fix.',provider:'claude',model:'sonnet',effort:'high',permission_mode:'plan'};
+    const result = await act(main,'delegate_work',input); expect(result.ok).toBe(true);
+    const id = stableCoordinationId('request',main.id,'launch'); await drainAgentCoordination(); expect(fake.launch).not.toHaveBeenCalled();
+    q.decideAgentDelivery(id,'allow'); await drainAgentCoordination();
+    expect(q.getAgentRequest(id)).toMatchObject({targetSessionId:requestScopedId('session',agent.id,id),status:'working'});
+    expect(q.initialAgentDelivery(id)?.eventId).toBe(requestScopedId('prompt',agent.id,id));
+    await act(main,'delegate_work',input); await drainAgentCoordination(); expect(fake.launch).toHaveBeenCalledOnce();
   });
+  it('forwards full selected material and truthful human authorship once, without automatic return', async () => {
+    const text='Review detail. '.repeat(1000); const material=q.insertChatEvent({sessionId:main.id,role:'assistant',source:'agent',content:text})!;
+    const input={sendId:'forward-once',sourceEventId:material.id,directions:'Please compare.',target:agentMain.id};
+    const delivery=await forwardToChat(input); await drainAgentCoordination();
+    expect(await forwardToChat(input)).toMatchObject({id:delivery.id}); await drainAgentCoordination();
+    expect(q.getChatEventById(delivery.eventId)).toMatchObject({senderSessionId:null,raw:{agentCoordination:{senderKind:'human',sourceSessionId:main.id,sourceEventId:material.id,content:text}}});
+    expect(accepted[0].content).toContain(text); await complete(agentMain.id,'Review done.'); expect(accepted).toHaveLength(1);
+  });
+  it('never reroutes a pinned target after it is archived', async () => {
+    q.setAgentCoordinationHold(agentMain.id,true); const delivery=await send();
+    q.archiveChatSession(agentMain.id); q.setAgentCoordinationHold(agentMain.id,false); await drainAgentCoordination();
+    expect(q.getAgentRequest(delivery.requestId!)?.status).toBe('failed'); expect(accepted.some(row=>row.sessionId===agentMain.id)).toBe(false);
+  });
+  it('refuses unsigned, self-directed, foreign-owner and restricted callers', async () => {
+    const input={response:'required',target:'orchestrator',request_id:'restricted',content:'Do something.'};
+    expect(await runAction('message_agent',input,{remote:true})).toMatchObject({ok:false}); expect(await act(main,'message_agent',input)).toMatchObject({ok:false});
+    for(const surfaceKind of ['team_chat','result_review']) expect(await act(q.createChatSession({harness:'claude',type:'orchestration',surfaceKind}),'message_agent',input)).toMatchObject({ok:false});
+    const foreign=q.createChatSession({harness:'claude',type:'content',userId:'other'});
+    expect(await act(main,'message_agent',{...input,target:`session:${foreign.id}`})).toMatchObject({ok:false});
+  });
+  it('requires explicit response policy and rejects unsupported or misspelled fields', async () => {
+    const input={target:`session:${agentMain.id}`,request_id:'schema',content:'Inspect.'};
+    expect(await act(main,'message_agent',input)).toMatchObject({ok:false});
+    expect(await act(main,'message_agent',{...input,response:'none',related_request:'typo'})).toMatchObject({ok:false});
+    expect(await act(main,'message_agent',{...input,response:'required',related_request_id:'other'})).toMatchObject({ok:false});
+  });
+});
+
+it('resumes an approved parent after its proposed child is denied, without starting the child target', async () => {
+  const initial=await send();
+  const third=q.createChatSession({type:'content',harness:'claude'});
+  q.setAgentCoordinationPolicy('chat',agentMain.id,'ask');
+  const child=await send(agentMain,{target:`session:${third.id}`});
+  expect(child.status).toBe('awaiting_approval');
+  await complete(agentMain.id,'Waiting for approval.');
+  expect(q.getAgentRequest(initial.requestId!)?.status).toBe('waiting');
+  q.decideAgentDelivery(child.id,'deny');await drainAgentCoordination();
+  expect(q.getAgentRequest(initial.requestId!)?.status).toBe('working');
+  expect(accepted.some(row=>row.sessionId===third.id)).toBe(false);
+  expect(accepted.at(-1)?.content).toContain('do not manufacture a new retry key');
+});
+
+it('batches held child outcomes in one durable reservation and handles a later outcome in a successor continuation', async () => {
+  const initial=await send();
+  const peers=Array.from({length:3},()=>q.createChatSession({type:'content',harness:'claude'}));
+  const children=[];
+  for(const peer of peers) children.push(await send(agentMain,{target:`session:${peer.id}`}));
+  await complete(agentMain.id,'Waiting for three consultations.');
+  q.setAgentCoordinationHold(agentMain.id,true);
+  await complete(peers[0].id,'First result.');await complete(peers[1].id,'Second result.');
+  q.setAgentCoordinationHold(agentMain.id,false);
+  const reservation=q.reserveAgentRequestTurn(initial.requestId!)!;
+  expect(reservation.updates).toHaveLength(2);
+  q.setAgentCoordinationHold(agentMain.id,true);recoverAgentCoordination();
+  expect(q.reserveAgentRequestTurn(initial.requestId!)?.run.id).toBe(reservation.run.id);
+  await complete(peers[2].id,'Late result.');
+  q.setAgentCoordinationHold(agentMain.id,false);await drainAgentCoordination();
+  expect(q.getAgentRequest(initial.requestId!)?.runId).toBe(reservation.run.id);
+  await complete(agentMain.id,'Handled the first batch.');
+  expect(q.getAgentRequest(initial.requestId!)?.status).toBe('working');
+  expect(q.getAgentRequest(initial.requestId!)?.runId).not.toBe(reservation.run.id);
+  await complete(agentMain.id,'All results reconciled.');
+  expect(q.getAgentRequest(initial.requestId!)?.status).toBe('completed');
+  expect(q.terminalAgentDelivery(children[2].requestId!)?.continuationRunId).toBe(q.getAgentRequest(initial.requestId!)?.runId);
 });
 
 describe('personal conversation retrieval', () => {
@@ -469,4 +394,59 @@ describe('personal conversation retrieval', () => {
     expect(await act(main, 'get_chat_event', { id: event.id })).toMatchObject({ ok: false, error: { code: 'not_found' } });
     expect(await act(main, 'search_sessions', { query: 'zircon' })).toMatchObject({ ok: true, result: [] });
   });
+});
+
+it('does not turn a cancelled producing assignment into fresh independent work',async()=>{
+  const initial=await send();
+  await act(main,'cancel_agent_request',{id:initial.requestId});
+  const third=q.createChatSession({type:'content',harness:'claude'});
+  expect(await act(agentMain,'message_agent',{target:`session:${third.id}`,request_id:'resurrect',content:'Continue the cancelled work.',response:'required'})).toMatchObject({ok:false,error:{code:'conflict'}});
+  expect(q.listAgentRequests(agentMain.id)).toHaveLength(0);
+});
+
+it('settles an unaccepted assignment before its empty destination is deleted', async () => {
+  const target = q.createChatSession({ type: 'content', harness: 'claude' });
+  q.setAgentCoordinationPolicy('chat', main.id, 'ask');
+  const delivery = await send(main, { target: `session:${target.id}` });
+  expect(delivery.status).toBe('awaiting_approval');
+  expect(q.deleteChatSessionIfEmpty(target.id)).toBe(true);
+  expect(q.getAgentRequest(delivery.requestId!)).toMatchObject({ status: 'cancelled', targetSessionId: null });
+  expect(q.getAgentDelivery(delivery.id)).toMatchObject({ status: 'cancelled', targetSessionId: null });
+  await drainAgentCoordination();
+  expect(accepted.some(row => row.sessionId === target.id)).toBe(false);
+});
+
+it('retains accepted history through soft-event and chat deletion and restricts removal of an assignment run', async () => {
+  const initial = await send();
+  await complete(agentMain.id, 'Saved outcome remains available.');
+  const request = q.getAgentRequest(initial.requestId!)!;
+  const { getRawDb } = await import('@/lib/db');
+  expect(() => getRawDb().prepare('DELETE FROM runs WHERE id=?').run(request.runId)).toThrow(/FOREIGN KEY/i);
+  getRawDb().prepare('DELETE FROM chat_events WHERE id=?').run(request.responseEventId);
+  expect(q.terminalAgentDelivery(request.id)?.payload.content).toBe('Saved outcome remains available.');
+  q.settleCoordinationForDeletedChat(agentMain.id);
+  getRawDb().prepare('DELETE FROM chat_sessions WHERE id=?').run(agentMain.id);
+  expect(q.getAgentRequest(request.id)).toMatchObject({ status: 'completed', targetSessionId: null });
+  expect(q.getAgentDelivery(initial.id)).toMatchObject({ status: 'accepted', targetSessionId: null });
+  const count = accepted.length;
+  await drainAgentCoordination();
+  expect(accepted).toHaveLength(count);
+  expect(q.getChatSession(main.id)).not.toBeNull();
+  expect(getRawDb().pragma('foreign_key_check')).toEqual([]);
+});
+
+it('rolls back receiving text, outgoing receipt and delivery state without publishing a phantom message',async()=>{
+  const {getRawDb}=await import('@/lib/db');
+  const {subscribe}=await import('@/lib/realtime/bus');
+  const id='atomic-send';
+  q.createAgentDelivery({id,kind:'message',senderKind:'agent',sourceSessionId:main.id,targetAddress:`session:${agentMain.id}`,targetSessionId:agentMain.id,eventId:'atomic-event',payload:{version:1,content:'Exact atomic input',prompt:'Exact atomic input',attachments:[]},status:'queued'});
+  const heard:unknown[]=[];
+  const unsub=[subscribe(`session:${main.id}`,message=>{if(message.kind==='chat_event')heard.push(message);}),subscribe(`session:${agentMain.id}`,message=>{if(message.kind==='chat_event')heard.push(message);})];
+  getRawDb().exec("CREATE TRIGGER fail_delivery BEFORE UPDATE OF status ON agent_coordination_deliveries WHEN NEW.id='atomic-send' BEGIN SELECT RAISE(ABORT,'simulated transaction failure'); END;");
+  try {
+    expect(()=>q.persistAgentDelivery(id)).toThrow('simulated transaction failure');
+    expect(q.getChatEventById('atomic-event')).toBeNull();
+    expect(q.getAgentDelivery(id)?.status).toBe('queued');
+    expect(heard).toEqual([]);
+  } finally {getRawDb().exec('DROP TRIGGER fail_delivery');for(const stop of unsub)stop();}
 });

@@ -7,7 +7,7 @@ vi.mock('@/lib/db/queries', () => ({ listDevices: () => [{ id: 'laptop', name: '
 beforeEach(() => { mocks.key = `key-${Math.random()}`; mocks.ids = new Set(['laptop']); mocks.commands = []; mocks.runs = []; });
 const breaking = { ...CURRENT_COMPATIBILITY, workerProtocols: [5] };
 const journal = { pendingEvents: 0, pendingCommands: 0, openTurns: 0, lastEvent: 12 };
-it('allows compatible routine releases while the laptop is offline', () => { expect(homeCompatibilityReasons(CURRENT_COMPATIBILITY)).toEqual([]); });
+it('allows compatible routine releases while a qualified laptop is offline', () => { recordWorkerCompatibility('laptop', mocks.key, {release:{version:'test',build:'test',source:'source'},compatibility:CURRENT_COMPATIBILITY}, journal, false); expect(homeCompatibilityReasons(CURRENT_COMPATIBILITY)).toEqual([]); });
 it('requires bridge metadata only when the Home has enrolled workers', () => {
   expect(homeCompatibilityReasons(null)[0]).toMatch(/bridge/);
   mocks.ids.clear(); expect(homeCompatibilityReasons(null)).toEqual([]);

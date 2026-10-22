@@ -21,6 +21,7 @@ import {
   getExternalSessionImportForChat,
   getWorkspace,
   listWorkspaces,
+  settleCoordinationForDeletedChat,
   updateChatSession,
   updateExecution,
 } from '@/lib/db/queries';
@@ -457,6 +458,7 @@ export function cleanupFailedInitialImport(
 ): void {
   const db = getDb();
   db.transaction((tx) => {
+    settleCoordinationForDeletedChat(chatSessionId);
     tx.delete(chatSessions).where(eq(chatSessions.id, chatSessionId)).run();
     tx.delete(executions).where(eq(executions.id, executionId)).run();
     if (!createdWorkspaceId) return;

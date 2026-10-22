@@ -1,5 +1,6 @@
 'use client';
 
+import { DefaultCoordinationSetting } from '@/components/chat-ui/coordination/controls';
 import { useMemo, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import Link from 'next/link';
@@ -132,6 +133,7 @@ export function GeneralSection() {
       </section>
       <DesktopSettings />
       <ApiTransportSettings />
+      <DefaultCoordinationSetting />
       <ResultPilotSettings />
       <WorkResultGuidanceField />
       {/* Theme */}

@@ -36,6 +36,10 @@ vi.mock('@/lib/harness/runtime', () => ({
     getHarnessRuntime(providerId, options),
 }));
 
+// These selection tests exercise the human UI. Signed-agent authorization
+// has its own real-credential regression in coordination/session-permissions.
+vi.mock('@/lib/auth/actor', () => ({ actorFromRequest: () => ({ source: 'human', sessionId: null, apiKeyId: null }) }));
+
 vi.mock('@/lib/config/paths', () => ({
   getAppRoot: () => '/tmp/ri-test',
 }));

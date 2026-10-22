@@ -19,6 +19,8 @@
 
 import type { StreamEvent, UserInputResponse } from '@agentex/agent';
 import type { ChatEventSource, CreateChatEventInput, PermissionMode } from '@/db/types';
+import { recordCoordinationProducer } from '@/lib/coordination/run-context';
+import { acceptAgentDeliveriesForRun, noteCoordinationHumanDirection } from '@/lib/db/queries';
 import {
   chatPlacement,
   getAckedEventSeq,
@@ -48,7 +50,6 @@ import type { WorkerEvent } from '@/lib/workers/protocol';
 import { currentRemoteSignal, mirrorSignal } from './remote-live';
 import { settleTurn } from './turns';
 import { recordAgentRequestOutput, queueAgentBlockedUpdates } from '@/lib/db/queries';
-import { getActiveRunForSession } from '@/lib/runs/artifact-bucket';
 
 /**
  * A chat event: inserted, or for a cumulative provider part replacing an
@@ -60,7 +61,7 @@ import { getActiveRunForSession } from '@/lib/runs/artifact-bucket';
 export function applyChatEvent(row: CreateChatEventInput, opts: { cumulative: boolean; runId?: string | null }): boolean {
   const stored = opts.cumulative ? replaceChatEventPart(row) : insertChatEvent(row);
   if (stored && stored.source === 'agent' && stored.content && !stored.externalParentToolCallId) {
-    recordAgentRequestOutput(opts.runId === undefined ? getActiveRunForSession(row.sessionId) : opts.runId, stored.id);
+    recordAgentRequestOutput(opts.runId, stored.id);
   }
   if (stored && !opts.cumulative && row.source === 'result' && row.raw && opts.runId !== null) {
     try {
@@ -87,6 +88,12 @@ export function applyRunnerSignal(
   const current = !from || currentRemoteSignal(from.deviceId, from.eventPosition);
   if (from) after.tasks.push(() => mirrorSignal(from.deviceId, chatSessionId, signal, from.eventPosition));
   switch (signal.type) {
+    case 'producing_run':
+      if (current && !from) recordCoordinationProducer(chatSessionId, signal.runId);
+      return;
+    case 'input_accepted':
+      acceptAgentDeliveriesForRun(signal.runId, chatSessionId, signal.deliveryIds, signal.producingRunId);
+      return;
     case 'native_title': {
       // Heartbeats contain live runtime state, but no title metadata. A journaled
       // name still needs applying after a newer heartbeat, with ownership guards.
@@ -251,7 +258,18 @@ function applyWorkerEvent(deviceId: string, event: WorkerEvent, after: AfterComm
     );
     return;
   }
-  const { signal } = event;
+  let { signal } = event;
+  if (signal.type === 'input_accepted') {
+    const command = sendForRun(deviceId, event.chatSessionId, signal.runId);
+    if (!command) return;
+    signal = { ...signal, deliveryIds: (command.payload as {coordinationDeliveryIds?: string[]}).coordinationDeliveryIds };
+  }
+  if (signal.type === 'input_accepted' && signal.producingRunId && !ownRun(deviceId, event.chatSessionId, signal.producingRunId)) return;
+  if ((signal.type === 'producing_run' || signal.type === 'input_accepted') && signal.runId && !ownRun(deviceId, event.chatSessionId, signal.runId)) return;
+  if (!historyOnly && signal.type === 'input_accepted' && signal.producingRunId && sendForRun(deviceId, event.chatSessionId, signal.runId)?.actor.source === 'human') {
+    const producingRunId = signal.producingRunId;
+    after.tasks.push(() => noteCoordinationHumanDirection(producingRunId, event.chatSessionId));
+  }
   if (signal.type === 'turn_result') {
     // Bound to the send that started the turn: this device's, for this
     // chat, from the placement that ran it. Its run is the send's.

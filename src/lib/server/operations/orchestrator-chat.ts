@@ -1,3 +1,4 @@
+import { actorFromRequest } from '@/lib/auth/actor';
 import { UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 import { HarnessDisabledError } from '@/lib/harness/registry';
 import { newMainChatSchema } from '@/lib/server/inputs';
@@ -31,6 +32,7 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: Oper
 }
 
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: OperationContext) {
+  if (actorFromRequest(_req.headers).source === 'ai') return reply({ error: 'Use delegate_work to start an agent-created chat. Replacing a main chat or switching its harness requires the user’s action.' }, { status: 403 });
   const body: unknown = rpcInput.body;
   try {
     return reply({ session: await startNewMainChat(null, parseChatOverride(body), { forApp: rpcInput.body.forApp === true }) });

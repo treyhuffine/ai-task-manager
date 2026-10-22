@@ -10,6 +10,8 @@ import { ConnectedForm } from '@/components/mcp-apps/form/connected-form';
 import { ConnectedFormOutcome } from '@/components/mcp-apps/form/form-outcome';
 import { Message, MessageContent } from '@/components/ai-elements/message';
 import { AgentResponse } from '@/components/chat-ui/messages/agent-response';
+import { IncomingDeliveryStatus } from '@/components/chat-ui/coordination/controls';
+import { CoordinationApproval, CoordinationText } from '@/components/chat-ui/coordination/approval-card';
 import { CopyMessageButton } from '@/components/chat-ui/messages/copy-message-button';
 import { MessageEntityChip, type EntityLookup } from '@/components/chat-ui/references/message-entity-chip';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
@@ -147,8 +149,12 @@ interface ExecutionEventProps {
 export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent, clientStatus, resultByCallId, subagentEventsByCallId, nestedAncestorCallIds, approvalGroup, handoffActions = true }: ExecutionEventProps) {
   hot(`render ExecutionEvent[${event.source}]`);
   const [expanded, setExpanded] = useState(false);
+  const coordinationMessage = (event.raw as {agentCoordination?: {deliveryId?: string; content?: string; senderKind?: string; sourceSessionId?: string; sourceEventId?: string; kind?: string; directions?: string; originalRequest?: string; relatedRequestId?: string; lateFollowup?: boolean}} | null)?.agentCoordination;
+  // A system-authored outcome retains its saved role and error source, with
+  // the same provenance and full-message presentation as other received sends.
+  const presentationSource = event.source === 'error' && coordinationMessage ? 'user' : event.source;
 
-  switch (event.source) {
+  switch (presentationSource) {
     case 'email_draft': {
       const draft = parseEmailDraft(event.content);
       return draft ? <EmailComposer key={event.id} id={event.id} sessionId={event.sessionId} initial={draft} /> : <p className="text-xs text-muted-foreground">Email draft is unavailable.</p>;
@@ -158,7 +164,10 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
       return id ? <ResultRenderer resultId={id} /> : <p className="text-xs text-muted-foreground">Saved handoff reference is unavailable.</p>;
     }
     case 'user': {
-      const origin = event.senderSessionId ? agentMessagePresentation(event.content ?? '', event.senderSessionId) : null;
+      const metadata = coordinationMessage;
+      const sourceId = metadata?.sourceSessionId ?? event.senderSessionId;
+      const origin = metadata ? { body: metadata.content ?? event.content ?? '', originalRequest: metadata.originalRequest ?? null, label: metadata.senderKind === 'human' ? 'Shared by you' : metadata.senderKind === 'system' ? 'Ri coordination update' : metadata.kind === 'request' ? 'Request from' : metadata.kind === 'answer' ? 'Answer from' : 'Message from' }
+        : event.senderSessionId ? agentMessagePresentation(event.content ?? '', event.senderSessionId) : null;
       const content = origin?.body ?? event.content ?? '';
       const segments = parseEntitySegments(content);
       const hasMarkers = segments.some((s) => s.kind === 'marker') || content.includes('[[source:');
@@ -166,7 +175,10 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
       const isSending = clientStatus?.status === 'sending';
       return (
         <div className={cn('group flex flex-col', origin && 'max-w-[95%] rounded-xl border border-border bg-muted/20')}>
-          {event.senderSessionId && <SenderChip senderSessionId={event.senderSessionId} label={origin?.label} />}
+          {sourceId ? <SenderChip senderSessionId={sourceId} eventId={metadata?.sourceEventId} label={origin?.label ?? 'Message from'} /> : origin && <p className="px-3 py-2 text-xs text-muted-foreground">{origin.label}{metadata?.senderKind !== 'system' && ' · Source chat unavailable'}</p>}
+          {metadata?.directions && <div className="border-t px-3 py-2 text-xs"><p className="mb-1 font-medium">Your directions</p><CoordinationText text={metadata.directions} /></div>}
+          {metadata?.senderKind === 'human' && <p className="px-3 pt-2 text-[11px] font-medium text-muted-foreground">Quoted source material</p>}
+          {metadata?.lateFollowup && <p className="px-3 pt-2 text-[11px] text-muted-foreground">Follow-up received after completion</p>}
           <Message from={origin ? 'assistant' : 'user'} className={origin ? 'max-w-full border-t border-border/70 px-3 py-3' : undefined}>
             <MessageContent
               className={cn(
@@ -174,22 +186,14 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
                 isFailed && 'opacity-70 border border-destructive/40',
               )}
             >
-              {hasMarkers ? (
-                <RenderMessageSegments
-                  segments={segments}
-                  attachments={event.attachments ?? []}
-                  sessionId={sessionId}
-                  tone={origin ? 'surface' : 'bubble'}
-                />
-              ) : (
-                content
-              )}
+              {origin ? <CoordinationText text={content}>{hasMarkers ? <RenderMessageSegments segments={segments} attachments={event.attachments ?? []} sessionId={sessionId} tone="surface" /> : undefined}</CoordinationText> : hasMarkers ? <RenderMessageSegments segments={segments} attachments={event.attachments ?? []} sessionId={sessionId} tone="bubble" /> : content}
             </MessageContent>
           </Message>
           {origin?.originalRequest && <details className="mx-3 mb-2 text-[11px] text-muted-foreground">
             <summary className="w-fit cursor-pointer rounded py-1 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Original request</summary>
             <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5">{origin.originalRequest}</p>
           </details>}
+          {metadata?.deliveryId && sessionId && <IncomingDeliveryStatus sessionId={sessionId} deliveryId={metadata.deliveryId} />}
           {voiceSent && <VoiceSentBadge />}
           <PreparationStatus event={event} />
           {isFailed && sessionId && (
@@ -207,6 +211,7 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
           {event.content && (
             <CopyMessageButton
               text={event.content}
+              eventId={event.id} sessionId={sessionId}
               align={origin ? 'left' : 'right'}
               alwaysVisible={!!origin}
               timestamp={event.createdAt}
@@ -228,6 +233,7 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
           {event.content && (
             <CopyMessageButton
               text={event.content}
+              eventId={event.id} sessionId={sessionId}
               align="left"
               alwaysVisible
               timestamp={event.createdAt}
@@ -504,9 +510,15 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
     }
 
     case 'system': {
+      const coordination = (event.raw as {agentCoordination?: {deliveryId?: string}} | null)?.agentCoordination;
+      if (['coordination_proposed', 'coordination_send_failed'].includes(event.content ?? '') && coordination?.deliveryId) return <CoordinationApproval sessionId={event.sessionId} deliveryId={coordination.deliveryId} />;
+      if (event.content === 'coordination_decision') return null;
+      if (event.content === 'coordination_hold') return <p className="text-center text-[11px] text-muted-foreground">{(coordination as {held?: boolean})?.held ? 'Hold on for this chat' : 'Hold released for this chat'}</p>;
+      if (event.content === 'coordination_initialized') return <p className="text-center text-[11px] text-muted-foreground">Coordination permission inherited at chat creation</p>;
+      if (event.content === 'coordination_human_direction') return <p className="text-center text-[11px] text-muted-foreground">Human direction joined the assigned turn</p>;
       const receipt = decodeChatMessageReceipt(event);
       if (receipt) {
-        return <ChatMessageLink sessionId={receipt.targetSessionId} label="Sent to" direction="outgoing" preview={receipt.preview} />;
+        return <ChatMessageLink sessionId={receipt.targetSessionId} eventId={receipt.targetEventId} label="Sent to" direction="outgoing" preview={receipt.preview} />;
       }
       if (MCP_TOOL_RESULT_EVENTS.has(event.content ?? '')) return <ConnectedView captureId={event.id} chatId={event.sessionId} />;
       if (event.content === MCP_FORM_EVENT) return <ConnectedForm formId={event.id} />;

@@ -28,6 +28,7 @@
 
 import {
   chatPlacement,
+  agentDeliveryForEvent,
   getChatSession,
   insertChatEvent,
   listRecentChatEvents,
@@ -232,6 +233,10 @@ export async function healthCheckSession(
       && activity.orphan.source === 'user'
       && !activity.orphan.externalEventId
       && !isMirroredImport;
+    if (agentDeliveryForEvent(activity.orphan.id)) {
+      if (options.redispatchOrphans) void import('@/lib/coordination/service').then(({ drainAgentCoordination }) => drainAgentCoordination());
+      return { classification: 'dead', fixes, redispatched: false, replayed, error };
+    }
     const resultOperation = workResultOperationMetadata(activity.orphan.raw);
     if (resultOperation) {
       // Feature messages are admitted through their conditional durable run.

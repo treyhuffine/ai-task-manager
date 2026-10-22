@@ -39,6 +39,14 @@ vi.mock('@/lib/server/chat-sources', () => ({ chatSources: { turnContext: mock.t
 vi.mock('@/lib/mcp-apps/service', () => ({ connectedTurnContext: mock.connectedTurnContext }));
 vi.mock('@/lib/mcp-apps/context-files', () => ({ contextAttachments: () => [] }));
 
+function coordinationAssignment(q: typeof import('@/lib/db/queries'), input: { id: string; sourceSessionId: string; sourceAddress: string; targetAddress: string; targetSessionId: string; requestKey: string; kind: 'question'; content: string; messageEventId: string; parentRequestId?: string }) {
+  const { content, messageEventId, ...work } = input;
+  const request = q.createAgentRequest(work);
+  q.createAgentDelivery({ id: input.id, requestId: input.id, sourceSessionId: input.sourceSessionId, kind: 'request', senderKind: 'agent', targetAddress: input.targetAddress, targetSessionId: input.targetSessionId, eventId: messageEventId, payload: {version:1, content, prompt:content, attachments:[]}, status:'queued' });
+  q.persistAgentDelivery(input.id);
+  return request;
+}
+
 describe('connected app context at dispatch', () => {
   let root: string;
   let previous: Record<string, string | undefined>;
@@ -76,9 +84,9 @@ describe('connected app context at dispatch', () => {
   });
 
   /** A message waiting in a device's queue, carrying app context frozen when it was sent. */
-  function queuedSend() {
+  function queuedSend(senderSessionId?: string) {
     const session = q.createChatSession({ harness: 'claude', type: 'content' });
-    const message = q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', content: 'What fits here?', raw: { connectedAppContext: context } })!;
+    const message = q.insertChatEvent({ sessionId: session.id, role: 'user', source: 'user', senderSessionId, content: 'What fits here?', raw: { connectedAppContext: context } })!;
     const device = q.createDevice({ name: 'Laptop', kind: 'computer' });
     const command = q.queueWorkerCommand({ deviceId: device.id, kind: 'send', chatSessionId: session.id, sourceEventId: message.id, payload: {}, actor: { source: 'human' } });
     return { session, message, command };
@@ -104,9 +112,9 @@ describe('connected app context at dispatch', () => {
   });
 
   it('refuses a cancelled assignment after preparation and in the device queue', async () => {
-    const { session, message, command } = queuedSend();
     const source = q.createChatSession({ type: 'orchestration', harness: 'claude' });
-    const request = q.createAgentRequest({ id: 'cancelled-assignment', sourceSessionId: source.id, sourceAddress: 'orchestrator', targetAddress: `session:${session.id}`, targetSessionId: session.id, requestKey: 'cancelled', kind: 'question', content: 'Review', messageEventId: message.id });
+    const { session, message, command } = queuedSend(source.id);
+    const request = coordinationAssignment(q, { id: 'cancelled-assignment', sourceSessionId: source.id, sourceAddress: 'orchestrator', targetAddress: `session:${session.id}`, targetSessionId: session.id, requestKey: 'cancelled', kind: 'question', content: message.content!, messageEventId: message.id });
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     mock.turnContext.mockImplementationOnce(async () => { await gate; return ''; });
@@ -126,20 +134,24 @@ describe('connected app context at dispatch', () => {
     const session = q.createChatSession({ type: 'content', harness: 'claude' });
     const source = q.createChatSession({ type: 'orchestration', harness: 'claude' });
     const message = q.insertChatEvent({ sessionId: session.id, senderSessionId: source.id, role: 'user', source: 'user', content: 'Review' })!;
-    const request = q.createAgentRequest({ id: 'cancel-during-spawn', sourceSessionId: source.id, sourceAddress: 'orchestrator', targetAddress: `session:${session.id}`, targetSessionId: session.id, requestKey: 'during-spawn', kind: 'question', content: 'Review', messageEventId: message.id });
+    const request = coordinationAssignment(q, { id: 'cancel-during-spawn', sourceSessionId: source.id, sourceAddress: 'orchestrator', targetAddress: `session:${session.id}`, targetSessionId: session.id, requestKey: 'during-spawn', kind: 'question', content: 'Review', messageEventId: message.id });
     let eventId = message.id;
     if (kind === 'continuation') {
       q.updateAgentRequest(request.id, { status: 'waiting' });
-      const child = q.createAgentRequest({ id: 'completed-child', sourceSessionId: session.id, sourceAddress: `session:${session.id}`, targetAddress: `session:${source.id}`, targetSessionId: source.id, requestKey: 'child-context', parentRequestId: request.id, kind: 'question', content: 'Context', messageEventId: 'child-input' });
+      const child = coordinationAssignment(q, { id: 'completed-child', sourceSessionId: session.id, sourceAddress: `session:${session.id}`, targetAddress: `session:${source.id}`, targetSessionId: source.id, requestKey: 'child-context', parentRequestId: request.id, kind: 'question', content: 'Context', messageEventId: 'child-input' });
       q.finishAgentRequest(child.id, 'completed', 'Here is the context.');
-      eventId = q.listAgentDeliveries(child.id)[0].eventId;
-      q.insertChatEvent({ id: eventId, sessionId: session.id, senderSessionId: source.id, source: 'user', role: 'user', content: 'Here is the context.' });
+      const answer = q.terminalAgentDelivery(child.id)!;
+      q.updateAgentDelivery(answer.id, { targetSessionId: session.id });
+      q.persistAgentDelivery(answer.id);
+      eventId = answer.eventId;
+
     }
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     const create = mock.createSession.getMockImplementation()!;
     mock.createSession.mockImplementationOnce(async (...args) => { await gate; return create(...args); });
-    const pending = executor.dispatch(session.id, 'Review', { sourceEventId: eventId });
+    const reserved = q.reserveAgentRequestTurn(request.id)!;
+    const pending = executor.dispatch(session.id, 'Review', { sourceEventId: eventId, runId: reserved.run.id });
     const refused = expect(pending).rejects.toMatchObject({ code: 'invalid_state' });
     await vi.waitFor(() => expect(mock.createSession).toHaveBeenCalled());
     expect(q.getAgentRequest(request.id)?.runId).toBeTruthy();

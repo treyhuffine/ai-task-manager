@@ -4,7 +4,7 @@ import { sessionCredential, SESSION_CREDENTIAL_HEADER } from '@/lib/orchestrator
 import { resolveServerPort } from '@/lib/orchestrator/harness-surface';
 
 export const COORDINATION_TOOLS = [
-  'get_session_context', 'message_agent', 'delegate_work', 'get_agent_request', 'list_agent_requests', 'reply_agent_request', 'cancel_agent_request',
+  'get_session_context', 'message_agent', 'delegate_work', 'get_agent_request', 'get_agent_delivery', 'list_agent_requests', 'reply_agent_request', 'cancel_agent_request',
   'list_workspaces', 'get_workspace', 'get_session_messages', 'get_session_events', 'get_chat_event', 'search_sessions',
   'get_pending_input', 'answer_pending_input', 'read_memory',
 ] as const;

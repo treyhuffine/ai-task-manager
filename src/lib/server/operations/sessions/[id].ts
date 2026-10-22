@@ -1,3 +1,4 @@
+import { actorFromRequest } from '@/lib/auth/actor';
 import { publishSessionTitle } from '@/lib/realtime/bus';
 import { EFFORT_LEVELS, PERMISSION_MODES, type EffortLevel, type PermissionMode } from '@/db/types';
 import { getAppRoot } from '@/lib/config/paths';
@@ -99,6 +100,9 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
     let executorChanged = false;
     if ('permissionMode' in body) {
       const mode = body.permissionMode;
+      if (mode !== existing.permissionMode && actorFromRequest(_request.headers).source === 'ai') {
+        return reply({ error: 'Only a person can change a chat’s tool permissions.' }, { status: 403 });
+      }
       if (!mode || !PERMISSION_MODES.includes(mode)) {
         return reply(
           { error: `Invalid permissionMode. Expected one of ${PERMISSION_MODES.join(', ')}.` },

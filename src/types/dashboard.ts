@@ -15,7 +15,7 @@ export type ActiveView =
   | { kind: 'apps'; route: string; query?: Record<string, string> }
   | { kind: 'home' }
   | { kind: 'agent'; id: string; tab?: AgentTab }
-  | { kind: 'execution'; id: string }
+  | { kind: 'execution'; id: string; eventId?: string; history?: boolean }
   | { kind: 'skill'; ref: string };
 
 export type PanelTab = 'deck' | 'chat' | 'tasks' | 'stream' | 'notes';

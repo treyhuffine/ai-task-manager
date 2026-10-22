@@ -153,6 +153,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 export function liveSnapshot(): WorkerLive {
   return {
     running: [...runnerState.runningSessions],
+    producingRuns: Object.fromEntries([...runnerState.runningSessions].map(chatId => [chatId, producingRun(chatId)])),
     pending: listSessionsWithPending().flatMap((id) => listForSession(id)),
     backgroundTasks: Object.fromEntries([...runnerState.backgroundTasks].map(([chat, ids]) => [chat, [...ids]])),
   };
@@ -304,6 +305,7 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
     journal: commandJournal,
     handlers,
     target,
+    paused: options.paused,
     onStopped: (err) => stop({ reason: err.reason, message: err.message }),
     onHandled: () => {
       void recordProcesses();

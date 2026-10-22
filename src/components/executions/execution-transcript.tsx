@@ -25,6 +25,7 @@ import { useStickToBottomContext } from 'use-stick-to-bottom';
 import { ActivityGroup } from '@/components/chat-ui/activity/activity-group';
 import { ExecutionEvent } from '@/components/chat-ui/activity/execution-event';
 import { TurnFilesFooter } from '@/components/chat-ui/artifacts/file-chip';
+import { LinkedCoordinationMessage } from '@/components/chat-ui/coordination/linked-message';
 import { SetupCard } from './setup-card';
 import { ThinkingState } from './thinking-state';
 import { buildTranscriptNodes } from '@/components/chat-ui/activity/transcript-grouping';
@@ -192,6 +193,7 @@ export function ExecutionTranscript({ session, workspace, isRunning, voiceSentId
           oldestEventId={oldestEventId}
         />
         <SetupCard session={session} workspace={workspace} />
+        <LinkedCoordinationMessage sessionId={session.id} />
 
         {isLoading && !hasEvents && (
           <p className="text-[11px] text-muted-foreground/60 italic">Loading transcript…</p>
@@ -441,7 +443,7 @@ function filterRenderable(events: ChatEventDTO[]): ChatEventDTO[] {
     // renderer auto-shows thinking again the moment prose is present.
     if (e.source === 'thinking' && !(e.content ?? '').trim()) return false;
     if (e.source !== 'system') return true;
-    if (decodeChatMessageReceipt(e)) return true;
+    if (decodeChatMessageReceipt(e) || e.content?.startsWith('coordination_')) return true;
     // Allowlist: render a system divider only for subtypes we've opted into
     // (none today). The subtype lives in `content` (the adapter stores
     // `event.subtype` there); `raw.subtype` is unreliable (`'unknown'` for

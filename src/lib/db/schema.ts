@@ -100,6 +100,7 @@ const HARNESS_VALUES = KNOWN_HARNESS_IDS;
 export const userState = sqliteTable('user_state', {
   id: integer().primaryKey(),
   ...timestamps,
+  agentCoordinationPolicy: text({ enum: ['ask', 'allow'] }),
   name: text(),
   activeAreaId: text().references(() => areas.id),
   activeParentTaskId: text(),
@@ -1394,6 +1395,7 @@ export const workspaces = sqliteTable(
   {
     id: text().primaryKey(),
     ...timestamps,
+    agentCoordinationPolicy: text({ enum: ['ask', 'allow'] }),
     name: text().notNull(),
     slug: text().notNull().unique(),
     emoji: text(),
@@ -1593,6 +1595,7 @@ export const executions = sqliteTable(
   {
     id: text().primaryKey(),
     ...timestamps,
+    agentCoordinationPolicy: text({ enum: ['ask', 'allow'] }),
     userId: text().notNull().default('local'),
 
     // What this execution is anchored to. Required — executions are
@@ -1999,6 +2002,8 @@ export const chatSessions = sqliteTable(
   {
     id: text().primaryKey(),
     ...timestamps,
+    agentCoordinationPolicy: text({ enum: ['ask', 'allow'] }),
+    coordinationHeldAt: text(),
     userId: text().notNull().default('local'),
     // Which engine runs this chat. A fact, set by every creator, no default.
     // (Replaced `agent_id`, a pointer to a four-row table that held nothing
@@ -2588,64 +2593,76 @@ export const entityProjectionState = sqliteTable(
   ],
 );
 
-/** Durable consultations and delegated work between personal Ri chats. */
-export const agentRequests = sqliteTable('agent_requests', {
+/** Immutable transport snapshot. Transcript events remain the visible history. */
+export interface AgentCoordinationPayload {
+  version: 1;
+  content: string;
+  prompt: string;
+  attachments: Attachment[];
+  requestKey?: string;
+  relatedRequestId?: string;
+  originalRequest?: string;
+  directions?: string;
+  humanDirected?: boolean;
+  launch?: { workspaceId: string; provider?: HarnessId; model?: string; modelVariant?: string | null; effort?: typeof chatSessions.$inferSelect.effort; serviceTier?: string | null; permissionMode?: (typeof PERMISSION_MODES)[number]; taskId?: string; deviceId?: string; label?: string };
+}
+
+/** Questions and assignments whose outcomes are owed. */
+export const agentCoordinationRequests = sqliteTable('agent_coordination_requests', {
   id: text().primaryKey(),
   ...timestamps,
-  sourceSessionId: text().notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
+  sourceSessionId: text().references(() => chatSessions.id, { onDelete: 'set null' }),
   sourceAddress: text().notNull(),
   targetAddress: text().notNull(),
   targetSessionId: text().references(() => chatSessions.id, { onDelete: 'set null' }),
   requestKey: text().notNull(),
-  parentRequestId: text().references((): AnySQLiteColumn => agentRequests.id, { onDelete: 'set null' }),
-  kind: text({ enum: ['message', 'question', 'delegation'] }).notNull(),
-  content: text().notNull(),
-  options: text({ mode: 'json' }).$type<{
-    workspaceId: string;
-    provider?: HarnessId;
-    model?: string;
-    effort?: string;
-    serviceTier?: string;
-    permissionMode?: (typeof PERMISSION_MODES)[number];
-    taskId?: string;
-    deviceId?: string;
-    label?: string;
-  }>(),
-  status: text({ enum: ['queued', 'sent', 'waiting', 'completed', 'failed', 'cancelled'] }).notNull(),
-  messageEventId: text().notNull(),
-  runId: text().references((): AnySQLiteColumn => runs.id, { onDelete: 'set null' }),
+  parentRequestId: text().references((): AnySQLiteColumn => agentCoordinationRequests.id, { onDelete: 'restrict' }),
+  kind: text({ enum: ['question', 'delegation'] }).notNull(),
+  options: text({ mode: 'json' }).$type<NonNullable<AgentCoordinationPayload['launch']>>(),
+  status: text({ enum: ['queued', 'working', 'waiting', 'completed', 'failed', 'cancelled'] }).notNull(),
+  runId: text().references((): AnySQLiteColumn => runs.id, { onDelete: 'restrict' }),
   responseEventId: text(),
-  response: text(),
-  attempts: integer().notNull().default(0),
-  nextAttemptAt: text(),
-  error: text(),
 }, table => [
-  uniqueIndex('uniq_agent_requests_key').on(table.sourceSessionId, table.requestKey),
-  index('idx_agent_requests_dispatch').on(table.status, table.nextAttemptAt),
-  index('idx_agent_requests_target').on(table.targetSessionId, table.status),
-  index('idx_agent_requests_source').on(table.sourceSessionId, table.status),
-  index('idx_agent_requests_run').on(table.runId),
-  uniqueIndex('uniq_agent_requests_message').on(table.messageEventId),
+  uniqueIndex('uniq_agent_coordination_requests_key').on(table.sourceSessionId, table.requestKey),
+  index('idx_agent_coordination_requests_target').on(table.targetSessionId, table.status),
+  index('idx_agent_coordination_requests_source').on(table.sourceSessionId, table.status),
+  index('idx_agent_coordination_requests_status').on(table.status, table.id),
+  index('idx_agent_coordination_requests_run').on(table.runId),
+  index('idx_agent_coordination_requests_parent').on(table.parentRequestId, table.status),
 ]);
 
-/** Replies and blocked-state updates are queued with the state change. */
-export const agentDeliveries = sqliteTable('agent_deliveries', {
+/** One send in either direction, with optional owed work. */
+export const agentCoordinationDeliveries = sqliteTable('agent_coordination_deliveries', {
   id: text().primaryKey(),
   ...timestamps,
-  requestId: text().notNull().references(() => agentRequests.id, { onDelete: 'cascade' }),
-  dedupeKey: text().notNull(),
-  kind: text({ enum: ['response', 'blocked', 'failed', 'cancelled'] }).notNull(),
-  content: text().notNull(),
+  requestId: text().references(() => agentCoordinationRequests.id, { onDelete: 'restrict' }),
+  kind: text({ enum: ['message', 'request', 'answer', 'blocked', 'failed', 'cancelled'] }).notNull(),
+  senderKind: text({ enum: ['agent', 'human', 'system'] }).notNull(),
+  sourceSessionId: text().references(() => chatSessions.id, { onDelete: 'set null' }),
+  sourceRunId: text().references(() => runs.id, { onDelete: 'set null' }),
+  targetAddress: text().notNull(),
+  targetSessionId: text().references(() => chatSessions.id, { onDelete: 'set null' }),
   eventId: text().notNull(),
-  status: text({ enum: ['pending', 'sent', 'failed'] }).notNull(),
-  deliveredToSessionId: text(),
+  sourceEventId: text(),
+  payload: text({ mode: 'json' }).$type<AgentCoordinationPayload>().notNull(),
+  status: text({ enum: ['awaiting_approval', 'queued', 'delivered', 'accepted', 'denied', 'failed', 'cancelled'] }).notNull(),
+  acceptedByRunId: text().references(() => runs.id, { onDelete: 'set null' }),
+  continuationRunId: text().references(() => runs.id, { onDelete: 'restrict' }),
   attempts: integer().notNull().default(0),
   nextAttemptAt: text(),
   error: text(),
 }, table => [
-  uniqueIndex('uniq_agent_deliveries_key').on(table.requestId, table.dedupeKey),
-  index('idx_agent_deliveries_pending').on(table.status, table.nextAttemptAt),
-  uniqueIndex('uniq_agent_deliveries_event').on(table.eventId),
+  index('idx_agent_coordination_deliveries_pending').on(table.status, table.nextAttemptAt),
+  index('idx_agent_coordination_deliveries_target').on(table.targetSessionId, table.status, table.id),
+  index('idx_agent_coordination_deliveries_request').on(table.requestId),
+  index('idx_agent_coordination_deliveries_source').on(table.sourceSessionId, table.createdAt),
+  index('idx_agent_coordination_deliveries_source_event').on(table.sourceEventId),
+  uniqueIndex('uniq_agent_coordination_deliveries_event').on(table.eventId),
+  index('idx_agent_coordination_deliveries_source_run').on(table.sourceRunId),
+  index('idx_agent_coordination_deliveries_accepted_run').on(table.acceptedByRunId),
+  index('idx_agent_coordination_deliveries_continuation').on(table.continuationRunId),
+  uniqueIndex('uniq_agent_coordination_initial').on(table.requestId).where(sql`kind = 'request'`),
+  uniqueIndex('uniq_agent_coordination_terminal').on(table.requestId).where(sql`kind IN ('answer', 'failed', 'cancelled')`),
 ]);
 
 // ─── Chat Refs ────────────────────────────────────────────────
@@ -2889,8 +2906,9 @@ export const runs = sqliteTable(
     triggerKind: text({
       enum: ['manual', 'cron', 'every', 'at', 'webhook'],
     }).notNull(),
-    // Verbatim payload for webhook triggers (so the prompt can reference
-    // it via context), kept as JSON for any future structured triggers.
+    // Verbatim webhook payload. Manual coordination runs also keep their
+    // reserved coordinationDeliveryIds here, so preparation and retries
+    // recover one frozen input batch without another transport table.
     triggerPayload: text({ mode: 'json' }).$type<Record<string, unknown> | string | null>(),
     // For scheduler-driven runs, the wall-clock time the slot fired (the
     // tick's idea of "now"). Null for manual + webhook.

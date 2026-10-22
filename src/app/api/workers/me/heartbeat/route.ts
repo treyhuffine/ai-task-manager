@@ -20,7 +20,7 @@
 import { recordWorkerCompatibility, WorkerJournalReportSchema } from '@/lib/workers/update-compatibility';
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { chatPlacement, getOpenPlacement, recordWorkerHeartbeat, transferReservation } from '@/lib/db/queries';
+import { chatPlacement, sendForRun, getOpenPlacement, recordWorkerHeartbeat, transferReservation } from '@/lib/db/queries';
 import { clearDeviceMirror, replaceDeviceMirror, type WorkerLiveSnapshot } from '@/lib/executor/remote-live';
 import type { WorkerHeartbeatReply } from '@/lib/workers/protocol';
 import { readWorkerBody, requireWorker } from '@/lib/workers/route-auth';
@@ -43,6 +43,7 @@ const body = z.object({
   live: z
     .object({
       running: z.array(z.string()).max(1000),
+      producingRuns: z.record(z.string(), z.string().nullable()).optional(),
       pending: z.array(z.object({ requestId: z.string(), sessionId: z.string() }).passthrough()).max(1000),
       backgroundTasks: z.record(z.string(), z.array(z.string())),
       generations: z.record(z.string(), z.number().int().nullable()).optional(),
@@ -72,6 +73,7 @@ function ownLive(deviceId: string, live: z.infer<typeof body>['live'] & object):
   };
   return {
     running: live.running.filter(ours),
+    producingRuns: Object.fromEntries(Object.entries(live.producingRuns ?? {}).filter(([chat, runId]) => ours(chat) && (!runId || sendForRun(deviceId, chat, runId)))),
     pending: (live.pending as unknown as WorkerLiveSnapshot['pending']).filter((p) => ours(p.sessionId)),
     backgroundTasks: Object.fromEntries(Object.entries(live.backgroundTasks).filter(([chat]) => ours(chat))),
   };

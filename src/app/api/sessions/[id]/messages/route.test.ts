@@ -67,6 +67,7 @@ vi.mock('@/lib/db/queries', () => ({
   skipOnboardingStepOnScreen: (id: string) => skipOnboardingStepOnScreen(id),
   // No coordination request rides on these sends.
   failAgentRequestForMessage: () => false,
+  agentRequestMessageRefusal: () => null,
 }));
 
 // A local token, so the real session-credential module can mint and verify.
@@ -392,27 +393,13 @@ describe('POST /api/sessions/[id]/messages — sender provenance', () => {
     }));
   });
 
-  it('records a verified sender and labels what the harness receives', async () => {
+  it('requires signed inter-chat sends to use the durable coordination interface', async () => {
     const { sessionCredential } = await import('@/lib/orchestrator/session-credential');
-    const res = await POST(
-      requestFrom(sessionCredential(AGENT_CHAT, 'test-token'), { content: 'hello', id: CLIENT_ID }),
-      makeParams(),
-    );
-    expect(res.status).toBe(201);
-    expect(insertChatEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ senderSessionId: AGENT_CHAT, content: 'hello' }),
-    );
-    await vi.waitFor(() => expect(dispatch).toHaveBeenCalled());
-    expect(dispatch).toHaveBeenCalledWith(
-      SESSION_ID,
-      '[Message from the "ri" agent\'s main chat, sent on the user\'s behalf]\n\nhello',
-    );
-    // Naming starts once the harness (or its queue) accepted the message.
-    expect(deriveAndSetSessionLabel).not.toHaveBeenCalled();
-    dispatchOptions.onTaken?.();
-    // The chat's first-message title comes from the message itself, not the label.
-    expect(deriveAndSetSessionLabel).toHaveBeenCalledWith(SESSION_ID, 'hello', 'claude');
-    expect(((await res.json()) as { senderSessionId: string }).senderSessionId).toBe(AGENT_CHAT);
+    const res = await POST(requestFrom(sessionCredential(AGENT_CHAT, 'test-token'), { content: 'hello', id: CLIENT_ID }), makeParams());
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining('message_agent') });
+    expect(insertChatEvent).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it('ignores a forged credential: the message counts as typed by the user', async () => {
@@ -476,7 +463,7 @@ describe('POST /api/sessions/[id]/messages — the first-run question on screen'
       }) as unknown as NextRequest,
       makeParams(),
     );
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(409);
     expect(skipOnboardingStepOnScreen).not.toHaveBeenCalled();
   });
 

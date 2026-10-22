@@ -27,6 +27,7 @@ beforeEach(async () => {
   const q = await import('@/lib/db/queries');
   // Keep the main chat on the fake Claude harness installed below.
   q.updateUserState({ defaultHarness: 'claude' });
+  q.setAgentCoordinationPolicy('global', '1', 'allow');
   const { writeAuthConfig } = await import('@/lib/auth/config-file');
   writeAuthConfig({ localToken: q.pairDevice({ name: 'Home', kind: 'computer' }).token.plaintext });
   server = await startHomeServer();
@@ -82,8 +83,9 @@ describe('memory', () => {
     expect((await submit.handler(ctx, input as never)) as { id: string }).toMatchObject({ id: result.id });
 
     const { currentMainChat } = await import('@/lib/sessions/main-chat');
-    expect(result.targetSessionId).toBe(currentMainChat(null)!.id);
-    const stored = q.listChatEvents(result.targetSessionId).find((e) => e.role === 'user')!;
+    const targetSessionId = q.getAgentDelivery(result.id)!.targetSessionId!;
+    expect(targetSessionId).toBe(currentMainChat(null)!.id);
+    const stored = q.listChatEvents(targetSessionId).find((e) => e.role === 'user')!;
     expect(stored).toMatchObject({ senderSessionId: execution.session.id });
     expect(stored.content).toContain('Memory finding: The user wants pnpm, never npm.');
     // The main chat's harness hears who it's from, not the user typing.

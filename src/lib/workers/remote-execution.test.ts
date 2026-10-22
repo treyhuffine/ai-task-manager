@@ -137,6 +137,80 @@ async function queueMessage(content: string, targetId = chatId) {
 }
 
 describe('an execution on a connected device', () => {
+  it('holds an offline assignment on reconnect and releases the same reserved run once', async () => {
+    const q = await import('@/lib/db/queries');
+    const coordination = await import('@/lib/coordination/service');
+    const { wakeDevice, isDeviceConnected } = await import('@/lib/workers/hub');
+    await worker!.stop();
+    worker = null;
+    q.setAgentCoordinationPolicy('global', '1', 'allow');
+    const source = q.createChatSession({ type: 'orchestration', harness: 'claude' });
+    q.setAgentCoordinationHold(source.id, true);
+    const delivery = await coordination.submitAgentRequest(
+      { remote: true, actor: { source: 'ai', sessionId: source.id } },
+      { target: `session:${chatId}`, requestId: 'offline-held', kind: 'question', content: 'Review the offline assignment.' },
+    );
+    await coordination.drainAgentCoordination();
+    await until(() => q.listWorkerCommands(deviceId).some(command => command.kind === 'send'), 'the reserved offline send');
+    const request = q.getAgentRequest(delivery.requestId!)!;
+    const reservedRun = request.runId;
+    const [savedCommand] = q.listWorkerCommands(deviceId).filter(command => command.kind === 'send');
+    expect(reservedRun).toBeTruthy();
+    expect(q.getAgentDelivery(delivery.id)?.acceptedByRunId).toBeNull();
+
+    q.setAgentCoordinationHold(chatId, true);
+    worker = await startWorkerProcess({ homeUrl: server.url, homeId, workerKey, root: laptopRoot });
+    await until(() => isDeviceConnected(deviceId), 'the reconnected worker');
+    wakeDevice(deviceId);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(q.getAgentRequest(request.id)).toMatchObject({ status: 'queued', runId: reservedRun });
+    expect(q.getAgentDelivery(delivery.id)).toMatchObject({ status: 'delivered', acceptedByRunId: null });
+    expect(q.getWorkerCommand(savedCommand.id)?.state).toBe('queued');
+    expect(q.listChatEvents(chatId).some(event => event.source === 'agent')).toBe(false);
+
+    const { coordinationRouter } = await import('@/lib/coordination/router');
+    const api = coordinationRouter.createCaller({ request: new Request(server.url), key: { apiKeyId: laptopKey.id, scope: 'viewer', location: 'home', workerDeviceId: null, sessionChatId: null } });
+    await api.hold({ sessionId: chatId, held: false });
+    await until(() => q.getAgentRequest(request.id)?.status === 'completed', 'the released assignment outcome', 5_000);
+    q.setAgentCoordinationHold(chatId, false);
+    await coordination.drainAgentCoordination();
+    expect(q.getAgentRequest(request.id)?.runId).toBe(reservedRun);
+    expect(q.getAgentDelivery(delivery.id)).toMatchObject({ status: 'accepted', acceptedByRunId: reservedRun });
+    expect(q.listWorkerCommands(deviceId).filter(command => command.kind === 'send')).toHaveLength(1);
+    expect(q.listRuns({}).filter(run => run.chatSessionId === chatId)).toHaveLength(1);
+    expect(q.terminalAgentDelivery(request.id)?.kind).toBe('answer');
+  }, 60_000);
+
+  it('attributes human steering on the laptop to the original producing assignment', async () => {
+    const q = await import('@/lib/db/queries');
+    const coordination = await import('@/lib/coordination/service');
+    const live = await import('@/lib/executor/live-state');
+    const { dispatch, answerPendingInput } = await import('@/lib/executor/adapter');
+    q.updateChatSession(chatId, { permissionMode: 'ask' });
+    q.setAgentCoordinationPolicy('global', '1', 'allow');
+    const source = q.createChatSession({ type: 'orchestration', harness: 'claude' });
+    q.setAgentCoordinationHold(source.id, true);
+    const delivery = await coordination.submitAgentRequest(
+      { remote: true, actor: { source: 'ai', sessionId: source.id } },
+      { target: `session:${chatId}`, requestId: 'remote-human-direction', kind: 'question', content: 'ASK for confirmation before finishing.' },
+    );
+    await coordination.drainAgentCoordination();
+    await until(() => live.listForSession(chatId).length === 1, 'the assignment permission prompt');
+    const assignedRun = q.getAgentRequest(delivery.requestId!)!.runId;
+    const message = await userMessage('Preserve the existing API.');
+    const humanTurn = dispatch(chatId, message.content!, { sourceEventId: message.id, actor: { source: 'human' } });
+    await until(() => !!q.getRunForSourceEvent(message.id), 'the separate human input run');
+    const humanRun = q.getRunForSourceEvent(message.id)!;
+    expect(humanRun.id).not.toBe(assignedRun);
+    const { stableCoordinationId } = await import('@/lib/coordination/ids');
+    await until(() => !!q.getChatEventById(stableCoordinationId('audit', assignedRun!, 'coordination_human_direction')), 'the verified human-direction audit');
+    expect(answerPendingInput(chatId, live.listForSession(chatId)[0]!.requestId, { allow: true }, { source: 'human' }).ok).toBe(true);
+    await humanTurn;
+    await until(() => q.getAgentRequest(delivery.requestId!)?.status === 'completed', 'the assigned completion');
+    expect(q.getAgentRequest(delivery.requestId!)?.runId).toBe(assignedRun);
+    expect(q.terminalAgentDelivery(delivery.requestId!)?.payload).toMatchObject({ humanDirected: true, content: 'allowed' });
+  }, 60_000);
+
   it.each(['answer', 'interrupt', 'close', 'close-idle'] as const)('keeps a sibling chat\'s %s control usable during another chat\'s recycle', async control => {
     const closing = control.startsWith('close');
     await configureRemoteSpeed();
@@ -217,6 +291,8 @@ describe('an execution on a connected device', () => {
     const live = await import('@/lib/executor/live-state');
     const { answerPendingInput } = await import('@/lib/executor/adapter');
     await until(() => live.listForSession(chatId).length === 1, 'the earlier turn to ask permission');
+    // Prompt snapshots and durable native identity arrive independently.
+    await until(() => !!q.getChatSession(chatId)?.externalSessionId, 'the native session identity to be persisted');
     const native = q.getChatSession(chatId)!.externalSessionId;
     const { requestId } = live.listForSession(chatId)[0]!;
     expect(q.listChatEvents(chatId).some(event => event.source === 'agent')).toBe(false);
@@ -516,13 +592,17 @@ describe('an execution on a connected device', () => {
     await until(() => q.listChatEvents(chatId).some((e) => e.content === 'ok: from the phone'), 'the reply');
     expect(sendOf('from the phone')).toMatchObject({ actor: { source: 'human', sessionId: null, apiKeyId: laptopKey.id } });
 
-    expect((await post('from the orchestrator', { [SESSION_CREDENTIAL_HEADER]: sessionCredential(orchestrator.id)! })).status).toBe(201);
-    await until(() => !!sendOf('from the orchestrator'), 'the send');
-    const sent = sendOf('from the orchestrator')!;
-    expect(sent.actor).toEqual({ source: 'ai', sessionId: orchestrator.id, apiKeyId: laptopKey.id });
-    expect((sent.payload as { message: string }).message).toBe(
-      "[Message from the orchestrator (the user's main chat), sent on the user's behalf]\n\nfrom the orchestrator",
-    );
+    expect((await post('from the orchestrator', { [SESSION_CREDENTIAL_HEADER]: sessionCredential(orchestrator.id)! })).status).toBe(409);
+    q.setAgentCoordinationPolicy('global','1','allow');
+    const {runAction}=await import('@/lib/orchestrator/dispatch');
+    const result=await runAction('message_agent',{target:`session:${chatId}`,request_id:'provenance',response:'none',content:'from the orchestrator'},{remote:true,actor:{source:'ai',sessionId:orchestrator.id}});
+    expect(result.ok).toBe(true);
+    await (await import('@/lib/coordination/service')).drainAgentCoordination();
+    await until(()=>q.listWorkerCommands(deviceId).some(command=>command.kind==='send' && (command.payload as {message:string}).message.includes('from the orchestrator')),'the coordinated send');
+    const sent=q.listWorkerCommands(deviceId).find(command=>command.kind==='send' && (command.payload as {message:string}).message.includes('from the orchestrator'))!;
+    expect(sent.actor).toEqual({source:'ai',sessionId:orchestrator.id,apiKeyId:null});
+    expect((sent.payload as {message:string}).message).toContain("[Message from the orchestrator (the user's main chat), sent on the user's behalf]");
+    expect((sent.payload as {message:string}).message).toContain('from the orchestrator');
   }, 60_000);
 
   it("never sends a command for a placement that changed while the laptop was away", async () => {

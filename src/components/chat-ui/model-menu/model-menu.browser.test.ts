@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { build } from 'esbuild';
 import { chromium, type Browser, type Page } from 'playwright-core';
@@ -133,10 +132,7 @@ beforeAll(async () => {
   browser = await chromium.launch({
     executablePath:
       process.env.RI_REVIEW_CHROMIUM ??
-      path.join(
-        os.homedir(),
-        'Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell',
-      ),
+      chromium.executablePath(),
     headless: true,
   });
 }, 90_000);

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { setUpAgentOn } from '@/test/fixtures/setups';
 import type { FileCandidate } from '@/lib/import/history-source';
+import { runtimePeerRelease } from '@/lib/releases/runtime-identity';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
@@ -53,7 +54,7 @@ afterEach(async () => {
 const headers = () => new Headers({
   'x-ri-api-key-id': keyId,
   'x-ri-api-key-scope': 'worker', 'x-ri-worker-device-id': deviceId,
-  'x-ri-worker-protocol': String(WORKER_PROTOCOL),
+  'x-ri-worker-compatibility': Buffer.from(JSON.stringify(runtimePeerRelease())).toString('base64url'), 'x-ri-worker-protocol': String(WORKER_PROTOCOL),
 });
 
 describe('authority at asynchronous boundaries', () => {

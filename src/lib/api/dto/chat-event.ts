@@ -65,6 +65,7 @@ export function toChatEventDTO(row: ChatEventRecord): ChatEventDTO {
     ...row,
     // Background tasks and device continuations retain their existing payloads.
     raw: decodeBackgroundTaskEvent(row.raw) || row.source === 'continuation' ? row.raw
+      : raw?.agentCoordination && typeof raw.agentCoordination === 'object' ? { agentCoordination: raw.agentCoordination }
       : sentReceipt ? { chatMessageSent: sentReceipt }
       : row.source === 'work_result' && str(raw?.resultId) ? { resultId: raw!.resultId }
       : raw?.resultOperation && typeof raw.resultOperation === 'object' ? { resultOperation: raw.resultOperation }

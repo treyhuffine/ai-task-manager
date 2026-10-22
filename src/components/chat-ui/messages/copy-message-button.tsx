@@ -1,5 +1,6 @@
 'use client';
 
+import { SendToChatButton } from '@/components/chat-ui/coordination/send-to-chat';
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -7,6 +8,8 @@ import { Tip } from '@/components/ui/tip';
 
 interface CopyMessageButtonProps {
   text: string;
+  eventId?: string;
+  sessionId?: string;
   /** Where to align the button in its row. Defaults to right. */
   align?: 'left' | 'right';
   /**
@@ -35,6 +38,7 @@ interface CopyMessageButtonProps {
  */
 export function CopyMessageButton({
   text,
+  eventId, sessionId,
   align = 'right',
   alwaysVisible = false,
   timestamp,
@@ -104,10 +108,12 @@ export function CopyMessageButton({
         <>
           {timeNode}
           {iconNode}
+          {eventId && sessionId && <SendToChatButton eventId={eventId} sessionId={sessionId} />}
         </>
       ) : (
         <>
           {iconNode}
+          {eventId && sessionId && <SendToChatButton eventId={eventId} sessionId={sessionId} />}
           {timeNode}
         </>
       )}

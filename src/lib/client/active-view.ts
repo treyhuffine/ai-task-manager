@@ -9,9 +9,9 @@ import { AGENT_TABS, type ActiveView, type AgentTab } from '@/types/dashboard';
  */
 
 export const HOME_VIEW: ActiveView = { kind: 'home' };
-const NATIVE_QUERY_KEYS = new Set(['session','agent','tab','skill','task','note','area']);
+const NATIVE_QUERY_KEYS = new Set(['session','message','history','agent','tab','skill','task','note','area']);
 
-export const executionView = (id: string): ActiveView => ({ kind: 'execution', id });
+export const executionView = (id: string, eventId?: string, history = false): ActiveView => ({ kind: 'execution', id, ...(eventId ? { eventId } : {}), ...(history ? { history: true } : {}) });
 
 export const agentView = (id: string, tab?: AgentTab): ActiveView =>
   tab ? { kind: 'agent', id, tab } : { kind: 'agent', id };
@@ -30,7 +30,7 @@ export function viewFromSearchParams(params: Pick<URLSearchParams, 'get' | 'toSt
     return { kind: 'apps', route: pathname.slice(6), ...(query.size ? {query:Object.fromEntries(query)} : {}) };
   }
   const session = params.get('session');
-  if (session) return executionView(session);
+  if (session) return executionView(session, params.get('message') ?? undefined, params.get('history') === '1');
   const agent = params.get('agent');
   if (agent) {
     const tab = params.get('tab');
@@ -55,6 +55,8 @@ export function viewHref(view: ActiveView): string {
 export function applyViewToSearchParams(params: URLSearchParams, view: ActiveView, previous?:ActiveView): URLSearchParams {
   if(previous?.kind==='apps')for(const key of Object.keys(previous.query??{}))params.delete(key);
   params.delete('session');
+  params.delete('message');
+  params.delete('history');
   params.delete('agent');
   params.delete('tab');
   params.delete('skill');
@@ -62,7 +64,7 @@ export function applyViewToSearchParams(params: URLSearchParams, view: ActiveVie
     for(const [key,value] of Object.entries(view.query??{}))if(!NATIVE_QUERY_KEYS.has(key))params.set(key,value);
     return params;
   }
-  if (view.kind === 'execution') params.set('session', view.id);
+  if (view.kind === 'execution') { params.set('session', view.id); if (view.eventId) params.set('message', view.eventId); if (view.history) params.set('history', '1'); }
   if (view.kind === 'skill') params.set('skill', view.ref);
   if (view.kind === 'agent') {
     params.set('agent', view.id);
@@ -79,7 +81,7 @@ export function viewKey(view: ActiveView): string {
     case 'home':
       return 'home';
     case 'execution':
-      return `execution:${view.id}`;
+      return `execution:${view.id}${view.eventId ? `:${view.eventId}` : ''}${view.history ? ':history' : ''}`;
     case 'agent':
       return `agent:${view.id}:${view.tab ?? ''}`;
     case 'skill':

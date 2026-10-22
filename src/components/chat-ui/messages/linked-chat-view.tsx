@@ -6,7 +6,7 @@ import { ExecutionTranscript } from '@/components/executions/execution-transcrip
 import { useWorkspace } from '@/hooks/use-workspaces';
 import { useOrchestratorName } from '@/hooks/use-user-state';
 import { useSessionStream } from '@/hooks/use-session-stream';
-import { agentView, HOME_VIEW, viewHref } from '@/lib/client/active-view';
+import { agentView, executionView, HOME_VIEW, viewHref } from '@/lib/client/active-view';
 import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 
 /** Exact non-execution chat navigation never replaces or resumes a scope's current main chat. */
@@ -23,7 +23,7 @@ export function LinkedChatView({ session }: { session: ChatSessionWithExecution 
         <h1 className="break-words text-sm font-medium">{title}</h1>
         {archived && <p className="mt-1 text-xs text-muted-foreground">Archived chat</p>}
       </div>
-      <Link href={viewHref(currentView)} className="shrink-0 text-xs underline underline-offset-4">Open current chat</Link>
+      <Link href={viewHref(session.executionId ? executionView(session.id) : currentView)} className="shrink-0 text-xs underline underline-offset-4">{session.executionId ? 'Continue this chat' : 'Open current chat'}</Link>
     </header>
     {archived
       ? <ExecutionTranscript session={session} workspace={workspace} isRunning={false} />

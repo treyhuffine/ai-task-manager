@@ -94,3 +94,10 @@ export function mentionExample(state: string): { message: string; sources: Sourc
   const sources = [source('todoist', 'todoist', 'Todoist', 'sam@example.com', false, { view: 'available', openPath: '/apps/~connected/gallery-todoist' })];
   return { sources, message: `${sourceMarker(sources[0].sourceRef)} What’s on my list today?` };
 }
+
+
+export function coordinationDeliveryExample(state: string): import('@/db/types').AgentDeliveryRecord {
+  const content = state === 'long' ? 'Review the complete implementation, including retry behavior and human control.\n'.repeat(80) : 'Review the date boundary handling before we ship.';
+  return { id: 'gallery-coordination-send', createdAt: NOW, updatedAt: NOW, requestId: state === 'forward-failed' ? null : 'gallery-coordination-request', kind: state === 'forward-failed' ? 'message' : 'request', senderKind: state === 'forward-failed' ? 'human' : 'agent', sourceSessionId: CHAT_ID, sourceRunId: null, targetAddress: `session:${SENDER_CHAT_ID}`, targetSessionId: SENDER_CHAT_ID, eventId: 'gallery-coordination-event', sourceEventId: null,
+    payload: { version: 1, content, prompt: content, attachments: [] }, status: state === 'forward-failed' ? 'failed' : state === 'approved' ? 'queued' : state === 'denied' ? 'denied' : 'awaiting_approval', acceptedByRunId: null, continuationRunId: null, attempts: 0, nextAttemptAt: null, error: state === 'forward-failed' ? 'The receiving chat was closed before this message could be supplied.' : null };
+}

@@ -72,7 +72,9 @@ export async function createTestHome(opts: TestHomeOptions = {}): Promise<TestHo
         if (v === undefined) delete process.env[k];
         else process.env[k] = v;
       }
-      fs.rmSync(root, { recursive: true, force: true });
+      // Background filesystem writes can finish during fixture teardown.
+      // Retry transient directory-removal races.
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     },
   };
 }
@@ -118,7 +120,9 @@ export function createTestDevice(name: string): TestDevice {
     workDir,
     userDir,
     cleanup() {
-      fs.rmSync(root, { recursive: true, force: true });
+      // Background filesystem writes can finish during fixture teardown.
+      // Retry transient directory-removal races.
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     },
   };
 }

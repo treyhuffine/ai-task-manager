@@ -1,3 +1,4 @@
+import { actorFromRequest } from '@/lib/auth/actor';
 import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import {
   createExecutionChat,
@@ -55,6 +56,7 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
 }
 
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: OperationContext) {
+  if (actorFromRequest(_req.headers).source === 'ai') return reply({ error: 'Use delegate_work to start an agent-created chat. Replacing a main chat or switching its harness requires the user’s action.' }, { status: 403 });
   const { id } = rpcInput.params;
   let body: unknown;
   try {

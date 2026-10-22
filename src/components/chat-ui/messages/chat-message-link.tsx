@@ -12,8 +12,9 @@ import { Tip } from '@/components/ui/tip';
 import { cn } from '@/lib/utils';
 
 /** A visible conversation relationship, with native link behavior and dashboard navigation. */
-export function ChatMessageLink({ sessionId, label, direction, preview, header = false }: {
+export function ChatMessageLink({ sessionId, eventId, label, direction, preview, header = false }: {
   sessionId: string;
+  eventId?: string;
   label: string;
   direction: 'incoming' | 'outgoing';
   preview?: string;
@@ -26,9 +27,9 @@ export function ChatMessageLink({ sessionId, label, direction, preview, header =
   const unavailable = apiErrorStatus(error) === 404;
   const title = unavailable ? 'Deleted chat'
     : session?.type === 'orchestration' ? session.label ?? agent?.name ?? (session.workspaceId ? 'Agent main chat' : orchestratorName)
-    : session?.execution?.label ?? session?.label ?? (session ? 'Untitled chat' : error ? 'Chat temporarily unavailable' : 'Loading chat…');
-  const context = session?.type === 'orchestration' ? (session.workspaceId ? 'Agent main chat' : 'Main chat') : agent?.name;
-  const view = executionView(sessionId);
+    : session?.label ?? session?.execution?.label ?? (session ? 'Untitled chat' : error ? 'Chat temporarily unavailable' : 'Loading chat…');
+  const context = session?.type === 'orchestration' ? (session.workspaceId ? 'Agent main chat' : 'Main chat') : agent?.name ? `${agent.name} agent` : null;
+  const view = executionView(sessionId, eventId, true);
   const className = cn(
     'group/chat-link flex min-w-0 items-start gap-2.5 px-3 py-2.5 text-left transition-colors',
     header ? 'rounded-t-xl' : 'rounded-lg border border-border bg-muted/15',
@@ -52,7 +53,7 @@ export function ChatMessageLink({ sessionId, label, direction, preview, header =
   </>;
   if (unavailable) return <div className={className}>{content}</div>;
   return <Tip label="Open the linked chat">
-    <Link href={viewHref(view)} prefetch={false} className={className} aria-label={`${label} ${title}. Open chat`}
+    <Link href={viewHref(view)} prefetch={false} className={className} aria-label={`${label} ${title}${context ? ` in ${context}` : ''}. Open chat`}
       onClick={event => {
         if (!dashboard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
         event.preventDefault();

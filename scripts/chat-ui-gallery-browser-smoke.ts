@@ -44,6 +44,7 @@ async function main() {
   const output = path.resolve('.work/chat-ui-gallery'); await fs.mkdir(output, { recursive: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+    page.setDefaultTimeout(15_000);
     const errors: string[] = [], realRequests: string[] = [], diagnostics: string[] = [];
     page.on('pageerror', error => { errors.push(error.message); console.error('Gallery browser error:', error.message); });
     page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) realRequests.push(request.url()); });
@@ -67,17 +68,84 @@ async function main() {
     }
     async function exerciseChatMessages() {
       let frame = await select('chat-messages');
-      await frame.getByRole('link', { name: 'Request from Prepare the runner handoff. Open chat', exact: true }).waitFor();
-      const sentLink = frame.getByRole('link', { name: 'Sent to Review date handling. Open chat', exact: true });
-      assert.equal(await sentLink.getAttribute('href'), '/?session=019a0000-0000-7000-8000-000000000005');
+      await frame.getByRole('link', { name: 'Request from Prepare the runner handoff in Research agent. Open chat', exact: true }).waitFor();
+      const sentLink = frame.getByRole('link', { name: 'Sent to Review date handling in Research agent. Open chat', exact: true });
+      assert.equal(await sentLink.getAttribute('href'), '/?session=019a0000-0000-7000-8000-000000000005&message=gallery-received&history=1');
       assert.equal(await frame.getByText('Request ID:', { exact: false }).count(), 0, 'Transport wrapper stays out of the visible message');
       frame = await select('chat-messages', 'reply');
-      await frame.getByRole('link', { name: 'Reply from Review date handling. Open chat', exact: true }).waitFor();
+      await frame.getByRole('link', { name: 'Reply from Review date handling in Research agent. Open chat', exact: true }).waitFor();
       await frame.getByText('Original request', { exact: true }).click();
       await frame.getByText('Please review the date handling', { exact: false }).first().waitFor();
       frame = await select('chat-messages', 'deleted');
       await frame.getByText('Deleted chat', { exact: true }).waitFor();
       assert.equal(await frame.getByRole('link', { name: /^Request from/ }).count(), 0, 'Deleted sender is not a broken link');
+    }
+    async function exerciseCoordination() {
+      const failure = await select('coordination', 'forward-failed');
+      await failure.getByLabel('Shared message delivery', {exact:true}).waitFor();
+      await failure.getByText('Send failed', {exact:true}).waitFor();
+      assert.equal(await failure.getByText(/Approval allows this send/).count(), 0);
+      assert((await failure.getByRole('link', {name:/Destination/}).getAttribute('href'))?.includes('message=gallery-coordination-event'));
+      await page.screenshot({path:path.join(output, `coordination-forward-failed-${page.viewportSize()!.width}.png`),fullPage:true});
+      let frame = await select('coordination', 'approval');
+      await frame.getByRole('button', { name: 'Allow once', exact: true }).click();
+      await waitForText(frame, 'Authorized and queued');
+      await page.getByRole('button', { name: 'Reset example', exact: true }).click();
+      frame = await select('coordination', 'approval');
+      await frame.getByRole('button', { name: 'Deny', exact: true }).click();
+      await waitForText(frame, 'The receiving work was not started');
+      await page.getByRole('button', { name: 'Reset example', exact: true }).click();
+      frame = await select('coordination', 'approval');
+      await frame.getByRole('button', { name: 'Always allow in this chat', exact: true }).click();
+      await frame.getByRole('button', { name: 'Coordination: Allow automatically', exact: true }).waitFor();
+
+      frame = await select('coordination', 'held');
+      const release = frame.getByRole('button', { name: /Release Hold/ });
+      assert.equal(await release.getAttribute('aria-pressed'), 'true');
+      await release.click();
+      await frame.getByRole('button', { name: 'Hold this chat', exact: true }).waitFor();
+      await waitForText(frame, 'Hold released. No real agent started');
+      await frame.getByRole('button', { name: /^Coordination:/ }).click();
+      await frame.getByLabel('Coordination for chat', { exact: true }).selectOption('allow');
+      await frame.getByText('Effective setting: Allow automatically, from chat.', { exact: true }).waitFor();
+      await frame.getByRole('button', { name: /^Coordination:/ }).click();
+
+      frame = await select('coordination', 'long');
+      await frame.getByText('Show full message', { exact: true }).click();
+      await frame.getByText('Collapse message', { exact: true }).waitFor();
+      assert(await frame.locator('details').evaluate(element => element.hasAttribute('open')));
+      await frame.getByText('Collapse message', { exact: true }).click();
+      assert.equal(await frame.locator('details').evaluate(element => element.hasAttribute('open')), false);
+
+      frame = await select('coordination', 'shared');
+      await frame.getByRole('button', { name: 'Send to chat', exact: true }).click();
+      let dialog = frame.getByRole('dialog');
+      await dialog.getByLabel('Search chats', { exact: true }).fill('no matching chat');
+      await dialog.getByText('No matching chats.', { exact: true }).waitFor();
+      await dialog.getByLabel('Search chats', { exact: true }).fill('date');
+      await dialog.getByLabel('Filter by agent', { exact: true }).selectOption('019a0000-0000-7000-8000-000000000003');
+      await dialog.getByRole('button', { name: /^Review date handling/ }).click();
+      assert.equal(await dialog.getByRole('button', { name: /^Model and settings:/ }).count(), 0, 'Existing destinations keep their model settings');
+      await dialog.getByRole('textbox', { name: 'Your directions, optional', exact: true }).fill('Compare the full review with your implementation.');
+      await page.screenshot({ path: path.join(output, `coordination-forward-existing-${page.viewportSize()!.width}.png`), fullPage: true });
+      await dialog.getByRole('button', { name: 'Send to chat', exact: true }).click();
+      await waitForText(frame, 'Example message shared. No real chat was created');
+      await dialog.waitFor({ state: 'detached' });
+
+      await frame.getByRole('button', { name: 'Send to chat', exact: true }).click();
+      dialog = frame.getByRole('dialog');
+      await dialog.getByLabel('New chat', { exact: true }).check();
+      await dialog.getByLabel('Filter by agent', { exact: true }).selectOption('019a0000-0000-7000-8000-000000000003');
+      await dialog.getByRole('button', { name: /^Model and settings: Example claude model/ }).click();
+      await frame.getByRole('option', { name: 'Example codex model', exact: true }).click();
+      await dialog.getByRole('button', { name: /^Model and settings: Example codex model/ }).click();
+      await frame.getByRole('button', { name: 'Effort: Medium', exact: true }).click();
+      await frame.getByRole('menuitemradio', { name: /^High/ }).click();
+      await dialog.getByRole('button', { name: /^Model and settings: Example codex model, High effort/ }).waitFor();
+      await frame.waitForFunction(() => !document.querySelector('[data-slot="popover-content"]'));
+      await page.screenshot({ path: path.join(output, `coordination-forward-new-${page.viewportSize()!.width}.png`), fullPage: true });
+      await dialog.getByRole('button', { name: 'Send to chat', exact: true }).click();
+      await dialog.waitFor({ state: 'detached' });
     }
     for (const example of CHAT_UI_EXAMPLES.filter(example => !focusedExample || example.id === focusedExample)) {
       for (const state of example.states) {
@@ -88,6 +156,11 @@ async function main() {
     }
     if (focusedExample) {
       if (focusedExample === 'chat-messages') await exerciseChatMessages();
+      if (focusedExample === 'coordination') {
+        await exerciseCoordination();
+        await page.setViewportSize({ width: 390, height: 1050 });
+        await exerciseCoordination();
+      }
       const focusedStates: readonly { id: string }[] = CHAT_UI_EXAMPLES.find(example => example.id === focusedExample)!.states;
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 1050 });

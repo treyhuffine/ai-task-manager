@@ -26,6 +26,7 @@ afterEach(async () => {
  * SQLite migration and reply queue. Only the harness model is a stand-in. */
 async function setupRuntime() {
   home = await createTestHome({ prefix: 'ri-coordination-runtime-' });
+  q.setAgentCoordinationPolicy('global', '1', 'allow');
   harness = installFakeHarness('claude');
   (await import('@/lib/home/identity')).ensureHomeIdentity();
   const folder = path.join(home.root, 'project');
@@ -83,9 +84,11 @@ it('runs an orchestrator delegation through executor consultation and returns th
   expect(initial.ok).toBe(true);
   await vi.waitFor(() => expect(q.getLastChatEventBySource(main.id, 'agent')?.content).toBe('Your login fix is ready for review.'), { timeout: 15_000, interval: 25 });
   const [delegation] = q.listAgentRequests(main.id);
-  expect(delegation).toMatchObject({ status: 'completed', kind: 'delegation', response: 'The login redirect is implemented and verified.' });
-  expect(q.listAgentRequests(delegation.targetSessionId!)).toMatchObject([{ status: 'completed', kind: 'question', response: 'Preserve the destination through login.' }]);
-  expect(q.listAgentDeliveries(delegation.id)).toMatchObject([{ status: 'sent', deliveredToSessionId: main.id }]);
+  expect(delegation).toMatchObject({ status: 'completed', kind: 'delegation' });
+  expect(q.terminalAgentDelivery(delegation.id)?.payload.content).toBe('The login redirect is implemented and verified.');
+  expect(q.listAgentRequests(delegation.targetSessionId!)).toMatchObject([{ status: 'completed', kind: 'question' }]);
+  expect(q.terminalAgentDelivery(q.listAgentRequests(delegation.targetSessionId!)[0].id)?.payload.content).toBe('Preserve the destination through login.');
+  expect(q.terminalAgentDelivery(delegation.id)).toMatchObject({ status: 'accepted', targetSessionId: main.id });
   expect(harness!.sessions).toHaveLength(3);
 }, 20_000);
 
@@ -109,5 +112,89 @@ it('returns a failed provider result as failure instead of reporting a successfu
   const [request] = q.listAgentRequests(main.id);
   expect(request.status).toBe('failed');
   expect(q.getRun(request.runId!)?.status).toBe('failed');
-  expect(q.listAgentDeliveries(request.id)).toMatchObject([{ kind: 'failed', status: 'sent' }]);
+  expect(q.terminalAgentDelivery(request.id)).toMatchObject({ kind: 'failed', status: 'accepted' });
+}, 20_000);
+
+it('supplies held messages to a human turn without assigning their owed work, then starts one assignment on release', async () => {
+  const {main,agentMain,runAction,postMessage,messageInput,context}=await setupRuntime();
+  q.setAgentCoordinationHold(agentMain.id,true);
+  const actor={remote:true,actor:{source:'ai' as const,sessionId:main.id}};
+  let requestId='';
+  for(let n=0;n<5;n++) {
+    const result=await runAction('message_agent',{target:`session:${agentMain.id}`,request_id:`held-${n}`,content:`Held material ${n}`,response:n===0?'required':'none'},actor);
+    expect(result.ok).toBe(true);
+    if(n===0 && result.ok) requestId=(result.result as {request_id:string}).request_id;
+  }
+  await (await import('./service')).drainAgentCoordination();
+  expect(harness!.sessions).toHaveLength(0);
+  harness!.onTurn(async turn=>{
+    const chatId=verifySessionCredential(turn.session.ctx.env?.RI_SESSION_CREDENTIAL,home!.token)!;
+    if(chatId===main.id) { await turn.say('The assignment outcome was received.'); return; }
+    if(turn.message.includes('Human inspection')) {
+      for(let n=0;n<5;n++) expect(turn.message).toContain(`Held material ${n}`);
+      await turn.say('Human turn output is context, not the owed answer.');
+    } else {
+      expect(turn.message).toContain('Inspect the current state');
+      await turn.say('This is the assigned outcome.');
+    }
+  });
+  await postMessage(messageInput.parse({params:{id:agentMain.id},body:{content:'Human inspection'}}),context('http://localhost:42241/api/sessions/send'));
+  await vi.waitFor(()=>expect(q.getLastChatEventBySource(agentMain.id,'agent')?.content).toBe('Human turn output is context, not the owed answer.'));
+  expect(q.getAgentRequest(requestId)).toMatchObject({status:'queued',runId:null});
+  expect(q.getChatSession(agentMain.id)?.coordinationHeldAt).toBeTruthy();
+  const readBy=q.initialAgentDelivery(requestId)!.acceptedByRunId;
+  q.setAgentCoordinationHold(agentMain.id,false);
+  await (await import('./service')).drainAgentCoordination();
+  await vi.waitFor(()=>expect(q.getAgentRequest(requestId)?.status).toBe('completed'));
+  expect(q.terminalAgentDelivery(requestId)?.payload.content).toBe('This is the assigned outcome.');
+  expect(q.getAgentRequest(requestId)?.runId).not.toBe(readBy);
+  expect(q.initialAgentDelivery(requestId)?.acceptedByRunId).toBe(readBy);
+},20_000);
+
+it('keeps the producing assignment when human input folds into its active native turn', async () => {
+  const {main,agentMain,runAction,postMessage,messageInput,context}=await setupRuntime();
+  let release!:()=>void;
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  harness!.onTurn(async turn=>{
+    const chatId=verifySessionCredential(turn.session.ctx.env?.RI_SESSION_CREDENTIAL,home!.token)!;
+    if(chatId===agentMain.id) {
+      await gate;
+      expect(turn.session.messages.some(message=>message.includes('Preserve the existing API'))).toBe(true);
+      await turn.say('Reconciled the human direction and finished the assignment.');
+    } else await turn.say('Result received.');
+  });
+  const result=await runAction('message_agent',{target:`session:${agentMain.id}`,request_id:'human-overlap',content:'Implement the change.',response:'required'},{remote:true,actor:{source:'ai',sessionId:main.id}});
+  expect(result.ok).toBe(true); if(!result.ok) return;
+  const id=(result.result as {request_id:string}).request_id;
+  await (await import('./service')).drainAgentCoordination();
+  await vi.waitFor(()=>expect(q.getAgentRequest(id)?.status).toBe('working'));
+  const assigned=q.getAgentRequest(id)!.runId;
+  await postMessage(messageInput.parse({params:{id:agentMain.id},body:{content:'Preserve the existing API'}}),context('http://localhost:42241/api/sessions/send'));
+  await vi.waitFor(()=>expect(harness!.sessions[0].messages).toHaveLength(2));
+  expect(q.getAgentRequest(id)?.runId).toBe(assigned);
+  release();
+  await vi.waitFor(()=>expect(q.getAgentRequest(id)?.status).toBe('completed'));
+  expect(q.terminalAgentDelivery(id)?.payload).toMatchObject({humanDirected:true,content:'Reconciled the human direction and finished the assignment.'});
+  expect(q.getAgentRequest(id)?.runId).toBe(assigned);
+},20_000);
+
+it('forwards once into a new chat with the selected model and effort and no automatic return', async () => {
+  const { main, workspace } = await setupRuntime();
+  harness!.onTurn(async turn => { await turn.say('The shared review is complete.'); });
+  const selected = q.insertChatEvent({ sessionId: main.id, role: 'assistant', source: 'agent', content: 'Full original review and findings.' })!;
+  const input = { sendId: 'new-human-share', sourceEventId: selected.id, directions: 'Check these findings.', launch: { workspaceId: workspace.id, provider: 'claude' as const, model: 'sonnet', effort: 'high' as const } };
+  const { forwardToChat } = await import('./human');
+  const first = await forwardToChat(input);
+  await (await import('./service')).drainAgentCoordination();
+  await vi.waitFor(() => expect(q.getAgentDelivery(first.id)?.status).toBe('accepted'));
+  const second = await forwardToChat(input);
+  await (await import('./service')).drainAgentCoordination();
+  expect(second.id).toBe(first.id);
+  const delivery = q.getAgentDelivery(first.id)!;
+  expect(q.getChatSession(delivery.targetSessionId!)!).toMatchObject({ model: 'sonnet', effort: 'high' });
+  expect(q.listChatSessions({ workspaceId: workspace.id }).filter(chat => chat.type === 'execution')).toHaveLength(1);
+  expect(q.listAgentRequests(main.id)).toHaveLength(0);
+  await vi.waitFor(() => expect(q.getLastChatEventBySource(delivery.targetSessionId!, 'agent')?.content).toBe('The shared review is complete.'));
+  expect(q.getLastChatEventBySource(main.id, 'agent')?.id).toBe(selected.id);
+  expect(q.getChatEventById(delivery.eventId)?.raw).toMatchObject({ agentCoordination: { senderKind: 'human', sourceEventId: selected.id, directions: 'Check these findings.' } });
 }, 20_000);

@@ -10,6 +10,7 @@
  * this beside the local runner. Imports nothing heavy.
  */
 
+import { recordCoordinationProducer } from '@/lib/coordination/run-context';
 import type { RuntimeCommandInventory } from '@agentex/agent';
 import type { PendingInput } from '@/lib/runner/pending';
 import type { RunnerSignal } from '@/lib/runner/types';
@@ -25,6 +26,7 @@ export interface RemoteChatState {
 
 /** What a worker reports as live, in its heartbeat. */
 export interface WorkerLiveSnapshot {
+  producingRuns?: Record<string, string | null>;
   running: string[];
   pending: PendingInput[];
   backgroundTasks: Record<string, string[]>;
@@ -82,6 +84,9 @@ export function mirrorSignal(deviceId: string, chatSessionId: string, signal: Ru
   if (position !== undefined) positions.set(deviceId, position);
   const state = chatState(chatSessionId, deviceId);
   switch (signal.type) {
+    case 'producing_run':
+      recordCoordinationProducer(chatSessionId, signal.runId);
+      return;
     case 'running':
       state.running = signal.running;
       return;
@@ -112,11 +117,13 @@ export function replaceDeviceMirror(deviceId: string, snapshot: WorkerLiveSnapsh
     ...snapshot.running,
     ...snapshot.pending.map((p) => p.sessionId),
     ...Object.keys(snapshot.backgroundTasks),
+    ...Object.keys(snapshot.producingRuns ?? {}),
   ]);
   for (const [chatSessionId, state] of mirror) {
     if (state.deviceId !== deviceId) continue;
     if (!touched.has(chatSessionId)) {
       state.running = false;
+      recordCoordinationProducer(chatSessionId, null);
       state.pending = [];
       state.backgroundTaskIds = [];
     }
@@ -124,6 +131,7 @@ export function replaceDeviceMirror(deviceId: string, snapshot: WorkerLiveSnapsh
   for (const chatSessionId of touched) {
     const state = chatState(chatSessionId, deviceId);
     state.running = snapshot.running.includes(chatSessionId);
+    recordCoordinationProducer(chatSessionId, snapshot.producingRuns?.[chatSessionId] ?? null);
     state.pending = snapshot.pending.filter((p) => p.sessionId === chatSessionId);
     state.backgroundTaskIds = snapshot.backgroundTasks[chatSessionId] ?? [];
   }

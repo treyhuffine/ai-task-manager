@@ -48,7 +48,8 @@ import type { Attachment, PermissionMode, WorkerCommandActor, WorkerCommandRecor
 import { budgetGate } from '@/lib/runs/budget';
 import { beginRun } from '@/lib/runs/artifact-bucket';
 import { finishRun } from '@/lib/runs/finish';
-import { bindAgentRequestRun, agentRequestMessageRefusal, agentMessageAdmission } from '@/lib/db/queries';
+import { claimPreparingInputs } from '@/lib/coordination/input-reservations';
+import { isUnacceptedCoordinationRun, humanCoordinationContext, noteCoordinationHumanDirection, agentRequestMessageRefusal, agentMessageAdmission } from '@/lib/db/queries';
 import { explicitHarnessSelection, type ProviderId } from '@/lib/harness/options';
 import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
 import { isHarnessEnabled } from '@/lib/harness/registry';
@@ -195,6 +196,7 @@ export interface DispatchOptions {
   runId?: string;
   /** The user's chat event this sends, so a message reaches its harness once however many paths try. */
   sourceEventId?: string | null;
+  coordinationDeliveryIds?: string[];
   /** Who is sending, from the caller's credentials. */
   actor?: WorkerCommandActor;
   /**
@@ -637,66 +639,83 @@ async function deliver(
   placement: ChatPlacement | null,
   concurrentSend: boolean,
 ): Promise<Delivered> {
-  const buildSpec = async () => {
-    const currentTitle = getChatSessionWithExecution(chatSessionId);
-    const built = {
-    ...(await buildSessionSpec(
-      {
-      chatSessionId,
-      harness: session.harness,
-      cwd,
-      sessionType: session.type,
-      workspaceId: session.workspaceId ?? null,
-      surfaceKind: session.surfaceKind,
-      surfaceRef: session.surfaceRef,
-      existingExternalSessionId: session.externalSessionId,
-      executionId: session.executionId ?? null,
-      permissionMode: session.permissionMode,
-      prePlanMode: (session.prePlanMode as PermissionMode | null) ?? null,
-      model: selection.model,
-      modelVariant: selection.variant,
-      effort: selection.effort,
-      serviceTier: selection.serviceTier,
-      },
-      remote ?? undefined,
-    )),
-    preparedWorktreeOf: preparing,
-    };
-    if (built.readOnlyReview) built.readOnlyReview.message = remote ? userMessage : placeFilesAtHome(userMessage, options.attachments ?? []);
-    if (currentTitle) built.title = { label: currentTitle.label, revision: currentTitle.labelRevision, source: currentTitle.labelSource };
-    return built;
-  };
-  // A live session here needs no spec, so a follow-up does no spec work. A
-  // connected device always gets one. Attached files: paths here for a chat
-  // at home. A connected device gets the markers as they are and the files
-  // beside them, and places its own copies.
-  const spec = !remote && isHarnessSessionAlive(chatSessionId) ? null : await buildSpec();
-  const attachments = options.attachments ?? [];
-  const files = remote ? await describeInputFiles(userMessage, attachments) : undefined;
-
-  // The send boundary (P4 review). Everything above can take a while, and a
-  // move can start or stop meanwhile, or finish and hand the work to another
-  // device. So here, in the same tick as the send is counted: a move under
-  // way, or one that stopped, holds the message; work that changed hands
-  // starts the send over for its new owner; otherwise the send is counted
-  // until its harness has it, and a move stops the source only after that.
-  const held: Delivered = { turn: Promise.resolve(), outcome: 'held', acceptsMore: true };
-  if (options.signal?.aborted) throw new ExecutorError('invalid_state', 'It was given up before it was sent.');
-  if (session.executionId && holdingTransfer(session.executionId)) {
-    if (holdHere(chatSessionId, session.executionId, options)) return held;
-  }
-  const now = chatPlacement(chatSessionId);
-  if (now?.deviceId !== placement?.deviceId || now?.generation !== placement?.generation) throw new StartOver();
-  const admitted = admitSend(session.executionId);
-  if (!admitted) {
-    if (session.executionId && holdHere(chatSessionId, session.executionId, options)) return held;
-    throw new StartOver();
-  }
+  let releaseInputs: (() => void) | undefined;
   try {
-    const sent = await sendAdmitted(chatSessionId, userMessage, options, session, remote, spec, files, attachments, buildSpec);
-    return { ...sent, acceptsMore: !!remote || concurrentSend };
+    if (options.actor?.source === 'human') {
+      const { producingRun } = await import('@/lib/runner/local-runner');
+      const producer = placement?.isHome === false
+        ? (await import('@/lib/coordination/run-context')).coordinationProducer(chatSessionId)
+        : producingRun(chatSessionId);
+      const pending = humanCoordinationContext(chatSessionId, producer ?? null);
+      if (pending.length && !options.coordinationDeliveryIds?.length) {
+        releaseInputs = claimPreparingInputs(pending.map(input => input.id));
+        options = { ...options, coordinationDeliveryIds: pending.map(delivery => delivery.id), attachments: [...(options.attachments ?? []), ...pending.flatMap(delivery => delivery.payload.attachments)] };
+        userMessage = `[Pending received material supplied as context for this human-directed turn. Reading this does not assign or complete its tracked requests.]\n${pending.map(delivery => delivery.payload.prompt).join('\n\n')}\n\n[The user's current direction]\n${userMessage}`;
+      }
+    }
+    const buildSpec = async () => {
+      const currentTitle = getChatSessionWithExecution(chatSessionId);
+      const built = {
+      ...(await buildSessionSpec(
+        {
+        chatSessionId,
+        harness: session.harness,
+        cwd,
+        sessionType: session.type,
+        workspaceId: session.workspaceId ?? null,
+        surfaceKind: session.surfaceKind,
+        surfaceRef: session.surfaceRef,
+        existingExternalSessionId: session.externalSessionId,
+        executionId: session.executionId ?? null,
+        permissionMode: session.permissionMode,
+        prePlanMode: (session.prePlanMode as PermissionMode | null) ?? null,
+        model: selection.model,
+        modelVariant: selection.variant,
+        effort: selection.effort,
+        serviceTier: selection.serviceTier,
+        },
+        remote ?? undefined,
+      )),
+      preparedWorktreeOf: preparing,
+      };
+      if (built.readOnlyReview) built.readOnlyReview.message = remote ? userMessage : placeFilesAtHome(userMessage, options.attachments ?? []);
+      if (currentTitle) built.title = { label: currentTitle.label, revision: currentTitle.labelRevision, source: currentTitle.labelSource };
+      return built;
+    };
+    // A live session here needs no spec, so a follow-up does no spec work. A
+    // connected device always gets one. Attached files: paths here for a chat
+    // at home. A connected device gets the markers as they are and the files
+    // beside them, and places its own copies.
+    const spec = !remote && isHarnessSessionAlive(chatSessionId) ? null : await buildSpec();
+    const attachments = options.attachments ?? [];
+    const files = remote ? await describeInputFiles(userMessage, attachments) : undefined;
+
+    // The send boundary (P4 review). Everything above can take a while, and a
+    // move can start or stop meanwhile, or finish and hand the work to another
+    // device. So here, in the same tick as the send is counted: a move under
+    // way, or one that stopped, holds the message; work that changed hands
+    // starts the send over for its new owner; otherwise the send is counted
+    // until its harness has it, and a move stops the source only after that.
+    const held: Delivered = { turn: Promise.resolve(), outcome: 'held', acceptsMore: true };
+    if (options.signal?.aborted) throw new ExecutorError('invalid_state', 'It was given up before it was sent.');
+    if (session.executionId && holdingTransfer(session.executionId)) {
+      if (holdHere(chatSessionId, session.executionId, options)) return held;
+    }
+    const now = chatPlacement(chatSessionId);
+    if (now?.deviceId !== placement?.deviceId || now?.generation !== placement?.generation) throw new StartOver();
+    const admitted = admitSend(session.executionId);
+    if (!admitted) {
+      if (session.executionId && holdHere(chatSessionId, session.executionId, options)) return held;
+      throw new StartOver();
+    }
+    try {
+      const sent = await sendAdmitted(chatSessionId, userMessage, options, session, remote, spec, files, attachments, buildSpec);
+      return { ...sent, acceptsMore: !!remote || concurrentSend };
+    } finally {
+      admitted();
+    }
   } finally {
-    admitted();
+    releaseInputs?.();
   }
 }
 
@@ -720,7 +739,7 @@ async function sendAdmitted(
   if (requestRefusal) throw new ExecutorError('invalid_state', requestRefusal);
   let runId = options.runId ?? null;
   if (!options.internalCall) {
-    const created = createRunRow({
+    const created = options.runId ? getRun(options.runId)! : createRunRow({
       triggerId: null,
       workspaceId: session.workspaceId ?? null,
       executionId: session.executionId ?? null,
@@ -738,7 +757,7 @@ async function sendAdmitted(
   }
 
   const turnId = uuidv7();
-  if (runId) bindAgentRequestRun(options.sourceEventId, chatSessionId, runId);
+
   const turn = awaitTurn(turnId);
   let queued: string | null = null;
   try {
@@ -750,7 +769,12 @@ async function sendAdmitted(
       currentStandingInstructions: () => renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),
       stopIsFailure: !!options.resultOperationRunId,
       admission: options.resultOperationRunId || agentMessageAdmission(options.sourceEventId) ? async () => {
-        const refusal = agentRequestMessageRefusal(options.sourceEventId);
+        const admission = agentMessageAdmission(options.sourceEventId, runId, options.coordinationDeliveryIds);
+        if (admission?.held && options.actor?.source !== 'human') {
+          const { CoordinationHeldError } = await import('@/lib/coordination/hold');
+          throw new CoordinationHeldError();
+        }
+        const refusal = admission?.refusal;
         if (refusal) throw new ExecutorError('invalid_state', refusal);
         if (!options.resultOperationRunId) return true;
         const runtime = await import('@/lib/work-results/runtime');
@@ -761,6 +785,8 @@ async function sendAdmitted(
       runId,
       spec,
       sourceEventId: options.sourceEventId ?? null,
+      coordinationDeliveryIds: options.coordinationDeliveryIds,
+      coordinationAdmission: !!agentMessageAdmission(options.sourceEventId) || !!options.coordinationDeliveryIds?.length,
       actor: options.actor,
       files,
       signal: options.signal,
@@ -773,6 +799,10 @@ async function sendAdmitted(
         throw new ExecutorError('invalid_state', 'The session could not be started.');
       }
     }
+    if (sent.status === 'delivered' && !remote && options.actor?.source === 'human') {
+      const producer = (await import('@/lib/runner/local-runner')).producingRun(chatSessionId);
+      if (producer) noteCoordinationHumanDirection(producer, chatSessionId);
+    }
     if (sent.status === 'queued') {
       announceDelivery(sent.commandId);
       queued = sent.commandId;
@@ -781,7 +811,9 @@ async function sendAdmitted(
     forgetTurn(turnId);
     // A manual send that never reached the harness fails its run here. A
     // scheduled run is failed by its wrapper, which sees this throw.
-    if (!options.internalCall && runId) {
+    if (!options.internalCall && runId && (err instanceof (await import('@/lib/coordination/hold')).CoordinationHeldError || options.coordinationDeliveryIds?.length && (await import('@/lib/coordination/retry')).retryableCoordinationDispatch(err))) {
+      (await import('@/lib/db/queries')).markRunWaitingForCoordination(runId);
+    } else if (!options.internalCall && runId) {
       finishRun(runId, {
         ok: false,
         errorCode: 'agent_error',
@@ -799,6 +831,11 @@ async function sendAdmitted(
  * stops below.
  */
 export async function abort(chatSessionId: string, actor?: WorkerCommandActor): Promise<void> {
+  if (actor?.source === 'human') {
+    const remote = chatPlacement(chatSessionId)?.isHome === false;
+    const producer = remote ? (await import('@/lib/coordination/run-context')).coordinationProducer(chatSessionId) : (await import('@/lib/runner/local-runner')).producingRun(chatSessionId);
+    (await import('@/lib/db/queries')).stopCoordinationRunsForChat(chatSessionId, producer);
+  }
   const automatic = await import('@/lib/work-results/automatic');
   automatic.cancelQueuedAutomaticReviewsForAuthor(chatSessionId);
   const runtime = await import('@/lib/work-results/runtime');
@@ -806,7 +843,11 @@ export async function abort(chatSessionId: string, actor?: WorkerCommandActor): 
   runtime.stopQueuedWorkResultFeedbackForSession(chatSessionId);
   runtime.stopActiveWorkResultOperationsForSession(chatSessionId);
   const { withdrawChatQueue } = await import('@/lib/workers/undelivered');
-  withdrawChatQueue(chatSessionId, 'Stopped by the user');
+  withdrawChatQueue(chatSessionId, 'Stopped by the user', command => {
+    const payload = command.payload as { coordinationAdmission?: boolean; runId?: string };
+    // Stop applies to the producing turn, not another unaccepted assignment.
+    return !!payload.coordinationAdmission && command.actor.source !== 'human' && !!payload.runId && isUnacceptedCoordinationRun(payload.runId);
+  });
   await runnerFor(chatSessionId).interrupt(chatSessionId, actor);
 }
 

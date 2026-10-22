@@ -227,6 +227,10 @@ export interface WorkerCommand {
  * A home disk path is never sent.
  */
 export interface SendPayload {
+  /** Recheck live coordination authorization immediately before native acceptance. */
+  coordinationAdmission?: boolean;
+  coordinationDeliveryIds?: string[];
+  sourceEventId?: string | null;
   spec: SessionSpec;
   message: string;
   turnId: string;
@@ -277,6 +281,7 @@ export type WorkerStreamEvent =
 
 /** What's live on the worker's device, for the home's mirror. */
 export interface WorkerLive {
+  producingRuns?: Record<string, string | null>;
   running: string[];
   pending: PendingInput[];
   backgroundTasks: Record<string, string[]>;

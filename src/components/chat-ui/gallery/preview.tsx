@@ -6,6 +6,8 @@ import { ThemeProvider } from 'next-themes';
 import { UiGallery, type GalleryPage } from '@ri/app-kit/ui';
 import { TipProvider } from '@/components/ui/tip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { CoordinationControls } from '@/components/chat-ui/coordination/controls';
+import { CoordinationApproval } from '@/components/chat-ui/coordination/approval-card';
 import { EmailComposer } from '@/components/chat-ui/email/email-composer';
 import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 import { IntegrationApprovalCard } from '@/components/chat-ui/approvals/integration-approval-card';
@@ -164,6 +166,7 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'mentions' && <Mentions />}
     {__GALLERY_EXAMPLE__ === 'references' && <References />}
     {__GALLERY_EXAMPLE__ === 'chat-messages' && <ChatMessages />}
+    {__GALLERY_EXAMPLE__ === 'coordination' && <div className="space-y-5"><CoordinationControls sessionId={CHAT_ID} />{config.state === 'forward-failed' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('system', {role:'system',content:'coordination_send_failed',raw:{agentCoordination:{deliveryId:'gallery-coordination-send'}}})} /> : config.state === 'shared' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('user', {id:'gallery-shared',role:'user',content:'Full original review content.',raw:{agentCoordination:{senderKind:'human',kind:'message',sourceSessionId:CHAT_ID,sourceEventId:'gallery-original',content:'Full original review content.',directions:'Compare this with your implementation.'}}})} /> : config.state === 'unavailable' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('error', {role:'system',content:'[Ri routing text remains saved]',raw:{agentCoordination:{senderKind:'system',kind:'failed',content:'The destination agent is unavailable. The assigned work did not start.',originalRequest:'Review the date boundary handling before we ship.'}}})} /> : <CoordinationApproval deliveryId="gallery-coordination-send" sessionId={CHAT_ID} />}</div>}
     {__GALLERY_EXAMPLE__ === 'app-context' && <AppContext />}
     {__GALLERY_EXAMPLE__ === 'model-menu' && <ModelMenuPreview state={config.state} />}
     {__GALLERY_EXAMPLE__ === 'edits' && <div className="space-y-4 text-sm"><p>I clarified the agenda and made the next steps easier to scan.</p><EntityEditChip entityType="note" entityId={RECORD_ID} /></div>}

@@ -1,3 +1,4 @@
+import { runtimePeerRelease } from '@/lib/releases/runtime-identity';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -55,7 +56,7 @@ async function connect(enroll = true) {
     if (mode !== 'online') { response.writeHead(mode === 'offline' ? 503 : mode === 'protocol' ? 426 : 401, { 'content-type': 'application/json' }); response.end(JSON.stringify({ message: 'Fixture mismatch', update: 'worker' })); return; }
     if (request.url?.startsWith('/api/workers/me/stream')) {
       response.writeHead(200, { 'content-type': 'text/event-stream' }); streams.add(response); response.on('close', () => streams.delete(response));
-      response.write(`data: ${JSON.stringify({ type: 'hello', homeId: 'home', protocol: 4, ackedEventSeq: 0 })}\n\n`); return;
+      response.write(`data: ${JSON.stringify({ type: 'hello', homeId: 'home', protocol: 4, ackedEventSeq: 0, peer: runtimePeerRelease() })}\n\n`); return;
     }
     request.resume(); response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ ok: true, release: [] }));
   });

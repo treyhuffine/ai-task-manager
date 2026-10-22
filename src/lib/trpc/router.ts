@@ -1,3 +1,4 @@
+import { coordinationRouter } from '@/lib/coordination/router';
 import { externalAiRouter } from '@/lib/external-ai/router';
 import { emailRouter } from '@/lib/email/router';
 import { chatSourcesRouter } from '@/lib/chat-sources/router';
@@ -64,6 +65,7 @@ function sharedTaskIn(id: string) {
 }
 
 export const appRouter = router({
+  coordination: coordinationRouter,
   email: emailRouter,
   externalAi: externalAiRouter,
   localApps: localAppsRouter,

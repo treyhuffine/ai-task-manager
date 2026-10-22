@@ -1,3 +1,5 @@
+import { WorkerCommandDeferredError } from './commands';
+import { workerFetch, WorkerStoppedError, WorkerNetworkError } from './client';
 import type { TitleRequest } from '@/lib/runner/types';
 /**
  * How this device's worker carries out execution commands
@@ -433,6 +435,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
         try {
           await fetchInputFiles({ target: ctx.target, commandId: command.id, dir: filesDir(command, ctx), files });
         } catch (err) {
+          if (err instanceof WorkerNetworkError) throw new WorkerCommandDeferredError(err.message);
           return failure(err);
         }
       }
@@ -440,13 +443,29 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       // outcome to be checked against the native history, never re-sent.
       const spec = resumedSpec(command);
       if (spec.nativeSessionId) journal.note(command.id, { nativeSessionId: spec.nativeSessionId });
-      ctx.markStarted();
       try {
         const sent = await runner.send({
+          beforeSend: () => ctx.markStarted(),
           chatSessionId: chatOf(command),
           message: placedMessage(command, ctx),
           turnId: payload.turnId,
           runId: payload.runId,
+          sourceEventId: payload.sourceEventId,
+          coordinationDeliveryIds: payload.coordinationDeliveryIds,
+          admission: payload.coordinationAdmission ? async () => {
+            let current: { allowed?: boolean; held?: boolean; refusal?: string | null };
+            try {
+              const response = await workerFetch(ctx.target, `/api/workers/me/commands/${command.id}/admission`);
+              current = await response.json();
+              if (typeof current?.allowed !== 'boolean') throw new Error('Invalid admission response.');
+            } catch (error) {
+              if (error instanceof WorkerStoppedError) throw error;
+              throw new WorkerCommandDeferredError('The home could not confirm admission.');
+            }
+            if (current.allowed) return true;
+            if (current.held) throw new WorkerCommandDeferredError('This chat is held.');
+            throw new Error(current.refusal ?? 'This coordination send is no longer eligible.');
+          } : undefined,
           spec: atHome(spec, ctx.target.homeUrl),
         });
         const native = runnerState.sessionInfo.get(chatOf(command))?.nativeSessionId;
@@ -455,6 +474,8 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
           ? { state: 'delivered' }
           : { state: 'failed', error: 'The session could not be started.' };
       } catch (err) {
+        if (err instanceof WorkerCommandDeferredError) throw err;
+        if (err instanceof ExecutorError && err.code === 'already_running') throw new WorkerCommandDeferredError(err.message);
         return failure(err);
       }
     },

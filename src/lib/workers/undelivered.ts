@@ -49,10 +49,10 @@ export function withdrawQueuedSend(commandId: string, reason?: string): WorkerCo
  * chat is closed: a closed chat never runs later, on a device that connects
  * after. Returns how many it withdrew.
  */
-export function withdrawChatQueue(chatSessionId: string, reason: string): number {
+export function withdrawChatQueue(chatSessionId: string, reason: string, preserve?: (command: WorkerCommandRecord) => boolean): number {
   let withdrawn = 0;
   for (const command of chatRunState(chatSessionId).queuedSends) {
-    if (withdrawQueuedSend(command.id, reason)) withdrawn++;
+    if (!preserve?.(command) && withdrawQueuedSend(command.id, reason)) withdrawn++;
   }
   return withdrawn;
 }

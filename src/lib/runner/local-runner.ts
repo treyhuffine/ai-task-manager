@@ -82,7 +82,6 @@ import type {
   StopReport,
 } from './types';
 import { processState } from '@/lib/process-state';
-import { recordRateLimits } from '@/lib/harness/rate-limits';
 
 const state = runnerState;
 
@@ -539,13 +538,21 @@ export async function send(req: SendRequest): Promise<SendResult> {
     const instructions = !native || currentInfo?.requiresMessageSnapshot
       ? [currentStanding, currentInfo?.messagePreamble].filter(Boolean).join('\n\n') || null
       : null;
+    req.beforeSend?.();
+    const provisional = `turn:${req.turnId}`;
+    recordSend(chatSessionId, provisional, req.runId);
+    report(chatSessionId, { type: 'producing_run', runId: producingRun(chatSessionId) });
     const sent = await handle.send(withAppSessionInstructions(withFirstTurnPreamble(req.message, takeFirstTurnPreamble(handle)), instructions));
     result = sent.result;
     // A harness that names no message still has its sends kept apart.
     commandUuid = sent.uuid ?? `turn:${req.turnId}`;
     // Before the turn's output can be stamped: a turn it opens is its run's.
-    recordSend(chatSessionId, commandUuid, req.runId);
+    const sends = state.sendRuns.get(chatSessionId);
+    if (sends) state.sendRuns.set(chatSessionId, new Map([...sends].map(([key, value]) => [key === provisional ? commandUuid : key, value])));
+    report(chatSessionId, { type: 'producing_run', runId: producingRun(chatSessionId) });
+    if (req.runId) report(chatSessionId, { type: 'input_accepted', runId: req.runId, producingRunId: producingRun(chatSessionId), deliveryIds: req.coordinationDeliveryIds });
   } catch (err) {
+    forgetSend(chatSessionId, `turn:${req.turnId}`);
     _endActiveDispatch(chatSessionId, ref);
     throw err;
   }
@@ -568,6 +575,7 @@ export async function send(req: SendRequest): Promise<SendResult> {
 
 function finishTurn(req: SendRequest, ref: DispatchLifecycleRef, error: string | null, commandUuid: string, summary: string | null = null, stopped = false): void {
   forgetSend(req.chatSessionId, commandUuid);
+  report(req.chatSessionId, { type: 'producing_run', runId: producingRun(req.chatSessionId) });
   _endActiveDispatch(req.chatSessionId, ref);
   report(req.chatSessionId, { type: 'turn_result', turnId: req.turnId, runId: req.runId, ok: error === null, error, summary, ...(stopped ? { stopped: true } : {}) });
 }
@@ -767,7 +775,7 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
       try {
         const safeEvent = redactHarnessRuntimeValue(event);
         // Account limits are per harness, not per chat (harness/rate-limits.ts).
-        if (safeEvent.type === 'rate_limits') recordRateLimits(spec.harness, safeEvent.update);
+        if (safeEvent.type === 'rate_limits') runnerSink().rateLimits?.(spec.harness, safeEvent.update);
         if (safeEvent.type === 'title_changed' && !safeEvent.parentToolCallId) {
           if (safeEvent.title) report(chatSessionId, { type: 'native_title', title: safeEvent.title });
           return;

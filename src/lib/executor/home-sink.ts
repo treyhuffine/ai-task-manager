@@ -13,6 +13,7 @@ import { installRunnerSink } from '@/lib/runner/sink';
 import type { EventWriter, RunnerSink } from '@/lib/runner/types';
 import { inTransaction } from '@/lib/effects/after-commit';
 import { applyChatEvent, applyRunnerSignal } from './apply';
+import { recordRateLimits } from '@/lib/harness/rate-limits';
 
 /**
  * Chat events from a live session: inserted by id, or a cumulative part
@@ -21,16 +22,17 @@ import { applyChatEvent, applyRunnerSignal } from './apply';
  */
 const liveWriter: EventWriter = {
   async write(event) {
-    const runId = producingRun(event.sessionId) ?? undefined;
+    const runId = producingRun(event.sessionId);
     return inTransaction(() => applyChatEvent(event, { cumulative: false, runId }));
   },
   async replacePart(event) {
-    inTransaction(() => applyChatEvent(event, { cumulative: true }));
+    inTransaction(() => applyChatEvent(event, { cumulative: true, runId: producingRun(event.sessionId) }));
   },
 };
 
 export const homeSink: RunnerSink = {
   writer: liveWriter,
+  rateLimits: recordRateLimits,
   signal(chatSessionId, signal) {
     inTransaction((after) => applyRunnerSignal(chatSessionId, signal, after));
   },

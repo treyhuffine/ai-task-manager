@@ -11,7 +11,7 @@
  * shapes and are erased at runtime.
  */
 
-import type { McpServerConfig, RuntimeCommandInventory, UserInputResponse } from '@agentex/agent';
+import type { McpServerConfig, RateLimitUpdate, RuntimeCommandInventory, UserInputResponse } from '@agentex/agent';
 import type { ChatSessionRecord, CreateChatEventInput, EffortLevel, PermissionMode, WorkerCommandActor } from '@/db/types';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { ExecutionEnvironment, ExpectedAgentFolders } from './environment';
@@ -99,6 +99,8 @@ export interface SendRequest {
   currentStandingInstructions?: () => string;
   /** Local-only admission callback, rechecked after runtime and spawn awaits. */
   admission?: () => boolean | Promise<boolean>;
+  /** Journal immediately before the native send, after every admission await. */
+  beforeSend?: () => void;
   /** Result operations require a failed outcome on Stop. Ordinary turns retain Stop's completion semantics. */
   stopIsFailure?: boolean;
   /** Names this turn in `turn_result`. */
@@ -108,6 +110,9 @@ export interface SendRequest {
   spec: SessionSpec | null;
   /** The user's chat event this sends, so one message is sent once however many paths try. */
   sourceEventId?: string | null;
+  /** Recheck live coordination authorization immediately before native acceptance. */
+  coordinationAdmission?: boolean;
+  coordinationDeliveryIds?: string[];
   /** Who is sending, from the caller's credentials. */
   actor?: WorkerCommandActor;
   /**
@@ -159,6 +164,8 @@ export interface TitleRequest {
 }
 
 export type RunnerSignal =
+  | { type: 'producing_run'; runId: string | null }
+  | { type: 'input_accepted'; runId: string; producingRunId?: string | null; deliveryIds?: string[] }
   | { type: 'native_title'; title: string }
   | { type: 'title_suggestion'; title: string | null; source: Exclude<NonNullable<ChatSessionRecord['labelSource']>, 'manual'> | null; expectedRevision: number; syncNative?: boolean }
   | { type: 'running'; running: boolean }
@@ -183,6 +190,8 @@ export interface EventWriter {
 export interface RunnerSink {
   writer: EventWriter;
   signal(chatSessionId: string, signal: RunnerSignal): void;
+  /** Optional local account observer. Device journals do not forward another account's limits. */
+  rateLimits?(harness: HarnessId, update: RateLimitUpdate): void;
 }
 
 export interface StopReport {

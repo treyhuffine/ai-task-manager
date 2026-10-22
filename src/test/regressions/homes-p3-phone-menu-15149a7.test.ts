@@ -59,7 +59,7 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
     res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}button{padding:10px;margin:4px}svg{width:16px;height:16px}[data-slot="sheet-overlay"]{position:fixed;inset:0;background:#8888;z-index:50}[data-slot="sheet-content"]{position:fixed;inset:10%;background:white;padding:15px;z-index:51}</style><div id="root"></div><script src="/app.js"></script>');
   });
   await new Promise<void>((resolve)=>server.listen(0,'127.0.0.1',resolve));
-  const browser=await chromium.launch({executablePath:`${process.env.HOME}/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell`,headless:true});
+  const browser=await chromium.launch({executablePath:chromium.executablePath(),headless:true});
   try{
     const page=await browser.newPage({viewport:{width:390,height:844},hasTouch:true});
     const pageErrors: string[]=[];

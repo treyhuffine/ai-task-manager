@@ -8,9 +8,9 @@ import { createRuntimeManifest, verifyRuntime } from '@/lib/service/runtime';
 const roots: string[] = [];
 afterEach(() => { vi.unstubAllEnvs(); globalThis.__riServedRelease = undefined; for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 function temporary() { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-compatibility-')); roots.push(root); return root; }
-it('bridges the protocol-4 release in either direction without pretending protocol 3 works', () => {
-  expect(negotiateWorker(current, legacyCompatibility(4))).toMatchObject({ compatible: true, protocol: 4, capabilities: ['worker.protocol4'] });
-  expect(negotiateWorker(legacyCompatibility(4), current)).toMatchObject({ compatible: true, protocol: 4 });
+it('requires coordination admission from both peers while rejecting protocol 3', () => {
+  expect(negotiateWorker(current, legacyCompatibility(4))).toMatchObject({ compatible: false, update: 'worker' });
+  expect(negotiateWorker(legacyCompatibility(4), current)).toMatchObject({ compatible: false, update: 'home' });
   expect(negotiateWorker(current, legacyCompatibility(3))).toMatchObject({ compatible: false, update: 'worker' });
   expect(negotiateWorker(legacyCompatibility(3), current)).toMatchObject({ compatible: false, update: 'home' });
 });

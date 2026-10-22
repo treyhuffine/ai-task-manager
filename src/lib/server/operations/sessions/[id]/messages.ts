@@ -120,6 +120,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
       return reply({ error: 'A chat cannot send a message to itself.' }, { status: 400 });
     }
 
+    if (senderSessionId) return reply({ error: 'Use message_agent or delegate_work for inter-chat sends so approval, Hold and durable delivery are enforced.' }, { status: 409 });
+
     const existing = body.id ? getChatEventById(body.id) : null;
     if (existing && (existing.sessionId !== id || existing.role !== 'user' || existing.source !== 'user' || existing.content !== content || (existing.senderSessionId ?? null) !== senderSessionId))
       return reply({ error: 'This message ID already belongs to different content or a different chat.' }, { status: 409 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { useSearchParams } from 'next/navigation';
 import { LinkedChatView } from '@/components/chat-ui/messages/linked-chat-view';
 import { AppCompanion } from '@/components/local-apps/app-companion';
 import { AppCompanionButton } from '@/components/local-apps/app-companion-button';
@@ -107,8 +108,10 @@ function isEditableTarget(el: HTMLElement | null): boolean {
  */
 export function ExecutionView(props: ExecutionViewProps) {
   const { data: session, error } = useSession(props.sessionId);
+  const params = useSearchParams();
+  const history = params.get('session') === props.sessionId && params.get('history') === '1';
   if (!session && !error) return <ExecutionSkeleton />;
-  if (session && session.type !== 'execution' && !session.executionId) return <LinkedChatView session={session} />;
+  if (session && (history && session.status === 'archived' || session.type !== 'execution' && !session.executionId)) return <LinkedChatView session={session} />;
   return <ExecutionWorkbenchView {...props} />;
 }
 

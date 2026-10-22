@@ -7,11 +7,14 @@ import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER, sessionCredential } 
 import { assertPersonalCapability, isTeamAuthority } from '@/lib/home/authority';
 import { processState } from '@/lib/process-state';
 import { perfScope } from '@/lib/perf/recorder';
+import { inputIsPreparing } from './input-reservations';
+import { retryableCoordinationDispatch } from './retry';
+import { addressOf } from './address';
 import { stableCoordinationId } from './ids';
 import { requestScopedId } from './start-id';
 import { startDelegatedExecution } from './start-execution';
 import { IMPORT_MIRROR_REFUSAL, isImportMirror } from '@/lib/import/mirror';
-import { AGENT_MESSAGE_INSTRUCTIONS, AGENT_REQUEST_REPLY_INSTRUCTIONS, AGENT_RESPONSE_INSTRUCTIONS, AGENT_BLOCKED_INSTRUCTIONS } from '@/lib/sessions/chat-message';
+import { AGENT_MESSAGE_INSTRUCTIONS, AGENT_REQUEST_REPLY_INSTRUCTIONS } from '@/lib/sessions/chat-message';
 
 const state = processState('coordination.delivery', () => ({ draining: null as Promise<void> | null, again: false, reconcileAfterId: null as string | null, timer: null as ReturnType<typeof setInterval> | null }));
 
@@ -28,21 +31,18 @@ export function callerChat(ctx: ActionContext): ChatSessionRecord {
   return personalChat(ctx.actor.sessionId);
 }
 
-export function addressOf(chat: ChatSessionRecord): string {
-  return chat.type === 'orchestration' && !chat.executionId && !chat.createdByRunId && (!chat.surfaceKind || chat.surfaceKind === 'main')
-    ? chat.workspaceId ? `agent:${chat.workspaceId}` : 'orchestrator'
-    : `session:${chat.id}`;
-}
+export { addressOf } from './address';
 
-export function normalizeAddress(target: string, source: ChatSessionRecord): string {
+export function normalizeAddress(target: string, source: ChatSessionRecord, assignment: AgentRequestRecord | null = null): string {
   if (target === 'agent') {
     if (!source.workspaceId) throw new ActionError('invalid_params', 'Name an agent as agent:<workspace id>, or use orchestrator.');
     return `agent:${source.workspaceId}`;
   }
   if (target === 'requester') {
-    const incoming = q.openAgentRequestsForTarget(source.id).find(request => request.status === 'sent');
+    const incoming = assignment;
     if (!incoming) throw new ActionError('not_found', 'This chat has no active requesting chat.');
-    return incoming.sourceAddress;
+    if (!incoming.sourceSessionId) throw new ActionError('not_found', 'The requesting chat is unavailable.');
+    return `session:${incoming.sourceSessionId}`;
   }
   if (target === 'orchestrator' || /^(agent|session):[^\s:]+$/.test(target)) return target;
   throw new ActionError('invalid_params', 'Use orchestrator, agent, requester, agent:<workspace id>, or session:<chat id>.');
@@ -76,194 +76,280 @@ export async function inCoordinationServer<T>(ctx: ActionContext, name: string, 
   return envelope.result as T;
 }
 
-export async function submitAgentRequest(ctx: ActionContext, input: { target: string; requestId: string; content: string; kind: AgentRequestRecord['kind']; options?: AgentRequestRecord['options'] }) {
+/** Resolve actual producer identity; a chat alone is not an assignment identity. */
+export async function verifiedCoordinationRun(source: ChatSessionRecord): Promise<string | null> {
+  const placement = q.chatPlacement(source.id);
+  if (placement?.isHome !== false) {
+    const { producingRun } = await import('@/lib/runner/local-runner');
+    const runId = producingRun(source.id);
+    if (runId && q.getRun(runId)?.chatSessionId === source.id) return runId;
+  }
+  const { coordinationProducer } = await import('./run-context');
+  const remoteRunId = coordinationProducer(source.id);
+  if (placement?.isHome === false && remoteRunId && q.getRun(remoteRunId)?.chatSessionId === source.id && q.getRun(remoteRunId)?.status === 'running') return remoteRunId;
+  // A transport cannot invent a run. Ambiguous remote or starting contexts
+  // must wait for the runner's verified producing-turn evidence.
+  if (q.openAgentRequestsForTarget(source.id).some(request => ['queued', 'working', 'waiting'].includes(request.status))) {
+    throw new ActionError('conflict', 'The producing assignment run is not yet verified. Retry after its runner context is available.');
+  }
+  return null;
+}
+
+export async function submitAgentRequest(ctx: ActionContext, input: { target: string; requestId: string; content: string; kind: AgentRequestRecord['kind'] | 'message'; options?: AgentRequestRecord['options']; relatedRequestId?: string }) {
   const source = callerChat(ctx);
   if (source.status !== 'active') throw new ActionError('conflict', 'An archived chat cannot start work.');
-  const prior = q.findAgentRequest(source.id, input.requestId);
-  const address = prior && input.target === 'requester' ? prior.targetAddress : normalizeAddress(input.target, source);
+  if (isImportMirror(source)) throw new ActionError('conflict', IMPORT_MIRROR_REFUSAL);
+  const id = stableCoordinationId('request', source.id, input.requestId);
+  const prior = q.getAgentDelivery(id);
+  const sourceRunId = prior?.sourceRunId ?? await verifiedCoordinationRun(source);
+  const assigned = sourceRunId ? q.assignedAgentRequestsForRun(sourceRunId) : [];
+  if (!prior && assigned.length > 1) throw new ActionError('conflict', 'The producing run has ambiguous assignment ownership. Resolve that context before creating dependent work.');
+  if (!prior && assigned.some(request => ['failed','cancelled'].includes(request.status))) throw new ActionError('conflict', 'This assigned work has ended. Do not restart it by creating independent requests.');
+  const parent = sourceRunId ? q.agentRequestForRun(sourceRunId) : null;
+  const address = prior && input.target === 'requester' ? prior.targetAddress : normalizeAddress(input.target, source, parent);
   const content = input.content.trim();
   const options = input.options ?? null;
   if (prior) {
-    if (prior.targetAddress !== address || prior.content !== content || prior.kind !== input.kind || JSON.stringify(prior.options) !== JSON.stringify(options)) throw new ActionError('conflict', 'This request ID already belongs to different intent. Use a new request ID.');
+    const request = prior.requestId ? q.getAgentRequest(prior.requestId) : null;
+    if (prior.targetAddress !== address || prior.payload.content !== content || prior.payload.relatedRequestId !== input.relatedRequestId || (prior.kind === 'message' ? 'message' : request?.kind) !== input.kind || JSON.stringify(prior.kind === 'message' ? null : request?.options ?? null) !== JSON.stringify(options)) throw new ActionError('conflict', 'This retry key belongs to different intent. Use a new key for a different operation.');
     return prior;
   }
+  if (input.relatedRequestId && input.kind !== 'message') throw new ActionError('invalid_params', 'related_request_id is only valid with response:"none".');
   let target: ChatSessionRecord | null = null;
   if (input.kind !== 'delegation') {
-    target = await resolveAddress(address, source.userId);
-    if (target.id === source.id) throw new ActionError('invalid_params', 'That address resolves to this chat. Continue your own work directly.');
+    // Resolve exact sessions now. Stable main addresses are pinned by the
+    // delivery worker only after authorization, before its first attempt.
+    if (address.startsWith('session:')) {
+      target = personalChat(address.slice(8), source.userId);
+      if (target.status !== 'active') throw new ActionError('conflict', 'The addressed chat is archived.');
+      if (isImportMirror(target)) throw new ActionError('conflict', IMPORT_MIRROR_REFUSAL);
+    } else if (address.startsWith('agent:')) {
+      const workspace = q.getWorkspace(address.slice(6));
+      if (!workspace || workspace.status !== 'active') throw new ActionError('not_found', 'The addressed agent is unavailable.');
+    }
+    if (target?.id === source.id || address === addressOf(source)) throw new ActionError('invalid_params', 'That address resolves to this chat. Continue your own work directly.');
   } else {
     const workspace = options ? q.getWorkspace(options.workspaceId) : null;
-    if (!workspace || workspace.status !== 'active') throw new ActionError('not_found', 'The agent for this delegation is unavailable.');
+    if (!workspace || workspace.status !== 'active') throw new ActionError('not_found', 'The destination agent is unavailable.');
   }
-  const parent = q.openAgentRequestsForTarget(source.id).find(request => request.status === 'sent');
+  if (input.relatedRequestId) {
+    const related = q.getAgentRequest(input.relatedRequestId);
+    if (!related || ![related.sourceSessionId, related.targetSessionId].includes(source.id)) throw new ActionError('unsupported', 'This chat does not participate in that request.');
+    const participants = [related.sourceAddress, related.targetAddress, `session:${related.sourceSessionId}`, `session:${related.targetSessionId}`];
+    if (!participants.includes(address)) throw new ActionError('unsupported', 'Related steering must be sent to a participant.');
+  }
   let ancestor = parent;
   for (let depth = 0; ancestor; depth++) {
-    if (depth >= 8) throw new ActionError('conflict', 'This request chain is too deep. Resolve the existing requests before delegating again.');
-    ancestor = ancestor.parentRequestId ? q.getAgentRequest(ancestor.parentRequestId) ?? undefined : undefined;
+    if (depth >= 8) throw new ActionError('conflict', 'Resolve the existing request chain before delegating again.');
+    ancestor = ancestor.parentRequestId ? q.getAgentRequest(ancestor.parentRequestId) : null;
   }
-  const id = stableCoordinationId('request', source.id, input.requestId);
-  const request = q.createAgentRequest({ id, sourceSessionId: source.id, sourceAddress: addressOf(source), targetAddress: address, targetSessionId: target?.id ?? null,
-    requestKey: input.requestId, parentRequestId: parent?.id, kind: input.kind, content, options,
-    messageEventId: input.kind === 'delegation' ? requestScopedId('prompt', options!.workspaceId, id) : stableCoordinationId('input', id) });
-  if (request.content !== content || request.targetAddress !== address || request.kind !== input.kind || JSON.stringify(request.options) !== JSON.stringify(options)) {
-    throw new ActionError('conflict', 'This request ID already belongs to different intent. Use a new request ID.');
+  // A stable address is exempt only while it still names the exact requester.
+  // Delegation always creates another chat and requires its own authorization.
+  if (!target && input.kind !== 'delegation' && parent?.sourceSessionId && address === parent.sourceAddress) {
+    const scope = address === 'orchestrator' ? null : address.startsWith('agent:') ? address.slice(6) : undefined;
+    const current = scope !== undefined ? q.listMainChats(scope, { status: 'active', limit: 1 })[0] : null;
+    if (current?.id === parent.sourceSessionId) target = personalChat(current.id, source.userId);
   }
+  const toRequester = input.kind !== 'delegation' && !!parent?.sourceSessionId && target?.id === parent.sourceSessionId;
+  const status = toRequester || q.agentCoordinationPolicy(source.id).policy === 'allow' ? 'queued' : 'awaiting_approval';
+  const eventId = input.kind === 'delegation' ? requestScopedId('prompt', options!.workspaceId, id) : stableCoordinationId('input', id);
+  const prompt = `[Ri agent ${input.kind}. Request ID: ${id}. Requesting chat: ${source.id}.]\n${content}\n\n${input.kind === 'message' ? AGENT_MESSAGE_INSTRUCTIONS : AGENT_REQUEST_REPLY_INSTRUCTIONS}`;
+  const delivery = q.createInitiatingAgentDelivery({ id, source, sourceRunId, address, targetSessionId: target?.id ?? null, requestKey: input.requestId, parentRequestId: parent?.id ?? null, kind: input.kind, content, options, eventId, prompt, relatedRequestId: input.relatedRequestId, status });
   void drainAgentCoordination();
-  return request;
-}
-
-function senderHeaders(id: string): Record<string, string> {
-  const credential = sessionCredential(id);
-  if (!credential) throw new ActionError('unsupported', 'The sending chat no longer has a valid credential.');
-  return { [SESSION_CREDENTIAL_HEADER]: credential };
+  return delivery;
 }
 
 function retryAt(attempts: number): string {
   return new Date(Date.now() + Math.min(60_000, 1000 * 2 ** Math.min(attempts, 6))).toISOString();
 }
-
 async function busy(id: string): Promise<boolean> {
   const executor = await import('@/lib/executor/adapter');
-  return executor.isRunning(id) || executor.hasBackgroundTasks(id);
+  return executor.isRunning(id) || executor.hasBackgroundTasks(id) || q.hasPendingCoordinationSend(id);
 }
-
-async function mustWaitForRecipient(request: AgentRequestRecord, target: ChatSessionRecord): Promise<boolean> {
-  if (!await busy(target.id)) return false;
-  // Tracked requests need a separate turn so an unrelated final answer cannot
-  // settle them. Informational steering can enter a supported native queue.
-  if (request.kind !== 'message') return true;
-  const { harnessCapabilitiesOn } = await import('@/lib/executor/devices');
-  const placement = q.chatPlacement(target.id);
-  const workspace = target.workspaceId ? q.getWorkspace(target.workspaceId) : null;
-  const cwd = q.getChatSessionWithExecution(target.id)?.execution?.worktreePath ?? workspace?.cwd;
-  const caps = await harnessCapabilitiesOn(placement ?? { deviceId: '', isHome: true }, target.harness, placement?.isHome === false ? undefined : cwd);
-  return !caps.concurrentSend;
-}
-
-async function dispatchRequest(request: AgentRequestRecord): Promise<void> {
-  try {
-    const source = personalChat(request.sourceSessionId);
-    if (source.status !== 'active' && request.sourceAddress.startsWith('session:')) {
-      q.finishAgentRequest(request.id, 'cancelled', 'The requesting chat was closed before this work started.');
-      return;
-    }
-    if (request.kind === 'delegation') {
-      const outcome = await startDelegatedExecution(request.id, requestPrompt(request, requestScopedId('session', request.options!.workspaceId, request.id)));
-      const current = q.getAgentRequest(request.id);
-      q.updateAgentRequest(request.id, { targetSessionId: outcome.sessionId, ...(current?.status === 'queued' ? { status: 'sent' as const } : {}), nextAttemptAt: null });
-      return;
-    }
-    const target = await resolveAddress(request.targetAddress, source.userId);
-    if (await mustWaitForRecipient(request, target)) {
-      q.updateAgentRequest(request.id, { nextAttemptAt: new Date(Date.now() + 5000).toISOString() });
-      return;
-    }
-    q.updateAgentRequest(request.id, { targetSessionId: target.id });
-    await serverFetch(`/sessions/${target.id}/messages`, { method: 'POST', headers: senderHeaders(source.id), body: JSON.stringify({ id: request.messageEventId, content: requestPrompt(request, target.id) }) });
-    if (q.getAgentRequest(request.id)?.status === 'queued') q.updateAgentRequest(request.id, { status: 'sent', nextAttemptAt: null });
-  } catch (error) {
-    if (permanent(error)) q.finishAgentRequest(request.id, 'failed', error instanceof Error ? error.message : String(error));
-    else q.updateAgentRequest(request.id, { attempts: request.attempts + 1, nextAttemptAt: retryAt(request.attempts), error: String(error) });
-  }
-}
-
-/** Retries keep the accepted bytes even if the app's routing instructions change. */
-function preserveAcceptedMessage(eventId: string, senderId: string, targetId: string, content: string): string {
-  const saved = q.getChatEventById(eventId);
-  if (!saved) return content;
-  if (saved.sessionId !== targetId || saved.senderSessionId !== senderId || saved.source !== 'user' || saved.role !== 'user' || saved.content === null) {
-    throw new ActionError('conflict', 'This accepted message belongs to a different chat or sender. Inspect the request before continuing.');
-  }
-  return saved.content;
-}
-
-function requestPrompt(request: AgentRequestRecord, targetId: string): string {
-  return preserveAcceptedMessage(request.messageEventId, request.sourceSessionId, targetId, `[Ri agent ${request.kind}. Request ID: ${request.id}. Requesting chat: ${request.sourceSessionId}.]
-${request.content}
-
-${request.kind === 'message' ? AGENT_MESSAGE_INSTRUCTIONS : AGENT_REQUEST_REPLY_INSTRUCTIONS}`);
-}
-
 function permanent(error: unknown): boolean {
   if (error instanceof ServerTransportError) return false;
   return error instanceof ServerResponseError ? error.status >= 400 && error.status < 500 && ![408, 425, 429].includes(error.status)
     : error instanceof ActionError && ['not_found', 'invalid_params', 'unsupported', 'conflict'].includes(error.code);
 }
 
-async function deliverUpdate(delivery: AgentDeliveryRecord): Promise<void> {
-  const request = q.getAgentRequest(delivery.requestId);
-  if (!request) return;
-  if (delivery.kind === 'blocked' && ['completed', 'failed', 'cancelled'].includes(request.status)) {
-    q.updateAgentDelivery(delivery.id, { status: 'failed', error: 'This request already ended. Its old blocked-state update was not delivered.', nextAttemptAt: null });
-    return;
-  }
-  if (request.parentRequestId && q.getAgentRequest(request.parentRequestId)?.status === 'cancelled') {
-    q.updateAgentDelivery(delivery.id, { status: 'failed', error: 'The requesting assignment was cancelled. No continuation was started.', nextAttemptAt: null });
-    return;
-  }
+async function persistDelivery(delivery: AgentDeliveryRecord): Promise<void> {
   try {
-    const source = personalChat(request.sourceSessionId);
-    const destination = delivery.deliveredToSessionId
-      ? personalChat(delivery.deliveredToSessionId, source.userId)
-      : await resolveAddress(request.sourceAddress, source.userId);
-    if (await busy(destination.id)) {
-      q.updateAgentDelivery(delivery.id, { nextAttemptAt: new Date(Date.now() + 5000).toISOString() });
-      return;
-    }
-    if (destination.status !== 'active') throw new ActionError('not_found', 'The receiving chat was closed before delivery was acknowledged.');
-    q.updateAgentDelivery(delivery.id, { deliveredToSessionId: destination.id });
-    const content = `[Ri agent request ${request.id}: ${delivery.kind}.]
-Request: ${request.content}
-Responding chat: ${request.targetSessionId ?? 'Ri coordination service (work could not start)'}
-${delivery.content}
-
-${delivery.kind === 'blocked' ? AGENT_BLOCKED_INSTRUCTIONS : AGENT_RESPONSE_INSTRUCTIONS}`;
-    if (request.targetSessionId) {
-      personalChat(request.targetSessionId, source.userId);
-      await serverFetch(`/sessions/${destination.id}/messages`, { method: 'POST', headers: senderHeaders(request.targetSessionId), body: JSON.stringify({ id: delivery.eventId, content: preserveAcceptedMessage(delivery.eventId, request.targetSessionId, destination.id, content) }) });
-    } else {
-      // A launch failure has no responding chat. Record it truthfully as a
-      // system event, and deliver only in the server that owns the runner.
-      // The run's indexed sourceEventId prevents replay after uncertain ACKs.
-      q.insertChatEvent({ id: delivery.eventId, sessionId: destination.id, role: 'system', source: 'error', content });
-      if (!q.getRunForSourceEvent(delivery.eventId)) {
-        const executor = await import('@/lib/executor/adapter');
-        await new Promise<void>((resolve, reject) => {
-          void executor.dispatch(destination.id, content, { sourceEventId: delivery.eventId,
-            actor: { source: 'system', sessionId: null, apiKeyId: null }, onTaken: resolve, onQueued: resolve }).then(resolve, reject);
-        });
+    if (delivery.senderKind === 'agent' && ['request','message'].includes(delivery.kind)) {
+      const source = delivery.sourceSessionId ? q.getChatSession(delivery.sourceSessionId) : null;
+      if (!source || source.status === 'archived' && addressOf(source).startsWith('session:')) {
+        q.updateAgentDelivery(delivery.id, {status:'cancelled',error:'The requesting chat closed before delivery.',nextAttemptAt:null});
+        if (delivery.kind === 'request' && delivery.requestId) q.finishAgentRequest(delivery.requestId,'cancelled','The requesting chat closed before this work started.');
+        return;
       }
     }
-    q.updateAgentDelivery(delivery.id, { status: 'sent', deliveredToSessionId: destination.id, error: null, nextAttemptAt: null });
+    let target = delivery.targetSessionId ? personalChat(delivery.targetSessionId) : null;
+    const request = delivery.requestId ? q.getAgentRequest(delivery.requestId) : null;
+    if (!target && delivery.attempts > 0) throw new ActionError('not_found', 'The pinned destination is unavailable. This send will not be rerouted.');
+    if (!target && request?.kind === 'delegation' && delivery.kind === 'request') {
+      const outcome = await startDelegatedExecution(request.id);
+      target = personalChat(outcome.sessionId);
+    } else if (!target && delivery.payload.launch) {
+      target = await createForwardDestination(delivery);
+    } else if (!target) {
+      const source = delivery.sourceSessionId ? personalChat(delivery.sourceSessionId) : null;
+      target = await resolveAddress(delivery.targetAddress, source?.userId ?? 'local');
+    }
+    if (target.status !== 'active') throw new ActionError('not_found', 'The receiving chat is archived.');
+    if (isImportMirror(target)) throw new ActionError('conflict', IMPORT_MIRROR_REFUSAL);
+    // Pin before any transcript attempt, including an uncertain acknowledgment.
+    q.updateAgentDelivery(delivery.id, { targetSessionId: target.id, attempts: delivery.attempts + 1 });
+    if (delivery.kind === 'request' && request) q.updateAgentRequest(request.id, { targetSessionId: target.id });
+    q.persistAgentDelivery(delivery.id);
   } catch (error) {
-    q.updateAgentDelivery(delivery.id, { status: permanent(error) ? 'failed' : 'pending', attempts: delivery.attempts + 1, nextAttemptAt: retryAt(delivery.attempts), error: String(error) });
+    if (permanent(error)) q.failAgentDelivery(delivery.id, error instanceof Error ? error.message : String(error));
+    else {
+      const current = q.getAgentDelivery(delivery.id)!;
+      q.updateAgentDelivery(delivery.id, { nextAttemptAt: current.targetSessionId ? retryAt(current.attempts) : new Date(Date.now()+5000).toISOString(), error: String(error) });
+    }
+  }
+}
+async function createForwardDestination(delivery: AgentDeliveryRecord): Promise<ChatSessionRecord> {
+  const launch = delivery.payload.launch!;
+  const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
+  return dispatchExecutionSession({ ...launch, harness: launch.provider, sessionId: requestScopedId('session', launch.workspaceId, delivery.id), actor: { source: 'human', sessionId: null, apiKeyId: null } });
+}
+
+async function dispatchReserved(sessionId: string, run: ReturnType<typeof q.getRun> & {}, messages: AgentDeliveryRecord[], prefix = '', human = false): Promise<void> {
+  const { expandMarkers } = await import('@/lib/attachments/expand-markers');
+  const { expandEntityMarkers } = await import('@/lib/entity-refs/expand-markers');
+  const { withSenderLabel } = await import('@/lib/sessions/sender');
+  const executor = await import('@/lib/executor/adapter');
+  const savedBatch = q.coordinationDeliveriesForRun(run.id);
+  const savedPayload = typeof run.triggerPayload === 'object' && run.triggerPayload ? run.triggerPayload : null;
+  if (Array.isArray(savedPayload?.coordinationDeliveryIds)) messages = savedBatch;
+  q.reserveCoordinationInputs(run.id, messages);
+  const attachments = messages.flatMap(message => message.payload.attachments);
+  const text = prefix + messages.map(message => withSenderLabel(message.payload.prompt, message.senderKind === 'agent' ? message.sourceSessionId : null)).join('\n\n');
+  const expanded = await expandMarkers(expandEntityMarkers(text, sessionId), attachments);
+  const first = messages[0];
+  const actor = human ? { source: 'human' as const, sessionId: null, apiKeyId: null } : first?.senderKind === 'agent' && first.sourceSessionId ? { source: 'ai' as const, sessionId: first.sourceSessionId, apiKeyId: null } : { source: 'system' as const, sessionId: null, apiKeyId: null };
+  try {
+    await new Promise<void>((resolve, reject) => {
+      void executor.dispatch(sessionId, expanded, { runId: run.id, sourceEventId: run.sourceEventId, coordinationDeliveryIds: messages.map(message => message.id), attachments,
+        actor, onTaken: resolve, onQueued: resolve }).then(resolve, reject);
+    });
+  } catch (error) {
+    const { CoordinationHeldError } = await import('./hold');
+    if (error instanceof CoordinationHeldError) throw error;
+    const reason = error instanceof Error ? error.message : String(error);
+    if (retryableCoordinationDispatch(error)) {
+      q.markRunWaitingForCoordination(run.id);
+      for (const message of messages) q.updateAgentDelivery(message.id, { attempts: message.attempts + 1, nextAttemptAt: retryAt(message.attempts), error: reason });
+      return;
+    }
+    q.markRunFailed(run.id, { errorCode: 'agent_error', errorMessage: reason });
+    const assigned = q.agentRequestForRun(run.id);
+    if (assigned) q.finishAgentRequest(assigned.id, 'failed', reason);
+    // Context supplied beside the initiating send keeps its own lifecycle.
+    const own = run.sourceEventId ? q.agentDeliveryForEvent(run.sourceEventId) : null;
+    if (own) q.failAgentDelivery(own.id, reason);
   }
 }
 
-/** Reconcile durable outcomes without replaying an uncertain running turn. */
-async function reconcileRequests(): Promise<void> {
+async function activateChat(sessionId: string): Promise<void> {
+  const target = q.getChatSession(sessionId);
+  if (!target || target.status !== 'active') {
+    for (const delivery of q.pendingAgentDeliveries(sessionId)) q.failAgentDelivery(delivery.id, 'The receiving chat is no longer active.');
+    return;
+  }
+  for (const delivery of q.pendingAgentDeliveries(sessionId)) {
+    const admission = q.agentMessageAdmission(delivery.eventId);
+    if (admission?.refusal) q.failAgentDelivery(delivery.id, admission.refusal);
+  }
+  const pending = q.pendingAgentDeliveries(sessionId).filter(input => !input.nextAttemptAt || input.nextAttemptAt <= new Date().toISOString());
+  const isBusy = await busy(sessionId);
+  const human = pending.find(delivery => delivery.senderKind === 'human' && !inputIsPreparing(delivery.id));
+  if (human) {
+    if (isBusy && !await concurrentInput(target)) { q.deferAgentDeliveries(sessionId); return; }
+    const producer = await verifiedCoordinationRun(target).catch(() => null);
+    const context = q.humanCoordinationContext(sessionId, producer).filter(input => input.id !== human.id);
+    const run = q.reserveOrdinaryCoordinationTurn(target.id, human.eventId);
+    if (run.status === 'queued' && !q.getSendForEvent(human.eventId)) await dispatchReserved(target.id, run, [human, ...context], '[Material shared by the person and pending context. Reading context does not claim its tracked assignments.]\n\n', true);
+    return;
+  }
+  if (target.coordinationHeldAt) { q.deferAgentDeliveries(sessionId); return; }
+  const owned = q.openAgentRequestsForTarget(sessionId);
+  if (isBusy) {
+    q.deferAgentDeliveries(sessionId);
+    // Only explicitly related one-way steering can enter an assignment turn.
+    const producer = await verifiedCoordinationRun(target).catch(() => null);
+    const assigned = producer ? q.agentRequestForRun(producer) : null;
+    if (!producer && owned.some(request => request.runId)) return;
+    const steering = pending.filter(delivery => !inputIsPreparing(delivery.id) && delivery.kind === 'message' && (!assigned || delivery.payload.relatedRequestId === assigned.id));
+    if (!steering.length) return;
+    if (!await concurrentInput(target)) return;
+    await activateOrdinary(target, steering);
+    return;
+  }
+  const reserved = owned.filter(request => request.runId && ['queued', 'running'].includes(q.getRun(request.runId)?.status ?? ''));
+  for (const request of reserved.length ? reserved : owned) {
+    const initial = q.initialAgentDelivery(request.id);
+    if (initial && inputIsPreparing(initial.id)) return;
+    const reservation = q.reserveAgentRequestTurn(request.id);
+    // A reserved or working assignment owns this chat until its input or
+    // outcome is reconciled, even while its device mirror says idle.
+    if (!reservation) { if (request.runId && ['queued', 'running'].includes(q.getRun(request.runId)?.status ?? '')) return; continue; }
+    const prefix = reservation.continuation || reservation.updates.some(update => update.status === 'accepted')
+      ? `[Continue assigned request ${request.id}. Inspect the current state, prior human work and supplied messages. Reconcile the user's latest direction. Do not blindly repeat earlier side effects.]\n\n`
+      : '';
+    await dispatchReserved(sessionId, reservation.run, reservation.updates, prefix);
+    return;
+  }
+  const ordinary = pending.filter(delivery => !inputIsPreparing(delivery.id) && delivery.kind !== 'request' && !q.deliveryNeedsAssignmentContinuation(delivery));
+  if (ordinary.length) await activateOrdinary(target, ordinary);
+}
+async function concurrentInput(target: ChatSessionRecord): Promise<boolean> {
+  const { harnessCapabilitiesOn } = await import('@/lib/executor/devices');
+  const placement = q.chatPlacement(target.id);
+  const cwd = q.getChatSessionWithExecution(target.id)?.execution?.worktreePath ?? (target.workspaceId ? q.getWorkspace(target.workspaceId)?.cwd : undefined);
+  return (await harnessCapabilitiesOn(placement ?? { deviceId: '', isHome: true }, target.harness, placement?.isHome === false ? undefined : cwd)).concurrentSend;
+}
+async function activateOrdinary(target: ChatSessionRecord, messages: AgentDeliveryRecord[]): Promise<void> {
+  const first = messages[0];
+  const run = q.reserveOrdinaryCoordinationTurn(target.id, first.eventId);
+  if (run.status !== 'queued' || q.getSendForEvent(first.eventId)) return;
+  await dispatchReserved(target.id, run, messages);
+}
+
+/** No accepted work is re-executed to manufacture missing metadata. */
+async function reconcileRequests(): Promise<AgentRequestRecord[]> {
   const requests = q.unsettledAgentRequests(100, state.reconcileAfterId ?? undefined);
   state.reconcileAfterId = requests.length === 100 ? requests.at(-1)!.id : null;
   for (const request of requests) {
-    if (request.targetSessionId && q.getChatSession(request.targetSessionId)?.status === 'archived') {
-      q.finishAgentRequest(request.id, 'failed', 'The responding chat was closed before this request finished. Inspect its history before starting new work.');
-      continue;
-    }
+    if (request.targetSessionId && q.getChatSession(request.targetSessionId)?.status === 'archived') q.finishAgentRequest(request.id, 'failed', 'The responding chat was closed before this request finished.');
     if (!request.runId) continue;
     const run = q.getRun(request.runId);
-    if (run?.status === 'completed' && request.status !== 'waiting') q.settleAgentRequestsForRun(run.id, { ok: true });
-    else if (run && ['failed', 'cancelled', 'skipped'].includes(run.status)) q.settleAgentRequestsForRun(run.id, { ok: false, errorMessage: run.errorMessage ?? `Work ${run.status}.` });
+    if (run?.status === 'completed' && request.status === 'working') q.settleAgentRequestsForRun(run.id, { ok: true });
+    else if (run && ['failed', 'cancelled', 'skipped'].includes(run.status)) q.finishAgentRequest(request.id, 'failed', run.errorMessage ?? `Work ${run.status}.`);
   }
+  return requests;
 }
-
 export function drainAgentCoordination(): Promise<void> {
   if (state.draining) { state.again = true; return state.draining; }
   state.draining = perfScope('timer:agent-coordination', async () => {
     do {
       state.again = false;
-      await reconcileRequests();
-      for (const request of q.dueAgentRequests()) await dispatchRequest(request);
-      for (const delivery of q.dueAgentDeliveries()) await deliverUpdate(delivery);
+      const requests = await reconcileRequests();
+      const due = q.dueAgentDeliveries();
+      for (const delivery of due) {
+        if (delivery.status === 'queued') await persistDelivery(delivery);
+        else if (['failed', 'cancelled', 'skipped'].includes(q.getRunForSourceEvent(delivery.eventId)?.status ?? '')) q.failAgentDelivery(delivery.id, 'The reserved input did not reach its harness. Inspect the destination before sending again.');
+        else if (!delivery.targetSessionId) q.failAgentDelivery(delivery.id, 'The pinned destination was deleted. This input will not be replayed elsewhere.');
+      }
+      const sessions = new Set(due.map(delivery => q.getAgentDelivery(delivery.id)?.targetSessionId).filter((id): id is string => !!id));
+      for (const request of requests) if (request.targetSessionId && ['queued', 'waiting'].includes(request.status)) sessions.add(request.targetSessionId);
+      for (const id of sessions) {
+        try { await activateChat(id); }
+        catch (error) {
+          const { CoordinationHeldError } = await import('./hold');
+          if (!(error instanceof CoordinationHeldError)) console.warn('[coordination] activation failed', error);
+        }
+      }
     } while (state.again);
   }).catch(error => { console.warn('[coordination] delivery failed', error); }).finally(() => { state.draining = null; });
   return state.draining;
@@ -292,12 +378,12 @@ export function recoverAgentCoordination(): void {
     afterId = requests.at(-1)!.id;
     for (const request of requests) {
       if (!request.runId) {
-        q.updateAgentRequest(request.id, { status: 'queued', nextAttemptAt: new Date().toISOString() });
+        // Historical acceptance without a run is not permission to replay.
         continue;
       }
       const run = q.getRun(request.runId);
       const placement = request.targetSessionId ? q.chatPlacement(request.targetSessionId) : null;
-      if (run && ['queued', 'running'].includes(run.status) && placement?.isHome !== false) {
+      if (run?.status === 'running' && placement?.isHome !== false) {
         q.finishAgentRequest(request.id, 'failed', 'The home restarted while this work was running. Its execution is interrupted and was not repeated. Inspect the responding chat before continuing.');
       }
     }

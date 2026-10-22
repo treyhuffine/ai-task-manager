@@ -1,4 +1,4 @@
-import { approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS, SENDER_CHAT_ID } from './fixtures';
+import { coordinationDeliveryExample, approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS, SENDER_CHAT_ID } from './fixtures';
 import type { ChatEventRecord, EmailDraft, WorkResultDecisionRecord } from '@/db/types';
 import type { ChatUiExampleId } from './catalog';
 
@@ -9,10 +9,16 @@ export class GalleryRuntime {
   pending;
   logs: string[] = [];
   private revision = 0;
+  private coordination: ReturnType<typeof coordinationDeliveryExample>;
+  private held: boolean;
+  private coordinationPolicy: 'ask' | 'allow' = 'ask';
+  private coordinationChatPolicy: 'ask' | 'allow' | null = null;
   private listeners = new Set<() => void>();
   private decisions: WorkResultDecisionRecord[] = [];
   private versionRows = VERSIONS;
   constructor(readonly example: ChatUiExampleId, readonly state: string, readonly resource?: unknown) {
+    this.coordination = coordinationDeliveryExample(state);
+    this.held = state === 'held';
     this.email = emailDraft(state);
     this.pending = pendingInput(example, state);
     if (example === 'approvals') {
@@ -38,6 +44,17 @@ export class GalleryRuntime {
   async invoke(path: string, value: unknown): Promise<unknown> {
     const input = (value ?? {}) as Record<string, unknown>;
     const body = (input.body ?? {}) as Record<string, unknown>;
+    if (path === 'coordination.delivery') return this.coordination;
+    if (path === 'coordination.state') return { scopes: {chat:CHAT_ID,execution:null,agent:null,global:'1'}, incoming: {}, assignmentsWaiting:this.held ? 1 : 0, policy: this.coordinationChatPolicy ?? this.coordinationPolicy, source: this.coordinationChatPolicy ? 'chat' : 'global', levels: [{source:'chat',value:this.coordinationChatPolicy},{source:'execution',value:null},{source:'agent',value:null},{source:'global',value:this.coordinationPolicy}], heldAt: this.held ? NOW : null, pending: this.held ? 5 : 0, approvals: [], related: [] };
+    if (path === 'coordination.defaults') return { global: this.coordinationPolicy };
+    if (path === 'coordination.hold') { this.held = !!input.held; this.changed(this.held ? 'Hold on for the example chat' : 'Hold released. No real agent started'); return { held: this.held }; }
+    if (path === 'coordination.policy') { if (input.scope === 'chat') this.coordinationChatPolicy = input.policy === 'allow' ? 'allow' : input.policy === 'ask' ? 'ask' : null; else this.coordinationPolicy = input.policy === 'allow' ? 'allow' : 'ask'; this.changed('Example coordination preference saved'); return {saved:true}; }
+    if (path === 'coordination.decide') { this.coordination = {...this.coordination,status:input.decision === 'deny' ? 'denied' : 'queued'}; if(input.decision === 'always') this.coordinationChatPolicy = 'allow'; this.changed('Example send decision saved. Nothing was sent'); return this.coordination; }
+    if (path === 'coordination.targets') return [{id:SENDER_CHAT_ID,label:'Review date handling',workspaceId:RECORD_ID,agentName:'Research',harness:'claude',lastActivityAt:NOW,updatedAt:NOW}].filter(chat => (!input.workspaceId || input.workspaceId === chat.workspaceId) && (!input.search || `${chat.label} ${chat.agentName}`.toLowerCase().includes(String(input.search).toLowerCase())));
+    if (path === 'coordination.forward') { this.changed('Example message shared. No real chat was created'); return {...this.coordination,requestId:null,kind:'message',senderKind:'human',status:'queued'}; }
+    if (path === 'workspaces.list') return [{id:RECORD_ID,name:'Research',status:'active'}];
+    if (path === 'harness.modelsGet') { const provider = String((input.query as {provider?: string})?.provider ?? 'claude'); return {models:[{id:`example-${provider}`,label:`Example ${provider} model`,supportedEfforts:provider === 'claude' || provider === 'codex' ? ['low','medium','high'] : [],defaultEffort:'medium'}],source:'config'}; }
+    if (path === 'harness.authPost') return {binary:{installed:true},hasSubscription:true,identity:{email:'sam@example.com'}};
     if (path === 'email.accounts') return [{ id: 'gallery-gmail', provider: 'google', label: 'sam@example.com' }, { id: 'gallery-outlook', provider: 'microsoft', label: 'sam@work.example.com' }];
     if (path === 'email.get') return { id: DRAFT_ID, sessionId: CHAT_ID, draft: this.email };
     if (path === 'email.update') {
@@ -71,7 +88,7 @@ export class GalleryRuntime {
       return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: this.example === 'chat-messages' ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
     }
     if (path === 'workspaces.get') return { id: RECORD_ID, name: 'Research', status: 'active' };
-    if (path === 'userState.list') return { orchestratorName: 'Ri' };
+    if (path === 'userState.list') return { orchestratorName: 'Ri', defaultHarness:'claude', defaultModel:'example-claude', defaultEffort:'medium' };
     if (path === 'sessions.messagesPost') { this.changed('Example message received'); return { event: event('user', { content: String(body.content ?? '') }) }; }
     if (path === 'integrations.pendingApprovalsGet') return { pending: this.state === 'expired' ? [] : this.events.filter(row => row.source === 'approval_request' && !this.events.some(answer => answer.source === 'approval_response' && (answer.toolInput as { approvalIds?: string[] })?.approvalIds?.includes((row.toolInput as { approvalId: string }).approvalId))).map(row => ({ id: (row.toolInput as { approvalId: string }).approvalId })) };
     if (path === 'integrations.approvePost') {

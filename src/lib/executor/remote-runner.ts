@@ -58,6 +58,7 @@ export function remoteRunnerFor(deviceId: string): ExecutionRunner {
         turnId: req.turnId,
         runId: req.runId,
         attachments: req.files ?? [],
+        coordinationAdmission: req.coordinationAdmission, coordinationDeliveryIds: req.coordinationDeliveryIds, sourceEventId: req.sourceEventId,
       };
       const command = queue(req.chatSessionId, 'send', payload, { actor: req.actor, sourceEventId: req.sourceEventId });
       return { status: 'queued', commandId: command.id };

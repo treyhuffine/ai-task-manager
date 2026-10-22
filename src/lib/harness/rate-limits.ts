@@ -4,7 +4,7 @@
  *
  * Limits belong to the harness account, not to a chat: every Claude Code chat
  * on this home draws from the same windows. So the runner hands every
- * `rate_limits` event from any chat here (`local-runner.ts`), and this keeps
+ * `rate_limits` event through the home's sink (`executor/home-sink.ts`), and this keeps
  * one merged snapshot per harness. Visible pages poll every two minutes
  * while warnings are enabled, and refresh on return. Opening the card also
  * enables reads. Due limits are read outside any chat (`readHarnessRateLimits`,

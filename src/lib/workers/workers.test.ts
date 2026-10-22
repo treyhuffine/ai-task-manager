@@ -10,6 +10,7 @@ import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import type { WorkerTarget } from '@/lib/worker/client';
 import type { WorkerExit, WorkerStatus } from '@/lib/worker/run';
+import { runtimePeerRelease } from '@/lib/releases/runtime-identity';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
@@ -52,6 +53,7 @@ async function call(path: string, init: { method?: string; bearer?: string; body
   const res = await fetch(`${server.url}${path}`, {
     method: init.method ?? (init.body === undefined ? 'GET' : 'POST'),
     headers: {
+      'x-ri-worker-compatibility': Buffer.from(JSON.stringify({ ...runtimePeerRelease(), compatibility: { ...runtimePeerRelease().compatibility, workerProtocols: [Number(init.headers?.['x-ri-worker-protocol'] ?? (init.body as {protocol?:number})?.protocol ?? WORKER_PROTOCOL)] } })).toString('base64url'),
       ...(init.bearer ? { authorization: `Bearer ${init.bearer}` } : {}),
       ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}),
       ...init.headers,
@@ -359,20 +361,11 @@ describe('reading an event stream', () => {
 });
 
 describe('authenticated release compatibility', () => {
-  it('negotiates a legacy protocol-4 worker without granting optional capabilities', async () => {
+  it('requires an older worker to update before it can bypass coordination admission', async () => {
     const target = await enrolledTarget();
-    const controller = new AbortController(); running.push(controller);
-    const stream = await fetch(`${server.url}/api/workers/me/stream`, { signal: controller.signal,
-      headers: { authorization: `Bearer ${target.workerKey}`, 'x-ri-worker-protocol': '4' } });
-    expect(stream.status).toBe(200);
-    const { readEventStream } = await import('@/lib/worker/sse');
-    const reader = readEventStream(stream.body!);
-    const first = await reader.next();
-    const hello = JSON.parse(first.value!.data);
-    expect(hello).toMatchObject({ type: 'hello', protocol: 4, capabilities: ['worker.protocol4'], peer: { release: { source: 'source' } } });
-    const { requestWorker } = await import('@/lib/workers/hub');
-    await expect(requestWorker(laptopDeviceId, 'describe_harnesses', null, 10, 'new-operation.v1')).rejects.toMatchObject({ unsupported: true });
-    controller.abort();
+    const response = await fetch(`${server.url}/api/workers/me/stream`, { headers: { authorization: `Bearer ${target.workerKey}`, 'x-ri-worker-protocol': '4' } });
+    expect(response.status).toBe(426);
+    expect(await response.json()).toMatchObject({ update: 'worker', message: expect.stringContaining('coordination.admission.v1') });
   });
   it('rejects required unsupported behavior before dispatch and reports which side is older', async () => {
     const target = await enrolledTarget();

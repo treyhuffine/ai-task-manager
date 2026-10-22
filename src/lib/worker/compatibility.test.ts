@@ -84,7 +84,7 @@ it('pauses admission without advancing receipts and resumes the queued command o
     return new Response(new ReadableStream({ start(controller) {
       stream = controller;
       init.signal?.addEventListener('abort', () => { try { controller.close(); } catch {} }, { once: true });
-      controller.enqueue(frame('hello', { homeId: 'home', deviceId: 'laptop', protocol: 4, ackedEventSeq: 0 }));
+      controller.enqueue(frame('hello', { homeId: 'home', deviceId: 'laptop', protocol: 4, ackedEventSeq: 0, peer: { release: {version:'test',build:'test',source:'source'}, compatibility: CURRENT_COMPATIBILITY } }));
       if (connections > 1) controller.enqueue(frame('command', { command }));
     } }));
   }));

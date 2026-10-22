@@ -40,11 +40,11 @@ describe('PUT /api/harness/default', () => {
     const response = await PUT(request({ harness: 'claude', model: 'opus', effort: 'xhigh' }));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ harness: 'claude', model: 'opus', variant: null, effort: 'xhigh' });
+    expect(await response.json()).toEqual({ harness: 'claude', model: 'opus', variant: null, effort: 'xhigh', serviceTier: null });
     // Validated against the live catalog with nothing swapped in.
     expect(mocks.resolveHarnessSelection).toHaveBeenCalledWith(
       'claude',
-      { model: 'opus', variant: null, effort: 'xhigh' },
+      { model: 'opus', variant: null, effort: 'xhigh', serviceTier: null },
       { cwd: '/app' },
     );
     expect(mocks.setHomeDefaultSelection).toHaveBeenCalledWith({
@@ -52,6 +52,7 @@ describe('PUT /api/harness/default', () => {
       model: 'opus',
       variant: null,
       effort: 'xhigh',
+      serviceTier: null,
     });
   });
 

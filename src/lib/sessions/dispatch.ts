@@ -19,6 +19,9 @@
  * async orchestration layer that combines DB writes with filesystem ops.
  */
 
+import { ActionError } from '@/lib/orchestrator/types';
+import { agentLaunchPermission, assertAgentLaunchAuthorization } from '@/lib/coordination/permissions';
+import { initializeAgentChildPolicy } from '@/lib/db/queries';
 import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -109,6 +112,8 @@ export interface DispatchExecutionSessionArgs {
   deviceId?: string | null;
   /** Who is starting it, from the caller's credentials, for the command a connected device gets (P2.6). */
   actor?: WorkerCommandActor;
+  /** Server-owned approved delegation, never accepted from an agent launch body. */
+  coordinationDeliveryId?: string;
   /**
    * The task this execution is doing, when launched via "Start with agent".
    * Ownership is recorded and, if the task is Consider/Todo, it is atomically
@@ -211,19 +216,28 @@ export async function dispatchExecutionSession(
 ): Promise<ChatSessionWithExecution> {
   const ws = getWorkspace(args.workspaceId);
   if (!ws) throw new WorkspaceNotFoundForDispatch(args.workspaceId);
+  if (ws.status !== 'active') throw new ActionError('conflict', 'This agent is archived. Restore it before starting a chat.');
 
   // Idempotent retry: a dispatch replayed with the same caller-provided session
   // converges on the existing durable execution instead of creating a second
   // one (or a taskless duplicate).
   if (args.sessionId?.trim()) {
     const existing = getChatSessionWithExecution(args.sessionId.trim());
-    if (existing) return existing;
+    if (existing) {
+      if (existing.workspaceId !== args.workspaceId) throw new ActionError('conflict', 'This launch identity belongs to another agent.');
+      agentLaunchPermission(args.actor, args.permissionMode, existing.harness, existing);
+      assertAgentLaunchAuthorization(args.actor, args);
+      if (args.actor?.source === 'ai' && args.actor.sessionId) initializeAgentChildPolicy(args.actor.sessionId, existing.id);
+      return getChatSessionWithExecution(existing.id)!;
+    }
   }
 
   const userState = getUserState();
   const providerId = args.harness
     ? requireHarnessId(args.harness)
     : userState?.defaultHarness ?? DEFAULT_HARNESS;
+  args = { ...args, permissionMode: agentLaunchPermission(args.actor, args.permissionMode, providerId) };
+  assertAgentLaunchAuthorization(args.actor, args);
   if (args.permissionMode !== undefined) {
     assertSupportedPermissionMode(args.permissionMode, providerId);
     // The actual runner validates live capabilities on the execution device.
@@ -374,6 +388,7 @@ export async function dispatchExecutionSession(
   // execution's worktree/branch/PR state — matters for live mode, where
   // those are populated up front and the client renders the running state
   // immediately instead of waiting for a refetch.
+  if (args.actor?.source === 'ai' && args.actor.sessionId) initializeAgentChildPolicy(args.actor.sessionId, sessionId);
   return getChatSessionWithExecution(sessionId)!;
 }
 

@@ -92,6 +92,7 @@ describe('PUT /api/harness/models/enabled', () => {
       model: 'xai/grok-4.5',
       variant: 'fast',
       effort: null,
+      serviceTier: null,
     });
   });
 

@@ -7,6 +7,6 @@ import { ChatMessageLink } from './chat-message-link';
  * automatic returns. It belongs to the incoming message's header. Messages
  * the user typed have no sender reference.
  */
-export function SenderChip({ senderSessionId, label = 'Message from' }: { senderSessionId: string; label?: string }) {
-  return <ChatMessageLink sessionId={senderSessionId} label={label} direction="incoming" header />;
+export function SenderChip({ senderSessionId, eventId, label = 'Message from' }: { senderSessionId: string; eventId?: string; label?: string }) {
+  return <ChatMessageLink sessionId={senderSessionId} eventId={eventId} label={label} direction="incoming" header />;
 }

@@ -14,6 +14,7 @@ import { beforeEach, afterEach, it, expect } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { startHomeServer, type HomeServer } from '@/test/fixtures/home-server';
 import type { WorkerCommand } from '@/lib/workers/protocol';
+import { runtimePeerRelease } from '@/lib/releases/runtime-identity';
 import { WORKER_PROTOCOL } from '@/lib/workers/protocol';
 
 let home: TestHome;
@@ -71,7 +72,7 @@ function target() {
 async function post(route: string, body: unknown) {
   return fetch(server.url + route, {
     method: 'POST',
-    headers: { authorization: `Bearer ${workerKey}`, 'x-ri-worker-protocol': String(WORKER_PROTOCOL), 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${workerKey}`, 'x-ri-worker-compatibility': Buffer.from(JSON.stringify(runtimePeerRelease())).toString('base64url'), 'x-ri-worker-protocol': String(WORKER_PROTOCOL), 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
 }

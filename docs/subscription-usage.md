@@ -11,6 +11,7 @@ The Codex mark uses the same blue-purple brand color as the model selector in bo
 - `useHarnessRateLimits` reads the cached snapshot every two minutes while the page is visible. It refreshes immediately when the page becomes visible again. Hidden pages do not poll.
 - A stale snapshot requests a sessionless provider read. The server shares in-flight work and enforces a two-minute cooldown per harness across tabs, including failed attempts. A recent chat observation also satisfies that cooldown.
 - `recordRateLimits` publishes `rate_limits_updated` through the existing page stream. The client coalesces a burst into one cache refresh. Usage does not open a separate stream or scan transcripts.
+- The local runner reports account telemetry through its optional sink observer. The Home's sink records and publishes it. Device journals omit that observer, so another device's account limits are not forwarded to this Home and workers do not import its realtime bus.
 - Opening Usage enables reads even when warnings are disabled. Disabling warnings and closing the card stops that client's polling.
 - Reads start no conversation and consume no model prompt. Provider failures retain the last reported values for inspection. Header warnings require an observation less than ten minutes old, checked per allowance rather than per provider.
 - A timer clears a badge when its allowance resets or its observation expires, without waiting for another provider read. Previously confirmed enforcement with a past reset cannot keep a warning visible.

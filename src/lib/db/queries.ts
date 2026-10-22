@@ -9,6 +9,7 @@ import os from 'node:os';
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { assertPersonalCapability, registerHomeKindReader } from '@/lib/home/authority';
 import { getDb, getRawDb, isDatabaseOpen } from '@/lib/db';
+import { agentMessageAdmission, settleCoordinationForDeletedChat } from './coordination-queries';
 import { processState } from '@/lib/process-state';
 import { emailDraftFieldsSchema, emailDraftPatchSchema, parseEmailDraft, EmailDraftError, type EmailDraftFields } from '@/lib/email/validation';
 import type { EmailDraft } from '@/db/types';
@@ -6982,6 +6983,7 @@ export function takeCommandsForStream(deviceId: string, after: number): WorkerCo
           .where(eq(workerCommands.deviceId, deviceId))
           .get()?.max ?? 0) + 1;
       for (const command of queued) {
+        if (command.kind === 'send' && command.actor.source !== 'human' && agentMessageAdmission(command.sourceEventId)?.held) continue;
         tx.update(workerCommands)
           .set({ seq: next++, state: 'sent', sentAt: now, attempts: command.attempts + 1, updatedAt: now })
           .where(eq(workerCommands.id, command.id))
@@ -9728,6 +9730,7 @@ export function deleteChatSessionIfEmpty(id: string): boolean {
     .where(eq(chatEvents.sessionId, id))
     .get();
   if ((row?.n ?? 0) > 0) return false;
+  settleCoordinationForDeletedChat(id);
   return db.delete(chatSessions).where(eq(chatSessions.id, id)).run().changes > 0;
 }
 
@@ -10599,12 +10602,12 @@ function isSubagentLaunchCall(sessionId: string, callId: string): boolean {
  * a no-op due to the unique constraint. Callers that only need the id
  * can read `.id` off the row.
  */
-export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | null {
+export function insertChatEvent(input: CreateChatEventInput, afterTransaction?: ChatEventRecord[]): ChatEventRecord | null {
   // Record both ends together at the shared message boundary. MCP, CLI,
   // delegation and automatic returns all get the same retry-safe receipt.
   const senderSessionId = input.source === 'user' ? input.senderSessionId : null;
   if (senderSessionId && senderSessionId !== input.sessionId) {
-    const broadcasts: ChatEventRecord[] = [];
+    const broadcasts: ChatEventRecord[] = afterTransaction ?? [];
     const row = getDb().transaction(() => {
       const received = insertChatEventRow(input, broadcasts);
       const senderExists = received && getDb().select({ id: chatSessions.id }).from(chatSessions).where(eq(chatSessions.id, senderSessionId)).get();
@@ -10619,10 +10622,10 @@ export function insertChatEvent(input: CreateChatEventInput): ChatEventRecord | 
       }
       return received;
     });
-    for (const event of broadcasts) publishChatEvent(event);
+    if (!afterTransaction) for (const event of broadcasts) publishChatEvent(event);
     return row;
   }
-  return insertChatEventRow(input);
+  return insertChatEventRow(input, afterTransaction);
 }
 
 function insertChatEventRow(input: CreateChatEventInput, broadcasts?: ChatEventRecord[]): ChatEventRecord | null {
@@ -11933,6 +11936,20 @@ export function markRunStarted(id: string, startedAt: string = new Date().toISOS
 /** Why a scheduled fire waits: a move holds its message (P3 re-check). */
 export const HELD_BY_MOVE = 'held_by_move';
 
+/** An unaccepted coordination input keeps its reservation while it waits or retries. */
+export const WAITING_FOR_COORDINATION = 'coordination_wait';
+
+export function markRunWaitingForCoordination(id: string): RunRecord | null {
+  return (
+    getDb()
+      .update(runs)
+      .set({ status: 'queued', statusReason: WAITING_FOR_COORDINATION, startedAt: null })
+      .where(and(eq(runs.id, id), inArray(runs.status, ['queued', 'running'])))
+      .returning()
+      .get() ?? null
+  );
+}
+
 /**
  * A scheduled fire whose message a move holds: back to `queued`, waiting,
  * with nothing started. The move delivers it as this run once it settles
@@ -12043,6 +12060,9 @@ export function markRunCancelled(id: string, reason: string | null = null): RunR
  *
  * A scheduled fire a move holds is kept too: its message is saved with the
  * move, which delivers it as the run once it settles (P3 re-check).
+ * Unaccepted coordination reservations are also durable. Their scheduler
+ * retries the saved input with the same run. Once started, local work is
+ * interrupted on restart rather than replayed.
  */
 export function reapStaleRunningRuns(): number {
   const db = getDb();
@@ -12053,7 +12073,7 @@ export function reapStaleRunningRuns(): number {
     .where(inArray(runs.status, ['queued', 'running']))
     .all();
   const ghosts = active
-    .filter((r) => !(r.status === 'queued' && r.statusReason === HELD_BY_MOVE))
+    .filter((r) => !(r.status === 'queued' && (r.statusReason === HELD_BY_MOVE || r.statusReason === WAITING_FOR_COORDINATION)))
     .filter((r) => !r.chatSessionId || getChatDeviceId(r.chatSessionId) === null || !hasSendForRun(r.id))
     .map((r) => r.id);
   if (ghosts.length === 0) return 0;

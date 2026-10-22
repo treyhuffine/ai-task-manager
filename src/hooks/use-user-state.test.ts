@@ -18,6 +18,7 @@ vi.mock('sonner', () => ({ toast: { error: fixtures.error } }));
 function record(overrides: Partial<UserStateRecord> = {}): UserStateRecord {
   return {
     id: 1,
+    agentCoordinationPolicy: null,
     createdAt: '2026-10-08 12:00:00',
     updatedAt: '2026-10-08 12:00:00',
     name: 'Original name',

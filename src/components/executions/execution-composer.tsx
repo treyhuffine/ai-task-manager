@@ -70,6 +70,7 @@ import { usePrList } from '@/hooks/use-prs';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { DEFAULT_HARNESS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { Tip } from '@/components/ui/tip';
+import { CoordinationControls } from '@/components/chat-ui/coordination/controls';
 import { AppContextStrip } from '@/components/chat-ui/references/app-context-strip';
 import { useConnectedContextGroups } from '@/hooks/use-connected-context';
 
@@ -658,6 +659,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
         {/* No top padding: a band of solid background above the card would
             cut scrolling transcript text off short of the card's edge. */}
         <div className="px-5 pb-3 max-w-3xl mx-auto">
+          <CoordinationControls sessionId={sessionId} />
           <div
             className={cn(
               'rounded-xl border border-border bg-card transition-colors flex flex-col gap-1',
