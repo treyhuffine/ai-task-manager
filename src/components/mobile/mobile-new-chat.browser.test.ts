@@ -1,9 +1,10 @@
 /**
- * The phone's + sheet starts a chat in the actual launcher, which takes touch
- * rules below desktop: Enter adds a line, no keys are hinted at, Start stays
- * above the on-screen keyboard, and Browse closes with Done. Desktop keeps
- * Enter-to-start and its key hints. Real sheet, launcher, picker and editor,
- * with synthetic agents and a recorded start in place of the server.
+ * The phone's + sheet lists its choices in order and starts a chat in the
+ * actual launcher, which takes touch rules below desktop: Enter adds a line,
+ * no keys are hinted at, Start stays above the on-screen keyboard, and Browse
+ * closes with Done. Desktop keeps Enter-to-start and its key hints. Real
+ * sheet, launcher, picker and editor, with synthetic agents and a recorded
+ * start in place of the server.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import type { BrowserContext, Page } from 'playwright-core';
@@ -98,8 +99,12 @@ const bottomOf = async (page: Page, name: RegExp) => { const box = (await page.g
 it('starts a chat from the phone + sheet with touch rules', async () => {
   const { context, page } = await phone();
   try {
+    // Start work first, then make a thing, then set up. Search lives in the top bar.
+    const choices = await page.getByRole('dialog').getByRole('button').evaluateAll((buttons) => buttons.map((b) => (b as HTMLElement).innerText.split('\n')[0].trim()));
+    expect(choices).toEqual(['New chat', 'Quick capture', 'Task', 'Note', 'Area', 'Connect a service', 'New skill', 'Add MCP server']);
+
     await page.getByRole('button', { name: /New chat/ }).tap();
-    await expect.poll(() => page.getByText('Quick Capture').count()).toBe(0);
+    await expect.poll(() => page.getByText('Quick capture').count()).toBe(0);
     await page.getByRole('button', { name: /Pick an agent/ }).waitFor();
     await expect.poll(() => editor(page).evaluate((el) => el.contains(document.activeElement))).toBe(true);
 
@@ -152,7 +157,7 @@ it('keeps Enter-to-start and key hints on desktop', async () => {
   try {
     await page.goto(fixture.url);
     await page.keyboard.press('Escape');
-    await expect.poll(() => page.getByText('Quick Capture').count()).toBe(0);
+    await expect.poll(() => page.getByText('Quick capture').count()).toBe(0);
     await page.evaluate(() => (window as unknown as { openLauncher: (seed: { workspaceId: null }) => void }).openLauncher({ workspaceId: null }));
     await editor(page).waitFor();
     expect(await page.locator('[role=dialog] kbd').count()).toBe(2);

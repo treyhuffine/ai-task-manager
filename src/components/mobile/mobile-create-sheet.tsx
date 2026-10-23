@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from 'react';
-import { Search, CheckSquare, FileText, Layers, MessageSquarePlus, Zap, Plus } from 'lucide-react';
+import { CheckSquare, FileText, Layers, MessageSquarePlus, Plus, Zap } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -15,15 +15,14 @@ import { openSettings } from '@/components/settings/settings-store';
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
 import { PLUGIN_CREATE_ANCHORS } from '@/components/settings/sections/plugins/navigation';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { cn } from '@/lib/utils';
 
-const ACTIONS = [
-  { id: 'task', label: 'Task', icon: CheckSquare, color: 'text-background', bg: 'bg-primary' },
-  { id: 'note', label: 'Note', icon: FileText, color: 'text-background', bg: 'bg-primary' },
-  { id: 'area', label: 'Area', icon: Layers, color: 'text-background', bg: 'bg-primary' },
-  { id: 'search', label: 'Search', icon: Search, color: 'text-blue-600', bg: 'bg-blue-400/20' },
-] as const;
-
+/**
+ * The phone's Create sheet: the desktop CREATE menu at touch size, plus New
+ * chat. One neutral surface for every choice. The filled + that opened it was
+ * the call to action, so nothing in here competes with it, and color stays
+ * free to mean what it means elsewhere (amber needs you, green is working).
+ * Order carries priority instead: start work, capture, make a thing, set up.
+ */
 export function MobileCreateSheet() {
   const { mobileCreateOpen, setMobileCreateOpen, openNote, openTask, setQuickCaptureOpen } = useDashboard();
   const [areaOpen, setAreaOpen] = useState(false);
@@ -31,107 +30,48 @@ export function MobileCreateSheet() {
   const createTask = useCreateTask();
   const newSkill = useStartSkill();
 
-  const handleQuickCapture = useCallback(() => {
-    setMobileCreateOpen(false);
-    setQuickCaptureOpen(true);
-  }, [setMobileCreateOpen, setQuickCaptureOpen]);
+  const close = useCallback(() => setMobileCreateOpen(false), [setMobileCreateOpen]);
 
   // The same launcher as the desktop rail's New chat: no agent picked, the
   // prompt first, then where it runs and on what.
-  const handleNewChat = useCallback(() => {
-    setMobileCreateOpen(false);
-    openLauncher({ workspaceId: null });
-  }, [setMobileCreateOpen]);
-
-  const handleAction = useCallback((id: string) => {
-    setMobileCreateOpen(false);
-
-    if (id === 'search') {
-      document.dispatchEvent(new CustomEvent('open-search'));
-      return;
-    }
-
-    if (id === 'task') {
-      createTask.mutate(
-        { title: ' ', rawInput: ' ' },
-        { onSuccess: (task) => openTask(task.id) }
-      );
-      return;
-    }
-
-    if (id === 'note') {
-      createNote.mutate(
-        { body: ' ' },
-        { onSuccess: (note) => openNote(note.id) }
-      );
-      return;
-    }
-
-    if (id === 'area') {
-      setAreaOpen(true);
-    }
-  }, [setMobileCreateOpen, createTask, createNote, openTask, openNote]);
+  const newChat = () => { close(); openLauncher({ workspaceId: null }); };
+  const quickCapture = () => { close(); setQuickCaptureOpen(true); };
+  const newTask = () => {
+    close();
+    createTask.mutate({ title: ' ', rawInput: ' ' }, { onSuccess: (task) => openTask(task.id) });
+  };
+  const newNote = () => {
+    close();
+    createNote.mutate({ body: ' ' }, { onSuccess: (note) => openNote(note.id) });
+  };
+  const newArea = () => { close(); setAreaOpen(true); };
 
   return (
     <>
       <Sheet open={mobileCreateOpen} onOpenChange={setMobileCreateOpen}>
-        <SheetContent side="bottom" showCloseButton={false} className="rounded-t-2xl px-6 pb-8 pt-4">
-          <SheetTitle className="sr-only">Quick Actions</SheetTitle>
+        <SheetContent side="bottom" showCloseButton={false} className="gap-0 rounded-t-2xl px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3">
+          <SheetTitle className="sr-only">Create</SheetTitle>
+          <div className="mx-auto mb-3 h-1 w-8 rounded-full bg-muted-foreground/30" />
 
-          {/* Drag handle */}
-          <div className="w-8 h-1 rounded-full bg-muted-foreground/30 mx-auto mb-5" />
-
-          {/* The two ways to start something: hand work to an agent, or
-              get a thought down to sort later. */}
-          <div className="mb-4 grid grid-cols-2 gap-3">
-            <HeroAction
-              onClick={handleNewChat}
-              icon={MessageSquarePlus}
-              label="New chat"
-              hint="Put an agent to work"
-              className="bg-primary text-primary-foreground shadow-primary/25"
-            />
-            <HeroAction
-              onClick={handleQuickCapture}
-              icon={Zap}
-              label="Quick Capture"
-              hint="Type or speak, triage later"
-              className="bg-amber-500 text-white shadow-amber-500/25 [&_svg]:fill-white"
-            />
+          <div className="grid gap-1">
+            <VerbRow icon={MessageSquarePlus} label="New chat" hint="Put an agent to work" onClick={newChat} />
+            <VerbRow icon={Zap} label="Quick capture" hint="Type or speak. Sort later" onClick={quickCapture} />
           </div>
 
-          <div className="grid grid-cols-4 gap-3">
-            {ACTIONS.map((action) => (
-              <button
-                key={action.id}
-                onClick={() => handleAction(action.id)}
-                className="flex flex-col items-center gap-2 py-1 rounded-xl hover:bg-muted/50 active:scale-95 transition-all"
-              >
-                <div className={cn(
-                  'w-full rounded-xl flex items-center justify-center aspect-square',
-                  action.bg
-                )}>
-                  <action.icon size={22} className={action.color} />
-                </div>
-                <span className="text-[10px] font-medium text-muted-foreground">
-                  {action.label}
-                </span>
-              </button>
-            ))}
+          <div className="my-3 h-px bg-border" />
+
+          <div className="grid grid-cols-3 gap-2">
+            <ThingTile icon={CheckSquare} label="Task" onClick={newTask} />
+            <ThingTile icon={FileText} label="Note" onClick={newNote} />
+            <ThingTile icon={Layers} label="Area" onClick={newArea} />
           </div>
-          <div className="mt-4 grid gap-1 border-t border-border pt-2">
-            <button type="button" onClick={() => { setMobileCreateOpen(false); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.connectService }); }}
-              className="flex items-center gap-3 rounded-lg px-2 py-3 text-left text-xs hover:bg-accent">
-              <Plus size={17} className="shrink-0 text-muted-foreground" /> Connect a service
-            </button>
-            <button type="button" disabled={newSkill.isPending} onClick={() => { setMobileCreateOpen(false); newSkill.start(); }}
-              className="flex items-center gap-3 rounded-lg px-2 py-3 text-left text-xs hover:bg-accent disabled:opacity-50">
-              <Plus size={17} className="shrink-0 text-muted-foreground" /> New skill
-            </button>
-            <button type="button" onClick={() => { setMobileCreateOpen(false); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.mcpServer }); }}
-              className="flex items-center gap-3 rounded-lg px-2 py-3 text-left text-xs hover:bg-accent">
-              <Plus size={17} className="shrink-0 text-muted-foreground" /> Add MCP server
-            </button>
+
+          <div className="my-3 h-px bg-border" />
+
+          <div className="grid">
+            <SetupRow label="Connect a service" onClick={() => { close(); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.connectService }); }} />
+            <SetupRow label="New skill" disabled={newSkill.isPending} onClick={() => { close(); newSkill.start(); }} />
+            <SetupRow label="Add MCP server" onClick={() => { close(); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.mcpServer }); }} />
           </div>
         </SheetContent>
       </Sheet>
@@ -141,26 +81,33 @@ export function MobileCreateSheet() {
   );
 }
 
-function HeroAction({ onClick, icon: Icon, label, hint, className }: {
-  onClick: () => void;
-  icon: typeof Zap;
-  label: string;
-  hint: string;
-  className: string;
-}) {
+function VerbRow({ icon: Icon, label, hint, onClick }: { icon: typeof Zap; label: string; hint: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn('flex flex-col items-start gap-2.5 rounded-xl p-3.5 text-left shadow-lg transition-all active:scale-[0.98] active:shadow-md', className)}
-    >
-      <span className="flex size-10 items-center justify-center rounded-xl bg-white/20">
-        <Icon size={20} />
+    <button type="button" onClick={onClick} className="flex items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors active:bg-accent">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
+        <Icon size={19} />
       </span>
-      <span>
-        <span className="block text-sm font-semibold">{label}</span>
-        <span className="block text-[11px] opacity-80">{hint}</span>
+      <span className="min-w-0">
+        <span className="block text-[15px] font-medium text-foreground">{label}</span>
+        <span className="block text-xs text-muted-foreground">{hint}</span>
       </span>
+    </button>
+  );
+}
+
+function ThingTile({ icon: Icon, label, onClick }: { icon: typeof Zap; label: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="flex flex-col items-center gap-1.5 rounded-xl border border-border py-3.5 transition-colors active:bg-accent">
+      <Icon size={20} className="text-foreground" />
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+    </button>
+  );
+}
+
+function SetupRow({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} className="flex items-center gap-3 rounded-lg px-2 py-3 text-left text-sm text-foreground/90 transition-colors active:bg-accent disabled:opacity-50">
+      <Plus size={17} className="shrink-0 text-muted-foreground" /> {label}
     </button>
   );
 }
