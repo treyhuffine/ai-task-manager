@@ -1,8 +1,9 @@
 'use client'
+import { EntityDetailHeader, EntityActionsMenu } from '@/components/entities/entity-detail-header';
 
-import { useEffect, useCallback, useRef, useState } from 'react'
-import { Dialog } from 'radix-ui'
-import { ChevronLeft, X, Trash2, MoreHorizontal, ExternalLink, Archive, Pencil, Maximize2 } from 'lucide-react'
+import { useEffect, useCallback, useRef, useState, useMemo } from 'react'
+import { EntitySheet } from '@/components/entities/entity-sheet'
+import { ChevronLeft, X, ExternalLink, Pencil, Maximize2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { NoteEditor } from '@/components/editor/rich-editor'
 import { LinkedReferences } from '@/components/shared/linked-references'
@@ -12,26 +13,18 @@ import { AreaSelect } from '@/components/shared/area-select'
 import { NoteKindHeading, NoteKindMenuItem } from '@/components/notes/note-kind'
 import { SharedNoteBody } from '@/components/spaces/shared-note-body'
 import { removeFromMyNotes } from '@/components/spaces/my-work'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat'
 import { useDragResize } from '@/hooks/use-drag-resize'
 import { ReferencingSessionsButton } from '@/components/shared/referencing-sessions-button'
 import { EntityHistoryButton } from '@/components/chat-ui/edits/entity-history-button'
 import { EntityChangeBanner } from '@/components/chat-ui/edits/entity-change-banner'
 import { EntityViewToggle } from '@/components/entities/entity-view-toggle'
-import { ENTITY_HEADER } from '@/components/entities/entity-header'
 import { EntityAgentView } from '@/components/entities/entity-agent-view'
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode'
 import { cn } from '@/lib/utils'
 import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 import type { Attachment } from '@/db/types'
-import { useEnterTransition } from '@/hooks/use-enter-transition'
 import { countWords } from '@/lib/notes/word-count'
 
 const DEFAULT_WIDTH = 1200
@@ -76,18 +69,6 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
     defaultSize: DEFAULT_WIDTH,
     storageKey: 'ri.note-slideout.width',
   })
-  // Slides in two frames after opening (see the hook).
-  const isVisible = useEnterTransition(isOpen)
-  const [wordCount, setWordCount] = useState(0)
-  const [charCount, setCharCount] = useState(0)
-  // Counts start from the note as it loads, then follow typing. Set while
-  // rendering when another note arrives, so the footer never shows the last one's.
-  const [countedNoteId, setCountedNoteId] = useState<string | null>(null)
-  if (note && note.id !== countedNoteId) {
-    setCountedNoteId(note.id)
-    setWordCount(countWords(note.body))
-    setCharCount(note.body.length)
-  }
   const containerRef = useRef<HTMLDivElement>(null)
   // Tracks attachments uploaded during this editing session so we can include
   // their metadata in save payloads. The server's derive step intersects these
@@ -113,10 +94,6 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   const handleBodyChange = useCallback(
     (body: string) => {
       if (!noteId) return
-      // Update word/char counts from the body text
-      setWordCount(countWords(body))
-      setCharCount(body.length)
-
       const attachments = pendingAttachmentsRef.current
       autosave({
         body,
@@ -125,6 +102,11 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
     },
     [noteId, autosave]
   )
+
+  const { wordCount, charCount } = useMemo(() => {
+    const body = note?.body ?? ''
+    return { wordCount: countWords(body), charCount: body.length }
+  }, [note?.body])
 
   const handleFoldedHeadingsChange = useCallback(
     (folded: string[]) => {
@@ -171,33 +153,8 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
   // Cleanup save timers
 
   return (
-    <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onCloseAll() }}>
-      <Dialog.Portal>
-        {/* Overlay — clicking closes everything */}
-        <Dialog.Overlay
-          className={cn(
-            'fixed inset-0 z-40 bg-black/30 transition-opacity duration-150',
-            isVisible ? 'opacity-100' : 'opacity-0'
-          )}
-        />
+    <EntitySheet open={isOpen} label="Note" width={width} contentRef={containerRef} resizing={isResizing} onClose={onClose} onCloseAll={onCloseAll} showCloseButton={false} onOpenAutoFocus={(event) => event.preventDefault()}>
 
-        {/* Slideout panel */}
-        <Dialog.Content
-          ref={containerRef}
-          className={cn(
-            'fixed top-0 right-0 bottom-0 z-50 flex transition-transform duration-150 ease-out outline-none',
-            isVisible ? 'translate-x-0' : 'translate-x-full'
-          )}
-          style={{ width: `min(${width}px, 100vw)` }}
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          onInteractOutside={(e) => { if (isResizing) e.preventDefault() }}
-          onEscapeKeyDown={(e) => {
-            e.preventDefault()
-            if (e.shiftKey) onCloseAll()
-            else onClose()
-          }}
-        >
-          <Dialog.Title className="sr-only">Note</Dialog.Title>
         {/* Resize handle — desktop only */}
         <div
           className={cn(
@@ -214,7 +171,7 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
         {/* Panel content */}
         <div className="flex-1 flex flex-col bg-background border-l border-border overflow-hidden">
           {/* Header */}
-          <div className={cn('flex items-center justify-between gap-2 px-4 h-11 flex-shrink-0', ENTITY_HEADER)}>
+          <EntityDetailHeader>
             <div className="flex items-center gap-1.5 group/nav">
               <button
                 onClick={onClose}
@@ -260,52 +217,13 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
                 <Maximize2 size={14} />
               </a>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                    <MoreHorizontal size={16} />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  {note?.url && (
-                    <>
-                      <DropdownMenuItem asChild className="text-xs">
-                        <a href={note.url} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink size={12} className="mr-2" /> Open link
-                        </a>
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
-                  {shared ? (
-                    note?.sourceTeamId && note.sourceNoteId && (
-                      <DropdownMenuItem
-                        onClick={() => void removeFromMyNotes(note.sourceTeamId!, note.sourceNoteId!).then(onClose)}
-                        className="text-xs"
-                      >
-                        <X size={12} className="mr-2" /> Remove from my notes
-                      </DropdownMenuItem>
-                    )
-                  ) : (
-                    <>
-                      {note && (
-                        <>
-                          <NoteKindMenuItem kind={note.kind} onChange={(kind) => updateNote.mutate({ id: note.id, kind })} />
-                          <DropdownMenuSeparator />
-                        </>
-                      )}
-                      <DropdownMenuItem onClick={handleArchive} className="text-xs">
-                        <Archive size={12} className="mr-2" /> Archive
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
-                        <Trash2 size={12} className="mr-2" /> Delete
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <EntityActionsMenu onArchive={shared ? undefined : handleArchive} onDelete={shared ? undefined : handleDelete}>
+                  {note?.url && <DropdownMenuItem asChild><a href={note.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={12} /> Open link</a></DropdownMenuItem>}
+                  {shared && note?.sourceTeamId && note.sourceNoteId && <DropdownMenuItem onSelect={() => void removeFromMyNotes(note.sourceTeamId!, note.sourceNoteId!).then(onClose)}><X size={12} /> Remove from my notes</DropdownMenuItem>}
+                  {!shared && note && <NoteKindMenuItem kind={note.kind} onChange={kind => updateNote.mutate({ id: note.id, kind })} />}
+                </EntityActionsMenu>
             </div>
-          </div>
+          </EntityDetailHeader>
 
           {/* Editor area + Chat */}
           {view === 'agent' && note ? (
@@ -388,8 +306,6 @@ export function NoteSlideout({ noteId, onClose, onCloseAll, hasHistory }: NoteSl
           </div>
           )}
         </div>
-      </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    </EntitySheet>
   )
 }

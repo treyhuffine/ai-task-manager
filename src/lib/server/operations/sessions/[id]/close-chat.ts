@@ -1,6 +1,10 @@
-import { archiveChatSession, getChatSessionWithExecution, listChatSessions } from '@/lib/db/queries';
+import { closeExecutionChat } from '@/lib/sessions/close-chat';
+
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+
 
 /**
  * Close (archive) ONE chat of an execution — the X on the chat tab strip.
@@ -22,46 +26,16 @@ import { z as rpcZ } from 'zod/v4';
  * history dropdown. Navigating back to it reactivates it (the view's
  * auto-resume + `continueExecutionSession`'s sibling-resume path).
  */
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: OperationContext) {
-  const { id } = rpcInput.params;
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
-    const current = getChatSessionWithExecution(id);
-    if (!current) return reply({ error: 'Session not found' }, { status: 404 });
-    if (!current.executionId) {
-      return reply({ error: 'Not an execution chat' }, { status: 400 });
-    }
-    if (current.status === 'archived') return reply({ ok: true });
-
-    const siblings = listChatSessions({ executionId: current.executionId });
-    const openOthers = siblings.filter((s) => s.id !== id && s.status === 'active');
-    if (openOthers.length === 0) {
-      return reply(
-        { error: 'last_chat', message: 'This is the only open chat. Archive the execution instead.' },
-        { status: 409 },
-      );
-    }
-
-    // Archive the row FIRST (fast, and the source of truth the tab strip
-    // refetches), then tear down the harness process in the background.
-    // Awaiting `close()` here would block the response for seconds while
-    // the subprocess winds down, so the tab would sit there looking dead
-    // after the click — the archive is what matters for correctness, and a
-    // stray late event into an already-archived chat is harmless (the
-    // transcript is preserved; reopening resumes).
-    // A message still waiting for a device goes with it, rather than running
-    // later in a chat that's closed.
-    const { withdrawChatQueue } = await import('@/lib/workers/undelivered');
-    withdrawChatQueue(id, 'This chat was closed before it was delivered.');
-    archiveChatSession(id);
-    const { close } = await import('@/lib/executor/adapter');
-    void close(id).catch(() => { });
-    const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
-    void deriveRetrospectiveLabel(id);
-
-    return reply({ ok: true });
-  } catch (err) {
-    console.error('[POST /api/sessions/:id/close-chat]', err);
-    return reply({ error: String(err) }, { status: 500 });
+    const { id } = rpcInput.params;
+    sessionAuthority(getRequestKey(request.headers), id, 'archive');
+    const outcome = await closeExecutionChat(id);
+    return 'error' in outcome ? reply({ error: outcome.error, message: outcome.message }, { status: outcome.status }) : reply(outcome);
+  } catch (error) {
+    const denied = executionOperationFailure(error);
+    if (denied) return denied;
+    throw error;
   }
 }
 

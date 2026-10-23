@@ -1,10 +1,10 @@
+import { trpc } from '@/lib/trpc/client';
 import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { referenceFoldersApi } from '@/lib/api/reference-folders';
+
 import type { FileMentionItem } from '@/components/chat/editor/mention-menu/types';
 import type { CreateReferenceFolderInput, UpdateReferenceFolderInput } from '@/db/types';
-
-const REFERENCE_FOLDERS_KEY = ['reference-folders'] as const;
 
 /**
  * Reference folders visible from a workspace (its own plus every global one).
@@ -16,7 +16,8 @@ const REFERENCE_FOLDERS_KEY = ['reference-folders'] as const;
  */
 export function useReferenceFolders(workspaceId: string | null) {
   return useQuery({
-    queryKey: [...REFERENCE_FOLDERS_KEY, workspaceId],
+    enabled: true,
+    queryKey: trpc.referenceFolders.list.queryKey({ query: workspaceId ? { workspaceId } : undefined }),
     queryFn: () => referenceFoldersApi.list(workspaceId),
     staleTime: 10_000,
   });
@@ -28,9 +29,16 @@ export function useReferenceFolders(workspaceId: string | null) {
  * stays out of the picker for a minute.
  */
 export function invalidateReferencePickers(qc: QueryClient) {
-  return qc.invalidateQueries({
-    predicate: (q) => q.queryKey[0] === 'sessions' && q.queryKey[2] === 'reference-folders',
-  });
+  return qc.invalidateQueries({ queryKey: trpc.sessions.referenceFoldersGet.pathKey() });
+}
+
+/** A linked-folder change affects catalogs, incoming links and chat pickers. */
+export function invalidateReferenceCatalogs(qc: QueryClient) {
+  return Promise.all([
+    qc.invalidateQueries(trpc.referenceFolders.pathFilter()),
+    qc.invalidateQueries(trpc.workspaces.referencedByGet.pathFilter()),
+    invalidateReferencePickers(qc),
+  ]);
 }
 
 /**
@@ -45,8 +53,7 @@ function useInvalidateReferenceFolders() {
     void qc.invalidateQueries({
       predicate: (q) => q.queryKey[0] === 'workspaces' && (q.queryKey[2] === 'folders' || q.queryKey[2] === 'run-on'),
     });
-    void invalidateReferencePickers(qc);
-    return qc.invalidateQueries({ queryKey: REFERENCE_FOLDERS_KEY });
+    return invalidateReferenceCatalogs(qc);
   };
 }
 
@@ -81,7 +88,7 @@ export function useArchiveReferenceFolder() {
  */
 export function useReferencedBy(workspaceId: string | null) {
   return useQuery({
-    queryKey: [...REFERENCE_FOLDERS_KEY, 'referenced-by', workspaceId],
+    queryKey: trpc.workspaces.referencedByGet.queryKey({ params: { id: workspaceId! } }),
     queryFn: () => referenceFoldersApi.referencedBy(workspaceId!),
     enabled: !!workspaceId,
     staleTime: 30_000,
@@ -95,7 +102,7 @@ export function useReferencedBy(workspaceId: string | null) {
  */
 export function useSessionReferenceFolders(sessionId: string | null) {
   return useQuery({
-    queryKey: ['sessions', sessionId, 'reference-folders'],
+    queryKey: trpc.sessions.referenceFoldersGet.queryKey({ params: { id: sessionId! } }),
     queryFn: () => referenceFoldersApi.forSession(sessionId!),
     enabled: !!sessionId,
     staleTime: 60_000,
@@ -116,7 +123,7 @@ export function useLoadReferenceTree() {
   return useCallback(
     async (referenceId: string): Promise<FileMentionItem[]> => {
       const res = await qc.fetchQuery({
-        queryKey: [...REFERENCE_FOLDERS_KEY, referenceId, 'tree'],
+        queryKey: trpc.referenceFolders.treeGet.queryKey({ params: { id: referenceId } }),
         queryFn: () => referenceFoldersApi.tree(referenceId),
         // A reference folder is somebody else's checkout that could be
         // rebuilt under us, but re-listing on every drill-down would be

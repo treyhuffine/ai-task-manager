@@ -28,6 +28,7 @@ function placeFor(base: string): (() => TerminalPlace) | null {
   const [, kind, ownerId] = match;
   return () => (kind === 'sessions' ? sessionTerminalPlace(ownerId!) : agentTerminalPlace(ownerId!));
 }
+export function terminalPlaceForBase(base: string) { return placeFor(base)?.() ?? null; }
 
 const DEFAULT_RETRY_MS = 2_000;
 

@@ -1,4 +1,7 @@
-import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { submitActionMessage, replayActionMessage } from '@/lib/sessions/action-message';
+import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
 import { executionDiff, executionFolder } from '@/lib/executor/owner-files';
 import { buildCommitPrompt } from '@/lib/executor/prompts/commit';
@@ -14,9 +17,14 @@ import { z as rpcZ } from 'zod/v4';
  * `andPush`) via its Bash tool. Mirrors the `/pr` route's pattern —
  * intelligence belongs in the agent, the route just stages the prompt.
  */
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const { requestId, ...actionInput } = rpcInput.body;
+    const intent = { action: 'commit', input: actionInput };
+    const replay = replayActionMessage(request.headers, id, requestId, intent);
+    if (replay) return reply({ ok: true, ...replay });
+    sessionAuthority(getRequestKey(request.headers), id, 'send');
     const body: { andPush?: boolean } = rpcInput.body;
     const andPush = body.andPush ?? false;
 
@@ -56,22 +64,12 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
       andPush,
     });
 
-    const event = insertChatEvent({
-      sessionId: id,
-      role: 'user',
-      source: 'user',
-      content: prompt,
-      createdAt: new Date().toISOString(),
-    });
+    const receipt = await submitActionMessage(request.headers, id, prompt, requestId, intent);
 
-    // Tied to its event: it reaches the harness once wherever the execution
-    // runs, and a move in progress holds it (P4.5).
-    executor.dispatch(id, prompt, { sourceEventId: event?.id ?? null }).catch((err) => {
-      console.error(`[POST /api/sessions/:id/commit] dispatch failed for ${id}:`, err);
-    });
-
-    return reply({ ok: true });
+    return reply({ ok: true, ...receipt });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/commit]', err);
     const name = err instanceof Error ? err.name : 'Error';
     const message = err instanceof Error ? err.message : String(err);
@@ -79,4 +77,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "andPush": rpcZ.boolean().optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "requestId": rpcZ.string().uuid().optional(), "andPush": rpcZ.boolean().optional() }).strict().default({}) }).strict();

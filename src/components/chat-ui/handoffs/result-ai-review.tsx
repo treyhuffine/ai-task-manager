@@ -1,5 +1,6 @@
 'use client';
 
+import { HomeLink } from '@/components/home/home-link';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Loader2, MessageSquare, Square } from 'lucide-react';
@@ -47,7 +48,7 @@ export function ResultAiReview({ review, result, hasSuccessor, canFeedback, onFe
           <div className="mt-3 space-y-3">
             <ResultBody result={review.report} />
             <ResultArtifacts result={review.report} />
-            <a href={`/results/${review.report.id}`} className="text-primary hover:underline">Open saved AI report</a>
+            <HomeLink href={`/results/${review.report.id}`} className="text-primary hover:underline">Open saved AI report</HomeLink>
           </div>
         </details>
       )}
@@ -87,7 +88,7 @@ function ReviewDetails({ review: snapshot }: { review: AiReviewDetail }) {
         <dt>Observed reviewer</dt><dd className="break-words">{review.provenance.observedHarness ?? 'Unknown'} · {review.provenance.observedModel ?? 'Unknown'} · effort {review.provenance.observedEffort ?? 'Unknown'}</dd>
         <dt>Method</dt><dd>{review.provenance.method.replaceAll('_', ' ')}</dd>
         <dt>Independence</dt><dd>{review.provenance.independence === 'observed' ? 'Observed by Ri' : review.provenance.independence === 'reported' ? 'Reported by the agent' : 'Unknown'}</dd>
-        <dt>Target</dt><dd><a href={`/results/${review.resultId}`} className="text-primary hover:underline">Exact saved handoff</a></dd>
+        <dt>Target</dt><dd><HomeLink href={`/results/${review.resultId}`} className="text-primary hover:underline">Exact saved handoff</HomeLink></dd>
         <dt>Requested capture</dt><dd>{scope.requested.capturedAt}</dd>
         <dt>Requested revision</dt><dd className="break-all">{scope.requested.codeRevision?.commitSha ?? 'Unknown'}{scope.requested.codeRevision ? ` (${scope.requested.codeRevision.workingTreeState})` : ''}</dd>
         <dt>Comparison base</dt><dd className="break-all">{scope.observed?.baseSha ?? scope.requested.baseSha ?? 'Unknown'}</dd>

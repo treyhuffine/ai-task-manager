@@ -1,7 +1,8 @@
 import type { ProviderId } from '@/lib/harness/options';
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
+
 
 /**
  * Shared "is this agent provider connected?" detection — the same
@@ -63,7 +64,7 @@ function deriveConnection(r: HarnessAuthApiResponse | undefined): HarnessConnect
   };
 }
 
-const KEY = (harness: ProviderId) => ['agent-connection', harness] as const;
+const KEY = (harness: ProviderId) => trpc.harness.authGet.queryKey({ body: { harness } });
 
 export function useHarnessConnection(harness: ProviderId, enabled = true) {
   const query = useQuery({

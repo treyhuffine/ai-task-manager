@@ -1,3 +1,4 @@
+import { trpc } from '@/lib/trpc/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -52,7 +53,8 @@ beforeEach(async () => {
   client.setQueryData<Array<Record<string, unknown>>>(LIST_KEY, [{ id: 'test-task', status: 'todo' }]);
   client.setQueryData(['tasks', 'unrelated-legacy-key'], { old: true });
   client.setQueryData(['sessions', 'rail'], { sessions: [] });
-  client.setQueryData(['executions', 'list'], []);
+  client.setQueryData(trpc.executions.tasksGet.queryKey({ params: { id: 'work' } }), []);
+  client.setQueryData<unknown>(trpc.executions.reviewContextGet.queryKey({ params: { id: 'work' } }) as readonly unknown[], {});
   client.setQueryData(['results', 'test-result'], { id: 'test-result' });
   root = createRoot(document.createElement('div'));
   await act(async () => root!.render(createElement(QueryClientProvider, { client }, createElement(Harness))));
@@ -84,7 +86,8 @@ describe('saved handoff acceptance through the typed task cache', () => {
     expect(client.getQueryState(LIST_KEY)?.isInvalidated).toBe(true);
     expect(client.getQueryState(['tasks', 'unrelated-legacy-key'])?.isInvalidated).toBe(false);
     expect(client.getQueryState(['sessions', 'rail'])?.isInvalidated).toBe(true);
-    expect(client.getQueryState(['executions', 'list'])?.isInvalidated).toBe(true);
+    expect(client.getQueryState(trpc.executions.tasksGet.queryKey({ params: { id: 'work' } }))?.isInvalidated).toBe(true);
+    expect(client.getQueryState(trpc.executions.reviewContextGet.queryKey({ params: { id: 'work' } }))?.isInvalidated).toBe(true);
     expect(client.getQueryState(['results', 'test-result'])?.isInvalidated).toBe(true);
     expect(fixtures.getTask).toHaveBeenCalledOnce();
     expect(client.isFetching({ queryKey: TASK_KEY })).toBe(1);

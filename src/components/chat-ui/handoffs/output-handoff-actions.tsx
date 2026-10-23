@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { HomeLink as Link } from '@/components/home/home-link';
 import { useQuery } from '@tanstack/react-query';
 import { FileCheck2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';

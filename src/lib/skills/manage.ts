@@ -15,7 +15,7 @@ import { AppError, LIMITS, relativePathSchema, type AppContract } from '@ri/app-
 import { packagePath } from '@ri/app-kit/build';
 import { checkSkill } from './format';
 import { archiveChatSession, listSkillChats, renameSkillChats, skillHasChatHistory } from '@/lib/db/queries';
-import { nameProblem, parseSkillFile, suggestSkillName, type SkillFields, type SkillProblem } from './format';
+import { nameProblem, parseSkillFile, renderSkillFile, suggestSkillName, type SkillFields, type SkillProblem } from './format';
 import {
   SkillError,
   archiveFolder,
@@ -29,29 +29,18 @@ import {
   type SkillFileEntry,
   type SupportingFileWrite,
 } from './library';
-import {
-  DRAFT,
-  canWriteGlobal,
-  findSkill,
-  isInstalled,
-  linkMirror,
-  listAllSkills,
-  listProjects,
-  listSkillsAt,
-  nameTakenAt,
-  newSkillDir,
-  parseSkillRef,
-  projectFor,
-  projectPaths,
-  requireLocatedSkill,
-  sameLocation,
-  skillRef,
-  unlinkMirror,
-  type LocatedSkill,
-  type ProjectInfo,
-  type SkillLocation,
-} from './locations';
+import { DRAFT, canWriteGlobal, findSkill, isInstalled, linkMirror, listAllSkills, listProjects, listSkillsAt, nameTakenAt, newSkillDir, parseSkillRef, projectFor, projectPaths, requireLocatedSkill, sameLocation, skillRef, unlinkMirror, type LocatedSkill, type ProjectInfo, type SkillLocation } from './locations';
 import { commitSkillPaths, currentBranch, isGitRepo, uncommittedSkillNames, type SkillCommit } from './git';
+import { homeSkillLibraryOnly } from './home-policy';
+import { listTeamChats } from '@/lib/db/queries';
+
+async function sharedLibraryChanged(changed: boolean) {
+  if (changed && homeSkillLibraryOnly()) {
+    const control = await sessionControl();
+    await Promise.all(listTeamChats().map(chat => control.recycleWhenIdle(chat.id)));
+  }
+}
+
 
 /**
  * The live-session side effects a skill change has: restarting a skill's
@@ -256,8 +245,13 @@ export async function newSkill(input: NewSkillInput): Promise<SkillView> {
   const name = input.name?.trim() || suggestSkillName(input.intent ?? '', taken);
   if (nameTakenAt(location, name)) throw new SkillError('conflict', `A skill named ${name} is already there.`);
   const dir = newSkillDir(location, name);
+  if (isInstalled(location)) {
+    const error = checkSkill(parseSkillFile(renderSkillFile(null, { name, description: input.description ?? '', body: input.body ?? '' })), name).find(problem => problem.level === 'error');
+    if (error) throw new SkillError('invalid', `Write a draft and fix this before installing ${name}. ${error.message}`);
+  }
   createSkillAt(dir, { description: input.description, body: input.body });
   linkMirror(location, dir);
+  await sharedLibraryChanged(location.kind === 'ri');
   return viewOf(requireLocatedSkill(skillRef(location, name)));
 }
 
@@ -303,11 +297,14 @@ export async function saveSkill(ref: string, input: SaveSkillInput): Promise<Sav
   if (input.description !== undefined) fields.description = input.description;
   if (input.body !== undefined) fields.body = input.body;
   const hasFields = fields.description !== undefined || fields.body !== undefined;
+  let changed = false;
   writeSkillAt(skill.dir, {
+    onChange: () => { changed = true; },
     ...(input.content !== undefined ? { content: input.content } : hasFields ? { fields } : {}),
     files: input.files,
     baseHash: input.baseHash ?? null,
   });
+  await sharedLibraryChanged(changed && skill.location.kind === 'ri');
 
   if (target === null) return { skill: await viewOf(skill), renamedFrom: null };
   const renamed = await renameSkill(ref, target);
@@ -332,6 +329,7 @@ export async function renameSkill(ref: string, newName: string): Promise<SkillVi
   const moved = moveSkillFolder(skill.dir, path.join(path.dirname(skill.dir), newName));
   linkMirror(skill.location, moved.dir);
   const toRef = skillRef(skill.location, newName);
+  await sharedLibraryChanged(skill.location.kind === 'ri');
   await followChats(skill.ref, toRef);
   return viewOf(requireLocatedSkill(toRef));
 }
@@ -366,6 +364,7 @@ export async function moveSkill(ref: string, to: SkillLocation, opts: { copy?: b
   }
   linkMirror(to, dir);
   const toRef = skillRef(to, skill.name);
+  await sharedLibraryChanged(to.kind === 'ri' || (!opts.copy && skill.location.kind === 'ri'));
   if (!opts.copy) await followChats(skill.ref, toRef);
   return viewOf(requireLocatedSkill(toRef));
 }
@@ -380,6 +379,7 @@ export async function archiveSkill(ref: string): Promise<{ archivedTo: string }>
   unlinkMirror(skill.location, skill.dir);
   const label = skill.location.kind === 'project' ? `project-${skill.name}` : `${skill.location.kind}-${skill.name}`;
   const archivedTo = archiveFolder(skill.dir, 'skills', label);
+  await sharedLibraryChanged(skill.location.kind === 'ri');
   const control = await sessionControl();
   for (const chat of listSkillChats(skill.ref)) {
     await control.close(chat.id).catch(() => {});

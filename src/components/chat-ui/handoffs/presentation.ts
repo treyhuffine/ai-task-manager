@@ -34,10 +34,10 @@ export function resultReviewLabel(review: WorkResultAiReviewRecord, result: Work
   return 'AI review recorded';
 }
 
-export function dispositionLabel(review: WorkResultDecisionRecord): string {
+export function dispositionLabel(review: WorkResultDecisionRecord, author?: string): string {
   const action = review.disposition === 'accepted' ? 'Accepted' : review.disposition === 'changes_requested' ? 'Changes requested' : 'Dismissed';
   const actor = review.actorSource === 'human' ? (review.actorUserId === 'local' ? 'you' : review.actorUserId) : review.actorSource === 'ai' ? 'agent' : 'system';
-  return `${action} by ${actor}`;
+  return `${action} by ${author ?? actor}`;
 }
 
 export function reviewReportExcerpt(body: string): string {

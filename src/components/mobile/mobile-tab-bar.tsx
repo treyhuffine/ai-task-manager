@@ -61,69 +61,16 @@ export function MobileTabBar() {
   const badgeCount =
     badgeKind === 'pending' ? pendingCount + resultPending : badgeKind === 'working' ? workingCount + resultWorking : reviewCount + resultFailed;
 
-  return (
-    <nav className="flex-shrink-0 border-t border-border bg-background flex items-end justify-around px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] select-none">
-      {TABS.map((tab) => {
-        const isCreate = tab.id === 'create';
-        const isActive = !isCreate && mobileTab === tab.id;
+  return <HomePhoneBar tabs={TABS.map(tab => ({ ...tab, active: tab.id === mobileTab,
+    onClick: () => { if (tab.id === 'create') setMobileCreateOpen(true); else { setMobileTab(tab.id); if (tab.id === 'agents') setActiveView(HOME_VIEW); } },
+    ...(tab.id === 'agents' && badgeKind ? { badge: { count: badgeCount, kind: badgeKind } } : {}),
+  }))}/>;
+}
 
-        if (isCreate) {
-          return (
-            <button
-              key={tab.id}
-              aria-label="Create"
-              onClick={() => setMobileCreateOpen(true)}
-              className="flex items-center justify-center -mt-3 w-12 h-12 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30 active:scale-95 transition-transform"
-            >
-              <Plus size={22} strokeWidth={2.5} />
-            </button>
-          );
-        }
-
-        return (
-          <button
-            key={tab.id}
-            onClick={() => {
-              setMobileTab(tab.id);
-              // Tapping Agents always returns to the workspaces list.
-              // Without this, if an execution is active the layout keeps
-              // showing it (mobileTab is already 'agents'), making the tap
-              // feel inert.
-              if (tab.id === 'agents') {
-                setActiveView(HOME_VIEW);
-              }
-            }}
-            className={cn(
-              'flex flex-col items-center gap-0.5 py-2 px-3 min-w-[56px] transition-colors relative',
-              isActive ? 'text-primary' : 'text-muted-foreground'
-            )}
-          >
-            <div className="relative">
-              <tab.icon size={20} strokeWidth={isActive ? 2.2 : 1.8} />
-              {tab.id === 'agents' && badgeKind && (
-                <div
-                  className={cn(
-                    'absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full text-[7px] font-bold text-white flex items-center justify-center ring-2 ring-background',
-                    badgeKind === 'working'
-                      ? 'bg-emerald-500 animate-pulse'
-                      : badgeKind === 'pending'
-                        ? 'bg-amber-500 animate-pulse'
-                        : 'bg-amber-500',
-                  )}
-                >
-                  {badgeCount}
-                </div>
-              )}
-            </div>
-            <span className={cn(
-              'text-[9px] font-medium',
-              isActive && 'font-bold'
-            )}>
-              {tab.label}
-            </span>
-          </button>
-        );
-      })}
-    </nav>
-  );
+/** Common phone navigation with destination and creation controls supplied by its Home. */
+export function HomePhoneBar({ tabs }: { tabs: { id: string; label: string; ariaLabel?: string; icon: typeof Plus; active?: boolean; onClick: () => void; badge?: { count: number; kind: 'working' | 'pending' | 'review' } }[] }) {
+  return <nav aria-label="Home" className="flex shrink-0 select-none items-end justify-around border-t border-border bg-background px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
+    {tabs.map(tab => tab.id === 'create' ? <button key={tab.id} aria-label={tab.ariaLabel ?? 'Create'} onClick={tab.onClick} className="-mt-3 flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/30 active:scale-95"><Plus size={22} strokeWidth={2.5}/></button>
+      : <button key={tab.id} onClick={tab.onClick} aria-current={tab.active ? 'page' : undefined} className={cn('relative flex min-w-[48px] flex-col items-center gap-0.5 px-2 py-2', tab.active ? 'text-primary' : 'text-muted-foreground')}><div className="relative"><tab.icon size={20} strokeWidth={tab.active ? 2.2 : 1.8}/>{tab.badge && <span className={cn('absolute -right-1.5 -top-1 flex size-3.5 items-center justify-center rounded-full text-[7px] font-bold text-white ring-2 ring-background', tab.badge.kind === 'working' ? 'animate-pulse bg-emerald-500' : 'bg-amber-500')}>{tab.badge.count}</span>}</div><span className={cn('text-[9px] font-medium', tab.active && 'font-bold')}>{tab.label}</span></button>)}
+  </nav>;
 }

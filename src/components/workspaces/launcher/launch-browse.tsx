@@ -17,7 +17,7 @@ import {
   SquareCheckBig,
 } from 'lucide-react';
 import { IntegrationLogo } from '@/components/integrations/integration-logo';
-import { openSettings } from '@/components/settings/settings-store';
+import { useSettingsLink } from '@/components/settings/settings-destination';
 import { DueBand, dueBand, dueLabel } from '@/lib/executions/task-rank';
 import { cn } from '@/lib/utils';
 import type { LaunchSourceItem, LaunchSourceKind } from '@/lib/executions/launch-draft';
@@ -107,7 +107,6 @@ export function LaunchBrowse({
   workspaceCwd,
   isGit,
   onPick,
-  onClose,
 }: {
   workspaceId: string | null;
   workspaceCwd: string | null;
@@ -115,6 +114,7 @@ export function LaunchBrowse({
   onPick: (item: LaunchSourceItem) => void;
   onClose: () => void;
 }) {
+  const connectSettings = useSettingsLink('plugins');
   const qc = useQueryClient();
   const now = useMemo(() => new Date(), []);
   const [query, setQuery] = useState('');
@@ -394,11 +394,11 @@ export function LaunchBrowse({
             );
           })}
 
-          {connectMore.length > 0 && (
+          {connectSettings && connectMore.length > 0 && (
             <Tip label={`Connect ${connectMore.map((s) => s.providerLabel).join(', ')}`}>
               <button
                 type="button"
-                onClick={() => openSettings('plugins')}
+                onClick={connectSettings ?? undefined}
                 className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-1.5 py-0.5 text-[10.5px] font-medium text-muted-foreground transition-colors hover:border-solid hover:bg-muted/50 hover:text-foreground"
               >
                 <Plus size={10} />
@@ -426,10 +426,10 @@ export function LaunchBrowse({
         {/* Tasks with nothing connected: name the capability rather than
             leaving it invisible. Someone who has never opened integration
             settings has no way to learn this list can span Todoist and Jira. */}
-        {activeTab.id === 'task' && integrationSources.length === 0 && !anyLoading && (
+        {connectSettings && activeTab.id === 'task' && integrationSources.length === 0 && !anyLoading && (
           <button
             type="button"
-            onClick={() => openSettings('plugins')}
+            onClick={connectSettings ?? undefined}
             className="mt-1 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[10.5px] text-muted-foreground/80 transition-colors hover:bg-muted/50 hover:text-foreground"
           >
             <Plug size={11} className="flex-shrink-0 text-sky-500/70" />

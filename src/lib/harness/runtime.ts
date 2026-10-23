@@ -7,8 +7,7 @@ import {
   type ProviderRuntimeContext,
   type ProviderRuntimeReport,
 } from '@agentex/agent';
-import { assertPersonalCapability } from '@/lib/home/authority';
-import { HARNESS_REGISTRY, type HarnessCapabilities, type HarnessId } from './registry';
+import { HARNESS_REGISTRY, harnessCapabilityReason, type HarnessCapabilities, type HarnessId } from './registry';
 import { openCursorApiKey } from './credentials';
 import { registerHarnessRuntimeSecret } from './redaction';
 
@@ -106,9 +105,10 @@ function missingReport(reason: string): ProviderRuntimeReport {
 async function providerRuntimeReport(
   harness: HarnessId,
   ctx: ProviderRuntimeContext,
+  options: { probeCapabilities?: boolean } = {},
 ): Promise<ProviderRuntimeReport> {
   const provider = getProvider(HARNESS_REGISTRY[harness].agentexProviderId);
-  if (provider.probeCapabilities && HARNESS_REGISTRY[harness].runtimeProbe) return provider.probeCapabilities(ctx);
+  if (options.probeCapabilities !== false && provider.probeCapabilities && HARNESS_REGISTRY[harness].runtimeProbe) return provider.probeCapabilities(ctx);
 
   const auth = await provider.resolveAuth({
     env: ctx.env,
@@ -132,9 +132,10 @@ export function intersectHarnessCapability(
   providerValue: boolean,
   runtime: ProviderRuntimeReport['capabilities'][keyof ProviderCapabilities] | undefined,
   binary: ProviderRuntimeReport['binary'],
+  unsupportedReason = 'This harness does not support this capability',
 ): HarnessCapabilityView {
   if (!maximum || !providerValue) {
-    return { supported: false, status: 'missing', reason: 'This harness does not support this capability' };
+    return { supported: false, status: 'missing', reason: unsupportedReason };
   }
   if (binary.status !== 'supported') {
     return {
@@ -161,8 +162,6 @@ export async function getHarnessRuntime(
   harness: HarnessId,
   options: { cwd?: string; refresh?: boolean } = {},
 ): Promise<HarnessRuntimeView> {
-  // A team space looks for no harness (docs/homes-spec.md §9.2, P6.3).
-  assertPersonalCapability('Harness discovery');
   const command = commandFor(harness) ?? '';
   const key = JSON.stringify([harness, options.cwd ?? '', command]);
   const cached = cache.get(key);
@@ -185,11 +184,16 @@ async function resolveHarnessRuntime(
   harness: HarnessId,
   options: { cwd?: string; refresh?: boolean },
 ): Promise<HarnessRuntimeView> {
-  const provider = getProvider(HARNESS_REGISTRY[harness].agentexProviderId);
   const ctx = await runtimeContextForHarness(harness, options);
+  return inspectHarnessRuntime(harness, ctx);
+}
+
+/** Inspect a supplied runtime context with the ordinary provider integration. */
+export async function inspectHarnessRuntime(harness: HarnessId, ctx: ProviderRuntimeContext, options: { probeCapabilities?: boolean } = {}): Promise<HarnessRuntimeView> {
+  const provider = getProvider(HARNESS_REGISTRY[harness].agentexProviderId);
   let report: ProviderRuntimeReport;
   try {
-    report = await providerRuntimeReport(harness, ctx);
+    report = await providerRuntimeReport(harness, ctx, options);
   } catch (error) {
     report = missingReport(error instanceof Error ? error.message : String(error));
   }
@@ -202,12 +206,12 @@ async function resolveHarnessRuntime(
       // maximum is the declaration. A missing or outdated binary still turns
       // it off, and the runner only passes `config.effort` while it is on.
       const supported = maximum[key];
-      capabilities[key] = intersectHarnessCapability(supported, supported, undefined, report.binary);
+      capabilities[key] = intersectHarnessCapability(supported, supported, undefined, report.binary, harnessCapabilityReason(harness, key));
       continue;
     }
     if (key === 'upstreamProviderSetup') {
       const supported = maximum[key] && Boolean(provider.upstreamProviders);
-      capabilities[key] = intersectHarnessCapability(supported, supported, undefined, report.binary);
+      capabilities[key] = intersectHarnessCapability(supported, supported, undefined, report.binary, harnessCapabilityReason(harness, key));
       continue;
     }
     const providerKey = CAPABILITY_KEYS[key];
@@ -219,6 +223,7 @@ async function resolveHarnessRuntime(
         ? codexMcpCapability(report.binary.version)
         : providerKey ? report.capabilities[providerKey] : undefined,
       report.binary,
+      harnessCapabilityReason(harness, key),
     );
   }
 

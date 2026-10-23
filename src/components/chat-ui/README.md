@@ -12,6 +12,9 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 
 | Family | Components and responsibility |
 | --- | --- |
+| `chat-transcript.tsx` | Common event grouping, paging, scroll anchoring and subagent navigation. Personal and team adapters provide data and attribution slots. |
+| `chat-composer.tsx` | Common composer layout around `ChatInputEditor` and contextual actions. Transport, receipts and allowed tools stay in their adapters. |
+| `chat-capabilities.tsx` | Explicit delivery and result interactions, without enabling personal endpoints in a team transcript. |
 | `email/` | Shared email draft editor and delivery receipt |
 | `questions/` | Structured questions, answer choices and free-form answers |
 | `permissions/` | Tool permission requests and their input preview |
@@ -44,6 +47,14 @@ Chat/session orchestration and page layouts stay in `src/components/chat/` and
 `src/components/executions/`. Results list pages and placement controls stay in
 `src/components/results/`. Generic UI primitives remain in `src/components/ui/`
 and installed AI Elements remain in `src/components/ai-elements/`.
+
+`ExecutionTranscript` is the personal data adapter. Team chats consume the same
+`ChatTranscript`, adding member authors and serialized-turn status around its
+events. Team history omits provider raw payloads. AI off keeps that history
+readable. Both composers use `ChatInputEditor`. The retained legacy tool-only
+team runtime has an explicit attachment capability of false until its replacement
+execution environment is qualified. This extraction alone does not enable that
+replacement runtime.
 
 The app kit remains the optional `@ri/app-kit` package. Connected app view hosts
 remain in `src/components/mcp-apps/`, local app companions in

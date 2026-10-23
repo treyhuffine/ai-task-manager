@@ -126,6 +126,7 @@ export function readSkillAt(dir: string): SkillDocument | null {
   let content: string;
   let mtime: Date;
   try {
+    if (!fs.lstatSync(file).isFile() || !fs.realpathSync(file).startsWith(fs.realpathSync(dir) + path.sep)) return null;
     content = fs.readFileSync(file, 'utf8');
     mtime = fs.statSync(file).mtime;
   } catch {
@@ -197,6 +198,8 @@ export interface SupportingFileWrite {
 }
 
 export interface WriteSkillInput {
+  /** Internal management hook, after a real filesystem change. */
+  onChange?: () => void;
   /** Replace SKILL.md whole (the editor's file view). Wins over `fields`. */
   content?: string;
   /** Change fields, keeping everything else in the file. */
@@ -226,6 +229,16 @@ export function resolveSupportingPath(dir: string, relPath: string): string {
   }
   const full = path.join(dir, ...segments);
   if (!full.startsWith(dir + path.sep)) throw new SkillError('invalid', `"${relPath}" is outside the skill.`);
+  let current = dir;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    try {
+      if (fs.lstatSync(current).isSymbolicLink()) throw new SkillError('invalid', 'Supporting files must stay inside the skill without symbolic links.');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') break;
+      throw error;
+    }
+  }
   return full;
 }
 
@@ -243,6 +256,7 @@ export function writeSkillAt(dir: string, input: WriteSkillInput): SkillDocument
   let next = current.content;
   if (input.content !== undefined) next = input.content;
   else if (input.fields) next = renderSkillFile(current.content, input.fields);
+  const changed = next !== current.content || planned.some(file => !fileHolds(file.full, file.content));
 
   if (input.baseHash && input.baseHash !== current.hash) {
     // A retry of a write that already landed would change nothing, so it
@@ -261,6 +275,7 @@ export function writeSkillAt(dir: string, input: WriteSkillInput): SkillDocument
       writeAtomic(file.full, file.content);
     }
   }
+  if (changed) input.onChange?.();
   return requireSkillAt(dir);
 }
 

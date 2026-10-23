@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { detectStack } from '@/lib/workspaces/detect-stack';
 import path from 'node:path';
@@ -8,6 +9,8 @@ import { z as rpcZ } from 'zod/v4';
  * placeholders in the Worktree-scripts UI. Read-only; never runs anything.
  */
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents');
+  if (homeDenied) return homeDenied;
   try {
     const body = (rpcInput.body) as { cwd?: string };
     const cwd = body.cwd?.trim();

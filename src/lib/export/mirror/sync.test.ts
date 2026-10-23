@@ -12,9 +12,27 @@ import { createTestHome, type TestHome } from '@/test/fixtures/home';
 
 let home: TestHome | null = null;
 afterEach(async () => {
-  vi.restoreAllMocks();
   await home?.cleanup();
+  vi.restoreAllMocks();
   home = null;
+});
+
+it('drains deferred projections before deleting a disposable Home', async () => {
+  home = await createTestHome({ prefix: 'ri-mirror-drain-' });
+  const q = await import('@/lib/db/queries');
+  const { flushMirror } = await import('./sync');
+  const warn = vi.spyOn(console, 'warn');
+  const task = q.createTask({ title: 'Pending projection' });
+  q.updateTask(task.id, { title: 'Last acknowledged edit' }, { source: 'human' });
+  await flushMirror();
+  const { typeDir } = await import('./config');
+  const file = fs.readdirSync(typeDir('task')).find(name => name.includes(task.id))!;
+  expect(fs.readFileSync(path.join(typeDir('task'), file), 'utf8')).toContain('Last acknowledged edit');
+  const root = home.root;
+  await home.cleanup(); home = null;
+  await new Promise<void>(resolve => setImmediate(resolve));
+  expect(fs.existsSync(root)).toBe(false);
+  expect(warn).not.toHaveBeenCalled();
 });
 
 it('keeps the newest content when syncs of one entity overlap', async () => {

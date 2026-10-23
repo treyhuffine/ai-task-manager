@@ -1,5 +1,10 @@
 'use client';
 
+import { useConnectedTeams } from '@/components/spaces/space-selector';
+import { teamDisplayName } from '@/lib/home/team-display-name';
+
+import { TEAM_ROLE_LABELS } from '@/lib/team/capabilities';
+
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -11,6 +16,7 @@ import { trpc, trpcClient } from '@/lib/trpc/client';
 import type { RouterOutputs } from '@/lib/trpc/router';
 import { cn } from '@/lib/utils';
 import { invalidateTeamContent } from '@/lib/spaces/client-cache';
+import { TeamAreaDefaults } from './team-area-defaults';
 
 type Connection = RouterOutputs['spaces']['list'][number];
 type LinkSummary = RouterOutputs['spaces']['inspectLink'];
@@ -56,6 +62,7 @@ function connectionState(c: Connection): { text: string; tone: 'muted' | 'warn' 
 
 function ConnectedTeam({ connection }: { connection: Connection }) {
   const qc = useQueryClient();
+  const teams = useConnectedTeams();
   const confirm = useConfirm();
   const state = connectionState(connection);
   const disconnect = useMutation({
@@ -66,9 +73,9 @@ function ConnectedTeam({ connection }: { connection: Connection }) {
   return (
     <li className="flex flex-wrap items-start justify-between gap-3 px-3 py-3">
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{connection.name}</p>
+        <p className="truncate text-sm font-medium">{teamDisplayName(connection.id, teams.data)}</p>
         <p className="text-xs text-muted-foreground">
-          You are {connection.memberName}, {connection.role === 'owner' ? 'its owner' : 'a member'}.
+          You are {connection.memberName}, {TEAM_ROLE_LABELS[connection.role].toLowerCase()}.
         </p>
         <p className={cn('mt-1 text-xs', state.tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>{state.text}</p>
       </div>
@@ -95,6 +102,10 @@ function ConnectedTeam({ connection }: { connection: Connection }) {
           </Button>
         </div>
       )}
+      <details className="w-full text-xs">
+        <summary className="cursor-pointer py-1 font-medium">Personal Area defaults</summary>
+        <TeamAreaDefaults teamId={connection.id} connected={connection.status === 'active'} />
+      </details>
     </li>
   );
 }

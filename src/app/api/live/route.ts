@@ -1,7 +1,6 @@
 import type { NextRequest } from 'next/server';
-import { globalSessionChannel, subscribe } from '@/lib/realtime/bus';
-import { openSessionFeed } from '@/lib/realtime/session-feed';
-import { isTerminalBase, runTerminalFeed } from '@/lib/realtime/terminal-feed';
+import { openPageFeed, type PageSubscription as Subscription } from '@/lib/realtime/page-feed';
+import { isTerminalBase } from '@/lib/realtime/terminal-feed';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,17 +9,6 @@ const encoder = new TextEncoder();
 
 function sse(event: string, data: unknown): Uint8Array {
   return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-}
-
-/** What a page is subscribed to, with where each left off. */
-interface Subscription {
-  /**
-   * Chats: id, the newest chat event seen, and the newest change to one
-   * seen (its `updatedAt`), which finds the parts revised in place since.
-   */
-  s: Array<[string, string | null, string | null]>;
-  /** Terminals: `/sessions/<id>` or `/workspaces/<id>`, the terminal, and the last offset seen. */
-  t: Array<[string, string, number | null]>;
 }
 
 const ID = /^[A-Za-z0-9-]{1,64}$/;
@@ -91,33 +79,7 @@ export async function GET(request: NextRequest) {
       };
       enqueue(encoder.encode('retry: 3000\n\n'));
 
-      // The dashboard's signals: invalidations only, no transcript content.
-      stops.push(
-        subscribe(globalSessionChannel, (message) => {
-          if (message.kind === 'device_updated') enqueue(sse('device_updated', message));
-          if (message.kind === 'session_updated') enqueue(sse('session_updated', message));
-          if (message.kind === 'rate_limits_updated') enqueue(sse('rate_limits_updated', message));
-        }),
-      );
-
-      for (const [sessionId, after, since] of subscription.s) {
-        stops.push(
-          openSessionFeed(sessionId, after, (event, data, id) => enqueue(sse('session', { s: sessionId, e: event, d: data, i: id })), {
-            revisedSince: since,
-          }),
-        );
-      }
-
-      for (const [base, terminalId, after] of subscription.t) {
-        const key = `${base}:${terminalId}`;
-        void runTerminalFeed(base, terminalId, after, (event, data, id) => enqueue(sse('terminal', { k: key, e: event, d: data, i: id })), aborter.signal).catch(
-          (err) => console.warn(`[page stream] terminal ${key}:`, err),
-        );
-      }
-
-      // Opening, or reconnecting, can mean signals were missed: the page
-      // reads `ready` as a cue to fetch an authoritative snapshot.
-      enqueue(sse('ready', {}));
+      stops.push(openPageFeed(subscription, (event, data) => enqueue(sse(event, data)), { signal: aborter.signal }));
       keepAlive = setInterval(() => enqueue(encoder.encode(': ping\n\n')), 25_000);
     },
     cancel() {

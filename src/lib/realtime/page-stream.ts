@@ -19,6 +19,7 @@
  *   none. A page opened hidden lets go the same way.
  * - An error reconnects with backoff, from the same positions.
  */
+import { openSharedPageSource, type PageStreamSource } from './shared-page-source';
 
 /**
  * A subscriber's frames. A chat's `ready` that didn't resume comes with
@@ -86,7 +87,7 @@ export class PageStream {
   private readonly globals = new Set<Listener>();
   private readonly sessions = new Map<string, SessionSubscription>();
   private readonly terminals = new Map<string, TerminalSubscription>();
-  private source: EventSource | null = null;
+  private source: PageStreamSource | null = null;
   /** Counts connections: each subscriber knows the first it may take frames from. */
   private epoch = 0;
   private connectedKeys: string | null = null;
@@ -104,7 +105,7 @@ export class PageStream {
 
   constructor(
     private readonly env: {
-      open: (url: string) => EventSource;
+      open: (url: string) => PageStreamSource;
       document?: Pick<Document, 'visibilityState' | 'addEventListener'>;
     },
   ) {}
@@ -365,7 +366,7 @@ const holder = globalThis as unknown as { [KEY]?: PageStream };
 /** This page's stream. */
 export function pageStream(): PageStream {
   return (holder[KEY] ??= new PageStream({
-    open: (url) => new EventSource(url),
+    open: (url) => typeof document !== 'undefined' && ['team', 'space'].includes(document.documentElement.dataset.riAuthority ?? '') ? openSharedPageSource(url) : new EventSource(url),
     document: typeof document === 'undefined' ? undefined : document,
   }));
 }

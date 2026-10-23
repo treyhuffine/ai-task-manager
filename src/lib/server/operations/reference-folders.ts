@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import type { CreateReferenceFolderInput } from '@/db/types';
 import { createReferenceFolder, getWorkspace, ReferenceFolderError } from '@/lib/db/queries';
 import { referenceFolders } from '@/lib/db/schema';
@@ -26,6 +27,8 @@ function statusForReferenceError(code: ReferenceFolderError['code']): number {
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'read');
+  if (homeDenied) return homeDenied;
   try {
     const workspaceId = searchParams(rpcInput.query).get('workspaceId');
     const consumerCwd = workspaceId ? getWorkspace(workspaceId)?.cwd ?? null : null;
@@ -38,6 +41,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
 }
 
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents');
+  if (homeDenied) return homeDenied;
   try {
     const body = (rpcInput.body) as CreateReferenceFolderInput;
     const row = createReferenceFolder(body);

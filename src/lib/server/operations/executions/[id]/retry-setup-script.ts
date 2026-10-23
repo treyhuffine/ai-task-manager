@@ -1,3 +1,5 @@
+import { actorFromRequest } from '@/lib/auth/actor';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { retrySetupScript } from '@/lib/sessions/dispatch';
 import { z as rpcZ } from 'zod/v4';
@@ -11,10 +13,10 @@ import { z as rpcZ } from 'zod/v4';
  * execution's `setupScriptStatus` flips to 'running' synchronously and the
  * preview gate holds Start until it lands.
  */
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
-    const ok = retrySetupScript(id);
+    const ok = retrySetupScript(id, actorFromRequest(request.headers));
     if (!ok) {
       return reply(
         { error: 'No setup script to run (no worktree or no setup command configured).' },
@@ -23,6 +25,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     }
     return reply({ ok: true });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/executions/:id/retry-setup-script]', err);
     const message = err instanceof Error ? err.message : String(err);
     return reply({ error: 'retry_failed', message }, { status: 500 });

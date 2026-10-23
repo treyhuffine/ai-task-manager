@@ -1,4 +1,6 @@
-import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
+import { sessionAuthority } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { getChatSessionWithExecution, getWorkspace, recordTeamActivity } from '@/lib/db/queries';
 import { readAnswerOnOwner, writeAnswerOnOwner } from '@/lib/executor/owner-files';
 import { fileBody } from '@/lib/server/inputs';
 import { answerResult, failureResponse, reply, searchParams, type OperationContext } from '@/lib/server/operation';
@@ -86,6 +88,7 @@ async function handlePUT(rpcInput: rpcZ.infer<typeof PUTInput>, request: Operati
       return reply({ error: 'Body must be { content: string }' }, { status: 400 });
     }
 
+    const authority = sessionAuthority(getRequestKey(request.headers), id, 'editFiles');
     const owner = await writeAnswerOnOwner(id, { kind: 'write', path: relPath, content: body.content });
     if (owner) return answerResult(owner, writeFileSchema);
 
@@ -93,6 +96,7 @@ async function handlePUT(rpcInput: rpcZ.infer<typeof PUTInput>, request: Operati
     if (!resolved.ok) return failureResponse(resolved.response);
 
     const result = await writeWorkspaceFile(resolved.handle, relPath, body.content);
+    if (authority?.workspace) recordTeamActivity({ workspaceId: authority.workspace.id, memberId: authority.member.id, apiKeyId: getRequestKey(request.headers)!.apiKeyId, kind: 'file_change', resource: relPath, operation: rpcInput.body && 'content' in rpcInput.body ? 'write' : 'delete' });
     return reply({ ok: true, ...result });
   } catch (err) {
     return failureResponse(mapFileError(err, '[PUT /api/sessions/:id/file]'));
@@ -107,6 +111,7 @@ async function handleDELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, request: O
       return reply({ error: 'Missing path parameter' }, { status: 400 });
     }
 
+    const authority = sessionAuthority(getRequestKey(request.headers), id, 'editFiles');
     const owner = await writeAnswerOnOwner(id, { kind: 'delete', path: relPath });
     if (owner) return answerResult(owner, deletePathSchema);
 
@@ -114,6 +119,7 @@ async function handleDELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, request: O
     if (!resolved.ok) return failureResponse(resolved.response);
 
     const result = await deleteWorkspacePath(resolved.handle, relPath);
+    if (authority?.workspace) recordTeamActivity({ workspaceId: authority.workspace.id, memberId: authority.member.id, apiKeyId: getRequestKey(request.headers)!.apiKeyId, kind: 'file_change', resource: relPath, operation: rpcInput.body && 'content' in rpcInput.body ? 'write' : 'delete' });
     return reply({ ok: true, ...result });
   } catch (err) {
     return failureResponse(mapFileError(err, '[DELETE /api/sessions/:id/file]'));

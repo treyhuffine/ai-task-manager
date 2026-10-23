@@ -37,7 +37,7 @@ export function MainChatHistoryMenu({ scope }: { scope: MainChatScope }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
 
-  const currentId = current?.session.id ?? null;
+  const currentId = current?.session?.id ?? null;
   const sessions = history?.sessions ?? [];
 
   return (
@@ -72,8 +72,8 @@ export function MainChatHistoryMenu({ scope }: { scope: MainChatScope }) {
                 <button
                   key={s.id}
                   onClick={() => {
-                    if (!isCurrent) resume.mutate(s.id);
-                    setOpen(false);
+                    if (isCurrent) setOpen(false);
+                    else resume.mutate(s.id, { onSuccess: () => setOpen(false) });
                   }}
                   disabled={resume.isPending}
                   className={cn(

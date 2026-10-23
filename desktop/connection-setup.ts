@@ -30,6 +30,7 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('join-team'), link: z.string().min(1).max(8192), name: z.string().max(200).optional() }).strict(),
   z.object({
     action: z.literal('create-team'),
+    hostedWithPersonalHome: z.boolean().optional(),
     creationId: z.string().regex(/^[A-Za-z0-9_-]{8,80}$/),
     teamName: z.string().max(200),
     ownerName: z.string().max(200),

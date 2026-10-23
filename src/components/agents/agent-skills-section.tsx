@@ -1,11 +1,13 @@
 'use client';
 
+import { SkillLibrary } from '@/components/skills/skill-library';
 import { Loader2 } from 'lucide-react';
 import { useSkills } from '@/hooks/use-skills';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { openSettings } from '@/components/settings/settings-store';
 import { NewSkillButton, SkillTile } from '@/components/settings/sections/plugins/skills-catalog';
 import type { WorkspaceRecord } from '@/db/types';
+import { useAgentConfigurationScope } from '@/components/workspaces/agent-placement-controls';
 
 /**
  * This agent's own skills: the project skills in its folder
@@ -15,6 +17,12 @@ import type { WorkspaceRecord } from '@/db/types';
  * skill starts a draft, which goes in a project when it's installed.
  */
 export function AgentSkillsSection({ workspace }: { workspace: WorkspaceRecord }) {
+  const { personalTools, canConfigure } = useAgentConfigurationScope();
+  if (!personalTools) return <section className="space-y-3"><h3 className="text-sm font-semibold">Skills</h3><SkillLibrary canManage={canConfigure} /></section>;
+  return <PersonalAgentSkills workspace={workspace} />;
+}
+
+function PersonalAgentSkills({ workspace }: { workspace: WorkspaceRecord }) {
   const { data, isLoading } = useSkills();
   const { openSkill } = useDashboard();
   const skills = (data?.skills ?? []).filter(

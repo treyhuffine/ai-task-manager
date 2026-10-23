@@ -1,3 +1,4 @@
+import { registerActionTool } from '@/lib/orchestrator/mcp-registration';
 /**
  * Browser-only MCP server.
  *
@@ -31,12 +32,8 @@ function buildHandler(forcedProfile: string | null) {
   return riMcpHandler(
     (server) => {
       for (const action of browserActions as unknown as Action[]) {
-        server.registerTool(
-          action.name,
-          {
-            description: action.description,
-            inputSchema: action.params,
-          },
+        registerActionTool(
+          server, action,
           async (input, { headers }) => {
             // Lock the browsing identity so an execution cannot switch profiles.
             const scoped = forcedProfile ? { ...input, profile: forcedProfile } : input;

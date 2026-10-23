@@ -1,3 +1,5 @@
+import { workspaceAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
 import { getWorkspace } from '@/lib/db/queries';
 import { reply, searchParams, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -17,6 +19,7 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
   try {
     const { id } = rpcInput.params;
     const state = (searchParams(rpcInput.query).get('state') ?? 'open') as 'open' | 'closed' | 'merged' | 'all';
+    workspaceAuthority(getRequestKey(_request.headers), id, 'inspectFiles');
     const ws = getWorkspace(id);
     if (!ws) return reply({ error: 'Workspace not found' }, { status: 404 });
     if (!ws.isGit) return reply([]);
@@ -26,6 +29,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
     const prs = await repo.listPRs({ state });
     return reply(prs);
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     const name = err instanceof Error ? err.name : 'Error';
     const message = err instanceof Error ? err.message : String(err);
     console.error('[GET /api/workspaces/:id/github/prs]', err);

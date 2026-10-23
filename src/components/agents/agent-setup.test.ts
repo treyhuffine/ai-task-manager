@@ -11,18 +11,20 @@ const fixtures = vi.hoisted(() => ({
   workspace: {} as WorkspaceRecord,
   write: vi.fn<(input: UpdateWorkspaceInput, callbacks: SaveCallbacks) => void>(),
   success: vi.fn(),
+  scope: { canConfigure: true, personalTools: true, executionChoices: [] },
 }));
 
 vi.mock('@/hooks/use-workspaces', () => ({
   useUpdateWorkspace: () => ({ mutate: fixtures.write, isPending: false }),
   useArchiveWorkspace: () => ({ mutate: vi.fn() }),
 }));
-vi.mock('@/contexts/dashboard-context', () => ({ useDashboard: () => ({ goHome: vi.fn() }) }));
+vi.mock('@/components/workspaces/agent-placement-controls', () => ({ useAgentConfigurationScope: () => fixtures.scope, AgentPinnedFolder: () => createElement('p', null, 'Pinned approved worker') }));
+vi.mock('@/contexts/work-context', () => ({ useWorkNavigation: () => ({ goHome: vi.fn() }) }));
 vi.mock('@/hooks/use-areas', () => ({ useAreas: () => ({ data: [] }) }));
 vi.mock('@/hooks/use-devices', () => ({ useDevices: () => ({ data: [] }) }));
 vi.mock('@/hooks/use-results', () => ({ useResultCapabilities: () => ({ data: { aiReviewEnabled: true } }) }));
 vi.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: null }) }));
-vi.mock('@/lib/trpc/client', () => ({ trpcClient: { gh: { statusGet: { query: vi.fn() } } } }));
+vi.mock('@/lib/trpc/client', () => ({ trpc: { gh: { statusGet: { queryKey: () => ['test-gh-status'] } } }, trpcClient: { gh: { statusGet: { query: vi.fn() } } } }));
 vi.mock('@/lib/attachments/client', () => ({ uploadAttachment: vi.fn() }));
 vi.mock('@/components/ui/confirm-dialog', () => ({ useConfirm: () => vi.fn() }));
 vi.mock('@/components/ui/switch', () => ({ Switch: () => null }));
@@ -62,6 +64,7 @@ beforeEach(async () => {
   vi.stubGlobal('document', document);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixtures.workspace = workspace();
+  fixtures.scope = { canConfigure: true, personalTools: true, executionChoices: [] };
   fixtures.write.mockReset();
   fixtures.success.mockReset();
   container = document.createElement('div');
@@ -113,6 +116,17 @@ async function acknowledge(overrides: Partial<WorkspaceRecord> = {}) {
 }
 
 describe('Agent handoff and review preferences', () => {
+  it('keeps the same setup fields readable to members while preventing configuration and personal discovery controls', async () => {
+    fixtures.scope = { canConfigure: false, personalTools: false, executionChoices: [] };
+    await render();
+    expect(container.querySelector('fieldset')?.hasAttribute('disabled')).toBe(true);
+    expect(container.textContent).not.toContain('Pinned approved worker');
+    expect(container.textContent).toContain('Only the team owner');
+    expect(container.textContent).not.toContain('Let this agent use the browser');
+    await edit('A forged configuration change');
+    await save();
+    expect(fixtures.write).not.toHaveBeenCalled();
+  });
   it('explains scoped inheritance and keeps general instructions separate', async () => {
     fixtures.workspace = workspace({ workResultGuidance: null });
     await render();

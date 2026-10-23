@@ -4,14 +4,11 @@
  *
  * - the model-provider key its owner provisioned for the team, sealed with a
  *   key of its own. Settings shows only whether one is saved.
- * - the secret that signs each turn's own short-lived credential for the
- *   team's tools (turn-credential.ts). Not the host's key, and not anyone's
- *   sign-in.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { aesGcmSecretBox, generateSecretKey } from '@integrations/engine/crypto';
 import { getConfigDir } from '@/lib/config/paths';
 
@@ -61,11 +58,6 @@ function keptSecret(name: string, make: () => string): string {
 
 function sealingKey(): string {
   return keptSecret('key', generateSecretKey);
-}
-
-/** Signs turn credentials. */
-export function turnSigningSecret(): string {
-  return keptSecret('turn-secret', () => randomBytes(32).toString('base64url'));
 }
 
 interface StoredFile {

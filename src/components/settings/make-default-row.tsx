@@ -1,5 +1,7 @@
 'use client';
 
+import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
+
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDefaultSelection, useSetDefaultSelection } from '@/hooks/use-default-selection';
@@ -21,11 +23,13 @@ export function MakeDefaultRow({
 }: {
   current: { harness: ProviderId; model: string; variant?: string | null; serviceTier?: string | null; effort?: EffortLevel | null };
 }) {
+  const { canConfigureModels } = useExecutionRuntimeScope();
   const saved = useDefaultSelection();
   const setDefault = useSetDefaultSelection();
   const { models: currentModels } = useHarnessModels(current.harness);
   const { models: defaultModels } = useHarnessModels(saved?.harness);
 
+  if (!canConfigureModels) return null;
   if (saved && saved.harness === current.harness && saved.model === current.model && (saved.serviceTier ?? null) === (current.serviceTier ?? null)) return null;
 
   const currentLabel = currentModels.find((m) => m.id === current.model)?.label ?? current.model;

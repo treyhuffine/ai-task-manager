@@ -38,7 +38,7 @@ import getPort from 'get-port';
 import Database from 'better-sqlite3';
 import WebSocket from 'ws';
 import { AcceptanceFixture } from './acceptance-fixture';
-import { serviceStatus, stopService } from '../src/lib/service/client';
+import { ensureService, serviceStatus, stopService } from '../src/lib/service/client';
 
 const joinIndex = process.argv.indexOf('--join');
 const joinOrigin = joinIndex > 0 ? process.argv[joinIndex + 1] : null;
@@ -92,6 +92,11 @@ class Renderer {
     const result = await this.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }) as { result: { value: T }; exceptionDetails?: { text: string } };
     if (result.exceptionDetails) throw new Error(`In the page: ${result.exceptionDetails.text}`);
     return result.result.value;
+  }
+  async click(expression: string) {
+    const point = await this.evaluate<{ x: number; y: number }>(`(()=>{const bounds=(${expression}).getBoundingClientRect();return {x:bounds.x+bounds.width/2,y:bounds.y+bounds.height/2}})()`);
+    await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
   }
   async until(expression: string, timeout = 60_000, what = expression) {
     const deadline = Date.now() + timeout;
@@ -182,17 +187,24 @@ async function rendererWhere(expression: string, timeout: number, what: string):
 }
 
 /** Click an application menu item, as a person would, through Electron's main process. */
-async function menu(label: string) {
+async function menu(label: string, windowOrigin?: string) {
   const response = await fetch(`http://127.0.0.1:${inspectPort}/json/list`);
   const [target] = (await response.json()) as Target[];
   const main = await Renderer.open(target);
   try {
     const clicked = await main.evaluate<boolean>(`(() => {
-      const { Menu } = process.mainModule.require('electron');
+      const { Menu, BrowserWindow } = process.mainModule.require('electron');
       const find = (items) => { for (const item of items) { if (item.label === ${JSON.stringify(label)}) return item; const inner = item.submenu && find(item.submenu.items); if (inner) return inner; } return null; };
       const item = find(Menu.getApplicationMenu().items);
       if (!item) return false;
-      item.click();
+      const origin = ${JSON.stringify(windowOrigin ?? null)};
+      const window = origin ? BrowserWindow.getAllWindows().find(w => w.webContents.getURL().startsWith(origin + '/')) : BrowserWindow.getFocusedWindow();
+      if (origin) {
+        if (!window) throw new Error('No Team window for the production menu');
+        const prefs = window.webContents.getLastWebPreferences();
+        if (!prefs.sandbox || !prefs.contextIsolation || prefs.nodeIntegration) throw new Error('Team window preferences are unsafe');
+      }
+      item.click(item, window);
       return true;
     })()`);
     assert.ok(clicked, `No ${label} in the application menu`);
@@ -226,7 +238,59 @@ const value = (id: string, text: string) =>
   `(() => { const el = document.getElementById(${JSON.stringify(id)}); el.value = ${JSON.stringify(text)}; el.dispatchEvent(new Event('input')); return true; })()`;
 const click = (id: string) => `(() => { document.getElementById(${JSON.stringify(id)}).click(); return true; })()`;
 const text = (needle: string) => `document.body && document.body.innerText.includes(${JSON.stringify(needle)})`;
+const tasksReady = `document.querySelector('[aria-label="Task view"]') && document.body.textContent.includes('Assigned to me')`;
 const localTeam = (url: URL) => url.protocol === 'https:' && url.hostname === 'localhost';
+
+/** Real renderer, shared entity sheet and native standard Team title bar. */
+async function sharedEntityChrome(page: Renderer, existing?: { task: string; note: string }) {
+  const originalUrl = await page.evaluate<string>('location.href');
+  for (const kind of ['task', 'note'] as const) {
+    const record = existing ? { id: existing[kind] } : await page.evaluate<{ id: string }>(`fetch('/api/trpc/${kind}s.create', {
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({title:'Shared ${kind} acceptance',${kind === 'task' ? "rawInput:'Shared task acceptance'," : ''}body:'Retained shared context'})
+    }).then(async response=>{if(!response.ok)throw new Error(await response.text());return (await response.json()).result.data})`);
+    assert.ok(record.id);
+    if (existing) {
+      // Personal details open through the ordinary list, rather than a Team
+      // query route. Click the real tab and the fixture's real record title.
+      const tab = kind === 'task' ? 'Tasks' : 'Notes';
+      const tabButton = `[...document.querySelectorAll('button')].find(button=>button.textContent.trim()===${JSON.stringify(tab)} && button.getBoundingClientRect().width>0)`;
+      await page.until(tabButton, 15_000, `the ${tab} tab`);
+      await page.click(tabButton);
+      if (kind === 'task') {
+        const status = `document.querySelector('button[aria-label^="Status:"]')`;
+        await page.until(status, 15_000, 'the task status filter');
+        await page.click(status);
+        const all = `[...document.querySelectorAll('[role="menuitemradio"]')].find(item=>item.textContent.trim().startsWith('All'))`;
+        await page.until(all, 5_000, 'All task states');
+        await page.click(all);
+      }
+      const title = kind === 'task' ? 'Personal errand' : 'Private note';
+      const row = `[...document.querySelectorAll('p')].find(element=>element.textContent.trim()===${JSON.stringify(title)} && element.getBoundingClientRect().width>0)`;
+      await page.until(row, 30_000, `the personal ${kind} row`);
+      await page.click(row);
+    } else await page.evaluate(`(location.href=location.origin+'/?${kind}='+${JSON.stringify(record.id)},true)`);
+    const sheet = `document.querySelector('[data-slot="sheet-content"]')`;
+    const close = `[...${sheet}.querySelectorAll('button')].find(button=>${existing ? "button.getAttribute('aria-label')==='Back'" : "button.textContent.trim()==='Close'"})`;
+    await page.until(`${sheet} && ${close}`, 60_000, `the ${existing ? 'personal' : 'shared'} ${kind} sheet`);
+    await page.until(`${sheet}.getAnimations().every(animation=>animation.playState==='finished')`, 5_000, 'the sheet animation');
+    const geometry = await page.evaluate<{ top: number; bottom: number; height: number; close: number; bridge: string }>(`(()=>{
+      const sheet=${sheet},bounds=sheet.getBoundingClientRect(),close=${close};
+      return {top:bounds.top,bottom:bounds.bottom,height:innerHeight,close:close.getBoundingClientRect().top,bridge:typeof window.riDesktop};
+    })()`);
+    assert.equal(geometry.bridge, existing ? 'object' : 'undefined');
+    const minimumTop = existing && process.platform === 'darwin' ? 40 : 0;
+    assert(geometry.top >= minimumTop && geometry.close >= geometry.top && geometry.bottom <= geometry.height + 1, JSON.stringify(geometry));
+    await page.screenshot(path.join(fixture.base, `${existing ? 'personal' : 'shared'}-${kind}-native.png`));
+    await page.evaluate(`((${close}).click(),true)`);
+    await page.until(`!${sheet}`, 10_000, 'the closed shared sheet');
+  }
+  if (existing) {
+    await page.click(`[...document.querySelectorAll('button')].find(button=>button.textContent.trim()==='Chat' && button.getBoundingClientRect().width>0)`);
+    await page.until(`document.documentElement.dataset.riDesktop === ${JSON.stringify(process.platform)} && location.href === ${JSON.stringify(originalUrl)}`, 15_000, 'the original personal document');
+  } else await page.until(tasksReady, 60_000, 'the Team document');
+  passed(existing ? 'personal task and note action bars clear native chrome and return to the original page' : 'shared task and note action bars fit the native Team window without a personal bridge');
+}
 
 /** On a failure, what every open page showed: its text and a screenshot. */
 async function diagnose() {
@@ -270,15 +334,34 @@ async function personalState() {
 }
 
 async function runPersonal() {
+  // An existing personal Home, prepared before its isolated service starts.
+  // No UI navigation is allowed to race the native initial load handshake.
+  const { allowMigrations, migrationsAllowed } = await import('../src/lib/db/migrate');
+  const { resetDb } = await import('../src/lib/db');
+  const { ensureHomeIdentity, resetHomeIdentityCache } = await import('../src/lib/home/identity');
+  const { updateUserState } = await import('../src/lib/db/queries');
+  const { ensureWorkDir, ensureAttachmentsDir } = await import('../src/lib/config/paths');
+  const allowed = migrationsAllowed();
+  allowMigrations();
+  try {
+    assert.equal(process.env.RI_ROOT, fixture.root);
+    ensureWorkDir(); ensureAttachmentsDir();
+    ensureHomeIdentity();
+    updateUserState({ onboardedAt: new Date().toISOString(), orchestratorIntroducedAt: new Date().toISOString() });
+  } finally { resetDb(); resetHomeIdentityCache(); allowMigrations(allowed); }
+  await ensureService({ repo: path.resolve(__dirname, '..'), node: process.execPath, env: { ...fixture.env, NODE_ENV: production ? 'production' : 'development' } });
   await launch();
   const app = await rendererWhere(`document.documentElement.dataset.riAuthority === 'personal' && document.body.innerText.length > 0`, 600_000, 'the personal Ri');
+  await app.until(`document.readyState === 'complete' && document.documentElement.dataset.riDesktop === ${JSON.stringify(process.platform)}`, 60_000, 'the loaded personal document');
   const personalOrigin = await app.evaluate<string>('location.origin');
   await app.evaluate(`(localStorage.setItem('ri:document-draft:v1:team-smoke', 'Unsaved words'), true)`);
   // Some personal work for a team to leave alone, made the way the app makes it.
   const post = (procedure: string, input: object) =>
-    `fetch('/api/trpc/${procedure}', { method: 'POST', headers: { 'content-type': 'application/json' }, body: ${JSON.stringify(JSON.stringify(input))} }).then((r) => r.status)`;
-  assert.equal(await app.evaluate<number>(post('tasks.create', { title: 'Personal errand', rawInput: 'Personal errand' })), 200);
-  assert.equal(await app.evaluate<number>(post('notes.create', { title: 'Private note', body: 'Only mine' })), 200);
+    `fetch('/api/trpc/${procedure}', { method: 'POST', headers: { 'content-type': 'application/json' }, body: ${JSON.stringify(JSON.stringify(input))} }).then(async response=>{if(!response.ok)throw new Error(await response.text());return (await response.json()).result.data})`;
+  const task = await app.evaluate<{ id: string }>(post('tasks.create', { title: 'Personal errand', rawInput: 'Personal errand' }));
+  const note = await app.evaluate<{ id: string }>(post('notes.create', { title: 'Private note', body: 'Only mine' }));
+  assert.ok(task.id); assert.ok(note.id);
+  await sharedEntityChrome(app, { task: task.id, note: note.id });
   await new Promise((resolve) => setTimeout(resolve, 5_000));
   const page = await app.evaluate<string>('location.href');
   const before = await personalState();
@@ -306,7 +389,7 @@ async function runPersonal() {
   await create.evaluate(value('owner-name', 'Ana'));
   await create.evaluate(click('create-team-button'));
   const team = await teamRenderer((url) => localTeam(url) && url.origin !== personalOrigin);
-  await team.until(text('Task Board'), 300_000, "the team's Task Board");
+  await team.until(tasksReady, 300_000, "the team's Tasks");
   assert.equal(await team.evaluate<string>(`document.documentElement.dataset.riAuthority`), 'team');
   assert.equal(await team.evaluate<string>(`typeof window.riDesktop`), 'undefined');
   create.close();
@@ -349,6 +432,7 @@ async function runPersonal() {
 }
 
 async function run() {
+  if (production && !fs.existsSync(path.resolve(__dirname, '../.next-desktop/BUILD_ID'))) throw new Error('Build the desktop app first: pnpm exec node desktop/launch.mjs --build-only');
   let failure: unknown;
   try {
     if (personal) {
@@ -367,9 +451,9 @@ async function run() {
     await setup.screenshot(path.join(fixture.base, 'create-team-form.png'));
     await setup.evaluate(click('create-team-button'));
     const hosted = await teamRenderer(localTeam);
-    await hosted.until(text('Task Board'), 300_000, "the team's Task Board");
+    await hosted.until(tasksReady, 300_000, "the team's Tasks");
     await hosted.until(text('Family'), 30_000, "the team's name");
-    passed('created a team hosted here and opened its Task Board as its owner');
+    passed('created a team hosted here and opened its Tasks as its owner');
     assert.equal(await hosted.evaluate<string>(`typeof window.riDesktop`), 'undefined', 'A team page must not get the desktop bridge');
     assert.equal(await hosted.evaluate<string>(`document.documentElement.dataset.riAuthority`), 'team');
     assert.equal(await hosted.evaluate<string>(`location.hash`), '', 'The sign-in key must leave the address');
@@ -383,19 +467,36 @@ async function run() {
     assert.ok(fs.existsSync(path.join(saved.teams[0].hosted!.root, '.config', 'team.json')), 'The team has its own marked root');
     passed('no personal database, and the team saved privately with its own root');
     await hosted.screenshot(path.join(fixture.base, 'hosted-team.png'));
-    // Settings fits its window: making an invitation (a long link) never
-    // widens it into a sideways scroll.
+    const hostedOrigin = await hosted.evaluate<string>('location.origin');
+    await hosted.evaluate(`(history.pushState({}, '', '?view=notes'), history.pushState({}, '', '?view=agents'), true)`);
+    await menu('Back', hostedOrigin);
+    await hosted.until(`location.search === '?view=notes'`, 10_000, 'production main menu Back');
+    await menu('Forward', hostedOrigin);
+    await hosted.until(`location.search === '?view=agents'`, 10_000, 'production main menu Forward');
+    await hosted.evaluate(`(history.replaceState({}, '', '/'), window.dispatchEvent(new PopStateEvent('popstate')), true)`);
+    passed('production main menu navigates the sandboxed Team window through its shipped preload');
+    // Settings fits its window, including either the invitation or the
+    // explicit remote-address setup required by a fresh localhost Team.
     await hosted.evaluate(`(document.querySelector('button[aria-label="Settings"]').click(), true)`);
     const settings = `document.querySelector('[data-slot="dialog-content"]')`;
-    await hosted.until(`${settings} && [...${settings}.querySelectorAll('button')].some((b) => b.textContent.includes('Invite people'))`, 60_000, 'Settings');
+    await hosted.until(`${settings} && [...${settings}.querySelectorAll('button')].some((b) => b.textContent.trim() === 'People')`, 60_000, 'Settings navigation');
+    await hosted.evaluate(`([...${settings}.querySelectorAll('button')].find((b) => b.textContent.trim() === 'People').click(), true)`);
+    await hosted.until(`${settings} && [...${settings}.querySelectorAll('button')].some((b) => b.textContent.includes('Invite people'))`, 60_000, 'People settings');
     await hosted.evaluate(`([...${settings}.querySelectorAll('button')].find((b) => b.textContent.includes('Invite people')).click(), true)`);
-    await hosted.until(`${settings}.querySelector('code')`, 30_000, 'the invitation link');
+    await hosted.until(`${settings}.querySelector('code') || ${text('Set up a remote address before inviting people')}`, 30_000, 'the invitation or required address setup');
+    if (!await hosted.evaluate<boolean>(`!!${settings}.querySelector('code')`)) {
+      assert.equal(await hosted.evaluate<boolean>(`${text('Use an HTTPS address')} && ${text('Use Beamd')}`), true);
+      passed('a fresh local Team requires an explicit remote address before issuing an invitation');
+    }
     const sideways = await hosted.evaluate<string[]>(`[${settings}, ...${settings}.querySelectorAll('*')]
       .filter((el) => el.scrollWidth > el.clientWidth + 1 && !['hidden', 'clip'].includes(getComputedStyle(el).overflowX) && !el.classList.contains('sr-only'))
       .map((el) => el.tagName + ' ' + el.scrollWidth + '>' + el.clientWidth)`);
     assert.deepEqual(sideways, [], 'Settings scrolls sideways');
     await hosted.screenshot(path.join(fixture.base, 'hosted-settings.png'));
-    passed("the team's Settings fits its window, invitation link and all");
+    passed("the team's Settings and address controls fit its native window");
+    await hosted.evaluate(`(location.href=location.origin+'/',true)`);
+    await hosted.until(tasksReady, 60_000, 'Tasks after settings');
+    await sharedEntityChrome(hosted);
     hosted.close();
     setup.close();
 
@@ -403,7 +504,7 @@ async function run() {
     await quit();
     await launch();
     const reopened = await teamRenderer(localTeam);
-    await reopened.until(text('Task Board'), 300_000, "the reopened team's Task Board");
+    await reopened.until(tasksReady, 300_000, "the reopened team's Tasks");
     passed('a relaunch opened the saved team directly');
     reopened.close();
 
@@ -428,7 +529,7 @@ async function run() {
       await connect.screenshot(path.join(fixture.base, 'join-team.png'));
       await connect.evaluate(click('connect-home'));
       const joined = await teamRenderer((url) => url.origin === new URL(joinOrigin).origin);
-      await joined.until(text('Task Board'), 120_000, "the joined team's Task Board");
+      await joined.until(tasksReady, 120_000, "the joined team's Tasks");
       const joinedName = destination.replace('Invitation to join ', '');
       passed(`joined ${joinedName} from Connect to Ri with an invitation`);
       await joined.screenshot(path.join(fixture.base, 'joined-team.png'));
@@ -453,7 +554,7 @@ async function run() {
       await welcome.until(`${openFamily} && !${openFamily}.disabled`, 60_000, 'Open Family, ready to click');
       await welcome.evaluate(`(${openFamily}.click(), true)`);
       const recovered = await teamRenderer(localTeam);
-      await recovered.until(text('Task Board'), 300_000, "the hosted team's Task Board");
+      await recovered.until(tasksReady, 300_000, "the hosted team's Tasks");
       passed('the team hosted here still opens from the welcome');
       recovered.close();
       welcome.close();

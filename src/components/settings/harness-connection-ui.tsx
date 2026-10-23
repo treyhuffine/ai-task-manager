@@ -1,5 +1,7 @@
 'use client';
 
+import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
+
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import { isDarkBrandMark } from '@/components/integrations/integration-logo';
 import { findProvider, type ProviderId } from '@/lib/harness/options';
@@ -117,8 +119,12 @@ export function ConnectionPanel({
   const provider = findProvider(harness)!;
   const { connection, isLoading } = useHarnessConnection(harness);
   const recheck = useRecheckHarnessConnection();
+  const { canConfigureModels } = useExecutionRuntimeScope();
 
   if (isLoading) return null;
+  if (!canConfigureModels) return connection.connected
+    ? <p className="px-0.5 text-[11px] text-muted-foreground">{connection.metered ? 'The team uses an API account selected by its owner.' : 'The team uses a subscription selected by its owner.'}</p>
+    : <p className="px-0.5 text-[11px] text-muted-foreground">{connection.binaryError ?? 'The owner needs to install and sign in to this harness on the team server.'}</p>;
 
   if (connection.connected && !connection.metered) {
     if (showSignedIn && connection.email) {

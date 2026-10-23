@@ -1,4 +1,5 @@
 'use client';
+import { trpc } from '@/lib/trpc/client';
 import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { trpcClient } from '@/lib/trpc/client';
 import Link from 'next/link';
@@ -74,7 +75,7 @@ function DevExecutionChatInner() {
       if (!sessionId) return;
       qc.invalidateQueries({ queryKey: ['session', sessionId] });
       qc.invalidateQueries({ queryKey: ['session', sessionId, 'events'] });
-      qc.invalidateQueries({ queryKey: ['session', sessionId, 'runtime-status'] });
+      qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: sessionId } }) });
     },
   });
 

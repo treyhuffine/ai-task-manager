@@ -1,3 +1,5 @@
+import { actorFromRequest } from '@/lib/auth/actor';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 import { getChatSessionWithExecution } from '@/lib/db/queries';
 import { reply, searchParams, type OperationContext } from '@/lib/server/operation';
 import { archiveExecutionSession, RemoteDirtyWorktreeError } from '@/lib/sessions/dispatch';
@@ -18,17 +20,20 @@ import { z as rpcZ } from 'zod/v4';
  *      again with `?force=true` (or body `{force:true}`) and the worktree
  *      is force-removed, files and all.
  */
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   const { id } = rpcInput.params;
   try {
     const queryForce = searchParams(rpcInput.query).get('force') === 'true';
     const body = rpcInput.body as { force?: boolean };
     const force = queryForce || body.force === true;
 
-    const row = await archiveExecutionSession({ sessionId: id, force });
+    const row = await archiveExecutionSession({ sessionId: id, force, actor: actorFromRequest(request.headers) });
     if (!row) return reply({ error: 'Session not found' }, { status: 404 });
     return reply(row);
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
+    if (err instanceof Error && err.name === 'DeviceUnavailableForDispatch') return reply({ error: 'worker_unavailable', message: err.message }, { status: 503 });
     if (err instanceof Error && err.name === 'ExecutionMovingError') {
       return reply({ error: 'moving', code: 'moving', message: err.message }, { status: 409 });
     }

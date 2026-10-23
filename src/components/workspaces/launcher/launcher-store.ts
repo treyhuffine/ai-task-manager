@@ -24,6 +24,7 @@ export interface LauncherSeed {
   taskId?: string | null;
   contextTitle?: string | null;
   contextBody?: string | null;
+  onCancel?: () => void;
 }
 
 interface LauncherState {
@@ -63,9 +64,11 @@ export function openLauncher(arg?: string | LauncherSeed | null): void {
   emit();
 }
 
-export function closeLauncher(): void {
+export function closeLauncher(reason: 'cancelled' | 'launched' = 'cancelled'): void {
   if (!state.open) return;
+  const cancel = reason === 'cancelled' ? state.seed?.onCancel : null;
   state = { ...state, open: false };
+  cancel?.();
   emit();
 }
 

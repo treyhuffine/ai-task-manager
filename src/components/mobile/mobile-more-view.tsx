@@ -20,7 +20,7 @@ type MoreSubView = 'menu' | 'tasks' | 'notes' | 'stream' | 'calendar';
 export function MobileMoreView() {
   const router = useRouter();
   const capabilities = useResultCapabilities();
-  const { theme, toggleTheme, openAreasList, setActiveView } = useDashboard();
+  const { theme, toggleTheme, openAreasList, setActiveView, openTask, openNote } = useDashboard();
   const isDark = theme === 'dark';
   const [subView, setSubView] = useState<MoreSubView>('menu');
 
@@ -36,8 +36,8 @@ export function MobileMoreView() {
           <span className="text-sm font-bold">{labels[subView]}</span>
         </div>
         <div className="flex-1 min-h-0 overflow-hidden">
-          {subView === 'tasks' && <TaskList />}
-          {subView === 'notes' && <NoteList />}
+          {subView === 'tasks' && <TaskList onOpenTask={openTask} />}
+          {subView === 'notes' && <NoteList onOpenNote={openNote} />}
           {subView === 'stream' && <StreamList />}
           {subView === 'calendar' && <CalendarPanel />}
         </div>

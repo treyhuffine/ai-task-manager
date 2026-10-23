@@ -1,5 +1,6 @@
 'use client';
 
+import { trpc } from '@/lib/trpc/client';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Loader2 } from 'lucide-react';
@@ -34,9 +35,9 @@ export function useApplyHarness() {
     const saved = await saveHarnessSetup(input);
     // What reads the default (the model line, the model menus) catches up,
     // as it does after "Make default" (`useSetDefaultSelection`).
-    void qc.invalidateQueries({ queryKey: ['user-state'] });
-    void qc.invalidateQueries({ queryKey: ['agent-models', saved.harness] });
-    void qc.invalidateQueries({ queryKey: ['agent-harnesses'] });
+    void qc.invalidateQueries({ queryKey: trpc.userState.list.queryKey({}) });
+    void qc.invalidateQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
+    void qc.invalidateQueries({ queryKey: trpc.harness.harnessesGet.pathKey() });
     const session = mainChat?.session;
     if (
       session?.harness !== saved.harness ||

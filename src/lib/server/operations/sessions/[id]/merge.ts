@@ -1,3 +1,6 @@
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { recordHomeActivity } from '@/lib/home/activity';
 import { getChatSessionWithExecution, touchSessionActivity } from '@/lib/db/queries';
 import { githubAnswerOnOwner } from '@/lib/executor/owner-git';
 import { answerResult, reply, type OperationContext } from '@/lib/server/operation';
@@ -21,6 +24,7 @@ export interface MergeRequestBody {
 async function handlePOST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const authority = sessionAuthority(getRequestKey(_request.headers), id, 'terminal');
     const body = (rpcInput.body) as MergeRequestBody;
 
     const session = getChatSessionWithExecution(id);
@@ -41,9 +45,11 @@ async function handlePOST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Oper
       method: body.method ?? 'squash',
       deleteBranch: body.deleteBranch ?? true,
     }), mergeResponseSchema);
-    if (res.ok) touchSessionActivity(id, 'git');
+    if (res.ok) { touchSessionActivity(id, 'git'); recordHomeActivity(authority, 'merge', id, 'git_change'); }
     return res;
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/merge]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { createReferenceFolder, getDevice, getWorkspace, ReferenceFolderError } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { agentFoldersEverywhere, chooseLinkedFolder, FolderError } from '@/lib/setups/folders';
@@ -9,6 +10,8 @@ import { z as rpcZ } from 'zod/v4';
  * as the home records them and each device last found them.
  */
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'read');
+  if (homeDenied) return homeDenied;
   const { id } = rpcInput.params;
   if (!getWorkspace(id)) return reply({ error: 'not_found' }, { status: 404 });
   return reply({ devices: agentFoldersEverywhere(id) });
@@ -20,6 +23,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
  * added from. Other devices choose their own place for it.
  */
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents', (rpcInput.body as { deviceId?: unknown })?.deviceId);
+  if (homeDenied) return homeDenied;
   const { id } = rpcInput.params;
   if (!getWorkspace(id)) return reply({ error: 'not_found' }, { status: 404 });
   const body = (rpcInput.body) as {

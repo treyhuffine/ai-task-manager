@@ -95,6 +95,7 @@ function moved(row: TaskRecord | undefined, source: SharedTaskSource, state: Sha
   return (
     row.sourceState !== state ||
     !was ||
+    was.syncCursor !== source.syncCursor ||
     was.updatedAt !== source.updatedAt ||
     was.assigned !== source.assigned ||
     was.area?.id !== source.area?.id ||
@@ -136,7 +137,7 @@ export async function syncTeam(teamId: string): Promise<TeamSyncResult> {
       if (
         !row ||
         row.sourceState !== 'active' ||
-        row.source?.updatedAt !== task.updatedAt ||
+        row.source?.syncCursor !== q.teamTaskCursor(task) ||
         (row.source?.area?.name ?? null) !== areaNow ||
         (row.source?.assignee?.name ?? null) !== assigneeNow
       ) {
@@ -150,22 +151,35 @@ export async function syncTeam(teamId: string): Promise<TeamSyncResult> {
       if (row.source?.addedAt || (row.sourceState === 'active' && !assignedIds.has(row.sourceTaskId!))) toRead.add(row.sourceTaskId!);
     }
 
+    const savedNotes = q.listNoteProjections(teamId).filter(row => row.sourceState !== 'released' && !row.source?.goneAt && row.sourceNoteId);
+    const taskReads = [...toRead].map(id => {
+      const row = cached.get(id);
+      const areaChanged = row?.source?.area && areaName.get(row.source.area.id) !== row.source.area.name;
+      const memberChanged = row?.source?.assignee && memberName.get(row.source.assignee.id) !== row.source.assignee.name;
+      return { id, cursor: row?.sourceState === 'active' && !areaChanged && !memberChanged ? row.source?.syncCursor : null };
+    });
+    const noteReads = savedNotes.map(row => ({ id: row.sourceNoteId!, cursor: row.sourceState === 'active' && (!row.source?.area || areaName.get(row.source.area.id) === row.source.area.name) ? row.source?.syncCursor : null }));
+    const readTasks = new Map<string, TeamTask>();
+    const readNotes = new Map<string, TeamNote>();
+    const missingTasks = new Set<string>();
+    const missingNotes = new Set<string>();
+    for (let offset = 0; offset < Math.max(taskReads.length, noteReads.length); offset += 200) {
+      const page = await client.team.referenceChanges.mutate({ tasks: taskReads.slice(offset, offset + 200), notes: noteReads.slice(offset, offset + 200) });
+      assertCurrentTeam(team);
+      for (const task of page.tasks) readTasks.set(task.id, task);
+      for (const note of page.notes) readNotes.set(note.id, note);
+      for (const id of page.missingTasks) missingTasks.add(id);
+      for (const id of page.missingNotes) missingNotes.add(id);
+    }
     let changed = 0;
     for (const id of toRead) {
       let row = q.getTaskProjection(teamId, id) ?? undefined;
-      let task: TeamTask;
-      try {
-        task = await client.tasks.get.query({ id });
-      } catch (err) {
-        assertCurrentTeam(team);
-        if (!isNotFound(err)) throw err;
-        if (row) {
-          // Marked gone either way, so it isn't asked for again.
-          if (row.sourceState !== 'unavailable') changed++;
-          markUnavailable(row);
-        }
+      if (missingTasks.has(id)) {
+        if (row) { if (row.sourceState !== 'unavailable') changed++; markUnavailable(row); }
         continue;
       }
+      const task = readTasks.get(id);
+      if (!task) continue;
       assertCurrentTeam(team);
       // The person may have added or removed the reference while this read waited.
       row = q.getTaskProjection(teamId, id) ?? undefined;
@@ -174,7 +188,8 @@ export async function syncTeam(teamId: string): Promise<TeamSyncResult> {
       const source: SharedTaskSource = {
         assigned: isAssigned,
         addedAt,
-        bodyRevision: task.bodyRevision,
+        syncCursor: q.teamTaskCursor(task),
+      bodyRevision: task.bodyRevision,
         statusChangedCount: task.statusChangedCount,
         updatedAt: task.updatedAt,
         syncedAt: now,
@@ -184,35 +199,30 @@ export async function syncTeam(teamId: string): Promise<TeamSyncResult> {
       const state: SharedSourceState = isAssigned || addedAt ? 'active' : 'released';
       // A task added deliberately is read every pass. Unchanged, it stays as it is.
       if (!moved(row, source, state)) continue;
-      q.saveTaskProjection({ teamId, sourceTaskId: id, fields: sharedFields(teamId, task), source, state });
+      q.saveTaskProjection({ teamId, sourceTaskId: id, fields: sharedFields(teamId, task), source, state, activeSourceAreaId: areas.find((a) => a.id === task.areaId && a.status !== 'archived')?.id ?? null });
       changed++;
     }
 
-    // Saved notes, each read again: a note changed at the team shows its
-    // new text, and one gone from the team says so.
-    for (const row of q.listNoteProjections(teamId)) {
-      if (row.sourceState === 'released' || row.source?.goneAt || !row.sourceNoteId) continue;
-      let note: TeamNote;
-      try {
-        note = await client.notes.get.query({ id: row.sourceNoteId });
-      } catch (err) {
-        assertCurrentTeam(team);
-        if (!isNotFound(err)) throw err;
-        // Marked gone either way, so it isn't asked for again.
+    // Versioned note batches share the same bounded read as explicit tasks.
+    for (const row of savedNotes) {
+      if (missingNotes.has(row.sourceNoteId!)) {
         if (row.sourceState !== 'unavailable') changed++;
-        q.saveNoteProjection({ teamId, sourceNoteId: row.sourceNoteId, fields: { title: row.title, body: '', url: null }, source: { ...noteSource(row, now), goneAt: now }, state: 'unavailable' });
+        q.saveNoteProjection({ teamId, sourceNoteId: row.sourceNoteId!, fields: { title: row.title, body: '', url: null }, source: { ...noteSource(row, now), goneAt: now }, state: 'unavailable' });
         continue;
       }
+      const note = readNotes.get(row.sourceNoteId!);
+      if (!note) continue;
       assertCurrentTeam(team);
       if (q.getNote(row.id)?.sourceState === 'released') continue;
       const area = note.areaId ? { id: note.areaId, name: areaName.get(note.areaId) ?? 'Area' } : null;
-      if (row.sourceState === 'active' && row.source?.updatedAt === note.updatedAt && row.source.area?.id === area?.id && row.source.area?.name === area?.name) continue;
+      if (row.sourceState === 'active' && row.source?.syncCursor === q.teamNoteCursor(note) && row.source.area?.id === area?.id && row.source.area?.name === area?.name) continue;
       q.saveNoteProjection({
         teamId,
         sourceNoteId: note.id,
         fields: sharedNoteFields(teamId, note),
-        source: { addedAt: row.source?.addedAt ?? now, bodyRevision: note.bodyRevision, updatedAt: note.updatedAt, syncedAt: now, area },
+        source: { syncCursor: q.teamNoteCursor(note), addedAt: row.source?.addedAt ?? now, bodyRevision: note.bodyRevision, updatedAt: note.updatedAt, syncedAt: now, area },
         state: 'active',
+        activeSourceAreaId: areas.find((a) => a.id === note.areaId && a.status !== 'archived')?.id ?? null,
       });
       changed++;
     }
@@ -269,7 +279,12 @@ export async function syncAllTeams(): Promise<TeamSyncResult[]> {
   const results: TeamSyncResult[] = [];
   for (const connection of q.listTeamConnections()) {
     if (connection.status !== 'active') continue;
-    results.push(await syncTeam(connection.id));
+    try {
+      results.push(await syncTeam(connection.id));
+    } catch (error) {
+      const problem = recordTeamFailure(connection.id, error)!;
+      results.push({ teamId: connection.id, ok: false, active: 0, changed: 0, problem: problem.message });
+    }
   }
   return results;
 }
@@ -299,10 +314,12 @@ export async function addTeamTaskToMyWork(teamId: string, taskId: string): Promi
   return q.saveTaskProjection({
     teamId,
     sourceTaskId: taskId,
+    activeSourceAreaId: areas.find((a) => a.id === task.areaId && a.status !== 'archived')?.id ?? null,
     fields: sharedFields(teamId, task),
     source: {
       assigned,
       addedAt: row?.source?.addedAt ?? now,
+      syncCursor: q.teamTaskCursor(task),
       bodyRevision: task.bodyRevision,
       statusChangedCount: task.statusChangedCount,
       updatedAt: task.updatedAt,
@@ -351,6 +368,7 @@ export async function saveTeamNoteToMyNotes(teamId: string, noteId: string): Pro
   return q.saveNoteProjection({
     teamId,
     sourceNoteId: noteId,
+    activeSourceAreaId: areas.find((a) => a.id === note.areaId && a.status !== 'archived')?.id ?? null,
     fields: sharedNoteFields(teamId, note),
     source: {
       addedAt: row?.sourceState === 'active' && row.source?.addedAt ? row.source.addedAt : now,
@@ -390,20 +408,33 @@ const syncState = processState('spaces:sync', () => ({
   running: null as Promise<TeamSyncResult[]> | null,
   lastStartedAt: 0,
   lastResults: [] as TeamSyncResult[],
+  followUp: false,
 }));
 
-export function requestTeamSync({ minIntervalMs = 20_000 }: { minIntervalMs?: number } = {}): Promise<TeamSyncResult[]> {
-  if (syncState.running) return syncState.running;
+export function requestTeamSync({ minIntervalMs = 20_000, includeNewConnections = false }: { minIntervalMs?: number; includeNewConnections?: boolean } = {}): Promise<TeamSyncResult[]> {
+  if (syncState.running) {
+    if (includeNewConnections) syncState.followUp = true;
+    return syncState.running;
+  }
   if (Date.now() - syncState.lastStartedAt < minIntervalMs) return Promise.resolve(syncState.lastResults);
   syncState.lastStartedAt = Date.now();
-  syncState.running = perfScope('timer:team-sync', () => syncAllTeams())
+  syncState.running = perfScope('timer:team-sync', async () => {
+    let results: TeamSyncResult[];
+    do {
+      syncState.followUp = false;
+      results = await syncAllTeams();
+    } while (syncState.followUp);
+    return results;
+  })
     .then((results) => {
       syncState.lastResults = results;
       return results;
     })
     .catch((err: unknown) => {
       console.warn('[teams] sync failed', err);
-      return [];
+      const results = q.listTeamConnections().filter((c) => c.status === 'active').map((c) => ({ teamId: c.id, ok: false, active: 0, changed: 0, problem: recordTeamFailure(c.id, err)!.message }));
+      syncState.lastResults = results;
+      return results;
     })
     .finally(() => {
       syncState.running = null;

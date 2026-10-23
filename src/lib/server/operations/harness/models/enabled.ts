@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import { getAppRoot } from '@/lib/config/paths';
 import {
@@ -16,6 +17,8 @@ import { z as rpcZ } from 'zod/v4';
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   const harness = new URL(request.url).searchParams.get('harness');
   if (!isHarnessId(harness)) return reply({ error: 'Unknown harness' }, { status: 400 });
   return reply(ensureHarnessSettings(harness));
@@ -27,6 +30,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: Operat
  * work, which has its own route (`PUT /harness/default`, docs/default-selection.md).
  */
 export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const body = rpcInput.body as Record<string, unknown>;
     if (!isHarnessId(body.harness)) return reply({ error: 'Unknown harness' }, { status: 400 });

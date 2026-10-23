@@ -17,7 +17,7 @@ signed in, and responding to a real request. Everything else has a default or ca
 - The model and effort: the harness's defaults, said in one line with a way to change them (below).
 - The agent skill: installed without a question as the conversation opens, before the harness step, into every
   harness's skill folder (docs/skills.md), as the wizard does. Settings tells the person it's on and takes it off in
-  one click, in Get started and External AI.
+  one click, in Get started and MCP access.
 - Areas, imports, apps, a first agent: useful, asked in the conversation, all skippable.
 
 So the harness is the only step that can't be skipped, and usually the person never sees it.

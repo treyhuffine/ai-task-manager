@@ -12,7 +12,7 @@
  */
 
 import {
-  archiveChatSession,
+  TeamError, getMemberPreferences, setMemberCurrentMainChat,
   createChatSession,
   getChatSession,
   getLastChatEventBySource,
@@ -26,6 +26,13 @@ import { resolveStartSelection } from '@/lib/harness/start-selection';
 import { assertHarnessEnabled, DEFAULT_HARNESS, isKnownHarnessId } from '@/lib/harness/registry';
 import { agentDeviceFor } from '@/lib/setups/run-on';
 import { permissionsForNewChat } from '@/lib/executor/permission-map';
+import { mainChatAuthority, mainChatStartPolicy } from './main-chat-home-policy';
+import { retireChatForHome } from './home-policy';
+import { getDbPath } from '@/lib/config/paths';
+import { processState } from '@/lib/process-state';
+import { chatLifecycleClosing, executionLifecycleClosing } from './lifecycle-admission';
+import { sessionAuthority } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 
 /** `null` is the app's main chat. A workspace id is that agent's main chat. */
 export type MainChatScope = string | null;
@@ -59,6 +66,13 @@ export function parseChatOverride(src: unknown): ChatOverride {
 
 /** The scope's current chat, or null when it has none yet. */
 export function currentMainChat(scope: MainChatScope): ChatSessionRecord | null {
+  const authority = mainChatAuthority(scope);
+  if (authority) {
+    const selected = getMemberPreferences(authority.member.id)?.currentMainChats[scope!];
+    if (!selected) return null;
+    const chat = selected ? getChatSession(selected) : null;
+    return chat?.workspaceId === scope && chat.status === 'active' && chat.type === 'orchestration' && !chat.executionId && !chat.createdByRunId ? chat : null;
+  }
   return listMainChats(scope, { status: 'active', limit: 1 })[0] ?? null;
 }
 
@@ -66,15 +80,20 @@ async function createMainChat(
   scope: MainChatScope,
   override: ChatOverride,
   permissions?: Pick<ChatSessionRecord, 'permissionMode' | 'prePlanMode'>,
+  policy?: Awaited<ReturnType<typeof mainChatStartPolicy>>,
 ): Promise<ChatSessionRecord> {
-  const selection = await resolveStartSelection(override);
+  const contextual = policy === undefined ? await mainChatStartPolicy(scope, override) : policy;
+  const selection = contextual?.selection ?? await resolveStartSelection(override);
+  contextual?.verify();
   const session = createChatSession({
     ...permissions,
+    ...(contextual?.permissionMode ? { permissionMode: contextual.permissionMode, prePlanMode: contextual.prePlanMode ?? null } : {}),
+    ...(contextual ? { createdByMemberId: contextual.memberId, surfaceKind: contextual.surfaceKind } : {}),
     type: 'orchestration',
     workspaceId: scope,
     // An agent's main chat is pinned where the agent lives (P3.4). The app's
     // own main chat, and an agent set up at home, run at home.
-    deviceId: scope ? agentDeviceFor(scope) : null,
+    deviceId: contextual?.deviceId ?? (scope ? agentDeviceFor(scope) : null),
     harness: selection.providerId,
     model: selection.model,
     modelVariant: selection.variant,
@@ -89,29 +108,35 @@ async function createMainChat(
   });
   // A chat starts on the default. Starting one, even on another harness,
   // doesn't change it (docs/default-selection.md).
+  selectMainChat(scope, session.id);
   return session;
 }
 
-/**
- * Concurrent opens of the same scope share one create, so two tabs (or a
- * double render) opening an agent at once never leave two current chats.
- * On globalThis so every route bundle sees the same map.
- */
-const INFLIGHT_KEY = Symbol.for('ri.mainChat.inflight');
-const inflight: Map<string, Promise<ChatSessionRecord>> =
-  ((globalThis as Record<symbol, unknown>)[INFLIGHT_KEY] as Map<string, Promise<ChatSessionRecord>> | undefined)
-  ?? ((globalThis as Record<symbol, unknown>)[INFLIGHT_KEY] = new Map());
+function selectMainChat(scope: MainChatScope, chatId: string) {
+  const authority = mainChatAuthority(scope);
+  if (authority && scope) setMemberCurrentMainChat(authority.member.id, scope, chatId);
+}
+
+/** One lifecycle writer per Home and scope, shared by every server bundle. */
+const lifecycle = processState('sessions:main-chat-lifecycle', () => ({ pending: new Map<string, Promise<unknown>>() }));
+function serializeMainChatChange<T>(scope: MainChatScope, work: () => Promise<T>): Promise<T> {
+  const key = JSON.stringify([getDbPath(), scope]);
+  const before = lifecycle.pending.get(key) ?? Promise.resolve();
+  const next = before.catch(() => {}).then(work);
+  lifecycle.pending.set(key, next);
+  void next.finally(() => { if (lifecycle.pending.get(key) === next) lifecycle.pending.delete(key); }).catch(() => {});
+  return next;
+}
 
 /** The scope's current chat, created when it has none ("ensure" semantics). */
-export async function ensureMainChat(scope: MainChatScope): Promise<ChatSessionRecord> {
-  const current = currentMainChat(scope);
-  if (current) return current;
-  const key = scope ?? '';
-  const pending = inflight.get(key);
-  if (pending) return pending;
-  const created = createMainChat(scope, {}).finally(() => inflight.delete(key));
-  inflight.set(key, created);
-  return created;
+export function ensureMainChat(scope: MainChatScope): Promise<ChatSessionRecord> {
+  return serializeMainChatChange(scope, async () => {
+    const current = currentMainChat(scope);
+    if (current) return current;
+    const session = await createMainChat(scope, {});
+    mainChatAuthority(scope);
+    return session;
+  });
 }
 
 /**
@@ -121,15 +146,21 @@ export async function ensureMainChat(scope: MainChatScope): Promise<ChatSessionR
  * until the summary lands, or forever if the call fails).
  */
 async function retireMainChat(id: string): Promise<void> {
-  const { close } = await import('@/lib/executor/adapter');
-  await close(id).catch(() => {});
-  // A message still waiting for a device goes with it, rather than running
-  // later in a chat that's gone.
-  const { withdrawChatQueue } = await import('@/lib/workers/undelivered');
-  withdrawChatQueue(id, 'This chat was closed before it was delivered.');
-  archiveChatSession(id);
-  const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
-  void deriveRetrospectiveLabel(id);
+  const deriveLabel = await retireChatForHome(id);
+  if (deriveLabel) {
+    const { deriveRetrospectiveLabel } = await import('@/lib/sessions/derive-label');
+    void deriveRetrospectiveLabel(id);
+  }
+}
+
+/** Add a conversation without retiring another member's current work. */
+export function addMainChat(scope: MainChatScope, override: ChatOverride = {}): Promise<ChatSessionRecord> {
+  return serializeMainChatChange(scope, async () => {
+    const policy = await mainChatStartPolicy(scope, override);
+    const current = currentMainChat(scope);
+    const harness = policy?.selection.providerId ?? override.providerId ?? current?.harness ?? getUserState()?.defaultHarness ?? DEFAULT_HARNESS;
+    return createMainChat(scope, override, permissionsForNewChat(harness, current), policy);
+  });
 }
 
 /** A new main chat an app asked for, refused because the person has written in the current one (`forApp`). */
@@ -151,18 +182,29 @@ export class MainChatInUseError extends Error {
  * (`MainChatInUseError`), its draft going there instead. Only the person
  * starts over.
  */
-export async function startNewMainChat(scope: MainChatScope, override: ChatOverride = {}, options: { forApp?: boolean } = {}): Promise<ChatSessionRecord> {
+export function startNewMainChat(scope: MainChatScope, override: ChatOverride = {}, options: { forApp?: boolean; sourceChatId?: string } = {}): Promise<ChatSessionRecord> {
+  return serializeMainChatChange(scope, () => startNewMainChatUnlocked(scope, override, options));
+}
+async function startNewMainChatUnlocked(scope: MainChatScope, override: ChatOverride, options: { forApp?: boolean; sourceChatId?: string }): Promise<ChatSessionRecord> {
+  const policy = await mainChatStartPolicy(scope, override);
   // A disabled explicit choice must fail before retiring the current chat.
-  const harness = override.providerId ?? getUserState()?.defaultHarness ?? DEFAULT_HARNESS;
+  const harness = policy?.selection.providerId ?? override.providerId ?? getUserState()?.defaultHarness ?? DEFAULT_HARNESS;
   assertHarnessEnabled(harness);
   const current = currentMainChat(scope);
   if (options.forApp && current) {
     if (!getLastChatEventBySource(current.id, 'user')) return current;
     throw new MainChatInUseError();
   }
-  const permissions = permissionsForNewChat(harness, current);
+  const viewed = options.sourceChatId ? getChatSession(options.sourceChatId) : current;
+  if (options.sourceChatId) {
+    if (!viewed || viewed.workspaceId !== scope || viewed.type !== 'orchestration' || viewed.executionId || viewed.createdByRunId) throw new TeamError('not_found', 'Choose a main chat of this agent.');
+    sessionAuthority(executionRequestKey(), viewed.id, 'read');
+    if (chatLifecycleClosing(viewed.id)) throw new TeamError('conflict', 'This chat is being closed. Try again after it finishes.');
+  }
+  const permissions = permissionsForNewChat(harness, viewed);
+  if (policy) return createMainChat(scope, override, permissions, policy);
   if (current) await retireMainChat(current.id);
-  return createMainChat(scope, override, permissions);
+  return createMainChat(scope, override, permissions, policy);
 }
 
 export const MAIN_CHAT_HISTORY_LIMIT = 50;
@@ -182,6 +224,7 @@ export interface MainChatHistoryEntry {
 
 /** Past and current chats in the scope, newest activity first. Capped. */
 export function mainChatHistory(scope: MainChatScope): MainChatHistoryEntry[] {
+  mainChatAuthority(scope);
   return listMainChats(scope, { limit: MAIN_CHAT_HISTORY_LIMIT }).map((s) => {
     const lastUser = getLastChatEventBySource(s.id, 'user');
     const raw = lastUser?.content?.trim().replace(/\s+/g, ' ') ?? null;
@@ -214,7 +257,11 @@ export type ResumeMainChatResult =
  * Spawn flags (MCP attachment, tool guards) are applied at dispatch, so a
  * chat that ran under the retired Skills mode continues on MCP.
  */
-export async function resumeMainChat(scope: MainChatScope, sessionId: string): Promise<ResumeMainChatResult> {
+export function resumeMainChat(scope: MainChatScope, sessionId: string): Promise<ResumeMainChatResult> {
+  return serializeMainChatChange(scope, () => resumeMainChatUnlocked(scope, sessionId));
+}
+async function resumeMainChatUnlocked(scope: MainChatScope, sessionId: string): Promise<ResumeMainChatResult> {
+  const authority = mainChatAuthority(scope);
   const target = getChatSession(sessionId);
   const inScope = target
     && target.type === 'orchestration'
@@ -229,12 +276,16 @@ export async function resumeMainChat(scope: MainChatScope, sessionId: string): P
     };
   }
 
+  if (chatLifecycleClosing(target.id) || executionLifecycleClosing(target.executionId)) throw new TeamError('conflict', 'This chat is being closed. Try again after it finishes.');
   const current = currentMainChat(scope);
   if (current?.id === target.id) return { ok: true, session: target };
-  if (current) await retireMainChat(current.id);
+  if (current && !authority) await retireMainChat(current.id);
+
+  mainChatAuthority(scope);
 
   const session = target.status === 'archived'
     ? updateChatSession(target.id, { status: 'active', archivedAt: null }) ?? target
     : target;
+  selectMainChat(scope, session.id);
   return { ok: true, session };
 }

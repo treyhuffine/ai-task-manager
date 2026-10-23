@@ -41,6 +41,7 @@ function useSettle() {
 export function useCreateSkill() {
   const settle = useSettle();
   return useMutation({
+    meta: { carriesInput: true },
     mutationFn: (body: CreateSkillBody) => skillsApi.create(body),
     onSuccess: (result) => { void settle(result.skill); },
   });
@@ -49,6 +50,7 @@ export function useCreateSkill() {
 export function useSaveSkill(ref: string) {
   const settle = useSettle();
   return useMutation({
+    meta: { carriesInput: true },
     mutationFn: (body: SaveSkillBody) => skillsApi.save(ref, body),
     onSuccess: (result) => settle(result.skill),
   });

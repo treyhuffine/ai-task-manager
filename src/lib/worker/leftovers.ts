@@ -33,6 +33,8 @@ export interface ProcessIdentity {
   ppid: number;
   started: string;
   command: string;
+  /** Linux kernel boot ID plus /proc start ticks. Stable across exec/adoption. */
+  birthId?: string;
 }
 
 interface ProcessRecord {
@@ -58,6 +60,8 @@ async function ps(args: string[]): Promise<{ processes: ProcessIdentity[]; psPid
     stdout = (await pending).stdout;
   } catch (err) {
     // `ps -p` exits 1 when the process is gone, with nothing to parse.
+    // A failed inspection (EMFILE, missing ps, etc.) proves no exit at all.
+    if ((err as { code?: unknown }).code !== 1 || !args.includes('-p')) throw err;
     stdout = (err as { stdout?: string }).stdout ?? '';
   }
   return { processes: parsePs(stdout), psPid };
@@ -65,10 +69,18 @@ async function ps(args: string[]): Promise<{ processes: ProcessIdentity[]; psPid
 
 function parsePs(stdout: string): ProcessIdentity[] {
   const processes: ProcessIdentity[] = [];
+  let bootId: string | undefined;
+  if (process.platform === 'linux') {
+    try { bootId = fs.readFileSync(/* turbopackIgnore: true */ '/proc/sys/kernel/random/boot_id', 'utf8').trim(); } catch { /* identities remain unconfirmed without kernel proof */ }
+  }
   for (const line of stdout.split('\n')) {
     const match = PS_LINE.exec(line);
     if (!match) continue;
-    processes.push({ pid: Number(match[1]), ppid: Number(match[2]), started: match[3]!.replace(/\s+/g, ' '), command: match[4]! });
+    const identity: ProcessIdentity = { pid: Number(match[1]), ppid: Number(match[2]), started: match[3]!.replace(/\s+/g, ' '), command: match[4]! };
+    if (bootId) {
+      try { identity.birthId = linuxProcessBirth(fs.readFileSync(/* turbopackIgnore: true */ `/proc/${identity.pid}/stat`, 'utf8'), bootId); } catch { /* process exited, or /proc is restricted */ }
+    }
+    processes.push(identity);
   }
   return processes;
 }
@@ -101,6 +113,23 @@ export async function processIdentity(pid: number): Promise<ProcessIdentity | nu
 /** Whether `now` is still the process `recorded` was: same start time and command line, so not a reused pid. */
 export const sameProcess = (now: ProcessIdentity | null | undefined, recorded: ProcessIdentity) =>
   !!now && now.started === recorded.started && now.command === recorded.command;
+/** /proc comm may contain spaces and parentheses. Field 22 is starttime. */
+export function linuxProcessBirth(stat: string, bootId: string): string | undefined {
+  const end = stat.lastIndexOf(')');
+  if (end < 0 || !/^\d+ \(/.test(stat) || !bootId.trim()) return undefined;
+  const ticks = stat.slice(end + 1).trim().split(/\s+/)[19];
+  return ticks && /^\d+$/.test(ticks) ? `${bootId.trim()}:${ticks}` : undefined;
+}
+
+/** Exec preserves birth identity. Linux subreapers can adopt a tree under
+ * any parent PID. Legacy records with an unexplained parent change are
+ * ambiguous: keep them tracked, but do not signal an unproven identity. */
+export function sameProcessLifetime(now: ProcessIdentity | null | undefined, recorded: ProcessIdentity): boolean | null {
+  if (!now || now.pid !== recorded.pid) return false;
+  if (recorded.birthId) return now.birthId ? now.birthId === recorded.birthId : null;
+  if (now.started !== recorded.started) return false;
+  return now.ppid === recorded.ppid || now.ppid === 1 ? true : null;
+}
 const same = sameProcess;
 
 /** This process and its children, as they are now. */

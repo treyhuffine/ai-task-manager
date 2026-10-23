@@ -18,6 +18,7 @@ import { camelizeKeys } from '@/lib/case/keys';
 import { getAttachmentsDir } from '@/lib/config/paths';
 import { isAllowedMime, resolveMime, extForFile } from '@/lib/attachments/mime';
 import { extractReferencedFileNames } from '@/lib/attachments/derive';
+import { validateWorkResultActor } from './home-policy';
 import { ActionError } from '@/lib/orchestrator/types';
 import { APP_SHORT_ID } from '@/constants/app';
 import { publishChatEvent } from '@/lib/realtime/bus';
@@ -60,7 +61,7 @@ export function workResultRequestScopedId(namespace: string, actor: WorkResultAc
   if (!actor.userId || (actor.source === 'ai' && !actor.sessionId)) {
     throw new ActionError('invalid_params', 'Agent reporting requires an authenticated session.');
   }
-  const caller = actor.source === 'ai' ? ['agent', actor.sessionId] : [actor.source, actor.userId];
+  const caller = [...(actor.source === 'ai' ? ['agent', actor.sessionId] : [actor.source, actor.userId]), ...(actor.memberId ? [actor.memberId] : [])];
   const hash = crypto.createHash('sha256')
     .update(JSON.stringify([APP_SHORT_ID, namespace, actor.userId, caller, requestId])).digest();
   hash[6] = (hash[6] & 0x0f) | 0x80;
@@ -70,8 +71,8 @@ export function workResultRequestScopedId(namespace: string, actor: WorkResultAc
 }
 
 function validateActor(actor: WorkResultActor): void {
-  // This branch's established authority is the local personal home. Future homes
-  // authorization belongs at its existing boundary, not a parallel permissions model.
+  validateWorkResultActor(actor);
+  // The local user sentinel identifies the Home, while member provenance identifies its caller.
   if (actor.userId !== 'local') throw new ActionError('not_found', 'The requested personal authority is unavailable.');
   if (actor.source === 'ai' && !actor.sessionId) throw new ActionError('invalid_params', 'Agent reporting requires a signed session identity.');
   if (actor.sessionId) {
@@ -195,7 +196,7 @@ export function createWorkResult(actor: WorkResultActor, input: ReportWorkResult
       ? listWorkResultOperationRuns(['running']).find((run) => {
         const metadata = workResultOperationMetadata(run.triggerPayload);
         return run.chatSessionId === actor.sessionId && metadata?.kind === 'handoff_preparation'
-          && metadata.requestId === input.requestId && metadata.actorUserId === actor.userId;
+          && metadata.requestId === input.requestId && metadata.actorUserId === actor.userId && (metadata.actorMemberId ?? null) === (actor.memberId ?? null);
       }) : undefined;
     const preparationMetadata = workResultOperationMetadata(preparation?.triggerPayload);
     if (preparationMetadata && (preparationMetadata.resultId ?? undefined) !== input.supersedesId) {
@@ -273,7 +274,7 @@ export function createWorkResult(actor: WorkResultActor, input: ReportWorkResult
     const now = featureTimestamp();
     const result = hydrateRow(getDb().insert(workResults).values({
       createdAt: now, updatedAt: now,
-      id, userId: actor.userId, actorSource: actor.source, actorUserId: actor.userId,
+      id, userId: actor.userId, actorSource: actor.source, actorUserId: actor.userId, actorMemberId: actor.memberId ?? null,
       actorSessionId: actor.sessionId ?? null, sourceChatSessionId: sessionId,
       sourceExecutionId: executionId,
       sourceEventId: selectedSourceEvent?.sessionId === sessionId ? selectedSourceEvent.id : null,
@@ -285,7 +286,7 @@ export function createWorkResult(actor: WorkResultActor, input: ReportWorkResult
     if (sessionId) getDb().insert(chatEvents).values({
       id: workResultRequestScopedId('result_event', actor, input.requestId), sessionId,
       createdAt: now, updatedAt: now,
-      role: 'assistant', source: 'work_result', raw: { resultId: id }, attachments: [],
+      role: 'assistant', source: 'work_result', authorMemberId: actor.memberId ?? null, raw: { resultId: id }, attachments: [],
     }).run();
     if (input.independentReview) recordExistingReview(actor, {
       ...input.independentReview,
@@ -295,7 +296,7 @@ export function createWorkResult(actor: WorkResultActor, input: ReportWorkResult
     if (origin.automaticReview && aiReviewEnabled()) {
       const request = origin.automaticReview(getWorkResult(id, actor.userId)!);
       if (request) {
-        const automatic = createWorkResultAiReview({ userId: actor.userId, source: 'system' }, request);
+        const automatic = createWorkResultAiReview({ userId: actor.userId, source: 'system', memberId: actor.memberId, apiKeyId: actor.apiKeyId }, request);
         if (request.failureReason && !automatic.reused) transitionWorkResultAiReview(automatic.review.id, ['queued'], 'failed',
           { statusReason: request.failureReason }, actor.userId);
       }
@@ -399,7 +400,7 @@ export function createWorkResultDecision(actor: WorkResultActor, input: WorkResu
     const review = hydrateRow(getDb().insert(workResultDecisions).values({
       createdAt: now, updatedAt: now,
       id, userId: actor.userId, resultId: result.id, requestHash: hash, disposition: input.disposition,
-      actorSource: actor.source, actorUserId: actor.userId, actorSessionId: actor.sessionId ?? null,
+      actorSource: actor.source, actorUserId: actor.userId, actorMemberId: actor.memberId ?? null, actorSessionId: actor.sessionId ?? null,
       note: input.note ?? null, attachments: dehydrateAttachments(attachments) ?? [], context: input.context ?? null,
       feedbackSessionId: input.feedbackSessionId ?? null, feedbackMessageId: input.feedbackMessageId ?? null,
     }).returning().get());
@@ -473,8 +474,9 @@ export function createWorkResultAiReview(actor: WorkResultActor, input: CreateWo
       if (active.focus === (input.focus ?? null) && workResultIntentHash(active.selection) === workResultIntentHash(input.selection)) {
         const now = featureTimestamp();
         getDb().insert(workResultAiReviews).values({
+      requestingApiKeyId: actor.apiKeyId ?? null,
           id, createdAt: now, updatedAt: now, userId: actor.userId, resultId: input.resultId,
-          actorSource: actor.source, actorUserId: actor.userId, actorSessionId: actor.sessionId ?? null,
+          actorSource: actor.source, actorUserId: actor.userId, actorMemberId: actor.memberId ?? null, actorSessionId: actor.sessionId ?? null,
           requestHash: hash, focus: input.focus ?? null, brief: input.brief, selection: input.selection,
           scope: input.scope, provenance: { ...input.provenance, reusedReviewId: active.id },
           status: 'cancelled', statusReason: 'reused_existing_review',
@@ -485,9 +487,10 @@ export function createWorkResultAiReview(actor: WorkResultActor, input: CreateWo
     }
     const now = featureTimestamp();
     const review = getDb().insert(workResultAiReviews).values({
+      requestingApiKeyId: actor.apiKeyId ?? null,
       createdAt: now, updatedAt: now,
       id, userId: actor.userId, resultId: input.resultId, actorSource: actor.source,
-      actorUserId: actor.userId, actorSessionId: actor.sessionId ?? null, requestHash: hash,
+      actorUserId: actor.userId, actorMemberId: actor.memberId ?? null, actorSessionId: actor.sessionId ?? null, requestHash: hash,
       focus: input.focus ?? null, brief: input.brief, selection: input.selection, scope: input.scope,
       provenance: input.provenance, status: 'queued',
     }).returning().get();
@@ -550,7 +553,7 @@ function insertReport(actor: WorkResultActor, input: ReportWorkResultAiReviewInp
   const now = featureTimestamp();
   return hydrateRow(getDb().insert(workResults).values({
     createdAt: now, updatedAt: now,
-    id, userId: actor.userId, actorSource: actor.source, actorUserId: actor.userId,
+    id, userId: actor.userId, actorSource: actor.source, actorUserId: actor.userId, actorMemberId: actor.memberId ?? null,
     actorSessionId: actor.sessionId ?? null, sourceChatSessionId: actor.sessionId ?? null,
     sourceExecutionId: null, sourceEventId: null, requestHash: hash,
     title: input.title ?? 'AI review', body: input.body, attachments: dehydrateAttachments(attachments) ?? [],
@@ -589,8 +592,9 @@ function recordExistingReview(actor: WorkResultActor, input: ReportWorkResultAiR
   const report = insertReport(actor, input, target, scope, id);
   const now = featureTimestamp();
   const review = getDb().insert(workResultAiReviews).values({
+      requestingApiKeyId: actor.apiKeyId ?? null,
     createdAt: now, updatedAt: now,
-    id, userId: actor.userId, resultId: target.id, actorSource: actor.source, actorUserId: actor.userId,
+    id, userId: actor.userId, resultId: target.id, actorSource: actor.source, actorUserId: actor.userId, actorMemberId: actor.memberId ?? null,
     actorSessionId: actor.sessionId ?? null, requestHash: hash, brief: null,
     selection: input.selection ?? unknownSelection, scope, provenance, status: 'completed', reportResultId: report.id,
   }).returning().get();

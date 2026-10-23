@@ -29,6 +29,7 @@ import { API_PROTOCOL, API_PROTOCOL_HEADER } from '@/lib/releases/api-contract';
 import type { AppRouter } from '@/lib/trpc/router';
 import { TRPCClientError } from '@trpc/client';
 import { isGatewayFailure, isNetworkFailure, reportNetworkFailure, reportReachable } from './connectivity';
+import { DOCUMENT_HOME_HEADER, DOCUMENT_VIEWER_HEADER, readDocumentBinding } from '@/lib/home/document-binding';
 
 export const AUTH_TOKEN_STORAGE_KEY = `${APP_SHORT_ID}.token`;
 const DEFAULT_BASE_URL = '/api';
@@ -230,7 +231,8 @@ export class ApiClient {
    * The token source and unauthorized recovery are shared with HTTP. */
   connectionParams(): Record<string, string> {
     const token = this.getToken();
-    return { protocol: String(API_PROTOCOL), ...(token ? { token } : {}) };
+    const binding = readDocumentBinding();
+    return { protocol: String(API_PROTOCOL), ...(token ? { token } : {}), ...(binding ? { documentHome: binding.homeId, documentViewer: binding.viewerId } : {}) };
   }
   unauthorized(): void { this.onUnauthorized(); }
 
@@ -346,6 +348,11 @@ export class ApiClient {
 
   private buildHeaders(init?: HeadersInit, contentType?: string): Headers {
     const headers = new Headers(init);
+    const binding = readDocumentBinding();
+    if (binding) {
+      if (!headers.has(DOCUMENT_HOME_HEADER)) headers.set(DOCUMENT_HOME_HEADER, binding.homeId);
+      if (!headers.has(DOCUMENT_VIEWER_HEADER)) headers.set(DOCUMENT_VIEWER_HEADER, binding.viewerId);
+    }
     if (!headers.has(API_PROTOCOL_HEADER)) headers.set(API_PROTOCOL_HEADER, String(API_PROTOCOL));
     const token = this.getToken();
     if (token && !headers.has('Authorization')) {

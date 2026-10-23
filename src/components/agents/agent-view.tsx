@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Loader2 } from 'lucide-react';
+import { apiErrorStatus } from '@/lib/api/client';
+import { ChatLookupState, ChatRefreshBoundary } from '@/components/chat/chat-lookup-state';
 import {
   useDefaultLayout,
   usePanelRef,
@@ -9,7 +10,7 @@ import {
   type LayoutStorage,
   type PanelSize,
 } from 'react-resizable-panels';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation } from '@/contexts/work-context';
 import { useWorkspace } from '@/hooks/use-workspaces';
 import { useElementWidth } from '@/hooks/use-element-width';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -20,6 +21,8 @@ import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { AgentHeader } from './agent-header';
 import { AgentChatPanel } from './agent-chat-panel';
 import { AgentTools } from './agent-tools';
+import { useHomeStorageScope } from '@/components/home/home-context';
+import { homeStorageIdentity } from '@/lib/home/document-scope';
 import { useBesidePreview, useBesideRegion } from '@/components/chat-ui/artifacts/artifact-preview-provider';
 import { PREVIEW_HOST_ATTRIBUTE } from '@/components/chat-ui/artifacts/artifact-preview-store';
 
@@ -57,6 +60,7 @@ export function AgentView({
   tab,
   onBack,
   assumeNarrow = false,
+  chatSessionId,
 }: {
   workspaceId: string;
   tab?: AgentTab;
@@ -64,20 +68,23 @@ export function AgentView({
   onBack?: () => void;
   /** Start in one-pane mode until measured (the phone layout), so it never flashes two panels. */
   assumeNarrow?: boolean;
+  /** An explicit saved conversation, independent of the agent's current main chat. */
+  chatSessionId?: string;
 }) {
   const [measureRef, width] = useElementWidth<HTMLDivElement>();
   const narrow = width === null ? assumeNarrow : width < NARROW_WIDTH;
   // A tab in the URL means the user asked for a tool, so narrow mode opens on it.
   const [pane, setPane] = useState<AgentPane>(() => (tab ? 'tools' : 'chat'));
-  const { data: workspace, isLoading } = useWorkspace(workspaceId);
-  const { openAgent, goHome } = useDashboard();
+  const { data: workspace, error, fetchStatus, refetch } = useWorkspace(workspaceId);
+  const { openAgent, goHome } = useWorkNavigation();
+  const storageId = homeStorageIdentity(workspaceId, useHomeStorageScope());
 
   // The tab in the URL wins. Without one, the agent reopens on the tab it
   // last showed. Read through useSyncExternalStore so the server render and
   // hydration agree on the default.
   const lastTab = useSyncExternalStore(
     noopSubscribe,
-    () => readLastAgentTab(workspaceId),
+    () => readLastAgentTab(storageId),
     () => DEFAULT_AGENT_TAB,
   );
   const activeTab = tab ?? lastTab;
@@ -101,10 +108,10 @@ export function AgentView({
     (next: AgentTab) => {
       setFileActive(false);
       openedForFile.current = false;
-      writeLastAgentTab(workspaceId, next);
-      openAgent(workspaceId, next);
+      writeLastAgentTab(storageId, next);
+      openAgent(workspaceId, next, chatSessionId);
     },
-    [openAgent, workspaceId],
+    [openAgent, workspaceId, storageId, chatSessionId],
   );
 
   const [storage] = useState<LayoutStorage>(() => (typeof window === 'undefined' ? NOOP_STORAGE : window.localStorage));
@@ -162,17 +169,11 @@ export function AgentView({
   // Measured in every state, so the layout is known before the agent loads.
   const frame = (children: React.ReactNode) => (
     <div ref={measureRef} className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
-      {children}
+      <ChatRefreshBoundary error={workspace ? error : null} retry={() => void refetch()}>{children}</ChatRefreshBoundary>
     </div>
   );
 
-  if (isLoading) {
-    return frame(
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 size={16} className="animate-spin text-muted-foreground" />
-      </div>,
-    );
-  }
+  if (!workspace && apiErrorStatus(error) !== 404) return frame(<ChatLookupState subject="agent" paused={fetchStatus === 'paused'} error={error} retry={() => void refetch()} />);
 
   if (!workspace) {
     return frame(
@@ -191,7 +192,7 @@ export function AgentView({
     );
   }
 
-  const chat = <AgentChatPanel key={workspace.id} workspace={workspace} />;
+  const chat = <AgentChatPanel key={workspace.id} workspace={workspace} sessionId={chatSessionId} />;
   const tools = (
     <AgentTools
       key={workspace.id}

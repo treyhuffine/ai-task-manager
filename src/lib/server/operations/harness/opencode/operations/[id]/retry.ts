@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import {
   completeProviderDisconnectSaga,
   failProviderDisconnectSaga,
@@ -15,6 +16,8 @@ import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   const { id } = rpcInput.params;
   const operation = getProviderDisconnectSaga(id);
   if (!operation || operation.operation !== 'disconnect_upstream_provider') {

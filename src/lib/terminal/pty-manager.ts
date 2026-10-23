@@ -68,6 +68,7 @@ interface ManagedTerminal {
   exitSignal: number | null;
   listeners: Set<TerminalListener>;
   createdAt: string;
+  createdBy?: { id: string; name: string };
 }
 
 export interface TerminalDescriptor {
@@ -80,6 +81,7 @@ export interface TerminalDescriptor {
   exited: boolean;
   exitCode: number | null;
   createdAt: string;
+  createdBy?: { id: string; name: string };
 }
 
 interface PtyRegistry {
@@ -157,6 +159,7 @@ function describe(t: ManagedTerminal): TerminalDescriptor {
     exited: t.exited,
     exitCode: t.exitCode,
     createdAt: t.createdAt,
+    ...(t.createdBy ? { createdBy: t.createdBy } : {}),
   };
 }
 
@@ -176,6 +179,7 @@ export interface CreateTerminalInput {
   /** Execution that owns this shell — resolve with `terminalOwnerId`. */
   ownerId: string;
   cwd: string;
+  createdBy?: { id: string; name: string };
   cols?: number;
   rows?: number;
   env?: Record<string, string | undefined>;
@@ -247,6 +251,7 @@ export function createTerminal(input: CreateTerminalInput): TerminalDescriptor {
   const t: ManagedTerminal = {
     id,
     ownerId: input.ownerId,
+    ...(input.createdBy ? { createdBy: input.createdBy } : {}),
     cwd: input.cwd,
     shell,
     cols,

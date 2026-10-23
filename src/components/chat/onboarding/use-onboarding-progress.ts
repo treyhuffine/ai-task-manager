@@ -1,4 +1,5 @@
 'use client';
+import { trpc } from '@/lib/trpc/client';
 
 import { useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -17,7 +18,7 @@ import {
 } from '@/lib/onboarding/progress';
 import { trpcClient } from '@/lib/trpc/client';
 
-const USER_STATE_KEY = ['user-state'] as const;
+const USER_STATE_KEY = trpc.userState.list.queryKey({});
 
 /**
  * The first-run conversation's progress, on the home (`user_state.onboarding`,

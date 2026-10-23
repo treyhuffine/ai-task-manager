@@ -5,7 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { FileText, Filter, ArrowDownAz, Gavel, Loader2, Plus } from 'lucide-react';
 import { useCreateNote, useNotes, useUpdateNote } from '@/hooks/use-notes';
 import { useAreas } from '@/hooks/use-areas';
-import { useDashboard } from '@/contexts/dashboard-context';
+
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -42,15 +42,18 @@ const NOTE_STATUS_TABS = [
   { value: 'all', label: 'All' },
 ] as const;
 
-export function NoteList() {
-  const { openNote } = useDashboard();
+export function NoteList({ onOpenNote: openNote, privatePlanning = true, areaFilter: controlledArea, onAreaFilterChange, onSearch, decisionsOnly: controlledDecisions, onDecisionsChange }: { onOpenNote: (id: string) => void; privatePlanning?: boolean; areaFilter?: string; onAreaFilterChange?: (value: string) => void; onSearch?: () => void; decisionsOnly?: boolean; onDecisionsChange?: (value: boolean) => void }) {
 
   const [statusFilter, setStatusFilter] = useState<NoteStatus | 'all'>('active');
-  const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
+  const [ownAreaFilter, setOwnAreaFilter] = useState('all');
+  const areaFilter = controlledArea ?? ownAreaFilter;
+  const setAreaFilter = onAreaFilterChange ?? setOwnAreaFilter;
   const [sortBy, setSortBy] = useState<NoteSortOption>('lastViewedAt');
   // Decisions are notes marked as one (docs/homes-spec.md §9.7), never a
   // title convention.
-  const [decisionsOnly, setDecisionsOnly] = useState(false);
+  const [ownDecisions, setOwnDecisions] = useState(false);
+  const decisionsOnly = controlledDecisions ?? ownDecisions;
+  const setDecisionsOnly = onDecisionsChange ?? setOwnDecisions;
 
   const filter = {
     ...(statusFilter !== 'all' ? { status: statusFilter as NoteStatus } : {}),
@@ -174,13 +177,14 @@ export function NoteList() {
 
         <ToolbarSearchButton
           label={decisionsOnly ? 'Search decisions' : 'Search notes'}
-          onClick={() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: decisionsOnly ? 'decision: ' : 'note: ' } }))}
+          onClick={onSearch ?? (() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: decisionsOnly ? 'decision: ' : 'note: ' } })))}
         />
       </ListToolbar>
 
       {/* Note list */}
       <VirtualNoteList
         notes={notes}
+        privatePlanning={privatePlanning}
         isLoading={isLoading}
         error={error}
         onUpdate={handleUpdate}
@@ -195,6 +199,7 @@ export function NoteList() {
 /* ── Virtualized inner list ── */
 
 interface VirtualNoteListProps {
+  privatePlanning: boolean;
   notes: NoteListDTO[] | undefined;
   isLoading: boolean;
   error: { message: string } | null;
@@ -205,7 +210,7 @@ interface VirtualNoteListProps {
 }
 
 function VirtualNoteList({
-  notes, isLoading, error, onUpdate, onArchive, onOpen, empty,
+  notes, isLoading, error, onUpdate, onArchive, onOpen, empty, privatePlanning,
 }: VirtualNoteListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -256,6 +261,7 @@ function VirtualNoteList({
               >
                 <NoteRow
                   note={note}
+                  privatePlanning={privatePlanning}
                   onUpdate={onUpdate}
                   onArchive={onArchive}
                   onOpen={onOpen}

@@ -1,5 +1,7 @@
 'use client';
 
+import { useHomeStorageScope } from '@/components/home/home-context';
+
 import {
   type ReactNode,
   forwardRef,
@@ -70,6 +72,7 @@ import { usePrList } from '@/hooks/use-prs';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { DEFAULT_HARNESS, harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { Tip } from '@/components/ui/tip';
+import { ChatComposer } from '@/components/chat-ui/chat-composer';
 import { CoordinationControls } from '@/components/chat-ui/coordination/controls';
 import { AppContextStrip } from '@/components/chat-ui/references/app-context-strip';
 import { useConnectedContextGroups } from '@/hooks/use-connected-context';
@@ -104,6 +107,7 @@ export interface ExecutionComposerHandle {
 
 interface ExecutionComposerProps {
   sessionId: string;
+  draftKey?: string;
   /** Current permission mode for the session. Drives the mode picker. */
   permissionMode: PermissionMode;
   /** Per-session model id. Null is accepted only for legacy rows and repaired. */
@@ -186,6 +190,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
   function ExecutionComposer(
     {
       sessionId,
+      draftKey,
       permissionMode,
       model,
       modelVariant,
@@ -241,6 +246,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       [],
     );
 
+    const storageScope = useHomeStorageScope();
     const { data: userState } = useUserState();
     const updateUserState = useUpdateUserState();
     const voice = useVoiceInput();
@@ -383,7 +389,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       ?? maximum?.sessionVariantChange ?? false;
     const canChangeEffort = runtime?.capabilities.sessionEffortChange.supported
       ?? maximum?.sessionEffortChange ?? false;
-    const selectionControlsDisabled = updateSession.isPending || Boolean(isRunning);
+    const selectionControlsDisabled = !sessionId || updateSession.isPending || Boolean(isRunning);
     const supportedPermissionModes = useMemo<PermissionMode[]>(
       () => supportedModesFor(providerId ?? DEFAULT_HARNESS, runtime?.capabilities.planMode.supported ?? false),
       [providerId, runtime?.capabilities.planMode.supported],
@@ -397,7 +403,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     const setPermissionMode = useCallback(
       (next: PermissionMode) => {
-        if (isRunning) {
+        if (!sessionId || isRunning) {
           setModeMenuOpen(false);
           return;
         }
@@ -417,7 +423,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     // next-chat preference on the server.
     const setModel = (id: string) => {
       setModelMenuOpen(false);
-      if (isRunning) return;
+      if (!sessionId || isRunning) return;
       if (id === explicitModel) return;
       const nextModel = explicitModelForProvider(
         providerId ?? DEFAULT_HARNESS,
@@ -451,7 +457,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     const setVariant = (variant: string) => {
       setModelMenuOpen(false);
-      if (isRunning) return;
+      if (!sessionId || isRunning) return;
       if (variant === explicitVariant) return;
       if (!canChangeVariant && onSwitchProvider && providerId) {
         onSwitchProvider({
@@ -467,11 +473,11 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
     const setEffort = (level: EffortLevel) => {
       setModelMenuOpen(false);
-      if (isRunning) return;
+      if (!sessionId || isRunning) return;
       if (level === explicitEffort) return;
       // An explicit pick, so it's worth remembering for this provider — both
       // for later chats here and for the launcher.
-      writeProviderEffort(providerId, level);
+      writeProviderEffort(providerId, level, storageScope);
       if (!canChangeEffort && onSwitchProvider && providerId) {
         onSwitchProvider({
           harness: providerId,
@@ -488,7 +494,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       setModelMenuOpen(false);
       if (isRunning || selectionControlsDisabled) return;
       updateSession.mutate({ id: sessionId, serviceTier: tier }, {
-        onSuccess: () => { if (providerId) writeProviderSpeed(providerId, tier); },
+        onSuccess: () => { if (providerId) writeProviderSpeed(providerId, tier, storageScope); },
       });
     };
 
@@ -658,15 +664,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       <div className="flex-shrink-0" onKeyDown={handleKeyDown}>
         {/* No top padding: a band of solid background above the card would
             cut scrolling transcript text off short of the card's edge. */}
-        <div className="px-5 pb-3 max-w-3xl mx-auto">
-          <CoordinationControls sessionId={sessionId} />
-          <div
-            className={cn(
-              'rounded-xl border border-border bg-card transition-colors flex flex-col gap-1',
-              'focus-within:border-primary/50',
-              disabled && !showStopButton && 'opacity-60',
-            )}
-          >
+        <CoordinationControls sessionId={sessionId} />
+        <ChatComposer disabled={disabled && !showStopButton} hint="⇧⇥ to cycle modes" status={statusLine} statusIsError={statusIsError}>
             {/* Top: rich editor — or live waveform while recording. The
               editor preserves typed text + inline paste chips across
               the recording swap. Native contenteditable auto-grows;
@@ -723,7 +722,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   loadReferenceTree={loadReferenceTree}
                   searchMentionEntities={searchMentionEntities}
                   prs={prMentions}
-                  draftKey={sessionId ? `exec:${sessionId}` : undefined}
+                  draftKey={draftKey ?? (sessionId ? `exec:${sessionId}` : undefined)}
                   history={messageHistory}
                 />
               )}
@@ -916,26 +915,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 </Tip>
               ) : null}
             </div>
-          </div>
-
-          {/* Status line + Shift+Tab hint. One row below the composer so
-            the layout doesn't bounce when status text appears/disappears. */}
-          <div className="flex items-center justify-between gap-2 mt-1 px-1 min-h-[14px]">
-            <span className="text-[10px] text-muted-foreground/60 hidden sm:inline">
-              ⇧⇥ to cycle modes
-            </span>
-            {statusLine && (
-              <span
-                className={cn(
-                  'text-[10px]',
-                  statusIsError ? 'text-destructive' : 'text-muted-foreground/70',
-                )}
-              >
-                {statusLine}
-              </span>
-            )}
-          </div>
-        </div>
+        </ChatComposer>
       </div>
     );
   },

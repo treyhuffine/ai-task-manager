@@ -19,6 +19,10 @@ import { isTeamPage } from '@/lib/team/page-authority';
 import { ArtifactPreviewProvider } from '@/components/chat-ui/artifacts/artifact-preview-provider';
 import { spacePage } from '@/lib/spaces/page';
 import { SpaceRoot } from '@/components/spaces/space-root';
+import { getHome, getTeamConnection } from '@/lib/db/queries';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { headers } from 'next/headers';
+import { ClientAppearance } from '@/lib/client/theme';
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -43,14 +47,20 @@ export default async function RootLayout({
   // app, its API reached through this home, so nothing personal mounts in
   // it either.
   const space = team ? null : await spacePage();
+  const caller = getRequestKey(await headers());
+  const documentHome = space?.id ?? getHome()?.id;
+  const documentViewer = space ? getTeamConnection(space.id)?.memberId : caller?.memberId ?? 'local';
   return (
     <html
       lang="en"
       className={`${inter.variable} dark`}
       data-ri-authority={team ? 'team' : space ? 'space' : 'personal'}
+      data-ri-home={documentHome}
+      data-ri-viewer={documentViewer}
       {...(space ? { 'data-ri-space': space.id } : {})}
     >
       <body className="antialiased">
+        <ClientAppearance />
         <QueryProvider>
           {team ? (
             <TipProvider>

@@ -1,63 +1,39 @@
 'use client';
+import { EntityDetailHeader, EntityActionsMenu } from '@/components/entities/entity-detail-header';
 
 import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 
 import { useEffect, useCallback, useRef, useState } from 'react';
-import { Dialog } from 'radix-ui';
-import {
-  X,
-  Trash2,
-  MoreHorizontal,
-  Archive,
-  Check,
-  Clock,
-  Timer,
-  Lock,
-  Repeat,
-  Pencil,
-  ChevronLeft,
-  Maximize2,
-} from 'lucide-react';
+import { EntitySheet } from '@/components/entities/entity-sheet';
+import { X, Check, Pencil, ChevronLeft, Maximize2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import {
-  useTask,
-  useUpdateTask,
-  useDeleteTask,
-} from '@/hooks/use-tasks';
+import { useTask, useUpdateTask, useDeleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
-import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
 import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
-import { RichEditor } from '@/components/editor/rich-editor';
-import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
-import { LinkedReferences } from '@/components/shared/linked-references';
-import { SubtaskSection } from './subtask-section';
-import { TaskPriority } from './task-priority';
-import { EFFORT_OPTIONS, ENERGY_OPTIONS } from './task-options';
+
+import { PersonalTaskDocument } from './personal-task-document';
+
+
+
+
 import { SharedTaskBody } from '@/components/spaces/shared-task-body';
 import { removeFromMyWork } from '@/components/spaces/my-work';
-import { TaskResults } from '@/components/results/task-results';
-import { AreaSelect } from '@/components/shared/area-select';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from '@/components/ui/dropdown-menu';
+
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
 import { useDragResize } from '@/hooks/use-drag-resize';
 import { ReferencingSessionsButton } from '@/components/shared/referencing-sessions-button';
 import { EntityHistoryButton } from '@/components/chat-ui/edits/entity-history-button';
 import { EntityChangeBanner } from '@/components/chat-ui/edits/entity-change-banner';
 import { EntityViewToggle } from '@/components/entities/entity-view-toggle';
-import { ENTITY_HEADER, ENTITY_HEADER_LABEL } from '@/components/entities/entity-header';
+import { ENTITY_HEADER_LABEL } from '@/components/entities/entity-header';
 import { EntityAgentView } from '@/components/entities/entity-agent-view';
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { cn } from '@/lib/utils';
-import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
+
 import type { Attachment } from '@/db/types';
-import { useEnterTransition } from '@/hooks/use-enter-transition';
 
 const DEFAULT_WIDTH = 1200;
 const MIN_WIDTH = 420;
@@ -106,12 +82,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     defaultSize: DEFAULT_WIDTH,
     storageKey: 'ri.task-slideout.width',
   });
-  // Slides in two frames after opening (see the hook).
-  const isVisible = useEnterTransition(isOpen);
-  const [editingDeadline, setEditingDeadline] = useState(false);
-  const [editingBoomerang, setEditingBoomerang] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { ref: attachTitle, element: titleRef, resize: resizeTitle } = useAutosizeTextarea();
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
 
   const handleAttachment = useCallback((attachment: Attachment) => {
@@ -119,70 +90,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   }, []);
 
 
-  // Auto-size title textarea when task loads, focus title if new
-  useEffect(() => {
-    const el = titleRef.current;
-    if (!task || !el) return;
-    const isNew = !task.title?.trim() && !task.body;
-    el.value = isNew ? '' : task.title;
-    resizeTitle();
-    if (!isNew) return;
-    // Focus on the next frame rather than synchronously. A new task is opened by
-    // the create menu, whose popover returns focus to its trigger as it closes,
-    // and (now that useCreateTask seeds the detail cache) this effect runs in the
-    // same commit the dialog opens instead of a round-trip later. Deferring one
-    // frame puts our focus after that focus-return so the title reliably wins.
-    const raf = requestAnimationFrame(() => el.focus());
-    return () => cancelAnimationFrame(raf);
-  }, [task?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync title when it changes externally (e.g. AI tool update). Ignore
-  // whitespace-only differences: a new task is seeded with a single space to
-  // satisfy the create API's non-empty guard, and writing that space back would
-  // suppress the "Task title" placeholder and fight the new-task focus above.
-  useEffect(() => {
-    const el = titleRef.current;
-    if (!task || !el || document.activeElement === el) return;
-    const incoming = task.title ?? '';
-    if (el.value.trim() === incoming.trim()) return;
-    el.value = incoming;
-    resizeTitle();
-  }, [task?.title]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const saveField = useCallback(
-    (field: string, value: unknown) => {
-      if (!taskId) return;
-      updateTask.mutate({ id: taskId, [field]: value } as Parameters<typeof updateTask.mutate>[0]);
-    },
-    [taskId, updateTask],
-  );
-
-  const handleTitleInput = useCallback(
-    (e: React.FormEvent<HTMLTextAreaElement>) => {
-      const target = e.currentTarget;
-      resizeTitle();
-
-      autosave({ title: target.value.trim() });
-    },
-    [autosave, resizeTitle],
-  );
-
-  const handleTitleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== 'Enter') return;
-    // Swallow the keystroke so the title never gains a newline.
-    e.preventDefault();
-    // Cmd/Ctrl+Enter is the "open full page" hotkey, handled by a
-    // document-level listener below. Don't jump focus into the body — let the
-    // navigation listener take over.
-    if (e.metaKey || e.ctrlKey) return;
-    // Focus the tiptap body editor inside this slideout
-    const editorEl = containerRef.current?.querySelector(
-      '.task-slideout-editor .rich-editor-body',
-    );
-    if (editorEl instanceof HTMLElement) {
-      editorEl.focus();
-    }
-  }, []);
 
   const handleBodyChange = useCallback(
     (markdown: string) => {
@@ -248,60 +156,11 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   // clears it.
   const isNewTask = !!task && !task.title?.trim() && !task.body;
 
-  const formatDate = (iso: string | null | undefined) => {
-    const days = calendarDaysUntil(iso);
-    if (days === null) return null;
-    if (days === 0) return 'Today';
-    if (days === 1) return 'Tomorrow';
-    if (days === -1) return 'Yesterday';
-    return formatLocalDate(iso, { month: 'short', day: 'numeric', year: 'numeric' });
-  };
+
 
   return (
-    <Dialog.Root
-      open={isOpen}
-      onOpenChange={(open) => {
-        if (!open) onCloseAll();
-      }}
-    >
-      <Dialog.Portal>
-        {/* Overlay — clicking closes everything */}
-        <Dialog.Overlay
-          className={cn(
-            'fixed inset-0 z-40 bg-black/30 transition-opacity duration-150',
-            isVisible ? 'opacity-100' : 'opacity-0',
-          )}
-        />
+    <EntitySheet open={isOpen} label="Task" width={width} contentRef={containerRef} resizing={isResizing} onClose={onClose} onCloseAll={onCloseAll} showCloseButton={false} onOpenAutoFocus={(event) => { event.preventDefault(); if (isNewTask) containerRef.current?.querySelector<HTMLElement>('[data-entity-title]')?.focus(); }}>
 
-        {/* Slideout panel */}
-        <Dialog.Content
-          ref={containerRef}
-          className={cn(
-            'fixed top-0 right-0 bottom-0 z-50 flex transition-transform duration-150 ease-out outline-none',
-            isVisible ? 'translate-x-0' : 'translate-x-full',
-          )}
-          style={{ width: `min(${width}px, 100vw)` }}
-          onOpenAutoFocus={(e) => {
-            // Take over Radix's open-focus. For a brand-new task, put the caret
-            // in the title so the user can type immediately; focusing here (as
-            // part of Radix's own focus sequence) beats the focus-scope's
-            // container fallback that otherwise wins the race. For an existing
-            // task we intentionally focus nothing — the document is for reading.
-            e.preventDefault();
-            if (isNewTask) titleRef.current?.focus();
-          }}
-          onInteractOutside={(e) => {
-            if (isResizing) e.preventDefault();
-          }}
-          onEscapeKeyDown={(e) => {
-            e.preventDefault();
-            // An inline editor (the rank, a date) takes Escape as "cancel this edit".
-            if (e.target instanceof Element && e.target.closest('[data-cancel-on-escape]')) return;
-            if (e.shiftKey) onCloseAll();
-            else onClose();
-          }}
-        >
-          <Dialog.Title className="sr-only">Task</Dialog.Title>
           {/* Resize handle — desktop only */}
           <div
             className={cn(
@@ -318,7 +177,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
           {/* Panel content */}
           <div className="flex-1 flex flex-col bg-background border-l border-border overflow-hidden">
             {/* Header */}
-            <div className={cn('flex items-center justify-between gap-2 px-4 h-11 flex-shrink-0', ENTITY_HEADER)}>
+            <EntityDetailHeader>
               <div className="flex items-center gap-1.5 group/nav">
                 <button
                   onClick={onClose}
@@ -385,34 +244,11 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                   </button>
                 )}
 
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                      <MoreHorizontal size={16} />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem onClick={handleArchive} className="text-xs">
-                      <Archive size={12} className="mr-2" /> {shared ? 'Archive for the team' : 'Archive'}
-                    </DropdownMenuItem>
-                    {shared ? (
-                      task?.source?.addedAt && task.sourceTeamId && task.sourceTaskId && (
-                        <DropdownMenuItem
-                          onClick={() => void removeFromMyWork(task.sourceTeamId!, task.sourceTaskId!).then(onClose)}
-                          className="text-xs"
-                        >
-                          <X size={12} className="mr-2" /> Remove from my work
-                        </DropdownMenuItem>
-                      )
-                    ) : (
-                      <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
-                        <Trash2 size={12} className="mr-2" /> Delete
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <EntityActionsMenu onArchive={handleArchive} onDelete={shared ? undefined : handleDelete} archiveLabel={shared ? 'Archive for the team' : 'Archive'}>
+                    {shared && task?.source?.addedAt && task.sourceTeamId && task.sourceTaskId && <DropdownMenuItem onSelect={() => void removeFromMyWork(task.sourceTeamId!, task.sourceTaskId!).then(onClose)}><X size={12} /> Remove from my work</DropdownMenuItem>}
+                  </EntityActionsMenu>
               </div>
-            </div>
+            </EntityDetailHeader>
 
             {/* Body + Chat */}
             {view === 'agent' && task ? (
@@ -434,254 +270,9 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                 ) : task ? (
                   <div className="space-y-0">
                     <EntityChangeBanner entityType="task" entityId={task.id} />
-                    {/* Type label + area / parent breadcrumb */}
-                    <div className="pt-4 px-4 md:px-12">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">
-                          {task.parentId ? 'Subtask' : 'Task'}
-                        </span>
-                        <span className="text-muted-foreground/30">·</span>
-                        <AreaSelect
-                          value={task.areaId}
-                          onChange={(areaId) => saveField('areaId', areaId)}
-                        />
-                      </div>
-                      {task.parentId && parentTask && (
-                        <button
-                          onClick={() => openTask(task.parentId!)}
-                          className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors group"
-                        >
-                          <ChevronLeft size={12} className="opacity-60 group-hover:opacity-100" />
-                          <span className="truncate max-w-[300px]">{parentTask.title}</span>
-                        </button>
-                      )}
-                    </div>
-                    <div className="pt-1 px-4 md:px-12">
-                      <textarea
-                        ref={attachTitle}
-                        className={cn(
-                          'w-full text-2xl font-bold leading-tight bg-transparent border-none outline-none resize-none overflow-hidden text-foreground placeholder:text-muted-foreground/40',
-                          isDone && 'line-through text-muted-foreground',
-                        )}
-                        placeholder="Task title"
-                        defaultValue={isNewTask ? '' : task.title}
-                        onInput={handleTitleInput}
-                        onKeyDown={handleTitleKeyDown}
-                        disabled={aiBusy}
-                        rows={1}
-                        data-gramm="false"
-                        data-gramm_editor="false"
-                        data-enable-grammarly="false"
-                      />
-                      <p className="text-[10px] text-muted-foreground/50 mt-1">
-                        Created{' '}
-                        {new Date(task.createdAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
-                        {task.updatedAt !== task.createdAt && (
-                          <>
-                            {' '}
-                            · Edited{' '}
-                            {new Date(task.updatedAt).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            })}
-                          </>
-                        )}
-                        {task.completedAt && (
-                          <>
-                            {' '}
-                            · Completed{' '}
-                            {new Date(task.completedAt).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            })}
-                          </>
-                        )}
-                      </p>
-                    </div>
-
-                    {/* Properties */}
-                    <div className="px-4 md:px-12 pt-4 pb-2">
-                      <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[12px] pb-4 border-b border-border">
-                        {/* Status */}
-                        <span className="text-muted-foreground font-medium">Status</span>
-                        <LifecycleStatusControl taskId={task.id} status={task.status} className="-ml-1.5" />
-
-                        {/* Energy */}
-                        <span className="text-muted-foreground font-medium">Energy</span>
-                        <div className="flex items-center gap-1">
-                          {ENERGY_OPTIONS.map((opt) => (
-                            <button
-                              key={opt.value}
-                              onClick={() =>
-                                saveField('energy', task.energy === opt.value ? null : opt.value)
-                              }
-                              className={cn(
-                                'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors',
-                                task.energy === opt.value
-                                  ? `${opt.color} bg-current/10 ring-1 ring-current/20`
-                                  : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted',
-                              )}
-                            >
-                              <opt.icon size={10} />
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Effort */}
-                        <span className="text-muted-foreground font-medium">Effort</span>
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {EFFORT_OPTIONS.map((opt) => (
-                            <button
-                              key={opt.value}
-                              onClick={() =>
-                                saveField('effort', task.effort === opt.value ? null : opt.value)
-                              }
-                              className={cn(
-                                'px-2 py-0.5 rounded text-[11px] font-medium transition-colors',
-                                task.effort === opt.value
-                                  ? 'bg-primary text-primary-foreground'
-                                  : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted',
-                              )}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Priority: a typed rank, or a bucket as a one-time nudge */}
-                        <span className="text-muted-foreground font-medium">Priority</span>
-                        <TaskPriority taskId={task.id} status={task.status} />
-
-                        {/* Deadline */}
-                        <span className="text-muted-foreground font-medium">Deadline</span>
-                        <div>
-                          {editingDeadline ? (
-                            <input
-                              type="date"
-                              autoFocus
-                              defaultValue={task.hardDeadline?.split('T')[0] ?? ''}
-                              data-cancel-on-escape=""
-                              className="text-[12px] bg-card border border-border rounded px-2 py-1"
-                              onBlur={(e) => {
-                                setEditingDeadline(false);
-                                const val = e.target.value;
-                                saveField('hardDeadline', dateInputToStored(val));
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                                if (e.key === 'Escape') setEditingDeadline(false);
-                              }}
-                            />
-                          ) : (
-                            <button
-                              onClick={() => setEditingDeadline(true)}
-                              className={cn(
-                                'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors hover:bg-muted',
-                                isPastDate(task.hardDeadline)
-                                  ? 'text-destructive'
-                                  : 'text-muted-foreground',
-                              )}
-                            >
-                              <Clock size={10} />
-                              {formatDate(task.hardDeadline) ?? 'Set deadline'}
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Resurface / Boomerang */}
-                        <span className="text-muted-foreground font-medium">Resurface</span>
-                        <div>
-                          {editingBoomerang ? (
-                            <input
-                              type="date"
-                              autoFocus
-                              defaultValue={task.resurfaceAfter?.split('T')[0] ?? ''}
-                              data-cancel-on-escape=""
-                              className="text-[12px] bg-card border border-border rounded px-2 py-1"
-                              onBlur={(e) => {
-                                setEditingBoomerang(false);
-                                const val = e.target.value;
-                                saveField('resurfaceAfter', dateInputToStored(val));
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                                if (e.key === 'Escape') setEditingBoomerang(false);
-                              }}
-                            />
-                          ) : (
-                            <button
-                              onClick={() => setEditingBoomerang(true)}
-                              className={cn(
-                                'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted',
-                              )}
-                            >
-                              <Timer size={10} />
-                              {formatDate(task.resurfaceAfter) ?? 'Set snooze'}
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Recurrence */}
-                        {task.recurrence && (
-                          <>
-                            <span className="text-muted-foreground font-medium">Recurrence</span>
-                            <span className="inline-flex items-center gap-1 text-primary/60 font-medium">
-                              <Repeat size={10} /> {task.recurrence}
-                            </span>
-                          </>
-                        )}
-
-                        {/* Blocked */}
-                        {task.blockedOn && (
-                          <>
-                            <span className="text-muted-foreground font-medium">Blocked on</span>
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1 text-amber-500 font-medium">
-                                <Lock size={10} /> {task.blockedOn}
-                              </span>
-                              <button
-                                onClick={() => {
-                                  saveField('blockedOn', null);
-                                  saveField('blockedSince', null);
-                                }}
-                                className="text-[10px] text-muted-foreground hover:text-foreground underline"
-                              >
-                                Unblock
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Subtasks */}
-                    <SubtaskSection parentId={task.id} onOpenTask={openTask} />
-
-                    {/* Body editor */}
-                    <div className="px-4 md:px-12 pt-2 pb-8 task-slideout-editor">
-                      <RichEditor
-                        key={task.id}
-                        content={task.body ?? ''}
-                        onChange={handleBodyChange}
-                        onAttachment={handleAttachment}
-                        editable={!aiBusy}
-                        placeholder="Type '/' for commands, @ to link a task or note..."
-                        hideFooter
-                        foldedHeadings={task.foldedHeadings ?? []}
-                        onFoldedHeadingsChange={handleFoldedHeadingsChange}
-                      />
-                    </div>
-                    <div className="px-4 md:px-12"><TaskResults key={task.id} taskId={task.id} /></div>
-                    <div className="px-4 md:px-12 pb-8">
-                      <LinkedReferences entityType="task" entityId={task.id} />
-                    </div>
+                    <PersonalTaskDocument task={task} parentTask={parentTask} openTask={openTask}
+                      save={patch => updateTask.mutate({ id: task.id, ...patch })} autosave={autosave}
+                      bodyEditor={{ content: task.body ?? '', onChange: handleBodyChange, onAttachment: handleAttachment, editable: !aiBusy, placeholder: "Type '/' for commands, @ to link a task or note...", hideFooter: true, foldedHeadings: task.foldedHeadings ?? [], onFoldedHeadingsChange: handleFoldedHeadingsChange }} />
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
@@ -709,8 +300,6 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
             </div>
             )}
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    </EntitySheet>
   );
 }

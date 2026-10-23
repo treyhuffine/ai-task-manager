@@ -1,3 +1,5 @@
+import { homeStorageIdentity } from '@/lib/home/document-scope';
+type HomeScope = Parameters<typeof homeStorageIdentity>[1];
 /**
  * Pure model behind the execution launcher (the ➕ modal on a workspace row).
  *
@@ -353,10 +355,10 @@ const PREFS_KEY = 'ri.launcher.prefs.v1';
 
 type PrefsMap = Record<string, LaunchPrefs>;
 
-function readPrefsMap(): PrefsMap {
+function readPrefsMap(scope?: HomeScope): PrefsMap {
   if (typeof window === 'undefined') return {};
   try {
-    const raw = window.localStorage.getItem(PREFS_KEY);
+    const raw = window.localStorage.getItem(homeStorageIdentity(PREFS_KEY, scope));
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
@@ -366,9 +368,9 @@ function readPrefsMap(): PrefsMap {
   }
 }
 
-export function readLaunchPrefs(workspaceId: string | null): LaunchPrefs {
+export function readLaunchPrefs(workspaceId: string | null, scope?: HomeScope): LaunchPrefs {
   if (!workspaceId) return DEFAULT_LAUNCH_PREFS;
-  const stored = readPrefsMap()[workspaceId];
+  const stored = readPrefsMap(scope)[workspaceId];
   if (!stored) return DEFAULT_LAUNCH_PREFS;
   return {
     mode: stored.mode === 'live' ? 'live' : 'worktree',
@@ -378,12 +380,12 @@ export function readLaunchPrefs(workspaceId: string | null): LaunchPrefs {
   };
 }
 
-export function writeLaunchPrefs(workspaceId: string | null, prefs: LaunchPrefs): void {
+export function writeLaunchPrefs(workspaceId: string | null, prefs: LaunchPrefs, scope?: HomeScope): void {
   if (!workspaceId || typeof window === 'undefined') return;
   try {
-    const map = readPrefsMap();
+    const map = readPrefsMap(scope);
     map[workspaceId] = prefs;
-    window.localStorage.setItem(PREFS_KEY, JSON.stringify(map));
+    window.localStorage.setItem(homeStorageIdentity(PREFS_KEY, scope), JSON.stringify(map));
   } catch {
     /* quota / private mode — sticky settings are a nicety, not a requirement */
   }

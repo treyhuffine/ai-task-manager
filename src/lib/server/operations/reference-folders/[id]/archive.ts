@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { archiveReferenceFolder } from '@/lib/db/queries';
 import { recycleForReferenceFolderChange } from '@/lib/executor/adapter';
 import { reply, type OperationContext } from '@/lib/server/operation';
@@ -9,6 +10,8 @@ import { z as rpcZ } from 'zod/v4';
  * rows.
  */
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents');
+  if (homeDenied) return homeDenied;
   try {
     const { id } = rpcInput.params;
     const row = archiveReferenceFolder(id);

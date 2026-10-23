@@ -18,6 +18,8 @@ viewer, a download, and page images.
 
 ## Architecture
 
+The unified Home boundary admits authenticated Team members to the same content, agent, session, result, file, Git, preview and terminal operations through narrow domain checks. Client role headers never grant authority. Optional document Home/member expectations fence stale tabs to their original author. The proxy, HTTP/tRPC operations, WebSocket host, connected-Home relays, worker delivery and lease renewal all validate their own live authority. Host configuration, personal Connectors, Calendar, Deck, Apps and private provider settings remain outside Team authority. Existing REST and MCP contracts continue through adapters over the shared operations. See [the unified specification](unified-home-experience.md) and [Team testing](team-testing.md).
+
 Ri uses tRPC 11.19.0 with the official `@trpc/tanstack-react-query` integration.
 TanStack Query owns caching, deduplication, retries, optimistic updates and
 background reconciliation. `AppRouter`, `RouterInputs` and `RouterOutputs`

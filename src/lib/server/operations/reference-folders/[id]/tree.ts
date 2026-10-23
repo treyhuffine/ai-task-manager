@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { getReferenceFolder } from '@/lib/db/queries';
 import { resolveReferenceFolder } from '@/lib/reference-folders/resolve';
 import { listReferenceTree } from '@/lib/reference-folders/tree';
@@ -19,6 +20,8 @@ import { z as rpcZ } from 'zod/v4';
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'read');
+  if (homeDenied) return homeDenied;
   try {
     const { id } = rpcInput.params;
     const row = getReferenceFolder(id);

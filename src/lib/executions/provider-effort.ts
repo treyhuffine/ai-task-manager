@@ -5,7 +5,8 @@
  * Claude's aren't the same scale, and "I run Codex hot but Claude at medium" is
  * a normal way to work. One value would get clobbered every time you switched.
  *
- * Deliberately **global per provider**, not per workspace. Unlike the model
+ * Global per provider within its Home and member, not per agent. Personal
+ * preferences keep their existing key. Team documents never read that key. Unlike the model
  * (which is genuinely repo-shaped — this repo wants Opus, that one doesn't),
  * effort is a working-style preference that travels with the person. Scoping it
  * per workspace would mean re-teaching every repo the same thing.
@@ -22,6 +23,8 @@
  */
 
 import type { EffortLevel } from '@/db/types';
+import { homeStorageIdentity } from '@/lib/home/document-scope';
+type HomeScope = Parameters<typeof homeStorageIdentity>[1];
 
 const KEY = 'ri.agent.effort.v1';
 
@@ -40,10 +43,10 @@ type EffortMap = Record<string, EffortLevel>;
  * The stored map as text, the same text while nothing changes. A React reader
  * passes it to `useSyncExternalStore` and parses it with `parseProviderEfforts`.
  */
-export function readProviderEffortsText(): string | null {
+export function readProviderEffortsText(scope?: HomeScope): string | null {
   if (typeof window === 'undefined') return null;
   try {
-    return window.localStorage.getItem(KEY);
+    return window.localStorage.getItem(homeStorageIdentity(KEY, scope));
   } catch {
     return null;
   }
@@ -66,19 +69,19 @@ export function parseProviderEfforts(raw: string | null): EffortMap {
   }
 }
 
-function readMap(): EffortMap {
-  return parseProviderEfforts(readProviderEffortsText());
+function readMap(scope?: HomeScope): EffortMap {
+  return parseProviderEfforts(readProviderEffortsText(scope));
 }
 
 /** Every remembered provider→effort pair. */
-export function readProviderEfforts(): EffortMap {
-  return readMap();
+export function readProviderEfforts(scope?: HomeScope): EffortMap {
+  return readMap(scope);
 }
 
 /** The remembered effort for one provider, or null if it's never been set. */
-export function readProviderEffort(harness: string | null | undefined): EffortLevel | null {
+export function readProviderEffort(harness: string | null | undefined, scope?: HomeScope): EffortLevel | null {
   if (!harness) return null;
-  return readMap()[harness] ?? null;
+  return readMap(scope)[harness] ?? null;
 }
 
 /**
@@ -88,13 +91,13 @@ export function readProviderEffort(harness: string | null | undefined): EffortLe
  * fallback — writing back a model's default would overwrite a real preference
  * with a coincidence.
  */
-export function writeProviderEffort(harness: string | null | undefined, effort: EffortLevel | null): void {
+export function writeProviderEffort(harness: string | null | undefined, effort: EffortLevel | null, scope?: HomeScope): void {
   if (!harness || !effort || typeof window === 'undefined') return;
   if (!VALID.has(effort)) return;
   try {
-    const map = readMap();
+    const map = readMap(scope);
     map[harness] = effort;
-    window.localStorage.setItem(KEY, JSON.stringify(map));
+    window.localStorage.setItem(homeStorageIdentity(KEY, scope), JSON.stringify(map));
   } catch {
     /* quota / private mode — remembering is a nicety, not a requirement */
   }

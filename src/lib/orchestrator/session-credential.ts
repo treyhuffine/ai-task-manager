@@ -58,6 +58,12 @@ export function verifySessionCredential(
   return sessionId;
 }
 
+/** A disclosed agent never becomes a person when its chat expires. */
+export function activeSessionCredential(credential: unknown): string | null {
+  const sessionId = verifySessionCredential(credential);
+  return sessionId && getChatSession(sessionId)?.status === 'active' ? sessionId : null;
+}
+
 /** Resolve a credential to the acting chat, if it verifies and the chat still exists. */
 export function actorFromSessionCredential(credential: unknown, options: { allowMissing?: boolean } = {}): ActionContext['actor'] | undefined {
   const sessionId = verifySessionCredential(credential);

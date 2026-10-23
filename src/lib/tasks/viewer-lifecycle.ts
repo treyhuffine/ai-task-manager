@@ -14,9 +14,8 @@ export interface ViewerLifecycleOptions {
 }
 
 /**
- * In a team space, the member changing the task's status. A team runs no
- * agents, so there's no workstream to coordinate, and the change is
- * recorded as theirs (docs/homes-spec.md §9.1).
+ * The member changing shared work. Both Homes coordinate live workstreams
+ * before recording the lifecycle change.
  */
 export interface TeamLifecycleActor {
   memberId: string;
@@ -26,14 +25,7 @@ export interface TeamLifecycleActor {
 /** Shared REST/tRPC behavior. Validate before touching a running workstream,
  * and never coordinate again when an idempotent command is replayed. */
 export async function completeTaskForViewer(id: string, opts: ViewerLifecycleOptions & { note?: string }, member?: TeamLifecycleActor) {
-  const task = getTask(id);
-  if (!task) throw new TaskLifecycleError('not_found', 'Task not found');
-  const pre = lifecyclePreflight({ taskId: id, command: 'complete', ...opts });
-  if (!pre.replay && !member) await coordinateLifecycleChange({
-    taskId: id, kind: 'displace', choice: opts.runtimeChoice,
-    change: { taskId: id, taskTitle: task.title ?? '', action: 'completed' },
-    acknowledgedExecutionIds: opts.acknowledgedExecutionIds, runtime: inProcessWorkstreamRuntime,
-  });
+  await prepareTaskLifecycleForViewer(id, 'complete', opts, member);
   const result = completeTask(id, { ...opts, meta: { source: member?.source ?? 'human', actorMemberId: member?.memberId ?? null } });
   if (!result) throw new TaskLifecycleError('not_found', 'Task not found');
   return result;
@@ -46,20 +38,38 @@ export async function transitionTaskForViewer(
   member?: TeamLifecycleActor,
 ) {
   const idempotencyKey = opts.idempotencyKey ?? uuidv7();
+  await prepareTaskLifecycleForViewer(id, command, { ...opts, idempotencyKey }, member);
+  return transitionTask({
+    taskId: id, command, ...opts, idempotencyKey,
+    meta: { source: member?.source ?? 'human', actorMemberId: member?.memberId ?? null, reason: opts.reason ?? null },
+  });
+}
+
+/** Async workstream coordination precedes the synchronous, receipt-backed write. */
+export async function prepareTaskLifecycleForViewer(id: string, command: TransitionCommand | 'complete', opts: ViewerLifecycleOptions, member?: TeamLifecycleActor) {
+  if (command === 'complete') {
+  const task = getTask(id);
+  if (!task) throw new TaskLifecycleError('not_found', 'Task not found');
+  const pre = lifecyclePreflight({ taskId: id, command: 'complete', ...opts });
+  if (!pre.replay) await coordinateLifecycleChange({
+    taskId: id, kind: 'displace', choice: opts.runtimeChoice,
+    change: { taskId: id, taskTitle: task.title ?? '', actorMemberId: member?.memberId, action: 'completed' },
+    acknowledgedExecutionIds: opts.acknowledgedExecutionIds, runtime: inProcessWorkstreamRuntime,
+  });
+    return;
+  }
+  const idempotencyKey = opts.idempotencyKey;
   const pre = lifecyclePreflight({ taskId: id, command, ...opts, idempotencyKey });
-  if (!pre.replay && !member && (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider')) {
+  if (!pre.replay && (command === 'archive' || command === 'return_to_todo' || command === 'move_to_consider')) {
     const task = getTask(id);
     const change: ScopeChange | undefined = command === 'archive'
-      ? { taskId: id, taskTitle: task?.title ?? '', action: 'archived' }
-      : command === 'return_to_todo' ? { taskId: id, taskTitle: task?.title ?? '', action: 'returned to Todo' } : undefined;
+      ? { taskId: id, taskTitle: task?.title ?? '', actorMemberId: member?.memberId, action: 'archived' }
+      : command === 'return_to_todo' ? { taskId: id, taskTitle: task?.title ?? '', actorMemberId: member?.memberId, action: 'returned to Todo' } : undefined;
     await coordinateLifecycleChange({
       taskId: id, kind: command === 'move_to_consider' ? 'uncommit' : 'displace',
       choice: opts.runtimeChoice, change, acknowledgedExecutionIds: opts.acknowledgedExecutionIds,
       runtime: inProcessWorkstreamRuntime,
     });
   }
-  return transitionTask({
-    taskId: id, command, ...opts, idempotencyKey,
-    meta: { source: member?.source ?? 'human', actorMemberId: member?.memberId ?? null, reason: opts.reason ?? null },
-  });
+
 }

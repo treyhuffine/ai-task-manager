@@ -23,11 +23,19 @@
 import type { WorkerCommandActor } from '@/db/types';
 import { SESSION_CREDENTIAL_HEADER, verifySessionCredential } from '@/lib/orchestrator/session-credential';
 import type { ActionContext } from '@/lib/orchestrator/types';
-import { getRequestKey } from './request-key';
+import { getRequestKey, type RequestKey } from './request-key';
+import { getMember, TeamError } from '@/lib/db/queries';
 
 export function actorFromRequest(headers: Headers): WorkerCommandActor {
   const key = getRequestKey(headers);
   const apiKeyId = key?.apiKeyId ?? null;
+  const signedSession = verifySessionCredential(headers.get(SESSION_CREDENTIAL_HEADER));
+  if (signedSession) return { source: 'ai', sessionId: signedSession, apiKeyId, ...(key?.memberId ? { memberId: key.memberId } : {}) };
+  if (key?.scope === 'member') {
+    const member = key.memberId ? getMember(key.memberId) : null;
+    if (!member || member.status !== 'active') throw new TeamError('not_allowed', 'Only an active member can act in this team.');
+    return { source: 'human', sessionId: null, apiKeyId, memberId: member.id };
+  }
   // A session token is that session, as the proxy verified it (P2.7).
   if (key?.scope === 'session' && key.sessionChatId) return { source: 'ai', sessionId: key.sessionChatId, apiKeyId };
   const sessionId = verifySessionCredential(headers.get(SESSION_CREDENTIAL_HEADER));
@@ -36,7 +44,7 @@ export function actorFromRequest(headers: Headers): WorkerCommandActor {
 
 export function actorFromAction(ctx: ActionContext): WorkerCommandActor {
   const apiKeyId = ctx.caller?.apiKeyId ?? null;
-  if (ctx.actor?.sessionId) return { source: 'ai', sessionId: ctx.actor.sessionId, apiKeyId };
+  if (ctx.actor?.sessionId) return { source: 'ai', sessionId: ctx.actor.sessionId, apiKeyId, ...(ctx.actor.memberId ? { memberId: ctx.actor.memberId } : {}) };
   const homeCli = ctx.remote === false || ctx.caller?.location === 'home';
   return { source: homeCli ? 'human' : 'ai', sessionId: null, apiKeyId };
 }
@@ -44,4 +52,10 @@ export function actorFromAction(ctx: ActionContext): WorkerCommandActor {
 /** Who sent a stored message: the chat that sent it, or else the person. */
 export function actorOfMessage(senderSessionId: string | null | undefined): WorkerCommandActor {
   return senderSessionId ? { source: 'ai', sessionId: senderSessionId, apiKeyId: null } : { source: 'human', sessionId: null, apiKeyId: null };
+}
+
+/** A forwarded member key represents a person; session/client keys remain agents. */
+export function actorFromRequestKey(key: RequestKey): WorkerCommandActor {
+  return { source: key.scope === 'member' && !key.sessionChatId ? 'human' : 'ai', sessionId: key.sessionChatId,
+    memberId: key.memberId ?? null, apiKeyId: key.apiKeyId };
 }

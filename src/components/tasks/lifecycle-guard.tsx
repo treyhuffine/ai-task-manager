@@ -1,5 +1,7 @@
 'use client';
 
+import { trpc } from '@/lib/trpc/client';
+
 import { entityKeys } from '@/lib/query/entity-keys';
 
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
@@ -111,7 +113,7 @@ export function LifecycleGuardProvider({ children }: { children: ReactNode }) {
           }
           qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
           qc.invalidateQueries({ queryKey: ['sessions'] });
-          qc.invalidateQueries({ queryKey: ['executions'] });
+          qc.invalidateQueries({ queryKey: trpc.executions.pathKey() });
           toast.success(
             acks.runtimeChoice === 'stop_running_agent'
               ? `Stopped the agent and ${VERB[cmd.command].done}`

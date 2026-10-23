@@ -1,4 +1,7 @@
+import { declaredAuthorityKind } from '@/lib/home/authority';
+import { nativeTeamExecutionAction } from '@/lib/team/mcp/native-start-action';
 import { coordinationActions } from '@/lib/coordination/actions';
+import { connectedHomeActions, withConnectedHome } from '@/lib/spaces/native-access';
 import { historyActions } from '@/lib/coordination/history-actions';
 import { chatSourceActions } from '@/lib/chat-sources/actions';
 import { localAppActions } from '@/lib/local-apps/actions';
@@ -1526,6 +1529,7 @@ const workspaceStatus = z.enum(['active', 'archived']);
 
 const list_workspaces_action = defineAction({
   name: 'list_workspaces',
+  strictParams: true,
   description:
     'List workspaces with aggregated session counts. Default filter is active. The user calls a workspace ' +
     'an agent: its folder plus what it can use, its `purpose`, and its standing `instructions`.',
@@ -1537,6 +1541,7 @@ const list_workspaces_action = defineAction({
 
 const get_workspace_action = defineAction({
   name: 'get_workspace',
+  strictParams: true,
   description:
     'Fetch a single workspace by id (the user calls it an agent), including its `purpose` and standing ' +
     '`instructions`, and `runOn`: the devices it can run on (each with whether it can take work now, ' +
@@ -3345,6 +3350,7 @@ const work_summary_action = defineAction({
 });
 
 export const typedActions = [
+  ...connectedHomeActions,
   ...coordinationActions,
   ...historyActions,
   ...localAppActions,
@@ -3449,7 +3455,19 @@ export const typedActions = [
 
 /** Dynamic CLI/MCP dispatch validates the selected shape before invoking it.
  * Keep the concrete definitions for callers that know their action name. */
-export const actions = typedActions.filter(action => localAppsEnabled() || !localAppActions.some(app => app.name === action.name)) as unknown as Action[];
+export const actions = (typedActions.filter(action => localAppsEnabled() || !localAppActions.some(app => app.name === action.name)) as unknown as Action[]).map(withConnectedHome);
 export type ActionDefinition = typeof typedActions[number];
 export type ActionName = ActionDefinition['name'];
 export type ActionOutput<Name extends ActionName> = Awaited<ReturnType<Extract<ActionDefinition, { name: Name }>['handler']>>;
+
+
+/** Personal coordination and the restricted Team tool contract share dispatch. */
+export function actionCatalog(team?: boolean): Action[] {
+  // Command registration must leave doctor/update/help available for repairing
+  // an invalid declaration. Actual Home access still uses the strict guard.
+  if (team === undefined) {
+    try { team = declaredAuthorityKind() === 'team'; }
+    catch { team = false; }
+  }
+  return team ? [...actions, nativeTeamExecutionAction] as unknown as Action[] : actions as unknown as Action[];
+}

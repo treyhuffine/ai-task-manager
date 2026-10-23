@@ -468,6 +468,8 @@ export const SHARED_SOURCE_STATES = ['active', 'released', 'unavailable'] as con
 
 /** What the home last read of a shared task at its team. */
 export interface SharedTaskSource {
+  /** Opaque shared-field cursor, including revision counters for same-second writes. */
+  syncCursor?: string;
   /** Assigned to this person at the last read. */
   assigned: boolean;
   /** When this person chose Add to my work, or null. */
@@ -488,6 +490,7 @@ export interface SharedTaskSource {
 
 /** What the home last read of a shared note it saved. */
 export interface SharedNoteSource {
+  syncCursor?: string;
   addedAt: string;
   bodyRevision: number;
   updatedAt: string;
@@ -929,6 +932,7 @@ export interface WorkerCommandActor {
   source: 'human' | 'ai' | 'system';
   sessionId?: string | null;
   apiKeyId?: string | null;
+  memberId?: string | null;
 }
 
 export const workerCommands = sqliteTable(
@@ -1176,6 +1180,27 @@ export const members = sqliteTable(
 
 export const TEAM_CONNECTION_STATUSES = ['active', 'revoked', 'disconnected'] as const;
 
+/** Private conveniences, never synchronized to a team or included in its history. */
+export const personalAreaDefaults = sqliteTable('personal_area_defaults', {
+  id: text().primaryKey(),
+  ...timestamps,
+  teamId: text().notNull().references(() => teamConnections.id, { onDelete: 'cascade' }),
+  sourceAreaId: text(),
+  areaId: text().notNull().references(() => areas.id, { onDelete: 'cascade' }),
+}, (t) => [
+  uniqueIndex('uniq_personal_area_default_team').on(t.teamId).where(sql`${t.sourceAreaId} IS NULL`),
+  uniqueIndex('uniq_personal_area_default_source').on(t.teamId, t.sourceAreaId).where(sql`${t.sourceAreaId} IS NOT NULL`),
+]);
+
+export const referenceAreaChoices = sqliteTable('reference_area_choices', {
+  id: text().primaryKey(),
+  ...timestamps,
+  entityType: text({ enum: ['task', 'note'] }).notNull(),
+  entityId: text().notNull(),
+  // No row means legacy/unknown. A manual clear is a choice too.
+  choice: text({ enum: ['unselected', 'default', 'manual'] }).notNull(),
+}, (t) => [uniqueIndex('uniq_reference_area_choice').on(t.entityType, t.entityId)]);
+
 export const teamConnections = sqliteTable('team_connections', {
   // The team's own home id: stable across its addresses and renames.
   id: text().primaryKey(),
@@ -1265,7 +1290,7 @@ export const sharedOperationReceipts = sqliteTable(
 // The key itself is sealed under `<config>/team-ai`, never here: this keeps
 // what Settings may show and how it last went. Subscription is the default,
 // API billing is an explicit choice, and failed auth never changes accounts.
-export const TEAM_AI_HARNESSES = ['claude'] as const;
+export const TEAM_AI_HARNESSES = KNOWN_HARNESS_IDS;
 export const TEAM_AI_PROVIDERS = ['anthropic'] as const;
 export const TEAM_AI_AUTH_MODES = ['subscription', 'api_key'] as const;
 
@@ -1288,7 +1313,43 @@ export const teamAiSettings = sqliteTable('team_ai_settings', {
   lastErrorAt: text(),
   lastOkAt: text(),
   updatedByMemberId: text().references((): AnySQLiteColumn => members.id),
-});
+  });
+
+/** Viewer preferences belong to a member, independently of shared work and other members. */
+export const memberPreferences = sqliteTable('member_preferences', {
+  id: text().primaryKey(),
+  ...timestamps,
+  memberId: text().notNull().references((): AnySQLiteColumn => members.id, { onDelete: 'cascade' }),
+  voiceAutoSend: integer({ mode: 'boolean' }),
+  voiceModel: text(),
+  currentMainChats: text({ mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
+}, table => [uniqueIndex('uniq_member_preferences').on(table.memberId)]);
+
+export const memberChatViews = sqliteTable('member_chat_views', {
+  id: text().primaryKey(), ...timestamps,
+  memberId: text().notNull().references((): AnySQLiteColumn => members.id, { onDelete: 'cascade' }),
+  chatSessionId: text().notNull().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'cascade' }),
+  lastViewedAt: text(), unreadMarkerAt: text(),
+}, table => [uniqueIndex('uniq_member_chat_view').on(table.memberId, table.chatSessionId)]);
+
+export const memberExecutionViews = sqliteTable('member_execution_views', {
+  id: text().primaryKey(), ...timestamps,
+  memberId: text().notNull().references((): AnySQLiteColumn => members.id, { onDelete: 'cascade' }),
+  executionId: text().notNull().references((): AnySQLiteColumn => executions.id, { onDelete: 'cascade' }),
+  pinnedAt: text(),
+}, table => [uniqueIndex('uniq_member_execution_view').on(table.memberId, table.executionId)]);
+
+/** Human work in a shared agent folder has an author even without a chat. */
+export const teamActivity = sqliteTable('team_activity', {
+  id: text().primaryKey(),
+  ...timestamps,
+  workspaceId: text().notNull().references((): AnySQLiteColumn => workspaces.id, { onDelete: 'cascade' }),
+  memberId: text().notNull().references((): AnySQLiteColumn => members.id),
+  apiKeyId: text().notNull().references((): AnySQLiteColumn => apiKeys.id),
+  kind: text({ enum: ['file_change', 'terminal_open', 'terminal_control', 'git_change', 'preview_change', 'execution_review'] }).notNull(),
+  resource: text().notNull(),
+  operation: text().notNull(),
+}, table => [index('idx_team_activity_workspace_created').on(table.workspaceId, table.createdAt, table.id)]);
 
 // One member's message to a team's AI, and the turn it gets (docs/homes-spec.md
 // §9.9, P8.5). Sends are durable and kept in order: one turn runs at a time
@@ -1307,6 +1368,8 @@ export const teamChatTurns = sqliteTable(
     memberId: text().notNull().references((): AnySQLiteColumn => members.id),
     // The member's own id for this send, for retries.
     clientSendId: text().notNull(),
+    // A revoked client cannot leave queued native work authorized indefinitely.
+    requestingApiKeyId: text().references((): AnySQLiteColumn => apiKeys.id),
     // The message's row in chat_events.
     messageEventId: text().notNull(),
     // Accepted order within the chat.
@@ -1373,6 +1436,8 @@ export interface WorkerHarnessReport {
   harness: string;
   binary: { status: string; command?: string | null; version?: string | null; error?: string };
   capabilities: Record<string, { supported: boolean; status?: string; reason?: string | null }>;
+  /** Explicitly granted team auth only. Opaque revision, never a credential or account token. */
+  auth?: { mode: 'subscription' | 'api_key'; revision: string; available: boolean };
 }
 
 /** One linked folder of an agent on a device, as the home resolves it (`recomputeWorkspaceSetups`). */
@@ -1477,6 +1542,7 @@ export const workspaces = sqliteTable(
     browserEnabled: integer({ mode: 'boolean' }).notNull(),
     status: text({ enum: ['active', 'archived'] }).notNull(),
     archivedAt: text(),
+    createdByMemberId: text().references((): AnySQLiteColumn => members.id),
   },
   (table) => [
     index('idx_workspaces_status_position').on(table.status, table.position),
@@ -1685,6 +1751,7 @@ export const executions = sqliteTable(
     // Archiving clears it (see `archiveExecution`) so a pin never outlives
     // the active work it points at and the group can't rot into a graveyard.
     pinnedAt: text(),
+    createdByMemberId: text().references((): AnySQLiteColumn => members.id),
   },
   (table) => [
     index('idx_executions_workspace_status').on(table.workspaceId, table.status),
@@ -1834,6 +1901,7 @@ export const workResults = sqliteTable('work_results', {
   userId: text().notNull().default('local'),
   actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull(),
   actorUserId: text().notNull(),
+  actorMemberId: text().references(() => members.id),
   actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
   sourceChatSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
   sourceExecutionId: text().references((): AnySQLiteColumn => executions.id, { onDelete: 'set null' }),
@@ -1876,6 +1944,7 @@ export const workResultDecisions = sqliteTable('work_result_decisions', {
   disposition: text({ enum: ['accepted', 'changes_requested', 'dismissed'] }).notNull(),
   actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull(),
   actorUserId: text().notNull(),
+  actorMemberId: text().references(() => members.id),
   actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
   note: text(),
   attachments: text({ mode: 'json' }).$type<StoredAttachment[]>().notNull().default([]),
@@ -1896,6 +1965,8 @@ export const workResultAiReviews = sqliteTable('work_result_ai_reviews', {
   resultId: text().notNull().references(() => workResults.id, { onDelete: 'restrict' }),
   actorSource: text({ enum: ['human', 'ai', 'system'] }).notNull(),
   actorUserId: text().notNull(),
+  actorMemberId: text().references(() => members.id),
+  requestingApiKeyId: text().references(() => apiKeys.id),
   actorSessionId: text().references((): AnySQLiteColumn => chatSessions.id, { onDelete: 'set null' }),
   requestHash: text().notNull(),
   focus: text(),
@@ -2005,6 +2076,7 @@ export const chatSessions = sqliteTable(
     agentCoordinationPolicy: text({ enum: ['ask', 'allow'] }),
     coordinationHeldAt: text(),
     userId: text().notNull().default('local'),
+    createdByMemberId: text().references((): AnySQLiteColumn => members.id),
     // Which engine runs this chat. A fact, set by every creator, no default.
     // (Replaced `agent_id`, a pointer to a four-row table that held nothing
     // but this value. See docs/agents-view-spec.md Phase 1.)
@@ -2604,6 +2676,8 @@ export interface AgentCoordinationPayload {
   originalRequest?: string;
   directions?: string;
   humanDirected?: boolean;
+  /** Saved app decision, supplied only beside a later human message. */
+  contextOnly?: boolean;
   launch?: { workspaceId: string; provider?: HarnessId; model?: string; modelVariant?: string | null; effort?: typeof chatSessions.$inferSelect.effort; serviceTier?: string | null; permissionMode?: (typeof PERMISSION_MODES)[number]; taskId?: string; deviceId?: string; label?: string };
 }
 
@@ -2888,6 +2962,7 @@ export const runs = sqliteTable(
   {
     id: text().primaryKey(),
     ...timestamps,
+    requestedByMemberId: text().references((): AnySQLiteColumn => members.id),
     // Which trigger fired this (null for manual chat sends).
     triggerId: text().references(() => triggers.id, { onDelete: 'set null' }),
     // Denormalized FKs for cheap rollups. workspaceId is null for
@@ -2910,6 +2985,8 @@ export const runs = sqliteTable(
     // reserved coordinationDeliveryIds here, so preparation and retries
     // recover one frozen input batch without another transport table.
     triggerPayload: text({ mode: 'json' }).$type<Record<string, unknown> | string | null>(),
+    // Virtual, so existing run rowids stay intact and old result operations are indexed too.
+    resultOperationMessageId: text().generatedAlwaysAs(sql`CASE WHEN json_valid(trigger_payload) THEN json_extract(trigger_payload, '$.resultOperation.messageId') END`),
     // For scheduler-driven runs, the wall-clock time the slot fired (the
     // tick's idea of "now"). Null for manual + webhook.
     scheduledFor: text(),
@@ -2980,6 +3057,7 @@ export const runs = sqliteTable(
     index('idx_runs_execution_status').on(table.executionId, table.status),
     // A held message's scheduled run, found when a move delivers it.
     index('idx_runs_source_event').on(table.sourceEventId),
+    index('idx_runs_result_operation_message').on(table.resultOperationMessageId),
   ],
 );
 

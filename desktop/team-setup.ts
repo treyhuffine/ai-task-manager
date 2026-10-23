@@ -135,10 +135,10 @@ export async function joinTeamWithLink(raw: string, name: string | undefined, de
  * environment. Marked first, its identity a team's from the outset, its host
  * key made, then its owner, all retry-safe by the creation id.
  */
-export async function createTeamHere(input: { creationId: string; teamName: string; ownerName: string; port?: number }): Promise<Omit<HostedTeam, 'origin'>> {
+export async function createTeamHere(input: { creationId: string; teamName: string; ownerName: string; port?: number; hostedWithPersonalHome?: boolean }): Promise<Omit<HostedTeam, 'origin'>> {
   const { getAppRoot, getConfigDir } = await import('../src/lib/config/paths');
   const { writeTeamIntent } = await import('../src/lib/home/team-intent');
-  writeTeamIntent({ creationId: input.creationId, name: input.teamName });
+  writeTeamIntent({ creationId: input.creationId, name: input.teamName, hostedWithPersonalHome: input.hostedWithPersonalHome });
   if (input.port) {
     const settings = path.join(getConfigDir(), 'local-service.json');
     if (!fs.existsSync(settings)) {

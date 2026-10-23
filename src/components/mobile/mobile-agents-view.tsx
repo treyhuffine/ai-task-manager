@@ -5,7 +5,11 @@ import { BACKGROUND_DOT, BACKGROUND_LABEL } from '@/components/workspaces/activi
 import { InactiveFold } from '@/components/workspaces/inactive-fold';
 import { WorkspaceCreateModal } from '@/components/workspaces/workspace-create-modal';
 import { AgentInitials } from '@/components/agents/agent-icon';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation, useWorkActivity } from '@/contexts/work-context';
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
+import { useDefaultSelection } from '@/hooks/use-default-selection';
+import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
 import type { WorkspaceWithCounts } from '@/db/types';
 import { useAreas } from '@/hooks/use-areas';
 import { useInactivity } from '@/hooks/use-inactivity';
@@ -17,7 +21,6 @@ import {
 } from '@/hooks/use-workspaces';
 import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
-import { executionView } from '@/lib/client/active-view';
 import { useAgentViewMode } from '@/lib/client/agent-view-mode';
 import { startExecution } from '@/lib/executions/start-execution';
 import { cn } from '@/lib/utils';
@@ -55,6 +58,7 @@ import { MobileReviewAttention } from '@/components/results/mobile-review-attent
 export function MobileAgentsView() {
   const { data: workspaces, isLoading } = useWorkspaces({ status: 'active' });
   const [createWsOpen, setCreateWsOpen] = useState(false);
+  const canConfigure = useOptionalHomeContext()?.capabilities.configureAgents ?? true;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -65,14 +69,14 @@ export function MobileAgentsView() {
         <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
           Agents
         </span>
-        <button
+        {canConfigure && <button
           type="button"
           onClick={() => setCreateWsOpen(true)}
           className="w-8 h-8 -mr-1.5 flex items-center justify-center rounded-lg text-primary bg-primary/10 active:bg-primary/20 transition-colors"
           aria-label="New agent"
         >
           <Plus size={16} />
-        </button>
+        </button>}
       </div>
 
       <div className="px-3 pb-24 space-y-1">
@@ -82,12 +86,12 @@ export function MobileAgentsView() {
           </div>
         )}
         {!isLoading && (workspaces?.length ?? 0) === 0 && (
-          <EmptyWorkspaces onCreate={() => setCreateWsOpen(true)} />
+          <EmptyWorkspaces onCreate={canConfigure ? () => setCreateWsOpen(true) : undefined} />
         )}
         {workspaces?.map((ws) => <WorkspaceBlock key={ws.id} workspace={ws} />)}
       </div>
 
-      <WorkspaceCreateModal open={createWsOpen} onOpenChange={setCreateWsOpen} />
+      {canConfigure && <WorkspaceCreateModal open={createWsOpen} onOpenChange={setCreateWsOpen} />}
     </div>
   );
 }
@@ -95,7 +99,7 @@ export function MobileAgentsView() {
 // ─── Needs Review block ───────────────────────────────────────────
 
 function NeedsReviewBlock() {
-  const { streamingSessionIds, pendingInputSessionIds } = useDashboard();
+  const { streamingSessionIds, pendingInputSessionIds } = useWorkActivity();
   const { data: candidates } = useNeedsReviewSessions();
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const { partition } = useInactivity();
@@ -156,7 +160,10 @@ function NeedsReviewBlock() {
 // ─── Workspace block (collapsible) ────────────────────────────────
 
 function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
-  const { streamingSessionIds, pendingInputSessionIds, setActiveView, setMobileTab, openAgent } = useDashboard();
+  const { streamingSessionIds, pendingInputSessionIds } = useWorkActivity();
+  const { openExecution, openAgent } = useWorkNavigation();
+  const { personalControls } = useExecutionRuntimeScope();
+  const defaultSelection = useDefaultSelection();
   const { opensView } = useAgentViewMode();
   const { isInactive, partition } = useInactivity();
   const { data: reviewCandidates } = useNeedsReviewSessions();
@@ -174,17 +181,16 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
   // header renders "Untitled" in the meantime.
   const handleCreateExecution = (deviceId?: string) => {
     if (creating) return;
+    if (!personalControls && !defaultSelection?.model) { openLauncher(workspace.id); return; }
     setCreating(true);
-    const { sessionId, done } = startExecution(qc, { workspaceId: workspace.id, deviceId });
-    setMobileTab('agents');
-    setActiveView(executionView(sessionId));
+    const { sessionId, done } = startExecution(qc, { workspaceId: workspace.id, deviceId, ...(defaultSelection ? { harness: defaultSelection.harness, model: defaultSelection.model, modelVariant: defaultSelection.variant, effort: defaultSelection.effort } : {}) });
+    openExecution(sessionId);
     void done.finally(() => setCreating(false));
   };
   // + starts where the agent usually runs. Another device, for this one
   // execution, is in the agent's ⋯ menu (spec §3.3).
   const [pickingDevice, setPickingDevice] = useState(false);
   const openAgentTab = (tab: AgentTab) => {
-    setMobileTab('agents');
     openAgent(workspace.id, tab);
   };
 
@@ -221,7 +227,6 @@ function WorkspaceBlock({ workspace }: { workspace: WorkspaceWithCounts }) {
           type="button"
           onClick={() => {
             if (!opensView) return toggle();
-            setMobileTab('agents');
             openAgent(workspace.id);
           }}
           className="flex items-center gap-3 flex-1 min-w-0 text-left"
@@ -347,8 +352,8 @@ interface MobileSessionRowProps {
 }
 
 function MobileSessionRow({ session, workspaceLabel, forceState, inactive = false }: MobileSessionRowProps) {
-  const { activeSessionId, activeExecutionId, setActiveView, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds, setMobileTab } =
-    useDashboard();
+  const { activeSessionId, activeExecutionId, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds } = useWorkActivity();
+  const { openExecution } = useWorkNavigation();
   const isPending = pendingInputSessionIds.has(session.id);
   // Pending wins over streaming: when the agent is blocked on user input
   // the process is still "running," but a green "working" pip would
@@ -378,8 +383,7 @@ function MobileSessionRow({ session, workspaceLabel, forceState, inactive = fals
   const open = () => {
     // Stay on the agents tab — MobileLayout swaps the agents content for
     // ExecutionView when activeSessionId !== 'command'.
-    setMobileTab('agents');
-    setActiveView(executionView(session.id));
+    openExecution(session.id);
   };
 
   return (
@@ -478,22 +482,22 @@ function Badge({ streaming, review }: { streaming: number; review: number }) {
 
 // ─── Empty state ──────────────────────────────────────────────────
 
-function EmptyWorkspaces({ onCreate }: { onCreate: () => void }) {
+function EmptyWorkspaces({ onCreate }: { onCreate?: () => void }) {
   return (
     <div className="px-6 py-10 text-center text-muted-foreground">
       <Bot className="w-8 h-8 mx-auto opacity-30 mb-3" />
       <p className="text-[13px] font-medium text-foreground">No agents yet</p>
       <p className="text-[11px] text-muted-foreground/70 mt-1 leading-relaxed">
-        Add one to get started.
+        {onCreate ? 'Add one to get started.' : 'No agents have been configured for this Home.'}
       </p>
-      <button
+      {onCreate && <button
         type="button"
         onClick={onCreate}
         className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-primary bg-primary/10 active:bg-primary/20 transition-colors"
       >
         <Plus size={13} />
         New agent
-      </button>
+      </button>}
     </div>
   );
 }

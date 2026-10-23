@@ -16,6 +16,7 @@ interface PendingSave extends DocumentDraft {
   inFlight?: Patch;
   visible: Readonly<Patch>;
   failures: number;
+  blocked?: boolean;
 }
 const prefix = 'ri:document-draft:v1:';
 const retryDelays = [2_000, 5_000, 15_000, 30_000, 60_000];
@@ -44,7 +45,7 @@ export class DocumentSaveQueue {
   }
 
   discard(key: string) { this.storage().removeItem(prefix + key); }
-  has(key?: string) { return key ? this.pending.has(key) : this.pending.size > 0 || [...this.registered].some(save => save.hasUnsaved()); }
+  has(key?: string) { return key ? this.pending.has(key) : [...this.pending.values()].some(state => !state.blocked) || [...this.registered].some(save => save.hasUnsaved()); }
 
   register(save: RegisteredDocumentSave) {
     this.registered.add(save);
@@ -72,6 +73,7 @@ export class DocumentSaveQueue {
       if (!(field in state.base)) state.base[field] = base[field] ?? null;
     }
     Object.assign(state.patch, patch);
+    state.blocked = false;
     state.writer = writer;
     state.visible = { ...state.inFlight, ...state.patch };
     this.changed(key);
@@ -101,7 +103,12 @@ export class DocumentSaveQueue {
           state.inFlight = undefined;
           // The write error remains authoritative when local storage also
           // fails. Keep the in-memory patch available for the next retry.
-          try { this.persist(key, state); } catch { /* Already retained in memory. */ }
+          try {
+            this.persist(key, state);
+            // A permanently refused author keeps a durable recovery draft, without
+            // an endless unload warning on a Home they can no longer write.
+            state.blocked = [401, 403, 404, 410].includes(apiErrorStatus(error) ?? 0);
+          } catch { /* Keep the leave guard when retention itself failed. */ }
           // A save that failed in passing (a restart, a dropped connection)
           // must not hold the unload guard until the next keystroke.
           if (retryable(error)) {

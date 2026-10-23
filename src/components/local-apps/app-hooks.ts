@@ -1,4 +1,5 @@
 'use client';
+import { usePersonalServices } from '@/components/home/use-personal-services';
 
 import { useQuery } from '@tanstack/react-query';
 import { trpcClient } from '@/lib/trpc/client';
@@ -29,7 +30,9 @@ export function useAppAccess(id: string | undefined, chatId: string | null | und
  * the live rate wins, with only the rail mounted the server is left alone.
  */
 export function useLocalApps({ live = true }: { live?: boolean } = {}) {
+  const personalServices = usePersonalServices();
   const enabled = useQuery({
+    enabled: personalServices,
     queryKey: ['local-apps-enabled'],
     queryFn: () => trpcClient.localApps.enabled.query(),
     staleTime: 60_000,
@@ -37,13 +40,13 @@ export function useLocalApps({ live = true }: { live?: boolean } = {}) {
   const apps = useQuery({
     queryKey: KEY,
     queryFn: () => trpcClient.localApps.list.query(),
-    enabled: enabled.data?.enabled === true,
+    enabled: personalServices && enabled.data?.enabled === true,
     refetchInterval: live ? 2000 : 30_000,
   });
   return {
     ...apps,
     error: enabled.error ?? apps.error,
-    checking: enabled.isPending,
-    enabled: enabled.data?.enabled === true,
+    checking: personalServices && enabled.isPending,
+    enabled: personalServices && enabled.data?.enabled === true,
   };
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolvePreviewSrc, pickReachability, isLocalViewer, type BrowserLocation } from './resolve-iframe-src';
+import { resolvePreviewSrc, pickReachability, isLocalViewer, safePreviewUrl, type BrowserLocation } from './resolve-iframe-src';
 import type { PreviewState } from '@/lib/api/preview';
 
 const LOCAL: BrowserLocation = { hostname: 'localhost', protocol: 'http:' };
@@ -62,6 +62,19 @@ describe('resolvePreviewSrc — local viewer', () => {
 });
 
 describe('resolvePreviewSrc — remote viewer', () => {
+  it('refuses the Home origin and unsafe legacy schemes without blocking a different app port', () => {
+    const home = { hostname: '127.0.0.1', protocol: 'http:', port: '4224', origin: 'http://127.0.0.1:4224' };
+    for (const remoteUrl of ['http://127.0.0.1:4224', 'http://127.0.0.1:4224/private', 'javascript:alert(1)', 'file:///private/home', 'https://user:secret@example.test']) {
+      expect(resolvePreviewSrc(state({ elsewhere: { deviceName: 'Worker', folder: '/work/project' }, remoteUrl }), home)).toMatchObject({ url: null, reason: 'unsafe_url' });
+    }
+    expect(safePreviewUrl('http://127.0.0.1:3000', home)).toBe(true);
+    expect(safePreviewUrl('https://RI.EXAMPLE.COM:443/work', REMOTE)).toBe(false);
+    expect(safePreviewUrl('http://[::1]:3000', { hostname: '::1', protocol: 'http:', port: '4224' })).toBe(true);
+    expect(resolvePreviewSrc(state({ elsewhere: { deviceName: 'Other device', folder: '/approved' }, localUrl: null, remoteUrl: home.origin }), home)).toMatchObject({ url: null, reason: 'unsafe_url' });
+  });
+  it('never treats the worker port as the Home browser’s loopback address', () => {
+    expect(resolvePreviewSrc(state({ elsewhere: { deviceName: 'Worker', folder: '/work/project' }, localUrl: null, remoteUrl: 'https://worker.example.test/app' }), LOCAL)).toEqual({ url: 'https://worker.example.test/app', mode: 'remote', reason: 'remote' });
+  });
   it('uses the remote provider URL once resolved', () => {
     const r = resolvePreviewSrc(state({ remoteUrl: 'https://ri-a3f9.beam.example' }), REMOTE);
     expect(r).toEqual({ url: 'https://ri-a3f9.beam.example', mode: 'remote', reason: 'remote' });

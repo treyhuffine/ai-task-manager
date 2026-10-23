@@ -76,9 +76,13 @@ function topLevelName(command: Command): string {
  * lifecycle. Everything personal (agents, triggers, the browser, pairing,
  * setup, snapshots) belongs to a person's home (docs/homes-spec.md §9.2).
  */
-const TEAM_COMMANDS = new Set(['team', 'start', 'stop', 'status', 'service', 'update', 'tls', 'perf', 'help']);
+const TEAM_COMMANDS = new Set(['team', 'start', 'stop', 'status', 'service', 'update', 'doctor', 'tls', 'perf', 'help']);
 
 export function refusalFor(commandName: string, subcommand?: string): string | null {
+  // This only admits the signed-session transport. Dispatch sends it to the
+  // Home, which verifies the credential and active turn on every operation.
+  // Neither an unsigned CLI nor any other personal command gains local access.
+  if (isTeamFolder() && commandName === 'agent' && process.env.RI_SESSION_CREDENTIAL && process.env.RI_HOME_TOOLS_URL) return null;
   if (isTeamFolder() && !TEAM_COMMANDS.has(commandName) && !(commandName === 'home' && subcommand === 'show')) {
     return `This folder holds a team. \`${APP_SHORT_ID} ${commandName}\` is part of a personal Ri. Use \`${APP_SHORT_ID} team\` here.`;
   }

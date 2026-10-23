@@ -10,7 +10,7 @@ export const tasksApi = {
   list: (filter?: Input['list']) => trpcClient.tasks.list.query(filter),
   get: (id: string) => trpcClient.tasks.get.query({ id }),
   create: (input: Input['create']) => trpcClient.tasks.create.mutate(input),
-  update: (id: string, patch: Input['update']['patch']) => trpcClient.tasks.update.mutate({ id, patch }),
+  update: (id: string, patch: Input['update']['patch'], guard: Pick<Input['update'], 'expectedSourceMemberId'> = {}) => trpcClient.tasks.update.mutate({ id, patch, ...guard }),
   delete: (id: string) => trpcClient.tasks.delete.mutate({ id }),
   complete: (id: string, opts: Omit<Input['complete'], 'id'> = {}) => trpcClient.tasks.complete.mutate({ id, ...opts }),
   transition: (id: string, command: TransitionCommand, opts: Omit<Input['transition'], 'id' | 'command'> = {}) => trpcClient.tasks.transition.mutate({ id, command, ...opts }),

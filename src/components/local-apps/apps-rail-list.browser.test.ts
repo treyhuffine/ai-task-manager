@@ -54,7 +54,7 @@ beforeAll(async () => {
       import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
       import {TooltipProvider} from '@/components/ui/tooltip';
       import {useAppPlaces} from '@/components/local-apps/use-app-places';
-      import {RailRows} from '@/components/workspaces/rail-nav';
+      import {RailRows} from '@/components/home/home-navigation';
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
       function Fixture(){
         return <aside className="relative flex h-dvh w-[256px] flex-col border-r border-border bg-background"><RailRows places={useAppPlaces()} label="Places"/></aside>;
@@ -64,11 +64,13 @@ beforeAll(async () => {
     bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', logLevel: 'silent',
     define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}' },
     plugins: [{ name: 'isolated-dashboard', setup(api) {
+      api.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: 'next-nav', namespace: 'fixture-next' }));
+      api.onLoad({ filter: /.*/, namespace: 'fixture-next' }, () => ({ resolveDir:process.cwd(), contents: `import {useSyncExternalStore} from 'react';export const usePathname=()=>'/';export const useSearchParams=()=>new URLSearchParams(useSyncExternalStore(notify=>{window.addEventListener('popstate',notify);return()=>window.removeEventListener('popstate',notify);},()=>location.search));`,loader:'js'}));
       api.onResolve({ filter: /^@\/contexts\/dashboard-context$/ }, () => ({ path: 'dashboard', namespace: 'fixture' }));
       api.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ resolveDir: process.cwd(), loader: 'js', contents: `
         import {useSyncExternalStore} from 'react';
         let view={kind:'home'};const subscribers=new Set();window.views=[];
-        const setActiveView=next=>{view=next;window.views.push(next);subscribers.forEach(notify=>notify());};
+        const setActiveView=next=>{view=next;window.views.push(next);history.pushState({},'', '?view='+next.kind+'&route='+encodeURIComponent(next.route??''));window.dispatchEvent(new PopStateEvent('popstate'));subscribers.forEach(notify=>notify());};
         const subscribe=notify=>{subscribers.add(notify);return()=>subscribers.delete(notify);};
         export const useDashboard=()=>({activeView:useSyncExternalStore(subscribe,()=>view),setActiveView});
         export const useOptionalDashboard=useDashboard;

@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useHomeStorageScope } from '@/components/home/home-context';
+import { homeStorageIdentity } from '@/lib/home/document-scope';
 import {
   INITIAL_WORKBENCH,
   fromPersisted,
@@ -66,7 +68,8 @@ export interface Workbench {
  * `worktreeId` is the execution id (or the chat's own id without one), so
  * hopping between chats on one execution keeps the same workbench.
  */
-export function useWorkbench(worktreeId: string): Workbench {
+export function useWorkbench(resourceId: string): Workbench {
+  const worktreeId = homeStorageIdentity(resourceId, useHomeStorageScope());
   const [state, rawDispatch] = useReducer(workbenchReducer, worktreeId, (id) => fromPersisted(readJson(STATE_KEY(id))));
   const openedRef = useRef<Set<PanelView>>(new Set());
 

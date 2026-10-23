@@ -1,11 +1,12 @@
 'use client';
 
+import { documentSaves } from '@/lib/client/document-saves';
 import { AlertCircle, Check, ChevronDown, Copy, FileClock, FolderGit2, Globe, Loader2, ScrollText, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiErrorText } from '@/lib/api/client';
 import type { MoveSkillBody, ProjectInfo, SkillView } from '@/lib/api/skills';
 import { useMoveSkill, useSkills } from '@/hooks/use-skills';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useSkillNavigation } from '@/components/skills/skill-navigation';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,14 +33,15 @@ import { Tip } from '@/components/ui/tip';
 export function SkillLocationControl({ skill }: { skill: SkillView }) {
   const move = useMoveSkill(skill.ref);
   const { data } = useSkills();
-  const { openSkill } = useDashboard();
+  const { openSkill } = useSkillNavigation();
   const here = skill.location;
   const draft = here.kind === 'draft';
   const currentProject = here.kind === 'project' ? here.workspaceId : null;
   const projects = (data?.projects ?? []).filter((p) => p.workspaceId !== currentProject);
   const blocked = skill.hasErrors;
 
-  const go = (body: MoveSkillBody, done: string) =>
+  const go = async (body: MoveSkillBody, done: string) => {
+    try { await documentSaves.flushAll(); } catch (error) { toast.error(apiErrorText(error)); return; }
     move.mutate(body, {
       onSuccess: ({ skill: moved }) => {
         if (body.copy) {
@@ -51,6 +53,7 @@ export function SkillLocationControl({ skill }: { skill: SkillView }) {
       },
       onError: (err) => toast.error(apiErrorText(err)),
     });
+  };
 
   const install = (to: 'ri' | 'global') =>
     go({ to }, draft ? `Installed ${skill.name} ${to === 'ri' ? 'in Ri' : 'globally'}` : `${skill.name} is ${to === 'ri' ? 'a Ri skill' : 'global'} now`);
@@ -234,6 +237,7 @@ function ProjectsSub({
   projects: ProjectInfo[];
   onPick: (project: ProjectInfo) => void;
 }) {
+  if (!projects.length && !current) return null;
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger disabled={disabled} className={cn('items-start gap-2 py-1.5', disabled && 'opacity-50')}>

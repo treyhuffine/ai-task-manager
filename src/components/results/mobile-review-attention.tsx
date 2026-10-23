@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { HomeLink as Link } from '@/components/home/home-link';
 import { ClipboardCheck } from 'lucide-react';
 import { useRailSessions } from '@/hooks/use-workspaces';
 

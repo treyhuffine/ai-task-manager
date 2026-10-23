@@ -1,5 +1,6 @@
 'use client';
 
+import { useAgentConfigurationScope } from '@/components/workspaces/agent-placement-controls';
 import { useMemo, useState } from 'react';
 import { ChevronDown, Loader2, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -26,6 +27,7 @@ export function AgentPreview({
   active: boolean;
   onOpenSetup: () => void;
 }) {
+  const { canConfigure } = useAgentConfigurationScope();
   const { all } = useAgentExecutions(workspace.id);
   const { data } = useAgentPreviews(workspace.id, active);
   const previews = useMemo(() => data?.previews ?? [], [data?.previews]);
@@ -96,7 +98,7 @@ export function AgentPreview({
           </select>
           <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
         </label>
-        {hasPinned && (
+        {canConfigure && hasPinned && (
           <Tip label="Bring up every pinned preview in this agent">
             <button
               onClick={() => restore.mutate()}

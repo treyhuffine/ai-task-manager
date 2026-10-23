@@ -1,3 +1,4 @@
+import { invalidateWorkspaceViews } from '@/lib/query/work-view-invalidation';
 import { entityKeys } from '@/lib/query/entity-keys';
 import type { QueryClient } from '@tanstack/react-query';
 import { uuidv7 } from 'uuidv7';
@@ -84,7 +85,7 @@ export function startExecution(qc: QueryClient, args: StartExecutionArgs): Start
       // difference between rendering now and rendering on the next retry.
       qc.setQueryData(['session', session.id], session);
       qc.invalidateQueries({ queryKey: ['workspaces', args.workspaceId, 'sessions'] });
-      qc.invalidateQueries({ queryKey: ['workspaces'] });
+      invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
       // Start-with-agent moved the task to In progress + recorded ownership.
       if (args.taskId) qc.invalidateQueries({ queryKey: entityKeys.tasks.all });

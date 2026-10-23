@@ -1,3 +1,4 @@
+import { hasTeamCapability } from '@/lib/team/capabilities';
 /**
  * `<app> team create | setup-link | status` (docs/homes-spec.md §3.1, §9.1).
  *
@@ -147,7 +148,7 @@ export function registerTeamCommand(program: Command) {
       const { ensureHomeIdentity } = await import('@/lib/home/identity');
       if (ensureHomeIdentity().home.kind !== 'team') fail('This folder holds a personal Ri, not a team.');
       const { listMembers, createTeamGrant } = await import('@/lib/db/queries');
-      const owners = listMembers().filter((member) => member.role === 'owner');
+      const owners = listMembers().filter((member) => hasTeamCapability(member, 'administerMembers'));
       const owner = opts.member ? owners.find((member) => member.id === opts.member) : owners.length === 1 ? owners[0] : null;
       if (!owner) fail('Choose an active owner with --member <id>. Run team status to inspect the team.');
       const { grant, secret } = createTeamGrant({ kind: 'sign_in', memberId: owner.id, createdByMemberId: null });
@@ -168,7 +169,7 @@ export function registerTeamCommand(program: Command) {
       const { listMembers } = await import('@/lib/db/queries');
       const { baseUrlSnapshot } = await import('@/lib/auth/base-url-snapshot');
       const members = listMembers();
-      const owners = members.filter((m) => m.role === 'owner').map((m) => `${m.name} (${m.id})`);
+      const owners = members.filter((m) => hasTeamCapability(m, 'administerMembers')).map((m) => `${m.name} (${m.id})`);
       const snapshot = baseUrlSnapshot();
       console.log(`${pc.bold(identity.home.name)} ${pc.dim(identity.home.id)}`);
       console.log(`  hosted on: ${identity.device.name}, ${getAppRoot()}`);

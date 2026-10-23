@@ -1,21 +1,27 @@
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { RunOnError, runOnFor, setDefaultDevice } from '@/lib/setups/run-on';
 import { z as rpcZ } from 'zod/v4';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { workspaceAuthority, executionOperationFailure } from '@/lib/workspaces/access';
 
 /**
  * Where an agent's new executions can run, and where they run by default
  * (docs/homes-spec.md §3.3, P3.1): the launcher's Run on control.
  */
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   const { id } = rpcInput.params;
+  try { workspaceAuthority(getRequestKey(request.headers), id, 'read'); }
+  catch (error) { const denied = executionOperationFailure(error); if (denied) return denied; throw error; }
   const runOn = runOnFor(id);
   if (!runOn) return reply({ error: 'not_found' }, { status: 404 });
   return reply(runOn);
 }
 
 /** "Make this the default": save the agent's default device, or clear it with null. */
-export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
+export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, request: OperationContext) {
   const { id } = rpcInput.params;
+  try { workspaceAuthority(getRequestKey(request.headers), id, 'configure'); }
+  catch (error) { const denied = executionOperationFailure(error); if (denied) return denied; throw error; }
   const body = (rpcInput.body) as { defaultDeviceId?: unknown };
   const deviceId = body.defaultDeviceId;
   if (deviceId !== null && typeof deviceId !== 'string') {

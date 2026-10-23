@@ -1,5 +1,6 @@
 "use client";
 
+import { teamDisplayName } from '@/lib/home/team-display-name';
 import { entityKeys } from '@/lib/query/entity-keys';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -30,7 +31,7 @@ import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { TASK_LANES, LANE_BY_KEY, laneStatus, ACTIVE_STATUSES, type TaskLane } from '@/lib/tasks/lanes';
 import { useAreas } from '@/hooks/use-areas';
 import type { TaskAttentionSignals } from '@/db/types';
-import { useDashboard } from '@/contexts/dashboard-context';
+import type { ReactNode } from 'react';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -52,6 +53,7 @@ import { todayLocalDate } from '@/lib/deck/date';
 import type { Energy } from '@/db/types';
 import { useConnectedTeams } from '@/components/spaces/space-selector';
 import type { TaskListDTO } from '@/lib/api/dto/entity-list';
+import { ImportedWorkNotice } from '@/components/spaces/imported-work-notice';
 
 type SortOption = 'sortKey' | 'lastViewedAt' | 'hardDeadline' | 'createdAt' | 'updatedAt';
 
@@ -67,17 +69,34 @@ const SORT_LABELS: Record<SortOption, string> = {
   updatedAt: 'Updated',
 };
 
-export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange?: (next: TaskView) => void } = {}) {
-  const { openTask } = useDashboard();
+export interface TaskListProps {
+  onOpenTask: (id: string) => void;
+  view?: TaskView;
+  onViewChange?: (next: TaskView) => void;
+  privatePlanning?: boolean;
+  initialLane?: LaneFilter;
+  assigneeMemberId?: string | null;
+  createDefaults?: Record<string, unknown>;
+  contextControls?: ReactNode;
+  trailing?: ReactNode;
+  rowMeta?: (task: TaskListDTO) => ReactNode;
+  areaFilter?: string;
+  onAreaFilterChange?: (value: string) => void;
+  onSearch?: () => void;
+}
 
-  const [laneFilter, setLaneFilter] = useState<LaneFilter>('current');
+export function TaskList({ view, onViewChange, onOpenTask: openTask, privatePlanning = true, initialLane = 'current', assigneeMemberId, createDefaults, contextControls, trailing, rowMeta, areaFilter: controlledArea, onAreaFilterChange, onSearch }: TaskListProps) {
+
+  const [laneFilter, setLaneFilter] = useState<LaneFilter>(initialLane);
   const [energyFilter, setEnergyFilter] = useState<Energy | 'all'>('all');
-  const [areaFilter, setAreaFilter] = useState<string | 'all'>('all');
+  const [ownAreaFilter, setOwnAreaFilter] = useState('all');
+  const areaFilter = controlledArea ?? ownAreaFilter;
+  const setAreaFilter = onAreaFilterChange ?? setOwnAreaFilter;
   // Where tasks come from (docs/homes-spec.md §9.3): My Ri's own, or a
   // connected team's. Offered once a team is connected.
   const [sourceFilter, setSourceFilter] = useState<'all' | 'personal' | string>('all');
-  const { data: teams } = useConnectedTeams();
-  const sourceTeams = teams ?? [];
+  const { data: teams } = useConnectedTeams(privatePlanning);
+  const sourceTeams = privatePlanning ? teams ?? [] : [];
   const source = sourceFilter === 'all' || (sourceFilter !== 'personal' && !sourceTeams.some((t) => t.id === sourceFilter)) ? null : sourceFilter;
   const [sortBy, setSortBy] = useState<SortOption>('sortKey');
   const [switchedFromSort, setSwitchedFromSort] = useState<SortOption | null>(null);
@@ -105,20 +124,21 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
     ...(energyFilter !== 'all' ? { energy: energyFilter as Energy } : {}),
     ...(areaFilter !== 'all' ? { areaId: areaFilter } : {}),
     ...(source ? { source } : {}),
+    ...(assigneeMemberId ? { assigneeMemberId } : {}),
     orderBy: sortBy,
   };
 
   const queryClient = useQueryClient();
   const { data: tasks, isLoading, error } = useTasks(filter);
   const { data: areas } = useAreas();
-  const { data: counts } = useTaskCounts(areaFilter !== 'all' ? areaFilter : null, source);
+  const { data: counts } = useTaskCounts(areaFilter !== 'all' ? areaFilter : null, source, assigneeMemberId);
   const updateTask = useUpdateTask();
   const createTask = useCreateTask();
   const lifecycle = useTaskLifecycle();
 
   // Attention badges only matter for In-progress work, which appears in the
   // Current Work and Active views.
-  const attentionIds = laneFilter === 'current' || laneFilter === 'active' ? (tasks ?? []).map((t) => t.id) : [];
+  const attentionIds = (laneFilter === 'current' || laneFilter === 'active' || laneFilter === 'all') ? (tasks ?? []).map((t) => t.id) : [];
   const { data: attention } = useTaskAttention(attentionIds);
 
   // Quick-create in the lane, defaulting to the lane's semantics: Consider
@@ -140,6 +160,7 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
       if (!trimmed || !quickCreateLane) return;
       const status = quickCreateLane === 'consider' ? 'consider' : 'todo';
       const created = await createTask.mutateAsync({
+        ...createDefaults,
         title: trimmed,
         rawInput: trimmed,
         status,
@@ -147,7 +168,7 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
       } as Parameters<typeof createTask.mutateAsync>[0]);
       if (quickCreateLane === 'current' && created?.id) lifecycle.start(created.id);
     },
-    [quickCreateLane, createTask, areaFilter, lifecycle],
+    [quickCreateLane, createTask, areaFilter, lifecycle, createDefaults],
   );
 
   const areaLabel =
@@ -307,6 +328,7 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
       <ListToolbar>
         {/* List / Board switcher (desktop surface only; mobile is list-only) */}
         {view && onViewChange && <TaskViewToggle value={view} onChange={onViewChange} />}
+        {contextControls}
 
         {/* Status — primary selector (active lane + count) */}
         <DropdownMenu>
@@ -377,13 +399,14 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
                   <DropdownMenuRadioItem value="personal" className="text-xs">My Ri</DropdownMenuRadioItem>
                   {sourceTeams.map((team) => (
                     <DropdownMenuRadioItem key={team.id} value={team.id} className="text-xs">
-                      {team.name}
+                      {teamDisplayName(team.id, sourceTeams)}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
                 <DropdownMenuSeparator />
               </>
             )}
+            {privatePlanning && <>
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Energy</DropdownMenuLabel>
             <DropdownMenuRadioGroup
               value={energyFilter}
@@ -394,6 +417,7 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
               <DropdownMenuRadioItem value="light" className="text-xs">Light</DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
+            </>}
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Area</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={areaFilter} onValueChange={(v) => { setAreaFilter(v); dismissSwitchBanner(); }}>
               <DropdownMenuRadioItem value="all" className="text-xs">All Areas</DropdownMenuRadioItem>
@@ -429,9 +453,11 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
 
         <ToolbarSearchButton
           label="Search tasks"
-          onClick={() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: 'task: ' } }))}
+          onClick={onSearch ?? (() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: 'task: ' } })))}
         />
+        {trailing}
       </ListToolbar>
+      {source && source !== 'personal' && <ImportedWorkNotice teamId={source} />}
 
       {/* Sort-switch banner — sticky above the scroll area, inverted for emphasis */}
       {switchedFromSort && (
@@ -459,6 +485,8 @@ export function TaskList({ view, onViewChange }: { view?: TaskView; onViewChange
       {/* Task list */}
       <VirtualTaskList
         tasks={tasks}
+        privatePlanning={privatePlanning}
+        rowMeta={rowMeta}
         isLoading={isLoading}
         error={error}
         sensors={sensors}
@@ -537,12 +565,14 @@ interface VirtualTaskListProps {
   onPickBucket: (id: string, bucket: Bucket) => void;
   signals?: Record<string, TaskAttentionSignals>;
   emptyText: string;
+  privatePlanning: boolean;
+  rowMeta?: (task: TaskListDTO) => ReactNode;
 }
 
 function VirtualTaskList({
   tasks, isLoading, error, sensors, onDragEnd,
   onComplete, onUpdate, onSnooze, onArchive, onOpen,
-  dragEnabled, highlightId, onDragIntercept, onPickBucket, signals, emptyText,
+  dragEnabled, highlightId, onDragIntercept, onPickBucket, signals, emptyText, privatePlanning, rowMeta,
 }: VirtualTaskListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -610,6 +640,8 @@ function VirtualTaskList({
                   >
                     <TaskRow
                       task={task}
+                      privatePlanning={privatePlanning}
+                      contextMeta={rowMeta?.(task)}
                       onComplete={onComplete}
                       onUpdate={onUpdate}
                       onSnooze={onSnooze}

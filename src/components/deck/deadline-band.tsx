@@ -1,5 +1,6 @@
 'use client';
 
+import { TeamLabel } from '@/components/spaces/team-label';
 import { useState } from 'react';
 import { AlertTriangle, CalendarClock, Ban, Loader2, ListTree } from 'lucide-react';
 import { useDeadlines } from '@/hooks/use-tasks';
@@ -120,6 +121,7 @@ function DeadlineRow({ d, onOpen }: { d: DeadlineTask; onOpen: (id: string) => v
         </span>
         <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
           <DeadlinePill d={d} />
+          <TeamLabel teamId={d.sourceTeamId} sourceArea={d.sourceArea} />
           {d.blocked && (
             <span className="inline-flex items-center gap-0.5 rounded-sm bg-red-500/10 px-1 py-px text-[9px] font-medium text-red-600 dark:text-red-400">
               <Ban size={9} /> Blocked

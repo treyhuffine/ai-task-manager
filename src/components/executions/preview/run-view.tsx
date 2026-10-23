@@ -49,7 +49,7 @@ export function RunView({ controller: c, onStartAndPreview, onOpenPreview, onOpe
       : null;
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="@container flex h-full flex-col bg-background">
       {status !== 'not-configured' && (
         <div className="flex h-10 flex-shrink-0 items-center gap-2 border-b border-border px-3">
           <span aria-hidden className={cn('h-2 w-2 flex-shrink-0 rounded-full', runDotClass(status))} />
@@ -63,7 +63,7 @@ export function RunView({ controller: c, onStartAndPreview, onOpenPreview, onOpe
               </code>
             </Tip>
           )}
-          {detail && <span className="whitespace-nowrap font-mono text-[11.5px] text-muted-foreground/70">· {detail}</span>}
+          {detail && <span className="hidden whitespace-nowrap font-mono text-[11.5px] text-muted-foreground/70 @lg:inline">· {detail}</span>}
           <span className="flex-1" />
           {active ? (
             <>

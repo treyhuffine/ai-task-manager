@@ -124,6 +124,7 @@ export function QuestionCard({
             <button
               key={opt.label}
               type="button"
+              aria-pressed={isSelected}
               onClick={() => toggleOption(opt.label)}
               className={cn(
                 'flex items-start gap-2.5 px-3 py-2 rounded-lg text-left transition-all border',
@@ -161,6 +162,7 @@ export function QuestionCard({
             mechanism for actually cancelling the agent. */}
         <button
           type="button"
+          aria-pressed={otherActive}
           onClick={() => toggleOption(OTHER_VALUE)}
           className={cn(
             'flex items-start gap-2.5 px-3 py-2 rounded-lg text-left transition-all border',

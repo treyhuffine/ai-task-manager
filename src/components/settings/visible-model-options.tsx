@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ModelMenuProvider } from '@/components/chat-ui/model-menu/model-menu-provider';
+import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
 import { useHarnessConnection } from '@/hooks/use-harness-connection';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useSaveHarnessModels } from '@/hooks/use-harnesses';
@@ -65,6 +66,7 @@ function ProviderModels({
   markProviderSwitches: boolean;
 }) {
   const { models } = useHarnessModels(harness);
+  const { canConfigureModels } = useExecutionRuntimeScope();
   const catalog = useHarnessModels(harness, { catalog: true });
   const { connection } = useHarnessConnection(harness);
   const save = useSaveHarnessModels();
@@ -76,16 +78,17 @@ function ProviderModels({
     ...models.filter((model) => !model.custom),
   ];
   const visibleIds = new Set(models.map((model) => model.id));
-  const additionalModels = catalog.models.filter(
+  const additionalModels = canConfigureModels ? catalog.models.filter(
     (model) =>
       !visibleIds.has(model.id) && model.availability !== 'unavailable',
-  );
+  ) : [];
   const pick = async (model: ModelOption) => {
     if (disabled || pendingModel || !connection.connected) return;
     if (visibleIds.has(model.id)) {
       onPick(harness, model);
       return;
     }
+    if (!canConfigureModels) return;
     const settings = catalog.data;
     if (!settings) return;
     setPendingModel(model.id);

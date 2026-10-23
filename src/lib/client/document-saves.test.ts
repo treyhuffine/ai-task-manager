@@ -119,14 +119,14 @@ it('retries a save that failed in passing, so the unload guard clears on its own
   expect(saves.draft('notes:1')).toBeNull();
 });
 
-it('keeps a refused save pending for recovery instead of retrying it', async () => {
+it('keeps an author-refused save as a retained draft instead of retrying it', async () => {
   vi.useFakeTimers();
   const saves = queue();
   const writer = vi.fn().mockRejectedValue(Object.assign(new Error('API 404'), { status: 404 }));
   saves.schedule('notes:1', { body: 'draft' }, { body: '' }, writer);
   await vi.advanceTimersByTimeAsync(10 * 60_000);
   expect(writer).toHaveBeenCalledTimes(1);
-  expect(saves.has()).toBe(true);
+  expect(saves.has()).toBe(false);
   expect(saves.draft('notes:1')?.patch).toEqual({ body: 'draft' });
 });
 
@@ -169,5 +169,16 @@ it('backs off retries and lets a new edit restart the debounce', async () => {
   saves.schedule('notes:1', { body: 'ab' }, { body: '' }, writer);
   await vi.advanceTimersByTimeAsync(500);
   expect(writer).toHaveBeenLastCalledWith({ body: 'ab' });
+  expect(saves.has()).toBe(false);
+});
+
+it('retains an author-refused draft without retrying or holding the leave guard forever', async () => {
+  vi.useFakeTimers();
+  const saves = queue();
+  const writer = vi.fn().mockRejectedValue(Object.assign(new Error('Original team author required'), { status: 403 }));
+  saves.schedule('team:old-author:task', { title: 'Kept text' }, { title: 'Saved text' }, writer);
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(writer).toHaveBeenCalledTimes(1);
+  expect(saves.draft('team:old-author:task')?.patch).toEqual({ title: 'Kept text' });
   expect(saves.has()).toBe(false);
 });

@@ -1,7 +1,8 @@
 'use client';
 
+import { useSavedWorkAuthor } from '@/components/chat-ui/member-attribution';
 import { useState } from 'react';
-import Link from 'next/link';
+import { HomeLink as Link } from '@/components/home/home-link';
 import { Check, ChevronRight, ExternalLink, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 import { MessageResponse } from '@/components/ai-elements/message';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
@@ -29,11 +30,12 @@ export function ResultRenderer({ resultId, exact = false }: { resultId: string; 
   const query = useResult(resultId);
   if (query.isLoading) return <div className="flex items-center gap-2 rounded-lg border p-4 text-xs text-muted-foreground"><Loader2 size={13} className="animate-spin" />Loading handoff...</div>;
   if (query.error || !query.data) return <div className="space-y-2 rounded-lg border p-4 text-xs"><p role="alert">{query.error ? apiErrorText(query.error) : 'This handoff is unavailable.'}</p><Button variant="outline" size="xs" onClick={() => void query.refetch()}>Retry loading</Button><Link href={`/results/${resultId}`} className="ml-2 text-primary hover:underline">Exact handoff link</Link></div>;
-  return <SavedResult key={query.data.result.id} detail={query.data} exact={exact} />;
+  return <><SavedResult key={query.data.result.id} detail={query.data} exact={exact} /></>;
 }
 
 function SavedResult({ detail, exact }: { detail: WorkResultDetailResponse; exact: boolean }) {
   const { result } = detail;
+  const author = useSavedWorkAuthor();
   useSessionStream(exact ? result.sourceChatSessionId : null);
   const { data: capabilities } = useResultCapabilities();
   const enabled = capabilities?.handoffsEnabled === true;
@@ -83,7 +85,7 @@ function SavedResult({ detail, exact }: { detail: WorkResultDetailResponse; exac
         <div className="min-w-0">
           <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{reportTargetId ? 'AI review' : 'Handoff'}</p>
           {result.title && <h2 className="mt-1 text-base font-semibold leading-snug">{result.title}</h2>}
-          <p className="mt-1 text-[11px] text-muted-foreground">Saved {result.createdAt}{result.actorSource === 'human' ? ' by you' : result.actorSource === 'ai' ? ' by the agent' : ' by Ri'}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">Saved {result.createdAt} by {author(result)}</p>
         </div>
         {!exact && <Link href={`/results/${result.id}`} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hover:bg-muted"><ExternalLink size={12} />View handoff</Link>}
       </div>
@@ -106,10 +108,10 @@ function SavedResult({ detail, exact }: { detail: WorkResultDetailResponse; exac
         </div>
       )}
       {reviews.length > 0 && <div className="space-y-2 border-t pt-3">
-        <p className="text-xs font-medium">{dispositionLabel(reviews[0])}</p>
+        <p className="text-xs font-medium">{dispositionLabel(reviews[0], author(reviews[0]))}</p>
         <DecisionNote review={reviews[0]} result={result} />
         {reviews[0].disposition === 'changes_requested' && <FeedbackDelivery reviewId={reviews[0].id} resultId={result.id} />}
-        {reviews.length > 1 && <details><summary className="cursor-pointer text-[11px] text-muted-foreground">Earlier decisions</summary><div className="mt-2 space-y-2">{reviews.slice(1).map((review) => <div key={review.id} className="text-xs"><p>{dispositionLabel(review)} · {review.createdAt}</p><DecisionNote review={review} result={result} />{review.disposition === 'changes_requested' && <FeedbackDelivery reviewId={review.id} resultId={result.id} />}</div>)}</div></details>}
+        {reviews.length > 1 && <details><summary className="cursor-pointer text-[11px] text-muted-foreground">Earlier decisions</summary><div className="mt-2 space-y-2">{reviews.slice(1).map((review) => <div key={review.id} className="text-xs"><p>{dispositionLabel(review, author(review))} · {review.createdAt}</p><DecisionNote review={review} result={result} />{review.disposition === 'changes_requested' && <FeedbackDelivery reviewId={review.id} resultId={result.id} />}</div>)}</div></details>}
       </div>}
       {enabled && primary && <div className="flex flex-wrap gap-2 border-t pt-3">
         <Button variant="outline" size="xs" disabled={decision.isPending} onClick={() => void decide('accepted')}><Check />Accept</Button>
@@ -125,7 +127,7 @@ function SavedResult({ detail, exact }: { detail: WorkResultDetailResponse; exac
         <summary className="flex cursor-pointer items-center gap-1"><ChevronRight size={11} />Handoff provenance</summary>
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
           <dt>Exact snapshot</dt><dd className="break-all">{result.id}</dd>
-          <dt>Saved by</dt><dd>{result.actorSource === 'ai' ? 'Agent' : result.actorSource === 'human' ? 'Human' : 'System'} · {result.actorUserId}</dd>
+          <dt>Saved by</dt><dd>{author(result)}</dd>
           <dt>Authoring conversation</dt><dd>{result.sourceChatSessionId ? <Link href={`/?session=${encodeURIComponent(result.sourceChatSessionId)}`} className="text-primary hover:underline">Return to the authoring conversation</Link> : 'Unavailable or pruned'}</dd>
           <dt>Code identity</dt><dd className="break-all">{result.codeRevision?.commitSha ?? 'Unknown'}{result.codeRevision ? ` (${result.codeRevision.workingTreeState})` : ''}</dd>
           <dt>Captured</dt><dd>{result.codeRevision?.capturedAt ?? 'No code capture recorded'}</dd>

@@ -6,6 +6,7 @@ import type { WorkResultDetail } from '@/db/types';
 const state = vi.hoisted(() => ({ enabled: false, aiEnabled: false, sourceAvailable: true, detail: null as WorkResultDetail | null }));
 const mutation = { isPending: false, error: null, data: undefined, mutate: vi.fn(), mutateAsync: vi.fn() };
 
+vi.mock('@/components/team/use-team', () => ({ useTeamMembers: () => ({ byId: new Map() }) }));
 vi.mock('@/hooks/use-results', () => ({
   useResult: () => ({ data: state.detail, isLoading: false, error: null }),
   useResultCapabilities: () => ({ data: { handoffsEnabled: state.enabled, aiReviewEnabled: state.aiEnabled } }),

@@ -1,4 +1,8 @@
-"use client";
+'use client';
+
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { useSpace } from '@/components/spaces/space-root';
+import { homeResourceHref } from '@/lib/home/resource-href';
 
 import {
   ExternalLink, Archive, MoreHorizontal, X,
@@ -48,13 +52,16 @@ function formatRelativeDate(iso: string): string {
 }
 
 interface NoteRowProps {
+  privatePlanning?: boolean;
   note: NoteListDTO;
   onUpdate: (id: string, field: string, value: unknown) => void;
   onArchive: (id: string) => void;
   onOpen?: (id: string) => void;
 }
 
-export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
+export function NoteRow({ note, onUpdate, onArchive, onOpen, privatePlanning = true }: NoteRowProps) {
+  const home = useOptionalHomeContext();
+  const space = useSpace();
   const displayTitle = note.title || stripMarkdown((note.bodyExcerpt ?? '').split('\n')[0]).slice(0, 80);
   const rawPreview = note.title ? (note.bodyExcerpt ?? '') : (note.bodyExcerpt ?? '').split('\n').slice(1).join('\n');
   const bodyPreview = rawPreview ? stripMarkdown(rawPreview) : '';
@@ -67,7 +74,7 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
       )}
       onClick={(e) => {
         if (e.metaKey || e.ctrlKey) {
-          window.open(`/note/${note.id}`, '_blank')
+          window.open(homeResourceHref('note', note.id, { kind: home?.home.kind ?? 'personal', spaceId: space?.id }), '_blank')
         } else {
           onOpen?.(note.id)
         }
@@ -87,7 +94,7 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
 
         {/* Metadata row */}
         <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-          <TeamLabel teamId={note.sourceTeamId} />
+          <TeamLabel teamId={note.sourceTeamId} sourceArea={note.source?.area} />
           <DecisionLabel kind={note.kind} />
           <AreaSelect
             value={note.areaId}
@@ -98,10 +105,10 @@ export function NoteRow({ note, onUpdate, onArchive, onOpen }: NoteRowProps) {
             {formatRelativeDate(note.createdAt)}
           </span>
 
-          <TaskPicker
+          {privatePlanning && <TaskPicker
             value={note.taskId}
             onChange={(taskId) => onUpdate(note.id, 'taskId', taskId)}
-          />
+          />}
 
           {note.url && (
             <a

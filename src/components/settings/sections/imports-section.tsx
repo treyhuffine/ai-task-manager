@@ -1,5 +1,6 @@
 'use client';
 
+import { invalidateWorkspaceViews } from '@/lib/query/work-view-invalidation';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -146,7 +147,7 @@ export function ExternalAgentImportPanel() {
       setSelected(new Set());
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: DISCOVERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: ['workspaces'] }),
+        invalidateWorkspaceViews(queryClient),
         queryClient.invalidateQueries({ queryKey: ['sessions', 'rail'] }),
         queryClient.invalidateQueries({ queryKey: ['sessions', 'history'] }),
       ]);

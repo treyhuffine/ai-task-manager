@@ -1,16 +1,20 @@
-# Outside assistants and your personal Home
+# MCP access to your Home
 
-Settings → External AI connects an assistant you already use, such as Claude Code or the Codex CLI, to your personal Ri. It can search, read and update tasks, notes, areas and the priority deck. This includes private notes and private planning on tasks brought into My Ri from teams. Shared task edits still go through their team's normal command path. A team's separate External AI connection remains limited to that team's shared work.
+Settings → MCP access connects an assistant you already use, such as Claude Code or the Codex CLI, to your personal Ri. It can search, read and update tasks, notes, areas and the priority deck. This includes private notes and private planning on tasks brought into My Ri from teams. Shared task edits still go through their team's normal command path. A team's separate MCP access connection remains limited to that team's shared work.
+
+To use a team from your personal Ri, follow [Testing a team through personal Ri](team-testing.md). It covers both MCP CRUD and running a shared task with your personal agent.
 
 1. For access from another computer, set an HTTPS remote address in Settings → Devices. Use any supported tunnel or your own HTTPS setup. The computer hosting the Home must stay on and reachable. Ri does not configure a tunnel automatically here.
-2. Open Settings → External AI and choose Connect an external assistant.
-3. Choose your client. A connection label is optional, useful for distinguishing devices or installations.
+2. Open Settings → MCP access and choose Create MCP connection.
+3. Choose your client: Claude Code, Codex, Ri or another MCP client. A connection label is optional, useful for distinguishing devices or installations.
 4. Follow the instructions in the dialog. Save its key now, since it is shown only once. CLI instructions put it in a dedicated shell environment variable and keep the literal key out of command arguments. For a personal Home the connection is named `ri-home` and uses `RI_HOME_TOKEN`.
 5. Ask the assistant to find your tasks or save a note. The connection list then shows when it was used. Disconnect revokes just that connection on its next request.
 
 With no remote address, the dialog gives the local address and explains that it works only on the computer hosting Ri. Configure the remote address before setting up an assistant elsewhere. If you change the address later, update the MCP URL in existing client configurations, or disconnect and create a fresh connection.
 
-An MCP connection supplies tools to the assistant you are already running. It does not create a chat inside Ri or require a new AI provider key. Search uses the Home's existing semantic-search setup when available and falls back to keyword search. The connection key authenticates to Ri, not to Claude or OpenAI. Clients must support Streamable HTTP and bearer-token authentication. The instructions target terminal clients. They are not an OAuth connection flow for hosted chat apps, and desktop apps may not inherit shell-profile environment variables.
+An MCP connection supplies tools to the assistant you are already running. It does not create a chat inside Ri or require a new AI provider key. Search uses the Home's existing semantic-search setup when available and falls back to keyword search. The connection key authenticates to Ri, not to Claude or OpenAI. Clients must support Streamable HTTP and bearer-token authentication. The Claude Code and Codex instructions target terminal clients. They are not an OAuth connection flow for hosted chat apps, and desktop apps may not inherit shell-profile environment variables. The Ri option instead gives the fields for Settings → Plugins → Add MCP server, including the secret to store in that Ri's Home.
+
+For a team, join as a member first. Each MCP connection belongs to the signed-in member, and its writes are attributed to that member as AI actions. Creating another connection does not create another person. A personal Home's connection acts as its owner and is not a multi-user signup mechanism.
 
 ## Implementation and boundary
 

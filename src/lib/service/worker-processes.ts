@@ -1,7 +1,7 @@
 /** Only descendants observed under this worker, reidentified before each
  * signal. Shared harness binaries and unrelated shells are never selected by
  * name, path, or process group. */
-import { ownProcesses, processIdentity, type ProcessIdentity } from '@/lib/worker/leftovers';
+import { ownProcesses, processIdentity, sameProcess, type ProcessIdentity } from '@/lib/worker/leftovers';
 
 export async function workerDescendants(parent = process.pid): Promise<ProcessIdentity[]> {
   const found = new Map<number, ProcessIdentity>();
@@ -19,16 +19,13 @@ export async function workerDescendants(parent = process.pid): Promise<ProcessId
   // a harness close reparents descendants before cleanup gets to them.
   return [...found.values()].reverse();
 }
-function unchanged(now: ProcessIdentity | null, prior: ProcessIdentity) {
-  return !!now && now.started === prior.started && now.command === prior.command;
-}
-export async function stopWorkerDescendants(processes: ProcessIdentity[], graceMs = 2000): Promise<ProcessIdentity[]> {
+export async function stopWorkerDescendants(processes: ProcessIdentity[], graceMs = 2000, unchanged: (now: ProcessIdentity | null, recorded: ProcessIdentity) => boolean | null = sameProcess): Promise<ProcessIdentity[]> {
   const signal = async (child: ProcessIdentity, kind: NodeJS.Signals) => {
-    if (!unchanged(await processIdentity(child.pid), child)) return;
+    if (unchanged(await processIdentity(child.pid), child) !== true) return;
     try { process.kill(child.pid, kind); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
   };
   const remaining = async () => {
-    const values = await Promise.all(processes.map(async child => unchanged(await processIdentity(child.pid), child) ? child : null));
+    const values = await Promise.all(processes.map(async child => unchanged(await processIdentity(child.pid), child) !== false ? child : null));
     return values.filter((child): child is ProcessIdentity => child !== null);
   };
   for (const child of processes) await signal(child, 'SIGTERM');

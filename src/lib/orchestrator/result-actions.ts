@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineAction, ActionError } from './types';
-import { getWorkResult, listWorkResults, getChatSession, getWorkResultAiReviewForSession } from '@/lib/db/queries';
+import { getWorkResult, listWorkResults, getChatSession, getWorkResultAiReviewForSession, getHome } from '@/lib/db/queries';
 import { workResultActorFromContext } from '@/lib/work-results/http';
 import { getWorkResultCapabilities } from '@/lib/work-results/capabilities';
 import { workResultAttachmentSchema, workResultLinkSchema, workResultReviewScopeSchema, workResultReviewProvenanceSchema, reviewSelectionShape, workResultBodySchema } from '@/lib/work-results/validation';
@@ -34,6 +34,16 @@ function signedHeaders(context: ActionContext): Record<string, string> {
 }
 
 async function resultServerFetch(path: string, input: Record<string, unknown>, context: ActionContext) {
+  if (getHome()?.kind === 'team') {
+    const actor = workResultActorFromContext(context, true);
+    const reports = await import('@/lib/work-results/reports');
+    if (path === '/results/reports') return reports.saveAgentReport(actor, reports.agentReportSchema.parse(input));
+    if (path === '/results/review-reports') return reports.saveReviewReport(actor, reports.reviewReportSchema.parse(input));
+    const { requestWorkResultAiReview } = await import('@/lib/work-results/runtime');
+    const id = /^\/results\/([^/]+)\/reviews$/.exec(path)?.[1];
+    if (!id) throw new ActionError('unsupported', 'This team result action is unavailable.');
+    return requestWorkResultAiReview(actor, { ...input, resultId: decodeURIComponent(id) } as Parameters<typeof requestWorkResultAiReview>[1]);
+  }
   try { return await serverFetch(path, { method: 'POST', headers: signedHeaders(context), body: JSON.stringify(input) }); }
   catch (error) {
     if (error instanceof ServerResponseError) {

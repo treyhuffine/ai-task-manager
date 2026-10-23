@@ -79,6 +79,7 @@ import { resultEventId } from '@/components/chat-ui/handoffs/presentation';
 import { PreparationStatus } from '@/components/chat-ui/handoffs/preparation-status';
 import { EmailComposer } from '@/components/chat-ui/email/email-composer';
 import { parseEmailDraft } from '@/lib/email/validation';
+import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 
 interface ExecutionEventProps {
   event: ChatEventRecord;
@@ -146,9 +147,11 @@ interface ExecutionEventProps {
  *   - tool_call / tool_result — collapsible cards, paired visually.
  *   - system / result / background_task / recap / rate_limit / error / unknown — bespoke.
  */
-export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent, clientStatus, resultByCallId, subagentEventsByCallId, nestedAncestorCallIds, approvalGroup, handoffActions = true }: ExecutionEventProps) {
+export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent, clientStatus, resultByCallId, subagentEventsByCallId, nestedAncestorCallIds, approvalGroup, handoffActions }: ExecutionEventProps) {
   hot(`render ExecutionEvent[${event.source}]`);
   const [expanded, setExpanded] = useState(false);
+  const capabilities = useChatCapabilities();
+  const canPrepareResult = handoffActions ?? capabilities.prepareResults;
   const coordinationMessage = (event.raw as {agentCoordination?: {deliveryId?: string; content?: string; senderKind?: string; sourceSessionId?: string; sourceEventId?: string; kind?: string; directions?: string; originalRequest?: string; relatedRequestId?: string; lateFollowup?: boolean}} | null)?.agentCoordination;
   // A system-authored outcome retains its saved role and error source, with
   // the same provenance and full-message presentation as other received sends.
@@ -205,7 +208,7 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
               <span>Sending…</span>
             </div>
           )}
-          {sessionId && !isFailed && !isSending && (
+          {capabilities.deliveryReceipts && sessionId && !isFailed && !isSending && (
             <DeliveryLine sessionId={sessionId} eventId={event.id} content={content} attachments={event.attachments ?? []} />
           )}
           {event.content && (
@@ -239,7 +242,7 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
               timestamp={event.createdAt}
             />
           )}
-          {handoffActions && sessionId && !event.externalParentToolCallId && <OutputHandoffActions event={event} sessionId={sessionId} />}
+          {canPrepareResult && sessionId && !event.externalParentToolCallId && <OutputHandoffActions event={event} sessionId={sessionId} />}
         </div>
       );
 

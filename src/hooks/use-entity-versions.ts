@@ -47,7 +47,9 @@ export function groupVersions(versions: EntityVersionRecord[]): ChangeGroup[] {
   while (i < versions.length) {
     const source = versions[i].source;
     let j = i;
-    while (j + 1 < versions.length && versions[j + 1].source === source) j++;
+    while (j + 1 < versions.length && versions[j + 1].source === source
+      && versions[j + 1].actorMemberId === versions[i].actorMemberId
+      && versions[j + 1].actorSessionId === versions[i].actorSessionId) j++;
     groups.push({
       source,
       after: versions[i],

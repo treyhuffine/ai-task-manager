@@ -1,3 +1,6 @@
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 /**
@@ -25,8 +28,11 @@ import { listResolvedReferenceFolders } from '@/lib/reference-folders/resolve';
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'read');
+  if (homeDenied) return homeDenied;
   try {
     const { id } = rpcInput.params;
+    sessionAuthority(getRequestKey(_request.headers), id, 'read');
     const session = getChatSession(id);
     if (!session) return reply({ error: 'Session not found' }, { status: 404 });
 
@@ -58,6 +64,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
       })),
     });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/sessions/:id/reference-folders]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

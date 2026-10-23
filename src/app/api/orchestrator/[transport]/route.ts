@@ -1,3 +1,4 @@
+import { registerActionTool } from '@/lib/orchestrator/mcp-registration';
 /**
  * Orchestrator MCP server.
  *
@@ -13,7 +14,6 @@
  * from one handler (src/lib/mcp/http-server.ts). The HTTP+SSE transport is retired.
  */
 
-import { z } from 'zod';
 import { isMcpTransport, mcpNotFound, riMcpHandler } from '@/lib/mcp/http-server';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { permitsHomeContentAction } from '@/lib/external-ai/policy';
@@ -47,12 +47,8 @@ async function handle(request: Request) {
       for (const action of actions) {
         if (contentOnly && !permitsHomeContentAction(action.name)) continue;
         if (resultNames.has(action.name) && !visibleResultNames.has(action.name)) continue;
-        server.registerTool(
-          action.name,
-          {
-            description: contentOnly && action.name === 'search' ? 'Search this Home’s tasks and notes by meaning or keyword.' : action.description,
-            inputSchema: action.strictParams ? z.object(action.params).strict() : action.params,
-          },
+        registerActionTool(
+          server, action,
           async (input, { headers }) => {
             // Which chat and which key called, as the proxy validated them. The
             // home's own sessions use the home's own key, so their folder paths
@@ -63,6 +59,7 @@ async function handle(request: Request) {
               isError: !envelope.ok,
             };
           },
+          contentOnly ? { params: action.localContract?.params ?? action.params, description: action.name === 'search' ? 'Search this Home’s tasks and notes by meaning or keyword.' : action.localContract?.description ?? action.description } : undefined,
         );
       }
     },

@@ -7,7 +7,7 @@ import { beginActivity, readMaintenance } from '@/lib/service/maintenance';
 import './watchdog';
 import { isTrpcDrainSave } from '@/lib/trpc/admission';
 import { listRunningSessions, listBackgroundTaskSessions, listSessionsWithPending } from '@/lib/executor/status-snapshot';
-import { TRPC_WS_PATH } from '@/lib/trpc/ws-runtime';
+import { isWebSocketPath } from '@/lib/trpc/ws-runtime';
 import { DEFAULT_PORT } from '@/lib/auth/port';
 import { beginPerfScope, stopPerfRecorder } from '@/lib/perf/recorder';
 import { startServerPerfLog } from '@/lib/perf/server';
@@ -122,7 +122,7 @@ async function start() {
   server.on('upgrade', (request, socket, head) => {
     let pathname: string;
     try { pathname = new URL(request.url ?? '/', 'http://localhost').pathname; } catch { socket.destroy(); return; }
-    if (pathname === TRPC_WS_PATH) {
+    if (isWebSocketPath(pathname)) {
       const runtime = globalThis.__riTRPCWebSocket;
       if (runtime) runtime.upgrade(request, socket, head);
       else socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');

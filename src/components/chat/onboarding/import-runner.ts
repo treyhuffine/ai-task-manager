@@ -1,5 +1,6 @@
 'use client';
 
+import { invalidateWorkspaceViews } from '@/lib/query/work-view-invalidation';
 import { DISCOVERY_KEY } from '@/components/settings/sections/imports-section';
 import { apiErrorText } from '@/lib/api/client';
 import { trpcClient } from '@/lib/trpc/client';
@@ -47,7 +48,7 @@ export function startImport(qc: QueryClient, input: { sessionKeys: string[]; pro
       toast.success(`Brought in ${plural(imported, 'chat')}`, { description: `From ${listJoin(input.projects)}` });
       await Promise.all([
         qc.invalidateQueries({ queryKey: DISCOVERY_KEY }),
-        qc.invalidateQueries({ queryKey: ['workspaces'] }),
+        invalidateWorkspaceViews(qc),
         qc.invalidateQueries({ queryKey: ['sessions', 'rail'] }),
       ]);
     })

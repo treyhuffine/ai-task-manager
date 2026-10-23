@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { archiveAnywayDialog } from '@/components/executions/uncommitted-files';
 import { requestWorkbenchView } from '@/components/executions/workbench/view-request';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation } from '@/contexts/work-context';
 import { dirtyWorktreeOf, useArchiveSession } from '@/hooks/use-workspaces';
 
 function errorMessage(err: unknown): string {
@@ -25,7 +25,7 @@ export interface ArchiveExecutionArgs {
  * archive dialog, so the person lands on the files at stake.
  */
 export function useReviewChanges() {
-  const { openExecution } = useDashboard();
+  const { openExecution } = useWorkNavigation();
   return useCallback(
     (sessionId: string) => {
       requestWorkbenchView(sessionId, 'changes');

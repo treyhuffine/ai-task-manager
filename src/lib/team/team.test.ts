@@ -172,12 +172,12 @@ describe('a team space', () => {
     const member = await clientFor(owner.token);
     expect(await status(member.tasks.list.query())).toBe(200);
     // Every personal procedure refuses a member, whatever it is.
-    expect(await status(member.userState.list.query())).toBe(403);
-    expect(await status(member.workspaces.list.query())).toBe(403);
+    expect(await status(member.userState.list.query())).toBe(200);
+    expect(await member.workspaces.list.query()).toEqual([]);
     expect(await status(member.deck.current.query({}))).toBe(403);
     // Personal routes answer as if they weren't there, and so do the host's.
-    const workspaces = await serve('http://team.test/api/workspaces', { headers: { authorization: `Bearer ${owner.token}` } });
-    expect(workspaces.status).toBe(404);
+    const deck = await serve('http://team.test/api/deck', { headers: { authorization: `Bearer ${owner.token}` } });
+    expect(deck.status).toBe(404);
     expect((await post('/api/team/host/setup-link', {}, owner.token)).status).toBe(404);
     // Nothing without a key, and a bare address says only that it's a team.
     expect((await serve('http://team.test/api/trpc/tasks.list')).status).toBe(401);
@@ -568,7 +568,9 @@ describe('no AI in a team', () => {
     const { generateEmbedding } = await import('@/lib/embeddings/embed');
     await expect(generateEmbedding('hi')).rejects.toThrow(boundary);
     const { getHarnessRuntime } = await import('@/lib/harness/runtime');
-    await expect(getHarnessRuntime('claude')).rejects.toThrow(boundary);
+    const { installFakeHarness } = await import('@/test/fixtures/fake-harness');
+    const fake = installFakeHarness('claude');
+    try { expect((await getHarnessRuntime('claude')).binary.status).toBe('supported'); } finally { fake.restore(); }
     const { discoverExternalAgentSessions, syncAllImportedSessions } = await import('@/lib/import/external-agents');
     await expect(discoverExternalAgentSessions()).rejects.toThrow(boundary);
     await expect(syncAllImportedSessions()).rejects.toThrow(boundary);

@@ -15,6 +15,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { API_KEY_ID_HEADER, API_KEY_SCOPE_HEADER } from '@/lib/auth/request-key';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { startTeamProcess, type TeamProcess } from '@/test/fixtures/team-process';
+import { createHash } from 'node:crypto';
 
 let team: TeamProcess;
 let teamRoot: string;
@@ -63,6 +64,38 @@ async function viaHome(teamId: string, rest: string, init: { method?: string; sc
 }
 
 describe('a team space reaching its team through My Ri', () => {
+  it('preserves binary uploads and explicitly published files through the Team proxy', async () => {
+    const connection = await connected('Binary reviewer');
+    const bytes = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.from(Array.from({ length: 8192 }, (_, index) => index % 256))]);
+    const hash = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
+    const form = new FormData();
+    form.append('file', new File([bytes], 'binary-result.pdf', { type: 'application/pdf' }));
+    const uploaded = await viaHome(connection.id, 'attachments', { method: 'POST', body: form });
+    expect(uploaded.status).toBe(201);
+    const file = await uploaded.json();
+    const downloaded = await viaHome(connection.id, `attachments/${file.fileName}`);
+    expect(hash(new Uint8Array(await downloaded.arrayBuffer()))).toBe(hash(bytes));
+    const task = await (await owner()).tasks.create.mutate({ title: 'Binary publication', rawInput: 'Binary publication' });
+    const published = await viaHome(connection.id, 'trpc/tasks.publishResult', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: task.id, requestId: 'binary-through-proxy', summary: 'Chosen binary result', attachments: [file] }) });
+    expect(published.status, await published.clone().text()).toBe(200);
+    const saved = (await (await owner()).tasks.publishedResults.query({ taskId: task.id }))[0];
+    expect(saved.attachments).toHaveLength(1);
+    const resultFile = await viaHome(connection.id, `attachments/${saved.attachments![0].fileName}`);
+    expect(hash(new Uint8Array(await resultFile.arrayBuffer()))).toBe(hash(bytes));
+  });
+  it('refuses an old document after its connected member changes without forwarding the typed payload', async () => {
+    const original = await connected('Original member');
+    const {disconnectTeam} = await import('./connect');
+    await disconnectTeam(original.id);
+    const replacement = await connected('Replacement member');
+    expect(replacement.id).toBe(original.id);expect(replacement.memberId).not.toBe(original.memberId);
+    const headers={'x-ri-document-home':original.id,'x-ri-document-viewer':original.memberId};
+    const response = await viaHome(original.id,'trpc/tasks.create',{method:'POST',headers,body:JSON.stringify({title:'Must stay with its author',rawInput:'Must stay with its author'})});
+    expect(response.status).toBe(403);expect(await response.json()).toMatchObject({error:'document_author_changed'});
+    expect((await (await owner()).tasks.list.query({})).some(task=>task.title==='Must stay with its author')).toBe(false);
+    expect((await viaHome(replacement.id,'trpc/team.me?input=%7B%7D',{headers:{'x-ri-document-home':replacement.id,'x-ri-document-viewer':replacement.memberId}})).status).toBe(200);
+  });
+
   async function activeSvg() {
     const connection = await connected('File reviewer');
     const form = new FormData();
@@ -163,4 +196,14 @@ describe('a team space reaching its team through My Ri', () => {
     expect(await res.json()).toMatchObject({ error: 'team_unreachable' });
     expect(q.getTeamConnection(connection.id)?.status).toBe('active');
   }, 60_000);
+});
+
+it('refuses signed-agent pending-input relay before forwarding, including batches', async () => {
+  const team = await connected('Human');
+  const { SESSION_CREDENTIAL_HEADER } = await import('@/lib/orchestrator/session-credential');
+  for (const procedure of ['sessions.pendingInputRequestIdPost', 'team.me,sessions.pendingInputRequestIdPost']) {
+    const response = await viaHome(team.id, `trpc/${procedure}`, { method: 'POST', headers: { [SESSION_CREDENTIAL_HEADER]: 'signed-agent-marker', 'content-type': 'application/json' }, body: '{}' });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ message: expect.stringContaining('Only a signed-in person') });
+  }
 });

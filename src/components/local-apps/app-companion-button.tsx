@@ -1,5 +1,6 @@
 'use client';
 
+import { usePersonalServices } from '@/components/home/use-personal-services';
 import { useQuery } from '@tanstack/react-query';
 import { Check, LayoutGrid, X } from 'lucide-react';
 import {
@@ -29,11 +30,12 @@ import { useAppAction } from './use-app-action';
  * own chats.
  */
 export function AppCompanionButton({ chatId, surfaceKind }: { chatId: string; surfaceKind?: string | null }) {
+  const personalServices = usePersonalServices();
   const { enabled, data } = useLocalApps({ live: false });
   const { busy, run } = useAppAction();
   const companion = useConnectedCompanion();
   // Only the tabs this chat may open: an agent's chat sees the accounts its agent may use.
-  const connected = useQuery({ ...trpc.connectedApps.chatTabs.queryOptions({ chatId }, { staleTime: 15_000 }), enabled: !!companion?.openTab && !isAppSurface(surfaceKind) });
+  const connected = useQuery({ ...trpc.connectedApps.chatTabs.queryOptions({ chatId }, { staleTime: 15_000 }), enabled: personalServices && !!companion?.openTab && !isAppSurface(surfaceKind) });
   if (isAppSurface(surfaceKind)) return null;
   const apps = enabled ? (data?.instances ?? [])
     .filter((item) => item.enabled && !item.archived && item.hasView && item.activation?.phase === 'active')

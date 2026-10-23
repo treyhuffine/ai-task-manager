@@ -1,3 +1,6 @@
+import { prepareTaskLifecycleForViewer } from '@/lib/tasks/viewer-lifecycle';
+import type { ViewerLifecycleOptions } from '@/lib/tasks/viewer-lifecycle';
+import { hasTeamCapability } from '@/lib/team/capabilities';
 /**
  * The team's MCP tools (docs/homes-spec.md §9.8, P8.2): what a member's own
  * AI assistant (Codex, Claude Code) can do with the team's shared work, and
@@ -28,7 +31,7 @@ import { ftsSearch } from '@/lib/embeddings/search';
 import { TRANSITION_COMMANDS, isTaskLifecycleError } from '@/lib/tasks/lifecycle';
 import { assertTeamNotePatch, assertTeamTaskPatch } from '@/lib/team/shared-work';
 import { listTaskPublishedResults } from '@/lib/team/published-results';
-import type { AreaRecord, Attachment, MemberRecord, NoteRecord, TaskRecord } from '@/db/types';
+import type { AreaRecord, Attachment, MemberRecord, NoteRecord, TaskFilter, TaskRecord } from '@/db/types';
 
 export interface TeamToolContext {
   /** The member this acts for, as of this call: the AI client's, or whoever asked the team's AI. */
@@ -85,6 +88,7 @@ export type TeamTool = TeamReadTool | TeamWriteTool;
 
 const id = z.string().min(1).max(100);
 const optionalId = id.nullable().optional();
+const taskReadStatus = z.enum(['current', 'active', 'consider', 'todo', 'in_progress', 'done', 'archived']);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date, YYYY-MM-DD.');
 const idempotencyKey = z
   .string()
@@ -329,10 +333,12 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     name: 'list_tasks',
     description: 'The team\'s tasks, most recently updated first. status "current" is todo plus in_progress. assigned_to_me lists the tasks assigned to the member you act for.',
     shape: {
-      status: z.enum(['current', 'consider', 'todo', 'in_progress', 'done', 'archived']).optional(),
+      status: z.union([taskReadStatus, z.array(taskReadStatus).max(7)]).optional(),
       area_id: id.optional(),
       assignee_member_id: id.optional(),
       assigned_to_me: z.boolean().optional(),
+      q: z.string().max(500).optional(),
+      order_by: z.enum(['sortKey', 'hardDeadline', 'createdAt', 'updatedAt']).optional(),
       limit: z.number().int().min(1).max(200).optional(),
       offset: z.number().int().min(0).optional(),
     },
@@ -340,13 +346,14 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       if (input.assigned_to_me && input.assignee_member_id) throw new TeamToolError('invalid', 'Send assigned_to_me or assignee_member_id, not both.');
       const limit = (input.limit as number | undefined) ?? 50;
       const offset = (input.offset as number | undefined) ?? 0;
-      const status = input.status === 'current' ? 'active' : (input.status as TaskRecord['status'] | undefined);
+      const status = (Array.isArray(input.status) ? input.status.map((s) => s === 'current' ? 'active' : s) : input.status === 'current' ? 'active' : input.status) as TaskFilter['status'];
       const dir = directory();
       const tasks = q.listTasks({
         ...(status ? { status } : {}),
         ...(input.area_id ? { areaId: String(input.area_id) } : {}),
         ...(input.assigned_to_me ? { assigneeMemberId: ctx.member.id } : input.assignee_member_id ? { assigneeMemberId: String(input.assignee_member_id) } : {}),
-        orderBy: 'updatedAt',
+        orderBy: (input.order_by as 'sortKey' | 'hardDeadline' | 'createdAt' | 'updatedAt' | undefined) ?? 'updatedAt',
+        ...(input.q ? { q: String(input.q) } : {}),
         limit: limit + 1,
         offset,
       });
@@ -373,6 +380,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       kind: noteKind.optional(),
       area_id: id.optional(),
       status: z.enum(['active', 'archived']).optional(),
+      order_by: z.enum(['lastViewedAt', 'createdAt', 'updatedAt']).optional(),
       limit: z.number().int().min(1).max(200).optional(),
       offset: z.number().int().min(0).optional(),
     },
@@ -384,7 +392,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         status: (input.status as 'active' | 'archived' | undefined) ?? 'active',
         ...(input.kind ? { kind: input.kind as 'note' | 'decision' } : {}),
         ...(input.area_id ? { areaId: String(input.area_id) } : {}),
-        orderBy: 'updatedAt',
+        orderBy: (input.order_by as 'lastViewedAt' | 'createdAt' | 'updatedAt' | undefined) ?? 'updatedAt',
         limit: limit + 1,
         offset,
       });
@@ -630,6 +638,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     name: 'transition_task',
     description: 'Move a task through its lifecycle: start, move_to_todo, move_to_consider, return_to_todo, reopen, archive or restore. Archive instead of deleting. To finish it use complete_task.',
     shape: {
+      runtime_choice: z.enum(['keep_running', 'stop_running_agent']).optional(),
+      acknowledged_execution_ids: z.array(z.string()).optional(),
+      acknowledged_child_ids: z.array(z.string()).optional(),
       idempotency_key: idempotencyKey,
       id,
       command: z.enum(TRANSITION_COMMANDS),
@@ -644,6 +655,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         command: input.command as (typeof TRANSITION_COMMANDS)[number],
         idempotencyKey: lifecycleKey(ctx, 'transition_task', String(input.idempotency_key)),
         expectedStatusChangedCount: input.expected_status_changed_count as number | undefined,
+        acknowledgedChildIds: input.acknowledged_child_ids as string[] | undefined,
         meta: { ...byAgent(ctx), reason: (input.reason as string | undefined) ?? null },
       });
       return {
@@ -658,6 +670,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     name: 'complete_task',
     description: 'Mark a task done.',
     shape: {
+      runtime_choice: z.enum(['keep_running', 'stop_running_agent']).optional(),
+      acknowledged_execution_ids: z.array(z.string()).optional(),
+      acknowledged_child_ids: z.array(z.string()).optional(),
       idempotency_key: idempotencyKey,
       id,
       expected_status_changed_count: z.number().int().nonnegative().optional().describe('The status_changed_count you read, to refuse the change if someone moved it since.'),
@@ -669,6 +684,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       const outcome = q.completeTask(taskId, {
         idempotencyKey: lifecycleKey(ctx, 'complete_task', String(input.idempotency_key)),
         expectedStatusChangedCount: input.expected_status_changed_count as number | undefined,
+        acknowledgedChildIds: input.acknowledged_child_ids as string[] | undefined,
         note: (input.note as string | undefined) ?? null,
         meta: byAgent(ctx),
       });
@@ -770,7 +786,7 @@ export function toolError(err: unknown): TeamToolError {
   }
   if (q.isSharedOperationConflictError(err)) return new TeamToolError('idempotency_conflict', err.message);
   if (isTaskLifecycleError(err)) {
-    const code: TeamToolErrorCode = err.code === 'not_found' ? 'not_found' : err.code === 'conflict' ? 'conflict' : 'invalid';
+    const code: TeamToolErrorCode = err.code === 'not_found' ? 'not_found' : err.code === 'conflict' || err.code === 'active_execution' ? 'conflict' : 'invalid';
     return new TeamToolError(code, err.message, err.details === undefined ? undefined : { details: err.details });
   }
   if (q.isTeamError(err)) {
@@ -788,9 +804,23 @@ export type TeamToolResult = { ok: true; result: unknown; replayed?: boolean } |
  * repeat returns the first outcome (`replayed`) and a key reused for another
  * request is refused.
  */
-export function runTeamTool(tool: TeamTool, ctx: TeamToolContext, input: Record<string, unknown>): TeamToolResult {
+export async function runTeamTool(tool: TeamTool, ctx: TeamToolContext, input: Record<string, unknown>): Promise<TeamToolResult> {
   try {
+    if (!hasTeamCapability(ctx.member, tool.kind === 'read' ? 'read' : 'editContent', 'agent')) throw new TeamToolError('not_allowed', 'This membership cannot perform that action.');
     if (tool.kind === 'read') return { ok: true, result: tool.run(ctx, input) };
+    if (tool.name === 'complete_task' || tool.name === 'transition_task') {
+      const scope = { memberId: ctx.member.id, apiKeyId: ctx.apiKeyId, action: tool.name, idempotencyKey: String(input.idempotency_key), intentHash: intentHash(input) };
+      const prior = q.getSharedOperationReceipt(scope);
+      if (prior) return { ok: true, result: prior.outcome, replayed: true };
+      await prepareTaskLifecycleForViewer(String(input.id), tool.name === 'complete_task' ? 'complete' : input.command as typeof TRANSITION_COMMANDS[number], {
+        idempotencyKey: lifecycleKey(ctx, tool.name, String(input.idempotency_key)),
+        expectedStatusChangedCount: input.expected_status_changed_count as number | undefined,
+        runtimeChoice: input.runtime_choice as ViewerLifecycleOptions['runtimeChoice'],
+        acknowledgedExecutionIds: input.acknowledged_execution_ids as string[] | undefined,
+        acknowledgedChildIds: input.acknowledged_child_ids as string[] | undefined,
+      }, { memberId: ctx.member.id, source: 'ai' });
+      if (q.getMember(ctx.member.id)?.status !== 'active' || (ctx.apiKeyId && (q.memberForApiKey(ctx.apiKeyId)?.id ?? q.aiClientForApiKey(ctx.apiKeyId)?.member.id) !== ctx.member.id)) throw new TeamToolError('not_allowed', 'This sign-in is no longer active.');
+    }
     const { outcome, replayed } = q.withSharedOperationReceipt(
       {
         memberId: ctx.member.id,

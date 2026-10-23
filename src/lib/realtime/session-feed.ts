@@ -31,12 +31,15 @@ export function openSessionFeed(
   sessionId: string,
   lastEventId: string | null,
   emit: FeedEmit,
-  options: { revisedSince?: string | null } = {},
+  options: { revisedSince?: string | null; projectEvent?: (event: ChatEventRecord) => ReturnType<typeof toChatEventDTO> | null } = {},
 ): () => void {
   // Both the live publish and the resume replay funnel through here, so the
   // projection applies to each. It has to match the GET /events route
   // exactly (lib/api/dto/chat-event).
-  const writeChatEvent = (event: ChatEventRecord) => emit('chat_event', toChatEventDTO(event), event.id);
+  const writeChatEvent = (event: ChatEventRecord) => {
+    const projected = options.projectEvent ? options.projectEvent(event) : toChatEventDTO(event);
+    if (projected) emit('chat_event', projected, event.id);
+  };
 
   const unsubscribe = subscribe(sessionChannel(sessionId), (message: SessionStreamMessage) => {
     switch (message.kind) {

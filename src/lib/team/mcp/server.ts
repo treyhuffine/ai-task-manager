@@ -5,7 +5,7 @@
  *
  * The proxy admits two callers here: an active AI client key of an active
  * member (src/lib/team/credential.ts), and a running Team AI turn's own
- * credential (src/lib/team/ai/turn-credential.ts). Every tool call checks
+ * ordinary signed chat credential (src/lib/orchestrator/session-credential.ts). Every tool call checks
  * that again before it runs, so a client disconnected, a member removed or
  * a turn ended stops at the next call. The tools are exactly `TEAM_TOOLS`: the server knows no others, so
  * a name that isn't listed is refused at discovery and at call alike.
@@ -21,6 +21,8 @@ import { isTeamAuthority } from '@/lib/home/authority';
 import { notATeam } from '@/lib/team/http';
 import { readLimitedRequestBody, RequestBodyTooLargeError } from '@/lib/webhooks/read-limited-body';
 import { runTeamTool, TEAM_TOOLS, type TeamToolContext, type TeamToolResult } from './tools';
+import { parseTeamContentInput, teamContentResult } from './input';
+import { ActionError } from '@/lib/orchestrator/types';
 
 /** A note body can be long. Anything past this isn't a tool call. */
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
@@ -94,14 +96,18 @@ export async function handleTeamMcp(request: Request): Promise<Response> {
     }
   }
 
+  const nativeChat = first.chatSessionId ? (await import('@/lib/db/queries')).getChatSession(first.chatSessionId) : null;
+  const native = turnId && nativeChat?.workspaceId ? (await import('./native-tools')).nativeTeamTools(turnId, memberId) : [];
+  const reviewer = nativeChat?.surfaceKind === 'result_review';
   const handler = riMcpHandler(
     (server) => {
-      for (const tool of TEAM_TOOLS) {
+      for (const tool of reviewer ? [] : TEAM_TOOLS) {
         server.registerTool(
           tool.name,
           {
             description: tool.description,
             inputSchema: z.object(tool.shape).strict(),
+            preserveRawInput: true,
             annotations: tool.kind === 'read'
               ? { readOnlyHint: true, openWorldHint: false }
               : { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -112,10 +118,21 @@ export async function handleTeamMcp(request: Request): Promise<Response> {
             if (!current) {
               return toolResult({ ok: false, error: { code: 'not_allowed', message: turnId ? 'This turn of the team AI is over.' : 'This AI client is no longer connected to the team.' } });
             }
-            return toolResult(runTeamTool(tool, current, input));
+            try {
+              const { wire, areaStatus } = parseTeamContentInput(tool.name, tool.shape, input, getHome()?.id);
+              const result = await runTeamTool(tool, current, wire);
+              return toolResult(result.ok ? { ...result, result: teamContentResult(result.result, areaStatus) } : result);
+            } catch (error) {
+              if (!(error instanceof ActionError)) throw error;
+              return toolResult({ ok: false, error: { code: error.code === 'unsupported' ? 'not_allowed' : 'invalid', message: error.message } });
+            }
           },
         );
       }
+      for (const tool of native) server.registerTool(tool.name, { description: tool.description, inputSchema: z.object(tool.params).strict(), preserveRawInput: true, annotations: { readOnlyHint: !tool.mutating, openWorldHint: false } }, async input => {
+        const result = await tool.run(input);
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], isError: !result.ok };
+      });
     },
     {
       name: `${APP_NAME.toLowerCase()}-team`,

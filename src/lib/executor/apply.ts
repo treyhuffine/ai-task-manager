@@ -1,3 +1,4 @@
+import { conservativePlanReturn } from './permission-map';
 /**
  * Applying what a runner reports, at home (docs/homes-build.md, P2.3).
  *
@@ -341,7 +342,7 @@ function recordPendingResponse(chatSessionId: string, pending: PendingInput, res
 function revertFromPlanMode(chatSessionId: string): void {
   const session = getChatSession(chatSessionId);
   if (!session || session.permissionMode !== 'plan' || session.surfaceKind === 'result_review') return;
-  const target: PermissionMode = (session.prePlanMode as PermissionMode | null) ?? DEFAULT_PERMISSION_MODE;
+  const target: PermissionMode = (session.prePlanMode as PermissionMode | null) ?? (getHome()?.kind === 'team' ? conservativePlanReturn(session.harness) : DEFAULT_PERMISSION_MODE);
   updateChatSession(chatSessionId, { permissionMode: target, prePlanMode: null });
 }
 

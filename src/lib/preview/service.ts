@@ -1,3 +1,5 @@
+import { executionResourceFilter } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 /**
  * Preview orchestration — the layer the API routes call. Ties together the
  * desired-state record (`preview_targets`), the process supervisor, and the
@@ -355,7 +357,7 @@ export function getPreviewState(
  */
 export async function resolvePreview(
   executionId: string,
-  opts: { service?: string | null; remote?: boolean } = {},
+  opts: { service?: string | null; remote?: boolean; resolveOnly?: boolean } = {},
 ): Promise<PreviewState> {
   const remote = opts.remote ?? false;
   const ctx = loadContext(executionId);
@@ -364,6 +366,10 @@ export async function resolvePreview(
   // Work on another device is never started here. A viewer elsewhere gets
   // the URL pasted for it, used as given: no port of this device's goes in.
   if (ctx.elsewhere) return elsewhereState(ctx, service, remote ? pastedUrl(ctx.execution, service) : null);
+  if (opts.resolveOnly) {
+    const state = getPreviewState(executionId, service);
+    return remote ? { ...state, remoteUrl: pastedUrl(ctx.execution, service) } : state;
+  }
   const target = await getOrCreateTarget(ctx, service);
   touchPreviewTarget(target.id);
 
@@ -565,7 +571,8 @@ export function setPreviewPinned(executionId: string, service: string | null, pi
 export async function restoreWorkspacePreviews(workspaceId: string): Promise<
   Array<{ executionId: string; service: string | null; ok: boolean; error?: string }>
 > {
-  const targets = listPinnedPreviewTargetsForWorkspace(workspaceId);
+  const permitted = executionResourceFilter(executionRequestKey(), 'editFiles');
+  const targets = listPinnedPreviewTargetsForWorkspace(workspaceId).filter(t => permitted(t.executionId));
   const remote = readPreviewSettings().activeProvider !== 'localhost';
   const results: Array<{ executionId: string; service: string | null; ok: boolean; error?: string }> = [];
   for (const t of targets) {
@@ -600,7 +607,9 @@ export async function restoreWorkspacePreviews(workspaceId: string): Promise<
  */
 export function listWorkspacePreviews(workspaceId: string): Array<PreviewState & { label: string | null }> {
   const out: Array<PreviewState & { label: string | null }> = [];
+  const permitted = executionResourceFilter(executionRequestKey());
   for (const target of listPreviewTargetsForWorkspace(workspaceId)) {
+    if (!permitted(target.executionId)) continue;
     const execution = getExecution(target.executionId);
     if (!execution) continue;
     try {

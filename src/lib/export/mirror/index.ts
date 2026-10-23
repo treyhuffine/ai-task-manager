@@ -1,5 +1,6 @@
 export {
   MutationContext,
+  flushMirror,
   syncEntity,
   syncDeletion,
   syncBatch,

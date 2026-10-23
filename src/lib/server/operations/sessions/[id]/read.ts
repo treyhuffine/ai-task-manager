@@ -1,4 +1,6 @@
-import { markSessionRead } from '@/lib/db/queries';
+import { markConversationRead } from '@/lib/sessions/view-state';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 
@@ -13,13 +15,15 @@ import { z as rpcZ } from 'zod/v4';
  * state while the user is looking at it still surfaces as Unread until
  * the user engages.
  */
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
-    const row = markSessionRead(id);
+    const row = markConversationRead(getRequestKey(request.headers), id, true);
     if (!row) return reply({ error: 'Session not found' }, { status: 404 });
     return reply(row);
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/read]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

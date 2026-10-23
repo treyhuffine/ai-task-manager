@@ -1,3 +1,4 @@
+import { isTeamRole } from '@/lib/team/capabilities';
 /**
  * Which key made a request, and whether it is the home's own key, as the
  * proxy validated them.
@@ -82,9 +83,9 @@ export function getRequestKey(headers: Headers): RequestKey | null {
     location: headers.get(CALLER_LOCATION_HEADER) === 'home' ? 'home' : 'elsewhere',
     scope,
     workerDeviceId: scope === 'worker' || scope === 'session' ? headers.get(WORKER_DEVICE_HEADER) : null,
-    sessionChatId: scope === 'session' ? headers.get(SESSION_CHAT_HEADER) : null,
+    sessionChatId: scope === 'session' || scope === 'member' || scope === 'team_ai' ? headers.get(SESSION_CHAT_HEADER) : null,
     memberId: ofMember ? headers.get(MEMBER_ID_HEADER) : null,
-    memberRole: ofMember && (declaredRole === 'owner' || declaredRole === 'member') ? declaredRole : null,
+    memberRole: ofMember && isTeamRole(declaredRole) ? declaredRole : null,
     teamAiTurnId: scope === 'team_ai' ? headers.get(TEAM_AI_TURN_HEADER) : null,
   };
 }

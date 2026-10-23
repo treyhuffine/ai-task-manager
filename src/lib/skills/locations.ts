@@ -32,6 +32,7 @@ import { getWorkspace, listWorkspaces } from '@/lib/db/queries';
 import { shippedSkillNames } from '@/lib/agent-skills/shipped';
 import { SKILL_FILE } from './format';
 import { SkillError, assertSafeFolderName, isSafeFolderName } from './library';
+import { homeSkillLibraryOnly } from './home-policy';
 
 export type SkillLocation =
   | { kind: 'draft' }
@@ -87,7 +88,7 @@ export function skillDraftsDir(): string {
  * same rule the shipped skill follows.
  */
 export function canWriteGlobal(): boolean {
-  return process.env.RI_DESKTOP !== '1';
+  return !homeSkillLibraryOnly() && process.env.RI_DESKTOP !== '1';
 }
 
 export interface ProjectInfo {
@@ -101,12 +102,14 @@ export interface ProjectInfo {
 
 /** Agents whose folder is on this computer: the projects a skill can live in. */
 export function listProjects(): ProjectInfo[] {
+  if (homeSkillLibraryOnly()) return [];
   return listWorkspaces({ status: 'active' })
     .filter((ws) => ws.cwd && fs.existsSync(ws.cwd))
     .map((ws) => ({ workspaceId: ws.id, name: ws.name, cwd: ws.cwd!, isGit: ws.isGit }));
 }
 
 export function projectFor(workspaceId: string): ProjectInfo | null {
+  if (homeSkillLibraryOnly()) return null;
   const ws = getWorkspace(workspaceId);
   if (!ws || ws.status !== 'active' || !ws.cwd || !fs.existsSync(ws.cwd)) return null;
   return { workspaceId: ws.id, name: ws.name, cwd: ws.cwd, isGit: ws.isGit };
@@ -128,6 +131,11 @@ interface Channels {
 }
 
 function channelsOf(location: SkillLocation): Channels {
+  if (homeSkillLibraryOnly()) {
+    if (location.kind !== 'draft' && location.kind !== 'ri') throw new SkillError('not_found', 'Only this Home’s own skill library is available.');
+    const root = location.kind === 'draft' ? skillDraftsDir() : riSkillsDir();
+    if (fs.existsSync(root) && (fs.lstatSync(root).isSymbolicLink() || !fs.realpathSync(root).startsWith(fs.realpathSync(getAppRoot()) + path.sep))) throw new SkillError('invalid', 'The shared skill library must stay inside its Home.');
+  }
   switch (location.kind) {
     case 'draft':
       return { primary: skillDraftsDir(), mirror: null, legacy: [] };
@@ -163,7 +171,8 @@ export interface LocatedSkill {
 
 function hasSkillFile(dir: string): boolean {
   try {
-    return fs.statSync(path.join(dir, SKILL_FILE)).isFile();
+    const file = path.join(dir, SKILL_FILE);
+    return fs.lstatSync(file).isFile() && fs.realpathSync(file).startsWith(fs.realpathSync(dir) + path.sep);
   } catch {
     return false;
   }

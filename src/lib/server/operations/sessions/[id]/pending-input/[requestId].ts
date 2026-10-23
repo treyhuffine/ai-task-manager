@@ -2,6 +2,7 @@ import { actorFromRequest } from '@/lib/auth/actor';
 import { answerPrompt, type PromptAnswer } from '@/lib/executor/answer-prompt';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 
 /**
  * Resolve a pending permission/question request.
@@ -34,6 +35,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     if (outcome.ok) return reply({ ok: true });
     return reply({ error: outcome.error, message: outcome.message }, { status: STATUS[outcome.error] });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/pending-input/:requestId]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

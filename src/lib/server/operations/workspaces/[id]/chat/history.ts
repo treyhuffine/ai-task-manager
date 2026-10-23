@@ -1,3 +1,6 @@
+import { executionOperationFailure } from '@/lib/workspaces/access';
+import { conversationViews } from '@/lib/sessions/view-state';
+import { getRequestKey } from '@/lib/auth/request-key';
 import { failureResponse, reply, type OperationContext } from '@/lib/server/operation';
 import { mainChatHistory } from '@/lib/sessions/main-chat';
 import { resolveAgent } from "@/lib/workspaces/chat-agent";
@@ -10,13 +13,15 @@ import { z as rpcZ } from 'zod/v4';
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
     const agent = resolveAgent(id);
     if (!agent.ok) return failureResponse(agent.response);
-    return reply({ sessions: mainChatHistory(id) });
+    return reply({ sessions: conversationViews(getRequestKey(request.headers), mainChatHistory(id)) });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/workspaces/:id/chat/history]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

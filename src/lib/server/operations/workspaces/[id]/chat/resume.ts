@@ -1,3 +1,4 @@
+import { executionOperationFailure } from '@/lib/workspaces/access';
 import { failureResponse, reply, type OperationContext } from '@/lib/server/operation';
 import { resumeMainChat } from '@/lib/sessions/main-chat';
 import { archivedAgentResponse, resolveAgent } from "@/lib/workspaces/chat-agent";
@@ -22,6 +23,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     if (!result.ok) return reply({ error: result.error }, { status: result.status });
     return reply({ session: result.session });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/workspaces/:id/chat/resume]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

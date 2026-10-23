@@ -1,3 +1,4 @@
+import { trpc } from '@/lib/trpc/client';
 import type { QueryClient } from '@tanstack/react-query';
 
 /**
@@ -20,6 +21,8 @@ export function invalidateRailSoon(queryClient: QueryClient, opts: { includeChat
       queryClient.invalidateQueries({ queryKey: ['sessions', 'rail'] });
       queryClient.invalidateQueries({ queryKey: ['sessions', 'needs-review'] });
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      queryClient.invalidateQueries({ queryKey: trpc.workspaces.list.pathKey() });
+      queryClient.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.pathKey() });
       if (stripsWanted.delete(queryClient)) {
         // Execution chat-tab strips read `['execution', <id>, 'chats']` for
         // sibling unread/running dots.

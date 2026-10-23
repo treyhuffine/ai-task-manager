@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import type { UpdateReferenceFolderInput } from '@/db/types';
 import {
   getReferenceFolder,
@@ -22,6 +23,8 @@ function statusForReferenceError(code: ReferenceFolderError['code']): number {
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'read');
+  if (homeDenied) return homeDenied;
   try {
     const { id } = rpcInput.params;
     const row = getReferenceFolder(id);
@@ -36,6 +39,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
 }
 
 export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents');
+  if (homeDenied) return homeDenied;
   try {
     const { id } = rpcInput.params;
     const body = (rpcInput.body) as UpdateReferenceFolderInput;

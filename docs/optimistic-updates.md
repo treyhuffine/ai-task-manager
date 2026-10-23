@@ -177,3 +177,8 @@ Two rules keep it from firing for nothing:
 `src/lib/query/optimistic-entity.test.ts` covers the pure helpers against a real
 `QueryClient`: excerpt projection, single + list patching, body→excerpt mapping,
 root isolation, snapshot rollback, and removal.
+
+
+### The document’s original author
+
+A Team document fixes its Home/member audience before mounting an editor. Internal HTTP and WebSocket requests carry that expectation without granting authority. The server compares it with the current credential. Embedded documents also compare it with the stored connected member. A cookie-only sign-in or connection replaced in another tab therefore cannot submit an old draft as the replacement member. The common autosave writers capture the document audience along with their token. A changed audience leaves the scoped draft pending for its original author. Reloading opens a fresh document instead of silently adopting another identity into the live cache. Personal legacy draft recovery remains explicit and compatible.

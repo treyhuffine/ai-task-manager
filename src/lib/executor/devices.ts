@@ -86,14 +86,14 @@ export async function harnessCapabilitiesOn(
  */
 export function workingFolderOn(
   placement: ChatPlacement,
-  session: Pick<ChatSessionWithExecution, 'type' | 'workspaceId' | 'executionId'>,
+  session: Pick<ChatSessionWithExecution, 'type' | 'workspaceId' | 'executionId'> & { surfaceKind?: string | null },
 ): { cwd: string } | { preparing: string } | { problem: string } {
   const name = getDevice(placement.deviceId)?.name ?? 'that device';
   if (placement.executionId) {
     // Not prepared yet: the worktree it's preparing there, once it has.
     return placement.worktreePath ? { cwd: placement.worktreePath } : { preparing: placement.executionId };
   }
-  if (session.type === 'orchestration' && session.workspaceId) {
+  if ((session.type === 'orchestration' || session.surfaceKind === 'result_review') && session.workspaceId) {
     const setup = getWorkspaceSetup(session.workspaceId, placement.deviceId);
     if (setup && setupUsable(setup.status)) return { cwd: setup.sourcePath };
     return {

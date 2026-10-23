@@ -1,3 +1,4 @@
+import { registerActionTool } from '@/lib/orchestrator/mcp-registration';
 import { isMcpTransport, mcpNotFound, riMcpHandler } from '@/lib/mcp/http-server';
 import { discoverableResultActions, resultActions, handleUndiscoveredResultCall } from '@/lib/orchestrator/result-actions';
 import { runAction } from '@/lib/orchestrator/dispatch';
@@ -17,7 +18,7 @@ async function handle(request: Request) {
     ? resultActions.filter((action) => ['get_result', 'report_result_review'].includes(action.name))
     : discoverableResultActions();
   const handler = riMcpHandler((server) => {
-    for (const action of available) server.registerTool(action.name, { description: action.description, inputSchema: action.params }, async (input) => {
+    for (const action of available) registerActionTool(server, action, async (input) => {
       const envelope = await runAction(action.name, input, mcpCallContext(request.headers, { allowMissing: ['report_result', 'report_result_review'].includes(action.name) }));
       return { content: [{ type: 'text' as const, text: JSON.stringify(envelope) }], isError: !envelope.ok };
     });

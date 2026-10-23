@@ -1,3 +1,4 @@
+import { API_PROTOCOL } from '@/lib/releases/api-contract';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ApiClient, ApiError } from './client';
 import { getApiCompatibilityIssue, reportApiCompatibility } from '@/lib/client/api-compatibility';
@@ -7,7 +8,7 @@ it('advertises the API contract for JSON, raw streaming and attachment uploads',
   const api = new ApiClient({ baseUrl: 'http://local.test/api', getToken: () => 'key', onUnauthorized: () => {} });
   await api.post('/tasks', { title: 'test' }); await api.raw('/sessions/send', { method: 'POST', body: '{}' }); await api.upload('/attachments', new FormData());
   for (const [, init] of fetch.mock.calls as unknown as [string, RequestInit][]) {
-    expect(new Headers(init.headers).get('x-ri-api-protocol')).toBe('1');
+    expect(new Headers(init.headers).get('x-ri-api-protocol')).toBe(String(API_PROTOCOL));
     expect(new Headers(init.headers).get('authorization')).toBe('Bearer key');
   }
 });

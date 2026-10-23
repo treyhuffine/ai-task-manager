@@ -772,6 +772,14 @@ async function resolveLiveBaseSha(
  * execution branch has some: it's rooted at `origin/main` and tracks it,
  * so each commit counts as unpushed until the first push.
  */
+/** Read-only refusal check used before any harness or queue is stopped. */
+export async function preflightArchiveSessionWorktree(args: { session: WorktreePointer; sourceCheckoutPath?: string; force?: boolean }): Promise<void> {
+  if (!args.session.worktreePath || args.force) return;
+  const lib = await loadLib();
+  const status = await readWorktreeStatus(lib, args.session.worktreePath, args.sourceCheckoutPath, true);
+  if (status?.dirty) throw new lib.DirtyWorktreeError(status);
+}
+
 export async function archiveSessionWorktree(args: {
   session: WorktreePointer;
   /** Workspace teardown script, run in the worktree before removal (optional). */
@@ -832,14 +840,18 @@ async function readWorktreeStatus(
   lib: AgentexWorkspace,
   worktreePath: string,
   source: string | undefined,
+  strict = false,
 ): Promise<import('@agentex/workspace').WorkspaceStatus | null> {
   try {
-    const handle = await lib.workspace.open(worktreePath, source && source !== worktreePath ? { source } : {});
+    // Status does not depend on the original base. Older/manual worktrees can
+    // lack agentex metadata and still need a read-only dirty check.
+    const handle = await lib.workspace.open(worktreePath, { ...(source && source !== worktreePath ? { source } : {}), baseBranch: 'HEAD' });
     if (handle.kind !== 'git') return null;
     const status = await handle.git.status();
     if (!status.untracked.some((p) => p.endsWith('/'))) return status;
     return { ...status, untracked: await listUntrackedFiles(worktreePath, status.untracked) };
-  } catch {
+  } catch (error) {
+    if (strict && existsSync(/* turbopackIgnore: true */ worktreePath)) throw error;
     return null;
   }
 }

@@ -1,3 +1,4 @@
+import { captureChatHarnesses } from './harness-processes';
 import { generateRunnerTitle, setRunnerTitle, syncRunnerTitleSnapshot } from './titles';
 /**
  * The local runner: harness sessions on this device (docs/homes-build.md,
@@ -38,7 +39,7 @@ import { generateRunnerTitle, setRunnerTitle, syncRunnerTitleSnapshot } from './
 import { getProvider, commandInventoryFromEvent } from '@agentex/agent';
 import type { AgentSession, ProviderConfig, StreamEvent, UserInputRequest, UserInputResponse } from '@agentex/agent';
 import type { CreateChatEventInput, WorkerCommandActor } from '@/db/types';
-import { harnessPermissionConfig } from '@/lib/executor/permission-map';
+import { conservativePlanReturn, harnessPermissionConfig } from '@/lib/executor/permission-map';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import {
   clearSessionInstructions,
@@ -69,7 +70,7 @@ import {
   resolveRequest,
 } from './pending';
 import { classifyRequest } from './pending-classify';
-import { forgetHarnessProcess, recordHarnessProcess, stopStrayHarness } from './harness-processes';
+import { forgetHarnessProcess, recordHarnessProcess, stopStrayHarness, stopTrackedHarness } from './harness-processes';
 import { runnerSink } from './sink';
 import type {
   AnswerResult,
@@ -93,6 +94,16 @@ function report(chatSessionId: string, signal: RunnerSignal): void {
   } catch (err) {
     console.error(`[runner] failed to report ${signal.type} for ${chatSessionId}:`, err);
   }
+}
+
+/** A failed close changes runtime even for an already idle chat. */
+export function setCloseUnconfirmed(chatSessionId: string, unconfirmed: boolean, problem?: string): void {
+  const changed = state.unconfirmedCloses.has(chatSessionId) !== unconfirmed || (problem !== undefined && state.closeProblems.get(chatSessionId) !== problem);
+  if (unconfirmed) state.unconfirmedCloses.add(chatSessionId);
+  else state.unconfirmedCloses.delete(chatSessionId);
+  if (unconfirmed && problem) state.closeProblems.set(chatSessionId, problem);
+  if (!unconfirmed) state.closeProblems.delete(chatSessionId);
+  if (changed) report(chatSessionId, { type: 'running', running: isRunning(chatSessionId) });
 }
 
 /**
@@ -268,6 +279,11 @@ export function _recordSessionInventory(chatSessionId: string, event: StreamEven
   }
 }
 
+/** Live and starting sessions, for Home lifecycle controls. No database policy lives here. */
+export function listLiveHarnessSessions(): string[] {
+  return [...new Set([...state.harnessSessions.keys(), ...startingSessions.keys()])];
+}
+
 /** Test seam: put a handle in the session cache as if it had spawned. */
 export function _cacheHarnessSession(chatSessionId: string, handle: AgentSession): void {
   state.harnessSessions.set(chatSessionId, handle);
@@ -279,6 +295,11 @@ export function _resetExecutorState(): void {
   // deliberately not reset, so a late finalizer can never match new work.
   state.nextDispatchGeneration++;
   state.harnessSessions.clear();
+  state.unconfirmedCloses.clear();
+  state.closeProblems.clear();
+  state.eventOwners.clear();
+  closingSessions.clear();
+  harnessCloses.promises = new WeakMap();
   state.sessionInfo.clear();
   state.runningSessions.clear();
   state.inflightCount.clear();
@@ -317,11 +338,12 @@ export function _resetExecutorState(): void {
 export function isHarnessSessionAlive(chatSessionId: string): boolean {
   const handle = state.harnessSessions.get(chatSessionId);
   if (!handle) return false;
+  if (state.unconfirmedCloses.has(chatSessionId) || closingSessions.has(chatSessionId)) return true;
   if (handle.state === 'closed') return false;
   const proc = harnessProcessOf(handle);
   if (!proc) return true;
-  if (proc.killed) return false;
   if (proc.exitCode !== null && proc.exitCode !== undefined) return false;
+  if (proc.signalCode) return false;
   return true;
 }
 
@@ -334,8 +356,8 @@ export function isHarnessSessionAlive(chatSessionId: string): boolean {
  */
 function harnessProcessOf(
   handle: AgentSession,
-): { pid?: number; killed?: boolean; exitCode?: number | null } | undefined {
-  return (handle as unknown as { proc?: { pid?: number; killed?: boolean; exitCode?: number | null } | null }).proc ?? undefined;
+): { pid?: number; killed?: boolean; exitCode?: number | null; signalCode?: string | null } | undefined {
+  return (handle as unknown as { proc?: { pid?: number; killed?: boolean; exitCode?: number | null; signalCode?: string | null } | null }).proc ?? undefined;
 }
 
 /**
@@ -345,6 +367,8 @@ function harnessProcessOf(
  * down. Next dispatch lazily spawns a fresh one.
  */
 export function invalidateHarnessSession(chatSessionId: string): void {
+  if (state.unconfirmedCloses.has(chatSessionId) || closingSessions.has(chatSessionId)) return;
+  state.eventOwners.delete(chatSessionId);
   state.pendingRecycles.delete(chatSessionId);
   state.harnessSessions.delete(chatSessionId);
   state.sessionInfo.delete(chatSessionId);
@@ -474,6 +498,7 @@ export function _endActiveDispatch(chatSessionId: string, ref: DispatchLifecycle
 /** A live handle for the chat, dropping a dead one on the way. */
 function liveHandle(chatSessionId: string): AgentSession | null {
   const cached = state.harnessSessions.get(chatSessionId);
+  if (state.unconfirmedCloses.has(chatSessionId)) throw new ExecutorError('already_running', 'The previous harness close is unconfirmed. Restart it to retry cleanup.');
   if (!cached) return null;
   if (isHarnessSessionAlive(chatSessionId)) return cached;
   // Stale corpse: the SDK or our liveness probe knows the subprocess is
@@ -497,6 +522,21 @@ function liveHandle(chatSessionId: string): AgentSession | null {
  * `already_running`.
  */
 export async function send(req: SendRequest): Promise<SendResult> {
+  const { chatSessionId } = req;
+  // Idle cleanup and settings recycling are invisible to a sender. Join
+  // them, then recheck the Home's live authority before starting fresh.
+  let closing: Promise<StopReport> | undefined;
+  while ((closing = closingSessions.get(chatSessionId))) {
+    const report = await closing;
+    if (!report.closed) throw new ExecutorError('already_running', report.error ?? 'The previous harness close is unconfirmed. Restart this chat to retry cleanup.');
+  }
+  if (req.signal?.aborted) throw new ExecutorError('invalid_state', 'It was given up before it was sent.');
+  const preparation = beginDispatchPreparation(chatSessionId);
+  try { return await sendPrepared(req); }
+  finally { endDispatchPreparation(chatSessionId, preparation); }
+}
+
+async function sendPrepared(req: SendRequest): Promise<SendResult> {
   const { chatSessionId } = req;
   const admittedGeneration = interruptGeneration(chatSessionId);
   const assertNotInterrupted = () => {
@@ -752,7 +792,12 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
   // Never two harnesses on one chat: one a previous server left running, or
   // one of ours we lost track of, is stopped before this one starts
   // (harness-processes.ts). Throws rather than start beside one that won't stop.
-  const strays = await stopStrayHarness(chatSessionId);
+  let strays: number[];
+  try { strays = await stopStrayHarness(chatSessionId); }
+  catch (error) {
+    setCloseUnconfirmed(chatSessionId, true, error instanceof Error ? error.message : String(error));
+    throw error;
+  }
   if (strays.length > 0) {
     console.warn(`[runner] stopped ${strays.length} earlier harness process(es) still running for ${chatSessionId}: ${strays.join(', ')}`);
   }
@@ -761,6 +806,8 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
       console.warn(`[runner] couldn't record the harness process for ${chatSessionId}:`, err);
     });
   if (admission && !await admission()) throw new ExecutorError('unsupported', 'This result operation ended before its runtime could start.');
+  const pendingOwner = {};
+  state.eventOwners.set(chatSessionId, pendingOwner);
   const handle = await provider.createSession({
     cwd: spec.cwd,
     env: { ...runtimeContext.env, ...spec.env },
@@ -770,8 +817,11 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
     onLifecycle: (event) => {
       if (event.phase === 'running') void recordProcess(event.pid);
     },
-    onUserInputRequest: (req) => handleUserInputRequest(chatSessionId, req, !!spec.readOnlyReview),
+    onUserInputRequest: req => state.eventOwners.get(chatSessionId) === pendingOwner
+      ? handleUserInputRequest(chatSessionId, req, !!spec.readOnlyReview, pendingOwner)
+      : Promise.resolve({ allow: false, reason: 'This harness session has closed.' }),
     onEvent: async (event) => {
+      if (state.eventOwners.get(chatSessionId) !== pendingOwner) return;
       try {
         const safeEvent = redactHarnessRuntimeValue(event);
         // Account limits are per harness, not per chat (harness/rate-limits.ts).
@@ -797,6 +847,7 @@ async function startSession(spec: SessionSpec, admission?: () => boolean | Promi
 
   state.harnessSessions.set(chatSessionId, handle);
   state.sessionInfo.set(chatSessionId, {
+    pendingOwner,
     harness: spec.harness,
     cwd: spec.cwd,
     permissionMode: spec.permissionMode,
@@ -845,7 +896,7 @@ function reportNativeSession(chatSessionId: string, nativeSessionId: string | nu
  * In `auto_all` mode tool permissions short-circuit. The mode is the one the
  * session started with, or the mode it returned to on leaving plan mode.
  */
-async function handleUserInputRequest(chatSessionId: string, req: UserInputRequest, assignedReview = false): Promise<UserInputResponse> {
+async function handleUserInputRequest(chatSessionId: string, req: UserInputRequest, assignedReview = false, pendingOwner?: object): Promise<UserInputResponse> {
   const info = state.sessionInfo.get(chatSessionId);
   const mode = info?.permissionMode ?? DEFAULT_PERMISSION_MODE;
   const pending = classifyRequest(chatSessionId, req);
@@ -867,13 +918,13 @@ async function handleUserInputRequest(chatSessionId: string, req: UserInputReque
   }
 
   report(chatSessionId, { type: 'pending_input', pending });
-  const response = await registerPending(pending);
+  const response = await registerPending(pending, pendingOwner);
   report(chatSessionId, { type: 'pending_resolved', pending, response });
 
   // Claude leaves plan mode itself when ExitPlanMode is allowed. Mirror it,
   // so later prompts in this session follow the mode it returned to.
   if (pending.kind === 'permission' && pending.toolName === 'ExitPlanMode' && response.allow && info?.permissionMode === 'plan') {
-    info.permissionMode = info.prePlanMode ?? DEFAULT_PERMISSION_MODE;
+    info.permissionMode = info.prePlanMode ?? conservativePlanReturn(info.harness);
     info.prePlanMode = null;
   }
   return response;
@@ -964,11 +1015,12 @@ export async function abort(chatSessionId: string): Promise<void> {
   state.interruptGenerations.set(chatSessionId, ++state.nextDispatchGeneration);
   const handle = state.harnessSessions.get(chatSessionId);
   if (!handle) return;
+  const pendingOwner = state.sessionInfo.get(chatSessionId)?.pendingOwner;
   await handle.interrupt();
   // A prompt the interrupted turn was waiting on can't be answered now:
   // deny it, so its tool call ends and the prompt leaves the screen
   // (docs/homes-build.md, P0.4 gap 8).
-  rejectAllForSession(chatSessionId, 'Interrupted');
+  rejectAllForSession(chatSessionId, 'Interrupted', pendingOwner);
 }
 
 /**
@@ -992,25 +1044,124 @@ export async function stopTask(chatSessionId: string, taskId: string): Promise<{
  * archive the chat_session or want to force resume on next send.
  *
  * Returns whether the underlying handle closed cleanly. Most callers ignore the
- * result (best-effort recycling), but a coordinated "stop the running agent"
+ * result, but a coordinated "stop the running agent"
  * needs to know honestly whether the process was actually torn down, so it can
  * refuse to claim the agent stopped when the close failed.
  */
-export async function close(chatSessionId: string): Promise<StopReport> {
+// agentex can wait 1s for EOF, 5s for SIGTERM and 1s after SIGKILL, then
+// flush queued output and clean up. Our deadline must outlast that budget.
+export const SESSION_CLOSE_TIMEOUT_MS = 10_000;
+
+const closingSessions = processState('runner.closing-sessions', () => new Map<string, Promise<StopReport>>());
+const harnessCloses = processState('runner.harness-closes', () => ({ promises: new WeakMap<AgentSession, Promise<void>>() }));
+type CloseSnapshot = { handle: AgentSession; pids: number[] };
+
+function closeHandle(handle: AgentSession): Promise<void> {
+  const existing = harnessCloses.promises.get(handle);
+  if (existing) return existing;
+  let closing: Promise<void>;
+  try { closing = Promise.resolve(handle.close()); } catch (error) { closing = Promise.reject(error); }
+  harnessCloses.promises.set(handle, closing);
+  // A deadline leaves the SDK close in flight, so retries must join it. A
+  // completed rejection can recover on a new attempt, still with PID checks.
+  void closing.catch(() => { if (harnessCloses.promises.get(handle) === closing) harnessCloses.promises.delete(handle); });
+  return closing;
+}
+
+/** Concurrent controls join one confirmed close, rather than racing record cleanup. */
+export function close(chatSessionId: string): Promise<StopReport> {
+  const owner = state.sessionInfo.get(chatSessionId)?.pendingOwner;
+  return closeOnce(chatSessionId).then(report => {
+    // A manual close may have joined a settings recycle that preserves
+    // prompts. This caller still owns explicit cancellation of the old ones.
+    if (report.closed) rejectAllForSession(chatSessionId, 'Session closed', owner);
+    return report;
+  });
+}
+function closeOnce(chatSessionId: string, snapshot?: CloseSnapshot, preservePending = false): Promise<StopReport> {
+  const existing = closingSessions.get(chatSessionId);
+  if (existing) return existing;
+  const result = Promise.withResolvers<StopReport>();
+  closingSessions.set(chatSessionId, result.promise);
+  const release = () => {
+    if (closingSessions.get(chatSessionId) === result.promise) closingSessions.delete(chatSessionId);
+  };
+  void closeSession(chatSessionId, snapshot, preservePending).then(
+    report => { release(); result.resolve(report); },
+    error => { release(); result.reject(error); },
+  );
+  return result.promise;
+}
+
+async function closeSession(chatSessionId: string, snapshot?: CloseSnapshot, preservePending = false): Promise<StopReport> {
+  state.interruptGenerations.set(chatSessionId, ++state.nextDispatchGeneration);
+  const starting = startingSessions.get(chatSessionId);
+  if (starting) {
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([starting.catch(() => {}), new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error('The harness is still starting. Retry closing this chat.')), SESSION_CLOSE_TIMEOUT_MS); deadline.unref?.(); })]);
+    } catch (error) {
+      setCloseUnconfirmed(chatSessionId, true);
+      return { closed: false, error: error instanceof Error ? error.message : String(error) };
+    } finally { if (deadline) clearTimeout(deadline); }
+  }
   const handle = state.harnessSessions.get(chatSessionId);
+  const pendingOwner = state.sessionInfo.get(chatSessionId)?.pendingOwner;
   // Close the process FIRST, while the handle is still tracked. If close fails
   // the process may still be alive, so we keep the handle cached (still
   // trackable / retryable) and DO NOT clear running state or the caches — losing
   // the handle here would leave an untrackable live process. Only after a clean
   // close (or no handle at all) do we drop the cached state.
   if (handle) {
+    let failure: unknown;
+    let recorded: number[] = [];
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
-      await handle.close();
+      recorded = snapshot?.handle === handle ? snapshot.pids : await captureChatHarnesses(chatSessionId);
+      await Promise.race([closeHandle(handle), new Promise<never>((_, reject) => {
+        deadline = setTimeout(() => reject(new Error('The harness did not confirm it closed in time.')), SESSION_CLOSE_TIMEOUT_MS);
+        deadline.unref?.();
+      })]);
     } catch (err) {
-      return { closed: false, error: err instanceof Error ? err.message : String(err) };
+      failure = err;
+    } finally { if (deadline) clearTimeout(deadline); }
+    // Re-read lifecycle records after waiting too: a per-turn PID can be
+    // recorded after close began. A resolved SDK close alone is not proof.
+    const proc = harnessProcessOf(handle), pid = proc?.pid;
+    // SIGKILL delivery can precede Node's exit/reap event. Observe the
+    // known ChildProcess briefly, without ever signalling an unrecorded PID.
+    if (!failure && proc?.killed && proc.exitCode == null && proc.signalCode == null) {
+      for (let attempt = 0; attempt < 40 && proc.exitCode == null && proc.signalCode == null; attempt++) await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    const exited = proc?.exitCode != null || proc?.signalCode != null;
+    let confirmed = false;
+    try {
+      const pids = new Set([...recorded, ...await captureChatHarnesses(chatSessionId), ...(pid ? [pid] : [])]);
+      // Never kill by chat ID alone: a late close cannot kill a replacement.
+      confirmed = state.harnessSessions.get(chatSessionId) === handle && (pids.size
+        ? (await Promise.all([...pids].map(value => stopTrackedHarness(chatSessionId, value, undefined, value === pid && exited)))).every(Boolean)
+        : !failure);
+    } catch (error) { failure = error; }
+    if (!confirmed) {
+      setCloseUnconfirmed(chatSessionId, true);
+      return { closed: false, error: failure instanceof Error ? failure.message : 'The harness process tree could not be confirmed closed.' };
     }
     forgetClosedHarness(chatSessionId, handle);
+  } else {
+    // A recycle, health check or earlier process may have lost its handle.
+    // A known recorded process must still stop before archive can remove code.
+    try {
+      await stopStrayHarness(chatSessionId);
+    } catch (error) {
+      setCloseUnconfirmed(chatSessionId, true, error instanceof Error ? error.message : String(error));
+      return { closed: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
+  setCloseUnconfirmed(chatSessionId, false);
+  state.eventOwners.delete(chatSessionId);
+  if (!preservePending) rejectAllForSession(chatSessionId, 'Session closed', pendingOwner);
+  // A delayed close belongs to its original handle, never a replacement.
+  if (state.harnessSessions.get(chatSessionId) !== handle) return { closed: true };
   state.pendingRecycles.delete(chatSessionId);
   state.harnessSessions.delete(chatSessionId);
   state.sessionInfo.delete(chatSessionId);
@@ -1023,7 +1174,6 @@ export async function close(chatSessionId: string): Promise<StopReport> {
   clearBackgroundTasks(chatSessionId);
   clearStreamTurn(chatSessionId);
   clearSessionInstructions(chatSessionId);
-  rejectAllForSession(chatSessionId, 'Session closed');
   return { closed: true };
 }
 
@@ -1055,7 +1205,14 @@ export async function recycleWhenIdle(chatSessionId: string): Promise<void> {
     state.pendingRecycles.add(chatSessionId);
     return;
   }
-  await recycleForModeChange(chatSessionId);
+  try {
+    await recycleForModeChange(chatSessionId);
+  } catch (error) {
+    // The configuration has already been persisted. Report recovery through
+    // runtime, retaining the handle and dispatch block, rather than claiming
+    // that a successful save failed. Explicit lifecycle controls remain strict.
+    if (!state.unconfirmedCloses.has(chatSessionId)) throw error;
+  }
 }
 
 /**
@@ -1076,32 +1233,15 @@ export async function recycleHarnessSessions(harness: HarnessId): Promise<void> 
  * selection changes require the next send to spawn a fresh CLI process and
  * resume the conversation through its native session id.
  *
- * Best-effort close on the existing handle. Selection-changing routes reject
+ * Confirmed close on the tracked handle. Selection-changing routes reject
  * changes during an active turn before reaching this function. Other callers
  * use it for lifecycle invalidation where closing the old handle is expected.
  */
 export async function recycleForModeChange(chatSessionId: string): Promise<void> {
-  const handle = state.harnessSessions.get(chatSessionId);
+  if (state.unconfirmedCloses.has(chatSessionId)) throw new ExecutorError('already_running', 'Restart this chat to confirm its previous harness stopped before changing modes.');
   state.pendingRecycles.delete(chatSessionId);
-  clearSessionInstructions(chatSessionId);
-  if (!handle) return;
-  state.harnessSessions.delete(chatSessionId);
-  state.sessionInfo.delete(chatSessionId);
-  state.lastActivityAt.delete(chatSessionId);
-  // Drop the inventory too — the recycled session will emit a fresh
-  // system/init with potentially different available skills (e.g. plan
-  // mode restricts the toolset).
-  state.sessionInventories.delete(chatSessionId);
-  clearBackgroundTasks(chatSessionId);
-  clearStreamTurn(chatSessionId);
-  // Don't reject pending requests — a mode change shouldn't blow up
-  // an in-flight permission prompt the user is about to answer.
-  try {
-    await handle.close();
-    forgetClosedHarness(chatSessionId, handle);
-  } catch {
-    // Best-effort. Its record stays, so the chat's next start stops it.
-  }
+  const report = await closeOnce(chatSessionId, undefined, true);
+  if (!report.closed) throw new ExecutorError('already_running', report.error ?? 'The previous harness could not stop. Restart this chat to retry cleanup.');
 }
 
 /** After a clean close: its process is gone, so drop it from the record. */
@@ -1138,7 +1278,21 @@ export async function closeIdleSessions(now = Date.now(), idleMs = IDLE_CLOSE_MS
   }
   const closed: string[] = [];
   for (const chatSessionId of idle) {
-    const result = await close(chatSessionId);
+    const stillIdle = () => {
+      const last = state.lastActivityAt.get(chatSessionId);
+      return !(last === undefined || now - last < idleMs || state.runningSessions.has(chatSessionId)
+      || (state.inflightCount.get(chatSessionId) ?? 0) > 0 || state.backgroundTasks.has(chatSessionId)
+      || startingSessions.has(chatSessionId) || closingSessions.has(chatSessionId)
+      || state.pendingRecycles.has(chatSessionId) || listForSession(chatSessionId).length > 0);
+    };
+    if (!stillIdle()) continue;
+    const handle = state.harnessSessions.get(chatSessionId);
+    if (!handle) continue;
+    // Do the asynchronous record work before closing admission. A message
+    // arriving during it wins, and the final check and close are synchronous.
+    const pids = await captureChatHarnesses(chatSessionId);
+    if (!stillIdle() || state.harnessSessions.get(chatSessionId) !== handle) continue;
+    const result = await closeOnce(chatSessionId, { handle, pids });
     if (result.closed) closed.push(chatSessionId);
   }
   return closed;

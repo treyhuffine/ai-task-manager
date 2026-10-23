@@ -1,11 +1,12 @@
+import { SESSION_CREDENTIAL_HEADER, activeSessionCredential, verifySessionCredential } from '@/lib/orchestrator/session-credential';
 import { API_PROTOCOL_HEADER, apiCompatibilityIssue, hasIndependentProtocol } from '@/lib/releases/api-contract';
 import { SPACE_HEADER, SPACE_PATH_PREFIX, spaceIdFromPath } from '@/lib/spaces/document';
 import { CURRENT_COMPATIBILITY } from '@/lib/releases/compatibility';
 import { NextResponse, type NextRequest } from 'next/server';
 import { HOME_MCP_PATH, isPersonalAiClientKey } from '@/lib/external-ai/policy';
 import { lookupApiToken } from '@/lib/auth/api-token';
-import { activeTeamChatTurn, getWorkerDevice, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
-import { isTurnToken, readTurnToken } from '@/lib/team/ai/turn-credential';
+import { activeTeamChatTurn, runningTeamChatTurn, getHome, getWorkerDevice, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
+import { bindingFromHeaders, documentBindingMatches, DOCUMENT_AUTHOR_CHANGED, DOCUMENT_AUTHOR_CHANGED_MESSAGE } from '@/lib/home/document-binding';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 import { isHomeActive } from '@/lib/home/identity';
 import {
@@ -110,13 +111,16 @@ function teamProxy(request: NextRequest) {
   const header = request.headers.get('authorization');
   const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : '';
   // One turn of the team's own AI, acting for the member who asked (§9.9).
-  if (bearer && isTurnToken(bearer)) return teamAiTurnProxy(request, bearer);
+  if (bearer && verifySessionCredential(bearer)) return teamAiTurnProxy(request, bearer);
   const token = bearer || request.cookies.get(cookieName)?.value || null;
   if (!token || isSessionToken(token)) return unauthorized();
   const found = lookupApiToken(token);
   if (!found) return unauthorized();
   const caller = teamCallerFor(found.key, found.tokenHash);
   if (!caller) return unauthorized();
+  if (caller.scope === 'member' && !documentBindingMatches(bindingFromHeaders(request.headers), { homeId: getHome()!.id, viewerId: caller.member.id })) {
+    return forbidden(DOCUMENT_AUTHOR_CHANGED, DOCUMENT_AUTHOR_CHANGED_MESSAGE);
+  }
 
   // An AI client speaks MCP, not the app's own API protocol.
   if (caller.scope !== 'ai_client' && !hasIndependentProtocol(pathname) && pathname !== '/api/version') {
@@ -153,6 +157,10 @@ function teamProxy(request: NextRequest) {
     headers.set(MEMBER_ID_HEADER, caller.member.id);
     headers.set(MEMBER_ROLE_HEADER, caller.member.role);
   }
+  const disclosedCaller = request.headers.get(SESSION_CREDENTIAL_HEADER);
+  const signedCaller = activeSessionCredential(disclosedCaller);
+  if (disclosedCaller && !signedCaller) return unauthorized();
+  if (signedCaller) headers.set(SESSION_CHAT_HEADER, signedCaller);
   return NextResponse.next({ request: { headers } });
 }
 
@@ -162,20 +170,23 @@ function teamProxy(request: NextRequest) {
  * MCP and nothing else.
  */
 function teamAiTurnProxy(request: NextRequest, token: string) {
-  const claims = readTurnToken(token);
-  const active = claims ? activeTeamChatTurn(claims) : null;
-  if (!claims || !active) return unauthorized();
-  if (request.nextUrl.pathname !== TEAM_MCP_PATH) {
+  const sessionId = verifySessionCredential(token);
+  const turn = sessionId ? runningTeamChatTurn(sessionId) : null;
+  const bound = turn ? { turnId: turn.id, chatId: turn.chatSessionId, memberId: turn.memberId } : null;
+  const active = bound ? activeTeamChatTurn(bound) : null;
+  if (!bound || !active) return unauthorized();
+  if (request.nextUrl.pathname !== TEAM_MCP_PATH && !request.nextUrl.pathname.startsWith('/api/orchestrator/actions/')) {
     return forbidden('team_ai_turn', "The team AI's credential reaches only the team's tools.");
   }
   const headers = new Headers(request.headers);
   for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
-  headers.set(API_KEY_ID_HEADER, `team-ai-turn:${claims.turnId}`);
+  headers.set(API_KEY_ID_HEADER, `team-ai-turn:${bound.turnId}`);
   headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
   headers.set(API_KEY_SCOPE_HEADER, 'team_ai');
   headers.set(MEMBER_ID_HEADER, active.member.id);
   headers.set(MEMBER_ROLE_HEADER, active.member.role);
-  headers.set(TEAM_AI_TURN_HEADER, claims.turnId);
+  headers.set(TEAM_AI_TURN_HEADER, bound.turnId);
+  headers.set(SESSION_CHAT_HEADER, bound.chatId);
   return NextResponse.next({ request: { headers } });
 }
 

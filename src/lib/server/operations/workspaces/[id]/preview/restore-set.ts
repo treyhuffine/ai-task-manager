@@ -1,3 +1,6 @@
+import { recordHomeActivity } from '@/lib/home/activity';
+import { workspaceAuthority } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 import { failureResponse, reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 /**
@@ -11,7 +14,9 @@ import { restoreWorkspacePreviews } from '@/lib/preview/service';
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const authority = workspaceAuthority(executionRequestKey(), id, 'editFiles');
     const results = await restoreWorkspacePreviews(id);
+    recordHomeActivity(authority, 'preview_restore', id);
     return reply({ results });
   } catch (err) {
     return failureResponse(previewErrorResponse(err, 'POST /api/workspaces/:id/preview/restore-set'));

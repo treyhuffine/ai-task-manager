@@ -245,3 +245,15 @@ share). Spec separately before building; summary tasks:
 **Phase 0 (confirm beamd, ~this week):** §1 (minimal) + §2 (minimal) + §4 → one worktree live via beamd end-to-end.
 **Phase 1 (integrate + simplify):** finish §1–3, §5, §6, §7, §8, then §9.
 **Phase 2 (UX):** §10, §11.
+
+
+## Worker-backed shared executions
+
+The unified Home contract adds managed team-worker previews through the existing service, supervisor, Run/Preview UI and request protocol. A saved target identifies the execution and generation. The worker resolves the prepared worktree from its command journal. Its controller supplies an explicit environment and OS policy with a renewable member grant. No Home account, process or folder is a fallback.
+
+Ports are allocated and checked on the worker. Target IDs and the shared `preview_targets` schema remain unchanged. Starts are serialized and idempotent. Changed command/folder, revoked member, disabled authority and lost worker lease end the process. Logs use the existing bounded cursor format. A reachable URL is explicitly supplied for that worker, and the viewer treats it as remote even on a localhost Home. The shared iframe continues to isolate the preview origin. Opening Preview and `resolveOnly` calls perform no process start.
+
+Team owners configure commands and pin shared targets. Explicit restore goes through the owner’s current authority. A Home restart cannot restore a shared app under ambient host authority. The optional `worker.previews.v1` capability refuses an unsupported older worker with an update reason. Personal local and remote-device preview behavior remains compatible.
+
+
+Iframe URLs must use HTTP or HTTPS without embedded credentials and must differ from the viewer’s Ri origin. The common resolver applies this to local, worker-managed and manually pasted remote-device URLs. An unknown server-render origin is not permission to embed. A different local app port remains valid. Invalid legacy URLs are kept for explicit correction and are never loaded as same-origin scripts.

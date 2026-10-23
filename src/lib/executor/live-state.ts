@@ -74,3 +74,6 @@ export function listForSession(chatSessionId: string): PendingInput[] {
 export function listSessionsWithPending(): string[] {
   return union(localPending.listSessionsWithPending(), listRemoteWithPending());
 }
+
+export function hasUnconfirmedClose(chatSessionId: string): boolean { return local.hasUnconfirmedClose(chatSessionId); }
+export function unconfirmedCloseProblem(chatSessionId: string): string | null { return local.unconfirmedCloseProblem(chatSessionId); }

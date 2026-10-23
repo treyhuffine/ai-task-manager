@@ -1,5 +1,9 @@
 # Orchestrator on the harness
 
+Connected Teams use the same content action registry and public action names. A personal session discovers authorized Homes with `list_homes` and supplies `target_home_id` to content operations when addressing another Home. The server uses the existing member connection, without another MCP key or member. Reads remain canonical reads and do not create personal references. Explicit destination, revision guards, retry receipts and member attribution apply equally to this route and external Team MCP. Personal external content keys keep their original narrower scope.
+
+Team-owned chats use the ordinary execution queue, local runner and native binding on the Team Home's server. Their signed session surface calls Team operations under the live requesting member, without opening a personal Home database. The Home authorizes before dispatch. Session and agent credentials cannot answer questions or approve permissions. Native MCP and shell CLI transports share the same action implementation. See [the unified contract](unified-home-experience.md), [testing](team-testing.md) and [deferred isolation](team-isolation.md). Personal-only app capabilities remain unavailable in Team app tools.
+
 The dashboard chat is a real harness session (Claude Code, Codex, …) with
 cwd = the app data root and the orchestrator HTTP MCP attached: one typed
 tool per registry action (`mcp__orchestrator__create_task`, …).

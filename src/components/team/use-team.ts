@@ -10,8 +10,8 @@ export function useTeamMe(enabled = true) {
 }
 
 /** Everyone in the team, removed members included so history keeps their names. */
-export function useTeamMembers() {
-  const query = useQuery({ ...trpc.team.members.queryOptions(), staleTime: 30_000 });
+export function useTeamMembers(enabled = true) {
+  const query = useQuery({ ...trpc.team.members.queryOptions(), enabled, staleTime: 30_000 });
   const byId = useMemo(() => new Map((query.data ?? []).map((m) => [m.id, m])), [query.data]);
   const active = useMemo(() => (query.data ?? []).filter((m) => m.active), [query.data]);
   return { ...query, byId, active };

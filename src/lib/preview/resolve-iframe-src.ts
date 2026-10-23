@@ -20,6 +20,8 @@ export type PreviewReachability = 'local' | 'remote';
 export interface BrowserLocation {
   hostname: string;
   protocol: string; // 'http:' | 'https:'
+  origin?: string;
+  port?: string;
 }
 
 export interface ResolvedPreviewSrc {
@@ -32,12 +34,24 @@ export interface ResolvedPreviewSrc {
     | 'not_running'        // server isn't up (local) — nothing to embed
     | 'no_local_url'       // local viewer but no loopback URL yet
     | 'no_remote_url'      // remote viewer but the provider hasn't resolved a URL
+    | 'unsafe_url'
     | 'remote_error';      // remote provider returned an actionable error
 }
 
 function readBrowserLocation(): BrowserLocation | null {
   if (typeof window === 'undefined' || typeof window.location === 'undefined') return null;
-  return { hostname: window.location.hostname, protocol: window.location.protocol };
+  return { hostname: window.location.hostname, protocol: window.location.protocol, origin: window.location.origin, port: window.location.port };
+}
+
+/** A preview may execute scripts, so it must never share Ri's own origin. */
+export function safePreviewUrl(value: string, location: BrowserLocation | null = readBrowserLocation()): boolean {
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return false;
+    const hostname = location?.hostname.includes(':') && !location.hostname.startsWith('[') ? `[${location.hostname}]` : location?.hostname;
+    const origin = location?.origin ?? (location ? `${location.protocol}//${hostname}${location.port ? ':' + location.port : ''}` : null);
+    return !!origin && url.origin !== new URL(origin).origin;
+  } catch { return false; }
 }
 
 /** Is the viewing browser on the same host as Ri? */
@@ -62,7 +76,9 @@ export function resolvePreviewSrc(
   browserLocation?: BrowserLocation | null,
 ): ResolvedPreviewSrc {
   const loc = browserLocation === undefined ? readBrowserLocation() : browserLocation;
-  const mode = pickReachability(loc);
+  const mode = state?.elsewhere ? 'remote' : pickReachability(loc);
+  const candidate = mode === 'local' ? state?.localUrl : state?.remoteUrl;
+  if (candidate && !safePreviewUrl(candidate, loc)) return { url: null, mode, reason: 'unsafe_url' };
 
   if (mode === 'local') {
     if (state?.localUrl) return { url: state.localUrl, mode, reason: 'local' };

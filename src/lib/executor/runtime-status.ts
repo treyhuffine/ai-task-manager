@@ -1,9 +1,18 @@
+import type { TeamChatTurnRecord } from '@/db/types';
 /** Client-safe two-axis snapshot for one chat session. */
 export interface SessionRuntimeStatus {
   running: boolean;
   backgroundTasks: boolean;
   /** Exact live task ids from the server's in-memory runtime index. */
   backgroundTaskIds: string[];
+  /** Live contextual control rights, supplied by the authenticated Home. */
+  canStop?: boolean;
+  closeUnconfirmed?: boolean;
+  closeProblem?: string;
+  canAnswer?: boolean;
+  canApprove?: boolean;
+  activeTurnId?: string | null;
+  teamTurns?: Pick<TeamChatTurnRecord, 'id' | 'messageEventId' | 'memberId' | 'status' | 'error'>[];
 }
 
 /** Whether any provider work still owns this session's data surface. */
@@ -17,6 +26,7 @@ export function withRunningStatus(
   running: boolean,
 ): SessionRuntimeStatus {
   return {
+    ...previous,
     running,
     backgroundTasks: previous?.backgroundTasks ?? false,
     backgroundTaskIds: previous?.backgroundTaskIds ?? [],
@@ -30,6 +40,7 @@ export function withBackgroundTaskStatus(
   backgroundTaskIds: string[],
 ): SessionRuntimeStatus {
   return {
+    ...previous,
     running: previous?.running ?? false,
     backgroundTasks,
     backgroundTaskIds: backgroundTasks ? backgroundTaskIds : [],

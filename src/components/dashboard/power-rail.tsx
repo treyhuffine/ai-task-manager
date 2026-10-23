@@ -2,7 +2,8 @@
 
 import { useDashboard } from '@/contexts/dashboard-context';
 import { Rail } from '@/components/workspaces/rail';
-import { cn } from '@/lib/utils';
+import { RailContainer } from '@/components/home/home-navigation';
+export { RailContainer } from '@/components/home/home-navigation';
 
 interface PowerRailProps {
   /**
@@ -29,17 +30,5 @@ export function PowerRail({ compact = false, fixed = false }: PowerRailProps) {
   const expanded = !fixed && (compact ? executionRailOpen : !railCollapsed);
   const onToggle = fixed ? undefined : compact ? toggleExecutionRailOpen : toggleRailCollapsed;
 
-  return (
-    <aside
-      className={cn(
-        'relative flex-shrink-0 border-r border-border flex flex-col bg-background z-30',
-        'transition-[width] duration-200 ease-out',
-        expanded ? 'w-[256px]' : 'w-[44px]',
-      )}
-      data-compact={compact || undefined}
-      data-expanded={expanded || undefined}
-    >
-      <Rail expanded={expanded} onToggle={onToggle} />
-    </aside>
-  );
+  return <RailContainer expanded={expanded} compact={compact}><Rail expanded={expanded} onToggle={onToggle}/></RailContainer>;
 }

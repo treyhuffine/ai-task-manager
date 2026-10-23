@@ -7,6 +7,8 @@ import {
   beginDispatchPreparation,
   endDispatchPreparation,
   hasHarnessSession,
+  hasUnconfirmedClose,
+  close as closeSession,
   recycleWhenIdle,
 } from './adapter';
 
@@ -48,12 +50,19 @@ describe('recycleWhenIdle', () => {
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
   });
 
-  it('invalidates stale idle handles even when provider teardown fails', async () => {
+  it('retains a failed recycle until an explicit close confirms shutdown', async () => {
     const { handle, close } = fakeHandle();
     close.mockRejectedValueOnce(new Error('Provider teardown failed'));
     _cacheHarnessSession('failed-close', handle);
-    await recycleWhenIdle('failed-close');
+    await expect(recycleWhenIdle('failed-close')).resolves.toBeUndefined();
+    await expect(recycleWhenIdle('failed-close')).resolves.toBeUndefined();
+    expect(close).toHaveBeenCalledOnce();
+    expect(hasHarnessSession('failed-close')).toBe(true);
+    expect(hasUnconfirmedClose('failed-close')).toBe(true);
+    expect((await closeSession('failed-close')).closed).toBe(true);
+    expect(close).toHaveBeenCalledTimes(2);
     expect(hasHarnessSession('failed-close')).toBe(false);
+    expect(hasUnconfirmedClose('failed-close')).toBe(false);
   });
   it('scope changes recycle idle surfaces while leaving active turns intact', async () => {
     const idle = fakeHandle();

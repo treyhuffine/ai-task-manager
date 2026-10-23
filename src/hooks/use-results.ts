@@ -1,5 +1,7 @@
 'use client';
 
+import { trpc } from '@/lib/trpc/client';
+
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
@@ -108,7 +110,8 @@ export function useAcceptResultComplete(id: string) {
     onError: showError,
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
-      for (const root of ['results', 'sessions', 'executions']) void qc.invalidateQueries({ queryKey: [root] });
+      void qc.invalidateQueries({ queryKey: trpc.executions.pathKey() });
+      for (const root of ['results', 'sessions']) void qc.invalidateQueries({ queryKey: [root] });
     },
   });
 }

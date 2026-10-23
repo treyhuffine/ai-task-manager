@@ -11,7 +11,7 @@ import { assertDesktopPackagingRuntime, DESKTOP_NODE_VERSION } from './package-p
 assertDesktopPackagingRuntime();
 const { build, Platform, Arch } = await import('electron-builder');
 const tar = await import('tar');
-const { assertCompanionPackage, assertShellDependencies, rebaseResourceLinks } = await import('./package-files.mjs');
+const { assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks } = await import('./package-files.mjs');
 const { signRuntime } = await import('./sign-runtime.mjs');
 const { stageSpeechHelper } = await import('./speech/package.mjs');
 
@@ -90,7 +90,8 @@ run(portableNode, ['-e', "const db = new (require('better-sqlite3'))(':memory:')
 run(portableNode, ['dist/cli/index.mjs', '--help'], server);
 
 fs.mkdirSync(shell);
-for (const name of ['main.cjs', 'preload.cjs', 'maintenance-preload.cjs', 'companion-preload.cjs', 'local-preload.cjs', 'find-preload.cjs']) fs.copyFileSync(path.join(repo, 'dist/desktop', name), path.join(shell, name));
+assertWindowPreloadsShipped(path.join(repo, 'desktop'));
+for (const name of SHELL_ENTRYPOINTS) fs.copyFileSync(path.join(repo, 'dist/desktop', name), path.join(shell, name));
 assertCompanionPackage(server, shell);
 assertShellDependencies(shell);
 const pkg = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8'));
@@ -148,7 +149,7 @@ if (!headless) {
   const output = await build({ targets: platform.createTarget(targets, process.arch === 'arm64' ? Arch.arm64 : Arch.x64), publish: 'never', config: {
     appId: 'app.ri.desktop', productName: 'Ri', electronVersion: pkg.devDependencies.electron,
     directories: { app: shell, output: path.join(repo, 'release/desktop'), buildResources: path.join(repo, 'assets/brand/icons') },
-    files: ['main.cjs', 'preload.cjs', 'maintenance-preload.cjs', 'companion-preload.cjs', 'local-preload.cjs', 'find-preload.cjs', 'package.json', '!node_modules/**/*'], asar: true,
+    files: [...SHELL_ENTRYPOINTS, 'package.json', '!node_modules/**/*'], asar: true,
     npmRebuild: false, nodeGypRebuild: false, forceCodeSigning: releaseBuild && process.platform === 'darwin',
     protocols: [{ name: 'Ri OAuth callback', schemes: ['ri'] }],
     mac: { icon: path.join(repo, 'assets/brand/icons/icon.icns'), identity: releaseBuild ? process.env.CSC_NAME : null, signIgnore: ['Contents/Resources/server/', 'Contents/Resources/node/'], hardenedRuntime: true, notarize: releaseBuild,

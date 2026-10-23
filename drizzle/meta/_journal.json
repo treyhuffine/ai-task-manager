@@ -169,6 +169,13 @@
       "when": 1792710990390,
       "tag": "0023_coordination_system_authorship",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1792723676242,
+      "tag": "0024_breezy_rawhide_kid",
+      "breakpoints": true
     }
   ]
 }

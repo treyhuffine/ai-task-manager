@@ -4,6 +4,7 @@ import { EditorSourceProvider } from '@/components/chat-ui/references/source-chi
 import { sourceMarker } from '@/lib/chat-sources/reference';
 import { receiveChatSources } from '@/lib/client/source-handoff';
 import { trpcClient } from '@/lib/trpc/client';
+import { useHomeDocumentScope, useOptionalHomeContext } from '@/components/home/home-context';
 
 /**
  * Shared chat-input editor used by both the execution composer and the
@@ -43,7 +44,7 @@ import { trpcClient } from '@/lib/trpc/client';
 
 import { registerChatDraftWriter } from '@/lib/client/chat-drafts';
 import { registerAppChatComposer, type AppDraftPart } from '@/lib/client/app-chat-intent';
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -62,6 +63,7 @@ import { FileChipNode, FILE_CHIP_NAME, type FileChipAttrs } from './file-chip-no
 import { hasPendingFileChip, type ProseMirrorJSONNode } from './pending-uploads';
 import {
   draftStorageAction,
+  scopedDraftKey, draftIdentity, encodeChatDraft, restoreChatDraft,
   DRAFT_STORAGE_PREFIX,
   DRAFT_SAVE_DEBOUNCE_MS,
 } from './draft-storage';
@@ -165,7 +167,13 @@ export interface ChatInputEditorHandle {
   getUiMessageParts(): { parts: Array<{ type: 'text'; text: string } | FileUIPart> };
 }
 
-interface ChatInputEditorProps {
+export interface ChatInputEditorProps {
+  /** A retained local draft, never a server echo into an active editor. */
+  initialText?: string;
+  ariaLabel?: string;
+  /** Older tool-only chats cannot carry files. Long text stays inline there. */
+  attachmentsEnabled?: boolean;
+  onTextChange?: (text: string) => void;
   sourceChatId?: string;
   placeholder?: string;
   disabled?: boolean;
@@ -309,7 +317,7 @@ function makePastedFilename(text: string): string {
  * atoms; short pastes fall through to Tiptap's default plain-text
  * handling.
  */
-function buildPasteHandler(uploadAndInsert: (file: File | Blob, name: string) => Promise<void>) {
+function buildPasteHandler(uploadAndInsert: (file: File | Blob, name: string) => Promise<void>, enabled: () => boolean) {
   return Extension.create({
     name: 'chatPasteHandler',
     addProseMirrorPlugins() {
@@ -317,6 +325,10 @@ function buildPasteHandler(uploadAndInsert: (file: File | Blob, name: string) =>
         new Plugin({
           props: {
             handlePaste(_view, event) {
+              if (!enabled()) {
+                if (event.clipboardData?.getData('text/plain')) return false;
+                return Boolean(event.clipboardData?.files.length);
+              }
               // Real files (image clipboard, drag-from-Finder, etc) take
               // precedence over the text/plain interpretation.
               const items = event.clipboardData?.items;
@@ -345,6 +357,7 @@ function buildPasteHandler(uploadAndInsert: (file: File | Blob, name: string) =>
               const files = dt?.files;
               if (!files || files.length === 0) return false;
               event.preventDefault();
+              if (!enabled()) return true;
               for (const file of Array.from(files)) {
                 void uploadAndInsert(file, file.name);
               }
@@ -362,6 +375,10 @@ function buildPasteHandler(uploadAndInsert: (file: File | Blob, name: string) =>
 export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditorProps>(
   function ChatInputEditor(
     {
+      initialText,
+      ariaLabel,
+      attachmentsEnabled = true,
+      onTextChange,
       placeholder,
       disabled,
       onContentChange,
@@ -379,13 +396,23 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       mentionReferenceFolders,
       loadReferenceTree,
       prs,
-      draftKey,
+      draftKey: requestedDraftKey,
       history,
     },
     ref,
   ) {
+    const homeScope = useHomeDocumentScope();
+    const home = useOptionalHomeContext();
+    const personalDrafts = home?.capabilities.privatePlanning ?? !homeScope;
+    const draftKey = requestedDraftKey ? scopedDraftKey(requestedDraftKey, homeScope) : undefined;
+    const attachmentsEnabledRef = useRef(attachmentsEnabled);
+    attachmentsEnabledRef.current = attachmentsEnabled;
+    const onTextChangeRef = useRef(onTextChange);
+    onTextChangeRef.current = onTextChange;
     const onSubmitRef = useRef(onSubmit);
     onSubmitRef.current = onSubmit;
+    const editableRef = useRef(!disabled);
+    editableRef.current = !disabled;
     // Mirror in a ref so the keymap (built once via useMemo) always reads
     // the latest value without re-creating the editor when the consumer
     // flips between mobile/desktop layouts.
@@ -587,7 +614,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           const stash = historyStashRef.current;
           try {
             if (stash) {
-              window.localStorage.setItem(storageKey, JSON.stringify(stash.doc));
+              window.localStorage.setItem(storageKey, encodeChatDraft(key, stash.doc));
             } else {
               window.localStorage.removeItem(storageKey);
             }
@@ -606,7 +633,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           if (action === 'remove') {
             window.localStorage.removeItem(storageKey);
           } else {
-            window.localStorage.setItem(storageKey, JSON.stringify(ed.getJSON()));
+            window.localStorage.setItem(storageKey, encodeChatDraft(key, ed.getJSON()));
           }
         } catch {
           // Quota exceeded / storage disabled / SSR — drop silently.
@@ -675,6 +702,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
      */
     const uploadAndInsert = useMemo(
       () => async (file: File | Blob, name: string) => {
+        if (!attachmentsEnabledRef.current) throw new Error('This chat cannot carry attachments.');
         const ed = editorRef.current;
         if (!ed) return;
         const pendingId = uuidv7();
@@ -723,7 +751,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     );
 
     const PasteDropExtension = useMemo(
-      () => buildPasteHandler(uploadAndInsertSafe),
+      () => buildPasteHandler(uploadAndInsertSafe, () => attachmentsEnabledRef.current),
       [uploadAndInsertSafe],
     );
 
@@ -733,6 +761,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       // mismatches and Tiptap's older "editor not yet immediately
       // rendered" warning both fire.
       immediatelyRender: false,
+      content: initialText ? textToDocJSON(initialText) : undefined,
       extensions: [
         // StarterKit gives document/paragraph/text/hardBreak/history
         // for free — disable everything else so this stays a tiny
@@ -781,19 +810,23 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         KeymapExtension,
       ],
       editorProps: {
-        attributes: {
+        attributes: () => ({
           class: cn(
             'outline-none text-[13px] text-foreground leading-snug',
             'min-h-[20px] max-h-[200px] overflow-y-auto',
             'px-3 pt-2.5 pb-2 break-words',
           ),
-          'aria-label': placeholder ?? 'Message',
-        },
+          role: 'textbox',
+          'aria-multiline': 'true',
+          'aria-readonly': editableRef.current ? 'false' : 'true',
+          'aria-label': ariaLabel ?? placeholder ?? 'Message',
+        }),
       },
       editable: !disabled,
       onUpdate({ editor }) {
         hot('editor onUpdate ChatInputEditor');
         onContentChange?.(!editor.isEmpty);
+        onTextChangeRef.current?.(buildMarkerOutput(editor).text);
         // Pending-upload state flips here too: inserting a placeholder
         // chip, resolving it, and removing it on failure all dispatch a
         // doc-changing transaction that runs onUpdate. The parent uses
@@ -817,7 +850,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     // previous key's content is flushed synchronously first so a fast
     // session switch (typed in A → pick B before the debounce fires)
     // doesn't lose A's draft or mis-route it to B.
-    useEffect(() => {
+    useLayoutEffect(() => {
       if (!editor) return;
       const previousKey = draftKeyRef.current;
       if (draftSaveTimerRef.current) {
@@ -840,34 +873,23 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       // this effect runs already saw the un-hydrated flag and skipped,
       // so the draft below is still intact.
       hydratedKeysRef.current.add(draftKey);
-      let stored: string | null = null;
       try {
-        stored = window.localStorage.getItem(`${DRAFT_STORAGE_PREFIX}${draftKey}`);
-      } catch {
-        // ignore
-      }
-      if (stored) {
-        try {
-          const json = JSON.parse(stored);
-          // emitUpdate so the parent's hasContent state flips back to
-          // true after restore. The scheduled save that fires next is
-          // a no-op write of the same JSON.
-          editor.commands.setContent(json, { emitUpdate: true });
+        const doc = restoreChatDraft(window.localStorage, draftKey, homeScope, personalDrafts);
+        if (doc) {
+          editor.commands.setContent(doc as Parameters<typeof editor.commands.setContent>[0], { emitUpdate: true });
           editor.commands.setTextSelection(editor.state.doc.content.size);
           return scheduleEditorAutoFocus(editor.view.dom, () => {
             if (!editor.isDestroyed) editor.view.focus();
           });
-        } catch {
-          // Corrupt entry — fall through to clear.
         }
-      }
+      } catch { /* Unavailable storage never replaces the live document. */ }
       // No draft for this key. Only wipe the editor if we're switching
       // *between* keys; on the very first mount (previousKey undefined)
       // leave whatever the editor was constructed with intact.
       if (previousKey && previousKey !== draftKey) {
         editor.commands.clearContent(true);
       }
-    }, [editor, draftKey, writeDraftSync, resetHistoryNav]);
+    }, [editor, draftKey, homeScope, personalDrafts, writeDraftSync, resetHistoryNav]);
 
     // Apps hands references to an exact chat. Hydrate its existing draft first,
     // append a real chip, and leave sending and access approval to the person.
@@ -895,7 +917,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     // from local apps, and text, titled items and files from connected apps.
     // What a connected app writes lands in the draft, for the person to send.
     useEffect(() => {
-      if (!editor || !draftKey?.startsWith('exec:')) return;
+      const base = draftKey ? draftIdentity(draftKey).base : '';
+      if (!editor || !base.startsWith('exec:')) return;
       const appendParagraph = (content: Record<string, unknown>[]) => {
         if (editor.isDestroyed) return;
         if (content.length) {
@@ -905,7 +928,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         }
         editor.commands.focus('end');
       };
-      return registerAppChatComposer(draftKey.slice(5), (text) => appendParagraph(text ? [{ type: 'text', text }] : []), {
+      return registerAppChatComposer(base.slice(5), (text) => appendParagraph(text ? [{ type: 'text', text }] : []), {
         appendParts: (parts) => appendParagraph(appPartsContent(parts)),
       });
     }, [editor, draftKey]);
@@ -923,7 +946,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       const doc = historyIndexRef.current !== null ? historyStashRef.current?.doc : ed.isEmpty ? undefined : ed.getJSON();
       try {
         const retained = window.localStorage.getItem(`${DRAFT_STORAGE_PREFIX}${key}`);
-        return doc ? retained === JSON.stringify(doc) : retained === null;
+        return doc ? retained === encodeChatDraft(key, doc) : retained === null;
       } catch { return false; }
     }), [writeDraftSync, editorHasPendingChip]);
 

@@ -4,7 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { BACKGROUND_DOT } from '@/components/workspaces/activity-style';
 import { HOTKEYS } from '@/constants/commands';
 import { Kbd } from '@/components/ui/kbd';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation, useWorkActivity } from '@/contexts/work-context';
 import type { WorkspaceRecord } from '@/db/types';
 import { useArchiveExecution } from '@/hooks/use-archive-execution';
 import { useDevice, useRunsOnSeveralDevices } from '@/hooks/use-devices';
@@ -13,7 +13,6 @@ import { useOpenablePr } from '@/hooks/use-execution-actions';
 import { useOpener } from '@/hooks/use-opener';
 import { useMarkSessionRead, useMarkSessionUnread, usePinSession, useUnpinSession } from '@/hooks/use-workspaces';
 import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
-import { HOME_VIEW } from '@/lib/client/active-view';
 import { detectClientPlatform, revealLabel } from '@/lib/client/deep-links';
 import { useDeviceLabelMode } from '@/lib/client/device-label-mode';
 import { useOpenInPreferredEditor } from '@/lib/client/editor-preference';
@@ -109,7 +108,8 @@ export function ExecutionHeader({
   onOpenTools,
   toolsBadgeClass,
 }: ExecutionHeaderProps) {
-  const { pendingInputSessionIds, setActiveView, openAgent } = useDashboard();
+  const { openAgent, goHome } = useWorkNavigation();
+  const { pendingInputSessionIds } = useWorkActivity();
   const { archive } = useArchiveExecution();
   const updateSession = useUpdateSession();
   const markRead = useMarkSessionRead();
@@ -239,7 +239,7 @@ export function ExecutionHeader({
     void archive({
       id: session.id,
       label: displayLabel,
-      onArchived: () => setActiveView(HOME_VIEW),
+      onArchived: goHome,
     });
   };
 

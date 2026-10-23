@@ -1,13 +1,22 @@
 import { z } from 'zod';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { validateWorkResultActor } from './home-policy';
 import { ActionError, type ActionContext } from '@/lib/orchestrator/types';
 import { mcpCallContext, requestHasSessionAuthority } from '@/lib/orchestrator/mcp-caller';
-import { getChatSession, getWorkResultAiReviewForSession } from '@/lib/db/queries';
+import { getHome, memberForApiKey, getChatSession, getWorkResultAiReviewForSession } from '@/lib/db/queries';
 import type { WorkResultActor } from '@/db/types';
 import { isTaskLifecycleError, LIFECYCLE_ERROR_HTTP_STATUS } from '@/lib/tasks/lifecycle';
 
 /** The current home has one authenticated local owner. Never trust an input user ID. */
 export function workResultActorFromContext(context: ActionContext, requireAgent = false): WorkResultActor {
   const sessionId = context.actor?.sessionId;
+  if (getHome()?.kind === 'team') {
+    const member = context.caller?.apiKeyId ? memberForApiKey(context.caller.apiKeyId) : null;
+    if (!member || member.id !== context.actor?.memberId || (requireAgent && !sessionId)) throw new ActionError('unsupported', 'This action needs its active team member identity.');
+    const actor: WorkResultActor = { userId: 'local', source: sessionId ? 'ai' : 'human', sessionId, memberId: member.id, apiKeyId: context.caller!.apiKeyId, runId: context.actor?.runId };
+    validateWorkResultActor(actor, sessionId);
+    return actor;
+  }
   if (sessionId) {
     const session = getChatSession(sessionId);
     if (session && session.userId !== 'local') throw new ActionError('not_found', 'Authorized source session is unavailable.');
@@ -22,6 +31,13 @@ export function workResultActorFromContext(context: ActionContext, requireAgent 
 }
 
 export function workResultActorFromRequest(request: Pick<Request, 'headers' | 'url' | 'method'>, options: { allowMissing?: boolean } = {}): WorkResultActor {
+  const key = getRequestKey(request.headers);
+  if (getHome()?.kind === 'team') {
+    if (key?.scope !== 'member' || !key.memberId) throw new ActionError('unsupported', 'Results require a team member sign-in.');
+    const actor: WorkResultActor = { userId: 'local', source: 'human', memberId: key.memberId, apiKeyId: key.apiKeyId };
+    validateWorkResultActor(actor);
+    return actor;
+  }
   const context = mcpCallContext(request.headers, options);
   const actor = context.actor;
   if (requestHasSessionAuthority(request.headers) && !actor) throw new ActionError('unsupported', 'The session credential is invalid or its source session is unavailable.');

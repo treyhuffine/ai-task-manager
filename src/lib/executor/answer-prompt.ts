@@ -10,6 +10,8 @@ import type { WorkerCommandActor } from '@/db/types';
 import { describeSender } from '@/lib/sessions/sender';
 import { answerPendingInput } from './adapter';
 import { getPending } from './live-state';
+import { getHome, runningTeamChatTurn } from '@/lib/db/queries';
+import { authorizeTeamActorExecution } from '@/lib/home/execution-authority';
 
 export interface PromptAnswer {
   /** True for a permission allow or a question answered, false to deny or decline. */
@@ -32,11 +34,14 @@ export function answerPrompt(
   answer: PromptAnswer,
   actor: WorkerCommandActor,
 ): PromptOutcome {
+  const shared = getHome()?.kind === 'team';
+  if (shared) authorizeTeamActorExecution(actor, { chatId: chatSessionId, operation: 'read' });
   const pending = getPending(requestId);
   if (!pending) return GONE;
   if (pending.sessionId !== chatSessionId) {
     return { ok: false, error: 'mismatch', message: 'Request does not belong to this session.' };
   }
+  if (shared) authorizeTeamActorExecution(actor, { chatId: chatSessionId, operation: pending.kind === 'question' ? 'answer' : 'approve', turnId: runningTeamChatTurn(chatSessionId)?.id });
 
   // Claude's PermissionAllowResultSchema requires `updatedInput` (`record`)
   // on every allow, and PermissionDenyResultSchema requires a non-empty

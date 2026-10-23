@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { parseHTML } from 'linkedom';
@@ -24,11 +25,12 @@ vi.mock('@/lib/api/workspaces', () => ({
 vi.mock('@/components/ui/tip', () => ({ Tip: ({ children }: { children: unknown }) => children }));
 
 let root: Root;
+let client: QueryClient;
 let container: HTMLElement;
 let onChange: ReturnType<typeof vi.fn<(next: string[]) => void>>;
 
 function render(value: string[], cwd = '/repo') {
-  act(() => root.render(createElement(FilesToCopySection, { value, onChange, cwd })));
+  act(() => root.render(createElement(QueryClientProvider, { client }, createElement(FilesToCopySection, { value, onChange, cwd }))));
 }
 
 const textarea = () => container.querySelector('textarea') as unknown as HTMLTextAreaElement;
@@ -55,6 +57,7 @@ async function settle() {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const { window, document } = parseHTML('<!doctype html><html><body><div id="root"></div></body></html>');
   vi.stubGlobal('window', window);
   vi.stubGlobal('document', document);
@@ -67,6 +70,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount());
+  client.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -108,6 +112,7 @@ describe('FilesToCopySection preview', () => {
     await settle();
     expect(fixtures.calls).toHaveLength(1);
     await act(async () => fixtures.calls[0].resolve(['.env']));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(spinning()).toBe(false);
     expect(summary()).toContain('1 file will be copied from /repo');
   });
@@ -116,6 +121,7 @@ describe('FilesToCopySection preview', () => {
     render(['.env']);
     await settle();
     await act(async () => fixtures.calls[0].resolve(['.env']));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
 
     render(['.env', 'a/*']);
     expect(spinning()).toBe(true);
@@ -125,8 +131,10 @@ describe('FilesToCopySection preview', () => {
     await settle();
     expect(fixtures.calls).toHaveLength(3);
     await act(async () => fixtures.calls[1].resolve(['stale']));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(spinning()).toBe(true);
     await act(async () => fixtures.calls[2].resolve(['.env', 'b/one', 'b/two']));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(spinning()).toBe(false);
     expect(summary()).toContain('3 files will be copied');
   });
@@ -135,6 +143,7 @@ describe('FilesToCopySection preview', () => {
     render(['.env']);
     await settle();
     await act(async () => fixtures.calls[0].reject(new Error('Folder not found')));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(spinning()).toBe(false);
     expect(summary()).toContain('Preview failed');
     expect(container.textContent).toContain('Folder not found');
@@ -144,6 +153,7 @@ describe('FilesToCopySection preview', () => {
     render(['.env']);
     await settle();
     await act(async () => fixtures.calls[0].resolve(['.env']));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
 
     render(['.env'], '');
     expect(container.textContent).toContain('Pick a folder above');

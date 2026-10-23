@@ -1,13 +1,16 @@
 'use client';
+import { teamDisplayName } from '@/lib/home/team-display-name';
 
 import { Lock, PencilLine, Users } from 'lucide-react';
 import type { NoteRecord } from '@/db/types';
 import { useUpdateNote } from '@/hooks/use-notes';
 import { spacePath } from '@/lib/spaces/document';
+import { EntityLinkScope } from '@/components/editor/entity-link-scope';
 import { RichEditor } from '@/components/editor/rich-editor';
 import { AreaSelect } from '@/components/shared/area-select';
 import { LinkedReferences } from '@/components/shared/linked-references';
 import { DecisionLabel } from '@/components/notes/note-kind';
+import { TeamLabel } from './team-label';
 import { useConnectedTeams } from './space-selector';
 import { spaceAttachmentStore } from '@/lib/spaces/attachment-store';
 
@@ -25,7 +28,7 @@ export function teamNoteHref(note: Pick<NoteRecord, 'sourceTeamId' | 'sourceNote
  */
 export function SharedNoteBody({ note }: { note: NoteRecord }) {
   const teams = useConnectedTeams();
-  const teamName = teams.data?.find((t) => t.id === note.sourceTeamId)?.name ?? 'the team';
+  const teamName = teamDisplayName(note.sourceTeamId!, teams.data);
   const updateNote = useUpdateNote();
   const href = teamNoteHref(note);
   const gone = note.sourceState === 'unavailable';
@@ -45,7 +48,7 @@ export function SharedNoteBody({ note }: { note: NoteRecord }) {
           </span>
           {/* The team's kind, like its text: changed where the note is edited. */}
           <DecisionLabel kind={note.kind} />
-          {note.source?.area && <span className="rounded-full border border-border px-2 py-0.5 text-muted-foreground">{note.source.area.name}</span>}
+          <TeamLabel teamId={note.sourceTeamId} sourceArea={note.source?.area} />
           {syncedAt && !gone && (
             <span className="text-muted-foreground">
               As of {new Date(syncedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
@@ -60,7 +63,7 @@ export function SharedNoteBody({ note }: { note: NoteRecord }) {
         <h1 className="note-title text-2xl font-semibold leading-tight">{note.title?.trim() || 'Untitled note'}</h1>
         {!gone && (
           <div className="task-slideout-editor shared-task-editor">
-            <RichEditor key={`${note.id}:${note.source?.updatedAt ?? ''}`} content={note.body} attachmentStore={spaceAttachmentStore(note.sourceTeamId!)} editable={false} hideFooter />
+            <EntityLinkScope homeId={note.sourceTeamId!}><RichEditor key={`${note.id}:${note.source?.updatedAt ?? ''}`} content={note.body} attachmentStore={spaceAttachmentStore(note.sourceTeamId!)} editable={false} hideFooter /></EntityLinkScope>
           </div>
         )}
       </section>
@@ -73,7 +76,7 @@ export function SharedNoteBody({ note }: { note: NoteRecord }) {
           <p className="mt-0.5 text-xs text-muted-foreground">How this note is organized in My Ri. {teamName} never sees it.</p>
         </div>
         <div className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-xs">
-          <span className="font-medium text-muted-foreground">Organize for me</span>
+          <span className="font-medium text-muted-foreground">Area</span>
           <AreaSelect value={note.areaId ?? null} onChange={(areaId) => updateNote.mutate({ id: note.id, areaId })} />
         </div>
       </section>

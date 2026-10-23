@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { apiErrorStatus } from '@/lib/api/client';
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 import type { ProviderAuthFlow, UpstreamProvider } from '@agentex/agent';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -41,8 +41,8 @@ export function OpenCodeProviderPanel() {
 
   const refresh = () => {
     void providers.refetch();
-    void queryClient.invalidateQueries({ queryKey: ['agent-connection', 'opencode'] });
-    void queryClient.invalidateQueries({ queryKey: ['agent-models', 'opencode'] });
+    void queryClient.invalidateQueries({ queryKey: trpc.harness.authGet.pathKey() });
+    void queryClient.invalidateQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
   };
 
   return (

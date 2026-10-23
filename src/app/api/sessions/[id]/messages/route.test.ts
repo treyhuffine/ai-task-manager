@@ -54,6 +54,9 @@ const skipOnboardingStepOnScreen = vi.fn((id: string) => {
 // `as never` casts paper over `vi.fn()`'s very-precise default
 // signature — these factories just need to delegate.
 vi.mock('@/lib/db/queries', () => ({
+  getHome: () => ({ kind: 'personal' }),
+  isTeamError: () => false,
+  isTeamChatError: () => false,
   getChatEventById: (id: string) => (getChatEventById as unknown as (id: string) => unknown)(id),
   getChatSessionWithExecution: (id: string) =>
     (getChatSessionWithExecution as unknown as (id: string) => unknown)(id),

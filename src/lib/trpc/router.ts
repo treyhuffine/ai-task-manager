@@ -13,13 +13,14 @@ import { listRunningSessions } from '@/lib/executor/status-snapshot';
 import { completeTaskForViewer, transitionTaskForViewer } from '@/lib/tasks/viewer-lifecycle';
 import { TRPCError, type inferRouterInputs, type inferRouterOutputs } from '@trpc/server';
 import { z } from 'zod/v4';
-import { viewerProcedure as p, sharedProcedure as sp, router } from './init';
+import { viewerProcedure as p, sharedProcedure as sp, sharedActionProcedure, router } from './init';
 import { assertTeamAreaPatch, assertTeamNotePatch, assertTeamTaskPatch, requireBodyRevision, sharedCaller, teamWriteSource, versionMeta } from '@/lib/team/shared-work';
 import { teamRouter } from '@/lib/team/router';
 import { listTaskPublishedResults, publishTaskResult } from '@/lib/team/published-results';
 import { internalRouters, taskProcedures } from './operation-router';
 import * as s from './schemas';
 import { terminalSubscriptions } from './terminal-subscription';
+import { pageSubscriptions } from './page-subscription';
 import { hasWebSocketRuntime, publishApplicationRouter } from './ws-runtime';
 import { launchPluginEvaluation, pluginEvaluationStatus } from '@/lib/server/operations/plugins/evaluation';
 import { accountChatCapture } from '@/lib/server/operations/plugins/account-chat';
@@ -32,6 +33,7 @@ import { resultsRouter } from './results-router';
 import { spacesRouter } from '@/lib/spaces/router';
 import { completeSharedTask, transitionSharedTask, updateTaskWithShared } from '@/lib/spaces/commands';
 import { LIFECYCLE_COMMANDS } from '@/lib/tasks/lifecycle';
+import { resolveHomeContext } from '@/lib/home/context';
 
 /** A run of days for the work view (docs/work-view.md). */
 const workRangeInput = z.object({
@@ -64,7 +66,9 @@ function sharedTaskIn(id: string) {
   return task?.sourceTeamId ? task : null;
 }
 
+const editContent = sharedActionProcedure('editContent');
 export const appRouter = router({
+  homeContext: sp.query(({ ctx }) => resolveHomeContext(ctx.key)),
   coordination: coordinationRouter,
   email: emailRouter,
   externalAi: externalAiRouter,
@@ -85,6 +89,7 @@ export const appRouter = router({
     ping: sp.query(() => ({ now: Date.now() })),
   }),
   terminals: terminalSubscriptions,
+  live: pageSubscriptions,
   // The main chat's first-run conversation, step by step, on the home
   // (src/lib/onboarding/progress.ts, docs/main-chat-onboarding.md). Each
   // returns the user state it leaves, which the client caches.
@@ -120,19 +125,19 @@ export const appRouter = router({
       if (!sharedCaller(ctx.key).team) q.markTaskViewed(input.id);
       return task;
     }),
-    create: sp.input(s.createTaskSchema).mutation(({ input, ctx }) => {
+    create: editContent.input(s.createTaskSchema).mutation(({ input, ctx }) => {
       const caller = sharedCaller(ctx.key);
       if (!caller.team) return q.createTask(input);
       assertTeamTaskPatch(input, 'create');
       return q.createTask(input, undefined, versionMeta(caller));
     }),
-    update: sp.input(s.entityIdSchema.extend({ patch: s.updateTaskSchema, expectedBodyRevision: z.number().int().nonnegative().optional(), actorSource })).mutation(async ({ input, ctx }) => {
+    update: editContent.input(s.entityIdSchema.extend({ patch: s.updateTaskSchema, expectedSourceMemberId: z.string().min(1).optional(), expectedBodyRevision: z.number().int().nonnegative().optional(), actorSource })).mutation(async ({ input, ctx }) => {
       const caller = sharedCaller(ctx.key);
       const source = teamWriteSource(ctx.key, input.actorSource);
       // A shared task in My Ri: its shared fields go to its team, the rest
       // is private planning written here (docs/homes-spec.md §9.4, P7.3).
       const shared = caller.team ? null : sharedTaskIn(input.id);
-      if (shared) return updateTaskWithShared(shared, input.patch, versionMeta(caller), { expectedBodyRevision: input.expectedBodyRevision });
+      if (shared) return updateTaskWithShared(shared, input.patch, versionMeta(caller), { expectedBodyRevision: input.expectedBodyRevision, expectedSourceMemberId: input.expectedSourceMemberId });
       if (caller.team) assertTeamTaskPatch(input.patch, 'update');
       requireBodyRevision(caller, input.patch, input.expectedBodyRevision);
       return required(q.updateTask(input.id, input.patch, versionMeta(caller, source), { expectedBodyRevision: input.expectedBodyRevision }), 'Task');
@@ -140,10 +145,10 @@ export const appRouter = router({
     delete: sp.input(s.entityIdSchema).mutation(({ input, ctx }) => {
       const caller = sharedCaller(ctx.key);
       // Shared work is archived, not deleted, except by the team's owner.
-      if (caller.team && caller.role !== 'owner') throw new TRPCError({ code: 'FORBIDDEN', message: "Archive it instead. Only the team's owner can delete shared work." });
+      if (caller.team && !caller.capabilities.deletePermanently) throw new TRPCError({ code: 'FORBIDDEN', message: "Archive it instead. Only the team's owner can delete shared work." });
       if (!q.deleteTask(input.id)) throw new TRPCError({ code: 'NOT_FOUND', message: 'Task not found' });
     }),
-    complete: sp.input(s.completeSchema.extend({ actorSource })).mutation(({ input: { id, actorSource, ...opts }, ctx }) => {
+    complete: editContent.input(s.completeSchema.extend({ actorSource })).mutation(({ input: { id, actorSource, ...opts }, ctx }) => {
       const caller = sharedCaller(ctx.key);
       const source = teamWriteSource(ctx.key, actorSource);
       const shared = caller.team ? null : sharedTaskIn(id);
@@ -154,23 +159,22 @@ export const appRouter = router({
       if (!sharedCaller(ctx.key).team) throw new TRPCError({ code: 'FORBIDDEN' });
       return q.hasLifecycleCommand(input.id, input.idempotencyKey, input.command);
     }),
-    transition: sp.input(s.transitionSchema.extend({ actorSource })).mutation(({ input: { id, command, actorSource, ...opts }, ctx }) => {
+    transition: editContent.input(s.transitionSchema.extend({ actorSource })).mutation(({ input: { id, command, actorSource, ...opts }, ctx }) => {
       const caller = sharedCaller(ctx.key);
       const source = teamWriteSource(ctx.key, actorSource);
       const shared = caller.team ? null : sharedTaskIn(id);
       if (shared) return transitionSharedTask(shared, command, opts);
       return transitionTaskForViewer(id, command, opts, caller.team ? { memberId: caller.memberId, source } : undefined);
     }),
-    reorder: sp.input(s.entityIdSchema.extend({ prevId: z.string().nullable().optional(), nextId: z.string().nullable().optional() })).mutation(({ input }) => q.reorderTaskInLane(input.id, input.prevId ?? null, input.nextId ?? null)),
-    // A rank is a person's own planning, which a team's task doesn't keep.
-    rank: sp.input(s.entityIdSchema.extend({ rank: z.number().int().min(1) })).mutation(({ input, ctx }) => {
-      if (sharedCaller(ctx.key).team) throw new TRPCError({ code: 'FORBIDDEN', message: "A team's tasks aren't ranked. Rank them in your own Ri." });
+    reorder: editContent.input(s.entityIdSchema.extend({ prevId: z.string().nullable().optional(), nextId: z.string().nullable().optional() })).mutation(({ input }) => q.reorderTaskInLane(input.id, input.prevId ?? null, input.nextId ?? null)),
+    // Rank belongs to the data Home. Projections keep a separate private rank.
+    rank: editContent.input(s.entityIdSchema.extend({ rank: z.number().int().min(1) })).mutation(({ input }) => {
       return q.rankTask(input.id, input.rank).catch(orderingError);
     }),
     executions: p.input(s.entityIdSchema).query(({ input }) => q.getTaskExecutions(input.id).map(({ id, label, status }) => ({ id, label, status }))),
     // A team's published results (docs/homes-spec.md §9.5): a member shares
     // a chosen summary, link or files. A personal home has none.
-    publishResult: sp.input(s.publishTaskResultSchema).mutation(({ input, ctx }) => {
+    publishResult: editContent.input(s.publishTaskResultSchema).mutation(({ input, ctx }) => {
       const caller = sharedCaller(ctx.key);
       if (!caller.team) throw new TRPCError({ code: 'FORBIDDEN', message: 'Results are published to a team.' });
       return publishTaskResult({ ...input, memberId: caller.memberId });
@@ -178,8 +182,8 @@ export const appRouter = router({
     publishedResults: sp.input(z.object({ taskId: z.string().min(1).max(100) }).strict()).query(({ input, ctx }) =>
       sharedCaller(ctx.key).team ? listTaskPublishedResults(input.taskId) : [],
     ),
-    counts: sp.input(z.object({ areaId: z.string().nullable().optional(), source: z.string().nullable().optional() }).strict().optional()).query(({ input }) => q.getTaskStatusCounts({ areaId: input?.areaId || undefined, source: input?.source || undefined })),
-    attention: p.input(z.object({ ids: z.array(z.string().min(1)).max(200) }).strict()).query(({ input }) => q.getTasksAttentionSignals(input.ids, new Set(listRunningSessions()))),
+    counts: sp.input(z.object({ areaId: z.string().nullable().optional(), source: z.string().nullable().optional(), assigneeMemberId: z.string().nullable().optional() }).strict().optional()).query(({ input }) => q.getTaskStatusCounts({ areaId: input?.areaId || undefined, source: input?.source || undefined, assigneeMemberId: input?.assigneeMemberId || undefined })),
+    attention: sp.input(z.object({ ids: z.array(z.string().min(1)).max(200) }).strict()).query(({ input }) => q.getTasksAttentionSignals(input.ids, new Set(listRunningSessions()))),
     deadlines: p.input(z.object({ withinDays: z.number().int().min(0).max(60).optional() }).strict().optional()).query(({ input }) => q.getDeadlineTasks(input)),
   }),
   notes: router({
@@ -189,13 +193,13 @@ export const appRouter = router({
       if (!sharedCaller(ctx.key).team) q.markNoteViewed(input.id);
       return note;
     }),
-    create: sp.input(s.createNoteSchema).mutation(({ input, ctx }) => {
+    create: editContent.input(s.createNoteSchema).mutation(({ input, ctx }) => {
       const caller = sharedCaller(ctx.key);
       if (!caller.team) return q.createNote(input);
       assertTeamNotePatch(input);
       return q.createNote(input, undefined, versionMeta(caller));
     }),
-    update: sp.input(s.entityIdSchema.extend({ patch: s.updateNoteSchema, expectedBodyRevision: z.number().int().nonnegative().optional() })).mutation(({ input, ctx }) => {
+    update: editContent.input(s.entityIdSchema.extend({ patch: s.updateNoteSchema, expectedBodyRevision: z.number().int().nonnegative().optional() })).mutation(({ input, ctx }) => {
       const caller = sharedCaller(ctx.key);
       if (caller.team) assertTeamNotePatch(input.patch);
       requireBodyRevision(caller, input.patch, input.expectedBodyRevision);
@@ -203,7 +207,7 @@ export const appRouter = router({
     }),
     delete: sp.input(s.entityIdSchema).mutation(({ input, ctx }) => {
       const caller = sharedCaller(ctx.key);
-      if (caller.team && caller.role !== 'owner') throw new TRPCError({ code: 'FORBIDDEN', message: "Archive it instead. Only the team's owner can delete shared work." });
+      if (caller.team && !caller.capabilities.deletePermanently) throw new TRPCError({ code: 'FORBIDDEN', message: "Archive it instead. Only the team's owner can delete shared work." });
       if (!q.deleteNote(input.id)) throw new TRPCError({ code: 'NOT_FOUND', message: 'Note not found' });
     }),
   }),
@@ -215,11 +219,11 @@ export const appRouter = router({
   areas: router({
     list: sp.input(s.areaFilterSchema.optional()).query(({ input }) => q.listAreas(input)),
     get: sp.input(s.entityIdSchema).query(({ input }) => required(q.getArea(input.id), 'Area')),
-    create: sp.input(s.createAreaSchema).mutation(({ input, ctx }) => {
+    create: editContent.input(s.createAreaSchema).mutation(({ input, ctx }) => {
       if (sharedCaller(ctx.key).team) assertTeamAreaPatch(input);
       return q.createArea(input);
     }),
-    update: sp.input(s.entityIdSchema.extend({ patch: s.updateAreaSchema })).mutation(({ input, ctx }) => {
+    update: editContent.input(s.entityIdSchema.extend({ patch: s.updateAreaSchema })).mutation(({ input, ctx }) => {
       if (sharedCaller(ctx.key).team) assertTeamAreaPatch(input.patch);
       return required(q.updateArea(input.id, input.patch), 'Area');
     }),

@@ -3,7 +3,7 @@
 import type { EffortLevel, HarnessSettingsRecord } from '@/db/types';
 import type { HarnessDefinition, HarnessId } from '@/lib/harness/registry';
 import type { HarnessRuntimeView } from '@/lib/harness/runtime';
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import { rpcQuery } from '@/lib/trpc/request-options';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -12,11 +12,13 @@ export interface HarnessSettingsView extends HarnessDefinition {
   settings: HarnessSettingsRecord;
 }
 
-export function useHarnesses() {
+export function useHarnesses(enabled = true) {
   return useQuery({
-    queryKey: ['agent-harnesses'],
+    enabled,
+    queryKey: trpc.harness.harnessesGet.queryKey(),
     queryFn: () => trpcClient.harness.harnessesGet.query({}),
     staleTime: 60_000,
+    refetchInterval: false,
   });
 }
 
@@ -31,9 +33,9 @@ export function useSaveHarnessModels() {
       defaultEffort?: EffortLevel | null;
       defaultServiceTier?: string | null;
     }) => trpcClient.harness.modelsEnabledPut.mutate({body: input}),
-    onSuccess: (_data, input) => {
-      void queryClient.invalidateQueries({ queryKey: ['agent-models', input.harness] });
-      void queryClient.invalidateQueries({ queryKey: ['agent-harnesses'] });
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
+      void queryClient.invalidateQueries({ queryKey: trpc.harness.harnessesGet.pathKey() });
     },
   });
 }
@@ -49,7 +51,7 @@ export function useAddCustomModel() {
   return useMutation({
     mutationFn: (input: { harness: HarnessId; modelId: string }) =>
       trpcClient.harness.modelsCustomPost.mutate({body: input}),
-    onSuccess: (_data, input) => invalidateHarnessModels(queryClient, input.harness),
+    onSuccess: () => invalidateHarnessModels(queryClient),
   });
 }
 
@@ -58,7 +60,7 @@ export function useRemoveCustomModel() {
   return useMutation({
     mutationFn: (input: { harness: HarnessId; modelId: string }) =>
       trpcClient.harness.modelsCustomDelete.mutate({query: rpcQuery({ harness: input.harness, modelId: input.modelId })}),
-    onSuccess: (_data, input) => invalidateHarnessModels(queryClient, input.harness),
+    onSuccess: () => invalidateHarnessModels(queryClient),
   });
 }
 
@@ -70,9 +72,8 @@ export function useRemoveCustomModel() {
  */
 async function invalidateHarnessModels(
   queryClient: ReturnType<typeof useQueryClient>,
-  harness: HarnessId,
 ): Promise<void> {
-  await queryClient.refetchQueries({ queryKey: ['agent-models', harness] });
-  void queryClient.invalidateQueries({ queryKey: ['agent-harnesses'] });
-  void queryClient.invalidateQueries({ queryKey: ['user-state'] });
+  await queryClient.refetchQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
+  void queryClient.invalidateQueries({ queryKey: trpc.harness.harnessesGet.pathKey() });
+  void queryClient.invalidateQueries({ queryKey: trpc.userState.list.queryKey({}) });
 }

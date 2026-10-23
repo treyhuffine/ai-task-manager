@@ -1,3 +1,5 @@
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 /**
@@ -13,13 +15,16 @@ import { getChatSession, setSessionScratchPad } from '@/lib/db/queries';
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    sessionAuthority(getRequestKey(request.headers), id, 'read');
     const session = getChatSession(id);
     if (!session) return reply({ error: 'Session not found' }, { status: 404 });
     return reply({ scratchPad: session.scratchPad });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/sessions/:id/scratchpad]', err);
     return reply({ error: String(err) }, { status: 500 });
   }
@@ -29,16 +34,19 @@ interface PutBody {
   scratchPad?: string | null;
 }
 
-export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
+export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
     const body: PutBody = rpcInput.body;
     const next = body.scratchPad ?? null;
+    sessionAuthority(getRequestKey(request.headers), id, 'editChat');
     const session = getChatSession(id);
     if (!session) return reply({ error: 'Session not found' }, { status: 404 });
     const updated = setSessionScratchPad(id, next === '' ? null : next);
     return reply({ scratchPad: updated?.scratchPad ?? null });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[PUT /api/sessions/:id/scratchpad]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

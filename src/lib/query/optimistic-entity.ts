@@ -1,3 +1,4 @@
+import { trpc } from '@/lib/trpc/client';
 /**
  * Optimistic cache surgery for the task / note / area entity caches.
  *
@@ -252,6 +253,7 @@ export function settleEntity(qc: QueryClient, root: OptimisticEntityRoot) {
   // entity's title everywhere it is referenced as a chip. Invalidate both
   // link-derived caches broadly in the target direction — each only refetches
   // where actually mounted. See docs/entity-links-spec.md §9.3.
-  qc.invalidateQueries({ queryKey: ['entity-backlinks'] });
-  qc.invalidateQueries({ queryKey: ['entity-title'] });
+  qc.invalidateQueries({ queryKey: trpc.entities.backlinksTypeGet.pathKey() });
+  qc.invalidateQueries({ queryKey: trpc.entities.titlesGet.pathKey() });
+  qc.invalidateQueries({ queryKey: trpc.spaces.entityTitles.pathKey() });
 }

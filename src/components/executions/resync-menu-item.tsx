@@ -1,5 +1,8 @@
 'use client';
 
+import type { ComponentProps } from 'react';
+import { useOptionalHomeContext } from '@/components/home/home-context';
+
 import { RefreshCw, Loader2, Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useResyncSession } from '@/hooks/use-execution';
@@ -22,7 +25,12 @@ import { Tip } from '@/components/ui/tip';
  * Resync should feel like a private gesture the user makes when they
  * suspect something's off, not a ceremonial action.
  */
-export function ResyncMenuItem({
+export function ResyncMenuItem(props: ComponentProps<typeof PersonalResyncMenuItem>) {
+  const capabilities = useOptionalHomeContext()?.capabilities;
+  const personalServices = capabilities?.personalServices ?? capabilities?.privatePlanning ?? true;
+  return personalServices ? <PersonalResyncMenuItem {...props} /> : null;
+}
+function PersonalResyncMenuItem({
   sessionId,
   imported = false,
 }: {

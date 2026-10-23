@@ -14,8 +14,8 @@ export const RuntimeCompatibilitySchema = z.object({
 }).strict();
 export type RuntimeCompatibility = z.infer<typeof RuntimeCompatibilitySchema>;
 export const CURRENT_COMPATIBILITY: RuntimeCompatibility = {
-  format: 1, workerProtocols: [4], apiProtocols: [API_PROTOCOL],
-  capabilities: ['worker.protocol4', 'durable-journals.v1', 'compatibility.v1', 'safe-update-pause.v1', 'coordination.admission.v1'],
+  format: 1, workerProtocols: [4], apiProtocols: [1, API_PROTOCOL],
+  capabilities: ['worker.protocol4', 'durable-journals.v1', 'compatibility.v1', 'safe-update-pause.v1', 'worker.previews.v1', 'coordination.admission.v1'],
   requiredCapabilities: ['worker.protocol4', 'coordination.admission.v1'],
   journal: { commands: { read: [1], write: 1 }, events: { read: [1], write: 1 } },
   config: { read: [1], write: 1 }, nativeBridge: [1],

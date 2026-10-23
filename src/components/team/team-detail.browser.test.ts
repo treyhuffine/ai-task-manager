@@ -20,16 +20,17 @@ beforeAll(async () => {
       import React from 'react';
       import {createRoot} from 'react-dom/client';
       import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
-      import {TeamDetail} from './src/components/team/team-detail';
+      import {TeamRecordControls} from './src/components/team/team-record-controls';
       const params=new URLSearchParams(location.search);
       if(params.has('desktop'))document.documentElement.dataset.riDesktop=params.get('desktop');
       if(params.has('hud'))document.querySelector('.desktop-drag-fallback').outerHTML='<header data-desktop-titlebar style="height:40px">Ri</header>';
-      createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><TeamDetail/></QueryClientProvider>);
+      createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><TeamRecordControls/></QueryClientProvider>);
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     define: { 'process.env': '{"NODE_ENV":"development"}' },
     plugins: [{ name: 'team-detail-fixture', setup(b) {
       const fixtures: Record<string, string> = {
+        'home-context': `export const useHomeContext=()=>({capabilities:{deletePermanently:false,administerMembers:false}});export const useOptionalHomeContext=()=>({home:{id:'team',kind:'team'},viewer:{id:'me'},capabilities:{privatePlanning:false}});`,
         'team-context': `import {useState} from 'react';export const useTeam=()=>({team:{name:'Team Huffine'},member:{id:'me',role:'member'}});export function useTeamNav(){const [open,setOpen]=useState(true);const note=new URLSearchParams(location.search).has('note');return {taskId:open&&!note?'task':null,noteId:open&&note?'note':null,closeDetail:()=>setOpen(false)};}`,
         'space-root': `export const useSpace=()=>({id:'team-fixture',status:'active'});`,
         'use-team': `export const initials=name=>name.slice(0,1);export const useTeamMembers=()=>({active:[],byId:new Map()});`,
@@ -38,8 +39,14 @@ beforeAll(async () => {
         'use-document-autosave': `export const useDocumentAutosave=()=>()=>{};`,
         'use-entity-versions': `export const useEntityVersions=()=>({data:{versions:[]}});`,
         'shared-body-editor': `export const SaveStatus=()=>null;export const SharedBodyState=()=>null;export const useSharedBody=()=>({ready:false,status:{status:'saved'}});`,
-        'rich-editor': `export const NoteEditor=()=>null;`,
+        'linked-references': `export const LinkedReferences=()=>null;`,
+        'referencing-sessions-button': `export const ReferencingSessionsButton=()=>null;`,
+        'rich-editor': `export const NoteEditor=()=>null;export const RichEditor=()=>null;`,
+        'entity-history-button': `export const EntityHistoryButton=()=>null;`,
+        'area-select': `export const AreaSelect=()=>null;`,
+        'use-task-lifecycle': `export const useTaskLifecycle=()=>({archive:()=>{}});`,
         'team-areas': `export const TeamAreaSelect=()=>null;`,
+        'team-task-agent-action': `export const TeamTaskAgentAction=()=>null;`,
         'published-results': `export const TeamPublishedResults=()=>null;`,
         'lifecycle-status-control': `export const LifecycleStatusControl=()=>null;`,
         'confirm-dialog': `export const useConfirm=()=>async()=>true;`,
@@ -55,7 +62,7 @@ beforeAll(async () => {
             saveNote:{mutate:async input=>{window.inclusionCalls.push(input);saved=true;}}
           }};
         `,
-        'trpc/client': `export const trpcClient={};`,
+        'trpc/client': `const factory=path=>new Proxy(()=>{},{get:(_t,k)=>k==='queryKey'||k==='pathKey'?input=>[...path,input]:k==='queryOptions'?input=>({queryKey:[...path,input],queryFn:async()=>[]}):factory([...path,String(k)])});export const trpc=factory([]);export const trpcClient={};`,
       };
       b.onResolve({ filter: /.*/ }, args => {
         const key = Object.keys(fixtures).find(key => args.path.endsWith('/' + key));

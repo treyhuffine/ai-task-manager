@@ -28,8 +28,9 @@ export type TeamCaller =
   | { scope: 'member'; member: MemberRecord }
   | { scope: 'ai_client'; member: MemberRecord }
   | { scope: 'host' };
+export type TeamExecutionCaller = TeamCaller;
 
-export function teamCallerFor(key: Pick<ApiKeyRecord, 'id'>, tokenHash: string): TeamCaller | null {
+export function teamCallerFor(key: Pick<ApiKeyRecord, 'id'>, tokenHash: string): TeamExecutionCaller | null {
   if (isHostKeyHash(tokenHash)) return { scope: 'host' };
   const member = memberForApiKey(key.id);
   if (member) return { scope: 'member', member };
@@ -56,11 +57,30 @@ export function teamSessionCookieName(): string {
 
 /** Where a member's key may go: the team's shared work and its own routes. */
 const MEMBER_PREFIXES = ['/api/trpc', '/api/attachments', '/api/team'];
-const MEMBER_PATHS = new Set(['/api/version', '/api/home']);
+const MEMBER_PATHS = new Set(['/api/version', '/api/home', '/api/workspaces', '/api/sessions/rail', '/api/sessions/history', '/api/sessions/needs-review', '/api/sessions/search', '/api/user-state', '/api/transcribe']);
 
 export function memberMayReach(pathname: string): boolean {
+  if (/^\/api\/(?:fs\/(?:browse|mkdir)|gh\/status|preview\/settings(?:\/test)?|reference-folders(?:\/[^/]+(?:\/(?:tree|archive))?)?|workspaces\/(?:detect-stack|preview-files))$/.test(pathname)) return true;
+  if (/^\/api\/workspaces\/[^/]+\/(?:folders(?:\/[^/]+(?:\/linked\/[^/]+)?)?|referenced-by)$/.test(pathname)) return true;
+  if (/^\/api\/sessions\/[^/]+\/reference-folders$/.test(pathname)) return true;
   if (pathname.startsWith('/api/team/host')) return false;
-  if (MEMBER_PATHS.has(pathname)) return true;
+  if (/^\/api\/tasks\/[^/]+\/continue-targets$/.test(pathname)) return true;
+  if (/^\/api\/skills(?:\/[^/]+(?:\/(?:move|commit))?)?$/.test(pathname)) return true;
+  if (/^\/api\/results(?:\/[^/]+(?:\/(?:decisions|complete|reviews|previews)(?:\/[^/]+(?:\/(?:retry|cancel))?)?)?|\/prepare(?:\/[^/]+\/cancel)?|\/reviews\/[^/]+(?:\/cancel)?)?$/.test(pathname)) return true;
+  if (MEMBER_PATHS.has(pathname) || /^\/api\/workspaces\/[^/]+(?:\/(?:archive|sessions|tasks|run-on))?$/.test(pathname)) return true;
+  if (/^\/api\/sessions\/[^/]+(?:\/(?:events|messages|runtime-status|interrupt))?$/.test(pathname)) return true;
+  if (/^\/api\/(sessions|workspaces)\/[^/]+\/terminals(?:\/[^/]+(?:\/(?:input|resize))?)?$/.test(pathname)) return true;
+  if (/^\/api\/sessions\/[^/]+\/(?:tree|file|status|diff|diff-stats|wip)$/.test(pathname) || /^\/api\/workspaces\/[^/]+\/(?:tree|file)$/.test(pathname)) return true;
+  if (/^\/api\/workspaces\/[^/]+\/chat(?:\/(?:new|history|resume))?$/.test(pathname)) return true;
+  if (/^\/api\/harness\/(?:auth|harnesses|models(?:\/(?:custom|enabled))?|default|verify|cursor\/key|opencode\/(?:oauth|operations\/[^/]+\/retry|providers(?:\/[^/]+)?))$/.test(pathname)) return true;
+  if (/^\/api\/sessions\/[^/]+\/pending-input(?:\/[^/]+)?$/.test(pathname)) return true;
+  if (/^\/api\/sessions\/[^/]+\/(?:entities|picker|references|history|new-chat|close-chat)$/.test(pathname)) return true;
+  if (/^\/api\/sessions\/[^/]+\/(?:read|unread|view|pin|unpin|scratchpad|reconcile|archive|continue|retry-setup|retry-setup-script|commit|pr|help-with-error|resolve-conflicts|push|pull-base|pull-upstream|background-tasks|slash-commands|pr-link|restart|merge|auto-merge|prs)$/.test(pathname)) return true;
+  if (/^\/api\/sessions\/[^/]+\/tasks\/[^/]+\/stop$/.test(pathname)) return true;
+  if (/^\/api\/workspaces\/[^/]+\/(?:base-status|branches|pull-base|github\/prs(?:\/[^/]+)?)$/.test(pathname)) return true;
+  if (/^\/api\/executions\/[^/]+\/retry-setup-script$/.test(pathname)) return true;
+  if (/^\/api\/workspaces\/[^/]+\/(?:previews|preview\/restore-set)$/.test(pathname)) return true;
+  if (/^\/api\/executions\/[^/]+\/(?:preview-urls|preview\/(?:status|start|stop|logs|pin))$/.test(pathname)) return true;
   return MEMBER_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 

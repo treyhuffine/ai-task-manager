@@ -4,22 +4,26 @@ import {
 	modelsForProvider,
 	type ProviderId
 } from '@/lib/harness/options';
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import { rpcQuery } from '@/lib/trpc/request-options';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
 
 export function useHarnessModels(
   providerId: ProviderId | null | undefined,
   options: { catalog?: boolean } = {},
 ) {
+  const scope = useExecutionRuntimeScope();
+  const { personalControls } = scope;
   const queryClient = useQueryClient();
-  const key = ['agent-models', providerId ?? 'none', options.catalog ? 'catalog' : 'enabled'] as const;
+  const key = useMemo(() => trpc.harness.modelsGet.queryKey({ query: { provider: providerId ?? undefined, ...(options.catalog ? { scope: 'catalog' } : {}) } }), [providerId, options.catalog]);
   const query = useQuery({
     queryKey: key,
     queryFn: () => trpcClient.harness.modelsGet.query({query: rpcQuery({ provider: providerId, ...(options.catalog ? { scope: 'catalog' } : {}) })}),
     enabled: providerId != null,
     staleTime: 15 * 60 * 1000,
+    refetchInterval: false,
   });
   const refresh = useCallback(async () => {
     if (!providerId) return null;
@@ -35,7 +39,7 @@ export function useHarnessModels(
   return {
     ...query,
     refresh,
-    models: query.data?.models ?? (!options.catalog && providerId ? modelsForProvider(providerId) : []),
+    models: query.data?.models ?? (personalControls && !options.catalog && providerId ? modelsForProvider(providerId) : []),
     source: query.data?.source ?? 'config',
   };
 }

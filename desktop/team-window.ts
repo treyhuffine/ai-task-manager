@@ -3,13 +3,14 @@
  *
  * Each team gets a cookie and storage partition of its own, so its member
  * session, caches and drafts never mix with the personal Ri or another team.
- * Its pages get no preload and no bridge: a team's member or owner never
+ * Its navigation-only preload exposes no bridge: a team's member or owner never
  * reaches this computer's native capabilities, local service or worker,
  * even when the team is hosted here. Navigation stays on the team's origin,
  * other links open in the browser, and a team hosted here is trusted only by
  * its own pinned certificate.
  */
 
+import path from 'node:path';
 import { BrowserWindow, dialog, session, shell } from 'electron';
 import { PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
 import { signInDesktopSession } from './session-auth';
@@ -68,7 +69,7 @@ export function teamWindows(options: TeamWindowOptions) {
         ...(options.icon ? { icon: options.icon } : {}),
         // A standard title bar: a team page has no desktop chrome to make
         // room for inset window controls, and the title names the space.
-        webPreferences: { session: ses, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false },
+        webPreferences: { preload: path.join(__dirname, 'team-navigation.cjs'), session: ses, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false },
       });
       windows.set(team.id, win);
       win.on('closed', () => windows.delete(team.id));

@@ -1,3 +1,5 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
+
 import { getAppRoot } from '@/lib/config/paths';
 import { ensureHarnessSettings, upsertHarnessSettings } from '@/lib/db/queries';
 import { getHarnessModels, withBundledFallback } from '@/lib/harness/model-discovery';
@@ -10,11 +12,14 @@ import { z as rpcZ } from 'zod/v4';
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(request.headers, 'read');
+  if (homeDenied) return homeDenied;
   const url = new URL(request.url);
   const provider = url.searchParams.get('provider');
   if (!isHarnessId(provider)) {
     return reply({ error: `unknown provider: ${provider ?? ''}` }, { status: 400 });
   }
+
 
   const refresh = url.searchParams.get('refresh') === 'true';
   const cwd = url.searchParams.get('cwd') || getAppRoot();

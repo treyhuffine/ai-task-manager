@@ -1,7 +1,7 @@
 'use client';
 
 import { Link2, SquareCheckBig, StickyNote, Unlink } from 'lucide-react';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation } from '@/contexts/work-context';
 import { useBacklinks, type LinkEntityType } from '@/hooks/use-backlinks';
 
 /**
@@ -18,7 +18,7 @@ export function LinkedReferences({
   entityType: LinkEntityType;
   entityId: string;
 }) {
-  const { openTask, openNote } = useDashboard();
+  const { openTask, openNote } = useWorkNavigation();
   const { data, isError } = useBacklinks(entityType, entityId);
 
   // Surface a load failure distinctly rather than letting it read as "no

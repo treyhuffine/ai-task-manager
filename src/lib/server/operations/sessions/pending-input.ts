@@ -1,3 +1,5 @@
+import { executionCatalogFilter } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
 import { listSessionsWithPending } from '@/lib/executor/live-state';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -13,7 +15,8 @@ import { z as rpcZ } from 'zod/v4';
 
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   try {
-    return reply({ sessionIds: listSessionsWithPending() });
+    const permitted = executionCatalogFilter(getRequestKey(_request.headers));
+    return reply({ sessionIds: listSessionsWithPending().filter(id => permitted({ id })) });
   } catch (err) {
     console.error('[GET /api/sessions/pending-input]', err);
     return reply({ error: String(err) }, { status: 500 });

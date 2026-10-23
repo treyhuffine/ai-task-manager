@@ -1,4 +1,4 @@
-import { coordinationDeliveryExample, approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS, SENDER_CHAT_ID } from './fixtures';
+import { coordinationDeliveryExample, SENDER_CHAT_ID, GALLERY_FORM_SCHEMA, approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS } from './fixtures';
 import type { ChatEventRecord, EmailDraft, WorkResultDecisionRecord } from '@/db/types';
 import type { ChatUiExampleId } from './catalog';
 
@@ -16,10 +16,13 @@ export class GalleryRuntime {
   private listeners = new Set<() => void>();
   private decisions: WorkResultDecisionRecord[] = [];
   private versionRows = VERSIONS;
+  private formStatus: 'open' | 'accepted' | 'declined' | 'expired' = 'open';
+  private formAgain: Record<string, unknown> | null = null;
   constructor(readonly example: ChatUiExampleId, readonly state: string, readonly resource?: unknown) {
     this.coordination = coordinationDeliveryExample(state);
     this.held = state === 'held';
     this.email = emailDraft(state);
+    if (example === 'server-form' && ['accepted', 'declined', 'expired'].includes(state)) this.formStatus = state as typeof this.formStatus;
     this.pending = pendingInput(example, state);
     if (example === 'approvals') {
       this.events = approvals(state);
@@ -39,7 +42,7 @@ export class GalleryRuntime {
     for (const listener of this.listeners) listener();
   }
   private recordDecision(disposition: WorkResultDecisionRecord['disposition'], note?: string) {
-    this.decisions.unshift({ id: `decision-${this.decisions.length}`, createdAt: NOW, updatedAt: NOW, resultId: RECORD_ID, requestHash: 'gallery', userId: 'local', disposition, actorSource: 'human', actorUserId: 'local', actorSessionId: null, note: note ?? null, context: null, attachments: [], feedbackSessionId: CHAT_ID, feedbackMessageId: null });
+    this.decisions.unshift({ id: `decision-${this.decisions.length}`, createdAt: NOW, updatedAt: NOW, resultId: RECORD_ID, requestHash: 'gallery', userId: 'local', disposition, actorSource: 'human', actorUserId: 'local', actorMemberId: null, actorSessionId: null, note: note ?? null, context: null, attachments: [], feedbackSessionId: CHAT_ID, feedbackMessageId: null });
   }
   async invoke(path: string, value: unknown): Promise<unknown> {
     const input = (value ?? {}) as Record<string, unknown>;
@@ -74,6 +77,7 @@ export class GalleryRuntime {
     if (path === 'sessions.prGet') return { pr: null };
     if (path === 'sessions.fileGet' && (input.query as { path?: string })?.path === 'review-plan.html') return { path: 'review-plan.html', content: HTML_DOCUMENT, encoding: 'utf8', mime: 'text/html', size: HTML_DOCUMENT.length, isBinary: false, tooLarge: false };
     if (path === 'sessions.pendingInputGet') return this.pending;
+    if (path === 'sessions.runtimeStatusGet') return { running: this.pending.length > 0, backgroundTasks: false, backgroundTaskIds: [], canStop: true, activeTurnId: null };
     if (path === 'sessions.pendingInputRequestIdPost') {
       this.pending = [];
       this.changed(body.answers ? `Example answer: ${Object.values(body.answers as object).join(' · ')}` : body.allow ? 'Example permission allowed' : 'Example permission declined');
@@ -85,7 +89,7 @@ export class GalleryRuntime {
       const label = id === SENDER_CHAT_ID
         ? this.state === 'long' ? 'Finish bounded full-date GEX runner and dated RUT input verification before the production handoff' : 'Prepare the runner handoff'
         : 'Review date handling';
-      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: this.example === 'chat-messages' ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
+      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: ['chat-messages', 'html'].includes(this.example) ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
     }
     if (path === 'workspaces.get') return { id: RECORD_ID, name: 'Research', status: 'active' };
     if (path === 'userState.list') return { orchestratorName: 'Ri', defaultHarness:'claude', defaultModel:'example-claude', defaultEffort:'medium' };
@@ -130,6 +134,25 @@ export class GalleryRuntime {
       this.recordDecision(input.disposition as WorkResultDecisionRecord['disposition'], input.note as string | undefined);
       this.changed(input.disposition === 'changes_requested' ? 'Example feedback saved' : `Example handoff ${input.disposition}`);
       return { review: this.decisions[0], result: HANDOFF, idempotentReplay: false };
+    }
+    if (path === 'connectedApps.forms.forView') return [];
+    if (path === 'connectedApps.forms.get') return { id: DRAFT_ID, app: 'Review Board', serverId: 'gallery-review',
+      message: this.formAgain ? 'Enter a project name.' : 'Review the Friday release plan.', again: this.formAgain, schema: GALLERY_FORM_SCHEMA,
+      status: this.formStatus, expiresAt: Date.now() + 30 * 60_000, place: 'chat', chatId: CHAT_ID, viewId: null, local: false, folders: [] };
+    if (path === 'connectedApps.forms.answer') {
+      const answer = input.answer as { action: 'accept' | 'decline'; content?: Record<string, unknown> };
+      if (this.formStatus !== 'open') return { status: this.formStatus, errors: {} };
+      // This example's service requires a project name. Live services own their validation.
+      if (answer.action === 'accept' && !String(answer.content?.project ?? '').trim()) {
+        // Production forms receive the service's new message and retained
+        // values on the next read. An unused errors return cannot render it.
+        this.formAgain = answer.content ?? {};
+        return { status: this.formStatus, errors: { project: 'Enter a project name.' } };
+      }
+      this.formAgain = null;
+      this.formStatus = answer.action === 'accept' ? 'accepted' : 'declined';
+      this.changed(answer.action === 'accept' ? 'Example form answered. No service received it' : 'Example form declined');
+      return { status: this.formStatus, errors: {} };
     }
     if (path === 'connectedApps.open') {
       if (this.state === 'expired') throw new Error('This example view expired. Open the app again, or ask for a new result.');

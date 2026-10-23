@@ -58,7 +58,11 @@ it.each(['personal', 'team'])('upgrades a populated %s Home after production 001
     initDatabase(db, SOURCE);
     expect(runMigrations(db, SOURCE)).toEqual({ applied: 0 });
 
-    for (const table of preservedTables) expect(rows(db, table)).toEqual(before[table].map(row => ({ ...row, ...(['workspaces','executions','chat_sessions'].includes(table) ? {agent_coordination_policy:null} : {}), ...(table === 'chat_sessions' ? {coordination_held_at:null,service_tier:null} : {}) })));
+    for (const table of preservedTables) expect(rows(db, table)).toEqual(before[table].map(row => ({
+      ...row,
+      ...(['workspaces', 'executions', 'chat_sessions'].includes(table) ? { created_by_member_id: null, agent_coordination_policy: null } : {}),
+      ...(table === 'chat_sessions' ? { service_tier: null, coordination_held_at: null } : {}),
+    })));
     expect(rows(db, 'notes')).toEqual(notes.map(row => ({ ...row, kind: null })));
     expect(rows(db, 'chat_events')).toEqual(events.map(row => ({ ...row, author_member_id: null })));
     expect(rows(db, '__drizzle_migrations').slice(0, history.length)).toEqual(history);

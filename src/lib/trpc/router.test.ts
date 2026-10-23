@@ -1,3 +1,4 @@
+import { API_PROTOCOL } from '@/lib/releases/api-contract';
 import { GET, POST } from '@/app/api/trpc/[trpc]/route';
 import { ApiClient, apiErrorCode, apiErrorDetails, apiErrorText } from '@/lib/api/client';
 import { apiErrorStatus } from '@/lib/api/error-status';
@@ -104,7 +105,7 @@ describe('typed UI API over the authenticated HTTP adapter', () => {
     expect(await client.areas.update.mutate({ id: area.id, patch: { description: 'Updated' } })).toMatchObject({ description: 'Updated' });
     for (const req of requests) {
       expect(req.headers.get('authorization')).toMatch(/^Bearer /);
-      expect(req.headers.get('x-ri-api-protocol')).toBe('1');
+      expect(req.headers.get('x-ri-api-protocol')).toBe(String(API_PROTOCOL));
     }
   });
 

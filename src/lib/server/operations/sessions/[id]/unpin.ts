@@ -1,4 +1,6 @@
-import { setSessionPinned } from '@/lib/db/queries';
+import { pinConversation } from '@/lib/sessions/view-state';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 
@@ -7,15 +9,17 @@ import { z as rpcZ } from 'zod/v4';
  * rail's "Pinned" group. Symmetric inverse of /pin. Idempotent: unpinning an
  * already-unpinned execution is a no-op that still returns the row.
  */
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
-    const row = setSessionPinned(id, false);
+    const row = pinConversation(getRequestKey(request.headers), id, false);
     if (!row) {
       return reply({ error: 'Session not found or not pinnable' }, { status: 404 });
     }
     return reply(row);
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/unpin]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

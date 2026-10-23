@@ -1,4 +1,5 @@
 'use client';
+import { usePersonalServices } from '@/components/home/use-personal-services';
 import { trpcClient } from '@/lib/trpc/client';
 
 import { Switch } from '@/components/ui/switch';
@@ -113,20 +114,27 @@ function ModelCard({
  * (with live provider availability probing). Persists to
  * `user_state.voiceAutoSend` / `voiceModel`.
  */
-export function VoiceSection() {
+export function VoiceSection({ manageHost = true }: { manageHost?: boolean } = {}) {
+  const serverSpeech = usePersonalServices();
   const { data: userState } = useUserState();
   const update = useUpdateUserState();
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
   const [activeTab, setActiveTab] = useState<ProviderTab>('all');
   const [modelPickerOpen, setModelPickerOpen] = useState(true);
 
-  const selectedModelId = userState?.voiceModel ?? DEFAULT_VOICE_MODEL;
+  const selectedModelId = serverSpeech ? userState?.voiceModel ?? DEFAULT_VOICE_MODEL : 'web/speech-recognition';
   const selectedModel = VOICE_MODEL_MAP.get(selectedModelId);
   const autoSend = userState?.voiceAutoSend ?? true;
 
   useEffect(() => {
     let cancelled = false;
-    const probe = () => { void trpcClient.transcribe.status.query({})
+    const probe = () => {
+      if (!serverSpeech) {
+        const web = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+        setProviderStatus({ local: { available: false, configured: false }, groq: { available: false, configured: false }, web: { available: web, configured: web } });
+        return;
+      }
+      void trpcClient.transcribe.status.query({})
       .then((data) => {
         if (!cancelled) setProviderStatus({ ...data.providers, web: { available: !!(window.SpeechRecognition || window.webkitSpeechRecognition), configured: !!(window.SpeechRecognition || window.webkitSpeechRecognition) } });
       })
@@ -137,7 +145,7 @@ export function VoiceSection() {
       cancelled = true;
       window.removeEventListener('ri:voice-providers-changed', probe);
     };
-  }, []);
+  }, [serverSpeech]);
 
   const handleSelectModel = useCallback(
     (modelId: string) => {
@@ -148,6 +156,7 @@ export function VoiceSection() {
   );
 
   const filteredModels = VOICE_MODELS.filter((m) => {
+    if (!serverSpeech) return m.provider === 'web';
     if (activeTab === 'all') return true;
     if (activeTab === 'cloud') return m.provider === 'groq';
     return m.provider === activeTab;
@@ -155,7 +164,8 @@ export function VoiceSection() {
 
   return (
     <div className="space-y-4">
-      <ManagedSpeechSettings />
+      {manageHost && serverSpeech && <ManagedSpeechSettings />}
+      {!serverSpeech && <p className="text-sm text-muted-foreground">Team voice uses speech recognition in your browser. Audio is handled by the speech service in your browser.</p>}
       <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-background p-3">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
@@ -198,12 +208,12 @@ export function VoiceSection() {
       {modelPickerOpen && (
         <div className="space-y-3">
           <div className="flex gap-1">
-            {PROVIDER_TABS.map((tab) => (
+            {(serverSpeech ? PROVIDER_TABS : ['web'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-all ${
-                  activeTab === tab
+                  (!serverSpeech || activeTab === tab)
                     ? 'border-primary bg-primary/5 text-primary'
                     : 'border-border text-muted-foreground hover:text-foreground'
                 }`}

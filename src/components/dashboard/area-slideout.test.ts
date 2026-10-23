@@ -36,6 +36,7 @@ beforeEach(async () => {
   vi.useFakeTimers();
   const { window, document } = parseHTML('<!doctype html><html><body></body></html>');
   const stored = new Map<string, string>();
+  Object.assign(window, { location: new URL('http://127.0.0.1/') });
   Object.assign(window, { localStorage: {
     getItem: (key: string) => stored.get(key) ?? null,
     setItem: (key: string, value: string) => stored.set(key, value),

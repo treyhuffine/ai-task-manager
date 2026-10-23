@@ -122,7 +122,7 @@ function JumpItem({ item, dismiss, restore }: ItemProps) {
  * installs them, so this is usually where someone learns they're on and how
  * to take them off. An uninstall reads as skipped (`useSetupChecklist`),
  * with Install to bring them back. Only a name taken by another skill needs
- * External AI, which says where.
+ * MCP access, which says where.
  */
 function AgentSkillItem({ item, dismiss, restore }: ItemProps) {
   const skill = useAgentSkillAccess();
@@ -140,7 +140,7 @@ function AgentSkillItem({ item, dismiss, restore }: ItemProps) {
   }
   if (skill.state === 'declined') {
     return (
-      <Row item={item} note="Install it here or in External AI any time.">
+      <Row item={item} note="Install it here or in MCP access any time.">
         <button type="button" onClick={skill.install} disabled={skill.busy} className={quietClass}>
           {spinner}
           Install
@@ -164,7 +164,7 @@ function AgentSkillItem({ item, dismiss, restore }: ItemProps) {
   );
   if (skill.state === 'blocked') {
     return (
-      <Row item={item} note="Another skill already uses the same name. External AI shows where.">
+      <Row item={item} note="Another skill already uses the same name. MCP access shows where.">
         <div className="flex shrink-0 items-center gap-1">
           <SetUpButton item={item} />
           {skip}

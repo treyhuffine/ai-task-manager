@@ -1,7 +1,7 @@
 'use client';
 
 import { use } from 'react';
-import Link from 'next/link';
+import { HomeLink as Link } from '@/components/home/home-link';
 import { ArrowLeft } from 'lucide-react';
 import { ResultRenderer } from '@/components/chat-ui/handoffs/result-renderer';
 

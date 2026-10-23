@@ -37,6 +37,8 @@ import { MCP_FORM_RESPONSE_EVENT } from '@/lib/mcp-apps/form-events';
 import { decodeChatMessageReceipt } from '@/lib/sessions/chat-message';
 
 export type ChatEventDTO = Serialize<Omit<ChatEventRecord, 'raw'> & {
+  /** Retained Team history keeps insertion order, independent of provider clock skew. */
+  insertionCursor?: number;
   /** Provider payload, present only when it is actually decodable. */
   raw: ChatEventRecord['raw'] | null;
   /** `raw.subtype`, lifted so the transcript never needs the full object. */
@@ -89,4 +91,10 @@ export function toChatEventDTOs(rows: readonly ChatEventRecord[]): ChatEventDTO[
  */
 export function isNewerRevision(incoming: Pick<ChatEventDTO, 'partRevision'>, cached: Pick<ChatEventDTO, 'partRevision'>): boolean {
   return incoming.partRevision != null && (cached.partRevision == null || incoming.partRevision > cached.partRevision);
+}
+
+/** Snapshot, pagination and live frames use one transcript ordering rule. */
+export function compareTranscriptEvents(a: ChatEventDTO, b: ChatEventDTO): number {
+  if (a.insertionCursor != null || b.insertionCursor != null) return (a.insertionCursor ?? Infinity) - (b.insertionCursor ?? Infinity);
+  return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }

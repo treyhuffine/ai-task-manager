@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import * as q from '@/lib/db/queries';
+import { createSkillAt } from './library';
 import {
   archiveSkill,
   commitSkill,
@@ -93,12 +94,14 @@ describe('newSkill', () => {
   });
 
   it('never hands back a blank skill that is installed', async () => {
-    await newSkill({ name: 'new-skill', location: RI });
+    // An existing invalid installed file stays readable, but cannot be a new install.
+    createSkillAt(path.join(home.root, 'skills/new-skill'));
     expect((await newSkill({})).ref).toBe('draft:new-skill');
+    await expect(newSkill({ name: 'invalid-install', location: RI })).rejects.toThrow(/Write a draft/);
   });
 
   it('can go global or in a project, linked for every harness', async () => {
-    const global = await newSkill({ name: 'mine', location: { kind: 'global' } });
+    const global = await newSkill({ name: 'mine', description: 'Use my personal skill.', location: { kind: 'global' } });
     expect(global.dir).toBe(path.join(userHome, '.claude', 'skills', 'mine'));
     expect(fs.readlinkSync(path.join(userHome, '.agents', 'skills', 'mine'))).toBe(global.dir);
     const project = await newSkill({ name: 'deploy', description: 'Deploys.', location: { kind: 'project', workspaceId: wsId } });
@@ -149,7 +152,7 @@ describe('saveSkill', () => {
   });
 
   it('moves the .agents/skills link with a rename in a project', async () => {
-    await newSkill({ name: 'deploy', location: { kind: 'project', workspaceId: wsId } });
+    await newSkill({ name: 'deploy', description: 'Deploy the project.', location: { kind: 'project', workspaceId: wsId } });
     await saveSkill(`project:${wsId}:deploy`, { newName: 'ship' });
     expect(fs.readlinkSync(path.join(repo, '.agents', 'skills', 'ship'))).toBe(path.join('..', '..', '.claude', 'skills', 'ship'));
     expect(fs.existsSync(path.join(repo, '.agents', 'skills', 'deploy'))).toBe(false);

@@ -13,7 +13,7 @@ describe('central chat UI catalog', () => {
       expect(new Set(example.states.map(state => state.id)).size).toBe(example.states.length);
       for (const source of example.sources) {
         expect(existsSync(path.resolve(source)), source).toBe(true);
-        if (example.origin === 'ri' && source.startsWith('src/components/')) expect(source).toMatch(/^src\/components\/chat-ui\//);
+        if (example.origin === 'ri' && source.startsWith('src/components/')) expect(source).toMatch(/^src\/components\/(?:chat-ui\/|mcp-apps\/form\/)/);
       }
       expect(example.sources.every(source => !source.includes('onboarding'))).toBe(true);
       expect(`${example.name} ${example.description} ${example.tryThis} ${example.availability}`).not.toMatch(/[—;]/);
@@ -34,6 +34,11 @@ describe('central chat UI catalog', () => {
 });
 
 describe('isolated gallery operations', () => {
+  it('binds the HTML file to an agent so the shared file hook can resolve its authorized scope', async () => {
+    const html = new GalleryRuntime('html', 'interactive');
+    expect(await html.invoke('sessions.get', {})).toMatchObject({ workspaceId: expect.any(String) });
+    expect(await html.invoke('sessions.fileGet', { query: { path: 'review-plan.html' } })).toMatchObject({ content: expect.stringContaining('Record an example decision'), tooLarge: false });
+  });
   it('edits and simulates a send in one example without changing another example', async () => {
     const one = new GalleryRuntime('email', 'draft');
     const two = new GalleryRuntime('email', 'draft');
@@ -54,8 +59,10 @@ describe('isolated gallery operations', () => {
   it('answers questions and approval requests using only fixture state', async () => {
     const question = new GalleryRuntime('questions', 'single');
     expect(question.pending).toHaveLength(1);
+    expect(await question.invoke('sessions.runtimeStatusGet', {})).toMatchObject({ running: true, canStop: true, backgroundTasks: false });
     await question.invoke('sessions.pendingInputRequestIdPost', { body: { answers: { Meeting: 'Video call' } } });
     expect(question.pending).toHaveLength(0);
+    expect(await question.invoke('sessions.runtimeStatusGet', {})).toMatchObject({ running: false, canStop: true });
     expect(question.logs).toContain('Example answer: Video call');
     const approval = new GalleryRuntime('approvals', 'pending');
     await approval.invoke('integrations.approvePost', { body: { ids: ['gallery-approval'], decision: 'approve' } });
@@ -84,3 +91,17 @@ describe('isolated gallery operations', () => {
   });
 });
 
+
+it('validates, settles and keeps a service form separate from another example', async () => {
+  const form = new GalleryRuntime('server-form', 'open');
+  const other = new GalleryRuntime('server-form', 'open');
+  expect(await form.invoke('connectedApps.forms.forView', {})).toEqual([]);
+  expect(await form.invoke('connectedApps.forms.answer', { answer: { action: 'accept', content: {} } })).toMatchObject({ status: 'open', errors: { project: expect.any(String) } });
+  expect(form.logs).toEqual([]);
+  expect(await form.invoke('connectedApps.forms.get', {})).toMatchObject({ status: 'open', again: {}, message: 'Enter a project name.' });
+  expect(await form.invoke('connectedApps.forms.answer', { answer: { action: 'accept', content: { project: 'Friday release', priority: 'normal', ready: true } } })).toEqual({ status: 'accepted', errors: {} });
+  expect(await form.invoke('connectedApps.forms.answer', { answer: { action: 'decline' } })).toEqual({ status: 'accepted', errors: {} });
+  expect(await other.invoke('connectedApps.forms.get', {})).toMatchObject({ status: 'open' });
+  const expired = new GalleryRuntime('server-form', 'expired');
+  expect(await expired.invoke('connectedApps.forms.answer', { answer: { action: 'accept', content: {} } })).toEqual({ status: 'expired', errors: {} });
+});

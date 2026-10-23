@@ -1,3 +1,4 @@
+vi.mock('@/lib/home/settings-authority', () => ({ homeSettingsAdmission: () => null }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -28,6 +29,7 @@ function settings(harness: 'claude' | 'codex' | 'cursor' | 'opencode', patch: Re
     defaultModel: null,
     defaultVariant: null,
     defaultEffort: null,
+    defaultServiceTier: null,
     isActive: false,
     catalogRefreshedAt: null,
     createdAt: '2026-07-13T00:00:00.000Z',
@@ -56,6 +58,7 @@ beforeEach(() => {
       defaultModel: selection.model,
       defaultVariant: selection.variant,
       defaultEffort: selection.effort,
+      defaultServiceTier: selection.serviceTier,
     })
   ));
 });
@@ -128,6 +131,7 @@ describe('PUT /api/harness/models/enabled', () => {
       model: 'old-model',
       variant: null,
       effort: 'high',
+      serviceTier: null,
     });
   });
 

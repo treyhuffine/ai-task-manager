@@ -1,3 +1,4 @@
+import { historyMenuItems } from './history-menu';
 import { app, BrowserWindow, dialog, type BaseWindow, ipcMain, Menu, nativeImage, Notification, session, shell, screen, clipboard, globalShortcut } from 'electron';
 import { fork, execFile, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
@@ -1115,6 +1116,7 @@ async function start() {
   });
   await localSurface.show({ id: 'loading', html: startingPage(randomUUID().replaceAll('-', ''), localStyleOptions()) });
   teams = teamFlow({
+    personalRoot: () => identity.root,
     teamsPath,
     stateDir: desktopState,
     setup: (request, options) => connectionRequest(request as ConnectionSetupRequest, options),
@@ -1151,7 +1153,7 @@ async function start() {
       next: focused => { const win = findWindow(focused); if (win) void findBars.step(win, true); },
       previous: focused => { const win = findWindow(focused); if (win) void findBars.step(win, false); },
     }),
-    { role: 'viewMenu' },
+    { label: 'View', submenu: [...historyMenuItems(), { type: 'separator' }, { role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
     { label: 'Window', role: 'windowMenu', submenu: [
       { role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, commands.show,
       // Teams open in windows of their own (desktop/team-window.ts).

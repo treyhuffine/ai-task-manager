@@ -1,4 +1,6 @@
-"use client";
+'use client';
+
+import { useRailCollapse } from '@/hooks/use-rail-collapse';
 
 import { createContext, useContext, useState, useCallback, useMemo, useRef, type ReactNode, useEffect } from 'react';
 import { useSearchParams, usePathname } from 'next/navigation';
@@ -19,6 +21,8 @@ import {
   mobileTabForView,
 } from '@/lib/client/active-view';
 import type { AgentTab } from '@/types/dashboard';
+import { useClientTheme } from '@/lib/client/theme';
+import { WorkContext } from '@/contexts/work-context';
 
 interface FocusTask {
   title: string;
@@ -208,7 +212,7 @@ const NO_FILES_IN_FRONT: Readonly<Record<PanelId, boolean>> = { a: false, b: fal
 const DEFAULT_PANEL_B_TAB: AnyPanelTab = DEFAULT_HOME_PANELS.b;
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
+  const { theme, setTheme, toggleTheme } = useClientTheme();
   // ─── Active view (URL-canonical, local-mirror for snappy swaps) ──
   // Which primary surface fills the main area: Home (the deck and chat
   // panels), an agent's view, or an execution (see `ActiveView`).
@@ -339,28 +343,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // ─── Rail collapsed mode ────────────────────────────────
   // SSR-safe: start expanded, then hydrate from localStorage so the
   // first client paint matches the persisted choice.
-  const [railCollapsed, setRailCollapsedState] = useState(false);
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem('ri.rail.collapsed');
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile URL or device-local storage after hydration without changing the server render.
-    if (stored === '1') setRailCollapsedState(true);
-  }, []);
-  const setRailCollapsed = useCallback((next: boolean) => {
-    setRailCollapsedState(next);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('ri.rail.collapsed', next ? '1' : '0');
-    }
-  }, []);
-  const toggleRailCollapsed = useCallback(() => {
-    setRailCollapsedState((prev) => {
-      const next = !prev;
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('ri.rail.collapsed', next ? '1' : '0');
-      }
-      return next;
-    });
-  }, []);
+  const { collapsed: railCollapsed, set: setRailCollapsed, toggle: toggleRailCollapsed } = useRailCollapse();
 
   // ─── Last viewed execution id ───────────────────────────
   // Recorded on every setActiveView(sessionId) so ⌘E from the
@@ -448,15 +431,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const openTaskId = topSlideout?.type === 'task' ? topSlideout.id : null;
   const openAreaId = topSlideout?.type === 'area' ? topSlideout.id : null;
   const areasListOpen = topSlideout?.type === 'areas-list';
-
-  // Sync dark class to <html> so Radix portals (Sheet, Dialog, etc.) inherit it
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-  }, [theme]);
-
-  const toggleTheme = useCallback(() => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-  }, []);
 
   const enterFocusMode = useCallback((task: FocusTask) => {
     setFocusTask(task);
@@ -566,6 +540,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [setActiveView],
   );
   const goHome = useCallback(() => setActiveView(HOME_VIEW), [setActiveView]);
+  const workNavigation = useMemo(() => ({ openExecution, openLinkedChat: (id: string, eventId?: string) => setActiveView(executionView(id, eventId, true)), openAgent, openTask, openNote, goHome }), [openExecution, setActiveView, openAgent, openTask, openNote, goHome]);
+  const workActivity = useMemo(() => ({ activeSessionId, activeExecutionId, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds, setActiveExecutionId, setSessionStreaming }), [activeSessionId, activeExecutionId, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds, setActiveExecutionId, setSessionStreaming]);
 
   return (
     <DashboardContext.Provider value={{
@@ -647,7 +623,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setExecutionRailOpen,
       lastExecutionId,
     }}>
-      {children}
+      <WorkContext navigation={workNavigation} activity={workActivity}>{children}</WorkContext>
     </DashboardContext.Provider>
   );
 }

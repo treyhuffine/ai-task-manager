@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { processIdentity, type ProcessIdentity } from '@/lib/worker/leftovers';
 import {
   _resetHarnessProcessState,
@@ -19,6 +19,7 @@ import {
   signalOwnHarnesses,
   stopOrphanedHarnesses,
   stopStrayHarness,
+  stopTrackedHarness,
 } from './harness-processes';
 
 let dir: string;
@@ -119,7 +120,7 @@ describe('at startup', () => {
       { chatSessionId: 'orphaned', owner: await goneOwner(), process: leftover.identity },
       { chatSessionId: 'elsewhere', owner: liveOwner.identity, process: otherServers.identity },
       // The pid is running, but not as the process recorded: a reused pid.
-      { chatSessionId: 'reused', owner: await goneOwner(), process: { ...reused.identity, started: 'Thu Jan  1 00:00:00 2026' } },
+      { chatSessionId: 'reused', owner: await goneOwner(), process: { ...reused.identity, started: 'Thu Jan  1 00:00:00 2026', ...(reused.identity.birthId ? { birthId: 'different-process-birth' } : {}) } },
     ]);
 
     const stopped = await stopOrphanedHarnesses(file, 2_000);
@@ -192,7 +193,18 @@ describe("before a chat's session starts", () => {
 });
 
 describe('at exit', () => {
-  it("signals this process's own harnesses, and not another owner's or a reused pid", async () => {
+  it('escalates a timed-out close only for the exact process recorded by this runner', async () => {
+    const mine = await sleeper();
+    const unrelated = await sleeper();
+    write([{ chatSessionId: 'closing-chat', owner: await self(), process: mine.identity }]);
+    expect(await stopTrackedHarness('closing-chat', unrelated.child.pid!, file)).toBe(false);
+    expect(alive(unrelated.child.pid!)).toBe(true);
+    expect(await stopTrackedHarness('closing-chat', mine.child.pid!, file)).toBe(true);
+    await exitOf(mine.child);
+    expect(recorded()).toEqual([]);
+    expect(alive(unrelated.child.pid!)).toBe(true);
+  });
+  it("signals this process's own harnesses, and not another owner's or a different parent", async () => {
     const mine = await sleeper();
     const theirs = await sleeper();
     const reused = await sleeper();
@@ -200,7 +212,7 @@ describe('at exit', () => {
     write([
       { chatSessionId: 'chat-1', owner: me, process: mine.identity },
       { chatSessionId: 'chat-2', owner: await goneOwner(), process: theirs.identity },
-      { chatSessionId: 'chat-3', owner: me, process: { ...reused.identity, command: 'claude --print' } },
+      { chatSessionId: 'chat-3', owner: me, process: { ...reused.identity, ppid: 999_999, ...(reused.identity.birthId ? { birthId: 'different-process-birth' } : {}) } },
     ]);
 
     expect(signalOwnHarnesses(me, file)).toEqual([mine.child.pid]);
@@ -210,3 +222,44 @@ describe('at exit', () => {
     expect(alive(reused.child.pid!)).toBe(true);
   });
 });
+
+
+it('fails closed on an unreadable record and recovers its write queue after repair', async () => {
+  const { child } = await sleeper();
+  fs.writeFileSync(file, '{"entries": [');
+  await expect(recordHarnessProcess('after-repair', child.pid!, file)).rejects.toThrow();
+  expect(alive(child.pid!)).toBe(true);
+  fs.writeFileSync(file, JSON.stringify({ entries: [] }));
+  await recordHarnessProcess('after-repair', child.pid!, file);
+  expect(recorded()).toMatchObject([{ chatSessionId: 'after-repair', process: { pid: child.pid } }]);
+  expect(await stopTrackedHarness('after-repair', child.pid!, file)).toBe(true);
+});
+it('never interprets a failed process inspection as exit or removes its record', async () => {
+  const { child } = await sleeper(); await recordHarnessProcess('inspect-failure', child.pid!, file);
+  const empty = path.join(dir, 'empty-path'); fs.mkdirSync(empty);
+  vi.stubEnv('PATH', empty);
+  try {
+    await expect(processIdentity(child.pid!)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stopTrackedHarness('inspect-failure', child.pid!, file)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(recorded()).toHaveLength(1); expect(alive(child.pid!)).toBe(true);
+  } finally { vi.unstubAllEnvs(); }
+});
+
+
+it('does not hold the global record write queue while another exact process is stopping', async () => {
+  const marker = path.join(dir, 'term-received');
+  const script = `process.on('SIGTERM', () => require('fs').writeFileSync(${JSON.stringify(marker)}, 'term')); console.log('ready'); setInterval(() => {}, 1000);`;
+  const root = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'ignore'] }); children.push(root);
+  await new Promise<void>(resolve => root.stdout!.once('data', () => resolve()));
+  await recordHarnessProcess('slow-close', root.pid!, file);
+  let stopped = false;
+  const closing = stopTrackedHarness('slow-close', root.pid!, file).then(result => { stopped = true; return result; });
+  for (let i = 0; i < 100 && !fs.existsSync(marker); i++) await new Promise(resolve => setTimeout(resolve, 10));
+  expect(fs.existsSync(marker)).toBe(true);
+  const another = await sleeper();
+  await recordHarnessProcess('independent', another.child.pid!, file);
+  expect(stopped).toBe(false);
+  expect(await closing).toBe(true);
+  expect(alive(another.child.pid!)).toBe(true);
+  expect(recorded()).toMatchObject([{ chatSessionId: 'independent' }]);
+}, 15_000);

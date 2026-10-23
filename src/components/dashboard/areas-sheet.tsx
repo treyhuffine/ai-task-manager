@@ -214,6 +214,7 @@ export function AreasSheet({ open, onOpenChange }: AreasSheetProps) {
 
         {/* Slideout panel */}
         <Dialog.Content
+          data-slot="sheet-content" data-side="right"
           ref={containerRef}
           className={cn(
             'fixed top-0 right-0 bottom-0 z-50 flex transition-transform duration-150 ease-out outline-none',

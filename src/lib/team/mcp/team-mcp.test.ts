@@ -136,7 +136,7 @@ describe('what an AI client can see', () => {
 describe('the team\'s shared chats', () => {
   it('finds a shared chat by what was said in it, and reads it with who said what', async () => {
     const q = await import('@/lib/db/queries');
-    const chat = q.createTeamChat('Release planning');
+    const chat = q.createChatSession({ harness: 'claude', type: 'orchestration', surfaceKind: q.TEAM_CHAT_SURFACE, label: 'Release planning' });
     q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'Should we ship the invoices export on Tuesday?', authorMemberId: owner.id, createdAt: new Date().toISOString() });
     q.insertChatEvent({ sessionId: chat.id, role: 'assistant', source: 'agent', content: 'Tuesday works: support is staffed.', createdAt: new Date().toISOString() });
     const { token } = await connectAi(owner.token);
@@ -219,7 +219,7 @@ describe('what an AI client changes, and as whom', () => {
     const { token } = await connectAi(owner.token);
     const me = await assistant(token);
     const started = await me.call('transition_task', { idempotency_key: key(), id: task.id, command: 'start', expected_status_changed_count: 0 });
-    expect(started.body!.result).toMatchObject({ from_status: 'todo', to_status: 'in_progress' });
+    expect(started.body!.result, JSON.stringify(started.body)).toMatchObject({ from_status: 'todo', to_status: 'in_progress' });
     const stale = await me.call('complete_task', { idempotency_key: key(), id: task.id, expected_status_changed_count: 0 });
     expect(stale.body!.error.code).toBe('conflict');
     const done = await me.call('complete_task', { idempotency_key: key(), id: task.id, expected_status_changed_count: 1 });

@@ -60,7 +60,7 @@ export function connectionResponse(outcome: string) {
 }
 
 export const HANDOFF: WorkResultRecord = {
-  id: RECORD_ID, createdAt: NOW, updatedAt: NOW, userId: 'local', actorSource: 'ai', actorUserId: 'local', actorSessionId: CHAT_ID, sourceChatSessionId: CHAT_ID, sourceExecutionId: null, sourceEventId: null, requestHash: 'gallery', title: 'A clearer Friday review', body: 'The project plan is ready.\n\n- Shortened the agenda to three decisions.\n- Included the open questions from the team.\n- Added a suggested owner for each next step.\n\nPlease review the plan and let me know what you would change.', attention: null, attachments: [], links: [], codeRevision: null, supersedesId: null,
+  id: RECORD_ID, createdAt: NOW, updatedAt: NOW, userId: 'local', actorSource: 'ai', actorUserId: 'local', actorMemberId: null, actorSessionId: CHAT_ID, sourceChatSessionId: CHAT_ID, sourceExecutionId: null, sourceEventId: null, requestHash: 'gallery', title: 'A clearer Friday review', body: 'The project plan is ready.\n\n- Shortened the agenda to three decisions.\n- Included the open questions from the team.\n- Added a suggested owner for each next step.\n\nPlease review the plan and let me know what you would change.', attention: null, attachments: [], links: [], codeRevision: null, supersedesId: null,
 };
 
 export const VERSIONS: EntityVersionRecord[] = [
@@ -95,6 +95,14 @@ export function mentionExample(state: string): { message: string; sources: Sourc
   return { sources, message: `${sourceMarker(sources[0].sourceRef)} What’s on my list today?` };
 }
 
+/** A service asks for a small review, through the same schema as a real MCP form. */
+export const GALLERY_FORM_SCHEMA = {
+  type: 'object', properties: {
+    project: { type: 'string', title: 'Project name', minLength: 1, maxLength: 120 },
+    priority: { type: 'string', title: 'Priority', enum: ['normal', 'high'], default: 'normal' },
+    ready: { type: 'boolean', title: 'Ready for review', default: false },
+  }, required: ['project'], additionalProperties: false,
+};
 
 export function coordinationDeliveryExample(state: string): import('@/db/types').AgentDeliveryRecord {
   const content = state === 'long' ? 'Review the complete implementation, including retry behavior and human control.\n'.repeat(80) : 'Review the date boundary handling before we ship.';

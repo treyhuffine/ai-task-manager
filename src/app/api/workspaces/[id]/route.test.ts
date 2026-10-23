@@ -21,6 +21,9 @@ const updateWorkspace = vi.fn();
 vi.mock('@/lib/db/queries', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/db/queries')>();
   return {
+    getHome: vi.fn(() => ({ kind: 'personal' })),
+    isTeamError: actual.isTeamError,
+    isTeamChatError: actual.isTeamChatError,
     WorkspaceFieldError: actual.WorkspaceFieldError,
     validateWorkspaceUpdate: actual.validateWorkspaceUpdate,
     getWorkspace: vi.fn(() => ({ id: 'ws-1' })),

@@ -62,7 +62,7 @@ async function status(promise: Promise<unknown>): Promise<string> {
   } catch (err) {
     const { teamRequestProblem } = await import('./remote');
     const { isTeamError } = await import('@/lib/db/queries');
-    return teamRequestProblem(err)?.problem ?? (isTeamError(err) ? err.code : String(err));
+    return isTeamError(err) ? err.code : teamRequestProblem(err)?.problem ?? String(err);
   }
 }
 

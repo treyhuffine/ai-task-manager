@@ -1,3 +1,4 @@
+import { isTeamBoundaryError } from '@/lib/home/authority';
 import { withCompression } from '@/lib/api/compression';
 import { readLimitedFormData, RequestBodyTooLargeError } from '@/lib/api/limited-body';
 import { operationContext, operationResponse } from '@/lib/server/operation';
@@ -24,6 +25,7 @@ export async function POST(request: NextRequest) {
     const provider = voiceModel.split('/')[0];
     return Response.json({ text, provider });
   } catch (err) {
+    if (isTeamBoundaryError(err)) return Response.json({ error: 'Team voice uses browser speech recognition.', code: err.code }, { status: 403 });
     if (err instanceof RequestBodyTooLargeError) return Response.json({ error: err.message }, { status: 413 });
     console.error('[POST /api/transcribe]', err);
     const message = err instanceof Error ? err.message : String(err);

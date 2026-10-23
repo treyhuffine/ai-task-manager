@@ -1,3 +1,5 @@
+import { actorFromRequest } from '@/lib/auth/actor';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { retryProvisionWorktree } from '@/lib/sessions/dispatch';
 import { z as rpcZ } from 'zod/v4';
@@ -9,15 +11,17 @@ import { z as rpcZ } from 'zod/v4';
  * front so the UI flips out of the failed chip immediately; the column is
  * repopulated if the retry itself fails.
  */
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
-    const session = await retryProvisionWorktree(id);
+    const session = await retryProvisionWorktree(id, actorFromRequest(request.headers));
     if (!session) {
       return reply({ error: 'Session not found' }, { status: 404 });
     }
     return reply(session);
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/retry-setup]', err);
     const name = err instanceof Error ? err.name : 'Error';
     const message = err instanceof Error ? err.message : String(err);

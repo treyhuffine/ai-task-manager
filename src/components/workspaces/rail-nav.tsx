@@ -1,7 +1,8 @@
 'use client';
 
-import type { ComponentProps, ReactNode } from 'react';
-import { Calendar, ChevronRight, Clock, Plus, Search, SquareKanban, type LucideIcon } from 'lucide-react';
+import { RailRows, type RailPlace } from '@/components/home/home-navigation';
+export type { RailPlace } from '@/components/home/home-navigation';
+import { Calendar, Clock, Plus, Search, SquareKanban } from 'lucide-react';
 import { useAppPlaces } from '@/components/local-apps/use-app-places';
 import { usePrefetchDayShape } from '@/hooks/use-day-shape';
 import { useRunsStats } from '@/hooks/use-runs-stats';
@@ -9,12 +10,11 @@ import { openCalendarModal, useCalendarModal } from '@/lib/client/calendar-modal
 import { mondayOf } from '@/lib/calendar/dates';
 import { todayLocalDate } from '@/lib/deck/date';
 import { openBoard, useTaskBoardOpen } from '@/lib/client/task-board';
-import { cn } from '@/lib/utils';
 import { openLauncher } from './launcher/launcher-store';
 import { openChatSearch } from './chat-search-store';
-import { RailCount, RailDot, type RailTone } from './rail-count';
-import { RailIconButton } from './rail-icon-button';
-import { RailFlyout, StripFlyout } from './rail-flyout';
+
+
+
 
 export { RailIconButton } from './rail-icon-button';
 
@@ -36,29 +36,6 @@ export { RailIconButton } from './rail-icon-button';
  * for now. Merging each pair into one is an open question.
  */
 
-export interface RailPlace {
-  id: string;
-  label: string;
-  /** Tooltip in the collapsed strip, where only the icon shows. The wide
-   *  rail's row shows `label` and needs none. */
-  title: string;
-  /** Its glyph: a Lucide icon, or `mark` for something drawn (an app's tile). */
-  icon?: LucideIcon;
-  mark?: ReactNode;
-  /** Under the row above it (an app under Apps). Inset in the wide rail. */
-  depth?: 0 | 1;
-  onClick: () => void;
-  /** The pointer or focus reached it: warm what it opens. */
-  onIntent?: () => void;
-  /** Showing now: its board, calendar or dialog is open. */
-  active: boolean;
-  /** Live count beside the label in the wide rail, a dot on the icon in the strip. */
-  count?: number;
-  /** What the count means: work in flight (blue) or something waiting on you (amber). */
-  tone?: RailTone;
-  /** Resting on the row peeks this beside the rail (Apps), in both rails. A click still goes where `onClick` goes. */
-  flyout?: { label: string; content: ReactNode };
-}
 
 export function useRailPlaces({
   schedulesOpen,
@@ -127,65 +104,6 @@ export const RAIL_VERBS: readonly RailPlace[] = [
   },
 ];
 
-/** One row in the wide rail: a glyph, a label, and what's at its right. Spreads its props so a flyout can drive it. */
-function RailRow({
-  place: { label, icon: Icon, mark, depth, onClick, onIntent, active, count, tone = 'live', flyout },
-  pressed = false,
-  className,
-  ...props
-}: Omit<ComponentProps<'button'>, 'children'> & { place: RailPlace; pressed?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      onPointerEnter={onIntent}
-      onFocus={onIntent}
-      aria-current={active ? 'page' : undefined}
-      {...props}
-      className={cn(
-        'w-full flex items-center gap-2 py-1.5 pr-2 rounded-md text-[12px] font-medium transition-colors',
-        depth === 1 ? 'pl-[22px]' : 'pl-2',
-        'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-        active || pressed ? 'bg-muted/60 text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40',
-        className,
-      )}
-    >
-      {mark ?? (Icon && <Icon size={14} className="flex-shrink-0" />)}
-      <span className="truncate">{label}</span>
-      {count !== undefined && <RailCount count={count} tone={tone} className="ml-auto" />}
-      {flyout && (
-        <ChevronRight
-          size={13}
-          aria-hidden
-          className={cn('flex-shrink-0 text-muted-foreground/50', count === undefined && 'ml-auto')}
-        />
-      )}
-    </button>
-  );
-}
-
-/** Rows for the wide rail: the places, or the verbs. */
-export function RailRows({ places, label }: { places: readonly RailPlace[]; label: string }) {
-  return (
-    <nav aria-label={label} className="flex flex-col gap-0.5 px-2 pt-1 pb-1.5">
-      {places.map((place) =>
-        place.flyout ? (
-          <RailFlyout
-            key={place.id}
-            contentLabel={place.flyout.label}
-            onClick={place.onClick}
-            trigger={({ ref, open }) => <RailRow ref={ref} place={place} pressed={open} onClick={undefined} />}
-          >
-            {place.flyout.content}
-          </RailFlyout>
-        ) : (
-          <RailRow key={place.id} place={place} />
-        ),
-      )}
-    </nav>
-  );
-}
-
 /** The places as rows. */
 export function RailPlaceRows({ places }: { places: readonly RailPlace[] }) {
   return <RailRows places={places} label="Places" />;
@@ -198,44 +116,7 @@ export function RailVerbRows() {
 
 /** The verbs and places as icons, for the collapsed strip, in the wide rail's order. */
 export function RailStripActions({ places }: { places: readonly RailPlace[] }) {
-  return (
-    <>
-      {RAIL_VERBS.map(({ id, title, icon, onClick }) => (
-        <RailIconButton key={id} icon={icon} label={title} onClick={onClick} />
-      ))}
-      <StripDivider />
-      {places.map(({ id, title, icon, mark, onClick, onIntent, active, count, tone = 'live', flyout }) => {
-        const badge = count !== undefined ? <RailDot tone={tone} /> : undefined;
-        return flyout ? (
-          <StripFlyout
-            key={id}
-            icon={icon}
-            mark={mark}
-            label={title}
-            contentLabel={flyout.label}
-            onClick={onClick}
-            onIntent={onIntent}
-            active={active}
-            badge={badge}
-          >
-            {flyout.content}
-          </StripFlyout>
-        ) : (
-          <RailIconButton
-            key={id}
-            icon={icon}
-            mark={mark}
-            label={title}
-            onClick={onClick}
-            onPointerEnter={onIntent}
-            onFocus={onIntent}
-            active={active}
-            badge={badge}
-          />
-        );
-      })}
-    </>
-  );
+  return <><RailRows places={RAIL_VERBS} label="Start" expanded={false}/><StripDivider/><RailRows places={places} label="Places" expanded={false}/></>;
 }
 
 export function StripDivider() {

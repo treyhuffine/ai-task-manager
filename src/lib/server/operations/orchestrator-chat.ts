@@ -5,6 +5,7 @@ import { newMainChatSchema } from '@/lib/server/inputs';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { ensureMainChat, MainChatInUseError, parseChatOverride, startNewMainChat } from '@/lib/sessions/main-chat';
 import { z as rpcZ } from 'zod/v4';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 
 /**
  * The app's main chat: the dashboard's interactive orchestrator chat
@@ -35,8 +36,10 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
   if (actorFromRequest(_req.headers).source === 'ai') return reply({ error: 'Use delegate_work to start an agent-created chat. Replacing a main chat or switching its harness requires the user’s action.' }, { status: 403 });
   const body: unknown = rpcInput.body;
   try {
-    return reply({ session: await startNewMainChat(null, parseChatOverride(body), { forApp: rpcInput.body.forApp === true }) });
+    return reply({ session: await startNewMainChat(null, parseChatOverride(body), { forApp: rpcInput.body.forApp === true, sourceChatId: rpcInput.body.sourceChatId }) });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     if (err instanceof MainChatInUseError) return reply({ error: err.message, code: err.code }, { status: 409 });
     console.error('[POST /api/orchestrator-chat]', err);
     return reply({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });

@@ -1,3 +1,6 @@
+import { recordHomeActivity } from '@/lib/home/activity';
+import { executionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 import { acceptOutputAndCompleteTask, getExecutionTasks, reviewExecutionOutput } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { isTaskLifecycleError, isTerminal, LIFECYCLE_ERROR_HTTP_STATUS, normalizeTaskStatus } from '@/lib/tasks/lifecycle';
@@ -19,6 +22,7 @@ const DISPOSITIONS = new Set(['accepted', 'changes_requested', 'dismissed']);
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const authority = executionAuthority(executionRequestKey(), id, 'editChat');
     const body = rpcInput.body;
 
     if (!DISPOSITIONS.has(body.disposition)) {
@@ -69,7 +73,9 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
         note: typeof body.note === 'string' ? body.note : null,
         idempotencyKey: `accept-and-complete:${outputEventId}:${targetTaskId}`,
         actorSource: 'human',
+        actorMemberId: authority?.member.id,
       });
+      recordHomeActivity(authority, 'accept_and_complete', outputEventId, 'execution_review');
       return reply({ review, task });
     }
 
@@ -83,8 +89,11 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
       actorSource: 'human',
     });
 
+    recordHomeActivity(authority, body.disposition, outputEventId, 'execution_review');
     return reply({ review, task: null });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     if (isTaskLifecycleError(err)) {
       return reply({ error: err.message, code: err.code, details: err.details }, { status: LIFECYCLE_ERROR_HTTP_STATUS[err.code] });
     }

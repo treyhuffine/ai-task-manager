@@ -30,6 +30,9 @@ import { useGlobalSessionStream } from '@/hooks/use-global-session-stream';
 import { cn } from '@/lib/utils';
 import { useViewportTier } from '@/hooks/use-viewport-tier';
 import { useTeamRefresh } from '@/components/spaces/use-team-refresh';
+import { TaskLaunchIntent } from '@/components/tasks/task-launch-intent';
+import { HomeShell } from '@/components/home/home-shell';
+import { HomeBoundary } from '@/components/home/home-context';
 
 function DashboardShell() {
   const {
@@ -124,12 +127,7 @@ function DashboardShell() {
     <div className={cn(
       theme === 'dark' ? 'dark' : '',
     )}>
-      <div className="flex flex-col h-dvh bg-background text-foreground font-sans overflow-hidden antialiased transition-colors duration-300">
-        {/* TopHud — hidden on mobile */}
-        <div className="hidden md:block">
-          <TopHud />
-        </div>
-
+      <HomeShell header={<div className="hidden md:block"><TopHud /></div>}>
         {/* One layout for the viewport (useViewportTier). All three render
             only while the viewport isn't known yet, hidden by CSS. */}
         {/* Mobile layout: <md */}
@@ -190,9 +188,10 @@ function DashboardShell() {
         />
         <SettingsModal />
         <LaunchModal />
+        <TaskLaunchIntent />
         <ChatSearchModal />
         <AuthRecoveryCard />
-      </div>
+      </HomeShell>
     </div>
   );
 }
@@ -202,9 +201,9 @@ export function Dashboard() {
   // useSearchParams (the source of truth for `activeView`).
   return (
     <Suspense fallback={null}>
-      <DashboardProvider>
+      <HomeBoundary><DashboardProvider>
         <DashboardShell />
-      </DashboardProvider>
+      </DashboardProvider></HomeBoundary>
     </Suspense>
   );
 }

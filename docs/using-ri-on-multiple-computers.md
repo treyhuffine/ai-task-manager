@@ -45,9 +45,11 @@ Your personal Ri can connect to team spaces so you can handle personal and share
 
 People who only use a team space can open it in a browser without setting up a personal Home, installing the desktop app or enabling agents.
 
-To use the team's shared AI, switch to the team and open **Settings**, then **Team AI**. The owner clicks **Turn on**. Ri uses the Claude Code subscription already signed in on the computer hosting the team. Everyone's use counts toward that subscription's limits. If it needs a sign-in, run `claude auth login` on that computer, then click **Check sign-in**. Open **Chat** in the team's sidebar to talk with it about shared tasks, notes and decisions.
+To use shared AI, the owner opens the team’s **Settings**, then **AI & Models**, turns AI on and configures a Team agent with a folder on the Team server. Ri uses the ordinary installed harnesses and their existing sign-in flow. Everyone on the team uses that server sign-in and its account limits. Team chats and agent output belong to the team. Any active member can stop work, answer a question, approve a permission prompt or close a chat. Only a signed-in person can answer or approve.
 
-To use separate API billing, the owner can choose **Anthropic API key** under **Authentication**, paste a key and click **Save authentication**. It stays encrypted on the team host. Ri uses only the selected method and never switches billing methods automatically. You can choose **Subscription** again or remove the saved key. Changing authentication or replacing/removing an active key stops current answers and waiting messages. Chat history stays readable.
+Team agents run as the server’s OS user. On a server that also holds personal Ri data, the owner sees a warning about access to its files and signed-in accounts. Personal work stays private through app permissions, while the shared OS account is a trusted boundary. A dedicated server avoids co-hosting personal data. Tasks, notes, Areas and membership work with AI off.
+
+Older chats retain their history and bind to an ordinary Team agent when continued. An old encrypted Anthropic credential is retained as unused until the owner removes it. It does not select billing for ordinary harness sessions.
 
 **Connect your AI** in team Settings is a separate option for giving your own assistant access to shared work. Its member access token authorizes team tools. It does not pay for model usage.
 

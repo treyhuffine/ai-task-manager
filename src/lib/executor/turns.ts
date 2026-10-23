@@ -9,6 +9,7 @@
 interface Waiter {
   resolve: () => void;
   reject: (err: Error) => void;
+  cleanup?: () => void;
 }
 
 const WAITERS_KEY = Symbol.for('@ri/turn-waiters');
@@ -17,9 +18,12 @@ if (!globalRef[WAITERS_KEY]) globalRef[WAITERS_KEY] = new Map();
 const waiters = globalRef[WAITERS_KEY]!;
 
 /** Start waiting on a turn. Register before sending, so an early result can't be missed. */
-export function awaitTurn(turnId: string): Promise<void> {
+export function awaitTurn(turnId: string, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    waiters.set(turnId, { resolve, reject });
+    const abort = () => settleTurn(turnId, 'This turn was stopped.');
+    waiters.set(turnId, { resolve, reject, cleanup: () => signal?.removeEventListener('abort', abort) });
+    if (signal?.aborted) abort();
+    else signal?.addEventListener('abort', abort, { once: true });
   });
 }
 
@@ -28,11 +32,13 @@ export function settleTurn(turnId: string, error: string | null): void {
   const waiter = waiters.get(turnId);
   if (!waiter) return;
   waiters.delete(turnId);
+  waiter.cleanup?.();
   if (error === null) waiter.resolve();
   else waiter.reject(new Error(error));
 }
 
 /** Stop waiting on a turn that was never delivered. */
 export function forgetTurn(turnId: string): void {
+  waiters.get(turnId)?.cleanup?.();
   waiters.delete(turnId);
 }

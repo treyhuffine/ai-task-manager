@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { AppWindow, ExternalLink, ListTodo, Loader2, Moon, Pin, Plus } from 'lucide-react';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation, useWorkActivity } from '@/contexts/work-context';
 import { useAgentExecutions, useAgentPreviews, useAgentTasks } from '@/hooks/use-agent';
 import { useDiffStats } from '@/hooks/use-workspaces';
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
@@ -182,7 +182,8 @@ function Section({
 
 /** One execution: label, diff, harness and last activity. Opens the execution view. */
 function ExecutionRow({ session, state, inactive = false }: { session: RailSession; state: RowState; inactive?: boolean }) {
-  const { openExecution, activeSessionId, backgroundSessionIds } = useDashboard();
+  const { openExecution } = useWorkNavigation();
+  const { activeSessionId, backgroundSessionIds } = useWorkActivity();
   const { data: diffStats } = useDiffStats(session.id, session.executionId ?? null);
   // The turn is over but something it started is still running. Not working.
   const background = state !== 'working' && backgroundSessionIds.has(session.id);
@@ -268,7 +269,7 @@ function StateDot({ state, background = false }: { state: RowState; background?:
 }
 
 function AgentTasksSection({ workspaceId }: { workspaceId: string }) {
-  const { openTask } = useDashboard();
+  const { openTask } = useWorkNavigation();
   const { data } = useAgentTasks(workspaceId);
   const tasks = data?.tasks ?? [];
   if (tasks.length === 0) return null;

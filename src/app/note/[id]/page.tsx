@@ -1,4 +1,6 @@
 'use client';
+import { EntityPageBoundary } from '@/components/home/entity-page-boundary';
+import { HomeBoundary } from '@/components/home/home-context';
 
 import { use, useEffect, useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -28,7 +30,7 @@ import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-au
 import type { Attachment } from '@/db/types';
 import { countWords } from '@/lib/notes/word-count';
 
-export default function NotePage({ params }: { params: Promise<{ id: string }> }) {
+function NotePageContent({ params }: { params: Promise<{ id: string }> }) {
   const { id: noteId } = use(params);
   const router = useRouter();
   const { data: savedNote } = useNote(noteId);
@@ -288,4 +290,9 @@ export default function NotePage({ params }: { params: Promise<{ id: string }> }
       </div>
     </div>
   );
+}
+
+export default function NotePage(props: Parameters<typeof NotePageContent>[0]) {
+  const { id } = use(props.params);
+  return <HomeBoundary><EntityPageBoundary kind="note" id={id}><NotePageContent {...props} /></EntityPageBoundary></HomeBoundary>;
 }

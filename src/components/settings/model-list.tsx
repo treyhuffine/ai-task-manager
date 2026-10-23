@@ -1,5 +1,8 @@
 'use client';
 
+import { trpc } from '@/lib/trpc/client';
+import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
+
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronRight, Loader2, MessageSquarePlus, Settings2, X } from 'lucide-react';
@@ -34,7 +37,7 @@ export function ModelList({
   switchHintProvider,
   onManageModels,
   defaultSelection,
-  selectionOnly = false,
+  selectionOnly: requestedSelectionOnly = false,
 }: {
   selected: ModelSelection;
   onPick: (harness: ProviderId, model: ModelOption) => void;
@@ -57,6 +60,8 @@ export function ModelList({
   /** One request only. Picking does not change the global model catalog. */
   selectionOnly?: boolean;
 }) {
+  const { canConfigureModels } = useExecutionRuntimeScope();
+  const selectionOnly = requestedSelectionOnly || !canConfigureModels;
   return (
     <div className={cn('space-y-3', className)}>
       {PROVIDERS.map((p) => (
@@ -149,7 +154,7 @@ function ProviderGroup({
     // Settle the allowlist read before handing off. Consumers resolve the id
     // against the enabled list, so picking on a stale one lands on the wrong
     // model — silently, because resolution falls back rather than throwing.
-    await queryClient.refetchQueries({ queryKey: ['agent-models', providerId] });
+    await queryClient.refetchQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
     onPick(providerId, model);
   };
 
@@ -205,7 +210,8 @@ function ProviderGroup({
             model={m}
             selected={selected.harness === providerId && selected.model === m.id}
             isDefault={defaultModel === m.id}
-            disabled={!connected}
+            disabled={!connected || m.availability === 'unavailable'}
+            title={m.availabilityReason}
             onSelect={() => onPick(providerId, m)}
             onRemove={!selectionOnly && m.custom ? () => void unpin(m) : undefined}
             removePending={removeCustom.isPending && removeCustom.variables?.modelId === m.id}

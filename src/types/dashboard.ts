@@ -1,3 +1,5 @@
+import type { SharedTaskSource } from '@/db/types';
+
 export type Theme = 'dark' | 'light';
 export type WorkMode = 'light' | 'deep' | null;
 /** Tabs in the agent view's tools panel (docs/agents-view-spec.md Phase 7). */
@@ -98,6 +100,7 @@ export interface DeckItem {
   continuityContext?: string; // "Last session: got OAuth working"
   manuallyAdded?: boolean;    // True when user added via quick-add
   sourceTeamId?: string | null; // A shared task's team (docs/homes-spec.md §3.2)
+  sourceArea?: SharedTaskSource['area'];
 }
 
 /** An item the AI surfaced on radar */
@@ -131,6 +134,7 @@ export interface AlternativeItem {
   effort?: string;
   reason: string;             // Why it wasn't included
   taskId: string;
+  sourceArea?: { id: string; name: string } | null;
   sourceTeamId?: string | null; // A shared task's team (docs/homes-spec.md §3.2)
 }
 
@@ -141,6 +145,8 @@ export interface AlternativeItem {
  * `carried`/`added` summarize in the brief.
  */
 export interface DeckChangeView {
+  sourceTeamId?: string | null;
+  sourceArea?: { id: string; name: string } | null;
   kind: 'carried' | 'deferred' | 'dropped' | 'added' | 'reordered' | 'bumped';
   taskId: string;
   title: string;

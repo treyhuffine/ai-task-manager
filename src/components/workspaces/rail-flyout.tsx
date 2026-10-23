@@ -3,8 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode, type Ref, type RefObject } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
-import { useDashboard } from '@/contexts/dashboard-context';
-import { viewKey } from '@/lib/client/active-view';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { nextFlyoutState, type FlyoutEvent, type FlyoutState } from '@/lib/client/rail-flyout';
 import { RailIconButton } from './rail-icon-button';
 
@@ -56,7 +55,9 @@ export function RailFlyout({
   hoverTarget?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
-  const { activeView } = useDashboard();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const navigationKey = `${pathname}?${search}`;
   const [state, setState] = useState<FlyoutState>(null);
   const dispatch = useCallback((event: FlyoutEvent) => setState((prev) => nextFlyoutState(prev, event)), []);
   const open = state !== null;
@@ -115,7 +116,7 @@ export function RailFlyout({
   }, [hoverTarget, open, cancel, after, dispatch]);
 
   // Going anywhere closes it: what you picked is on screen now.
-  const view = viewKey(activeView);
+  const view = navigationKey;
   useEffect(() => cancel(), [view, cancel]);
   const [shownOn, setShownOn] = useState(view);
   if (shownOn !== view) {

@@ -37,6 +37,7 @@ vi.mock('@/lib/db/queries', () => ({
   },
 }));
 vi.mock('@/lib/executor/adapter', () => ({
+  hasUnconfirmedClose: () => false,
   isRunning: (id: string) => h.running.has(id),
   recycleWhenIdle: async (id: string) => {
     h.recycled.push(id);

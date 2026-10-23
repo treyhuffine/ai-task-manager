@@ -1,3 +1,6 @@
+import { recordHomeActivity } from '@/lib/home/activity';
+import { executionAuthority } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 import { failureResponse, reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 /**
@@ -17,20 +20,24 @@ import { resolvePreview } from '@/lib/preview/service';
 interface StartBody {
   service?: string | null;
   remote?: boolean;
+  resolveOnly?: boolean;
 }
 
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const authority = executionAuthority(executionRequestKey(), id, 'editFiles');
     const body = (rpcInput.body) as StartBody;
     const state = await resolvePreview(id, {
       service: body.service ?? null,
       remote: body.remote ?? false,
+      resolveOnly: body.resolveOnly ?? false,
     });
+    recordHomeActivity(authority, 'preview_start', id);
     return reply(state);
   } catch (err) {
     return failureResponse(previewErrorResponse(err, 'POST /api/executions/:id/preview/start'));
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "service": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "remote": rpcZ.boolean().optional() }).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "service": rpcZ.union([rpcZ.null(), rpcZ.string()]).optional(), "remote": rpcZ.boolean().optional(), "resolveOnly": rpcZ.boolean().optional() }).strict().default({}) }).strict();

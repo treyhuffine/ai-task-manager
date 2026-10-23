@@ -1,6 +1,7 @@
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { AnyRouter } from '@trpc/server';
+import { SPACE_ID_PATTERN } from '@/lib/spaces/document';
 
 /** Published by Next instrumentation, so sockets use Next's domain runtime,
  * rather than a second bundled router in the custom HTTP host. */
@@ -11,6 +12,11 @@ export interface WebSocketRuntime {
 declare global { var __riTRPCWebSocket: WebSocketRuntime | undefined; }
 declare global { var __riTRPCRouter: AnyRouter | undefined; }
 export const TRPC_WS_PATH = '/api/trpc/ws';
+export function spaceWebSocketId(pathname: string): string | null {
+  const id = /^\/api\/space\/([^/]+)\/trpc\/ws$/.exec(pathname)?.[1];
+  return id && SPACE_ID_PATTERN.test(id) ? id : null;
+}
+export function isWebSocketPath(pathname: string) { return pathname === TRPC_WS_PATH || spaceWebSocketId(pathname) !== null; }
 
 export function hasWebSocketRuntime(): boolean {
   return process.env.RI_TRPC_WS_DISABLED !== '1' && globalThis.__riTRPCWebSocket !== undefined;

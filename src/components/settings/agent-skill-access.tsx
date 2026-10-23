@@ -17,7 +17,7 @@ import { agentSkillState } from './agent-skill-state';
  * own skill folder, so switching harnesses never loses them. A new home's
  * first run installs them (`src/components/onboarding/agent-skill-install.ts`), and
  * Settings shows them twice with the same one-click install and uninstall:
- * a Get started item, and their home in External AI. Both read one query, so
+ * a Get started item, and their home in MCP access. Both read one query, so
  * they never disagree. Uninstalling removes only Ri's own links
  * (`src/lib/agent-skills/shipped.ts`) and never touches a project.
  */
@@ -54,7 +54,7 @@ const buttonClass =
 /** "Codex, Claude Code, Cursor, OpenCode and Antigravity": every harness this build offers. */
 const HARNESS_NAMES = listJoin(HARNESS_IDS.map((id) => HARNESS_REGISTRY[id].name));
 
-/** The External AI block: what the skills do, whether they're here, and the one button. */
+/** The MCP access block: what the skills do, whether they're here, and the one button. */
 export function AgentSkillAccess() {
   const skill = useAgentSkillAccess();
   const { state } = skill;

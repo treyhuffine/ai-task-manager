@@ -1,5 +1,5 @@
 import { revertEntityTo, isBodyRevisionConflict, isTeamError } from '@/lib/db/queries';
-import { requireBodyRevision, sharedCaller } from '@/lib/team/shared-work';
+import { assertSharedEdit, requireBodyRevision, sharedCaller } from '@/lib/team/shared-work';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -14,8 +14,10 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
   try {
     const { id } = rpcInput.params;
     const key = getRequestKey(request.headers);
-    requireBodyRevision(sharedCaller(key), { body: true }, rpcInput.body.expectedBodyRevision);
-    const result = revertEntityTo(id, { actorMemberId: key?.scope === 'member' ? key.memberId : null }, rpcInput.body);
+    const caller = sharedCaller(key);
+    assertSharedEdit(caller);
+    requireBodyRevision(caller, { body: true }, rpcInput.body.expectedBodyRevision);
+    const result = revertEntityTo(id, { source: 'human', actorMemberId: caller.team ? caller.memberId : null }, rpcInput.body);
     if (!result) {
       return reply({ error: 'Version not found' }, { status: 404 });
     }

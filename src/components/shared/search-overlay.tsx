@@ -1,15 +1,20 @@
-"use client";
+'use client';
 
+
+import { RecentSearchItems } from './recent-search-items';
+import { parseSearchQuery } from '@/lib/client/search-query';
+
+import { SearchPalette } from './search-palette';
+import { CommandSearchItems } from './command-search-items';
 import { openSettings } from '@/components/settings/settings-store';
 import { PLUGIN_CREATE_ANCHORS } from '@/components/settings/sections/plugins/navigation';
-import { NoteIcon } from '@/components/shared/note-icon';
-import { DecisionLabel } from '@/components/notes/note-kind';
-import { Skeleton } from '@/components/ui/skeleton';
+
+
+
 import { openChatSearch } from '@/components/workspaces/chat-search-store';
 import {
 	HOTKEYS, matchesHotkey,
-	PALETTE_COMMANDS, TYPE_PREFIXES,
-	type EntityTypeFilter,
+	PALETTE_COMMANDS,
 	type PaletteCommand,
 } from '@/constants/commands';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -18,87 +23,19 @@ import { useRecents } from '@/hooks/use-recents';
 import { useSearch } from '@/hooks/use-search';
 import { useCreateTask } from '@/hooks/use-tasks';
 import { useStartSkill } from '@/hooks/use-start-skill';
-import type { SearchResult } from '@/lib/api/search';
 import { closeTaskBoard, openBoard } from '@/lib/client/task-board';
 import { closeCalendarModal, openCalendarModal } from '@/lib/client/calendar-modal';
 import { useLocalApps } from '@/components/local-apps/app-hooks';
 import { appPlaces } from '@/components/local-apps/app-places';
 import { connectedAppsQuery } from '@/components/mcp-apps/catalog';
 import type { AnyPanelTab } from '@/types/dashboard';
-import { Command } from 'cmdk';
-import {
-	Calendar,
-	FileText,
-	FileCheck2,
-	LayoutDashboard, ListTodo,
-	Loader2,
-	MessageSquare,
-	MessagesSquare, Mic,
-	Moon,
-	Plus,
-	Radio,
-	Search,
-	Settings,
-	SquareKanban,
-	StickyNote,
-	Sun,
-	Target,
-	TextSearch,
-	X,
-	type LucideIcon,
-} from 'lucide-react';
-import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
+
+
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useResultCapabilities } from '@/hooks/use-results';
-import { TeamLabel } from '@/components/spaces/team-label';
 
-// ── Icon lookup for palette commands ─────────────────────────
-
-const ICON_MAP: Record<string, LucideIcon> = {
-  Plus, StickyNote, LayoutDashboard, ListTodo, FileText, Radio, MessagesSquare, Sun, Moon, Mic, Settings, Calendar, TextSearch, SquareKanban, FileCheck2,
-};
-
-function CommandIcon({ name, size = 14 }: { name: string; size?: number }) {
-  const Icon = ICON_MAP[name];
-  return Icon ? <Icon size={size} /> : null;
-}
-
-// ── Query parsing ────────────────────────────────────────────
-
-function parseQuery(raw: string): { searchQuery: string; typeFilter: EntityTypeFilter | null; isCommand: boolean } {
-  const trimmed = raw.trim();
-
-  if (trimmed.startsWith('>')) {
-    return { searchQuery: trimmed.slice(1).trim(), typeFilter: null, isCommand: true };
-  }
-
-  for (const [prefix, filter] of Object.entries(TYPE_PREFIXES)) {
-    if (trimmed.toLowerCase().startsWith(prefix)) {
-      return { searchQuery: trimmed.slice(prefix.length).trim(), typeFilter: filter, isCommand: false };
-    }
-  }
-
-  return { searchQuery: trimmed, typeFilter: null, isCommand: false };
-}
-
-// ── Recent items hook ────────────────────────────────────────
-// ── Entity icon helper ───────────────────────────────────────
-
-function EntityIcon({ type, hasBody, className }: { type: string; hasBody?: boolean; className?: string }) {
-  switch (type) {
-    case 'task': return <Target size={14} className={className} />;
-    case 'note': return <NoteIcon body={hasBody ? 'x' : ''} size={14} className={className} />;
-    case 'stream': return <MessageSquare size={14} className={className} />;
-    default: return null;
-  }
-}
-
-// ── Group heading style ──────────────────────────────────────
-
-const GROUP_CLASS = "px-2 pb-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[9px] [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:text-muted-foreground/60";
-const ITEM_CLASS = "flex items-center gap-3 px-2 py-2 rounded-md text-left cursor-pointer data-[selected=true]:bg-muted/50";
 
 // ── Main component ───────────────────────────────────────────
 
@@ -108,7 +45,7 @@ export function SearchOverlay() {
   const [open, setOpen] = useState(false);
   const [rawQuery, setRawQuery] = useState('');
   if (!open && rawQuery !== '') setRawQuery('');
-  const { searchQuery, typeFilter, isCommand } = parseQuery(rawQuery);
+  const { searchQuery, typeFilter, isCommand } = parseSearchQuery(rawQuery);
 
   // Defer the query so we fire one request per settle, not one per keystroke.
   // Command mode ('>') is purely local — it filters PALETTE_COMMANDS and never
@@ -144,7 +81,6 @@ export function SearchOverlay() {
   const newSkill = useStartSkill();
   const { data: recents } = useRecents(25, open);
   const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
   // Filter results by type if prefix is active
   const filteredResults = typeFilter
@@ -152,7 +88,6 @@ export function SearchOverlay() {
     : results;
 
   const hasQuery = !isCommand && searchQuery.trim().length > 0;
-  const hasResults = filteredResults.length > 0;
   // The deferred query trails the input while React catches up; treat that lag
   // (and any in-flight fetch) as "still searching" so we show the skeleton
   // rather than a premature "no results".
@@ -280,11 +215,6 @@ export function SearchOverlay() {
     };
   }, []);
 
-  // Scroll list to top when results change
-  useEffect(() => {
-    listRef.current?.scrollTo(0, 0);
-  }, [filteredResults]);
-
   // Resolve theme-aware icon name for toggle-theme command
   const getCommandIcon = (cmd: PaletteCommand) => {
     if (cmd.id === 'toggle-theme') return theme === 'dark' ? 'Sun' : 'Moon';
@@ -296,103 +226,15 @@ export function SearchOverlay() {
     return cmd.label;
   };
 
-  return (
-    <Command.Dialog
-      open={open}
-      onOpenChange={setOpen}
-      label="Search"
-      shouldFilter={false}
-      className="fixed inset-0 z-50"
-    >
-      <VisuallyHidden.Root>
-        <DialogPrimitive.Title>Search</DialogPrimitive.Title>
-        <DialogPrimitive.Description>Search tasks, notes, and stream or run commands</DialogPrimitive.Description>
-      </VisuallyHidden.Root>
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setOpen(false)} />
-
-      {/* Panel */}
-      <div className="relative mx-auto mt-[15vh] w-full max-w-2xl bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
-        {/* Input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-          <Search size={16} className="text-muted-foreground flex-shrink-0" />
-          <Command.Input
-            ref={inputRef}
-            value={rawQuery}
-            onValueChange={setRawQuery}
-            placeholder={isCommand ? 'Type a command...' : 'Search or type > for commands...'}
-            className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground"
-          />
-          {hasQuery && isFetching && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
-          {typeFilter && (
-            <span className="px-1.5 py-0.5 bg-primary/10 text-primary text-[9px] font-bold uppercase tracking-wider rounded">
-              {typeFilter}
-            </span>
-          )}
-          <button onClick={() => setOpen(false)} className="p-1 text-muted-foreground hover:text-foreground">
-            <X size={14} />
-          </button>
-        </div>
-
-        {/* Results */}
-        <Command.List ref={listRef} className="max-h-[60vh] overflow-y-auto">
-          {/* Command mode ('>') keeps cmdk's built-in empty state. */}
-          {isCommand && (
-            <Command.Empty className="p-8 text-center text-muted-foreground text-[11px]">
-              No matching commands
-            </Command.Empty>
-          )}
-
-          {/* ── Commands (> prefix) ─────────────────────────── */}
-          {isCommand && (
-            <Command.Group heading="Actions" className={GROUP_CLASS}>
-              {[...PALETTE_COMMANDS, ...appCommands]
-                .filter((cmd) => cmd.capability !== 'handoffs' || capabilities.data?.handoffsEnabled)
-                .filter((cmd) =>
-                  !searchQuery ||
-                  `${cmd.label} ${cmd.keywords}`.toLowerCase().includes(searchQuery.toLowerCase()),
-                )
-                .map((cmd) => (
-                  <Command.Item
-                    key={cmd.id}
-                    value={cmd.id}
-                    onSelect={() => executeCommand(cmd)}
-                    className={ITEM_CLASS}
-                  >
-                    <span className="text-muted-foreground flex-shrink-0">
-                      <CommandIcon name={getCommandIcon(cmd)} />
-                    </span>
-                    <span className="text-[12px] font-medium flex-1">{getCommandLabel(cmd)}</span>
-                    {cmd.shortcut && (
-                      <kbd className="px-1.5 py-0.5 bg-muted rounded text-[9px] text-muted-foreground/60">
-                        {cmd.shortcut}
-                      </kbd>
-                    )}
-                  </Command.Item>
-                ))}
-            </Command.Group>
-          )}
+  return <SearchPalette open={open} onOpenChange={setOpen} query={rawQuery} onQueryChange={setRawQuery}
+    searchQuery={isCommand ? '' : searchQuery} results={filteredResults} searching={isSearching} fetching={isFetching}
+    onSelect={handleSelect} inputRef={inputRef} typeFilter={typeFilter}
+    placeholder={isCommand ? 'Type a command...' : 'Search or type > for commands...'}
+    beforeResults={<>          {isCommand && <CommandSearchItems commands={[...PALETTE_COMMANDS, ...appCommands].filter(command => command.capability !== 'handoffs' || capabilities.data?.handoffsEnabled)} query={searchQuery} onSelect={executeCommand} icon={getCommandIcon} label={getCommandLabel}/>}
 
           {/* ── Recent items (empty query, no command mode) ── */}
           {!isCommand && searchQuery.length === 0 && recents && recents.length > 0 && (
-            <Command.Group heading="Recent" className={GROUP_CLASS}>
-              {recents.map((item) => (
-                <Command.Item
-                  key={`recent-${item.entityType}-${item.id}`}
-                  value={`recent-${item.entityType}-${item.id}`}
-                  onSelect={() => handleSelect(item.entityType, item.id)}
-                  className={ITEM_CLASS}
-                >
-                  <EntityIcon type={item.entityType} hasBody={item.hasBody} className="text-primary/60 flex-shrink-0" />
-                  <span className="text-[12px] font-medium leading-tight line-clamp-1 flex-1">
-                    {item.title || '(untitled)'}
-                  </span>
-                  <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">
-                    {item.entityType}
-                  </span>
-                </Command.Item>
-              ))}
-            </Command.Group>
+            <RecentSearchItems items={recents} onSelect={handleSelect} />
           )}
 
           {/* ── Idle hint (empty query, no recents yet) ─────── */}
@@ -402,115 +244,6 @@ export function SearchOverlay() {
             </p>
           )}
 
-          {/* ── Search: results → skeleton → empty ──────────── */}
-          {hasQuery && (
-            hasResults ? (
-              <Command.Group heading="Results" className={GROUP_CLASS}>
-                {filteredResults.map((result) => (
-                  <SearchResultItem
-                    key={`${result.entityType}-${result.id}`}
-                    result={result}
-                    onSelect={handleSelect}
-                  />
-                ))}
-              </Command.Group>
-            ) : isSearching ? (
-              <SearchResultsSkeleton />
-            ) : (
-              <p className="p-8 text-center text-muted-foreground text-[11px]">
-                No results for {'“'}{searchQuery}{'”'}
-              </p>
-            )
-          )}
-        </Command.List>
-
-        {/* Footer */}
-        <div className="px-4 py-2 border-t border-border text-[9px] text-muted-foreground/50 flex items-center gap-3">
-          <span><kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">{'\u2191\u2193'}</kbd> navigate</span>
-          <span><kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">{'\u23CE'}</kbd> open</span>
-          <span><kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">ESC</kbd> close</span>
-          <div className="flex-1" />
-          <span className="text-muted-foreground/40">
-            <kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">&gt;</kbd> commands
-            <span className="mx-1.5">&middot;</span>
-            <kbd className="px-1 py-0.5 bg-muted rounded text-[8px]">task:</kbd> filter
-          </span>
-        </div>
-      </div>
-    </Command.Dialog>
-  );
-}
-
-// ── Search result item ───────────────────────────────────────
-
-function SearchResultItem({
-  result, onSelect,
-}: {
-  result: SearchResult;
-  onSelect: (entityType: string, id: string) => void;
-}) {
-  const body = 'body' in result ? result.body : result.rawText;
-  const description = 'description' in result ? result.description : undefined;
-  const title = ('title' in result ? result.title : undefined) || body || '(untitled)';
-
-  return (
-    <Command.Item
-      value={`${result.entityType}-${result.id}`}
-      onSelect={() => onSelect(result.entityType, result.id)}
-      className="flex items-start gap-3 px-2 py-2 rounded-md text-left cursor-pointer data-[selected=true]:bg-muted/50"
-    >
-      <div className="mt-0.5 flex-shrink-0">
-        <EntityIcon type={result.entityType} hasBody={!!body?.trim()} className="text-primary/60" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[12px] font-medium leading-tight line-clamp-1">{title}</p>
-        {description && (
-          <p className="mt-0.5 text-[10.5px] text-muted-foreground leading-snug line-clamp-2">
-            {description}
-          </p>
-        )}
-        <div className="mt-0.5 flex items-center gap-2">
-          {result.entityType === 'note' && result.kind === 'decision' ? (
-            <DecisionLabel kind="decision" className="py-0 text-[8px]" />
-          ) : (
-            <span className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">
-              {result.entityType}
-            </span>
-          )}
-          {'sourceTeamId' in result && <TeamLabel teamId={result.sourceTeamId} />}
-          <span className="text-[8px] text-muted-foreground/60">
-            {new Date(result.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </span>
-          {result.score != null && (
-            <span className="text-[8px] text-muted-foreground/40">
-              {(result.score * 100).toFixed(0)}%
-            </span>
-          )}
-        </div>
-      </div>
-    </Command.Item>
-  );
-}
-
-// ── Loading skeleton ─────────────────────────────────────────
-// Shown while a search is in flight and we don't yet have results for the
-// current query, so the palette never flashes "no results" mid-keystroke.
-// Row shape mirrors SearchResultItem (icon + title + meta line).
-
-const SKELETON_WIDTHS = ['72%', '54%', '81%', '61%', '68%'];
-
-function SearchResultsSkeleton() {
-  return (
-    <div className="px-2 py-1" aria-hidden>
-      {SKELETON_WIDTHS.map((width, i) => (
-        <div key={i} className="flex items-start gap-3 px-2 py-2">
-          <Skeleton className="mt-0.5 size-3.5 flex-shrink-0 rounded-md" />
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <Skeleton className="h-3 rounded" style={{ width }} />
-            <Skeleton className="h-2.5 w-2/5 rounded" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+</>}
+  />;
 }

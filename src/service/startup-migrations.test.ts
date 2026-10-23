@@ -77,7 +77,7 @@ it.skipIf(!enabled).each(['personal', 'team'] as const)('starts and restarts an 
         expect(db.prepare('SELECT id, hash FROM api_keys').all()).toEqual([{ id: 'host-key', hash: hashToken(token) }]);
         const history = db.prepare('SELECT * FROM __drizzle_migrations ORDER BY id').all();
         expect(history.slice(0, before.length)).toEqual(before);
-        expect(history).toHaveLength(before.length + 2);
+        expect(history).toHaveLength(JSON.parse(fs.readFileSync(path.join(repo, 'drizzle/meta/_journal.json'), 'utf8')).entries.length);
         expect(db.prepare("SELECT name FROM pragma_table_info('team_ai_settings') WHERE name = 'auth_mode'").get()).toEqual({ name: 'auth_mode' });
         expect(db.pragma('foreign_key_check')).toEqual([]);
         return history;

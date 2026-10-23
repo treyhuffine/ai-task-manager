@@ -126,7 +126,7 @@ export class FakeSession implements AgentSession {
       await this.emit({
         type: 'system',
         subtype: 'init',
-        model: FAKE_MODEL_ID,
+        model: this.harness.modelId,
         cwd: this.ctx.cwd ?? null,
         tools: [],
         permissionMode: null,
@@ -268,6 +268,7 @@ export class FakeHarness {
    * turn, in order.
    */
   coalesce = false;
+  modelId = FAKE_MODEL_ID;
   /** Give each session a real stand-in process (see the header). */
   withProcess = false;
   /** Every stand-in process started, for cleanup. */
@@ -279,13 +280,14 @@ export class FakeHarness {
     this.providerType = HARNESS_REGISTRY[harness].agentexProviderId;
     this.original = getProvider(this.providerType);
     const report: ProviderRuntimeReport = {
-      binary: { status: 'supported', command: 'fake', version: '0.0.0-fake', protocolProfile: null },
+      binary: { status: 'supported', command: 'fake', version: harness === 'codex' ? '0.160.0' : '2.1.295', protocolProfile: null },
       capabilities: {},
     };
     const fake: ProviderModule = {
       ...this.original,
+      resolveAuth: async () => ({ providerType: this.providerType, binary: { installed: true, resolvedPath: 'fake', version: harness === 'codex' ? '0.160.0' : '2.1.295' }, source: 'cli', options: [{ method: 'subscription', source: { kind: 'cli', command: 'fixture-only' }, present: true }] }),
       probeCapabilities: async () => report,
-      listModels: async () => [{ id: FAKE_MODEL_ID, name: 'Fake model' }],
+      listModels: async () => [{ id: this.modelId, name: 'Fake model' }],
       createSession: async (ctx: SessionContext) => {
         const session = new FakeSession(this, ctx);
         this.sessions.push(session);

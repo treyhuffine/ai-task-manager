@@ -20,7 +20,13 @@ import { Tip } from '@/components/ui/tip';
  * Feedback mirrors Resync: a transient inline "Restarted ✓" for 2s, error
  * inline on failure. No toast — it's a quiet, private gesture.
  */
-export function RestartMenuItem({ sessionId }: { sessionId: string }) {
+type RestartProps = { sessionId: string; onRestart?: () => void; active?: boolean };
+
+export function RestartMenuItem(props: RestartProps) {
+  return <ChatRestart key={props.sessionId} {...props} />;
+}
+
+function ChatRestart({ sessionId, onRestart, active = true }: RestartProps) {
   const restart = useRestartSession(sessionId);
   const [doneAt, setDoneAt] = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -32,8 +38,10 @@ export function RestartMenuItem({ sessionId }: { sessionId: string }) {
   }, []);
 
   const handleClick = () => {
+    setDoneAt(null);
     restart.mutate(undefined, {
       onSuccess: () => {
+        onRestart?.();
         setDoneAt(Date.now());
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => setDoneAt(null), 2000);
@@ -44,9 +52,12 @@ export function RestartMenuItem({ sessionId }: { sessionId: string }) {
   const isPending = restart.isPending;
   const showDone = !isPending && doneAt !== null;
   const error = restart.error;
+  // Contextual rows stay mounted so success remains visible after recovery
+  // clears their trigger. Menus retain their normal always-active behavior.
+  if (!active && !isPending && !showDone) return null;
 
   return (
-    <Tip label="Restart the agent process. Kills the current Claude/Codex subprocess (interrupting any turn in flight) so your next message starts a fresh one, resuming this conversation from disk. Use to pick up a CLI update or clear the process's working memory.">
+    <Tip label="Stops this chat's harness, interrupting any work in progress. Your next message starts it again with this conversation's history. Use this to recover a stuck chat or pick up a harness update.">
       <button
         type="button"
         onClick={handleClick}
@@ -62,7 +73,7 @@ export function RestartMenuItem({ sessionId }: { sessionId: string }) {
             <Power size={12} />
           )}
           <span>
-            {isPending ? 'Restarting…' : showDone ? 'Restarted' : 'Restart agent'}
+            {isPending ? 'Restarting…' : showDone ? 'Restarted' : 'Restart chat'}
           </span>
         </span>
         {error && !isPending && (

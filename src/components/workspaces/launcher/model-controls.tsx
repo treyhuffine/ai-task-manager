@@ -6,7 +6,8 @@ import { MakeDefaultRow } from '@/components/settings/make-default-row';
 import type { ModelSelection } from '@/components/settings/model-list';
 import { VisibleModelOptions } from '@/components/settings/visible-model-options';
 import { ModelMenuContent, ModelMenuLabel } from '@/components/chat-ui/model-menu/model-menu';
-import { openSettings } from '@/components/settings/settings-store';
+import { useSettingsLink } from '@/components/settings/settings-destination';
+import { useHomeStorageScope } from '@/components/home/home-context';
 import { Popover, PopoverTrigger } from '@/components/ui/popover';
 import { Tip } from '@/components/ui/tip';
 import type { EffortLevel } from '@/db/types';
@@ -55,6 +56,8 @@ export function ModelControl({
   onChange: (next: LaunchHarnessSelection) => void;
   disabled?: boolean;
 }) {
+  const manageModels = useSettingsLink('models');
+  const storageScope = useHomeStorageScope();
   const [open, setOpen] = useState(false);
   const defaultSelection = useDefaultSelection();
   const { models } = useHarnessModels(selection.harness);
@@ -76,7 +79,7 @@ export function ModelControl({
       harness,
       model: model.id,
       variant: explicitVariantForModel(model, null),
-      serviceTier: serviceTierForModel(model, harness === selection.harness ? speed : readProviderSpeed(harness)),
+      serviceTier: serviceTierForModel(model, harness === selection.harness ? speed : readProviderSpeed(harness, storageScope)),
       effort: harnessSupportsEffort(harnessKey)
         ? explicitEffortForModel(harnessKey, model, rememberedEfforts?.[harness] ?? null)
         : null,
@@ -131,10 +134,10 @@ export function ModelControl({
             },
           } : undefined}
           disabled={disabled}
-          onManageModels={() => {
+          onManageModels={manageModels ? () => {
             setOpen(false);
-            openSettings('models');
-          }}
+            manageModels();
+          } : undefined}
           footer={defaultSelection?.harness === selection.harness && defaultSelection.model === selection.model && (defaultSelection.serviceTier ?? null) === (speed ?? null)
             ? undefined
             : <MakeDefaultRow current={{ harness: selection.harness, model: selection.model, variant, effort, serviceTier: speed }} />}

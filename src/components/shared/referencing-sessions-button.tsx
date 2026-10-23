@@ -1,8 +1,7 @@
 'use client';
 
-import { useDashboard } from '@/contexts/dashboard-context';
-import { executionView } from '@/lib/client/active-view';
-import { trpcClient } from '@/lib/trpc/client';
+import { useWorkNavigation } from '@/contexts/work-context';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import { rpcQuery } from '@/lib/trpc/request-options';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -10,16 +9,6 @@ import { ChevronRight, Link as LinkIcon, MessageSquare } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useState } from 'react';
 import { Tip } from '@/components/ui/tip';
-
-interface ReferencingSession {
-  id: string;
-  label: string | null;
-  workspaceId: string | null;
-  type: string;
-  status: string;
-  startedAt: string;
-  lastOutcomeEventAt: string | null;
-}
 
 interface ReferencingSessionsButtonProps {
   entityType: 'task' | 'note' | 'area';
@@ -37,11 +26,11 @@ interface ReferencingSessionsButtonProps {
  * cache lives for the page).
  */
 export function ReferencingSessionsButton({ entityType, entityId }: ReferencingSessionsButtonProps) {
-  const { setActiveView } = useDashboard();
+  const { openExecution } = useWorkNavigation();
   const [open, setOpen] = useState(false);
 
   const query = useQuery({
-    queryKey: ['entity-sessions', entityType, entityId] as const,
+    queryKey: trpc.entities.sessionsGet.queryKey({ query: { type: entityType, id: entityId } }),
     queryFn: () =>
       trpcClient.entities.sessionsGet.query({query: rpcQuery({ type: entityType, id: entityId })}),
     enabled: !!entityId,
@@ -87,7 +76,7 @@ export function ReferencingSessionsButton({ entityType, entityId }: ReferencingS
                   type="button"
                   onClick={() => {
                     setOpen(false);
-                    setActiveView(executionView(s.id));
+                    openExecution(s.id);
                   }}
                   className={cn(
                     'group flex items-center gap-2 w-full px-3 py-1.5 text-left',

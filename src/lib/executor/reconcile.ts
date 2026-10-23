@@ -488,7 +488,7 @@ async function reconcileCodexSession(session: ChatSessionWithExecution, writer: 
  * user comes back to completed responses without having to open each
  * stuck session manually.
  */
-export async function reconcileAllSessions(): Promise<{
+export async function reconcileAllSessions(options: { redispatchOrphans?: boolean; teamOnly?: boolean } = {}): Promise<{
   checked: number;
   drifted: number;
   replayed: number;
@@ -528,7 +528,7 @@ export async function reconcileAllSessions(): Promise<{
     console.error('[reconcile] bootstrap reap failed:', err);
   }
 
-  const sessions: ChatSessionRecord[] = listReconcilableSessions();
+  const sessions: ChatSessionRecord[] = listReconcilableSessions().filter(session => !options.teamOnly || session.surfaceKind === 'team_chat' || session.surfaceKind === 'result_review');
   let checked = 0;
   let drifted = 0;
   let replayed = 0;
@@ -538,7 +538,7 @@ export async function reconcileAllSessions(): Promise<{
   for (const session of sessions) {
     checked++;
     try {
-      const report = await healthCheckSession(session.id, { redispatchOrphans: true });
+      const report = await healthCheckSession(session.id, { redispatchOrphans: options.redispatchOrphans ?? true });
       if (report.replayed > 0) drifted++;
       replayed += report.replayed;
       if (report.redispatched) redispatched++;
@@ -554,16 +554,18 @@ export async function reconcileAllSessions(): Promise<{
   // a per-session loop through `healthCheckSession`.
   let importsChecked = 0;
   let importsSynced = 0;
-  try {
-    const { syncAllImportedSessions } = await import('@/lib/import/external-agents');
-    const imports = await syncAllImportedSessions();
-    importsChecked = imports.checked;
-    importsSynced = imports.synced;
-    replayed += imports.replayed;
-    errors += imports.errors;
-  } catch (err) {
-    errors++;
-    console.error('[reconcile] imported-session sweep failed:', err);
+  if (!options.teamOnly) {
+    try {
+      const { syncAllImportedSessions } = await import('@/lib/import/external-agents');
+      const imports = await syncAllImportedSessions();
+      importsChecked = imports.checked;
+      importsSynced = imports.synced;
+      replayed += imports.replayed;
+      errors += imports.errors;
+    } catch (err) {
+      errors++;
+      console.error('[reconcile] imported-session sweep failed:', err);
+    }
   }
 
   return {

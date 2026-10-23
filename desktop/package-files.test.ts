@@ -2,10 +2,25 @@ import { afterEach, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { assertCompanionPackage, assertShellDependencies, rebaseResourceLinks } from './package-files.mjs';
+import { assertCompanionPackage, assertShellDependencies, assertWindowPreloadsShipped, SHELL_ENTRYPOINTS, rebaseResourceLinks } from './package-files.mjs';
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
+it('checks static constant, shorthand, nested and registered preloads against the shipped inventory', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-preload-inventory-')); dirs.push(root);
+  fs.mkdirSync(path.join(root, 'windows'));
+  const file = path.join(root, 'windows/example.ts');
+  for (const source of [
+    'const preload = "missing.cjs"; new BrowserWindow({ webPreferences: { preload } });',
+    'const name = "missing"; const preload = `${name}.cjs`; new BrowserWindow({ webPreferences: { preload } });',
+    'session.registerPreloadScript({ filePath: path.join(__dirname, "nested", "preload.cjs") });',
+  ]) {
+    fs.writeFileSync(file, source);
+    expect(() => assertWindowPreloadsShipped(root)).toThrow(/Unshipped/);
+  }
+  fs.writeFileSync(file, 'const preload = path.join(__dirname, "team-navigation.cjs"); new BrowserWindow({ webPreferences: { preload } });');
+  expect(() => assertWindowPreloadsShipped(root)).not.toThrow();
+});
 it('preserves pnpm links after the staging folder is removed and refuses external dependencies', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-package-links-')); dirs.push(temp);
   const source = path.join(temp, 'stage'); const output = path.join(temp, 'Resources');
@@ -25,7 +40,7 @@ it('refuses a new companion package missing setup, worker, privileged preload or
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-package-companion-')); dirs.push(temporary);
   const server = path.join(temporary, 'server'); const shell = path.join(temporary, 'shell');
   const assets = ['src/styles/theme.css', 'public/fonts/inter-latin.woff2', 'public/fonts/OFL.txt', 'public/brand/ri-mark-white.svg'].map(file => path.join(server, file));
-  const files = [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), path.join(shell, 'companion-preload.cjs'), path.join(shell, 'local-preload.cjs'), path.join(shell, 'find-preload.cjs'), ...assets];
+  const files = [path.join(server, 'dist/desktop/connection-setup-entry.cjs'), path.join(server, 'dist/service/worker.cjs'), ...SHELL_ENTRYPOINTS.map(name => path.join(shell, name)), ...assets];
   for (const file of files) {
     expect(() => assertCompanionPackage(server, shell)).toThrow(/missing or unsafe/);
     fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, 'built');
@@ -101,4 +116,9 @@ it('refuses malformed, empty or symlinked shell bundles', () => {
   const shell = shellFixture({ 'main.cjs': `require('electron')` });
   fs.symlinkSync(path.join(shell, 'main.cjs'), path.join(shell, 'preload.cjs'));
   expect(() => assertShellDependencies(shell)).toThrow(/unsafe symlink/);
+});
+
+it('ships every real BrowserWindow preload, including Team navigation', () => {
+  expect(() => assertWindowPreloadsShipped(path.resolve('desktop'))).not.toThrow();
+  expect(() => assertWindowPreloadsShipped(path.resolve('desktop'), SHELL_ENTRYPOINTS.filter(name => name !== 'team-navigation.cjs'))).toThrow('team-window.ts: team-navigation.cjs');
 });

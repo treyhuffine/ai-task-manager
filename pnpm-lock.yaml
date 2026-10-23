@@ -4,13 +4,16 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@agentex/agent@0.0.48': 2fa56ae08512ab0b5ee6fd4f859c7bf0de3a11773afa883bbfcd16f39db496a1
+
 importers:
 
   .:
     dependencies:
       '@agentex/agent':
         specifier: ^0.0.48
-        version: 0.0.48(zod@3.25.76)
+        version: 0.0.48(patch_hash=2fa56ae08512ab0b5ee6fd4f859c7bf0de3a11773afa883bbfcd16f39db496a1)(zod@3.25.76)
       '@agentex/github':
         specifier: ^0.0.1
         version: 0.0.1
@@ -10689,7 +10692,7 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@agentex/agent@0.0.48(zod@3.25.76)':
+  '@agentex/agent@0.0.48(patch_hash=2fa56ae08512ab0b5ee6fd4f859c7bf0de3a11773afa883bbfcd16f39db496a1)(zod@3.25.76)':
     dependencies:
       '@agentclientprotocol/sdk': 1.8.0(zod@3.25.76)
     transitivePeerDependencies:

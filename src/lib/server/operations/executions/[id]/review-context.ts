@@ -1,3 +1,5 @@
+import { executionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 import { getExecutionReviewContext } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -7,8 +9,11 @@ import { z as rpcZ } from 'zod/v4';
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    executionAuthority(executionRequestKey(), id, 'read');
     return reply(getExecutionReviewContext(id));
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/executions/:id/review-context]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

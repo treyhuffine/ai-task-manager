@@ -23,7 +23,8 @@ export type FakeBlock =
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> };
 
 /** What to answer a model request with: a message, or an HTTP error. */
-export type FakeReply = { blocks: FakeBlock[]; stop: 'end_turn' | 'tool_use' } | { status: number; error: string };
+export type FakeReply = { blocks: FakeBlock[]; stop: 'end_turn' | 'tool_use' } | { status: number; error: string }
+  | { stall: true };
 
 export interface FakeAnthropic {
   url: string;
@@ -100,6 +101,7 @@ export async function startFakeAnthropic(script: FakeAnthropic['script'] = () =>
         return;
       }
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+      if ('stall' in reply) { res.flushHeaders(); res.write('event: ping\ndata: {"type":"ping"}\n\n'); return; }
       res.end(sse(reply.blocks, reply.stop));
     });
   });

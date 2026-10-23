@@ -143,3 +143,9 @@ export function permissionsForNewChat(
   if (permissions.prePlanMode) assertSupportedPermissionMode(permissions.prePlanMode, harness);
   return permissions;
 }
+
+
+/** Missing legacy plan provenance never grants unattended execution. */
+export function conservativePlanReturn(harness: HarnessId): PermissionMode {
+  return supportedPermissionModes(harness, true).includes('ask') ? 'ask' : 'plan';
+}

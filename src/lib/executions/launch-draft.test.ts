@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   applyPick,
   canLaunch,
@@ -7,6 +7,9 @@ import {
   continuationOf,
   removeChip,
   resolveBase,
+  readLaunchPrefs,
+  writeLaunchPrefs,
+  DEFAULT_LAUNCH_PREFS,
   type LaunchSourceItem,
 } from './launch-draft';
 
@@ -242,4 +245,24 @@ describe('integration tasks', () => {
     expect(out).toContain('### Task: Local one');
     expect(out).toContain('### Linear task: Renew domain');
   });
+});
+
+
+afterEach(() => vi.unstubAllGlobals());
+
+it('keeps launcher preferences separate for the same agent id across Homes and members', () => {
+  const values = new Map<string, string>();
+  vi.stubGlobal('window', { localStorage: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) } });
+  const maya = { homeId: 'team-a', viewerId: 'maya' };
+  const trey = { homeId: 'team-a', viewerId: 'trey' };
+  const other = { homeId: 'team-b', viewerId: 'maya' };
+  const personal = { mode: 'live' as const, baseBranch: 'private-plan', harness: 'claude', model: 'personal-model' };
+  const shared = { mode: 'worktree' as const, baseBranch: 'main', harness: 'codex', model: 'approved-model' };
+  writeLaunchPrefs('same-agent-id', personal);
+  expect(readLaunchPrefs('same-agent-id', maya)).toEqual(DEFAULT_LAUNCH_PREFS);
+  writeLaunchPrefs('same-agent-id', shared, maya);
+  expect(readLaunchPrefs('same-agent-id', maya)).toEqual(shared);
+  expect(readLaunchPrefs('same-agent-id', trey)).toEqual(DEFAULT_LAUNCH_PREFS);
+  expect(readLaunchPrefs('same-agent-id', other)).toEqual(DEFAULT_LAUNCH_PREFS);
+  expect(readLaunchPrefs('same-agent-id')).toEqual(personal);
 });

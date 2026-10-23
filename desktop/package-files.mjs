@@ -32,13 +32,15 @@ export function rebaseResourceLinks(root, sourceRoot) {
   return links.length;
 }
 
+export const SHELL_ENTRYPOINTS = ['main.cjs', 'preload.cjs', 'maintenance-preload.cjs', 'companion-preload.cjs', 'local-preload.cjs', 'find-preload.cjs', 'team-navigation.cjs'];
+
 /** New companion releases must contain role setup, supervised worker and the
  * offline appearance assets used before a Home or Next.js can start.
  * Validate at publication, without rejecting prior Home-only rollback runtimes. */
 export function assertCompanionPackage(server, shell) {
   const serverFiles = ['dist/desktop/connection-setup-entry.cjs', 'dist/service/worker.cjs', 'src/styles/theme.css',
     'public/fonts/inter-latin.woff2', 'public/fonts/OFL.txt', 'public/brand/ri-mark-white.svg'];
-  const shellFiles = ['companion-preload.cjs', 'local-preload.cjs', 'find-preload.cjs'];
+  const shellFiles = SHELL_ENTRYPOINTS;
   for (const file of [...serverFiles.map(file => path.join(server, file)), ...shellFiles.map(file => path.join(shell, file))]) {
     if (!fs.existsSync(file) || !fs.lstatSync(file).isFile()) throw new Error(`Companion package entry is missing or unsafe: ${file}`);
   }
@@ -89,4 +91,59 @@ export function assertShellDependencies(shell) {
   walk(shell);
   if (!bundles) throw new Error('Shell dependency boundary: no shell bundles found');
   return bundles;
+}
+
+/** Every BrowserWindow preload named by source must be in the shipped shell. */
+export function assertWindowPreloadsShipped(desktopSource, entries = SHELL_ENTRYPOINTS) {
+  const missing = [];
+  const files = fs.readdirSync(desktopSource, { recursive: true }).filter(file => file.endsWith('.ts') && !/(?:test|smoke)\.ts$/.test(file));
+  for (const file of files) {
+    const source = ts.createSourceFile(file, fs.readFileSync(path.join(desktopSource, file), 'utf8'), ts.ScriptTarget.Latest, true);
+    const bindings = new Map();
+    const collectBindings = node => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) bindings.set(node.name.text, node.initializer);
+      ts.forEachChild(node, collectBindings);
+    };
+    collectBindings(source);
+    // Resolve ordinary static declarations, never execute source or infer a
+    // runtime destination. Packaging still validates the real built inventory.
+    const value = (node, seen = new Set()) => {
+      if (ts.isStringLiteralLike(node)) return node.text;
+      if (ts.isIdentifier(node)) {
+        if (node.text === '__dirname') return '';
+        if (seen.has(node.text) || !bindings.has(node.text)) return null;
+        return value(bindings.get(node.text), new Set([...seen, node.text]));
+      }
+      if (ts.isTemplateExpression(node)) {
+        let text = node.head.text;
+        for (const span of node.templateSpans) { const part = value(span.expression, seen); if (part === null) return null; text += part + span.literal.text; }
+        return text;
+      }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && ['join', 'resolve'].includes(node.expression.name.text)) {
+        const parts = node.arguments.map(arg => value(arg, seen));
+        if (parts.every(part => part !== null)) return path.posix.join(...parts);
+      }
+      return null;
+    };
+    const inspect = (node, seen = new Set()) => {
+      const resolved = value(node, seen);
+      if (resolved !== null) {
+        if (resolved.endsWith('.cjs')) {
+          const name = resolved.replace(/^\/+/, '');
+          if (!entries.includes(name)) missing.push(`${file}: ${name}`);
+        }
+        return;
+      }
+      if (ts.isIdentifier(node) && bindings.has(node.text) && !seen.has(node.text)) inspect(bindings.get(node.text), new Set([...seen, node.text]));
+      else ts.forEachChild(node, child => inspect(child, seen));
+    };
+    const visit = node => {
+      if (ts.isPropertyAssignment(node) && node.name.getText(source).replace(/['"]/g, '') === 'preload') inspect(node.initializer);
+      if (ts.isShorthandPropertyAssignment(node) && node.name.text === 'preload') inspect(node.name);
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'registerPreloadScript') for (const arg of node.arguments) inspect(arg);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  if (missing.length) throw new Error('Unshipped window preloads: ' + [...new Set(missing)].join(', '));
 }

@@ -19,6 +19,7 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 // ─── Provider health ─────────────────────────────────────────
 
 export async function isLocalAvailable(): Promise<boolean> {
+  assertPersonalCapability('Speech service discovery');
   if (speechPreferences().enabled) {
     const status = managedSpeech().status();
     return status.installed && status.helperAvailable && status.phase !== 'error';
@@ -76,7 +77,8 @@ export async function transcribe(
   voiceModel: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  // A team space runs no AI, speech-to-text included (docs/homes-spec.md §9.2).
+  // A team execution grant does not grant the host's personal speech service
+  // or its separately configured cloud transcription credentials.
   assertPersonalCapability('Speech to text');
   const provider = getVoiceProvider(voiceModel);
   const modelName = getVoiceModelName(voiceModel);

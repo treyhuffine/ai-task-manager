@@ -1,3 +1,4 @@
+import { recordChatSendRefusal } from '@/lib/db/queries';
 /**
  * Session health check — three things, in order:
  *
@@ -30,7 +31,6 @@ import {
   chatPlacement,
   agentDeliveryForEvent,
   getChatSession,
-  insertChatEvent,
   listRecentChatEvents,
   workResultOperationForMessage,
   workResultOperationMetadata,
@@ -105,7 +105,7 @@ export const SEND_REFUSED_SUBTYPE = 'send_refused';
 
 /** Say in the chat that a message wasn't sent, and why. */
 export function recordSendRefused(sessionId: string, messageId: string, reason: string) {
-  insertChatEvent({ sessionId, role: 'system', source: 'error', content: reason, raw: { subtype: SEND_REFUSED_SUBTYPE, messageId }, createdAt: new Date().toISOString() });
+  recordChatSendRefusal(sessionId, messageId, reason);
 }
 
 const isSendRefusal = (event: ChatEventRecord) =>
@@ -154,6 +154,10 @@ export async function healthCheckSession(
   }
   if (session.status === 'archived') {
     return { classification: 'healthy', fixes, redispatched, replayed, error };
+  }
+
+  if ((await import('@/lib/executor/adapter')).hasUnconfirmedClose(sessionId)) {
+    return { classification: 'ambiguous', fixes, redispatched: false, replayed: 0, error: 'The previous harness has not confirmed it stopped. Restart this chat before continuing.' };
   }
 
   // A chat on a connected device (P2.4): its harness, its native history

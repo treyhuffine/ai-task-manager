@@ -1,4 +1,5 @@
 'use client';
+import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { Pause, Play, MessagesSquare, ChevronDown } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useCoordinationState, useCoordinationHold, useCoordinationPolicy } from '@/hooks/use-coordination';
@@ -8,6 +9,10 @@ import { useQuery } from '@tanstack/react-query';
 import { trpcClient } from '@/lib/trpc/client';
 
 export function CoordinationControls({ sessionId }: { sessionId: string }) {
+  const enabled = useChatCapabilities().coordination !== false;
+  return enabled ? <AvailableCoordinationControls {...{ sessionId }} /> : null;
+}
+function AvailableCoordinationControls({ sessionId }: { sessionId: string }) {
   const { data } = useCoordinationState(sessionId);
   const { data: session } = useSession(sessionId);
   const hold = useCoordinationHold(sessionId);

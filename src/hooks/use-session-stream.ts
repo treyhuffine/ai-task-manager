@@ -1,5 +1,7 @@
 'use client';
+import { compareTranscriptEvents } from '@/lib/api/dto/chat-event';
 
+import { trpc } from '@/lib/trpc/client';
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { isNewerRevision, type ChatEventDTO } from '@/lib/api/dto/chat-event';
@@ -25,7 +27,7 @@ import { refreshResultOperationEvent } from '@/components/chat-ui/handoffs/prese
  * the matching TanStack Query cache:
  *
  *   - `chat_event`   → appends-with-dedup into `['session', id, 'events']`
- *   - `runtime`      → replaces `['session', id, 'runtime-status']`
+ *   - `runtime`      → replaces `trpc.sessions.runtimeStatusGet.queryKey({ params: { id: id! } })`
  *   - `background_tasks` → updates the detached-work axis of runtime status
  *   - `pending_input`→ replaces `['session', id, 'pending-input']`
  *   - `integration_approvals` → replaces `['session', id, 'integration-approvals']`
@@ -53,7 +55,7 @@ export function useSessionStream(sessionId: string | null): void {
 
     const eventsKey = ['session', sessionId, 'events'] as const;
     const deliveriesKey = ['session', sessionId, 'deliveries'] as const;
-    const runtimeKey = ['session', sessionId, 'runtime-status'] as const;
+    const runtimeKey = trpc.sessions.runtimeStatusGet.queryKey({ params: { id: sessionId } });
     const pendingKey = ['session', sessionId, 'pending-input'] as const;
     const approvalsKey = integrationApprovalsKey(sessionId);
     const reconcilingKey = ['session', sessionId, 'reconciling'] as const;
@@ -111,12 +113,7 @@ export function useSessionStream(sessionId: string | null): void {
         // append; the sorted-insert path covers out-of-order writes
         // (e.g., a slow disk on one row + a fast write on the next).
         const out = [...list, event];
-        out.sort((a, b) => {
-          if (a.createdAt !== b.createdAt) {
-            return a.createdAt < b.createdAt ? -1 : 1;
-          }
-          return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-        });
+        out.sort(compareTranscriptEvents);
         return out;
       });
 
@@ -155,6 +152,9 @@ export function useSessionStream(sessionId: string | null): void {
       const data = frame as { running: boolean };
       queryClient.setQueryData<SessionRuntimeStatus>(runtimeKey, (prev) =>
         withRunningStatus(prev, data.running));
+      // Runtime also carries control rights and failed-close recovery. An
+      // idle settings recycle can change these without changing `running`.
+      void queryClient.invalidateQueries({ queryKey: runtimeKey });
       // Working bucket membership just flipped — re-fetch the rail.
       invalidateRail();
     };

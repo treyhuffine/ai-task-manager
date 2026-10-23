@@ -87,7 +87,7 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   browser = await chromium.launch({
-    executablePath: chromium.executablePath(),
+    executablePath: process.env.RI_REVIEW_CHROMIUM,
     headless: true,
   });
 }, 30_000);

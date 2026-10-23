@@ -1,3 +1,5 @@
+import { executionResourcePolicy } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 import { operationResponse } from '@/lib/server/operation';
 import { createTerminalResult, deleteTerminalResult, getTerminalResult, listTerminalsResult, terminalInputResult, terminalResizeResult } from './operations';
 /**
@@ -46,7 +48,7 @@ export interface TerminalLocation {
 }
 
 export type TerminalPlace =
-  | { at: 'home'; owner: TerminalOwner; cwd: () => TerminalCwd; location: TerminalLocation }
+  | { at: 'home'; owner: TerminalOwner; cwd: () => TerminalCwd; location: TerminalLocation; attribution?: { workspaceId: string; memberId: string; apiKeyId: string; name: string } }
   | ({ at: 'elsewhere'; location: TerminalLocation; refuseCreate?: string } & RemoteTerminalPlace)
   | { at: 'nowhere'; error: string; status: number };
 
@@ -57,6 +59,9 @@ function homeLocation(): TerminalLocation {
 
 /** An execution's shells: on its device, in its working folder. */
 export function sessionTerminalPlace(sessionId: string): TerminalPlace {
+  const policy = executionResourcePolicy({ chatId: sessionId, operation: 'terminal' });
+  if (policy.refusal) return { at: 'nowhere', status: policy.refusal.status, error: policy.refusal.body.message };
+  const authority = policy.authority;
   const session = getChatSessionWithExecution(sessionId);
   if (!session) return { at: 'nowhere', error: 'Session not found', status: 404 };
   const placement = chatPlacement(sessionId);
@@ -73,7 +78,7 @@ export function sessionTerminalPlace(sessionId: string): TerminalPlace {
       location: { deviceName, isHome: false },
     };
   }
-  return { at: 'home', owner: sessionTerminalOwner(sessionId), cwd: () => homeSessionCwd(sessionId), location: homeLocation() };
+  return { at: 'home', owner: sessionTerminalOwner(sessionId), cwd: () => homeSessionCwd(sessionId), location: homeLocation(), ...(authority?.workspace ? { attribution: { workspaceId: authority.workspace.id, memberId: authority.member.id, name: authority.member.name, apiKeyId: executionRequestKey()!.apiKeyId } } : {}) };
 }
 
 /**
@@ -99,6 +104,9 @@ function homeSessionCwd(sessionId: string): TerminalCwd {
 
 /** An agent's own shells: on the device it lives on, in its folder there. */
 export function agentTerminalPlace(workspaceId: string): TerminalPlace {
+  const policy = executionResourcePolicy({ workspaceId, operation: 'terminal' });
+  if (policy.refusal) return { at: 'nowhere', status: policy.refusal.status, error: policy.refusal.body.message };
+  const authority = policy.authority;
   const ws = getWorkspace(workspaceId);
   if (!ws) return { at: 'nowhere', error: 'Workspace not found', status: 404 };
   const deviceId = agentDeviceFor(workspaceId);
@@ -114,7 +122,7 @@ export function agentTerminalPlace(workspaceId: string): TerminalPlace {
       ...(ws.status === 'archived' ? { refuseCreate: 'This agent is archived' } : {}),
     };
   }
-  return { at: 'home', owner: workspaceTerminalOwner(workspaceId), cwd: () => workspaceTerminalCwd(workspaceId), location: homeLocation() };
+  return { at: 'home', owner: workspaceTerminalOwner(workspaceId), cwd: () => workspaceTerminalCwd(workspaceId), location: homeLocation(), ...(authority ? { attribution: { workspaceId, memberId: authority.member.id, name: authority.member.name, apiKeyId: executionRequestKey()!.apiKeyId } } : {}) };
 }
 
 /**
@@ -122,6 +130,7 @@ export function agentTerminalPlace(workspaceId: string): TerminalPlace {
  * a worker's, whichever device is viewing.
  */
 export function homeTerminalPlace(): TerminalPlace {
+  if (getHome()?.kind === 'team') return { at: 'nowhere', status: 403, error: 'Open a terminal in a shared team agent folder.' };
   return { at: 'home', owner: { ok: true, ownerId: HOME_TERMINAL_OWNER_ID }, cwd: () => homeTerminalCwd(), location: homeLocation() };
 }
 

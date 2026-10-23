@@ -1,5 +1,6 @@
 'use client';
 
+import { useOptionalHomeContext } from '@/components/home/home-context';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
 import {
@@ -47,6 +48,8 @@ export interface PreviewController {
   remoteError: PreviewRemoteError | null;
   /** A remote viewer is asking the provider for a URL. */
   isResolvingRemote: boolean;
+  /** An empty manual URL is a completed lookup, not a reason to poll in a loop. */
+  hasResolvedRemote?: boolean;
   providerLabel: string;
   canShare: boolean;
   logLines: ReadonlyArray<PreviewLogLine>;
@@ -85,6 +88,7 @@ export function usePreviewController(
   workspaceId: string | null,
   { active = true, logs = true }: PreviewControllerOptions = {},
 ): PreviewController {
+  const home = useOptionalHomeContext();
   const { data: ws } = useWorkspace(workspaceId);
   const command = ws?.startCommand?.trim() ? ws.startCommand : null;
   const hasSetupCommand = !!ws?.setupCommand?.trim();
@@ -99,7 +103,7 @@ export function usePreviewController(
   );
 
   // Reachability is fixed for the mount: it depends on where the browser is.
-  const mode = useMemo(() => pickReachability(), []);
+  const viewerMode = useMemo(() => pickReachability(), []);
 
   // Poll fast for 30s after Start / Retry so the status flips promptly.
   const [fastPolling, setFastPolling] = useState(false);
@@ -121,6 +125,7 @@ export function usePreviewController(
     refetchInterval: !active ? false : fastPolling ? 1_500 : 4_000,
   });
   const state = stateQuery.data ?? null;
+  const mode = viewerMode;
 
   const startMut = useStartPreview(executionId);
   const stopMut = useStopPreview(executionId);
@@ -151,17 +156,17 @@ export function usePreviewController(
 
   const resolved = useMemo(() => {
     const stateForResolve: PreviewState | null = state
-      ? { ...state, remoteUrl: remoteResolvedUrl, remoteError: remoteResolvedError ?? state.remoteError }
+      ? { ...state, remoteUrl: remoteResolvedUrl ?? state.remoteUrl ?? (state.elsewhere ? pastedUrl(state) : null), remoteError: remoteResolvedError ?? state.remoteError }
       : null;
     return resolvePreviewSrc(stateForResolve);
   }, [remoteResolvedError, remoteResolvedUrl, state]);
-  const remoteError = remoteResolvedError ?? state?.remoteError ?? null;
+  const remoteError: PreviewRemoteError | null = resolved.reason === 'unsafe_url' ? { code: 'preview_origin', message: 'Choose an HTTP or HTTPS preview URL on a different origin from Ri.', hint: 'Use the app’s own port or a reachable worker URL.' } : remoteResolvedError ?? state?.remoteError ?? null;
 
-  const startRemoteAware = useCallback(() => {
+  const startRemoteAware = useCallback((resolveOnly = false) => {
     setActionError(null);
     if (mode === 'remote') setRemoteResolved(null);
     startMut.mutate(
-      { remote: mode === 'remote' },
+      { remote: mode === 'remote', ...(resolveOnly ? { resolveOnly: true } : {}) },
       {
         onSuccess: (data) => {
           if (mode === 'remote' && executionId) {
@@ -214,7 +219,7 @@ export function usePreviewController(
     if (mode !== 'remote' || !executionId || startMut.isPending) return;
     const serverUp = state?.serverStatus === 'running';
     if (!serverUp && providerNeedsServer && !hasManualUrl) return;
-    startRemoteAware();
+    startRemoteAware(true);
   }, [executionId, hasManualUrl, mode, providerNeedsServer, startMut.isPending, startRemoteAware, state?.serverStatus]);
 
   const saveUrls = useCallback(
@@ -223,7 +228,7 @@ export function usePreviewController(
       // A manual URL resolves without the server. Anything else waits for Run.
       if (mode === 'remote') {
         const setsManual = urls.some((u) => (u.service ?? null) === null && !!u.url?.trim());
-        if (setsManual || state?.serverStatus === 'running') startRemoteAware();
+        if (setsManual || state?.serverStatus === 'running') startRemoteAware(true);
         else setRemoteResolved(null);
       }
     },
@@ -248,12 +253,13 @@ export function usePreviewController(
     isStopping: stopMut.isPending,
     actionError,
     // Elsewhere, only the address pasted for it: nothing runs here to show.
-    url: elsewhere ? pastedUrl(state) : resolved.url,
+    url: resolved.url,
     urlMode: resolved.mode,
     remoteError,
     isResolvingRemote: startMut.isPending && mode === 'remote',
+    hasResolvedRemote: remoteResolved?.executionId === executionId,
     providerLabel: state?.activeRemoteProviderLabel ?? 'Remote',
-    canShare: isRunning && !!executionId,
+    canShare: isRunning && !!executionId && (home?.capabilities.privatePlanning ?? true),
     logLines,
     reloadKey,
     isSavingCommand: updateWorkspace.isPending,

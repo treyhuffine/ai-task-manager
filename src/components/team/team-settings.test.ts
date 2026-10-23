@@ -1,3 +1,4 @@
+vi.mock('@/components/home/home-context', () => ({ useHomeContext: () => ({ capabilities: { administerMembers: mocks.role === 'owner', configureAgents: mocks.role === 'owner' } }) }));
 import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -44,9 +45,15 @@ beforeEach(() => {
   mocks.initialSection = 'general';
   mocks.createLink.mockResolvedValue({ link: 'https://localhost:42242/join#sign-in=secret', reachable: false, expiresAt: '2030-01-01' });
   const { window, document } = parseHTML('<!doctype html><html><body></body></html>');
+  // Radix's form bridge uses the native checked setter, absent in linkedom.
+  Object.defineProperty(window.HTMLInputElement.prototype, 'checked', {
+    configurable: true, get() { return this.hasAttribute('checked'); },
+    set(value: boolean) { if (value) this.setAttribute('checked', ''); else this.removeAttribute('checked'); },
+  });
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
   vi.stubGlobal('window', window);
   vi.stubGlobal('document', document);
+  vi.stubGlobal('Event', window.Event);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   container = document.createElement('div');
   root = createRoot(container);
@@ -90,7 +97,7 @@ it('separates built-in AI, external assistants and remote access into named sect
   expect(container.querySelector<HTMLElement>('[data-team-settings-section=ai]')?.hidden).toBe(false);
   expect(container.querySelector<HTMLElement>('[data-team-settings-section=ai]')?.textContent).toBe('Team AI');
   expect(container.textContent).not.toContain('Connect your AI');
-  await click('External AI');
+  await click('MCP access');
   expect(container.querySelector<HTMLElement>('[data-team-settings-section=ai]')?.hidden).toBe(true);
   expect(container.querySelector<HTMLElement>('[data-team-settings-section=external-ai]')?.textContent).toBe('Connect your AI');
   await click('Remote access');

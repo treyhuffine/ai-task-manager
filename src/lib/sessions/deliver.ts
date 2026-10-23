@@ -10,7 +10,13 @@ import { getExecution } from '@/lib/db/queries';
 import { ensureWorktreeReady } from '@/lib/runs/dispatch';
 import * as executor from '@/lib/executor/adapter';
 
-export function dispatchSessionTurn(sessionId: string, executionId: string | null, text: string): void {
+export function dispatchSessionTurn(sessionId: string, executionId: string | null, text: string, options: { onFailure?: (reason: string) => void } = {}): void {
+  let taken = false;
+  const failed = (reason: string) => {
+    if (taken) return;
+    try { options.onFailure?.(reason); }
+    catch (error) { console.error(`[sessions] recording refused notification for ${sessionId} failed:`, error); }
+  };
   // Cover the accepted-message -> worktree/provider preparation gap. The
   // nested dispatch takes its own reference, so the runtime flag remains
   // true until both preparation and the actual root turn have settled.
@@ -38,14 +44,16 @@ export function dispatchSessionTurn(sessionId: string, executionId: string | nul
       const ready = await ensureWorktreeReady(sessionId, execution ?? null);
       if (!ready.ok) {
         console.error(`[sessions] worktree not ready for ${sessionId}: ${ready.error}`);
+        failed(ready.error);
         return;
       }
-      await executor.dispatch(sessionId, text, { onQueued: release });
+      await executor.dispatch(sessionId, text, { onQueued: release, onTaken: () => { taken = true; } });
     } finally {
       release();
     }
   })().catch((err) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[sessions] dispatch failed for ${sessionId}:`, msg);
+    failed(msg);
   });
 }

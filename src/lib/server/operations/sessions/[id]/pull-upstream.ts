@@ -1,3 +1,7 @@
+import { recordHomeActivity } from '@/lib/home/activity';
+import { sessionAuthority } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 import { actorFromRequest } from '@/lib/auth/actor';
 import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import { gitOnOwner } from '@/lib/executor/owner-git';
@@ -18,6 +22,7 @@ import { z as rpcZ } from 'zod/v4';
 async function handlePOST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const activity = sessionAuthority(getRequestKey(request.headers), id, 'terminal');
     const body: { strategy?: 'merge' | 'rebase' } = rpcInput.body;
     const strategy = body.strategy ?? 'merge';
 
@@ -30,7 +35,7 @@ async function handlePOST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Opera
         { timeoutMs: 180_000, what: 'Pulling the branch', actor: actorFromRequest(request.headers) },
       );
       if (there) {
-        if (there.ok) return reply({ ok: true });
+        if (there.ok) { recordHomeActivity(activity, 'pull_upstream', id, 'git_change'); return reply({ ok: true }); }
         const failed = (await there.response.json()) as { error: string; message: string };
         if (failed.error === 'merge_conflict') {
           return reply({ error: 'MergeConflictError', code: 'merge_conflict', message: failed.message }, { status: 409 });
@@ -50,8 +55,11 @@ async function handlePOST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Opera
     }
 
     await pullUpstreamInto(handle, { strategy });
+    recordHomeActivity(activity, 'pull_upstream', id, 'git_change');
     return reply({ ok: true });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     if (err instanceof Error && err.name === 'MergeConflictError') {
       return reply(
         { error: 'MergeConflictError', code: 'merge_conflict', message: err.message },

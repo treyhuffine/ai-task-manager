@@ -111,22 +111,22 @@ export interface HomeServer {
 }
 
 /** Request bodies as text: every route served here takes JSON. */
-async function readBody(req: http.IncomingMessage): Promise<string | null> {
+async function readBody(req: http.IncomingMessage): Promise<Buffer | null> {
   if (req.method === 'GET' || req.method === 'HEAD') return null;
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
-  return chunks.length ? Buffer.concat(chunks).toString('utf8') : null;
+  return chunks.length ? Buffer.concat(chunks) : null;
 }
 
 /** The request the route sees: the headers the proxy set, none it removed. */
-function forwardedRequest(url: string, method: string, proxied: Response, body: string | null, signal: AbortSignal): NextRequest {
+function forwardedRequest(url: string, method: string, proxied: Response, body: Buffer | null, signal: AbortSignal): NextRequest {
   const headers = new Headers();
   const names = proxied.headers.get('x-middleware-override-headers')?.split(',') ?? [];
   for (const name of names) {
     const value = proxied.headers.get(`x-middleware-request-${name}`);
     if (value !== null) headers.set(name, value);
   }
-  return new NextRequest(url, { method, headers, body: body ?? undefined, signal });
+  return new NextRequest(url, { method, headers, body: body ? new Uint8Array(body) : undefined, signal });
 }
 
 async function send(res: http.ServerResponse, response: Response): Promise<void> {
@@ -150,8 +150,14 @@ async function send(res: http.ServerResponse, response: Response): Promise<void>
 }
 
 /** `port` restarts a home on the address it had, as after an outage. */
-export async function startHomeServer(opts: { port?: number } = {}): Promise<HomeServer> {
+export async function startHomeServer(opts: { port?: number; websocket?: boolean } = {}): Promise<HomeServer> {
   const { proxy } = await import('@/proxy');
+  // The real server loads recovery before readiness. Finish this dependency
+  // graph before handling events, so a final worker event cannot outlive the
+  // fixture while still importing its completion operations.
+  await import('@/lib/executor/adapter');
+  await import('@/lib/work-results/runtime');
+  await import('@/lib/work-results/automatic');
   const sockets = new Set<import('node:net').Socket>();
   const server = http.createServer(async (req, res) => {
     const controller = new AbortController();
@@ -165,7 +171,7 @@ export async function startHomeServer(opts: { port?: number } = {}): Promise<Hom
         if (typeof value === 'string') headers.set(name, value);
         else if (Array.isArray(value)) headers.set(name, value.join(', '));
       }
-      const proxied = proxy(new NextRequest(url, { method, headers, body: body ?? undefined }));
+      const proxied = proxy(new NextRequest(url, { method, headers, body: body ? new Uint8Array(body) : undefined }));
       if (proxied.headers.get('x-middleware-next') !== '1') return await send(res, proxied);
 
       const pathname = new URL(url).pathname;
@@ -192,14 +198,23 @@ export async function startHomeServer(opts: { port?: number } = {}): Promise<Hom
     sockets.add(socket);
     socket.on('close', () => sockets.delete(socket));
   });
+  let websocket: import('@/lib/trpc/ws-runtime').WebSocketRuntime | undefined;
+  if (opts.websocket) {
+    const { createWebSocketServer } = await import('@/lib/trpc/ws-server');
+    const { appRouter } = await import('@/lib/trpc/router');
+    websocket = createWebSocketServer(appRouter);
+    server.on('upgrade', (request, socket, head) => websocket!.upgrade(request, socket, head));
+  }
   await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}`,
-    close: () =>
-      new Promise<void>((resolve) => {
+    close: async () => {
+      await websocket?.close();
+      return new Promise<void>((resolve) => {
         for (const socket of sockets) socket.destroy();
         server.close(() => resolve());
-      }),
+      });
+    },
   };
 }

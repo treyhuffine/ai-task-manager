@@ -48,6 +48,7 @@ export async function register() {
   // Home identity (docs/homes-spec.md §10.3). A root whose data came from
   // another device does not act as the home: no background work starts,
   // and the API answers 503 until someone runs `ri home claim`.
+  let teamHome = false;
   try {
     const { ensureHomeIdentity } = await import('@/lib/home/identity');
     const identity = ensureHomeIdentity();
@@ -55,36 +56,22 @@ export async function register() {
     // A team space starts only what a team uses (docs/homes-spec.md §9.2,
     // P6.3): no harness, schedule, import, embedding, app runtime or other
     // personal work, from its very first start. Everything below is personal.
-    if (identity.home.kind === 'team') {
-      const { startTeamSpace } = await import('@/lib/team/startup');
-      await startTeamSpace();
-      return;
-    }
+    teamHome = identity.home.kind === 'team';
   } catch (err) {
     console.error(`[home] not acting as the home: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
 
+  if (teamHome) {
+    await (await import('@/lib/team/startup')).startTeamSpace();
+    return;
+  }
+  await (await import('@/lib/home/execution-startup')).startHomeExecutionRuntime();
+
   const { localAppsEnabled } = await import('@/lib/config/features');
   if (localAppsEnabled()) {
     try { await (await import('@/lib/local-apps/service')).localApps().initialize(); }
     catch (error) { console.error('[local-apps] startup failed', error instanceof Error ? error.message : 'App registry could not start'); }
-  }
-
-  // Stop the harnesses a previous server left running, before anything here
-  // can send. It died without closing them, so each worked on through its
-  // turn unseen, and the chat's next message would start a second one on the
-  // same session. Then this server stops its own when it exits
-  // (src/lib/runner/harness-processes.ts). Awaited: startup waits for it.
-  try {
-    const { stopOrphanedHarnesses, installHarnessExitHook } = await import('@/lib/runner/harness-processes');
-    const stopped = await stopOrphanedHarnesses();
-    if (stopped.length > 0) {
-      console.warn(`[runner] stopped ${stopped.length} harness process(es) the previous server left running: ${stopped.join(', ')}`);
-    }
-    await installHarnessExitHook();
-  } catch (err) {
-    console.warn('[runner] stopping leftover harnesses failed', err);
   }
 
   // Every agent's folders are in the home's records (docs/homes-spec.md
@@ -108,16 +95,6 @@ export async function register() {
     await initMirror();
   } catch (err) {
     console.warn('[mirror] init failed', err);
-  }
-
-  // Retire interrupted result-origin deliveries before generic orphan healing
-  // can see their user messages. Retained records stay inspectable when off.
-  try {
-    const { recoverWorkResultOperations, reconcileWorkResultCapabilities } = await import('@/lib/work-results/runtime');
-    recoverWorkResultOperations();
-    reconcileWorkResultCapabilities();
-  } catch (err) {
-    console.warn('[results] startup recovery failed', err);
   }
 
   // Sweep active Claude sessions against their on-disk JSONL transcripts
@@ -210,7 +187,7 @@ export async function register() {
   // the previous sweep is still running (slow reconcile on cold
   // disks, etc.).
   try {
-    const { listRunningSessions, closeIdleSessions } = await import('@/lib/executor/adapter');
+    const { listRunningSessions } = await import('@/lib/executor/adapter');
     const { healthCheckSession } = await import('@/lib/executor/health');
     const HEALTH_SWEEP_INTERVAL_MS = 60_000;
     let sweeping = false;
@@ -225,14 +202,7 @@ export async function register() {
             console.warn(`[health] background sweep failed for ${id}:`, err);
           }
         }
-        // A harness nobody has used for a while holds a process for nothing.
-        // Closing it is safe: the next message resumes its native session.
-        try {
-          const closed = await closeIdleSessions();
-          if (closed.length > 0) console.log(`[health] closed ${closed.length} idle session(s)`);
-        } catch (err) {
-          console.warn('[health] idle close failed:', err);
-        }
+
       } finally {
         sweeping = false;
       }
@@ -241,54 +211,6 @@ export async function register() {
     interval.unref?.();
   } catch (err) {
     console.warn('[health] background sweep init failed', err);
-  }
-
-  // Reset orphaned background setup scripts. A `setupScriptStatus='running'`
-  // at boot means the runner died with the previous server process (restart /
-  // crash mid-install), so it can never resolve — the UI would spin on
-  // "Running setup script…" forever. Flip to failed-with-retry instead.
-  try {
-    const { resetOrphanedSetupScripts } = await import('@/lib/db/queries');
-    const n = resetOrphanedSetupScripts();
-    if (n > 0) console.log(`[setup] reset ${n} orphaned 'running' setup script(s) from a prior run`);
-  } catch (err) {
-    console.warn('[setup] orphaned-setup reset failed', err);
-  }
-
-  // Reap orphaned preview processes from a prior Ri run that crashed
-  // or restarted without a clean stop. The PID files we wrote at spawn
-  // time tell us what to look for; we kill the process group only when
-  // the live command line still matches what we recorded, so PID
-  // recycling can't make us nuke an unrelated process.
-  try {
-    const { sweepOrphans } = await import('@/lib/preview/pid-store');
-    sweepOrphans()
-      .then((stats) => {
-        if (stats.checked > 0) {
-          console.log(
-            `[preview] orphan sweep: checked=${stats.checked} killed=${stats.killed} skipped=${stats.skipped}`,
-          );
-        }
-      })
-      .catch((err) => {
-        console.warn('[preview] orphan sweep failed', err);
-      });
-  } catch (err) {
-    console.warn('[preview] orphan sweep init failed', err);
-  }
-
-  // Register built-in preview providers (localhost / beamd / portless /
-  // manual) and start the idle-evict loop: after N idle minutes, stop the
-  // server and close its tunnel, keeping the name/URL reserved so the next
-  // view cold-starts the same URL. Keeps an overnight queue of finished
-  // tasks from melting the host. No eager bring-up on boot — bring-up is
-  // lazy on first resolve (see docs/preview-system-spec.md §2/§4).
-  try {
-    await import('@/lib/preview/providers'); // side-effect: register built-ins
-    const { startIdleEvictLoop } = await import('@/lib/preview/service');
-    startIdleEvictLoop();
-  } catch (err) {
-    console.warn('[preview] provider/idle-evict init failed', err);
   }
 
   // Wire the live calendar integration into the deck's calendar seam so the
@@ -300,19 +222,6 @@ export async function register() {
     ensureCalendarProvider();
   } catch (err) {
     console.warn('[calendar] provider init failed', err);
-  }
-
-  // Best-effort: stop every supervised preview when Ri is asked to
-  // exit cleanly. SIGTERM/SIGINT only — Node can't intercept SIGKILL.
-  // Lives in a dynamically-imported module because Next.js's Edge
-  // runtime build statically rejects `process.once` / `process.exit`
-  // in this file's body even though the early-return above guarantees
-  // they never run in the Edge runtime.
-  try {
-    const { installShutdownHook } = await import('@/lib/preview/shutdown');
-    installShutdownHook();
-  } catch (err) {
-    console.warn('[preview] shutdown hook init failed', err);
   }
 
   // "Keep Ri reachable": when the user opted in, re-open the app's own beamd

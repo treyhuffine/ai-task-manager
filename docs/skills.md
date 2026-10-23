@@ -126,7 +126,7 @@ manage tasks and notes from any project. That global install:
   home) is never switched on, since the global skills belong to whichever Ri
   installed them.
 - Is shown, with one-click install and uninstall, in two places: a Get started
-  item (usually where someone learns it's on) and External AI, its home, next
+  item (usually where someone learns it's on) and MCP access, its home, next
   to the keyed connections for assistants elsewhere
   (`src/components/settings/agent-skill-access.tsx`). Models no longer carries it.
 - Reports what's on disk, not the saved choice (`inspectGlobalSkills`): a
@@ -277,7 +277,7 @@ home backups and comparisons include `skill-drafts` (`src/lib/home/`).
 | `src/lib/skills/exclusions.ts` | What a builder or try chat gets differently |
 | `src/lib/skills/builder-brief.ts` | The builder chat's brief |
 | `src/lib/agent-skills/shipped.ts` | Ri's shipped skills: materializing, the home links, the global links and copies, `inspectGlobalSkills` |
-| `src/components/settings/agent-skill-access.tsx` | The one-click install and uninstall in Get started and External AI |
+| `src/components/settings/agent-skill-access.tsx` | The one-click install and uninstall in Get started and MCP access |
 
 ## Not built yet
 
@@ -293,3 +293,12 @@ home backups and comparisons include `skill-drafts` (`src/lib/home/`).
   anywhere, from that device's own folders.
 - **Plugin bundles.** Installing Claude Code or Cursor plugins (skills plus
   integrations plus commands) as one unit.
+
+
+## Shared Home library
+
+A Team Home uses the same catalog, file editor and management operations. Owners create unused drafts and install valid skills into the Home library. Members can inspect installed skills. Team requests never discover or manage the computer’s global or private project libraries, and responses use virtual Home paths. Manual editing and installation work while AI is off.
+
+Each admitted worker turn receives an immutable snapshot of installed shared skills through the ordinary runner instructions. Resources are staged read-only in the controller policy. Executable files retain their executable bit. Hidden files, symlinks, malformed instructions and escaping resource paths are refused. A grant supports at most 64 skills, 200 regular files in total, 1 MiB per file and 2 MiB total. The skill cannot expand the chat’s account, tool, folder or member authority. Changing, installing, uninstalling or archiving an installed skill cancels existing shared work before acknowledgment. Draft edits do not cancel work. Send a new message to use the current library.
+
+The common editor retains unacknowledged drafts by Home and member before its debounce. Reopening offers recovery explicitly. A changed sign-in cannot submit the original author’s draft. Hash conflicts pause saving until the person selects a version, and mode changes or location changes wait for the document save handshake.

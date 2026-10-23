@@ -77,3 +77,20 @@ describe('provider effort memory', () => {
     expect(readProviderEffort('codex')).toBe('high');
   });
 });
+
+
+it('keeps remembered effort private to each Home and member without changing the personal key', () => {
+  const store = stubStorage();
+  const maya = { homeId: 'team-a', viewerId: 'maya' };
+  const trey = { homeId: 'team-a', viewerId: 'trey' };
+  const another = { homeId: 'team-b', viewerId: 'maya' };
+  writeProviderEffort('codex', 'ultra');
+  expect(readProviderEffort('codex', maya)).toBeNull();
+  writeProviderEffort('codex', 'low', maya);
+  writeProviderEffort('codex', 'high', trey);
+  expect(readProviderEffort('codex', maya)).toBe('low');
+  expect(readProviderEffort('codex', trey)).toBe('high');
+  expect(readProviderEffort('codex', another)).toBeNull();
+  expect(readProviderEffort('codex')).toBe('ultra');
+  expect(store.get(KEY)).toBe(JSON.stringify({ codex: 'ultra' }));
+});

@@ -1,3 +1,5 @@
+import { getRequestKey } from '@/lib/auth/request-key';
+import { workspaceAuthority, executionOperationFailure } from '@/lib/workspaces/access';
 import { getWorkspace, listWorkspaceExecutionTasks } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -9,12 +11,15 @@ import { z as rpcZ } from 'zod/v4';
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    workspaceAuthority(getRequestKey(request.headers), id, 'read');
     if (!getWorkspace(id)) return reply({ error: 'Workspace not found' }, { status: 404 });
     return reply({ tasks: listWorkspaceExecutionTasks(id) });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/workspaces/:id/tasks]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

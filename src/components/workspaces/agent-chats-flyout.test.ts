@@ -42,7 +42,7 @@ beforeAll(async () => {
       const [state,setState]=useState({collapsed:true,selecting:false,empty:false,many:false});
       const [activeView,navigate]=useState({kind:'home'});
       window.fixture={patch:patch=>setState(prev=>({...prev,...patch})),navigate};
-      const value={state,activeView,setActiveView:view=>{record('navigate',view);navigate(view)},
+      const value={state,activeView,setActiveView:view=>{record('navigate',view);history.pushState({},'',location.pathname+'?session='+view.id);dispatchEvent(new PopStateEvent('popstate'));navigate(view)},
         workspace:{id:'agent',name:'Review agent',purpose:null,isGit:true,attachments:[],emoji:null,areaId:null,collapsed:state.collapsed},
         sessions:state.empty?[]:state.many?[...rows,...Array.from({length:80},(_,i)=>({
           ...rows[0],id:'extra-'+i,label:'Chat '+i,executionId:'extra-'+i,execution:{label:'Chat '+i,pinnedAt:null},
@@ -111,6 +111,8 @@ beforeAll(async () => {
       onResolve(options: { filter: RegExp }, callback: () => { path: string; namespace: string }): void;
       onLoad(options: { filter: RegExp; namespace: string }, callback: () => { contents: string; loader: string; resolveDir: string }): void;
     }) {
+      api.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: 'navigation', namespace: 'navigation' }));
+      api.onLoad({ filter: /.*/, namespace: 'navigation' }, () => ({ loader: 'tsx', resolveDir: process.cwd(), contents: `import {useSyncExternalStore} from 'react';const subscribe=fn=>{addEventListener('popstate',fn);return()=>removeEventListener('popstate',fn)};export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(useSyncExternalStore(subscribe,()=>location.search));` }));
       api.onResolve({ filter: /^(?:fixture-hooks|@\/contexts\/dashboard-context|@\/hooks\/use-(?:workspaces|inactivity|areas|archive-execution)|@\/lib\/client\/agent-view-mode|\.\/workspace-selection-context)$/ },
         () => ({ path: 'fixture-hooks', namespace: 'fixture' }));
       api.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: fixture, loader: 'tsx', resolveDir: process.cwd() }));
@@ -125,7 +127,7 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   browser = await chromium.launch({
-    executablePath: chromium.executablePath(),
+    executablePath: process.env.RI_REVIEW_CHROMIUM,
     headless: true,
   });
 }, 30_000);

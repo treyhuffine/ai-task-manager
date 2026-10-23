@@ -4,7 +4,7 @@ import { Suspense, useEffect, useSyncExternalStore } from 'react';
 import { PAIRING_TOKEN_FRAGMENT_KEY } from '@/constants/app';
 import { getAuthToken, TEAM_SIGNED_OUT_EVENT } from '@/lib/api/client';
 import { keepTeamSignIn } from '@/lib/team/client';
-import { TeamShell } from './team-shell';
+import { TeamHome } from '@/components/home/team-home';
 import { TeamSignedOut } from './team-signed-out';
 
 function subscribe(listener: () => void) {
@@ -37,7 +37,7 @@ export function TeamApp() {
   if (!token) return <TeamSignedOut />;
   return (
     <Suspense fallback={null}>
-      <TeamShell />
+      <TeamHome />
     </Suspense>
   );
 }

@@ -16,9 +16,9 @@ Examples are always available with fictional records, independent of installed
 apps and real account access. The gallery is a reference, not a report of what
 the current Home has installed or enabled.
 
-The examples cover email, questions, tool permissions, account approvals,
+The examples cover shared conversations, email, questions, tool permissions, account approvals,
 account access, entity references, edit comparisons, attachments, HTML artifacts,
-handoffs, messages between chats, transcript activity, model controls, connected app results and app-kit components.
+handoffs, messages between chats, transcript activity, model controls, service forms, app context and messages, connected app results and app-kit components.
 
 ## Where the UI lives
 
@@ -38,6 +38,9 @@ Built-in interfaces share one home at `src/components/chat-ui/`:
 - Entity comparisons, undo and history: `edits/`.
 - Saved handoffs, feedback and review controls: `handoffs/`.
 - Transcript events, grouping and background task displays: `activity/`.
+- Shared transcript paging, scrolling and contextual authorship: `chat-transcript.tsx`.
+- Explicit saved conversations use `AgentView` → `AgentChatPanel` → `HarnessChatSession`. Team chat conversion retains the conversation ID and uses that same surface. Only unconverted restricted chats retain their narrow data adapter.
+- Shared composer and model selection: `chat-composer.tsx` and the `model-menu/` components. The shared-conversation example uses the real editor, retains visible member authors and shows saved history with AI off.
 - Message presentation and controls: `messages/`.
 - Combined model, effort, variant and speed controls: `model-menu/`.
 
@@ -49,7 +52,7 @@ and page-level lists stay with the features that place these components.
 
 Separately owned UI keeps its boundaries:
 
-- Connected app views: `src/components/mcp-apps/` and `packages/mcp-apps-host/`.
+- Connected app views: `src/components/mcp-apps/` and `packages/mcp-apps-host/`. Service forms stay in `src/components/mcp-apps/form/`, shared with those view hosts and rendered by the common transcript.
 - Local app companions: `src/components/local-apps/`.
 - Optional app-author components: `packages/app-kit/src/ui/`.
 
@@ -77,7 +80,7 @@ HTML previews resolve one fictional file
 through a build-only folder URL adapter to a local blob document. The native
 HTML viewer and thumbnail renderer stay unchanged. No request is sent to the Home.
 
-Question answers, approvals, undo, handoff decisions and email sends update
+Question answers, service form answers, approvals, undo, handoff decisions and email sends update
 only fixture state. The preview logs the simulated outcome. Connected app
 examples use the actual MCP view host with a self-contained calculator resource
 prepared by the existing resource validator. App-kit examples use its existing
@@ -126,3 +129,10 @@ interactions, checks light/dark and desktop/phone layouts, and rejects real API
 traffic or missing fixture operations. Screenshots go to
 `.work/chat-ui-gallery/`. For iteration against already-generated previews, the
 browser script accepts `--skip-build`.
+
+The service-form example renders through `ChatTranscript` and `ExecutionEvent`,
+using the real `ConnectedForm` and shared schema validator. Its open, accepted,
+declined and expired states include the stored outcome. Browser smoke covers
+required-field validation, submit, decline, reload states and 390px layouts.
+The connected-app fixture answers its form-state poll locally, without a live
+service. The full gallery now has seventeen examples.

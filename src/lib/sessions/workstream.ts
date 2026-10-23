@@ -42,6 +42,7 @@ export type RuntimeChoice = 'keep_running' | 'stop_running_agent';
 export interface ScopeChange {
   taskId: string;
   taskTitle: string;
+  actorMemberId?: string;
   action: 'completed' | 'archived' | 'returned to Todo';
 }
 

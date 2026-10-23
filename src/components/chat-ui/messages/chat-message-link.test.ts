@@ -4,11 +4,11 @@ import { parseHTML } from 'linkedom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatMessageLink } from './chat-message-link';
 
-const state = vi.hoisted(() => ({ session: null as unknown, error: null as unknown, navigate: vi.fn() }));
+const state = vi.hoisted(() => ({ session: null as unknown, error: null as unknown, navigate: vi.fn(), canNavigate: true }));
 vi.mock('@/hooks/use-execution', () => ({ useSession: () => ({ data: state.session, error: state.error }) }));
 vi.mock('@/hooks/use-workspaces', () => ({ useWorkspace: () => ({ data: { name: 'Research' } }) }));
 vi.mock('@/hooks/use-user-state', () => ({ useOrchestratorName: () => 'Ri' }));
-vi.mock('@/contexts/dashboard-context', () => ({ useOptionalDashboard: () => ({ setActiveView: state.navigate }) }));
+vi.mock('@/contexts/work-context', () => ({ useOptionalWorkNavigation: () => ({ openLinkedChat: state.canNavigate ? (id: string, eventId?: string) => state.navigate({ kind: 'execution', id, ...(eventId ? { eventId } : {}), history: true }) : undefined }) }));
 vi.mock('@/components/ui/tip', () => ({ Tip: ({ children }: { children: unknown }) => children }));
 vi.mock('next/link', () => ({ default: (props: Record<string, unknown>) => {
   const attributes = { ...props };
@@ -27,6 +27,7 @@ beforeEach(() => {
   root = createRoot(container);
   state.session = { id: 'peer-chat', type: 'execution', label: 'Review date handling', workspaceId: 'research' };
   state.error = null;
+  state.canNavigate = true;
   state.navigate.mockReset();
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.unstubAllGlobals(); });
@@ -76,4 +77,14 @@ describe('linked chat identity', () => {
     expect(container.querySelector('a')?.textContent).toContain('Review date handling');
     expect(container.textContent).not.toContain('Deleted chat');
   });
+});
+
+it('preserves native Home navigation when the document has no exact-link callback', async () => {
+  state.canNavigate = false;
+  await act(async () => root.render(createElement(ChatMessageLink, { sessionId: 'peer-chat', eventId: 'old-message', label: 'Sent to', direction: 'outgoing' })));
+  const event = Object.assign(new window.Event('click', { bubbles: true, cancelable: true }), { button: 0 });
+  await act(async () => { container.querySelector('a')!.dispatchEvent(event); });
+  expect(event.defaultPrevented).toBe(false);
+  expect(container.querySelector('a')?.getAttribute('href')).toBe('/?session=peer-chat&message=old-message&history=1');
+  expect(state.navigate).not.toHaveBeenCalled();
 });

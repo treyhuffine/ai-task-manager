@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { HomeLink as Link } from '@/components/home/home-link';
 import { FileCheck2 } from 'lucide-react';
 import { useResultCapabilities, useResults } from '@/hooks/use-results';
 

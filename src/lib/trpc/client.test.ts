@@ -1,3 +1,4 @@
+import { API_PROTOCOL } from '@/lib/releases/api-contract';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ApiClient, apiErrorText, apiErrorCode } from '@/lib/api/client';
 import { apiErrorStatus } from '@/lib/api/error-status';
@@ -14,7 +15,7 @@ it('uses the correct endpoint with the shared auth/protocol transport', async ()
   await expect(client.tasks.list.query()).resolves.toEqual([]);
   const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
   expect(new URL(url).pathname).toBe('/api/trpc/tasks.list');
-  expect(new Headers(init.headers).get('x-ri-api-protocol')).toBe('1');
+  expect(new Headers(init.headers).get('x-ri-api-protocol')).toBe(String(API_PROTOCOL));
 });
 
 it('retains a pre-adapter protocol refusal and never retries a mutation or clears authentication', async () => {

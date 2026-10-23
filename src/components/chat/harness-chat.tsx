@@ -25,13 +25,21 @@ import {
 	useSession,
 	useSessionEvents,
 } from '@/hooks/use-execution';
-import { useMainChat, useNewMainChat, type MainChatScope } from '@/hooks/use-main-chat';
+import { useMainChat, useNewMainChat, createMainChat, switchToMainChat, type MainChatScope } from '@/hooks/use-main-chat';
 import { useSessionReconcile } from '@/hooks/use-session-reconcile';
 import { useSessionStream } from '@/hooks/use-session-stream';
 import { useMarkSessionRead } from '@/hooks/use-workspaces';
 import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import type { HarnessId } from '@/lib/harness/registry';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { trpcClient } from '@/lib/trpc/client';
+import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { toast } from 'sonner';
+import { ChatLookupState, ChatRefreshBoundary } from './chat-lookup-state';
+import { ChatRecovery } from '@/components/chat-ui/chat-recovery';
+import type { Attachment } from '@/db/types';
+import { RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 /**
@@ -66,19 +74,15 @@ export function HarnessChat({
   /** Drawn while the chat is empty, instead of `intro` (the main chat's first run). It reads the chat's send and draft through `useEmptyChatActions`. */
   emptyState?: React.ReactNode;
 }) {
-  const { data, isLoading, error, refetch } = useMainChat(scope);
+  const { data, error, refetch, fetchStatus } = useMainChat(scope);
   const newChat = useNewMainChat(scope);
-  const sessionId = data?.session.id ?? null;
+  const sessionId = data?.session?.id ?? null;
 
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 size={16} className="animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (!data) return <ChatLookupState paused={fetchStatus === 'paused'} error={error} retry={() => void refetch()} />;
 
-  if (error || !sessionId) {
+  if (data.session === null && scope) return <ChatRefreshBoundary error={error} retry={() => void refetch()}><NewAgentConversation scope={scope} placeholder={composerPlaceholder} /></ChatRefreshBoundary>;
+
+  if (!sessionId) {
     return (
       <div className="flex-1 flex items-center justify-center text-center px-8">
         <div>
@@ -102,7 +106,7 @@ export function HarnessChat({
   }
 
   return (
-    <HarnessChatSession
+    <ChatRefreshBoundary error={error} retry={() => void refetch()}><HarnessChatSession
       sessionId={sessionId}
       isMobile={isMobile}
       composerPlaceholder={composerPlaceholder}
@@ -117,7 +121,7 @@ export function HarnessChat({
         serviceTier: next.serviceTier,
       })}
       switchingProvider={newChat.isPending}
-    />
+    /></ChatRefreshBoundary>
   );
 }
 
@@ -128,16 +132,7 @@ export function HarnessChat({
  * `type='content'` chat (see slideout-chat.tsx). Everything it needs is
  * keyed off the session id, so the same component drives either.
  */
-export function HarnessChatSession({
-  sessionId,
-  isMobile = false,
-  autoFocusComposer = true,
-  composerPlaceholder,
-  intro,
-  emptyState,
-  onSwitchProvider,
-  switchingProvider,
-}: {
+type HarnessChatSessionProps = {
   sessionId: string;
   isMobile?: boolean;
   /** Placeholder for the composer. The agent-first entity view passes
@@ -160,8 +155,23 @@ export function HarnessChatSession({
     effort?: EffortLevel; serviceTier?: string;
   }) => void;
   switchingProvider?: boolean;
-}) {
-  const { data: session } = useSession(sessionId);
+};
+
+export function HarnessChatSession(props: HarnessChatSessionProps) {
+  return <ChatSession key={props.sessionId} {...props} />;
+}
+
+function ChatSession({
+  sessionId,
+  isMobile = false,
+  autoFocusComposer = true,
+  composerPlaceholder,
+  intro,
+  emptyState,
+  onSwitchProvider,
+  switchingProvider,
+}: HarnessChatSessionProps) {
+  const { data: session, error: sessionError, fetchStatus, refetch } = useSession(sessionId);
   const { data: runtime } = useRuntimeStatus(sessionId);
   // Live event stream — appends rows into the events cache as the
   // executor writes them (same transport as the execution view).
@@ -210,16 +220,11 @@ export function HarnessChatSession({
     prevRunningRef.current = isRunning;
   }, [isRunning, sessionId]);
 
-  if (!session) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 size={16} className="animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (!session) return <ChatLookupState paused={fetchStatus === 'paused'} error={sessionError} retry={() => void refetch()} />;
 
   return (
     <AppCompanion chatId={sessionId} surfaceKind={session.surfaceKind}>
+      <ChatRefreshBoundary error={sessionError} retry={() => void refetch()}>
     <ChatDropZone
       className="flex flex-1 min-h-0 flex-col"
       onFiles={(files) => {
@@ -246,6 +251,7 @@ export function HarnessChatSession({
         />
       )}
       <div className="flex-shrink-0 bg-background">
+        <ChatRecovery sessionId={session.id} runtime={runtime} onRestart={sendMessage.reset} active={session.type === 'orchestration' && !session.executionId && Boolean(isRunning || runtime?.backgroundTasks || sendMessage.isError)} />
         <PendingInputArea sessionId={session.id} />
         <BackgroundTasksBar
           sessionId={session.id}
@@ -282,12 +288,38 @@ export function HarnessChatSession({
               });
             }
           }}
-          onStop={async () => {
+          onStop={runtime?.canStop ? async () => {
             await interruptSession.mutateAsync();
-          }}
+          } : undefined}
         />
       </div>
     </ChatDropZone>
+      </ChatRefreshBoundary>
     </AppCompanion>
   );
+}
+
+/** Opening an agent is read-only. Its first message creates the shared chat. */
+function NewAgentConversation({ scope, placeholder }: { scope: string; placeholder?: string }) {
+  const cache = useQueryClient();
+  const home = useOptionalHomeContext();
+  const created = useRef<Awaited<ReturnType<typeof createMainChat>> | null>(null);
+  const choice = home?.executionChoices.find(value => value.kind === 'team_server');
+  const send = useMutation({
+    meta: { carriesInput: true },
+    mutationFn: async ({ content, attachments }: { content: string; attachments?: Attachment[] }) => {
+      const chat = created.current ?? await createMainChat(scope, {});
+      created.current = chat;
+      await trpcClient.sessions.messagesPost.mutate({ params: { id: chat.session.id }, body: { id: crypto.randomUUID(), content, attachments } });
+      return chat;
+    },
+    onSuccess: chat => switchToMainChat(cache, scope, chat),
+    onError: error => toast.error('Could not send your message', { description: apiErrorText(error) }),
+  });
+  return <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex-1 p-6 text-sm text-muted-foreground">Start a conversation. Everyone in this Home can read it.</div>
+    <ExecutionComposer sessionId="" draftKey={`main:new:${scope}`} permissionMode={DEFAULT_PERMISSION_MODE} model={null} effort={null} harness={null}
+      placeholder={placeholder} helperText="Starts with this Home's default model and permissions." disabled={send.isPending || choice?.available === false} disabledReason={choice?.unavailableReason ?? undefined}
+      onSend={(content, opts) => send.mutateAsync({ content, attachments: opts?.attachments }).then(() => {})} />
+  </div>;
 }

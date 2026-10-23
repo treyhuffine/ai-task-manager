@@ -261,7 +261,7 @@ async function activateChat(sessionId: string): Promise<void> {
     const admission = q.agentMessageAdmission(delivery.eventId);
     if (admission?.refusal) q.failAgentDelivery(delivery.id, admission.refusal);
   }
-  const pending = q.pendingAgentDeliveries(sessionId).filter(input => !input.nextAttemptAt || input.nextAttemptAt <= new Date().toISOString());
+  const pending = q.pendingAgentDeliveries(sessionId).filter(input => !input.payload.contextOnly && (!input.nextAttemptAt || input.nextAttemptAt <= new Date().toISOString()));
   const isBusy = await busy(sessionId);
   const human = pending.find(delivery => delivery.senderKind === 'human' && !inputIsPreparing(delivery.id));
   if (human) {

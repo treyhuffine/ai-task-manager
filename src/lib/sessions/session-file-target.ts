@@ -14,6 +14,8 @@
  *     of its file tools named it (`named-files.ts`).
  */
 
+import { sanitizeRelPath } from '@/lib/workspaces/read-file';
+import { executionResourcePolicy } from '@/lib/workspaces/access';
 import type { ChatSessionWithExecution } from '@/db/types';
 import { agentReplyMentions, fileToolCallNamed } from '@/lib/db/queries';
 import { preparedFolder } from '@/lib/executions/location';
@@ -32,12 +34,19 @@ export type SessionFileTarget =
   | { kind: 'refused'; status: number; body: { error: string; code?: string } };
 
 export async function sessionFileTarget(session: ChatSessionWithExecution, requested: string): Promise<SessionFileTarget> {
+  const policy = executionResourcePolicy({ chatId: session.id, operation: 'inspectFiles' });
+  if (policy.refusal) return { kind: 'refused', status: policy.refusal.status, body: { error: policy.refusal.body.message } };
   const folder = preparedFolder(session);
   const viewerPath = /^file:\/\//i.test(requested) || requested.startsWith('~/')
     ? resolveReplyFilePath(requested, folder) : requested;
   if (!viewerPath) return { kind: 'refused', status: 400, body: { error: 'Invalid path', code: 'invalid_path' } };
   const placed = placeViewerPath(viewerPath, folder);
-  if (placed.kind === 'folder') return { kind: 'folder', path: placed.path };
+  if (placed.kind === 'folder') {
+    if (policy.authority && !sanitizeRelPath(placed.path)) return { kind: 'refused', status: 403, body: { error: 'Choose a file inside this team execution.', code: 'outside_execution' } };
+    return { kind: 'folder', path: placed.path };
+  }
+
+  if (policy.authority) return { kind: 'refused', status: 403, body: { error: 'Only files inside this team execution can be opened.', code: 'outside_execution' } };
 
   const shared = isLocalHtmlTarget(requested) ? { kind: 'html' as const, maxBytes: HTML_PREVIEW_MAX_BYTES }
     : isLocalPdfTarget(requested) ? { kind: 'pdf' as const, maxBytes: PDF_MAX_BYTES } : null;

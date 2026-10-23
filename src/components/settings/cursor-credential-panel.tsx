@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Loader2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
@@ -21,8 +21,8 @@ export function CursorCredentialPanel() {
     onSuccess: (data) => {
       setKey('');
       queryClient.setQueryData(['cursor-credential'], data);
-      void queryClient.invalidateQueries({ queryKey: ['agent-connection', 'cursor'] });
-      void queryClient.invalidateQueries({ queryKey: ['agent-models', 'cursor'] });
+      void queryClient.invalidateQueries({ queryKey: trpc.harness.authGet.pathKey() });
+      void queryClient.invalidateQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
       toast.success('Cursor API key saved');
     },
   });
@@ -30,8 +30,8 @@ export function CursorCredentialPanel() {
     mutationFn: () => trpcClient.harness.cursorKeyDelete.mutate({}),
     onSuccess: (data) => {
       queryClient.setQueryData(['cursor-credential'], data);
-      void queryClient.invalidateQueries({ queryKey: ['agent-connection', 'cursor'] });
-      void queryClient.invalidateQueries({ queryKey: ['agent-models', 'cursor'] });
+      void queryClient.invalidateQueries({ queryKey: trpc.harness.authGet.pathKey() });
+      void queryClient.invalidateQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
       toast.success('Stored Cursor API key removed');
     },
   });

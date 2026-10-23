@@ -1,3 +1,5 @@
+import { requireTeamCapability } from '@/lib/team/capability-authority';
+import type { TeamAction } from '@/lib/team/capabilities';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { isOperationError, OperationError } from '@/lib/server/operation';
 import { isTeamAuthority, isTeamBoundaryError } from '@/lib/home/authority';
@@ -8,6 +10,7 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import { isDrainSaveProcedure } from './admission';
 import { currentPerfLabel, perfScope } from '@/lib/perf/recorder';
 import { procedureLabel } from '@/lib/perf/labels';
+import { withExecutionRequest } from '@/lib/home/execution-request';
 
 export function createTRPCContext(request: Request): { key: ReturnType<typeof getRequestKey>; request: Request; authorize?: () => void } {
   return { key: getRequestKey(request.headers), request };
@@ -34,21 +37,23 @@ export const router = t.router;
  * key. In a team space there is no viewer: shared work takes a member's key
  * (docs/homes-spec.md §9.1), and every personal procedure refuses it.
  */
-type Admission = (key: NonNullable<TRPCContext['key']>) => void;
+type Admission = (key: NonNullable<TRPCContext['key']>, type?: 'query' | 'mutation' | 'subscription') => void;
 
 const viewerOnly: Admission = (key) => {
   if (key.scope !== 'viewer') throw new TRPCError({ code: 'FORBIDDEN' });
 };
 /** A personal home's owner, or in a team a member: the task/note/area surface both share. */
 const sharedWork: Admission = (key) => {
-  if (isTeamAuthority() ? key.scope !== 'member' : key.scope !== 'viewer') throw new TRPCError({ code: 'FORBIDDEN' });
+  if (isTeamAuthority()) requireTeamCapability(key, 'read');
+  else if (key.scope !== 'viewer') throw new TRPCError({ code: 'FORBIDDEN' });
 };
 const teamMember: Admission = (key) => {
   if (!isTeamAuthority() || key.scope !== 'member' || !key.memberId) throw new TRPCError({ code: 'FORBIDDEN' });
+  requireTeamCapability(key, 'read');
 };
 const teamOwner: Admission = (key) => {
   teamMember(key);
-  if (key.memberRole !== 'owner') throw new TRPCError({ code: 'FORBIDDEN', message: "Only the team's owner can do that." });
+  requireTeamCapability(key, 'administerMembers');
 };
 
 function admitted(admit: Admission) {
@@ -56,11 +61,11 @@ function admitted(admit: Admission) {
   const run = async () => {
     ctx.authorize?.();
     if (!ctx.key) throw new TRPCError({ code: 'UNAUTHORIZED' });
-    admit(ctx.key);
     let release: (() => void) | undefined;
     try {
+      admit(ctx.key, type);
       release = beginActivity(undefined, type !== 'mutation' || isDrainSaveProcedure(path));
-      const result = await next();
+      const result = await withExecutionRequest(ctx.key, () => next());
       // tRPC represents downstream errors as a result, rather than throwing.
       if (!result.ok) throw result.error;
       return result;
@@ -102,3 +107,11 @@ export const sharedProcedure = admitted(sharedWork);
 export const memberProcedure = admitted(teamMember);
 /** A team owner's: people, invitations, the team's name. */
 export const ownerProcedure = admitted(teamOwner);
+
+/** Named team action admission, shared by all role-sensitive procedures. */
+export function teamCapabilityProcedure(action: TeamAction) { return admitted(key => { teamMember(key); requireTeamCapability(key, action); }); }
+
+/** A named operation works in either Home and checks Team authority below the transport. */
+export function sharedActionProcedure(action: TeamAction) {
+  return admitted(key => { sharedWork(key); if (isTeamAuthority()) requireTeamCapability(key, action); });
+}

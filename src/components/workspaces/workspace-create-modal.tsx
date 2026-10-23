@@ -16,7 +16,8 @@ import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { IntegrationScopePicker } from './integration-scope-picker';
 import { FilesToCopySection } from './files-to-copy-section';
-import { FolderPicker } from './folder-picker';
+import { AgentCreationFolder, useAgentConfigurationScope } from './agent-placement-controls';
+import { SharedComputerWarning } from '@/components/home/shared-computer-warning';
 import { WorktreeScriptsSection } from './worktree-scripts-section';
 
 interface WorkspaceCreateModalProps {
@@ -33,6 +34,7 @@ function deriveNameFromCwd(cwd: string): string {
 }
 
 export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModalProps) {
+  const { personalTools, canConfigure } = useAgentConfigurationScope();
   const [name, setName] = useState('');
   const [cwd, setCwd] = useState('');
   const [areaId, setAreaId] = useState<string | ''>('');
@@ -118,7 +120,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
     if (!nameUserEditedRef.current) {
       setName(deriveNameFromCwd(next));
     }
-    if (coverUserEditedRef.current) return;
+    if (!personalTools || coverUserEditedRef.current) return;
     if (faviconDebounceRef.current) clearTimeout(faviconDebounceRef.current);
     const trimmed = next.replace(/\/+$/, '').trim();
     if (!trimmed) {
@@ -138,7 +140,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         })
         .catch((err) => console.error('[workspace-create] favicon detect failed', err));
     }, 300);
-  }, []);
+  }, [personalTools]);
 
   // Cleanup the debounce timer on unmount so a late firing doesn't run
   // setState on a torn-down component.
@@ -166,13 +168,14 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
   const handleSubmit = useCallback(() => {
     const trimmed = name.trim();
     const trimmedCwd = cwd.trim();
-    if (!trimmed || !trimmedCwd || createWs.isPending) return;
+    if (!canConfigure || !trimmed || !trimmedCwd || createWs.isPending) return;
 
     setError(null);
     createWs.mutate(
       {
         name: trimmed,
         cwd: trimmedCwd,
+
         areaId: areaId || null,
         emoji: emoji ?? null,
         attachments: attachment ? [attachment] : [],
@@ -180,8 +183,8 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         setupCommand: setupCommand.trim() || null,
         startCommand: startCommand.trim() || null,
         teardownCommand: teardownCommand.trim() || null,
-        integrationScopes,
-        browserEnabled,
+        integrationScopes: personalTools ? integrationScopes : [],
+        browserEnabled: personalTools && browserEnabled,
       },
       {
         onSuccess: () => {
@@ -198,7 +201,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
         },
       },
     );
-  }, [name, cwd, areaId, emoji, attachment, filesToCopy, setupCommand, startCommand, teardownCommand, integrationScopes, browserEnabled, createWs, reset, onOpenChange]);
+  }, [name, cwd, areaId, emoji, attachment, filesToCopy, setupCommand, startCommand, teardownCommand, integrationScopes, browserEnabled, createWs, reset, onOpenChange, canConfigure, personalTools]);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -209,7 +212,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
   );
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={handleOpenChange}>
+    <DialogPrimitive.Root open={open && canConfigure} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
@@ -237,11 +240,10 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                 <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
                   Folder
                 </label>
-                <FolderPicker
-                  value={cwd}
+                <SharedComputerWarning />
+                <AgentCreationFolder
+                  cwd={cwd}
                   onChange={handleCwdChange}
-                  placeholder="Choose folder…"
-                  autoOpen
                   onDismiss={() => {
                     // Picker is the entry point — if user dismisses without
                     // a folder, fold up the whole create flow instead of
@@ -249,9 +251,6 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                     if (!cwd) handleOpenChange(false);
                   }}
                 />
-                <p className="mt-1 text-[10px] text-muted-foreground/70">
-                  Git is detected automatically. Non-git folders work too, they just don&apos;t get worktree isolation.
-                </p>
               </div>
 
               {cwd.trim() && (
@@ -395,7 +394,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                     />
                   </div>
 
-                  <div>
+                  {personalTools && <div>
                     <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
                       {INTEGRATION_LABELS.plural} (optional)
                     </label>
@@ -404,9 +403,9 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                       has every connected service. You can change this later in the agent&apos;s setup.
                     </p>
                     <IntegrationScopePicker scopes={integrationScopes} onChange={setIntegrationScopes} disabled={createWs.isPending} />
-                  </div>
+                  </div>}
 
-                  <label className="flex cursor-pointer items-center justify-between gap-3">
+                  {personalTools && <label className="flex cursor-pointer items-center justify-between gap-3">
                     <div>
                       <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
                         Agent browser
@@ -423,7 +422,7 @@ export function WorkspaceCreateModal({ open, onOpenChange }: WorkspaceCreateModa
                       disabled={createWs.isPending}
                       aria-label="Agent browser"
                     />
-                  </label>
+                  </label>}
                 </>
               )}
 

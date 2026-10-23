@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'next/link';
+import { HomeLink } from '@/components/home/home-link';
 import { ArrowDownLeft, ArrowUpRight, MessageSquare } from 'lucide-react';
-import { useOptionalDashboard } from '@/contexts/dashboard-context';
+import { useOptionalWorkNavigation } from '@/contexts/work-context';
 import { useSession } from '@/hooks/use-execution';
 import { useWorkspace } from '@/hooks/use-workspaces';
 import { useOrchestratorName } from '@/hooks/use-user-state';
@@ -20,7 +20,7 @@ export function ChatMessageLink({ sessionId, eventId, label, direction, preview,
   preview?: string;
   header?: boolean;
 }) {
-  const dashboard = useOptionalDashboard();
+  const navigation = useOptionalWorkNavigation();
   const { data: session, error } = useSession(sessionId);
   const { data: agent } = useWorkspace(session?.workspaceId ?? null);
   const orchestratorName = useOrchestratorName();
@@ -53,11 +53,11 @@ export function ChatMessageLink({ sessionId, eventId, label, direction, preview,
   </>;
   if (unavailable) return <div className={className}>{content}</div>;
   return <Tip label="Open the linked chat">
-    <Link href={viewHref(view)} prefetch={false} className={className} aria-label={`${label} ${title}${context ? ` in ${context}` : ''}. Open chat`}
+    <HomeLink href={viewHref(view)} prefetch={false} className={className} aria-label={`${label} ${title}${context ? ` in ${context}` : ''}. Open chat`}
       onClick={event => {
-        if (!dashboard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+        if (!navigation?.openLinkedChat || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
         event.preventDefault();
-        dashboard.setActiveView(view);
-      }}>{content}</Link>
+        navigation.openLinkedChat(sessionId, eventId);
+      }}>{content}</HomeLink>
   </Tip>;
 }

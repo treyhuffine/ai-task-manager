@@ -72,7 +72,7 @@ export function listAgentDeliveries(requestId: string): AgentDeliveryRecord[] {
   return getDb().select().from(deliveries).where(eq(deliveries.requestId, requestId)).orderBy(deliveries.createdAt, deliveries.id).limit(100).all();
 }
 export function dueAgentDeliveries(limit = 50): AgentDeliveryRecord[] {
-  return getDb().select().from(deliveries).where(and(inArray(deliveries.status, ['queued', 'delivered']), or(isNull(deliveries.nextAttemptAt), lte(deliveries.nextAttemptAt, now())))).orderBy(deliveries.createdAt, deliveries.id).limit(limit).all();
+  return getDb().select().from(deliveries).where(and(inArray(deliveries.status, ['queued', 'delivered']), sql`coalesce(json_extract(${deliveries.payload}, '$.contextOnly'), 0) = 0`, or(isNull(deliveries.nextAttemptAt), lte(deliveries.nextAttemptAt, now())))).orderBy(deliveries.createdAt, deliveries.id).limit(limit).all();
 }
 export function pendingAgentDeliveries(sessionId: string): AgentDeliveryRecord[] {
   return getDb().select().from(deliveries).where(and(eq(deliveries.targetSessionId, sessionId), eq(deliveries.status, 'delivered'))).orderBy(deliveries.createdAt, deliveries.id).limit(200).all();
@@ -106,8 +106,8 @@ export function reservedCoordinationInputs(sessionId: string): Set<string> {
 export function humanCoordinationContext(sessionId: string, producingRunId: string | null): AgentDeliveryRecord[] {
   const reserved = reservedCoordinationInputs(sessionId);
   const assigned = producingRunId ? agentRequestForRun(producingRunId) : null;
-  if (!producingRunId && openAgentRequestsForTarget(sessionId).some(request => request.runId && ['queued', 'running'].includes(getRun(request.runId)?.status ?? ''))) return [];
-  return pendingAgentDeliveries(sessionId).filter(input => !reserved.has(input.id) && !inputIsPreparing(input.id) && (!assigned || input.kind === 'message' && input.payload.relatedRequestId === assigned.id || !!input.requestId && getAgentRequest(input.requestId)?.parentRequestId === assigned.id && input.kind !== 'request'));
+  const assignmentPending = !producingRunId && openAgentRequestsForTarget(sessionId).some(request => request.runId && ['queued', 'running'].includes(getRun(request.runId)?.status ?? ''));
+  return pendingAgentDeliveries(sessionId).filter(input => !reserved.has(input.id) && !inputIsPreparing(input.id) && (input.payload.contextOnly || !assignmentPending && (!assigned || input.kind === 'message' && input.payload.relatedRequestId === assigned.id || !!input.requestId && getAgentRequest(input.requestId)?.parentRequestId === assigned.id && input.kind !== 'request')));
 }
 export function pendingAgentApprovals(sessionId: string): AgentDeliveryRecord[] {
   return getDb().select().from(deliveries).where(and(eq(deliveries.sourceSessionId, sessionId), eq(deliveries.status, 'awaiting_approval'))).orderBy(deliveries.createdAt, deliveries.id).limit(100).all();
@@ -429,4 +429,21 @@ export function isUnacceptedCoordinationRun(runId: string): boolean {
 /** A sleeping device's durable input queue is busy even without a live mirror. */
 export function hasPendingCoordinationSend(sessionId: string): boolean {
   return !!getDb().select({ id: workerCommands.id }).from(workerCommands).where(and(eq(workerCommands.chatSessionId, sessionId), eq(workerCommands.kind, 'send'), inArray(workerCommands.state, ['queued', 'sent']))).limit(1).get();
+}
+
+/** Preserve a complete decision without starting work. Normal human input
+ * reservations and native acceptance consume it exactly once. */
+export function preserveSystemContext(sessionId: string, key: string, content: string): AgentDeliveryRecord {
+  const id = stableCoordinationId('system-context', sessionId, key);
+  return withCoordinationEvents(events => {
+    const existing = getAgentDelivery(id);
+    if (existing) return existing;
+    const eventId = stableCoordinationId('event', id);
+    const delivery = createAgentDelivery({ id, kind: 'message', senderKind: 'system', targetAddress: `session:${sessionId}`, targetSessionId: sessionId, eventId,
+      payload: { version: 1, content, prompt: content, attachments: [], contextOnly: true }, status: 'delivered' });
+    const shown = `${content}\n\nThis decision is saved. It will be supplied as context with your next message after recovery.`;
+    insertChatEvent({ id: eventId, sessionId, role: 'system', source: 'error', content: shown,
+      raw: { agentCoordination: { deliveryId: id, senderKind: 'system', kind: 'message', content: shown } } }, events);
+    return delivery;
+  });
 }

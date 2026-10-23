@@ -1,5 +1,8 @@
 'use client';
 
+import { AgentFolderActivity } from './agent-folder-activity';
+import { useHomeStorageScope } from '@/components/home/home-context';
+import { homeStorageIdentity } from '@/lib/home/document-scope';
 import { useMemo, useState } from 'react';
 import { useDefaultLayout, type Layout, type LayoutStorage } from 'react-resizable-panels';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -31,10 +34,11 @@ export function AgentFiles({ workspace }: { workspace: WorkspaceRecord }) {
   const folder = runOn ? (runOn.livesOn?.folder ?? null) : null;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [storage] = useState<LayoutStorage>(() => (typeof window === 'undefined' ? NOOP_STORAGE : window.localStorage));
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: 'ri.agent.files.layout', storage });
+  const layoutId = homeStorageIdentity('ri.agent.files.layout', useHomeStorageScope());
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: layoutId, storage });
 
   return (
-    <ResizablePanelGroup
+    <div className="flex min-h-0 flex-1 flex-col"><AgentFolderActivity workspaceId={workspace.id}/><ResizablePanelGroup
       orientation="horizontal"
       defaultLayout={defaultLayout ?? DEFAULT_LAYOUT}
       onLayoutChanged={onLayoutChanged}
@@ -53,6 +57,6 @@ export function AgentFiles({ workspace }: { workspace: WorkspaceRecord }) {
       <ResizablePanel id={VIEWER_PANEL} minSize={240} className="flex flex-col min-w-0 min-h-0">
         <FileViewer source={source} selectedPath={selectedPath} onClose={() => setSelectedPath(null)} />
       </ResizablePanel>
-    </ResizablePanelGroup>
+    </ResizablePanelGroup></div>
   );
 }

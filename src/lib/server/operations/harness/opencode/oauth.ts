@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { clearHarnessModelCache } from '@/lib/harness/model-discovery';
 import { openCodeProviderManager, openCodeRuntimeContext } from '@/lib/harness/opencode';
 import { clearHarnessRuntimeCache } from '@/lib/harness/runtime';
@@ -5,6 +6,8 @@ import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const body = rpcInput.body as Record<string, unknown>;
     const manager = openCodeProviderManager();

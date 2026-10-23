@@ -5,13 +5,19 @@ import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
   userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, members, teamGrants, teamConnections, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
-  workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs, agentCoordinationRequests, agentCoordinationDeliveries,
+  teamActivity, memberPreferences, memberChatViews, memberExecutionViews, workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs, agentCoordinationRequests, agentCoordinationDeliveries,
   triggers, runs, previewTargets, entityVersions, workResults, workResultTasks, workResultDecisions, workResultAiReviews,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
   triagePasses, triageDecisions, streamLinks, skillUsage,
   Attachment,
 } from '@/lib/db/schema';
 export type { SetupReferenceReport, WorkerHarnessReport, WorkerCommandActor } from '@/lib/db/schema';
+export type TeamActivityRecord = InferSelectModel<typeof teamActivity>;
+export type CreateTeamActivityInput = InferInsertModel<typeof teamActivity>;
+export type MemberPreferencesRecord = InferSelectModel<typeof memberPreferences>;
+export type UpdateMemberPreferencesInput = Pick<InferInsertModel<typeof memberPreferences>, 'voiceAutoSend' | 'voiceModel'>;
+export type MemberChatViewRecord = InferSelectModel<typeof memberChatViews>;
+export type MemberExecutionViewRecord = InferSelectModel<typeof memberExecutionViews>;
 export type { DeckItem, DeckAlternative, DeckChange, DeckOrigin, CalendarBlock, Attachment, StoredAttachment, RunArtifactRef, PreviewUrl, EntityVersionSnapshot, StoredNotificationEvent, StoredRenderedNotification, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel, TriageDisposition, LifecycleCommandResult } from '@/lib/db/schema';
 
 /**
@@ -54,6 +60,9 @@ export type WorkResultActor = {
   sessionId?: WorkResultRecord['actorSessionId'];
   executionId?: WorkResultRecord['sourceExecutionId'];
   runId?: WorkResultAiReviewRecord['runId'];
+  memberId?: WorkResultRecord['actorMemberId'];
+  /** Verified transport credential, never stored in result output. */
+  apiKeyId?: import('@/lib/db/schema').WorkerCommandActor['apiKeyId'];
 };
 export type WorkResultDetail = {
   result: WorkResultRecord;
@@ -151,6 +160,8 @@ export type Effort = NonNullable<TaskRecord['effort']>;
  * becomes one of these (deadlines are never invented).
  */
 export interface DeadlineTask {
+  sourceTeamId?: TaskRecord['sourceTeamId'];
+  sourceArea?: NonNullable<TaskRecord['source']>['area'];
   id: string;
   title: string;
   status: TaskStatus;
@@ -509,7 +520,7 @@ export type TriggerLastRunStatus = NonNullable<TriggerRecord['lastRunStatus']>;
 
 // ─── Runs ─────────────────────────────────────────────────────
 
-export type RunRecord = InferSelectModel<typeof runs>;
+export type RunRecord = Omit<InferSelectModel<typeof runs>, 'resultOperationMessageId'>;
 export type CreateRunInput = PolicyOptional<Omit<InferInsertModel<typeof runs>, 'id'>, 'status'> & { id?: string };
 export type UpdateRunInput = Partial<Omit<CreateRunInput, 'createdAt' | 'queuedAt'>>;
 export type RunStatus = RunRecord['status'];

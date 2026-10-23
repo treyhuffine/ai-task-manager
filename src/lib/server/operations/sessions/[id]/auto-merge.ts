@@ -1,3 +1,6 @@
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { recordHomeActivity } from '@/lib/home/activity';
 import { getChatSessionWithExecution } from '@/lib/db/queries';
 import { githubAnswerOnOwner } from '@/lib/executor/owner-git';
 import type { MergeMethod } from '@/lib/github/auto-merge';
@@ -21,6 +24,7 @@ export interface AutoMergeRequestBody {
 async function handlePOST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const authority = sessionAuthority(getRequestKey(_request.headers), id, 'terminal');
     const body = (rpcInput.body) as { enable?: unknown; method?: unknown };
     // Reject malformed input rather than silently coercing it: `{enable:"true"}`
     // must not disable, and a bogus `method` must not fall through to squash.
@@ -53,14 +57,18 @@ async function handlePOST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Oper
 
     // In a clone of its repository: the agent's folder here, or on the
     // device the agent lives on (P4.5).
-    return answerResult(await githubAnswerOnOwner(id, {
+    const result = answerResult(await githubAnswerOnOwner(id, {
       op: 'auto_merge',
       prNumber: session.prNumber,
       branchName: session.branchName,
       enable,
       method: requestedMethod,
     }), autoMergeResponseSchema);
+    if (result.ok) recordHomeActivity(authority, enable ? 'enable_auto_merge' : 'disable_auto_merge', id, 'git_change');
+    return result;
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/auto-merge]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

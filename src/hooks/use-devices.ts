@@ -1,11 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { devicesApi, type DeviceView } from '@/lib/api/devices';
+import { useOptionalHomeContext } from '@/components/home/home-context';
 
 export type { DeviceView };
 
 /** This home's devices. Settings, Devices and the imports panel share the cache. */
 export function useDevices() {
+  const home = useOptionalHomeContext();
   return useQuery({
+    enabled: home?.capabilities.privatePlanning ?? true,
     queryKey: ['devices'],
     queryFn: () => devicesApi.list(),
     staleTime: 30_000,

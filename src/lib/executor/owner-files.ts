@@ -8,24 +8,38 @@
  * unconfirmed rather than retried.
  */
 
-import { chatPlacement, getChatSessionWithExecution, getDevice, getWorkspace } from '@/lib/db/queries';
+import { chatPlacement, getChatSessionWithExecution, getDevice, getWorkspace, recordTeamActivity } from '@/lib/db/queries';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
 import type { ReadExecutionRequest, WriteExecutionRequest } from '@/lib/workers/protocol';
 import type { ExecutionRead, ReadAnswer } from '@/lib/workspaces/execution-reads';
 import type { ExecutionWrite } from '@/lib/workspaces/execution-writes';
 import { existsSync } from 'node:fs';
+import { executionResourcePolicy } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
+import { writeExecution } from '@/lib/workspaces/execution-writes';
+import { agentFolderWriteAnswer, agentFolderAnswer } from '@/lib/workspaces/agent-folder-operations';
+
+function ownerFilePolicy(chatId: string, write = false) {
+  const policy = executionResourcePolicy({ chatId, operation: write ? 'editFiles' : 'inspectFiles' });
+  if (policy.refusal) return policy;
+  return policy;
+}
 
 /** The read answered by the execution's device, or null when it runs here and the route answers itself. */
 export async function readOnOwner(chatSessionId: string, read: ExecutionRead): Promise<Response | null> {
-  const placement = chatPlacement(chatSessionId);
-  if (!placement || placement.isHome || !placement.executionId) return null;
-  const answer = await askOwner(placement.deviceId, placement.executionId, chatSessionId, read);
-  return Response.json(answer.body, { status: answer.status });
+  const answer = await readAnswerOnOwner(chatSessionId, read);
+  return answer ? Response.json(answer.body, { status: answer.status }) : null;
 }
 
 /** The same, as data, for callers that combine several. */
 export async function readAnswerOnOwner(chatSessionId: string, read: ExecutionRead): Promise<ReadAnswer | null> {
+  const policy = ownerFilePolicy(chatSessionId);
+  if (policy.refusal) return policy.refusal;
   const placement = chatPlacement(chatSessionId);
+  if (policy.authority && !placement?.executionId) {
+    const workspaceId = policy.authority.workspace!.id;
+    return read.kind === 'tree' || read.kind === 'file' ? agentFolderAnswer(workspaceId, read) : { status: 200, body: null };
+  }
   if (!placement || placement.isHome || !placement.executionId) return null;
   return askOwner(placement.deviceId, placement.executionId, chatSessionId, read);
 }
@@ -59,7 +73,18 @@ async function askOwner(deviceId: string, executionId: string, chatSessionId: st
  * edit is live work, not something to queue for later.
  */
 export async function writeAnswerOnOwner(chatSessionId: string, write: ExecutionWrite) {
+  const policy = ownerFilePolicy(chatSessionId, true);
+  if (policy.refusal) return policy.refusal;
   const placement = chatPlacement(chatSessionId);
+  if (policy.authority) {
+    const ws = policy.authority.workspace!;
+    if (!placement?.executionId) return write.kind === 'bring_wip' ? { status: 409, body: { error: 'This chat has no execution worktree.' } } : agentFolderWriteAnswer(ws.id, write);
+    const session = getChatSessionWithExecution(chatSessionId)!;
+    if (!session.worktreePath) return { status: 404, body: { error: 'Worktree unavailable' } };
+    const answer = await writeExecution({ worktreePath: session.worktreePath, source: ws.cwd, isGit: ws.isGit, baseBranch: ws.baseBranch, remoteName: ws.remoteName, baseSha: session.baseSha, filesToCopy: ws.filesToCopy ?? [] }, write);
+    if (answer.status < 400) recordTeamActivity({ workspaceId: ws.id, memberId: policy.authority.member.id, apiKeyId: executionRequestKey()!.apiKeyId, kind: 'file_change', resource: write.kind === 'rename' ? `${write.from} -> ${write.to}` : write.kind === 'bring_wip' ? session.worktreePath : write.path, operation: write.kind });
+    return answer;
+  }
   if (!placement || placement.isHome || !placement.executionId) return null;
   const session = getChatSessionWithExecution(chatSessionId);
   const ws = session?.workspaceId ? getWorkspace(session.workspaceId) : null;

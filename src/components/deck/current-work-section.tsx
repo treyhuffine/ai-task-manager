@@ -59,7 +59,7 @@ export function CurrentWorkSection() {
             <button onClick={() => openTask(task.id)} className="min-w-0 flex-1 text-left">
               <span className="block truncate text-[12px] font-medium text-foreground">{task.title || 'Untitled'}</span>
               <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                <TeamLabel teamId={task.sourceTeamId} />
+                <TeamLabel teamId={task.sourceTeamId} sourceArea={task.source?.area} />
                 <TaskBadges signals={attention?.[task.id]} size="xs" />
                 {task.parentId && (
                   <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground">

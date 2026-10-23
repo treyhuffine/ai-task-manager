@@ -1,6 +1,7 @@
 import { legacySchema } from '@/lib/server/inputs';
 import { failureResponse, reply, type OperationContext } from '@/lib/server/operation';
 import { skillErrorResponse } from '@/lib/skills/http';
+import { authorizeSkillOperation, skillViewForHome } from '@/lib/skills/home-policy';
 import { moveSkill } from '@/lib/skills/manage';
 import { locationFrom, moveSkillShape } from '@/lib/skills/params';
 import { z } from 'zod';
@@ -12,14 +13,15 @@ import { z as rpcZ } from 'zod/v4';
  * original (sharing a skill with a project's team).
  * POST { to, workspaceId?, copy? } → { skill } at its new place.
  */
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   const { ref } = rpcInput.params;
   const body = rpcInput.body;
   const parsed = z.object(moveSkillShape).safeParse(body);
   if (!parsed.success) return reply({ error: parsed.error.issues[0]?.message ?? 'Say where it goes.' }, { status: 400 });
   try {
+    const member = authorizeSkillOperation(request.headers, true, ref);
     const to = locationFrom(parsed.data.to, parsed.data.workspaceId);
-    return reply({ skill: await moveSkill(ref, to, { copy: parsed.data.copy }) });
+    return reply({ skill: skillViewForHome(await moveSkill(ref, to, { copy: parsed.data.copy }), member) });
   } catch (err) {
     return failureResponse(skillErrorResponse(err, `POST /api/skills/${ref}/move`));
   }

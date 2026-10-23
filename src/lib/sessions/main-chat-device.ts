@@ -30,6 +30,8 @@ export function followAgentUntilRun(chatSessionId: string): { moved: boolean; wi
   }
   const workspace = getWorkspace(chat.workspaceId);
   if (!workspace) return unchanged;
+  // An owner-approved team destination is immutable for this saved history.
+  if (getHome()?.kind === 'team') return unchanged;
   const host = getHome()?.hostDeviceId ?? null;
   const pinned = chat.deviceId && chat.deviceId !== host ? chat.deviceId : null;
   const target = agentDeviceFor(workspace.id);

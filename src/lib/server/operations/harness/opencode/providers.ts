@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { openCodeProviderManager, openCodeRuntimeContext } from '@/lib/harness/opencode';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -6,6 +7,8 @@ import { z as rpcZ } from 'zod/v4';
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const refresh = new URL(request.url).searchParams.get('refresh') === 'true';
     const manager = openCodeProviderManager();

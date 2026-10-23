@@ -1,3 +1,5 @@
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
 import { getChatSession, getWorkspace } from '@/lib/db/queries';
 import { notOnGithub } from '@/lib/github/execution-github';
 import { reply, type OperationContext } from '@/lib/server/operation';
@@ -39,6 +41,7 @@ export interface PrListResponse {
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    sessionAuthority(getRequestKey(_request.headers), id, 'read');
     const session = getChatSession(id);
     if (!session) return reply({ error: 'Session not found' }, { status: 404 });
     if (!session.workspaceId) return reply({ prs: [] } satisfies PrListResponse);
@@ -73,6 +76,7 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
         .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
       return reply({ prs } satisfies PrListResponse);
     } catch (err) {
+    const denied = executionOperationFailure(err); if (denied) return denied;
       if (err instanceof NotInstalledError) {
         return reply({
           prs: [],

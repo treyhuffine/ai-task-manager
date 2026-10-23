@@ -1,3 +1,5 @@
+import { executionCatalogFilter, executionOperationFailure } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 /**
@@ -25,7 +27,7 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: Operat
     if (!['task', 'note', 'area', 'file', 'scratchpad'].includes(type)) {
       return reply({ error: `invalid type: ${type}` }, { status: 400 });
     }
-    const sessions = listSessionsReferencingEntity(type, id);
+    const sessions = listSessionsReferencingEntity(type, id).filter(executionCatalogFilter(getRequestKey(request.headers)));
     return reply({
       sessions: sessions.map((s) => ({
         id: s.id,
@@ -38,6 +40,7 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: Operat
       })),
     });
   } catch (err) {
+    const denied = executionOperationFailure(err); if (denied) return denied;
     console.error('[GET /api/entities/sessions]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

@@ -19,7 +19,7 @@ import { TRPCError } from '@trpc/server';
 import { uuidv7 } from 'uuidv7';
 import * as q from '@/lib/db/queries';
 import type { Attachment, EntityVersionSource, SharedTaskSource, TaskRecord } from '@/db/types';
-import { TaskLifecycleError, type TransitionCommand } from '@/lib/tasks/lifecycle';
+import { TaskLifecycleError, isTaskLifecycleError, type TransitionCommand } from '@/lib/tasks/lifecycle';
 import { OperationError } from '@/lib/server/operation';
 import { getAttachmentsDir } from '@/lib/config/paths';
 import { replaceAttachmentReferences } from '@/lib/attachments/derive';
@@ -68,7 +68,7 @@ async function connectedTeam(task: TaskRecord) {
 
 /** The team's refusals keep their meaning. Anything that can't reach the team is an outage. */
 function teamFailure(team: ConnectedTeam, err: unknown): never {
-  if (err instanceof q.TeamError) throw err;
+  if (err instanceof q.TeamError || isTaskLifecycleError(err)) throw err;
   const data = err instanceof TRPCClientError ? (err.data as { domainCode?: string | null } | undefined) : undefined;
   const code = data?.domainCode;
   const known: q.TeamErrorCode[] = ['invalid', 'expired', 'used', 'revoked', 'not_allowed', 'conflict', 'not_found'];
@@ -79,11 +79,17 @@ function teamFailure(team: ConnectedTeam, err: unknown): never {
 }
 
 /** Show what the team now says, keeping the private planning and why it's here. */
-function refresh(local: TaskRecord, task: TeamTask, team: ConnectedTeam): TaskRecord {
+async function refresh(local: TaskRecord, task: TeamTask, team: ConnectedTeam): Promise<TaskRecord> {
   assertCurrentTeam(team);
   local = q.getTask(local.id) ?? local;
   const memberId = team.connection.memberId;
   const previous = local.source;
+  let area = task.areaId ? { id: task.areaId, name: previous?.area?.name ?? 'Unknown Area' } : null;
+  if (task.areaId && previous?.area?.id !== task.areaId) {
+    try { const current = await team.client.areas.get.query({ id: task.areaId }); area = { id: current.id, name: current.name }; }
+    catch { /* Keep the last known name until the next sync resolves it. */ }
+  }
+  assertCurrentTeam(team);
   const now = new Date().toISOString();
   const source: SharedTaskSource = {
     assigned: task.assigneeMemberId === memberId,
@@ -92,7 +98,7 @@ function refresh(local: TaskRecord, task: TeamTask, team: ConnectedTeam): TaskRe
     statusChangedCount: task.statusChangedCount,
     updatedAt: task.updatedAt,
     syncedAt: now,
-    area: task.areaId ? (previous?.area?.id === task.areaId ? previous.area : { id: task.areaId, name: 'Area' }) : null,
+    area,
     assignee: task.assigneeMemberId ? (previous?.assignee?.id === task.assigneeMemberId ? previous.assignee : { id: task.assigneeMemberId, name: 'Someone' }) : null,
   };
   return q.saveTaskProjection({
@@ -108,8 +114,9 @@ function refresh(local: TaskRecord, task: TeamTask, team: ConnectedTeam): TaskRe
  * Change a shared task's content at its team. A body names the team revision
  * it edited (`expectedBodyRevision`, from `source.bodyRevision`).
  */
-export async function updateSharedTask(local: TaskRecord, patch: SharedTaskPatch, guard: { expectedBodyRevision?: number } = {}, source: EntityVersionSource = 'human'): Promise<TaskRecord> {
+export async function updateSharedTask(local: TaskRecord, patch: SharedTaskPatch, guard: { expectedBodyRevision?: number; expectedSourceMemberId?: string } = {}, source: EntityVersionSource = 'human'): Promise<TaskRecord> {
   const team = await connectedTeam(local);
+  if (guard.expectedSourceMemberId && guard.expectedSourceMemberId !== team.connection.memberId) throw new q.TeamError('not_allowed', 'The team sign-in changed. This draft is kept for its original author.');
   const teamId = local.sourceTeamId!;
   const toTeam: SharedTaskPatch = { ...patch };
   const writesBody = patch.body !== undefined;
@@ -152,7 +159,7 @@ export async function updateTaskWithShared(
   local: TaskRecord,
   patch: Record<string, unknown>,
   meta: q.EntityVersionMeta,
-  guard: { expectedBodyRevision?: number } = {},
+  guard: { expectedBodyRevision?: number; expectedSourceMemberId?: string } = {},
 ): Promise<TaskRecord> {
   const { shared, personal } = splitSharedTaskPatch(patch);
   // Refuse a field neither side can take before anything is sent.
@@ -196,7 +203,7 @@ export async function transitionSharedTask(
       ...(opts.reason ? { reason: opts.reason } : {}),
     });
     const task = (result as { task: TeamTask; replayed?: boolean }).task;
-    return outcome(refresh(local, task, team), result);
+    return outcome(await refresh(local, task, team), result);
   } catch (err) {
     teamFailure(team, err);
   }
@@ -221,7 +228,7 @@ export async function completeSharedTask(
       ...(opts.note ? { note: opts.note } : {}),
     });
     const task = (result as { task: TeamTask; replayed?: boolean }).task;
-    return outcome(refresh(local, task, team), result);
+    return outcome(await refresh(local, task, team), result);
   } catch (err) {
     teamFailure(team, err);
   }
@@ -243,7 +250,8 @@ export interface PublishSharedResultInput {
 const FILE_NAME = /^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/;
 
 /** Store a copy of one of this person's files at the team, as their member. */
-async function copyToTeam(team: NonNullable<Awaited<ReturnType<typeof teamFor>>>, file: Attachment): Promise<Attachment> {
+export async function copyToTeam(team: NonNullable<Awaited<ReturnType<typeof teamFor>>>, file: Attachment, requestId?: string): Promise<Attachment> {
+  validateWorkResultAttachments('', [file], 'local');
   if (!FILE_NAME.test(file.fileName)) throw new q.TeamError('invalid', 'That file is not one of your uploads.');
   let bytes: Buffer;
   try {
@@ -253,8 +261,9 @@ async function copyToTeam(team: NonNullable<Awaited<ReturnType<typeof teamFor>>>
   }
   const form = new FormData();
   form.append('file', new Blob([new Uint8Array(bytes)], { type: file.mimeType }), file.originalName);
-  const res = await teamRequest(`${team.connection.url}/api/attachments`, { method: 'POST', body: form, token: team.token, teamName: team.connection.name });
+  const res = await teamRequest(`${team.connection.url}/api/attachments`, { method: 'POST', body: form, token: team.token, teamName: team.connection.name, headers: requestId ? { 'x-ri-upload-id': JSON.stringify([requestId, file.fileName]) } : undefined });
   if (!res.ok) {
+    if (res.status === 429 || res.status >= 500) throw new ActionError('conflict', `${team.connection.name} could not take ${file.originalName} right now. Retry with the same publication ID.`, undefined, { retryable: true });
     const error = ((await res.json().catch(() => null)) as { error?: string } | null)?.error;
     throw new q.TeamError('invalid', error ? `${team.connection.name} didn't take ${file.originalName}: ${error}` : `${team.connection.name} didn't take ${file.originalName}.`);
   }
@@ -274,7 +283,7 @@ export async function publishSharedTaskResult(local: TaskRecord, input: PublishS
     const names = new Map<string, string>();
     for (const file of input.personalAttachments ?? []) {
       assertCurrentTeam(team);
-      const copy = await copyToTeam(team, file);
+      const copy = await copyToTeam(team, file, input.requestId);
       copied.push(copy);
       names.set(file.fileName, copy.fileName);
     }

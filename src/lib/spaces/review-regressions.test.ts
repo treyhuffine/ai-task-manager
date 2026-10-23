@@ -73,7 +73,7 @@ it('does not resurrect team text when an in-flight sync finishes after disconnec
   const release = Promise.withResolvers<void>();
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     const res = await fetcher(url, init);
-    if (String(url).includes('/tasks.get')) { arrived.resolve(); await release.promise; }
+    if (String(url).includes('/team.referenceChanges')) { arrived.resolve(); await release.promise; }
     return res;
   });
   const pass = syncTeam(me.id);
@@ -161,7 +161,7 @@ it("stops asking for saved work the team deleted, also when a reconnect found it
     asked.push(decodeURIComponent(String(url)));
     return fetcher(url, init);
   });
-  expect((await syncTeam(me.id)).ok).toBe(true);
+  expect(await syncTeam(me.id)).toMatchObject({ ok: true });
   for (const id of [task.id, note.id, laterTask.id, laterNote.id]) expect(asked.some((u) => u.includes(id))).toBe(false);
 }, 60_000);
 
@@ -228,8 +228,81 @@ it('discovers assigned work beyond the first page', async () => {
     await owner.tasks.create.mutate({ title: `Other assignment ${i}`, rawInput: 'Other assignment', assigneeMemberId: me.memberId });
   }
   const { syncTeam } = await import('./sync');
-  expect((await syncTeam(me.id)).ok).toBe(true);
+  expect(await syncTeam(me.id)).toMatchObject({ ok: true });
   const q = await import('@/lib/db/queries');
   expect(q.getTaskProjection(me.id, first.id)).toMatchObject({ sourceState: 'active', source: { assigned: true } });
   expect(q.listTaskProjections(me.id)).toHaveLength(501);
 }, 90_000);
+
+it('refuses an old member shared-field draft before a write after another member reconnects', async () => {
+  const { owner, me } = await connected();
+  const remote = await owner.tasks.create.mutate({ title: 'Original title', rawInput: 'Original title' });
+  const { addTeamTaskToMyWork } = await import('./sync'); const row = await addTeamTaskToMyWork(me.id, remote.id);
+  const other = await owner.team.invitations.create.mutate();
+  const { teamRequest } = await import('./remote');
+  const { parseTeamLink } = await import('@/lib/team/links');
+  // A second browser profile/member changes this local connection identity in
+  // the fixture. The retained writer still carries the original author.
+  const link = parseTeamLink(other.link)!;
+  const response = await teamRequest(team.url + '/api/team/public/join', { method: 'POST', body: JSON.stringify({ secret: link.secret, name: 'New member', device: { kind: 'computer', name: 'Other browser' } }) });
+  expect(response.ok).toBe(true);
+  const newMember = await response.json() as { member: { id: string; name: string; role: 'member' }; token: string };
+  const q = await import('@/lib/db/queries');
+  q.saveTeamConnection({ id: me.id, name: me.name, url: me.url, memberId: newMember.member.id, memberName: newMember.member.name, role: newMember.member.role });
+  const { saveTeamKey } = await import('./credentials'); await saveTeamKey(me.id, newMember.member.id, newMember.token);
+  const { updateSharedTask } = await import('./commands');
+  await expect(updateSharedTask(row, { title: 'Old retained draft' }, { expectedSourceMemberId: me.memberId })).rejects.toThrow(/sign-in changed/);
+  expect((await owner.tasks.get.query({ id: remote.id })).title).toBe('Original title');
+});
+
+
+it('keeps the last known source Area name through direct edits until sync resolves a rename', async () => {
+  const { owner, me } = await connected();
+  const area = await owner.areas.create.mutate({name:'Source research'});
+  const task = await owner.tasks.create.mutate({title:'Edit in place',rawInput:'Edit in place',areaId:area.id,assigneeMemberId:me.memberId});
+  const { syncTeam } = await import('./sync'); await syncTeam(me.id);
+  const q = await import('@/lib/db/queries'); const row = q.getTaskProjection(me.id,task.id)!;
+  const { updateSharedTask } = await import('./commands');
+  expect((await updateSharedTask(row,{title:'Edited title'})).source?.area).toEqual({id:area.id,name:'Source research'});
+  await owner.areas.update.mutate({id:area.id,patch:{name:'Renamed source'}});
+  await syncTeam(me.id);
+  expect(q.getTask(row.id)?.source?.area).toEqual({id:area.id,name:'Renamed source'});
+});
+
+it('refreshes a released reference for launch and releases it again on cancellation without losing private organization', async () => {
+  const { owner, me } = await connected();
+  const { addTeamTaskToMyWork, removeTeamTaskFromMyWork } = await import('./sync');
+  const q = await import('@/lib/db/queries');
+  const { appRouter } = await import('@/lib/trpc/router');
+  const remote = await owner.tasks.create.mutate({ title: 'Old shared title', rawInput: 'Old shared title', body: 'Old body' });
+  const reference = await addTeamTaskToMyWork(me.id, remote.id);
+  q.updateTask(reference.id, { userContext: 'Private retained plan', sortKey: 'a0' }, { source: 'human' });
+  removeTeamTaskFromMyWork(me.id, remote.id);
+  await owner.tasks.update.mutate({ id: remote.id, patch: { title: 'Current shared title', body: 'Current body' }, expectedBodyRevision: remote.bodyRevision });
+  const caller = appRouter.createCaller({ request: new Request('http://personal.test'), key: { scope: 'viewer', location: 'home', apiKeyId: 'fixture', workerDeviceId: null, sessionChatId: null } });
+  const prepared = await caller.spaces.prepareAgentTask({ teamId: me.id, taskId: remote.id });
+  expect(prepared).toMatchObject({ prepared: true, restoreReleased: true, task: { id: reference.id, title: 'Current shared title', body: 'Current body', userContext: 'Private retained plan', sortKey: 'a0', sourceState: 'active' } });
+  const { task, prepared: _prepared, ...options } = prepared;
+  expect(await caller.spaces.discardPreparedAgentTask({ id: task.id, createdAt: task.createdAt, ...options })).toEqual({ discarded: true });
+  expect(q.getTask(reference.id)).toMatchObject({ sourceState: 'released', userContext: 'Private retained plan', sortKey: 'a0', source: { addedAt: null } });
+}, 60_000);
+
+it('never sends private planning, ranks, Area defaults or personal notes during synchronization', async () => {
+  const { owner, me } = await connected();
+  const q = await import('@/lib/db/queries');
+  const { syncTeam } = await import('./sync');
+  const area = q.createArea({ name: 'PRIVATE-AREA-CANARY' });
+  q.setPersonalAreaDefault({ teamId: me.id, sourceAreaId: null, areaId: area.id });
+  const personalChat = q.createChatSession({ type: 'orchestration', harness: 'claude' });
+  q.insertChatEvent({ sessionId: personalChat.id, role: 'user', source: 'user', content: 'PRIVATE-CHAT-CANARY' });
+  const remote = await owner.tasks.create.mutate({ title: 'Shared task', rawInput: 'Shared task', assigneeMemberId: me.memberId });
+  await syncTeam(me.id);
+  const reference = q.getTaskProjection(me.id, remote.id)!;
+  q.updateTask(reference.id, { userContext: 'PRIVATE-PLAN-CANARY', sortKey: 'private-rank' }, { source: 'human' });
+  q.createNote({ body: 'PRIVATE-NOTE-CANARY' });
+  const requests: string[] = [], fetcher = globalThis.fetch;
+  vi.spyOn(globalThis, 'fetch').mockImplementation((url, init) => { if (String(url).startsWith(team.url)) requests.push(String(url) + String(init?.body ?? '')); return fetcher(url, init); });
+  expect(await syncTeam(me.id)).toMatchObject({ ok: true });
+  expect(requests.join('\n')).not.toMatch(/PRIVATE-|private-rank/);
+  expect(JSON.stringify(await owner.tasks.get.query({ id: remote.id }))).not.toMatch(/PRIVATE-|private-rank/);
+});

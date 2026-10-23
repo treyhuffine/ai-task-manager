@@ -15,9 +15,12 @@ import type { GitPayload } from '@/lib/worker/handlers';
 import { awaitWorkerCommand, CommandFailedError } from '@/lib/workers/await-command';
 import { requestWorker, wakeDevice, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
 import fs from 'node:fs';
+import { executionResourcePolicy } from '@/lib/workspaces/access';
 
 /** GitHub for the execution's branch: in the agent's folder here, or on the device the agent lives on. */
 export async function githubAnswerOnOwner(sessionId: string, request: GithubRequest) {
+  const policy = executionResourcePolicy({ operation: request.op === 'merge' || request.op === 'auto_merge' ? 'terminal' : 'read', chatId: sessionId });
+  if (policy.refusal) return policy.refusal;
   const session = getChatSessionWithExecution(sessionId);
   const ws = session?.workspaceId ? getWorkspace(session.workspaceId) : null;
   if (!session || !ws) return ({ body: { error: 'Session not found' }, status: ({ status: 404 }).status ?? 200 });
@@ -52,6 +55,8 @@ export async function gitOnOwner(
   payload: GitPayload,
   opts: { timeoutMs: number; what: string; actor?: WorkerCommandActor },
 ): Promise<{ ok: true; result: unknown } | { ok: false; response: Response } | null> {
+  const policy = executionResourcePolicy({ operation: 'terminal', chatId: sessionId });
+  if (policy.refusal) return { ok: false, response: Response.json(policy.refusal.body, { status: policy.refusal.status }) };
   const placement = chatPlacement(sessionId);
   if (!placement || placement.isHome || !placement.executionId) return null;
   const name = getDevice(placement.deviceId)?.name ?? 'its device';

@@ -176,3 +176,17 @@ describe('desktop team journeys', () => {
     expect(flow.status().pendingTeam).toBeNull();
   });
 });
+
+
+it('records co-hosting from a custom personal root without reading that database', async () => {
+  const personal = path.join(dir, 'custom-personal'); fs.mkdirSync(personal);
+  fs.writeFileSync(path.join(personal, 'data.db'), 'invalid SQLite, never opened');
+  const requests: Record<string,unknown>[] = [];
+  const flow = teamFlow({ teamsPath:teamsFile(dir),stateDir:dir,personalRoot:()=>personal,
+    setup:async(request,options)=>{ requests.push(request);return (request.action==='create-team'?{...made,root:options!.root}:{origin:'https://localhost:42300',certificate:'PEM'}) as never; },
+    windows:{open:async()=>{}},
+  });
+  await flow.create({teamName:'Acme',ownerName:'Trey'});
+  expect(requests[0]).toMatchObject({action:'create-team',hostedWithPersonalHome:true});
+  expect(fs.readFileSync(path.join(personal,'data.db'),'utf8')).toBe('invalid SQLite, never opened');
+});

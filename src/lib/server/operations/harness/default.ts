@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { EFFORT_LEVELS } from '@/db/types';
 import { getAppRoot } from '@/lib/config/paths';
 import { setHomeDefaultSelection } from '@/lib/db/queries';
@@ -17,6 +18,8 @@ import { z as rpcZ } from 'zod/v4';
  * swapped: a model, variant or effort it can't run is refused, saying which.
  */
 export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   const { harness, model, variant = null, effort = null, serviceTier = null } = rpcInput.body;
   let selection;
   try {

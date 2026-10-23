@@ -30,6 +30,8 @@ export interface ActionContext {
     sessionId?: string | null;
     executionId?: string | null;
     runId?: string | null;
+    /** Native team caller, bound by its active turn credential. */
+    memberId?: string | null;
   };
   /**
    * Who is calling, from the credential the transport validated, never from
@@ -77,6 +79,8 @@ export interface Action<Shape extends z.ZodRawShape = z.ZodRawShape, Name extend
   /** Reject unrecognized arguments consistently at dispatch and MCP validation. */
   strictParams?: boolean;
   mutating?: boolean;
+  /** Original personal contract, before explicit connected-Home targeting. */
+  localContract?: { params: z.ZodRawShape; description: string };
   handler: (
     ctx: ActionContext,
     input: z.infer<z.ZodObject<Shape>>,

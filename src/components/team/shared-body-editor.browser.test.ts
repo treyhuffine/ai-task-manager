@@ -19,6 +19,7 @@ beforeAll(async () => {
       import { RichEditor } from './src/components/editor/rich-editor';
       import { TipProvider } from './src/components/ui/tip';
       import { PublishedResultList } from './src/components/spaces/published-results';
+      import { setAuthToken } from './src/lib/api/client';
       window.requests = [];
       let release;
       const waiting = new Promise(resolve => { release = resolve; });
@@ -33,7 +34,7 @@ beforeAll(async () => {
           }
         }), [id]);
         const shared = useSharedBodyFor({ id, body: '', bodyRevision: 0 }, target);
-        window.review = { ready: shared.ready, edit: shared.edit, switchDocument: () => setId('B'), release };
+        window.review = { ready: shared.ready, status: shared.status, edit: shared.edit, switchDocument: () => setId('B'), changeIdentity: () => setAuthToken('replacement-fixture-identity'), release };
         return <TipProvider><RichEditor content="[[file:team-file.txt]]" editable={false}
           attachmentStore={{ upload: async () => { throw Error('unused'); }, url: name => '/api/space/team-123/attachments/' + name }} />
           <PublishedResultList results={[{ id: 'result', createdAt: '2026-10-12', author: null, links: [],
@@ -91,6 +92,18 @@ it.skipIf(!enabled)('resolves file markers through the shared editor attachment 
     expect(await link.getAttribute('href')).toBe('/api/space/team-123/attachments/team-file.txt');
   } finally { await page.close(); }
 }, 30_000);
+
+it.skipIf(!enabled)('retains a draft without sending it as a replacement sign-in', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.goto(address);
+    await page.waitForFunction('window.review?.ready');
+    await page.evaluate('window.review.edit("Original author draft"); window.review.changeIdentity()');
+    await page.waitForFunction('window.review.status.status === "failed"');
+    expect(await page.evaluate('window.requests')).toEqual([]);
+    expect(await page.evaluate('JSON.parse(localStorage.getItem("review:A")).body')).toBe('Original author draft');
+  } finally { await page.close(); }
+}, 20_000);
 
 it.skipIf(!enabled)('renders published summary images and file markers from their team', async () => {
   const page = await browser.newPage();

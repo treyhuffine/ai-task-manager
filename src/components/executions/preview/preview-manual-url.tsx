@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, X, Link as LinkIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { PreviewManualUrl } from '@/lib/api/preview';
@@ -32,10 +32,13 @@ export function PreviewManualUrl({
   const current = urls.find((u) => (u.service ?? null) === null)?.url ?? '';
   const [draft, setDraft] = useState(current);
   const [pending, setPending] = useState(false);
+  const previous = useRef(current);
 
   useEffect(() => {
+    const before = previous.current;
+    previous.current = current;
     if (pending) return;
-    const id = window.setTimeout(() => setDraft(current), 0);
+    const id = window.setTimeout(() => setDraft(typed => typed.trim() === before ? current : typed), 0);
     return () => window.clearTimeout(id);
   }, [current, pending]);
 

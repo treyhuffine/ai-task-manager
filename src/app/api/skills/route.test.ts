@@ -79,7 +79,7 @@ describe('/api/skills', () => {
   });
 
   it('creates in a project, and needs the agent for it', async () => {
-    const created = await create(json('POST', { name: 'deploy', location: 'project', workspaceId: wsId }));
+    const created = await create(json('POST', { name: 'deploy', description: 'Deploy the current project.', location: 'project', workspaceId: wsId }));
     expect((await created.json()).skill.ref).toBe(`project:${wsId}:deploy`);
     expect((await create(json('POST', { name: 'x', location: 'project' }))).status).toBe(400);
   });

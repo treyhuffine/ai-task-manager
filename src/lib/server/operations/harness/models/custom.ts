@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 /**
@@ -15,6 +16,8 @@ import { customModelOption, normalizeCustomModelId } from '@/lib/harness/options
 import { isHarnessId } from '@/lib/harness/registry';
 
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const body = rpcInput.body as Record<string, unknown>;
     if (!isHarnessId(body.harness)) return reply({ error: 'Unknown harness' }, { status: 400 });
@@ -33,6 +36,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
 }
 
 export async function DELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const params = new URL(request.url).searchParams;
     const harness = params.get('harness');

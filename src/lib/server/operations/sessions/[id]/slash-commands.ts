@@ -1,3 +1,5 @@
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
 import { getAppRoot } from '@/lib/config/paths';
 import { getChatSession, getSkillUsageScores } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
@@ -34,47 +36,56 @@ import { z as rpcZ } from 'zod/v4';
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
-  const { id } = rpcInput.params;
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
+  try {
+    const { id } = rpcInput.params;
+    const authority = sessionAuthority(getRequestKey(request.headers), id, 'read');
 
-  const session = getChatSession(id);
-  if (!session) {
-    return reply({ error: 'session not found' }, { status: 404 });
-  }
+    const session = getChatSession(id);
+    if (!session) {
+      return reply({ error: 'session not found' }, { status: 404 });
+    }
 
-  const provider = session.harness;
+    const provider = session.harness;
 
-  const { commands, diagnostics } = await discoverSkillCommands({
-    cwd: getAppRoot(),
-    includeInstalled: 'all',
-    runtime: provider,
-  });
+    if (authority) return reply({ commands: [], diagnostics: [], inventorySource: 'none' });
 
-  const reconciled = reconcileSkillCommands({
-    discovered: commands,
-    inventory: executor.getSessionInventory(id),
-    provider,
-  });
-
-  // Attach the decayed usage score so the menu can rank by habit. Joined here
-  // rather than fetched separately by the client — the descriptor list is
-  // already a per-session request the composer caches, and usage without the
-  // commands it belongs to is useless. Names not in `skill_usage` (the common
-  // case on a fresh install) simply carry no `frecency`, and ranking falls
-  // back to match quality alone.
-  const usage = getSkillUsageScores();
-  const visible = reconciled
-    .filter((cmd: SkillCommandDescriptor) => cmd.userInvocable !== false && cmd.available !== false)
-    .map((cmd: SkillCommandDescriptor) => {
-      const frecency = usage.get(cmd.name.toLowerCase());
-      return frecency ? { ...cmd, frecency } : cmd;
+    const { commands, diagnostics } = await discoverSkillCommands({
+      cwd: getAppRoot(),
+      includeInstalled: 'all',
+      runtime: provider,
     });
 
-  return reply({
-    commands: visible,
-    diagnostics,
-    inventorySource: executor.getSessionInventory(id)?.source ?? 'none',
-  });
+    const reconciled = reconcileSkillCommands({
+      discovered: commands,
+      inventory: executor.getSessionInventory(id),
+      provider,
+    });
+
+    // Attach the decayed usage score so the menu can rank by habit. Joined here
+    // rather than fetched separately by the client — the descriptor list is
+    // already a per-session request the composer caches, and usage without the
+    // commands it belongs to is useless. Names not in `skill_usage` (the common
+    // case on a fresh install) simply carry no `frecency`, and ranking falls
+    // back to match quality alone.
+    const usage = getSkillUsageScores();
+    const visible = reconciled
+      .filter((cmd: SkillCommandDescriptor) => cmd.userInvocable !== false && cmd.available !== false)
+      .map((cmd: SkillCommandDescriptor) => {
+        const frecency = usage.get(cmd.name.toLowerCase());
+        return frecency ? { ...cmd, frecency } : cmd;
+      });
+
+    return reply({
+      commands: visible,
+      diagnostics,
+      inventorySource: executor.getSessionInventory(id)?.source ?? 'none',
+    });
+  } catch (error) {
+    const denied = executionOperationFailure(error);
+    if (denied) return denied;
+    throw error;
+  }
 }
 
 export const GETInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict() }).strict();

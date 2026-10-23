@@ -1,5 +1,8 @@
 'use client';
 
+import { useHomeDocumentScope } from '@/components/home/home-context';
+import { scopedDraftKey, encodeChatDraft } from '@/components/chat/editor/draft-storage';
+
 import { useSearchParams } from 'next/navigation';
 import { LinkedChatView } from '@/components/chat-ui/messages/linked-chat-view';
 import { AppCompanion } from '@/components/local-apps/app-companion';
@@ -10,7 +13,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
 import { preparedFolder } from '@/lib/executions/location';
 import { useViewportTier } from '@/hooks/use-viewport-tier';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation, useWorkActivity } from '@/contexts/work-context';
 import {
   useSession,
   useSendMessage,
@@ -35,6 +38,7 @@ import { ExecutionHeader } from './execution-header';
 import { ExecutionChatTabs } from './execution-chat-tabs';
 import { ExecutionTranscript } from './execution-transcript';
 import { ExecutionReviewBar } from './execution-review-bar';
+import { ChatRecovery } from '@/components/chat-ui/chat-recovery';
 import { ExecutionComposer, type ExecutionComposerHandle } from './execution-composer';
 import { BackgroundTasksBar } from '@/components/chat-ui/activity/background-tasks-bar';
 import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
@@ -54,7 +58,6 @@ import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
 import { DRAFT_STORAGE_PREFIX } from '@/components/chat/editor/draft-storage';
 import { hot } from '@/lib/_debug/hot-path';
-import { HOME_VIEW, executionView } from '@/lib/client/active-view';
 import { usePreviewController } from './preview/use-preview-controller';
 import { runDotClass } from './preview/run-status';
 import { useWorkbench, DEFAULT_PANEL_PCT, DEFAULT_TERMINAL_PCT } from './workbench/use-workbench';
@@ -116,7 +119,8 @@ export function ExecutionView(props: ExecutionViewProps) {
 }
 
 function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
-  const { setActiveView, setActiveExecutionId, setSessionStreaming, openAgent, pendingInputSessionIds } = useDashboard();
+  const { openAgent, openExecution, goHome } = useWorkNavigation();
+  const { setActiveExecutionId, setSessionStreaming, pendingInputSessionIds } = useWorkActivity();
   const qc = useQueryClient();
   const { data: session, isLoading, error } = useSession(sessionId);
   const { data: workspace } = useWorkspace(session?.workspaceId ?? null);
@@ -160,6 +164,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   // Start a fresh chat on this execution's worktree (the "New chat" button and
   // the composer's provider switcher), then navigate to it. Provider switch
   // passes { providerId, model }; a plain new chat passes nothing.
+  const draftScope = useHomeDocumentScope();
   const startNewChat = (opts?: {
     providerId?: HarnessId;
     model?: string;
@@ -172,14 +177,14 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
         if (draft) {
           try {
             window.localStorage.setItem(
-              `${DRAFT_STORAGE_PREFIX}exec:${r.session.id}`,
-              JSON.stringify(draft.doc),
+              `${DRAFT_STORAGE_PREFIX}${scopedDraftKey(`exec:${r.session.id}`, draftScope)}`,
+              encodeChatDraft(scopedDraftKey(`exec:${r.session.id}`, draftScope), draft.doc),
             );
           } catch {
             // Draft persistence is best-effort when storage is unavailable.
           }
         }
-        setActiveView(executionView(r.session.id));
+        openExecution(r.session.id);
       })
       .catch(() => { });
   };
@@ -535,7 +540,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     };
   }, [sessionId, qc]);
 
-  const handleClose = () => setActiveView(HOME_VIEW);
+  const handleClose = goHome;
 
   // Layout refs for the two resizable splits.
   const rowRef = useRef<HTMLDivElement | null>(null);
@@ -692,6 +697,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
             <TransferProgress sessionId={session.id} />
             <ReviewBar session={session} workspace={workspace} />
           </div>
+          <ChatRecovery sessionId={session.id} runtime={runtime} onRestart={sendMessage.reset} />
           <PendingInputArea sessionId={session.id} />
           {isMirroredImport && (
             <ImportedTakeoverBar
@@ -741,7 +747,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
                 });
               }
             }}
-            onStop={async () => { await interruptSession.mutateAsync(); }}
+            onStop={runtime?.canStop ? async () => { await interruptSession.mutateAsync(); } : undefined}
           />
         </div>
         {withBox && desktopVisible && (
@@ -768,6 +774,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
       : runDotClass(controller.runStatus);
 
   return (
+    <>
     <div className="flex flex-col flex-1 min-w-0 min-h-0">
       {/* ─── Phone / tablet (under lg) ─────────────────────────────────── */}
       <div ref={mobileRef} className="lg:hidden relative flex flex-1 min-w-0 min-h-0">
@@ -939,5 +946,6 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
         </div>
       </div>
     </div>
+    </>
   );
 }

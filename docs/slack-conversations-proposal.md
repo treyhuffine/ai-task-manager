@@ -117,7 +117,7 @@ Audience checks apply to reading, history search, links, streams, and outbound d
 
 The current implementation provides useful mechanisms independently of the unapproved product notes:
 
-- [`createTeamChat`](../src/lib/db/queries.ts) creates an orchestration session with `surfaceKind: 'team_chat'`.
+- The retained team create-chat protocol now calls [`startNewMainChat`](../src/lib/sessions/main-chat.ts) on an owner-enabled team agent. It retains the `team_chat` surface and the ordinary orchestration lifecycle. Existing restricted conversations convert in place through `team/ai/cutover.ts`.
 - [`sendToTeamAi`](../src/lib/team/ai/chat.ts) accepts member-attributed, deduplicated sends and runs queued turns in order within each chat.
 - [Team turn credentials](../src/lib/team/ai/turn-credential.ts) bind actions to the requesting member and running turn.
 - The [team runtime](../src/lib/team/ai/runtime.ts) restricts capabilities to the team's shared-work tools.

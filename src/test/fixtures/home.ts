@@ -37,6 +37,8 @@ export interface TestHomeOptions {
 }
 
 export async function createTestHome(opts: TestHomeOptions = {}): Promise<TestHome> {
+  const { flushMirror } = await import('@/lib/export/mirror');
+  await flushMirror();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), opts.prefix ?? 'ri-test-home-'));
   const dbPath = path.join(root, 'data.db');
   const configDir = path.join(root, '.config');
@@ -67,6 +69,7 @@ export async function createTestHome(opts: TestHomeOptions = {}): Promise<TestHo
     workDir,
     token,
     async cleanup() {
+      await flushMirror();
       resetDb();
       for (const [k, v] of saved) {
         if (v === undefined) delete process.env[k];

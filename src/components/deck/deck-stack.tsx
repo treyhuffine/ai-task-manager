@@ -313,7 +313,7 @@ function SortableDeckItemCard({
               You added
             </span>
           )}
-          <TeamLabel teamId={item.sourceTeamId} />
+          <TeamLabel teamId={item.sourceTeamId} sourceArea={item.sourceArea} />
           {item.areaName && <Pill>{item.areaName}</Pill>}
           {item.effort && <Pill>{item.effort}</Pill>}
           {deadline && <DeadlinePill urgent={urgent}>{deadline}</DeadlinePill>}

@@ -21,7 +21,7 @@ it('pages team transcripts by session and insertion position without sorting the
 });
 
 it('keeps a delivered cursor valid through VACUUM on the actual indexed schema', () => {
-  const chat = q.createTeamChat('Cursor');
+  const chat = q.createChatSession({ harness: 'claude', type: 'orchestration', surfaceKind: q.TEAM_CHAT_SURFACE, label: 'Cursor' });
   const first = q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'One' })!;
   q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: 'Two' });
   const before = q.listTeamChatEventsLatest(chat.id);
@@ -36,4 +36,19 @@ it('looks up historical turn states through their message index', () => {
   const plan = getRawDb().prepare('EXPLAIN QUERY PLAN SELECT * FROM team_chat_turns WHERE chat_session_id = ? AND message_event_id IN (?, ?)')
     .all('chat', 'a', 'b') as { detail: string }[];
   expect(plan.map(row => row.detail).join('\n')).toContain('idx_team_chat_turns_message');
+});
+
+it('replays only newer requested parts from the same chat through primary-key probes', () => {
+  const chat = q.createChatSession({ harness: 'claude', type: 'orchestration', surfaceKind: q.TEAM_CHAT_SURFACE, label: 'Streaming' });
+  const other = q.createChatSession({ harness: 'claude', type: 'orchestration', surfaceKind: q.TEAM_CHAT_SURFACE, label: 'Other' });
+  const part = q.replaceChatEventPart({ sessionId: chat.id, role: 'assistant', source: 'agent', content: 'First', externalEventId: 'stable-part', partRevision: 0 })!;
+  const privatePart = q.replaceChatEventPart({ sessionId: other.id, role: 'assistant', source: 'agent', content: 'Other chat', externalEventId: 'stable-part', partRevision: 3 })!;
+  const before = q.listTeamChatEventsLatest(chat.id).cursor;
+  q.replaceChatEventPart({ sessionId: chat.id, role: 'assistant', source: 'agent', content: 'Completed text', externalEventId: 'stable-part', partRevision: 1 });
+  expect(q.listTeamChatEventsAfter(chat.id, before).events).toEqual([]);
+  expect(q.revisedTeamChatEvents(chat.id, [{ id: part.id, revision: 0 }, { id: privatePart.id, revision: 0 }])).toMatchObject([{ id: part.id, partRevision: 1, content: 'Completed text' }]);
+  expect(q.revisedTeamChatEvents(chat.id, [{ id: part.id, revision: 1 }])).toEqual([]);
+  const plan = getRawDb().prepare('EXPLAIN QUERY PLAN SELECT session_id, source, part_revision, rowid FROM chat_events WHERE id = ?').all(part.id) as { detail: string }[];
+  expect(plan.map(row => row.detail).join('\n')).toContain('sqlite_autoindex_chat_events_1');
+  expect(plan.map(row => row.detail).join('\n')).not.toMatch(/TEMP B-TREE|SCAN chat_events/);
 });

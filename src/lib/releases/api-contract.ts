@@ -1,8 +1,10 @@
 /** Stable browser/CLI API contract, independent of release/build identity. */
-export const API_PROTOCOL = 1;
+// Protocol 2 requires unified-Home native content and incremental references.
+// New Homes retain baseline callers because their older operations still work.
+export const API_PROTOCOL = 2;
 export const API_PROTOCOL_HEADER = 'x-ri-api-protocol';
 export interface ApiCompatibilityIssue { error: 'api_protocol'; code: 'api_protocol'; update: 'client' | 'home'; protocol: number | null; supported: number[]; message: string }
-export function apiCompatibilityIssue(header: string | null, supported: readonly number[] = [API_PROTOCOL]): ApiCompatibilityIssue | null {
+export function apiCompatibilityIssue(header: string | null, supported: readonly number[] = [1, API_PROTOCOL]): ApiCompatibilityIssue | null {
   // Existing browsers and CLI installations are explicitly the baseline.
   // Missing metadata must not become a wildcard when a later release retires it.
   const protocol = header === null ? 1 : /^\d+$/.test(header) ? Number(header) : null;

@@ -12,11 +12,11 @@ import { Loader2, Plus, ScrollText, Search } from 'lucide-react';
 import type { SkillSummary } from '@/lib/api/skills';
 import { useSkills } from '@/hooks/use-skills';
 import { useStartSkill } from '@/hooks/use-start-skill';
-import { useDashboard } from '@/contexts/dashboard-context';
-import { closeSettings } from '@/components/settings/settings-store';
+import { useSkillNavigation } from '@/components/skills/skill-navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LOCATION_GROUPS, displayPath } from '@/components/skills/location-copy';
+import { apiErrorText } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import { CatalogTile, Chip, GroupHeading } from '../integrations/parts';
 
@@ -52,7 +52,7 @@ export function NewSkillButton({ className }: { className?: string }) {
 
 /** Skills matching the catalog search, and how many there are, for its empty state. */
 export function useSkillsCatalog(q: string) {
-  const { data, isLoading } = useSkills();
+  const { data, isLoading, error, refetch } = useSkills();
   return useMemo(() => {
     const matches = (s: SkillSummary) =>
       !q ||
@@ -60,8 +60,8 @@ export function useSkillsCatalog(q: string) {
       (s.description ?? '').toLowerCase().includes(q) ||
       (s.location.kind === 'project' && s.location.projectName.toLowerCase().includes(q));
     const skills = (data?.skills ?? []).filter(matches);
-    return { skills, total: skills.length, isLoading };
-  }, [data, q, isLoading]);
+    return { skills, total: skills.length, isLoading, error, refetch };
+  }, [data, q, isLoading, error, refetch]);
 }
 
 export function SkillTile({ skill, onOpen }: { skill: SkillSummary; onOpen: () => void }) {
@@ -119,7 +119,7 @@ function groupSkills(skills: SkillSummary[]): Group[] {
 }
 
 export function SkillsGroup({ skills, searching }: { skills: SkillSummary[]; searching: boolean }) {
-  const { openSkill } = useDashboard();
+  const { openSkill, closeCatalog } = useSkillNavigation();
   if (skills.length === 0) return null;
   return (
     <div className="space-y-5">
@@ -133,7 +133,7 @@ export function SkillsGroup({ skills, searching }: { skills: SkillSummary[]; sea
                 key={skill.ref}
                 skill={skill}
                 onOpen={() => {
-                  closeSettings();
+                  closeCatalog();
                   openSkill(skill.ref);
                 }}
               />
@@ -151,14 +151,15 @@ export function SkillsGroup({ skills, searching }: { skills: SkillSummary[]; sea
  * NewSkillButton, above the tabs and in the main Create menu.
  */
 export function SkillsTab() {
+  const { showSetupHelp, canManage } = useSkillNavigation();
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
-  const { skills, isLoading } = useSkillsCatalog(q);
+  const { skills, isLoading, error, refetch } = useSkillsCatalog(q);
   const { data } = useSkills();
   const all = data?.skills.length ?? 0;
   return (
     <div className="@container space-y-5">
-      <PluginSetupHelpButton target={{ kind: 'plugins', tab: 'skills' }} />
+      {showSetupHelp && <PluginSetupHelpButton target={{ kind: 'plugins', tab: 'skills' }} />}
       {all > 8 && (
         <div className="relative">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -175,10 +176,12 @@ export function SkillsTab() {
         <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
           <Loader2 size={14} className="animate-spin" /> Loading skills…
         </div>
+      ) : error ? (
+        <p role="alert" className="text-xs text-destructive">{apiErrorText(error)} <button className="underline" onClick={() => void refetch()}>Retry</button></p>
       ) : all === 0 ? (
         <p className="py-6 text-center text-[12px] text-muted-foreground">
           No skills yet. A skill teaches your agents one way of working, like how you review a pull request. Start
-          one with New skill.
+          one{canManage ? ' with New skill.' : ' by asking an owner to install it.'}
         </p>
       ) : skills.length === 0 ? (
         <p className="py-6 text-center text-[12px] text-muted-foreground">No skills match “{query}”.</p>

@@ -1,4 +1,7 @@
-import { getChatSession, insertChatEvent } from '@/lib/db/queries';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { submitActionMessage, replayActionMessage } from '@/lib/sessions/action-message';
+import { getChatSession } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
 import { buildHelpWithErrorPrompt } from '@/lib/executor/prompts/help-with-error';
 import { reply, type OperationContext } from '@/lib/server/operation';
@@ -21,9 +24,14 @@ const BodySchema = z.object({
   context: z.array(ContextEntrySchema).max(20).optional(),
 });
 
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const { requestId, ...actionInput } = rpcInput.body;
+    const intent = { action: 'help-with-error', input: actionInput };
+    const replay = replayActionMessage(request.headers, id, requestId, intent);
+    if (replay) return reply({ ok: true, ...replay });
+    sessionAuthority(getRequestKey(request.headers), id, 'send');
     const raw = rpcInput.body;
     const parsed = BodySchema.safeParse(raw);
     if (!parsed.success) {
@@ -47,20 +55,12 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
 
     const prompt = buildHelpWithErrorPrompt(parsed.data);
 
-    insertChatEvent({
-      sessionId: id,
-      role: 'user',
-      source: 'user',
-      content: prompt,
-      createdAt: new Date().toISOString(),
-    });
+    const receipt = await submitActionMessage(request.headers, id, prompt, requestId, intent);
 
-    executor.dispatch(id, prompt).catch((err) => {
-      console.error(`[POST /api/sessions/:id/help-with-error] dispatch failed for ${id}:`, err);
-    });
-
-    return reply({ ok: true });
+    return reply({ ok: true, ...receipt });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/help-with-error]', err);
     const name = err instanceof Error ? err.name : 'Error';
     const message = err instanceof Error ? err.message : String(err);
@@ -68,4 +68,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "action": rpcZ.string(), "error": rpcZ.string(), "context": rpcZ.array(rpcZ.object({ "label": rpcZ.string(), "value": rpcZ.string() }).strict()).optional() }).strict() }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "requestId": rpcZ.string().uuid().optional(), "action": rpcZ.string(), "error": rpcZ.string(), "context": rpcZ.array(rpcZ.object({ "label": rpcZ.string(), "value": rpcZ.string() }).strict()).optional() }).strict() }).strict();

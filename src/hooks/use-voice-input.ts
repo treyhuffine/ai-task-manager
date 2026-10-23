@@ -1,5 +1,8 @@
 'use client';
-import { trpcClient } from '@/lib/trpc/client';
+
+import { usePersonalServices } from '@/components/home/use-personal-services';
+import { currentSpaceId, spaceApiBase } from '@/lib/spaces/document';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 
 import { DEFAULT_VOICE_MODEL, getVoiceProvider } from '@/constants/voice-models';
 import { useUserState } from '@/hooks/use-user-state';
@@ -71,13 +74,14 @@ export interface UseVoiceInputReturn {
  * plain-HTTP connection those probes queued behind the page's streams
  * (gate B finding).
  */
-const PROVIDERS_KEY = ['transcribe', 'providers'] as const;
+const PROVIDERS_KEY = trpc.transcribe.status.queryKey({});
 const PROVIDERS_FRESH_MS = 60_000;
 
 export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn {
+  const serverSpeech = usePersonalServices();
   const queryClient = useQueryClient();
   const { data: userState } = useUserState();
-  const voiceModel = voiceModelOverride ?? userState?.voiceModel ?? DEFAULT_VOICE_MODEL;
+  const voiceModel = serverSpeech ? voiceModelOverride ?? userState?.voiceModel ?? DEFAULT_VOICE_MODEL : 'web/speech-recognition';
 
   // Status lives in a ref (source of truth for async callbacks) AND state
   // (triggers re-renders). `setVoiceStatus` is the ONLY way to update —
@@ -188,7 +192,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
         mode: null,
         reason:
           selected === 'web'
-            ? 'This browser does not support browser speech recognition. Choose another provider in Voice settings.'
+            ? serverSpeech ? 'This browser does not support browser speech recognition. Choose another provider in Voice settings.' : 'This browser does not support speech recognition. Open this Team in a browser with speech recognition support.'
             : 'Choose an available speech provider in Voice settings.',
       };
     }
@@ -197,12 +201,12 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
       const generation = ++probeGeneration;
       let status: ProviderStatus | null = null;
       try {
-        const data = await queryClient.fetchQuery({
+        const data = serverSpeech ? await queryClient.fetchQuery({
           queryKey: PROVIDERS_KEY,
           queryFn: () => trpcClient.transcribe.status.query({}),
           // Cached across mounts, and fresh when the providers just changed.
           staleTime: fresh ? 0 : PROVIDERS_FRESH_MS,
-        });
+        }) : { providers: { local: { available: false, configured: false }, groq: { available: false, configured: false } } };
         if (cancelled || generation !== probeGeneration) return;
         status = { ...data.providers, web: { available: hasWebSpeech, configured: hasWebSpeech } };
         setProviderStatus(status);
@@ -227,7 +231,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('ri:voice-providers-changed', onProvidersChanged);
     };
-  }, [voiceModel, queryClient]);
+  }, [voiceModel, queryClient, serverSpeech]);
 
   // ─── Mic lifecycle helpers ──────────────────────────────────
   const stopMic = useCallback(() => {
@@ -334,7 +338,7 @@ export function useVoiceInput(voiceModelOverride?: string): UseVoiceInputReturn 
             form.append('voiceModel', selectedModel);
           }
           const data = await api.upload<{ text?: string; error?: string }>(
-            '/transcribe',
+            currentSpaceId() ? `${spaceApiBase(currentSpaceId()!).replace(/^\/api/, '')}/transcribe` : '/transcribe',
             form,
             { signal: transcription.signal },
           );

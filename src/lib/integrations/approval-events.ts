@@ -1,3 +1,4 @@
+import { preserveSystemContext } from '@/lib/db/queries';
 /**
  * Where integration approvals meet the rest of the app: the chat transcript, notifications, the
  * Integrations settings, and the waiting agent.
@@ -276,7 +277,11 @@ export async function recordApprovalDecision(resolved: readonly ResolvedApproval
     } catch (err) {
       console.error(`[integrations] pre-dispatch health check failed for ${sessionId}:`, err);
     }
-    dispatchSessionTurn(sessionId, session.executionId ?? null, note);
+    const preserve = () => {
+      preserveSystemContext(sessionId, items.map(item => item.id).sort().join(':'), note);
+    };
+    if ((await import('@/lib/executor/adapter')).hasUnconfirmedClose(sessionId)) preserve();
+    else dispatchSessionTurn(sessionId, session.executionId ?? null, note, { onFailure: preserve });
   }
 }
 

@@ -1,6 +1,7 @@
 'use client';
 
-import Link from 'next/link';
+import { HomeLink } from '@/components/home/home-link';
+import { useOptionalWorkNavigation } from '@/contexts/work-context';
 import { HarnessChatSession } from '@/components/chat/harness-chat';
 import { ExecutionTranscript } from '@/components/executions/execution-transcript';
 import { useWorkspace } from '@/hooks/use-workspaces';
@@ -11,6 +12,7 @@ import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 
 /** Exact non-execution chat navigation never replaces or resumes a scope's current main chat. */
 export function LinkedChatView({ session }: { session: ChatSessionWithExecution }) {
+  const navigation = useOptionalWorkNavigation();
   const { data: workspace } = useWorkspace(session.workspaceId ?? null);
   const orchestratorName = useOrchestratorName();
   const archived = session.status === 'archived';
@@ -23,7 +25,12 @@ export function LinkedChatView({ session }: { session: ChatSessionWithExecution 
         <h1 className="break-words text-sm font-medium">{title}</h1>
         {archived && <p className="mt-1 text-xs text-muted-foreground">Archived chat</p>}
       </div>
-      <Link href={viewHref(session.executionId ? executionView(session.id) : currentView)} className="shrink-0 text-xs underline underline-offset-4">{session.executionId ? 'Continue this chat' : 'Open current chat'}</Link>
+      <HomeLink href={viewHref(session.executionId ? executionView(session.id) : currentView)} className="shrink-0 text-xs underline underline-offset-4" onClick={event => {
+        if (!navigation || !session.executionId && !navigation.openCurrentChat) return;
+        event.preventDefault();
+        if (session.executionId) navigation.openExecution(session.id);
+        else navigation.openCurrentChat?.(session.workspaceId ?? null);
+      }}>{session.executionId ? 'Continue this chat' : 'Open current chat'}</HomeLink>
     </header>
     {archived
       ? <ExecutionTranscript session={session} workspace={workspace} isRunning={false} />

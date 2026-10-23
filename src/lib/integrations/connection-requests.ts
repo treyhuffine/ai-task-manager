@@ -1,3 +1,4 @@
+import { preserveSystemContext } from '@/lib/db/queries';
 /**
  * Connecting accounts from chat (docs/connecting-from-chat.md). Three ways a Connect card appears,
  * all written by the server into the chat that needs it, never decided by the chat:
@@ -840,21 +841,34 @@ function deliverable(sessionId: string) {
  * so the reload doesn't cut the turn off and the note starts a turn that has the new tools.
  */
 function wakeAgent(sessionId: string, note: string, opts: { reload: boolean }): void {
+  let preserved = false;
+  const preserveNote = () => {
+    if (preserved) return;
+    preserved = true;
+    preserveSystemContext(sessionId, note, note);
+  };
   const go = async () => {
     const session = deliverable(sessionId);
     if (!session) return;
     if (opts.reload) await executor.recycleWhenIdle(sessionId);
+    if (executor.hasUnconfirmedClose(sessionId)) {
+      // Keep the complete decision note visible and durable. Do not silently
+      // lose it in a refused fire-and-forget dispatch, or replay it later as
+      // unexpected work after Restart.
+      preserveNote();
+      return;
+    }
     try {
       await healthCheckSession(sessionId, { redispatchOrphans: false });
     } catch (err) {
       console.error(`[integrations] pre-dispatch health check failed for ${sessionId}:`, err);
     }
-    dispatchSessionTurn(sessionId, session.executionId ?? null, note);
+    dispatchSessionTurn(sessionId, session.executionId ?? null, note, { onFailure: preserveNote });
   };
   const started = Date.now();
   const tick = () => {
-    if (!executor.isRunning(sessionId) || Date.now() - started > IDLE_WAIT_MS) {
-      void go().catch((err) => console.error(`[integrations] waking ${sessionId} failed:`, err));
+    if (executor.hasUnconfirmedClose(sessionId) || !executor.isRunning(sessionId) || Date.now() - started > IDLE_WAIT_MS) {
+      void go().catch((err) => { preserveNote(); console.error(`[integrations] waking ${sessionId} failed:`, err); });
       return;
     }
     setTimeout(tick, IDLE_POLL_MS);

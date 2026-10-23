@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { TEAM_ROLE_LABELS } from '@/lib/team/capabilities';
+import { useHomeContext } from '@/components/home/home-context';
+
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Archive, Check, Copy, FolderPlus, House, LogOut, RotateCcw, Smartphone, UserMinus, UserPlus } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import { forgetTeamSignIn } from '@/lib/team/client';
 import { trpc, trpcClient } from '@/lib/trpc/client';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { useTeam, useTeamNav } from './team-context';
@@ -20,7 +23,11 @@ import { useSpace } from '@/components/spaces/space-root';
 import { useAreas, useUpdateArea } from '@/hooks/use-areas';
 import { TeamAddressSetup } from './team-address-setup';
 import { SettingsNavigation } from '@/components/settings/settings-nav';
+import { SettingsPanel } from '@/components/settings/settings-panel';
 import { TEAM_SETTINGS_SECTIONS, teamSettingsSection, type TeamSettingsSectionId } from './team-settings-sections';
+import { SkillLibrary } from '@/components/skills/skill-library';
+const VoiceSection = lazy(async () => ({ default: (await import('@/components/settings/sections/voice-section')).VoiceSection }));
+import { ThemeSettings } from '@/components/settings/sections/theme-settings';
 
 /**
  * A team's Settings (docs/homes-spec.md §3.2): the team's name and where it's
@@ -32,11 +39,11 @@ import { TEAM_SETTINGS_SECTIONS, teamSettingsSection, type TeamSettingsSectionId
  */
 export function TeamSettings() {
   const nav = useTeamNav();
-  const { member } = useTeam();
   const addressRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [needsAddress, setNeedsAddress] = useState(false);
-  const owner = member.role === 'owner';
+  const capabilities = useHomeContext().capabilities;
+  const owner = capabilities.administerMembers;
   const settingUp = nav.remoteSetup && owner;
   const section = teamSettingsSection(nav.settingsSection, owner);
   // Keep visited forms mounted while the dialog is open, so changing sections
@@ -55,13 +62,15 @@ export function TeamSettings() {
 
   const content = (id: TeamSettingsSectionId) => {
     switch (id) {
-      case 'general': return <TeamSection />;
+      case 'general': return <div className="space-y-6"><TeamSection /><ThemeSettings /></div>;
       case 'people': return <PeopleSection onNeedAddress={needAddress} />;
       case 'areas': return <AreasSection />;
       case 'access': return <>
         {needsAddress && !owner && <p role="status" className="mb-4 text-sm text-muted-foreground">Ask a team owner to set up a reachable address before signing in elsewhere or connecting your personal Ri.</p>}
         <YouSection onNeedAddress={needAddress} />
       </>;
+      case 'skills': return <SkillLibrary canManage={capabilities.configureAgents} />;
+      case 'voice': return <Suspense fallback={<p role="status">Loading voice preferences…</p>}><VoiceSection manageHost={false} /></Suspense>;
       case 'ai': return <TeamAiSection />;
       case 'external-ai': return <ConnectAiSection />;
       case 'remote': return <div ref={addressRef} tabIndex={-1} className="outline-none">
@@ -73,27 +82,21 @@ export function TeamSettings() {
 
   return (
     <Dialog open={nav.panel === 'settings'} onOpenChange={(open) => { if (!open) { if (settingUp) nav.finishRemoteSetup(); else nav.openPanel(null); } }}>
-      <DialogContent
-        className={cn('flex max-h-[92dvh] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0',
-          settingUp ? 'sm:max-w-xl' : 'h-[800px] sm:max-w-6xl sm:flex-row')}
+      <SettingsPanel
+        compact={settingUp}
+        title={settingUp ? 'Choose a team prefix' : section.title}
+        description={settingUp ? 'A short name for your team’s address.' : section.description}
+        bodyRef={bodyRef}
+        navigation={!settingUp && <SettingsNavigation label="Team settings" active={section.id} onSelect={nav.openSettings} sections={sections} />}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           (e.target as HTMLElement | null)?.focus();
         }}
       >
-        {!settingUp && <SettingsNavigation label="Team settings" active={section.id} onSelect={nav.openSettings} sections={sections} />}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <DialogHeader className="gap-1 border-b border-border px-5 py-4 pr-12 text-left">
-            <DialogTitle className="text-[15px] font-semibold">{settingUp ? 'Choose a team prefix' : section.title}</DialogTitle>
-            <DialogDescription className="text-[12px] leading-snug">{settingUp ? 'A short name for your team’s address.' : section.description}</DialogDescription>
-          </DialogHeader>
-          <div ref={bodyRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-5">
-            {settingUp ? <TeamAddressSetup onDone={nav.finishRemoteSetup} /> : sections.filter(item => visited.includes(item.id)).map(item => (
-              <div key={item.id} hidden={section.id !== item.id} data-team-settings-section={item.id}>{content(item.id)}</div>
-            ))}
-          </div>
-        </div>
-      </DialogContent>
+        {settingUp ? <TeamAddressSetup onDone={nav.finishRemoteSetup} /> : sections.filter(item => visited.includes(item.id)).map(item => (
+          <div key={item.id} hidden={section.id !== item.id} data-team-settings-section={item.id}>{content(item.id)}</div>
+        ))}
+      </SettingsPanel>
     </Dialog>
   );
 }
@@ -155,14 +158,15 @@ function NameField({ id, label, value, onSave, disabled }: { id?: string; label:
 }
 
 function TeamSection() {
-  const { team, member } = useTeam();
+  const homeCapabilities = useHomeContext().capabilities;
+  const { team } = useTeam();
   const qc = useQueryClient();
   return (
     <Section title="Team" hint={team.hostedOn ? `Hosted on ${team.hostedOn}. When that computer is asleep or offline, the team can't be reached.` : undefined}>
       <NameField
         label="Team name"
         value={team.name}
-        disabled={member.role !== 'owner'}
+        disabled={!homeCapabilities.administerMembers}
         onSave={async (name) => {
           await trpcClient.team.rename.mutate({ name });
           await qc.invalidateQueries({ queryKey: trpc.team.me.queryKey() });
@@ -236,7 +240,8 @@ function CopyLink({ link, note }: { link: string; note?: string }) {
 
 function PeopleSection({ onNeedAddress }: { onNeedAddress: () => void }) {
   const { member } = useTeam();
-  const owner = member.role === 'owner';
+  const capabilities = useHomeContext().capabilities;
+  const owner = capabilities.administerMembers;
   const qc = useQueryClient();
   const confirm = useConfirm();
   const { active } = useTeamMembers();
@@ -265,7 +270,7 @@ function PeopleSection({ onNeedAddress }: { onNeedAddress: () => void }) {
               {m.name}
               {m.id === member.id && <span className="text-muted-foreground"> (you)</span>}
             </span>
-            <span className="text-[11px] text-muted-foreground">{m.role === 'owner' ? 'Owner' : 'Member'}</span>
+            <span className="text-[11px] text-muted-foreground">{TEAM_ROLE_LABELS[m.role]}</span>
             {owner && m.id !== member.id && (
               <button
                 type="button"

@@ -1,3 +1,5 @@
+import { isTeamAuthority } from '@/lib/home/authority';
+import { runTeamSessionAction } from '@/lib/team/session-actions';
 /**
  * POST /api/orchestrator/actions/:name: run one orchestrator action.
  *
@@ -40,6 +42,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return Response.json({ error: 'invalid_json', message: 'The body must be JSON params for the action.' }, { status: 400 });
     }
   }
+
+  if (isTeamAuthority()) return Response.json(await runTeamSessionAction(key, name, input));
 
   const actor = actorFromSessionCredential(sessionCredentialFromHeaders(request.headers));
   const envelope = await runAction(name, input, {

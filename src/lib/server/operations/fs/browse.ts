@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { reply, searchParams, type OperationContext } from '@/lib/server/operation';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -22,6 +23,8 @@ import { z as rpcZ } from 'zod/v4';
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents');
+  if (homeDenied) return homeDenied;
   try {
     const params = searchParams(rpcInput.query);
     const raw = params.get('path') ?? '~';

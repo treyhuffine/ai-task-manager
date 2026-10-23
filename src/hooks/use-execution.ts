@@ -1,3 +1,7 @@
+import { invalidateWorkspaceViews } from '@/lib/query/work-view-invalidation';
+import { usePersonalServices } from '@/components/home/use-personal-services';
+import { compareTranscriptEvents } from '@/lib/api/dto/chat-event';
+import { trpc } from '@/lib/trpc/client';
 import { flushAppContext } from '@/lib/client/app-context';
 import { flushConnectedContext, noteSkippedContext, type SkippedContext } from '@/lib/client/mcp-app-context';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
@@ -26,7 +30,7 @@ import { useMemo } from 'react';
 import { toast } from 'sonner';
 import { uuidv7 } from 'uuidv7';
 
-const SESSION_KEY = (id: string) => ['session', id] as const;
+import { sessionKey as SESSION_KEY } from '@/lib/query/session-keys';
 
 /**
  * Cache scope for anything derived from the worktree.
@@ -70,7 +74,7 @@ function worktreeScope(
  */
 export function useWorktreeScope(sessionId: string | null): readonly [string, string] | null {
   const { data, isPending } = useSession(sessionId);
-  if (!sessionId || isPending) return null;
+  if (!sessionId || isPending || data?.workspaceId === null) return null;
   return worktreeScope(data, sessionId);
 }
 
@@ -120,12 +124,7 @@ export function worktreeFileKey(
  * Shared by the snapshot merge and the scroll-up prepend so every writer
  * keeps the cached list sorted identically.
  */
-function byCreatedThenId(a: ChatEventDTO, b: ChatEventDTO): number {
-  if (a.createdAt !== b.createdAt) {
-    return a.createdAt < b.createdAt ? -1 : 1;
-  }
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-}
+const byCreatedThenId = compareTranscriptEvents;
 
 /**
  * The session row behind an execution view.
@@ -140,7 +139,7 @@ function byCreatedThenId(a: ChatEventDTO, b: ChatEventDTO): number {
  */
 export function useSession(id: string | null) {
   return useQuery({
-    queryKey: ['session', id],
+    queryKey: SESSION_KEY(id),
     queryFn: ({ signal }) => sessionsApi.get(id!, { signal }),
     enabled: !!id,
     retry: (failureCount, error) => {
@@ -417,7 +416,7 @@ export function useSessionBaseFile(id: string | null, path: string | null) {
 export function invalidateWorktree(qc: ReturnType<typeof useQueryClient>, id: string) {
   qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
   qc.invalidateQueries({ queryKey: SESSION_KEY(id), exact: true });
-  qc.invalidateQueries({ queryKey: ['workspaces'] });
+  invalidateWorkspaceViews(qc);
 }
 
 /**
@@ -475,10 +474,11 @@ export function useRetrySetup(id: string) {
     mutationFn: () => sessionsApi.retrySetup(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
+      void qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: id } }) });
       // Provisioning replaces the worktree the scope's reads are derived
       // from, and that scope no longer sits under the session prefix.
       qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
-      qc.invalidateQueries({ queryKey: ['workspaces'] });
+      invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
     },
   });
@@ -491,6 +491,7 @@ export function useRetrySetupScript(id: string) {
     mutationFn: () => sessionsApi.retrySetupScript(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
+      void qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: id } }) });
       // The script installs deps / writes files into the worktree.
       qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
     },
@@ -513,6 +514,7 @@ export function useContinueSession(id: string) {
       sessionsApi.continueWork(id, opts),
     onSuccess: (row) => {
       qc.invalidateQueries({ queryKey: SESSION_KEY(id) });
+      void qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: id } }) });
       // Only a genuine re-provision — the worktree was torn down and is
       // being rebuilt — should blow away the execution's cached tree/diff/
       // files/terminal. `continueExecutionSession` signals that by
@@ -524,7 +526,7 @@ export function useContinueSession(id: string) {
       if (!row?.worktreePath) {
         qc.invalidateQueries({ queryKey: worktreeScopeFromCache(qc, id) });
       }
-      qc.invalidateQueries({ queryKey: ['workspaces'] });
+      invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
     },
   });
@@ -557,7 +559,7 @@ export function useNewExecutionChat(id: string) {
       // (unchanged) execution.
       qc.setQueryData(SESSION_KEY(r.session.id), r.session);
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
-      qc.invalidateQueries({ queryKey: ['workspaces'] });
+      invalidateWorkspaceViews(qc);
       // Refresh the execution's chat-tab list (new sibling appears; an
       // accidental empty chat may have been deleted server-side). Keyed by
       // execution, so invalidate by shape.
@@ -628,8 +630,9 @@ export function useCloseExecutionChat() {
     },
     onSettled: (_r, _e, chatId) => {
       qc.invalidateQueries({ queryKey: SESSION_KEY(chatId) });
+      void qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: chatId } }) });
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
-      qc.invalidateQueries({ queryKey: ['workspaces'] });
+      invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ predicate: isExecutionChatsQuery });
     },
   });
@@ -687,10 +690,11 @@ export function useCancelDelivery(sessionId: string) {
 
 /** The execution's latest move between devices: fetched, then kept current by the session stream. */
 export function useTransfer(sessionId: string | null) {
+  const personalServices = usePersonalServices();
   return useQuery({
     queryKey: ['session', sessionId, 'transfer'],
     queryFn: async ({ signal }) => (await sessionsApi.transfer(sessionId!, { signal })).transfer,
-    enabled: !!sessionId,
+    enabled: personalServices && !!sessionId,
     staleTime: 30_000,
   });
 }
@@ -742,20 +746,22 @@ export function useFinishTransfer(sessionId: string) {
 
 /** Open code here (P4.1): this device's review checkout of the execution. */
 export function useReview(sessionId: string | null) {
+  const personalServices = usePersonalServices();
   return useQuery({
     queryKey: ['session', sessionId, 'review'],
     queryFn: ({ signal }) => sessionsApi.review(sessionId!, { signal }),
-    enabled: !!sessionId,
+    enabled: personalServices && !!sessionId,
     staleTime: 15_000,
   });
 }
 
 /** The review checkout another device has of it, if any: Continue there says it stays apart. */
 export function useReviewOn(sessionId: string | null, deviceId: string | null, enabled: boolean) {
+  const personalServices = usePersonalServices();
   return useQuery({
     queryKey: ['session', sessionId, 'review', deviceId],
     queryFn: ({ signal }) => sessionsApi.review(sessionId!, { signal, deviceId: deviceId! }),
-    enabled: enabled && !!sessionId && !!deviceId,
+    enabled: personalServices && enabled && !!sessionId && !!deviceId,
     staleTime: 15_000,
   });
 }
@@ -771,8 +777,9 @@ export function useOpenCodeHere(sessionId: string) {
 
 export function useSendMessage(id: string) {
   const qc = useQueryClient();
+  const clientStatus = useClientEventStatus(id);
   const eventsKey = ['session', id, 'events'] as const;
-  const runtimeKey = ['session', id, 'runtime-status'] as const;
+  const runtimeKey = trpc.sessions.runtimeStatusGet.queryKey({ params: { id } });
 
   const mutation = useMutation<ChatEventDTO, Error, InternalSendInput>({
     // The composer clears on send and restores only on failure, so until the
@@ -860,7 +867,8 @@ export function useSendMessage(id: string) {
       });
       clearClientStatus(qc, eventsKey, realEvent.id);
       qc.invalidateQueries({ queryKey: ['session', id] });
-      qc.invalidateQueries({ queryKey: ['workspaces'] });
+      qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: id! } }) });
+      invalidateWorkspaceViews(qc);
     },
     onError: (err, input) => {
       // Keep the optimistic bubble around but mark it failed so the
@@ -890,6 +898,11 @@ export function useSendMessage(id: string) {
 
   return {
     ...mutation,
+    // Retry has its own mutation observer. Its shared bubble state is the
+    // authority for whether this send still failed, not this observer's old
+    // error after a successful Retry.
+    isError: mutation.isError && clientStatus[mutation.variables?.eventId ?? '']?.status === 'failed',
+    error: mutation.isError && clientStatus[mutation.variables?.eventId ?? '']?.status === 'failed' ? mutation.error : null,
     mutate: (input: SendMessageInput | string) => mutation.mutate(normalize(input)),
     mutateAsync: (input: SendMessageInput | string) => mutation.mutateAsync(normalize(input)),
   };
@@ -931,6 +944,7 @@ export function useRetrySend(sessionId: string) {
       });
       clearClientStatus(qc, eventsKey, realEvent.id);
       qc.invalidateQueries({ queryKey: ['session', sessionId] });
+      qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: sessionId! } }) });
     },
     onError: (err, { eventId }) => {
       setClientStatus(qc, eventsKey, eventId, {
@@ -1018,9 +1032,10 @@ export function useUpdateSession() {
       // list, and every open file. This endpoint only ever writes columns
       // on the session row itself, so the row is all that needs refreshing.
       qc.invalidateQueries({ queryKey: SESSION_KEY(data.id), exact: true });
+      void qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: data.id } }) });
       // `prNumber` is patchable here and the PR read is worktree-scoped.
       qc.invalidateQueries({ queryKey: [...worktreeScopeFromCache(qc, data.id), 'pr'] });
-      qc.invalidateQueries({ queryKey: ['workspaces'] });
+      invalidateWorkspaceViews(qc);
     },
   });
 }
@@ -1145,7 +1160,7 @@ function deriveSessionMeta(events: ChatEventDTO[]): SessionMeta {
  */
 export function useRuntimeStatus(id: string | null) {
   return useQuery({
-    queryKey: ['session', id, 'runtime-status'],
+    queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: id! } }),
     queryFn: ({ signal }) => sessionsApi.runtimeStatus(id!, { signal }),
     enabled: !!id,
     refetchInterval: (query) => hasRuntimeActivity(query.state.data) ? 5_000 : false,
@@ -1196,7 +1211,7 @@ export function useResyncSession(id: string) {
     mutationFn: () => sessionsApi.resync(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['session', id, 'events'] });
-      qc.invalidateQueries({ queryKey: ['session', id, 'runtime-status'] });
+      qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: id! } }) });
       qc.invalidateQueries({ queryKey: ['session', id, 'pending-input'] });
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
     },
@@ -1214,6 +1229,7 @@ export function useTakeOverImport(id: string) {
     mutationFn: () => sessionsApi.takeOverImport(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['session', id] });
+      qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: id! } }) });
       qc.invalidateQueries({ queryKey: ['session', id, 'events'] });
       qc.invalidateQueries({ queryKey: ['sessions', 'rail'] });
     },
@@ -1235,7 +1251,7 @@ export function useRestartSession(id: string) {
   return useMutation({
     mutationFn: () => sessionsApi.restart(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['session', id, 'runtime-status'] });
+      qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id: id! } }) });
       qc.invalidateQueries({ queryKey: ['session', id, 'pending-input'] });
     },
   });

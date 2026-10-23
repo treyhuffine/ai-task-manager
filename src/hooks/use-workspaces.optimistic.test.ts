@@ -13,7 +13,7 @@ const fixtures = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), error: vi.fn
 vi.mock('@/lib/api/workspaces', () => ({ workspacesApi: { get: fixtures.get, update: fixtures.update } }));
 vi.mock('@/lib/api/sessions', () => ({ sessionsApi: {} }));
 vi.mock('@/hooks/use-execution', () => ({ worktreeScopeFor: vi.fn() }));
-vi.mock('@/hooks/use-reference-folders', () => ({ invalidateReferencePickers: vi.fn() }));
+vi.mock('@/hooks/use-reference-folders', () => ({ invalidateReferenceCatalogs: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { error: fixtures.error } }));
 
 const ID = 'test-agent';

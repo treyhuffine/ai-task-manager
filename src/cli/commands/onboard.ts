@@ -187,7 +187,7 @@ export async function runWizard(): Promise<void> {
   } else if (!desktop) {
     log.info(
       'Claude Code, Codex and other coding tools can now manage your tasks and notes from any project. ' +
-        'Uninstall in one click in Settings, External AI.',
+        'Uninstall in one click in Settings, MCP access.',
     );
   }
 

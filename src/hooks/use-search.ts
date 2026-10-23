@@ -1,4 +1,6 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { trpc } from '@/lib/trpc/client';
+import { rpcQuery } from '@/lib/trpc/request-options';
 import { searchApi, type SearchMode } from '@/lib/api/search';
 
 /**
@@ -13,7 +15,7 @@ import { searchApi, type SearchMode } from '@/lib/api/search';
 export function useSearch(query: string, mode?: SearchMode, kind?: 'note' | 'decision') {
   const trimmed = query.trim();
   return useQuery({
-    queryKey: ['search', trimmed, mode, kind],
+    queryKey: trpc.search.list.queryKey({ query: rpcQuery({ q: trimmed, mode, kind }) }),
     queryFn: () => searchApi.query(trimmed, { mode, ...(kind ? { kind } : {}) }),
     enabled: trimmed.length > 0,
     placeholderData: keepPreviousData,

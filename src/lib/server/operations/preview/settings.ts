@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { legacySchema } from '@/lib/server/inputs';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -69,6 +70,8 @@ async function snapshot() {
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'read');
+  if (homeDenied) return homeDenied;
   return reply(await snapshot());
 }
 
@@ -86,6 +89,8 @@ const bodySchema = z.object({
 });
 
 export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const parsed = bodySchema.safeParse(rpcInput.body);
     if (!parsed.success) {

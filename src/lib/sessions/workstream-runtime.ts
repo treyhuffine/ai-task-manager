@@ -8,12 +8,7 @@
 
 import * as executor from '@/lib/executor/adapter';
 import { listRunningSessions } from '@/lib/executor/status-snapshot';
-import {
-  listChatSessions,
-  listRuns,
-  markRunCancelled,
-  insertChatEvent,
-} from '@/lib/db/queries';
+import { listChatSessions, getHome, listRuns, markRunCancelled, insertChatEvent } from '@/lib/db/queries';
 import type { WorkstreamRuntime, ScopeChange } from './workstream';
 import type { WorkerCommandActor } from '@/db/types';
 
@@ -39,6 +34,14 @@ export async function stopExecutionAgent(
   actor?: WorkerCommandActor,
 ): Promise<{ ok: boolean; failures: string[]; pending: string[] }> {
   const sessionIds = runningSessionsForExecution(executionId);
+  const failures: string[] = [];
+  if (getHome()?.kind === 'team') {
+    const { stopTeamAiWork } = await import('@/lib/team/ai/chat');
+    for (const chat of listChatSessions({ executionId, includeInternal: true })) {
+      try { await stopTeamAiWork({ chatId: chat.id }, 'Stopped by a coordinated task change.'); }
+      catch (error) { failures.push(`${chat.id} close: ${msg(error)}`); }
+    }
+  }
 
   // Cancel EVERY queued/running run of the execution FIRST (an execution can
   // have concurrent runs). This is deliberate: it must land before an
@@ -51,7 +54,6 @@ export async function stopExecutionAgent(
     markRunCancelled(run.id, 'Stopped by a coordinated task change');
   }
 
-  const failures: string[] = [];
   const pending: string[] = [];
   for (const sid of sessionIds) {
     try {
@@ -84,6 +86,8 @@ export function notifyExecutionScopeChange(executionId: string, change: ScopeCha
     sessionId: primary.id,
     role: 'user',
     source: 'user',
+    authorMemberId: change.actorMemberId ?? null,
+    raw: { scopeChange: change },
     content:
       `[scope change from the human] Task "${change.taskTitle}" (${change.taskId}) was ${change.action}. ` +
       `Stop pursuing that outcome and continue with your other associated work.`,

@@ -1,64 +1,35 @@
 'use client';
+import { EntityDetailHeader, EntityActionsMenu } from '@/components/entities/entity-detail-header';
+import { EntityPageBoundary } from '@/components/home/entity-page-boundary';
+import { HomeBoundary } from '@/components/home/home-context';
 import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-autosave';
 
 import { use, useEffect, useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  ChevronLeft,
-  Trash2,
-  MoreHorizontal,
-  Archive,
-  Check,
-  Clock,
-  Timer,
-  Flame,
-  Zap,
-  Lock,
-  Repeat,
-  X,
-} from 'lucide-react';
+import { ChevronLeft, Check, X } from 'lucide-react';
 import { useTask, useUpdateTask, useDeleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
-import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
+
 import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button';
 import { SlideoutChat, useDocumentChat } from '@/components/ai-elements/slideout-chat';
 import { EntityHistoryButton } from '@/components/chat-ui/edits/entity-history-button';
 import { EntityChangeBanner } from '@/components/chat-ui/edits/entity-change-banner';
 import { EntityViewToggle } from '@/components/entities/entity-view-toggle';
-import { ENTITY_HEADER, ENTITY_HEADER_LABEL } from '@/components/entities/entity-header';
+import { ENTITY_HEADER_LABEL } from '@/components/entities/entity-header';
 import { EntityAgentView } from '@/components/entities/entity-agent-view';
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
-import { RichEditor } from '@/components/editor/rich-editor';
-import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
-import { SubtaskSection } from '@/components/tasks/subtask-section';
-import { TaskResults } from '@/components/results/task-results';
+import { PersonalTaskDocument } from '@/components/tasks/personal-task-document';
+
+
+
 import { SharedTaskBody } from '@/components/spaces/shared-task-body';
 import { removeFromMyWork } from '@/components/spaces/my-work';
-import { AreaSelect } from '@/components/shared/area-select';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from '@/components/ui/dropdown-menu';
+
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { calendarDaysUntil, dateInputToStored, formatLocalDate, isPastDate } from '@/lib/dates';
-import type { Energy, Effort, Attachment } from '@/db/types';
+import type { Attachment } from '@/db/types';
 
-const ENERGY_OPTIONS: { value: Energy; label: string; icon: typeof Flame; color: string }[] = [
-  { value: 'deep', label: 'Deep', icon: Flame, color: 'text-orange-500' },
-  { value: 'light', label: 'Light', icon: Zap, color: 'text-sky-400' },
-];
-
-const EFFORT_OPTIONS: { value: Effort; label: string }[] = [
-  { value: 'trivial', label: 'XS \u2014 Trivial' },
-  { value: 'small', label: 'S \u2014 Small' },
-  { value: 'medium', label: 'M \u2014 Medium' },
-  { value: 'large', label: 'L \u2014 Large' },
-  { value: 'epic', label: 'XL \u2014 Epic' },
-];
-
-export default function TaskPage({ params }: { params: Promise<{ id: string }> }) {
+function TaskPageContent({ params }: { params: Promise<{ id: string }> }) {
   const { id: taskId } = use(params);
   const router = useRouter();
   const { data: savedTask } = useTask(taskId);
@@ -81,61 +52,13 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   const view = shared ? 'editor' : resolveEntityView(agentFirst, viewOverride, taskId);
   const setView = useCallback((next: EntityViewMode) => setViewOverride({ id: taskId, view: next }), [taskId]);
 
-  const [editingDeadline, setEditingDeadline] = useState(false);
-  const [editingBoomerang, setEditingBoomerang] = useState(false);
-  const { ref: attachTitle, element: titleRef, resize: resizeTitle } = useAutosizeTextarea();
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
 
   const handleAttachment = useCallback((attachment: Attachment) => {
     pendingAttachmentsRef.current = [...pendingAttachmentsRef.current, attachment];
   }, []);
 
-  // Seed the title textarea when the task loads (the field is uncontrolled).
-  useEffect(() => {
-    if (task && titleRef.current) {
-      titleRef.current.value = task.title;
-      resizeTitle();
-    }
-  }, [task?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync title when it changes externally (e.g. AI tool update)
-  useEffect(() => {
-    if (task && titleRef.current && document.activeElement !== titleRef.current) {
-      if (titleRef.current.value !== task.title) {
-        titleRef.current.value = task.title;
-        resizeTitle();
-      }
-    }
-  }, [task?.title]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const saveField = useCallback(
-    (field: string, value: unknown) => {
-      if (!taskId) return;
-      updateTask.mutate({ id: taskId, [field]: value } as Parameters<typeof updateTask.mutate>[0]);
-    },
-    [taskId, updateTask],
-  );
-
-  const handleTitleInput = useCallback(
-    (e: React.FormEvent<HTMLTextAreaElement>) => {
-      const target = e.currentTarget;
-      resizeTitle();
-
-      autosave({ title: target.value.trim() });
-    },
-    [autosave, resizeTitle],
-  );
-
-  const handleTitleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== 'Enter') return;
-    // Swallow the keystroke so the title never gains a newline.
-    e.preventDefault();
-    // Cmd/Ctrl+Enter is the app-level "open full page" hotkey — a no-op here
-    // since we're already on the full page. Don't jump focus into the body.
-    if (e.metaKey || e.ctrlKey) return;
-    const editorEl = document.querySelector('.task-page-editor .rich-editor-body');
-    if (editorEl instanceof HTMLElement) editorEl.focus();
-  }, []);
 
   const handleBodyChange = useCallback(
     (markdown: string) => {
@@ -181,14 +104,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
 
   const isDone = task?.status === 'done';
 
-  const formatDate = (iso: string | null | undefined) => {
-    const days = calendarDaysUntil(iso);
-    if (days === null) return null;
-    if (days === 0) return 'Today';
-    if (days === 1) return 'Tomorrow';
-    if (days === -1) return 'Yesterday';
-    return formatLocalDate(iso, { month: 'short', day: 'numeric', year: 'numeric' });
-  };
+
 
   const goBack = useCallback(() => {
     if (window.history.length > 1) router.back();
@@ -211,7 +127,7 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
   }, [goBack]);
 
   const header = (
-        <div className={cn('flex items-center justify-between gap-2 h-11 sticky top-0 z-10 bg-background/80 backdrop-blur-sm', ENTITY_HEADER)}>
+        <EntityDetailHeader className="h-11 sticky top-0 z-10 bg-background/80 px-0 py-0 backdrop-blur-sm">
           <button
             onClick={goBack}
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5 shrink-0"
@@ -247,34 +163,15 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
               </button>
             )}
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                  <MoreHorizontal size={16} />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={handleArchive} className="text-xs">
-                  <Archive size={12} className="mr-2" /> {shared ? 'Archive for the team' : 'Archive'}
+            <EntityActionsMenu onArchive={handleArchive} archiveLabel={shared ? 'Archive for the team' : 'Archive'} onDelete={shared ? undefined : handleDelete}>
+              {shared && task?.source?.addedAt && task.sourceTeamId && task.sourceTaskId && (
+                <DropdownMenuItem onSelect={() => void removeFromMyWork(task.sourceTeamId!, task.sourceTaskId!).then(() => router.push('/'))}>
+                  <X size={12} /> Remove from my work
                 </DropdownMenuItem>
-                {shared ? (
-                  task?.source?.addedAt && task.sourceTeamId && task.sourceTaskId && (
-                    <DropdownMenuItem
-                      onClick={() => void removeFromMyWork(task.sourceTeamId!, task.sourceTaskId!).then(() => router.push('/'))}
-                      className="text-xs"
-                    >
-                      <X size={12} className="mr-2" /> Remove from my work
-                    </DropdownMenuItem>
-                  )
-                ) : (
-                  <DropdownMenuItem onClick={handleDelete} className="text-xs text-destructive">
-                    <Trash2 size={12} className="mr-2" /> Delete
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              )}
+            </EntityActionsMenu>
           </div>
-        </div>
+        </EntityDetailHeader>
   );
 
   return (
@@ -304,248 +201,9 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
             ) : task ? (
               <div className="space-y-0">
                 <EntityChangeBanner entityType="task" entityId={task.id} />
-                {/* Type label + area / parent breadcrumb */}
-                <div className="pt-6">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold tracking-wide text-muted-foreground/60 uppercase">
-                      {task.parentId ? 'Subtask' : 'Task'}
-                    </span>
-                    <span className="text-muted-foreground/30">&middot;</span>
-                    <AreaSelect
-                      value={task.areaId}
-                      onChange={(areaId) => saveField('areaId', areaId)}
-                    />
-                  </div>
-                  {task.parentId && parentTask && (
-                    <button
-                      onClick={() => router.push(`/task/${task.parentId}`)}
-                      className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors group"
-                    >
-                      <ChevronLeft size={12} className="opacity-60 group-hover:opacity-100" />
-                      <span className="truncate max-w-[300px]">{parentTask.title}</span>
-                    </button>
-                  )}
-                </div>
-
-                <div className="pt-1">
-                  <textarea
-                    ref={attachTitle}
-                    className={cn(
-                      'w-full text-3xl font-bold leading-tight bg-transparent border-none outline-none resize-none overflow-hidden text-foreground placeholder:text-muted-foreground/40',
-                      isDone && 'line-through text-muted-foreground',
-                    )}
-                    placeholder="Task title"
-                    defaultValue={task.title}
-                    onInput={handleTitleInput}
-                    onKeyDown={handleTitleKeyDown}
-                    rows={1}
-                    data-gramm="false"
-                    data-gramm_editor="false"
-                    data-enable-grammarly="false"
-                  />
-                  <p className="text-[10px] text-muted-foreground/50 mt-1">
-                    Created{' '}
-                    {new Date(task.createdAt).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                    {task.updatedAt !== task.createdAt && (
-                      <>
-                        {' '}
-                        &middot; Edited{' '}
-                        {new Date(task.updatedAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
-                      </>
-                    )}
-                    {task.completedAt && (
-                      <>
-                        {' '}
-                        &middot; Completed{' '}
-                        {new Date(task.completedAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
-                      </>
-                    )}
-                  </p>
-                </div>
-
-                {/* Properties */}
-                <div className="pt-4 pb-2">
-                  <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[12px] pb-4 border-b border-border">
-                    {/* Status */}
-                    <span className="text-muted-foreground font-medium">Status</span>
-                    <LifecycleStatusControl taskId={task.id} status={task.status} className="-ml-1.5" />
-
-                    {/* Energy */}
-                    <span className="text-muted-foreground font-medium">Energy</span>
-                    <div className="flex items-center gap-1">
-                      {ENERGY_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={() =>
-                            saveField('energy', task.energy === opt.value ? null : opt.value)
-                          }
-                          className={cn(
-                            'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors',
-                            task.energy === opt.value
-                              ? `${opt.color} bg-current/10 ring-1 ring-current/20`
-                              : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted',
-                          )}
-                        >
-                          <opt.icon size={10} />
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Effort */}
-                    <span className="text-muted-foreground font-medium">Effort</span>
-                    <div className="flex items-center gap-1 flex-wrap">
-                      {EFFORT_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={() =>
-                            saveField('effort', task.effort === opt.value ? null : opt.value)
-                          }
-                          className={cn(
-                            'px-2 py-0.5 rounded text-[11px] font-medium transition-colors',
-                            task.effort === opt.value
-                              ? 'bg-primary text-primary-foreground'
-                              : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted',
-                          )}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Deadline */}
-                    <span className="text-muted-foreground font-medium">Deadline</span>
-                    <div>
-                      {editingDeadline ? (
-                        <input
-                          type="date"
-                          autoFocus
-                          defaultValue={task.hardDeadline?.split('T')[0] ?? ''}
-                          className="text-[12px] bg-card border border-border rounded px-2 py-1"
-                          onBlur={(e) => {
-                            setEditingDeadline(false);
-                            const val = e.target.value;
-                            saveField('hardDeadline', dateInputToStored(val));
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                            if (e.key === 'Escape') setEditingDeadline(false);
-                          }}
-                        />
-                      ) : (
-                        <button
-                          onClick={() => setEditingDeadline(true)}
-                          className={cn(
-                            'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors hover:bg-muted',
-                            isPastDate(task.hardDeadline)
-                              ? 'text-destructive'
-                              : 'text-muted-foreground',
-                          )}
-                        >
-                          <Clock size={10} />
-                          {formatDate(task.hardDeadline) ?? 'Set deadline'}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Resurface / Boomerang */}
-                    <span className="text-muted-foreground font-medium">Resurface</span>
-                    <div>
-                      {editingBoomerang ? (
-                        <input
-                          type="date"
-                          autoFocus
-                          defaultValue={task.resurfaceAfter?.split('T')[0] ?? ''}
-                          className="text-[12px] bg-card border border-border rounded px-2 py-1"
-                          onBlur={(e) => {
-                            setEditingBoomerang(false);
-                            const val = e.target.value;
-                            saveField('resurfaceAfter', dateInputToStored(val));
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                            if (e.key === 'Escape') setEditingBoomerang(false);
-                          }}
-                        />
-                      ) : (
-                        <button
-                          onClick={() => setEditingBoomerang(true)}
-                          className={cn(
-                            'inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted',
-                          )}
-                        >
-                          <Timer size={10} />
-                          {formatDate(task.resurfaceAfter) ?? 'Set snooze'}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Recurrence */}
-                    {task.recurrence && (
-                      <>
-                        <span className="text-muted-foreground font-medium">Recurrence</span>
-                        <span className="inline-flex items-center gap-1 text-primary/60 font-medium">
-                          <Repeat size={10} /> {task.recurrence}
-                        </span>
-                      </>
-                    )}
-
-                    {/* Blocked */}
-                    {task.blockedOn && (
-                      <>
-                        <span className="text-muted-foreground font-medium">Blocked on</span>
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 text-amber-500 font-medium">
-                            <Lock size={10} /> {task.blockedOn}
-                          </span>
-                          <button
-                            onClick={() => {
-                              saveField('blockedOn', null);
-                              saveField('blockedSince', null);
-                            }}
-                            className="text-[10px] text-muted-foreground hover:text-foreground underline"
-                          >
-                            Unblock
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Subtasks */}
-                <SubtaskSection
-                  parentId={task.id}
-                  onOpenTask={(id) => router.push(`/task/${id}`)}
-                />
-
-                {/* Body editor */}
-                <div className="pt-2 pb-16 task-page-editor">
-                  <RichEditor
-                    key={task.id}
-                    content={task.body ?? ''}
-                    onChange={handleBodyChange}
-                    onAttachment={handleAttachment}
-                    editable={!aiBusy}
-                    placeholder="Add notes, details, or type '/' for commands..."
-                    hideFooter
-                    foldedHeadings={task.foldedHeadings ?? []}
-                    onFoldedHeadingsChange={handleFoldedHeadingsChange}
-                  />
-                </div>
-                <TaskResults key={task.id} taskId={task.id} />
+                    <PersonalTaskDocument task={task} parentTask={parentTask} openTask={id => router.push(`/task/${id}`)}
+                      save={patch => updateTask.mutate({ id: task.id, ...patch })} autosave={autosave}
+                      bodyEditor={{ content: task.body ?? '', onChange: handleBodyChange, onAttachment: handleAttachment, editable: !aiBusy, placeholder: "Type '/' for commands, @ to link a task or note...", hideFooter: true, foldedHeadings: task.foldedHeadings ?? [], onFoldedHeadingsChange: handleFoldedHeadingsChange }} />
               </div>
             ) : (
               <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
@@ -561,4 +219,9 @@ export default function TaskPage({ params }: { params: Promise<{ id: string }> }
       </div>
     </div>
   );
+}
+
+export default function TaskPage(props: Parameters<typeof TaskPageContent>[0]) {
+  const { id } = use(props.params);
+  return <HomeBoundary><EntityPageBoundary kind="task" id={id}><TaskPageContent {...props} /></EntityPageBoundary></HomeBoundary>;
 }

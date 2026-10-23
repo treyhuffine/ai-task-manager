@@ -1,3 +1,4 @@
+import { trpc } from '@/lib/trpc/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -66,7 +67,7 @@ function deferred<T>() {
 
 type PendingRead = ReturnType<typeof deferred<UserStateRecord>>;
 type SettingsMutation = ReturnType<typeof useUpdateUserState>;
-const KEY = ['user-state'] as const;
+const KEY = trpc.userState.list.queryKey({});
 let root: Root | undefined;
 let client: QueryClient;
 let reads: PendingRead[];

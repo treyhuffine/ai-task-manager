@@ -1,5 +1,7 @@
 'use client';
 
+import { navigation } from './history-actions';
+export { goBack, goForward, navigationKeyBlocked, installHistoryNavigation } from './history-actions';
 import { useSyncExternalStore } from 'react';
 
 /**
@@ -13,17 +15,6 @@ import { useSyncExternalStore } from 'react';
  * landing on the desktop shell's "Starting Ri" page that loads first. Where
  * it's missing, both directions read as available and `history` does the rest.
  */
-
-/** The slice of the Navigation API used here. TypeScript's DOM lib doesn't carry it yet. */
-interface NavigationLike extends EventTarget {
-  readonly canGoBack: boolean;
-  readonly canGoForward: boolean;
-}
-
-function navigation(): NavigationLike | null {
-  if (typeof window === 'undefined') return null;
-  return (window as Window & { navigation?: NavigationLike }).navigation ?? null;
-}
 
 /** Two flags as one string, so the snapshot is stable between changes. */
 function readFlags(): string {
@@ -52,34 +43,4 @@ export interface HistoryNavigationState {
 export function useHistoryNavigation(): HistoryNavigationState {
   const flags = useSyncExternalStore(subscribe, readFlags, () => '00');
   return { canGoBack: flags[0] === '1', canGoForward: flags[1] === '1' };
-}
-
-export function goBack(): void {
-  if (navigation()?.canGoBack === false) return;
-  window.history.back();
-}
-
-export function goForward(): void {
-  if (navigation()?.canGoForward === false) return;
-  window.history.forward();
-}
-
-/**
- * Whether a Back or Forward key press belongs to something else. As in a
- * browser, ⌘[ and ⌘] work from a text field or the chat composer (Home
- * focuses it, so anything stricter would never fire there). They stay out
- * of the places the keys mean something:
- *
- *   - a handler already took the key (`defaultPrevented`),
- *   - the terminal, where ⌃[ is Escape,
- *   - a code editor, where ⌘[ and ⌘] outdent and indent,
- *   - ⌃[ on a Mac, which is Escape to anyone with vim habits. `matchesHotkey`
- *     treats Ctrl as Cmd, so the Mac check asks for the real ⌘.
- */
-export function navigationKeyBlocked(event: KeyboardEvent, platform: string): boolean {
-  if (event.defaultPrevented) return true;
-  if (platform === 'darwin' && !event.metaKey) return true;
-  const target = event.target as Element | null;
-  if (!target || typeof target.closest !== 'function') return false;
-  return !!target.closest('.xterm, .cm-editor');
 }

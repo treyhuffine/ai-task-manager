@@ -29,12 +29,11 @@ import {
   useUpdateSession,
 } from '@/hooks/use-execution';
 import { sessionsApi, type ExecutionChatHistoryEntry } from '@/lib/api/sessions';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation } from '@/contexts/work-context';
 import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
 import { backfillSortKeys } from '@/lib/utils/bucket-placement';
 import { timestampEpoch } from '@/lib/utils/timestamps';
 import { cn } from '@/lib/utils';
-import { executionView } from '@/lib/client/active-view';
 import { BACKGROUND_DOT, BACKGROUND_LABEL } from '@/components/workspaces/activity-style';
 import { Tip } from '@/components/ui/tip';
 
@@ -113,7 +112,7 @@ export function ExecutionChatTabs({
   onNewChat?: () => void;
   newChatPending?: boolean;
 }) {
-  const { setActiveView } = useDashboard();
+  const { openExecution } = useWorkNavigation();
   const qc = useQueryClient();
   const [historyOpen, setHistoryOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -207,7 +206,7 @@ export function ExecutionChatTabs({
       // auto-resume would just flip it right back on).
       const fallback = tabs.filter((t) => t.id !== entry.id).at(-1);
       if (!fallback) return;
-      setActiveView(executionView(fallback.id));
+      openExecution(fallback.id);
     }
     closeChat.mutate(entry.id);
   };
@@ -349,7 +348,7 @@ export function ExecutionChatTabs({
                   key={s.id}
                   type="button"
                   onClick={() => {
-                    if (!s.isCurrent) setActiveView(executionView(s.id));
+                    if (!s.isCurrent) openExecution(s.id);
                     setHistoryOpen(false);
                   }}
                   className={cn(
@@ -436,7 +435,7 @@ export function ExecutionChatTabs({
                   setDraft(s.label ?? '');
                 }}
                 onActivate={() => {
-                  if (!s.isCurrent) setActiveView(executionView(s.id));
+                  if (!s.isCurrent) openExecution(s.id);
                 }}
                 onClose={() => handleClose(s)}
               />

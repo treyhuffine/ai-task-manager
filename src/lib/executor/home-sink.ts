@@ -8,6 +8,7 @@
  * here, because there's no network in between.
  */
 
+import { getTeamChat, runningTeamChatTurn } from '@/lib/db/queries';
 import { producingRun } from '@/lib/runner/local-runner';
 import { installRunnerSink } from '@/lib/runner/sink';
 import type { EventWriter, RunnerSink } from '@/lib/runner/types';
@@ -23,10 +24,10 @@ import { recordRateLimits } from '@/lib/harness/rate-limits';
 const liveWriter: EventWriter = {
   async write(event) {
     const runId = producingRun(event.sessionId);
-    return inTransaction(() => applyChatEvent(event, { cumulative: false, runId }));
+    return inTransaction(() => applyChatEvent(withTeamTurn(event), { cumulative: false, runId }));
   },
   async replacePart(event) {
-    inTransaction(() => applyChatEvent(event, { cumulative: true, runId: producingRun(event.sessionId) }));
+    inTransaction(() => applyChatEvent(withTeamTurn(event), { cumulative: true, runId: producingRun(event.sessionId) }));
   },
 };
 
@@ -41,4 +42,11 @@ export const homeSink: RunnerSink = {
 /** Install the home sink for the local runner. Idempotent. */
 export function installHomeSink(): void {
   installRunnerSink(homeSink);
+}
+
+/** Provider output keeps its producing turn even when another send is queued. */
+function withTeamTurn<T extends Parameters<EventWriter['write']>[0]>(event: T): T {
+  if (!getTeamChat(event.sessionId)) return event;
+  const previous = event.raw && typeof event.raw === 'object' ? event.raw : {};
+  return { ...event, raw: { ...previous, riTeamTurnId: runningTeamChatTurn(event.sessionId)?.id ?? null } };
 }

@@ -2,10 +2,7 @@
 import { and, desc, eq, inArray, lt, lte, or, sql } from 'drizzle-orm';
 import { getDb } from './index';
 import { chatEvents, runs, workResultAiReviews, chatSessions } from './schema';
-import {
-  createRun, getChatEventById, getChatSessionWithExecution, getRun, insertChatEvent,
-  bumpSessionOutcome,
-} from './queries';
+import { createRun, getChatEventById, getChatSessionWithExecution, getRun, insertChatEvent, bumpSessionOutcome, getHome, acceptTeamChatSend } from './queries';
 import { ActionError } from '@/lib/orchestrator/types';
 import type { Attachment, WorkResultActor, RunRecord } from '@/db/types';
 import { publishChatEvent } from '@/lib/realtime/bus';
@@ -17,6 +14,8 @@ export interface WorkResultOperationMetadata {
   requestHash: string;
   actorUserId: string;
   actorSessionId: string | null;
+  actorMemberId?: string | null;
+  requestingApiKeyId?: string | null;
   messageId: string;
   resultId?: string | null;
   sourceEventId?: string | null;
@@ -62,20 +61,27 @@ export function ensureWorkResultOperationMessage(actor: WorkResultActor, input: 
       if (!run) throw new ActionError('conflict', 'The saved delivery runtime is no longer available. Start a deliberate new request.');
       return { event: existing, run, idempotentReplay: true };
     }
+    const metadata = { ...input.metadata, ...(actor.memberId ? { actorMemberId: actor.memberId, requestingApiKeyId: actor.apiKeyId } : {}) };
     const event = insertChatEvent({
       id: input.id, sessionId: input.sessionId, role: 'user', source: 'user',
+      authorMemberId: actor.memberId ?? null,
       senderSessionId: actor.source === 'ai' ? actor.sessionId : null,
       content: input.content, attachments: input.attachments ?? [],
-      raw: { resultOperation: input.metadata }, createdAt: new Date().toISOString(),
+      raw: { resultOperation: metadata }, createdAt: new Date().toISOString(),
     });
     if (!event) throw new ActionError('conflict', 'The result message could not be saved.');
     const run = createRun({
       id: input.runId, harness: session.harness, triggerKind: 'manual',
       triggerId: null, chatSessionId: session.id, workspaceId: session.workspaceId,
-      executionId: session.executionId, status: 'queued',
-      triggerPayload: { resultOperation: input.metadata, content: input.content,
+      executionId: session.executionId, status: 'queued', requestedByMemberId: actor.memberId ?? null,
+      sourceEventId: event.id,
+      triggerPayload: { resultOperation: metadata, content: input.content,
         attachments: dehydrateAttachments(input.attachments ?? []) ?? [] },
     });
+    if (getHome()?.kind === 'team') {
+      if (!actor.memberId || !actor.apiKeyId || !session.workspaceId) throw new ActionError('unsupported', 'Result work needs its member and team agent.');
+      acceptTeamChatSend({ chatId: session.id, memberId: actor.memberId, requestingApiKeyId: actor.apiKeyId, clientSendId: input.id, messageId: event.id, text: input.content, attachments: input.attachments, existingResultMessage: true });
+    }
     return { event, run, idempotentReplay: false };
   });
 }
@@ -109,9 +115,7 @@ export function requeueUnadmittedWorkResultFeedbackRun(id: string): RunRecord | 
 }
 
 export function workResultOperationForMessage(messageId: string): RunRecord | undefined {
-  return getDb().select().from(runs).where(
-    sql`json_extract(${runs.triggerPayload}, '$.resultOperation.messageId') = ${messageId}`,
-  ).get();
+  return getDb().select().from(runs).where(eq(runs.resultOperationMessageId, messageId)).limit(1).get();
 }
 
 export function workResultOperationForSession(sessionId: string, kind: WorkResultOperationMetadata['kind']): RunRecord | undefined {

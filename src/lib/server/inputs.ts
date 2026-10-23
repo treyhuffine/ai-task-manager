@@ -8,7 +8,7 @@ export const chatOverrideSchema = z.object({
   variant: z.string().optional(), serviceTier: z.string().trim().min(1).optional(), effort: z.enum(EFFORT_LEVELS).optional(),
 }).strict();
 /** A new main chat: the composer's switches, and `forApp` for one a connected app asked for (`startNewMainChat`). */
-export const newMainChatSchema = chatOverrideSchema.extend({ forApp: z.boolean().optional() });
+export const newMainChatSchema = chatOverrideSchema.extend({ forApp: z.boolean().optional(), sourceChatId: z.string().min(1).optional() });
 export const contentChatSchema = chatOverrideSchema.extend({
   entityType: z.enum(['task', 'note', 'skill', 'skill-try', 'app', 'app-builder', 'app-try']), entityId: z.string().min(1),
 });

@@ -9,8 +9,8 @@ import { UNLOAD_BLOCKER_MESSAGES, viewerUnloadBlocker } from '@/lib/client/versi
 import { flushChatDrafts } from '@/lib/client/chat-drafts';
 import { documentSaves } from '@/lib/client/document-saves';
 import { countUnsavedMutations } from '@/lib/query/mutation-meta';
-import { HOTKEYS, matchesHotkey } from '@/constants/commands';
-import { goBack, goForward, navigationKeyBlocked } from '@/lib/client/history-navigation';
+
+import { installHistoryNavigation } from '@/lib/client/history-navigation';
 import '@/lib/client/desktop';
 import { DesktopNavButtons } from './desktop-nav-buttons';
 
@@ -63,18 +63,7 @@ export function DesktopChrome() {
   useEffect(() => {
     const desktop = window.riDesktop;
     if (!desktop) return;
-    const keydown = (event: KeyboardEvent) => {
-      if (navigationKeyBlocked(event, desktop.platform)) return;
-      if (matchesHotkey(event, HOTKEYS.navigateBack)) { event.preventDefault(); goBack(); }
-      else if (matchesHotkey(event, HOTKEYS.navigateForward)) { event.preventDefault(); goForward(); }
-    };
-    const mouseup = (event: MouseEvent) => {
-      if (event.button === 3) { event.preventDefault(); goBack(); }
-      else if (event.button === 4) { event.preventDefault(); goForward(); }
-    };
-    window.addEventListener('keydown', keydown);
-    window.addEventListener('mouseup', mouseup);
-    return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('mouseup', mouseup); };
+    return installHistoryNavigation(desktop.platform);
   }, []);
   // Pages without the dashboard's title bar get this one: a drag strip that
   // still carries Back and Forward, so a full-page note is never a dead end.

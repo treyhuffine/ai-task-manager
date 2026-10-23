@@ -84,7 +84,7 @@ it('follows two chats and four terminals over one connection, leaving the others
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const browser = await chromium.launch({
-    executablePath: chromium.executablePath(),
+    executablePath: process.env.RI_REVIEW_CHROMIUM,
     headless: true,
   });
   try {

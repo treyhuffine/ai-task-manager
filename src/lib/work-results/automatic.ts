@@ -2,7 +2,7 @@ import { localWorkResultSourceFolder } from './source-location';
 import { processState } from '@/lib/process-state';
 import { existsSync, realpathSync } from 'node:fs';
 import {
-  getChatSessionWithExecution, getExecution, getWorkResult, getWorkResultAuthorBriefEvent,
+  getChatSessionWithExecution, getTeamAiSettings, getHome, placementOf, getExecution, getWorkResult, getWorkResultAuthorBriefEvent,
   getTask, getUserState, getWorkspace, ensureHarnessSettings, listActiveWorkResultAiReviews, workResultRequestScopedId,
   transitionWorkResultAiReview, validateWorkResultAttachments, transitionWorkResultOperationRun, publishWorkResultOperationState,
 } from '@/lib/db/queries';
@@ -44,7 +44,7 @@ function savedAutomaticScope(detail: WorkResultDetail): WorkResultReviewScope {
   const execution = result.sourceExecutionId ? getExecution(result.sourceExecutionId) : null;
   const workspace = getWorkResultSourceWorkspace(result.userId, result.sourceChatSessionId, result.sourceExecutionId);
   const path = localWorkResultSourceFolder(source, execution, workspace);
-  const repository = path && existsSync(path) ? realpathSync(path) : null;
+  const repository = getHome()?.kind === 'team' ? (execution ? placementOf(execution.id)?.worktreePath : workspace?.cwd) ?? null : path && existsSync(path) ? realpathSync(path) : null;
   const original = result.sourceChatSessionId ? getWorkResultAuthorBriefEvent(result.sourceChatSessionId, result.sourceEventId, result.createdAt) : null;
   const files = new Map([...(result.attachments ?? []), ...(original?.attachments ?? []),
     ...detail.taskIds.flatMap((id) => getTask(id)?.attachments ?? [])].map((file) => [file.fileName, file]));
@@ -92,11 +92,14 @@ export async function prepareAutomaticWorkResultReview(actor: WorkResultActor, s
     mcpSupported = !!runtime.capabilities.mcp?.supported;
   } catch (error) {
     unavailable = error instanceof Error ? error.message : String(error);
-    const normal = getUserState();
-    const harness = reviewerPreferenceHarness({}, workspace.reviewDefaults, normal);
-    const preferred = preferredWorkResultReviewerSelection({}, workspace.reviewDefaults, normal, ensureHarnessSettings(harness));
-    selection = { harness: preferred.harness, model: preferred.model,
-      variant: preferred.variant, effort: preferred.effort, serviceTier: preferred.serviceTier };
+    if (getHome()?.kind === 'team') {
+      selection = { harness: workspace.reviewDefaults?.harness ?? getTeamAiSettings()?.harness ?? null, model: workspace.reviewDefaults?.model ?? null, variant: null, effort: null, serviceTier: null };
+    } else {
+      const normal = getUserState();
+      const harness = reviewerPreferenceHarness({}, workspace.reviewDefaults, normal);
+      const preferred = preferredWorkResultReviewerSelection({}, workspace.reviewDefaults, normal, ensureHarnessSettings(harness));
+      selection = { harness: preferred.harness, model: preferred.model, variant: preferred.variant, effort: preferred.effort, serviceTier: preferred.serviceTier };
+    }
   }
   return (detail) => {
     // Preference changes and gate changes during catalog discovery do not grant new work.
@@ -105,7 +108,7 @@ export async function prepareAutomaticWorkResultReview(actor: WorkResultActor, s
     const compatible = detail.aiReviews.find((review) => compatibleWorkResultReviewEvidence(review, scope, selection));
     if (compatible) return null;
     const requestId = `automatic-result:${detail.result.id}`;
-    const automaticActor: WorkResultActor = { userId: actor.userId, source: 'system' };
+    const automaticActor: WorkResultActor = { userId: actor.userId, source: 'system', memberId: actor.memberId, apiKeyId: actor.apiKeyId };
     const reviewId = workResultRequestScopedId('request_result_review', automaticActor, requestId);
     const files = new Set(scope.requested.attachments.map((file) => file.file_name));
     const brief = assignedWorkResultReviewBrief(detail, scope, reviewId, requestId, mcpSupported)
@@ -149,7 +152,7 @@ export async function dispatchAutomaticWorkResultReviews(sourceSessionId?: strin
     if (executor.isRunning(source.id) || executor.hasBackgroundTasks?.(source.id)) continue;
     processing.add(review.id);
     try {
-      const sessionId = bindWorkResultReviewRuntime({ userId: review.userId, source: 'system' }, review,
+      const sessionId = bindWorkResultReviewRuntime({ userId: review.userId, source: 'system', memberId: review.actorMemberId, apiKeyId: review.requestingApiKeyId }, review,
         review.provenance.automaticRequestId, detail);
       await dispatchQueuedWorkResultOperations(sessionId);
     } catch (error) {

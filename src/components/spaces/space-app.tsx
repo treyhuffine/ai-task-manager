@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense } from 'react';
-import { TeamShell } from '@/components/team/team-shell';
+import { TeamHome } from '@/components/home/team-home';
 
 /**
  * A team's shared work inside My Ri (docs/homes-spec.md §3.2, P7.1): the same
@@ -11,7 +11,7 @@ import { TeamShell } from '@/components/team/team-shell';
 export function SpaceApp() {
   return (
     <Suspense fallback={null}>
-      <TeamShell />
+      <TeamHome />
     </Suspense>
   );
 }

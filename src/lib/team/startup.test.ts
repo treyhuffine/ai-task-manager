@@ -133,3 +133,22 @@ it('starts a personal home as before, where the same harnesses and history are f
   const { stopScheduler } = await import('@/lib/scheduler/runner');
   stopScheduler();
 });
+
+it('Team boot stops a recorded surviving process before admitting work from the previous server', async () => {
+  const { spawn } = await import('node:child_process');
+  const { processIdentity } = await import('@/lib/worker/leftovers');
+  const { harnessProcessRecordPath } = await import('@/lib/runner/harness-processes');
+  const owner = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+  const survivor = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)', '--', 'team-startup-survivor-fixture'], { stdio: 'ignore' });
+  const identity = async (pid: number) => { for (let attempt = 0; attempt < 100; attempt++) { const found = await processIdentity(pid); if (found) return found; await new Promise(resolve => setTimeout(resolve, 10)); } throw new Error('Fixture process did not start'); };
+  try {
+    const previous = await identity(owner.pid!), process = await identity(survivor.pid!);
+    const ownerExit = new Promise(resolve => owner.once('exit', resolve)); owner.kill('SIGKILL'); await ownerExit;
+    const file = harnessProcessRecordPath(); fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ entries: [{ chatSessionId: 'interrupted-chat', owner: previous, process }] }));
+    (await import('@/lib/home/team-intent')).writeTeamIntent({ creationId: 'survivor-fixture', name: 'Team' });
+    await (await import('../../../instrumentation')).register();
+    expect(await processIdentity(survivor.pid!)).toBeNull();
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).entries).toEqual([]);
+  } finally { owner.kill('SIGKILL'); survivor.kill('SIGKILL'); }
+}, 30_000);

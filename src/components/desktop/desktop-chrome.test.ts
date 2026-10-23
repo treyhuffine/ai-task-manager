@@ -25,6 +25,7 @@ beforeEach(() => {
   vi.stubGlobal('document', document);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   storage = new Map();
+  Object.defineProperty(window, 'location', { configurable: true, value: new URL('http://localhost/space/team-fixture') });
   Object.defineProperty(window, 'localStorage', { configurable: true, value: {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),

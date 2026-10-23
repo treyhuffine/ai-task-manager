@@ -21,6 +21,9 @@ import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
 import { MainChatOnboarding } from '@/components/chat/onboarding/main-chat-onboarding';
 import { HomeTerminal } from '@/components/dashboard/home-terminal';
 import { Tip } from '@/components/ui/tip';
+import { useHomeContext } from '@/components/home/home-context';
+import { openTaskBoard } from '@/lib/client/task-board';
+import { TASK_VIEW_KEY } from '@/components/tasks/task-view';
 import { useElementWidth } from '@/hooks/use-element-width';
 import { useBesidePreview, useBesideRegion } from '@/components/chat-ui/artifacts/artifact-preview-provider';
 import { PREVIEW_HOST_ATTRIBUTE } from '@/components/chat-ui/artifacts/artifact-preview-store';
@@ -134,10 +137,11 @@ interface ContentPanelProps {
 const homeHost = (panel: PanelId) => `home:${panel}`;
 
 export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps) {
+  const home = useHomeContext();
   const {
     panelATab, panelBTab,
     setPanelTab, setFocusedPanel, theme,
-    openAreasList,
+    openAreasList, openTask, openNote,
     filesInFront, setFileInFront,
   } = useDashboard();
   const isDark = theme === 'dark';
@@ -282,9 +286,9 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
         <div inert={fileShown} aria-hidden={fileShown || undefined} className="h-full">
           {activeTab === 'deck' && <DeckContainer />}
           {activeTab === 'chat' && <ChatContent isMobile={!!mobileTab} />}
-          {activeTab === 'tasks' && <TaskSurface />}
+          {activeTab === 'tasks' && <TaskSurface onOpenBoard={openTaskBoard} onOpenTask={openTask} privatePlanning={home.capabilities.privatePlanning} viewKey={`${TASK_VIEW_KEY}:${home.home.id}:${home.viewer.id}`} legacyViewKey={TASK_VIEW_KEY} />}
           {activeTab === 'stream' && <StreamList />}
-          {activeTab === 'notes' && <NoteList />}
+          {activeTab === 'notes' && <NoteList onOpenNote={openNote} />}
           {isMoreTab && <MoreTabContent tab={activeTab as MorePanelTab} />}
         </div>
         {fileHere && fileHost && (

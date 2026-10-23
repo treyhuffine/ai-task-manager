@@ -2,6 +2,10 @@ import { actorFromRequest } from '@/lib/auth/actor';
 import * as executor from '@/lib/executor/adapter';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { getTeamChatTurn, runningTeamChatTurn } from '@/lib/db/queries';
+import { stopTeamAiWork } from '@/lib/team/ai/chat';
 
 /**
  * POST /api/sessions/[id]/interrupt
@@ -26,12 +30,27 @@ import { z as rpcZ } from 'zod/v4';
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const key = getRequestKey(request.headers);
+    const authority = sessionAuthority(key, id, 'read');
+    if (authority) {
+      const turnId = rpcInput.body.turnId;
+      const turn = turnId ? getTeamChatTurn(turnId) : runningTeamChatTurn(id);
+      if (turnId && (!turn || turn.chatSessionId !== id)) return reply({ error: 'That turn is not in this chat.' }, { status: 404 });
+      if (turn) {
+        sessionAuthority(key, id, turn.status === 'queued' ? 'cancelQueued' : 'stop', turn.id);
+        await stopTeamAiWork({ turnId: turn.id }, `Stopped by ${authority.member.name}.`);
+      } else { sessionAuthority(key, id, 'stop'); await executor.abort(id, actorFromRequest(request.headers)); }
+      return reply({ ok: true });
+    }
+    if (rpcInput.body.turnId) return reply({ error: 'This chat does not use shared queued turns.' }, { status: 400 });
     await executor.abort(id, actorFromRequest(request.headers));
     return reply({ ok: true });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/interrupt]', err);
     return reply({ error: String(err) }, { status: 500 });
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({}).strict().default({}) }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ turnId: rpcZ.string().min(1).optional() }).strict().default({}) }).strict();

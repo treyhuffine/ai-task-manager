@@ -11,9 +11,10 @@ await vi.hoisted(async () => {
   vi.stubGlobal('document', document);
 });
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), assign: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), assign: vi.fn(), settings: vi.fn(), home: null as { home: { id: string; kind: 'personal' | 'team'; name: string } } | null }));
 vi.mock('@/lib/spaces/my-ri-client', () => ({ myRiClient: { spaces: { list: { query: mocks.list } } } }));
 vi.mock('@/lib/spaces/client-cache', () => ({ teamConnectionsKey: () => ['teams'] }));
+vi.mock('@/components/home/home-context', () => ({ useOptionalHomeContext: () => mocks.home }));
 import { SpaceSelector } from './space-selector';
 
 let root: Root;
@@ -22,6 +23,7 @@ let storage: Map<string, string>;
 const teamId = 'team-fixture';
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.home = null;
   const { window, document } = parseHTML('<!doctype html><html><body><div id="root"></div></body></html>');
   for (const name of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'CustomEvent', 'Event', 'MutationObserver']) {
     vi.stubGlobal(name, name === 'window' ? window : name === 'document' ? document : window[name as keyof typeof window]);
@@ -48,7 +50,7 @@ afterEach(async () => {
 });
 async function settle() { await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); }
 async function render(variant: 'wide' | 'collapsed' | 'phone') {
-  await act(async () => root.render(createElement(QueryClientProvider, { client: qc }, createElement(SpaceSelector, { variant }))));
+  await act(async () => root.render(createElement(QueryClientProvider, { client: qc }, createElement(SpaceSelector, { variant, onOpenSettings: mocks.settings }))));
   await settle();
 }
 async function openMenu() {
@@ -66,4 +68,30 @@ it.each(['wide', 'collapsed', 'phone'] as const)('switches back to My Ri from th
   await act(async () => item!.click());
   expect(mocks.assign).toHaveBeenCalledWith('/?view=tasks');
   expect(storage.get(`ri:space-nav:${teamId}`)).toBe(`/space/${teamId}?view=notes`);
+});
+
+it.each(['wide', 'collapsed', 'phone'] as const)('shows only the authenticated standalone Home in the %s selector', async variant => {
+  delete document.documentElement.dataset.riSpace;
+  mocks.home = { home: { id: 'canonical-team', kind: 'team', name: 'Team Huffine' } };
+  await render(variant);
+  expect(mocks.list).not.toHaveBeenCalled();
+  await openMenu();
+  const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  expect(items.map(item => {
+    const text = item.cloneNode(true) as HTMLElement;
+    text.querySelectorAll('[aria-hidden]').forEach(child => child.remove());
+    return text.textContent?.trim();
+  })).toEqual(['Team Huffine', 'Home settings']);
+  expect(document.body.textContent).not.toMatch(/My Ri|Join a team|Create a team/);
+  await act(async () => items[1]!.click());
+  expect(mocks.settings).toHaveBeenCalledOnce();
+  expect(mocks.assign).not.toHaveBeenCalled();
+});
+
+it('keeps personal Ri without connected teams free of setup controls', async () => {
+  delete document.documentElement.dataset.riSpace;
+  mocks.home = { home: { id: 'personal', kind: 'personal', name: 'My Ri' } };
+  mocks.list.mockResolvedValue([]);
+  await render('wide');
+  expect(document.querySelector('[aria-label$="Switch space"]')).toBeNull();
 });

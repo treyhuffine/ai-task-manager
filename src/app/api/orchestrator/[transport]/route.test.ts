@@ -72,6 +72,23 @@ async function seedExecution() {
 }
 
 describe('orchestrator MCP caller identity', () => {
+  it('refuses unsupported destinations before MCP can turn them into personal writes', async () => {
+    const q = await import('@/lib/db/queries');
+    const task = q.createTask({ title: 'Keep my rank' });
+    for (const destination of [{ target_home_id: 'remote-home' }, { targetHomeId: 'remote-home' }, { target_home: 'remote-home' }]) {
+      for (const [name, input] of [
+        ['create_area', { name: 'Must stay absent' }],
+        ['rank_task', { id: task.id, rank: 1 }],
+        ['create_stream_item', { rawText: 'Must stay absent' }],
+      ] as const) {
+        const envelope = await callTool(name, { ...input, ...destination });
+        expect(envelope.ok, JSON.stringify({ name, destination, envelope })).toBe(false);
+      }
+    }
+    expect(q.listAreas().some(area => area.name === 'Must stay absent')).toBe(false);
+    expect(q.getTask(task.id)?.sortKey).toBe(task.sortKey);
+  });
+
   it('resolves a signed header to the calling chat', async () => {
     const session = await seedExecution();
     const { sessionCredential } = await import('@/lib/orchestrator/session-credential');

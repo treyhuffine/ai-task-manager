@@ -15,12 +15,13 @@ const TEST_DB = path.join(ROOT, 'data.db');
 const saved = { root: process.env.RI_ROOT, db: process.env.RI_DB_PATH };
 process.env.RI_ROOT = ROOT;
 
-const close = vi.fn<(id: string) => Promise<void>>(async () => {});
+const close = vi.fn<typeof import('@/lib/executor/adapter').close>(async () => ({ closed: true }));
 vi.mock('@/lib/executor/adapter', () => ({ close: (id: string) => close(id) }));
 vi.mock('@/lib/sessions/derive-label', () => ({ deriveRetrospectiveLabel: async () => {} }));
-vi.mock('@/lib/harness/model-discovery', async () => {
+vi.mock('@/lib/harness/model-discovery', async original => {
   const { explicitHarnessSelection } = await import('@/lib/harness/options');
   return {
+    ...await original<typeof import('@/lib/harness/model-discovery')>(),
     resolveHarnessSelection: async (providerId: Parameters<typeof explicitHarnessSelection>[0]) =>
       explicitHarnessSelection(providerId, {}),
   };
@@ -198,6 +199,28 @@ describe("the app's main chat and agents' main chats stay apart", () => {
 });
 
 describe('new chat, history and resume for an agent', () => {
+  it('app Resume reports an unconfirmed close and preserves both chats', async () => {
+    const first = (await (await appChat()).json()) as SessionBody;
+    const second = (await (await appNew()).json()) as SessionBody;
+    close.mockResolvedValueOnce({ closed: false, error: 'The previous harness is still closing.' });
+    const refused = await appResume(first.session.id);
+    expect(refused.status).toBe(412);
+    expect(await refused.json()).toMatchObject({ error: 'unavailable', message: 'The previous harness is still closing.' });
+    const q = await import('@/lib/db/queries');
+    expect(q.getChatSession(first.session.id)?.status).toBe('archived');
+    expect(q.getChatSession(second.session.id)?.status).toBe('active');
+  });
+  it('a failed close keeps the current chat active without creating its replacement', async () => {
+    const ws = await seedAgent();
+    const first = (await (await agentChat(ws.id)).json()) as SessionBody;
+    close.mockResolvedValueOnce({ closed: false, error: 'Fixture close was not confirmed.' });
+    const refused = await agentNew(ws.id);
+    expect(refused.status).toBe(412);
+    expect(await refused.json()).toMatchObject({ error: 'unavailable', message: 'Fixture close was not confirmed.' });
+    expect(((await (await agentChat(ws.id)).json()) as SessionBody).session).toMatchObject({ id: first.session.id, status: 'active' });
+    expect(((await (await agentHistory(ws.id)).json()) as HistoryBody).sessions.map(session => session.id)).toEqual([first.session.id]);
+  });
+
   it('new chat retires the current one and history shows both, newest first', async () => {
     const ws = await seedAgent();
     const q = await import('@/lib/db/queries');

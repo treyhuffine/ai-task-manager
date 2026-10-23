@@ -1,3 +1,7 @@
+import { recordHomeActivity } from '@/lib/home/activity';
+import { sessionAuthority } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 import { actorFromRequest } from '@/lib/auth/actor';
 import { getChatSessionWithExecution, getWorkspace, touchSessionActivity } from '@/lib/db/queries';
 import { gitOnOwner } from '@/lib/executor/owner-git';
@@ -18,6 +22,7 @@ import { z as rpcZ } from 'zod/v4';
 async function handlePOST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const activity = sessionAuthority(getRequestKey(request.headers), id, 'terminal');
     const session = getChatSessionWithExecution(id);
     if (!session) return reply({ error: 'Session not found' }, { status: 404 });
     // On the device it runs on (P4.5), in order with its other work there.
@@ -31,6 +36,7 @@ async function handlePOST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Opera
         return reply(body, { status: 409 });
       }
       touchSessionActivity(id, 'git');
+      recordHomeActivity(activity, 'push', id, 'git_change');
       return reply({ ok: true });
     }
     if (!session.worktreePath || !session.workspaceId) {
@@ -49,8 +55,11 @@ async function handlePOST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Opera
     // (unlike commit / open-PR / resolve-conflicts, which drive the agent and
     // therefore get their activity bump for free from `insertChatEvent`).
     touchSessionActivity(id, 'git');
+      recordHomeActivity(activity, 'push', id, 'git_change');
     return reply({ ok: true });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     if (looksLikeNonFastForward(err)) {
       const message = err instanceof Error ? err.message : String(err);
       return reply(

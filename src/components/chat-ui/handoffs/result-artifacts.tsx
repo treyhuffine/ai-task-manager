@@ -79,7 +79,7 @@ function ResultPreview({ resultId, targetId, label, onFeedback }: { resultId: st
           {preview.url ? (
             <>
               <a href={preview.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary"><ExternalLink size={12} />Open preview</a>
-              <iframe src={preview.url} title={label} className="h-80 w-full rounded border bg-white" />
+              <iframe sandbox="allow-scripts allow-forms allow-popups allow-downloads" src={preview.url} title={label} className="h-80 w-full rounded border bg-white" />
             </>
           ) : !state.error && (
             <Button size="xs" variant="outline" onClick={() => open.mutate()} disabled={open.isPending || current?.serverStatus === 'starting' || current?.setupStatus === 'running'}>

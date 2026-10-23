@@ -6,14 +6,14 @@ import { Switch } from '@/components/ui/switch';
 import { FilesToCopySection } from '@/components/workspaces/files-to-copy-section';
 import { WorkspaceIntegrationsSection } from '@/components/workspaces/workspace-integrations-section';
 import { WorktreeScriptsSection } from '@/components/workspaces/worktree-scripts-section';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation } from '@/contexts/work-context';
 import type { Attachment, UpdateWorkspaceInput, WorkspaceRecord } from '@/db/types';
 import { useAreas } from '@/hooks/use-areas';
 import { useDevices } from '@/hooks/use-devices';
 import { useArchiveWorkspace, useUpdateWorkspace } from '@/hooks/use-workspaces';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { apiErrorText } from '@/lib/api/client';
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 import type { GhStatus } from '@/lib/workspaces/gh';
 import { useQuery } from '@tanstack/react-query';
@@ -26,6 +26,7 @@ import { ReviewerSelection } from '@/components/chat-ui/handoffs/reviewer-select
 import { useResultCapabilities } from '@/hooks/use-results';
 import type { ReviewerOverrides } from '@/lib/api/results';
 import { WORK_RESULT_GUIDANCE_MAX } from '@/lib/instructions/preferences';
+import { useAgentConfigurationScope } from '@/components/workspaces/agent-placement-controls';
 
 /** Caps enforced by the query layer (`WORKSPACE_PURPOSE_MAX`, `WORKSPACE_INSTRUCTIONS_MAX`). */
 const PURPOSE_MAX = 500;
@@ -123,7 +124,8 @@ function reconcileSavedForm(current: SetupForm, submitted: SetupForm, row: Works
  * set up. Replaces the old workspace settings sheet.
  */
 export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
-  const { goHome } = useDashboard();
+  const { canConfigure, personalTools } = useAgentConfigurationScope();
+  const { goHome } = useWorkNavigation();
   const { data: areas } = useAreas();
   const { data: devices } = useDevices();
   const homeName = devices?.find((d) => d.isHome)?.name ?? 'This home';
@@ -132,10 +134,11 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
   const archive = useArchiveWorkspace();
   const confirm = useConfirm();
   const { data: gh } = useQuery({
-    queryKey: ['gh', 'status'],
+    queryKey: trpc.gh.statusGet.queryKey({}),
     queryFn: () => trpcClient.gh.statusGet.query({}),
     staleTime: 60_000,
     retry: false,
+    enabled: true,
   });
 
   const [form, setForm] = useState<SetupForm>(() => formFromWorkspace(workspace));
@@ -204,7 +207,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
             : 'Saved for this agent';
 
   const save = () => {
-    if (!dirty || saving || update.isPending || purposeOver || instructionsOver || guidanceOver) return;
+    if (!canConfigure || !dirty || saving || update.isPending || purposeOver || instructionsOver || guidanceOver) return;
     const submitted = form;
     const savedGuidance = 'workResultGuidance' in patch;
     setSaving(true);
@@ -231,6 +234,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
   };
 
   const handleArchive = async () => {
+    if (!canConfigure) return;
     const ok = await confirm({
       title: 'Archive this agent?',
       description: `"${workspace.name}" leaves your active list. Its chats are kept, and you can restore it later.`,
@@ -249,7 +253,8 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="mx-auto max-w-2xl px-5 py-5 space-y-8">
+        <fieldset disabled={!canConfigure} className="mx-auto max-w-2xl min-w-0 px-5 py-5 space-y-8">
+          {!canConfigure && <p className="text-xs text-muted-foreground">Only the team owner can change this agent&apos;s setup. Members can start chats and use its approved tools.</p>}
           <Section title="Basics">
             <Field label="Name">
               <input
@@ -410,9 +415,9 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
             {form.reviewBeforeHandoff === true && !resultCapabilities?.aiReviewEnabled && <p className="text-xs text-muted-foreground">This preference is saved, but automatic reviews wait until handoffs and AI review are enabled in settings.</p>}
           </Section>
 
-          <WorkspaceIntegrationsSection workspaceId={workspace.id} />
+          {personalTools && <WorkspaceIntegrationsSection workspaceId={workspace.id} />}
 
-          <Section title="Browser">
+          {personalTools && <Section title="Browser">
             <label className="flex items-start justify-between gap-3 cursor-pointer">
               <span className="text-[12px] text-muted-foreground/85 leading-relaxed">
                 Let this agent use the browser
@@ -423,7 +428,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
               </span>
               <Switch checked={form.browserEnabled} onCheckedChange={(on) => set('browserEnabled', on)} className="mt-0.5" />
             </label>
-          </Section>
+          </Section>}
 
           <AgentFoldersSection workspace={workspace} />
 
@@ -440,7 +445,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
                 </Field>
                 <Field
                   label="Worktree root"
-                  hint={`Where ${homeName} puts this agent's worktrees. Empty uses its Ri folder. Other devices always use their own.`}
+                  hint={personalTools ? `Where ${homeName} puts this agent's worktrees. Empty uses its Ri folder. Other devices always use their own.` : "Where this team's server puts this agent's worktrees. Empty uses its Ri folder."}
                 >
                   <input
                     value={form.worktreeRoot}
@@ -501,7 +506,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
               </button>
             </div>
           )}
-        </div>
+        </fieldset>
       </div>
 
       {dirty && (

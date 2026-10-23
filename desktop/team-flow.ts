@@ -1,3 +1,5 @@
+import { teamSharesPersonalComputer } from '../src/lib/team/shared-computer';
+import { getAppRoot, getDevAppRoot, getProductionAppRoot } from '../src/lib/config/paths';
 /**
  * The desktop's team journeys (docs/homes-spec.md §3.1, P6.2), in Electron
  * main with its dependencies passed in, so the order and the recovery can be
@@ -37,6 +39,7 @@ import {
 export interface TeamFlowDeps {
   teamsPath: string;
   stateDir: string;
+  personalRoot?: () => string;
   /** Run the trusted setup helper, with a team's own root when `root` is given. */
   setup: <T>(request: Record<string, unknown>, options?: { root?: string; timeoutMs?: number }) => Promise<T>;
   windows: { open(team: SavedTeam, local?: { certificate: string }): Promise<void> };
@@ -116,7 +119,7 @@ export function teamFlow(deps: TeamFlowDeps) {
         pending = beginCreation(deps.teamsPath, { teamName, ownerName, root, port: input.port ?? null });
       }
       const made = await deps.setup<Omit<HostedTeam, 'origin'>>(
-        { action: 'create-team', creationId: pending.creationId, teamName: pending.teamName, ownerName: pending.ownerName, ...(pending.port ? { port: pending.port } : {}) },
+        { action: 'create-team', hostedWithPersonalHome: teamSharesPersonalComputer({ currentRoot: pending.root, roots: [deps.personalRoot?.() ?? getAppRoot(), getProductionAppRoot(), getDevAppRoot()] }), creationId: pending.creationId, teamName: pending.teamName, ownerName: pending.ownerName, ...(pending.port ? { port: pending.port } : {}) },
         { root: pending.root, timeoutMs: 120_000 },
       );
       const saved = saveTeam(deps.teamsPath, {

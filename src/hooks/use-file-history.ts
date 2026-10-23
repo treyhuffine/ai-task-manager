@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useHomeStorageScope } from '@/components/home/home-context';
+import { homeStorageIdentity } from '@/lib/home/document-scope';
 
 /**
  * One entry in the per-session "recently opened files" list. `path` is
@@ -59,7 +61,9 @@ function writeHistory(sessionId: string, entries: FileHistoryEntry[]): void {
  * Persisted in localStorage keyed by session so the list survives reload
  * and never bleeds between executions.
  */
-export function useFileHistory(sessionId: string | null) {
+export function useFileHistory(resourceId: string | null) {
+  const scope = useHomeStorageScope();
+  const sessionId = resourceId ? homeStorageIdentity(resourceId, scope) : null;
   const [history, setHistory] = useState<FileHistoryEntry[]>(() => readHistory(sessionId));
 
   // Reload when the viewed session changes. ExecutionView mounts once and

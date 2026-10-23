@@ -1,5 +1,7 @@
 'use client';
 
+import { useHomeStorageScope } from '@/components/home/home-context';
+
 import { useState } from 'react';
 import {
   Popover,
@@ -27,7 +29,7 @@ import { VisibleModelOptions } from '@/components/settings/visible-model-options
 import { MakeDefaultRow } from '@/components/settings/make-default-row';
 import { useDefaultSelection } from '@/hooks/use-default-selection';
 import { ProviderIcon } from '@/components/settings/harness-connection-ui';
-import { openSettings } from '@/components/settings/settings-store';
+import { useSettingsLink } from '@/components/settings/settings-destination';
 import { readProviderEffort } from '@/lib/executions/provider-effort';
 import { readProviderSpeed } from '@/lib/executions/provider-speed';
 import { serviceTierForModel, serviceTierOptions } from '@/lib/harness/service-tiers';
@@ -103,8 +105,10 @@ export function ComposerProviderMenu({
   selectionDisabled,
   currentProviderOnly,
 }: ComposerProviderMenuProps) {
+  const manageModels = useSettingsLink('models');
   const [pending, setPending] = useState<ModelSelection | null>(null);
   const defaultSelection = useDefaultSelection();
+  const storageScope = useHomeStorageScope();
   const { models: currentModels } = useHarnessModels(currentProvider);
   const currentModel =
     currentModels.find((option) => option.id === model) ?? null;
@@ -123,10 +127,10 @@ export function ComposerProviderMenu({
     // Restore the destination provider's settings on both immediate and
     // confirmed switches, validated against the selected model.
     const effort = harnessSupportsEffort(harness)
-      ? explicitEffortForModel(harness, modelOption, readProviderEffort(harness))
+      ? explicitEffortForModel(harness, modelOption, readProviderEffort(harness, storageScope))
       : null;
     const variant = explicitVariantForModel(modelOption, null);
-    const serviceTier = serviceTierForModel(modelOption, readProviderSpeed(harness));
+    const serviceTier = serviceTierForModel(modelOption, readProviderSpeed(harness, storageScope));
     onSwitchProvider?.({
       harness,
       model: modelOption.id,
@@ -266,10 +270,10 @@ export function ComposerProviderMenu({
                 : undefined
             }
             disabled={selectionDisabled}
-            onManageModels={() => {
+            onManageModels={manageModels ? () => {
               reset(false);
-              openSettings('models');
-            }}
+              manageModels();
+            } : undefined}
             footer={
               defaultSelection?.harness === currentProvider &&
               defaultSelection.model === model && (defaultSelection.serviceTier ?? null) === (serviceTier ?? null) ? undefined : (

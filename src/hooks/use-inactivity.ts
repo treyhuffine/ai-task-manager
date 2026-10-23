@@ -1,9 +1,10 @@
 'use client';
+import { trpc } from '@/lib/trpc/client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkActivity } from '@/contexts/work-context';
 import { useUserState } from '@/hooks/use-user-state';
 import { userStateApi } from '@/lib/api/user-state';
 import { isSessionInactive, partitionInactive, resolveInactiveAfterDays } from '@/lib/sessions/inactive';
@@ -45,7 +46,7 @@ export interface Inactivity {
  */
 export function useInactivity(): Inactivity {
   const { data: userState, isSuccess } = useUserState();
-  const { streamingSessionIds, backgroundSessionIds } = useDashboard();
+  const { streamingSessionIds, backgroundSessionIds } = useWorkActivity();
   const now = useNow(60_000);
   const stored = isSuccess ? (userState?.executionInactiveAfterDays ?? null) : undefined;
   const afterDays = stored === undefined ? null : resolveInactiveAfterDays(stored);
@@ -68,7 +69,7 @@ export function useInactivity(): Inactivity {
  */
 export function useSetInactiveAfterDays() {
   const qc = useQueryClient();
-  const key = ['user-state'] as const;
+  const key = trpc.userState.list.queryKey({});
   return useMutation({
     mutationFn: (days: number | null) => userStateApi.update({ executionInactiveAfterDays: days }),
     onMutate: async (days) => {

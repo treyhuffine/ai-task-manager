@@ -1,27 +1,28 @@
 import type { CreateWorkspaceInput, WorkspaceStatus } from '@/db/types';
-import { parseIntegrationScopes, validateIntegrationScopes } from '@/lib/integrations/scopes';
-import { archiveWorkspace, createWorkspace, listWorkspaces, WorkspaceFieldError } from '@/lib/db/queries';
+import { listWorkspaces, getHome, WorkspaceFieldError, isTeamError } from '@/lib/db/queries';
 import { workspaces } from '@/lib/db/schema';
 import { reply, searchParams, type OperationContext } from '@/lib/server/operation';
-import { assertHomeFolderUsable, setHomeFolder, SetupError } from '@/lib/setups/home-context';
-import { detectBaseBranch, detectIsGit } from '@/lib/workspaces';
 import { createInsertSchema } from 'drizzle-zod';
-import path from 'node:path';
 import { z as rpcZ } from 'zod/v4';
 import { WorkResultGuidanceError } from '@/lib/instructions/preferences';
 import { workspaceReviewPreferencesSchema } from '@/lib/workspaces/review-preferences';
 import { requestHasSessionAuthority } from '@/lib/orchestrator/mcp-caller';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { authorizeTeamExecution } from '@/lib/home/execution-authority';
+import { createWorkspaceForHome, WorkspaceCreationError } from '@/lib/workspaces/create-for-home';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
+    if (getHome()?.kind === 'team') authorizeTeamExecution(getRequestKey(request.headers), { operation: 'readCatalog' });
     const params = searchParams(rpcInput.query);
     const status = (params.get('status') ?? 'active') as WorkspaceStatus;
     const rows = listWorkspaces({ status });
     return reply(rows);
   } catch (err) {
+    if (isTeamError(err)) return reply({ error: err.code, message: err.message }, { status: err.code === 'not_allowed' ? 403 : err.code === 'not_found' ? 404 : err.code === 'conflict' ? 409 : 400 });
     console.error('[GET /api/workspaces]', err);
     return reply({ error: String(err) }, { status: 500 });
   }
@@ -40,75 +41,11 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     if (!body.name) return reply({ error: 'name is required' }, { status: 400 });
     if (!body.cwd) return reply({ error: 'cwd is required' }, { status: 400 });
 
-    const cwd = path.resolve(body.cwd);
-    // The folder becomes this agent's setup on this device: check it can
-    // be before creating anything (docs/homes-spec.md §4.2).
-    try {
-      assertHomeFolderUsable(cwd);
-    } catch (err) {
-      if (err instanceof SetupError) return reply({ error: err.message }, { status: 400 });
-      throw err;
-    }
-
-    const isGit = body.isGit ?? (await detectIsGit(cwd));
-    const baseBranch = isGit ? body.baseBranch ?? (await detectBaseBranch(cwd, body.remoteName ?? 'origin')) : null;
-
-    // Integration scopes are optional at create. Validate identically to the edit path (no stored
-    // scopes to preserve yet, no live sessions to recycle); fail-closed on a bad pin.
-    let integrationScopes: CreateWorkspaceInput['integrationScopes'] | undefined;
-    if (body.integrationScopes !== undefined) {
-      const parsed = parseIntegrationScopes(body.integrationScopes);
-      if (!parsed) {
-        return reply(
-          { error: 'integrationScopes must be an array of { toolkitId, accounts? }, where each account is an email, label, account id or { accountId, authConfigId? }' },
-          { status: 400 },
-        );
-      }
-      const result = await validateIntegrationScopes(parsed);
-      if (!result.ok) return reply({ error: result.error }, { status: 400 });
-      integrationScopes = result.scopes;
-    }
-
-    const row = createWorkspace({
-      name: body.name,
-      slug: body.slug,
-      emoji: body.emoji ?? null,
-      attachments: body.attachments ?? [],
-      cwd,
-      isGit: isGit,
-      baseBranch: baseBranch,
-      remoteName: isGit ? body.remoteName ?? 'origin' : null,
-      // Only a folder the person chose. Unset, each device puts worktrees in
-      // its own Ri folder (`defaultWorktreeRoot`, resolved where they're made).
-      worktreeRoot: isGit && typeof body.worktreeRoot === 'string' && body.worktreeRoot.trim() ? body.worktreeRoot.trim() : null,
-      ...(body.filesToCopy !== undefined ? { filesToCopy: body.filesToCopy } : {}),
-      setupCommand: body.setupCommand ?? null,
-      startCommand: body.startCommand ?? null,
-      teardownCommand: body.teardownCommand ?? null,
-      areaId: body.areaId ?? null,
-      ...(body.purpose !== undefined ? { purpose: body.purpose } : {}),
-      ...(body.instructions !== undefined ? { instructions: body.instructions } : {}),
-      ...(body.workResultGuidance !== undefined ? { workResultGuidance: body.workResultGuidance } : {}),
-      ...review.data,
-      status: body.status ?? 'active',
-      browserEnabled: body.browserEnabled ?? true,
-      ...(integrationScopes !== undefined ? { integrationScopes } : {}),
-    });
-    // The folder is this device's setup for the agent, kept in the folder's
-    // own `.ri.local.json` (docs/homes-spec.md §4). If that fails after the
-    // check above (a race, a disk error), the new agent is archived rather
-    // than left without a folder, and the reason returned.
-    try {
-      await setHomeFolder(row.id, cwd);
-    } catch (err) {
-      archiveWorkspace(row.id);
-      return reply(
-        { error: `The agent's folder couldn't be set up: ${err instanceof Error ? err.message : String(err)}` },
-        { status: err instanceof SetupError ? 409 : 500 },
-      );
-    }
+    const row = await createWorkspaceForHome({ ...body, ...review.data, name: body.name, cwd: body.cwd }, getRequestKey(request.headers));
     return reply(row, { status: 201 });
   } catch (err) {
+    if (isTeamError(err)) return reply({ error: err.code, message: err.message }, { status: err.code === 'not_allowed' ? 403 : err.code === 'not_found' ? 404 : err.code === 'conflict' ? 409 : 400 });
+    if (err instanceof WorkspaceCreationError) return reply({ error: err.message }, { status: err.status });
     if (err instanceof WorkspaceFieldError) {
       return reply({ error: err.message }, { status: 400 });
     }

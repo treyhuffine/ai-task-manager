@@ -10,7 +10,7 @@ import { ApiTransportSettings } from './api-transport';
 import { ResultPilotSettings } from '@/components/results/result-pilot-settings';
 import { WorkResultGuidanceField } from './work-result-guidance-field';
 import { Switch } from '@/components/ui/switch';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { ThemeSettings } from './theme-settings';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import { useMorningDeck, useUpdateMorningDeck } from '@/hooks/use-morning-deck';
 import { useStreamAutonomy, useSetStreamAutonomy } from '@/hooks/use-stream';
@@ -78,8 +78,6 @@ function allTimezones(): string[] {
  * per-browser (localStorage).
  */
 export function GeneralSection() {
-  const { theme, toggleTheme } = useDashboard();
-  const isDark = theme === 'dark';
   const { data: userState } = useUserState();
   const update = useUpdateUserState();
 
@@ -136,22 +134,7 @@ export function GeneralSection() {
       <DefaultCoordinationSetting />
       <ResultPilotSettings />
       <WorkResultGuidanceField />
-      {/* Theme */}
-      <section className="space-y-2">
-        <h3 className="text-[12px] font-medium text-foreground">Theme</h3>
-        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border bg-background p-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-              {isDark ? <Moon size={16} className="text-primary" /> : <Sun size={16} className="text-primary" />}
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">Dark mode</p>
-              <p className="text-[11px] text-muted-foreground/60">Switch between light and dark themes for the whole app.</p>
-            </div>
-          </div>
-          <Switch checked={isDark} onCheckedChange={toggleTheme} aria-label="Dark mode" />
-        </label>
-      </section>
+      <ThemeSettings />
 
       {/* Timezone */}
       <section className="space-y-2">

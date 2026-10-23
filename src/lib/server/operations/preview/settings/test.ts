@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 /**
@@ -10,6 +11,8 @@ import { z as rpcZ } from 'zod/v4';
 import { beamdBinInfo, beamdCheck, BeamdCliError } from '@/lib/preview/beamd/cli';
 
 export async function POST(_rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const check = await beamdCheck();
     const bin = await beamdBinInfo().catch(() => null);

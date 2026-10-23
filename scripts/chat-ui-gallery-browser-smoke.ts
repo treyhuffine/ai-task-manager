@@ -12,8 +12,35 @@ import { buildChatUiGallery } from './build-chat-ui-gallery';
 import { CHAT_UI_EXAMPLES } from '@/components/chat-ui/gallery/catalog';
 
 async function waitForText(frame: Frame, value: string) {
-  try { await frame.getByText(value, { exact: true }).waitFor(); }
-  catch (error) { console.error('Preview content:', await frame.locator('body').innerText()); throw error; }
+  try { await frame.getByText(value, { exact: true }).waitFor(); await settleAnimations(frame); }
+  catch (error) {
+    console.error('Preview content:', (await frame.locator('[data-gallery-example], [role="dialog"]').allInnerTexts()).join('\n').slice(0, 8000));
+    console.error('Focused control:', await frame.evaluate(() => ({ tag: document.activeElement?.tagName, label: document.activeElement?.getAttribute('aria-label') })));
+    throw error;
+  }
+}
+
+async function settleAnimations(frame: Frame) {
+  // Fixtures enter with the same card/dialog animations as the app. Wait in
+  // their document so a click cannot land between animation and resize frames.
+  await frame.evaluate(async () => {
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    await Promise.allSettled(document.getAnimations().filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished));
+  });
+}
+async function htmlCardReady(frame: Frame) {
+  // Artifact thumbnails mount only near the viewport. Selecting an example
+  // in the tall sidebar can scroll its preview away before this wait starts.
+  await (await frame.frameElement()).scrollIntoViewIfNeeded();
+  await frame.getByRole('button', { name: 'Open HTML: review-plan.html', exact: true }).scrollIntoViewIfNeeded();
+  // Capture is bounded and may deliberately fall back to the full preview.
+  // The interaction below still opens that document and exercises its script.
+  try { await frame.getByTitle('Thumbnail: review-plan.html').or(frame.getByText('Open to preview', { exact: true })).waitFor(); }
+  catch (error) {
+    console.error('HTML card state:', await frame.locator('body').innerText());
+    console.error('HTML card DOM:', await frame.locator('[data-artifact-card]').evaluate(button => button.parentElement?.outerHTML));
+    throw error;
+  }
 }
 
 async function main() {
@@ -63,8 +90,27 @@ async function main() {
       await frame.locator(`[data-gallery-example="${id}"][data-gallery-state="${state ?? example.states[0].id}"]`).waitFor();
       await page.getByRole('status').filter({ hasText: 'Opening example' }).waitFor({ state: 'hidden' });
       await frame.waitForLoadState('load');
+      await settleAnimations(frame);
       await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       return frame;
+    }
+    async function exerciseSharedChat() {
+      let frame = await select('shared-chat');
+      await frame.getByRole('textbox', { name: 'Example shared message', exact: true }).fill('A message in the shared example');
+      await frame.getByRole('button', { name: 'Model and settings: Balanced example', exact: true }).click();
+      await settleAnimations(frame);
+      await frame.getByRole('option', { name: 'Fast example', exact: true }).click();
+      try { await frame.getByRole('button', { name: 'Model and settings: Fast example', exact: true }).waitFor(); }
+      catch (error) {
+        console.error('Shared model state:', await frame.locator('body').innerText());
+        await page.screenshot({ path: path.join(output, 'shared-model-failure.png'), fullPage: true });
+        throw error;
+      }
+      await frame.getByRole('button', { name: 'Send example', exact: true }).click();
+      await waitForText(frame, 'A message in the shared example');
+      frame = await select('shared-chat', 'off');
+      assert.equal(await frame.getByRole('textbox', { name: 'Example shared message', exact: true }).isEditable(), false);
+      await waitForText(frame, 'I can review the release note.');
     }
     async function exerciseChatMessages() {
       let frame = await select('chat-messages');
@@ -155,6 +201,7 @@ async function main() {
       console.log(`Rendered ${example.id} in all states`);
     }
     if (focusedExample) {
+      if (focusedExample === 'shared-chat') await exerciseSharedChat();
       if (focusedExample === 'chat-messages') await exerciseChatMessages();
       if (focusedExample === 'coordination') {
         await exerciseCoordination();
@@ -170,6 +217,7 @@ async function main() {
             await page.getByRole('button', { name: theme, exact: true }).click();
             const active = await (await page.locator('iframe').first().elementHandle())!.contentFrame(); assert(active);
             await active.locator(`html[data-theme="${theme}"] [data-gallery-example]`).waitFor();
+            if (focusedExample === 'html') await htmlCardReady(active);
             assert.equal(await page.locator('body').evaluate(body => body.scrollWidth > innerWidth + 1), false, `Parent fits at ${width}`);
             assert.equal(await active.locator('body').evaluate(body => body.scrollWidth > innerWidth + 1), false, `${exampleState.id} fits at ${width}`);
             await page.screenshot({ path: path.join(output, `${focusedExample}-${exampleState.id}-${width}-${theme}.png`), fullPage: true });
@@ -182,7 +230,25 @@ async function main() {
       console.log(`${focusedExample}: interactions and all states passed on desktop and phone in both themes`);
       return;
     }
-    let frame = await select('email');
+    let frame = await select('server-form');
+    await frame.getByRole('button', { name: 'Submit', exact: true }).click();
+    await waitForText(frame, 'Enter a project name.');
+    await frame.getByRole('textbox', { name: 'Project name', exact: true }).fill('Friday release');
+    await frame.getByRole('switch', { name: 'Ready for review', exact: true }).click();
+    await frame.getByRole('button', { name: 'Submit', exact: true }).click();
+    await waitForText(frame, 'Sent.');
+    await waitForText(frame, 'Example form answered. No service received it');
+    await page.getByRole('button', { name: 'Reset example', exact: true }).click();
+    frame = await select('server-form');
+    await frame.getByRole('button', { name: 'Decline', exact: true }).click();
+    await waitForText(frame, 'Declined.');
+    frame = await select('server-form', 'accepted');
+    await waitForText(frame, "You answered Review Board's form");
+    frame = await select('server-form', 'expired');
+    assert.equal(await frame.getByRole('button', { name: 'Submit', exact: true }).count(), 0);
+    await waitForText(frame, 'This form waited too long and closed.');
+    await exerciseSharedChat();
+    frame = await select('email');
     await frame.getByLabel('Message', { exact: true }).fill('A message typed in the gallery');
     await waitForText(frame, 'Saved');
     await frame.getByRole('button', { name: 'Send', exact: true }).click();
@@ -195,6 +261,7 @@ async function main() {
 
     frame = await select('questions');
     await frame.getByRole('button', { name: /Video call/ }).click();
+    await frame.getByRole('button', { name: /Video call/, pressed: true }).waitFor();
     await frame.getByRole('button', { name: /Submit/ }).click();
     await waitForText(frame, 'Example answer: Video call');
     frame = await select('permissions');
@@ -209,12 +276,14 @@ async function main() {
     frame = await select('edits');
     await frame.getByRole('button', { name: /view changes/ }).click();
     await frame.getByRole('dialog').waitFor();
+    await settleAnimations(frame);
     await frame.getByRole('button', { name: /Undo/ }).click();
     await waitForText(frame, 'Example note restored to its earlier version');
     await exerciseChatMessages();
     frame = await select('files');
     await frame.getByRole('button', { name: /friday-agenda/ }).click();
     await frame.getByText('1. Look at the new dashboard', { exact: false }).waitFor();
+    await frame.getByRole('button', { name: 'Open PDF: friday-review.pdf' }).scrollIntoViewIfNeeded();
     await frame.getByRole('img', { name: 'First page of friday-review.pdf' }).waitFor();
     await frame.getByRole('button', { name: 'Open PDF: friday-review.pdf' }).click();
     await frame.getByRole('img', { name: 'Page 1 of friday-review.pdf' }).waitFor();
@@ -233,11 +302,12 @@ async function main() {
     await frame.getByRole('dialog').getByRole('button', { name: 'Show beside the chat' }).click();
     await beside.waitFor();
     frame = await select('html');
-    await frame.getByTitle('Thumbnail: review-plan.html').waitFor();
+    await htmlCardReady(frame);
     await frame.getByRole('button', { name: 'Open HTML: review-plan.html' }).click();
     const htmlHandle = await frame.getByTitle('HTML preview: review-plan.html').elementHandle();
     const documentFrame = await htmlHandle!.contentFrame(); assert(documentFrame);
     await documentFrame.waitForLoadState('load');
+    await settleAnimations(frame);
     await documentFrame.getByRole('button', { name: 'Record an example decision' }).click();
     await documentFrame.getByText('1 decisions recorded', { exact: true }).waitFor();
     frame = await select('handoffs');
@@ -276,15 +346,16 @@ async function main() {
     await page.getByRole('button', { name: /^All sources/ }).click();
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1050 });
-      for (const id of ['email', 'questions', 'approvals', 'chat-messages', 'html', 'connected-app', 'app-kit']) {
+      for (const id of ['email', 'shared-chat', 'server-form', 'questions', 'approvals', 'chat-messages', 'html', 'connected-app', 'app-kit']) {
         await select(id);
         for (const theme of ['light', 'dark']) {
           await page.getByRole('button', { name: theme, exact: true }).click();
           const iframe = page.locator('iframe').first(); await iframe.waitFor();
+          await iframe.scrollIntoViewIfNeeded();
           const active = await (await iframe.elementHandle())!.contentFrame(); assert(active);
           await active.locator('[data-gallery-example]').waitFor();
           await active.locator(`html[data-theme="${theme}"]`).waitFor();
-          if (id === 'html') await active.getByTitle('Thumbnail: review-plan.html').waitFor();
+          if (id === 'html') await htmlCardReady(active);
           if (id === 'connected-app') await active.frameLocator('iframe[aria-label="App view"]').frameLocator('iframe').getByLabel('Hours', { exact: true }).waitFor();
           assert.equal(await page.locator('body').evaluate(body => body.scrollWidth > innerWidth + 1), false, `${id}: parent overflow at ${width}`);
           assert.equal(await active.locator('body').evaluate(body => body.scrollWidth > innerWidth + 1), false, `${id}: preview overflow at ${width}`);

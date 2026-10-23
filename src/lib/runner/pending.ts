@@ -60,6 +60,7 @@ export interface PendingQuestion {
 export type PendingInput = PendingPermission | PendingQuestion;
 
 interface PendingEntry {
+  owner?: object;
   pending: PendingInput;
   resolve: (response: UserInputResponse) => void;
   reject: (err: Error) => void;
@@ -88,9 +89,9 @@ const state = globalRef[STATE_KEY]!;
  * UI answers. The caller (the local runner) hands the resolved response back to
  * agentex which returns it to Claude.
  */
-export function register(pending: PendingInput): Promise<UserInputResponse> {
+export function register(pending: PendingInput, owner?: object): Promise<UserInputResponse> {
   return new Promise<UserInputResponse>((resolve, reject) => {
-    state.byId.set(pending.requestId, { pending, resolve, reject });
+    state.byId.set(pending.requestId, { pending, resolve, reject, owner });
     let set = state.bySession.get(pending.sessionId);
     if (!set) {
       set = new Set();
@@ -120,12 +121,12 @@ export function resolveRequest(
  * the agentex callback completes (with deny) instead of hanging
  * indefinitely. Claude treats deny as a normal tool rejection.
  */
-export function rejectAllForSession(sessionId: string, reason: string): void {
+export function rejectAllForSession(sessionId: string, reason: string, owner?: object): void {
   const ids = state.bySession.get(sessionId);
   if (!ids || ids.size === 0) return;
   for (const id of [...ids]) {
     const entry = state.byId.get(id);
-    if (!entry) continue;
+    if (!entry || (owner && entry.owner !== owner)) continue;
     remove(id);
     // Resolve with deny rather than reject so agentex's await doesn't
     // throw — we want a clean tool rejection in the transcript, not a

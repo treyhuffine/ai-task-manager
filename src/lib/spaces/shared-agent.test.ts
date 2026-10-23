@@ -62,6 +62,34 @@ async function action(name: string, input: Record<string, unknown>) {
 }
 
 describe('a pass over a team', () => {
+  it('keeps personal and team rank independent, follows source renames and leaves the saved Deck alone', async () => {
+    const me = await connected('Priority member');
+    const client = await owner();
+    const q = await import('@/lib/db/queries');
+    const { syncTeam } = await import('./sync');
+    const teamArea = await client.areas.create.mutate({ name: 'Travel' });
+    const personalArea = q.createArea({ name: 'Family' });
+    const local = q.createTask({ title: 'Personal commitment', sortKey: 'a0' });
+    const deck = q.supersedeAndInsertDeck({ forDate: '2026-10-19', framing: 'Already chosen', items: [], alternatives: [] });
+    const shared = await client.tasks.create.mutate({ title: 'Personal commitment', rawInput: 'Personal commitment', assigneeMemberId: me.memberId, areaId: teamArea.id, sortKey: 'Zz' });
+    await syncTeam(me.id);
+    const imported = q.getTaskProjection(me.id, shared.id)!;
+    expect(imported.sortKey).toBeNull();
+    expect(q.listTasks({ orderBy: 'sortKey' }).map(t => t.id).indexOf(local.id)).toBeLessThan(q.listTasks({ orderBy: 'sortKey' }).map(t => t.id).indexOf(imported.id));
+    q.updateTask(imported.id, { sortKey: 'Zy', areaId: personalArea.id, userContext: 'Private' }, { source: 'human' });
+    expect((await client.tasks.get.query({ id: shared.id })).sortKey).toBe('Zz');
+    await client.tasks.update.mutate({ id: shared.id, patch: { sortKey: 'a1' } });
+    await client.areas.update.mutate({ id: teamArea.id, patch: { name: 'Renamed Travel' } });
+    await syncTeam(me.id);
+    expect(q.getTaskProjection(me.id, shared.id)).toMatchObject({ sortKey: 'Zy', areaId: personalArea.id, userContext: 'Private', source: { area: { id: teamArea.id, name: 'Renamed Travel' } } });
+    expect(q.getDeck(deck.id)).toEqual(deck);
+    await client.tasks.update.mutate({ id: shared.id, patch: { areaId: null } });
+    await syncTeam(me.id);
+    expect(q.getTaskProjection(me.id, shared.id)?.source?.area).toBeNull();
+    expect(q.listAreas().map(a => a.name)).toEqual(['Family']);
+    expect(q.getDeck(deck.id)).toEqual(deck);
+  }, 60_000);
+
   it('says how many rows it changed, and changes nothing when the team has not', async () => {
     const me = await connected('Ida');
     await (await owner()).tasks.create.mutate({ title: 'Counted', rawInput: 'Counted', assigneeMemberId: me.memberId });

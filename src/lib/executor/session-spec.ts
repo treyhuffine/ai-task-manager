@@ -58,6 +58,10 @@ import { workResultsMcpServer } from '@/lib/work-results/instructions';
 import { emailMcpServer, EMAIL_COMPOSER_INSTRUCTIONS } from '@/lib/email/surface';
 import { handoffPreamble } from '@/lib/transfer/handoff';
 import { coordinationMcpServer, COORDINATION_INSTRUCTIONS } from '@/lib/coordination/surface';
+import { configureTeamSession } from './team-session-policy';
+import { assertPersonalCapability } from '@/lib/home/authority';
+import { conservativePlanReturn } from './permission-map';
+import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 
 /** Where the session will run. The home's own device unless a placement says otherwise. */
 export type SpecTarget = Pick<ChatPlacement, 'deviceId' | 'isHome'> & { generation?: number | null };
@@ -167,7 +171,49 @@ function expectedEnvironment(input: {
   };
 }
 
+
+/** Folder wiring is independent of the Home's tool bundle and member authority. */
+async function applySessionReferenceFolders(spec: SessionSpec, args: SessionSpecInput, target: SpecTarget, workspace: WorkspaceRecord | null, instructionBlocks: { name: string; text: string }[]) {
+  const providerType = harnessDefinition(args.harness).agentexProviderId;
+    let refs: ResolvedReferenceFolder[] = [];
+    try {
+      refs = target.isHome
+        ? await listUsableReferenceFolders(args.workspaceId ?? null, { consumerCwd: workspace?.cwd ?? null })
+        : referencesOn(args.workspaceId ?? null, target.deviceId);
+      if (!target.isHome) {
+        if (workspace) spec.agentFolders = expectedAgentFolders(workspace, target, refs);
+      } else {
+        const refConfig = buildReferenceFolderSessionConfig(refs);
+        if (refConfig.instructions) {
+          const wiring = referenceFolderProviderWiring(refConfig, providerType);
+          instructionBlocks.push({ name: 'reference folders', text: refConfig.instructions });
+          spec.extraArgs.push(...wiring.extraArgs);
+          if (wiring.disallowedTools.length > 0) spec.disallowedTools.push(...wiring.disallowedTools);
+          if (wiring.delivery === 'prompt-only') {
+            console.warn(
+              `[executor] execution on provider "${providerType}": ${refConfig.readOnlyDirs.length} read-only linked folder(s) ` +
+                'announced in the prompt, but the edit deny rules are claude-only argv ' +
+                '(this provider is told not to change them without being fenced off).',
+            );
+          } else if (wiring.delivery === 'unsupported') {
+            console.warn(
+              `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
+                'announced with each submitted message because this harness ignores session-scoped instructions. ' +
+                'Folder edit restrictions remain prompt guidance on this harness.',
+            );
+          }
+        }
+      }
+    } catch (err) {
+      // A reference-folder failure must never cost the user their session.
+      console.error('[executor] reference folder resolution failed:', err);
+    }
+
+  return refs;
+}
+
 export interface SessionSpecInput {
+  teamTurnId?: string;
   chatSessionId: string;
   harness: HarnessId;
   cwd: string;
@@ -203,6 +249,7 @@ function applyProviderConfig(spec: SessionSpec, config: Partial<ProviderConfig>)
 }
 
 export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarget = HOME): Promise<SessionSpec> {
+  if (!args.teamTurnId) assertPersonalCapability('Personal session configuration');
   const providerType = harnessDefinition(args.harness).agentexProviderId;
   // The capabilities of the harness on the device that will run it: probed
   // here for the home's own, from its worker's report for a connected one.
@@ -227,7 +274,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     sessionType: args.sessionType,
     nativeSessionId: args.existingExternalSessionId,
     permissionMode: args.permissionMode,
-    prePlanMode: args.prePlanMode,
+    prePlanMode: args.prePlanMode ?? (args.permissionMode === 'plan' ? (getHome()?.kind === 'team' ? conservativePlanReturn(args.harness) : DEFAULT_PERMISSION_MODE) : null),
     model: args.model,
     modelVariant: args.modelVariant,
     effort: args.effort,
@@ -257,6 +304,17 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
   const agentMainChat = args.sessionType === 'orchestration' && args.workspaceId
     ? getWorkspace(args.workspaceId) ?? null
     : null;
+  if (args.teamTurnId) {
+    configureTeamSession(spec, args, target);
+    const workspace = args.workspaceId ? getWorkspace(args.workspaceId) ?? null : null;
+    const blocks = [{ name: 'Team Home', text: spec.instructions ?? '' }];
+    const refs = await applySessionReferenceFolders(spec, args, target, workspace, blocks);
+    const plan = planSessionInstructions(providerType, blocks);
+    spec.instructions = plan.text || null;
+    if (plan.undelivered.length) spec.messagePreamble = blocks.map(block => block.text).join('\n\n');
+    if (workspace && args.executionId && args.surfaceKind !== 'result_review') spec.environment = expectedEnvironment({ workspace, executionId: args.executionId, args, target, usable: refs, servers: spec.mcpServers });
+  }
+  else {
   if (agentMainChat) {
     const spawn = await prepareAgentMainChatSpawn({
       chatSessionId: args.chatSessionId,
@@ -410,39 +468,7 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
     // Elsewhere, the paths here are only the device's last report. The
     // runner there wires them instead, from where they resolve when the
     // session starts (`agentFolders`), so nothing here names a stale path.
-    let refs: ResolvedReferenceFolder[] = [];
-    try {
-      refs = target.isHome
-        ? await listUsableReferenceFolders(args.workspaceId ?? null, { consumerCwd: workspace?.cwd ?? null })
-        : referencesOn(args.workspaceId ?? null, target.deviceId);
-      if (!target.isHome) {
-        if (workspace) spec.agentFolders = expectedAgentFolders(workspace, target, refs);
-      } else {
-        const refConfig = buildReferenceFolderSessionConfig(refs);
-        if (refConfig.instructions) {
-          const wiring = referenceFolderProviderWiring(refConfig, providerType);
-          instructionBlocks.push({ name: 'reference folders', text: refConfig.instructions });
-          spec.extraArgs.push(...wiring.extraArgs);
-          if (wiring.disallowedTools.length > 0) spec.disallowedTools.push(...wiring.disallowedTools);
-          if (wiring.delivery === 'prompt-only') {
-            console.warn(
-              `[executor] execution on provider "${providerType}": ${refConfig.readOnlyDirs.length} read-only linked folder(s) ` +
-                'announced in the prompt, but the edit deny rules are claude-only argv ' +
-                '(this provider is told not to change them without being fenced off).',
-            );
-          } else if (wiring.delivery === 'unsupported') {
-            console.warn(
-              `[executor] execution on provider "${providerType}": ${refs.length} reference folder(s) ` +
-                'announced with each submitted message because this harness ignores session-scoped instructions. ' +
-                'Folder edit restrictions remain prompt guidance on this harness.',
-            );
-          }
-        }
-      }
-    } catch (err) {
-      // A reference-folder failure must never cost the user their session.
-      console.error('[executor] reference folder resolution failed:', err);
-    }
+    const refs = await applySessionReferenceFolders(spec, args, target, workspace, instructionBlocks);
 
     const plan = planSessionInstructions(providerType, instructionBlocks);
     if (plan.text) spec.instructions = plan.text;
@@ -463,6 +489,8 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
           'them. Use claude, codex or antigravity for agent instructions.',
       );
     }
+  }
+
   }
 
   // An agent's main chat runs in the user's own folder, so it gets no user

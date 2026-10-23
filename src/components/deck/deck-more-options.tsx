@@ -1,5 +1,6 @@
 "use client";
 
+import { TeamLabel } from '@/components/spaces/team-label';
 import { ChevronUp, ChevronDown, Plus, RotateCcw } from 'lucide-react';
 import type { AlternativeItem, RadarItem, DeckChangeView } from '@/types/dashboard';
 import { Tip } from '@/components/ui/tip';
@@ -72,7 +73,8 @@ export function DeckMoreOptions({
                         <span className="text-[8px] px-1 py-0.5 rounded bg-muted/80 text-muted-foreground/50 font-medium shrink-0">
                           {item.kind === 'dropped' ? 'dropped' : 'later'}
                         </span>
-                        {item.areaName && (
+                        <TeamLabel teamId={item.sourceTeamId} sourceArea={item.sourceArea} />
+                {item.areaName && (
                           <span className="text-[9px] px-1 py-0.5 rounded bg-muted/80 text-muted-foreground/70 shrink-0">
                             {item.areaName}
                           </span>
@@ -103,6 +105,7 @@ export function DeckMoreOptions({
                 {item.title}
               </span>
               <div className="flex items-center gap-1.5">
+                <TeamLabel teamId={item.sourceTeamId} sourceArea={item.sourceArea} />
                 {item.areaName && (
                   <span className="text-[9px] px-1 py-0.5 rounded bg-muted/80 text-muted-foreground/70">
                     {item.areaName}

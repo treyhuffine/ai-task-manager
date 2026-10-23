@@ -30,7 +30,7 @@ vi.mock('@agentex/agent', () => ({
   reconcileSkillCommands: (...args: unknown[]) => reconcileSkillCommands(...args),
 }));
 
-vi.mock('@/lib/db/queries', () => ({
+vi.mock('@/lib/db/queries', () => ({ getHome: () => null,
   getChatSession: (id: string) => getChatSession(id),
   getSkillUsageScores: () => getSkillUsageScores(),
 }));

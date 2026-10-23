@@ -12,6 +12,9 @@ import { documentSaves } from '@/lib/client/document-saves';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useTeam } from './team-context';
+import { getAuthToken } from '@/lib/api/client';
+import { documentCredential } from '@/lib/home/document-binding';
+import { assertDocumentCredential } from '@/lib/home/document-scope';
 
 type Kind = 'task' | 'note';
 
@@ -68,7 +71,9 @@ export function useSharedBodyFor(record: SharedRecord | undefined, target: Share
     // documents. Bind its destination and upload queue to this document.
     const pending: Attachment[] = [];
     uploads.current = pending;
+    const credential = documentCredential(getAuthToken());
     const writer = async (input: { body: string; expectedBodyRevision: number }): Promise<SharedBody> => {
+      assertDocumentCredential(credential, documentCredential(getAuthToken()));
       const sent = pending.slice();
       const saved = await target.write({ ...input, attachments: sent });
       for (const attachment of sent) {

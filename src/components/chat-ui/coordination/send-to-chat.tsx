@@ -1,4 +1,5 @@
 'use client';
+import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { useDeferredValue, useState } from 'react';
 import { Forward, Search } from 'lucide-react';
 import { uuidv7 } from 'uuidv7';
@@ -14,6 +15,10 @@ import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import { toast } from 'sonner';
 
 export function SendToChatButton({ eventId, sessionId }: { eventId: string; sessionId: string }) {
+  const enabled = useChatCapabilities().coordination !== false;
+  return enabled ? <AvailableSendToChatButton {...{ eventId, sessionId }} /> : null;
+}
+function AvailableSendToChatButton({ eventId, sessionId }: { eventId: string; sessionId: string }) {
   const [open, setOpen] = useState(false);
   return <><Tip label="Share this message with another chat"><button type="button" aria-label="Send to chat" onClick={() => setOpen(true)} className="inline-flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted/60 hover:text-foreground"><Forward size={12} /></button></Tip>
     {open && <SendToChatDialog eventId={eventId} sessionId={sessionId} onClose={() => setOpen(false)} />}</>;

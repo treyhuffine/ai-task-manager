@@ -1,3 +1,6 @@
+import { workspaceAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { recordHomeActivity } from '@/lib/home/activity';
 import { getWorkspace } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { pullWorkspaceBase } from '@/lib/workspaces';
@@ -18,6 +21,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
   try {
     const { id } = rpcInput.params;
     const body: { strategy?: 'merge' | 'rebase' } = rpcInput.body;
+    const authority = workspaceAuthority(getRequestKey(_request.headers), id, 'editFiles');
     const ws = getWorkspace(id);
     if (!ws) return reply({ error: 'Workspace not found' }, { status: 404 });
     if (!ws.isGit) return reply({ error: 'Not a git workspace' }, { status: 400 });
@@ -29,8 +33,11 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
         { status: result.code === 'dirty_worktree' ? 409 : 500 },
       );
     }
+    recordHomeActivity(authority, 'pull_base', id, 'git_change');
     return reply(result);
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     const message = err instanceof Error ? err.message : String(err);
     if (err instanceof Error && err.name === 'MergeConflictError') {
       return reply({ error: 'merge_conflict', message }, { status: 409 });

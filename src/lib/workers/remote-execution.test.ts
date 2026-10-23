@@ -523,9 +523,13 @@ describe('an execution on a connected device', () => {
     const q = await import('@/lib/db/queries');
     q.updateChatSession(chatId, { permissionMode: 'ask' });
     const turn = dispatch(chatId, 'ASK before listing');
+    void turn.catch(() => {}); // An earlier assertion can fail before the final await.
     await until(() => live.listForSession(chatId).length === 1, 'the prompt to reach the home');
     const [prompt] = live.listForSession(chatId);
     expect(prompt).toMatchObject({ kind: 'permission', toolName: 'Bash' });
+    // A heartbeat can expose the live prompt before its journal row arrives.
+    // Observe the actual request row as well, before asserting its persistence.
+    await until(() => q.listChatEvents(chatId).some(event => event.source === 'permission_request' && event.externalToolCallId === prompt!.toolUseId), 'the prompt journal row');
     expect(q.listChatEvents(chatId).some((e) => e.source === 'permission_request')).toBe(true);
 
     expect(answerPendingInput(chatId, prompt!.requestId, { allow: true, updatedInput: { command: 'ls' } }, { source: 'human' }).ok).toBe(true);

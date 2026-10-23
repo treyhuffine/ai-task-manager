@@ -8,18 +8,47 @@
  * (src/lib/team/shared-work.ts).
  */
 
+/**
+ * A team member's own procedures (docs/homes-spec.md §3.2, §9.1): who's in
+ * the team, signing in on another device, and for the owner, people,
+ * invitations, the team's name and the address invitations name.
+ *
+ * Shared work itself (tasks, notes, Areas, history, search) goes through
+ * the ordinary procedures, which act as the member in a team
+ * (src/lib/team/shared-work.ts).
+ */
+import { stopTeamAiWork } from './ai/chat';
 import { z } from 'zod/v4';
 import { TRPCError } from '@trpc/server';
 import { setRunningPort } from '@/lib/auth/bootstrap';
 import { writeAuthConfig } from '@/lib/auth/config-file';
 import { readLiveServerRuntime } from '@/lib/server-runtime/record';
 import * as q from '@/lib/db/queries';
-import { memberProcedure, ownerProcedure, router } from '@/lib/trpc/init';
+import { memberProcedure, ownerProcedure, teamCapabilityProcedure, router } from '@/lib/trpc/init';
 import { teamLink } from './links';
 import { teamSummary } from './summary';
 import { teamAddressSettings, teamLinkAddress, verifyTeamAddress, openTeamBeamdAddress, saveTeamAddressPrefix, isLoopbackTeamAddress, normalizeTeamAddress } from './address';
 import { TEAM_MCP_PATH } from './credential';
 import { teamAiRouter } from './ai/router';
+import { z as toolSchema } from 'zod';
+import { TEAM_TOOLS, runTeamTool, type TeamToolResult } from './mcp/tools';
+import { teamWriteSource } from './shared-work';
+import type { TRPCContext } from '@/lib/trpc/init';
+import { publishTaskResult } from './published-results';
+import { publishTaskResultSchema } from '@/lib/trpc/schemas';
+
+const nativeInput = z.object({ action: z.string().min(1).max(100), input: z.record(z.string(), z.unknown()) }).strict();
+
+/** The same content operations as MCP, under the existing personal Home sign-in. */
+async function nativeContent(ctx: TRPCContext, input: z.infer<typeof nativeInput>, kind: 'read' | 'write'): Promise<TeamToolResult> {
+  teamWriteSource(ctx.key, 'ai');
+  const member = me(ctx);
+  const tool = TEAM_TOOLS.find((t) => t.name === input.action && t.kind === kind);
+  if (!tool) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Unknown content operation.' });
+  const parsed = toolSchema.object(tool.shape).strict().safeParse(input.input);
+  if (!parsed.success) throw new TRPCError({ code: 'BAD_REQUEST', message: parsed.error.message });
+  return runTeamTool(tool, { member, apiKeyId: ctx.key!.apiKeyId, base: new URL(ctx.request.url).origin }, parsed.data);
+}
 
 const nameInput = z.object({ name: z.string().min(1).max(q.MEMBER_NAME_MAX) }).strict();
 const idInput = z.object({ id: z.string().min(1) }).strict();
@@ -73,6 +102,16 @@ function requestOrigin(request: Request): string | null {
 }
 
 export const teamRouter = router({
+  referenceChanges: memberProcedure.input(z.object({
+    tasks: z.array(z.object({ id: z.string().min(1), cursor: z.string().max(64).nullable().optional() }).strict()).max(200),
+    notes: z.array(z.object({ id: z.string().min(1), cursor: z.string().max(64).nullable().optional() }).strict()).max(200),
+  }).strict()).mutation(({ input }) => q.teamReferenceChanges(input)),
+  nativePublish: memberProcedure.input(publishTaskResultSchema).mutation(({ ctx, input }) => {
+    teamWriteSource(ctx.key, 'ai');
+    return publishTaskResult({ ...input, memberId: me(ctx).id, source: 'ai' });
+  }),
+  nativeRead: memberProcedure.input(nativeInput).query(({ ctx, input }) => nativeContent(ctx, input, 'read')),
+  nativeWrite: memberProcedure.input(nativeInput).mutation(({ ctx, input }) => nativeContent(ctx, input, 'write')),
   /** The team and who's signed in. */
   me: memberProcedure.query(({ ctx }) => {
     const member = me(ctx);
@@ -89,13 +128,15 @@ export const teamRouter = router({
     ),
     create: memberProcedure.mutation(({ ctx }) => createMemberLink('sign-in', me(ctx).id, requestOrigin(ctx.request))),
     createRemote: memberProcedure.mutation(({ ctx }) => createMemberLink('sign-in', me(ctx).id, requestOrigin(ctx.request), true)),
-    revoke: memberProcedure.input(z.object({ keyId: z.string().min(1) }).strict()).mutation(({ ctx, input }) => {
+    revoke: memberProcedure.input(z.object({ keyId: z.string().min(1) }).strict()).mutation(async ({ ctx, input }) => {
       q.revokeMemberSignIn(me(ctx).id, input.keyId);
+      await stopTeamAiWork({ apiKeyId: input.keyId }, 'The requesting sign-in was revoked.');
       return { ok: true as const };
     }),
     /** Sign out here: this client's key stops working. */
-    signOut: memberProcedure.mutation(({ ctx }) => {
+    signOut: memberProcedure.mutation(async ({ ctx }) => {
       q.revokeMemberSignIn(me(ctx).id, ctx.key!.apiKeyId);
+      await stopTeamAiWork({ apiKeyId: ctx.key!.apiKeyId }, 'The requesting sign-in was revoked.');
       return { ok: true as const };
     }),
   }),
@@ -113,7 +154,7 @@ export const teamRouter = router({
       const { base, reachable } = await teamLinkAddress(requestOrigin(ctx.request));
       return { client, token: token.plaintext, mcpUrl: `${base}${TEAM_MCP_PATH}`, reachable };
     }),
-    revoke: memberProcedure.input(z.object({ keyId: z.string().min(1) }).strict()).mutation(({ ctx, input }) => {
+    revoke: memberProcedure.input(z.object({ keyId: z.string().min(1) }).strict()).mutation(async ({ ctx, input }) => {
       q.revokeMemberAiClient(me(ctx).id, input.keyId);
       return { ok: true as const };
     }),
@@ -121,6 +162,11 @@ export const teamRouter = router({
 
   /** Team AI: its settings, and the team's shared chats with it (§9.9). */
   ai: teamAiRouter,
+  agentActivity: teamCapabilityProcedure('read').input(z.object({ workspaceId: z.string().min(1) }).strict()).query(({ input }) => {
+    if (!q.getWorkspace(input.workspaceId)) throw new q.TeamError('not_found', 'That agent is gone.');
+    const names = new Map(q.listMembers({ includeRemoved: true }).map(member => [member.id, member.name]));
+    return q.listTeamActivity(input.workspaceId).map(({ apiKeyId: _apiKeyId, ...activity }) => ({ ...activity, memberName: names.get(activity.memberId) ?? 'Someone who left' }));
+  }),
 
   // ─── The owner's ─────────────────────────────────────────────
   rename: ownerProcedure.input(nameInput).mutation(({ input }) => {

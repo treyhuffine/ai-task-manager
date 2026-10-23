@@ -1,8 +1,9 @@
 /**
- * CLI setup for an outside assistant reaching a personal Home or a team.
+ * Client setup for an assistant reaching a personal Home or a team.
  * Pure, so both dialogs and their tests share the same instructions.
  *
- * The key lives in a dedicated environment variable in the member's shell
+ * Ri stores the key in its Home's secret store. For CLI clients it lives in a
+ * dedicated environment variable in the member's shell
  * profile, never in a project's files, a command's arguments or shell history:
  *
  * - Claude Code stores the header with `${VAR}` unexpanded (single quotes) and
@@ -12,11 +13,12 @@
  *   (`--bearer-token-env-var`).
  */
 
-export type AiClientKind = 'claude_code' | 'codex' | 'other';
+export type AiClientKind = 'claude_code' | 'codex' | 'ri' | 'other';
 
 export const AI_CLIENT_KINDS: ReadonlyArray<{ kind: AiClientKind; label: string; defaultName: string }> = [
   { kind: 'claude_code', label: 'Claude Code', defaultName: 'Claude Code' },
   { kind: 'codex', label: 'Codex', defaultName: 'Codex' },
+  { kind: 'ri', label: 'Ri', defaultName: 'My Ri' },
   { kind: 'other', label: 'Another MCP client', defaultName: 'My assistant' },
 ];
 
@@ -45,7 +47,7 @@ export interface AiClientSetupStep {
 export interface AiClientSetup {
   /** Where the key goes, then how the client finds the team. */
   steps: AiClientSetupStep[];
-  /** What this client can't do, or wasn't checked doing. */
+  /** Final setup instructions or client limitations. */
   caveat: string | null;
 }
 
@@ -58,6 +60,19 @@ export function aiClientSetup(kind: AiClientKind, input: ({ teamName: string } |
   const personal = 'homeName' in input;
   const { server, tokenVar } = teamMcpNames(personal ? input.homeName : input.teamName);
   const space = personal ? 'your Home' : 'the team';
+  if (kind === 'ri') {
+    return {
+      steps: [
+        {
+          label: 'In the Ri you want to connect from, open Settings → Plugins → Add MCP server. Enter this Name.',
+          text: personal ? input.homeName : input.teamName,
+        },
+        { label: 'Paste this into Server URL.', text: input.mcpUrl },
+        { label: 'Choose Bearer token under Auth (use Change if Auth is hidden), then paste this into Secret.', text: input.token },
+      ],
+      caveat: 'Click Add and connect, then start a new chat in that Ri. The secret is stored in its Home and is not shown to the model. Your chat uses its own model access.',
+    };
+  }
   const keyStep: AiClientSetupStep = {
     label: 'Add this line to your shell profile (~/.zshrc on a Mac, ~/.bashrc on Linux) in an editor, so the key stays out of your projects and shell history.',
     text: `export ${tokenVar}=${quoted(input.token)}`,

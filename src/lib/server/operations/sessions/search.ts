@@ -1,6 +1,8 @@
 import { searchChatSessions, type ChatSearchSource } from '@/lib/db/queries';
 import { reply, searchParams, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { executionCatalogFilter, executionOperationFailure } from '@/lib/workspaces/access';
 
 /**
  * Search across chat/execution titles and transcripts. Titles containing
@@ -30,8 +32,9 @@ const SOURCES: ReadonlySet<string> = new Set([
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
+    const visible = executionCatalogFilter(getRequestKey(request.headers));
     const params = searchParams(rpcInput.query);
     const query = params.get('q') ?? '';
     if (query.trim().length === 0) {
@@ -52,9 +55,11 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
     const limitRaw = parseInt(params.get('limit') ?? '30', 10);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 30;
 
-    const results = searchChatSessions({ query, status, workspaceId, source, limit });
+    const results = searchChatSessions({ query, status, workspaceId, source, limit }).filter(visible);
     return reply(results);
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/sessions/search]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

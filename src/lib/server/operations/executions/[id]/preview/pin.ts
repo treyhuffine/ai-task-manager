@@ -1,3 +1,6 @@
+import { recordHomeActivity } from '@/lib/home/activity';
+import { executionAuthority } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 import { failureResponse, reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 /**
@@ -12,9 +15,11 @@ import { getPreviewState, setPreviewPinned } from '@/lib/preview/service';
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const authority = executionAuthority(executionRequestKey(), id, 'editFiles');
     const body = (rpcInput.body) as { pinned?: boolean; service?: string | null };
     const service = body.service ?? null;
     setPreviewPinned(id, service, body.pinned ?? false);
+    recordHomeActivity(authority, 'preview_pin', id);
     return reply(getPreviewState(id, service));
   } catch (err) {
     return failureResponse(previewErrorResponse(err, 'POST /api/executions/:id/preview/pin'));

@@ -297,7 +297,7 @@ export const sessionsApi = {
   },
 
   openPr(id: string) {
-    return trpcClient.sessions.prPost.mutate({params: {id: id}});
+    return trpcClient.sessions.prPost.mutate({params: {id: id}, body: { requestId: crypto.randomUUID() }});
   },
 
   mergePr(id: string, body?: MergeRequestBody) {
@@ -466,7 +466,7 @@ export const sessionsApi = {
   },
 
   commit(id: string, opts?: { andPush?: boolean }) {
-    return trpcClient.sessions.commitPost.mutate({params: {id: id}, body: opts ?? {}});
+    return trpcClient.sessions.commitPost.mutate({params: {id: id}, body: { ...opts, requestId: crypto.randomUUID() }});
   },
 
   push(id: string) {
@@ -486,7 +486,7 @@ export const sessionsApi = {
     id: string,
     scenario: 'pr_vs_base' | 'local_vs_remote',
   ) {
-    return trpcClient.sessions.resolveConflictsPost.mutate({params: {id: id}, body: { scenario }});
+    return trpcClient.sessions.resolveConflictsPost.mutate({params: {id: id}, body: { scenario, requestId: crypto.randomUUID() }});
   },
 
   helpWithError(
@@ -497,7 +497,7 @@ export const sessionsApi = {
       context?: ReadonlyArray<{ label: string; value: string }>;
     },
   ) {
-    return trpcClient.sessions.helpWithErrorPost.mutate({params: {id: id}, body: { ...input, context: input.context ? [...input.context] : undefined }});
+    return trpcClient.sessions.helpWithErrorPost.mutate({params: {id: id}, body: { ...input, requestId: crypto.randomUUID(), context: input.context ? [...input.context] : undefined }});
   },
 
   retrySetup(id: string) {

@@ -1,176 +1,57 @@
 'use client';
 
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useSkillNavigation } from '@/components/skills/skill-navigation';
 import { SKILLS_KEY } from '@/hooks/use-skills';
-import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
-import { skillsApi, type SkillView } from '@/lib/api/skills';
+import { getAuthToken } from '@/lib/api/client';
+import { useHomeStorageScope } from '@/components/home/home-context';
+import { documentCredential } from '@/lib/home/document-binding';
+import { homeDocumentKey, assertDocumentCredential } from '@/lib/home/document-scope';
+import { documentSaves } from '@/lib/client/document-saves';
+import { SkillFileSaver, type SkillEditMode } from '@/lib/client/skill-file-saver';
+import { skillsApi, type SkillView, type SaveSkillBody } from '@/lib/api/skills';
 import { cn } from '@/lib/utils';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, AlertTriangle, Check, FileText, Loader2, MessageCircleMore } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { SkillMarkdownEditor } from './skill-markdown-editor';
 
-/** Mirrors DESCRIPTION_MAX in src/lib/skills/format.ts (not imported: it's a server module). */
-const DESCRIPTION_MAX = 1024;
-/** How long typing pauses before an autosave. */
-const AUTOSAVE_MS = 800;
-
-type Mode = 'fields' | 'file';
-
-interface Draft {
-  description: string;
-  body: string;
-  content: string;
-}
-
-function draftOf(skill: SkillView): Draft {
-  return { description: skill.description ?? '', body: skill.body, content: skill.content };
-}
-
-function isDirty(mode: Mode, draft: Draft, saved: SkillView): boolean {
-  return mode === 'file'
-    ? draft.content !== saved.content
-    : draft.description !== (saved.description ?? '') || draft.body !== saved.body;
-}
-
-/**
- * The skill's file, editable two ways: as fields (description and
- * instructions, which is how most people think about a skill) or as the
- * whole SKILL.md (for frontmatter keys like allowed-tools).
- *
- * It autosaves. The builder AI writes the same file through its own
- * actions, so every save carries the hash it was based on:
- *
- *   - While you have nothing unsaved, the AI's changes flow straight in.
- *   - If the file changed under unsaved typing, nothing is overwritten. A
- *     banner lets you take their version or keep yours.
- */
+/** The same hash-checked file editor in personal and shared libraries. */
 export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting: boolean }) {
   const qc = useQueryClient();
-  const { openSkill } = useDashboard();
-  const [mode, setMode] = useState<Mode>(skill.frontmatterError ? 'file' : 'fields');
-  const [draft, setDraft] = useState<Draft>(() => draftOf(skill));
-  const [saved, setSaved] = useState<SkillView>(skill);
-  const [conflict, setConflict] = useState<SkillView | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Refs for the save path, which runs from timers and editor callbacks.
-  const state = useRef({ mode, draft, saved, saving: false, queued: false });
-  useLayoutEffect(() => {
-    state.current.mode = mode;
-    state.current.draft = draft;
-    state.current.saved = saved;
-  });
-
-  const readOnly = !saved.editable;
-  const dirty = !readOnly && isDirty(mode, draft, saved);
-  const fieldsBlocked = saved.frontmatterError !== null;
-  const effectiveMode: Mode = fieldsBlocked ? 'file' : mode;
-
-  // A newer copy from the server (the AI saved, or another tab): adopt it
-  // when nothing local is unsaved, otherwise hold it as a conflict.
-  useEffect(() => {
-    if (skill.ref !== state.current.saved.ref) {
-      setSaved(skill);
-      setDraft(draftOf(skill));
-      setConflict(null);
-      return;
-    }
-    if (skill.hash === state.current.saved.hash) return;
-    if (state.current.saving) return;
-    if (isDirty(state.current.mode, state.current.draft, state.current.saved)) {
-      setConflict(skill);
-      return;
-    }
-    setSaved(skill);
-    setDraft(draftOf(skill));
-    setConflict(null);
-  }, [skill]);
-
-  /** Save what's typed. Returns the skill as saved, or null when nothing was. */
-  const save = useCallback(
-    async (opts: { baseHash?: string } = {}): Promise<SkillView | null> => {
-      const current = state.current;
-      if (current.saving) {
-        current.queued = true;
-        return null;
-      }
-      if (!isDirty(current.mode, current.draft, current.saved) && !opts.baseHash) return null;
-      current.saving = true;
-      setSaving(true);
-      setError(null);
-      const sent = current.draft;
-      const body =
-        current.mode === 'file' || current.saved.frontmatterError
-          ? { content: sent.content }
-          : { description: sent.description, body: sent.body };
-      try {
-        const result = await skillsApi.save(current.saved.ref, { ...body, baseHash: opts.baseHash ?? current.saved.hash });
-        setSaved(result.skill);
-        setConflict(null);
-        // Keep anything typed while the save was in flight. Only the parts
-        // that match what was sent follow the server.
-        setDraft((now) => ({
-          description: now.description === sent.description ? (result.skill.description ?? '') : now.description,
-          body: now.body === sent.body ? result.skill.body : now.body,
-          content: now.content === sent.content ? result.skill.content : now.content,
-        }));
-        qc.setQueryData([...SKILLS_KEY, 'one', result.skill.ref], result.skill);
-        void qc.invalidateQueries({ queryKey: [...SKILLS_KEY, 'overview'] });
-        current.saved = result.skill;
-        if (result.renamedFrom) openSkill(result.skill.ref, { replace: true });
-        return result.skill;
-      } catch (err) {
-        if (apiErrorStatus(err) !== undefined && apiErrorStatus(err) === 409 && (apiErrorBody(err) as { code?: string } | null)?.code === 'stale') {
-          const fresh = await skillsApi.get(current.saved.ref).then((r) => r.skill).catch(() => null);
-          if (fresh) setConflict(fresh);
-        } else {
-          setError(apiErrorText(err));
-        }
-        return null;
-      } finally {
-        current.saving = false;
-        setSaving(false);
-        if (current.queued) {
-          current.queued = false;
-          void save();
-        }
-      }
+  const { openSkill } = useSkillNavigation();
+  const scope = useHomeStorageScope();
+  const [credential] = useState(() => documentCredential(getAuthToken()));
+  const mutation = useMutation({ mutationFn: ({ ref, body }: { ref: string; body: SaveSkillBody }) => {
+    assertDocumentCredential(credential, documentCredential(getAuthToken()));
+    return skillsApi.save(ref, body);
+  }, meta: { carriesInput: true } });
+  const [saver] = useState(() => new SkillFileSaver(skill,
+    ref => 'ri:skill-draft:v1:' + homeDocumentKey('skill', ref, scope), () => window.localStorage,
+    (ref, body) => mutation.mutateAsync({ ref, body }), ref => skillsApi.get(ref).then(result => result.skill),
+    result => {
+      qc.setQueryData([...SKILLS_KEY, 'one', result.skill.ref], result.skill);
+      void qc.invalidateQueries({ queryKey: [...SKILLS_KEY, 'overview'] });
     },
-    [qc, openSkill],
-  );
-
-  const saveNow = useCallback(() => void save(), [save]);
-
-  // Autosave after a pause in typing.
+  ));
+  const { saved, draft, mode, conflict, saving, error, recovery } = useSyncExternalStore(saver.subscribe, saver.snapshot, saver.snapshot);
+  const readOnly = !saved.editable;
+  const dirty = !readOnly && saver.hasUnsaved();
+  const fieldsBlocked = saved.frontmatterError !== null;
+  const effectiveMode = fieldsBlocked ? 'file' : mode;
+  const saveNow = useCallback(() => { void saver.flush().catch(() => {}); }, [saver]);
+  useEffect(() => saver.observe(skill), [saver, skill]);
   useEffect(() => {
-    if (!dirty || conflict) return;
-    const timer = setTimeout(() => void save(), AUTOSAVE_MS);
-    return () => clearTimeout(timer);
-  }, [draft, dirty, conflict, save]);
-
-  const switchMode = async (next: Mode) => {
-    if (next === mode) return;
-    const latest = dirty ? await save() : null;
-    if (dirty && !latest) return; // The save failed or hit a conflict. Stay put so nothing is lost.
-    setDraft(draftOf(latest ?? state.current.saved));
-    setMode(next);
-  };
-
-  const takeTheirs = () => {
-    if (!conflict) return;
-    setSaved(conflict);
-    setDraft(draftOf(conflict));
-    setConflict(null);
-  };
-  const keepMine = () => {
-    if (!conflict) return;
-    const base = conflict.hash;
-    setSaved(conflict);
-    setConflict(null);
-    void save({ baseHash: base });
-  };
+    const unregister = documentSaves.register(saver);
+    return () => { unregister(); void saver.flush().catch(() => {}); saver.dispose(); };
+  }, [saver]);
+  // A rename changes navigation only after newer typing has also been acknowledged.
+  useEffect(() => {
+    if (!saving && !dirty && saved.ref !== skill.ref) openSkill(saved.ref, { replace: true });
+  }, [saving, dirty, saved.ref, skill.ref, openSkill]);
+  const switchMode = (next: SkillEditMode) => { void saver.switchMode(next).catch(() => {}); };
+  const takeTheirs = () => saver.takeTheirs();
+  const keepMine = () => saver.keepMine();
+  const DESCRIPTION_MAX = 1024;
 
   const errors = saved.problems.filter((p) => p.level === 'error');
   const warnings = saved.problems.filter((p) => p.level === 'warning');
@@ -186,7 +67,7 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
               role="tab"
               aria-selected={effectiveMode === m}
               disabled={m === 'fields' && fieldsBlocked}
-              onClick={() => void switchMode(m)}
+              onClick={() => switchMode(m)}
               className={cn(
                 'rounded-md px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] transition-colors disabled:opacity-40',
                 effectiveMode === m ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground',
@@ -205,12 +86,16 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-5 py-4">
-          {readOnly && (
+          {readOnly && saved.linkedFrom && (
             <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-[11.5px] text-muted-foreground">
               Another tool links this skill in from {saved.linkedFrom}, so it&apos;s edited there. To change it here,
               copy it into Ri from the menu above.
             </p>
           )}
+          {recovery && <div role="alert" className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs">
+            <p>A retained draft is available for this skill. It has not been sent.</p>
+            <div className="flex gap-3">{!readOnly && <button className="underline" onClick={() => saver.restore()}>Restore draft</button>}<button className="underline" onClick={() => saver.discardRecovery()}>Discard draft</button></div>
+          </div>}
           {conflict && (
             <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11.5px] text-amber-700 dark:text-amber-300">
               <AlertTriangle size={14} className="shrink-0" />
@@ -226,7 +111,7 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
           {error && (
             <p className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-[11.5px] text-destructive">
               <AlertCircle size={14} className="mt-px shrink-0" />
-              {error}
+              <span>{error} <button className="underline" onClick={saveNow}>Try again</button></span>
             </p>
           )}
           {(errors.length > 0 || warnings.length > 0) && (
@@ -269,9 +154,9 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
                 <textarea
                   id="skill-description"
                   value={draft.description}
-                  onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
-                  onBlur={() => void save()}
-                  readOnly={readOnly}
+                  onChange={(e) => saver.edit({ description: e.target.value })}
+                  onBlur={saveNow}
+                  readOnly={readOnly || !!recovery}
                   rows={3}
                   placeholder="Reviews pull requests the way I do. Use when I ask for a review, a second look at a diff, or whether a PR is ready to merge."
                   className="field-sizing-content min-h-[4.5rem] w-full resize-none rounded-lg border border-border bg-card/30 px-3 py-2 text-[12.5px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-ring focus:ring-[3px] focus:ring-ring/30"
@@ -287,12 +172,12 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
                 <div className="overflow-hidden rounded-lg border border-border bg-card/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
                   <SkillMarkdownEditor
                     value={draft.body}
-                    onChange={(body) => setDraft((d) => ({ ...d, body }))}
+                    onChange={(body) => saver.edit({ body })}
                     onSave={saveNow}
                     ariaLabel="Instructions"
                     placeholder={'# Steps\n\n1. ...'}
                     minHeight="320px"
-                    readOnly={readOnly}
+                    readOnly={readOnly || !!recovery}
                   />
                 </div>
               </section>
@@ -312,11 +197,11 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
               <div className="overflow-hidden rounded-lg border border-border bg-card/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
                 <SkillMarkdownEditor
                   value={draft.content}
-                  onChange={(content) => setDraft((d) => ({ ...d, content }))}
+                  onChange={(content) => saver.edit({ content })}
                   onSave={saveNow}
                   ariaLabel="SKILL.md"
                   minHeight="420px"
-                  readOnly={readOnly}
+                  readOnly={readOnly || !!recovery}
                 />
               </div>
             </section>

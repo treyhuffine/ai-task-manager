@@ -1,3 +1,5 @@
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { trpc } from '@/lib/trpc/client';
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { userStateApi } from '@/lib/api/user-state';
 import { resolveOrchestratorName } from '@/lib/orchestrator/name';
@@ -5,12 +7,13 @@ import { attachmentUrl } from '@/lib/attachments/view';
 import type { UpdateUserStateInput, UserStateRecord } from '@/db/types';
 import { toast } from 'sonner';
 
-const USER_STATE_KEY = ['user-state'] as const;
-const UPDATE_USER_STATE_KEY = ['user-state', 'update'] as const;
+const USER_STATE_KEY = trpc.userState.list.queryKey({});
+const UPDATE_USER_STATE_KEY = trpc.userState.update.mutationKey();
 const fieldWrites = new WeakMap<QueryClient, Map<keyof UpdateUserStateInput, object>>();
 
 export function useUserState() {
   return useQuery({
+    enabled: true,
     queryKey: USER_STATE_KEY,
     queryFn: () => userStateApi.get(),
   });
@@ -63,8 +66,9 @@ export function useUpdateUserState() {
  * default until they pick a name. See src/lib/orchestrator/name.ts.
  */
 export function useOrchestratorName(): string {
+  const home = useOptionalHomeContext();
   const { data } = useUserState();
-  return resolveOrchestratorName(data?.orchestratorName);
+  return home && !home.capabilities.privatePlanning ? home.home.name : resolveOrchestratorName(data?.orchestratorName);
 }
 
 export interface OrchestratorIdentity {

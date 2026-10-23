@@ -6,7 +6,7 @@ import { EditorView, keymap } from '@codemirror/view';
 import { FileX, Lock, FileWarning } from 'lucide-react';
 import { useFolderBaseFile, useFolderFile } from '@/hooks/use-folder';
 import type { FolderSource } from '@/lib/folders/source';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useClientTheme } from '@/lib/client/theme';
 import type { TreeEntryStatus } from '@/lib/api/sessions';
 import { FileSkeleton } from '../skeletons';
 import { languageFor } from './language-for';
@@ -58,7 +58,7 @@ export const FileView = forwardRef<FileViewHandle, FileViewProps>(function FileV
   { source, path, editable = true, onDirtyChange, onSaveRequest, status },
   ref,
 ) {
-  const { theme } = useDashboard();
+  const { theme } = useClientTheme();
   const { data, isLoading, error } = useFolderFile(source, path);
 
   // Inline gutter bars (VS Code-style). Fetch the base-commit version

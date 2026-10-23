@@ -14,7 +14,7 @@ const TEAM_PATHS = new Set(['/', '/join']);
 export function TeamRoot({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const allowed = TEAM_PATHS.has(pathname);
+  const allowed = TEAM_PATHS.has(pathname) || /^\/results(?:\/[^/]+)?$/.test(pathname);
   useEffect(() => {
     if (!allowed) router.replace('/');
   }, [allowed, router]);

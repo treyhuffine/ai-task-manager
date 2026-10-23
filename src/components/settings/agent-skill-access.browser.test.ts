@@ -7,7 +7,7 @@ import { chromium, type Browser, type Locator, type Page } from 'playwright-core
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
 // Ri's user-level skills in Settings: the Get started item (the real checklist
-// hook) and the External AI block, against a fake server that keeps state.
+// hook) and the MCP access block, against a fake server that keeps state.
 const enabled = process.env.RI_SPACES_BROWSER_TEST === '1';
 let browser: Browser;
 let server: http.Server;
@@ -32,7 +32,7 @@ beforeAll(async () => {
         const checklist = useSetupChecklist(true);
         return <div className='flex gap-8 p-6'>
           <main aria-label='Get started' style={{flex:1}}><GetStartedSection checklist={checklist}/></main>
-          <aside aria-label='External AI' style={{flex:1}}><AgentSkillAccess/></aside>
+          <aside aria-label='MCP access' style={{flex:1}}><AgentSkillAccess/></aside>
         </div>;
       }
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})}><App/><Toaster/></QueryClientProvider>);
@@ -102,7 +102,7 @@ it.skipIf(!enabled)('says the skills are on and takes them off and back in one c
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   try {
     await page.goto(address);
-    const external = page.getByRole('complementary', { name: 'External AI' });
+    const external = page.getByRole('complementary', { name: 'MCP access' });
     await row(page).getByText('Uninstall in one click any time.', { exact: false }).waitFor();
     await external.getByText(FOLDERS, { exact: true }).waitFor();
     // Every harness, so switching later loses nothing.
@@ -110,10 +110,10 @@ it.skipIf(!enabled)('says the skills are on and takes them off and back in one c
     await page.getByText('2/7 done', { exact: true }).waitFor();
     await screenshot(page, 'agent-skill-on.png');
 
-    // Uninstall from External AI: both places follow, and the toast can undo it.
+    // Uninstall from MCP access: both places follow, and the toast can undo it.
     await external.getByRole('button', { name: 'Uninstall', exact: true }).click();
     await external.getByText('Not installed', { exact: true }).waitFor();
-    await row(page).getByText('Install it here or in External AI any time.', { exact: true }).waitFor();
+    await row(page).getByText('Install it here or in MCP access any time.', { exact: true }).waitFor();
     await page.getByText('1/7 done', { exact: true }).waitFor();
     expect(await calls(page)).toEqual([false]);
     await screenshot(page, 'agent-skill-uninstalled.png');
@@ -123,7 +123,7 @@ it.skipIf(!enabled)('says the skills are on and takes them off and back in one c
 
     // The same from the Get started row, which never asks to undo a choice.
     await row(page).getByRole('button', { name: 'Uninstall', exact: true }).click();
-    await row(page).getByText('Install it here or in External AI any time.', { exact: true }).waitFor();
+    await row(page).getByText('Install it here or in MCP access any time.', { exact: true }).waitFor();
     expect(await row(page).getByRole('button', { name: 'Skip', exact: true }).count()).toBe(0);
     await row(page).getByRole('button', { name: 'Install', exact: true }).click();
     await row(page).getByText('Uninstall in one click any time.', { exact: false }).waitFor();
@@ -135,9 +135,9 @@ it.skipIf(!enabled)('names what holds the skill name and lets the row be skipped
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   try {
     await page.goto(`${address}/?blocked=1`);
-    const external = page.getByRole('complementary', { name: 'External AI' });
+    const external = page.getByRole('complementary', { name: 'MCP access' });
     await external.getByRole('alert').getByText(`Another skill is already at ${CONFLICT}`, { exact: false }).waitFor();
-    await row(page).getByText('External AI shows where.', { exact: false }).waitFor();
+    await row(page).getByText('MCP access shows where.', { exact: false }).waitFor();
     await screenshot(page, 'agent-skill-blocked.png');
 
     await external.getByRole('button', { name: 'Install', exact: true }).click();
@@ -146,7 +146,7 @@ it.skipIf(!enabled)('names what holds the skill name and lets the row be skipped
     expect(await calls(page)).toEqual([true]);
 
     await row(page).getByRole('button', { name: 'Skip', exact: true }).click();
-    await row(page).getByText('Install it in External AI any time.', { exact: true }).waitFor();
+    await row(page).getByText('Install it in MCP access any time.', { exact: true }).waitFor();
     await row(page).getByRole('button', { name: 'Undo', exact: true }).click();
     await row(page).getByRole('button', { name: 'Set up', exact: true }).waitFor();
   } finally { await page.close(); }
@@ -156,7 +156,7 @@ it.skipIf(!enabled)('offers nothing in the desktop app, where the skills stay in
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   try {
     await page.goto(`${address}/?desktop=1`);
-    const external = page.getByRole('complementary', { name: 'External AI' });
+    const external = page.getByRole('complementary', { name: 'MCP access' });
     await external.getByText('In the desktop app, task and note access stays inside Ri.', { exact: false }).waitFor();
     await page.getByText('1/6 done', { exact: true }).waitFor();
     expect(await row(page).count()).toBe(0);

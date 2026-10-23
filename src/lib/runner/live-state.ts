@@ -25,6 +25,7 @@ export function sessionSelectionKey(spec: SessionSpec): string {
 
 /** What the runner remembers about a live session from the spec that started it. */
 export interface LiveSessionInfo {
+  pendingOwner?: object;
   harness: HarnessId;
   cwd: string;
   permissionMode: PermissionMode;
@@ -40,6 +41,9 @@ export interface LiveSessionInfo {
 
 export interface RunnerState {
   harnessSessions: Map<string, AgentSession>;
+  unconfirmedCloses: Set<string>;
+  closeProblems: Map<string, string>;
+  eventOwners: Map<string, object>;
   sessionInfo: Map<string, LiveSessionInfo>;
   runningSessions: Set<string>;
   /**
@@ -120,6 +124,9 @@ function initState(): RunnerState {
   // HMR migration: state survives from a build that predates some fields.
   const state: RunnerState = {
     harnessSessions: existing.harnessSessions ?? new Map(),
+    unconfirmedCloses: existing.unconfirmedCloses ?? new Set(),
+    closeProblems: existing.closeProblems ?? new Map(),
+    eventOwners: existing.eventOwners ?? new Map(),
     sessionInfo: existing.sessionInfo ?? new Map(),
     runningSessions: existing.runningSessions ?? new Set(),
     inflightCount: existing.inflightCount ?? new Map(),
@@ -181,3 +188,7 @@ export function hasHarnessSession(chatSessionId: string): boolean {
 export function activeSendCount(chatSessionId: string): number {
   return runnerState.activeDispatchCount.get(chatSessionId) ?? 0;
 }
+
+/** A close that requires explicit recovery rather than an automatic new send. */
+export function hasUnconfirmedClose(chatSessionId: string): boolean { return runnerState.unconfirmedCloses.has(chatSessionId); }
+export function unconfirmedCloseProblem(chatSessionId: string): string | null { return runnerState.closeProblems.get(chatSessionId) ?? null; }

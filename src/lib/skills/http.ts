@@ -5,6 +5,7 @@
  */
 
 import { SkillError } from './library';
+import { getHome, isTeamError } from '@/lib/db/queries';
 
 const STATUS: Record<SkillError['code'], number> = {
   invalid: 400,
@@ -14,14 +15,15 @@ const STATUS: Record<SkillError['code'], number> = {
 };
 
 export function skillErrorResponse(err: unknown, where: string): Response {
+  if (isTeamError(err)) return Response.json({ error: err.message, code: err.code }, { status: err.code === 'not_allowed' ? 403 : err.code === 'not_found' ? 404 : err.code === 'conflict' ? 409 : 400 });
   if (err instanceof SkillError) {
     return Response.json(
-      { error: err.message, code: err.code, ...(err.current ? { current: err.current } : {}) },
+      { error: err.message, code: err.code, ...(err.current ? { current: getHome()?.kind === 'team' ? { ...err.current, dir: `<team-home>/skills/${err.current.name}` } : err.current } : {}) },
       { status: STATUS[err.code] },
     );
   }
   console.error(`[${where}]`, err);
-  return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+  return Response.json({ error: getHome()?.kind === 'team' ? 'The shared skill could not be changed. Try again.' : err instanceof Error ? err.message : String(err) }, { status: 500 });
 }
 
 /** Parse a JSON body, answering 400 instead of throwing on junk. */

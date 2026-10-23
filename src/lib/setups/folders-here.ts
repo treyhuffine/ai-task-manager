@@ -28,15 +28,17 @@ export interface FolderListing {
 
 const MAX_FOLDERS = 500;
 
-export class FolderListingError extends Error {}
+export class FolderListingError extends Error {
+  constructor(message: string) { super(message); this.name = 'FolderListingError'; }
+}
 
 /**
  * A folder's folders, within the person's home folder, for choosing one:
  * hidden ones left out, Git projects marked. `~` and relative paths are from
  * the home folder.
  */
-export function listFoldersHere(at: string | null): FolderListing {
-  const home = os.homedir();
+export function listFoldersHere(at: string | null, root = os.homedir()): FolderListing {
+  const home = root;
   const target = at ? expand(at, home) : home;
   let real: string;
   try {

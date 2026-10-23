@@ -621,7 +621,7 @@ describe('a quiet heartbeat check-in', () => {
     _cacheHarnessSession(session.id, { state: 'idle', close } as unknown as AgentSession);
 
     finishRun(run.id, { ok: true });
-    await until(() => close.mock.calls.length === 1, 'the harness to close');
+    await until(() => close.mock.calls.length === 1 && !hasHarnessSession(session.id), 'the harness to close and release its handle');
     expect(q.getChatSession(session.id)?.status).toBe('archived');
     expect(hasHarnessSession(session.id)).toBe(false);
   });

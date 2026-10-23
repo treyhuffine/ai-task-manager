@@ -27,8 +27,8 @@ allowBuilds:
   sharp: false
   tesseract.js: false
   unrs-resolver: false
-# pnpm 12 holds back a release until it has aged. agentex is ours and is
-# published to be taken up the same hour, so its scope skips the wait. Every
-# other package keeps it.
+patchedDependencies:
+  '@agentex/agent@0.0.48': patches/@agentex__agent@0.0.48.patch
+# Our agentex releases are taken up immediately. Other packages keep the wait.
 minimumReleaseAgeExclude:
   - "@agentex/*"

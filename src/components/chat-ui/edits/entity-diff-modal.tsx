@@ -4,7 +4,7 @@ import { entityKeys } from '@/lib/query/entity-keys';
 import { trpcClient } from '@/lib/trpc/client';
 
 import { DiffLines } from '@/components/chat-ui/artifacts/file-chip';
-import type { EntityVersionSnapshot } from '@/db/types';
+import type { EntityVersionRecord, EntityVersionSnapshot } from '@/db/types';
 import { useAreas } from '@/hooks/use-areas';
 import { NOTE_KIND_LABELS } from '@/components/notes/note-kind';
 import {
@@ -20,6 +20,8 @@ import { ChevronLeft, ChevronRight, History, Loader2, Undo2, X } from 'lucide-re
 import { Dialog as DialogPrimitive, VisuallyHidden } from 'radix-ui';
 import { useMemo, useState } from 'react';
 import { Tip } from '@/components/ui/tip';
+import { toast } from 'sonner';
+import { apiErrorText } from '@/lib/api/client';
 
 type EntityType = 'task' | 'note';
 
@@ -28,6 +30,9 @@ interface EntityDiffModalProps {
   onClose: () => void;
   entityType: EntityType;
   entityId: string;
+  expectedBodyRevision?: number;
+  describeActor?: (version: EntityVersionRecord) => string;
+  confirmRevert?: () => Promise<boolean>;
 }
 
 interface FieldSpec {
@@ -96,7 +101,7 @@ function groupLabel(g: ChangeGroup): string {
  * restores the state from before the run. Fixed-size frame so stepping through
  * changes doesn't reflow the dialog.
  */
-export function EntityDiffModal({ open, onClose, entityType, entityId }: EntityDiffModalProps) {
+export function EntityDiffModal({ open, onClose, entityType, entityId, expectedBodyRevision, describeActor, confirmRevert }: EntityDiffModalProps) {
   const qc = useQueryClient();
   const versionsKey = ['entity-versions', entityType, entityId] as const;
   const { data, isLoading, error } = useEntityVersions(entityType, entityId, open);
@@ -114,7 +119,8 @@ export function EntityDiffModal({ open, onClose, entityType, entityId }: EntityD
   const canUndo = !!group?.before;
 
   const revert = useMutation({
-    mutationFn: (versionId: string) => trpcClient.entityVersions.revertPost.mutate({params: {id: versionId}, body: {}}),
+    mutationFn: (versionId: string) => trpcClient.entityVersions.revertPost.mutate({params: {id: versionId}, body: { ...(expectedBodyRevision !== undefined ? { expectedBodyRevision } : {}) }}),
+    onError: (error) => toast.error(apiErrorText(error)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
       qc.invalidateQueries({ queryKey: entityKeys.notes.all });
@@ -219,13 +225,13 @@ export function EntityDiffModal({ open, onClose, entityType, entityId }: EntityD
           {group && (
             <div className="flex h-14 flex-shrink-0 items-center gap-3 border-t border-border px-4">
               <div className="text-[11px] text-muted-foreground">
-                <span className="font-medium text-foreground/80">{groupLabel(group)}</span>
+                <span className="font-medium text-foreground/80">{describeActor ? describeActor(group.after) : groupLabel(group)}</span>
                 {' · '}
                 {formatWhen(group.after.createdAt)}
               </div>
               <Tip label={canUndo ? 'Restore the version from before this change' : 'Nothing earlier to restore'}>
                 <button
-                  onClick={() => group.before && revert.mutate(group.before.id)}
+                  onClick={async () => { if (group.before && (!confirmRevert || await confirmRevert())) revert.mutate(group.before.id); }}
                   disabled={!canUndo || revert.isPending}
                   className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >

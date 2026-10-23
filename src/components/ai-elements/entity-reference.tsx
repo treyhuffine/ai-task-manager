@@ -1,5 +1,7 @@
 'use client'
 
+import { useOptionalWorkActivity, useOptionalWorkNavigation } from '@/contexts/work-context';
+import { trpc } from '@/lib/trpc/client';
 import { areasApi } from '@/lib/api/areas';
 import { notesApi } from '@/lib/api/notes';
 import { tasksApi } from '@/lib/api/tasks';
@@ -7,12 +9,12 @@ import { entityKeys } from '@/lib/query/entity-keys';
 import { trpcClient } from '@/lib/trpc/client';
 
 import { NoteIcon } from '@/components/shared/note-icon';
-import { useOptionalDashboard } from '@/contexts/dashboard-context';
+
 import type { AreaRecord, ChatSessionWithExecution, NoteRecord, TaskRecord } from '@/db/types';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { resolveMime } from '@/lib/attachments/mime';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
-import { executionView } from '@/lib/client/active-view';
+
 import { calendarDaysUntil, formatLocalDate, isPastDate } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import { isSessionUnread } from '@/lib/utils/session-sort';
@@ -310,12 +312,12 @@ function ExecutionCard({ data, onClick }: { data: ChatSessionWithExecution; onCl
   // Optional: this chip also renders in the standalone task/note slideout
   // chats, which have no DashboardProvider. There the live sets are absent
   // and we fall back to the persisted `data.status`.
-  const dashboard = useOptionalDashboard()
+  const activity = useOptionalWorkActivity()
 
   // Workspace name for context ("which repo is this?"). Shared cache key
   // across every execution card on screen — one fetch, many chips.
   const { data: workspaces } = useQuery({
-    queryKey: ['workspaces', 'entity-chip'],
+    queryKey: trpc.workspaces.list.queryKey({}),
     queryFn: () => trpcClient.workspaces.list.query({}),
     enabled: !!data.workspaceId,
     staleTime: 60_000,
@@ -325,8 +327,8 @@ function ExecutionCard({ data, onClick }: { data: ChatSessionWithExecution; onCl
   // Same status priority as the rail: blocked beats running beats unread.
   // Live sets come from dashboard context (seeded by the rail poll + SSE),
   // so the chip agrees with the rail and with list_executions.
-  const running = dashboard?.streamingSessionIds.has(data.id) ?? false
-  const awaitingInput = dashboard?.pendingInputSessionIds.has(data.id) ?? false
+  const running = activity?.streamingSessionIds.has(data.id) ?? false
+  const awaitingInput = activity?.pendingInputSessionIds.has(data.id) ?? false
   const unread = !running && isSessionUnread(data)
   const status = awaitingInput
     ? { text: 'Needs input', className: 'text-amber-500' }
@@ -377,20 +379,12 @@ function isPlausibleEntityId(id: string): boolean {
 }
 
 function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId: string }) {
-  // Inside the dashboard, clicks open a slideout / switch the active view.
-  // On standalone routes (task/note pages) there's no DashboardProvider, so
-  // fall back to router navigation: tasks/notes have their own pages, while
-  // decks/executions live only in the dashboard, so route there.
-  const dashboard = useOptionalDashboard()
+  const navigation = useOptionalWorkNavigation()
   const router = useRouter()
-  const openTask = dashboard
-    ? dashboard.openTask
-    : (id: string) => router.push(`/task/${id}`)
-  const openNote = dashboard
-    ? dashboard.openNote
-    : (id: string) => router.push(`/note/${id}`)
-  const openDeck = dashboard ? dashboard.openDeck : () => router.push('/')
-  const setActiveView = dashboard ? dashboard.setActiveView : () => router.push('/')
+  const openTask = navigation?.openTask ?? ((id: string) => router.push(`/task/${id}`))
+  const openNote = navigation?.openNote ?? ((id: string) => router.push(`/note/${id}`))
+  const openDeck = navigation?.goHome ?? (() => router.push('/'))
+  const openExecution = navigation?.openExecution ?? ((id: string) => router.push(`/?session=${encodeURIComponent(id)}`))
   const config = ENTITY_CONFIG[entityType]
   const validId = isPlausibleEntityId(entityId)
 
@@ -459,7 +453,7 @@ function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId
   if (entityType === 'deck') {
     return (
       <div className="my-1">
-        <DeckCard data={data as Parameters<typeof DeckCard>[0]['data']} onClick={() => openDeck(entityId)} />
+        <DeckCard data={data as Parameters<typeof DeckCard>[0]['data']} onClick={() => openDeck()} />
       </div>
     )
   }
@@ -471,7 +465,7 @@ function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId
           data={data as ChatSessionWithExecution}
           // Same navigation as clicking the rail row. Archived executions
           // auto-resume on open — that's the execution view's own behavior.
-          onClick={() => setActiveView(executionView(entityId))}
+          onClick={() => openExecution(entityId)}
         />
       </div>
     )

@@ -1,12 +1,11 @@
 'use client';
 
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation } from '@/contexts/work-context';
 import type { WorkspaceRecord } from '@/db/types';
 import { useArchiveExecution } from '@/hooks/use-archive-execution';
 import { useExecutionActions, useHelpWithError, useSessionPr, type ActionState, type BaseInfo, type OpenablePr } from '@/hooks/use-execution-actions';
 import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
 import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
-import { HOME_VIEW } from '@/lib/client/active-view';
 import type { PrChecks, PrReviewDecision } from '@/lib/github/pr-status-types';
 import { cn } from '@/lib/utils';
 import { AlertCircle, Archive, ArrowDownToLine, ArrowUpRight, ArrowUpToLine, CheckCircle2, Clock, GitMerge, RotateCw, XCircle } from 'lucide-react';
@@ -42,7 +41,7 @@ export function ExecutionActionBar({ session, workspace, fit = false }: Executio
   );
   const { archive, isPending: archivePending } = useArchiveExecution();
   const helpWithError = useHelpWithError(session.id);
-  const { setActiveView } = useDashboard();
+  const { goHome } = useWorkNavigation();
 
   /**
    * Lifted error-modal state — set by any handler whose mutation failed
@@ -81,7 +80,7 @@ export function ExecutionActionBar({ session, workspace, fit = false }: Executio
     void archive({
       id: session.id,
       label: session.execution?.label ?? session.label,
-      onArchived: () => setActiveView(HOME_VIEW),
+      onArchived: goHome,
     });
   };
 

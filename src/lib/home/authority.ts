@@ -6,7 +6,7 @@
  * The kind is a fact: `home.kind`, made from the root's team mark
  * (src/lib/home/team-intent.ts) when the identity is created, and readable
  * from that mark before any database opens. Hiding controls is not the
- * boundary. A team runs no AI, starts no personal background work, and its
+ * boundary. A team starts no personal background work, and its
  * members reach no personal route, so each personal capability refuses here
  * when it would run in a team, whatever called it.
  *

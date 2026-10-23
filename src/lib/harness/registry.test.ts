@@ -172,3 +172,15 @@ describe('harness registry', () => {
     }
   });
 });
+
+it('explains unavailable controls by harness and capability in the registry', async () => {
+  const { harnessCapabilityReason } = await import('./registry');
+  for (const harness of KNOWN_HARNESS_IDS) {
+    for (const [capability, supported] of Object.entries(HARNESS_REGISTRY[harness].maximumCapabilities)) {
+      if (supported) continue;
+      const reason = harnessCapabilityReason(harness, capability as keyof import('./registry').HarnessCapabilities);
+      expect(reason).toContain(HARNESS_REGISTRY[harness].name);
+      expect(reason).not.toBe('This harness does not support this capability');
+    }
+  }
+});

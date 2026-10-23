@@ -101,7 +101,7 @@ export function MainChatOnboarding() {
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const { data: areas } = useAreas();
   const { data: mainChat } = useMainChat(null);
-  const chatId = mainChat?.session.id ?? null;
+  const chatId = mainChat?.session?.id ?? null;
   const name = useOrchestratorName();
   const actions = useEmptyChatActions();
   const progress = useOnboardingProgress();

@@ -56,6 +56,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   const { window, document } = parseHTML('<!doctype html><html><body></body></html>');
   stored = new Map();
+  Object.assign(window, { location: new URL('http://127.0.0.1/') });
   Object.assign(window, { localStorage: { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value), removeItem: (key: string) => stored.delete(key) } });
   vi.stubGlobal('window', window); vi.stubGlobal('document', document); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });

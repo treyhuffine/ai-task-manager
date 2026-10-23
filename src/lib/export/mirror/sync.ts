@@ -86,6 +86,11 @@ const chainsRef = globalThis as unknown as { [CHAINS_KEY]?: Map<string, Promise<
 if (!chainsRef[CHAINS_KEY]) chainsRef[CHAINS_KEY] = new Map();
 const chains = chainsRef[CHAINS_KEY]!;
 
+/** Finish scheduled projections before a caller closes or replaces this Home. */
+export async function flushMirror(): Promise<void> {
+  while (chains.size) await Promise.allSettled([...chains.values()]);
+}
+
 function inOrder(type: EntityType, id: string, work: () => Promise<void>): Promise<void> {
   const key = `${type}:${id}`;
   const next = (chains.get(key) ?? Promise.resolve()).catch(() => void 0).then(work);

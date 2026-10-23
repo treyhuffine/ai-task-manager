@@ -5,7 +5,7 @@ const getChatSessionWithExecution = vi.fn();
 const getWorkspace = vi.fn();
 const linkedPullUrl = vi.fn<(cwd: string, prNumber: number) => Promise<string | null>>();
 
-vi.mock('@/lib/db/queries', () => ({
+vi.mock('@/lib/db/queries', () => ({ getHome: () => null,
   getChatSessionWithExecution: (id: string) => getChatSessionWithExecution(id),
   getWorkspace: (id: string) => getWorkspace(id),
 }));

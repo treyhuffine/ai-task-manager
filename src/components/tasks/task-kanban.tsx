@@ -112,7 +112,7 @@ function KanbanCard({
       )}
       <div className="line-clamp-3 font-medium text-foreground">{task.title || 'Untitled'}</div>
       <div className="mt-1 flex items-center gap-2">
-        <TeamLabel teamId={task.sourceTeamId} />
+        <TeamLabel teamId={task.sourceTeamId} sourceArea={task.source?.area} />
         {showArea && areaName && (
           <span className="rounded bg-muted px-1 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{areaName}</span>
         )}
@@ -310,6 +310,7 @@ export function TaskKanban({
   areaFilter,
   onAreaFilterChange,
   columnPreferenceKey,
+  defaultColumns = UNFINISHED_COLUMNS,
 }: {
   leading: ReactNode;
   trailing?: ReactNode;
@@ -317,10 +318,7 @@ export function TaskKanban({
   onOpenAgent?: (sessionId: string) => void;
   /** Open a task. Defaults to the dashboard's slideout. */
   onOpenTask?: (id: string) => void;
-  /**
-   * Whether cards show what agents are doing on them. A team's board runs no
-   * agents (docs/homes-spec.md §9.2), so its host turns this off.
-   */
+  /** Whether cards show agent activity, independently of column preferences. */
   agents?: boolean;
   /** Only the tasks assigned to this team member (a team's Assigned to me). */
   assigneeMemberId?: string | null;
@@ -333,6 +331,8 @@ export function TaskKanban({
   onAreaFilterChange?: (mode: AreaMode) => void;
   /** Separate team preferences from the personal Board. */
   columnPreferenceKey?: string;
+  /** Initial lanes for this surface, before the viewer chooses columns. */
+  defaultColumns?: readonly TaskLane[];
 }) {
   const qc = useQueryClient();
   const dashboard = useOptionalDashboard();
@@ -345,8 +345,8 @@ export function TaskKanban({
   const areaMode = areaFilter ?? ownAreaMode;
   const setAreaMode = onAreaFilterChange ?? setOwnAreaMode;
   const { visible: columns, setVisible: setColumns } = useBoardColumns(
-    columnPreferenceKey ?? (agents ? 'ri.board.columns.tasks' : 'ri.board.columns.team-tasks'),
-    ALL_COLUMNS, agents ? UNFINISHED_COLUMNS : KANBAN_COLUMNS,
+    columnPreferenceKey ?? 'ri.board.columns.tasks',
+    ALL_COLUMNS, defaultColumns,
   );
   const showArchived = columns.includes('archived');
   const [activeId, setActiveId] = useState<string | null>(null);

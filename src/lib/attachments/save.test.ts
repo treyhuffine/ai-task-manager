@@ -78,4 +78,15 @@ describe('saveAttachment', () => {
     });
     expect(a.fileName < b.fileName).toBe(true);
   });
+  it('reserves one UUID across concurrent retries, changed payloads and a crash before bytes are written', async () => {
+    const { saveAttachment } = await import('./save');
+    const input = { data: Buffer.from('chosen bytes'), originalName: 'chosen.txt', idempotencyKey: `publication:${tmpDir}` };
+    const first = await saveAttachment(input);
+    fs.unlinkSync(path.join(tmpDir, 'attachments', first.fileName));
+    const retries = await Promise.all([saveAttachment(input), saveAttachment(input), saveAttachment(input)]);
+    expect(retries).toEqual([first, first, first]);
+    expect(fs.readdirSync(path.join(tmpDir, 'attachments'))).toEqual([first.fileName]);
+    await expect(saveAttachment({ ...input, data: Buffer.from('different') })).rejects.toMatchObject({ status: 409 });
+  });
+
 });

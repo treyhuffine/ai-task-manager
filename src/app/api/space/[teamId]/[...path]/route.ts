@@ -4,11 +4,13 @@
  *
  * The personal owner's request (the proxy checked their key) goes on to the
  * team as this home's member, and only to the team's typed API and its files.
- * Nothing personal goes with it: no cookie, no personal key, no header but
- * the content type. A team that refuses the key ends the connection, and one
+ * Nothing personal goes with it: no cookie or personal key. Only content
+ * negotiation and that team's document expectations accompany its credential.
+ * A team that refuses the key ends the connection, and one
  * that can't be reached says so, as `team_signed_out` and `team_unreachable`.
  */
 
+import { SESSION_CREDENTIAL_HEADER } from '@/lib/orchestrator/session-credential';
 import type { NextRequest } from 'next/server';
 import { getRequestKey } from '@/lib/auth/request-key';
 import { isTeamAuthority } from '@/lib/home/authority';
@@ -16,6 +18,7 @@ import { isCurrentTeam, recordTeamFailure, teamFor } from '@/lib/spaces/connect'
 import { SPACE_ID_PATTERN } from '@/lib/spaces/document';
 import { teamRequest, teamRequestProblem } from '@/lib/spaces/remote';
 import { UNTRUSTED_DOCUMENT_HEADERS } from '@/lib/attachments/delivery';
+import { bindingFromHeaders, documentBindingMatches, DOCUMENT_HOME_HEADER, DOCUMENT_VIEWER_HEADER, DOCUMENT_AUTHOR_CHANGED, DOCUMENT_AUTHOR_CHANGED_MESSAGE } from '@/lib/home/document-binding';
 
 export const runtime = 'nodejs';
 
@@ -29,6 +32,7 @@ type Context = { params: Promise<{ teamId: string; path: string[] }> };
 function reachable(method: string, path: string[]): boolean {
   if (path.some((segment) => !segment || segment === '.' || segment === '..' || /[/\\]/.test(segment))) return false;
   if (path[0] === 'trpc') return path.length === 2 && (method === 'GET' || method === 'POST');
+  if (path[0] === 'transcribe') return path.length === 1 && method === 'POST';
   if (path[0] === 'attachments') return (path.length === 1 && method === 'POST') || (path.length === 2 && method === 'GET');
   return false;
 }
@@ -40,8 +44,10 @@ async function forward(request: NextRequest, { params }: Context): Promise<Respo
   }
   const { teamId, path } = await params;
   if (!SPACE_ID_PATTERN.test(teamId) || !reachable(request.method, path)) return Response.json({ error: 'not_found' }, { status: 404 });
+  if (request.headers.has(SESSION_CREDENTIAL_HEADER)) return Response.json({ error: 'forbidden', message: 'Only a signed-in person can use this Team relay. Disclosed agents must use native Team actions with their own authority.' }, { status: 403 });
   const team = await teamFor(teamId);
   if (!team) return Response.json({ error: 'team_unavailable', message: "This team isn't connected to My Ri." }, { status: 404 });
+  if (!documentBindingMatches(bindingFromHeaders(request.headers), { homeId: team.connection.id, viewerId: team.connection.memberId })) return Response.json({ error: DOCUMENT_AUTHOR_CHANGED, message: DOCUMENT_AUTHOR_CHANGED_MESSAGE }, { status: 403 });
 
   const declaredLength = Number(request.headers.get('content-length') ?? 0);
   if (declaredLength > MAX_BODY_BYTES) return Response.json({ error: 'too_large', message: 'That file is too large.' }, { status: 413 });
@@ -53,6 +59,8 @@ async function forward(request: NextRequest, { params }: Context): Promise<Respo
   if (contentType) headers['content-type'] = contentType;
   const accept = request.headers.get('accept');
   if (accept) headers.accept = accept;
+  headers[DOCUMENT_HOME_HEADER] = team.connection.id;
+  headers[DOCUMENT_VIEWER_HEADER] = team.connection.memberId;
 
   const url = `${team.connection.url}/api/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`;
   try {
@@ -62,7 +70,6 @@ async function forward(request: NextRequest, { params }: Context): Promise<Respo
       body,
       token: team.token,
       teamName: team.connection.name,
-      timeoutMs: path[0] === 'attachments' ? 60_000 : 15_000,
       signal: request.signal,
     });
     if (!isCurrentTeam(team)) {

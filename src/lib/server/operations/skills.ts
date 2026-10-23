@@ -1,7 +1,8 @@
 import { legacySchema } from '@/lib/server/inputs';
 import { failureResponse, reply, type OperationContext } from '@/lib/server/operation';
 import { skillErrorResponse } from '@/lib/skills/http';
-import { newSkill, skillsOverview } from '@/lib/skills/manage';
+import { authorizeSkillOperation, skillOverviewForHome, skillViewForHome } from '@/lib/skills/home-policy';
+import { moveSkill, newSkill, skillsOverview } from '@/lib/skills/manage';
 import { createSkillShape, locationFrom } from '@/lib/skills/params';
 import { z } from 'zod';
 import { z as rpcZ } from 'zod/v4';
@@ -16,21 +17,27 @@ import { z as rpcZ } from 'zod/v4';
  *          `intent` when `name` is absent. With nothing at all, a blank
  *          draft nobody has used comes back instead of another.
  */
-export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
-    return reply(await skillsOverview());
+    const member = authorizeSkillOperation(request.headers);
+    return reply(skillOverviewForHome(await skillsOverview(), member));
   } catch (err) {
     return failureResponse(skillErrorResponse(err, 'GET /api/skills'));
   }
 }
 
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   const body = rpcInput.body;
   const parsed = z.object(createSkillShape).safeParse(body);
   if (!parsed.success) return reply({ error: parsed.error.issues[0]?.message ?? 'Invalid skill.' }, { status: 400 });
   const { location, workspaceId, ...input } = parsed.data;
   try {
-    return reply({ skill: await newSkill({ ...input, location: locationFrom(location, workspaceId) }) }, { status: 201 });
+    const member = authorizeSkillOperation(request.headers, true);
+    const destination = locationFrom(location, workspaceId);
+    if (member && !['draft', 'ri'].includes(destination.kind)) return reply({ error: 'Shared skills stay in this Home’s library.', code: 'invalid' }, { status: 400 });
+    const created = await newSkill({ ...input, location: member ? { kind: 'draft' } : destination });
+    const skill = member && destination.kind !== 'draft' ? await moveSkill(created.ref, destination) : created;
+    return reply({ skill: skillViewForHome(skill, member) }, { status: 201 });
   } catch (err) {
     return failureResponse(skillErrorResponse(err, 'POST /api/skills'));
   }

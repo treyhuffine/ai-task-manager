@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { agentsApi } from '@/lib/api/agents';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkActivity } from '@/contexts/work-context';
 import { useRailSessions } from '@/hooks/use-workspaces';
 import { useInactivity } from '@/hooks/use-inactivity';
 import { classifySession, type BucketId } from '@/components/workspaces/bucket-config';
@@ -38,7 +38,7 @@ export interface AgentExecutions {
  */
 export function useAgentExecutions(workspaceId: string): AgentExecutions & { isLoading: boolean } {
   const { data, isLoading } = useRailSessions();
-  const { pendingInputSessionIds, streamingSessionIds } = useDashboard();
+  const { pendingInputSessionIds, streamingSessionIds } = useWorkActivity();
   const { isInactive } = useInactivity();
   const grouped = useMemo(() => {
     const all = sortSessionsHotnessDesc(

@@ -4,8 +4,9 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { applyWSSHandler } from '@trpc/server/adapters/ws';
 import type { AnyRouter } from '@trpc/server';
 import { createWebSocketContext, permitsWebSocketOrigin } from './ws-auth';
-import { TRPC_WS_PATH, liveApplicationRouter, type WebSocketRuntime } from './ws-runtime';
+import { TRPC_WS_PATH, spaceWebSocketId, liveApplicationRouter, type WebSocketRuntime } from './ws-runtime';
 import { readMaintenance } from '@/lib/service/maintenance-state';
+import { createSpaceWebSocketRelay } from './space-ws-relay';
 
 function upgradeRequest(req: IncomingMessage): Request {
   const headers = new Headers();
@@ -19,6 +20,7 @@ function upgradeRequest(req: IncomingMessage): Request {
 }
 
 export function createWebSocketServer(router: AnyRouter): WebSocketRuntime {
+  const spaces = createSpaceWebSocketRelay();
   // App resources are bounded self-contained HTML, transported through tRPC.
   // Keep queued output bounded while allowing one qualified resource response.
   const outgoingLimit = 16 * 1024 * 1024;
@@ -60,17 +62,20 @@ export function createWebSocketServer(router: AnyRouter): WebSocketRuntime {
       let request: Request;
       try { request = upgradeRequest(req); } catch { socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n'); return; }
       const path = new URL(request.url).pathname;
+      const teamId = spaceWebSocketId(path);
       const refused = closing || process.env.RI_TRPC_WS_DISABLED === '1' || process.env.RI_SERVICE_VALIDATING === '1' || readMaintenance()?.phase === 'offline';
-      if (path !== TRPC_WS_PATH || refused || !permitsWebSocketOrigin(request)) {
+      if ((path !== TRPC_WS_PATH && !teamId) || refused || !permitsWebSocketOrigin(request)) {
         socket.end(`HTTP/1.1 ${refused ? '503 Service Unavailable' : '403 Forbidden'}\r\nConnection: close\r\n\r\n`);
         return;
       }
+      if (teamId) { spaces.upgrade(req, socket, head, request, teamId); return; }
       wss.handleUpgrade(req, socket, head, client => wss.emit('connection', client, req));
     },
     async close() {
       if (closing) return;
       closing = true;
       clearInterval(sweep);
+      await spaces.close();
       handler.broadcastReconnectNotification();
       for (const client of wss.clients) client.close(1012, 'Home is restarting');
       const force = setTimeout(() => { for (const client of wss.clients) client.terminate(); }, 1_000);

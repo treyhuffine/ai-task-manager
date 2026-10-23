@@ -20,9 +20,6 @@
  */
 
 import { ActionError } from '@/lib/orchestrator/types';
-import { agentLaunchPermission, assertAgentLaunchAuthorization } from '@/lib/coordination/permissions';
-import { initializeAgentChildPolicy } from '@/lib/db/queries';
-import { DEFAULT_HARNESS } from '@/lib/harness/registry';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
@@ -33,7 +30,6 @@ import {
   archiveChatSession,
   unarchiveChatSession,
   getChatSessionWithExecution,
-  getUserState,
   listChatSessions,
   createExecutionWithChat,
   getTask,
@@ -61,6 +57,7 @@ import {
   createWorktreeForSession,
   resumeWorktreeForSession,
   archiveSessionWorktree,
+  preflightArchiveSessionWorktree,
   runWorktreeScript,
   tailLines,
   fetchPrHead,
@@ -74,8 +71,8 @@ import type { PreparePayload } from '@/lib/worker/handlers';
 import { isDeviceConnected, wakeDevice } from '@/lib/workers/hub';
 import { cantRunAgentThere, runOnFor, setupProblem, setupUsable } from '@/lib/setups/run-on';
 import { checkDeviceFolders } from '@/lib/setups/folders';
-import { requireHarnessId } from '@/lib/harness/options';
-import { resolveStartSelection } from '@/lib/harness/start-selection';
+import { executionStartPolicy, executionLifecyclePolicy, verifyLaunchReplay } from './home-policy';
+import { closeExecutionAdmission } from './lifecycle-admission';
 import { admitChange } from '@/lib/transfer/moving';
 import { assertSupportedPermissionMode } from '@/lib/executor/permission-map';
 
@@ -127,6 +124,8 @@ export interface DispatchExecutionSessionArgs {
    * existing id fails the insert rather than overwriting anything.
    */
   sessionId?: string | null;
+  /** Internal native launch receipt, never accepted from app request bodies. */
+  nativeLaunchIntentHash?: string;
   /** Optional. If null/empty, the row is created with `label = null` and
    *  the branch falls back to `<workspace>/session-<short-id>`. The
    *  label is later derived from the first user message. */
@@ -224,20 +223,14 @@ export async function dispatchExecutionSession(
   if (args.sessionId?.trim()) {
     const existing = getChatSessionWithExecution(args.sessionId.trim());
     if (existing) {
-      if (existing.workspaceId !== args.workspaceId) throw new ActionError('conflict', 'This launch identity belongs to another agent.');
-      agentLaunchPermission(args.actor, args.permissionMode, existing.harness, existing);
-      assertAgentLaunchAuthorization(args.actor, args);
-      if (args.actor?.source === 'ai' && args.actor.sessionId) initializeAgentChildPolicy(args.actor.sessionId, existing.id);
-      return getChatSessionWithExecution(existing.id)!;
+      verifyLaunchReplay(ws.id, existing, args.actor, args);
+      return existing;
     }
   }
 
-  const userState = getUserState();
-  const providerId = args.harness
-    ? requireHarnessId(args.harness)
-    : userState?.defaultHarness ?? DEFAULT_HARNESS;
-  args = { ...args, permissionMode: agentLaunchPermission(args.actor, args.permissionMode, providerId) };
-  assertAgentLaunchAuthorization(args.actor, args);
+  const policy = await executionStartPolicy(ws, args);
+  const selection = policy.selection;
+  const providerId = selection.providerId;
   if (args.permissionMode !== undefined) {
     assertSupportedPermissionMode(args.permissionMode, providerId);
     // The actual runner validates live capabilities on the execution device.
@@ -246,13 +239,6 @@ export async function dispatchExecutionSession(
   // Explicit args (the launcher's model control) win. The rest comes from the
   // named harness's own default, or the global default when none is named.
   // The launcher's remembered pick can outlive a model, so it's repaired too.
-  const selection = await resolveStartSelection({
-    providerId: args.harness ? providerId : undefined,
-    model: args.model,
-    variant: args.modelVariant,
-    effort: args.effort,
-    serviceTier: args.serviceTier,
-  }, { cwd: ws.cwd, repairInvalidModel: true });
   // The launcher supplies this so it can navigate before the create resolves;
   // everything else lets us mint one. Same value either way — it just decides
   // who learns the id first.
@@ -265,7 +251,7 @@ export async function dispatchExecutionSession(
   // (P3.1). A connected device must be enrolled and have this agent set up,
   // or the person hears why, rather than getting another device.
   const host = getHome()?.hostDeviceId ?? null;
-  const target = args.deviceId || runOnFor(ws.id)?.defaultId || host;
+  const target = (policy.memberId ? host : args.deviceId || runOnFor(ws.id)?.defaultId || host);
   const elsewhere = target && target !== host ? target : null;
   if (elsewhere) {
     const device = getDevice(elsewhere);
@@ -319,18 +305,23 @@ export async function dispatchExecutionSession(
   // since the pre-check) makes Start illegal, the whole thing rolls back — no
   // orphan execution, no taskless launch — and we surface a conflict.
   let execution: ReturnType<typeof createExecutionWithChat>['execution'];
+  policy.verify();
   try {
     ({ execution } = createExecutionWithChat({
       workspaceId: args.workspaceId,
+      createdByMemberId: policy.memberId,
+      surfaceKind: policy.surfaceKind,
       harness: providerId,
       chatSessionId: sessionId,
+      launchIntentHash: args.nativeLaunchIntentHash,
       // The three saved values are one tuple. Reuse model + effort only when
       // their saved provider matches this execution's provider.
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
+      permissionMode: policy.permissionMode ?? args.permissionMode,
+      prePlanMode: policy.prePlanMode,
       serviceTier: selection.serviceTier,
-      permissionMode: args.permissionMode,
       label,
       worktreePath: liveMode && !elsewhere ? ws.cwd : null,
       branchName: liveBranch,
@@ -388,7 +379,7 @@ export async function dispatchExecutionSession(
   // execution's worktree/branch/PR state — matters for live mode, where
   // those are populated up front and the client renders the running state
   // immediately instead of waiting for a refetch.
-  if (args.actor?.source === 'ai' && args.actor.sessionId) initializeAgentChildPolicy(args.actor.sessionId, sessionId);
+  policy.initialize(sessionId);
   return getChatSessionWithExecution(sessionId)!;
 }
 
@@ -403,10 +394,12 @@ export async function dispatchExecutionSession(
  */
 export async function retryProvisionWorktree(
   sessionId: string,
+  actor?: WorkerCommandActor,
 ): Promise<ChatSessionWithExecution | null> {
   const session = getChatSessionWithExecution(sessionId);
   if (!session) return null;
-  if (session.executionId && retryElsewhere(session.executionId, 'prepare')) {
+  const policy = executionLifecyclePolicy(session, 'prepare', actor);
+  if (session.executionId && retryElsewhere(session.executionId, 'prepare', policy.remoteRequired ? policy.actor : actor)) {
     return getChatSessionWithExecution(sessionId);
   }
   if (session.worktreePath) return session;
@@ -603,8 +596,11 @@ async function runBackgroundProvisioning(
  * Fires in the background and returns immediately — the status flips to
  * 'running' synchronously, so the UI reflects it on the next refetch.
  */
-export function retrySetupScript(executionId: string): boolean {
-  if (getPlacementElsewhere(executionId)) return retryElsewhere(executionId, 'run_script');
+export function retrySetupScript(executionId: string, actor?: WorkerCommandActor, chatId?: string): boolean {
+  const chat = chatId ? getChatSessionWithExecution(chatId) : listChatSessions({ executionId }).map(row => getChatSessionWithExecution(row.id)).find(row => row?.status === 'active');
+  if (!chat) return false;
+  const policy = executionLifecyclePolicy(chat, 'prepare', actor);
+  if (getPlacementElsewhere(executionId)) return retryElsewhere(executionId, 'run_script', policy.remoteRequired ? policy.actor : actor);
   const exec = getExecution(executionId);
   if (!exec?.worktreePath || !exec.workspaceId) return false;
   const ws = getWorkspace(exec.workspaceId);
@@ -627,7 +623,7 @@ function getPlacementElsewhere(executionId: string) {
  * P2.7 to P2.9 review's live check). False when the execution runs at home,
  * or when it has no setup script to run.
  */
-function retryElsewhere(executionId: string, kind: 'prepare' | 'run_script'): boolean {
+function retryElsewhere(executionId: string, kind: 'prepare' | 'run_script', actor?: WorkerCommandActor): boolean {
   const placement = getPlacementElsewhere(executionId);
   if (!placement) return false;
   if (kind === 'prepare' && placement.worktreePath) {
@@ -653,7 +649,7 @@ function retryElsewhere(executionId: string, kind: 'prepare' | 'run_script'): bo
     deviceId: placement.deviceId,
     kind,
     payload,
-    actor: { source: 'system' },
+    actor: actor ?? { source: 'system' },
     executionId,
     chatSessionId: previous.chatSessionId,
     generation: placement.generation,
@@ -670,6 +666,7 @@ function normalizePrNumber(raw: number | null | undefined): number | null {
 
 export interface ArchiveExecutionSessionArgs {
   sessionId: string;
+  actor?: WorkerCommandActor;
   /**
    * If `false` (default), a worktree with work that isn't committed
    * (untracked or changed files) makes `DirtyWorktreeError` propagate so
@@ -694,20 +691,26 @@ export async function archiveExecutionSession(
 ): Promise<ChatSessionWithExecution | null> {
   const session = getChatSessionWithExecution(args.sessionId);
   if (!session) return null;
+  const policy = executionLifecyclePolicy(session, 'archive', args.actor);
   // Counted for as long as it runs: it can't start while the work moves
   // (ExecutionMovingError), and no move starts while it's removing the
   // worktree a move would save (P4 review).
   const release = admitChange(session.executionId, 'being archived');
   try {
-    return await archiveAdmitted(args, session);
+    const reopen = closeExecutionAdmission(session.executionId);
+    try { return await archiveAdmitted(args, session, policy); }
+    finally { reopen(); }
   } finally {
     release();
+    const { wakeHomeChatQueues } = await import('./home-policy');
+    await wakeHomeChatQueues(session.executionId ? listChatSessions({ executionId: session.executionId }).map(chat => chat.id) : [session.id]);
   }
 }
 
 async function archiveAdmitted(
   args: ArchiveExecutionSessionArgs,
   session: ChatSessionWithExecution,
+  policy: ReturnType<typeof executionLifecyclePolicy>,
 ): Promise<ChatSessionWithExecution | null> {
 
   // On another device (P4.5): stop it there (its sessions and terminals),
@@ -716,12 +719,37 @@ async function archiveAdmitted(
   // and a worktree it finds dirty then is left as it is.
   const elsewhere = session.executionId ? getPlacementElsewhere(session.executionId) : null;
   if (elsewhere && session.executionId && session.workspaceId) {
-    await archiveOnOwner(session, elsewhere, args.force ?? false);
+    await archiveOnOwner(session, elsewhere, args.force ?? false, policy.actor, policy.remoteRequired);
   }
-
+  policy.verify();
+  const reapSessionIds = session.executionId
+    ? listChatSessions({ executionId: session.executionId }).map(s => s.id)
+    : [args.sessionId];
+  if (!elsewhere) {
+    const ws = session.workspaceId ? getWorkspace(session.workspaceId) : null;
+    if (session.worktreePath && session.worktreePath !== ws?.cwd) await preflightArchiveSessionWorktree({ session, sourceCheckoutPath: ws?.cwd, force: args.force });
+    policy.verify();
+    const settleStops = await policy.beforeClose();
+    const closed = new Set<string>();
+    let reports: Awaited<ReturnType<typeof closeHarnessSession>>[];
+    try { reports = await Promise.all(reapSessionIds.map(async id => {
+      const report = await closeHarnessSession(id, policy.actor);
+      if (report.closed) closed.add(id);
+      return report;
+    })); } finally { settleStops(closed); }
+    const failed = reports.find(report => !report.closed);
+    if (failed) throw new (await import('@/lib/db/queries')).TeamChatError('unavailable', failed.error ?? 'The harness could not stop. This execution remains active so you can retry.');
+    // A final tool write can finish while the process closes. Preserve queued
+    // work if that edit makes archive refuse after the initial clean check.
+    if (session.worktreePath && session.worktreePath !== ws?.cwd) await preflightArchiveSessionWorktree({ session, sourceCheckoutPath: ws?.cwd, force: args.force });
+    policy.verify();
+  }
+  // Stop execution-owned terminals before teardown can make its final clean
+  // check. A terminal outside this execution remains outside this operation.
+  if (!elsewhere) killAllForOwner(terminalOwnerId(session));
   // Workspace lookup is best-effort — a workspace can be deleted out from
   // under sessions, but we still want to be able to archive the row.
-  if (session.worktreePath) {
+  if (!elsewhere && session.worktreePath) {
     // Live-mode sessions point at the workspace's actual cwd. Removing
     // that "worktree" would wipe the user's project. Detect the match
     // and skip teardown — just flip status.
@@ -737,6 +765,11 @@ async function archiveAdmitted(
     }
   }
 
+  // Teardown and the library's final dirty check can still refuse. Only a
+  // successful removal may cancel the members' queued requests as archived.
+  await policy.stop();
+  for (const id of reapSessionIds) (await import('@/lib/workers/undelivered')).withdrawChatQueue(id, 'This execution was archived before delivery.');
+
   // Archiving the execution cascades to all its chats (docs/executions-spec
   // §5). The worktree lives on the execution, so this is the right unit to
   // archive. Orphaned chats (execution hard-deleted by a workspace delete)
@@ -746,22 +779,6 @@ async function archiveAdmitted(
   } else {
     archiveChatSession(args.sessionId);
   }
-
-  // Reap every process this execution's work spun up. The two kinds have
-  // different owners:
-  //   - node-pty terminals belong to the execution, so one call covers
-  //     every shell any of its chats opened
-  //   - the cached agent CLI subprocess is per chat, and archiving an
-  //     execution cascades to all of them, so enumerate and close each
-  // We just tore down the worktree above; without closing the agent, its
-  // Claude/Codex subprocess keeps running against a now-deleted cwd until
-  // the server restarts. Both reapers are no-ops when nothing's live, so
-  // the orphan-chat fallback is safe too.
-  killAllForOwner(terminalOwnerId(session));
-  const reapSessionIds = session.executionId
-    ? listChatSessions({ executionId: session.executionId }).map((s) => s.id)
-    : [args.sessionId];
-  await Promise.all(reapSessionIds.map((id) => closeHarnessSession(id)));
 
   return getChatSessionWithExecution(args.sessionId);
 }
@@ -782,11 +799,14 @@ async function archiveOnOwner(
   session: ChatSessionWithExecution,
   placement: NonNullable<ReturnType<typeof getPlacementElsewhere>>,
   force: boolean,
+  actor: WorkerCommandActor,
+  strict: boolean,
 ): Promise<void> {
+  if (strict && !isDeviceConnected(placement.deviceId)) throw new DeviceUnavailableForDispatch('Connect its device before archiving this execution.');
   const executionId = session.executionId!;
   const ws = getWorkspace(session.workspaceId!);
   const chats = listChatSessions({ executionId }).map((s) => s.id);
-  const base = { deviceId: placement.deviceId, actor: { source: 'human' as const }, executionId, chatSessionId: session.id, generation: placement.generation };
+  const base = { deviceId: placement.deviceId, actor, executionId, chatSessionId: session.id, generation: placement.generation };
   const quiesce = queueWorkerCommand({ ...base, kind: 'quiesce', payload: { chatSessionIds: chats, transferId: '' } });
   const remove = queueWorkerCommand({
     ...base,
@@ -805,6 +825,7 @@ async function archiveOnOwner(
       const list = Array.isArray(result.files) ? { files: result.files, omitted: typeof result.omitted === 'number' ? result.omitted : 0 } : null;
       throw new RemoteDirtyWorktreeError(err instanceof Error ? err.message : String(err), list);
     }
+    if (strict) throw err;
     // Anything else leaves the worktree where it is. The record is archived all the same.
     console.warn(`[archive] ${executionId} on ${getDevice(placement.deviceId)?.name}:`, err instanceof Error ? err.message : err);
   }
@@ -812,6 +833,7 @@ async function archiveOnOwner(
 
 export interface ContinueExecutionSessionArgs {
   sessionId: string;
+  actor?: WorkerCommandActor;
   /**
    * Override the base for the fresh worktree. Defaults to `ws.baseBranch`
    * — i.e. branch off the current workspace base (usually `main`), which
@@ -848,6 +870,7 @@ export async function continueExecutionSession(
 ): Promise<ChatSessionWithExecution | null> {
   const session = getChatSessionWithExecution(args.sessionId);
   if (!session) return null;
+  const policy = executionLifecyclePolicy(session, 'continue', args.actor);
   // No execution = chat-only (orchestration/content) — nothing to provision.
   if (!session.executionId) return session;
   const ws = session.workspaceId ? getWorkspace(session.workspaceId) : null;
@@ -869,7 +892,13 @@ export async function continueExecutionSession(
   // An execution on another device comes back there (P4.5): reopened, its
   // device rebuilds its worktree on its own branch, as the home would.
   const elsewhere = getPlacementElsewhere(session.executionId);
-  if (elsewhere && ws?.isGit && session.surfaceKind !== 'imported_agent' && session.status === 'archived' && session.branchName) {
+  if (elsewhere && session.execution?.status === 'active' && elsewhere.worktreePath) {
+    policy.verify();
+    if (session.status === 'archived') unarchiveChatSession(session.id);
+    return getChatSessionWithExecution(session.id);
+  }
+  if (elsewhere && ws?.isGit && session.worktreePath !== ws.cwd && session.surfaceKind !== 'imported_agent' && session.status === 'archived' && session.branchName) {
+    policy.verify();
     unarchiveExecution(session.executionId);
     clearPlacementWorktree(elsewhere.id);
     markExecutionSetupStarted(session.executionId);
@@ -885,7 +914,7 @@ export async function continueExecutionSession(
         live: false,
         resume: { branch: session.branchName, baseSha: session.baseSha ?? null },
       } satisfies PreparePayload,
-      actor: { source: 'human' },
+      actor: policy.actor,
       executionId: session.executionId,
       chatSessionId: session.id,
       generation: elsewhere.generation,

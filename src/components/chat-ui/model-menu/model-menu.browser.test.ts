@@ -28,7 +28,8 @@ beforeAll(async () => {
       import {ModelControl} from './src/components/workspaces/launcher/launch-controls';
       import {RunsOnPicker} from './src/components/triggers/runs-on-picker';
       import {Dialog as DialogPrimitive} from 'radix-ui';
-      import {useSettingsStore} from './src/components/settings/settings-store';
+      import {useSettingsStore,openSettings} from './src/components/settings/settings-store';
+      import {SettingsDestinationProvider} from './src/components/settings/settings-destination';
       function App() {
         const params = new URLSearchParams(location.search);
         const [open,setOpen] = useState(false);
@@ -59,7 +60,7 @@ beforeAll(async () => {
           </>}
         </main></TipProvider>;
       }
-      createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient()}><App/></QueryClientProvider>);
+      createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient()}><SettingsDestinationProvider value={section=>location.search.includes('member')?null:()=>openSettings(section)}><App/></SettingsDestinationProvider></QueryClientProvider>);
     `,
     },
     bundle: true,
@@ -72,6 +73,11 @@ beforeAll(async () => {
       {
         name: 'model-menu-fixtures',
         setup(builder) {
+          builder.onResolve({filter:/home-context$/},()=>({path:'home',namespace:'home-fixture'}));
+          builder.onLoad({filter:/.*/,namespace:'home-fixture'},()=>({loader:'js',contents:`
+            export const useOptionalHomeContext=()=>location.search.includes('member')?{home:{id:'team',kind:'team'},viewer:{id:'member'},capabilities:{manageSignIns:false,privatePlanning:false,configureAgents:false}}:null;
+            export const useHomeStorageScope=()=>location.search.includes('member')?{homeId:'team',viewerId:'member'}:null;
+          `}));
           builder.onResolve(
             {
               filter:
@@ -131,8 +137,7 @@ beforeAll(async () => {
   address = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   browser = await chromium.launch({
     executablePath:
-      process.env.RI_REVIEW_CHROMIUM ??
-      chromium.executablePath(),
+      process.env.RI_REVIEW_CHROMIUM,
     headless: true,
   });
 }, 90_000);
@@ -662,3 +667,24 @@ it.skipIf(!enabled)(
     }
   },
 );
+
+
+it.skipIf(!enabled)('Team members can select enabled models and speeds without changing the host model catalog', async () => {
+  const page = await openPage('?member&speed');
+  try {
+    await openMenu(page);
+    expect(await page.getByRole('button', { name: /Manage models/ }).count()).toBe(0);
+    expect(await page.getByText('Make default', { exact: true }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Speed: Normal' }).click();
+    await page.getByRole('menuitemradio', { name: 'Fast', exact: true }).click();
+    await expect.poll(() => page.getByLabel('Speed selection', { exact: true }).textContent()).toBe('priority');
+    await openMenu(page);
+    await page.getByRole('combobox', { name: 'Search models' }).fill('6 Luna');
+    expect(await page.getByRole('option', { name: /6 Luna/ }).count()).toBe(0);
+    expect(await page.evaluate('window.__modelMenuFixture.saved')).toEqual([]);
+    await page.getByRole('combobox', { name: 'Search models' }).fill('6 Astra');
+    await page.getByRole('option', { name: /6 Astra/ }).click();
+    expect(await page.locator('output[aria-label="Selection"]').textContent()).toBe('gpt-6-astra:high');
+    expect(await page.evaluate('window.__modelMenuFixture.saved')).toEqual([]);
+  } finally { await page.close(); }
+});

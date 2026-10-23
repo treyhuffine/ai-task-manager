@@ -1,3 +1,6 @@
+import { recordHomeActivity } from '@/lib/home/activity';
+import { executionAuthority } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 import { legacySchema } from '@/lib/server/inputs';
 import { failureResponse, reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -25,6 +28,7 @@ const bodySchema = z.object({
 export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const authority = executionAuthority(executionRequestKey(), id, 'editFiles');
     const parsed = bodySchema.safeParse(rpcInput.body);
     if (!parsed.success) {
       return reply(
@@ -37,7 +41,9 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
       url: u.url,
       label: u.label ?? null,
     }));
-    return reply({ urls: setPreviewUrls(id, urls) });
+    const saved = setPreviewUrls(id, urls);
+    recordHomeActivity(authority, 'set_preview_urls', id);
+    return reply({ urls: saved });
   } catch (err) {
     return failureResponse(previewErrorResponse(err, 'PUT /api/executions/:id/preview-urls'));
   }

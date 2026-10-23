@@ -1,4 +1,5 @@
 /** Results own durable intent. Existing sessions, runs and executor own execution. */
+import { validateWorkResultActor, requireWorkResultRequester } from './home-policy';
 import { processState } from '@/lib/process-state';
 import { localWorkResultSourceFolder } from './source-location';
 import { createHash } from 'node:crypto';
@@ -7,7 +8,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import {
-  chatPlacement, getSendForEvent,
+  chatPlacement, placementOf, getSendForEvent, getHome, getTeamAiSettings,
   createChatSession, createWorkResultDecision, createWorkResultAiReview, ensureHarnessSettings,
   ensureWorkResultOperationMessage, getChatEventById, getChatSessionWithExecution,
   getWorkResult, getWorkResultAiReview, getWorkResultAiReviewForSession, getWorkResultAuthorBrief,
@@ -71,12 +72,14 @@ function operationId(actor: WorkResultActor, namespace: string, requestId: strin
 }
 
 function accessibleResult(actor: WorkResultActor, id: string): WorkResultDetail {
+  validateWorkResultActor(actor);
   const detail = getWorkResult(id, actor.userId);
   if (!detail) throw new ActionError('not_found', 'Result not found.');
   return detail;
 }
 
 function authoringDestination(actor: WorkResultActor, sessionId: string | null | undefined) {
+  validateWorkResultActor(actor, sessionId, true);
   if (!sessionId) throw new ActionError('unsupported', 'This result has no available authoring conversation. You can still inspect and save existing output.');
   const session = getChatSessionWithExecution(sessionId);
   if (!session || session.userId !== actor.userId) throw new ActionError('not_found', 'The authoring conversation is unavailable.');
@@ -220,6 +223,8 @@ export interface WorkResultReviewRequestInput {
 
 /** Explicit settings fail closed. Inherited cross-harness settings never form a mixed tuple. */
 export async function resolveWorkResultReviewerSelection(input: WorkResultReviewRequestInput, cwd: string, context?: WorkResultDetail | WorkspaceRecord): Promise<WorkResultReviewSelection> {
+  const workspace = context ? ('result' in context ? getAssociatedWorkResultWorkspace(context) : context) : null;
+  if (getHome()?.kind === 'team' && !getTeamAiSettings()?.enabled) throw new ActionError('unsupported', 'Team AI is off.');
   const defaults = getUserState();
   const agent = context ? ('result' in context ? getAssociatedWorkResultWorkspace(context) : context) : null;
   const harness = reviewerPreferenceHarness(input, agent?.reviewDefaults, defaults);
@@ -258,11 +263,14 @@ export async function captureWorkResultReviewScope(detail: WorkResultDetail): Pr
   const session = result.sourceChatSessionId ? getChatSessionWithExecution(result.sourceChatSessionId) : null;
   const execution = result.sourceExecutionId ? getExecution(result.sourceExecutionId) : null;
   const sourceWorkspace = getWorkResultSourceWorkspace(result.userId, result.sourceChatSessionId, result.sourceExecutionId);
-  const worktreePath = localWorkResultSourceFolder(session, execution, sourceWorkspace);
+  const remote = getHome()?.kind === 'team';
+  const recorded = execution ? placementOf(execution.id)?.worktreePath : sourceWorkspace?.cwd;
+  const worktreePath = remote ? recorded : localWorkResultSourceFolder(session, execution, sourceWorkspace);
   let repository: string | null = null;
   const limitations: string[] = [];
-  if (result.sourceExecutionId && (!worktreePath || !existsSync(worktreePath))) limitations.push('The producing execution directory is unavailable.');
-  if (worktreePath && existsSync(worktreePath)) repository = realpathSync(worktreePath);
+  if (result.sourceExecutionId && (!worktreePath || (!remote && !existsSync(worktreePath)))) limitations.push('The producing execution directory is unavailable.');
+  if (remote && worktreePath) repository = worktreePath;
+  else if (worktreePath && existsSync(worktreePath)) repository = realpathSync(worktreePath);
   else if (session?.workspaceId && !session.executionId && chatPlacement(session.id)?.isHome !== false) {
     const workspace = getWorkspace(session.workspaceId);
     if (workspace && existsSync(workspace.cwd)) repository = realpathSync(workspace.cwd);
@@ -349,7 +357,8 @@ export function bindWorkResultReviewRuntime(actor: WorkResultActor, review: Work
     createChatSession({ id: sessionId, userId: actor.userId, harness: review.selection.harness!, type: 'execution',
       surfaceKind: 'result_review', surfaceRef: review.id, label: 'AI review',
       workspaceId: source?.workspaceId ?? execution?.workspaceId ?? null,
-      executionId: null,
+      executionId: null, createdByMemberId: actor.memberId ?? null,
+      deviceId: source ? chatPlacement(source.id)?.deviceId ?? null : null,
       permissionMode: 'plan', model: review.selection.model, modelVariant: review.selection.variant, effort: review.selection.effort,
       serviceTier: review.selection.serviceTier ?? null });
     ensureWorkResultOperationMessage(actor, { id: messageId, runId, sessionId, content: review.brief!,
@@ -446,7 +455,7 @@ export async function completeWorkResultReviewFromTurn(sessionId: string, summar
   if (!parsed.success || parsed.data.review_id !== review.id || parsed.data.request_id !== `${op.requestId}:report`) return false;
   const observation = review.status === 'running' ? await observeWorkResultReviewScope(review) : undefined;
   if (review.status === 'running') observeWorkResultReviewProvenance(review);
-  reportWorkResultAiReview({ userId: session.userId, source: 'ai', sessionId, runId: run.id }, {
+  reportWorkResultAiReview({ userId: session.userId, source: 'ai', sessionId, runId: run.id, memberId: op.actorMemberId, apiKeyId: op.requestingApiKeyId }, {
     requestId: parsed.data.request_id, reviewId: review.id,
     body: parsed.data.body, ...(parsed.data.title !== undefined ? { title: parsed.data.title } : {}),
   }, observation);
@@ -566,6 +575,13 @@ export function canContinueWorkResultOperationDispatch(runId: string, sessionId:
 
 export async function dispatchQueuedWorkResultOperations(sessionId?: string): Promise<void> {
   const executor = await import('@/lib/executor/adapter');
+  if (getHome()?.kind === 'team') {
+    const { kickTeamChat } = await import('@/lib/team/ai/chat');
+    for (const run of listWorkResultOperationRuns(['queued'])) {
+      if (run.chatSessionId && (!sessionId || run.chatSessionId === sessionId)) kickTeamChat(run.chatSessionId);
+    }
+    return;
+  }
   for (const run of listWorkResultOperationRuns(['queued'])) {
     if (sessionId && run.chatSessionId !== sessionId) continue;
     const op = workResultOperationMetadata(run.triggerPayload)!;
@@ -617,7 +633,7 @@ export async function dispatchQueuedWorkResultOperations(sessionId?: string): Pr
         } else if (current?.status === 'running' || current?.status === 'completed') {
           // Preparation must save a result, not merely finish a harness turn.
           const reportId = workResultRequestScopedId('report_result', { userId: op.actorUserId,
-            source: 'ai', sessionId: event.sessionId }, op.requestId);
+            source: 'ai', sessionId: event.sessionId, memberId: op.actorMemberId }, op.requestId);
           const saved = op.kind === 'handoff_preparation' ? !!getWorkResult(reportId, op.actorUserId) : true;
           transitionWorkResultOperationRun(run.id, ['running', 'completed'], saved ? 'completed' : 'failed',
             saved ? {} : { statusReason: 'missing_handoff' });
@@ -646,6 +662,7 @@ export async function dispatchQueuedWorkResultOperations(sessionId?: string): Pr
 export async function cancelWorkResultAiReview(actor: WorkResultActor, reviewId: string) {
   const review = getWorkResultAiReview(reviewId, actor.userId);
   if (!review) throw new ActionError('not_found', 'AI review not found.');
+  requireWorkResultRequester(actor, review.actorMemberId);
   if (!['queued', 'running'].includes(review.status)) return review;
   const cancelled = transitionWorkResultAiReview(review.id, ['queued', 'running'], 'cancelled', { statusReason: 'user_cancelled' }, actor.userId);
   if (!cancelled) return getWorkResultAiReview(reviewId, actor.userId)!;
@@ -659,7 +676,11 @@ export async function cancelWorkResultAiReview(actor: WorkResultActor, reviewId:
     if (session?.surfaceKind === 'result_review' && session.surfaceRef === review.id) {
       const executor = await import('@/lib/executor/adapter');
       rejectAllForSession(session.id, 'The AI review was cancelled.');
-      await executor.abort(session.id);
+      if (actor.memberId) {
+        const { stopTeamAiWork } = await import('@/lib/team/ai/chat');
+        await stopTeamAiWork({ chatId: session.id }, 'The assigned review was cancelled.');
+        await executor.abort(session.id, { source: actor.source, memberId: actor.memberId, apiKeyId: actor.apiKeyId });
+      } else await executor.abort(session.id);
     }
   }
   return getWorkResultAiReview(reviewId, actor.userId)!;
@@ -669,6 +690,7 @@ export function cancelWorkResultPreparation(actor: WorkResultActor, messageId: s
   const run = workResultOperationForMessage(messageId);
   const meta = workResultOperationMetadata(run?.triggerPayload);
   if (!run || !meta || meta.kind !== 'handoff_preparation' || meta.actorUserId !== actor.userId) throw new ActionError('not_found', 'Preparation not found.');
+  requireWorkResultRequester(actor, meta.actorMemberId);
   // Running preparation shares implementation authority. Cancelling its request cannot abort ordinary work.
   transitionWorkResultOperationRun(run.id, ['queued'], 'cancelled', { statusReason: 'user_cancelled' });
   publishWorkResultOperationState(run.id);
@@ -749,6 +771,7 @@ export async function retryWorkResultFeedback(actor: WorkResultActor, input: { r
     || !getChatEventById(review.feedbackMessageId)) {
     throw new ActionError('unsupported', 'The original feedback delivery is unavailable. The saved feedback remains readable.');
   }
+  requireWorkResultRequester(actor, meta.actorMemberId);
   // Resolving the original destination never substitutes another conversation,
   // and retains the existing stop, takeover and read-only boundaries.
   authoringDestination(actor, run.chatSessionId);
@@ -818,6 +841,12 @@ export function recoverWorkResultOperations(): void {
 /** Capture live observations separately from immutable requested scope. */
 export async function observeWorkResultReviewScope(review: Pick<WorkResultAiReviewRecord, 'scope'>): Promise<WorkResultReviewScope['observed']> {
   const requested = review.scope.requested;
+  const source = getWorkResult(requested.resultId)?.result.sourceExecutionId;
+  if (getHome()?.kind === 'team') {
+    const { observeWorkResultExecutionCodeRevision } = await import('./observe');
+    const codeRevision = await observeWorkResultExecutionCodeRevision(source, 'local');
+    return { repository: requested.repository, codeRevision, capturedAt: new Date().toISOString(), drift: codeRevision?.workingTreeState === 'clean' && requested.codeRevision?.workingTreeState === 'clean' ? codeRevision.commitSha !== requested.codeRevision.commitSha : null, limitations: ['Code was observed on the isolated execution worker.'] };
+  }
   const cwd = requested.repository;
   if (!cwd) return { attachments: requested.attachments, capturedAt: new Date().toISOString(),
     drift: null, limitations: ['No repository was associated with this target.'] };
@@ -877,7 +906,7 @@ export async function settleWorkResultOperationTurn(sessionId: string, runId: st
     if (!cancelled && outcome.ok) transitionWorkResultOperationRun(run.id, ['running', 'completed'], 'failed', { statusReason: 'missing_report' });
     publishWorkResultOperationState(run.id);
   } else if (op.kind === 'handoff_preparation' && outcome.ok && getRun(run.id)?.status !== 'cancelled') {
-    const reportId = workResultRequestScopedId('report_result', { userId: op.actorUserId, source: 'ai', sessionId }, op.requestId);
+    const reportId = workResultRequestScopedId('report_result', { userId: op.actorUserId, source: 'ai', sessionId, memberId: op.actorMemberId }, op.requestId);
     if (!getWorkResult(reportId, op.actorUserId)) transitionWorkResultOperationRun(run.id, ['running', 'completed'], 'failed', { statusReason: 'missing_handoff' });
     publishWorkResultOperationState(run.id);
   }

@@ -1,3 +1,4 @@
+import { trpc } from '@/lib/trpc/client';
 /**
  * Hooks for the preview pane — keyed by execution (each agent execution has
  * its own worktree, and previews are per-worktree).
@@ -6,6 +7,7 @@
  * brings the preview up for the current viewer's reachability (local
  * loopback vs the active remote provider). Logs are pulled with a cursor.
  */
+
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -19,8 +21,8 @@ import {
   type DeviceConnectEvent,
 } from '@/lib/api/preview';
 
-const PREVIEW_KEY = (id: string) => ['execution', id, 'preview'] as const;
-const PREVIEW_SETTINGS_KEY = ['preview', 'settings'] as const;
+const PREVIEW_KEY = (id: string) => trpc.executions.previewStatusGet.queryKey({ params: { id } });
+const PREVIEW_SETTINGS_KEY = trpc.preview.settingsGet.queryKey({});
 const LOGS_BUFFER_CAP = 1000;
 
 export function usePreviewState(
@@ -28,7 +30,7 @@ export function usePreviewState(
   options: { enabled?: boolean; refetchInterval?: number | false } = {},
 ) {
   return useQuery({
-    queryKey: executionId ? PREVIEW_KEY(executionId) : ['execution', '_', 'preview'],
+    queryKey: executionId ? PREVIEW_KEY(executionId) : PREVIEW_KEY('_'),
     queryFn: () => previewApi.status(executionId!),
     enabled: !!executionId && (options.enabled ?? true),
     refetchInterval: options.refetchInterval ?? 4_000,
@@ -38,10 +40,10 @@ export function usePreviewState(
 
 export function useStartPreview(executionId: string | null) {
   const qc = useQueryClient();
-  return useMutation<PreviewState, Error, { remote: boolean }>({
-    mutationFn: async ({ remote }) => {
+  return useMutation<PreviewState, Error, { remote: boolean; resolveOnly?: boolean }>({
+    mutationFn: async ({ remote, resolveOnly }) => {
       if (!executionId) throw new Error('no_execution');
-      return previewApi.start(executionId, { remote });
+      return previewApi.start(executionId, { remote, resolveOnly });
     },
     onSuccess: (data) => {
       if (!executionId) return;
@@ -103,6 +105,7 @@ export function useRetryPreviewSetup(executionId: string | null) {
 export function useSetPreviewUrls(executionId: string | null) {
   const qc = useQueryClient();
   return useMutation<{ urls: PreviewManualUrl[] }, Error, PreviewManualUrl[]>({
+    meta: { carriesInput: true },
     mutationFn: async (urls) => {
       if (!executionId) throw new Error('no_execution');
       return previewApi.setUrls(executionId, urls);
@@ -125,18 +128,14 @@ export function usePreviewLogs(
   const enabled = options.enabled ?? true;
   const pollMs = options.pollMs ?? 1_500;
 
-  const [lines, setLines] = useState<PreviewLogLine[]>([]);
+  const [output, setOutput] = useState<{executionId: string | null; lines: PreviewLogLine[]}>({executionId, lines: []});
+  const lines = output.executionId === executionId ? output.lines : [];
   const cursorRef = useRef(0);
   const idRef = useRef<string | null>(null);
 
   // Reset the buffer when the execution changes. The lines while rendering, so
   // the panel never shows the last execution's logs. The cursor in an effect,
   // since refs aren't touched while rendering, and before the poll reads it.
-  const [linesFor, setLinesFor] = useState(executionId);
-  if (linesFor !== executionId) {
-    setLinesFor(executionId);
-    setLines([]);
-  }
   useEffect(() => {
     if (idRef.current !== executionId) {
       idRef.current = executionId;
@@ -153,9 +152,9 @@ export function usePreviewLogs(
         if (cancelled) return;
         if (res.lines.length > 0) {
           cursorRef.current = res.cursor;
-          setLines((prev) => {
-            const merged = [...prev, ...res.lines];
-            return merged.length > LOGS_BUFFER_CAP ? merged.slice(merged.length - LOGS_BUFFER_CAP) : merged;
+          setOutput((prev) => {
+            const merged = [...(prev.executionId === executionId ? prev.lines : []), ...res.lines];
+            return { executionId, lines: merged.length > LOGS_BUFFER_CAP ? merged.slice(merged.length - LOGS_BUFFER_CAP) : merged };
           });
         }
       } catch {
@@ -172,7 +171,7 @@ export function usePreviewLogs(
 
   const clear = useCallback(() => {
     cursorRef.current = 0;
-    setLines([]);
+    setOutput({ executionId: idRef.current, lines: [] });
   }, []);
 
   return { lines, clear };

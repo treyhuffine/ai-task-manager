@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { getDevice, getWorkspace, listReferenceFoldersForWorkspace } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { agentFoldersEverywhere, chooseLinkedFolder, FolderError } from '@/lib/setups/folders';
@@ -9,6 +10,8 @@ import { z as rpcZ } from 'zod/v4';
  * folder every agent uses has one place per device: this sets it for all.
  */
 export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents', rpcInput.params.deviceId);
+  if (homeDenied) return homeDenied;
   const { id, deviceId, referenceFolderId } = rpcInput.params;
   if (!getWorkspace(id)) return reply({ error: 'not_found' }, { status: 404 });
   const device = getDevice(deviceId);

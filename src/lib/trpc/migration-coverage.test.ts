@@ -30,6 +30,8 @@ const protocolRoutes = new Set([
   '/workers/enroll', '/workers/grants', '/workers/me/associations', '/workers/me/attachments/[fileName]', '/workers/me/commands/[id]/ack', '/workers/me/commands/[id]/admission',
   '/workers/me/events', '/workers/me/heartbeat', '/workers/me/requests/[id]/result', '/workers/me', '/workers/me/stream',
   '/workers/me/terminals/output', '/workspaces/[id]/html', '/workspaces/[id]/pdf', '/workspaces/[id]/pdf/[...name]', '/workspaces/[id]/terminals/[terminalId]/stream',
+  // Signed short leases are part of the versioned worker transport, never a UI JSON call.
+  '/workers/me/execution-scope',
   // A team's grants are their own credential, like enrollment, and its host's
   // installation administration takes only the host's key (src/lib/team/admission.ts).
   '/team/public/info', '/team/public/preview', '/team/public/join', '/team/public/sign-in', '/team/public/setup',

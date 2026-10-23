@@ -1,3 +1,5 @@
+import { mainChatReplacementRefusal } from '@/lib/sessions/home-policy';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 import { actorFromRequest } from '@/lib/auth/actor';
 import { UnsupportedPermissionModeError } from '@/lib/executor/permission-map';
 import { HarnessDisabledError } from '@/lib/harness/registry';
@@ -14,15 +16,18 @@ import { z as rpcZ } from 'zod/v4';
  * composer's provider switch.
  */
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
-  if (actorFromRequest(_request.headers).source === 'ai') return reply({ error: 'Use delegate_work to start an agent-created chat. Replacing a main chat or switching its harness requires the user’s action.' }, { status: 403 });
+  const refusal = mainChatReplacementRefusal(actorFromRequest(_request.headers));
+  if (refusal) return reply({ error: refusal }, { status: 403 });
   try {
     const { id } = rpcInput.params;
     const agent = resolveAgent(id);
     if (!agent.ok) return failureResponse(agent.response);
     if (agent.ws.status === 'archived') return failureResponse(archivedAgentResponse());
     const body: unknown = rpcInput.body;
-    return reply({ session: await startNewMainChat(id, parseChatOverride(body), { forApp: rpcInput.body.forApp === true }) });
+    return reply({ session: await startNewMainChat(id, parseChatOverride(body), { forApp: rpcInput.body.forApp === true, sourceChatId: rpcInput.body.sourceChatId }) });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     if (err instanceof MainChatInUseError) return reply({ error: err.message, code: err.code }, { status: 409 });
     console.error('[POST /api/workspaces/:id/chat/new]', err);
     return reply({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });

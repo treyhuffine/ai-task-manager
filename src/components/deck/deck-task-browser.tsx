@@ -1,5 +1,6 @@
 "use client";
 
+import { TeamLabel } from '@/components/spaces/team-label';
 import { useState, useMemo } from 'react';
 import { Search, Plus, Check, Minus, X, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -223,6 +224,7 @@ export function DeckTaskBrowser({ deckTaskIds, onAddToDeck, onRemoveFromDeck, on
                   {task.title}
                 </span>
                 <div className="flex items-center gap-1.5 shrink-0">
+                  <TeamLabel teamId={task.sourceTeamId} sourceArea={task.source?.area} />
                   {task.areaId && areaMap.get(task.areaId) && (
                     <span className="text-[9px] px-1 py-0.5 rounded bg-muted/80 text-muted-foreground/70">
                       {areaMap.get(task.areaId)}

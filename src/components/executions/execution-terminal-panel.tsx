@@ -242,7 +242,7 @@ function TerminalWhere({ terminal, showDevice }: { terminal: TerminalDescriptor 
       >
         {device && <span className="text-zinc-400">{device}</span>}
         {device && ' · '}
-        {folder}
+        {folder}{terminal.createdBy && <span> · Opened by {terminal.createdBy.name}</span>}
       </span>
     </Tip>
   );

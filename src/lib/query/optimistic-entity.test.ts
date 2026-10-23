@@ -4,6 +4,7 @@ import { trpc } from '@/lib/trpc/client';
 import { describe, expect, it } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import {
+  settleEntity,
   optimisticPatch,
   optimisticRemove,
   patchEntityCaches,
@@ -179,4 +180,18 @@ describe('optimisticRemove', () => {
     expect(qc.getQueryData(fixtureKey(entityKeys.tasks.list(ACTIVE)))).toEqual(beforeList);
     expect(qc.getQueryData(fixtureKey(entityKeys.tasks.detail('t1')))).toEqual(beforeT1);
   });
+});
+
+
+it.each(['tasks', 'notes', 'areas', 'workspaces'] as const)('settling %s refreshes typed titles and backlinks without touching a live body', async root => {
+  const qc = new QueryClient();
+  const keys = [trpc.entities.titlesGet.queryKey({ query: { refs: 'task:t1' } }),
+    trpc.entities.backlinksTypeGet.queryKey({ params: { type: 'task', id: 't1' } }),
+    trpc.spaces.entityTitles.queryKey({ teamId: 'team', refs: 'task:t1' })];
+  for (const key of keys) qc.setQueryData<unknown>(key as QueryKey, { title: 'Before' });
+  qc.setQueryData<unknown>(entityKeys.tasks.detail('t1') as QueryKey, { body: 'Current focused editor input' });
+  settleEntity(qc, root);
+  for (const key of keys) expect(qc.getQueryState(key)?.isInvalidated).toBe(true);
+  expect(qc.getQueryData(entityKeys.tasks.detail('t1'))).toEqual({ body: 'Current focused editor input' });
+  qc.clear();
 });

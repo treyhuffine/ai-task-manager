@@ -1,13 +1,15 @@
 'use client';
 
 import { Loader2, Plus } from 'lucide-react';
-import { HarnessChat } from '@/components/chat/harness-chat';
+import { HarnessChat, HarnessChatSession } from '@/components/chat/harness-chat';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
 import { agentMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useMainChat, useNewMainChat } from '@/hooks/use-main-chat';
 import { useDevice } from '@/hooks/use-devices';
 import type { WorkspaceRecord } from '@/db/types';
 import { Tip } from '@/components/ui/tip';
+import { useSession } from '@/hooks/use-execution';
+import { useWorkNavigation } from '@/contexts/work-context';
 
 /**
  * The agent's main chat (docs/agents-view-spec.md §4): one persistent chat
@@ -15,21 +17,23 @@ import { Tip } from '@/components/ui/tip';
  * "New chat" sit in the bar above it, the same controls the app's main chat
  * has.
  */
-export function AgentChatPanel({ workspace }: { workspace: WorkspaceRecord }) {
+export function AgentChatPanel({ workspace, sessionId }: { workspace: WorkspaceRecord; sessionId?: string }) {
   const newChat = useNewMainChat(workspace.id);
   const archived = workspace.status === 'archived';
   // Pinned to the device the agent lives on when that isn't the home
   // (P3.4). Its history stays here while that device is away, and a
   // message waits for it.
-  const { data: current } = useMainChat(workspace.id);
-  const device = useDevice(current?.session.deviceId);
+  const { data: current } = useMainChat(workspace.id, !sessionId);
+  const { data: saved } = useSession(sessionId ?? null);
+  const { openAgent, openExecution } = useWorkNavigation();
+  const device = useDevice(sessionId ? saved?.deviceId : current?.session?.deviceId);
   const elsewhere = device && !device.isHome ? device : null;
 
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="shrink-0 flex items-center justify-between gap-2 px-3 py-1 border-b border-border/50">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">Main chat</span>
+          <span className="text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">{sessionId ? saved?.label ?? 'Chat' : 'Main chat'}</span>
           {elsewhere && (
             <Tip
               label={
@@ -50,11 +54,11 @@ export function AgentChatPanel({ workspace }: { workspace: WorkspaceRecord }) {
           )}
         </span>
         <div className="flex items-center gap-1.5">
-          <MainChatHistoryMenu scope={workspace.id} />
+          {sessionId ? <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => openAgent(workspace.id)}>Agent chat</button> : <MainChatHistoryMenu scope={workspace.id} />}
           {!archived && (
-            <Tip label="Start a new chat (archives the current one)">
+            <Tip label="Earlier conversations stay in History">
               <button
-                onClick={() => newChat.mutate()}
+                onClick={() => newChat.mutate(sessionId ? { sourceChatId: sessionId } : undefined, { onSuccess: data => { if (sessionId) openExecution(data.session.id); } })}
                 disabled={newChat.isPending}
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
               >
@@ -65,11 +69,13 @@ export function AgentChatPanel({ workspace }: { workspace: WorkspaceRecord }) {
           )}
         </div>
       </div>
-      <HarnessChat
+      {sessionId ? <HarnessChatSession sessionId={sessionId} composerPlaceholder={`Tell ${workspace.name} what to build, or ask about its work`}
+        onSwitchProvider={next => newChat.mutate({ sourceChatId: sessionId, providerId: next.harness, model: next.model, variant: next.variant, effort: next.effort }, { onSuccess: data => openExecution(data.session.id) })}
+        switchingProvider={newChat.isPending} /> : <HarnessChat
         scope={workspace.id}
         composerPlaceholder={`Tell ${workspace.name} what to build, or ask about its work`}
         intro={archived ? undefined : agentMainChatIntro(workspace.name)}
-      />
+      />}
     </div>
   );
 }

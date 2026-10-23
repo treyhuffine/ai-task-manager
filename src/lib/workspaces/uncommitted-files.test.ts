@@ -24,6 +24,12 @@ describe('listUncommittedFiles', () => {
 });
 
 describe('uncommittedFilesOf', () => {
+  it('retains the bounded dirty-file review across an isolated helper response', () => {
+    const list = { files: [{ path: 'kept.txt', change: 'changed' as const }], omitted: 7 };
+    expect(uncommittedFilesOf({ uncommittedFiles: list })).toEqual(list);
+    expect(uncommittedFilesOf({ uncommittedFiles: { files: 'invalid', omitted: 0 } })).toBeNull();
+    expect(uncommittedFilesOf({ uncommittedFiles: { files: list.files, omitted: -1 } })).toBeNull();
+  });
   it("reads agentex's status off its DirtyWorktreeError", () => {
     const err = Object.assign(new Error('dirty'), {
       status: { dirty: true, untracked: ['a.txt'], modified: [], staged: [], ahead: 2, behind: 0 },

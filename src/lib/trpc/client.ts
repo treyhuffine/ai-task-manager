@@ -57,5 +57,5 @@ function documentClientOptions(): Parameters<typeof createAppTRPCClient>[0] {
 }
 export const trpcClient = createAppTRPCClient(documentClientOptions());
 /** Terminal traffic remains bidirectional even when ordinary API calls use HTTP. */
-export const terminalTRPCClient = createAppTRPCClient({ websocketOnly: true });
+export const terminalTRPCClient = createAppTRPCClient({ ...documentClientOptions(), websocketOnly: true });
 export const trpc = createTRPCOptionsProxy<AppRouter>({ client: trpcClient, queryClient: getQueryClient });

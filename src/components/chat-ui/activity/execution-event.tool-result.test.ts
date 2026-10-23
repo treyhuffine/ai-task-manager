@@ -6,10 +6,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ExecutionEvent } from './execution-event';
+import { ChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 
+const deliveries = vi.hoisted(() => vi.fn(() => ({ data: {} })));
 vi.mock('@/hooks/use-harness-connection', () => ({ useHarnessConnection: () => ({}), useRecheckHarnessConnection: () => ({}) }));
 vi.mock('@/hooks/use-claude-login', () => ({ useClaudeLogin: () => ({}), useClaudeAuthStatus: () => ({}) }));
-vi.mock('@/hooks/use-execution', () => ({ useSessionEvents: () => ({ data: [] }) }));
+vi.mock('@/hooks/use-execution', () => ({ useSessionEvents: () => ({ data: [] }), useDeliveries: deliveries, useCancelDelivery: () => ({}), useSendMessage: () => ({}) }));
 vi.mock('@/lib/api/sessions', () => ({ sessionsApi: {} }));
 vi.mock('@/components/ai-elements/message', () => ({ Message: () => null, MessageContent: () => null, MessageResponse: () => null }));
 // The view itself is tested with the real host. Here only which events become one matters.
@@ -21,12 +23,22 @@ let root: Root;
 let container: HTMLElement;
 
 beforeEach(() => {
+  deliveries.mockClear();
   const { window, document } = parseHTML('<!doctype html><html><body></body></html>');
   vi.stubGlobal('window', window);
   vi.stubGlobal('document', document);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   container = document.createElement('div');
   root = createRoot(container);
+});
+
+it.each([false, true])('uses the contextual delivery receipt capability (%s)', async deliveryReceipts => {
+  const event = { id: 'user-message', sessionId: 'chat-1', source: 'user', role: 'user', content: 'Hello', raw: null } as ChatEventRecord;
+  const client = new QueryClient();
+  await act(async () => root.render(createElement(QueryClientProvider, { client },
+    createElement(ChatCapabilities.Provider, { value: { deliveryReceipts, prepareResults: true } },
+      createElement(ExecutionEvent, { event, sessionId: 'chat-1' })))));
+  expect(deliveries.mock.calls.length > 0).toBe(deliveryReceipts);
 });
 
 afterEach(async () => {

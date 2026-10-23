@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { getWorkspace, listReferenceFoldersTargeting } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { isReadOnly } from '@/lib/reference-folders/read-only';
@@ -14,6 +15,8 @@ import { z as rpcZ } from 'zod/v4';
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'read');
+  if (homeDenied) return homeDenied;
   try {
     const { id } = rpcInput.params;
     if (!getWorkspace(id)) {

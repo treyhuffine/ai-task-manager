@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -12,6 +13,8 @@ import { z as rpcZ } from 'zod/v4';
  * no `..`). The resulting path is also sandboxed under homedir.
  */
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents');
+  if (homeDenied) return homeDenied;
   try {
     const body = (rpcInput.body) as {
       parent?: string;

@@ -1,5 +1,7 @@
 # Agent Harness Expansion: OpenCode and Cursor
 
+October 2026 implementation note: the shared registry includes Claude, Codex, Cursor, OpenCode and Antigravity. The [unified Home contract](unified-home-experience.md) uses the ordinary registry, model controls and local runner for both Home kinds. Team agents execute on the Team server using its installed and signed-in harnesses. The Home authorizes each member turn before dispatch. [The verification ledger](unified-home-verification.md) separates fake-provider lifecycle checks from real-account qualification. [Deferred isolation](team-isolation.md) preserves the archived worker design and its known evidence gaps. Historical publication checkpoints below are not the current availability matrix.
+
 Status: live harness support implemented, OpenCode saved-history import implemented locally and pending Agentex 0.0.31 publication. Antigravity added as the fifth harness on 2026-10-01 (section 23), pending Agentex 0.0.39 publication
 
 Date: 2026-07-10

@@ -7,6 +7,7 @@ import { EntityDiffModal } from './entity-diff-modal';
 import { cn } from '@/lib/utils';
 import { ENTITY_HEADER_LABEL } from '@/components/entities/entity-header';
 import { Tip } from '@/components/ui/tip';
+import type { EntityVersionRecord } from '@/db/types';
 
 /**
  * Top-level "review changes" affordance for a note/task — the discoverable
@@ -19,10 +20,16 @@ export function EntityHistoryButton({
   entityType,
   entityId,
   className,
+  expectedBodyRevision,
+  describeActor,
+  confirmRevert,
 }: {
   entityType: VersionedEntityType;
   entityId: string;
   className?: string;
+  expectedBodyRevision?: number;
+  describeActor?: (version: EntityVersionRecord) => string;
+  confirmRevert?: () => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const { data } = useEntityVersions(entityType, entityId);
@@ -52,7 +59,7 @@ export function EntityHistoryButton({
         </button>
       </Tip>
       {open && (
-        <EntityDiffModal open={open} onClose={() => setOpen(false)} entityType={entityType} entityId={entityId} />
+        <EntityDiffModal open={open} onClose={() => setOpen(false)} entityType={entityType} entityId={entityId} expectedBodyRevision={expectedBodyRevision} describeActor={describeActor} confirmRevert={confirmRevert} />
       )}
     </>
   );

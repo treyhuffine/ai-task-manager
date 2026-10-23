@@ -315,3 +315,21 @@ export function resumeCommandForHarness(
   const template = HARNESS_REGISTRY[harness].resumeCommandTemplate;
   return template?.replace('{id}', externalSessionId) ?? null;
 }
+
+/** Registry-level explanations for the controls each harness can expose. */
+const CAPABILITY_LABELS: Record<keyof HarnessCapabilities, string> = {
+  sessions: 'chat sessions', resume: 'resuming a saved chat', durableCatchUp: 'recovering durable chat history',
+  modelDiscovery: 'discovering models', upstreamProviderSetup: 'configuring upstream providers', upstreamProviderDisconnect: 'disconnecting upstream providers',
+  modelVariants: 'model variants', reasoningEffort: 'reasoning effort', serviceTiers: 'provider speed controls', permissionRequests: 'approval prompts', questionRequests: 'interactive questions',
+  planMode: 'planning mode', modes: 'session modes', mcp: 'session tools', strictMcpIsolation: 'restricting tools to the supplied MCP configuration',
+  concurrentSend: 'sending another message during a turn', cancelQueuedMessage: 'cancelling a message already queued inside the harness', stopTask: 'stopping an individual background task',
+  sessionModelChange: 'changing models in a live chat', sessionVariantChange: 'changing variants in a live chat', sessionEffortChange: 'changing effort in a live chat', sessionModeChange: 'changing modes in a live chat',
+};
+const CAPABILITY_REASONS: Partial<Record<HarnessId, Partial<Record<keyof HarnessCapabilities, string>>>> = {
+  opencode: { strictMcpIsolation: 'OpenCode can use its own configured MCP tools. This adapter does not supply a restricted MCP configuration.' },
+  cursor: { permissionRequests: 'Cursor uses its CLI permission policy and does not send approval prompts to Ri.', questionRequests: 'Cursor does not expose interactive questions to Ri.', strictMcpIsolation: 'Cursor can use its own configured MCP tools in addition to the tools supplied by this Home.' },
+  antigravity: { permissionRequests: 'Antigravity uses its CLI permission policy and does not send approval prompts to Ri.', questionRequests: 'Antigravity does not expose interactive questions to Ri.', strictMcpIsolation: 'Antigravity can use its own configured MCP tools in addition to the tools supplied by this Home.' },
+};
+export function harnessCapabilityReason(harness: HarnessId, capability: keyof HarnessCapabilities): string {
+  return CAPABILITY_REASONS[harness]?.[capability] ?? `${HARNESS_REGISTRY[harness].name} does not expose ${CAPABILITY_LABELS[capability]} to Ri.`;
+}

@@ -6,6 +6,11 @@ import {
 } from './runtime-status';
 
 describe('session runtime status merging', () => {
+  it('retains contextual stop authority across root and background stream updates', () => {
+    const status = { running: true, backgroundTasks: false, backgroundTaskIds: [], canStop: false, activeTurnId: 'someone-elses-turn' };
+    expect(withRunningStatus(status, false)).toMatchObject({ canStop: false, activeTurnId: status.activeTurnId });
+    expect(withBackgroundTaskStatus(status, true, ['child'])).toMatchObject({ canStop: false, activeTurnId: status.activeTurnId });
+  });
   it('preserves background work when root runtime changes', () => {
     expect(withRunningStatus({
       running: false,

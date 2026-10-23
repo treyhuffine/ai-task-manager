@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { clearCursorApiKey, cursorCredentialStatus, setCursorApiKey } from '@/lib/harness/credentials';
 import { clearHarnessModelCache } from '@/lib/harness/model-discovery';
 import { clearHarnessRuntimeCache } from '@/lib/harness/runtime';
@@ -9,10 +10,14 @@ import { z as rpcZ } from 'zod/v4';
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   return reply(cursorCredentialStatus());
 }
 
 export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const body = rpcInput.body as { apiKey?: unknown };
     if (typeof body.apiKey !== 'string') return reply({ error: 'apiKey is required' }, { status: 400 });
@@ -29,6 +34,8 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
 }
 
 export async function DELETE(_rpcInput: rpcZ.infer<typeof DELETEInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   const status = clearCursorApiKey();
   const { recycleHarnessSessions } = await import('@/lib/executor/adapter');
   await recycleHarnessSessions('cursor');

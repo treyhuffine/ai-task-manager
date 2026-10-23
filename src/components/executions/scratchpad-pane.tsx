@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
 import { useScratchpad, useSetScratchpad } from '@/hooks/use-execution';
 import { Tip } from '@/components/ui/tip';
+import { useOptionalHomeContext } from '@/components/home/home-context';
 
 interface ScratchpadPaneProps {
   sessionId: string;
@@ -52,8 +53,11 @@ export function ScratchpadPane({
   onInsertChip,
   autoFocus = false,
 }: ScratchpadPaneProps) {
+  const home = useOptionalHomeContext();
+  const shared = home?.capabilities.privatePlanning === false;
   return (
     <div className="flex flex-col h-full w-full bg-background" aria-label="Scratchpad">
+      {shared && <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">This scratchpad is shared with everyone in this team.</p>}
       <ScratchpadEditor
         // A different chat is a different scratchpad: remount so the editor
         // loads that chat's text instead of carrying the last one's.

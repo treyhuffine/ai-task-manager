@@ -1,3 +1,6 @@
+import { conversationViews } from '@/lib/sessions/view-state';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { workspaceAuthority, executionOperationFailure } from '@/lib/workspaces/access';
 import type { EffortLevel, PermissionMode } from '@/db/types';
 import { ActionError } from '@/lib/orchestrator/types';
 import { actorFromRequest } from '@/lib/auth/actor';
@@ -19,17 +22,20 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    workspaceAuthority(getRequestKey(request.headers), id, 'read');
     // One row per execution (its primary chat), not per chat — the tree
     // collapses an execution's sibling chats into a single named row.
     // `includeArchived` is the launcher's "Show archived" digging deeper into
     // finished work; the rail never asks for it.
     const includeArchived = searchParams(rpcInput.query).get('includeArchived') === 'true';
     const rows = listWorkspaceExecutions(id, { includeArchived });
-    return reply(rows);
+    return reply(conversationViews(getRequestKey(request.headers), rows));
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/workspaces/:id/sessions]', err);
     return reply({ error: String(err) }, { status: 500 });
   }
@@ -38,6 +44,7 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    workspaceAuthority(getRequestKey(request.headers), id, 'start');
     const body: {
       sessionId?: string;
       label?: string;
@@ -103,6 +110,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     });
     return reply(row, { status: 201 });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     if (err instanceof ActionError) return reply({ error: err.code, message: err.message }, { status: err.code === 'not_found' ? 404 : err.code === 'invalid_params' ? 400 : 409 });
     if (err instanceof HarnessDisabledError) {
       return reply({ error: err.message }, { status: 409 });

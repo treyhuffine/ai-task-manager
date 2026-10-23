@@ -1,3 +1,5 @@
+import { processState } from '@/lib/process-state';
+import { recordTeamActivity } from '@/lib/db/queries';
 import { answerResult, failure, reply } from '@/lib/server/operation';
 import { terminalDescriptorSchema } from '@/lib/server/remote-contracts';
 import { z } from 'zod/v4';
@@ -31,7 +33,14 @@ export async function createTerminalResult(body: z.infer<typeof terminalDimensio
   }
   const cwd = place.cwd();
   if (!cwd.ok) return refuse(cwd);
-  try { return reply({ ...createTerminal({ ownerId: cwd.ownerId, cwd: cwd.cwd, cols, rows }), ...place.location }, { status: 201 }); }
+  try {
+    const created = createTerminal({ ownerId: cwd.ownerId, cwd: cwd.cwd, cols, rows, ...(place.attribution ? { createdBy: { id: place.attribution.memberId, name: place.attribution.name } } : {}) });
+    if (place.attribution) {
+      try { recordTeamActivity({ workspaceId: place.attribution.workspaceId, memberId: place.attribution.memberId, apiKeyId: place.attribution.apiKeyId, kind: 'terminal_open', resource: created.id, operation: 'open' }); }
+      catch (error) { killTerminal(cwd.ownerId, created.id); throw error; }
+    }
+    return reply({ ...created, ...place.location }, { status: 201 });
+  }
   catch (err) {
     const isSpawn = err instanceof Error && (err.name === 'TerminalSpawnError' || err instanceof TerminalSpawnError);
     const message = err instanceof Error ? err.message : String(err);
@@ -53,7 +62,9 @@ export async function deleteTerminalResult(place: TerminalPlace, terminalId: str
   if (place.at === 'nowhere') return refuse(place);
   if (place.at === 'elsewhere') return answerResult(await askTerminal(place, { op: 'close', scope: place.scope, terminalId }), changed);
   if (!place.owner.ok) return refuse(place.owner);
-  return killTerminal(place.owner.ownerId, terminalId) ? reply({ ok: true }) : failure({ error: 'Terminal not found' }, 404);
+  if (!killTerminal(place.owner.ownerId, terminalId)) return failure({ error: 'Terminal not found' }, 404);
+  recordTerminalControl(place, terminalId, 'close');
+  return reply({ ok: true });
 }
 export async function terminalInputResult(body: z.infer<typeof terminalInput>, place: TerminalPlace, terminalId: string, onInput?: () => void) {
   if (typeof body?.data !== 'string') return failure({ error: 'data must be a string' }, 400);
@@ -65,6 +76,7 @@ export async function terminalInputResult(body: z.infer<typeof terminalInput>, p
   }
   if (!place.owner.ok) return refuse(place.owner);
   if (!writeInput(place.owner.ownerId, terminalId, body.data)) return failure({ error: 'Terminal not found or exited' }, 404);
+  recordTerminalControl(place, terminalId, 'input');
   onInput?.();
   return reply({ ok: true });
 }
@@ -75,4 +87,14 @@ export async function terminalResizeResult(body: z.infer<typeof terminalResize>,
   if (place.at === 'elsewhere') return answerResult(await askTerminal(place, { op: 'resize', scope: place.scope, terminalId, cols, rows }), changed);
   if (!place.owner.ok) return refuse(place.owner);
   return resizeTerminal(place.owner.ownerId, terminalId, cols, rows) ? reply({ ok: true }) : failure({ error: 'Terminal not found or exited' }, 404);
+}
+
+/** Record who took control, without saving keystrokes, commands or secrets. */
+function recordTerminalControl(place: TerminalPlace, terminalId: string, operation: 'input' | 'close') {
+  if (place.at !== 'home' || !place.attribution) return;
+  const actors = processState('terminal:input-actors', () => new Map<string, string>());
+  if (operation === 'input' && actors.get(terminalId) === place.attribution.memberId) return;
+  recordTeamActivity({ workspaceId: place.attribution.workspaceId, memberId: place.attribution.memberId, apiKeyId: place.attribution.apiKeyId,
+    kind: 'terminal_control', resource: terminalId, operation });
+  if (operation === 'close') actors.delete(terminalId); else actors.set(terminalId, place.attribution.memberId);
 }

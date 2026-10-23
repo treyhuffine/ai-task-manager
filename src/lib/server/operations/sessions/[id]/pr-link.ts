@@ -3,6 +3,9 @@ import { linkedPullUrl } from '@/lib/github/remote';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import type { PrLinkResponse } from '@/lib/sessions/contracts';
 import { z as rpcZ } from 'zod/v4';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { agentFolderAnswer } from '@/lib/workspaces/agent-folder-operations';
 
 /**
  * The linked PR's address, worked out without asking GitHub: the session's
@@ -17,17 +20,29 @@ import { z as rpcZ } from 'zod/v4';
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
-  const { id } = rpcInput.params;
-  const session = getChatSessionWithExecution(id);
-  if (!session) return reply({ error: 'Session not found' }, { status: 404 });
-  // The workspace's own checkout, not the worktree: it outlives an archived
-  // execution's worktree and exists before setup finishes.
-  const ws = session.workspaceId ? getWorkspace(session.workspaceId) : undefined;
-  const prNumber = session.prNumber;
-  if (prNumber == null || !ws) return reply({ linked: null } satisfies PrLinkResponse);
-  const url = await linkedPullUrl(ws.cwd, prNumber);
-  return reply({ linked: url ? { number: prNumber, url } : null } satisfies PrLinkResponse);
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
+  try {
+    const { id } = rpcInput.params;
+    const authority = sessionAuthority(getRequestKey(request.headers), id, 'read');
+    const session = getChatSessionWithExecution(id);
+    if (!session) return reply({ error: 'Session not found' }, { status: 404 });
+    // The workspace's own checkout, not the worktree: it outlives an archived
+    // execution's worktree and exists before setup finishes.
+    const ws = session.workspaceId ? getWorkspace(session.workspaceId) : undefined;
+    const prNumber = session.prNumber;
+    if (prNumber == null || !ws) return reply({ linked: null } satisfies PrLinkResponse);
+    if (authority) {
+      const answer = await agentFolderAnswer(ws.id, { kind: 'linked_pr', number: prNumber });
+      if (answer.status !== 200) return reply({ linked: null, unavailable: 'The owning worker could not read this repository’s PR link.' });
+      return reply(answer.body as PrLinkResponse);
+    }
+    const url = await linkedPullUrl(ws.cwd, prNumber);
+    return reply({ linked: url ? { number: prNumber, url } : null } satisfies PrLinkResponse);
+  } catch (error) {
+    const denied = executionOperationFailure(error);
+    if (denied) return denied;
+    throw error;
+  }
 }
 
 export const GETInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict() }).strict();

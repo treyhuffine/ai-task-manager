@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { getDevice, getWorkspace } from '@/lib/db/queries';
 import { reply, type OperationContext, type OperationFailure } from '@/lib/server/operation';
 import { agentFoldersEverywhere, chooseWorkspaceFolder, FolderError, removeFromDevice } from '@/lib/setups/folders';
@@ -19,6 +20,8 @@ async function scope(params: Params['params']): Promise<Scope> {
 
 /** The agent's project folder on that device (docs/homes-spec.md §4.1). */
 export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents', rpcInput.params.deviceId);
+  if (homeDenied) return homeDenied;
   const s = await scope(Promise.resolve(rpcInput.params));
   if (!s.ok) return s.response;
   const body = (rpcInput.body) as { folder?: unknown };
@@ -34,6 +37,8 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
 
 /** Take the agent off that device. Nothing there is deleted. */
 export async function DELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents', rpcInput.params.deviceId);
+  if (homeDenied) return homeDenied;
   const s = await scope(Promise.resolve(rpcInput.params));
   if (!s.ok) return s.response;
   try {

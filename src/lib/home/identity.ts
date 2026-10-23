@@ -39,6 +39,7 @@ import {
 } from '@/lib/db/queries';
 import type { DeviceRecord, HomeKind, HomeRecord } from '@/db/types';
 import { thisDeviceFacts } from './device-name';
+import { registerHomeRoot } from './root-registry';
 import { readTeamIntent } from './team-intent';
 
 export { defaultDeviceName } from './device-name';
@@ -233,6 +234,7 @@ export function ensureHomeIdentity(opts: ResolveOptions = {}): Extract<HomeIdent
   if (status.state === 'needs_claim') {
     throw new HomeIdentityError(describeNeedsClaim(status.reason), status.reason);
   }
+  registerHomeRoot(status.home.kind);
   // The home's own keys made before its identity are its device's.
   giveHostItsKeys();
   verified = { dbPath, homeId: status.home.id, deviceId: status.device.id };

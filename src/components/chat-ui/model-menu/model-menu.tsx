@@ -68,7 +68,7 @@ export function ModelMenuContent({
   };
   speed?: SpeedControl;
   disabled?: boolean;
-  onManageModels: () => void;
+  onManageModels?: () => void;
   footer?: ReactNode;
 }) {
   const effortLabel =
@@ -136,7 +136,7 @@ export function ModelMenuContent({
             disabled={disabled || speed.pending}
           />
         )}
-        <button
+        {onManageModels && <button
           type="button"
           onClick={onManageModels}
           className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-[12px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -146,7 +146,7 @@ export function ModelMenuContent({
           <span className="ml-auto text-[10.5px] text-muted-foreground/70">
             Show or hide
           </span>
-        </button>
+        </button>}
       </div>
       {footer && (
         <div className="border-t border-border px-2.5 pb-0.5 pt-2">

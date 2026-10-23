@@ -1,4 +1,5 @@
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
+import { useEntityLinkHome } from '@/components/editor/entity-link-scope';
 import { rpcQuery } from '@/lib/trpc/request-options';
 import { useQuery } from '@tanstack/react-query';
 
@@ -31,7 +32,7 @@ export interface EntityTitle {
 
 /**
  * Backlinks + outgoing links for a task/note. Keyed under a shared
- * `['entity-backlinks', ...]` root so `settleEntity` can invalidate every
+ * typed backlinks procedure root so `settleEntity` can invalidate every
  * mounted panel in the target direction on any task/note mutation.
  *
  * `refetchOnMount: 'always'` so reopening a slideout always refreshes — this is
@@ -41,7 +42,7 @@ export interface EntityTitle {
  */
 export function useBacklinks(type: LinkEntityType, id: string | null | undefined) {
   return useQuery({
-    queryKey: ['entity-backlinks', type, id],
+    queryKey: trpc.entities.backlinksTypeGet.queryKey({ params: { type, id: id ?? '' } }),
     queryFn: () => trpcClient.entities.backlinksTypeGet.query({params: {type: type, id: id ?? ''}}),
     enabled: !!id,
     staleTime: 30_000,
@@ -55,10 +56,11 @@ export function useBacklinks(type: LinkEntityType, id: string | null | undefined
  * so React Query dedupes across the many chips in a document.
  */
 export function useEntityTitle(type: LinkEntityType, id: string | null | undefined) {
+  const sourceHome = useEntityLinkHome();
   return useQuery({
-    queryKey: ['entity-title', type, id],
+    queryKey: sourceHome ? trpc.spaces.entityTitles.queryKey({ teamId: sourceHome, refs: `${type}:${id}` }) : trpc.entities.titlesGet.queryKey({ query: { refs: `${type}:${id}` } }),
     queryFn: async () => {
-      const res = await trpcClient.entities.titlesGet.query({query: rpcQuery({ refs: `${type}:${id}` })});
+      const res = sourceHome ? await trpcClient.spaces.entityTitles.query({ teamId: sourceHome, refs: `${type}:${id}` }) : await trpcClient.entities.titlesGet.query({query: rpcQuery({ refs: `${type}:${id}` })});
       return res.titles[0] ?? null;
     },
     enabled: !!id,

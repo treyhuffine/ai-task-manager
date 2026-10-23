@@ -1,4 +1,7 @@
 import { actorFromRequest } from '@/lib/auth/actor';
+import { authorizeTeamActorExecution, assertTeamModelSelection } from '@/lib/home/execution-authority';
+import { widensPermissions } from '@/lib/permissions/modes';
+import { conversationViews } from '@/lib/sessions/view-state';
 import { publishSessionTitle } from '@/lib/realtime/bus';
 import { EFFORT_LEVELS, PERMISSION_MODES, type EffortLevel, type PermissionMode } from '@/db/types';
 import { getAppRoot } from '@/lib/config/paths';
@@ -16,17 +19,22 @@ import { assertServiceTier, serviceTierForModel } from '@/lib/harness/service-ti
 import { getHarnessRuntime } from '@/lib/harness/runtime';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
 
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    sessionAuthority(getRequestKey(request.headers), id, 'read');
     const row = getChatSessionWithExecution(id);
     if (!row) return reply({ error: 'Session not found' }, { status: 404 });
-    return reply(row);
+    return reply(conversationViews(getRequestKey(request.headers), [row])[0]);
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/sessions/:id]', err);
     return reply({ error: String(err) }, { status: 500 });
   }
@@ -73,13 +81,15 @@ function selectionChangeWhileRunningResponse() {
  * flag and resumes the conversation via `externalSessionId`. We don't
  * await the close — the route returns as soon as the row update lands.
  */
-export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: OperationContext) {
+export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
     const body: PatchBody = rpcInput.body;
+    const authority = sessionAuthority(getRequestKey(request.headers), id, 'editChat');
 
     const existing = getChatSessionWithExecution(id);
     if (!existing) return reply({ error: 'Session not found' }, { status: 404 });
+    const contextual = authority && ['permissionMode', 'model', 'modelVariant', 'effort', 'serviceTier'].some(field => field in body) ? { verify: () => sessionAuthority(getRequestKey(request.headers), id, 'send') } : null;
     if (existing.surfaceKind === 'result_review' && Object.keys(body).some((key) => key !== 'label')) {
       return reply({ error: 'An assigned reviewer keeps its inspection authority and saved selection. Start a deliberate new review to change settings.' }, { status: 409 });
     }
@@ -100,7 +110,7 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
     let executorChanged = false;
     if ('permissionMode' in body) {
       const mode = body.permissionMode;
-      if (mode !== existing.permissionMode && actorFromRequest(_request.headers).source === 'ai') {
+      if (mode !== existing.permissionMode && actorFromRequest(request.headers).source === 'ai') {
         return reply({ error: 'Only a person can change a chat’s tool permissions.' }, { status: 403 });
       }
       if (!mode || !PERMISSION_MODES.includes(mode)) {
@@ -109,12 +119,13 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
           { status: 400 },
         );
       }
+      if (authority && widensPermissions(existing.permissionMode, mode)) authorizeTeamActorExecution(actorFromRequest(request.headers), { chatId: id, operation: 'approve' });
       if (mode !== existing.permissionMode && executor.isRunning(id)) {
         return selectionChangeWhileRunningResponse();
       }
       const providerId = existing.harness;
-      const cwd = executor.resolveCwd(existing) ?? getAppRoot();
-      const runtime = await getHarnessRuntime(providerId, { cwd });
+      const runtime = await getHarnessRuntime(providerId, { cwd: executor.resolveCwd(existing) ?? getAppRoot() });
+      if (contextual && mode !== existing.permissionMode && (!runtime.capabilities.sessionModeChange.supported || (['ask', 'auto_edits'].includes(mode) && !runtime.capabilities.permissionRequests.supported))) return reply({ error: 'This mode is unavailable on the selected team runtime.' }, { status: 409 });
       // Single source of truth for the per-provider matrix (shared with the
       // composer's picker) — see permission-map.ts. Reason text stays tailored.
       const supported = supportedPermissionModes(providerId, runtime.capabilities.planMode.supported);
@@ -145,10 +156,9 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
     let nextSelection: ReturnType<typeof explicitHarnessSelection> | null = null;
     if ('model' in body || 'modelVariant' in body || 'effort' in body || 'serviceTier' in body) {
       const providerId = existing.harness;
-      const cwd = executor.resolveCwd(existing) ?? getAppRoot();
       const [catalog, runtime] = await Promise.all([
-        getHarnessModelCatalog(providerId, { cwd }),
-        getHarnessRuntime(providerId, { cwd }),
+        getHarnessModelCatalog(providerId, { cwd: executor.resolveCwd(existing) ?? getAppRoot() }),
+        getHarnessRuntime(providerId, { cwd: executor.resolveCwd(existing) ?? getAppRoot() }),
       ]);
       const requestedModel = 'model' in body ? body.model?.trim() : existing.model;
       if ('model' in body && (!requestedModel || !catalog.some((model) => model.id === requestedModel))) {
@@ -174,6 +184,7 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
         { model: requestedModel, variant: requestedVariant, effort: requestedEffort },
         catalog,
       );
+      assertTeamModelSelection(actorFromRequest(request.headers), providerId, nextSelection.model);
       const targetModel = catalog.find(model => model.id === nextSelection!.model);
       // Explicit speed must be honored. A different model may safely drop an
       // incompatible old speed, without enabling another paid tier.
@@ -250,6 +261,8 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
     }
     // prNumber was lifted off chat_sessions onto the execution. Route it
     // to the execution row rather than the chat update below.
+    contextual?.verify();
+    if (nextSelection) assertTeamModelSelection(actorFromRequest(request.headers), existing.harness, nextSelection.model);
     let prChanged = false;
     if ('prNumber' in body) {
       const num = body.prNumber;
@@ -312,6 +325,8 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, _request: O
     const current = getChatSessionWithExecution(id);
     return current ? reply(current) : reply({ error: 'Session not found' }, { status: 404 });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[PATCH /api/sessions/:id]', err);
     return reply({ error: String(err) }, { status: 400 });
   }

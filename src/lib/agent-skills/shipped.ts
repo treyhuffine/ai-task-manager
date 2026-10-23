@@ -5,7 +5,7 @@
  * discover the skill from their own cwd. The user-level install makes the same
  * skills available to ordinary coding-tool sessions in any project, for every
  * harness Ri can run. First-run setup turns it on as the conversation opens,
- * unless the home already chose, and Settings (Get started, External AI)
+ * unless the home already chose, and Settings (Get started, MCP access)
  * shows it with one-click install and uninstall
  * (`src/components/settings/agent-skill-access.tsx`). Project repositories are
  * never an ownership location for shipped skills.

@@ -1,7 +1,7 @@
 'use client';
 
 import { entityKeys } from '@/lib/query/entity-keys';
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import type { ReviewDisposition } from '@/db/types';
@@ -28,7 +28,7 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
   const qc = useQueryClient();
 
   const { data: ctx } = useQuery({
-    queryKey: ['executions', executionId, 'review-context'],
+    queryKey: trpc.executions.reviewContextGet.queryKey({ params: { id: executionId } }),
     queryFn: () => trpcClient.executions.reviewContextGet.query({params: {id: executionId}}),
     refetchInterval: 15_000,
     staleTime: 8_000,
@@ -37,7 +37,7 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
   // The execution's associated tasks, so Accept-and-complete can offer a chooser
   // when several are associated instead of hiding the action.
   const { data: linkedTasks } = useQuery({
-    queryKey: ['executions', executionId, 'tasks'],
+    queryKey: trpc.executions.tasksGet.queryKey({ params: { id: executionId } }),
     queryFn: () => trpcClient.executions.tasksGet.query({params: {id: executionId}}),
     staleTime: 8_000,
   });
@@ -50,8 +50,8 @@ export function ExecutionReviewBar({ executionId }: { executionId: string }) {
       // be dispositioned instead of the one the human actually reviewed.
       trpcClient.executions.reviewPost.mutate({params: {id: executionId}, body: { ...input, outputEventId: ctx?.latestOutputEventId }}),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['executions', executionId, 'review-context'] });
-      qc.invalidateQueries({ queryKey: ['executions', executionId, 'tasks'] });
+      qc.invalidateQueries({ queryKey: trpc.executions.reviewContextGet.queryKey({ params: { id: executionId } }) });
+      qc.invalidateQueries({ queryKey: trpc.executions.tasksGet.queryKey({ params: { id: executionId } }) });
       qc.invalidateQueries({ queryKey: entityKeys.tasks.all });
     },
     onError: (e) => toast.error(apiErrorText(e)),

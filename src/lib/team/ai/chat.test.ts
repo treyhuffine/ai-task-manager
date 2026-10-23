@@ -1,651 +1,225 @@
-/**
- * Team AI's settings and shared chats (docs/homes-spec.md §9.9, P8.4-P8.5),
- * through the real proxy and tRPC, with a stand-in for the runtime so turns
- * can be held, released and stopped: who may configure it, one turn at a time
- * in accepted order with each sender's identity, retries that never make a
- * second turn, reconnecting by cursor, and what turning it off, removing a
- * member, a restart or a refused key leave behind.
- */
+/** Durable queue and public adapters, using a held fake turn rather than an account. */
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { createTeamExecutionFixture } from '@/test/fixtures/team-execution';
+import { fakeHarnessAuth, fakeHarnessRuntime } from '@/test/fixtures/harness-runtime';
+import { preloadTeamRoutes, serveTeam, teamTrpc } from '@/test/fixtures/team-home';
+import * as q from '@/lib/db/queries';
+import type { HarnessId } from '@/lib/harness/registry';
+import type { RunTeamTurnInput, TeamTurnOutcome } from './turn-prompt';
+import { settledTeamAi, stopTeamAiWork, setTeamAiRunnerForTests, resumeTeamAiAfterStart, kickTeamChat } from './chat';
+import { teamAiTurnPrompt } from './turn-prompt';
+import { runnerState } from '@/lib/runner/live-state';
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiErrorStatus } from '@/lib/api/error-status';
-import { createTeamTestHome, preloadTeamRoutes, serveTeam, teamTrpc, type TeamTestHome } from '@/test/fixtures/team-home';
-import type { RunTeamTurnInput, TeamTurnOutcome } from './runtime';
-
-const subscription = vi.hoisted(() => vi.fn<(fresh?: boolean) => Promise<{ available: boolean }>>(async () => ({ available: true })));
-vi.mock('./auth', async (original) => ({ ...(await original<typeof import('./auth')>()), teamAiSubscription: subscription }));
-
-const ai = vi.hoisted(() => ({
-  embed: vi.fn(async () => ({ embedding: new Array(1536).fill(0) })),
-  harness: vi.fn(async () => { throw new Error('no background model in a team'); }),
+const availability = vi.hoisted(() => ({ signedIn: true, beforeAuth: null as (() => Promise<void>) | null }));
+vi.mock('@/lib/harness/runtime', async original => ({ ...await original<typeof import('@/lib/harness/runtime')>(),
+  getHarnessRuntime: async (id: HarnessId) => fakeHarnessRuntime(id),
+  resolveHarnessAuth: async (id: HarnessId) => { await availability.beforeAuth?.(); return fakeHarnessAuth(id, availability.signedIn); },
 }));
-vi.mock('ai', async (importOriginal) => ({ ...(await importOriginal<typeof import('ai')>()), embed: ai.embed }));
-vi.mock('@/lib/harness/one-shot', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/harness/one-shot')>()),
-  runHarnessText: ai.harness,
-  runHarnessJson: ai.harness,
-}));
-vi.mock('./probe', () => ({ probeTeamAiRuntime: vi.fn(async () => ({ ok: true, version: '2.1.295 (Claude Code)', missing: [], error: null })) }));
-vi.mock('@/lib/sessions/workstream', () => ({ coordinateLifecycleChange: vi.fn(async () => {}) }));
-vi.mock('@/lib/sessions/workstream-runtime', () => ({ inProcessWorkstreamRuntime: {} }));
-vi.mock('@/lib/executor/status-snapshot', () => ({ listRunningSessions: () => [] }));
-vi.setConfig({ testTimeout: 60_000 });
+vi.mock('@/lib/harness/start-selection', () => ({ resolveStartSelection: async (input: { providerId?: string; model?: string }) => ({ providerId: input.providerId ?? 'codex', model: input.model ?? 'gpt-6.1-sol', variant: null, effort: null }) }));
 
-/** A runtime that answers when told to, records who asked, and stops when stopped. */
-function heldRuntime() {
-  const calls: Array<{ turnId: string; member: string; text: string }> = [];
-  const gates = new Map<string, (outcome: TeamTurnOutcome) => void>();
-  let active = 0;
-  let overlapped = false;
-  const runner = async (input: RunTeamTurnInput): Promise<TeamTurnOutcome> => {
-    active += 1;
-    if (active > 1) overlapped = true;
-    calls.push({ turnId: input.turn.id, member: input.memberName, text: input.text });
-    try {
-      return await new Promise<TeamTurnOutcome>((resolve) => {
-        gates.set(input.turn.id, resolve);
-        input.signal?.addEventListener('abort', () => resolve({ status: 'cancelled' }), { once: true });
-      });
-    } finally {
-      active -= 1;
-    }
-  };
-  return {
-    runner,
-    calls,
-    overlapped: () => overlapped,
-    async answer(turnId: string, text: string, outcome: TeamTurnOutcome = { status: 'done' }) {
-      const q = await import('@/lib/db/queries');
-      const turn = q.getTeamChatTurn(turnId)!;
-      q.insertChatEvent({ sessionId: turn.chatSessionId, role: 'assistant', source: 'agent', content: text, createdAt: new Date().toISOString() });
-      gates.get(turnId)?.(outcome);
-    },
-    async waitFor(count: number) {
-      for (let i = 0; i < 200 && calls.length < count; i++) await new Promise((r) => setTimeout(r, 10));
-      expect(calls.length).toBeGreaterThanOrEqual(count);
-    },
-  };
-}
-
-let team: TeamTestHome;
-let maya: { token: string; id: string };
-let held: ReturnType<typeof heldRuntime>;
-
+let fixture: Awaited<ReturnType<typeof createTeamExecutionFixture>>;
+let member: Awaited<ReturnType<typeof teamTrpc>>, owner: Awaited<ReturnType<typeof teamTrpc>>;
+let calls: RunTeamTurnInput[];
+let gates: Map<string, (outcome: TeamTurnOutcome) => void>;
+let chat: ReturnType<typeof q.createChatSession>;
 beforeAll(preloadTeamRoutes, 120_000);
-
 beforeEach(async () => {
-  subscription.mockReset().mockResolvedValue({ available: true });
-  vi.stubGlobal('fetch', serveTeam);
-  team = await createTeamTestHome('ri-team-chat-');
-  maya = await team.joinAs('Maya');
-  held = heldRuntime();
-  const { setTeamAiTestSeams } = await import('./chat');
-  setTeamAiTestSeams(null, held.runner);
+  vi.stubEnv('RI_MIRROR_DISABLED', '1'); vi.stubGlobal('fetch', serveTeam);
+  fixture = await createTeamExecutionFixture(); calls = []; gates = new Map();
+  availability.signedIn = true; availability.beforeAuth = null;
+  member = await teamTrpc(fixture.member.token.plaintext); owner = await teamTrpc(fixture.owner.token.plaintext);
+  chat = q.createChatSession({ type: 'orchestration', harness: 'codex', model: 'gpt-6.1-sol', workspaceId: fixture.workspace.id, deviceId: q.getHome()!.hostDeviceId, surfaceKind: q.TEAM_CHAT_SURFACE, createdByMemberId: fixture.owner.member.id });
+  setTeamAiRunnerForTests(async input => {
+    calls.push(input);
+    return new Promise(resolve => {
+      gates.set(input.turn.id, resolve);
+      input.signal?.addEventListener('abort', () => resolve({ status: 'cancelled' }), { once: true });
+    });
+  });
 });
-
 afterEach(async () => {
-  const { setTeamAiTestSeams, settledTeamAi, stopTeamAiWork } = await import('./chat');
-  await stopTeamAiWork({}, 'test over');
+  runnerState.backgroundTasks.delete(chat?.id);
+  runnerState.runningSessions.delete(chat?.id);
+  availability.beforeAuth = null;
+  await stopTeamAiWork({}, 'Fixture ended.'); await settledTeamAi(); setTeamAiRunnerForTests(null);
+  await fixture.cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs();
+});
+const send = (client = member, text = 'Shared request', clientSendId = crypto.randomUUID()) => client.team.ai.send.mutate({ chatId: chat.id, clientSendId, text });
+const waitFor = async (count: number) => vi.waitFor(() => expect(calls).toHaveLength(count));
+const finish = (id: string, outcome: TeamTurnOutcome = { status: 'done' }) => gates.get(id)!(outcome);
+
+it('serializes two members in acceptance order, preserves author IDs, and retries once', async () => {
+  const first = await send(owner, 'Owner starts', 'stable-send-first'); await waitFor(1);
+  const second = await send(member, 'Maya continues', 'stable-send-next');
+  expect(await send(member, 'Maya continues', 'stable-send-next')).toMatchObject({ turnId: second.turnId, created: false });
+  await expect(send(member, 'Changed retry', 'stable-send-next')).rejects.toThrow(/different message/);
+  expect(calls.map(call => call.memberName)).toEqual(['Owner']);
+  finish(first.turnId); await waitFor(2); finish(second.turnId); await settledTeamAi();
+  expect(calls.map(call => [call.memberName, call.text])).toEqual([['Owner', 'Owner starts'], ['Maya', 'Maya continues']]);
+  expect(q.getChatEventById(second.messageId)?.authorMemberId).toBe(fixture.member.member.id);
+  expect(q.listTeamChatTurns(chat.id).map(turn => turn.status)).toEqual(['done', 'done']);
+});
+
+it('lets a non-requesting member cancel queued messages and stop the active turn with visible reasons', async () => {
+  const first = await send(owner); await waitFor(1);
+  const queued = await send(owner, 'Waiting');
+  await member.team.ai.stop.mutate({ turnId: queued.turnId });
+  expect(q.getTeamChatTurn(queued.turnId)).toMatchObject({ status: 'cancelled', error: 'Stopped by Maya.' });
+  await member.team.ai.stop.mutate({ turnId: first.turnId }); await settledTeamAi();
+  expect(q.getTeamChatTurn(first.turnId)).toMatchObject({ status: 'cancelled', error: 'Stopped by Maya.' });
+  expect(q.listChatEvents(chat.id, { limit: 100 }).filter(event => event.source === 'error').map(event => event.content)).toEqual(['Stopped by Maya.', 'Stopped by Maya.']);
+});
+
+it('refuses reviewer messages before acceptance on both public send paths', async () => {
+  q.updateChatSession(chat.id, { surfaceKind: 'result_review' });
+  await expect(send()).rejects.toThrow(/background reviewer/);
+  await expect(member.sessions.messagesPost.mutate({ params: { id: chat.id }, body: { content: 'Continuation' } })).rejects.toThrow(/background reviewer/);
+  expect(q.listTeamChatTurns(chat.id)).toEqual([]);
+  expect(q.listChatEvents(chat.id)).toEqual([]);
+});
+
+it('preserves draft ownership and refuses unavailable selected sign-ins before recording a message', async () => {
+  await expect(member.team.ai.send.mutate({ chatId: chat.id, authorMemberId: fixture.owner.member.id, text: 'Foreign draft', clientSendId: 'foreign-draft' })).rejects.toThrow(/sign-in changed/);
+  availability.signedIn = false;
+  await expect(send()).rejects.toThrow(/Sign in to Codex/);
+  expect(q.listTeamChatTurns(chat.id)).toEqual([]);
+  availability.signedIn = true;
+  await send(); await waitFor(1);
+});
+
+it.each(['removed', 'off', 'archived'] as const)('revalidates an awaited availability check when authority becomes %s', async change => {
+  const arrived = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  availability.beforeAuth = async () => { arrived.resolve(); await release.promise; };
+  const pending = send(); await arrived.promise;
+  if (change === 'removed') q.removeMember(fixture.member.member.id);
+  if (change === 'off') q.saveTeamAiSettings({ enabled: false }, fixture.owner.member.id);
+  if (change === 'archived') q.archiveChatSession(chat.id);
+  release.resolve(); await expect(pending).rejects.toThrow();
+  expect(q.listTeamChatTurns(chat.id)).toEqual([]);
+});
+
+it('shows the actual failure reason, including timeout, and admits a later retry', async () => {
+  const failed = await send(); await waitFor(1);
+  finish(failed.turnId, { status: 'failed', code: 'runtime', error: 'The provider timed out.' }); await settledTeamAi();
+  expect(q.getTeamChatTurn(failed.turnId)).toMatchObject({ status: 'failed', error: 'The provider timed out.' });
+  expect(q.listChatEvents(chat.id).some(event => event.source === 'error' && event.content === 'The provider timed out.')).toBe(true);
+  await send(member, 'Try again'); await waitFor(2);
+});
+
+it('cancels all queued turns when AI is disabled, beyond the visible history page', async () => {
+  const first = await send(); await waitFor(1);
+  for (let i = 0; i < 210; i++) q.acceptTeamChatSend({ chatId: chat.id, memberId: fixture.member.member.id, requestingApiKeyId: fixture.member.key.id, clientSendId: `queued-${i}`, text: `Request ${i}` });
+  await owner.team.ai.setEnabled.mutate({ enabled: false }); await settledTeamAi();
+  expect(q.listTeamChatTurns(chat.id, { limit: 500 }).every(turn => turn.status === 'cancelled')).toBe(true);
+  expect(q.getTeamChatTurn(first.turnId)?.error).toBe('Team AI was turned off.');
+});
+
+it('keeps an existing chat active when compatibility create adds another chat', async () => {
+  const added = await member.team.ai.chats.create.mutate({ label: 'Additional', workspaceId: fixture.workspace.id });
+  expect(q.getChatSession(chat.id)?.status).toBe('active');
+  expect(q.getChatSession(added.id)).toMatchObject({ workspaceId: fixture.workspace.id, createdByMemberId: fixture.member.member.id });
+});
+
+it('keeps the last-chat rule on compatibility archive and permits another member to close a sibling', async () => {
+  const execution = q.createExecutionWithChat({ workspaceId: fixture.workspace.id, harness: 'codex', label: 'Execution', surfaceKind: q.TEAM_CHAT_SURFACE, createdByMemberId: fixture.owner.member.id });
+  await expect(member.team.ai.chats.archive.mutate({ id: execution.session.id })).rejects.toThrow(/only open chat/);
+  const sibling = q.createChatSession({ executionId: execution.execution.id, workspaceId: fixture.workspace.id, type: 'execution', harness: 'codex', surfaceKind: q.TEAM_CHAT_SURFACE });
+  expect(await member.team.ai.chats.archive.mutate({ id: execution.session.id })).toEqual({ ok: true });
+  expect(q.getChatSession(execution.session.id)?.status).toBe('archived');
+  expect(q.getChatSession(sibling.id)?.status).toBe('active'); expect(q.getExecution(execution.execution.id)?.status).toBe('active');
+});
+
+it('interrupts running turns at boot, resumes only bound queued work, and never replays done or legacy work', async () => {
+  const done = q.acceptTeamChatSend({ chatId: chat.id, memberId: fixture.member.member.id, requestingApiKeyId: fixture.member.key.id, clientSendId: 'done-before-boot', text: 'Done' });
+  q.claimNextTeamChatTurn(chat.id); q.finishTeamChatTurn(done.turn.id, 'done');
+  const cut = q.acceptTeamChatSend({ chatId: chat.id, memberId: fixture.member.member.id, requestingApiKeyId: fixture.member.key.id, clientSendId: 'cut-before-boot', text: 'Interrupted' }); q.claimNextTeamChatTurn(chat.id);
+  const queued = q.acceptTeamChatSend({ chatId: chat.id, memberId: fixture.member.member.id, requestingApiKeyId: fixture.member.key.id, clientSendId: 'waiting-before-boot', text: 'Continue bound work' });
+  const legacy = q.createChatSession({ harness: 'claude', type: 'orchestration', surfaceKind: q.TEAM_CHAT_SURFACE });
+  const old = q.acceptTeamChatSend({ chatId: legacy.id, memberId: fixture.member.member.id, clientSendId: 'legacy-before-boot', text: 'Old engine request' });
+  resumeTeamAiAfterStart(); await waitFor(1);
+  expect(calls[0].text).toBe('Continue bound work'); finish(queued.turn.id); await settledTeamAi();
+  expect(q.getTeamChatTurn(cut.turn.id)?.status).toBe('interrupted');
+  expect(q.getTeamChatTurn(old.turn.id)?.status).toBe('cancelled'); expect(q.getTeamChatTurn(done.turn.id)?.status).toBe('done');
+  expect(q.listChatEvents(chat.id).some(event => event.source === 'error' && event.content?.includes('team stopped'))).toBe(true);
+});
+
+it('binds a legacy chat on its next send without inventing a creator or changing its history cursor', async () => {
+  const legacy = q.createChatSession({ harness: 'claude', type: 'orchestration', surfaceKind: q.TEAM_CHAT_SURFACE });
+  const original = q.insertChatEvent({ sessionId: legacy.id, source: 'agent', role: 'assistant', content: 'Preserved history' });
+  const before = q.listTeamChatEventsLatest(legacy.id, 50);
+  await member.team.ai.send.mutate({ chatId: legacy.id, clientSendId: 'legacy-next-send', text: 'Continue' }); await waitFor(1);
+  expect(q.getChatSession(legacy.id)).toMatchObject({ id: legacy.id, workspaceId: fixture.workspace.id, createdByMemberId: null });
+  expect(q.getChatEventById(original!.id)?.content).toBe('Preserved history');
+  expect(q.listTeamChatEventsLatest(legacy.id, 50).events[0].id).toBe(before.events[0].id);
+});
+
+it('does not treat cancelled and interrupted legacy requests as current instructions', () => {
+  const make = (text: string) => q.acceptTeamChatSend({ chatId: chat.id, memberId: fixture.member.member.id, requestingApiKeyId: fixture.member.key.id, clientSendId: crypto.randomUUID(), text });
+  const done = make('Completed question'); q.claimNextTeamChatTurn(chat.id); q.finishTeamChatTurn(done.turn.id, 'done');
+  const cancelled = make('CANCELLED INSTRUCTION'); q.finishTeamChatTurn(cancelled.turn.id, 'cancelled', 'Cancelled');
+  const cut = make('INTERRUPTED INSTRUCTION'); q.finishTeamChatTurn(cut.turn.id, 'interrupted', 'Interrupted');
+  q.insertChatEvent({ sessionId: chat.id, source: 'agent', role: 'assistant', content: 'PARTIAL REPLY TO INTERRUPTED REQUEST' });
+  const current = make('Current request'); make('FUTURE INSTRUCTION');
+  const prompt = teamAiTurnPrompt({ turn: current.turn, memberName: 'Maya', text: 'Current request' });
+  expect(prompt).toContain('Completed question'); expect(prompt).not.toMatch(/CANCELLED INSTRUCTION|INTERRUPTED INSTRUCTION|FUTURE INSTRUCTION|PARTIAL REPLY/);
+});
+
+it('runs one drain loop per chat despite repeated kicks', async () => {
+  const first = await send(); await waitFor(1);
+  for (let i = 0; i < 10; i++) kickTeamChat(chat.id);
+  expect(calls).toHaveLength(1); finish(first.turnId); await settledTeamAi(); expect(calls).toHaveLength(1);
+});
+
+it('keeps a legacy chat unbound when its selected harness is not signed in', async () => {
+  const legacy = q.createChatSession({ harness: 'claude', model: 'legacy-choice', type: 'orchestration', surfaceKind: q.TEAM_CHAT_SURFACE });
+  availability.signedIn = false;
+  await expect(member.team.ai.send.mutate({ chatId: legacy.id, clientSendId: 'refused-legacy-send', text: 'Continue' })).rejects.toThrow(/Sign in/);
+  expect(q.getChatSession(legacy.id)).toMatchObject({ workspaceId: null, harness: 'claude', model: legacy.model });
+  expect(q.listTeamChatTurns(legacy.id)).toEqual([]);
+});
+
+it('revoking only the requesting sign-in cancels its work and preserves another member queued work', async () => {
+  const first = await send(owner); await waitFor(1);
+  const queued = await send(member, 'Another requester');
+  await owner.team.signIns.revoke.mutate({ keyId: fixture.owner.key.id });
+  await waitFor(2);
+  expect(q.getTeamChatTurn(first.turnId)?.status).toBe('cancelled');
+  expect(q.getTeamChatTurn(queued.turnId)?.status).toBe('running');
+  finish(queued.turnId); await settledTeamAi();
+});
+
+it('keeps the next member queued while background work or a self-initiated turn is active', async () => {
+  const first = await owner.team.ai.send.mutate({ chatId: chat.id, clientSendId: 'idle-gate-first', text: 'First' });
+  await vi.waitFor(() => expect(calls).toHaveLength(1));
+  runnerState.backgroundTasks.set(chat.id, new Set(['background-work']));
+  const second = await member.team.ai.send.mutate({ chatId: chat.id, clientSendId: 'idle-gate-second', text: 'Second' });
+  gates.get(first.turnId)!({ status: 'done' });
+  await vi.waitFor(() => expect(q.getTeamChatTurn(first.turnId)?.status).toBe('done'));
+  await new Promise(resolve => setTimeout(resolve, 150));
+  expect(q.getTeamChatTurn(second.turnId)?.status).toBe('queued');
+  runnerState.runningSessions.add(chat.id);
+  runnerState.backgroundTasks.delete(chat.id);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  expect(q.getTeamChatTurn(second.turnId)?.status).toBe('queued');
+  runnerState.runningSessions.delete(chat.id);
+  await vi.waitFor(() => expect(calls).toHaveLength(2));
+  gates.get(second.turnId)!({ status: 'done' });
   await settledTeamAi();
-  setTeamAiTestSeams(null, null);
-  vi.unstubAllGlobals();
-  await team.cleanup();
 });
 
-async function status(promise: Promise<unknown>): Promise<number | null> {
-  try {
-    await promise;
-    return 200;
-  } catch (err) {
-    return apiErrorStatus(err) ?? null;
-  }
-}
-
-async function turnOn() {
-  const owner = await teamTrpc(team.owner.token);
-  return owner.team.ai.setEnabled.mutate({ enabled: true });
-}
-
-const sendId = () => crypto.randomUUID();
-
-describe('Team AI settings', () => {
-  it('keeps a signed-out subscription unavailable when another chat finishes successfully', async () => {
-    await turnOn();
-    const owner = await teamTrpc(team.owner.token);
-    const [main] = await owner.team.ai.chats.list.query();
-    const other = await owner.team.ai.chats.create.mutate({ label: 'Other conversation' });
-    const a = await owner.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'First' });
-    const b = await owner.team.ai.send.mutate({ chatId: other.id, clientSendId: sendId(), text: 'Second' });
-    await held.waitFor(2);
-    subscription.mockResolvedValue({ available: false });
-    await held.answer(a.turnId, '', { status: 'failed', code: 'credential_rejected', error: 'Refused' });
-    await vi.waitFor(async () => expect(await owner.team.ai.status.query()).toMatchObject({ state: 'needs_sign_in' }));
-    await held.answer(b.turnId, 'Finished before the key was revoked');
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-    expect(await owner.team.ai.status.query()).toMatchObject({ state: 'needs_sign_in', reason: expect.stringMatching(/Sign in/) });
-  });
-
-  it('uses the current sign-in when an old turn reports an authentication refusal', async () => {
-    await turnOn();
-    const owner = await teamTrpc(team.owner.token);
-    const [main] = await owner.team.ai.chats.list.query();
-    const sent = await owner.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Old key' });
-    await held.waitFor(1);
-    await owner.team.ai.refreshAuth.mutate();
-    expect(subscription).toHaveBeenCalledWith(true);
-    await held.answer(sent.turnId, '', { status: 'failed', code: 'credential_rejected', error: 'Old key refused' });
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-    expect(await owner.team.ai.status.query()).toMatchObject({ state: 'ready' });
-  });
-
-  it('is off by default, set up by the owner only, and never shows its key', async () => {
-    const owner = await teamTrpc(team.owner.token);
-    const member = await teamTrpc(maya.token);
-    expect(await member.team.ai.status.query()).toMatchObject({ enabled: false, state: 'off' });
-    expect(await status(member.team.ai.configure.mutate({ model: 'sonnet' }))).toBe(403);
-    expect(await status(member.team.ai.setEnabled.mutate({ enabled: true }))).toBe(403);
-
-    expect(subscription).not.toHaveBeenCalled();
-    subscription.mockResolvedValue({ available: false });
-    expect(await owner.team.ai.setEnabled.mutate({ enabled: true })).toMatchObject({ state: 'needs_sign_in' });
-    subscription.mockResolvedValue({ available: true });
-    const ready = await owner.team.ai.refreshAuth.mutate();
-    expect(ready).toMatchObject({ enabled: true, state: 'ready', provider: 'Claude subscription', runtime: 'Claude Code' });
-    expect(JSON.stringify(ready)).not.toContain('sk-ant-secret');
-    expect(JSON.stringify(await member.team.ai.status.query())).not.toContain('sk-ant-secret');
-    // Turning it on made the team's main chat.
-    const chats = await member.team.ai.chats.list.query();
-    expect(chats).toEqual([expect.objectContaining({ main: true, label: 'Acme' })]);
-    expect(await status(member.team.ai.chats.archive.mutate({ id: chats[0].id }))).toBe(400);
-  });
-
-  it('refuses to answer while off, keeping history readable', async () => {
-    await turnOn();
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    await member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Hello' });
-    await held.waitFor(1);
-    await held.answer(held.calls[0].turnId, 'Hi Maya.');
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-
-    await (await teamTrpc(team.owner.token)).team.ai.setEnabled.mutate({ enabled: false });
-    expect(await status(member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Still there?' }))).toBe(412);
-    const page = await member.team.ai.events.query({ chatId: main.id });
-    expect(page.events.map((e) => e.content)).toEqual(expect.arrayContaining(['Hello', 'Hi Maya.']));
-    expect(held.calls).toHaveLength(1);
-    expect(ai.harness).not.toHaveBeenCalled();
-  });
-});
-
-describe('shared chats', () => {
-  it('settles every queued turn when the provider becomes unavailable, beyond the display page', async () => {
-    await turnOn();
-    const q = await import('@/lib/db/queries');
-    const chat = q.createTeamChat('Long queue');
-    for (let i = 0; i < 205; i++) {
-      q.acceptTeamChatSend({ chatId: chat.id, memberId: maya.id, clientSendId: sendId(), text: `Waiting ${i}` });
-    }
-    subscription.mockResolvedValue({ available: false });
-    const { kickTeamChat, settledTeamAi } = await import('./chat');
-    kickTeamChat(chat.id);
-    await settledTeamAi();
-    const turns = q.listTeamChatTurns(chat.id, { limit: 300 });
-    expect(turns).toHaveLength(205);
-    expect(turns.every((turn) => turn.status === 'failed')).toBe(true);
-    expect(q.teamChatsWithQueuedTurns()).toEqual([]);
-  });
-
-  it.each(['member removed', 'chat archived', 'AI disabled', 'subscription signed out'] as const)('rechecks a pending send after its runtime probe: %s', async (change) => {
-    await turnOn();
-    const owner = await teamTrpc(team.owner.token);
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const chat = change === 'chat archived' ? await member.team.ai.chats.create.mutate({ label: 'Temporary' }) : main;
-    const { probeTeamAiRuntime } = await import('./probe');
-    let release!: () => void;
-    vi.mocked(probeTeamAiRuntime).mockImplementationOnce(() => new Promise((resolve) => {
-      release = () => resolve({ ok: true, version: 'test', missing: [], error: null });
-    }));
-    const sending = status(member.team.ai.send.mutate({ chatId: chat.id, clientSendId: sendId(), text: 'Never accepted' }));
-    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
-    if (change === 'member removed') await owner.team.removeMember.mutate({ id: maya.id });
-    if (change === 'chat archived') await owner.team.ai.chats.archive.mutate({ id: chat.id });
-    if (change === 'AI disabled') await owner.team.ai.setEnabled.mutate({ enabled: false });
-    if (change === 'subscription signed out') subscription.mockResolvedValue({ available: false });
-    release();
-    expect(await sending).toBe(change === 'member removed' ? 403 : change === 'chat archived' ? 404 : 412);
-    const q = await import('@/lib/db/queries');
-    expect(q.listTeamChatTurns(chat.id)).toEqual([]);
-    expect(q.listTeamChatEventsLatest(chat.id).events).toEqual([]);
-    expect(held.calls).toEqual([]);
-  });
-
-  it('runs one turn at a time in the order sent, each as its sender, and shows who wrote what', async () => {
-    await turnOn();
-    const trey = await teamTrpc(team.owner.token);
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const [a, b] = await Promise.all([
-      member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'What did we decide about billing?' }),
-      trey.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'And when do we release?' }),
-    ]);
-    await held.waitFor(1);
-    let page = await member.team.ai.events.query({ chatId: main.id });
-    // One running, one waiting behind it, in the order they were accepted.
-    const states = Object.fromEntries(page.turns.map((t) => [t.id, t.status]));
-    const [first, second] = [a, b].sort((x, y) => page.turns.find((t) => t.id === x.turnId)!.seq - page.turns.find((t) => t.id === y.turnId)!.seq);
-    expect([states[first.turnId], states[second.turnId]]).toEqual(['running', 'queued']);
-
-    await held.answer(first.turnId, 'Answer one.');
-    await held.waitFor(2);
-    await held.answer(second.turnId, 'Answer two.');
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-    expect(held.overlapped()).toBe(false);
-    expect(held.calls.map((c) => c.member).sort()).toEqual(['Maya', 'Trey']);
-
-    page = await member.team.ai.events.query({ chatId: main.id });
-    const messages = page.events.filter((e) => e.source === 'user').map((e) => [e.author?.name, e.content]);
-    expect(messages).toEqual(expect.arrayContaining([['Maya', 'What did we decide about billing?'], ['Trey', 'And when do we release?']]));
-    expect(page.turns.map((t) => t.status)).toEqual(['done', 'done']);
-    // No provider record reaches a member's screen.
-    expect(JSON.stringify(page)).not.toContain('"raw"');
-  });
-
-  it('makes one turn of a retried send, and refuses the same send id for another message', async () => {
-    await turnOn();
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const id = sendId();
-    const first = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: id, text: 'Once' });
-    const again = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: id, text: 'Once' });
-    expect(again).toMatchObject({ turnId: first.turnId, messageId: first.messageId, created: false });
-    expect(await status(member.team.ai.send.mutate({ chatId: main.id, clientSendId: id, text: 'Twice' }))).toBe(409);
-    const page = await member.team.ai.events.query({ chatId: main.id });
-    expect(page.turns).toHaveLength(1);
-    expect(page.events.filter((e) => e.source === 'user')).toHaveLength(1);
-  });
-
-  it('pages back through shared history without exposing runtime rows or losing the live cursor', async () => {
-    await turnOn();
-    const owner = await teamTrpc(team.owner.token);
-    const q = await import('@/lib/db/queries');
-    const [chat] = await owner.team.ai.chats.list.query();
-    for (let i = 0; i < 205; i++) q.insertChatEvent({ sessionId: chat.id, role: 'user', source: 'user', content: `Message ${i}` });
-    q.insertChatEvent({ sessionId: chat.id, role: 'system', source: 'system', content: 'Runtime only' });
-    const latest = await owner.team.ai.events.query({ chatId: chat.id });
-    expect(latest.events[0].content).toBe('Message 6');
-    expect(latest).toMatchObject({ hasOlder: true, oldestCursor: expect.any(Number) });
-    const older = await owner.team.ai.events.query({ chatId: chat.id, before: latest.oldestCursor! });
-    expect(older.events.map(event => event.content)).toEqual(Array.from({ length: 6 }, (_, i) => `Message ${i}`));
-    expect(older.hasOlder).toBe(false);
-    expect((await owner.team.ai.events.query({ chatId: chat.id, after: latest.cursor })).events).toEqual([]);
-  });
-
-  it('picks up after a cursor with exactly what was missed', async () => {
-    await turnOn();
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const sent = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'First' });
-    const opened = await member.team.ai.events.query({ chatId: main.id });
-    await held.waitFor(1);
-    await held.answer(sent.turnId, 'Reply');
-    const later = await member.team.ai.events.query({ chatId: main.id, after: opened.cursor });
-    expect(later.events.map((e) => e.content)).toEqual(['Reply']);
-    expect((await member.team.ai.events.query({ chatId: main.id, after: later.cursor })).events).toEqual([]);
-  });
-
-  it('does not stop subscription work when removing an obsolete API key', async () => {
-    await turnOn();
-    const owner = await teamTrpc(team.owner.token);
-    const [chat] = await owner.team.ai.chats.list.query();
-    const first = await owner.team.ai.send.mutate({ chatId: chat.id, clientSendId: sendId(), text: 'Running' });
-    await held.waitFor(1);
-    await owner.team.ai.forgetKey.mutate();
-    const q = await import('@/lib/db/queries');
-    expect(q.getTeamChatTurn(first.turnId)?.status).toBe('running');
-    expect(await owner.team.ai.status.query()).toMatchObject({ state: 'ready' });
-    await held.answer(first.turnId, 'Done');
-  });
-
-  it('stops everything when turned off, and keeps records and members\' AI clients working', async () => {
-    await turnOn();
-    const owner = await teamTrpc(team.owner.token);
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const running = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Long question' });
-    const waiting = await owner.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Next question' });
-    await held.waitFor(1);
-    await owner.team.ai.setEnabled.mutate({ enabled: false });
-    const page = await member.team.ai.events.query({ chatId: main.id });
-    expect(page.turns.find((t) => t.id === running.turnId)).toMatchObject({ status: 'cancelled', error: 'Team AI was turned off.' });
-    expect(page.turns.find((t) => t.id === waiting.turnId)).toMatchObject({ status: 'cancelled' });
-    // Shared work and a member's own assistant are untouched.
-    const { client, token } = await member.team.aiClients.create.mutate({ name: 'Codex' });
-    expect(client.name).toBe('Codex');
-    const listed = await serveTeam('http://team.test/api/team/mcp', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-    });
-    expect(listed.status).toBe(200);
-    expect((await member.notes.create.mutate({ body: 'Still works' })).body).toBe('Still works');
-  });
-
-  it('stops a removed member\'s work and lets everyone else\'s go on', async () => {
-    await turnOn();
-    const owner = await teamTrpc(team.owner.token);
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const mayas = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Mine' });
-    const treys = await owner.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Owner question' });
-    await held.waitFor(1);
-    await owner.team.removeMember.mutate({ id: maya.id });
-    await held.waitFor(2);
-    expect(held.calls[1]).toMatchObject({ turnId: treys.turnId, member: 'Trey' });
-    await held.answer(treys.turnId, 'Owner answer');
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-    const page = await owner.team.ai.events.query({ chatId: main.id });
-    expect(page.turns.find((t) => t.id === mayas.turnId)).toMatchObject({ status: 'cancelled' });
-    expect(page.turns.find((t) => t.id === treys.turnId)).toMatchObject({ status: 'done' });
-    // Her messages keep her name.
-    expect(page.events.find((e) => e.content === 'Mine')?.author).toEqual({ id: maya.id, name: 'Maya' });
-    expect(await status(member.team.ai.events.query({ chatId: main.id }))).toBe(401);
-  });
-
-  it('marks a turn the restart cut off as interrupted, never running it again, and goes on with waiting ones', async () => {
-    await turnOn();
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const q = await import('@/lib/db/queries');
-    // As the database stood when the team stopped: one running, one waiting.
-    const cut = q.acceptTeamChatSend({ chatId: main.id, memberId: maya.id, clientSendId: sendId(), text: 'Cut off' });
-    q.claimNextTeamChatTurn(main.id);
-    const waiting = q.acceptTeamChatSend({ chatId: main.id, memberId: maya.id, clientSendId: sendId(), text: 'Waiting' });
-    const { resumeTeamAiAfterStart } = await import('./chat');
-    resumeTeamAiAfterStart();
-    await held.waitFor(1);
-    expect(held.calls.map((c) => c.text)).toEqual(['Waiting']);
-    await held.answer(waiting.turn.id, 'Done');
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-    const page = await member.team.ai.events.query({ chatId: main.id });
-    expect(page.turns.find((t) => t.id === cut.turn.id)).toMatchObject({ status: 'interrupted' });
-    expect(page.turns.find((t) => t.id === waiting.turn.id)).toMatchObject({ status: 'done' });
-  });
-
-  it('recovers after the host signs back in, without provisioning a new key', async () => {
-    await turnOn();
-    const owner = await teamTrpc(team.owner.token);
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const sent = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Hello' });
-    await held.waitFor(1);
-    subscription.mockResolvedValue({ available: false });
-    await held.answer(sent.turnId, '', { status: 'failed', code: 'credential_rejected', error: 'Sign-in was refused.' });
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-    expect(await member.team.ai.status.query()).toMatchObject({ state: 'needs_sign_in', reason: expect.stringMatching(/Sign in/) });
-    expect(await status(member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Again' }))).toBe(412);
-    subscription.mockResolvedValue({ available: true });
-    expect(await owner.team.ai.refreshAuth.mutate()).toMatchObject({ state: 'ready' });
-  });
-
-  it('gives a running turn the team\'s tools and nothing else, for as long as it runs', async () => {
-    await turnOn();
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const sent = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Hello' });
-    await held.waitFor(1);
-    const { mintTurnToken } = await import('./turn-credential');
-    const token = mintTurnToken({ turnId: sent.turnId, chatId: main.id, memberId: maya.id });
-    const mcp = (bearer: string) => serveTeam('http://team.test/api/team/mcp', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-    });
-    expect((await mcp(token)).status).toBe(200);
-    // Not the app's API, its files, its admission or the host's routes.
-    for (const [path, method] of [['/api/trpc/tasks.list', 'GET'], ['/api/trpc/team.invitations.create', 'POST'], ['/api/attachments/x.png', 'GET'], ['/api/team/host/status', 'GET']] as const) {
-      const res = await serveTeam(`http://team.test${path}`, { method, headers: { authorization: `Bearer ${token}` } });
-      expect(res.status, path).toBe(403);
-    }
-    // Someone else's turn, or a forged one, gets nothing.
-    expect((await mcp(mintTurnToken({ turnId: sent.turnId, chatId: main.id, memberId: team.owner.id }))).status).toBe(401);
-    expect((await mcp(`${token}x`)).status).toBe(401);
-    await held.answer(sent.turnId, 'Hi');
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-    // Over with its turn.
-    expect((await mcp(token)).status).toBe(401);
-  });
-
-  it('records nothing for a send it refuses, so the same send works once Team AI can answer', async () => {
-    await turnOn();
-    const owner = await teamTrpc(team.owner.token);
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    await owner.team.ai.setEnabled.mutate({ enabled: false });
-    const id = sendId();
-    expect(await status(member.team.ai.send.mutate({ chatId: main.id, clientSendId: id, text: 'Hello later' }))).toBe(412);
-    let page = await member.team.ai.events.query({ chatId: main.id });
-    expect(page.events.some((e) => e.content === 'Hello later')).toBe(false);
-    expect(page.turns).toEqual([]);
-
-    await owner.team.ai.setEnabled.mutate({ enabled: true });
-    const sent = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: id, text: 'Hello later' });
-    expect(sent.created).toBe(true);
-    await held.waitFor(1);
-    await held.answer(sent.turnId, 'Hello now');
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-    page = await member.team.ai.events.query({ chatId: main.id });
-    expect(page.turns).toEqual([expect.objectContaining({ id: sent.turnId, status: 'done' })]);
-  });
-
-  it('runs one loop per chat however often it\'s kicked, so every running turn stays stoppable', async () => {
-    await turnOn();
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const q = await import('@/lib/db/queries');
-    const { probeTeamAiRuntime } = await import('./probe');
-    const probe = vi.mocked(probeTeamAiRuntime);
-    // Hold the readiness check, so every kick lands while the first is still deciding.
-    let release!: () => void;
-    probe.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve({ ok: true, version: '2.1.295 (Claude Code)', missing: [], error: null }); }));
-    const before = probe.mock.calls.length;
-    const accepted = q.acceptTeamChatSend({ chatId: main.id, memberId: maya.id, clientSendId: sendId(), text: 'Kicked often' });
-    const { kickTeamChat, settledTeamAi } = await import('./chat');
-    for (let i = 0; i < 5; i++) kickTeamChat(main.id);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(probe.mock.calls.length - before).toBe(1);
-    release();
-    await held.waitFor(1);
-    await member.team.ai.stop.mutate({ turnId: accepted.turn.id });
-    await settledTeamAi();
-    expect(q.getTeamChatTurn(accepted.turn.id)).toMatchObject({ status: 'cancelled', error: 'Stopped by Maya.' });
-  });
-
-  it('picks up a send that arrives as the turn before it ends, and can still stop it', async () => {
-    await turnOn();
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const first = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'First' });
-    await held.waitFor(1);
-    // The first turn ends while the second send is on its way.
-    const ending = held.answer(first.turnId, 'One');
-    const second = await member.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'Second' });
-    await ending;
-    await held.waitFor(2);
-    expect(held.calls[1]).toMatchObject({ turnId: second.turnId });
-    // The running second turn is still tracked, so Stop reaches it.
-    await member.team.ai.stop.mutate({ turnId: second.turnId });
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-    const page = await member.team.ai.events.query({ chatId: main.id });
-    expect(page.turns.map((t) => [t.id, t.status, t.error])).toEqual([
-      [first.turnId, 'done', null],
-      [second.turnId, 'cancelled', 'Stopped by Maya.'],
-    ]);
-    expect(held.overlapped()).toBe(false);
-  });
-
-  it('shows members what was said and done, never the runtime\'s own records, and moves past those too', async () => {
-    await turnOn();
-    const member = await teamTrpc(maya.token);
-    const [main] = await member.team.ai.chats.list.query();
-    const opened = await member.team.ai.events.query({ chatId: main.id });
-    const q = await import('@/lib/db/queries');
-    const now = new Date().toISOString();
-    q.insertChatEvent({ sessionId: main.id, role: 'system', source: 'system', content: 'init /srv/team/.work/team-ai/runtime', createdAt: now });
-    q.insertChatEvent({ sessionId: main.id, role: 'assistant', source: 'agent', content: 'Visible', createdAt: now });
-    const page = await member.team.ai.events.query({ chatId: main.id, after: opened.cursor });
-    expect(page.events.map((e) => e.content)).toEqual(['Visible']);
-    expect(JSON.stringify(page)).not.toContain('/srv/team');
-    expect((await member.team.ai.events.query({ chatId: main.id, after: page.cursor })).events).toEqual([]);
-  });
-
-  it('lets a member make more chats and stop their own turn', async () => {
-    await turnOn();
-    const member = await teamTrpc(maya.token);
-    const chat = await member.team.ai.chats.create.mutate({ label: 'Release planning' });
-    const sent = await member.team.ai.send.mutate({ chatId: chat.id, clientSendId: sendId(), text: 'Plan it' });
-    await held.waitFor(1);
-    await member.team.ai.stop.mutate({ turnId: sent.turnId });
-    const { settledTeamAi } = await import('./chat');
-    await settledTeamAi();
-    const page = await member.team.ai.events.query({ chatId: chat.id });
-    expect(page.turns[0]).toMatchObject({ status: 'cancelled', error: 'Stopped by Maya.' });
-    expect((await member.team.ai.chats.list.query()).map((c) => c.label).sort()).toEqual(['Acme', 'Release planning']);
-  });
-});
-
-
-it('restores only earlier shared conversation, excludes queued requests, and bounds retained text', async () => {
-  await turnOn();
-  const q = await import('@/lib/db/queries');
-  const { teamAiTurnPrompt } = await import('./runtime');
-  const chat = q.createTeamChat('Context boundary');
-  q.acceptTeamChatSend({ chatId: chat.id, memberId: team.owner.id, clientSendId: sendId(), text: 'Earlier shared question' });
-  q.insertChatEvent({ sessionId: chat.id, source: 'agent', role: 'assistant', content: 'Earlier shared answer' });
-  const current = q.acceptTeamChatSend({ chatId: chat.id, memberId: maya.id, clientSendId: sendId(), text: 'Current request' });
-  q.acceptTeamChatSend({ chatId: chat.id, memberId: team.owner.id, clientSendId: sendId(), text: 'Future queued instruction' });
-  const other = q.createTeamChat('Other context');
-  q.insertChatEvent({ sessionId: other.id, source: 'agent', role: 'assistant', content: 'OTHER CHAT SECRET' });
-  const input = { turn: current.turn, memberName: 'Maya', text: 'Current request' };
-  const prompt = teamAiTurnPrompt(input);
-  expect(prompt).toContain('Earlier shared question');
-  expect(prompt).toContain('Earlier shared answer');
-  expect(prompt).toContain('Trey');
-  expect(prompt).toContain('Maya');
-  expect(prompt).not.toContain('Future queued instruction');
-  expect(prompt).not.toContain('OTHER CHAT SECRET');
-  expect(prompt.match(/Current request/g)).toHaveLength(1);
-  q.insertChatEvent({ sessionId: chat.id, source: 'agent', role: 'assistant', content: 'x'.repeat(60_000) });
-  expect(teamAiTurnPrompt(input).length).toBeLessThan(25_000);
-});
-
-
-describe('explicit API-key authentication', () => {
-  it('defaults to subscription even with a saved legacy key, and lets only the owner select API billing', async () => {
-    const owner = await teamTrpc(team.owner.token);
-    const member = await teamTrpc(maya.token);
-    const { saveTeamAiApiKey, readTeamAiApiKey } = await import('./secrets');
-    await saveTeamAiApiKey('sk-ant-secret-legacy');
-    subscription.mockResolvedValue({ available: false });
-    expect(await turnOn()).toMatchObject({ authMode: 'subscription', state: 'needs_sign_in', hasApiKey: true });
-    expect(await status(member.team.ai.configure.mutate({ authMode: 'api_key', apiKey: 'sk-ant-member' }))).toBe(403);
-    expect(await status(owner.team.ai.configure.mutate({ apiKey: 'sk-ant-unselected' }))).toBe(400);
-    const selected = await owner.team.ai.configure.mutate({ authMode: 'api_key', apiKey: 'sk-ant-explicit' });
-    expect(selected).toMatchObject({ authMode: 'api_key', state: 'ready', provider: 'Anthropic API', hasApiKey: true });
-    expect(await readTeamAiApiKey()).toBe('sk-ant-explicit');
-    expect(JSON.stringify(selected)).not.toContain('sk-ant-');
-    expect(JSON.stringify(await member.team.ai.status.query())).not.toContain('sk-ant-');
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const { getConfigDir } = await import('@/lib/config/paths');
-    const file = path.join(getConfigDir(), 'team-ai', 'credentials.json');
-    expect(fs.readFileSync(file, 'utf8')).not.toContain('sk-ant-explicit');
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    subscription.mockClear();
-    expect(await owner.team.ai.refreshAuth.mutate()).toMatchObject({ state: 'ready', authMode: 'api_key' });
-    expect(subscription).not.toHaveBeenCalled();
-  });
-
-  it('keeps a refused API key unavailable when another chat succeeds', async () => {
-    const owner = await teamTrpc(team.owner.token);
-    await owner.team.ai.configure.mutate({ authMode: 'api_key', apiKey: 'sk-ant-refused' });
-    await turnOn();
-    const [main] = await owner.team.ai.chats.list.query();
-    const other = await owner.team.ai.chats.create.mutate({ label: 'Other' });
-    const first = await owner.team.ai.send.mutate({ chatId: main.id, clientSendId: sendId(), text: 'First' });
-    const second = await owner.team.ai.send.mutate({ chatId: other.id, clientSendId: sendId(), text: 'Second' });
-    await held.waitFor(2);
-    await held.answer(first.turnId, '', { status: 'failed', code: 'credential_rejected', error: 'Refused' });
-    await vi.waitFor(async () => expect(await owner.team.ai.status.query()).toMatchObject({ state: 'credential_rejected' }));
-    await held.answer(second.turnId, 'Done');
-    await (await import('./chat')).settledTeamAi();
-    expect(await owner.team.ai.status.query()).toMatchObject({ state: 'credential_rejected', authMode: 'api_key' });
-    expect(await owner.team.ai.configure.mutate({ authMode: 'api_key', apiKey: 'sk-ant-replacement' })).toMatchObject({ state: 'ready' });
-  });
-
-  it('does not let an old turn reject a replacement key', async () => {
-    const { configureTeamAi, recordTeamAiOutcome } = await import('./settings');
-    const { teamAiAuthRevision } = await import('./auth');
-    await configureTeamAi(team.owner.id, { authMode: 'api_key', apiKey: 'sk-ant-old' });
-    await turnOn();
-    const oldRevision = teamAiAuthRevision();
-    await configureTeamAi(team.owner.id, { authMode: 'api_key', apiKey: 'sk-ant-new' });
-    recordTeamAiOutcome({ ok: false, code: 'credential_rejected' }, oldRevision);
-    expect(await (await teamTrpc(team.owner.token)).team.ai.status.query()).toMatchObject({ state: 'ready' });
-  });
-
-  it.each(['remove', 'replace', 'subscription'] as const)('stops running and waiting API work on %s without moving it to another account', async change => {
-    const owner = await teamTrpc(team.owner.token);
-    await owner.team.ai.configure.mutate({ authMode: 'api_key', apiKey: 'sk-ant-in-use' });
-    await turnOn();
-    const [chat] = await owner.team.ai.chats.list.query();
-    const running = await owner.team.ai.send.mutate({ chatId: chat.id, clientSendId: sendId(), text: 'Running' });
-    await held.waitFor(1);
-    const waiting = await owner.team.ai.send.mutate({ chatId: chat.id, clientSendId: sendId(), text: 'Waiting' });
-    if (change === 'remove') await owner.team.ai.forgetKey.mutate();
-    else await owner.team.ai.configure.mutate(change === 'replace' ? { authMode: 'api_key', apiKey: 'sk-ant-replacement' } : { authMode: 'subscription' });
-    await (await import('./chat')).settledTeamAi();
-    const q = await import('@/lib/db/queries');
-    expect(q.getTeamChatTurn(running.turnId)?.status).toBe('cancelled');
-    expect(q.getTeamChatTurn(waiting.turnId)?.status).toBe('cancelled');
-    expect(held.calls).toHaveLength(1);
-    expect(await owner.team.ai.status.query()).toMatchObject({ authMode: change === 'subscription' ? 'subscription' : 'api_key', state: change === 'remove' ? 'needs_key' : 'ready' });
-    expect(q.listChatEvents(chat.id).filter(event => event.source === 'user').map(event => event.content)).toEqual(['Running', 'Waiting']);
-  });
-
-  it('serializes a save and removal so an older save cannot restore a removed key', async () => {
-    const { configureTeamAi, forgetTeamAiKey } = await import('./settings');
-    await Promise.all([
-      configureTeamAi(team.owner.id, { authMode: 'api_key', apiKey: 'sk-ant-racing-save' }),
-      forgetTeamAiKey(team.owner.id),
-    ]);
-    expect(await turnOn()).toMatchObject({ state: 'needs_key', authMode: 'api_key', hasApiKey: false });
-  });
-
-  it('does not admit a send using the result of a different authentication method', async () => {
-    await turnOn();
-    const owner = await teamTrpc(team.owner.token);
-    const [chat] = await owner.team.ai.chats.list.query();
-    let release!: (value: { available: boolean }) => void;
-    subscription.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
-    const { sendToTeamAi } = await import('./chat');
-    const pending = sendToTeamAi({ chatId: chat.id, memberId: team.owner.id, clientSendId: sendId(), text: 'Stale auth' });
-    const result = status(pending);
-    await vi.waitFor(() => expect(release).toBeDefined());
-    await owner.team.ai.configure.mutate({ authMode: 'api_key' });
-    release({ available: true });
-    expect(await result).not.toBe(200);
-    expect(held.calls).toHaveLength(0);
-    expect((await import('@/lib/db/queries')).listChatEvents(chat.id)).toEqual([]);
-  });
+it('omits an unlabelled cancelled turn reply interleaved after a queued message', () => {
+  const first = q.acceptTeamChatSend({ chatId: chat.id, memberId: fixture.owner.member.id, requestingApiKeyId: fixture.owner.key.id, clientSendId: 'late-a', text: 'Cancelled request' });
+  q.claimNextTeamChatTurn(chat.id);
+  const second = q.acceptTeamChatSend({ chatId: chat.id, memberId: fixture.member.member.id, requestingApiKeyId: fixture.member.key.id, clientSendId: 'late-b', text: 'Completed request' });
+  q.insertChatEvent({ sessionId: chat.id, role: 'assistant', source: 'agent', content: 'Cancelled partial reply' });
+  q.finishTeamChatTurn(first.turn.id, 'cancelled', 'Stopped.');
+  q.claimNextTeamChatTurn(chat.id);
+  q.insertChatEvent({ sessionId: chat.id, role: 'assistant', source: 'agent', content: 'Correct second reply', raw: { riTeamTurnId: second.turn.id } });
+  q.finishTeamChatTurn(second.turn.id, 'done');
+  const next = q.acceptTeamChatSend({ chatId: chat.id, memberId: fixture.owner.member.id, requestingApiKeyId: fixture.owner.key.id, clientSendId: 'late-c', text: 'Continue' });
+  q.claimNextTeamChatTurn(chat.id);
+  const prompt = teamAiTurnPrompt({ turn: next.turn, memberName: 'Owner', text: 'Continue' });
+  expect(prompt).not.toContain('Cancelled partial reply');
+  expect(prompt).toContain('Correct second reply');
+  q.finishTeamChatTurn(next.turn.id, 'done');
 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { useAgentConfigurationScope } from '@/components/workspaces/agent-placement-controls';
 import { useEffect, useRef, useState } from 'react';
 import { Play, AlertCircle, Pencil, X, Check, Loader2, Settings as SettingsIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -225,6 +226,7 @@ interface CommandEditorProps {
 export function CommandEditor({
   initialValue, startInEditMode, placeholder, onSave, isSaving,
 }: CommandEditorProps) {
+  const { canConfigure } = useAgentConfigurationScope();
   const [editing, setEditing] = useState(!!startInEditMode);
   const [draft, setDraft] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -266,13 +268,13 @@ export function CommandEditor({
     setDraft(initialValue);
   };
 
-  if (!editing) {
+  if (!editing || !canConfigure) {
     return (
       <div className="group relative w-full">
         <pre className="w-full overflow-x-auto rounded-md border border-border bg-muted/40 px-3 py-2 pr-9 font-mono text-[12px] text-foreground">
-          {initialValue || <span className="text-muted-foreground/60">(no command set)</span>}
+          {initialValue || <span className="text-muted-foreground/60">{canConfigure ? '(no command set)' : 'An owner can add the start command in agent settings.'}</span>}
         </pre>
-        <Tip label="Edit command">
+        {canConfigure && <Tip label="Edit command">
           <button
             type="button"
             onClick={() => {
@@ -284,7 +286,7 @@ export function CommandEditor({
           >
             <Pencil size={12} />
           </button>
-        </Tip>
+        </Tip>}
       </div>
     );
   }

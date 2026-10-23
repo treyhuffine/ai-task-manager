@@ -1,12 +1,14 @@
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
+import os from 'node:os';
 import { build } from 'esbuild';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 
 // RI_USAGE_BROWSER_TEST=1 pnpm exec vitest run src/components/dashboard/rate-limits-pill.browser.test.ts
 const enabled = process.env.RI_USAGE_BROWSER_TEST === '1';
+const output = process.env.RI_ARTIFACT_SCREENSHOTS ?? path.join(os.tmpdir(), 'ri-usage-browser');
 vi.setConfig({ testTimeout: 20_000 });
 let browser: Browser;
 let server: http.Server;
@@ -37,7 +39,7 @@ beforeAll(async () => {
         };
         const key = ['usage-fixture'];
         const snapshot = () => structuredClone({harnesses:f.harnesses,stale:Date.now()-f.lastRead>=120000});
-        export const trpc = {harness:{rateLimitsGet:{queryKey:()=>key,queryOptions:()=>({queryKey:key,queryFn:async()=>{f.get++;return snapshot();}})},rateLimitsPost:{mutationOptions:options=>({mutationFn:async()=>{f.read++;f.lastRead=Date.now();for(const entry of f.harnesses){entry.observedAt=new Date().toISOString();for(const bucket of entry.buckets)bucket.observedAt=entry.observedAt;}return {...snapshot(),stale:false};},...options})}}};
+        export const trpc = {userState:{list:{queryKey:()=>['usage-user-state']},update:{mutationKey:()=>['usage-user-state','update']}},harness:{rateLimitsGet:{queryKey:()=>key,queryOptions:()=>({queryKey:key,queryFn:async()=>{f.get++;return snapshot();}})},rateLimitsPost:{mutationOptions:options=>({mutationFn:async()=>{f.read++;f.lastRead=Date.now();for(const entry of f.harnesses){entry.observedAt=new Date().toISOString();for(const bucket of entry.buckets)bucket.observedAt=entry.observedAt;}return {...snapshot(),stale:false};},...options})}}};
         export const trpcClient = {userState:{list:{query:async()=>structuredClone(f.preference)},update:{mutate:async({body})=>{f.preference={...f.preference,...body};localStorage.setItem('usage-preference',JSON.stringify(f.preference));return structuredClone(f.preference);}}}};
         export const pageStream = () => ({subscribeGlobal(listener){f.listeners.add(listener);return ()=>f.listeners.delete(listener);}});
       ` }));
@@ -51,7 +53,7 @@ beforeAll(async () => {
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   address = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ executablePath: process.env.RI_REVIEW_CHROMIUM, headless: true });
 }, 90_000);
 
 afterAll(async () => {
@@ -63,6 +65,7 @@ async function openPage(dark = false, width = 736) {
   const page = await browser.newPage({ viewport: { width, height: 460 } });
   await page.clock.install();
   page.setDefaultTimeout(5000);
+  page.on('pageerror', error => console.error('Usage fixture failed:', error.message));
   await page.goto(address + (dark ? '/?dark' : '/'));
   await page.waitForFunction('window.usageFixture?.read === 1');
   await page.getByRole('button', { name: /^Usage\./ }).waitFor();
@@ -74,7 +77,7 @@ async function counts(page: Page) {
 }
 
 it.skipIf(!enabled)('renders compact stacked marks in both themes, with keyboard and pinned hover access', async () => {
-  await fs.mkdir('work/usage-alert-exploration', { recursive: true });
+  await fs.mkdir(output, { recursive: true });
   for (const dark of [false, true]) {
     const page = await openPage(dark, 390);
     const button = page.getByRole('button', { name: /^Usage\./ });
@@ -88,9 +91,10 @@ it.skipIf(!enabled)('renders compact stacked marks in both themes, with keyboard
       context.fillRect(0, 0, 1, 1);
       return Array.from(context.getImageData(0, 0, 1, 1).data).slice(0, 3);
     });
-    expect(channels).toEqual([122, 157, 255]);
+    // Browser color-space conversion can round an OKLCH channel by one.
+    for (const [index, value] of [122, 157, 255].entries()) expect(Math.abs(channels[index] - value)).toBeLessThanOrEqual(1);
     expect(await button.locator('.font-mono').first().evaluate(node => getComputedStyle(node).fontSize)).toBe('10px');
-    await page.screenshot({ path: `work/usage-alert-exploration/implemented-${dark ? 'dark' : 'light'}.png` });
+    await page.screenshot({ path: path.join(output, `usage-implemented-${dark ? 'dark' : 'light'}.png`) });
     await button.focus();
     await page.keyboard.press('Enter');
     const toggle = page.getByRole('switch', { name: 'Show usage warnings' });
@@ -105,7 +109,7 @@ it.skipIf(!enabled)('renders compact stacked marks in both themes, with keyboard
     await page.mouse.move(350, 430);
     await page.waitForTimeout(200);
     expect(await page.getByRole('dialog').count()).toBe(1);
-    await page.screenshot({ path: `work/usage-alert-exploration/implemented-card-${dark ? 'dark' : 'light'}.png` });
+    await page.screenshot({ path: path.join(output, `usage-implemented-card-${dark ? 'dark' : 'light'}.png`) });
     await page.close();
   }
 });

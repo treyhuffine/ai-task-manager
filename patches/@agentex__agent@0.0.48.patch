@@ -1,0 +1,87 @@
+diff --git a/dist/providers/opencode/server.js b/dist/providers/opencode/server.js
+index 5bcdbfd5cd0a6ee473f7943010469eeece57b9cf..8641fe10cb5b02bcd191237efa51f4858a0b7a5b 100644
+--- a/dist/providers/opencode/server.js
++++ b/dist/providers/opencode/server.js
+@@ -1,5 +1,6 @@
+ import { spawn } from "node:child_process";
+ import { createHash, randomBytes } from "node:crypto";
++import { createServer } from "node:net";
+ import * as os from "node:os";
+ import * as path from "node:path";
+ import { killProcessTree } from "../../utils/process.js";
+@@ -63,9 +64,26 @@ async function waitForHealth(client, timeoutMs) {
+     }
+     throw new Error("opencode serve failed authenticated health check within 10s");
+ }
++// Native --port 0 can select a fixed default. Keep each Home process on its own port.
++async function availableServerPort() {
++    const socket = createServer();
++    return new Promise((resolve, reject) => {
++        socket.once("error", reject);
++        socket.listen(0, "127.0.0.1", () => {
++            const address = socket.address();
++            socket.close((error) => {
++                if (error) reject(error);
++                else if (!address || typeof address === "string") reject(new Error("No loopback port was assigned"));
++                else resolve(address.port);
++            });
++        });
++    });
++}
++
+ async function startServer(key, generation, binary, prefixArgs, env, cwd) {
++    const port = await availableServerPort();
+     const password = randomBytes(32).toString("base64url");
+-    const proc = spawn(binary, [...prefixArgs, "serve", "--port", "0", "--hostname", "127.0.0.1"], {
++    const proc = spawn(binary, [...prefixArgs, "serve", "--port", String(port), "--hostname", "127.0.0.1"], {
+         cwd,
+         env: { ...env, OPENCODE_SERVER_PASSWORD: password },
+         stdio: ["ignore", "pipe", "pipe"],
+diff --git a/src/providers/opencode/server.ts b/src/providers/opencode/server.ts
+index f48defb7f77571debc21a51f0e16cf6d7b618256..80264a90ea2261eaf3f9f07b780280decb66de4f 100644
+--- a/src/providers/opencode/server.ts
++++ b/src/providers/opencode/server.ts
+@@ -1,5 +1,6 @@
+ import { spawn, type ChildProcess } from "node:child_process";
+ import { createHash, randomBytes } from "node:crypto";
++import { createServer } from "node:net";
+ import * as os from "node:os";
+ import * as path from "node:path";
+ import { killProcessTree } from "../../utils/process.js";
+@@ -82,6 +83,23 @@ async function waitForHealth(client: OpenCodeClient, timeoutMs: number): Promise
+   throw new Error("opencode serve failed authenticated health check within 10s");
+ }
+ 
++/** Native versions can interpret --port 0 as their fixed default. Choose an
++ * explicit free loopback port so separate Home processes never attach to each other. */
++async function availableServerPort(): Promise<number> {
++  const socket = createServer();
++  return new Promise((resolve, reject) => {
++    socket.once("error", reject);
++    socket.listen(0, "127.0.0.1", () => {
++      const address = socket.address();
++      socket.close((error) => {
++        if (error) reject(error);
++        else if (!address || typeof address === "string") reject(new Error("No loopback port was assigned"));
++        else resolve(address.port);
++      });
++    });
++  });
++}
++
+ async function startServer(
+   key: string,
+   generation: number,
+@@ -90,10 +108,11 @@ async function startServer(
+   env: Record<string, string>,
+   cwd: string,
+ ): Promise<PooledServer> {
++  const port = await availableServerPort();
+   const password = randomBytes(32).toString("base64url");
+   const proc = spawn(
+     binary,
+-    [...prefixArgs, "serve", "--port", "0", "--hostname", "127.0.0.1"],
++    [...prefixArgs, "serve", "--port", String(port), "--hostname", "127.0.0.1"],
+     {
+       cwd,
+       env: { ...env, OPENCODE_SERVER_PASSWORD: password },

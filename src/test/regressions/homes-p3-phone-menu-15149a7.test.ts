@@ -27,6 +27,10 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
     export const useInactivity=()=>({afterDays:null,stored:null,isInactive:()=>false,partition:(l)=>({active:[...l],inactive:[]})});
     export const useSetInactiveAfterDays=()=>({mutate:()=>{}});
     export const useQueryClient=()=>({});
+    export const useDefaultSelection=()=>({harness:'codex',model:'fixture-model',variant:null,effort:null});
+    export const useOptionalHomeContext=()=>null;
+    export const useWorkNavigation=()=>({openAgent:(id,tab)=>record('open',tab),openExecution:()=>{}});
+    export const useWorkActivity=()=>({activeSessionId:null,streamingSessionIds:new Set(),backgroundSessionIds:new Set(),pendingInputSessionIds:new Set()});
     export const useDashboard=()=>({streamingSessionIds:new Set(),pendingInputSessionIds:new Set(),setActiveView:()=>{},setMobileTab:()=>{},openAgent:(id,tab)=>record('open',tab)});
     export const useAgentViewMode=()=>({opensView:true});
     export const WorkspaceCreateModal=()=>null;
@@ -49,7 +53,7 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
       onResolve(opts:{filter:RegExp},fn:()=>{path:string;namespace:string}):void;
       onLoad(opts:{filter:RegExp;namespace:string},fn:()=>{contents:string;loader:string}):void;
     }){
-      api.onResolve({filter:/^(?:@\/hooks\/use-(?:workspaces|areas|inactivity)|@\/contexts\/dashboard-context|@\/lib\/executions\/start-execution|@\/lib\/client\/agent-view-mode|@\/components\/workspaces\/workspace-create-modal|@\/lib\/trpc\/client|@tanstack\/react-query)$/},()=>({path:'data-hooks',namespace:'fixture'}));
+      api.onResolve({filter:/^(?:@\/hooks\/use-(?:workspaces|areas|inactivity|default-selection)|@\/contexts\/(?:dashboard-context|work-context)|@\/lib\/executions\/start-execution|@\/lib\/client\/agent-view-mode|@\/components\/workspaces\/workspace-create-modal|@\/components\/home\/home-context|\.\/home-context|@\/lib\/trpc\/client|@tanstack\/react-query)$/},()=>({path:'data-hooks',namespace:'fixture'}));
       api.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:fixture,loader:'js'}));
     }}],
   });
@@ -59,7 +63,7 @@ it('returns focus and pointer input after selecting or dismissing the agent devi
     res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}button{padding:10px;margin:4px}svg{width:16px;height:16px}[data-slot="sheet-overlay"]{position:fixed;inset:0;background:#8888;z-index:50}[data-slot="sheet-content"]{position:fixed;inset:10%;background:white;padding:15px;z-index:51}</style><div id="root"></div><script src="/app.js"></script>');
   });
   await new Promise<void>((resolve)=>server.listen(0,'127.0.0.1',resolve));
-  const browser=await chromium.launch({executablePath:chromium.executablePath(),headless:true});
+  const browser=await chromium.launch({executablePath:process.env.RI_REVIEW_CHROMIUM,headless:true});
   try{
     const page=await browser.newPage({viewport:{width:390,height:844},hasTouch:true});
     const pageErrors: string[]=[];

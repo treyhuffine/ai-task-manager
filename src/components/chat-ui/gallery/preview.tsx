@@ -1,10 +1,11 @@
 /** Bundled independently for the opaque gallery iframe. Never imported by the app shell. */
-import { useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from 'next-themes';
 import { UiGallery, type GalleryPage } from '@ri/app-kit/ui';
-import { TipProvider } from '@/components/ui/tip';
+import { Tip, TipProvider } from '@/components/ui/tip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CoordinationControls } from '@/components/chat-ui/coordination/controls';
 import { CoordinationApproval } from '@/components/chat-ui/coordination/approval-card';
@@ -23,6 +24,14 @@ import { HtmlPreviewLink } from '@/components/chat-ui/artifacts/html-preview-lin
 import { EntityEditChip } from '@/components/chat-ui/edits/entity-edit-chip';
 import { ResultRenderer } from '@/components/chat-ui/handoffs/result-renderer';
 import { ExecutionEvent } from '@/components/chat-ui/activity/execution-event';
+import { ChatTranscript } from '@/components/chat-ui/chat-transcript';
+import { ChatCapabilities } from '@/components/chat-ui/chat-capabilities';
+import { ChatComposer } from '@/components/chat-ui/chat-composer';
+import { ModelMenuContent, ModelMenuLabel } from '@/components/chat-ui/model-menu/model-menu';
+import { ModelMenuProvider } from '@/components/chat-ui/model-menu/model-menu-provider';
+import { ChatInputEditor, type ChatInputEditorHandle } from '@/components/chat/editor/chat-input-editor';
+import { MCP_FORM_EVENT, MCP_FORM_RESPONSE_EVENT } from '@/lib/mcp-apps/form-events';
+import { toChatEventDTO } from '@/lib/api/dto/chat-event';
 import { AgentResponse } from '@/components/chat-ui/messages/agent-response';
 import { ConnectedView } from '@/components/mcp-apps/view';
 import { ConnectedCompanion } from '@/components/mcp-apps/companion';
@@ -93,7 +102,47 @@ function Mentions() {
   </div>;
 }
 
-/** A composer with two apps' context, removable. */
+function SharedConversation() {
+  const editor = useRef<ChatInputEditorHandle | null>(null);
+  const [hasContent, setHasContent] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [model, setModel] = useState('example-balanced');
+  const [events, setEvents] = useState(() => [
+    event('user', { id: 'shared-maya', role: 'user', authorMemberId: 'maya', content: 'What is ready for the Friday review?' }),
+    event('tool_call', { id: 'shared-read', toolName: 'mcp__ri_team__list_tasks', toolInput: { status: 'todo', limit: 20 } }),
+    event('agent', { id: 'shared-answer', content: 'The dashboard is ready. The release note still needs a reviewer.' }),
+    event('user', { id: 'shared-sam', role: 'user', authorMemberId: 'sam', content: 'I can review the release note.' }),
+    event('agent', { id: 'shared-finish', content: 'I recorded that next step on the shared task.' }),
+  ].map(toChatEventDTO));
+  const off = config.state === 'off';
+  const models = [{ id: 'example-balanced', label: 'Balanced example' }, { id: 'example-fast', label: 'Fast example' }];
+  const send = () => {
+    const text = editor.current?.getMarkerOutput().text.trim();
+    if (!text || off) return;
+    setEvents(current => [...current, toChatEventDTO(event('user', { id: `shared-maya-${current.length}`, role: 'user', authorMemberId: 'maya', content: text }))]);
+    editor.current?.clear();
+  };
+  return <ChatCapabilities.Provider value={{ deliveryReceipts: false, prepareResults: false }}>
+    <div className="flex h-[460px] flex-col rounded-xl border border-border">
+      <p className="border-b px-4 py-2 text-xs text-muted-foreground">Everyone in Acme can read this chat.{config.state === 'off' ? ' AI is off. Saved history remains readable.' : ''}</p>
+      <ChatTranscript session={{ id: CHAT_ID, startedAt: NOW }} events={events} isLoading={false} isRunning={false} hasOlder={false} isLoadingOlder={false} loadOlder={async () => 0} eventHeader={item => item.source === 'user' ? <p className="mb-1 text-xs font-semibold">{item.id.startsWith('shared-maya') ? 'Maya' : 'Sam'}</p> : null} />
+      <ChatComposer disabled={off} status={off ? 'AI is off. Saved history stays readable.' : 'This example saves messages only in this preview.'}>
+        <ChatInputEditor ref={editor} ariaLabel="Example shared message" placeholder="Write an example message" disabled={off} attachmentsEnabled={false} onContentChange={setHasContent} onSubmit={send} />
+        <div className="flex items-center gap-2 px-1.5 pb-1.5">
+          <Popover open={modelMenuOpen} onOpenChange={setModelMenuOpen}>
+            <PopoverTrigger asChild><Tip label="Choose an example model"><button type="button" disabled={off} aria-label={`Model and settings: ${models.find(option => option.id === model)!.label}`} className="rounded-md border border-border px-2 py-1 text-xs disabled:opacity-50"><ModelMenuLabel model={models.find(option => option.id === model)!.label} /></button></Tip></PopoverTrigger>
+            <PopoverContent className="w-80 p-0" align="start"><ModelMenuContent disabled={off}>
+              <ModelMenuProvider harness="claude" models={models} additionalModels={[]} selectedModel={model} disabled={off} onSelect={option => { setModel(option.id); setModelMenuOpen(false); }} />
+            </ModelMenuContent></PopoverContent>
+          </Popover>
+          <button type="button" className="ml-auto rounded bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50" onClick={send} disabled={off || !hasContent}>Send example</button>
+        </div>
+      </ChatComposer>
+    </div>
+  </ChatCapabilities.Provider>;
+}
+
+/** A composer with two apps' context, removable, and a message an app sent, through the real transcript. */
 function AppContext() {
   const [groups, setGroups] = useState<AppContextGroupView[]>([
     { viewId: 'parts', app: 'Parts Library', items: [
@@ -106,6 +155,13 @@ function AppContext() {
     <AppContextStrip groups={groups} onRemove={viewId => setGroups(current => current.filter(group => group.viewId !== viewId))} />
     <p className="px-3 pb-3 pt-2 text-[13px] text-muted-foreground">Ask about the selected part</p>
   </section>;
+}
+
+function ServerForm() {
+  const closed = config.state !== 'open';
+  const events = [toChatEventDTO(event('system', { id: DRAFT_ID, role: 'system', content: MCP_FORM_EVENT }))];
+  if (closed) events.push(toChatEventDTO(event('system', { id: 'form-outcome', role: 'system', content: MCP_FORM_RESPONSE_EVENT, raw: { app: 'Review Board', outcome: config.state } })));
+  return <div className="flex h-[520px] flex-col rounded-xl border border-border"><ChatTranscript session={{ id: CHAT_ID, startedAt: NOW }} events={events} isLoading={false} isRunning={false} hasOlder={false} isLoadingOlder={false} loadOlder={async () => 0} /></div>;
 }
 
 function FileChips() {
@@ -164,7 +220,9 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'approvals' && <IntegrationApprovalCard rows={runtime.events.filter(row => row.source === 'approval_request')} sessionId={CHAT_ID} isLatest />}
     {__GALLERY_EXAMPLE__ === 'connections' && <ConnectionRequestCard event={runtime.events[0]} sessionId={CHAT_ID} />}
     {__GALLERY_EXAMPLE__ === 'mentions' && <Mentions />}
+    {__GALLERY_EXAMPLE__ === 'shared-chat' && <SharedConversation />}
     {__GALLERY_EXAMPLE__ === 'references' && <References />}
+    {__GALLERY_EXAMPLE__ === 'server-form' && <ServerForm />}
     {__GALLERY_EXAMPLE__ === 'chat-messages' && <ChatMessages />}
     {__GALLERY_EXAMPLE__ === 'coordination' && <div className="space-y-5"><CoordinationControls sessionId={CHAT_ID} />{config.state === 'forward-failed' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('system', {role:'system',content:'coordination_send_failed',raw:{agentCoordination:{deliveryId:'gallery-coordination-send'}}})} /> : config.state === 'shared' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('user', {id:'gallery-shared',role:'user',content:'Full original review content.',raw:{agentCoordination:{senderKind:'human',kind:'message',sourceSessionId:CHAT_ID,sourceEventId:'gallery-original',content:'Full original review content.',directions:'Compare this with your implementation.'}}})} /> : config.state === 'unavailable' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('error', {role:'system',content:'[Ri routing text remains saved]',raw:{agentCoordination:{senderKind:'system',kind:'failed',content:'The destination agent is unavailable. The assigned work did not start.',originalRequest:'Review the date boundary handling before we ship.'}}})} /> : <CoordinationApproval deliveryId="gallery-coordination-send" sessionId={CHAT_ID} />}</div>}
     {__GALLERY_EXAMPLE__ === 'app-context' && <AppContext />}
@@ -181,7 +239,4 @@ function Example() {
 }
 
 const root = document.getElementById('root')!;
-createRoot(root).render(<QueryClientProvider client={client}><ThemeProvider attribute="class" forcedTheme={config.theme} enableSystem={false}><TipProvider><ArtifactPreviewProvider><Example /></ArtifactPreviewProvider></TipProvider></ThemeProvider></QueryClientProvider>);
-const reportHeight = () => parent.postMessage({ type: 'ri-chat-gallery-height', height: Math.max(300, root.scrollHeight + 16) }, '*');
-new ResizeObserver(reportHeight).observe(root);
-requestAnimationFrame(reportHeight);
+createRoot(root).render(<QueryClientProvider client={client}><ThemeProvider attribute="class" forcedTheme={config.theme} enableSystem={false}><TipProvider><ArtifactPreviewProvider><ChatCapabilities.Provider value={{ deliveryReceipts: false, prepareResults: false }}><Example /></ChatCapabilities.Provider></ArtifactPreviewProvider></TipProvider></ThemeProvider></QueryClientProvider>);

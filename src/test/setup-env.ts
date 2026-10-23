@@ -16,6 +16,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { HARNESS_REGISTRY } from '@/lib/harness/registry';
 import { APP_ROOT_ENV, BRAIN_PATH_ENV, CONFIG_DIR_ENV, DB_PATH_ENV, WORK_DIR_ENV } from '@/lib/config/paths';
 
 process.env[APP_ROOT_ENV] = fs.mkdtempSync(path.join(os.tmpdir(), 'ri-vitest-root-'));
@@ -46,3 +47,10 @@ if (!process.env.PORT) {
  * and scheduler ticks. App tests explicitly unset this override to exercise
  * normal default-on startup, or set it when testing enable/disable behavior. */
 process.env.RI_LOCAL_APPS = '0';
+
+/** Native providers must be mocked or explicitly pointed at a test binary.
+ * A missed mock must fail locally rather than use the operator's signed-in CLI.
+ * Tests with controlled stand-ins set their command override after setup. */
+for (const [harness, definition] of Object.entries(HARNESS_REGISTRY)) {
+  process.env[definition.commandEnv] = path.join(process.env[APP_ROOT_ENV]!, 'no-real-harness', harness);
+}

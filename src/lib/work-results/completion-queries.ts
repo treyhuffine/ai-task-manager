@@ -5,6 +5,7 @@ import { workResultDecisions, taskStatusChanges } from '@/lib/db/schema';
 import { hydrateRow } from '@/lib/db/hydrate';
 import { completeTask, getTask, lifecyclePreflight, type LifecycleOutcome } from '@/lib/db/queries';
 import type { WorkResultActor, WorkResultCodeRevision, WorkResultDecisionRecord, TaskRecord } from '@/db/types';
+import { validateWorkResultActor } from './home-policy';
 import { canApply, normalizeTaskStatus } from '@/lib/tasks/lifecycle';
 import { ActionError } from '@/lib/orchestrator/types';
 import type { RuntimeChoice } from '@/lib/sessions/workstream';
@@ -44,6 +45,7 @@ function transaction<T>(work: () => T): T {
 }
 
 function assertHuman(actor: WorkResultActor): void {
+  validateWorkResultActor(actor);
   if (actor.userId !== 'local') throw new ActionError('not_found', 'This result is unavailable in the current authority.');
   if (actor.source !== 'human' || actor.sessionId) throw new ActionError('unsupported', 'Accept and complete requires the human owner.');
 }
@@ -143,12 +145,12 @@ export function acceptWorkResultAndCompleteTask(actor: WorkResultActor, input: A
     const review = hydrateRow(getDb().insert(workResultDecisions).values({
       id: key, createdAt: now, updatedAt: now, userId: actor.userId, resultId: input.resultId,
       requestHash: workResultIntentHash(intent(input)), disposition: 'accepted', actorSource: actor.source,
-      actorUserId: actor.userId, actorSessionId: null, note: input.note ?? null, attachments: [],
+      actorUserId: actor.userId, actorMemberId: actor.memberId ?? null, actorSessionId: null, note: input.note ?? null, attachments: [],
     }).returning().get());
     const completion = completeTask(preflight.task.id, {
       idempotencyKey: key, note: input.note, expectedStatusChangedCount: input.expectedStatusChangedCount,
       acknowledgedChildIds: input.acknowledgedChildIds,
-      meta: { source: actor.source, executionId: detail.result.sourceExecutionId,
+      meta: { actorMemberId: actor.memberId, source: actor.source, executionId: detail.result.sourceExecutionId,
         reason: `Accepted saved result ${input.resultId}` },
     });
     if (!completion) throw new ActionError('not_found', 'The selected task is unavailable.');

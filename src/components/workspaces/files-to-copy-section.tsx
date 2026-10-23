@@ -1,10 +1,13 @@
 'use client';
 
 import { ChevronDown, FileText, Loader2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { trpc } from '@/lib/trpc/client';
 import { workspacesApi, type PreviewFilesToCopyResponse } from '@/lib/api/workspaces';
 import { cn } from '@/lib/utils';
 import { Tip } from '@/components/ui/tip';
+import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
 
 interface FilesToCopySectionProps {
   /** Globs as a string array. Empty array = nothing copied. */
@@ -38,6 +41,7 @@ export function FilesToCopySection({
   className,
   defaultExpanded = true,
 }: FilesToCopySectionProps) {
+  const { canConfigureAgents } = useExecutionRuntimeScope();
   // Local text state so we can preserve in-progress newlines/whitespace
   // without round-tripping through `string[]` and snapping the cursor.
   const [text, setText] = useState(() => globsToText(value));
@@ -61,46 +65,27 @@ export function FilesToCopySection({
 
   const globs = useMemo(() => textToGlobs(text), [text]);
   const trimmedCwd = cwd.trim();
-  const shouldPreview = trimmedCwd.length > 0 && globs.length > 0;
+  const shouldPreview = canConfigureAgents && trimmedCwd.length > 0 && globs.length > 0;
 
-  // Stable key so the effect refires only on meaningful changes.
-  const previewKey = useMemo(
-    () => (shouldPreview ? `${trimmedCwd}::${globs.join('|')}` : ''),
-    [shouldPreview, trimmedCwd, globs],
-  );
-
-  // The last answer, with the key it answers. While the key moves on, that
-  // answer stays up and the section shows it's loading the new one. With
-  // nothing to preview it's dropped, so a later preview starts clean.
-  const [fetched, setFetched] = useState<{
-    key: string;
-    preview: PreviewFilesToCopyResponse | null;
-    error: string | null;
-  } | null>(null);
-  if (!shouldPreview && fetched !== null) setFetched(null);
-  const preview = fetched?.preview ?? null;
-  const previewError = fetched?.error ?? null;
-  const loading = shouldPreview && fetched?.key !== previewKey;
-
-  useEffect(() => {
-    if (!shouldPreview) return;
-    let cancelled = false;
-    const handle = setTimeout(() => {
-      workspacesApi
-        .previewFilesToCopy(trimmedCwd, globs)
-        .then((res) => {
-          if (!cancelled) setFetched({ key: previewKey, preview: res, error: null });
-        })
-        .catch((err: unknown) => {
-          if (cancelled) return;
-          setFetched({ key: previewKey, preview: null, error: err instanceof Error ? err.message : String(err) });
-        });
-    }, PREVIEW_DEBOUNCE_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(handle);
-    };
-  }, [previewKey, shouldPreview, trimmedCwd, globs]);
+  const query = useQuery<PreviewFilesToCopyResponse>({
+    queryKey: trpc.workspaces.previewFiles.queryKey({ body: { cwd: trimmedCwd, globs } }),
+    placeholderData: previous => previous?.root === trimmedCwd ? previous : undefined,
+    enabled: shouldPreview,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      await new Promise<void>((resolve, reject) => {
+        const finish = () => { signal.removeEventListener('abort', abort); resolve(); };
+        const timer = setTimeout(finish, PREVIEW_DEBOUNCE_MS);
+        const abort = () => { clearTimeout(timer); reject(signal.reason); };
+        signal.addEventListener('abort', abort, { once: true });
+        if (signal.aborted) abort();
+      });
+      return workspacesApi.previewFilesToCopy(trimmedCwd, globs);
+    },
+  });
+  const preview = shouldPreview ? query.data : undefined;
+  const previewError = query.error?.message;
+  const loading = query.isFetching;
 
   const handleTextChange = (next: string) => {
     setText(next);
@@ -129,7 +114,7 @@ export function FilesToCopySection({
         className="w-full px-3 py-2 text-xs font-mono bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary resize-y min-h-16"
       />
 
-      {trimmedCwd.length === 0 ? (
+      {!canConfigureAgents ? <p className="text-[10px] text-muted-foreground/70">The owner configures files copied into new worktrees.</p> : trimmedCwd.length === 0 ? (
         <p className="text-[10px] text-muted-foreground/60">
           Pick a folder above to preview the files this matches.
         </p>

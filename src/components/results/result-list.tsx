@@ -1,7 +1,7 @@
 'use client';
 
 import { useDeferredValue, useState } from 'react';
-import Link from 'next/link';
+import { HomeLink as Link } from '@/components/home/home-link';
 import { FileCheck2, History, Loader2, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tip } from '@/components/ui/tip';

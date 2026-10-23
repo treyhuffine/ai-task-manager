@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { previewFilesToCopy } from '@/lib/workspaces/files-to-copy';
 import path from 'node:path';
@@ -14,6 +15,8 @@ interface PreviewBody {
  * `filesToCopy` field before save.
  */
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'configureAgents');
+  if (homeDenied) return homeDenied;
   try {
     const body = (rpcInput.body) as PreviewBody;
     const cwd = body.cwd?.trim();

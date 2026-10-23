@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChevronsUpDown, House, Plus, UserPlus } from 'lucide-react';
+import { Check, ChevronsUpDown, House, Plus, Settings, UserPlus } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,10 +10,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tip } from '@/components/ui/tip';
-import { currentSpaceId, spacePath, SPACE_PATH_PREFIX } from '@/lib/spaces/document';
+import { currentSpaceId, spacePath } from '@/lib/spaces/document';
 import { myRiClient } from '@/lib/spaces/my-ri-client';
+import { teamDisplayName } from '@/lib/home/team-display-name';
 import { cn } from '@/lib/utils';
 import { teamConnectionsKey } from '@/lib/spaces/client-cache';
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { restoredHomeNavigation } from '@/lib/home/navigation';
 
 /**
  * The compact space selector (docs/homes-spec.md §3.2, P7.1): My Ri and the
@@ -26,8 +29,9 @@ import { teamConnectionsKey } from '@/lib/spaces/client-cache';
 
 const navKey = (space: string | null) => `ri:space-nav:${space ?? 'my-ri'}`;
 
-export function useConnectedTeams() {
+export function useConnectedTeams(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: teamConnectionsKey(),
     queryFn: () => myRiClient.spaces.list.query(),
     staleTime: 60_000,
@@ -41,8 +45,7 @@ function openSpace(target: string | null) {
   try {
     sessionStorage.setItem(navKey(here), window.location.pathname + window.location.search);
     const saved = sessionStorage.getItem(navKey(target));
-    const belongs = saved && (target ? saved.startsWith(spacePath(target)) : !saved.startsWith(SPACE_PATH_PREFIX));
-    if (belongs) url = saved;
+    url = restoredHomeNavigation(target, saved) ?? url;
   } catch {
     // Without session storage a space opens at its start.
   }
@@ -82,12 +85,14 @@ function Mark({ name, size = 18 }: { name: string | null; size?: number }) {
   );
 }
 
-export function SpaceSelector({ variant }: { variant: 'wide' | 'collapsed' | 'phone' }) {
-  const connected = useConnectedTeams();
-  const teams = (connected.data ?? []).filter((t) => t.status === 'active');
+export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | 'collapsed' | 'phone'; onOpenSettings?: () => void }) {
+  const home = useOptionalHomeContext();
   const here = currentSpaceId();
-  if (!here && teams.length === 0) return null;
-  const currentName = here ? (teams.find((t) => t.id === here)?.name ?? 'Team') : null;
+  const standalone = home?.home.kind === 'team' && !here ? home.home : null;
+  const connected = useConnectedTeams(!standalone);
+  const teams = standalone ? [] : (connected.data ?? []).filter((t) => t.status === 'active');
+  if (!standalone && !here && teams.length === 0) return null;
+  const currentName = standalone?.name ?? (here ? teamDisplayName(here, connected.data) : null);
   const label = currentName ?? 'My Ri';
 
   const trigger =
@@ -120,25 +125,31 @@ export function SpaceSelector({ variant }: { variant: 'wide' | 'collapsed' | 'ph
     <DropdownMenu>
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       <DropdownMenuContent align="start" side={variant === 'phone' ? 'bottom' : 'top'} className="w-56">
-        <DropdownMenuItem onSelect={() => openSpace(null)} className="gap-2 text-[13px]">
+        {standalone ? <DropdownMenuItem className="gap-2 text-[13px]">
+          <Mark name={standalone.name} />
+          <span className="min-w-0 flex-1 truncate">{standalone.name}</span>
+          <Check size={14} />
+        </DropdownMenuItem> : <DropdownMenuItem onSelect={() => openSpace(null)} className="gap-2 text-[13px]">
           <Mark name={null} />
           <span className="flex-1">My Ri</span>
           {!here && <Check size={14} />}
-        </DropdownMenuItem>
+        </DropdownMenuItem>}
         {teams.map((team) => (
           <DropdownMenuItem key={team.id} onSelect={() => openSpace(team.id)} className="gap-2 text-[13px]">
-            <Mark name={team.name} />
-            <span className="min-w-0 flex-1 truncate">{team.name}</span>
+            <Mark name={teamDisplayName(team.id, connected.data)} />
+            <span className="min-w-0 flex-1 truncate">{teamDisplayName(team.id, connected.data)}</span>
             {here === team.id && <Check size={14} />}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={openTeamsSettings} className="gap-2 text-[13px]">
+        {standalone ? <DropdownMenuItem onSelect={onOpenSettings} className="gap-2 text-[13px]">
+          <Settings size={14} className="text-muted-foreground" /> Home settings
+        </DropdownMenuItem> : <><DropdownMenuItem onSelect={openTeamsSettings} className="gap-2 text-[13px]">
           <UserPlus size={14} className="text-muted-foreground" /> Join a team
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={createTeam} className="gap-2 text-[13px]">
           <Plus size={14} className="text-muted-foreground" /> Create a team
-        </DropdownMenuItem>
+        </DropdownMenuItem></>}
       </DropdownMenuContent>
     </DropdownMenu>
   );

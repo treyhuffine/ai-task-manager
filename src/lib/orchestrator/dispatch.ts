@@ -1,3 +1,5 @@
+import { HarnessDisabledError } from '@/lib/harness/registry';
+import { normalizeContentAliases, normalizeHomeDestination } from '@/lib/team/mcp/input';
 /**
  * Shared dispatch core for the orchestrator. Used by both the CLI
  * (`<cli> agent <action>`) and the HTTP MCP (`/api/orchestrator/[transport]`).
@@ -10,15 +12,17 @@
 import { perfScope } from '@/lib/perf/recorder';
 import { recordRunArtifacts } from '@/lib/runs/artifact-refs';
 import { z } from 'zod';
-import { actions, type ActionName, type ActionOutput } from './registry';
+import { actionCatalog, type ActionName, type ActionOutput } from './registry';
 import type { Action, ActionContext } from './types';
 import { ActionError } from './types';
 import { isPersonalAiClientKey, permitsHomeContentAction } from '@/lib/external-ai/policy';
 import { isTeamAuthority } from '@/lib/home/authority';
-import { getApiKey, getChatSession, isNoteKindError } from '@/lib/db/queries';
+import { getApiKey, getChatSession, getHome, isNoteKindError, isTeamError, isTeamChatError } from '@/lib/db/queries';
+import { LifecycleConflictError } from '@/lib/sessions/lifecycle-admission';
+import { HarnessSelectionError } from '@/lib/harness/model-discovery';
 
 export function findAction(name: string): Action | undefined {
-  return actions.find((a) => a.name === name);
+  return actionCatalog(isTeamAuthority()).find((a) => a.name === name);
 }
 
 export type DispatchEnvelope<T = unknown> =
@@ -45,14 +49,19 @@ async function dispatch(
   rawInput: unknown,
   ctx: ActionContext,
 ): Promise<DispatchEnvelope> {
+  const action = findAction(name);
+  if (rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)) {
+    try { rawInput = normalizeHomeDestination(rawInput as Record<string, unknown>, action?.params ?? {}); }
+    catch (error) { return { ok: false, action: name, error: { code: 'invalid_params', message: error instanceof Error ? error.message : 'Invalid destination.' } }; }
+  }
   if (ctx.caller?.scope === 'home_content') {
+    if (rawInput && typeof rawInput === 'object' && 'target_home_id' in rawInput) return { ok: false, action: name, error: { code: 'unsupported', message: 'This external connection is scoped to its personal Home.' } };
     const key = ctx.caller.apiKeyId ? getApiKey(ctx.caller.apiKeyId) : null;
     if (isTeamAuthority() || !key || !isPersonalAiClientKey(key) || key.revokedAt
       || (key.expiresAt && new Date(key.expiresAt).getTime() <= Date.now()) || !permitsHomeContentAction(name)) {
       return { ok: false, action: name, error: { code: 'unsupported', message: 'This external connection cannot use that tool.' } };
     }
   }
-  const action = findAction(name);
   if (!action) {
     return {
       ok: false,
@@ -61,8 +70,18 @@ async function dispatch(
     };
   }
 
-  const objectSchema = z.object(action.params);
-  const schema = action.strictParams || ['get_handoff_context', 'report_result', 'get_result', 'list_results', 'request_result_review', 'report_result_review'].includes(name) ? objectSchema.strict() : objectSchema;
+  if (rawInput && typeof rawInput === 'object' && 'target_home_id' in rawInput && !action.params.target_home_id && rawInput.target_home_id !== getHome()?.id) {
+    return { ok: false, action: name, error: { code: 'unsupported', message: 'This operation cannot target that Home. No personal write was attempted.' } };
+  }
+
+  if (rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)) {
+    const fields = { ...rawInput } as Record<string, unknown>;
+    if (!action.params.target_home_id && fields.target_home_id === getHome()?.id) delete fields.target_home_id;
+    try { rawInput = normalizeContentAliases(fields, action.localContract?.params ?? action.params); }
+    catch (error) { return { ok: false, action: name, error: { code: 'invalid_params', message: error instanceof Error ? error.message : 'Conflicting aliases.' } }; }
+  }
+  const objectSchema = z.object(ctx.caller?.scope === 'home_content' ? action.localContract?.params ?? action.params : action.params);
+  const schema = ctx.caller?.scope === 'home_content' ? objectSchema : action.strictParams || ['get_handoff_context', 'report_result', 'get_result', 'list_results', 'request_result_review', 'report_result_review'].includes(name) ? objectSchema.strict() : objectSchema;
   const parsed = schema.safeParse(rawInput ?? {});
   if (!parsed.success) {
     return {
@@ -86,7 +105,8 @@ async function dispatch(
     // Attribute what changed to the run in flight in the calling chat, so a
     // run's "what did it change" list is exact whichever transport the agent
     // used (MCP or the CLI from its shell).
-    if (action.mutating && !serverReport) {
+    const targetHome = (parsed.data as Record<string, unknown>).target_home_id;
+    if (action.mutating && !serverReport && (!targetHome || targetHome === getHome()?.id)) {
       recordRunArtifacts({
         actionName: name,
         input: parsed.data as Record<string, unknown>,
@@ -105,6 +125,13 @@ async function dispatch(
     }
     // A note's kind refused at the query layer is the caller's to fix.
     if (isNoteKindError(err)) return { ok: false, action: name, error: { code: 'invalid_params', message: err.message } };
+    if (err instanceof LifecycleConflictError) return { ok: false, action: name, error: { code: 'conflict', message: err.message } };
+    if (err instanceof HarnessDisabledError) return { ok: false, action: name, error: { code: 'unsupported', message: err.message } };
+    if (err instanceof HarnessSelectionError) return { ok: false, action: name, error: { code: err.code, message: err.message } };
+    if (isTeamError(err) || isTeamChatError(err)) return { ok: false, action: name, error: {
+      code: err.code === 'not_found' ? 'not_found' : err.code === 'conflict' ? 'conflict' : err.code === 'not_allowed' || err.code === 'unavailable' ? 'unsupported' : 'invalid_params',
+      message: err.message,
+    } };
     const message = err instanceof Error ? err.message : String(err);
     return {
       ok: false,

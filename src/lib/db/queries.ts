@@ -1,8 +1,14 @@
+import { SHARED_TASK_FIELDS } from '@/lib/spaces/shared-fields';
+import { hasTeamCapability, teamRolesForCapability } from '@/lib/team/capabilities';
 /**
  * Shared database query functions.
  * Used by both API route handlers and AI chat tools.
  */
 
+/**
+ * Shared database query functions.
+ * Used by both API route handlers and AI chat tools.
+ */
 import { createHash, randomBytes } from 'node:crypto';
 import nodePath from 'node:path';
 import os from 'node:os';
@@ -11,18 +17,15 @@ import { assertPersonalCapability, registerHomeKindReader } from '@/lib/home/aut
 import { getDb, getRawDb, isDatabaseOpen } from '@/lib/db';
 import { agentMessageAdmission, settleCoordinationForDeletedChat } from './coordination-queries';
 import { processState } from '@/lib/process-state';
+import { defaultPersonalArea, recordReferenceAreaChoice, referenceAreaChoice } from './private-area-defaults';
+export { bindLegacyTeamChat } from './team-chat-cutover';
+export { projectMemberWorkViews, setMemberChatRead, setMemberSessionPinned, getMemberPreferences, updateMemberPreferences, setMemberCurrentMainChat } from './member-work-views';
+import { clearMemberExecutionPins } from './member-work-views';
+export { listPersonalAreaDefaults, setPersonalAreaDefault } from './private-area-defaults';
 import { emailDraftFieldsSchema, emailDraftPatchSchema, parseEmailDraft, EmailDraftError, type EmailDraftFields } from '@/lib/email/validation';
 import type { EmailDraft } from '@/db/types';
 import { teamContentChanged } from '@/lib/spaces/generation';
-import {
-  tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys,
-  home, devices, deviceGrants, members, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
-  workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults,
-  triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState,
-  notificationChannels, webPushSubscriptions, notificationDeliveries,
-  triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent,
-  NOTE_KINDS,
-} from '@/lib/db/schema';
+import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { normalizeNoteRow } from '@/lib/notes/kind';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
@@ -35,46 +38,7 @@ import { calendarDaysUntil, toDateOnly } from '@/lib/dates';
 import { todayLocalDate } from '@/lib/deck/date';
 import { syncEntity, syncDeletion, MutationContext, syncBatch } from '@/lib/export/mirror';
 import { placeAtRank } from '@/lib/tasks/priority-rank';
-import type {
-  AgentMainChatState,
-  TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals, DeadlineTask,
-  NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter, NoteKind,
-  AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter,
-  StreamRecord, CreateStreamInput, UpdateStreamInput,
-  DeckRecord, CreateDeckInput, UpdateDeckInput,
-  UpdateUserStateInput,
-  UserStateRecord,
-  ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput, TeamAiSettingsRecord, TeamChatTurnRecord,
-  HomeRecord, HomeKind, DeviceRecord, CreateDeviceInput, UpdateDeviceInput,
-  DeviceGrantRecord, DeviceGrantKind, DeviceKind, WorkerReportedState, WorkerHarnessReport,
-  MemberRecord, MemberRole, TeamGrantRecord, TeamGrantKind, TeamConnectionRecord, TeamConnectionStatus, SharedTaskSource, SharedNoteSource, SharedSourceState,
-  WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord,
-  WorkspaceSetupRecord, SetupReferenceReport, FolderLinkRecord,
-  Attachment,
-  WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceIntegrationScope,
-  ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput,
-  ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution, ExecutionLocation,
-  PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl,
-  ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput,
-  ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput,
-  ChatEventRecord, CreateChatEventInput, ChatEventSource,
-  ChatRefRecord, CreateChatRefInput, ChatRefEntityType,
-  TriggerRecord, CreateTriggerInput, UpdateTriggerInput,
-  RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun, RunArtifactRef,
-  EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType,
-  TaskStatus, Energy, Effort,
-  NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput,
-  WebPushSubscriptionRecord, CreateWebPushSubscriptionInput,
-  NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification,
-  SkillUsageRecord,
-  HarnessSettingsRecord, UpsertHarnessSettingsInput, HarnessOperationRecord,
-  StreamStatus,
-  TriagePassRecord, TriagePassTrigger,
-  TriageDecisionRecord, TriageDecisionState, TriageActor,
-  StreamLinkRecord, CreateStreamLinkInput,
-  StreamOutcome, StreamRecordWithOutcomes,
-  TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel,
-} from '@/db/types';
+import type { AgentMainChatState, TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals, DeadlineTask, NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter, NoteKind, AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter, StreamRecord, CreateStreamInput, UpdateStreamInput, DeckRecord, CreateDeckInput, UpdateDeckInput, UpdateUserStateInput, UserStateRecord, ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput, TeamAiSettingsRecord, TeamChatTurnRecord, HomeRecord, HomeKind, DeviceRecord, CreateDeviceInput, UpdateDeviceInput, DeviceGrantRecord, DeviceGrantKind, DeviceKind, WorkerReportedState, WorkerHarnessReport, MemberRecord, MemberRole, TeamGrantRecord, TeamGrantKind, TeamConnectionRecord, TeamConnectionStatus, SharedTaskSource, SharedNoteSource, SharedSourceState, WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord, WorkspaceSetupRecord, SetupReferenceReport, FolderLinkRecord, Attachment, WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceIntegrationScope, ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput, ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution, ExecutionLocation, PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl, ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput, ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput, ChatEventRecord, CreateChatEventInput, ChatEventSource, ChatRefRecord, CreateChatRefInput, ChatRefEntityType, TriggerRecord, CreateTriggerInput, UpdateTriggerInput, RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun, RunArtifactRef, EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType, TaskStatus, Energy, Effort, NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput, WebPushSubscriptionRecord, CreateWebPushSubscriptionInput, NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification, SkillUsageRecord, HarnessSettingsRecord, UpsertHarnessSettingsInput, HarnessOperationRecord, StreamStatus, TriagePassRecord, TriagePassTrigger, TriageDecisionRecord, TriageDecisionState, TriageActor, StreamLinkRecord, CreateStreamLinkInput, StreamOutcome, StreamRecordWithOutcomes, TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel } from '@/db/types';
 import { DEFAULT_HARNESS, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 import { workspaceReviewPreferencesSchema } from '@/lib/workspaces/review-preferences';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
@@ -82,16 +46,11 @@ import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import { OUTCOME_SOURCES } from '@/db/types';
 import { FILE_TOOL_NAMES, fileTargetPath, isSubagentTool } from '@/lib/executions/tool-display';
-import {
-  activityReasonForEventSource,
-  isActivity,
-  shouldThrottledBump,
-  type ActivityReason,
-} from '@/lib/sessions/activity';
+import { activityReasonForEventSource, isActivity, shouldThrottledBump, type ActivityReason } from '@/lib/sessions/activity';
 import type { ReferencePage, ReferenceRow, ReferenceSection } from '@/lib/sessions/contracts';
 import { generateToken, teamAdmissionToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
-import { assertSupportedPermissionMode } from '@/lib/executor/permission-map';
+import { assertSupportedPermissionMode, conservativePlanReturn } from '@/lib/executor/permission-map';
 import { DEFAULT_FILES_TO_COPY } from '@/lib/workspaces/defaults';
 import { normalizeWorkResultGuidance } from '@/lib/instructions/preferences';
 import { deriveAttachments } from '@/lib/attachments/derive';
@@ -101,20 +60,7 @@ import { stableCoordinationId } from '@/lib/coordination/ids';
 import { CHAT_MESSAGE_SENT, chatMessagePreview } from '@/lib/sessions/chat-message';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
 import { normalizeIntegrationScopes } from '@/lib/integrations/scope-pins';
-import {
-  normalizeTaskStatus,
-  canApply,
-  targetState,
-  transitionLabel,
-  availableCommands,
-  considerBlockers,
-  CONSIDER_FORBIDDEN_FIELDS,
-  isTerminal,
-  TaskLifecycleError,
-  type TransitionCommand,
-  type LifecycleCommand,
-  type TaskStatus as LifecycleTaskStatus,
-} from '@/lib/tasks/lifecycle';
+import { normalizeTaskStatus, canApply, targetState, transitionLabel, availableCommands, considerBlockers, CONSIDER_FORBIDDEN_FIELDS, isTerminal, TaskLifecycleError, type TransitionCommand, type LifecycleCommand, type TaskStatus as LifecycleTaskStatus } from '@/lib/tasks/lifecycle';
 import type { LifecycleCommandResult } from '@/lib/db/schema';
 import { camelizeKeys, snakeizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
@@ -134,18 +80,7 @@ import {
   type ModelOption,
 } from '@/lib/harness/options';
 import { TRIGGERS_WITH_OWN_REVIEW_SURFACE } from '@/lib/triggers/reserved';
-import {
-  baseOnboardingRecord,
-  clampReply,
-  readOnboardingRecord,
-  withChatMoved,
-  withFinished,
-  withMessageSent,
-  withStepRecorded,
-  withStepShown,
-  type OnboardingRecord,
-  type OnboardingStepName,
-} from '@/lib/onboarding/progress';
+import { baseOnboardingRecord, clampReply, readOnboardingRecord, withChatMoved, withFinished, withMessageSent, withStepRecorded, withStepShown, type OnboardingRecord, type OnboardingStepName } from '@/lib/onboarding/progress';
 
 // ─── Tasks ────────────────────────────────────────────────────
 
@@ -259,10 +194,11 @@ function taskSourceCondition(source: string): SQL {
   return source === 'personal' ? isNull(tasks.sourceTeamId) : eq(tasks.sourceTeamId, source);
 }
 
-export function getTaskStatusCounts(opts: { areaId?: string | null; source?: string | null } = {}): Record<LifecycleTaskStatus, number> {
+export function getTaskStatusCounts(opts: { areaId?: string | null; source?: string | null; assigneeMemberId?: string | null } = {}): Record<LifecycleTaskStatus, number> {
   const conditions: SQL[] = [];
   if (opts.areaId) conditions.push(eq(tasks.areaId, opts.areaId));
   if (opts.source) conditions.push(taskSourceCondition(opts.source));
+  if (opts.assigneeMemberId) conditions.push(eq(tasks.assigneeMemberId, opts.assigneeMemberId));
   const rows = getDb()
     .select({ status: tasks.status, c: sql<number>`count(*)` })
     .from(tasks)
@@ -330,6 +266,7 @@ export function getDeadlineTasks(opts: DeadlineTasksOptions = {}): DeadlineTask[
       parentId: tasks.parentId,
       hardDeadline: tasks.hardDeadline,
       blockedOn: tasks.blockedOn,
+      sourceTeamId: tasks.sourceTeamId, source: tasks.source,
     })
     .from(tasks)
     .where(
@@ -350,6 +287,7 @@ export function getDeadlineTasks(opts: DeadlineTasksOptions = {}): DeadlineTask[
     if (daysUntil === null || daysUntil > withinDays) continue;
     out.push({
       id: r.id,
+      sourceTeamId: r.sourceTeamId, sourceArea: r.source?.area,
       title: r.title,
       status: normalizeTaskStatus(r.status),
       areaId: r.areaId ?? null,
@@ -937,6 +875,7 @@ export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersi
       throw new BodyRevisionConflictError('task', { ...current, body: current.body ?? '' });
     }
     const updated = hydrateRow(raw);
+    if (existing.sourceTeamId && input.areaId !== undefined) recordReferenceAreaChoice('task', id, 'manual');
     if (bodyChanged || descriptionChanged) {
       projectEntityLinksInline('task', updated.id, [updated.description, updated.body]);
     }
@@ -950,11 +889,32 @@ export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersi
 }
 
 export function deleteTask(id: string): boolean {
-  const db = getDb();
   // A shared task stays while it's this person's: they remove it from their
   // work, or its team archives it. Deleting it here would only lose the
   // private planning beside it.
   assertNotSharedTask(id, 'removal');
+  return deleteTaskRecord(id);
+}
+
+/** Only a pristine reference created for an abandoned launcher may be discarded. */
+export function discardPreparedTeamTask(id: string, createdAt: string, options: { restoreReleased?: boolean; preparedUpdatedAt?: string; preparedExecutionCount?: number; preparedFingerprint?: string } = {}): boolean {
+  return inEntityTx(() => {
+    const task = getTask(id);
+    if (!task?.sourceTeamId || task.createdAt !== createdAt || task.updatedAt !== (options.preparedUpdatedAt ?? createdAt) || !task.source?.addedAt || getTaskExecutions(id).length !== (options.preparedExecutionCount ?? 0) || (options.preparedFingerprint && preparedTeamTaskFingerprint(task) !== options.preparedFingerprint) || (!options.restoreReleased && (task.userContext || task.energy || task.effort || task.resurfaceAfter || task.sortKey || listTasks({ parentId: id }).length))) return false;
+    if (options.restoreReleased) {
+      saveTaskProjection({ teamId: task.sourceTeamId, sourceTaskId: task.sourceTaskId!, fields: { title: task.title, description: task.description, body: task.body, outcome: task.outcome, hardDeadline: task.hardDeadline, status: task.status }, source: { ...task.source, addedAt: null }, state: task.source.assigned ? 'active' : 'released' });
+      return true;
+    }
+    if (task.source.assigned) {
+      getDb().update(tasks).set({ source: { ...task.source, addedAt: null } }).where(eq(tasks.id, id)).run();
+      return true;
+    }
+    return deleteTaskRecord(id);
+  });
+}
+
+function deleteTaskRecord(id: string): boolean {
+  const db = getDb();
   const result = inEntityTx(() => {
     // Completion history belongs to the task. Unlike the status ledger, its
     // original FK has no cascade. Keep cleanup and deletion atomic so a
@@ -1927,6 +1887,7 @@ export interface AcceptAndCompleteInput {
   note?: string | null;
   idempotencyKey: string;
   actorSource: EntityVersionSource;
+  actorMemberId?: string | null;
 }
 
 /**
@@ -1973,7 +1934,7 @@ export function acceptOutputAndCompleteTask(input: AcceptAndCompleteInput): { re
       .returning()
       .get();
     const outcome = completeTaskInTx(input.taskId, input.idempotencyKey, {
-      meta: { source: input.actorSource, executionId: input.executionId },
+      meta: { source: input.actorSource, executionId: input.executionId, actorMemberId: input.actorMemberId ?? null },
     });
     return { review, task: outcome?.task ?? null };
   }, true);
@@ -2388,6 +2349,7 @@ export function updateNote(id: string, input: UpdateNoteInput, meta: EntityVersi
       throw new BodyRevisionConflictError('note', current);
     }
     const updated = normalizeNoteRow(raw);
+    if (existing.sourceTeamId && input.areaId !== undefined) recordReferenceAreaChoice('note', id, 'manual');
     if (bodyChanged) {
       projectEntityLinksInline('note', updated.id, [updated.body]);
     }
@@ -2672,14 +2634,14 @@ function snapshotToNoteInput(snap: EntityVersionSnapshot): UpdateNoteInput {
  */
 export function revertEntityTo(
   versionId: string,
-  by: { actorMemberId?: string | null } = {},
+  by: { actorMemberId?: string | null; source?: EntityVersionSource } = {},
   guard: BodyWriteGuard = {},
 ): { entityType: EntityVersionEntityType; entityId: string; record: TaskRecord | NoteRecord } | null {
   const version = getEntityVersion(versionId);
   if (!version) return null;
   const snap = version.snapshot;
   const meta: EntityVersionMeta = {
-    source: 'system',
+    source: by.source ?? 'system',
     // In a team, who asked for the restore (docs/homes-spec.md §9.1).
     actorMemberId: by.actorMemberId ?? null,
     summary: 'Reverted to an earlier version',
@@ -5409,7 +5371,7 @@ export function teamHasOwner(): boolean {
   return !!getDb()
     .select({ id: members.id })
     .from(members)
-    .where(and(eq(members.role, 'owner'), eq(members.status, 'active')))
+    .where(and(inArray(members.role, teamRolesForCapability('administerMembers')), eq(members.status, 'active')))
     .get();
 }
 
@@ -5502,7 +5464,7 @@ export function createTeamOwner(input: {
       if (existing.status !== 'active') throw new TeamError('not_allowed', 'That owner was removed from the team.');
       return { member: existing, ...signInMemberIn(tx, existing, input.device), created: false };
     }
-    const owner = tx.select({ id: members.id }).from(members).where(eq(members.role, 'owner')).get();
+    const owner = tx.select({ id: members.id }).from(members).where(inArray(members.role, teamRolesForCapability('administerMembers'))).get();
     if (owner) throw new TeamError('conflict', 'This team already has an owner.');
     const member = insertMember(tx, { name: input.name, role: 'owner', creationId: input.creationId });
     return { member, ...signInMemberIn(tx, member, input.device), created: true };
@@ -5530,7 +5492,7 @@ export function createTeamGrant(input: {
       throw new TeamError('invalid', 'Only a sign-in link names a member.');
     }
     if (input.kind === 'setup') {
-      const owner = tx.select({ id: members.id }).from(members).where(eq(members.role, 'owner')).get();
+      const owner = tx.select({ id: members.id }).from(members).where(inArray(members.role, teamRolesForCapability('administerMembers'))).get();
       if (owner) throw new TeamError('conflict', 'This team already has an owner.');
     }
     const ttl =
@@ -5617,7 +5579,7 @@ function setupRetryMember(tx: Pick<ReturnType<typeof getDb>, 'select'>, grant: T
   const member = grant.memberId ? tx.select().from(members).where(eq(members.id, grant.memberId)).get() : null;
   const key = grant.redeemedByApiKeyId ? tx.select().from(apiKeys).where(eq(apiKeys.id, grant.redeemedByApiKeyId)).get() : null;
   const creationId = `setup:${hashGrantSecret(`${grant.id}:${attemptId}`)}`;
-  return member?.status === 'active' && member.role === 'owner' && member.creationId === creationId && key && !key.revokedAt ? member : null;
+  return member && hasTeamCapability(member, 'administerMembers') && member.creationId === creationId && key && !key.revokedAt ? member : null;
 }
 
 export function canRetryTeamSetup(grant: TeamGrantRecord, attemptId?: string): boolean {
@@ -5727,7 +5689,7 @@ export function redeemTeamSetup(input: {
       return { member: retryMember, ...signedIn, team };
     }
     const grant = usableTeamGrant(tx, input.secret, 'setup');
-    const owner = tx.select({ id: members.id }).from(members).where(eq(members.role, 'owner')).get();
+    const owner = tx.select({ id: members.id }).from(members).where(inArray(members.role, teamRolesForCapability('administerMembers'))).get();
     if (owner) throw new TeamError('conflict', 'This team already has an owner.');
     const name = normalizeTeamDisplayName(input.teamName);
     const now = new Date().toISOString();
@@ -5849,7 +5811,7 @@ export interface SharedTaskFields {
  * from the team, so it carries no personal recurrence, and it isn't made a
  * subtask of a personal task. Everything else on the row is private planning.
  */
-export const SHARED_TASK_FIELDS = ['title', 'description', 'body', 'outcome', 'hardDeadline', 'attachments', 'status', 'rawInput'] as const;
+export { SHARED_TASK_FIELDS } from '@/lib/spaces/shared-fields';
 const PROJECTION_FIELDS = ['sourceTeamId', 'sourceTaskId', 'sourceNoteId', 'sourceState', 'source'] as const;
 function assertNoProjectionFields(input: Record<string, unknown>): void {
   if (PROJECTION_FIELDS.some((field) => input[field] !== undefined)) {
@@ -5897,6 +5859,7 @@ export function saveTaskProjection(input: {
   fields: SharedTaskFields;
   source: SharedTaskSource;
   state: SharedSourceState;
+  activeSourceAreaId?: string | null;
 }): TaskRecord {
   const db = getDb();
   const now = new Date().toISOString();
@@ -5912,6 +5875,7 @@ export function saveTaskProjection(input: {
     const existing = db.select().from(tasks).where(and(eq(tasks.sourceTeamId, input.teamId), eq(tasks.sourceTaskId, input.sourceTaskId))).get();
     if (existing?.source && existing.source.updatedAt > input.source.updatedAt) return hydrateRow(existing);
     if (!existing) {
+      const areaId = defaultPersonalArea(input.teamId, input.activeSourceAreaId ?? null);
       const created = hydrateRow(db
         .insert(tasks)
         .values({
@@ -5930,9 +5894,11 @@ export function saveTaskProjection(input: {
           sourceTaskId: input.sourceTaskId,
           sourceState: input.state,
           source: input.source,
+          areaId,
         })
         .returning()
         .get());
+      recordReferenceAreaChoice('task', created.id, areaId ? 'default' : 'unselected');
       projectEntityLinksInline('task', created.id, [created.description, created.body]);
       return created;
     }
@@ -6012,6 +5978,7 @@ export function saveNoteProjection(input: {
   fields: SharedNoteFields;
   source: SharedNoteSource;
   state: SharedSourceState;
+  activeSourceAreaId?: string | null;
 }): NoteRecord {
   const db = getDb();
   const now = new Date().toISOString();
@@ -6045,9 +6012,11 @@ export function saveNoteProjection(input: {
           sourceNoteId: input.sourceNoteId,
           sourceState: input.state,
           source: input.source,
+          areaId: defaultPersonalArea(input.teamId, input.activeSourceAreaId ?? null),
         })
         .returning()
         .get();
+    if (!existing) recordReferenceAreaChoice('note', saved.id, saved.areaId ? 'default' : 'unselected');
     projectEntityLinksInline('note', saved.id, [saved.body]);
     return normalizeNoteRow(saved);
   });
@@ -6055,6 +6024,45 @@ export function saveNoteProjection(input: {
   void upsertEmbedding('note', row.id, buildEmbeddingText('note', row));
   void syncEntity('note', row.id);
   return row;
+}
+
+/** Preview only unorganized references. Legacy choices always require individual review. */
+export function previewPersonalAreaDefault(teamId: string, sourceAreaId: string | null, activeSourceAreaIds: string[]) {
+  assertPersonalCapability('Private Area defaults');
+  const active = new Set(activeSourceAreaIds);
+  const rows = [
+    ...listTaskProjections(teamId).map((r) => ({ ...r, entityType: 'task' as const })),
+    ...listNoteProjections(teamId).map((r) => ({ ...r, entityType: 'note' as const })),
+  ];
+  return rows.filter((r) => r.sourceState === 'active' && r.areaId === null && (sourceAreaId === null || r.source?.area?.id === sourceAreaId))
+    .flatMap((r) => {
+      const choice = referenceAreaChoice(r.entityType, r.id);
+      if (choice === 'manual') return [];
+      const source = r.source?.area?.id;
+      const areaId = defaultPersonalArea(teamId, source && active.has(source) ? source : null);
+      return areaId ? [{ entityType: r.entityType, id: r.id, title: r.title, areaId, requiresReview: choice === 'unknown' }] : [];
+    });
+}
+
+/** Apply exactly the reviewed IDs after rechecking their present organization. */
+export function applyPersonalAreaDefault(teamId: string, sourceAreaId: string | null, activeSourceAreaIds: string[], selected: { entityType: 'task' | 'note'; id: string; areaId: string }[]) {
+  assertPersonalCapability('Private Area defaults');
+  return inEntityTx(() => {
+    const eligible = previewPersonalAreaDefault(teamId, sourceAreaId, activeSourceAreaIds);
+    const seen = new Set<string>();
+    let changed = 0;
+    for (const item of selected) {
+      const key = `${item.entityType}:${item.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!eligible.some((r) => r.id === item.id && r.entityType === item.entityType && r.areaId === item.areaId)) throw new TeamError('conflict', 'The Area defaults or selected work changed. Review the preview again.');
+      const update = item.entityType === 'task' ? updateTask : updateNote;
+      update(item.id, { areaId: item.areaId }, { source: 'human' });
+      recordReferenceAreaChoice(item.entityType, item.id, 'default');
+      changed++;
+    }
+    return { changed };
+  });
 }
 
 /**
@@ -6141,11 +6149,11 @@ export function removeMember(id: string): MemberRecord {
     assertTeamHome(tx);
     const member = tx.select().from(members).where(eq(members.id, id)).get();
     if (!member || member.status !== 'active') throw new TeamError('not_found', 'That member is not in the team.');
-    if (member.role === 'owner') {
+    if (hasTeamCapability(member, 'administerMembers')) {
       const owners = tx
         .select({ id: members.id })
         .from(members)
-        .where(and(eq(members.role, 'owner'), eq(members.status, 'active')))
+        .where(and(inArray(members.role, teamRolesForCapability('administerMembers')), eq(members.status, 'active')))
         .all();
       if (owners.length <= 1) throw new TeamError('not_allowed', "A team's last owner can't be removed.");
     }
@@ -6308,7 +6316,7 @@ export function getTeamAiSettings(): TeamAiSettingsRecord | null {
 }
 
 export type TeamAiSettingsPatch = Partial<Pick<TeamAiSettingsRecord,
-  'enabled' | 'authMode' | 'model' | 'credentialLabel' | 'credentialSetAt' | 'mainChatSessionId' | 'lastError' | 'lastErrorAt' | 'lastOkAt'>>;
+  'enabled' | 'authMode' | 'model' | 'credentialLabel' | 'credentialSetAt' | 'mainChatSessionId' | 'lastError' | 'lastErrorAt' | 'lastOkAt' | 'harness'>>;
 
 /**
  * Change the team's AI settings, making the row the first time. It starts off,
@@ -6354,6 +6362,7 @@ export function activeTeamChatTurn(claims: { turnId: string; chatId: string; mem
   if (!row) return null;
   if (row.turn.status !== 'running' || row.turn.chatSessionId !== claims.chatId || row.turn.memberId !== claims.memberId) return null;
   if (row.member.status !== 'active') return null;
+  if (row.turn.requestingApiKeyId && memberForApiKey(row.turn.requestingApiKeyId)?.id !== row.member.id) return null;
   return getTeamAiSettings()?.enabled ? row : null;
 }
 
@@ -6377,11 +6386,7 @@ export function listTeamChats(options: { includeArchived?: boolean } = {}): Chat
 
 export function getTeamChat(chatId: string): ChatSessionRecord | null {
   const chat = getChatSession(chatId);
-  return chat && chat.surfaceKind === TEAM_CHAT_SURFACE ? chat : null;
-}
-
-export function createTeamChat(label: string): ChatSessionRecord {
-  return createChatSession({ harness: 'claude', type: 'orchestration', surfaceKind: TEAM_CHAT_SURFACE, label });
+  return chat && (chat.surfaceKind === TEAM_CHAT_SURFACE || (chat.surfaceKind === 'result_review' && chat.createdByMemberId && chat.workspaceId)) ? chat : null;
 }
 
 export class TeamChatError extends Error {
@@ -6393,6 +6398,13 @@ export class TeamChatError extends Error {
 
 export function isTeamChatError(err: unknown): err is TeamChatError {
   return err instanceof Error && err.name === 'TeamChatError';
+}
+
+/** A retry's payload is structural, independent of JSON object key order. */
+export function matchesTeamChatSend(message: ChatEventRecord | null, input: { text: string; attachments?: Attachment[]; actionIntentHash?: string }): message is ChatEventRecord {
+  const files = (attachments: Attachment[] | null | undefined) => (attachments ?? []).map(file => [file.fileName, file.originalName, file.mimeType, file.size, file.uploadedAt]);
+  const raw = message?.raw as { actionIntentHash?: string } | null;
+  return Boolean(message && message.content === input.text && (raw?.actionIntentHash ?? undefined) === input.actionIntentHash && JSON.stringify(files(message.attachments)) === JSON.stringify(files(input.attachments)));
 }
 
 /** A send this member already made in this chat, by their own id for it. */
@@ -6410,7 +6422,7 @@ export function findTeamChatSend(chatId: string, memberId: string, clientSendId:
  * and its turn, queued after every turn already accepted in that chat. The
  * member's own id for the send makes a retry find the same message and turn.
  */
-export function acceptTeamChatSend(input: { chatId: string; memberId: string; clientSendId: string; text: string }): { turn: TeamChatTurnRecord; message: ChatEventRecord; created: boolean } {
+export function acceptTeamChatSend(input: { chatId: string; memberId: string; requestingApiKeyId?: string | null; clientSendId: string; messageId?: string; attachments?: Attachment[]; actionIntentHash?: string; existingResultMessage?: boolean; senderSessionId?: string; text: string }): { turn: TeamChatTurnRecord; message: ChatEventRecord; created: boolean } {
   return getDb().transaction((tx) => {
     const prior = tx.select().from(teamChatTurns).where(and(
       eq(teamChatTurns.chatSessionId, input.chatId),
@@ -6419,18 +6431,21 @@ export function acceptTeamChatSend(input: { chatId: string; memberId: string; cl
     )).get();
     if (prior) {
       const message = tx.select().from(chatEvents).where(eq(chatEvents.id, prior.messageEventId)).get();
-      if (!message || message.content !== input.text) throw new TeamChatError('conflict', 'That send id was already used for a different message.');
+      if (!message || !matchesTeamChatSend(hydrateRow(message) as ChatEventRecord, input)) throw new TeamChatError('conflict', 'That send id was already used for a different message.');
       return { turn: prior, message: hydrateRow(message) as ChatEventRecord, created: false };
     }
     // Admission can have waited for the runtime. Check again in the same
     // transaction as the write so removal or archiving cannot accept a send.
     const member = tx.select().from(members).where(eq(members.id, input.memberId)).get();
     if (!member || member.status !== 'active') throw new TeamError('not_allowed', 'Only a member of the team can talk with its AI.');
+    if (input.requestingApiKeyId && memberForApiKey(input.requestingApiKeyId)?.id !== member.id) throw new TeamError('not_allowed', 'This sign-in is no longer active.');
     const chat = tx.select().from(chatSessions).where(eq(chatSessions.id, input.chatId)).get();
-    if (!chat || chat.surfaceKind !== TEAM_CHAT_SURFACE || chat.status !== 'active') throw new TeamChatError('not_found', 'That chat is gone.');
+    if (!chat || (chat.surfaceKind !== TEAM_CHAT_SURFACE && !(chat.surfaceKind === 'result_review' && chat.createdByMemberId && chat.workspaceId)) || chat.status !== 'active') throw new TeamChatError('not_found', 'That chat is gone.');
     if (!getTeamAiSettings()?.enabled) throw new TeamChatError('unavailable', 'Team AI is off.');
     const now = new Date().toISOString();
-    const message = insertChatEvent({ sessionId: input.chatId, role: 'user', source: 'user', content: input.text, authorMemberId: input.memberId, createdAt: now });
+    const existingMessage = input.existingResultMessage && input.messageId ? getChatEventById(input.messageId) : null;
+    if (input.existingResultMessage && (!existingMessage || existingMessage.sessionId !== input.chatId || existingMessage.authorMemberId !== input.memberId || existingMessage.content !== input.text || !(existingMessage.raw as { resultOperation?: unknown } | null)?.resultOperation)) throw new TeamChatError('conflict', 'This saved result request does not match its member or conversation.');
+    const message = existingMessage ?? insertChatEvent({ id: input.messageId, sessionId: input.chatId, role: 'user', source: 'user', content: input.text, senderSessionId: input.senderSessionId ?? null, attachments: input.attachments ?? [], authorMemberId: input.memberId, createdAt: now, ...(input.actionIntentHash ? { raw: { actionIntentHash: input.actionIntentHash } } : {}) });
     if (!message) throw new TeamChatError('conflict', 'That message could not be saved.');
     const last = tx.select({ seq: sql<number>`max(${teamChatTurns.seq})` }).from(teamChatTurns).where(eq(teamChatTurns.chatSessionId, input.chatId)).get();
     const turn = tx.insert(teamChatTurns).values({
@@ -6439,6 +6454,7 @@ export function acceptTeamChatSend(input: { chatId: string; memberId: string; cl
       updatedAt: now,
       chatSessionId: input.chatId,
       memberId: input.memberId,
+      requestingApiKeyId: input.requestingApiKeyId ?? null,
       clientSendId: input.clientSendId,
       messageEventId: message.id,
       seq: (last?.seq ?? 0) + 1,
@@ -6469,11 +6485,15 @@ export function claimNextTeamChatTurn(chatId: string): TeamChatTurnRecord | null
 
 /** Settle a turn. Only one that's still queued or running: a turn ends once. */
 export function finishTeamChatTurn(turnId: string, status: 'done' | 'failed' | 'cancelled' | 'interrupted', error: string | null = null): TeamChatTurnRecord | null {
-  const now = new Date().toISOString();
-  return getDb().update(teamChatTurns)
-    .set({ status, error, finishedAt: now, updatedAt: now })
-    .where(and(eq(teamChatTurns.id, turnId), inArray(teamChatTurns.status, ['queued', 'running'])))
-    .returning().get() ?? null;
+  return getDb().transaction(() => {
+    const now = new Date().toISOString();
+    const turn = getDb().update(teamChatTurns)
+      .set({ status, error, finishedAt: now, updatedAt: now })
+      .where(and(eq(teamChatTurns.id, turnId), inArray(teamChatTurns.status, ['queued', 'running'])))
+      .returning().get() ?? null;
+    if (turn && status !== 'done') recordChatSendRefusal(turn.chatSessionId, turn.messageEventId, error ?? `This turn was ${status}. Send again if it is still needed.`);
+    return turn;
+  }, { behavior: 'immediate' });
 }
 
 export function getTeamChatTurn(turnId: string): TeamChatTurnRecord | null {
@@ -6482,26 +6502,30 @@ export function getTeamChatTurn(turnId: string): TeamChatTurnRecord | null {
 
 /** Settle the whole waiting queue, independent of the transcript's display limit. */
 export function finishQueuedTeamChatTurns(chatId: string, status: 'failed' | 'cancelled', error: string): number {
-  const now = new Date().toISOString();
-  return getDb().update(teamChatTurns)
-    .set({ status, error, finishedAt: now, updatedAt: now })
-    .where(and(eq(teamChatTurns.chatSessionId, chatId), eq(teamChatTurns.status, 'queued')))
-    .run().changes;
+  return getDb().transaction(() => {
+    const now = new Date().toISOString();
+    const turns = getDb().update(teamChatTurns).set({ status, error, finishedAt: now, updatedAt: now })
+      .where(and(eq(teamChatTurns.chatSessionId, chatId), eq(teamChatTurns.status, 'queued'))).returning().all();
+    for (const turn of turns) recordChatSendRefusal(chatId, turn.messageEventId, error);
+    return turns.length;
+  }, { behavior: 'immediate' });
 }
 
 /** Turns not yet started, for everyone, one member or one turn, are cancelled. Returns the running ones, to stop. */
-export function cancelQueuedTeamChatTurns(filter: { memberId?: string; turnId?: string } = {}, reason: string): { cancelled: number; running: TeamChatTurnRecord[] } {
+export function cancelQueuedTeamChatTurns(filter: { memberId?: string; apiKeyId?: string; turnId?: string; chatId?: string } = {}, reason: string): { cancelled: number; running: TeamChatTurnRecord[] } {
   const now = new Date().toISOString();
   const byMember = and(
     filter.memberId ? eq(teamChatTurns.memberId, filter.memberId) : undefined,
+    filter.apiKeyId ? eq(teamChatTurns.requestingApiKeyId, filter.apiKeyId) : undefined,
     filter.turnId ? eq(teamChatTurns.id, filter.turnId) : undefined,
+    filter.chatId ? eq(teamChatTurns.chatSessionId, filter.chatId) : undefined,
   );
   const cancelled = getDb().update(teamChatTurns)
     .set({ status: 'cancelled', error: reason, finishedAt: now, updatedAt: now })
-    .where(and(eq(teamChatTurns.status, 'queued'), byMember))
-    .run().changes;
+    .where(and(eq(teamChatTurns.status, 'queued'), byMember)).returning().all();
+  for (const turn of cancelled) recordChatSendRefusal(turn.chatSessionId, turn.messageEventId, reason);
   const running = getDb().select().from(teamChatTurns).where(and(eq(teamChatTurns.status, 'running'), byMember)).all();
-  return { cancelled, running };
+  return { cancelled: cancelled.length, running };
 }
 
 /**
@@ -6509,11 +6533,9 @@ export function cancelQueuedTeamChatTurns(filter: { memberId?: string; turnId?: 
  * what it set out to, so it's shown as interrupted and never run again.
  */
 export function interruptRunningTeamChatTurns(): number {
-  const now = new Date().toISOString();
-  return getDb().update(teamChatTurns)
-    .set({ status: 'interrupted', error: 'The team stopped while this was running. Anything it already changed is kept. Send it again if you still need it.', finishedAt: now, updatedAt: now })
-    .where(eq(teamChatTurns.status, 'running'))
-    .run().changes;
+  const turns = getDb().select({ id: teamChatTurns.id }).from(teamChatTurns).where(eq(teamChatTurns.status, 'running')).all();
+  for (const turn of turns) finishTeamChatTurn(turn.id, 'interrupted', 'The team stopped while this was running. Anything it already changed is kept. Send it again if you still need it.');
+  return turns.length;
 }
 
 export function listTeamChatTurns(chatId: string, options: { limit?: number } = {}): TeamChatTurnRecord[] {
@@ -6525,6 +6547,23 @@ export function listTeamChatTurns(chatId: string, options: { limit?: number } = 
     .reverse();
 }
 
+/** Queue presence through the status/chat index, without loading its history. */
+export function hasQueuedTeamChatTurns(chatId: string): boolean {
+  return !!getDb().select({ id: teamChatTurns.id }).from(teamChatTurns)
+    .where(and(eq(teamChatTurns.status, 'queued'), eq(teamChatTurns.chatSessionId, chatId))).limit(1).get();
+}
+
+/** Most recently started authority, excluding messages still waiting in the queue. */
+export function latestStartedTeamChatTurn(chatId: string): TeamChatTurnRecord | null {
+  return getDb().select().from(teamChatTurns).where(and(eq(teamChatTurns.chatSessionId, chatId), isNotNull(teamChatTurns.startedAt)))
+    .orderBy(desc(teamChatTurns.seq)).limit(1).get() ?? null;
+}
+
+/** One live serialized turn, through the status/chat index, independent of history length. */
+export function runningTeamChatTurn(chatId: string): TeamChatTurnRecord | null {
+  return getDb().select().from(teamChatTurns).where(and(eq(teamChatTurns.status, 'running'), eq(teamChatTurns.chatSessionId, chatId))).limit(1).get() ?? null;
+}
+
 /** Chats with a turn waiting, for restarting work after the team starts. */
 export function teamChatsWithQueuedTurns(): string[] {
   return getDb().selectDistinct({ chatId: teamChatTurns.chatSessionId }).from(teamChatTurns).where(eq(teamChatTurns.status, 'queued')).all().map((r) => r.chatId);
@@ -6534,6 +6573,20 @@ export interface TeamChatEventPage {
   events: Array<ChatEventRecord & { cursor: number }>;
   /** Where the next read starts. */
   cursor: number;
+}
+
+/** Known cumulative parts only. Primary-key probes avoid scanning a long chat on every poll. */
+export function revisedTeamChatEvents(chatId: string, known: Array<{ id: string; revision: number }>): TeamChatEventPage['events'] {
+  if (known.length > 200) throw new TeamChatError('invalid', 'Request at most 200 part revisions.');
+  const db = getDb();
+  return [...new Map(known.map(part => [part.id, part])).values()].flatMap(part => {
+    const metadata = db.select({ sessionId: chatEvents.sessionId, source: chatEvents.source, revision: chatEvents.partRevision, cursor: sql<number>`rowid` })
+      .from(chatEvents).where(eq(chatEvents.id, part.id)).get();
+    // Check the early columns before loading any payload or overflow pages.
+    if (metadata?.sessionId !== chatId || metadata.revision == null || metadata.revision <= part.revision) return [];
+    const event = getChatEventById(part.id);
+    return event ? [{ ...event, cursor: metadata.cursor }] : [];
+  });
 }
 
 /**
@@ -6614,6 +6667,15 @@ export function isSharedOperationConflictError(err: unknown): err is SharedOpera
  * different request is refused, and a change that fails records nothing, so
  * it can be tried again.
  */
+/** Read an existing receipt before async coordination, checking reuse first. */
+export function getSharedOperationReceipt(scope: SharedOperationScope) {
+  const prior = getDb().select().from(sharedOperationReceipts).where(and(
+    eq(sharedOperationReceipts.memberId, scope.memberId), eq(sharedOperationReceipts.action, scope.action),
+    eq(sharedOperationReceipts.idempotencyKey, scope.idempotencyKey))).get();
+  if (prior && prior.intentHash !== scope.intentHash) throw new SharedOperationConflictError();
+  return prior ?? null;
+}
+
 export function withSharedOperationReceipt<T>(
   scope: SharedOperationScope,
   run: () => { entityType: 'task' | 'note'; entityId: string; outcome: T },
@@ -9135,6 +9197,7 @@ export function archiveExecution(executionId: string): ExecutionRecord | null {
       .returning()
       .get();
     if (!row) return null;
+    clearMemberExecutionPins(executionId);
     tx.update(chatSessions)
       .set({ status: 'archived', archivedAt: now })
       .where(and(eq(chatSessions.executionId, executionId), eq(chatSessions.status, 'active')))
@@ -9452,7 +9515,9 @@ export function listMainChats(
   const db = getDb();
   const conditions: SQL[] = [
     eq(chatSessions.type, 'orchestration'),
-    sql`COALESCE(${chatSessions.surfaceKind}, '') IN ('', 'main')`,
+    workspaceId === null
+      ? sql`COALESCE(${chatSessions.surfaceKind}, '') IN ('', 'main')`
+      : sql`COALESCE(${chatSessions.surfaceKind}, '') IN ('', 'main', 'team_chat')`,
     isNull(chatSessions.createdByRunId),
     isNull(chatSessions.executionId),
     workspaceId === null ? isNull(chatSessions.workspaceId) : eq(chatSessions.workspaceId, workspaceId),
@@ -9542,6 +9607,7 @@ export function createChatSession(input: CreateChatSessionInput & { id?: string 
       // Policy default lives here, not the schema (inert DB backstop equals
       // this). See docs/schema-defaults.md.
       permissionMode,
+      prePlanMode: input.prePlanMode ?? (permissionMode === 'plan' && getHome()?.kind === 'team' ? conservativePlanReturn(providerId) : null),
       // Store ISO (UTC) rather than the SQLite `datetime('now')` default's
       // space-format, so `startedAt` sorts consistently against the ISO
       // outcome/unread timestamps it's compared with (see session-sort.ts).
@@ -9749,6 +9815,8 @@ export function deleteChatSessionIfEmpty(id: string): boolean {
  */
 export function createExecutionWithChat(params: {
   workspaceId: string;
+  createdByMemberId?: string | null;
+  surfaceKind?: string | null;
   /** Which engine runs the chat. A fact: always passed, no fallback. */
   harness: HarnessId;
   chatSessionId?: string;
@@ -9770,6 +9838,9 @@ export function createExecutionWithChat(params: {
    *  metadata through insertion instead of applying a bundled fallback. */
   modelCatalog?: readonly ModelOption[];
   permissionMode?: ChatSessionRecord['permissionMode'];
+  prePlanMode?: ChatSessionRecord['prePlanMode'];
+  /** Immutable native launch intent, committed with its child before any send. */
+  launchIntentHash?: string;
   /** Start-with-agent: associate this task with the new execution AND Start it
    * (Consider/Todo -> In progress) in the SAME transaction, so execution + chat
    * + association + start commit atomically. A terminal race rolls everything
@@ -9778,6 +9849,7 @@ export function createExecutionWithChat(params: {
 }): { execution: ExecutionRecord; session: ChatSessionRecord } {
   const permissionMode = params.permissionMode ?? DEFAULT_PERMISSION_MODE;
   assertSupportedPermissionMode(permissionMode, params.harness);
+  if (params.prePlanMode) assertSupportedPermissionMode(params.prePlanMode, params.harness);
   const db = getDb();
   const now = new Date().toISOString();
   const selection = explicitHarnessSelection(
@@ -9792,6 +9864,7 @@ export function createExecutionWithChat(params: {
       .values({
         id: executionId,
         workspaceId: params.workspaceId,
+        createdByMemberId: params.createdByMemberId ?? null,
         label: params.label,
         worktreePath: params.worktreePath ?? null,
         branchName: params.branchName ?? null,
@@ -9810,6 +9883,8 @@ export function createExecutionWithChat(params: {
         id: params.chatSessionId ?? uuidv7(),
         harness: params.harness,
         type: 'execution',
+        createdByMemberId: params.createdByMemberId ?? null,
+        surfaceKind: params.surfaceKind ?? null,
         workspaceId: params.workspaceId,
         executionId: executionId,
         label: params.label,
@@ -9817,6 +9892,7 @@ export function createExecutionWithChat(params: {
         // Policy default lives here, not the schema. The DB default is an inert
         // backstop kept equal to this. See docs/schema-defaults.md.
         permissionMode,
+        prePlanMode: params.prePlanMode ?? (permissionMode === 'plan' && getHome()?.kind === 'team' ? conservativePlanReturn(params.harness) : null),
         // ISO (UTC) to match the execution's timestamps and to sort
         // consistently against ISO outcome/unread timestamps (the SQLite
         // `datetime('now')` default would store the space-format instead).
@@ -9834,6 +9910,13 @@ export function createExecutionWithChat(params: {
       })
       .returning()
       .get();
+
+    if (params.launchIntentHash) tx.insert(chatEvents).values({
+      id: `native-launch-intent:${session.id}`, sessionId: session.id,
+      role: 'system', source: 'system', content: null,
+      raw: { subtype: 'native_launch_intent', actionIntentHash: params.launchIntentHash },
+      createdAt: now, updatedAt: now,
+    }).run();
 
     // Atomic Start-with-agent: associate + Start the task in this same
     // transaction. A terminal race throws and rolls back the execution, chat,
@@ -9911,6 +9994,8 @@ export function createExecutionSession(args: {
  */
 export function createExecutionChat(args: {
   executionId: string;
+  createdByMemberId?: string | null;
+  surfaceKind?: string | null;
   /** Which engine runs the new chat. */
   harness: HarnessId;
   model?: string | null;
@@ -9927,6 +10012,8 @@ export function createExecutionChat(args: {
     type: 'execution',
     executionId: args.executionId,
     workspaceId: execution.workspaceId,
+    createdByMemberId: args.createdByMemberId ?? null,
+    surfaceKind: args.surfaceKind ?? null,
     harness: args.harness,
     permissionMode: args.permissionMode,
     prePlanMode: args.prePlanMode,
@@ -10817,6 +10904,20 @@ export function listChatEvents(
 ): ChatEventRecord[] {
   const db = getDb();
   const limit = opts.limit ?? CHAT_PAGE_SIZE;
+  const chat = getChatSession(sessionId);
+  if (chat?.surfaceKind === TEAM_CHAT_SURFACE && chat.createdByMemberId == null) {
+    const anchor = opts.before ? chatEventInsertionCursor(sessionId, opts.before) : undefined;
+    if (opts.before && anchor == null) return [];
+    const page = db.select({ rowid: sql<number>`${chatEvents}.rowid` })
+      .from(sql`${chatEvents} INDEXED BY idx_chat_events_session_cursor`)
+      .where(and(eq(chatEvents.sessionId, sessionId), anchor == null ? undefined : sql`${chatEvents}.rowid < ${anchor}`))
+      .orderBy(sql`${chatEvents}.rowid DESC`).limit(limit).offset(opts.offset ?? 0);
+    const rows = db.select({ event: chatEvents, insertionCursor: sql<number>`${chatEvents}.rowid` })
+      .from(chatEvents).where(inArray(sql`${chatEvents}.rowid`, page))
+      .orderBy(sql`${chatEvents}.rowid DESC`).all();
+    return rows.reverse().map(row => ({ ...hydrateRow(row.event), insertionCursor: row.insertionCursor }));
+  }
+
 
   if (opts.before) {
     const anchor = db
@@ -10856,6 +10957,12 @@ export function listChatEvents(
     .offset(offset)
     .all();
   return tail.reverse().map((r) => hydrateRow(r));
+}
+
+/** A single primary-key lookup for legacy live-event ordering, without touching its payload. */
+export function chatEventInsertionCursor(sessionId: string, eventId: string): number | null {
+  const row = getDb().select({ sessionId: chatEvents.sessionId, cursor: sql<number>`${chatEvents}.rowid` }).from(chatEvents).where(eq(chatEvents.id, eventId)).get();
+  return row?.sessionId === sessionId ? row.cursor : null;
 }
 
 /**
@@ -12762,4 +12869,50 @@ export function createAppTaskOnce(id: string, input: Parameters<typeof createTas
 }
 export function createAppNoteOnce(id: string, input: CreateNoteInput) {
   return getDb().transaction(() => getNote(id) ?? createNote(input,{id}));
+}
+
+/** Attribution for an already admitted human action, including completion after sign-out. */
+export function recordTeamActivity(input: Omit<import('@/db/types').CreateTeamActivityInput, 'id' | 'createdAt' | 'updatedAt'>) {
+  return getDb().insert(teamActivity).values({ id: uuidv7(), ...input }).returning().get();
+}
+export function listTeamActivity(workspaceId: string, limit = 100) {
+  return getDb().select().from(teamActivity).where(eq(teamActivity.workspaceId, workspaceId))
+    .orderBy(desc(teamActivity.createdAt), desc(teamActivity.id)).limit(Math.max(1, Math.min(limit, 200))).all();
+}
+
+/** Personal and Team transcripts use the same durable failed-send explanation. */
+export function recordChatSendRefusal(sessionId: string, messageId: string, reason: string) {
+  return insertChatEvent({ sessionId, role: 'system', source: 'error', content: reason, raw: { subtype: 'send_refused', messageId }, createdAt: new Date().toISOString() });
+}
+
+
+/** Shared metadata identity includes counters and values because SQLite timestamps have second precision. */
+export function teamTaskCursor(row: Pick<TaskRecord, 'updatedAt' | 'bodyRevision' | 'statusChangedCount' | 'title' | 'description' | 'outcome' | 'hardDeadline' | 'status' | 'areaId' | 'assigneeMemberId'>) {
+  return createHash('sha256').update(JSON.stringify([row.updatedAt, row.bodyRevision, row.statusChangedCount, row.title, row.description, row.outcome, row.hardDeadline, row.status, row.areaId, row.assigneeMemberId])).digest('hex');
+}
+export function teamNoteCursor(row: Pick<NoteRecord, 'updatedAt' | 'bodyRevision' | 'title' | 'url' | 'status' | 'kind' | 'areaId'>) {
+  return createHash('sha256').update(JSON.stringify([row.updatedAt, row.bodyRevision, row.title, row.url, row.status, row.kind, row.areaId])).digest('hex');
+}
+
+/** Bounded primary-key metadata reads. Unchanged bodies never cross the wire. */
+export function teamReferenceChanges(input: {
+  tasks: { id: string; cursor?: string | null }[];
+  notes: { id: string; cursor?: string | null }[];
+}) {
+  if (input.tasks.length > 200 || input.notes.length > 200) throw new TeamError('invalid', 'Read at most 200 references per page.');
+  const taskStamps = input.tasks.length ? getDb().select({ id: tasks.id, updatedAt: tasks.updatedAt, bodyRevision: tasks.bodyRevision, statusChangedCount: tasks.statusChangedCount, title: tasks.title, description: tasks.description, outcome: tasks.outcome, hardDeadline: tasks.hardDeadline, status: tasks.status, areaId: tasks.areaId, assigneeMemberId: tasks.assigneeMemberId }).from(tasks).where(inArray(tasks.id, input.tasks.map(row => row.id))).all() : [];
+  const noteStamps = input.notes.length ? getDb().select({ id: notes.id, updatedAt: notes.updatedAt, bodyRevision: notes.bodyRevision, title: notes.title, url: notes.url, status: notes.status, kind: notes.kind, areaId: notes.areaId }).from(notes).where(inArray(notes.id, input.notes.map(row => row.id))).all() : [];
+  const knownTasks = new Map(input.tasks.map(row => [row.id, row.cursor]));
+  const knownNotes = new Map(input.notes.map(row => [row.id, row.cursor]));
+  return {
+    tasks: taskStamps.filter(row => teamTaskCursor(row) !== knownTasks.get(row.id)).map(row => getTask(row.id)!),
+    notes: noteStamps.filter(row => teamNoteCursor({ ...row, kind: row.kind ?? 'note' }) !== knownNotes.get(row.id)).map(row => getNote(row.id)!),
+    missingTasks: input.tasks.filter(row => !taskStamps.some(found => found.id === row.id)).map(row => row.id),
+    missingNotes: input.notes.filter(row => !noteStamps.some(found => found.id === row.id)).map(row => row.id),
+  };
+}
+
+/** A cancellation can undo only the exact preparation it received. */
+export function preparedTeamTaskFingerprint(task: TaskRecord) {
+  return createHash('sha256').update(JSON.stringify(task)).digest('hex');
 }

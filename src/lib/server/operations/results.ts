@@ -8,6 +8,7 @@ import { observeWorkResultCodeRevision } from '@/lib/work-results/observe';
 import { prepareAutomaticWorkResultReview, dispatchAutomaticWorkResultReviews } from '@/lib/work-results/automatic';
 import { saveWorkResultSchema, workResultDecisionSchema, requestAiReviewSchema, prepareWorkResultSchema } from '@/lib/work-results/validation';
 import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
+import { requireWorkResultOwner, validateWorkResultActor } from '@/lib/work-results/home-policy';
 import { ActionError } from '@/lib/orchestrator/types';
 
 const id = z.string().min(1);
@@ -41,7 +42,7 @@ export async function capabilities(_input: Record<string, never>, _context: Oper
 }
 export async function setCapabilities(input: z.infer<typeof capabilitiesInput>, context: OperationContext) {
   return operation(async () => {
-    if (actor(context, 'PATCH').source !== 'human') throw new ActionError('unsupported', 'Only the human owner can change pilot capabilities.');
+    requireWorkResultOwner(actor(context, 'PATCH'));
     const result = setWorkResultCapabilities(input);
     const { reconcileWorkResultCapabilities } = await import('@/lib/work-results/runtime');
     await reconcileWorkResultCapabilities();
@@ -69,6 +70,7 @@ export async function save(input: z.infer<typeof saveInput>, context: OperationC
     const previous = getWorkResult(workResultRequestScopedId('report_result', caller, value.requestId), caller.userId);
     if (!previous) assertHandoffsEnabled();
     const sourceId = value.sourceChatSessionId ?? caller.sessionId;
+    validateWorkResultActor(caller, sourceId);
     const codeRevision = previous ? undefined : await observeWorkResultCodeRevision(sourceId, caller.userId);
     const automaticReview = previous ? undefined : await prepareAutomaticWorkResultReview(caller, sourceId);
     const saved = createWorkResult(caller, value, { sourceChatSessionId: value.sourceChatSessionId, sourceEventId: value.sourceEventId, codeRevision, automaticReview });

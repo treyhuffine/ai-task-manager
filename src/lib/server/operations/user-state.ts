@@ -1,5 +1,9 @@
+import { getRequestKey } from '@/lib/auth/request-key';
+import { requireTeamCapability } from '@/lib/team/capability-authority';
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
+import { isTeamAuthority } from '@/lib/home/authority';
 import { attachmentPath } from '@/lib/attachments/save';
-import { getUserState, updateUserState } from '@/lib/db/queries';
+import { getUserState, updateUserState, getMemberPreferences, updateMemberPreferences } from '@/lib/db/queries';
 import { userState } from '@/lib/db/schema';
 import { recycleAppMainChats } from '@/lib/executor/adapter';
 import { parseOrchestratorLook } from '@/lib/orchestrator/look';
@@ -16,8 +20,15 @@ import { normalizeWorkResultGuidance, WorkResultGuidanceError } from '@/lib/inst
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'read');
+  if (homeDenied) return homeDenied;
   try {
     const row = getUserState();
+    if (isTeamAuthority() && row) {
+      const member = requireTeamCapability(getRequestKey(_request.headers), 'read');
+      const preferences = getMemberPreferences(member.id);
+      return reply({ ...row, voiceAutoSend: preferences?.voiceAutoSend ?? null, voiceModel: preferences?.voiceModel?.startsWith('web/') ? preferences.voiceModel : 'web/speech-recognition' });
+    }
     return reply(row);
   } catch (err) {
     console.error('[GET /api/user-state]', err);
@@ -26,6 +37,27 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: Oper
 }
 
 export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, request: OperationContext) {
+  if (isTeamAuthority()) {
+    const fields = Object.keys(rpcInput.body);
+    const voiceFields = ['voiceAutoSend', 'voiceModel'];
+    if (fields.some(key => ![...voiceFields, 'defaultHarness', 'defaultModel', 'defaultVariant', 'defaultEffort'].includes(key))) return reply({ error: 'Choose only model defaults or your own voice preferences.' }, { status: 403 });
+    const homeDenied = homeSettingsAdmission(request.headers, fields.every(key => voiceFields.includes(key)) ? 'read' : 'manageSignIns');
+    if (homeDenied) return homeDenied;
+    const key = getRequestKey(request.headers);
+    if (key?.scope !== 'member' || requestHasSessionAuthority(request.headers)) return reply({ error: 'Only a signed-in person can change these preferences.' }, { status: 403 });
+    const member = requireTeamCapability(key, 'read');
+    const { voiceAutoSend, voiceModel, ...defaults } = rpcInput.body;
+    if (voiceModel != null && voiceModel !== 'web/speech-recognition') return reply({ error: 'Team voice uses browser speech recognition.' }, { status: 400 });
+    const voice = { ...('voiceAutoSend' in rpcInput.body ? { voiceAutoSend } : {}), ...('voiceModel' in rpcInput.body ? { voiceModel } : {}) };
+    if (Object.keys(voice).length) updateMemberPreferences(member.id, voice);
+    if (Object.keys(defaults).length) {
+      const { defaultHarness, defaultModel, defaultEffort } = defaults;
+      updateUserState({ ...('defaultHarness' in defaults ? { defaultHarness } : {}), ...('defaultModel' in defaults ? { defaultModel } : {}), ...('defaultEffort' in defaults ? { defaultEffort } : {}) });
+    }
+    const preferences = getMemberPreferences(member.id);
+    const row = getUserState() ?? updateUserState({});
+    return reply(row ? { ...row, voiceAutoSend: preferences?.voiceAutoSend ?? null, voiceModel: preferences?.voiceModel?.startsWith('web/') ? preferences.voiceModel : 'web/speech-recognition' } : row);
+  }
   try {
     const { workResultGuidance, ...settings } = rpcInput.body;
     if ('workResultGuidance' in rpcInput.body && requestHasSessionAuthority(request.headers)) {

@@ -88,6 +88,11 @@ it('discovers only content tools and refuses calls to private or hidden tools by
   const { token } = await (await settings()).create({ name: 'Codex' });
   const client = await connect(token, { 'x-ri-api-key-scope': 'viewer', 'x-ri-caller-location': 'home', 'x-ri-member-id': 'owner', 'x-ri-session': 'forged.session' });
   expect((await client.listTools()).tools.map(tool => tool.name).sort()).toEqual([...HOME_CONTENT_ACTIONS].sort());
+  for (const tool of (await client.listTools()).tools) {
+    expect(Object.keys(tool.inputSchema.properties ?? {})).not.toEqual(expect.arrayContaining(['target_home_id']));
+    expect(Object.keys(tool.inputSchema.properties ?? {})).not.toContain('assigneeMemberId');
+    if (!['complete_task','transition_task'].includes(tool.name)) expect(Object.keys(tool.inputSchema.properties ?? {})).not.toContain('idempotency_key');
+  }
   for (const name of ['describe_paths', 'describe_schema', 'delegate_work', 'list_sessions', 'message_agent', 'regenerate_deck', 'report_result', 'get_result', 'list_results', 'query', 'run_sql']) {
     expect((await call(client, name)).isError, name).toBe(true);
   }
@@ -97,7 +102,9 @@ it('reads, creates and edits real tasks and notes, with normal mirrors, revision
   const q = await import('@/lib/db/queries');
   const { token } = await (await settings()).create({ name: 'My assistant' });
   const client = await connect(token);
-  const task = (await call(client, 'create_task', { title: 'Book trip', rawInput: 'Book trip', body: 'Compare trains' })).json().result;
+  const created = await call(client, 'create_task', { title: 'Book trip', rawInput: 'Book trip', body: 'Compare trains' });
+  expect(created.isError, created.text).toBe(false);
+  const task = created.json().result;
   expect(task.id).toBeTruthy();
   const note = (await call(client, 'create_note', { title: 'Trip decisions', body: 'Compare trains', kind: 'decision' })).json().result;
   expect(note.id).toBeTruthy();

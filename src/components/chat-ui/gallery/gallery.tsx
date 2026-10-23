@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Check, Copy, LayoutTemplate, Monitor, RotateCcw, Search, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,10 +17,8 @@ export function ChatUiGallery() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [phone, setPhone] = useState(false);
   const [generation, setGeneration] = useState(0);
-  const [height, setHeight] = useState(520);
   const [loaded, setLoaded] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const preview = useRef<HTMLIFrameElement>(null);
   const example = galleryExample(selected);
   const matches = filterGalleryExamples(search, origin);
 
@@ -39,22 +37,11 @@ export function ChatUiGallery() {
     return () => window.removeEventListener('hashchange', read);
   }, []);
 
-  useEffect(() => {
-    const resize = (event: MessageEvent) => {
-      if (event.source !== preview.current?.contentWindow || event.data?.type !== 'ri-chat-gallery-height') return;
-      const next = event.data.height;
-      if (typeof next === 'number' && Number.isFinite(next)) setHeight(Math.max(300, Math.min(1000, Math.ceil(next))));
-    };
-    window.addEventListener('message', resize);
-    return () => window.removeEventListener('message', resize);
-  }, []);
-
   const choose = (item: ChatUiExample, nextState = item.states[0].id) => {
     if (item.id === selected && nextState === state) return;
     setSelected(item.id);
     setState(nextState);
     setLoaded(false);
-    setHeight(520);
     window.history.pushState(null, '', `#${item.id}${nextState !== item.states[0].id ? `?state=${encodeURIComponent(nextState)}` : ''}`);
   };
   const filter = (nextSearch: string, nextOrigin: string) => {
@@ -119,7 +106,9 @@ export function ChatUiGallery() {
             </div>
             <div className="overflow-hidden bg-muted/15 p-2 sm:p-4">
               {!loaded && <p role="status" className="px-2 py-1 text-xs text-muted-foreground">Opening example…</p>}
-              <iframe ref={preview} key={previewKey} title={`${example.name} interactive example`} sandbox="allow-scripts" referrerPolicy="no-referrer" src={`${galleryPreviewUrl(example.id)}#${new URLSearchParams({ example: example.id, state, theme })}`} className={cn('mx-auto block w-full rounded-lg border border-border bg-background', phone && 'max-w-[390px]')} style={{ height }} onLoad={() => setLoaded(true)} />
+              {/* Keep the viewport steady as forms, dialogs and receipts appear.
+                  Changing its height during pointer input moves the controls. */}
+              <iframe key={previewKey} title={`${example.name} interactive example`} sandbox="allow-scripts" referrerPolicy="no-referrer" src={`${galleryPreviewUrl(example.id)}#${new URLSearchParams({ example: example.id, state, theme })}`} className={cn('mx-auto block h-[760px] w-full rounded-lg border border-border bg-background', phone && 'max-w-[390px]')} onLoad={() => setLoaded(true)} />
             </div>
             <p className="border-t border-border px-3 py-2 text-[10px] text-muted-foreground">Production components · Fictional data · Actions stay inside this preview</p>
           </section>

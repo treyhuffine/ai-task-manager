@@ -11,6 +11,7 @@
  * refused rather than applied twice.
  */
 
+import { hasTeamCapability } from './capabilities';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
@@ -48,6 +49,7 @@ export interface PublishTaskResultInput {
   summary?: string | null;
   links?: PublishedLink[];
   attachments?: Attachment[];
+  source?: 'human' | 'ai';
 }
 
 function checkLinks(links: PublishedLink[]): PublishedLink[] {
@@ -115,6 +117,8 @@ export async function publishTaskResult(input: PublishTaskResultInput): Promise<
 
   const run = () => {
     const db = getDb();
+    const member = getMember(input.memberId);
+    if (!hasTeamCapability(member, 'editContent', input.source === 'ai' ? 'agent' : 'human')) throw new TeamError('not_allowed', 'Only an active authorized team member can publish a result.');
     if (!db.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, input.taskId)).get()) throw new TeamError('not_found', 'That task is no longer in the team.');
     const previous = db.select().from(workResults).where(eq(workResults.id, id)).get();
     if (previous) {
@@ -128,7 +132,7 @@ export async function publishTaskResult(input: PublishTaskResultInput): Promise<
       id,
       createdAt: now,
       updatedAt: now,
-      actorSource: 'human',
+      actorSource: input.source ?? 'human',
       actorUserId: input.memberId,
       requestHash: hash,
       title: null,

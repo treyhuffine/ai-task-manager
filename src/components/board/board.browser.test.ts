@@ -50,6 +50,15 @@ beforeAll(async () => {
     export const useWorkspaces=()=>{const state=useSyncExternalStore(subscribe,()=>activityState);return {data:state==='ready'?agents:undefined,isPending:state==='loading',isError:state==='error',refetch}};
     export const useInactivity=()=>({isInactive:s=>s.id==='inactive'});
     export const TeamLabel=()=>null;
+    const teamIdentity=()=>({home:new URLSearchParams(location.search).get('home')??'team-a',viewer:new URLSearchParams(location.search).get('viewer')??'owner'});
+    export const useHomeContext=()=>({home:{id:teamIdentity().home,kind:'team'},viewer:{id:teamIdentity().viewer},capabilities:{privatePlanning:false,administerMembers:teamIdentity().viewer==='owner'}});
+    export const useOptionalHomeContext=()=>new URLSearchParams(location.search).has('teamBoard')?useHomeContext():null;
+    export const useHomeStorageScope=()=>new URLSearchParams(location.search).has('teamBoard')?{homeId:teamIdentity().home,viewerId:teamIdentity().viewer}:null;
+    export const useHomeDocumentScope=useHomeStorageScope;
+    export const usePathname=()=>'/'; export const useRouter=()=>({push:()=>{},replace:()=>{}});
+    export const useTeam=()=>({team:{name:'Team'},member:{id:teamIdentity().viewer,name:teamIdentity().viewer}});
+    export const useTeamNav=()=>({mine:false,areaId:null,openTask:id=>window.destinations.push({kind:'task',id}),setMine:()=>{},filterArea:()=>{}});
+
   `;
   const bundle = await build({
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
@@ -57,18 +66,20 @@ beforeAll(async () => {
       import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
       import {TooltipProvider} from '@/components/ui/tooltip';
       import {TaskBoardModal} from '@/components/tasks/task-board-modal';
+      import {TeamBoard} from '@/components/team/team-board';
       import {RailStatusPills} from '@/components/dashboard/rail-status-pills';
       import {openBoard,openTaskBoard} from '@/lib/client/task-board';
       const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><TooltipProvider>
-        <button onClick={()=>openBoard()}>Board</button><button onClick={()=>openTaskBoard()}>Tasks board</button>
-        <RailStatusPills/><TaskBoardModal/>
+        {new URLSearchParams(location.search).has('teamBoard') ? <TeamBoard/> : <><button onClick={()=>openBoard()}>Board</button><button onClick={()=>openTaskBoard()}>Tasks board</button>
+        <RailStatusPills/><TaskBoardModal/></>}
       </TooltipProvider></QueryClientProvider>);
     ` },
     bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', logLevel: 'silent',
     define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}' },
     plugins: [{ name: 'fixture-data', setup(api) {
-      api.onResolve({ filter: /^(@\/contexts\/dashboard-context|next\/navigation|@\/hooks\/use-workspaces|@\/hooks\/use-inactivity|@\/components\/spaces\/team-label)$/ }, () => ({ path: 'data', namespace: 'fixture' }));
+      api.onResolve({filter:/\/team-context$/},()=>({path:'data',namespace:'fixture'}));
+      api.onResolve({ filter: /^(@\/contexts\/dashboard-context|next\/navigation|@\/hooks\/use-workspaces|@\/hooks\/use-inactivity|@\/components\/spaces\/team-label|@\/components\/team\/team-context|@\/components\/home\/home-context)$/ }, () => ({ path: 'data', namespace: 'fixture' }));
       api.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: fixture, loader: 'js', resolveDir: process.cwd() }));
     } }],
   });
@@ -82,7 +93,8 @@ beforeAll(async () => {
       if (procedure === 'transport.capabilities') data = { websocket: false };
       else if (procedure === 'tasks.list') data = tasks.filter(t => t.status === input.status);
       else if (procedure === 'tasks.attention') data = { in_progress: { working: true, agentSessionId: 'work' } };
-      else if (procedure === 'areas.list') data = [];
+      else if (procedure === 'areas.list' || procedure === 'team.members') data = [];
+      else if (procedure === 'tasks.counts') data = { todo: 1, in_progress: 1, done: 1 };
       else if (procedure === 'tasks.transition' || procedure === 'tasks.complete') {
         mutations.push({ procedure, input });
         const task = tasks.find(t => t.id === input.id)!;
@@ -99,7 +111,7 @@ beforeAll(async () => {
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const executablePath = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'].find(fs.existsSync);
+  const executablePath = process.env.RI_REVIEW_CHROMIUM ?? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'].find(fs.existsSync);
   if (!executablePath) throw new Error('Chromium is required for Board qualification');
   browser = await chromium.launch({ executablePath, headless: true });
 }, 30_000);
@@ -219,6 +231,32 @@ it('follows explicit view navigation and browser back/forward without losing the
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Tasks board', exact: true }).click();
     expect(await dialog(page).getByRole('button', { name: 'Tasks', exact: true }).getAttribute('aria-pressed')).toBe('true');
+    expect(errors).toEqual([]);
+  } finally { await page.close(); }
+});
+
+
+it('Team hosts keep Done and agent activity by default, with column choices scoped to Home and viewer', async () => {
+  const page = await open('?teamBoard&home=team-a&viewer=owner');
+  try {
+    const teamPicker = () => page.getByRole('button', { name: /^Columns,/ });
+    await teamPicker().waitFor();
+    expect(await teamPicker().getAttribute('aria-label')).toBe('Columns, 4 of 5 visible');
+    await page.getByText('done task', { exact: true }).waitFor();
+    await page.getByRole('button', { name: "Open the agent's chat" }).waitFor();
+    await teamPicker().click(); await page.getByRole('menuitemcheckbox', { name: 'Done', exact: true }).click(); await page.keyboard.press('Escape');
+    expect(await teamPicker().getAttribute('aria-label')).toBe('Columns, 3 of 5 visible');
+    for (const destination of ['?teamBoard&home=team-a&viewer=member', '?teamBoard&home=team-b&viewer=owner']) {
+      await page.goto(base + destination); await teamPicker().waitFor();
+      expect(await teamPicker().getAttribute('aria-label')).toBe('Columns, 4 of 5 visible');
+      await page.getByText('done task', { exact: true }).waitFor();
+    }
+    await page.goto(base + '?teamBoard&home=team-a&viewer=owner'); await teamPicker().waitFor();
+    expect(await teamPicker().getAttribute('aria-label')).toBe('Columns, 3 of 5 visible');
+    expect(await page.getByText('done task', { exact: true }).count()).toBe(0);
+    await page.goto(base + '?board=1'); await picker(page).waitFor();
+    expect(await picker(page).getAttribute('aria-label')).toBe('Columns, 3 of 5 visible');
+    expect(await page.evaluate(() => localStorage.getItem('ri.tasks.view:team-a:owner:columns'))).toBe('["consider","todo","current"]');
     expect(errors).toEqual([]);
   } finally { await page.close(); }
 });

@@ -332,7 +332,8 @@ export async function generateDeck(
     blockedOn: t.blockedOn,
     userContext: t.userContext,
     subtasks: subtasksByParent.get(t.id),
-    team: t.sourceTeamId ? { name: teamNames.get(t.sourceTeamId) ?? 'a team', assigned: !!t.source?.assigned } : null,
+    personalPriority: t.sortKey,
+    team: t.sourceTeamId ? { name: teamNames.get(t.sourceTeamId) ?? 'a team', area: t.source?.area?.name ?? null, assigned: !!t.source?.assigned, deliberatelyAdded: !!t.source?.addedAt } : null,
   }));
 
   const promptAreas = activeAreas.map((a) => ({

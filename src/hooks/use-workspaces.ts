@@ -1,3 +1,4 @@
+import { invalidateWorkspaceViews } from '@/lib/query/work-view-invalidation';
 import type { CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceStatus } from '@/db/types';
 import { worktreeScopeFor } from '@/hooks/use-execution';
 import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
@@ -6,10 +7,11 @@ import { sessionsApi, type HistoryResponse, type RailResponse } from '@/lib/api/
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
 import type { DirtyWorktreeBody, UncommittedFile } from '@/lib/workspaces/uncommitted-files';
 import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query';
-import { invalidateReferencePickers } from '@/hooks/use-reference-folders';
+import { invalidateReferenceCatalogs } from '@/hooks/use-reference-folders';
 import { toast } from 'sonner';
 import { optimisticPatch } from '@/lib/query/optimistic-entity';
 import type { WorkResultDetailResponse } from '@/lib/api/results';
+import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
 
 const WORKSPACES_KEY = ['workspaces'] as const;
 const UPDATE_WORKSPACE_KEY = ['workspaces', 'update'] as const;
@@ -18,10 +20,11 @@ const resultsAwaitingWorkspaceRefresh = new WeakSet<QueryClient>();
 
 /** Detected setup/start command suggestions for a checkout (placeholders only). */
 export function useStackDetection(cwd: string | null) {
+  const { canConfigureAgents } = useExecutionRuntimeScope();
   return useQuery<StackSuggestion>({
     queryKey: ['stack-detect', cwd],
     queryFn: () => workspacesApi.detectStack(cwd!),
-    enabled: !!cwd && cwd.trim().length > 0,
+    enabled: canConfigureAgents && !!cwd && cwd.trim().length > 0,
     staleTime: 60_000,
   });
 }
@@ -93,8 +96,7 @@ export function useChangeAgentFolders(workspaceId: string) {
   const settle = (data: Awaited<ReturnType<typeof workspacesApi.folders>>) => {
     qc.setQueryData([...WORKSPACES_KEY, workspaceId, 'folders'], data);
     void qc.invalidateQueries({ queryKey: [...WORKSPACES_KEY, workspaceId, 'run-on'] });
-    void qc.invalidateQueries({ queryKey: ['reference-folders'] });
-    void invalidateReferencePickers(qc);
+    void invalidateReferenceCatalogs(qc);
   };
   return {
     project: useMutation({
@@ -195,7 +197,7 @@ export function useCreateWorkspace() {
   return useMutation({
     mutationFn: (input: Partial<CreateWorkspaceInput> & { name: string; cwd: string }) =>
       workspacesApi.create(input),
-    onSuccess: () => qc.invalidateQueries({ queryKey: WORKSPACES_KEY }),
+    onSuccess: () => invalidateWorkspaceViews(qc),
   });
 }
 
@@ -273,7 +275,7 @@ export function useUpdateWorkspace() {
       // Refresh only after the last overlapping save, and let the Save
       // acknowledgment finish while these background reads are pending.
       if (qc.isMutating({ mutationKey: UPDATE_WORKSPACE_KEY }) !== 1) return;
-      void qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+      void invalidateWorkspaceViews(qc);
       void qc.invalidateQueries({ queryKey: RAIL_KEY });
       if (resultsAwaitingWorkspaceRefresh.delete(qc)) void qc.invalidateQueries({ queryKey: ['results'] });
     },
@@ -284,7 +286,7 @@ export function useArchiveWorkspace() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => workspacesApi.archive(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: WORKSPACES_KEY }),
+    onSuccess: () => invalidateWorkspaceViews(qc),
   });
 }
 
@@ -292,7 +294,7 @@ export function useReorderWorkspaces() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (ids: string[]) => workspacesApi.reorder(ids),
-    onSuccess: () => qc.invalidateQueries({ queryKey: WORKSPACES_KEY }),
+    onSuccess: () => invalidateWorkspaceViews(qc),
   });
 }
 
@@ -385,7 +387,7 @@ export function useMarkSessionRead() {
       // to the server's canonical timestamps (the optimistic `now`
       // is close but not identical to the server's).
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
-      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+      invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: RAIL_KEY });
     },
   });
@@ -422,7 +424,7 @@ export function useMarkSessionUnread() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
-      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+      invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: RAIL_KEY });
     },
   });
@@ -475,7 +477,7 @@ export function usePinSession() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: RAIL_KEY });
       qc.invalidateQueries({ queryKey: HISTORY_KEY });
-      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+      invalidateWorkspaceViews(qc);
     },
   });
 }
@@ -489,7 +491,7 @@ export function useUnpinSession() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: RAIL_KEY });
       qc.invalidateQueries({ queryKey: HISTORY_KEY });
-      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+      invalidateWorkspaceViews(qc);
     },
   });
 }
@@ -609,7 +611,7 @@ export function useArchiveSession() {
     onSettled: () => {
       // Reconcile with the server on both success and (post-rollback)
       // failure so the caches match the truth.
-      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+      invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
       qc.invalidateQueries({ queryKey: RAIL_KEY });
     },
@@ -697,7 +699,7 @@ export function useBulkArchiveSessions() {
       return result;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+      invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
       qc.invalidateQueries({ queryKey: RAIL_KEY });
     },

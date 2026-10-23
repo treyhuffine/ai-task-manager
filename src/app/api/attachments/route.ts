@@ -14,6 +14,8 @@
  * Auth: bearer token (middleware handles it).
  */
 
+import { getRequestKey } from '@/lib/auth/request-key';
+import { apiErrorStatus } from '@/lib/api/error-status';
 import { NextRequest } from 'next/server';
 import { saveAttachment } from '@/lib/attachments/save';
 import { isAllowedMime, resolveMime } from '@/lib/attachments/mime';
@@ -73,6 +75,7 @@ export async function POST(request: NextRequest) {
       data: file,
       originalName,
       mimeType: mime,
+      idempotencyKey: request.headers.get('x-ri-upload-id') && getRequestKey(request.headers) ? JSON.stringify([getRequestKey(request.headers)!.memberId ?? getRequestKey(request.headers)!.apiKeyId, request.headers.get('x-ri-upload-id')]) : undefined,
     });
 
     return Response.json(attachment, { status: 201 });
@@ -80,6 +83,6 @@ export async function POST(request: NextRequest) {
     if (err instanceof RequestBodyTooLargeError) return Response.json({ error: err.message }, { status: 413 });
     console.error('[POST /api/attachments]', err);
     const message = err instanceof Error ? err.message : String(err);
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json({ error: message }, { status: apiErrorStatus(err) ?? 500 });
   }
 }

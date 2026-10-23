@@ -1,15 +1,21 @@
 'use client';
 
-import { AgentIcon } from '@/components/agents/agent-icon';
+import { invalidateWorkspaceViews } from '@/lib/query/work-view-invalidation';
+import { WorkspacePicker } from '@/components/workspaces/workspace-picker';
+
+import { useHomeStorageScope } from '@/components/home/home-context';
+import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
+import { LaunchAudience } from './launch-audience';
+import { useDefaultSelection } from '@/hooks/use-default-selection';
+
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import {
 	ChatInputEditor,
 	type ChatInputEditorHandle,
 } from '@/components/chat/editor/chat-input-editor';
-import { Popover, PopoverTrigger } from '@/components/ui/popover';
-import { useDashboard } from '@/contexts/dashboard-context';
-import type { EffortLevel, WorkspaceRecord } from '@/db/types';
+import { useWorkNavigation } from '@/contexts/work-context';
+import type { EffortLevel } from '@/db/types';
 import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useUserState } from '@/hooks/use-user-state';
@@ -20,7 +26,6 @@ import { apiErrorText } from '@/lib/api/client';
 import { sessionsApi } from '@/lib/api/sessions';
 import { tasksApi } from '@/lib/api/tasks';
 import { workspacesApi } from '@/lib/api/workspaces';
-import { executionView } from '@/lib/client/active-view';
 import {
 	applyPick,
 	canLaunch,
@@ -53,11 +58,8 @@ import { trpcClient } from '@/lib/trpc/client';
 import { rpcOptions } from '@/lib/trpc/request-options';
 import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
-import { Command } from 'cmdk';
 import {
 	ArrowDownToLine,
-	ChevronDown,
-	Bot,
 	CircleDot,
 	GitBranch,
 	GitPullRequest,
@@ -82,7 +84,6 @@ import {
 	RunOnControl,
 	type LaunchHarnessSelection,
 } from './launch-controls';
-import { LauncherPopoverContent } from './launcher-popover';
 import { closeLauncher, useLauncherStore, type LauncherSeed } from './launcher-store';
 import { useLaunchSuggestions } from './use-launch-sources';
 import { Tip } from '@/components/ui/tip';
@@ -139,7 +140,7 @@ function LaunchModalInner({
 }) {
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const { data: userState } = useUserState();
-  const { setActiveView } = useDashboard();
+  const { openExecution } = useWorkNavigation();
   const qc = useQueryClient();
 
   const [workspaceId, setWorkspaceId] = useState<string | null>(
@@ -150,6 +151,9 @@ function LaunchModalInner({
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const workspace = workspaces?.find((w) => w.id === workspaceId) ?? null;
   const isGit = !!workspace?.isGit;
+  const { personalControls } = useExecutionRuntimeScope();
+  const storageScope = useHomeStorageScope();
+  const defaultSelection = useDefaultSelection();
 
   // Where it runs (P3.1): the agent's default, unless picked for this one
   // execution. A pick never sticks: the next launch starts from the default
@@ -220,23 +224,23 @@ function LaunchModalInner({
   const [efforts, setEfforts] = useState<Record<string, EffortLevel>>({});
   const prefsWorkspaceRef = useRef<string | null>(null);
 
-  const fallbackProvider: ProviderId = userState?.defaultHarness ?? DEFAULT_HARNESS;
-  const fallbackModel = userState?.defaultModel ?? defaultModelFor(fallbackProvider);
+  const fallbackProvider: ProviderId = defaultSelection?.harness ?? userState?.defaultHarness ?? DEFAULT_HARNESS;
+  const fallbackModel = defaultSelection?.model ?? userState?.defaultModel ?? defaultModelFor(fallbackProvider);
 
   useEffect(() => {
     if (!workspaceId || prefsWorkspaceRef.current === workspaceId) return;
     prefsWorkspaceRef.current = workspaceId;
-    const prefs = readLaunchPrefs(workspaceId);
+    const prefs = readLaunchPrefs(workspaceId, storageScope);
     setMode(prefs.mode);
-    setEfforts(readProviderEfforts());
+    setEfforts(readProviderEfforts(storageScope));
     setHarnessPick(
       prefs.harness && prefs.model
         ? {
             harness: prefs.harness as ProviderId,
             model: prefs.model,
             variant: null,
-            effort: readProviderEffort(prefs.harness),
-            serviceTier: readProviderSpeed(prefs.harness),
+            effort: readProviderEffort(prefs.harness, storageScope),
+            serviceTier: readProviderSpeed(prefs.harness, storageScope),
           }
         : null,
     );
@@ -252,7 +256,7 @@ function LaunchModalInner({
         ref: prefs.baseBranch,
       });
     });
-  }, [workspaceId]);
+  }, [workspaceId, storageScope]);
 
   const selection = useMemo(
     () => ({
@@ -262,6 +266,7 @@ function LaunchModalInner({
     [harnessPick, fallbackProvider, fallbackModel],
   );
   const { models } = useHarnessModels(selection.harness);
+  const runtimeProblem = !personalControls && workspaceId && !workspace ? 'Opening the selected agent…' : !personalControls && (!selectedModelAvailable(models, selection.model) || (!harnessPick && !defaultSelection)) ? 'Choose an available model on this Home.' : null;
   const selectedModelOption = useMemo(
     () => models.find((m) => m.id === selection.model) ?? null,
     [models, selection.model],
@@ -380,9 +385,9 @@ function LaunchModalInner({
         baseBranch: resolveBase(chips).baseBranch,
         harness: overrides.harness ?? selection.harness,
         model: overrides.model ?? selection.model,
-      });
+      }, storageScope);
     },
-    [workspaceId, mode, chips, selection.harness, selection.model],
+    [workspaceId, mode, chips, selection.harness, selection.model, storageScope],
   );
 
   // Mode and model stick the moment they change, not only on a successful
@@ -403,12 +408,12 @@ function LaunchModalInner({
       // `next.effort` already resolved this provider's remembered value against
       // what the picked model supports (see ModelControl), so record it back to
       // the shared store the composer also reads.
-      writeProviderEffort(next.harness, next.effort);
-      if (next.serviceTier) writeProviderSpeed(next.harness, next.serviceTier);
-      setEfforts(readProviderEfforts());
+      writeProviderEffort(next.harness, next.effort, storageScope);
+      if (next.serviceTier) writeProviderSpeed(next.harness, next.serviceTier, storageScope);
+      setEfforts(readProviderEfforts(storageScope));
       persistPrefs({ harness: next.harness, model: next.model });
     },
-    [persistPrefs],
+    [persistPrefs, storageScope],
   );
 
   const handleEffortChange = useCallback(
@@ -421,10 +426,10 @@ function LaunchModalInner({
         effort: next,
         serviceTier: prev?.serviceTier ?? serviceTier,
       }));
-      writeProviderEffort(harness, next);
-      setEfforts(readProviderEfforts());
+      writeProviderEffort(harness, next, storageScope);
+      setEfforts(readProviderEfforts(storageScope));
     },
-    [harnessPick?.harness, fallbackProvider, fallbackModel, serviceTier],
+    [harnessPick?.harness, fallbackProvider, fallbackModel, serviceTier, storageScope],
   );
 
   /**
@@ -450,6 +455,7 @@ function LaunchModalInner({
 
   // ─── Commit ─────────────────────────────────────────────────
   const launch = async ({ send = true }: { send?: boolean } = {}) => {
+    if (runtimeProblem) { setError(runtimeProblem); return; }
     if (launching) return;
     if (!workspaceId) {
       // Nothing to fix but where it runs. Ask that, in place, and leave the
@@ -498,7 +504,7 @@ function LaunchModalInner({
           needsReactivate = true;
           await Promise.all([
             qc.invalidateQueries({ queryKey: ['imports', 'external-agents'] }),
-            qc.invalidateQueries({ queryKey: ['workspaces'] }),
+            invalidateWorkspaceViews(qc),
             qc.invalidateQueries({ queryKey: ['sessions', 'rail'] }),
           ]);
         } else {
@@ -547,8 +553,8 @@ function LaunchModalInner({
         });
         persistPrefs();
         clearComposerIfSent(send);
-        setActiveView(executionView(sessionId));
-        closeLauncher();
+        openExecution(sessionId);
+        closeLauncher('launched');
         return;
       }
 
@@ -557,8 +563,8 @@ function LaunchModalInner({
       // wait on beyond that.
       persistPrefs();
       clearComposerIfSent(send);
-      setActiveView(executionView(targetSessionId));
-      closeLauncher();
+      openExecution(targetSessionId);
+      closeLauncher('launched');
 
       if (send && content.trim().length > 0) {
         // Toast rather than `setError` — this fires after `closeLauncher`, so
@@ -586,7 +592,8 @@ function LaunchModalInner({
   const ready =
     (hasContent || chips.some((c) => c.chipKind === 'context'))
     && !pendingUploads
-    && !runOnProblem;
+    && !runOnProblem
+    && !runtimeProblem;
 
   // The editor owns Enter (submit), Shift+Enter (newline) and
   // Backspace-on-empty now. Only ⌥⏎ is ours, and it's caught in the capture
@@ -609,6 +616,7 @@ function LaunchModalInner({
   };
 
   return (
+    <>
     <DialogPrimitive.Root open onOpenChange={(o) => !o && closeLauncher()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=open]:fade-in-0" />
@@ -666,6 +674,7 @@ function LaunchModalInner({
               editorRef.current?.focus({ end: true });
             }}
           >
+            <LaunchAudience />
             {/* Header — WHERE the work happens. Workspace, isolation mode and
                 fork point are one thought ("this repo, isolated, off main"),
                 so they sit together above the prompt. The footer is left for
@@ -813,6 +822,7 @@ function LaunchModalInner({
 
               {isGit && mode === 'live' && !continuation && <LiveModeNotice />}
 
+              {!continuation && runtimeProblem && <p role="status" className="px-4 py-2 text-[12px] text-muted-foreground">{runtimeProblem}</p>}
               {!continuation && runOnProblem && (
                 <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
                   {runOnProblem}
@@ -864,7 +874,7 @@ function LaunchModalInner({
                   <button
                     type="button"
                     onClick={() => void launch({ send: false })}
-                    disabled={launching || !!runOnProblem}
+                    disabled={launching || !!runOnProblem || !!runtimeProblem}
                     className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-40"
                   >
                     Open only
@@ -886,6 +896,7 @@ function LaunchModalInner({
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+    </>
   );
 }
 
@@ -942,78 +953,5 @@ function Chip({ chip, onRemove }: { chip: LaunchChip; onRemove: () => void }) {
  * whole flow stays on the keyboard: write, Enter, type a few letters, Enter,
  * Enter.
  */
-function WorkspacePicker({
-  workspaces,
-  workspaceId,
-  open,
-  onOpenChange,
-  onChange,
-}: {
-  workspaces: Pick<WorkspaceRecord, 'id' | 'name' | 'emoji' | 'attachments' | 'areaId'>[];
-  workspaceId: string | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onChange: (id: string) => void;
-}) {
-  const current = workspaces.find((w) => w.id === workspaceId);
 
-  // Radix Popover (which portals to the body) rather than an absolutely
-  // positioned child. The modal's shell is `overflow-hidden` so it can clip
-  // its own scroll regions, and an in-tree dropdown gets clipped by it —
-  // the list rendered *inside* the modal instead of floating over it.
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] font-semibold transition-colors',
-            current
-              ? 'text-foreground hover:bg-muted/60'
-              : 'border border-dashed border-primary/50 text-primary hover:bg-primary/5',
-          )}
-        >
-          {current ? <AgentIcon workspace={current} size="xs" /> : <Bot size={12} className="text-primary/80" />}
-          {current?.name ?? 'Pick an agent'}
-          <ChevronDown size={11} className={current ? 'text-muted-foreground/60' : 'text-primary/70'} />
-        </button>
-      </PopoverTrigger>
-      {/* Radix focuses the first field on open, which is the filter, so
-          typing narrows the list straight away. */}
-      <LauncherPopoverContent align="start" className="w-64 p-0">
-        <Command loop className="flex flex-col">
-          <div className="flex items-center gap-1.5 border-b border-border px-2.5">
-            <Search size={11} className="flex-shrink-0 text-muted-foreground/60" />
-            <Command.Input
-              placeholder="Find an agent…"
-              className="h-8 flex-1 bg-transparent text-[12px] outline-none placeholder:text-muted-foreground/50"
-            />
-          </div>
-          <Command.List className="max-h-64 overflow-y-auto p-1">
-            <Command.Empty className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-              No agent by that name
-            </Command.Empty>
-            {workspaces.map((w) => (
-              <Command.Item
-                key={w.id}
-                value={`${w.name} ${w.id}`}
-                onSelect={() => {
-                  onChange(w.id);
-                  onOpenChange(false);
-                }}
-                className={cn(
-                  'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-foreground/90',
-                  'data-[selected=true]:bg-muted/70 data-[selected=true]:text-foreground',
-                  w.id === workspaceId && 'font-medium text-foreground',
-                )}
-              >
-                <AgentIcon workspace={w} size="xs" />
-                <span className="truncate">{w.name}</span>
-              </Command.Item>
-            ))}
-          </Command.List>
-        </Command>
-      </LauncherPopoverContent>
-    </Popover>
-  );
-}
+function selectedModelAvailable(models: readonly { id: string; availability?: string }[], id: string) { return models.some(model => model.id === id && model.availability !== 'unavailable'); }

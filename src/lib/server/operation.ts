@@ -1,6 +1,8 @@
 import { readLimitedJson, RequestBodyTooLargeError } from '@/lib/api/limited-body';
 import { TRPCError } from '@trpc/server';
 import { ZodObject, type ZodType } from 'zod/v4';
+import { withExecutionRequest } from '@/lib/home/execution-request';
+import { getRequestKey } from '@/lib/auth/request-key';
 
 /** Metadata verified by the HTTP auth boundary, shared by UI procedures and
  * compatibility adapters. Domain operations never make an HTTP request. */
@@ -132,9 +134,11 @@ export function serveOperation<Input, Result extends OperationSuccess<unknown> |
     const knownQuery = querySchema instanceof ZodObject ? Object.fromEntries(Object.entries(query).filter(([key]) => key in querySchema.shape)) : query;
     const parsed = schema.safeParse({ ...(params && objectSchema && 'params' in objectSchema.shape ? { params } : {}), ...(objectSchema && 'query' in objectSchema.shape && Object.keys(knownQuery).length ? { query: knownQuery } : {}), ...(body !== undefined ? { body } : {}) });
     if (!parsed.success) return Response.json({ error: parsed.error.message, ...(options.validationCode ? { code: options.validationCode } : {}) }, { status: options.validationStatus ?? 400 });
-    const result = await operation(parsed.data, {
+    const invoke = () => operation(parsed.data, {
       headers: request.headers, url: request.url, nextUrl: new URL(request.url), signal: request.signal,
     });
+    const key = getRequestKey(request.headers);
+    const result = await (key ? withExecutionRequest(key, invoke) : invoke());
     const status = result.status;
     if (status === 204) return new Response(null, { status, headers: result.headers });
     return Response.json(result.ok ? result.data : result.body, { status, headers: result.headers });

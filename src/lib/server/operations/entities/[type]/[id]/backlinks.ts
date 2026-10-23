@@ -1,3 +1,5 @@
+import { sharedCaller } from '@/lib/team/shared-work';
+import { getRequestKey } from '@/lib/auth/request-key';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 /**
@@ -14,6 +16,7 @@ type LinkType = (typeof LINK_TYPES)[number];
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   try {
+    sharedCaller(getRequestKey(_request.headers));
     const { type, id } = rpcInput.params;
     if (!LINK_TYPES.includes(type as LinkType)) {
       return reply({ error: `invalid type: ${type}` }, { status: 400 });

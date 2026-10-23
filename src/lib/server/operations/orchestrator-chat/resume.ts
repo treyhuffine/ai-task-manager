@@ -1,6 +1,7 @@
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { resumeMainChat } from '@/lib/sessions/main-chat';
 import { z as rpcZ } from 'zod/v4';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 
 /**
  * Make a past main chat of the app the current one. The current one is
@@ -17,6 +18,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     if (!result.ok) return reply({ error: result.error }, { status: result.status });
     return reply({ session: result.session });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/orchestrator-chat/resume]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

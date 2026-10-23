@@ -45,6 +45,8 @@ export interface RiMcpToolConfig {
   description?: string;
   /** A zod 3 raw shape or object schema. Omitted means no parameters. */
   inputSchema?: z.ZodRawShape | z.ZodTypeAny;
+  /** Registry dispatch validates unknown fields after destination routing. */
+  preserveRawInput?: boolean;
   annotations?: ToolAnnotations;
   _meta?: Record<string, unknown>;
 }
@@ -74,7 +76,7 @@ const isZodType = (value: unknown): value is z.ZodTypeAny =>
  * document SDK 1.x published (`strictUnions`, input/output pipe strategy), whatever target the SDK
  * asks for, so the tool definitions clients cache do not change with the upgrade.
  */
-export function zodStandardSchema(schema: z.ZodRawShape | z.ZodTypeAny): StandardSchemaWithJSON<Record<string, unknown>> {
+export function zodStandardSchema(schema: z.ZodRawShape | z.ZodTypeAny, preserveRawInput = false): StandardSchemaWithJSON<Record<string, unknown>> {
   const object = isZodType(schema) ? schema : z.object(schema as z.ZodRawShape);
   // SDK 1.x published a parameterless tool's empty shape as a bare object, with no
   // additionalProperties. Keep that, so a client's cached definition does not change.
@@ -87,6 +89,10 @@ export function zodStandardSchema(schema: z.ZodRawShape | z.ZodTypeAny): Standar
       version: 1,
       vendor: 'ri-zod3',
       validate: (value: unknown) => {
+        // Registry dispatch owns alias normalization, destination admission and
+        // schema validation together. Validating a required canonical field
+        // here first would refuse the same alias accepted by CLI and HTTP.
+        if (preserveRawInput && value && typeof value === 'object' && !Array.isArray(value)) return { value: value as Record<string, unknown> };
         const parsed = object.safeParse(value);
         if (parsed.success) return { value: parsed.data as Record<string, unknown> };
         return { issues: parsed.error.issues.map(issue => ({ message: issue.message, path: issue.path })) };
@@ -130,11 +136,11 @@ function registrar(server: McpServer, era: 'legacy' | 'modern'): RiMcpServer {
   return {
     era,
     registerTool(name, config, handler) {
-      const { inputSchema, ...rest } = config;
+      const { inputSchema, preserveRawInput, ...rest } = config;
       const call = (args: Record<string, unknown>, ctx: ServerContext) => withProgressKeepalive(ctx, async () =>
         await handler(args, { signal: ctx.mcpReq.signal, headers: ctx.http?.req?.headers, era }) as CallToolResult);
       if (inputSchema) {
-        server.registerTool(name, { ...rest, inputSchema: zodStandardSchema(inputSchema) }, (args, ctx) => call(args, ctx));
+        server.registerTool(name, { ...rest, inputSchema: zodStandardSchema(inputSchema, preserveRawInput) }, (args, ctx) => call(args, ctx));
       } else {
         server.registerTool(name, rest, ctx => call({}, ctx));
       }

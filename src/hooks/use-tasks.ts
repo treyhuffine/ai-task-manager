@@ -50,9 +50,9 @@ export function useTask(id: string | null) {
  */
 /** Task counts by canonical status (for lane count badges), optionally scoped
  * to an area. Kept fresh as tasks move between lanes. */
-export function useTaskCounts(areaId?: string | null, source?: string | null) {
+export function useTaskCounts(areaId?: string | null, source?: string | null, assigneeMemberId?: string | null) {
   return useQuery({
-    ...trpc.tasks.counts.queryOptions({ areaId: areaId ?? null, ...(source ? { source } : {}) }),
+    ...trpc.tasks.counts.queryOptions({ areaId: areaId ?? null, ...(source ? { source } : {}), ...(assigneeMemberId ? { assigneeMemberId } : {}) }),
     staleTime: 5_000,
   });
 }
@@ -102,9 +102,9 @@ export function useUpdateTask() {
   return useMutation({
     mutationKey: trpc.tasks.update.mutationKey(),
     meta: { carriesInput: true },
-    mutationFn: ({ id, ...input }: RouterInputs['tasks']['update']['patch'] & { id: string }) =>
-      tasksApi.update(id, input),
-    onMutate: async ({ id, ...input }) => ({
+    mutationFn: ({ id, expectedSourceMemberId, ...input }: RouterInputs['tasks']['update']['patch'] & { id: string; expectedSourceMemberId?: string }) =>
+      tasksApi.update(id, input, { expectedSourceMemberId }),
+    onMutate: async ({ id, expectedSourceMemberId: _author, ...input }) => ({
       snapshot: await optimisticPatch(qc, 'tasks', id, input),
     }),
     onError: (_err, _vars, ctx) => {

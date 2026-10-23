@@ -39,7 +39,7 @@ it('builds, migration by migration, exactly the schema schema.ts declares', asyn
 
   for (const table of tables) {
     const config = getTableConfig(table);
-    const columns = sqlite.pragma(`table_info("${config.name}")`) as Array<{ name: string; notnull: number; pk: number }>;
+    const columns = sqlite.pragma(`table_xinfo("${config.name}")`) as Array<{ name: string; notnull: number; pk: number }>;
     if (columns.length === 0) {
       problems.push(`${config.name}: no such table`);
       continue;

@@ -5,7 +5,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { markdown } from '@codemirror/lang-markdown';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useClientTheme } from '@/lib/client/theme';
 import { cmTheme } from '@/components/executions/viewer/cm-theme';
 
 /**
@@ -35,7 +35,7 @@ export function SkillMarkdownEditor({
   minHeight?: string;
   readOnly?: boolean;
 }) {
-  const { theme } = useDashboard();
+  const { theme } = useClientTheme();
 
   const extensions = useMemo(
     () => [

@@ -72,3 +72,15 @@ describe('bounded original handoff request lookup', () => {
     expect(getWorkResultAuthorBriefEvent(session.id, null, 'invalid')).toBeNull();
   });
 });
+
+it('finds result-operation messages through an index for existing and new payloads', async () => {
+  const q = await import('./queries');
+  const { workResultOperationForMessage } = await import('./work-result-runtime-queries');
+  const old = q.createRun({ harness: 'claude', triggerKind: 'manual', triggerPayload: { resultOperation: { messageId: 'old-message' } } });
+  q.createRun({ harness: 'claude', triggerKind: 'manual', triggerPayload: { resultOperation: { messageId: 'other-message' } } });
+  expect(workResultOperationForMessage('old-message')?.id).toBe(old.id);
+  expect(workResultOperationForMessage('missing-message')).toBeUndefined();
+  const plans = getRawDb().prepare('EXPLAIN QUERY PLAN SELECT * FROM runs WHERE result_operation_message_id = ? LIMIT 1').all('old-message') as { detail: string }[];
+  expect(plans.some(row => row.detail.includes('idx_runs_result_operation_message'))).toBe(true);
+  expect(plans.some(row => /SCAN runs/.test(row.detail))).toBe(false);
+});

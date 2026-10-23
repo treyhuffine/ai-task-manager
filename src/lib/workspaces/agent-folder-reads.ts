@@ -17,10 +17,12 @@ import { readBaseFile, readWorkspaceFile } from './read-file';
 import { fileErrorAnswer } from './file-http';
 import { listReferenceTree } from '@/lib/reference-folders/tree';
 import type { ReadAnswer } from './execution-reads';
+import { linkedPullUrl } from '@/lib/github/remote';
 
-export type AgentFolderRead = { kind: 'tree' } | { kind: 'file'; path: string; base: boolean };
+export type AgentFolderRead = { kind: 'tree' } | { kind: 'file'; path: string; base: boolean } | { kind: 'linked_pr'; number: number };
 
 export async function readAgentFolder(folder: string, filesToCopy: string[], read: AgentFolderRead): Promise<ReadAnswer> {
+  if (read.kind === 'linked_pr') return { status: 200, body: { linked: Number.isSafeInteger(read.number) && read.number > 0 ? await linkedPullUrl(folder, read.number).then(url => url ? { number: read.number, url } : null) : null } };
   const handle = await openFolderHandle(folder);
   if (read.kind === 'tree') {
     const entries = handle ? await listTree(handle, filesToCopy) : (await listReferenceTree(folder)).entries;

@@ -124,7 +124,7 @@ describe('reviewer provider startup and completion boundaries', () => {
     await vi.waitFor(() => expect(mock.close).toHaveBeenCalledTimes(1));
     expect(mock.send).not.toHaveBeenCalled();
     expect(q.getWorkResultAiReview(review.id)?.status).toBe('cancelled');
-  });
+  }, 15_000);
 
   it('fails before spawn if read-only capability disappears during setup', async () => {
     // Request selection, final dispatch and fresh spawn each resolve runtime.

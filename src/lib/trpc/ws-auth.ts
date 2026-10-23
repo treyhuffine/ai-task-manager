@@ -1,13 +1,15 @@
+import { SESSION_CREDENTIAL_HEADER, activeSessionCredential } from '@/lib/orchestrator/session-credential';
 import { TRPCError } from '@trpc/server';
 import { lookupApiToken } from '@/lib/auth/api-token';
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { permitsCookieMutation } from '@/lib/auth/request-origin';
-import { API_KEY_ID_HEADER, API_KEY_SCOPE_HEADER, CALLER_LOCATION_HEADER, FORWARDED_KEY_HEADERS, MEMBER_ID_HEADER, MEMBER_ROLE_HEADER } from '@/lib/auth/request-key';
+import { SESSION_CHAT_HEADER, API_KEY_ID_HEADER, API_KEY_SCOPE_HEADER, CALLER_LOCATION_HEADER, FORWARDED_KEY_HEADERS, MEMBER_ID_HEADER, MEMBER_ROLE_HEADER } from '@/lib/auth/request-key';
 import { isTeamAuthority } from '@/lib/home/authority';
 import { teamCallerFor, teamSessionCookieName } from '@/lib/team/credential';
 import { SESSION_COOKIE_NAME } from '@/lib/auth/session';
 import { isSessionToken } from '@/lib/auth/session-token';
-import { isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
+import { getHome, isWorkerApiKey, touchApiKey } from '@/lib/db/queries';
+import { bindingFromHeaders, documentBindingMatches, DOCUMENT_AUTHOR_CHANGED, DOCUMENT_AUTHOR_CHANGED_MESSAGE } from '@/lib/home/document-binding';
 import { isHomeActive } from '@/lib/home/identity';
 import { apiCompatibilityIssue } from '@/lib/releases/api-contract';
 import { CURRENT_COMPATIBILITY } from '@/lib/releases/compatibility';
@@ -56,8 +58,19 @@ export function createWebSocketContext(request: Request, params: Record<string, 
     if (!isHomeActive() || process.env.RI_SERVICE_VALIDATING === '1' || readMaintenance()?.phase === 'offline') {
       throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Home is preparing an update. Please retry shortly.' });
     }
-    return { ...found, member: teamMember(found) };
+    const member = teamMember(found);
+    const expected = params?.documentHome !== undefined || params?.documentViewer !== undefined ? { homeId: params.documentHome, viewerId: params.documentViewer } : bindingFromHeaders(request.headers);
+    if (member && !documentBindingMatches(expected, { homeId: getHome()!.id, viewerId: member.id })) throw new TRPCError({ code: 'FORBIDDEN', message: DOCUMENT_AUTHOR_CHANGED_MESSAGE, cause: new OperationError(403, { error: DOCUMENT_AUTHOR_CHANGED, message: DOCUMENT_AUTHOR_CHANGED_MESSAGE }) });
+    return { ...found, member };
   };
+  const disclosed = isTeamAuthority() ? request.headers.get(SESSION_CREDENTIAL_HEADER) : null;
+  const signedSession = () => {
+    if (!disclosed) return null;
+    const sessionId = activeSessionCredential(disclosed);
+    if (!sessionId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'The calling chat credential is no longer valid.' });
+    return sessionId;
+  };
+  const sessionId = signedSession();
   const { key, tokenHash, member } = validate();
   const headers = new Headers(request.headers);
   // Some operations require an explicit credential as well as the verified
@@ -65,6 +78,7 @@ export function createWebSocketContext(request: Request, params: Record<string, 
   headers.set('authorization', `Bearer ${token}`);
   for (const name of FORWARDED_KEY_HEADERS) headers.delete(name);
   headers.set(API_KEY_ID_HEADER, key.id);
+  if (sessionId) headers.set(SESSION_CHAT_HEADER, sessionId);
   if (member) {
     headers.set(API_KEY_SCOPE_HEADER, 'member');
     headers.set(MEMBER_ID_HEADER, member.id);
@@ -77,6 +91,7 @@ export function createWebSocketContext(request: Request, params: Record<string, 
   try { touchApiKey(key.id, { ip: headers.get('x-forwarded-for'), userAgent: headers.get('user-agent') }); } catch { /* telemetry is best effort */ }
   const ctx = createTRPCContext(new Request(request.url, { headers, signal: request.signal }));
   return { ...ctx, authorize: () => {
+    signedSession();
     const current = validate();
     if (current.member) {
       // A member removed or demoted while connected: the role follows, and

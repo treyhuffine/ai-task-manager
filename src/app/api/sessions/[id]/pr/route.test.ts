@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 const mocks = vi.hoisted(() => ({ session: vi.fn(), workspace: vi.fn(), getPR: vi.fn(), listPRs: vi.fn(), status: vi.fn() }));
-vi.mock('@/lib/db/queries', () => ({ getChatSessionWithExecution: mocks.session, getWorkspace: mocks.workspace, insertChatEvent: vi.fn() }));
+vi.mock('@/lib/db/queries', () => ({ getHome: () => null, getChatSessionWithExecution: mocks.session, getWorkspace: mocks.workspace, insertChatEvent: vi.fn() }));
 vi.mock('@/lib/workspaces', () => ({ openWorktreeHandle: vi.fn() }));
 vi.mock('@/lib/executor/adapter', () => ({ dispatch: vi.fn() }));
 vi.mock('@/lib/executor/prompts/open-pr', () => ({ buildOpenPrPrompt: vi.fn() }));

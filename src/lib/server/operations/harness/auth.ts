@@ -1,3 +1,5 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 import { getAppRoot } from '@/lib/config/paths';
 import { openCodeProviderManager, openCodeRuntimeContext } from '@/lib/harness/opencode';
 import { getHarnessRuntime, resolveHarnessAuth } from '@/lib/harness/runtime';
@@ -31,9 +33,10 @@ function firstApiKeyVar(report: AuthReport): string | null {
 }
 
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'read');
+  if (homeDenied) return homeDenied;
   try {
     const { harness, fresh } = rpcInput.body;
-
     const [report, runtime, hasConfiguredUpstream] = await Promise.all([
       resolveHarnessAuth(harness, { cwd: getAppRoot(), fresh: fresh === true }),
       getHarnessRuntime(harness, { cwd: getAppRoot(), refresh: fresh === true }),
@@ -56,6 +59,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
 
     return reply(payload);
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     const message = err instanceof Error ? err.message : String(err);
     return reply({ error: message }, { status: 500 });
   }

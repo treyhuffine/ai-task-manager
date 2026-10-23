@@ -9,7 +9,7 @@ import { useStartSkill } from './use-start-skill';
 
 const fixtures = vi.hoisted(() => ({ create: vi.fn(), overview: vi.fn(), openSkill: vi.fn(), error: vi.fn() }));
 vi.mock('@/lib/api/skills', () => ({ skillsApi: { create: fixtures.create, overview: fixtures.overview } }));
-vi.mock('@/contexts/dashboard-context', () => ({ useDashboard: () => ({ openSkill: fixtures.openSkill }) }));
+vi.mock('@/contexts/dashboard-context', () => ({ useOptionalDashboard: () => ({ openSkill: fixtures.openSkill }) }));
 vi.mock('sonner', () => ({ toast: { error: fixtures.error } }));
 vi.mock('@/lib/api/client', () => ({ apiErrorText: (error: Error) => error.message }));
 

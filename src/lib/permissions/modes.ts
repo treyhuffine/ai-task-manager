@@ -26,3 +26,8 @@ export const PERMISSION_MODES = ['auto_all', 'auto_edits', 'ask', 'plan'] as con
  * DB default is kept equal to this as an inert backstop (see docs/schema-defaults.md).
  */
 export const DEFAULT_PERMISSION_MODE: (typeof PERMISSION_MODES)[number] = 'auto_all';
+
+/** Modes are ordered from most autonomous to most restrictive. */
+export function widensPermissions(before: typeof PERMISSION_MODES[number], after: typeof PERMISSION_MODES[number]) {
+  return PERMISSION_MODES.indexOf(after) < PERMISSION_MODES.indexOf(before);
+}

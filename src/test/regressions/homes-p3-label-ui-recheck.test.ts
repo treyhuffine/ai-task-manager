@@ -82,7 +82,7 @@ it('keeps the move dialog usable from the home menu, and the ⋯ menu picks a de
     res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>[data-slot="dialog-overlay"],[data-slot="sheet-overlay"]{position:fixed;inset:0;background:#8888;z-index:50}[data-slot="dialog-content"],[data-slot="sheet-content"]{position:fixed;inset:10%;background:white;padding:20px;z-index:51}button{padding:12px;margin:4px}#plus{position:fixed;bottom:12px;left:12px}#more{position:fixed;bottom:12px;left:120px}</style><div id="root"></div><script src="/app.js"></script>');
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: chromium.executablePath(), headless: true });
+  const browser = await chromium.launch({ executablePath: process.env.RI_REVIEW_CHROMIUM, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
     await page.goto(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);

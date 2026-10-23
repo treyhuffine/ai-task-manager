@@ -1,13 +1,14 @@
 'use client';
 
 import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
+import { documentSaves } from '@/lib/client/document-saves';
 import { useState } from 'react';
 import { Archive, ChevronLeft, Copy, GitCommitHorizontal, Loader2, MoreHorizontal, Pencil, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiErrorText } from '@/lib/api/client';
 import type { SkillView } from '@/lib/api/skills';
 import { useArchiveSkill, useCommitSkill, useSaveSkill } from '@/hooks/use-skills';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useSkillNavigation } from '@/components/skills/skill-navigation';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
   DropdownMenu,
@@ -37,7 +38,7 @@ export function SkillHeader({
   onBack?: () => void;
   pane?: { value: SkillPane; onChange: (pane: SkillPane) => void };
 }) {
-  const { openSkill, goHome } = useDashboard();
+  const { openSkill, goHome, canManage, showSetupHelp } = useSkillNavigation();
   const confirm = useConfirm();
   const save = useSaveSkill(skill.ref);
   const commit = useCommitSkill(skill.ref);
@@ -46,10 +47,11 @@ export function SkillHeader({
   const [newName, setNewName] = useState(skill.name);
   const showCommit = skill.location.kind === 'project' && skill.git !== null && skill.uncommitted;
 
-  const rename = () => {
+  const rename = async () => {
     const next = newName.trim();
     setRenaming(false);
     if (!next || next === skill.name) return;
+    try { await documentSaves.flushAll(); } catch (error) { toast.error(apiErrorText(error)); return; }
     save.mutate(
       { newName: next },
       {
@@ -75,6 +77,7 @@ export function SkillHeader({
       tone: 'destructive',
     });
     if (!ok) return;
+    try { await documentSaves.flushAll(); } catch (error) { toast.error(apiErrorText(error)); return; }
     archive.mutate(skill.ref, {
       onSuccess: () => {
         toast.success(`${skill.name} archived`);
@@ -105,9 +108,9 @@ export function SkillHeader({
               autoFocus
               value={newName}
               onChange={(e) => setNewName(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
-              onBlur={rename}
+              onBlur={() => void rename()}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') rename();
+                if (e.key === 'Enter') void rename();
                 if (e.key === 'Escape') {
                   setNewName(skill.name);
                   setRenaming(false);
@@ -159,7 +162,7 @@ export function SkillHeader({
 
         <div className="flex-1" />
 
-        <SkillLocationControl skill={skill} />
+        {canManage && <SkillLocationControl skill={skill} />}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -217,7 +220,7 @@ export function SkillHeader({
           ))}
         </div>
       )}
-      <div className="px-4 pb-2"><PluginSetupHelpButton target={{ kind: 'skill', skill }} /></div>
+      {showSetupHelp && <div className="px-4 pb-2"><PluginSetupHelpButton target={{ kind: 'skill', skill }} /></div>}
     </header>
   );
 }

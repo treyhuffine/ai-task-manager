@@ -1,3 +1,7 @@
+'use client';
+
+import { useEntityLinkHome } from './entity-link-scope';
+import { spacePath } from '@/lib/spaces/document';
 /**
  * Obsidian-style inline entity link for the note/task editor. Serializes to
  * the shared `[[task:<id>]]` / `[[note:<id>]]` marker
@@ -12,6 +16,7 @@
  * The chip resolves the target's current title (so renames never rot the
  * link) and opens it on click.
  */
+import { useOptionalWorkNavigation } from '@/contexts/work-context';
 import {
   Node,
   mergeAttributes,
@@ -24,7 +29,7 @@ import { useRouter } from 'next/navigation';
 import { Square, StickyNote } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useEntityTitle } from '@/hooks/use-backlinks';
-import { useOptionalDashboard } from '@/contexts/dashboard-context';
+
 import { handleChipBackspace } from '@/components/chat/editor/suggestion/chip-backspace';
 import {
   ENTITY_LINK_RE,
@@ -122,7 +127,8 @@ export const EntityLinkNode = Node.create({
 function EntityLinkView({ node, selected }: NodeViewProps) {
   const attrs = node.attrs as EntityLinkAttrs;
   const isTask = attrs.kind === 'task';
-  const dashboard = useOptionalDashboard();
+  const sourceHome = useEntityLinkHome();
+  const navigation = useOptionalWorkNavigation();
   const router = useRouter();
 
   // Read-only, title-only resolution — must not bump last_viewed_at or fetch
@@ -134,9 +140,11 @@ function EntityLinkView({ node, selected }: NodeViewProps) {
   const open = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dashboard) {
-      if (isTask) dashboard.openTask(attrs.id);
-      else dashboard.openNote(attrs.id);
+    if (sourceHome) {
+      window.location.assign(`${spacePath(sourceHome)}?${attrs.kind}=${encodeURIComponent(attrs.id)}`);
+    } else if (navigation) {
+      if (isTask) navigation.openTask(attrs.id);
+      else navigation.openNote(attrs.id);
     } else {
       router.push(isTask ? `/task/${attrs.id}` : `/note/${attrs.id}`);
     }

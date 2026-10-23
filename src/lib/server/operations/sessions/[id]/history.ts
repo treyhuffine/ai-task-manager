@@ -3,6 +3,9 @@ import { hasBackgroundTasks, isRunning } from '@/lib/executor/adapter';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import { z as rpcZ } from 'zod/v4';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { conversationViews } from '@/lib/sessions/view-state';
 
 /**
  * Past + current chats for the execution that `:id` belongs to, hottest first.
@@ -27,14 +30,15 @@ import { z as rpcZ } from 'zod/v4';
 // Compressed: this route can ship hundreds of KB of JSON, and Next 16
 // does not compress route handlers. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _req: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   const { id } = rpcInput.params;
   try {
+    sessionAuthority(getRequestKey(request.headers), id, 'read');
     const current = getChatSessionWithExecution(id);
     if (!current) return reply({ error: 'Session not found' }, { status: 404 });
     if (!current.executionId) return reply({ sessions: [] });
 
-    const chats = listChatSessions({ executionId: current.executionId });
+    const chats = conversationViews(getRequestKey(request.headers), listChatSessions({ executionId: current.executionId }));
     const sessions = sortSessionsHotnessDesc(chats).map((s) => ({
       id: s.id,
       label: s.label,
@@ -51,6 +55,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _req: Operation
     }));
     return reply({ sessions });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/sessions/:id/history]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

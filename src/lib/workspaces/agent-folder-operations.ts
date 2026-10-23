@@ -16,13 +16,15 @@
  * archived agent is read-only (409), like its terminal and main chat.
  */
 
-import { getDevice, getWorkspace } from '@/lib/db/queries';
+import { getDevice, getWorkspace, recordTeamActivity } from '@/lib/db/queries';
 import { agentDeviceFor } from '@/lib/setups/run-on';
 import { isExistingDir } from '@/lib/terminal/owner';
 import { requestWorker, WorkerRequestError, WorkerUnavailableError } from '@/lib/workers/hub';
 import type { ReadAgentFolderRequest, WriteAgentFolderRequest } from '@/lib/workers/protocol';
 import { readAgentFolder, type AgentFolderRead } from '@/lib/workspaces/agent-folder-reads';
 import { writeFolder, type FolderWrite } from '@/lib/workspaces/execution-writes';
+import { executionRequestKey } from '@/lib/home/execution-request';
+import { executionResourcePolicy } from './access';
 
 async function onItsDevice(deviceId: string, kind: 'read_agent_folder' | 'write_agent_folder', request: unknown) {
   const name = getDevice(deviceId)?.name ?? 'Its device';
@@ -41,6 +43,8 @@ async function onItsDevice(deviceId: string, kind: 'read_agent_folder' | 'write_
 }
 
 export async function agentFolderAnswer(id: string, read: AgentFolderRead) {
+  const policy = executionResourcePolicy({ workspaceId: id, operation: 'inspectFiles' });
+  if (policy.refusal) return policy.refusal;
   const ws = getWorkspace(id);
   if (!ws) return ({ body: { error: 'Workspace not found' }, status: ({ status: 404 }).status ?? 200 });
   const deviceId = agentDeviceFor(id);
@@ -57,6 +61,8 @@ export async function agentFolderAnswer(id: string, read: AgentFolderRead) {
 
 /** A person's change to the agent's own folder, on the device it lives on. */
 export async function agentFolderWriteAnswer(id: string, write: FolderWrite) {
+  const policy = executionResourcePolicy({ workspaceId: id, operation: 'editFiles' });
+  if (policy.refusal) return policy.refusal;
   const ws = getWorkspace(id);
   if (!ws) return ({ body: { error: 'Workspace not found' }, status: ({ status: 404 }).status ?? 200 });
   if (ws.status === 'archived') {
@@ -71,5 +77,6 @@ export async function agentFolderWriteAnswer(id: string, write: FolderWrite) {
     return ({ body: { error: `The agent's folder does not exist: ${ws.cwd}` }, status: ({ status: 409 }).status ?? 200 });
   }
   const answer = await writeFolder({ path: ws.cwd, kind: ws.isGit ? 'git' : 'bare' }, write);
+  if (answer.status < 400 && policy.authority) recordTeamActivity({ workspaceId: id, memberId: policy.authority.member.id, apiKeyId: executionRequestKey()!.apiKeyId, kind: 'file_change', resource: write.kind === 'rename' ? `${write.from} -> ${write.to}` : write.path, operation: write.kind });
   return ({ body: answer.body, status: ({ status: answer.status }).status ?? 200 });
 }

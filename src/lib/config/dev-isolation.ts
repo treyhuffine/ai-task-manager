@@ -102,6 +102,7 @@ export function isolatedEnv(base: EnvMap, opts: IsolatedEnvOptions): IsolatedEnv
   env[DB_PATH_ENV] = path.join(opts.root, 'data.db');
   env[CONFIG_DIR_ENV] = path.join(opts.root, '.config');
   env[WORK_DIR_ENV] = path.join(opts.root, '.work');
+  env.RI_HOME_REGISTRY_DIR = path.join(opts.root, '.work', 'home-registry');
   if (opts.port !== undefined) env.PORT = String(opts.port);
   if (opts.tunnelName) env[TUNNEL_NAME_ENV] = opts.tunnelName;
   return { env, removed: removed.sort() };

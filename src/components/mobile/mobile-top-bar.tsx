@@ -3,7 +3,7 @@
 import { Search } from 'lucide-react';
 import { SpaceSelector } from '@/components/spaces/space-selector';
 
-export function MobileTopBar() {
+export function MobileTopBar({ onSearch = () => document.dispatchEvent(new CustomEvent('open-search')), onOpenSettings }: { onSearch?: () => void; onOpenSettings?: () => void }) {
   return (
     // pt: respect the safe-area on devices that report one (notch/island),
     // floor at 0.75rem so non-PWA browsers — which evaluate env() to 0 —
@@ -13,9 +13,9 @@ export function MobileTopBar() {
       style={{ paddingTop: 'max(env(safe-area-inset-top), 0.75rem)' }}
     >
       {/* My Ri and its teams, once one is connected (docs/homes-spec.md §3.2). */}
-      <SpaceSelector variant="collapsed" />
+      <SpaceSelector variant="phone" onOpenSettings={onOpenSettings} />
       <button
-        onClick={() => document.dispatchEvent(new CustomEvent('open-search'))}
+        onClick={onSearch}
         className="min-w-0 flex-1 h-10 flex items-center gap-2.5 px-3.5 rounded-lg border border-border text-muted-foreground active:bg-muted/60 transition-colors"
         aria-label="Search"
       >

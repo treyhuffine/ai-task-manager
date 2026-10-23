@@ -1,5 +1,7 @@
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
 /**
  * GET — one page of the execution's Notes & tasks view. Three sections in
  * one order (in this chat, in this agent, everything else), paged with
@@ -21,9 +23,10 @@ import {
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    sessionAuthority(getRequestKey(request.headers), id, 'read');
     const session = getChatSession(id);
     if (!session) return reply({ error: 'Session not found' }, { status: 404 });
 
@@ -36,6 +39,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
       limit: query.limit ? Number(query.limit) : undefined,
     }));
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     if (err instanceof ReferenceCursorError) {
       return reply({ error: err.message }, { status: 400 });
     }
@@ -50,9 +55,10 @@ interface PinBody {
   hydrate?: boolean;
 }
 
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    sessionAuthority(getRequestKey(request.headers), id, 'editChat');
     const body: PinBody = rpcInput.body;
     const entityType = body.entityType;
     const entityId = body.entityId;
@@ -70,6 +76,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     });
     return reply({ ok: true }, { status: 201 });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/references]', err);
     return reply({ error: String(err) }, { status: 500 });
   }
@@ -78,6 +86,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
 export async function DELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    sessionAuthority(getRequestKey(request.headers), id, 'editChat');
     const url = new URL(request.url);
     const entityType = url.searchParams.get('entityType') as
       | 'task' | 'note' | 'area' | null;
@@ -94,6 +103,8 @@ export async function DELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, request: 
     });
     return reply({ ok: true });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[DELETE /api/sessions/:id/references]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

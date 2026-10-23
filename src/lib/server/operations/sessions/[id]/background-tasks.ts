@@ -1,3 +1,5 @@
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
 import { toChatEventDTOs } from '@/lib/api/dto/chat-event';
 import { listBackgroundTaskEvents } from '@/lib/db/queries';
 import { reply, searchParams, type OperationContext } from '@/lib/server/operation';
@@ -15,9 +17,10 @@ const MAX_IDS = 50;
  *
  * `GET /api/sessions/:id/background-tasks?ids=a,b`
  */
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    sessionAuthority(getRequestKey(request.headers), id, 'read');
     const ids = (searchParams(rpcInput.query).get('ids') ?? '')
       .split(',')
       .map((s) => s.trim())
@@ -25,6 +28,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
       .slice(0, MAX_IDS);
     return reply(toChatEventDTOs(listBackgroundTaskEvents(id, ids)));
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/sessions/:id/background-tasks]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

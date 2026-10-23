@@ -1,3 +1,5 @@
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
 import { healthCheckSession } from '@/lib/executor/health';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
@@ -16,10 +18,11 @@ import { z as rpcZ } from 'zod/v4';
  * `reconcile: started` / `reconcile: done` SSE frames so any open
  * tab surfaces it consistently.
  */
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
-    const report = await healthCheckSession(id, { redispatchOrphans: true });
+    const authority = sessionAuthority(getRequestKey(request.headers), id, 'read');
+    const report = await healthCheckSession(id, { redispatchOrphans: !authority });
     // Keep the wire shape compatible with the legacy reconcile route —
     // existing clients ignore extra fields.
     return reply({
@@ -30,6 +33,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
       redispatched: report.redispatched,
     });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/reconcile]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

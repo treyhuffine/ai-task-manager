@@ -1,3 +1,5 @@
+import { executionAuthority } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 import { failureResponse, reply, searchParams, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 /**
@@ -14,6 +16,7 @@ import { previewLogs } from '@/lib/preview/service';
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    executionAuthority(executionRequestKey(), id, 'read');
     const service = searchParams(rpcInput.query).get('service');
     const cursor = Number(searchParams(rpcInput.query).get('cursor') ?? '0') || 0;
     return reply(previewLogs(id, service || null, cursor));

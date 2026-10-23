@@ -145,7 +145,7 @@ export function useSetupChecklist(enabled: boolean): SetupChecklist {
       { id: 'profile', section: 'profile', label: 'Tell your assistant about you', hint: 'Fill this out in the Profile tab any time.', done: profileDone },
       { id: 'model', section: 'models', label: 'Pick a default model', hint: 'Choose one in the Models tab any time.', done: modelDone },
       ...(skillState === 'app-only' ? [] : [
-        { id: AGENT_SKILL_ITEM, section: 'external-ai' as const, label: 'Let your coding tools manage tasks and notes', hint: 'Install it in External AI any time.', done: skillState === 'on' },
+        { id: AGENT_SKILL_ITEM, section: 'external-ai' as const, label: 'Let your coding tools manage tasks and notes', hint: 'Install it in MCP access any time.', done: skillState === 'on' },
       ]),
       { id: 'remote', section: 'devices', label: 'Set a remote URL', hint: 'Set your remote URL in the Devices tab any time.', done: remoteDone },
       { id: 'notifications', section: 'notifications', label: 'Turn on notifications', hint: 'Add a channel in the Notifications tab any time.', done: notificationsDone },

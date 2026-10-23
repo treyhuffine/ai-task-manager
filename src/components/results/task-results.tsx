@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+import { HomeLink as Link } from '@/components/home/home-link';
 import { useResults } from '@/hooks/use-results';
 import { apiErrorText } from '@/lib/api/client';
 import { ResultList, ResultListItem } from './result-list';

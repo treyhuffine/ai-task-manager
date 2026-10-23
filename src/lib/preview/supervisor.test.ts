@@ -28,6 +28,18 @@ function portIgnoring(hardPort: number) {
 }
 
 describe('supervisor', () => {
+  it('bounds shared output by bytes as well as lines and retains cursor order', async () => {
+    const key = `test-${Date.now()}-bounded`;
+    startedKeys.push(key);
+    const sup = getSupervisor();
+    await sup.start({ key, command: `node -e "for(let i=0;i<1000;i++)console.log('a'.repeat(4096));console.log('end')"`, cwd: process.cwd(), port: await allocatePort() });
+    await sup.awaitListening(key, 10_000);
+    const logs = sup.logsSince(key, 0);
+    expect(logs.at(-1)?.line).toBe('end');
+    expect(logs.reduce((bytes, item) => bytes + Buffer.byteLength(item.line), 0)).toBeLessThanOrEqual(512 * 1024);
+    expect(logs[0].seq).toBeGreaterThan(1);
+    expect(sup.logsSince(key, logs.at(-1)!.seq - 1).map(item => item.line)).toEqual(['end']);
+  }, 15_000);
   it('injects PORT, confirms listening, and reports the assigned port', async () => {
     const key = `test-${Date.now()}-a`;
     startedKeys.push(key);

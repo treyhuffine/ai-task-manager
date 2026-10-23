@@ -6,9 +6,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVoiceInput, type UseVoiceInputReturn } from './use-voice-input';
 
+const home = vi.hoisted(() => ({ personal: true }));
+vi.mock('@/components/home/use-personal-services', () => ({ usePersonalServices: () => home.personal }));
 const client = vi.hoisted(() => ({ get: vi.fn(), upload: vi.fn() }));
 vi.mock('@/lib/api/client', () => ({ api: client }));
-vi.mock('@/lib/trpc/client', () => ({ trpcClient: { transcribe: { status: { query: client.get } } } }));
+vi.mock('@/lib/trpc/client', () => ({ trpc: { transcribe: { status: { queryKey: () => ['test-transcription-providers'] } } }, trpcClient: { transcribe: { status: { query: client.get } } } }));
 vi.mock('@/hooks/use-user-state', () => ({ useUserState: () => ({ data: undefined }) }));
 
 function deferred<T>() {
@@ -58,6 +60,7 @@ async function finish() {
 }
 
 beforeEach(() => {
+  home.personal = true;
   queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.useFakeTimers();
   const { window, document } = parseHTML('<!doctype html><html><body></body></html>');
@@ -183,4 +186,18 @@ describe('voice privacy and asynchronous lifecycle', () => {
     await act(async () => { window.dispatchEvent(new window.Event('ri:voice-providers-changed')); });
     expect(voice.captureMode).toBe('media-recorder');
   });
+});
+
+it('uses browser speech in a Team without probing or repairing the host provider', async () => {
+  home.personal = false;
+  await mount();
+  expect(voice.provider).toBe('web');
+  expect(voice.captureMode).toBe('web-speech');
+  expect(client.get).not.toHaveBeenCalled();
+  await act(async () => { root!.unmount(); root = undefined; });
+  delete window.SpeechRecognition;
+  await mount();
+  expect(voice.captureMode).toBeNull();
+  expect(voice.unsupportedReason).toContain('browser with speech recognition support');
+  expect(voice.unsupportedReason).not.toMatch(/Parakeet|Groq|another provider/);
 });

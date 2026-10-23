@@ -1,7 +1,7 @@
 'use client';
 
-import { useDashboard } from '@/contexts/dashboard-context';
-import { trpcClient } from '@/lib/trpc/client';
+import { useWorkNavigation } from '@/contexts/work-context';
+import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { ListTodo } from 'lucide-react';
@@ -15,10 +15,9 @@ import { Tip } from '@/components/ui/tip';
  * finished, shows nothing.
  */
 export function ExecutionTaskChips({ executionId }: { executionId: string }) {
-  const { openTask } = useDashboard();
+  const { openTask } = useWorkNavigation();
   const { data } = useQuery({
-    queryKey: ['executions', executionId, 'tasks'],
-    queryFn: () => trpcClient.executions.tasksGet.query({params: {id: executionId}}),
+    ...trpc.executions.tasksGet.queryOptions({ params: { id: executionId } }),
     staleTime: 10_000,
     refetchInterval: 20_000,
   });

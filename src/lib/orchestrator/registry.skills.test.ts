@@ -119,7 +119,7 @@ describe('skill actions', () => {
   it('create_skill installs right away only for callers on the home', async () => {
     const create = await action('create_skill');
     await expect(create.handler(HOME_MCP, { name: 'g', description: 'G.', location: 'global' })).resolves.toMatchObject({ ref: 'global:g' });
-    const made = (await create.handler(LOCAL, { name: 'p', location: 'project', workspaceId: wsId })) as { ref: string };
+    const made = (await create.handler(LOCAL, { name: 'p', description: 'Review project work.', location: 'project', workspaceId: wsId })) as { ref: string };
     expect(made.ref).toBe(`project:${wsId}:p`);
     await expect(create.handler(LOCAL, { name: 'q', location: 'project' })).rejects.toMatchObject({ code: 'invalid_params' });
     await expect(create.handler(ELSEWHERE, { name: 'r', location: 'ri' })).rejects.toMatchObject({ code: 'unsupported' });

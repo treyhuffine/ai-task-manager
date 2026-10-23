@@ -1,3 +1,4 @@
+import { mainChatReplacementRefusal } from '@/lib/sessions/home-policy';
 import { actorFromRequest } from '@/lib/auth/actor';
 import { EFFORT_LEVELS, type EffortLevel } from '@/db/types';
 import {
@@ -15,6 +16,9 @@ import type { ProviderId } from '@/lib/harness/options';
 import { HarnessDisabledError, isKnownHarnessId } from '@/lib/harness/registry';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { siblingChatPolicy } from '@/lib/sessions/home-policy';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 
 /**
  * Start a fresh chat against the SAME execution as `:id` — a new conversation
@@ -55,8 +59,9 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
   return out;
 }
 
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: OperationContext) {
-  if (actorFromRequest(_req.headers).source === 'ai') return reply({ error: 'Use delegate_work to start an agent-created chat. Replacing a main chat or switching its harness requires the user’s action.' }, { status: 403 });
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
+  const refusal = mainChatReplacementRefusal(actorFromRequest(request.headers));
+  if (refusal) return reply({ error: refusal }, { status: 403 });
   const { id } = rpcInput.params;
   let body: unknown;
   try {
@@ -90,14 +95,16 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
     const permissions = permissionsForNewChat(providerId, current);
     const switchingProvider = providerId !== current.harness;
     const cwd = current.worktreePath ?? undefined;
-    const selection = switchingProvider
+    const homePolicy = await siblingChatPolicy(getRequestKey(request.headers), id, { harness: providerId, model: override.model ?? (switchingProvider ? undefined : current.model), modelVariant: override.variant ?? (switchingProvider ? undefined : current.modelVariant), effort: override.effort ?? (switchingProvider ? undefined : current.effort), serviceTier: override.serviceTier ?? (switchingProvider || (override.model && override.model !== current.model) ? undefined : current.serviceTier) });
+    const selection = homePolicy?.selection ?? (switchingProvider
       ? await resolveStartSelection({ ...override, providerId }, { cwd })
       : await resolveHarnessSelection(providerId, {
         model: override.model ?? current.model,
         variant: override.variant ?? current.modelVariant,
         effort: override.effort ?? current.effort,
         serviceTier: override.serviceTier ?? (!override.model || override.model === current.model ? current.serviceTier : null),
-      }, { cwd, repairInvalidModel: override.model === undefined });
+      }, { cwd, repairInvalidModel: override.model === undefined }));
+    homePolicy?.verify();
 
     // The execution's title is what the header shows and must not depend on
     // which chat is being viewed. New executions carry it on the execution
@@ -110,11 +117,14 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
 
     const session = createExecutionChat({
       ...permissions,
+      ...(homePolicy?.permissionMode ? { permissionMode: homePolicy.permissionMode, prePlanMode: homePolicy.prePlanMode ?? null } : {}),
       executionId: current.executionId,
       harness: selection.providerId,
       model: selection.model,
       modelVariant: selection.variant,
       effort: selection.effort,
+      createdByMemberId: homePolicy?.memberId ?? null,
+      surfaceKind: homePolicy?.surfaceKind ?? null,
       serviceTier: selection.serviceTier,
     });
     if (!session) return reply({ error: 'Execution not found' }, { status: 404 });
@@ -125,7 +135,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
     // No-op the instant there's any transcript, so parallel chats with
     // real work are never touched. Guarded so we can't delete the chat we
     // just created (a fresh execution's first chat is momentarily empty).
-    if (session.id !== current.id) {
+    if (!homePolicy && session.id !== current.id) {
       deleteChatSessionIfEmpty(current.id);
     }
 
@@ -139,6 +149,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _req: Operati
     if (!full) return reply({ error: 'Chat not found after create' }, { status: 500 });
     return reply({ session: full });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/new-chat]', err);
     return reply({ error: String(err) }, { status: err instanceof HarnessDisabledError || err instanceof UnsupportedPermissionModeError ? 409 : 500 });
   }

@@ -40,9 +40,9 @@ export function ExternalAssistants({ space, clients, createClient, revokeClient,
   });
   return (
     <section className="min-w-0">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Assistants outside Ri</h3>
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Use your agent with MCP</h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        {personal ? 'Give an assistant you use outside Ri access to your Home’s tasks, notes, areas and priority deck. It uses your assistant’s existing model access.' : `Let Claude Code, Codex or another assistant you already use read and update ${space.name}’s shared work as you. This is optional. To chat inside Ri, use AI & Models.`}
+        {`MCP (Model Context Protocol) lets your agent search, create and update ${personal ? 'your Home’s tasks, notes, areas and priority deck' : `${space.name}’s shared tasks, notes and decisions`} from another app. Keep using your agent’s own model and interface. You do not need to use the Ri UI for that work.`}
       </p>
       {children}
       <div className="mt-2 space-y-2">
@@ -76,7 +76,7 @@ export function ExternalAssistants({ space, clients, createClient, revokeClient,
           </ul>
         )}
         <button type="button" className={buttonClass} disabled={!ready} onClick={() => setOpen(true)}>
-          <Plug size={13} aria-hidden /> Connect an external assistant
+          <Plug size={13} aria-hidden /> Create MCP connection
         </button>
       </div>
       <ConnectAiDialog open={open} onOpenChange={setOpen} onConnected={onChanged} space={space} createClient={createClient} />
@@ -139,11 +139,11 @@ function ConnectAiDialog({ open, onOpenChange, onConnected, space, createClient 
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-h-[90dvh] w-full max-w-[calc(100%-1rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{made ? `Set up ${made.name}` : 'Connect an external assistant'}</DialogTitle>
+          <DialogTitle>{made ? `Set up ${made.name}` : 'Create MCP connection'}</DialogTitle>
           <DialogDescription>
             {made
               ? `Copy the key now: Ri shows it only this once. Anyone with it can read and change ${personal ? 'your Home’s tasks, notes, areas and priority deck' : 'the team’s shared work'} as you.`
-              : `MCP gives your assistant tools to search, read and update ${personal ? 'your Home’s tasks, notes, areas and priority deck' : `${space.name}’s shared tasks, notes and decisions`}. You run that assistant outside Ri. You can disconnect its access here any time.`}
+              : `MCP gives your agent tools to search, read and update ${personal ? 'your Home’s tasks, notes, areas and priority deck' : `${space.name}’s shared tasks, notes and decisions`} as you. Connect from your personal Ri, Claude Code, Codex or another MCP client. You can disconnect its access here any time.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -156,7 +156,7 @@ function ConnectAiDialog({ open, onOpenChange, onConnected, space, createClient 
             }}
           >
             <fieldset className="space-y-1.5" disabled={create.isPending}>
-              <legend className="text-xs font-medium">Which assistant</legend>
+              <legend className="text-xs font-medium">Where will you use this connection?</legend>
               <div className="flex flex-wrap gap-2">
                 {AI_CLIENT_KINDS.map((option) => (
                   <label
@@ -207,15 +207,15 @@ function ConnectAiDialog({ open, onOpenChange, onConnected, space, createClient 
             {setup!.steps.map((step, index) => (
               <CopyBlock key={index} label={`${index + 1}. ${step.label}`} text={step.text} />
             ))}
-            <p className="text-xs text-muted-foreground">
-              {setup!.steps.length + 1}. {personal ? 'Ask your assistant “What tasks are due this week?” or “Save a note in my Ri.”' : `Ask your assistant “What has ${space.name} decided about billing?” or “Record that we chose weekly releases as a decision.”`}
-            </p>
             {!made.reachable && (
               <p role="status" className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                 {personal ? 'This is a local address. To connect from another computer, set a remote address in Settings → Devices, then create a new connection here.' : 'This address works only on this computer until the team has an address people can reach. Its owner sets one in Settings.'}
               </p>
             )}
             {setup!.caveat && <p className="text-xs text-muted-foreground">{setup!.caveat}</p>}
+            <p className="text-xs text-muted-foreground">
+              {personal ? 'Try asking your agent “Use my Ri MCP connection to list my tasks.”' : `Try asking your agent “Use the ${space.name} MCP connection to list the team’s tasks.”`}
+            </p>
             <DialogFooter>
               <button type="button" className={cn(buttonClass, 'px-3 py-1.5')} onClick={() => close(false)}>
                 Done

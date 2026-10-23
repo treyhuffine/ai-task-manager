@@ -1,9 +1,13 @@
-"use client";
+'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { useSpace } from '@/components/spaces/space-root';
+import { homeResourceHref } from '@/lib/home/resource-href';
+
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { TeamLabel } from '@/components/spaces/team-label';
 import {
-  Check, Circle, Clock, Repeat, Lock,
+  Check, Clock, Repeat, Lock,
   MoreHorizontal, Archive, Timer, GripVertical,
   Zap, Flame, ShieldAlert, AlignLeft, ListTree, ArrowUpDown,
 } from 'lucide-react';
@@ -64,6 +68,8 @@ function formatDate(iso: string | null): string | null {
 }
 
 interface TaskRowProps {
+  privatePlanning?: boolean;
+  contextMeta?: ReactNode;
   task: TaskListDTO;
   onComplete: (id: string) => void;
   onUpdate: (id: string, field: string, value: unknown) => void;
@@ -80,8 +86,10 @@ interface TaskRowProps {
 
 export function TaskRow({
   task, onComplete, onUpdate, onSnooze, onArchive, onOpen,
-  dragEnabled = true, isHighlighted = false, onDragIntercept, onPickBucket, signals,
+  dragEnabled = true, isHighlighted = false, onDragIntercept, onPickBucket, signals, privatePlanning = true, contextMeta,
 }: TaskRowProps) {
+  const home = useOptionalHomeContext();
+  const space = useSpace();
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [editingBoomerang, setEditingBoomerang] = useState(false);
   const [blockPopoverOpen, setBlockPopoverOpen] = useState(false);
@@ -144,7 +152,7 @@ export function TaskRow({
       )}
       onClick={(e) => {
         if (e.metaKey || e.ctrlKey) {
-          window.open(`/task/${task.id}`, '_blank')
+          window.open(homeResourceHref('task', task.id, { kind: home?.home.kind ?? 'personal', spaceId: space?.id }), '_blank')
         } else {
           onOpen?.(task.id)
         }
@@ -211,7 +219,7 @@ export function TaskRow({
           <span onClick={(e) => e.stopPropagation()}>
             <LifecycleStatusControl taskId={task.id} status={task.status} size="xs" />
           </span>
-          <TeamLabel teamId={task.sourceTeamId} />
+          <TeamLabel teamId={task.sourceTeamId} sourceArea={task.source?.area} />
 
           {/* Derived attention badges (In progress) */}
           <TaskBadges signals={signals} size="xs" />
@@ -222,6 +230,8 @@ export function TaskRow({
             onChange={(areaId) => onUpdate(task.id, 'areaId', areaId)}
           />
 
+          {contextMeta}
+          {privatePlanning && <>
           {/* Energy pill */}
           <Tip label={`Energy: ${task.energy ?? 'unset'} (click to cycle)`}>
             <button
@@ -248,6 +258,7 @@ export function TaskRow({
             </Tip>
           )}
 
+          </>}
           {/* Deadline */}
           {deadline && !editingDeadline && (
             <button
@@ -402,6 +413,7 @@ export function TaskRow({
                 <DropdownMenuSeparator />
               </>
             )}
+            {privatePlanning && <>
             <DropdownMenuItem onClick={() => onSnooze(task.id, 1)} className="text-xs">
               <Timer size={12} className="mr-2" /> Snooze 1 day
             </DropdownMenuItem>
@@ -417,12 +429,13 @@ export function TaskRow({
                 Set effort
               </DropdownMenuItem>
             )}
+            </>}
             {!task.hardDeadline && (
               <DropdownMenuItem onClick={() => setEditingDeadline(true)} className="text-xs">
                 <Clock size={12} className="mr-2" /> Set deadline
               </DropdownMenuItem>
             )}
-            {!task.blockedOn && (
+            {privatePlanning && !task.blockedOn && (
               <DropdownMenuItem
                 onClick={() => setBlockPopoverOpen(true)}
                 className="text-xs"
@@ -430,7 +443,7 @@ export function TaskRow({
                 <Lock size={12} className="mr-2" /> Block
               </DropdownMenuItem>
             )}
-            {task.blockedOn && (
+            {privatePlanning && task.blockedOn && (
               <DropdownMenuItem
                 onClick={() => {
                   onUpdate(task.id, 'blockedOn', null);

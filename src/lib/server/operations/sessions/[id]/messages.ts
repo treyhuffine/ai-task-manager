@@ -1,3 +1,4 @@
+import { chatEventProjector } from '@/lib/team/chat-event-view';
 import { chatSources } from '@/lib/server/chat-sources';
 import { SourceError } from '@/lib/chat-sources/service';
 import { getRequestKey } from '@/lib/auth/request-key';
@@ -30,6 +31,8 @@ import { reply, type OperationContext } from '@/lib/server/operation';
 import { deriveAndSetSessionLabel } from '@/lib/sessions/derive-label';
 import { withSenderLabel } from '@/lib/sessions/sender';
 import { z as rpcZ } from 'zod/v4';
+import { memberMessage } from '@/lib/sessions/member-message';
+import { executionOperationFailure } from '@/lib/workspaces/access';
 
 interface PostBody {
   appContext?: { viewId: string; revision: number };
@@ -88,6 +91,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     if (session.surfaceKind === 'result_review') {
       return reply({ error: 'An assigned background reviewer cannot receive ordinary continuation messages. Use the result actions for another review, or answer its pending question through the existing input controls.' }, { status: 409 });
     }
+    const shared = await memberMessage(getRequestKey(request.headers), id, { ...body, content });
+    if (shared) return reply(chatEventProjector(getChatSessionWithExecution(id))(shared.message!)!, { status: 201 });
     if (session.status === 'archived') {
       // Stale state — `ExecutionView` auto-resumes archived sessions on
       // mount via `useContinueSession`, so the canonical UI flow never
@@ -375,6 +380,8 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     // composer can say so rather than the person believing it went.
     return reply({ ...toChatEventDTO(row), ...(connectedContextSkipped.length ? { connectedContextSkipped } : {}) }, { status: 201 });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/messages]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

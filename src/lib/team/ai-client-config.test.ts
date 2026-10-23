@@ -15,6 +15,22 @@ describe('teamMcpNames', () => {
 });
 
 describe('aiClientSetup', () => {
+  it('maps a team connection to Ri’s MCP server form without shell configuration', () => {
+    const setup = aiClientSetup('ri', input);
+    expect(setup.steps.map(step => step.text)).toEqual(['Acme Labs', input.mcpUrl, input.token]);
+    expect(setup.steps[0].label).toContain('Settings → Plugins → Add MCP server');
+    expect(setup.steps[1].label).toContain('Server URL');
+    expect(setup.steps[2].label).toContain('Bearer token');
+    expect(setup.steps[2].label).toContain('Secret');
+    expect(setup.caveat).toContain('Add and connect');
+    expect(setup.caveat).toContain('start a new chat');
+  });
+
+  it('also connects another Ri to a personal Home using that Home’s endpoint', () => {
+    const setup = aiClientSetup('ri', { homeName: 'Home', mcpUrl: 'https://home.example/api/orchestrator/mcp', token: 'personal-test' });
+    expect(setup.steps.map(step => step.text)).toEqual(['Home', 'https://home.example/api/orchestrator/mcp', 'personal-test']);
+  });
+
   it('keeps the key in the profile and out of Claude Code\'s stored command', () => {
     const setup = aiClientSetup('claude_code', input);
     expect(setup.steps.map((s) => s.text)).toEqual([

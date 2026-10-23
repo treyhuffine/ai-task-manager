@@ -24,6 +24,19 @@ import { readConnection } from '@/lib/connection/config';
 import { homeFetch, HomeRequestError } from '@/lib/connection/home-client';
 
 export async function dispatchAction(name: string, input: unknown): Promise<DispatchEnvelope> {
+  const sessionHome = process.env.RI_HOME_TOOLS_URL;
+  const sessionCredential = process.env[SESSION_CREDENTIAL_ENV];
+  if (sessionHome && sessionCredential) {
+    try {
+      const response = await fetch(new URL(`/api/orchestrator/actions/${encodeURIComponent(name)}`, sessionHome), {
+        method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${sessionCredential}`, [SESSION_CREDENTIAL_HEADER]: sessionCredential }, body: JSON.stringify(input ?? {}),
+      });
+      const body = await response.json().catch(() => null) as DispatchEnvelope | { error?: string; message?: string } | null;
+      if (body && 'ok' in body) return body;
+      const unauthorized = response.status === 401 || response.status === 403;
+      return { ok: false, action: name, error: { code: unauthorized ? 'unsupported' : body?.error ?? 'invalid_params', message: unauthorized ? 'This Team Home no longer authorizes this session action.' : body?.message ?? `The Team Home returned HTTP ${response.status}.` } };
+    } catch (error) { return { ok: false, action: name, error: { code: 'unreachable', message: error instanceof Error ? error.message : 'The Team Home is unavailable.' } }; }
+  }
   if (getInstallationRole() === 'connected') return runActionAtHome(name, input);
   // From a harness session's shell, its signed credential names the chat that
   // is calling. A human at a terminal has none, and runs with no actor.

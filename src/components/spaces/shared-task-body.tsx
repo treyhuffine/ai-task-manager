@@ -1,5 +1,7 @@
 'use client';
+import { teamDisplayName } from '@/lib/home/team-display-name';
 
+import { SHARED_TASK_FIELDS } from '@/lib/spaces/shared-fields';
 import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Lock, Users } from 'lucide-react';
@@ -12,14 +14,18 @@ import { sharedDraftKey } from '@/lib/team/shared-body';
 import { entityKeys } from '@/lib/query/entity-keys';
 import { patchEntityCaches } from '@/lib/query/optimistic-entity';
 import { trpcClient } from '@/lib/trpc/client';
-import { cn } from '@/lib/utils';
+
+import { TaskDocument } from '@/components/tasks/task-document';
+import { TaskPlanningProperties } from '@/components/tasks/task-planning-properties';
+import { EntityLinkScope } from '@/components/editor/entity-link-scope';
 import { RichEditor } from '@/components/editor/rich-editor';
 import { AreaSelect } from '@/components/shared/area-select';
-import { LifecycleStatusControl } from '@/components/tasks/lifecycle-status-control';
+
 import { SubtaskSection } from '@/components/tasks/subtask-section';
-import { EFFORT_OPTIONS, ENERGY_OPTIONS } from '@/components/tasks/task-options';
+
 import { TaskResults } from '@/components/results/task-results';
 import { SaveStatus, SharedBodyState, useSharedBodyFor, type SharedBodyTarget } from '@/components/team/shared-body-editor';
+import { TeamLabel } from './team-label';
 import { useConnectedTeams } from './space-selector';
 import { SharedPublishedResults } from './publish-result';
 
@@ -30,123 +36,44 @@ import { SharedPublishedResults } from './publish-result';
  * - The shared part, the team's: title, status, deadline and body. Edits go to
  *   the team as they're made, with the same revision checks, retained drafts
  *   and conflict choice as the team's own app.
- * - Only you: private notes, energy, effort, snooze and subtasks, and Organize
- *   for me, the person's own Area, distinct from the team's. None of it
+ * - Only you: private notes, energy, effort, snooze and subtasks, and the
+ *   person's own Area, distinct from the team's. None of it
  *   reaches the team.
  */
 export function SharedTaskBody({ task, onOpenTask }: { task: TaskRecord; onOpenTask: (id: string) => void }) {
   const teams = useConnectedTeams();
   const connection = teams.data?.find((t) => t.id === task.sourceTeamId);
-  const teamName = connection?.name ?? 'the team';
+  const teamName = teamDisplayName(task.sourceTeamId!, teams.data);
   const updateTask = useUpdateTask();
   // Typed fields (the shared title, private notes) save as they're typed and
   // are kept as a draft until acknowledged, so switching spaces or closing
   // the window loses nothing. The base is the saved task, not this view.
   const { data: saved } = useTask(task.id);
-  const autosave = useDocumentAutosave('tasks', task.id, saved, updateTask.mutateAsync);
+  const autosave = useDocumentAutosave('tasks', task.id, saved, (input: Parameters<typeof updateTask.mutateAsync>[0]) => {
+    if (SHARED_TASK_FIELDS.some(field => field in input)) return Promise.reject(Object.assign(new Error('This retained shared draft has no recorded team author. Its text is kept. Restore it from the original team sign-in.'), { status: 403 }));
+    return updateTask.mutateAsync(input);
+  });
+  const sharedAutosave = useDocumentAutosave('tasks', task.id, saved, (input: Parameters<typeof updateTask.mutateAsync>[0]) => {
+    if (!connection?.memberId || connection.status !== 'active') return Promise.reject(Object.assign(new Error('Reconnect the original team sign-in to save this draft.'), { status: 403 }));
+    return updateTask.mutateAsync({ ...input, expectedSourceMemberId: connection.memberId });
+  }, { homeId: task.sourceTeamId!, viewerId: connection?.memberId ?? 'disconnected' });
   const save = (patch: Parameters<typeof updateTask.mutate>[0] extends infer P ? Omit<P & object, 'id'> : never) =>
     updateTask.mutate({ id: task.id, ...patch } as Parameters<typeof updateTask.mutate>[0]);
   const source = task.source;
   const assignee = source?.assignee;
   const assignedToMe = !!source?.assigned;
 
-  return (
-    <div className="space-y-6 px-4 pb-10 pt-4 md:px-12">
-      <SourceNotice task={task} teamName={teamName} lastSyncedAt={connection?.lastSyncedAt ?? null} lastError={connection?.lastError ?? null} />
-
-      {/* The shared part */}
-      <section aria-label={`Shared with ${teamName}`} className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 font-medium text-primary">
-            <Users size={12} /> Shared with {teamName}
-          </span>
-          {source?.area && <span className="rounded-full border border-border px-2 py-0.5 text-muted-foreground">{source.area.name}</span>}
-          <span className="text-muted-foreground">{assignedToMe ? 'Assigned to you' : assignee ? `Assigned to ${assignee.name}` : 'Not assigned'}</span>
-          {task.sourceTeamId && task.sourceTaskId && (
-            <a href={`${spacePath(task.sourceTeamId)}?task=${encodeURIComponent(task.sourceTaskId)}`} className="ml-auto text-muted-foreground underline-offset-2 hover:underline">
-              Open in {teamName}
-            </a>
-          )}
-        </div>
-        <TitleField task={task} onSave={(title) => autosave({ title })} />
-        <div className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-xs">
-          <span className="font-medium text-muted-foreground">Status</span>
-          <LifecycleStatusControl taskId={task.id} status={task.status} className="-ml-1.5" />
-          <span className="font-medium text-muted-foreground">Deadline</span>
-          <input
-            type="date"
-            aria-label="Deadline"
-            value={task.hardDeadline?.slice(0, 10) ?? ''}
-            onChange={(e) => save({ hardDeadline: e.target.value || null })}
-            className="w-fit rounded-md border border-border bg-transparent px-2 py-1 text-xs"
-          />
-        </div>
-        {task.sourceState !== 'unavailable' && <SharedBody task={task} memberId={connection?.memberId ?? null} />}
-      </section>
-
-      {/* Only you */}
-      <section aria-label="Only you" className="space-y-4 rounded-lg border border-dashed border-border p-4">
-        <div>
-          <h3 className="flex items-center gap-1.5 text-[12px] font-semibold">
-            <Lock size={12} /> Only you
-          </h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">Your private planning for this task. {teamName} never sees it.</p>
-        </div>
-        <PrivateNotes task={task} onSave={(userContext) => autosave({ userContext })} />
-        <div className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-xs">
-          <span className="font-medium text-muted-foreground">Organize for me</span>
-          <AreaSelect value={task.areaId ?? null} onChange={(areaId) => save({ areaId })} />
-          <span className="font-medium text-muted-foreground">Energy</span>
-          <div className="flex items-center gap-1">
-            {ENERGY_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => save({ energy: task.energy === opt.value ? null : opt.value })}
-                className={cn(
-                  'inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors',
-                  task.energy === opt.value ? `${opt.color} bg-current/10 ring-1 ring-current/20` : 'text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground',
-                )}
-              >
-                <opt.icon size={10} />
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <span className="font-medium text-muted-foreground">Effort</span>
-          <div className="flex flex-wrap items-center gap-1">
-            {EFFORT_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => save({ effort: task.effort === opt.value ? null : opt.value })}
-                className={cn(
-                  'rounded px-2 py-0.5 text-[11px] font-medium transition-colors',
-                  task.effort === opt.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground',
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <span className="font-medium text-muted-foreground">Snooze until</span>
-          <input
-            type="date"
-            aria-label="Snooze until"
-            value={task.resurfaceAfter?.slice(0, 10) ?? ''}
-            onChange={(e) => save({ resurfaceAfter: e.target.value ? new Date(`${e.target.value}T00:00:00`).toISOString() : null })}
-            className="w-fit rounded-md border border-border bg-transparent px-2 py-1 text-xs"
-          />
-        </div>
-        <SubtaskSection parentId={task.id} onOpenTask={onOpenTask} />
-      </section>
-
-      <SharedPublishedResults task={task} teamName={teamName} />
-
-      {/* This person's own saved results: theirs until they publish one. */}
-      <TaskResults key={task.id} taskId={task.id} />
-    </div>
-  );
+  return <TaskDocument task={task}
+    onTitleChange={title => sharedAutosave({ title })}
+    onAreaChange={areaId => save({ areaId })}
+    onDeadlineChange={hardDeadline => sharedAutosave({ hardDeadline })}
+    areaControl={<TeamLabel teamId={task.sourceTeamId} sourceArea={source?.area} />}
+    breadcrumb={<div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><Users size={12}/><span>Shared with {teamName}</span><span className="text-muted-foreground">{assignedToMe ? 'Assigned to you' : assignee ? `Assigned to ${assignee.name}` : 'Not assigned'}</span>{task.sourceTeamId && task.sourceTaskId && <a href={`${spacePath(task.sourceTeamId)}?task=${encodeURIComponent(task.sourceTaskId)}`} className="ml-auto underline">Open in {teamName}</a>}</div>}
+    notice={<SourceNotice task={task} teamName={teamName} lastSyncedAt={connection?.lastSyncedAt ?? null} lastError={connection?.lastError ?? null} />}
+    bodyContent={task.sourceState !== 'unavailable' && <SharedBody task={task} memberId={connection?.memberId ?? null} />}
+    afterProperties={<section aria-label="Only you" className="mx-4 my-4 space-y-4 rounded-lg border border-dashed p-4 md:mx-12"><div><h3 className="flex items-center gap-1.5 text-xs font-semibold"><Lock size={12}/>Only you</h3><p className="text-xs text-muted-foreground">Your private planning for this task. {teamName} never sees it.</p></div><PrivateNotes task={task} onSave={userContext => autosave({ userContext })}/><div className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-xs"><span className="font-medium text-muted-foreground">Area</span><AreaSelect value={task.areaId} onChange={areaId => save({ areaId })}/><TaskPlanningProperties task={task} save={save}/></div><SubtaskSection parentId={task.id} onOpenTask={onOpenTask}/></section>}
+    footer={<div className="space-y-4 px-4 pb-10 md:px-12"><SharedPublishedResults task={task} teamName={teamName}/><TaskResults key={task.id} taskId={task.id}/></div>}
+  />;
 }
 
 function SourceNotice({ task, teamName, lastSyncedAt, lastError }: { task: TaskRecord; teamName: string; lastSyncedAt: string | null; lastError: string | null }) {
@@ -168,28 +95,6 @@ function useFollowedDraft(value: string) {
     setDraft(value);
   }
   return { draft, setDraft, setEditing };
-}
-
-function TitleField({ task, onSave }: { task: TaskRecord; onSave: (title: string) => void }) {
-  const { draft, setDraft, setEditing } = useFollowedDraft(task.title);
-  return (
-    <textarea
-      aria-label="Title"
-      value={draft}
-      rows={1}
-      onFocus={() => setEditing(true)}
-      onChange={(e) => {
-        setDraft(e.target.value);
-        // A shared title is never empty: an emptied one waits for text.
-        if (e.target.value.trim()) onSave(e.target.value);
-      }}
-      onBlur={() => {
-        setEditing(false);
-        if (!draft.trim()) setDraft(task.title);
-      }}
-      className="note-title w-full resize-none bg-transparent text-2xl font-semibold leading-tight outline-none field-sizing-content"
-    />
-  );
 }
 
 function PrivateNotes({ task, onSave }: { task: TaskRecord; onSave: (value: string | null) => void }) {
@@ -230,6 +135,7 @@ function SharedBody({ task, memberId }: { task: TaskRecord; memberId: string | n
           id: task.id,
           patch: { body, ...(attachments.length > 0 ? { attachments } : {}) },
           expectedBodyRevision,
+          expectedSourceMemberId: memberId ?? undefined,
         });
         const bodyRevision = row.source?.bodyRevision ?? expectedBodyRevision;
         // Only the revision goes into the cache, with the body the editor
@@ -253,7 +159,7 @@ function SharedBody({ task, memberId }: { task: TaskRecord; memberId: string | n
       </div>
       <SharedBodyState shared={shared} />
       <div className="task-slideout-editor shared-task-editor">
-        <RichEditor
+        <EntityLinkScope homeId={task.sourceTeamId!}><RichEditor
           key={shared.editorKey}
           content={shared.initial}
           onChange={shared.edit}
@@ -262,7 +168,7 @@ function SharedBody({ task, memberId }: { task: TaskRecord; memberId: string | n
           applyExternalContent={shared.applyExternalContent}
           placeholder="The shared description. Your team sees what you write here."
           hideFooter
-        />
+        /></EntityLinkScope>
       </div>
     </div>
   );

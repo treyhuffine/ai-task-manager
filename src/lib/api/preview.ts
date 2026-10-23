@@ -53,10 +53,11 @@ export const previewApi = {
     return trpcClient.executions.previewStatusGet.query({params: {id: executionId}, query: rpcQuery(serviceQuery(service))});
   },
 
-  start(executionId: string, opts: { service?: string | null; remote?: boolean } = {}) {
+  start(executionId: string, opts: { service?: string | null; remote?: boolean; resolveOnly?: boolean } = {}) {
     return trpcClient.executions.previewStartPost.mutate({params: {id: executionId}, body: {
       service: opts.service ?? null,
       remote: opts.remote ?? false,
+      resolveOnly: opts.resolveOnly,
     }});
   },
 

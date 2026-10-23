@@ -13,6 +13,9 @@ const getHarnessModelCatalog = vi.fn();
 const getHarnessRuntime = vi.fn();
 
 vi.mock('@/lib/db/queries', () => ({
+  getHome: () => ({ kind: 'personal' }),
+  isTeamError: () => false,
+  isTeamChatError: () => false,
   getChatSessionWithExecution: (id: string) => getChatSessionWithExecution(id),
   updateChatSession: (id: string, input: unknown) => updateChatSession(id, input),
   updateUserState: (input: unknown) => updateUserState(input),

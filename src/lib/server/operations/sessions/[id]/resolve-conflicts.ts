@@ -1,4 +1,7 @@
-import { getChatSessionWithExecution, getWorkspace, insertChatEvent } from '@/lib/db/queries';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { sessionAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { submitActionMessage, replayActionMessage } from '@/lib/sessions/action-message';
+import { getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
 import { executionFolder } from '@/lib/executor/owner-files';
 import {
@@ -22,9 +25,14 @@ const BodySchema = z.object({
   scenario: z.enum(['pr_vs_base', 'local_vs_remote']),
 });
 
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    const { requestId, ...actionInput } = rpcInput.body;
+    const intent = { action: 'resolve-conflicts', input: actionInput };
+    const replay = replayActionMessage(request.headers, id, requestId, intent);
+    if (replay) return reply({ ok: true, ...replay });
+    sessionAuthority(getRequestKey(request.headers), id, 'send');
     const raw = rpcInput.body;
     const parsed = BodySchema.safeParse(raw);
     if (!parsed.success) {
@@ -72,21 +80,12 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
       baseBranch: ws.baseBranch ?? undefined,
     });
 
-    const event = insertChatEvent({
-      sessionId: id,
-      role: 'user',
-      source: 'user',
-      content: prompt,
-      createdAt: new Date().toISOString(),
-    });
+    const receipt = await submitActionMessage(request.headers, id, prompt, requestId, intent);
 
-    // Tied to its event, wherever the execution runs (P4.5).
-    executor.dispatch(id, prompt, { sourceEventId: event?.id ?? null }).catch((err) => {
-      console.error(`[POST /api/sessions/:id/resolve-conflicts] dispatch failed for ${id}:`, err);
-    });
-
-    return reply({ ok: true });
+    return reply({ ok: true, ...receipt });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[POST /api/sessions/:id/resolve-conflicts]', err);
     const name = err instanceof Error ? err.name : 'Error';
     const message = err instanceof Error ? err.message : String(err);
@@ -94,4 +93,4 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
   }
 }
 
-export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "scenario": rpcZ.enum(["pr_vs_base", "local_vs_remote"]) }).strict() }).strict();
+export const POSTInput = rpcZ.object({ params: rpcZ.object({ "id": rpcZ.string().min(1) }).strict(), body: rpcZ.object({ "requestId": rpcZ.string().uuid().optional(), "scenario": rpcZ.enum(["pr_vs_base", "local_vs_remote"]) }).strict() }).strict();

@@ -1,3 +1,5 @@
+import { workspaceAuthority, executionOperationFailure } from '@/lib/workspaces/access';
+import { getRequestKey } from '@/lib/auth/request-key';
 import { getWorkspace } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { listWorkspaceBranches } from '@/lib/workspaces';
@@ -14,11 +16,14 @@ import { z as rpcZ } from 'zod/v4';
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    workspaceAuthority(getRequestKey(_request.headers), id, 'inspectFiles');
     const ws = getWorkspace(id);
     if (!ws) return reply({ error: 'Workspace not found' }, { status: 404 });
     const branches = await listWorkspaceBranches(ws);
     return reply(branches);
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/workspaces/:id/branches]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

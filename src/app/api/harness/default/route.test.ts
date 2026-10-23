@@ -1,3 +1,4 @@
+vi.mock('@/lib/home/settings-authority', () => ({ homeSettingsAdmission: () => null }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -32,6 +33,7 @@ beforeEach(() => {
     model: preferred.model,
     variant: preferred.variant ?? null,
     effort: preferred.effort ?? 'medium',
+    serviceTier: preferred.serviceTier ?? null,
   }));
 });
 

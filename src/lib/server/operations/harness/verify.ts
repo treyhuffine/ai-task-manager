@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import { getAppRoot } from '@/lib/config/paths';
 import { ensureHarnessSettings } from '@/lib/db/queries';
 import { getHarnessModelCatalog } from '@/lib/harness/model-discovery';
@@ -18,6 +19,8 @@ export interface HarnessVerifyResponse {
 }
 
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const { harness } = rpcInput.body;
 

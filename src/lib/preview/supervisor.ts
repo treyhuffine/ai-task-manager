@@ -73,6 +73,7 @@ interface InternalRecord extends PreviewProcessRecord {
   logSeq: number;
   /** Ring buffer of recent log lines. */
   logs: PreviewLogLine[];
+  logBytes: number;
   /** Partial-line buffer per stream. */
   pending: { stdout: string; stderr: string };
   /** Cleared after Stop / explicit kill — distinguishes intentional exits. */
@@ -85,6 +86,7 @@ interface InternalRecord extends PreviewProcessRecord {
 }
 
 const MAX_LOG_LINES = 1000;
+const MAX_LOG_BYTES = 512 * 1024;
 const CONFIRM_TIMEOUT_MS = 30_000;
 const KILL_GRACE_MS = 5_000;
 
@@ -186,6 +188,7 @@ class PreviewSupervisor extends EventEmitter {
       detector,
       logSeq: 0,
       logs: [],
+      logBytes: 0,
       pending: { stdout: '', stderr: '' },
       expectingExit: false,
       confirmAbort: new AbortController(),
@@ -379,11 +382,11 @@ class PreviewSupervisor extends EventEmitter {
       let accumulator = rec.pending[stream] + chunk;
       let nl: number;
       while ((nl = accumulator.indexOf('\n')) >= 0) {
-        const line = accumulator.slice(0, nl).replace(/\r$/, '');
+        const line = accumulator.slice(0, nl).replace(/\r$/, '').slice(-32768);
         accumulator = accumulator.slice(nl + 1);
         this.appendLog(rec, stream, line);
       }
-      rec.pending[stream] = accumulator;
+      rec.pending[stream] = accumulator.slice(-32768);
     });
   }
 
@@ -396,9 +399,8 @@ class PreviewSupervisor extends EventEmitter {
       line,
     };
     rec.logs.push(entry);
-    if (rec.logs.length > MAX_LOG_LINES) {
-      rec.logs.splice(0, rec.logs.length - MAX_LOG_LINES);
-    }
+    rec.logBytes += Buffer.byteLength(line, 'utf8');
+    while (rec.logs.length > MAX_LOG_LINES || rec.logBytes > MAX_LOG_BYTES) rec.logBytes -= Buffer.byteLength(rec.logs.shift()!.line, 'utf8');
     this.emit('log', { key: rec.key, line: entry });
   }
 

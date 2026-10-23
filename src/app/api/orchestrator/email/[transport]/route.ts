@@ -1,3 +1,4 @@
+import { registerActionTool } from '@/lib/orchestrator/mcp-registration';
 import { isMcpTransport, mcpNotFound, riMcpHandler } from '@/lib/mcp/http-server';
 import { emailActions } from '@/lib/orchestrator/email-actions';
 import { runAction } from '@/lib/orchestrator/dispatch';
@@ -6,7 +7,7 @@ import { mcpCallContext } from '@/lib/orchestrator/mcp-caller';
 function handle(request: Request) {
   if (!isMcpTransport(new URL(request.url).pathname.split('/').pop())) return Promise.resolve(mcpNotFound());
   const handler = riMcpHandler(server => {
-    for (const action of emailActions) server.registerTool(action.name, { description: action.description, inputSchema: action.params }, async input => {
+    for (const action of emailActions) registerActionTool(server, action, async input => {
       const envelope = await runAction(action.name, input, mcpCallContext(request.headers));
       return { content: [{ type: 'text' as const, text: JSON.stringify(envelope) }], isError: !envelope.ok };
     });

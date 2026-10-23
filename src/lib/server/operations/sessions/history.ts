@@ -1,6 +1,9 @@
+import { conversationViews } from '@/lib/sessions/view-state';
 import { listHistorySessions } from '@/lib/db/queries';
 import { reply, searchParams, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
+import { getRequestKey } from '@/lib/auth/request-key';
+import { executionCatalogFilter, executionOperationFailure } from '@/lib/workspaces/access';
 
 /**
  * Execution history feed for the rail's "By history" tab. Returns every
@@ -19,12 +22,15 @@ import { z as rpcZ } from 'zod/v4';
 // Compressed: this route can ship hundreds of KB of JSON, and Next 16
 // does not compress route handlers. See lib/api/compression.ts.
 
-export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: OperationContext) {
   try {
     const workspaceId = searchParams(rpcInput.query).get('workspaceId') || undefined;
-    const sessions = listHistorySessions({ limit: 200, workspaceId });
-    return reply({ sessions });
+    const visible = executionCatalogFilter(getRequestKey(request.headers));
+    const sessions = listHistorySessions({ limit: 200, workspaceId }).filter(visible);
+    return reply({ sessions: conversationViews(getRequestKey(request.headers), sessions) });
   } catch (err) {
+    const denied = executionOperationFailure(err);
+    if (denied) return denied;
     console.error('[GET /api/sessions/history]', err);
     return reply({ error: String(err) }, { status: 500 });
   }

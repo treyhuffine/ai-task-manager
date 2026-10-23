@@ -1,3 +1,5 @@
+import { requireTeamCapability } from './capability-authority';
+import { hasTeamCapability, teamCapabilities, type TeamCapabilities } from './capabilities';
 /**
  * The task, note and Area surface in a team space (docs/homes-spec.md §9.1,
  * §9.4, P6.2/P6.4). The same procedures and query functions serve a
@@ -21,18 +23,20 @@ import type { EntityVersionSource } from '@/db/types';
 import { isTeamAuthority } from '@/lib/home/authority';
 
 /** Who is acting on shared work: the owner of a personal home, or a team member. */
-export type SharedCaller = { team: false } | { team: true; memberId: string; role: 'owner' | 'member' };
+export type SharedCaller = { team: false } | { team: true; memberId: string; role: 'owner' | 'member'; capabilities: TeamCapabilities };
 
 export function sharedCaller(key: RequestKey | null): SharedCaller {
   if (!isTeamAuthority()) return { team: false };
   if (!key || key.scope !== 'member' || !key.memberId || !key.memberRole) {
     throw new TeamError('not_allowed', 'Sign in as a member of this team.');
   }
-  return { team: true, memberId: key.memberId, role: key.memberRole };
+  const member = requireTeamCapability(key, 'read');
+  return { team: true, memberId: member.id, role: member.role, capabilities: teamCapabilities(member) };
 }
 
 /** Provenance for a version: a person acting through the app. */
 export function versionMeta(caller: SharedCaller, source: EntityVersionSource = 'human'): EntityVersionMeta {
+  assertSharedEdit(caller, source);
   return caller.team ? { source, actorMemberId: caller.memberId } : { source: 'human' };
 }
 
@@ -51,6 +55,7 @@ export function teamWriteSource(key: RequestKey | null, source?: Exclude<EntityV
 }
 
 export function lifecycleMeta(caller: SharedCaller, base: Omit<LifecycleActorMeta, 'source' | 'actorMemberId'> = {}): LifecycleActorMeta {
+  assertSharedEdit(caller);
   return caller.team ? { ...base, source: 'human', actorMemberId: caller.memberId } : { ...base, source: 'human' };
 }
 
@@ -64,6 +69,7 @@ export const TEAM_TASK_FIELDS = [
   'assigneeMemberId',
   'hardDeadline',
   'attachments',
+  'sortKey',
 ] as const;
 
 /** What a team's note shares. */
@@ -120,4 +126,8 @@ export function requireBodyRevision(caller: SharedCaller, patch: Record<string, 
   if (expected === undefined) {
     throw new TeamError('invalid', 'A change to shared text has to say which version it edited. Reload and try again.');
   }
+}
+
+export function assertSharedEdit(caller: SharedCaller, source: EntityVersionSource = 'human') {
+  if (caller.team && !hasTeamCapability(getMember(caller.memberId), 'editContent', source === 'human' ? 'human' : 'agent')) throw new TeamError('not_allowed', 'This member cannot edit shared content.');
 }

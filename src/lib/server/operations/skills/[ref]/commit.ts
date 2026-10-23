@@ -1,5 +1,6 @@
 import { failureResponse, reply, type OperationContext } from '@/lib/server/operation';
 import { skillErrorResponse } from '@/lib/skills/http';
+import { authorizeSkillOperation } from '@/lib/skills/home-policy';
 import { commitSkill } from '@/lib/skills/manage';
 import { z as rpcZ } from 'zod/v4';
 
@@ -8,9 +9,10 @@ import { z as rpcZ } from 'zod/v4';
  * the folder has checked out: POST → { skill, commit: { sha, branch, message } }.
  * Never pushes.
  */
-export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: OperationContext) {
+export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
   const { ref } = rpcInput.params;
   try {
+    authorizeSkillOperation(request.headers, true, ref);
     return reply(await commitSkill(ref));
   } catch (err) {
     return failureResponse(skillErrorResponse(err, `POST /api/skills/${ref}/commit`));

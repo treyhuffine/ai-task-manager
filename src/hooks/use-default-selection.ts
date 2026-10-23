@@ -1,5 +1,9 @@
 'use client';
 
+import { trpc } from '@/lib/trpc/client';
+
+
+
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUserState } from '@/hooks/use-user-state';
 import { setDefaultSelection } from '@/lib/client/default-selection';
@@ -33,10 +37,10 @@ export function useSetDefaultSelection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: setDefaultSelection,
-    onSuccess: (saved) => {
-      void qc.invalidateQueries({ queryKey: ['user-state'] });
-      void qc.invalidateQueries({ queryKey: ['agent-models', saved.harness] });
-      void qc.invalidateQueries({ queryKey: ['agent-harnesses'] });
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: trpc.userState.list.queryKey({}) });
+      void qc.invalidateQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
+      void qc.invalidateQueries({ queryKey: trpc.harness.harnessesGet.pathKey() });
     },
   });
 }

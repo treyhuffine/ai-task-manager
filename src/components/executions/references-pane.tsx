@@ -18,7 +18,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useSessionReferences } from '@/hooks/use-execution';
 import { useTasks } from '@/hooks/use-tasks';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useWorkNavigation } from '@/contexts/work-context';
 import type { ReferenceRow, ReferencesPage } from '@/lib/api/sessions';
 import type { ReferenceSection } from '@/lib/sessions/contracts';
 import { Tip } from '@/components/ui/tip';
@@ -309,7 +309,7 @@ function ReferenceListRow({
   onInsert: (attrs: EntityChipInsert) => void;
   depth?: number;
 }) {
-  const { openTask, openNote } = useDashboard();
+  const { openTask, openNote } = useWorkNavigation();
   const [expanded, setExpanded] = useState(false);
   const hasSubtasks = row.kind === 'task' && (row.subtaskCount ?? 0) > 0;
 

@@ -1,8 +1,10 @@
 import { apiErrorText } from '@/lib/api/client';
-import { trpcClient } from '@/lib/trpc/client';
+import { trpc, trpcClient } from '@/lib/trpc/client';
 import type { RouterInputs, RouterOutputs } from '@/lib/trpc/router';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { mainChatKey } from '@/lib/query/session-keys';
+export { mainChatKey } from '@/lib/query/session-keys';
 
 /**
  * Main chats (docs/agents-view-spec.md §4): the app's main chat (scope
@@ -17,9 +19,6 @@ export type MainChatHistoryEntry = RouterOutputs['orchestratorChat']['historyGet
 
 /** Optional provider/model for a fresh chat: the composer's "switch provider". */
 export type NewMainChatOptions = NonNullable<RouterInputs['orchestratorChat']['create']['body']>;
-
-export const mainChatKey = (scope: MainChatScope) =>
-  scope === null ? (['orchestrator-chat'] as const) : (['agent-chat', scope] as const);
 
 export const mainChatHistoryKey = (scope: MainChatScope) =>
   scope === null ? (['orchestrator-chat', 'history'] as const) : (['agent-chat', scope, 'history'] as const);
@@ -43,7 +42,10 @@ export function useNewMainChat(scope: MainChatScope) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (opts: NewMainChatOptions | void) => createMainChat(scope, opts ?? {}),
-    onError: (error) => toast.error('Could not start a new chat', { description: apiErrorText(error) }),
+    onError: (error, opts) => {
+      toast.error('Could not start a new chat', { description: apiErrorText(error) });
+      refreshMainChatRecovery(qc, scope, opts?.sourceChatId);
+    },
     onSuccess: (data) => switchToMainChat(qc, scope, data),
   });
 }
@@ -89,12 +91,23 @@ export function useResumeMainChat(scope: MainChatScope) {
   return useMutation({
     mutationFn: (sessionId: string) =>
       scope === null ? trpcClient.orchestratorChat.resumePost.mutate({ body: { sessionId } }) : trpcClient.workspaces.chatResumePost.mutate({ params: { id: scope }, body: { sessionId } }),
-    onSuccess: (data) => {
-      qc.setQueryData(mainChatKey(scope), data);
-      qc.invalidateQueries({ queryKey: mainChatHistoryKey(scope) });
+    onError: error => {
+      toast.error('Could not resume this chat', { description: apiErrorText(error) });
+      refreshMainChatRecovery(qc, scope);
+    },
+    onSuccess: async (data) => {
+      await switchToMainChat(qc, scope, data);
       // The resumed chat's row changed (status flip), so refresh its query
       // and the transcript view picks it up immediately.
-      qc.invalidateQueries({ queryKey: ['session', data.session.id] });
+      void qc.invalidateQueries({ queryKey: ['session', data.session.id] });
     },
   });
+}
+
+/** Controls can live in separate hook instances or show a pinned past chat. */
+function refreshMainChatRecovery(qc: QueryClient, scope: MainChatScope, sourceChatId?: string) {
+  const current = qc.getQueryData<Awaited<ReturnType<typeof createMainChat>>>(mainChatKey(scope))?.session;
+  for (const id of new Set([current?.id, sourceChatId])) {
+    if (id) void qc.invalidateQueries({ queryKey: trpc.sessions.runtimeStatusGet.queryKey({ params: { id } }) });
+  }
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { RailLayout } from '@/components/home/home-navigation';
 import { useState } from 'react';
 import { PanelLeftClose } from 'lucide-react';
 import { HOTKEYS } from '@/constants/commands';
@@ -49,7 +50,7 @@ function WideRail({ places, onToggle }: { places: readonly RailPlace[]; onToggle
   return (
     <SessionHoverProvider>
       <WorkspaceSelectionProvider>
-        <div className="flex h-full flex-col">
+        <RailLayout header={
           <RailHome
             collapsed={false}
             action={
@@ -63,17 +64,15 @@ function WideRail({ places, onToggle }: { places: readonly RailPlace[]; onToggle
               )
             }
           />
-          <RailVerbRows />
-          <div aria-hidden className="mx-3 h-px flex-shrink-0 bg-border/50" />
-          <div className="min-h-0 flex-1 overflow-y-auto pb-4">
+          } actions={<RailVerbRows />} footer={<RailFooter collapsed={false}/>} >
+
+
             <RailPlaceRows places={places} />
             <div className="sticky top-0 z-30 bg-background">
               <RailListHeader tab={tab} onSelect={setTab} />
             </div>
             <RailListBody tab={tab} />
-          </div>
-          <RailFooter collapsed={false} />
-        </div>
+        </RailLayout>
       </WorkspaceSelectionProvider>
       <SessionHoverPreview />
     </SessionHoverProvider>

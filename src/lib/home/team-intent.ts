@@ -32,6 +32,8 @@ export interface TeamIntent {
   /** The name it was created with. Editable later, and never its identity. */
   name: string;
   createdAt: string;
+  /** Desktop creation recorded that the OS user also hosts a personal Ri. */
+  hostedWithPersonalHome?: boolean;
 }
 
 export class TeamIntentError extends Error {
@@ -84,6 +86,7 @@ export function readTeamIntent(configDir: string = getConfigDir()): TeamIntent |
     kind: 'team',
     creationId: parsed.creationId,
     name: typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name : DEFAULT_TEAM_NAME,
+    ...(parsed.hostedWithPersonalHome === true ? { hostedWithPersonalHome: true } : {}),
     createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : new Date(0).toISOString(),
   };
 }
@@ -94,7 +97,7 @@ export function readTeamIntent(configDir: string = getConfigDir()): TeamIntent |
  * personal home, a connected device or a retired home is never turned into a
  * team.
  */
-export function writeTeamIntent(input: { creationId: string; name?: string | null }, configDir: string = getConfigDir()): TeamIntent {
+export function writeTeamIntent(input: { creationId: string; name?: string | null; hostedWithPersonalHome?: boolean }, configDir: string = getConfigDir()): TeamIntent {
   if (!/^[A-Za-z0-9_-]{8,80}$/.test(input.creationId)) throw new TeamIntentError('A team creation needs an id.');
   const existing = readTeamIntent(configDir);
   if (existing) {
@@ -112,6 +115,7 @@ export function writeTeamIntent(input: { creationId: string; name?: string | nul
     kind: 'team',
     creationId: input.creationId,
     name: normalizeTeamName(input.name),
+    ...(input.hostedWithPersonalHome === true ? { hostedWithPersonalHome: true } : {}),
     createdAt: new Date().toISOString(),
   };
   atomicWriteFile(teamIntentPath(configDir), JSON.stringify(intent, null, 2) + '\n');

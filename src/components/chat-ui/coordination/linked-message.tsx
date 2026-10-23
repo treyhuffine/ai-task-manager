@@ -1,4 +1,5 @@
 'use client';
+import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { trpcClient } from '@/lib/trpc/client';
@@ -6,6 +7,10 @@ import { ExecutionEvent } from '@/components/chat-ui/activity/execution-event';
 
 /** A PK lookup keeps exact links usable even far outside the loaded transcript page. */
 export function LinkedCoordinationMessage({ sessionId }: { sessionId: string }) {
+  const enabled = useChatCapabilities().coordination !== false;
+  return enabled ? <AvailableLinkedCoordinationMessage {...{ sessionId }} /> : null;
+}
+function AvailableLinkedCoordinationMessage({ sessionId }: { sessionId: string }) {
   const params = useSearchParams();
   const eventId = params.get('session') === sessionId ? params.get('message') : null;
   const { data, isLoading } = useQuery({ queryKey: ['coordination-linked-message', sessionId, eventId], queryFn: () => trpcClient.coordination.message.query({ sessionId, eventId: eventId! }), enabled: !!eventId });

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { useOptionalHomeContext } from '@/components/home/home-context';
 import { useClientLocation } from '@/hooks/use-client-location';
 import { useThisDevice } from '@/hooks/use-devices';
 import { useSession } from '@/hooks/use-execution';
@@ -54,12 +55,15 @@ function relativeTo(root: string, absPath: string): string | null {
  * the folder is taken to be the home's, as it was.
  */
 export function useOpener(source: FolderSource | null, root: string | null): OpenerState {
+  const capabilities = useOptionalHomeContext()?.capabilities;
+  const personalServices = capabilities?.personalServices ?? capabilities?.privatePlanning ?? true;
   const client = useClientLocation();
   const thisDevice = useThisDevice();
   const { data: session } = useSession(source?.kind === 'session' ? source.sessionId : null);
   const { data: runOn } = useRunOn(source?.kind === 'workspace' ? source.workspaceId : null);
 
   return useMemo<OpenerState>(() => {
+    if (!personalServices) return { opener: null, filesOn: 'the team server' };
     const where = !source
       ? { known: true, isHome: true, deviceId: null as string | null, name: null as string | null }
       : source.kind === 'session'
@@ -98,5 +102,5 @@ export function useOpener(source: FolderSource | null, root: string | null): Ope
         },
       },
     };
-  }, [client.kind, root, runOn, session, source, thisDevice]);
+  }, [personalServices, client.kind, root, runOn, session, source, thisDevice]);
 }

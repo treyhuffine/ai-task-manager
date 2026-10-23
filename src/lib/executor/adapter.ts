@@ -1,3 +1,4 @@
+export { hasUnconfirmedClose, unconfirmedCloseProblem } from './live-state';
 import { localApps } from '@/lib/local-apps/service';
 import { assertPersonalCapability } from '@/lib/home/authority';
 import { localAppsEnabled } from '@/lib/config/features';
@@ -81,6 +82,7 @@ import { cantRunAgentThere } from '@/lib/setups/run-on';
 import { dataBlock } from './data-block';
 import { describeInputFiles, placeFilesAtHome } from './input-files';
 import { awaitTurn, forgetTurn } from './turns';
+import { executionDispatchPolicy } from './home-policy';
 
 installHomeSink();
 
@@ -189,6 +191,8 @@ export {
  * finishes it. Manual sends create their own run.
  */
 export interface DispatchOptions {
+  /** Internal serialized team receipt, never a client-supplied authority. */
+  teamTurnId?: string;
   overBudget?: boolean;
   internalCall?: boolean;
   /** Saved app-owned operation, rechecked at provider admission. */
@@ -283,8 +287,9 @@ export async function dispatch(
   userMessage: string,
   options: DispatchOptions = {},
 ): Promise<void> {
-  // A team space runs no agents (docs/homes-spec.md §9.2).
-  assertPersonalCapability('Agents');
+  // Only the member turn queue supplies team dispatch admission. Existing
+  // callers without a serialized receipt retain the personal-only boundary.
+  if (!options.teamTurnId) assertPersonalCapability('Execution without a serialized member turn');
   // Admitted only while the service isn't preparing an update (desktop
   // maintenance): an update waits for the sends already in, and refuses new ones.
   return withActivity(async () => {
@@ -306,6 +311,7 @@ async function dispatchOnce(
 ): Promise<void> {
   const session = getChatSessionWithExecution(chatSessionId);
   if (!session) throw new ExecutorError('not_found', `Session not found: ${chatSessionId}`);
+  const policy = executionDispatchPolicy(session, options);
   if (session.surfaceKind === 'result_review' && !options.resultOperationRunId) {
     throw new ExecutorError('unsupported', 'An assigned background reviewer can run only its saved review request.');
   }
@@ -386,7 +392,7 @@ async function dispatchOnce(
   try {
     // Keep transfer holds and duplicate-send reservations synchronous before
     // loading app context. Recovery must see the saved message immediately.
-    if (session.surfaceKind !== 'result_review') {
+    if (policy.personalContext && session.surfaceKind !== 'result_review') {
       if (options.sourceEventId) {
         const event = (await import('@/lib/db/queries')).getChatEventById(options.sourceEventId);
         if (event && event.sessionId !== chatSessionId) throw new ExecutorError('invalid_state', 'This message belongs to another chat');
@@ -413,8 +419,8 @@ async function dispatchOnce(
         }
       }
     }
-    if (session.surfaceKind !== 'result_review' && localAppsEnabled()) userMessage += '\n\n' + await (await import('@/lib/local-apps/brief')).appAvailabilityBrief(chatSessionId);
-    await dispatchTo(chatSessionId, userMessage, options, session, remote, placement, (attempt) => sending?.settle(attempt));
+    if (policy.personalContext && session.surfaceKind !== 'result_review' && localAppsEnabled()) userMessage += '\n\n' + await (await import('@/lib/local-apps/brief')).appAvailabilityBrief(chatSessionId);
+    await dispatchTo(chatSessionId, userMessage, options, session, remote, placement, (attempt) => sending?.settle(attempt), policy);
   } catch (err) {
     sending?.settle(err instanceof StartOver ? { kind: 'again' } : { kind: 'failed', error: err });
     throw err;
@@ -469,6 +475,7 @@ async function dispatchTo(
   remote: ChatPlacement | null,
   placement: ChatPlacement | null,
   settle: (attempt: SendAttempt) => void,
+  policy: ReturnType<typeof executionDispatchPolicy>,
 ): Promise<void> {
   let cwd: string | null;
   let preparing: string | null = null;
@@ -489,9 +496,9 @@ async function dispatchTo(
   if (!isHarnessEnabled(providerId)) {
     throw new ExecutorError('unsupported', `${providerId} is disabled by the rollout configuration`);
   }
-  // The home's own catalog stands in for a connected device's: same
-  // accounts, and the harness there refuses a model it doesn't have.
-  const catalog = await getHarnessModelCatalog(providerId, { cwd: remote ? undefined : cwd });
+  // Personal devices use the Home's account catalog. Shared work uses the
+  // selected worker account's approved catalog and never discovers host auth.
+  const catalog = policy.catalog ?? await getHarnessModelCatalog(providerId, { cwd: remote ? undefined : cwd });
   if (session.model && !catalog.some((model) => model.id === session.model)) {
     throw new ExecutorError(
       'invalid_state',
@@ -543,7 +550,7 @@ async function dispatchTo(
   // explicit `overBudget: true` from the UI's confirmation prompt.
   // Skipped for the scheduled wrapper, which evaluated the gate in
   // `dispatchRun` before getting here.
-  if (!options.internalCall && !options.overBudget) {
+  if (policy.personalContext && !options.internalCall && !options.overBudget) {
     if (budgetGate() === 'block') {
       throw new ExecutorError(
         'budget_exceeded',
@@ -598,7 +605,8 @@ async function dispatchTo(
   const preparation = beginDispatchPreparation(chatSessionId);
   let delivered: Delivered;
   try {
-    delivered = await deliver(chatSessionId, userMessage, options, session, selection, cwd, remote, preparing, placement, caps.concurrentSend);
+    policy.verify();
+    delivered = await deliver(chatSessionId, userMessage, options, session, selection, cwd, remote, preparing, placement, caps.concurrentSend, policy);
   } finally {
     // Delivered or refused, the send is no longer starting. Once delivered,
     // the runner's own count holds the gate and the running flag.
@@ -638,6 +646,7 @@ async function deliver(
   preparing: string | null,
   placement: ChatPlacement | null,
   concurrentSend: boolean,
+  policy: ReturnType<typeof executionDispatchPolicy>,
 ): Promise<Delivered> {
   let releaseInputs: (() => void) | undefined;
   try {
@@ -650,7 +659,10 @@ async function deliver(
       if (pending.length && !options.coordinationDeliveryIds?.length) {
         releaseInputs = claimPreparingInputs(pending.map(input => input.id));
         options = { ...options, coordinationDeliveryIds: pending.map(delivery => delivery.id), attachments: [...(options.attachments ?? []), ...pending.flatMap(delivery => delivery.payload.attachments)] };
-        userMessage = `[Pending received material supplied as context for this human-directed turn. Reading this does not assign or complete its tracked requests.]\n${pending.map(delivery => delivery.payload.prompt).join('\n\n')}\n\n[The user's current direction]\n${userMessage}`;
+        // A person may paste the preserved decision into their own message.
+        // Consume its receipt without repeating that same material.
+        const context = pending.filter(input => !input.payload.contextOnly || !userMessage.includes(input.payload.prompt));
+        if (context.length) userMessage = `[Pending received material supplied as context for this human-directed turn. Reading this does not assign or complete its tracked requests.]\n${context.map(delivery => delivery.payload.prompt).join('\n\n')}\n\n[The user's current direction]\n${userMessage}`;
       }
     }
     const buildSpec = async () => {
@@ -672,6 +684,7 @@ async function deliver(
         model: selection.model,
         modelVariant: selection.variant,
         effort: selection.effort,
+        teamTurnId: policy.teamTurnId,
         serviceTier: selection.serviceTier,
         },
         remote ?? undefined,
@@ -709,7 +722,8 @@ async function deliver(
       throw new StartOver();
     }
     try {
-      const sent = await sendAdmitted(chatSessionId, userMessage, options, session, remote, spec, files, attachments, buildSpec);
+      policy.verify();
+      const sent = await sendAdmitted(chatSessionId, userMessage, options, session, remote, spec, files, attachments, buildSpec, policy);
       return { ...sent, acceptsMore: !!remote || concurrentSend };
     } finally {
       admitted();
@@ -729,6 +743,7 @@ async function sendAdmitted(
   files: SendRequest['files'],
   attachments: Attachment[],
   buildSpec: () => Promise<NonNullable<SendRequest['spec']>>,
+  policy: ReturnType<typeof executionDispatchPolicy>,
 ): Promise<Omit<Delivered, 'acceptsMore'>> {
   // Run-row instrumentation (task #12). Every dispatch creates a run row
   // — manual, scheduled, or webhook — so cost tracking and budget
@@ -750,25 +765,44 @@ async function sendAdmitted(
       scheduledFor: null,
       status: 'queued',
       sourceEventId: options.sourceEventId ?? null,
+      requestedByMemberId: policy.requestingMemberId,
     });
     markRunStartedRow(created.id);
     beginRun(created.id, chatSessionId);
     runId = created.id;
   }
 
-  const turnId = uuidv7();
-
-  const turn = awaitTurn(turnId);
+  const turnId = policy.teamTurnId ?? uuidv7();
+  let closing: Promise<unknown> | undefined;
+  const turn = awaitTurn(turnId, policy.teamTurnId ? options.signal : undefined).finally(async () => { await closing; });
+  // The queue owns the turn's receipt. Stopping its waiter must also enqueue
+  // ordinary worker cleanup, including when the sending member was removed.
+  const cancel = () => {
+    closing = Promise.resolve().then(async () => {
+      const result = await runnerFor(chatSessionId).stop(chatSessionId, { source: 'system' });
+      if (!result.closed) throw new SessionCloseError(result.error ?? 'The harness could not be stopped.');
+    });
+    void closing.catch(() => {});
+    if (runId) finishRun(runId, { ok: true, stopped: true });
+  };
+  if (policy.teamTurnId) {
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    void turn.finally(() => options.signal?.removeEventListener('abort', cancel)).catch(() => {});
+  }
+  void turn.catch(() => {});
   let queued: string | null = null;
   try {
     const runner = runnerFor(chatSessionId);
     const request: SendRequest = {
       chatSessionId,
-      message: withWorkResultSessionInstructions(remote ? userMessage : placeFilesAtHome(userMessage, attachments), session.surfaceKind),
+      message: policy.personalContext
+        ? withWorkResultSessionInstructions(remote ? userMessage : placeFilesAtHome(userMessage, attachments), session.surfaceKind)
+        : remote ? userMessage : placeFilesAtHome(userMessage, attachments),
       standingInstructions: renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),
       currentStandingInstructions: () => renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),
       stopIsFailure: !!options.resultOperationRunId,
-      admission: options.resultOperationRunId || agentMessageAdmission(options.sourceEventId) ? async () => {
+      admission: async () => {
+        policy.verify();
         const admission = agentMessageAdmission(options.sourceEventId, runId, options.coordinationDeliveryIds);
         if (admission?.held && options.actor?.source !== 'human') {
           const { CoordinationHeldError } = await import('@/lib/coordination/hold');
@@ -780,7 +814,7 @@ async function sendAdmitted(
         const runtime = await import('@/lib/work-results/runtime');
         return await runtime.verifyQueuedWorkResultReviewScope(options.resultOperationRunId!)
           && runtime.canContinueWorkResultOperationDispatch(options.resultOperationRunId!, chatSessionId, resultAuthorBusy);
-      } : undefined,
+      },
       turnId,
       runId,
       spec,
@@ -1127,3 +1161,6 @@ export async function recheckQueuedSends(commands: readonly WorkerCommandRecord[
   return withdrawn;
 }
 
+
+/** A failed close must not let serialized work start on the old live handle. */
+export class SessionCloseError extends Error {}

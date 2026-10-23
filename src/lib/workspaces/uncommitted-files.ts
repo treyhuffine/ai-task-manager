@@ -63,6 +63,10 @@ export interface DirtyWorktreeBody {
 
 /** The list from an error carrying agentex's `status` (its `DirtyWorktreeError`), capped, else null. */
 export function uncommittedFilesOf(err: unknown): UncommittedList | null {
+  const serialized = (err as { uncommittedFiles?: UncommittedList } | null)?.uncommittedFiles;
+  if (serialized && Array.isArray(serialized.files) && serialized.files.length <= MAX_LISTED_FILES
+    && serialized.files.every(file => file && typeof file.path === 'string' && ['changed', 'untracked'].includes(file.change))
+    && Number.isInteger(serialized.omitted) && serialized.omitted >= 0) return serialized;
   const status = (err as { status?: Partial<WorktreeFileStatus> } | null)?.status;
   if (!status || !Array.isArray(status.untracked) || !Array.isArray(status.modified) || !Array.isArray(status.staged)) {
     return null;

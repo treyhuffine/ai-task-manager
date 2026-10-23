@@ -1,14 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { cn } from '@/lib/utils';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
+import { Dialog } from '@/components/ui/dialog';
+import { SettingsPanel } from './settings-panel';
 import { SettingsNav } from './settings-nav';
 import {
   useSettingsStore,
@@ -132,27 +126,18 @@ export function SettingsModal() {
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? openSettings() : closeSettings())}>
-      <DialogContent
-        className="flex h-[800px] max-h-[92vh] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl sm:flex-row"
-        // The panes own their own scroll; the dialog itself never scrolls.
-      >
-        <SettingsNav
+      <SettingsPanel
+        title={def.title}
+        description={def.description}
+        bodyClassName={section === 'plugins' ? 'pt-0' : undefined}
+        navigation={<SettingsNav
           active={section}
           onSelect={setSettingsSection}
           getStarted={showGetStarted ? { done: checklist.doneCount, total: checklist.total } : null}
-        />
-
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <DialogHeader className="gap-1 border-b border-border px-5 py-4 pr-12 text-left">
-            <DialogTitle className="text-[15px] font-semibold">{def.title}</DialogTitle>
-            <DialogDescription className="text-[12px] leading-snug">{def.description}</DialogDescription>
-          </DialogHeader>
-
-          <div data-settings-scroll className={cn('min-h-0 flex-1 overflow-y-auto px-5 pb-5', section !== 'plugins' && 'pt-5')}>
-            <SectionBody id={section} checklist={checklist} />
-          </div>
-        </div>
-      </DialogContent>
+        />}
+      >
+        <SectionBody id={section} checklist={checklist} />
+      </SettingsPanel>
     </Dialog>
   );
 }

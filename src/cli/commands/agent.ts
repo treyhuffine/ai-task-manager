@@ -22,8 +22,9 @@
 import fs from 'node:fs';
 import { Command } from 'commander';
 import type { z } from 'zod';
-import { actions } from '@/lib/orchestrator/registry';
+import { actionCatalog } from '@/lib/orchestrator/registry';
 import { dispatchAction } from '../lib/dispatch';
+import { mergeActionInput } from '@/lib/team/mcp/input';
 
 export function registerAgentCommand(program: Command) {
   const agent = program
@@ -32,10 +33,10 @@ export function registerAgentCommand(program: Command) {
       `Agent orchestrator surface. Typed, auto-generated CLI twin of the orchestrator MCP.`,
     );
 
-  for (const action of actions) {
+  for (const action of actionCatalog()) {
     const positional = (action.cli?.positional ?? []) as string[];
     const positionalSet = new Set(positional);
-    const posArgs = positional.map((p) => `<${p}>`).join(' ');
+    const posArgs = positional.map((p) => `[${p}]`).join(' ');
 
     const cmd = agent
       .command(`${action.name}${posArgs ? ' ' + posArgs : ''}`)
@@ -58,7 +59,7 @@ export function registerAgentCommand(program: Command) {
       const opts = cmdInstance.opts() as Record<string, string | undefined>;
       const positionalValues = args.slice(0, positional.length) as string[];
 
-      const input: Record<string, unknown> = {};
+      let input: Record<string, unknown> = {};
       positional.forEach((name, i) => {
         if (positionalValues[i] === undefined) return;
         const schema = (action.params as Record<string, z.ZodTypeAny>)[name];
@@ -73,12 +74,12 @@ export function registerAgentCommand(program: Command) {
         const camel = paramName.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
         const raw = paramName === 'input' ? opts.actionInput : opts[camel] ?? opts[flagKey];
         if (raw === undefined) continue;
-        input[paramName] = coerceFlag(raw, paramSchema);
+        input[paramName] = paramName === 'idempotency_key' ? raw : coerceFlag(raw, paramSchema);
       }
 
       if (opts.input) {
         const blob = readInputBlob(opts.input);
-        Object.assign(input, blob);
+        input = mergeActionInput(input, blob);
       }
 
       // On a home this runs here. On a device connected to a home it runs

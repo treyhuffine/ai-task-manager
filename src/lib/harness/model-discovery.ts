@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { assertPersonalCapability } from '@/lib/home/authority';
 import {
   customModelOption,
   explicitHarnessSelection,
@@ -20,6 +19,10 @@ import { assertServiceTier, serviceTierForModel } from './service-tiers';
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const FAILURE_TTL_MS = 30 * 1000;
+
+export class HarnessSelectionError extends Error {
+  constructor(message: string, readonly code: 'invalid_params' | 'unsupported' = 'invalid_params') { super(message); }
+}
 
 interface CachedModels {
   expiresAt: number;
@@ -59,7 +62,6 @@ async function modelDiscoveryContext(
   providerId: ProviderId,
   options: { cwd?: string; refresh?: boolean },
 ): Promise<ModelDiscoveryContext> {
-  assertPersonalCapability('Harness discovery');
   const { getProvider } = await import('@agentex/agent');
   const provider = getProvider(providerId);
   const [runtime, report] = await Promise.all([
@@ -171,7 +173,6 @@ async function discoverModels(
   context: ModelDiscoveryContext,
   options: { cwd?: string; refresh?: boolean } = {},
 ): Promise<HarnessModelsResponse> {
-  assertPersonalCapability('Harness discovery');
   const { getProvider } = await import('@agentex/agent');
   const provider = getProvider(providerId);
   if (provider.listModels) {
@@ -198,6 +199,17 @@ async function discoverModels(
   }
 
   return { models: modelsForProvider(providerId), source: 'config' };
+}
+
+/** Catalog mapping for a supplied provider runtime context. */
+export async function inspectHarnessModels(providerId: ProviderId, runtime: ProviderRuntimeContext): Promise<ModelOption[]> {
+  const { getProvider } = await import('@agentex/agent');
+  const provider = getProvider(providerId);
+  const upstream = providerId === 'opencode' && provider.upstreamProviders
+    ? await provider.upstreamProviders.list(runtime)
+    : null;
+  const discovery = await discoverModels(providerId, { key: '', runtime, upstream });
+  return withBundledFallback(providerId, discovery).filter(model => model.availability !== 'unavailable');
 }
 
 export async function getHarnessModels(
@@ -329,12 +341,12 @@ export async function resolveHarnessSelection(
     refresh: options.refresh,
   });
   if (catalog.length === 0) {
-    throw new Error(`No models are available for ${providerId}. Connect the harness and refresh its catalog.`);
+    throw new HarnessSelectionError(`No models are available for ${providerId}. Connect the harness and refresh its catalog.`, 'unsupported');
   }
   const requestedModel = preferred.model?.trim();
   if (requestedModel && !catalog.some((model) => model.id === requestedModel)) {
     if (!options.repairInvalidModel) {
-      throw new Error(`Model ${requestedModel} is unavailable for ${providerId}`);
+      throw new HarnessSelectionError(`Model ${requestedModel} is unavailable for ${providerId}`);
     }
     preferred = { ...preferred, model: null, variant: null };
   }
@@ -344,7 +356,7 @@ export async function resolveHarnessSelection(
     catalog,
   );
   if (preferred.variant && selection.variant !== preferred.variant) {
-    throw new Error(`Variant ${preferred.variant} is unavailable for model ${selection.model}`);
+    throw new HarnessSelectionError(`Variant ${preferred.variant} is unavailable for model ${selection.model}`);
   }
   const selectedModel = catalog.find(model => model.id === selection.model);
   assertServiceTier(selectedModel, preferred.serviceTier);

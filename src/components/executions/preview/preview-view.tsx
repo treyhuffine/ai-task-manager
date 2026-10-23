@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, Globe, Loader2, Play, Smartphone, X } from 'lucide-react';
-import { openSettings } from '@/components/settings/settings-store';
+import { useSettingsLink } from '@/components/settings/settings-destination';
 import { usePreviewSettings } from '@/hooks/use-preview';
 import type { PreviewManualUrl } from '@/lib/api/preview';
 import { cn } from '@/lib/utils';
@@ -59,7 +59,7 @@ export function PreviewView({ controller: c, processControls = false, onOpenRun,
   // is already up (started here or elsewhere), fetch it on open instead of
   // making the user press Start for something that's already running.
   const { resolveRemote } = c;
-  const needsRemoteUrl = !processControls && c.mode === 'remote' && !c.url && !c.remoteError && !c.isResolvingRemote;
+  const needsRemoteUrl = !processControls && c.mode === 'remote' && !c.url && !c.remoteError && !c.isResolvingRemote && !c.hasResolvedRemote;
   useEffect(() => {
     if (needsRemoteUrl && serverStatus === 'running') resolveRemote();
   }, [needsRemoteUrl, resolveRemote, serverStatus]);
@@ -152,6 +152,7 @@ interface PreviewBodyProps {
 
 /** What to show when there's no iframe yet: status, errors, and the BYO-URL input. */
 function PreviewBody({ controller: c, processControls, onOpenRun, onOpenWorkspaceSettings }: PreviewBodyProps) {
+  const settings = useSettingsLink('remote-preview');
   const state = c.state;
   const serverStatus = state?.serverStatus;
   const needsServer = providerNeedsServer(state?.activeRemoteProviderId);
@@ -185,6 +186,7 @@ function PreviewBody({ controller: c, processControls, onOpenRun, onOpenWorkspac
   if (c.elsewhere) {
     return (
       <RunsElsewhere where={c.elsewhere} command={c.command}>
+        {c.remoteError?.code === 'preview_origin' && <p role="alert" className="text-xs text-destructive">{c.remoteError.message}</p>}
         <div className="w-full border-t border-border pt-4">
           <PreviewManualUrlInput
             urls={state?.manualUrls ?? []}
@@ -215,11 +217,11 @@ function PreviewBody({ controller: c, processControls, onOpenRun, onOpenWorkspac
   // A remote-provider error (Beamd not configured, no manual URL, …) that
   // isn't just "the server isn't up yet" gets its own actionable surface.
   const showRemoteError =
-    c.mode === 'remote' &&
+    (c.mode === 'remote' || c.remoteError?.code === 'preview_origin') &&
     c.remoteError &&
     (!needsServer || serverStatus === 'running' || serverStatus === 'idle' || serverStatus === 'stopped');
 
-  if (c.isResolvingRemote && !showRemoteError) {
+  if (c.isResolvingRemote && !showRemoteError && state?.activeRemoteProviderId !== 'manual') {
     return (
       <Centered>
         <Loader2 size={16} className="animate-spin text-muted-foreground" />
@@ -239,10 +241,10 @@ function PreviewBody({ controller: c, processControls, onOpenRun, onOpenWorkspac
           {c.remoteError!.hint && (
             <p className="text-[13px] leading-relaxed text-muted-foreground">{c.remoteError!.hint}</p>
           )}
-          {c.remoteError!.code === 'beamd_not_configured' || c.remoteError!.code === 'no_remote_provider' ? (
+          {settings && (c.remoteError!.code === 'beamd_not_configured' || c.remoteError!.code === 'no_remote_provider') ? (
             <button
               type="button"
-              onClick={() => openSettings('remote-preview')}
+              onClick={settings}
               className="flex items-center gap-2 rounded-md border border-border bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:bg-foreground/90"
             >
               <Globe size={13} />

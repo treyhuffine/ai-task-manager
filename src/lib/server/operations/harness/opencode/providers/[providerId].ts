@@ -1,3 +1,4 @@
+import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 import {
   beginProviderDisconnectSaga,
   completeProviderDisconnectSaga,
@@ -20,6 +21,8 @@ import { z as rpcZ } from 'zod/v4';
 // non-JSON response passes through untouched. See lib/api/compression.ts.
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const { providerId } = rpcInput.params;
     const manager = openCodeProviderManager();
@@ -35,6 +38,8 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
 }
 
 export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   try {
     const { providerId } = rpcInput.params;
     const body = rpcInput.body as { apiKey?: unknown };
@@ -53,6 +58,8 @@ export async function PUT(rpcInput: rpcZ.infer<typeof PUTInput>, _request: Opera
 }
 
 export async function DELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, _request: OperationContext) {
+  const homeDenied = homeSettingsAdmission(_request.headers, 'manageSignIns');
+  if (homeDenied) return homeDenied;
   const { providerId } = rpcInput.params;
   let operationId: string | null = null;
   try {

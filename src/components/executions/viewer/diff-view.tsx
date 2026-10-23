@@ -7,7 +7,7 @@ import { EditorState } from '@codemirror/state';
 import { FileX, Lock, FileWarning } from 'lucide-react';
 import { useFolderBaseFile, useFolderFile } from '@/hooks/use-folder';
 import type { FolderSource } from '@/lib/folders/source';
-import { useDashboard } from '@/contexts/dashboard-context';
+import { useClientTheme } from '@/lib/client/theme';
 import type { TreeEntryStatus } from '@/lib/api/sessions';
 import { FileSkeleton } from '../skeletons';
 import { languageFor } from './language-for';
@@ -33,7 +33,7 @@ interface DiffViewProps {
  * preamble — matches GitHub PR review behavior.
  */
 export function DiffView({ source, path, status }: DiffViewProps) {
-  const { theme } = useDashboard();
+  const { theme } = useClientTheme();
   const isDark = theme === 'dark';
 
   // For deleted files we don't read the working-tree file (it's gone) —

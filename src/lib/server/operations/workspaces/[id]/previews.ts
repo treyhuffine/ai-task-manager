@@ -1,3 +1,5 @@
+import { workspaceAuthority } from '@/lib/workspaces/access';
+import { executionRequestKey } from '@/lib/home/execution-request';
 import { getWorkspace } from '@/lib/db/queries';
 import { previewErrorResponse } from '@/lib/preview/route-helpers';
 import { listWorkspacePreviews } from '@/lib/preview/service';
@@ -16,6 +18,7 @@ import { z as rpcZ } from 'zod/v4';
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   try {
     const { id } = rpcInput.params;
+    workspaceAuthority(executionRequestKey(), id, 'read');
     if (!getWorkspace(id)) return reply({ error: 'Workspace not found' }, { status: 404 });
     return reply({ previews: listWorkspacePreviews(id) });
   } catch (err) {

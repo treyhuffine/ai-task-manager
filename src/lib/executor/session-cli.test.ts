@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, vi, expect, it } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { installFakeHarness, type FakeHarness } from '@/test/fixtures/fake-harness';
 import * as q from '@/lib/db/queries';
@@ -113,8 +113,8 @@ describe('the session CLI launcher', () => {
 
 describe("a home session's spec", () => {
   let fake: FakeHarness;
-  beforeEach(() => { fake = installFakeHarness('claude'); });
-  afterEach(() => fake.restore());
+  beforeEach(() => { vi.stubEnv('NODE_ENV', 'development'); fake = installFakeHarness('claude'); });
+  afterEach(() => { fake.restore(); vi.unstubAllEnvs(); });
 
   it("puts this home's `ri` first on the session's PATH", async () => {
     const chat = q.createChatSession({ type: 'orchestration', harness: 'claude', status: 'active' });
