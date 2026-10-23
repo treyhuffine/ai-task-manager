@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import { getWorkDir } from '@/lib/config/paths';
 import { processState } from '@/lib/process-state';
+import { heicToJpeg, isHeicFile } from './heic';
 
 export const IMAGE_THUMBNAIL_WIDTH = 480;
 export const IMAGE_THUMBNAIL_HEIGHT = 320;
@@ -27,7 +28,9 @@ export async function imageThumbnail(file: string, version: string): Promise<Buf
   const existing = pending.get(cached);
   if (existing) return existing;
   const work = (async () => {
-    const bytes = await sharp(file, { limitInputPixels: 40_000_000, animated: false })
+    // sharp can't decode HEIC: libheif does, into a JPEG with the photo's colors.
+    const source = await isHeicFile(file) ? await heicToJpeg(await fs.readFile(file)) : file;
+    const bytes = await sharp(source, { limitInputPixels: 40_000_000, animated: false })
       .rotate().resize(IMAGE_THUMBNAIL_WIDTH, IMAGE_THUMBNAIL_HEIGHT, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 78 }).toBuffer();
     await fs.mkdir(cache, { recursive: true });

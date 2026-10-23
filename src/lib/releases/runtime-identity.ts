@@ -1,6 +1,7 @@
 /** Installation identity, without opening Home data or trusting npm's environment. */
 import fs from 'node:fs';
 import path from 'node:path';
+import * as nodeModule from 'node:module';
 import { createHash } from 'node:crypto';
 import packageJson from '../../../package.json';
 import { CURRENT_COMPATIBILITY, RuntimeCompatibilitySchema, type PeerRelease, type RuntimeCompatibility, localFormatReasons } from './compatibility';
@@ -14,6 +15,15 @@ export function runtimeRepository(): string {
   const entry = process.argv[1];
   if (entry && /[/\\]dist[/\\](?:cli|service|desktop)[/\\]/.test(entry)) return path.resolve(fs.realpathSync(/* turbopackIgnore: true */ path.dirname(entry)), '../..');
   return process.cwd();
+}
+
+/** Resolves packages from the installation, not the bundle: what a worker
+ * thread loads itself (pdf.js, libheif). Webpack replaces direct
+ * createRequire calls with its own resolver and returns undefined for a
+ * dynamic base, so this factory stays native to Node. */
+export function runtimeRequire(): NodeJS.Require {
+  const createNodeRequire: typeof nodeModule.createRequire = Reflect.get(nodeModule, 'createRequire');
+  return createNodeRequire(path.join(/* turbopackIgnore: true */ runtimeRepository(), 'package.json'));
 }
 export function readRuntimeCompatibility(repo: string): RuntimeCompatibility | null {
   const file = path.join(repo, 'ri-compatibility.json');

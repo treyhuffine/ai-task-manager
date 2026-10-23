@@ -19,11 +19,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import * as nodeModule from 'node:module';
 import { Worker } from 'node:worker_threads';
 import { getWorkDir } from '@/lib/config/paths';
 import { processState } from '@/lib/process-state';
-import { runtimeRepository } from '@/lib/releases/runtime-identity';
+import { runtimeRequire } from '@/lib/releases/runtime-identity';
 
 /** A chat card's thumbnail: 240 px wide, drawn at twice that for sharp screens. */
 export const PDF_THUMBNAIL_WIDTH = 480;
@@ -173,11 +172,7 @@ function replaceWorker(state: Renderer, failure: Error | null) {
 function startWorker(state: Renderer): Worker {
   // Resolved from the installation, not bundled: the worker loads pdf.js
   // itself, with its fonts, character maps and decoders beside it.
-  // This base belongs to the installed runtime, not the build checkout.
-  // Webpack replaces direct createRequire calls with its own resolver and
-  // returns undefined for a dynamic base. Keep this factory native to Node.
-  const createNodeRequire: typeof nodeModule.createRequire = Reflect.get(nodeModule, 'createRequire');
-  const require = createNodeRequire(path.join(/* turbopackIgnore: true */ runtimeRepository(), 'package.json'));
+  const require = runtimeRequire();
   const pdfjs = require.resolve('pdfjs-dist/legacy/build/pdf.mjs');
   const root = path.dirname(require.resolve('pdfjs-dist/package.json'));
   const worker = new Worker(WORKER_SOURCE, {

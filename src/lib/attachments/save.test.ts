@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import sharp from 'sharp';
 import { APP_SHORT_ID } from '@/constants/app';
+import { HEIC_PHOTO } from '@/test/fixtures/heic';
 
 describe('saveAttachment', () => {
   let tmpDir: string;
@@ -89,4 +91,72 @@ describe('saveAttachment', () => {
     await expect(saveAttachment({ ...input, data: Buffer.from('different') })).rejects.toMatchObject({ status: 409 });
   });
 
+  describe('HEIC photos', () => {
+    const stored = (fileName: string) => fs.readFileSync(path.join(tmpDir, 'attachments', fileName));
+    const failingDecoder = async (actual: () => Promise<typeof import('./heic')>) => ({ ...(await actual()), heicToJpeg: () => Promise.reject(new Error('decoder unavailable')) });
+    afterEach(() => { vi.doUnmock('./heic'); vi.restoreAllMocks(); });
+
+    it('stores one as a JPEG, named and labeled as one', async () => {
+      const { saveAttachment } = await import('./save');
+      const result = await saveAttachment({ data: HEIC_PHOTO, originalName: 'IMG_4021.HEIC', mimeType: 'image/heic' });
+      expect(result).toMatchObject({ originalName: 'IMG_4021.jpg', mimeType: 'image/jpeg' });
+      expect(result.fileName).toMatch(/^[a-f0-9-]+\.jpg$/);
+      expect(result.size).toBe(stored(result.fileName).byteLength);
+      expect(await sharp(stored(result.fileName)).metadata()).toMatchObject({ format: 'jpeg', width: 64, height: 48 });
+    });
+
+    it('knows one by its bytes, whatever the browser called or labeled it', async () => {
+      const { saveAttachment } = await import('./save');
+      const unlabeled = await saveAttachment({ data: HEIC_PHOTO, originalName: 'upload', mimeType: 'application/octet-stream' });
+      expect(unlabeled).toMatchObject({ originalName: 'upload', mimeType: 'image/jpeg' });
+      expect(unlabeled.fileName).toMatch(/\.jpg$/);
+      // The capture route labels an untyped photo image/jpeg: now it is one.
+      const mislabeled = await saveAttachment({ data: HEIC_PHOTO, originalName: 'photo.jpeg', mimeType: 'image/jpeg' });
+      expect((await sharp(stored(mislabeled.fileName)).metadata()).format).toBe('jpeg');
+    });
+
+    it('keeps one it cannot convert as it came, labeled HEIC', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { saveAttachment } = await import('./save');
+      const damaged = Buffer.concat([HEIC_PHOTO.subarray(0, 36), Buffer.alloc(512, 0x5a)]);
+      const result = await saveAttachment({ data: damaged, originalName: 'photo.jpeg', mimeType: 'image/jpeg' });
+      expect(result).toMatchObject({ originalName: 'photo.jpeg', mimeType: 'image/heic', size: damaged.byteLength });
+      expect(result.fileName).toMatch(/\.heic$/);
+      expect(stored(result.fileName).equals(damaged)).toBe(true);
+      expect(warn).toHaveBeenCalledOnce();
+    });
+
+    it('retries a converted upload into the same JPEG', async () => {
+      const { saveAttachment } = await import('./save');
+      const input = { data: HEIC_PHOTO, originalName: 'IMG_1.HEIC', mimeType: 'image/heic', idempotencyKey: `heic:${tmpDir}` };
+      const first = await saveAttachment(input);
+      fs.unlinkSync(path.join(tmpDir, 'attachments', first.fileName));
+      expect(await saveAttachment(input)).toEqual(first);
+      expect(stored(first.fileName).byteLength).toBe(first.size);
+      expect((await sharp(stored(first.fileName)).metadata()).format).toBe('jpeg');
+    });
+
+    it('writes on retry what the reserved record describes, whichever attempt could convert', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const input = { data: HEIC_PHOTO, originalName: 'IMG_2.HEIC', mimeType: 'image/heic', idempotencyKey: `heic-kept:${tmpDir}` };
+      // The first attempt couldn't convert, so its record is the photo as sent.
+      vi.doMock('./heic', failingDecoder);
+      const kept = await (await import('./save')).saveAttachment(input);
+      expect(kept.mimeType).toBe('image/heic');
+      vi.doUnmock('./heic');
+      vi.resetModules();
+      const { saveAttachment } = await import('./save');
+      expect(await saveAttachment(input)).toEqual(kept);
+      expect(stored(kept.fileName).equals(HEIC_PHOTO)).toBe(true);
+
+      // A record of a JPEG never gets the photo's HEIC bytes: that retry fails, to be tried again.
+      const other = { ...input, idempotencyKey: `heic-converted:${tmpDir}` };
+      const converted = await saveAttachment(other);
+      fs.unlinkSync(path.join(tmpDir, 'attachments', converted.fileName));
+      vi.doMock('./heic', failingDecoder);
+      vi.resetModules();
+      await expect((await import('./save')).saveAttachment(other)).rejects.toMatchObject({ status: 503 });
+      expect(fs.existsSync(path.join(tmpDir, 'attachments', converted.fileName))).toBe(false);
+    });
+  });
 });

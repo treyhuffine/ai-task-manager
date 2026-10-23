@@ -80,6 +80,7 @@ const PER_COPY: Record<string, string> = {
   'src/lib/skills/manage.ts:sessionControlOverride': 'test seam',
   'src/lib/attachments/pdf-render.ts:library': "the PDF worker's own source string: it runs in its worker thread, never in a server bundle",
   'src/lib/attachments/pdf-render.ts:open': "the PDF worker's own source string: it runs in its worker thread, never in a server bundle",
+  'src/lib/attachments/heic.ts:said': "the HEIC worker's own source string: it runs in its worker thread, never in a server bundle",
   'src/lib/service/runtime-job.ts:owner': 'controller process only',
   'src/lib/service/runtime-job.ts:stopping': 'controller process only',
   'src/lib/worker/agent-folder.ts:book': 'worker process only',

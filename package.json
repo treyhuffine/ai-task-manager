@@ -184,7 +184,7 @@
     "fractional-indexing": "^3.2.0",
     "get-port": "^7.2.0",
     "googleapis": "^171.4.0",
-    "heic-convert": "^2.1.0",
+    "libheif-js": "^1.23.5",
     "linkedom": "0.18.13",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.575.0",
