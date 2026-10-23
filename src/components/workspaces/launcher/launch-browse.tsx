@@ -106,11 +106,15 @@ export function LaunchBrowse({
   workspaceId,
   workspaceCwd,
   isGit,
+  touch = false,
   onPick,
+  onClose,
 }: {
   workspaceId: string | null;
   workspaceCwd: string | null;
   isGit: boolean;
+  /** No keyboard to hint at, and no Escape: a Done button closes the panel. */
+  touch?: boolean;
   onPick: (item: LaunchSourceItem) => void;
   onClose: () => void;
 }) {
@@ -293,7 +297,10 @@ export function LaunchBrowse({
       // Marks the panel so the modal can tell whether focus is inside it when
       // Escape fires — see the dialog's `onEscapeKeyDown`.
       data-launcher-browse=""
-      className="flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-background/60"
+      // On touch the panel keeps half the screen even with the keyboard up,
+      // and the launcher scrolls around it, rather than shrinking to a bare
+      // search field over no results.
+      className={cn('flex flex-1 flex-col rounded-lg border border-border bg-background/60', touch ? 'min-h-[50vh]' : 'min-h-0')}
     >
       <div className="relative flex-shrink-0 border-b border-border/70">
         <Search
@@ -301,7 +308,9 @@ export function LaunchBrowse({
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60"
         />
         <input
-          autoFocus
+          // On touch, focusing would raise the keyboard over the list it's
+          // meant to show. A tap on the field searches.
+          autoFocus={!touch}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -611,11 +620,23 @@ export function LaunchBrowse({
         ))}
       </div>
 
-      <div className="flex flex-shrink-0 items-center gap-3 border-t border-border/70 px-2.5 py-1.5 text-[9.5px] text-muted-foreground/60">
-        <span>↑↓ move</span>
-        <span>⏎ attach</span>
-        <span>esc close</span>
-      </div>
+      {touch ? (
+        <div className="flex flex-shrink-0 justify-end border-t border-border/70 px-1.5 py-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+          >
+            Done
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-shrink-0 items-center gap-3 border-t border-border/70 px-2.5 py-1.5 text-[9.5px] text-muted-foreground/60">
+          <span>↑↓ move</span>
+          <span>⏎ attach</span>
+          <span>esc close</span>
+        </div>
+      )}
     </div>
   );
 }

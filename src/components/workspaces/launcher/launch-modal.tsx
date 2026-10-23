@@ -7,6 +7,8 @@ import { useHomeStorageScope } from '@/components/home/home-context';
 import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
 import { LaunchAudience } from './launch-audience';
 import { useDefaultSelection } from '@/hooks/use-default-selection';
+import { useViewportTier } from '@/hooks/use-viewport-tier';
+import { useVisualViewportBottom } from '@/hooks/use-visual-viewport-bottom';
 
 import { AttachButton } from '@/components/chat/editor/attach-button';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
@@ -154,6 +156,14 @@ function LaunchModalInner({
   const { personalControls } = useExecutionRuntimeScope();
   const storageScope = useHomeStorageScope();
   const defaultSelection = useDefaultSelection();
+
+  // Below desktop (a phone's + sheet, a tablet) the launcher takes touch
+  // rules, the same ones the chat composer follows there: Enter adds a line
+  // and Start sends, no keys are hinted at, and the panel stays above the
+  // on-screen keyboard so Start is always in reach.
+  const tier = useViewportTier();
+  const touch = tier !== null && tier !== 'desktop';
+  const visibleBottom = useVisualViewportBottom();
 
   // Where it runs (P3.1): the agent's default, unless picked for this one
   // execution. A pick never sticks: the next launch starts from the default
@@ -357,10 +367,18 @@ function LaunchModalInner({
       setChips((prev) => applyPick(prev, item));
       setError(null);
       void warm(item);
-      editorRef.current?.focus({ end: true });
+      // Back to the prompt for the next keystroke. Not on touch, where that
+      // raises the keyboard over the list you're still picking from.
+      if (!touch) editorRef.current?.focus({ end: true });
     },
-    [warm],
+    [warm, touch],
   );
+
+  const openBrowse = () => {
+    // On touch, the list opens with the keyboard down so all of it shows.
+    if (touch && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    setBrowseOpen(true);
+  };
 
   const handlePickBranch = useCallback((branch: string) => {
     setChips((prev) =>
@@ -668,6 +686,9 @@ function LaunchModalInner({
 
           <ChatDropZone
             className="flex max-h-[84vh] animate-in flex-col overflow-hidden rounded-xl border border-border bg-card fade-in-0 shadow-2xl duration-150"
+            // The panel sits 8vh down. Its bottom stops 0.75rem above the
+            // keyboard's top edge, so the footer never slides under it.
+            style={touch && visibleBottom ? { maxHeight: `min(84vh, calc(${visibleBottom}px - 8vh - 0.75rem))` } : undefined}
             disabled={launching}
             onFiles={(files) => {
               for (const file of files) attachFile(file);
@@ -679,51 +700,53 @@ function LaunchModalInner({
                 fork point are one thought ("this repo, isolated, off main"),
                 so they sit together above the prompt. The footer is left for
                 WHO does it (model + effort) next to Start. */}
-            <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 px-3 py-2">
-              <WorkspacePicker
-                workspaces={workspaces ?? []}
-                workspaceId={workspaceId}
-                open={agentPickerOpen}
-                onOpenChange={setAgentPickerOpen}
-                onChange={(id) => {
-                  setWorkspaceId(id);
-                  setError(null);
-                  editorRef.current?.focus({ end: true });
-                }}
-              />
-              {!continuation && severalDevices && runOn && workspaceId && (
-                <RunOnControl
-                  agent={{ id: workspaceId, name: workspace?.name ?? 'This agent' }}
-                  runOn={runOn}
-                  value={runOnTarget}
-                  onChange={(deviceId) => setRunOnPick({ workspaceId, deviceId })}
-                  onMakeDefault={(deviceId) => setDefaultDevice.mutate(deviceId, { onSuccess: () => setRunOnPick(null) })}
-                  savingDefault={setDefaultDevice.isPending}
-                  disabled={launching}
-                />
-              )}
-              {!continuation && isGit && (
-                <ModeControl mode={mode} onChange={handleModeChange} disabled={launching} />
-              )}
-              {!continuation && isGit && mode === 'worktree' && (
-                <BaseControl
+            <div className="flex flex-shrink-0 items-start gap-1.5 px-3 py-2">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                <WorkspacePicker
+                  workspaces={workspaces ?? []}
                   workspaceId={workspaceId}
-                  base={base}
-                  workspaceDefault={workspace?.baseBranch ?? null}
-                  onPickBranch={handlePickBranch}
-                  onClear={clearBase}
-                  disabled={launching}
+                  open={agentPickerOpen}
+                  onOpenChange={setAgentPickerOpen}
+                  onChange={(id) => {
+                    setWorkspaceId(id);
+                    setError(null);
+                    editorRef.current?.focus({ end: true });
+                  }}
                 />
-              )}
-              {/* Live has no fork point to pick, so the same slot answers the
-                  same question a different way: is the code you're about to
-                  work in current, and pull it if not. */}
-              {!continuation && isGit && mode === 'live' && (
-                <LiveFreshnessControl workspaceId={workspaceId} disabled={launching} />
-              )}
+                {!continuation && severalDevices && runOn && workspaceId && (
+                  <RunOnControl
+                    agent={{ id: workspaceId, name: workspace?.name ?? 'This agent' }}
+                    runOn={runOn}
+                    value={runOnTarget}
+                    onChange={(deviceId) => setRunOnPick({ workspaceId, deviceId })}
+                    onMakeDefault={(deviceId) => setDefaultDevice.mutate(deviceId, { onSuccess: () => setRunOnPick(null) })}
+                    savingDefault={setDefaultDevice.isPending}
+                    disabled={launching}
+                  />
+                )}
+                {!continuation && isGit && (
+                  <ModeControl mode={mode} onChange={handleModeChange} disabled={launching} />
+                )}
+                {!continuation && isGit && mode === 'worktree' && (
+                  <BaseControl
+                    workspaceId={workspaceId}
+                    base={base}
+                    workspaceDefault={workspace?.baseBranch ?? null}
+                    onPickBranch={handlePickBranch}
+                    onClear={clearBase}
+                    disabled={launching}
+                  />
+                )}
+                {/* Live has no fork point to pick, so the same slot answers the
+                    same question a different way: is the code you're about to
+                    work in current, and pull it if not. */}
+                {!continuation && isGit && mode === 'live' && (
+                  <LiveFreshnessControl workspaceId={workspaceId} disabled={launching} />
+                )}
+              </div>
               <DialogPrimitive.Close asChild>
                 <button
-                  className="ml-auto rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="flex-shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground pointer-coarse:-m-1 pointer-coarse:p-2"
                   aria-label="Close"
                 >
                   <X size={15} />
@@ -756,6 +779,7 @@ function LaunchModalInner({
                   draftKey={pickAgent ? 'launcher:new' : workspaceId ? `launcher:${workspaceId}` : undefined}
                   onContentChange={setHasContent}
                   onPendingUploadsChange={setPendingUploads}
+                  submitOnEnter={!touch}
                   onSubmit={() => void launch()}
                   onBackspaceOnEmpty={() => setChips((prev) => prev.slice(0, -1))}
                   onUploadError={(err: Error) => setError(err.message)}
@@ -779,10 +803,11 @@ function LaunchModalInner({
                   workspaceId={workspaceId}
                   workspaceCwd={workspace?.cwd ?? null}
                   isGit={isGit}
+                  touch={touch}
                   onPick={handlePick}
                   onClose={() => {
                     setBrowseOpen(false);
-                    editorRef.current?.focus({ end: true });
+                    if (!touch) editorRef.current?.focus({ end: true });
                   }}
                 />
               ) : (
@@ -792,12 +817,12 @@ function LaunchModalInner({
                   </span>
                   <button
                     type="button"
-                    onClick={() => setBrowseOpen(true)}
+                    onClick={openBrowse}
                     className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-solid hover:bg-muted/50 hover:text-foreground"
                   >
                     <Search size={10} />
                     Browse
-                    <kbd className="font-mono text-[9px] opacity-60">⌥⏎</kbd>
+                    {!touch && <kbd className="font-mono text-[9px] opacity-60">⌥⏎</kbd>}
                   </button>
                   {suggestions.map((item) => {
                     const Icon = CHIP_ICON[item.kind];
@@ -875,7 +900,7 @@ function LaunchModalInner({
                     type="button"
                     onClick={() => void launch({ send: false })}
                     disabled={launching || !!runOnProblem || !!runtimeProblem}
-                    className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-40"
+                    className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-40 pointer-coarse:py-2 pointer-coarse:text-[13px]"
                   >
                     Open only
                   </button>
@@ -884,11 +909,11 @@ function LaunchModalInner({
                   type="button"
                   onClick={() => void launch()}
                   disabled={!ready || launching}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 pointer-coarse:px-4 pointer-coarse:py-2 pointer-coarse:text-[13px]"
                 >
                   {launching && <Loader2 size={12} className="animate-spin" />}
                   Start
-                  <kbd className="font-mono text-[9.5px] opacity-70">⏎</kbd>
+                  {!touch && <kbd className="font-mono text-[9.5px] opacity-70">⏎</kbd>}
                 </button>
               </div>
             </div>

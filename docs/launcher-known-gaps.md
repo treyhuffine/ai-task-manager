@@ -1,10 +1,33 @@
 # Execution launcher — known gaps
 
-Deliberate omissions in the launcher (the ➕ modal on a workspace row), recorded
-so they're a decision rather than a surprise. Each entry says what's missing,
-why it wasn't fixed, and what fixing it would actually take.
+Deliberate omissions in the launcher (the New chat modal: the rail's New chat,
+the ➕ on an agent's row, and New chat in the phone's + sheet), recorded so
+they're a decision rather than a surprise. Each entry says what's missing, why
+it wasn't fixed, and what fixing it would actually take.
 
-_Last reviewed: 2026-07-29_
+_Last reviewed: 2026-10-23_
+
+## On a phone, Browse search has little room above the keyboard
+
+Below desktop the launcher follows the chat composer's touch rules: Enter adds a
+line and Start sends, no keys are hinted at, and the panel's height is capped to
+the visual viewport (`use-visual-viewport-bottom.ts`), so Start stays above the
+on-screen keyboard while the middle scrolls. Browse opens with the keyboard
+down and its list in full, and Done closes it.
+
+Searching inside Browse brings the keyboard back, and then a phone has roughly
+300px of screen for the header, the prompt, the search results and the footer.
+The panel keeps half the screen and the launcher scrolls around it, so results
+are reachable, but only a few rows show at a time.
+
+**Why it's unfixed.** The list without the keyboard covers the common case
+(recent tasks, open PRs, branches), and a phone search is a less common way in.
+
+**What fixing it takes.** On touch, give Browse the whole panel while its search
+is focused: fold the prompt and chips away, keep the footer, and restore them
+when the search blurs or a pick lands. The keyboard behavior is checked by
+shrinking a stand-in visual viewport (`mobile-new-chat.browser.test.ts`), not on
+a real iPhone.
 
 ## Import lists repo-root transcripts only
 

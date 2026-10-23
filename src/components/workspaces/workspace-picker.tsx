@@ -66,7 +66,7 @@ export function WorkspacePicker({
                   onOpenChange(false);
                 }}
                 className={cn(
-                  'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-foreground/90',
+                  'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-foreground/90 pointer-coarse:py-2.5 pointer-coarse:text-[14px]',
                   'data-[selected=true]:bg-muted/70 data-[selected=true]:text-foreground',
                   w.id === workspaceId && 'font-medium text-foreground',
                 )}
