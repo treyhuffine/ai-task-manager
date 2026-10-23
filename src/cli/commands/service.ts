@@ -10,6 +10,7 @@ import { beginActivity } from '@/lib/service/maintenance';
 import { saveEnvironment, environmentStatus } from '@/lib/service/environment';
 import { installService, uninstallService } from '@/lib/service/install';
 import { readLiveServerRuntime } from '@/lib/server-runtime/record';
+import { runtimeRepository } from '@/lib/releases/runtime-identity';
 
 /** Shared by explicit service startup and the team's first-run command. */
 export async function startBackgroundService(options: { dev?: boolean; home?: boolean } = {}) {
@@ -18,7 +19,7 @@ export async function startBackgroundService(options: { dev?: boolean; home?: bo
     (await import('@/lib/service/desktop-role-intent')).writeDesktopHomeIntent();
   }
   const installed = installedRuntime();
-  const repo = installed?.repo ?? process.env.RI_RUNTIME_REPO ?? process.env.RI_DESKTOP_REPO ?? process.cwd();
+  const repo = installed?.repo ?? process.env.RI_RUNTIME_REPO ?? process.env.RI_DESKTOP_REPO ?? runtimeRepository();
   const existing = await serviceStatus();
   if (!existing && readLiveServerRuntime()) {
     throw new Error('Ri is running in a foreground terminal for this folder. Stop it with Ctrl-C there, then retry this command to run it in the background.');

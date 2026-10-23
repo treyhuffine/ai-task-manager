@@ -7,6 +7,7 @@
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
+import { runtimeRepository } from '@/lib/releases/runtime-identity';
 
 export interface StartServerOptions {
   port: number;
@@ -25,7 +26,7 @@ export interface StartServerOptions {
 }
 
 export function startNextServer(opts: StartServerOptions): ChildProcess {
-  const repo = opts.repo ?? process.env.RI_RUNTIME_REPO ?? process.cwd();
+  const repo = opts.repo ?? runtimeRepository();
   const serverFile = path.join(repo, 'dist/service/http-server.cjs');
   const env: NodeJS.ProcessEnv = { ...process.env, ...opts.env, RI_DESKTOP_MODE: opts.dev ? 'development' : 'production', NODE_ENV: opts.dev ? 'development' : 'production' };
 

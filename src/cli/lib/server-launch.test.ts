@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { beforeEach, expect, it, vi } from 'vitest';
 const processTools = vi.hoisted(() => ({ spawn: vi.fn(() => ({})), spawnSync: vi.fn() }));
 vi.mock('node:child_process', () => processTools);
@@ -29,4 +32,20 @@ it('lets portless allocate the port while selecting the shared development host'
   expect(args).not.toContain('41234');
   expect(options.env.PORT).toBe(process.env.PORT);
   expect(options.env.RI_DESKTOP_MODE).toBe('development');
+});
+
+it('launches the checkout the CLI was built in, not the current folder', () => {
+  const checkout = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ri-launch-repo-')));
+  const argv = process.argv;
+  vi.stubEnv('RI_RUNTIME_REPO', undefined);
+  try {
+    process.argv = [process.execPath, path.join(checkout, 'dist/cli/index.mjs')];
+    fs.mkdirSync(path.join(checkout, 'dist/cli'), { recursive: true });
+    startNextServer({ port: 41237 });
+    expect(processTools.spawn).toHaveBeenCalledWith(process.execPath, [path.join(checkout, 'dist/service/http-server.cjs')], expect.objectContaining({ cwd: checkout }));
+  } finally {
+    process.argv = argv;
+    vi.unstubAllEnvs();
+    fs.rmSync(checkout, { recursive: true, force: true });
+  }
 });

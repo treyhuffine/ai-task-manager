@@ -9,8 +9,10 @@ export function runtimeRepository(): string {
   if (process.env.RI_RUNTIME_REPO) return process.env.RI_RUNTIME_REPO;
   // Installed entries sit in server/dist/<cli|service|desktop>. Source
   // invocations keep the project cwd. No home-path guessing or DB access.
+  // A global link (`pnpm add -g link:<checkout>`) runs the entry through a
+  // symlink, so resolve it to the checkout it points at.
   const entry = process.argv[1];
-  if (entry && /[/\\]dist[/\\](?:cli|service|desktop)[/\\]/.test(entry)) return path.resolve(path.dirname(entry), '../..');
+  if (entry && /[/\\]dist[/\\](?:cli|service|desktop)[/\\]/.test(entry)) return path.resolve(fs.realpathSync(/* turbopackIgnore: true */ path.dirname(entry)), '../..');
   return process.cwd();
 }
 export function readRuntimeCompatibility(repo: string): RuntimeCompatibility | null {

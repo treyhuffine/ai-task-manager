@@ -14,6 +14,7 @@
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { runtimeRepository } from '@/lib/releases/runtime-identity';
 
 const VOICE_URL = process.env.LOCAL_SPEECH_TO_TEXT_URL ?? 'http://localhost:5092';
 const DEFAULT_SERVICE = 'parakeet-cpu';
@@ -38,7 +39,7 @@ function resolveComposeFile(): string {
   // Dev layout: submodule at repo root.
   // TODO(publish): when shipping via npx, bundle docker-compose.yml into `dist/`
   // and fall back to that path here.
-  return path.resolve(process.cwd(), 'modules/parakeet-stt/docker-compose.yml');
+  return path.resolve(runtimeRepository(), 'modules/parakeet-stt/docker-compose.yml');
 }
 
 export async function isDockerAvailable(timeoutMs = 5000): Promise<boolean> {
