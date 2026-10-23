@@ -209,6 +209,16 @@ Settings use the existing navigation and shared sections. Membership, invitation
 
 AI availability is an optional capability for both Home kinds. Disabling AI leaves CRUD, search, manual order and membership working and keeps prior chat history readable. It blocks new runs and stops/cancels team AI work under the existing stop semantics. Changing provider authentication or removing a member cannot leave unauthorized queued work running.
 
+Home identity and permissions must resolve without harness discovery. Authenticated page requests supply initial Home context. Runtime availability loads separately for AI controls and must never delay tasks, notes, navigation or readable chat history. While identity genuinely needs a network check, show anonymous application chrome without mounting editors or exposing another author's drafts.
+
+23 October loading correction:
+
+- [x] Separate runtime discovery from Home identity for personal and Team Homes.
+- [x] Bootstrap authenticated pages and preserve sign-in-change and draft protections.
+- [x] Verify cold loading and stalled runtime discovery with isolated Homes and browser coverage.
+
+Verified on `fix/home-loading` at `10ae3ea9`. The shared entity route boundary also supplies the navigation and activity required by standalone tasks and notes. The [verification ledger](unified-home-verification.md#home-loading-correction-23-october-2026) records the cold-load and authority evidence. All seven qualification gates passed, including 8,141 full-suite tests, 26 browser checks and two production-build Home journeys. No migration was added or modified.
+
 ## 8. Team agents, harnesses and executable chats
 
 ### 8.1 Reuse the normal agent/execution model

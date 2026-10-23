@@ -35,6 +35,7 @@ import { completeSharedTask, transitionSharedTask, updateTaskWithShared } from '
 import { LIFECYCLE_COMMANDS } from '@/lib/tasks/lifecycle';
 import { resolveHomeContext } from '@/lib/home/context';
 import { filePreviewsRouter } from '@/lib/files/router';
+import { resolveHomeExecutionChoices } from '@/lib/home/execution-choices';
 
 /** A run of days for the work view (docs/work-view.md). */
 const workRangeInput = z.object({
@@ -70,6 +71,7 @@ function sharedTaskIn(id: string) {
 const editContent = sharedActionProcedure('editContent');
 export const appRouter = router({
   homeContext: sp.query(({ ctx }) => resolveHomeContext(ctx.key)),
+  homeExecutionChoices: sp.query(({ ctx }) => resolveHomeExecutionChoices(ctx.key)),
   coordination: coordinationRouter,
   filePreviews: filePreviewsRouter,
   email: emailRouter,

@@ -14,7 +14,7 @@ import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { useWorkspaces } from '@/hooks/use-workspaces';
 import { useHomeContext } from '@/components/home/home-context';
 import { useTeam, useTeamNav, type TeamView } from './team-context';
-import { useTeamAiStatus } from './team-chat';
+import { useTeamAiConfiguration } from './team-chat';
 import { PanelLeftClose, PanelLeftOpen, Bot, FileText, KanbanSquare, MessageCircle, Search, Settings } from 'lucide-react';
 
 export function useShowAgents() {
@@ -39,7 +39,7 @@ function TeamMark({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' }) {
 
 /** Team AI's chats appear once it's on, and stay readable after it's turned off (§9.9). */
 export function useShowChat(): boolean {
-  const status = useTeamAiStatus();
+  const status = useTeamAiConfiguration();
   return Boolean(status.data?.enabled || status.data?.mainChatId);
 }
 

@@ -43,6 +43,7 @@ export function OpenCodeProviderPanel() {
     void providers.refetch();
     void queryClient.invalidateQueries({ queryKey: trpc.harness.authGet.pathKey() });
     void queryClient.invalidateQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
+    void queryClient.invalidateQueries({ queryKey: trpc.homeExecutionChoices.queryKey() });
   };
 
   return (

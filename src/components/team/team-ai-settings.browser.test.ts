@@ -14,7 +14,7 @@ beforeAll(async()=>{if(!enabled)return;fixture=await browserFixture(`
  'settings/harness-settings-panel':`export const HarnessSettingsPanel=()=>null;`,
  'settings/default-model-section':`export const DefaultModelSection=()=>null;`,
  'results/result-pilot-settings':`export const ResultPilotSettings=()=>null;`,
- 'lib/trpc/client':`export const trpc={team:{ai:{status:{queryKey:()=>['status']}}},homeContext:{queryKey:()=>['home']}};export const trpcClient={team:{ai:{setEnabled:{mutate:async input=>{window.calls.push(input);window.teamAiStatus={...window.teamAiStatus,...input};}},forgetKey:{mutate:async()=>{window.calls.push({forget:true});window.teamAiStatus.hasApiKey=false;}}}}};`,
+ 'lib/trpc/client':`export const trpc={team:{ai:{status:{queryKey:()=>['status']},configuration:{queryKey:()=>['configuration']}}},homeContext:{queryKey:()=>['home']},homeExecutionChoices:{queryKey:()=>['execution']}};export const trpcClient={team:{ai:{setEnabled:{mutate:async input=>{window.calls.push(input);window.teamAiStatus={...window.teamAiStatus,...input};}},forgetKey:{mutate:async()=>{window.calls.push({forget:true});window.teamAiStatus.hasApiKey=false;}}}}};`,
  };
  for(const [name,contents]of Object.entries(modules)){b.onResolve({filter:new RegExp(name+'$')},()=>({path:name,namespace:'data'}));b.onLoad({filter:new RegExp('^'+name+'$'),namespace:'data'},()=>({contents,loader:'tsx',resolveDir:process.cwd()}));}
 }}]);},120_000);

@@ -24,6 +24,7 @@ export function CursorCredentialPanel() {
       void queryClient.invalidateQueries({ queryKey: trpc.harness.authGet.pathKey() });
       void queryClient.invalidateQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
       toast.success('Cursor API key saved');
+      void queryClient.invalidateQueries({ queryKey: trpc.homeExecutionChoices.queryKey() });
     },
   });
   const clear = useMutation({
@@ -33,6 +34,7 @@ export function CursorCredentialPanel() {
       void queryClient.invalidateQueries({ queryKey: trpc.harness.authGet.pathKey() });
       void queryClient.invalidateQueries({ queryKey: trpc.harness.modelsGet.pathKey() });
       toast.success('Stored Cursor API key removed');
+      void queryClient.invalidateQueries({ queryKey: trpc.homeExecutionChoices.queryKey() });
     },
   });
 

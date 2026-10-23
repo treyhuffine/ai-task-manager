@@ -20,9 +20,9 @@ import { ArtifactPreviewProvider } from '@/components/chat-ui/artifacts/artifact
 import { spacePage } from '@/lib/spaces/page';
 import { SpaceRoot } from '@/components/spaces/space-root';
 import { getHome, getTeamConnection } from '@/lib/db/queries';
-import { getRequestKey } from '@/lib/auth/request-key';
 import { headers } from 'next/headers';
 import { ClientAppearance } from '@/lib/client/theme';
+import { initialHomeContextForRequest } from '@/lib/home/context';
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -47,9 +47,11 @@ export default async function RootLayout({
   // app, its API reached through this home, so nothing personal mounts in
   // it either.
   const space = team ? null : await spacePage();
-  const caller = getRequestKey(await headers());
-  const documentHome = space?.id ?? getHome()?.id;
-  const documentViewer = space ? getTeamConnection(space.id)?.memberId : caller?.memberId ?? 'local';
+  // A connected Team authenticates at its own server. Never seed it with this
+  // personal server's context. Other signed-in documents can render immediately.
+  const initialHomeContext = space ? undefined : await initialHomeContextForRequest(await headers());
+  const documentHome = space?.id ?? initialHomeContext?.home.id ?? getHome()?.id;
+  const documentViewer = space ? getTeamConnection(space.id)?.memberId : initialHomeContext?.viewer.id ?? 'local';
   return (
     <html
       lang="en"
@@ -61,7 +63,7 @@ export default async function RootLayout({
     >
       <body className="antialiased">
         <ClientAppearance />
-        <QueryProvider>
+        <QueryProvider initialHomeContext={initialHomeContext}>
           {team ? (
             <TipProvider>
               <DesktopChrome />

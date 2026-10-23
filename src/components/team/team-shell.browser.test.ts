@@ -16,7 +16,7 @@ beforeAll(async () => {
       'team-context': `export const useTeam=()=>({team:{id:'team',name:'Shared Team'},member:{name:'Maya'}});export const useTeamNav=()=>({view:'board',show:()=>{},openPanel:()=>{},filterArea:()=>{}});`,
       'use-workspaces': `export const useWorkspaces=()=>({data:[]});`,
       'use-areas': `export const useAreas=()=>({data:[]});`,
-      'team-chat': `export const useTeamAiStatus=()=>({data:{enabled:false}});`,
+      'team-chat': `export const useTeamAiConfiguration=()=>({data:{enabled:false}});`,
       'space-selector': `export const SpaceSelector=()=> <button>Shared Home selector</button>;`,
     };
     for (const [name, contents] of Object.entries(modules)) { b.onResolve({ filter: new RegExp('/'+name+'$') }, () => ({ path:name, namespace:'rail-data' })); b.onLoad({ filter:new RegExp('^'+name+'$'),namespace:'rail-data' }, () => ({ contents,loader:'tsx',resolveDir:process.cwd() })); }

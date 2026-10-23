@@ -13,19 +13,30 @@ import { trpc } from '@/lib/trpc/client';
 import { isTerminal } from '@/lib/tasks/lifecycle';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tip } from '@/components/ui/tip';
+import { useHomeExecutionChoices } from '@/hooks/use-home-execution-choices';
 
 /** One entry, with a destination choice only when both Homes can actually run work. */
 export function TeamTaskAgentAction({ task }: { task: TaskLike }) {
   const home = useHomeContext();
   const space = useSpace();
+  const terminal = isTerminal(task.status);
+  const team = useHomeExecutionChoices(home.capabilities.runTeamAgent && !terminal);
   const personal = useQuery({
-    queryKey: trpc.spaces.personalContext.queryKey(),
-    queryFn: () => myRiClient.spaces.personalContext.query(), enabled: !!space && space.status === 'active', retry: false, staleTime: 30_000,
+    queryKey: trpc.spaces.personalExecutionChoices.queryKey(),
+    queryFn: () => myRiClient.spaces.personalExecutionChoices.query(), enabled: !!space && space.status === 'active' && !terminal, retry: false, staleTime: 30_000,
   });
   const [open, setOpen] = useState(false);
-  const teamReady = home.capabilities.runTeamAgent && home.executionChoices.some(choice => choice.audience === 'team' && choice.available);
-  const personalReady = !!space && personal.data?.home.kind === 'personal' && personal.data.executionChoices.some(choice => choice.available);
-  if (isTerminal(task.status) || (!teamReady && !personalReady)) return null;
+  const teamReady = home.capabilities.runTeamAgent && team.data?.some(choice => choice.audience === 'team' && choice.available);
+  const personalReady = !!space && personal.data?.some(choice => choice.audience === 'personal' && choice.available);
+  if (terminal) return null;
+  if (!teamReady && !personalReady) {
+    if (team.error || personal.error) return <button type="button" className="text-xs text-muted-foreground underline" onClick={() => {
+      if (team.error) void team.refetch();
+      if (personal.error) void personal.refetch();
+    }}>Retry agent availability</button>;
+    if (team.isFetching || personal.isFetching) return <span role="status" className="text-xs text-muted-foreground">Checking agents…</span>;
+    return null;
+  }
   if (!teamReady) return <WorkWithPersonalAgent taskId={task.id} label="Work in My Ri" />;
   if (!personalReady) return <Tip label="Runs on this team's server. Everyone on the team can read the chat."><span><StartWithAgentButton task={task} label="Work on team's server" /></span></Tip>;
   return <DropdownMenu open={open} onOpenChange={setOpen}>

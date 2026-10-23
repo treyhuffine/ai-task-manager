@@ -15,9 +15,10 @@ beforeAll(async()=>{if(!enabled)return;fixture=await browserFixture(`
  'spaces/space-selector':`export const useConnectedTeams=()=>({data:[{id:'team',name:'Team'}]});`,
  'launcher/launcher-store':`export const openLauncher=seed=>window.launches.push(seed);`,
  'home/home-context':`export const useHomeContext=()=>({capabilities:{runTeamAgent:true},executionChoices:[{audience:'team',available:!new URLSearchParams(location.search).has('noTeam')}]});export const useOptionalHomeContext=useHomeContext;`,
+ 'hooks/use-home-execution-choices':`export const useHomeExecutionChoices=()=>({data:[{audience:'team',available:!new URLSearchParams(location.search).has('noTeam')}]});`,
  'space-root':`export const useSpace=()=>({id:'team',status:'active'});`,
- 'spaces/my-ri-client':`export const myRiClient={spaces:{personalContext:{query:async()=>({home:{kind:'personal'},executionChoices:[{available:!new URLSearchParams(location.search).has('noPersonal')}]})}}};`,
- 'lib/trpc/client':`export const trpc={spaces:{personalContext:{queryKey:()=>['fixture-personal-context']}}};export const trpcClient={tasks:{continueTargetsGet:{query:async()=>window.targets}}};`,
+ 'spaces/my-ri-client':`export const myRiClient={spaces:{personalExecutionChoices:{query:async()=>[{audience:'personal',available:!new URLSearchParams(location.search).has('noPersonal')}]}}};`,
+ 'lib/trpc/client':`export const trpc={spaces:{personalExecutionChoices:{queryKey:()=>['fixture-personal-execution']}}};export const trpcClient={tasks:{continueTargetsGet:{query:async()=>window.targets}}};`,
  };for(const[name,contents]of Object.entries(modules)){b.onResolve({filter:new RegExp(name+'$')},()=>({path:name,namespace:'data'}));b.onLoad({filter:new RegExp('^'+name+'$'),namespace:'data'},()=>({contents,loader:'tsx',resolveDir:process.cwd()}));}}}]);},120_000);
 afterAll(async()=>{await fixture?.close();});
 it.skipIf(!enabled).each(['Asia/Tokyo','America/Denver'])('commits a calendar date only on blur or Enter and restores Escape in %s',async timezoneId=>{

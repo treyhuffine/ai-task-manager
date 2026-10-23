@@ -9,6 +9,7 @@ import { z } from 'zod/v4';
 import * as q from '@/lib/db/queries';
 import type { AreaRecord, TeamConnectionRecord } from '@/db/types';
 import { resolveHomeContext, type HomeContext } from '@/lib/home/context';
+import { resolveHomeExecutionChoices } from '@/lib/home/execution-choices';
 import { router, viewerProcedure as p } from '@/lib/trpc/init';
 import { attachment } from '@/lib/trpc/schemas';
 import { publishSharedTaskResult, sharedTaskPublishedResults } from './commands';
@@ -74,6 +75,7 @@ export function teamConnectionView(row: TeamConnectionRecord): TeamConnectionVie
 
 export const spacesRouter = router({
   personalContext: p.query(({ ctx }): Promise<HomeContext> => resolveHomeContext(ctx.key)),
+  personalExecutionChoices: p.query(({ ctx }) => resolveHomeExecutionChoices(ctx.key)),
   entityTitles: p.input(z.object({ teamId: z.string().min(1), refs: z.string().max(500) }).strict()).query(async ({ input }): Promise<{ titles: ReturnType<typeof q.resolveEntityTitles> }> => {
     const team = await teamFor(input.teamId);
     if (!team) throw new q.TeamError('not_found', 'This Home is not connected.');

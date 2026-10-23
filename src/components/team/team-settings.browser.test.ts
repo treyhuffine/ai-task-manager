@@ -56,10 +56,10 @@ beforeAll(async () => {
           window.connectionCalls=[];let clients=[];const local=new URLSearchParams(location.search).has('local');
           let status={enabled:false,state:'off',legacyProfileAvailable:!new URLSearchParams(location.search).has('fresh')};
           const query=(name,fn=()=>[])=>({queryKey:()=>[name],queryOptions:()=>({queryKey:[name],queryFn:async()=>fn()})});
-          export const trpc={userState:{list:query('user-state',()=>({})),update:{mutationKey:()=>['user-state','update']}},homeContext:query('home'),team:{
+          export const trpc={userState:{list:query('user-state',()=>({})),update:{mutationKey:()=>['user-state','update']}},homeContext:query('home'),homeExecutionChoices:query('execution'),team:{
             me:query('me'),members:query('members'),invitations:{list:query('invitations')},signIns:{list:query('signIns')},
             address:{get:query('address',()=>({address:'https://team.example.test',tunnelName:'team-huffine',suggestedName:'team-huffine',autoTunnel:false,nameLocked:false}))},
-            aiClients:{list:query('clients',()=>clients)},ai:{status:query('status',()=>status),chats:{list:query('chats')}}
+            aiClients:{list:query('clients',()=>clients)},ai:{status:query('status',()=>status),configuration:query('configuration',()=>({enabled:status.enabled})),chats:{list:query('chats')}}
           }};
           for(const root of ['tasks','notes','areas']) trpc[root]={pathKey:()=>[root],list:query(root),get:query(root+'-detail')};
           trpc.results={capabilities:query('result-capabilities',()=>({handoffsEnabled:false,aiReviewEnabled:false}))};

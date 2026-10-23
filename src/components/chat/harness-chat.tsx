@@ -34,7 +34,7 @@ import type { HarnessId } from '@/lib/harness/registry';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { trpcClient } from '@/lib/trpc/client';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
-import { useOptionalHomeContext } from '@/components/home/home-context';
+import { useHomeExecutionChoices } from '@/hooks/use-home-execution-choices';
 import { toast } from 'sonner';
 import { ChatLookupState, ChatRefreshBoundary } from './chat-lookup-state';
 import { ChatRecovery } from '@/components/chat-ui/chat-recovery';
@@ -302,9 +302,9 @@ function ChatSession({
 /** Opening an agent is read-only. Its first message creates the shared chat. */
 function NewAgentConversation({ scope, placeholder }: { scope: string; placeholder?: string }) {
   const cache = useQueryClient();
-  const home = useOptionalHomeContext();
+  const availability = useHomeExecutionChoices();
   const created = useRef<Awaited<ReturnType<typeof createMainChat>> | null>(null);
-  const choice = home?.executionChoices.find(value => value.kind === 'team_server');
+  const choice = availability.data?.[0];
   const send = useMutation({
     meta: { carriesInput: true },
     mutationFn: async ({ content, attachments }: { content: string; attachments?: Attachment[] }) => {
@@ -318,8 +318,10 @@ function NewAgentConversation({ scope, placeholder }: { scope: string; placehold
   });
   return <div className="flex min-h-0 flex-1 flex-col">
     <div className="flex-1 p-6 text-sm text-muted-foreground">Start a conversation. Everyone in this Home can read it.</div>
+    {availability.error && <button type="button" className="mx-4 mb-2 self-start text-xs text-muted-foreground underline" onClick={() => void availability.refetch()}>Retry agent availability</button>}
     <ExecutionComposer sessionId="" draftKey={`main:new:${scope}`} permissionMode={DEFAULT_PERMISSION_MODE} model={null} effort={null} harness={null}
-      placeholder={placeholder} helperText="Starts with this Home's default model and permissions." disabled={send.isPending || choice?.available === false} disabledReason={choice?.unavailableReason ?? undefined}
+      placeholder={placeholder} helperText="Starts with this Home's default model and permissions." disabled={send.isPending || !choice?.available}
+      disabledReason={availability.isPending ? 'Checking agent availability…' : availability.error ? 'Agent availability could not be checked.' : choice?.unavailableReason ?? undefined}
       onSend={(content, opts) => send.mutateAsync({ content, attachments: opts?.attachments }).then(() => {})} />
   </div>;
 }

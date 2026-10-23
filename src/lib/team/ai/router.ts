@@ -82,6 +82,11 @@ function memberNames() {
 }
 
 export const teamAiRouter = router({
+  /** Navigation needs saved configuration, never live harness discovery. */
+  configuration: memberProcedure.query(() => {
+    const settings = q.getTeamAiSettings();
+    return { enabled: Boolean(settings?.enabled), mainChatId: settings?.mainChatSessionId ?? null };
+  }),
   /** Whether Team AI is on, and why it might not be ready. Never the key. */
   status: memberProcedure.query(() => teamAiStatus()),
   chatStatus: memberProcedure.input(z.object({ chatId: z.string().min(1) }).strict()).query(({ input }) => {

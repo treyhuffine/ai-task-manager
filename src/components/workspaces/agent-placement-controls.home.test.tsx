@@ -11,7 +11,7 @@ it('uses the ordinary server folder picker and names the shared destination', ()
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   cache.setQueryData(trpc.homeContext.queryKey(), {
     home: { id: 'team', kind: 'team', name: 'Shared' }, viewer: { id: 'owner', role: 'owner', name: 'Owner' },
-    executionChoices: [{ id: 'team:team', homeId: 'team', name: "This team's server", kind: 'team_server', audience: 'team', available: true, unavailableReason: null }],
+    executionChoices: [{ id: 'team:team', homeId: 'team', name: "This team's server", kind: 'team_server', audience: 'team' }],
     capabilities: { ...teamCapabilities({ role: 'owner', status: 'active' }), privatePlanning: false },
   });
   const html = renderToStaticMarkup(<QueryClientProvider client={cache}><HomeBoundary>

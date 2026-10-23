@@ -1,11 +1,11 @@
 import { isValidElement, type ReactNode } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 
-const authority = vi.hoisted(() => ({ team: vi.fn(), space: vi.fn() }));
+const authority = vi.hoisted(() => ({ team: vi.fn(), space: vi.fn(), initial: vi.fn() }));
+vi.mock('@/lib/home/context', () => ({ initialHomeContextForRequest: authority.initial }));
 vi.mock('@/lib/team/page-authority', () => ({ isTeamPage: authority.team }));
 vi.mock('@/lib/spaces/page', () => ({ spacePage: authority.space }));
 vi.mock('next/headers', () => ({ headers: async () => new Headers() }));
-vi.mock('@/lib/auth/request-key', () => ({ getRequestKey: () => ({ memberId: 'fixture-member' }) }));
 vi.mock('@/lib/db/queries', () => ({ getHome: () => ({ id: 'fixture-home' }), getTeamConnection: () => ({ memberId: 'connected-member' }) }));
 vi.mock('next/font/google', () => ({ Inter: () => ({ variable: 'font' }) }));
 vi.mock('@/providers/query-provider', () => ({ QueryProvider: 'query-provider' }));
@@ -40,6 +40,21 @@ it.each(['personal', 'team', 'space'])('mounts exactly one desktop navigation gu
   for (const personal of ['pairing-bootstrap', 'service-connection', 'quick-capture-host', 'web-app-bootstrap', 'home-reachability-banner']) {
     expect(tree.includes(personal), personal).toBe(kind === 'personal');
   }
+});
+
+it.each(['personal', 'team', 'space'])('only bootstraps the authenticated server Home on %s pages', async kind => {
+  authority.team.mockResolvedValue(kind === 'team');
+  authority.space.mockResolvedValue(kind === 'space' ? { id: 'remote-team', status: 'active' } : null);
+  const initial = { home: { id: 'server-home' }, viewer: { id: 'authenticated-viewer' } };
+  authority.initial.mockResolvedValue(initial);
+  const layout = await RootLayout({ children: 'page' });
+  function find(node: ReactNode): unknown {
+    if (Array.isArray(node)) return node.map(find).find(Boolean);
+    if (!isValidElement<{ children?: ReactNode; initialHomeContext?: unknown }>(node)) return undefined;
+    return node.type === 'query-provider' ? node.props : find(node.props.children);
+  }
+  expect(find(layout)).toMatchObject({ initialHomeContext: kind === 'space' ? undefined : initial });
+  expect(authority.initial).toHaveBeenCalledTimes(kind === 'space' ? 0 : 1);
 });
 
 it.each(['disconnected', 'revoked'])('keeps the desktop guard outside the %s team gate', async status => {

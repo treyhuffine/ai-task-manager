@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 import path from 'node:path';
-import { migrationsFolderUpTo } from '@/test/fixtures/migrations';
+import { migrationTags, migrationsFolderUpTo } from '@/test/fixtures/migrations';
 import { initDatabase } from './index';
 import { runMigrations } from './migrate';
 
@@ -19,7 +19,7 @@ it('upgrades current main while retaining applied migration history, provider sp
       INSERT INTO agent_requests(id,source_session_id,source_address,target_address,target_session_id,request_key,kind,content,options,status,message_event_id) VALUES ('existing','main-chat','session:main-chat','agent:destination',NULL,'existing-key','delegation','Existing assignment','{"workspaceId":"destination","serviceTier":"fast"}','queued','future-event');
     `);
     const history=db.prepare('SELECT * FROM __drizzle_migrations ORDER BY id').all();
-    expect(runMigrations(db,path.resolve(__dirname,'../../../drizzle')).applied).toBe(3);
+    expect(runMigrations(db,path.resolve(__dirname,'../../../drizzle')).applied).toBe(migrationTags().length-history.length);
     expect(db.prepare('SELECT * FROM __drizzle_migrations ORDER BY id').all().slice(0,history.length)).toEqual(history);
     expect(db.prepare('SELECT default_service_tier,usage_warnings FROM user_state WHERE id=1').get()).toEqual({default_service_tier:'fast',usage_warnings:0});
     expect(db.prepare("SELECT rowid,service_tier FROM chat_sessions WHERE id='main-chat'").get()).toEqual({rowid:41,service_tier:'fast'});

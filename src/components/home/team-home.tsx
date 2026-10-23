@@ -26,6 +26,7 @@ import { TeamWorkBoundary } from './team-work-boundary';
 import { MobileAgentsView } from '@/components/mobile/mobile-agents-view';
 import { AgentView } from '@/components/agents/agent-view';
 import { LaunchModal } from '@/components/workspaces/launcher/launch-modal';
+import { HomeLoading } from './home-loading';
 
 /**
  * The shared Home shell with team destinations and live member authority.
@@ -34,12 +35,10 @@ import { LaunchModal } from '@/components/workspaces/launcher/launch-modal';
 export function TeamHome() {
   const me = useTeamMe();
   const space = useSpace();
-  if (me.isLoading) return space ? (
-    <TeamGate title={`Opening ${space.name ?? 'the team'}…`}>
-      <p>Waiting for the computer hosting the team.</p>
-      <BackToMyRi />
-    </TeamGate>
-  ) : null;
+  if (me.isLoading) return <HomeLoading>{space && <div className="max-w-sm space-y-3 p-5 text-sm text-muted-foreground">
+    <p>Waiting for the computer hosting {space.name ?? 'the team'}.</p>
+    <BackToMyRi />
+  </div>}</HomeLoading>;
   if (!me.data) {
     // A sign-in that stopped working signs this browser out on its own
     // (src/lib/api/client.ts). Anything else is the team being unreachable.

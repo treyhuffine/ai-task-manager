@@ -14,6 +14,10 @@ export function useTeamAiStatus() {
   return useQuery({ ...trpc.team.ai.status.queryOptions(), staleTime: 15_000 });
 }
 
+export function useTeamAiConfiguration() {
+  return useQuery({ ...trpc.team.ai.configuration.queryOptions(), staleTime: 15_000 });
+}
+
 /** No second transcript or composer. Existing unbound history uses the ordinary chat view. */
 export function LegacyTeamChatAgentChoice({ chatId }: { chatId: string }) {
   const agents = useWorkspaces({ status: 'active' });

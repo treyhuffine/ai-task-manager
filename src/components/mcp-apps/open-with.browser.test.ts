@@ -19,16 +19,18 @@ const bundle = () => build({
     import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
     import {MessageFileChip} from '@/components/chat-ui/artifacts/message-file-chip';
     import {ConnectedCompanionContext} from '@/lib/client/mcp-app-panel';
+    import {ArtifactPreviewProvider} from '@/components/chat-ui/artifacts/artifact-preview-provider';
+    import {TipProvider} from '@/components/ui/tip';
     window.opened = [];
     const file = (fileName, originalName, mimeType) => ({fileName, originalName, mimeType, size: 1200, uploadedAt: '2026-10-19T12:00:00.000Z'});
     const companion = {chatId: 'chat-1', captureId: null, open: id => window.opened.push(id), mount: null, register: () => () => {}};
-    createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>
+    createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><TipProvider><ArtifactPreviewProvider>
       <section aria-label="In a chat"><ConnectedCompanionContext.Provider value={companion}>
         <p>Here is the bracket <MessageFileChip attachment={file('01a1-bracket.stl', 'bracket.stl', 'application/octet-stream')}/></p>
         <p>And the notes <MessageFileChip attachment={file('01a1-notes.csv', 'notes.csv', 'application/octet-stream')}/></p>
       </ConnectedCompanionContext.Provider></section>
       <section aria-label="Published"><MessageFileChip attachment={file('01a1-shared.stl', 'shared.stl', 'application/octet-stream')}/></section>
-    </QueryClientProvider>);
+    </ArtifactPreviewProvider></TipProvider></QueryClientProvider>);
   `},
   bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic',
   define: {'process.env.NODE_ENV': '"development"', 'process.env': '{}'},

@@ -123,3 +123,52 @@ gate and refuses a baseline that shares node_modules links. Native harness
 commands are disabled by default in the test sandbox. Only explicit controlled
 stand-ins may execute. See the review10 ledger for the invalidated preliminary
 run and the correction to test isolation.
+
+## Home loading correction, 23 October 2026
+
+Qualification source: `10ae3ea9` on `fix/home-loading`, incorporating main
+`f96ba914`. Home context now resolves identity and permissions without harness
+discovery. Authenticated pages seed the browser cache, and AI controls request
+execution availability independently. Team navigation reads saved AI
+configuration without probing harnesses. Availability failures retain local
+Retry controls and do not unmount content or discard typed input.
+
+Pages authenticate their actual cookie or Bearer credential. Page requests do
+not pass through the API proxy, so forwarded key headers cannot authenticate
+bootstrap data. Tests cover forged headers, expired/revoked keys, machine
+credentials, removed members, server cache isolation, member swaps and retained
+drafts. Connected Team documents still obtain their context from the Team
+server rather than the personal server.
+
+The production journey found missing work navigation on standalone task and
+note pages. Their common `EntityPageBoundary` now uses `RouteWorkBoundary`,
+which supplies the same navigation and activity contract as other work
+surfaces. Tests exercise both resource kinds and preserve Team redirects
+without mounting personal controls.
+
+All seven gates passed at unchanged committed source: CLI build, Next production
+build, typecheck, lint, browser regressions, production Home journeys and full
+Vitest. The full suite passed 8,141 tests with 169 skips. The explicit browser
+gate passed 26 checks, including personal/Team bootstrap, stalled and failed
+availability, Retry without draft loss, member changes, and anonymous loading
+chrome at 390px and 1280px. Lint reported zero errors and existing warnings.
+
+Real production-build browser journeys used disposable personal and Team
+Homes with native harness commands disabled. A task completion was acknowledged
+by the real API, a standalone note opened, and Home navigation stayed usable.
+Personal AI requests were deliberately held pending. Both Homes made zero
+Home-context round trips, and Team navigation needed no harness requests.
+
+The broad suite exposed three stale fixtures from other main changes: a fixed
+migration count, missing file-preview providers and a nonexistent packaged
+runtime directory. Their fixtures now follow the journal, mount the real
+providers and create an isolated directory. The focused rerun passed all 11
+checks before the final broad run. No migration SQL, schema or migration-runner
+code changed. No real Home was migrated or production process restarted.
+
+External evidence is in `/private/tmp/ri-home-loading-final4/manifest.json`,
+with commands and logs, plus
+`/private/tmp/ri-home-loading-production-results.json` and desktop/phone
+captures under `/private/tmp/ri-home-loading-captures`. Documentation completion
+was recorded after qualification. Product and test files remain byte-identical
+to the qualified source.

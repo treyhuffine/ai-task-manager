@@ -74,7 +74,10 @@ it('finds the packaged desktop setup release independently of Electron working d
   const entry = process.argv[1];
   vi.stubEnv('RI_RUNTIME_REPO', '');
   try {
-    process.argv[1] = '/Applications/Ri.app/Contents/Resources/server/dist/desktop/connection-setup-entry.cjs';
-    expect(runtimeRepository()).toBe('/Applications/Ri.app/Contents/Resources/server');
+    const repo = fs.realpathSync(temporary());
+    process.argv[1] = path.join(repo, 'dist/desktop/connection-setup-entry.cjs');
+    fs.mkdirSync(path.dirname(process.argv[1]), { recursive: true });
+    fs.writeFileSync(process.argv[1], '// Synthetic packaged desktop entry');
+    expect(runtimeRepository()).toBe(repo);
   } finally { process.argv[1] = entry; }
 });

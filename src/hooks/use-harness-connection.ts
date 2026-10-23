@@ -85,6 +85,7 @@ export function useRecheckHarnessConnection() {
       trpcClient.harness.authPost.mutate({body: { harness, fresh: true }}),
     onSuccess: (data, harness) => {
       qc.setQueryData(KEY(harness), data);
+      void qc.invalidateQueries({ queryKey: trpc.homeExecutionChoices.queryKey() });
     },
   });
 }

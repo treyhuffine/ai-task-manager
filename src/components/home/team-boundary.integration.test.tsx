@@ -1,6 +1,6 @@
 /** Actual Home/Team/Results providers, authenticated tRPC and SQLite. DOM only,
  * fake harness discovery, no editor or native-provider qualification. */
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { act, createElement, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { parseHTML } from 'linkedom';
@@ -17,13 +17,14 @@ vi.mock('@/lib/harness/runtime', async original => {
 let fixture: Awaited<ReturnType<typeof createTeamExecutionFixture>>;
 let root: import('react-dom/client').Root | undefined;
 let client: QueryClient;
+beforeAll(preloadTeamRoutes, 120_000);
 afterEach(async () => {
   await act(async () => root?.unmount()); client?.clear();
   vi.unstubAllGlobals(); await fixture?.cleanup();
 });
 
 it('completes a Team task from the real Results layout while the real Team boundary uses shared API routes', async () => {
-  await preloadTeamRoutes(); fixture = await createTeamExecutionFixture();
+  fixture = await createTeamExecutionFixture();
   const task = q.createTask({ title: 'Accept this work' });
   const legacy = q.createChatSession({ type: 'orchestration', harness: 'claude', surfaceKind: q.TEAM_CHAT_SURFACE });
   const requests: string[] = [];

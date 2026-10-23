@@ -22,7 +22,9 @@ export function TeamAiSection() {
   const confirm = useConfirm();
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: trpc.team.ai.status.queryKey() });
+    void qc.invalidateQueries({ queryKey: trpc.team.ai.configuration.queryKey() });
     void qc.invalidateQueries({ queryKey: trpc.homeContext.queryKey() });
+    void qc.invalidateQueries({ queryKey: trpc.homeExecutionChoices.queryKey() });
   };
   const onError = (error: unknown) => toast.error(apiErrorText(error));
   const toggle = useMutation({ mutationFn: (enabled: boolean) => trpcClient.team.ai.setEnabled.mutate({ enabled }), onSuccess: refresh, onError });

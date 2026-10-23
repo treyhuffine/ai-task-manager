@@ -39,7 +39,8 @@ const render = () => renderToStaticMarkup(createElement(TeamHome));
 it('can return to My Ri before a slow team responds', () => {
   mocks.me.isLoading = true;
   const html = render();
-  expect(html).toContain('Opening Team Huffine');
+  expect(html).toContain('Waiting for the computer hosting Team Huffine');
+  expect(html).toContain('data-slot="skeleton"');
   expect(html).toMatch(/<a href="\/"[^>]*>Back to My Ri<\/a>/);
 });
 
@@ -59,5 +60,6 @@ it('does not offer a personal Home link from a standalone team', () => {
   mocks.space = null;
   expect(render()).not.toContain('Back to My Ri');
   mocks.me.isLoading = true;
-  expect(render()).toBe('');
+  expect(render()).toContain('aria-label="Loading Home"');
+  expect(render()).not.toContain('Back to My Ri');
 });
