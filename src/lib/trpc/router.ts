@@ -34,6 +34,7 @@ import { spacesRouter } from '@/lib/spaces/router';
 import { completeSharedTask, transitionSharedTask, updateTaskWithShared } from '@/lib/spaces/commands';
 import { LIFECYCLE_COMMANDS } from '@/lib/tasks/lifecycle';
 import { resolveHomeContext } from '@/lib/home/context';
+import { filePreviewsRouter } from '@/lib/files/router';
 
 /** A run of days for the work view (docs/work-view.md). */
 const workRangeInput = z.object({
@@ -70,6 +71,7 @@ const editContent = sharedActionProcedure('editContent');
 export const appRouter = router({
   homeContext: sp.query(({ ctx }) => resolveHomeContext(ctx.key)),
   coordination: coordinationRouter,
+  filePreviews: filePreviewsRouter,
   email: emailRouter,
   externalAi: externalAiRouter,
   localApps: localAppsRouter,

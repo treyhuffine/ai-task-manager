@@ -26,6 +26,8 @@ const protocolRoutes = new Set([
   // Package bytes and the backup CLI's cross-process pause/resume lease.
   '/local-apps/import', '/local-apps/export/[name]', '/local-apps/backup',
   '/preview/settings/connect-device', '/session', '/sessions/[id]/html', '/sessions/[id]/pdf', '/sessions/[id]/pdf/[...name]', '/sessions/[id]/reply-image', '/sessions/[id]/stream', '/sessions/[id]/terminals/[terminalId]/stream', '/sessions/stream',
+  // Native media and downloads stream original file bytes. Preview metadata uses filePreviews.read.
+  '/sessions/[id]/download', '/sessions/[id]/media',
   '/stt-bench', '/trpc/[trpc]', '/version', '/webhooks/pebble', '/webhooks/pocket', '/webhooks/triggers/[public_id]',
   '/workers/enroll', '/workers/grants', '/workers/me/associations', '/workers/me/attachments/[fileName]', '/workers/me/commands/[id]/ack', '/workers/me/commands/[id]/admission',
   '/workers/me/events', '/workers/me/heartbeat', '/workers/me/requests/[id]/result', '/workers/me', '/workers/me/stream',

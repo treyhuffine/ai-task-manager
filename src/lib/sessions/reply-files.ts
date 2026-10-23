@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { resolveMime } from '@/lib/attachments/mime';
 import { htmlTooLargeMessage } from './html-preview-response';
+import { isLocalTextTarget } from './reply-text';
 
 export type ReplyFile =
   | { ok: true; file: string; mime: string; size: number }
@@ -53,13 +54,14 @@ export async function findReplyFile(
   chat: ReplyFileChat,
   requested: string,
   agentNamed: (text: string) => boolean,
-  options: { kind: 'image' | 'html' | 'pdf'; maxBytes: number },
+  options: { kind: 'image' | 'html' | 'pdf' | 'text' | 'file'; maxBytes: number },
 ): Promise<ReplyFile> {
-  const noun = { image: 'image', html: 'HTML file', pdf: 'PDF' }[options.kind];
-  const plural = { image: 'images', html: 'HTML files', pdf: 'PDFs' }[options.kind];
-  const allowed = (file: string) => options.kind === 'image'
+  const noun = { image: 'image', html: 'HTML file', pdf: 'PDF', text: 'text file', file: 'file' }[options.kind];
+  const plural = { image: 'images', html: 'HTML files', pdf: 'PDFs', text: 'text files', file: 'files' }[options.kind];
+  const allowed = (file: string) => options.kind === 'file' ? true : options.kind === 'image'
     ? resolveMime(null, path.basename(file)).startsWith('image/')
-    : (options.kind === 'html' ? /\.html?$/i : /\.pdf$/i).test(file);
+    : options.kind === 'text' ? isLocalTextTarget(file)
+      : (options.kind === 'html' ? /\.html?$/i : /\.pdf$/i).test(file);
   if (chat.elsewhere) return { ok: false, status: 409, error: `This ${noun} is on ${chat.elsewhere}.` };
   const resolved = resolveReplyFilePath(requested, chat.folder);
   if (!resolved) return { ok: false, status: 404, error: 'Not found' };

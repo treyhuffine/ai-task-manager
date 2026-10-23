@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, Download, Expand, FileCode2, FileText, ImageIcon, PanelLeft, PanelRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Download, Expand, File, FileArchive, FileAudio, FileCode2, FileText, FileVideo, ImageIcon, PanelLeft, PanelRight, Sheet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tip } from '@/components/ui/tip';
 import { HtmlView } from '@/components/chat-ui/artifacts/html-view';
@@ -9,44 +9,78 @@ import { sessionFolder } from '@/lib/folders/source';
 import { artifactImageSource } from '@/lib/sessions/artifact-image';
 import type { PreviewPlace } from '@/lib/client/preview-place';
 import { cn } from '@/lib/utils';
-import { previewDownload, type ArtifactPreview } from './artifact-previews';
+import { previewCopySource, previewDownload, type ArtifactPreview } from './artifact-previews';
 import { PreviewImage } from './preview-image';
 import { PdfView } from './pdf-view';
+import { TextFileView } from './text-file-view';
+import { copyText } from '@/lib/clipboard';
+import { FilePreviewView } from './file-preview-view';
+import { filePreviewKind, filePreviewUrl } from '@/lib/files/preview-types';
+import { useSessionCookieReady } from '@/hooks/use-session-cookie-ready';
+import { syncSessionCookie } from '@/lib/api/client';
 
 /** The pieces the large dialog and the view beside a chat share. */
 
 export function previewName(preview: ArtifactPreview): string {
-  return preview.kind === 'html' ? preview.path.split('/').at(-1) || preview.path : preview.name;
+  return preview.kind === 'html' || preview.kind === 'text' ? preview.path.split('/').at(-1) || preview.path : preview.name;
 }
 
-/** Where the file is: the image's source, the PDF's path or upload, the HTML file's path. */
+/** Where the file is: the image's source, the PDF's path or upload, or the document's path. */
 export function previewSource(preview: ArtifactPreview): string {
+  if (preview.kind === 'file') return preview.source.kind === 'session' ? preview.source.path : filePreviewUrl(preview.source);
   return preview.kind === 'image' ? artifactImageSource(preview.src) : preview.kind === 'pdf' ? preview.source : preview.path;
 }
 
 export function PreviewIcon({ preview, size = 13, className }: { preview: ArtifactPreview; size?: number; className?: string }) {
-  const Icon = preview.kind === 'html' ? FileCode2 : preview.kind === 'image' ? ImageIcon : FileText;
+  const fileKind = preview.kind === 'file' ? filePreviewKind(preview.name) : null;
+  const Icon = fileKind === 'video' ? FileVideo : fileKind === 'audio' ? FileAudio : fileKind === 'archive' ? FileArchive : fileKind === 'table' ? Sheet : fileKind === 'file' ? File : preview.kind === 'html' ? FileCode2 : preview.kind === 'image' ? ImageIcon : FileText;
   return <Icon size={size} aria-hidden className={className} />;
 }
 
 /** The file itself, filling the space it's given. */
 export function PreviewBody({ preview }: { preview: ArtifactPreview }) {
+  if (preview.kind === 'file') return <FilePreviewView key={JSON.stringify(preview.source)} source={preview.source} name={preview.name} />;
+  if (preview.kind === 'text') return <TextFileView key={`${preview.sessionId}:${preview.path}`} sessionId={preview.sessionId} path={preview.path} />;
   if (preview.kind === 'html') return <HtmlView key={`${preview.sessionId}:${preview.path}`} source={sessionFolder(preview.sessionId)} path={preview.path} />;
   if (preview.kind === 'image') return <PreviewImage key={preview.src} src={preview.src} alt={preview.alt || preview.name} className="h-full w-full object-contain p-3" />;
   return <PdfView key={preview.src} src={preview.src} name={preview.name} />;
 }
 
-/** Every file Ri holds downloads under its own name: PDFs, images and HTML
+/** Every file Ri holds downloads under its own name: PDFs, images, HTML and text
  * (`previewDownload`). The browser's PDF viewer has its own button too, but
  * not every browser shows that viewer (Android's Chrome gets page images),
  * and this one sits in the same place for every kind. `compact` is the icon
  * alone, for a narrow panel. */
 export function PreviewDownload({ preview, compact = false }: { preview: ArtifactPreview; compact?: boolean }) {
+  const cookieReady = useSessionCookieReady();
   const download = previewDownload(preview);
   if (!download) return null;
-  const link = <a href={download.href} download={download.name} aria-label={compact ? `Download ${download.name}` : undefined}><Download />{!compact && 'Download'}</a>;
+  const link = <a href={download.href} download={download.name} aria-label={compact ? `Download ${download.name}` : undefined} onClick={event => {
+    if (cookieReady || event.defaultPrevented) return;
+    event.preventDefault();
+    void syncSessionCookie().then(() => {
+      const anchor = document.createElement('a');
+      anchor.href = download.href; anchor.download = download.name;
+      anchor.click();
+    });
+  }}><Download />{!compact && 'Download'}</a>;
   if (!compact) return <Button asChild variant="ghost" size="sm" className="shrink-0">{link}</Button>;
   return <Tip label="Download"><Button asChild variant="ghost" size="icon-sm" className="shrink-0">{link}</Button></Tip>;
+}
+
+/** The same copy action in the lightbox and beside-chat header. Embedded images have no path. */
+export function PreviewCopyPath({ preview, compact = false }: { preview: ArtifactPreview; compact?: boolean }) {
+  const source = previewCopySource(preview);
+  if (!source) return null;
+  const button = <Button type="button" variant="ghost" size={compact ? 'icon-sm' : 'sm'} aria-label={source.label} className="shrink-0"
+    onClick={() => {
+      let value = source.value;
+      if (source.label === 'Copy link') {
+        try { value = new URL(value, window.location.href).href; } catch { /* An invalid source is still useful to copy as written. */ }
+      }
+      void copyText(value, source.label === 'Copy path' ? 'Path copied' : 'Link copied');
+    }}><Copy />{!compact && source.label}</Button>;
+  return compact ? <Tip label={source.label}>{button}</Tip> : button;
 }
 
 /** Previous and Next through the other files in the same chat, with where this one is. */

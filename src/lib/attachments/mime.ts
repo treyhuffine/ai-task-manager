@@ -67,6 +67,12 @@ export const ALLOWED_MIMES: ReadonlySet<string> = new Set([
   'audio/x-wav',
   'audio/flac',
   'audio/aac',
+  // Browser media previews. Playback still depends on the file's codecs.
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'video/ogg',
+  'video/x-m4v',
   // Documents
   'application/pdf',
   'text/plain',
@@ -80,9 +86,13 @@ export const ALLOWED_MIMES: ReadonlySet<string> = new Set([
   'application/vnd.ms-excel',            // legacy .xls — same caveat
   'application/vnd.ms-powerpoint',       // legacy .ppt — same caveat
   'application/vnd.oasis.opendocument.text',         // .odt
+  'application/vnd.oasis.opendocument.spreadsheet', // .ods
   'application/vnd.oasis.opendocument.presentation', // .odp
+  'application/rtf',
   // Archives (never unpacked here: the agent gets the file and opens it itself)
   'application/zip',
+  'application/x-tar',
+  'application/gzip',
   // 3D models (the agent gets the file, and a connected app such as a CAD viewer can open it)
   'model/stl',
   'model/3mf',
@@ -109,6 +119,11 @@ const MIME_TO_EXT: Record<string, string> = {
   'audio/x-wav': 'wav',
   'audio/flac': 'flac',
   'audio/aac': 'aac',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+  'video/ogg': 'ogv',
+  'video/x-m4v': 'm4v',
   'application/pdf': 'pdf',
   'text/plain': 'txt',
   'text/markdown': 'md',
@@ -120,8 +135,12 @@ const MIME_TO_EXT: Record<string, string> = {
   'application/vnd.ms-excel': 'xls',
   'application/vnd.ms-powerpoint': 'ppt',
   'application/vnd.oasis.opendocument.text': 'odt',
+  'application/vnd.oasis.opendocument.spreadsheet': 'ods',
   'application/vnd.oasis.opendocument.presentation': 'odp',
+  'application/rtf': 'rtf',
   'application/zip': 'zip',
+  'application/x-tar': 'tar',
+  'application/gzip': 'gz',
   'model/stl': 'stl',
   'model/3mf': '3mf',
   'model/step': 'step',
@@ -133,6 +152,11 @@ const EXT_TO_MIME: Record<string, string> = {
   ...Object.fromEntries(Object.entries(MIME_TO_EXT).map(([mime, ext]) => [ext, mime])),
   // A second extension for the same type.
   stp: 'model/step',
+  // Audio uploads without an explicit MIME keep their historical default.
+  webm: 'audio/webm',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  tgz: 'application/gzip',
 };
 
 const FALLBACK_EXT = 'bin';
@@ -144,6 +168,8 @@ const ZIP_MIME = 'application/zip';
 const MIME_ALIASES: ReadonlyMap<string, string> = new Map([
   ['application/x-zip-compressed', ZIP_MIME],
   ['application/x-zip', ZIP_MIME],
+  ['application/x-gzip', 'application/gzip'],
+  ['application/x-gtar', 'application/x-tar'],
   // 3D models go by many names. Windows reports an STL as `application/vnd.ms-pki.stl`.
   ['application/sla', 'model/stl'],
   ['application/vnd.ms-pki.stl', 'model/stl'],

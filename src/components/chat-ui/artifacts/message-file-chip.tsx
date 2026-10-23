@@ -12,6 +12,7 @@ import { PdfPreviewCard } from './pdf-preview-card';
 import { attachmentPdfUrl } from '@/lib/sessions/reply-pdf';
 import { useConnectedCompanion } from '@/lib/client/mcp-app-panel';
 import { OpenWithApp } from '@/components/mcp-apps/open-with';
+import { FilePreviewLink } from './file-preview-link';
 
 interface MessageFileChipProps {
   attachment: Attachment;
@@ -55,6 +56,9 @@ function FileChip({ attachment, variant = 'inline', fileUrl = attachmentUrl }: M
   }
   if (mimeType === 'application/pdf') {
     return <span className={cn(variant === 'block' && 'block my-1')}><PdfPreviewCard src={attachmentPdfUrl(url, display)} name={display} source={display} /></span>;
+  }
+  if (url === `/api/attachments/${fileName}`) {
+    return <span className={cn(variant === 'block' && 'block my-1')}><FilePreviewLink source={{ kind: 'attachment', fileName, ...(/^(audio|video)\//.test(mimeType) ? { media: mimeType.startsWith('audio/') ? 'audio' as const : 'video' as const } : {}) }} name={display} /></span>;
   }
   if (isText) {
     return <TextExpandChip url={url} display={display} variant={variant} size={size} />;

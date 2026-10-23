@@ -11,9 +11,10 @@
 
 import fs from 'node:fs/promises';
 import { NextRequest } from 'next/server';
-import { agentReplyMentions, getChatSessionWithExecution, getWorkspace } from '@/lib/db/queries';
+import { agentReplyMentions, getChatSessionWithExecution } from '@/lib/db/queries';
 import { findReplyImage } from '@/lib/sessions/reply-images';
 import { imageThumbnail, imageVersion } from '@/lib/attachments/image-thumbnail';
+import { sessionFileLocation } from '@/lib/sessions/file-location';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -23,11 +24,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const session = getChatSessionWithExecution(id);
     if (!session) return Response.json({ error: 'Session not found' }, { status: 404 });
-    const workspace = session.workspaceId ? getWorkspace(session.workspaceId) : null;
-    const elsewhere = session.location && !session.location.isHome ? session.location.name : null;
-
     const image = await findReplyImage(
-      { folder: session.worktreePath ?? workspace?.cwd ?? null, elsewhere },
+      sessionFileLocation(session),
       requested,
       (text) => agentReplyMentions(id, text),
     );

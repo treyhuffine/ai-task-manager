@@ -11,10 +11,11 @@ export function isLocalImageTarget(target: string): boolean {
 }
 
 /** Show natural image references through the authenticated chat image route. */
-export function rewriteLocalImages(markdown: string, sessionId: string | null | undefined): string {
+export function rewriteLocalImages(markdown: string, sessionId: string | null | undefined, relativeTo?: string): string {
   if (!sessionId) return markdown;
   return rewriteLocalFileReferences(markdown, {
     extensions: IMAGE_EXTENSIONS,
+    relativeTo,
     render: (target, label, title) => {
       const alt = markdownLabel(label || target.split('/').at(-1) || target);
       const caption = title ? ` "${title.replace(/[\\"]/g, '\\$&').replace(/\n/g, ' ')}"` : '';

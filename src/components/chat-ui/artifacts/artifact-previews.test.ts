@@ -1,6 +1,6 @@
 import { DOMParser } from 'linkedom';
 import { describe, expect, it } from 'vitest';
-import { artifactSequence, previewDownload, sameArtifact } from './artifact-previews';
+import { artifactSequence, previewCopySource, previewDownload, sameArtifact } from './artifact-previews';
 
 // Two chats on one page, a slideout, and loose cards: Previous and Next stay
 // in the clicked card's own group, in document order.
@@ -55,6 +55,11 @@ describe('sameArtifact', () => {
     expect(sameArtifact(pdf, { ...pdf, name: 'Renamed' })).toBe(true);
     expect(sameArtifact(pdf, { ...pdf, src: '/api/attachments/x.pdf' })).toBe(false);
     expect(sameArtifact(pdf, { kind: 'image', src: pdf.src, name: 'r.pdf', alt: '' })).toBe(false);
+    const text = { kind: 'text', sessionId: 's', path: '/tmp/notes.md' } as const;
+    expect(sameArtifact(text, { ...text })).toBe(true);
+    expect(sameArtifact(text, { ...text, sessionId: 'other' })).toBe(false);
+    expect(sameArtifact(text, { ...text, path: '/tmp/other.md' })).toBe(false);
+    expect(sameArtifact(text, { ...text, kind: 'html' })).toBe(false);
   });
 });
 
@@ -69,6 +74,20 @@ describe('previewDownload', () => {
     expect(previewDownload({ kind: 'image', src: '/api/sessions/s1/reply-image?path=%2Ftmp%2Fshot.png', name: 'shot.png', alt: '' }))
       .toEqual({ href: '/api/sessions/s1/reply-image?path=%2Ftmp%2Fshot.png', name: 'shot.png' });
     expect(previewDownload({ kind: 'image', src: 'data:image/png;base64,AAAA', name: 'image.png', alt: '' })?.href).toBe('data:image/png;base64,AAAA');
+    expect(previewDownload({ kind: 'image', src: 'blob:http://ri.local/image', name: 'image.png', alt: '' })?.href).toBe('blob:http://ri.local/image');
     expect(previewDownload({ kind: 'image', src: 'https://github.com/x/y/raw/shot.png', name: 'shot.png', alt: '' })).toBeNull();
+    expect(previewDownload({ kind: 'text', sessionId: 'chat 1', path: '/tmp/My Notes.md' }))
+      .toEqual({ href: '/api/sessions/chat%201/download?path=%2Ftmp%2FMy%20Notes.md', name: 'My Notes.md' });
   });
+});
+
+it('copies original local paths and uses file links for uploads and web images', () => {
+  expect(previewCopySource({ kind: 'text', sessionId: 's', path: '../notes.md' })).toEqual({ label: 'Copy path', value: '../notes.md' });
+  expect(previewCopySource({ kind: 'html', sessionId: 's', path: '/tmp/report.html' })).toEqual({ label: 'Copy path', value: '/tmp/report.html' });
+  expect(previewCopySource({ kind: 'image', src: '/api/sessions/s/reply-image?path=%2Ftmp%2Fa%20b.png', name: 'a b.png', alt: '' })).toEqual({ label: 'Copy path', value: '/tmp/a b.png' });
+  expect(previewCopySource({ kind: 'pdf', src: '/api/sessions/s/pdf?path=%2Ftmp%2Fa.pdf', name: 'a.pdf', source: '/tmp/a.pdf' })).toEqual({ label: 'Copy path', value: '/tmp/a.pdf' });
+  expect(previewCopySource({ kind: 'pdf', src: '/api/attachments/a.pdf', name: 'A.pdf', source: 'A.pdf' })).toEqual({ label: 'Copy link', value: '/api/attachments/a.pdf' });
+  expect(previewCopySource({ kind: 'pdf', src: 'https://example.com/a.pdf?path=report', name: 'A.pdf', source: 'A.pdf' })).toEqual({ label: 'Copy link', value: 'https://example.com/a.pdf?path=report' });
+  expect(previewCopySource({ kind: 'image', src: 'https://example.com/a.png', name: 'a.png', alt: '' })).toEqual({ label: 'Copy link', value: 'https://example.com/a.png' });
+  expect(previewCopySource({ kind: 'image', src: 'data:image/png;base64,AAAA', name: 'a.png', alt: '' })).toBeNull();
 });

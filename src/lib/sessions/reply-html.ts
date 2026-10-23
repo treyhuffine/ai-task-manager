@@ -31,10 +31,11 @@ export function htmlPreviewTarget(href: string | undefined): string | null {
 }
 
 /** Natural HTML links/paths and visualize markers share one preview action. */
-export function rewriteLocalHtml(markdown: string, sessionId: string | null | undefined): string {
+export function rewriteLocalHtml(markdown: string, sessionId: string | null | undefined, relativeTo?: string): string {
   if (!sessionId) return markdown;
   return rewriteLocalFileReferences(markdown, {
     extensions: 'html?',
+    relativeTo,
     render: htmlPreviewReference,
     marker: {
       pattern: /\uE200visualize\uE202([\s\S]*?)\uE201/g,

@@ -37,10 +37,11 @@ export function pdfPreviewTarget(href: string | undefined): string | null {
 }
 
 /** Natural PDF links and paths in a reply become preview cards. Stored replies are unchanged. */
-export function rewriteLocalPdfs(markdown: string, sessionId: string | null | undefined): string {
+export function rewriteLocalPdfs(markdown: string, sessionId: string | null | undefined, relativeTo?: string): string {
   if (!sessionId) return markdown;
   return rewriteLocalFileReferences(markdown, {
     extensions: 'pdf',
+    relativeTo,
     render: (target, label) => `<${PDF_PREVIEW_TAG} href="${pdfPreviewHref(target)}">${escapeHtml(label || target.split('/').at(-1) || target)}</${PDF_PREVIEW_TAG}>`,
   });
 }

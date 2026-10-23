@@ -1,5 +1,5 @@
 /** Bundled independently for the opaque gallery iframe. Never imported by the app shell. */
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from 'next-themes';
@@ -169,14 +169,14 @@ function FileChips() {
 }
 
 /** A chat with a panel beside it, as Home's second panel or an execution's tools: its files open there as a tab. */
-function FilesBeside() {
+function FilesBeside({ children }: { children?: ReactNode } = {}) {
   const host = 'gallery';
   const [fileShown, setFileShown] = useState(false);
   const file = useBesidePreview(host);
   const shown = fileShown && !!file;
   useBesideRegion(host, { available: true, side: 'right', showing: shown, show: () => setFileShown(true) });
   return <div className="flex h-[580px] overflow-hidden rounded-lg border border-border">
-    <div {...{ [PREVIEW_HOST_ATTRIBUTE]: host }} role="log" aria-label="Chat" className="min-w-0 flex-1 overflow-y-auto p-4"><FileChips /></div>
+    <div {...{ [PREVIEW_HOST_ATTRIBUTE]: host }} role="log" aria-label="Chat" className="min-w-0 flex-1 overflow-y-auto p-4">{children ?? <FileChips />}</div>
     <aside aria-label="Beside the chat" className="flex w-[55%] min-w-0 flex-col border-l border-border">
       <div className="flex h-9 shrink-0 items-stretch border-b border-border">
         <button type="button" aria-pressed={!shown} onClick={() => setFileShown(false)} className={`border-b-2 px-3 text-[11px] font-medium ${shown ? 'border-transparent text-muted-foreground' : 'border-primary text-primary'}`}>Deck</button>
@@ -206,12 +206,31 @@ function ChatMessages() {
   </div>;
 }
 
+function TextFiles() {
+  const links = <AgentResponse sessionId={CHAT_ID} text={config.state === 'errors'
+    ? 'Open [the missing file](missing.md), [a large file](large.md), or [a binary file](binary.txt).'
+    : 'Read [the review document](friday-review.md) or inspect [the example source](example.ts).'} />;
+  return config.state === 'beside' ? <FilesBeside>{links}</FilesBeside> : <section role="log" aria-label="Chat">{links}</section>;
+}
+
+function RichFiles() {
+  const text = config.state === 'media' ? 'Play [the demo](demo.webm), listen to [the voice memo](memo.wav), or try [an unsupported clip](broken.mov).'
+    : config.state === 'office' ? 'Read [the document](review.docx) or [the slide content](review.pptx).'
+      : config.state === 'archives' ? 'Inspect [the ZIP archive](files.zip) or [the TAR archive](files.tgz).'
+        : config.state === 'fallback' ? 'Open [the generated file](output.bin).'
+          : 'Browse [the workbook](budget.xlsx) or [the CSV](data.csv).';
+  const links = <AgentResponse sessionId={CHAT_ID} text={text} />;
+  return config.state === 'beside' ? <FilesBeside>{links}</FilesBeside> : <section role="log" aria-label="Chat">{links}</section>;
+}
+
 function Example() {
   const revision = useSyncExternalStore(runtime.subscribe, runtime.snapshot, runtime.snapshot);
   const example = galleryExample(__GALLERY_EXAMPLE__);
-  const wide = __GALLERY_EXAMPLE__ === 'files' && config.state === 'beside';
+  const wide = (__GALLERY_EXAMPLE__ === 'files' || __GALLERY_EXAMPLE__ === 'text-files' || __GALLERY_EXAMPLE__ === 'file-previews') && config.state === 'beside';
   return <div className={__GALLERY_EXAMPLE__ === 'app-kit' ? '' : wide ? 'p-4 sm:p-6' : 'mx-auto max-w-3xl p-4 sm:p-6'} data-gallery-example={__GALLERY_EXAMPLE__} data-gallery-state={config.state}>
     {__GALLERY_EXAMPLE__ !== 'app-kit' && <p className="mb-5 text-xs leading-relaxed text-muted-foreground">{example.tryThis}</p>}
+    {__GALLERY_EXAMPLE__ === 'text-files' && <TextFiles />}
+    {__GALLERY_EXAMPLE__ === 'file-previews' && <RichFiles />}
     {__GALLERY_EXAMPLE__ === 'links' && <AgentResponse text={config.state === 'paths'
       ? 'Review [the notes](./notes/review.md), [the source](/tmp/example/src/app.tsx), or [README](README.md).'
       : 'Read [the website](https://example.com/guide?view=review#next), visit https://example.com, or use [a longer destination](https://example.com/research/planning/a-longer-document-name?view=review&section=next-steps#decisions).'} />}

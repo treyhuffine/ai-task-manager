@@ -1,6 +1,7 @@
 import { coordinationDeliveryExample, SENDER_CHAT_ID, GALLERY_FORM_SCHEMA, approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS } from './fixtures';
 import type { ChatEventRecord, EmailDraft, WorkResultDecisionRecord } from '@/db/types';
 import type { ChatUiExampleId } from './catalog';
+import { DEMO_AUDIO, DEMO_VIDEO } from '@/test/fixtures/media';
 
 /** An independent in-memory Home for a single sandboxed example. Never calls a real API. */
 export class GalleryRuntime {
@@ -75,7 +76,29 @@ export class GalleryRuntime {
     if (path === 'sessions.deliveriesGet') return {};
     if (path === 'connectedApps.forms.forView') return [];
     if (path === 'sessions.prGet') return { pr: null };
+    if (path === 'filePreviews.read') {
+      const file = String(input.path ?? input.fileName ?? '');
+      const info = { name: file, size: 4096, mime: 'application/octet-stream' };
+      if (file === 'demo.webm') return { ...info, kind: 'video', url: DEMO_VIDEO };
+      if (file === 'memo.wav') return { ...info, kind: 'audio', url: DEMO_AUDIO };
+      if (file === 'broken.mov') return { ...info, kind: 'video', url: 'data:video/quicktime;base64,AAAA' };
+      if (file === 'budget.xlsx' || file === 'data.csv') return { ...info, kind: 'table', sheets: [{ name: 'Inventory', rows: [['Item', 'Quantity'], ['Widget', '5'], ['Bracket', '12']] }, { name: 'Empty', rows: [] }], truncated: false, ...(file.endsWith('.csv') ? { source: 'Item,Quantity\nWidget,5\nBracket,12' } : {}) };
+      if (file === 'review.docx') return { ...info, kind: 'document', html: '<h1>Friday review</h1><p>A little more <strong>focus</strong>.</p><ul><li>Review the dashboard</li><li>Choose the next step</li></ul><table><tr><th>Decision</th><th>Owner</th></tr><tr><td>Ship the preview</td><td>Alex</td></tr></table>' };
+      if (file === 'review.pptx') return { ...info, kind: 'slides', slides: [{ title: 'Slide 1', text: 'Friday review\n\nChoose what ships next.' }, { title: 'Slide 2', text: 'Next steps\n\nReview the dashboard\nAssign follow-ups' }], truncated: false };
+      if (file === 'files.zip' || file === 'files.tgz') return { ...info, kind: 'archive', entries: [{ name: 'docs/', size: 0, directory: true }, { name: 'docs/review.md', size: 1024, directory: false }, { name: 'data.csv', size: 256, directory: false }], truncated: false };
+      if (file === 'gallery-agenda.txt') return { ...info, kind: 'text', content: 'Friday review\n\n1. Look at the new dashboard\n2. Decide what ships next\n3. Assign the follow-ups', markdown: false };
+      return { ...info, kind: 'file', reason: 'No preview is available for this file type. Download it to open it.' };
+    }
     if (path === 'sessions.fileGet' && (input.query as { path?: string })?.path === 'review-plan.html') return { path: 'review-plan.html', content: HTML_DOCUMENT, encoding: 'utf8', mime: 'text/html', size: HTML_DOCUMENT.length, isBinary: false, tooLarge: false };
+    if (path === 'sessions.fileGet' && this.example === 'text-files') {
+      const file = (input.query as { path?: string })?.path;
+      if (file === 'missing.md') throw new Error('File not found: missing.md');
+      if (file === 'large.md') return { path: file, content: null, encoding: 'utf8', mime: 'text/markdown', size: 2 * 1024 * 1024, isBinary: false, tooLarge: true };
+      if (file === 'binary.txt') return { path: file, content: null, encoding: 'base64', mime: 'text/plain', size: 100, isBinary: true, tooLarge: false };
+      const content = file === 'friday-review.md' ? '# Friday review\n\nA little more **focus**.\n\n- Review the dashboard\n- Choose the next step\n\n[The website](https://example.com/review)'
+        : file === 'example.ts' ? 'export const nextStep = "Review the dashboard";\n' : null;
+      if (content !== null) return { path: file, content, encoding: 'utf8', mime: file?.endsWith('.md') ? 'text/markdown' : 'application/javascript', size: content.length, isBinary: false, tooLarge: false };
+    }
     if (path === 'sessions.pendingInputGet') return this.pending;
     if (path === 'sessions.runtimeStatusGet') return { running: this.pending.length > 0, backgroundTasks: false, backgroundTaskIds: [], canStop: true, activeTurnId: null };
     if (path === 'sessions.pendingInputRequestIdPost') {

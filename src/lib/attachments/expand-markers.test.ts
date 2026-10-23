@@ -111,8 +111,8 @@ describe('expandMarkers', () => {
     expect(expanded).toContain('widget,5');
   });
 
-  it('marks a file with no extractor as unreadable', async () => {
+  it('hands video to the harness as a path for its tools', async () => {
     const clip: Attachment = { fileName: 'clip.mp4', originalName: 'clip.mp4', mimeType: 'video/mp4', size: 4, uploadedAt: '2026-10-05T00:00:00.000Z' };
-    expect(await expandMarkers('[[file:clip.mp4]]', [clip])).toBe('<attachment filename="clip.mp4" status="unreadable" />');
+    expect(await expandMarkers('[[file:clip.mp4]]', [clip])).toBe('[[file:clip.mp4]]');
   });
 });

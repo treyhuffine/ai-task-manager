@@ -372,6 +372,25 @@ it.skipIf(!enabled)('downloads every kind of file under its own name, HTML as wr
   } finally { await page.context().close(); }
 }, 60_000);
 
+it.skipIf(!enabled)('copies the original path and offers downloads beside the chat and in the lightbox', async () => {
+  const page = await openPage();
+  try {
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { (window as unknown as { copied: string }).copied = value; } } }));
+    await card(page, 'Open PDF: member-offers.pdf').click();
+    const beside = view(page, 'member-offers.pdf');
+    await beside.getByRole('button', { name: 'Copy path', exact: true }).click();
+    expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe('/tmp/exports/member-offers.pdf');
+    expect(await beside.getByRole('link', { name: 'Download member-offers.pdf', exact: true }).getAttribute('download')).toBe('member-offers.pdf');
+    await beside.getByRole('button', { name: 'Show large', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'member-offers.pdf', exact: true });
+    await dialog.getByRole('button', { name: 'Copy path', exact: true }).click();
+    expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe('/tmp/exports/member-offers.pdf');
+    const [download] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('link', { name: 'Download member-offers.pdf', exact: true }).click()]);
+    expect(download.suggestedFilename()).toBe('member-offers.pdf');
+    expect(fs.readFileSync((await download.path())!).equals(REPORT)).toBe(true);
+  } finally { await page.context().close(); }
+}, 60_000);
+
 it.skipIf(!enabled)('opens large where the chat has no panel beside it', async () => {
   const page = await openPage();
   try {

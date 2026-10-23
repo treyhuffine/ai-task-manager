@@ -375,7 +375,10 @@ export function useSessionTree(id: string | null) {
  * the user is currently looking at; this hook just caches per-path.
  */
 export function useSessionFile(id: string | null, path: string | null) {
-  const scope = useWorktreeScope(id);
+  const { data: session, isPending } = useSession(id);
+  // A chat without an agent folder can still share an explicit file path.
+  // Keep that read in its chat cache. The server checks the shared reference.
+  const scope = id && !isPending ? worktreeScope(session, id) : null;
   return useQuery({
     queryKey: worktreeKey(scope, id, 'file', path),
     queryFn: () => sessionsApi.file(id!, path!),

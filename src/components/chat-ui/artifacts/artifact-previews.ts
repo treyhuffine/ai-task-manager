@@ -1,10 +1,13 @@
 import { htmlDownloadUrl, sessionFolder } from '@/lib/folders/source';
-import { protectedImageUrl } from '@/lib/sessions/artifact-image';
+import { artifactImageSource, protectedImageUrl } from '@/lib/sessions/artifact-image';
 import { pdfDownloadUrl } from '@/lib/sessions/reply-pdf';
+import { filePreviewUrl, type FilePreviewSource } from '@/lib/files/preview-types';
 
 /** What a preview shows, large or beside the chat (`artifact-preview-provider.tsx`). */
 export type ArtifactPreview =
+  | { kind: 'file'; source: FilePreviewSource; name: string }
   | { kind: 'html'; sessionId: string; path: string }
+  | { kind: 'text'; sessionId: string; path: string }
   | { kind: 'image'; src: string; name: string; alt: string }
   /** `src` serves the PDF (`reply-pdf.ts`). `source` is where it is: the path
    * the agent wrote, or the uploaded file's name. */
@@ -15,10 +18,28 @@ export type ArtifactPreview =
  * or an image's own URL when Ri serves it or the reply embeds it. A web
  * image stays the web's, so it has none. */
 export function previewDownload(preview: ArtifactPreview): { href: string; name: string } | null {
+  if (preview.kind === 'file') return { href: filePreviewUrl(preview.source, true, preview.name), name: preview.name };
+  if (preview.kind === 'text') return {
+    href: `/api/sessions/${encodeURIComponent(preview.sessionId)}/download?path=${encodeURIComponent(preview.path)}`,
+    name: preview.path.split('/').at(-1) || preview.path,
+  };
   if (preview.kind === 'pdf') return { href: pdfDownloadUrl(preview.src), name: preview.name };
   if (preview.kind === 'html') return { href: htmlDownloadUrl(sessionFolder(preview.sessionId), preview.path), name: preview.path.split('/').at(-1) || preview.path };
-  if (protectedImageUrl(preview.src) || preview.src.startsWith('data:')) return { href: preview.src, name: preview.name };
+  if (protectedImageUrl(preview.src) || /^(data|blob):/.test(preview.src)) return { href: preview.src, name: preview.name };
   return null;
+}
+
+/** Local artifacts copy the path the agent shared. Uploaded and web files copy their URL. */
+export function previewCopySource(preview: ArtifactPreview): { value: string; label: 'Copy path' | 'Copy link' } | null {
+  if (preview.kind === 'file') return preview.source.kind === 'session' ? { value: preview.source.path, label: 'Copy path' } : { value: filePreviewUrl(preview.source), label: 'Copy link' };
+  if (preview.kind === 'html' || preview.kind === 'text') return { value: preview.path, label: 'Copy path' };
+  if (preview.kind === 'pdf') {
+    const local = /^\/api\/(?:sessions|workspaces)\/[^/]+\/pdf\?/.test(preview.src) && /[?&]path=/.test(preview.src);
+    return { value: local ? preview.source : preview.src, label: local ? 'Copy path' : 'Copy link' };
+  }
+  if (/^(?:data|blob):/.test(preview.src)) return null;
+  const source = artifactImageSource(preview.src);
+  return { value: source, label: source !== preview.src ? 'Copy path' : 'Copy link' };
 }
 
 /** The cards Previous and Next move between, large or beside the chat: the
@@ -54,6 +75,7 @@ export function artifactSequence(trigger: Element, registered: (card: Element) =
 /** Whether two cards open the same thing, to find the open preview's card
  * again after the transcript remounts under the dialog. */
 export function sameArtifact(a: ArtifactPreview, b: ArtifactPreview): boolean {
-  if (a.kind === 'html') return b.kind === 'html' && a.sessionId === b.sessionId && a.path === b.path;
-  return b.kind !== 'html' && b.kind === a.kind && a.src === b.src;
+  if (a.kind === 'file') return b.kind === 'file' && a.source.kind === b.source.kind && (a.source.kind === 'session' && b.source.kind === 'session' ? a.source.sessionId === b.source.sessionId && a.source.path === b.source.path : a.source.kind === 'attachment' && b.source.kind === 'attachment' && a.source.fileName === b.source.fileName);
+  if (a.kind === 'html' || a.kind === 'text') return b.kind === a.kind && a.sessionId === b.sessionId && a.path === b.path;
+  return (b.kind === 'image' || b.kind === 'pdf') && b.kind === a.kind && a.src === b.src;
 }

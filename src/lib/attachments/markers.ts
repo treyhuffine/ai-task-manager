@@ -31,7 +31,7 @@ export function readsNatively(mime: string): boolean {
  * agent gets the file whole, as a path, and unpacks it with its own tools.
  */
 export function isArchive(mime: string): boolean {
-  return mime === 'application/zip';
+  return ['application/zip', 'application/x-tar', 'application/gzip'].includes(mime);
 }
 
 /** A 3D model (STL, 3MF, STEP). No text to extract either: the agent gets the path and reads it with its own tools. */

@@ -10,13 +10,27 @@ import { PDF_PREVIEW_TAG, pdfPreviewTarget, rewriteLocalPdfs, sessionPdfUrl } fr
 import { HtmlPreviewLink } from '@/components/chat-ui/artifacts/html-preview-link';
 import { ImagePreviewCard } from '@/components/chat-ui/artifacts/image-preview-card';
 import { PdfPreviewCard } from '@/components/chat-ui/artifacts/pdf-preview-card';
+import { TEXT_PREVIEW_TAG, rewriteLocalText, textPreviewTarget } from '@/lib/sessions/reply-text';
+import { TextPreviewLink } from '@/components/chat-ui/artifacts/text-preview-link';
+import { FILE_PREVIEW_TAG, filePreviewTarget, rewriteLocalArtifacts } from '@/lib/sessions/reply-artifacts';
+import { FilePreviewLink } from '@/components/chat-ui/artifacts/file-preview-link';
 
-const htmlTags = { [HTML_PREVIEW_TAG]: ['href'], [PDF_PREVIEW_TAG]: ['href'] };
-const literalTags = [HTML_PREVIEW_TAG, PDF_PREVIEW_TAG];
+const htmlTags = { [HTML_PREVIEW_TAG]: ['href'], [PDF_PREVIEW_TAG]: ['href'], [TEXT_PREVIEW_TAG]: ['href'], [FILE_PREVIEW_TAG]: ['href'] };
+const literalTags = [HTML_PREVIEW_TAG, PDF_PREVIEW_TAG, TEXT_PREVIEW_TAG, FILE_PREVIEW_TAG];
 
-export function AgentResponse({ text, sessionId }: { text: string; sessionId?: string }) {
+export function AgentResponse({ text, sessionId, fileBasePath, mode }: { text: string; sessionId?: string; fileBasePath?: string; mode?: 'static' | 'streaming' }) {
   const components = useMemo<Components>(() => ({
+    [FILE_PREVIEW_TAG]: ({ href, children }) => {
+      const path = filePreviewTarget(typeof href === 'string' ? href : undefined);
+      return path && sessionId ? <FilePreviewLink source={{ kind: 'session', sessionId, path }} name={path.split('/').at(-1) || path}>{children as ReactNode}</FilePreviewLink> : <span>{children as ReactNode}</span>;
+    },
     img: ({ src, alt }) => typeof src === 'string' ? <ImagePreviewCard src={src} alt={alt} /> : null,
+    [TEXT_PREVIEW_TAG]: ({ href, children }) => {
+      const path = textPreviewTarget(typeof href === 'string' ? href : undefined);
+      return path && sessionId
+        ? <TextPreviewLink sessionId={sessionId} path={path}>{children as ReactNode}</TextPreviewLink>
+        : <span>{children as ReactNode}</span>;
+    },
     [HTML_PREVIEW_TAG]: ({ href, children }) => {
       const path = htmlPreviewTarget(typeof href === 'string' ? href : undefined);
       return path && sessionId
@@ -32,9 +46,9 @@ export function AgentResponse({ text, sessionId }: { text: string; sessionId?: s
   }), [sessionId]);
   return (
     <EntityAwareText
-      text={rewriteLocalPdfs(rewriteLocalHtml(rewriteLocalImages(text, sessionId), sessionId), sessionId)}
+      text={rewriteLocalArtifacts(rewriteLocalText(rewriteLocalPdfs(rewriteLocalHtml(rewriteLocalImages(text, sessionId, fileBasePath), sessionId, fileBasePath), sessionId, fileBasePath), sessionId, fileBasePath), sessionId, fileBasePath)}
       renderMarkdown={(markdown, key) => (
-        <MessageResponse key={key} components={components} allowedTags={htmlTags} literalTagContent={literalTags} className="text-[12.5px] [&_p]:text-[12.5px] [&_li]:text-[12.5px] [&_code]:text-[11px]">
+        <MessageResponse key={key} mode={mode} components={components} allowedTags={htmlTags} literalTagContent={literalTags} className="text-[12.5px] [&_p]:text-[12.5px] [&_li]:text-[12.5px] [&_code]:text-[11px]">
           {markdown}
         </MessageResponse>
       )}

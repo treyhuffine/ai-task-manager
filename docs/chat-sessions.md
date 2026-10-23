@@ -297,8 +297,9 @@ validates HTTP(S) URLs with the URL parser. Markdown destinations without a
 scheme use HTTPS when they start with `//`, `www.`, or a domain followed by a path.
 Autolinks keep the explicit protocol supplied by the Markdown parser.
 Explicit HTTP(S) links support localhost, IP addresses and ports. Plain
-filenames, relative paths, fragments and other permitted schemes keep the copy/open
-dialog. Prefix a domain-shaped local folder with `./` to make it a path.
+file links use the previews described below when their format is supported and
+the chat has a file source. Other destinations keep the copy/open dialog.
+Prefix a domain-shaped local folder with `./` to make it a path.
 The remark plugin carries local destinations through sanitization as encoded
 path references so copying keeps their original spelling, including `./` and `../`.
 Incomplete links stay inactive, and Markdown's existing URL sanitization still
@@ -306,6 +307,64 @@ runs before rendering. Image, PDF and HTML artifact previews keep their own
 renderers. This changes presentation only, leaving saved and copied replies intact.
 
 ### Attachments (multimodal content)
+
+**Local documents and source files.** Alongside the existing image, PDF and HTML
+cards, Markdown, text, code, configuration and log paths open a read-only preview
+beside the chat or in the large view. Markdown starts rendered and has a Source
+toggle. Other text formats show their source. Links, standalone paths in backticks,
+and explicit paths in prose are recognized. Code blocks stay code, web URLs keep
+opening in a browser tab. Other local files open the file previews below.
+Relative links and images in a rendered document resolve against its directory.
+Source locations such as `app.tsx:12` open their file, and Markdown fragments
+identify the document. Stored replies and copied messages retain the original paths.
+
+Files load only when opened, through the existing tRPC file read and its 1 MiB
+preview cap. Missing, oversized and binary files show a readable explanation.
+Both preview headers offer Copy path and Download. Text downloads stream the
+original bytes through an authenticated download route, so a local file can be
+saved even when it exceeds the display cap. Files on another device retain that
+device's transfer limit. Uploads and web images offer Copy link instead of a
+filesystem path, and embedded images have no path to copy.
+Outside the chat's folder, a text file opens only when a file tool named it or an
+exact parsed reference in that chat shared it. A longer filename or a URL containing
+the path grants no access. Chats without an agent folder can open shared absolute
+paths too. Symlink targets must also be text files. Agent main
+chats resolve relative files in their agent's own folder and on its device, while
+execution chats use their worktree. The same folder and device resolution applies
+to HTML, PDF and image previews.
+
+**Media, tables, Office documents and archives.** The same lightbox and panel
+beside the chat also open video (MP4, WebM, MOV, M4V, OGV), audio (MP3, M4A,
+WAV, OGG, Opus, FLAC, AAC), CSV/TSV and spreadsheet tables (XLSX, XLS, ODS),
+DOCX documents, presentation content (PPTX, ODP), and ZIP/TAR/TAR.GZ archives.
+Extensionless text such as README, LICENSE, Makefile and Dockerfile, dotfiles
+such as .gitignore, and additional source languages use the text reader.
+Unknown formats show their filename, size and a download explanation.
+
+Media has native playback, seeking, fullscreen for video, and a speed selector.
+Nothing autoplays. Unsupported codecs show a readable download fallback. Media
+and downloads stream original bytes with byte ranges, conditional requests and
+HEAD support. They do not inherit the text reader's size limit. Uploads accept
+video too, within the existing upload cap, and keep video paths available to the
+harness's tools instead of replacing their markers with an unreadable notice.
+
+Tables have row and column labels, a sheet picker, empty-sheet states, and a
+Source toggle for CSV/TSV. The preview shows up to 20 sheets, 500 rows and 100
+columns, with an explicit notice when limited. Cell text is bounded and formulas
+are not evaluated. DOCX content renders in a sandboxed frame with scripts and
+external resources disabled. Presentation previews preserve slide boundaries
+and readable text, with a notice to download for the original layout. ODT and
+RTF documents have a text preview. Archives list filenames and sizes without
+extracting their contents to disk. Listings stop at 1,000 entries.
+
+These rich previews load on demand through `filePreviews.read` over tRPC. Parsing
+inputs are capped at 16 MiB, Office ZIP expansion and compressed TAR expansion
+at 64 MiB, and parser failures retain the original download. The authenticated
+session media and download routes use the same exact-reference/file-tool access
+rule as the viewer. Rich parsing is local to Home and its uploaded attachments.
+Files on a connected device retain that device's existing delivery limits and
+are never read from a matching path on Home. Upload previews offer Copy link,
+and local paths offer Copy path, in both placements.
 
 Chat reuses the **same generic attachment system** that tasks, notes, and areas use — files live on disk under `<brain>/attachments/<file_name>` and are referenced by an `Attachment[]` JSON column on the owning entity. No separate `chat_attachments` table.
 

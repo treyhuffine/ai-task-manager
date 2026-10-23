@@ -46,6 +46,8 @@ import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import { OUTCOME_SOURCES } from '@/db/types';
 import { FILE_TOOL_NAMES, fileTargetPath, isSubagentTool } from '@/lib/executions/tool-display';
+import { replyNamesTextFile } from '@/lib/sessions/reply-text';
+import { replyNamesFile } from '@/lib/sessions/reply-artifacts';
 import { activityReasonForEventSource, isActivity, shouldThrottledBump, type ActivityReason } from '@/lib/sessions/activity';
 import type { ReferencePage, ReferenceRow, ReferenceSection } from '@/lib/sessions/contracts';
 import { generateToken, teamAdmissionToken, type GeneratedToken } from '@/lib/auth/tokens';
@@ -10866,6 +10868,28 @@ export function agentReplyMentions(sessionId: string, text: string): boolean {
     .limit(1)
     .get();
   return !!row;
+}
+
+/** A text preview outside the folder needs an exact file reference in this chat. */
+export function agentReplyNamesTextFile(sessionId: string, file: string): boolean {
+  if (!file) return false;
+  // One session's index, early content only. Iterate candidates so a long
+  // chat does not materialize every matching reply before finding the file.
+  const candidates = getRawDb().prepare(`SELECT content FROM chat_events
+    WHERE session_id = ? AND role = 'assistant' AND instr(content, ?) > 0`).iterate(sessionId, file);
+  for (const row of candidates) {
+    if (replyNamesTextFile((row as { content: string }).content, file)) return true;
+  }
+  return false;
+}
+
+/** Exact references for other file formats, bounded by a single session's index. */
+export function agentReplyNamesFile(sessionId: string, file: string): boolean {
+  if (!file) return false;
+  const candidates = getRawDb().prepare(`SELECT content FROM chat_events
+    WHERE session_id = ? AND role = 'assistant' AND instr(content, ?) > 0`).iterate(sessionId, file);
+  for (const row of candidates) if (replyNamesFile((row as { content: string }).content, file)) return true;
+  return false;
 }
 
 /**

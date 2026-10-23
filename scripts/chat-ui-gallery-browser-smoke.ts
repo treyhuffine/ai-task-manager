@@ -193,6 +193,77 @@ async function main() {
       await dialog.getByRole('button', { name: 'Send to chat', exact: true }).click();
       await dialog.waitFor({ state: 'detached' });
     }
+    async function exerciseTextFiles() {
+      let frame = await select('text-files');
+      await frame.getByRole('button', { name: 'Open file: friday-review.md', exact: true }).click();
+      await frame.getByRole('heading', { name: 'Friday review', exact: true }).waitFor();
+      await settleAnimations(frame);
+      assert.equal(await frame.getByRole('dialog').getByRole('button', { name: 'Copy path', exact: true }).count(), 1);
+      assert((await frame.getByRole('link', { name: 'Download friday-review.md', exact: true }).getAttribute('href'))?.includes('/download?path=friday-review.md'));
+      await frame.getByRole('button', { name: 'Source', exact: true }).click();
+      assert((await frame.getByLabel('File source', { exact: true }).innerText()).startsWith('# Friday review'));
+      await frame.getByRole('button', { name: 'Rendered', exact: true }).click();
+      await frame.getByRole('heading', { name: 'Friday review', exact: true }).waitFor();
+      assert.equal(await frame.locator('[contenteditable="true"]').count(), 0, 'Reading a document never edits it');
+      await frame.getByRole('button', { name: 'Next preview', exact: true }).click();
+      assert((await frame.getByLabel('File source', { exact: true }).innerText()).includes('export const nextStep'));
+      await frame.getByRole('button', { name: 'Close', exact: true }).click();
+      frame = await select('text-files', 'errors');
+      for (const [file, message] of [['missing.md', 'File not found: missing.md'], ['large.md', 'This file exceeds the 1 MiB preview limit.'], ['binary.txt', 'This file contains binary data and cannot be shown as text.']]) {
+        await frame.getByRole('button', { name: `Open file: ${file}`, exact: true }).click();
+        await frame.getByText(message, { exact: true }).waitFor();
+        await frame.getByRole('button', { name: 'Close', exact: true }).click();
+      }
+      frame = await select('text-files', 'beside');
+      await frame.getByRole('button', { name: 'Open file: friday-review.md', exact: true }).click();
+      await frame.getByRole('region', { name: 'friday-review.md, beside the chat', exact: true }).waitFor();
+      assert.equal(await frame.getByRole('region', { name: 'friday-review.md, beside the chat', exact: true }).getByRole('button', { name: 'Copy path', exact: true }).count(), 1);
+      assert.equal(await frame.getByRole('link', { name: 'Download friday-review.md', exact: true }).getAttribute('download'), 'friday-review.md');
+      await frame.getByRole('heading', { name: 'Friday review', exact: true }).waitFor();
+      await frame.getByRole('button', { name: 'Show large', exact: true }).click();
+      await frame.getByRole('dialog').getByRole('heading', { name: 'Friday review', exact: true }).waitFor();
+    }
+    async function exerciseRichFiles() {
+      let frame = await select('file-previews', 'media');
+      await frame.getByRole('button', { name: 'Open file: demo.webm', exact: true }).click();
+      await frame.locator('video').waitFor();
+      assert.equal(await frame.locator('video').getAttribute('autoplay'), null);
+      await frame.getByLabel('Playback speed', { exact: true }).selectOption('1.5');
+      assert.equal(await frame.locator('video').evaluate(element => (element as HTMLVideoElement).playbackRate), 1.5);
+      await frame.getByRole('button', { name: 'Next preview', exact: true }).click();
+      await frame.locator('audio').waitFor();
+      await frame.getByRole('button', { name: 'Next preview', exact: true }).click();
+      await frame.getByText('This browser cannot play this file or the file is unavailable. Download it to open it in another player.', { exact: true }).waitFor();
+      frame = await select('file-previews', 'tables');
+      await frame.getByRole('button', { name: 'Open file: budget.xlsx', exact: true }).click();
+      await frame.getByRole('cell', { name: 'Widget', exact: true }).waitFor();
+      await frame.getByLabel('Sheet', { exact: true }).selectOption('1');
+      await frame.getByText('This sheet is empty.', { exact: true }).waitFor();
+      await frame.getByRole('button', { name: 'Next preview', exact: true }).click();
+      await frame.getByRole('button', { name: 'Source', exact: true }).click();
+      assert((await frame.getByLabel('File source', { exact: true }).innerText()).includes('Item,Quantity'));
+      frame = await select('file-previews', 'office');
+      await frame.getByRole('button', { name: 'Open file: review.docx', exact: true }).click();
+      const doc = await (await frame.getByTitle('Document preview').elementHandle())!.contentFrame(); assert(doc);
+      await doc.getByRole('heading', { name: 'Friday review', exact: true }).waitFor();
+      await frame.getByRole('button', { name: 'Next preview', exact: true }).click();
+      await frame.getByRole('region', { name: 'Slide 2', exact: true }).waitFor();
+      frame = await select('file-previews', 'archives');
+      await frame.getByRole('button', { name: 'Open file: files.zip', exact: true }).click();
+      await frame.getByRole('cell', { name: 'docs/review.md', exact: true }).waitFor();
+      frame = await select('file-previews', 'fallback');
+      await frame.getByRole('button', { name: 'Open file: output.bin', exact: true }).click();
+      await frame.getByText('No preview is available for this file type. Download it to open it.', { exact: true }).waitFor();
+      assert.equal(await frame.getByRole('button', { name: 'Copy path', exact: true }).count(), 1);
+      assert.equal(await frame.getByRole('link', { name: 'Download output.bin', exact: true }).getAttribute('download'), 'output.bin');
+      frame = await select('file-previews', 'beside');
+      await frame.getByRole('button', { name: 'Open file: budget.xlsx', exact: true }).click();
+      const beside = frame.getByRole('region', { name: 'budget.xlsx, beside the chat', exact: true });
+      await beside.getByRole('cell', { name: 'Widget', exact: true }).waitFor();
+      assert.equal(await beside.getByRole('button', { name: 'Copy path', exact: true }).count(), 1);
+      await beside.getByRole('button', { name: 'Show large', exact: true }).click();
+      await frame.getByRole('dialog').getByRole('cell', { name: 'Widget', exact: true }).waitFor();
+    }
     for (const example of CHAT_UI_EXAMPLES.filter(example => !focusedExample || example.id === focusedExample)) {
       for (const state of example.states) {
         const frame = await select(example.id, state.id);
@@ -208,6 +279,8 @@ async function main() {
         await page.setViewportSize({ width: 390, height: 1050 });
         await exerciseCoordination();
       }
+      if (focusedExample === 'text-files') await exerciseTextFiles();
+      if (focusedExample === 'file-previews') await exerciseRichFiles();
       const focusedStates: readonly { id: string }[] = CHAT_UI_EXAMPLES.find(example => example.id === focusedExample)!.states;
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 1050 });
@@ -218,9 +291,21 @@ async function main() {
             const active = await (await page.locator('iframe').first().elementHandle())!.contentFrame(); assert(active);
             await active.locator(`html[data-theme="${theme}"] [data-gallery-example]`).waitFor();
             if (focusedExample === 'html') await htmlCardReady(active);
+            if (focusedExample === 'text-files') {
+              await active.getByRole('button', { name: `Open file: ${exampleState.id === 'errors' ? 'missing.md' : 'friday-review.md'}`, exact: true }).click();
+              await active.getByText(exampleState.id === 'errors' ? 'File not found: missing.md' : 'Friday review', { exact: true }).waitFor();
+            }
+            if (focusedExample === 'file-previews') {
+              const file = ({ media: 'demo.webm', tables: 'budget.xlsx', office: 'review.docx', archives: 'files.zip', fallback: 'output.bin', beside: 'budget.xlsx' } as Record<string, string>)[exampleState.id];
+              await active.getByRole('button', { name: `Open file: ${file}`, exact: true }).click();
+              if (exampleState.id === 'office') await active.getByTitle('Document preview').waitFor();
+              else if (exampleState.id === 'media') await active.locator('video').waitFor();
+              else if (exampleState.id === 'fallback') await active.getByText('No preview is available for this file type. Download it to open it.', { exact: true }).waitFor();
+              else await active.getByRole('table').waitFor();
+            }
             assert.equal(await page.locator('body').evaluate(body => body.scrollWidth > innerWidth + 1), false, `Parent fits at ${width}`);
             assert.equal(await active.locator('body').evaluate(body => body.scrollWidth > innerWidth + 1), false, `${exampleState.id} fits at ${width}`);
-            await page.screenshot({ path: path.join(output, `${focusedExample}-${exampleState.id}-${width}-${theme}.png`), fullPage: true });
+            await page.screenshot({ path: path.join(output, `${focusedExample}-${exampleState.id}-${width}-${theme}.png`), fullPage: true, animations: 'disabled' });
           }
         }
       }
@@ -284,6 +369,7 @@ async function main() {
     await frame.getByRole('button', { name: /friday-agenda/ }).click();
     await frame.getByText('1. Look at the new dashboard', { exact: false }).waitFor();
     await frame.getByRole('button', { name: 'Open PDF: friday-review.pdf' }).scrollIntoViewIfNeeded();
+    await frame.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
     await frame.getByRole('img', { name: 'First page of friday-review.pdf' }).waitFor();
     await frame.getByRole('button', { name: 'Open PDF: friday-review.pdf' }).click();
     await frame.getByRole('img', { name: 'Page 1 of friday-review.pdf' }).waitFor();

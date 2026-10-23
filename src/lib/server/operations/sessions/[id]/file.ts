@@ -13,6 +13,7 @@ import { sessionFileTarget } from '@/lib/sessions/session-file-target';
 import { mapFileError, openSessionWorktree } from "@/lib/workspaces/session-files";
 import { deleteWorkspacePath, writeWorkspaceFile } from '@/lib/workspaces/write-file';
 import { z as rpcZ } from 'zod/v4';
+import { agentFolderAnswer } from '@/lib/workspaces/agent-folder-operations';
 
 /**
  * Single-file CRUD for the execution view's file viewer.
@@ -59,6 +60,9 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
     // An execution on a connected device: its worker answers.
     const remote = await readAnswerOnOwner(id, { kind: 'file', path: target.path, base: wantBase });
     if (remote) return answerResult(remote, fileResponseSchema);
+    if (!session.executionId && session.workspaceId) {
+      return answerResult(await agentFolderAnswer(session.workspaceId, { kind: 'file', path: target.path, base: wantBase }), fileResponseSchema);
+    }
     if (!session.workspaceId || !session.worktreePath) {
       return reply({ error: 'Workspace has no worktree' }, { status: 404 });
     }

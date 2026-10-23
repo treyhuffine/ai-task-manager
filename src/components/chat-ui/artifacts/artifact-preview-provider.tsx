@@ -6,7 +6,7 @@ import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { readPreviewPlace, usePreviewPlace, writePreviewPlace } from '@/lib/client/preview-place';
 import { type ArtifactPreview } from './artifact-previews';
 import { ArtifactPreviewStore, type BesideRegion, type CardMode, type OpenPreview } from './artifact-preview-store';
-import { PlaceSwitch, PreviewBody, PreviewDownload, PreviewSteps, previewName, previewSource } from './artifact-preview-parts';
+import { PlaceSwitch, PreviewBody, PreviewCopyPath, PreviewDownload, PreviewSteps, previewName, previewSource } from './artifact-preview-parts';
 
 export type { ArtifactPreview } from './artifact-previews';
 export type { OpenPreview } from './artifact-preview-store';
@@ -39,7 +39,7 @@ export function ArtifactPreviewProvider({ children }: { children: ReactNode }) {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       const delta = matchesHotkey(event, HOTKEYS.previewNext) ? 1 : matchesHotkey(event, HOTKEYS.previewPrevious) ? -1 : 0;
-      if (!delta || (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])'))) return;
+      if (!delta || (event.target instanceof Element && event.target.closest('input, textarea, select, audio, video, pre, [contenteditable]:not([contenteditable="false"])'))) return;
       event.preventDefault();
       store.step('dialog', delta);
     };
@@ -62,13 +62,14 @@ export function ArtifactPreviewProvider({ children }: { children: ReactNode }) {
             if (store.dialogReturn?.isConnected) store.dialogReturn.focus();
           }}
         >
-          <div className="flex min-w-0 shrink-0 items-center gap-3 border-b border-border px-4 py-3 pr-14">
-            <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-3 pr-14">
+            <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
               <DialogTitle className="w-fit max-w-full truncate text-sm">{preview && previewName(preview)}</DialogTitle>
               {/* Every kind shows where the file is, so the header keeps its height from one to the next. */}
               <DialogDescription className="mt-1 truncate font-mono text-[11px] select-text">{preview && previewSource(preview)}</DialogDescription>
             </div>
-            {preview && <PreviewDownload preview={preview} />}
+            {preview && <PreviewCopyPath preview={preview} compact />}
+            {preview && <PreviewDownload preview={preview} compact />}
             <PreviewSteps index={index} count={count} onStep={delta => store.step('dialog', delta)} />
             {besideSide && <PlaceSwitch place="large" side={besideSide} onMove={() => store.toBeside()} />}
           </div>

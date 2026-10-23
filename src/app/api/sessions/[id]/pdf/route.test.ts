@@ -49,6 +49,14 @@ async function setup() {
   return { q, folder, outside, execution, session, reply, get };
 }
 
+it('opens PDFs in the agent own folder from its main chat', async () => {
+  const { q, session, get } = await setup();
+  const main = q.createChatSession({ workspaceId: session.workspaceId, harness: 'claude', type: 'orchestration' });
+  const pdf = await get('docs/spec.pdf', {}, main.id);
+  expect(pdf.status).toBe(200);
+  expect(pdf.body.equals(REPORT)).toBe(true);
+});
+
 it('serves a PDF the agent shared in a reply: bytes, thumbnail and download', async () => {
   const { outside, session, reply, get } = await setup();
   const report = path.join(outside, 'member-offers.pdf');

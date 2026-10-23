@@ -15,6 +15,8 @@ paths, 13 core entity paths and 41 explicit protocol boundaries (the 41st,
 document streamed into a preview iframe. So did `/sessions/[id]/pdf` and
 `/workspaces/[id]/pdf`: a PDF's bytes with byte ranges for the browser's
 viewer, a download, and page images.
+`/sessions/[id]/media` and `/sessions/[id]/download` stream original file bytes
+for native playback and saving. Rich preview metadata uses `filePreviews.read`.
 
 ## Architecture
 

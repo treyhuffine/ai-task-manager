@@ -25,6 +25,7 @@ import {
 } from '@/lib/sessions/html-preview-response';
 import { sessionFileTarget } from '@/lib/sessions/session-file-target';
 import { sanitizeRelPath } from '@/lib/workspaces/read-file';
+import { agentFolderAnswer } from '@/lib/workspaces/agent-folder-operations';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const theme = htmlPreviewTheme(request.nextUrl.searchParams.get('theme'));
@@ -47,11 +48,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // An execution on a connected device: its worker reads the file.
     const remote = await readAnswerOnOwner(id, { kind: 'file', path: target.path, base: false });
     if (remote) return htmlAnswerPreviewResponse(request, remote, theme, session.location?.name ?? 'its device', download);
+    if (target.elsewhere && session.workspaceId && !session.executionId) {
+      return htmlAnswerPreviewResponse(request, await agentFolderAnswer(session.workspaceId, { kind: 'file', path: target.path, base: false }), theme, target.elsewhere, download);
+    }
 
-    if (!session.worktreePath) return htmlPreviewErrorResponse(404, 'This chat has no folder to open files from.', theme);
+    if (!target.root) return htmlPreviewErrorResponse(404, 'This chat has no folder to open files from.', theme);
     const relative = sanitizeRelPath(target.path);
     if (!relative) return htmlPreviewErrorResponse(400, `Invalid path: ${requested}`, theme);
-    return await htmlFilePreviewResponse(request, path.join(session.worktreePath, relative), theme, download);
+    return await htmlFilePreviewResponse(request, path.join(/* turbopackIgnore: true */ target.root, relative), theme, download);
   } catch (err) {
     console.error('[GET /api/sessions/:id/html]', err);
     return htmlPreviewErrorResponse(500, 'This preview could not be loaded.', theme);

@@ -35,13 +35,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     // A connected device sends the file viewer bounded text and images, not
     // a PDF's bytes or pages.
-    if (session.location && !session.location.isHome) {
-      return pdfError(409, `This PDF is on ${session.location.name}. PDFs on another device don't preview here yet.`);
+    if (target.elsewhere) {
+      return pdfError(409, `This PDF is on ${target.elsewhere}. PDFs on another device don't preview here yet.`);
     }
-    if (!session.worktreePath) return pdfError(404, 'This chat has no folder to open files from.');
+    if (!target.root) return pdfError(404, 'This chat has no folder to open files from.');
     const relative = sanitizeRelPath(target.path);
     if (!relative) return pdfError(400, `Invalid path: ${requested}`);
-    return await pdfResponse(request, path.join(session.worktreePath, relative), path.basename(relative));
+    return await pdfResponse(request, path.join(/* turbopackIgnore: true */ target.root, relative), path.basename(relative));
   } catch (err) {
     console.error('[GET /api/sessions/:id/pdf]', err);
     return pdfError(500, 'This PDF could not be opened.');

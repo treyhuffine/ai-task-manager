@@ -42,21 +42,44 @@ export function markdownLabel(label: string): string {
   return label.replace(/[\\\[\]]/g, '\\$&').replace(/\n/g, ' ');
 }
 
+/** A document's relative links refer to its own directory, not to the chat's root. */
+export function resolveFileReference(target: string, relativeTo?: string): string {
+  if (!relativeTo || /^(?:[a-z][a-z0-9+.-]*:|\/|~\/|#)/i.test(target)) return target;
+  if (/^file:\/\//i.test(relativeTo)) return new URL(target, relativeTo).href;
+  const directory = relativeTo.slice(0, relativeTo.lastIndexOf('/') + 1);
+  const absolute = directory.startsWith('/');
+  const parts: string[] = [];
+  for (const part of `${directory}${target}`.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..' && parts.length && parts.at(-1) !== '..' && parts.at(-1) !== '~') parts.pop();
+    else if (part !== '..' || !absolute) parts.push(part);
+  }
+  return `${absolute ? '/' : ''}${parts.join('/')}`;
+}
+
 interface ReferenceOptions {
   /** A trusted extension pattern, never user input. */
   extensions: string;
   render: (target: string, label?: string | null, title?: string | null) => string;
+  /** A format may accept conventional suffixes such as source.ts:12. */
+  matches?: (target: string) => boolean;
+  relativeTo?: string;
+  basenames?: string;
+  anyFile?: boolean;
   /** Non-Markdown artifact references, such as the visualize output marker. */
   marker?: { pattern: RegExp; target: (match: RegExpMatchArray) => string | null };
 }
 
 export function rewriteLocalFileReferences(markdown: string, options: ReferenceOptions): string {
-  const { extensions, render, marker } = options;
-  if (!new RegExp(`\\.(?:${extensions})\\b`, 'i').test(markdown)) return markdown;
-  const ext = `\\.(?:${extensions})`;
+  const { extensions, marker } = options;
+  const render: ReferenceOptions['render'] = (target, label, title) => options.render(resolveFileReference(target, options.relativeTo), label, title);
+  if (!options.anyFile && !new RegExp(`\\.(?:${extensions})\\b${options.basenames ? `|\\b(?:${options.basenames})\\b` : ''}`, 'i').test(markdown)) return markdown;
+  const ext = options.anyFile ? '' : `(?:\\.(?:${extensions})${options.basenames ? `|(?:${options.basenames})` : ''})`;
   const quotedPath = new RegExp(String.raw`"(${PATH_PREFIX}[^"\n]*?${ext})"|'(${PATH_PREFIX}[^'\n]*?${ext})'`, 'gi');
-  const barePath = new RegExp(String.raw`(^|[\s("'<>])(${PATH_PREFIX}[^\s"'\x60<>\[\]{}]*?${ext})(?![\w/]|\.[\w])`, 'gi');
-  const matchesTarget = (target: string) => isLocalFileTarget(target, extensions);
+  const barePath = options.anyFile
+    ? new RegExp(String.raw`(^|[\s("'<>])(${PATH_PREFIX}[^\s"'\x60<>\[\]{}]+)`, 'gi')
+    : new RegExp(String.raw`(^|[\s("'<>])(${PATH_PREFIX}[^\s"'\x60<>\[\]{}]*?${ext})(?![\w/]|\.[\w])`, 'gi');
+  const matchesTarget = options.matches ?? ((target: string) => isLocalFileTarget(target, extensions));
   const tree = fromMarkdown(markdown);
   const definitions = new Map<string, Definition>();
   const replacements: Replacement[] = [];
@@ -125,7 +148,7 @@ export function rewriteLocalFileReferences(markdown: string, options: ReferenceO
         paths.push({ start: at, end: until, text: render(target) });
       }
       for (const match of source.matchAll(barePath)) {
-        const target = match[2];
+        const target = options.anyFile ? match[2].replace(/[.,;:!?\)]+$/, '') : match[2];
         if (!matchesTarget(target)) continue;
         const at = start + match.index + match[1].length;
         if (markerRanges.some(range => at < range.end && at + target.length > range.start)) continue;

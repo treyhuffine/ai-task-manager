@@ -151,6 +151,13 @@ describe('resolveMime', () => {
 });
 
 describe('isAllowedMime', () => {
+  it('accepts browser video, OpenDocument sheets and TAR archives', () => {
+    for (const [name, mime] of [['clip.mp4', 'video/mp4'], ['clip.mov', 'video/quicktime'], ['clip.ogv', 'video/ogg'], ['budget.ods', 'application/vnd.oasis.opendocument.spreadsheet'], ['files.tar', 'application/x-tar'], ['files.tgz', 'application/gzip']] as const) {
+      expect(resolveMime('', name)).toBe(mime); expect(isAllowedMime(mime)).toBe(true);
+    }
+    expect(resolveMime('', 'memo.webm')).toBe('audio/webm');
+    expect(resolveMime('video/webm', 'demo.webm')).toBe('video/webm');
+  });
   it('accepts common images, audio, documents', () => {
     expect(isAllowedMime('image/png')).toBe(true);
     expect(isAllowedMime('audio/webm')).toBe(true);

@@ -44,7 +44,7 @@ export async function expandMarkers(content: string, attachments: Attachment[]):
     const end = start + m[0].length;
     const fileName = m[1]!;
     const a = map.get(fileName);
-    if (!a || readsNatively(a.mimeType) || isModel(a.mimeType)) {
+    if (!a || readsNatively(a.mimeType) || isModel(a.mimeType) || a.mimeType.startsWith('video/')) {
       matches.push({ start, end, replacement: m[0] });
       continue;
     }

@@ -43,7 +43,7 @@ export async function buildChatUiGallery() {
       } }],
     });
     const script = bundle.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
-    const csp = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; frame-src 'self' about: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'";
+    const csp = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; frame-src 'self' about: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'";
     const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${csp}"><title>Chat UI gallery example</title><style>${css}</style><style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--background);color:var(--foreground)}#root{min-width:0}img{max-width:100%}</style></head><body><main id="root"></main><script>${script}</script></body></html>`;
     await fs.writeFile(path.join(outputDir, `${example.id}.html`), html);
     files.push({ name: example.id, bytes: Buffer.byteLength(html) });
