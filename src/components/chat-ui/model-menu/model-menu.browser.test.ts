@@ -51,7 +51,7 @@ beforeAll(async () => {
               <output hidden aria-label="Launch selection">{JSON.stringify(launch)}</output>
             </DialogPrimitive.Content>
           </DialogPrimitive.Root> : <>
-            <ComposerProviderMenu open={open} onOpenChange={setOpen} currentProvider="codex" model={model} fallbackLabel={model === 'gpt-6.1-sol' ? '6.1 Sol' : '6 Astra'} effort={effort} serviceTier={speed} onSelectSpeed={setSpeed} onSelectEffort={setEffort} onSelectVariant={()=>{}} onSelectModel={setModel} onSwitchProvider={setSwitched} canChangeModel={!params.has('busy')} selectionDisabled={params.has('busy')} />
+            <ComposerProviderMenu open={open} onOpenChange={setOpen} currentProvider="codex" model={model} fallbackLabel={model === 'gpt-6.1-sol' ? '6.1 Sol' : '6 Astra'} effort={effort} serviceTier={speed} onSelectSpeed={setSpeed} onSelectEffort={setEffort} onSelectVariant={()=>{}} onSelectModel={setModel} onSwitchProvider={setSwitched} canChangeModel={!params.has('busy')} isEmpty={params.has('empty')} switching={params.has('switching')} selectionDisabled={params.has('busy')} />
             <output hidden aria-label="Speed selection">{speed}</output>
             <output hidden aria-label="Selection">{model + ':' + effort}</output>
             <output hidden aria-label="Switched">{JSON.stringify(switched)}</output>
@@ -317,6 +317,60 @@ it.skipIf(!enabled)(
         )
         .toBe('false');
       expect(await page.getByRole('combobox').isVisible()).toBe(true);
+    } finally {
+      await page.close();
+    }
+  },
+);
+
+it.skipIf(!enabled)(
+  'switches an empty chat immediately and preserves destination settings',
+  async () => {
+    const page = await openPage('?empty&speed');
+    try {
+      await page.evaluate(() => {
+        localStorage.setItem('ri.agent.effort.v1', JSON.stringify({ claude: 'max' }));
+        localStorage.setItem('ri.agent.speed.v1', JSON.stringify({ claude: 'fast' }));
+      });
+      await openMenu(page);
+      await page.getByRole('option', { name: 'Opus, new chat' }).click();
+      await expect.poll(async () => JSON.parse((await page.getByLabel('Switched').textContent())!))
+        .toEqual({ harness: 'claude', model: 'opus', effort: 'max', serviceTier: 'fast' });
+      expect(await page.getByText('Switch to Claude Code?').count()).toBe(0);
+      expect(await page.getByRole('button', { name: 'Start new chat', exact: true }).count()).toBe(0);
+      await page.getByRole('combobox').waitFor({ state: 'hidden' });
+      expect(await page.getByLabel('Selection', { exact: true }).textContent()).toBe('gpt-6.1-sol:high');
+    } finally {
+      await page.close();
+    }
+  },
+);
+
+it.skipIf(!enabled)(
+  'switches an empty chat from an expanded provider model list',
+  async () => {
+    const page = await openPage('?empty');
+    try {
+      await openMenu(page);
+      await page.getByRole('button', { name: /More Claude Code models/ }).click();
+      await page.getByRole('option', { name: 'Sonnet, new chat' }).click();
+      await expect.poll(async () => JSON.parse((await page.getByLabel('Switched').textContent())!))
+        .toEqual({ harness: 'claude', model: 'sonnet', effort: 'medium' });
+      expect(await page.getByRole('button', { name: 'Start new chat', exact: true }).count()).toBe(0);
+      await page.getByRole('combobox').waitFor({ state: 'hidden' });
+    } finally {
+      await page.close();
+    }
+  },
+);
+
+it.skipIf(!enabled)(
+  'prevents duplicate provider switches while the new chat is being created',
+  async () => {
+    const page = await openPage('?empty&switching');
+    try {
+      expect(await page.getByRole('button', { name: /Model and settings:/ }).isDisabled()).toBe(true);
+      expect(await page.getByLabel('Switched').textContent()).toBe('null');
     } finally {
       await page.close();
     }

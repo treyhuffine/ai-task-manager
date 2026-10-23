@@ -791,6 +791,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     } : undefined}
                     currentProviderOnly={!onSwitchProvider}
                     canChangeModel={canChangeModel && !isRunning}
+                    isEmpty={sessionEvents?.length === 0 && !isRunning && !sending}
                     switching={switchingProvider}
                     disabled={updateSession.isPending}
                     selectionDisabled={selectionControlsDisabled}

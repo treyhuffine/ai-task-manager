@@ -135,6 +135,10 @@ stay local to the example.
 Presentation lives in `src/components/chat-ui/model-menu/`. Saved visible
 model reads are composed by `src/components/settings/visible-model-options.tsx`.
 Chat switching stays in `src/components/executions/composer-provider-menu.tsx`.
+Choosing another provider starts a fresh chat immediately when the current
+transcript has loaded with no events and no send or turn is in flight. Chats
+with history, or whose transcript is still loading, keep the confirmation.
+Both paths preserve the selected model and the destination provider's settings.
 
 Run `pnpm --filter @ri/app-kit build` before typechecking or building gallery
 artifacts in a fresh worktree. Run `pnpm gallery:build`, then:

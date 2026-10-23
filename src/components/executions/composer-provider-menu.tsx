@@ -54,6 +54,8 @@ interface ComposerProviderMenuProps {
   }) => void;
   /** False when this harness requires a fresh chat for model changes. */
   canChangeModel?: boolean;
+  /** True only after the transcript loads empty and no turn is in flight. */
+  isEmpty?: boolean;
   /** A provider switch (new chat) is in flight. */
   switching?: boolean;
   disabled?: boolean;
@@ -74,10 +76,9 @@ interface ComposerProviderMenuProps {
  * The composer's searchable menu uses the saved visible models from connected
  * harnesses, with effort and variants in the same panel. Picking a model in the current provider pins it on this
  * session immediately. Picking a model in a *different* provider can't change
- * this session mid-stream (the agents can't resume each other), so the list is
- * REPLACED by a focused confirm (provider icon + explanation + Start new chat /
- * Back) that starts a **fresh chat** on that provider — an unmissable takeover
- * rather than a CTA appended below a scrolling list. Other-provider groups are
+ * this session mid-stream (the agents can't resume each other). Empty chats
+ * switch immediately. Otherwise the list is replaced by a focused confirm
+ * (provider icon + explanation + Start new chat / Back). Other-provider groups are
  * flagged "new chat" in the list so the switch is expected before the click.
  * Settings owns the full catalog, visibility controls and connection setup.
  */
@@ -90,6 +91,7 @@ export function ComposerProviderMenu({
   onSelectModel,
   onSwitchProvider,
   canChangeModel = true,
+  isEmpty = false,
   switching,
   disabled,
   variant,
@@ -110,11 +112,29 @@ export function ComposerProviderMenu({
   const speedOptions = serviceTierOptions(currentModel);
   const effortLabel =
     efforts.find((option) => option.id === effort)?.label ?? effort;
-  const modelSelectionDisabled = disabled || (selectionDisabled && !onSwitchProvider);
+  const modelSelectionDisabled = disabled || switching || (selectionDisabled && !onSwitchProvider);
 
   const reset = (next: boolean) => {
     if (!next) setPending(null);
     onOpenChange(next);
+  };
+
+  const switchProvider = (harness: ProviderId, modelOption: ModelOption) => {
+    // Restore the destination provider's settings on both immediate and
+    // confirmed switches, validated against the selected model.
+    const effort = harnessSupportsEffort(harness)
+      ? explicitEffortForModel(harness, modelOption, readProviderEffort(harness))
+      : null;
+    const variant = explicitVariantForModel(modelOption, null);
+    const serviceTier = serviceTierForModel(modelOption, readProviderSpeed(harness));
+    onSwitchProvider?.({
+      harness,
+      model: modelOption.id,
+      ...(variant ? { variant } : {}),
+      ...(effort ? { effort } : {}),
+      ...(serviceTier ? { serviceTier } : {}),
+    });
+    reset(false);
   };
 
   const handlePick = (harness: ProviderId, modelOption: ModelOption) => {
@@ -122,6 +142,8 @@ export function ComposerProviderMenu({
     if (harness === currentProvider && (canChangeModel || !onSwitchProvider)) {
       onSelectModel(modelOption.id);
       reset(false);
+    } else if (isEmpty && harness !== currentProvider && onSwitchProvider) {
+      switchProvider(harness, modelOption);
     } else {
       // Cross-provider: stage it; confirming starts a fresh chat.
       setPending({ harness, model: modelOption.id });
@@ -148,7 +170,7 @@ export function ComposerProviderMenu({
           <button
             type="button"
             aria-label={`Model and settings: ${fallbackLabel}${effortLabel ? `, ${effortLabel} effort` : ''}`}
-            disabled={disabled}
+            disabled={disabled || switching}
             className={cn(
               'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors',
               'border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground',
@@ -194,28 +216,7 @@ export function ComposerProviderMenu({
                     id: pending.model,
                     label: pending.model,
                   };
-                  const harnessKey = pending.harness;
-                  const effort = harnessSupportsEffort(harnessKey)
-                    ? // Remembered effort for the DESTINATION provider, validated
-                      // against the picked model. Passing null here reset you to
-                      // the model's default on every switch, which is what made
-                      // provider round-trips lose your setting.
-                      explicitEffortForModel(
-                        harnessKey,
-                        modelOption,
-                        readProviderEffort(pending.harness),
-                      )
-                    : null;
-                  onSwitchProvider?.({
-                    ...pending,
-                    ...(explicitVariantForModel(modelOption, null)
-                      ? { variant: explicitVariantForModel(modelOption, null)! }
-                      : {}),
-                    ...(effort ? { effort } : {}),
-                    ...(serviceTierForModel(modelOption, readProviderSpeed(pending.harness))
-                      ? { serviceTier: serviceTierForModel(modelOption, readProviderSpeed(pending.harness))! } : {}),
-                  });
-                  reset(false);
+                  switchProvider(pending.harness, modelOption);
                 }}
                 disabled={switching}
                 className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
