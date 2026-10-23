@@ -112,7 +112,7 @@ export class GalleryRuntime {
       const label = id === SENDER_CHAT_ID
         ? this.state === 'long' ? 'Finish bounded full-date GEX runner and dated RUT input verification before the production handoff' : 'Prepare the runner handoff'
         : 'Review date handling';
-      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: ['chat-messages', 'html'].includes(this.example) ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : this.example === 'coordination' && id === SENDER_CHAT_ID ? 'Review date handling' : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
+      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: ['chat-messages', 'html'].includes(this.example) ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : this.example === 'coordination' && id === SENDER_CHAT_ID ? 'Review date handling across every market calendar before the next scheduled run and confirm all source dates against the bounded historical runner' : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
     }
     if (path === 'workspaces.get') return { id: RECORD_ID, name: 'Research', status: 'active' };
     if (path === 'userState.list') return { orchestratorName: 'Ri', defaultHarness:'claude', defaultModel:'example-claude', defaultEffort:'medium' };

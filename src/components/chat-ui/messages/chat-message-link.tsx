@@ -33,11 +33,11 @@ export function ChatMessageLink({ sessionId, eventId, label, direction, preview,
   const view = executionView(sessionId, eventId, true);
   const className = cn(
     'group/chat-link flex min-w-0 text-left transition-colors',
-    compact ? 'max-w-full items-center gap-1 text-[11px]' : 'items-start gap-2.5 px-3 py-2.5',
+    compact ? 'max-w-full items-center gap-1 text-[11px] @max-[420px]/composer:grid @max-[420px]/composer:grid-cols-[minmax(0,1fr)_auto] @max-[420px]/composer:gap-y-0' : 'items-start gap-2.5 px-3 py-2.5',
     !compact && (header ? 'rounded-t-xl' : 'rounded-lg border border-border bg-muted/15'),
     !unavailable && 'cursor-pointer hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
   );
-  const content = compact ? <><span className="shrink-0 text-muted-foreground">{label}</span><span className="truncate underline underline-offset-2">{title}</span>{!unavailable && <ArrowUpRight size={12} className="shrink-0" aria-hidden />}</> : <>
+  const content = compact ? <><span className="shrink-0 text-muted-foreground @max-[420px]/composer:col-span-2">{label}</span><span className="min-w-0 truncate underline underline-offset-2">{title}</span>{!unavailable && <ArrowUpRight size={12} className="shrink-0" aria-hidden />}</> : <>
     <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground" aria-hidden>
       {direction === 'incoming' ? <ArrowDownLeft size={15} /> : <MessageSquare size={14} />}
     </span>

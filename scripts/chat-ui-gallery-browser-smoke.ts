@@ -127,6 +127,25 @@ async function main() {
       await frame.getByText('Deleted chat', { exact: true }).waitFor();
       assert.equal(await frame.getByRole('link', { name: /^Request from/ }).count(), 0, 'Deleted sender is not a broken link');
     }
+    async function assertCoordinationPlacement(frame: Frame) {
+      const geometry = await frame.getByLabel('Chat collaboration', {exact:true}).evaluate(row => {
+        const card = row.closest('[data-slot="chat-composer-card"]');
+        if (!card) return null;
+        const r = row.getBoundingClientRect(), c = card.getBoundingClientRect();
+        const action = row.querySelector('button')!.getBoundingClientRect();
+        return {
+          left: r.left - c.left, right: c.right - r.right, top: r.top - c.top,
+          actionFits: action.left >= r.left && action.right <= r.right && action.top >= r.top && action.bottom <= r.bottom,
+          overflow: card.scrollWidth - card.clientWidth,
+          hasEditor: !!card.querySelector('[contenteditable="true"]'),
+          titleWidth: row.querySelector('a .truncate')?.getBoundingClientRect().width ?? null,
+        };
+      });
+      assert(geometry && geometry.hasEditor && geometry.actionFits && geometry.overflow <= 1
+        && Math.abs(geometry.left - 1) <= 1 && Math.abs(geometry.right - 1) <= 1 && Math.abs(geometry.top - 1) <= 1,
+      `Collaboration belongs inside the composer border: ${JSON.stringify(geometry)}`);
+      assert(geometry.titleWidth === null || geometry.titleWidth >= 70, 'The linked chat title stays readable on a narrow composer');
+    }
     async function exerciseCoordination() {
       // Interaction tests use a stable chat viewport, like production. The
       // gallery's auto-height is for previews and otherwise moves pointer
@@ -158,8 +177,11 @@ async function main() {
       }
       frame = await select('coordination', 'active');
       await frame.getByRole('link', {name: /^Working with Review date handling/}).waitFor();
+      await assertCoordinationPlacement(frame);
+      await frame.locator('[data-slot="chat-composer-card"]').screenshot({path:path.join(output, `coordination-composer-active-${page.viewportSize()!.width}.png`)});
       await frame.getByRole('button', {name:'Pause incoming', exact:true}).click();
       await frame.getByText('Incoming agent messages paused', {exact:false}).waitFor();
+      await assertCoordinationPlacement(frame);
       await waitForText(frame, 'Incoming messages paused for the example chat');
       await frame.getByRole('button', {name:'Resume', exact:true}).click();
       await frame.getByRole('button', {name:'Pause incoming', exact:true}).waitFor();
@@ -167,6 +189,8 @@ async function main() {
       frame = await select('coordination', 'held');
       const release = frame.getByRole('button', { name: 'Resume', exact:true });
       assert.equal(await release.getAttribute('aria-pressed'), 'true');
+      await assertCoordinationPlacement(frame);
+      await frame.locator('[data-slot="chat-composer-card"]').screenshot({path:path.join(output, `coordination-composer-paused-${page.viewportSize()!.width}.png`)});
       await release.click();
       await frame.getByRole('button', { name: 'Pause incoming', exact: true }).waitFor();
       await waitForText(frame, 'Incoming messages resumed. No real agent started');

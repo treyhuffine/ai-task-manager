@@ -223,6 +223,23 @@ function RichFiles() {
   return config.state === 'beside' ? <FilesBeside>{links}</FilesBeside> : <section role="log" aria-label="Chat">{links}</section>;
 }
 
+/** Keep status in the real composer card, so the preview covers its placement. */
+function CoordinationComposer() {
+  const editor = useRef<ChatInputEditorHandle | null>(null);
+  const [hasContent, setHasContent] = useState(false);
+  const send = () => {
+    const content = editor.current?.getMarkerOutput().text.trim();
+    if (!content) return;
+    void runtime.invoke('sessions.messagesPost', { body: { content } });
+    editor.current?.clear();
+  };
+  return <ChatComposer hint="⇧⇥ to cycle modes">
+    <CoordinationControls sessionId={CHAT_ID} />
+    <ChatInputEditor ref={editor} ariaLabel="Example message" placeholder="Message your agent" attachmentsEnabled={false} onContentChange={setHasContent} onSubmit={send} />
+    <div className="flex justify-end px-2 pb-2"><button type="button" onClick={send} disabled={!hasContent} className="rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50">Send example</button></div>
+  </ChatComposer>;
+}
+
 function Example() {
   const revision = useSyncExternalStore(runtime.subscribe, runtime.snapshot, runtime.snapshot);
   const example = galleryExample(__GALLERY_EXAMPLE__);
@@ -243,7 +260,7 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'references' && <References />}
     {__GALLERY_EXAMPLE__ === 'server-form' && <ServerForm />}
     {__GALLERY_EXAMPLE__ === 'chat-messages' && <ChatMessages />}
-    {__GALLERY_EXAMPLE__ === 'coordination' && <div className="space-y-5"><div className="flex justify-end"><CoordinationMenu sessionId={CHAT_ID} /></div><CoordinationControls sessionId={CHAT_ID} />{config.state === 'forward-failed' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('system', {role:'system',content:'coordination_send_failed',raw:{agentCoordination:{deliveryId:'gallery-coordination-send'}}})} /> : config.state === 'shared' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('user', {id:'gallery-shared',role:'user',content:'Full original review content.',raw:{agentCoordination:{senderKind:'human',kind:'message',sourceSessionId:CHAT_ID,sourceEventId:'gallery-original',content:'Full original review content.',directions:'Compare this with your implementation.'}}})} /> : config.state === 'unavailable' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('error', {role:'system',content:'[Ri routing text remains saved]',raw:{agentCoordination:{senderKind:'system',kind:'failed',content:'The destination agent is unavailable. The assigned work did not start.',originalRequest:'Review the date boundary handling before we ship.'}}})} /> : ['idle', 'active', 'finished', 'held'].includes(config.state) ? <p className="text-sm text-muted-foreground">{config.state === 'idle' ? 'An ordinary chat, ready for your next message.' : config.state === 'finished' ? 'The review is complete. Its linked messages remain in the transcript.' : config.state === 'held' ? 'Incoming messages are queued until you resume.' : 'The other chat is reviewing the date handling.'}</p> : <CoordinationApproval deliveryId="gallery-coordination-send" sessionId={CHAT_ID} />}</div>}
+    {__GALLERY_EXAMPLE__ === 'coordination' && <div className="space-y-5"><div className="flex justify-end"><CoordinationMenu sessionId={CHAT_ID} /></div>{config.state === 'forward-failed' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('system', {role:'system',content:'coordination_send_failed',raw:{agentCoordination:{deliveryId:'gallery-coordination-send'}}})} /> : config.state === 'shared' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('user', {id:'gallery-shared',role:'user',content:'Full original review content.',raw:{agentCoordination:{senderKind:'human',kind:'message',sourceSessionId:CHAT_ID,sourceEventId:'gallery-original',content:'Full original review content.',directions:'Compare this with your implementation.'}}})} /> : config.state === 'unavailable' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('error', {role:'system',content:'[Ri routing text remains saved]',raw:{agentCoordination:{senderKind:'system',kind:'failed',content:'The destination agent is unavailable. The assigned work did not start.',originalRequest:'Review the date boundary handling before we ship.'}}})} /> : ['idle', 'active', 'finished', 'held'].includes(config.state) ? <p className="text-sm text-muted-foreground">{config.state === 'idle' ? 'An ordinary chat, ready for your next message.' : config.state === 'finished' ? 'The review is complete. Its linked messages remain in the transcript.' : config.state === 'held' ? 'Incoming messages are queued until you resume.' : 'The other chat is reviewing the date handling.'}</p> : <CoordinationApproval deliveryId="gallery-coordination-send" sessionId={CHAT_ID} />}<CoordinationComposer /></div>}
     {__GALLERY_EXAMPLE__ === 'app-context' && <AppContext />}
     {__GALLERY_EXAMPLE__ === 'model-menu' && <ModelMenuPreview state={config.state} />}
     {__GALLERY_EXAMPLE__ === 'edits' && <div className="space-y-4 text-sm"><p>I clarified the agenda and made the next steps easier to scan.</p><EntityEditChip entityType="note" entityId={RECORD_ID} /></div>}

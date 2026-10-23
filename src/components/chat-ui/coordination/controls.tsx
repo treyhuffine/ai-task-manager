@@ -16,12 +16,14 @@ export function CoordinationControls({ sessionId }: { sessionId: string }) {
 function AvailableCoordinationControls({ sessionId }: { sessionId: string }) {
   const { data } = useCoordinationState(sessionId);
   if (!data || (!data.heldAt && !data.active.starting && data.active.chatIds.length === 0 && data.pending === 0)) return null;
-  return <div aria-label="Chat collaboration" className="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+  return <div aria-label="Chat collaboration" className="flex min-w-0 items-center justify-between gap-3 rounded-t-xl border-b border-border/60 bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
+    <div className="min-w-0 flex-1 space-y-0.5 leading-4">
     {data.heldAt ? <span role="status" className="text-amber-700 dark:text-amber-400">Incoming agent messages paused{data.pending > 0 ? ` · ${data.pending} waiting` : ''}</span>
       : data.active.chatIds.length === 1 ? <ChatMessageLink sessionId={data.active.chatIds[0]} label="Working with" direction="outgoing" compact />
       : data.active.chatIds.length > 1 ? <Popover><PopoverTrigger asChild><button type="button" className="inline-flex items-center gap-1 underline underline-offset-2"><MessagesSquare size={12} />Working with {data.active.chatIds.length} chats<ChevronDown size={11} /></button></PopoverTrigger><PopoverContent align="start" className="max-h-72 w-80 space-y-2 overflow-y-auto">{data.active.chatIds.map(id => <ChatMessageLink key={id} sessionId={id} label="Active chat" direction="outgoing" />)}</PopoverContent></Popover>
       : <span role="status">{data.active.starting ? 'Starting another chat' : 'Incoming agent messages waiting'}</span>}
-    {data.heldAt && data.assignmentsWaiting > 0 && <span>{data.assignmentsWaiting} assignment{data.assignmentsWaiting === 1 ? '' : 's'} waiting</span>}
+    {data.heldAt && data.assignmentsWaiting > 0 && <p>{data.assignmentsWaiting} assignment{data.assignmentsWaiting === 1 ? '' : 's'} waiting</p>}
+    </div>
     <IncomingPauseButton sessionId={sessionId} />
   </div>;
 }

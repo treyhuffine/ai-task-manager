@@ -664,8 +664,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       <div className="flex-shrink-0" onKeyDown={handleKeyDown}>
         {/* No top padding: a band of solid background above the card would
             cut scrolling transcript text off short of the card's edge. */}
-        <CoordinationControls sessionId={sessionId} />
         <ChatComposer disabled={disabled && !showStopButton} hint="⇧⇥ to cycle modes" status={statusLine} statusIsError={statusIsError}>
+            <CoordinationControls sessionId={sessionId} />
             {/* Top: rich editor — or live waveform while recording. The
               editor preserves typed text + inline paste chips across
               the recording swap. Native contenteditable auto-grows;

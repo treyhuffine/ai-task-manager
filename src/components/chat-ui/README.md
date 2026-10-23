@@ -37,6 +37,11 @@ Coarse pointers get a 44 px tap target. With a mouse, user-message copy buttons
 appear on row hover or button focus, while agent-message copy buttons stay
 visible. These controls are shared across chat surfaces.
 
+Active collaboration and incoming pause appear inside the composer card, above
+the editor. The status, linked chat and pause action share its border and width.
+Idle chats have no status row. Standing preferences remain in the chat menu.
+The coordination gallery uses this same composition, including long chat titles.
+
 ## Boundaries
 
 Component-specific presentation helpers and their tests stay beside the

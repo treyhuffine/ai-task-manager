@@ -12,7 +12,7 @@ export function ChatComposer({ children, disabled, hint, status, statusIsError }
   statusIsError?: boolean;
 }) {
   return <div className="mx-auto w-full max-w-3xl shrink-0 px-5 pb-3">
-    <div className={cn('flex flex-col gap-1 rounded-xl border border-border bg-card transition-colors focus-within:border-primary/50', disabled && 'opacity-60')}>
+    <div data-slot="chat-composer-card" className={cn('@container/composer flex min-w-0 flex-col gap-1 rounded-xl border border-border bg-card transition-colors focus-within:border-primary/50', disabled && 'opacity-60')}>
       {children}
     </div>
     <div className="mt-1 flex min-h-[14px] items-center justify-between gap-2 px-1">
