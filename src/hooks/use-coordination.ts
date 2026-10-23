@@ -19,7 +19,7 @@ export function useCoordinationHold(sessionId: string) {
     },
     onError: (_error, _held, context) => {
       if (context?.previous) client.setQueryData<RouterOutputs['coordination']['state']>(coordinationKey(sessionId), current => current ? { ...current, heldAt: context.previous!.heldAt } : current);
-      toast.error('Could not save Hold. Try again.');
+      toast.error('Could not change incoming message pause. Try again.');
     },
     onSettled: () => { void client.invalidateQueries({ queryKey: coordinationKey(sessionId) }); },
   });

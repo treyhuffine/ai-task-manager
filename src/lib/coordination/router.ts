@@ -28,7 +28,8 @@ async function operation<T>(run: () => T | Promise<T>): Promise<T> {
 export const coordinationRouter = router({
   state: p.input(z.object({ sessionId: id })).query(({ input }) => {
     const chat = personalChat(input.sessionId, 'local');
-    return { scopes: {chat:chat.id,execution:chat.executionId,agent:chat.workspaceId,global:'1'}, incoming:q.incomingAgentDeliveryState(chat.id), assignmentsWaiting:q.openAgentRequestsForTarget(chat.id).filter(request=>['queued','waiting'].includes(request.status)).length, ...q.agentCoordinationPolicy(input.sessionId), pending: q.pendingAgentDeliveryCount(input.sessionId), approvals: q.pendingAgentApprovals(input.sessionId), related: q.relatedCoordinationChats(input.sessionId) };
+    const active = q.activeCoordinationChats(chat.id);
+    return { scopes: {chat:chat.id,execution:chat.executionId,agent:chat.workspaceId,global:'1'}, active, incoming:q.incomingAgentDeliveryState(chat.id), assignmentsWaiting:active.assignmentsWaiting, ...q.agentCoordinationPolicy(input.sessionId), pending: q.pendingAgentDeliveryCount(input.sessionId), approvals: q.pendingAgentApprovals(input.sessionId) };
   }),
   message: p.input(z.object({ sessionId: id, eventId: id })).query(({ input }) => {
     personalChat(input.sessionId, 'local');

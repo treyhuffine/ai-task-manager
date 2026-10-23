@@ -16,6 +16,8 @@ it.each([
   ['continued inputs', () => q.coordinationDeliveriesForRun('run'), 'idx_agent_coordination_deliveries_continuation'],
   ['input by event', () => q.agentDeliveryForEvent('event'), 'uniq_agent_coordination_deliveries_event'],
   ['pending device sends', () => q.hasPendingCoordinationSend('chat'), 'idx_worker_commands_chat'],
+  ['scheduled approval state', () => q.hasAgentApprovalForRun('run'), 'idx_agent_coordination_deliveries_source_run'],
+  ['active exchanges', () => q.activeCoordinationChats('chat'), 'idx_agent_coordination_requests_source'],
   ['incoming card states', () => q.incomingAgentDeliveryState('chat'), 'idx_agent_coordination_deliveries_target'],
 ] as const)('pins the actual query builder plan for %s', (_name, read, index) => {
   const raw = getRawDb();

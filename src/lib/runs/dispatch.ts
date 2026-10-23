@@ -294,6 +294,7 @@ function resolveTarget(trigger: TriggerRecord, selected: Awaited<ReturnType<type
       effort: selected.selection.effort,
       serviceTier: selected.selection.serviceTier,
       modelCatalog: selected.modelCatalog,
+      agentCoordinationPolicy: 'allow',
     });
     return { execution, chat: session };
   }
@@ -325,6 +326,7 @@ function resolveTarget(trigger: TriggerRecord, selected: Awaited<ReturnType<type
       effort: selected.selection.effort,
       serviceTier: selected.selection.serviceTier,
       modelCatalog: selected.modelCatalog,
+      agentCoordinationPolicy: 'allow',
     });
     execution = created.execution;
     updateTrigger(trigger.id, { owningExecutionId: execution.id });
@@ -362,6 +364,9 @@ function createChatForFire(
       // createChatSession, so it must not lean on the DB default). Keeps
       // trigger-fired chats auto-allow rather than inheriting a stale default.
       permissionMode: DEFAULT_PERMISSION_MODE,
+      // Enabling an automation authorizes communication for its assignment.
+      // A new run chat must not fall back to the interactive Ask first policy.
+      agentCoordinationPolicy: 'allow',
       // Propagate the trigger's per-run overrides onto the chat so the
       // executor adapter's `ensureHarnessSession` picks them up via the
       // session row (it reads model/effort/permissionMode/etc. fresh

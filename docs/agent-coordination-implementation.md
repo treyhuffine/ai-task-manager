@@ -1,6 +1,33 @@
 # Agent coordination implementation and evidence
 
-Source: [final specification](agent-coordination-controls-proposal.md). Updated 2026-10-22.
+Source: [final specification](agent-coordination-controls-proposal.md). Updated 2026-10-23.
+
+## Scheduled automation follow-up
+
+Enabling a schedule authorizes communication needed for its assignment. Each trigger-fired chat starts with the existing chat-level Allow automatically preference, including fresh chats in an existing recurring execution. The schedule keeps its existing enabled state. No additional permission table, per-recipient grant or permission column is required. Human Pause incoming and Stop remain independent controls.
+
+- [x] Initialize all trigger-fired chat creation paths with Allow automatically
+- [x] Verify one-time, recurring, orchestrator and manual/webhook fires under Ask first defaults
+- [x] Report a scheduled run ending with unresolved send approval as an actionable failure
+- [x] Complete chat-menu access for embedded chats and clarify scheduling guidance
+- [x] Verify focused tests, typecheck, lint and browser behavior and reconcile this follow-up with the specification
+
+For landing on current main, all 207 focused tests across 25 suites pass, including five Chromium schedule-control tests. Seven additional shared-chat boundary checks pass across two suites. The new menu and settings respect the shared transcript capability boundary, and saved agent chats keep their own permission target when opened from history. Runtime tests exercise an actual scheduled one-way send and delegation through Ri's dispatcher, runner, signed calls, durable deliveries, recipient execution and automatic return using the stand-in harness. Default Ask first remains effective for unrelated interactive chats. A later human policy change creates an approval, marks the scheduled run failed and identifies what needs attention. Notification text uses the structured block reason even if the agent's reply claims success, and run lists prefer the failure reason.
+
+Typecheck and production build pass, including local app catalog qualification and static generation. CLI/service builds and the compiled plain-Node boot check pass. Scoped ESLint has no errors. Existing warnings are `isCreateSubtask` and `_revoked` in `queries.ts` and `cn` in the trigger detail page. Five Chromium schedule-control tests pass. The coordination gallery passes all states and interactions on desktop and phone in both themes. Standalone dialog checks pass at 1440 × 900, 500 × 630 and 390 × 844, with screenshots inspected. No production restart, database change or historical replay is part of this follow-up.
+
+## Contextual controls and forwarding layout
+
+- [x] Ordinary idle chats and completed exchanges have no collaboration row above the composer
+- [x] Approved unfinished work, one-way deliveries and pending returns show linked participating chats with Pause incoming
+- [x] Incoming pause remains visible while idle, with waiting messages and Resume
+- [x] Standing preferences and a pause control remain reachable from the execution, agent main and orchestrator chat menus
+- [x] Approval cards state that an unapproved message has not been sent, including messages attempted by scheduled runs
+- [x] Send to chat stays centered without transforms or horizontal overflow, preserving the nested model picker and dialog focus restoration
+
+Activity uses indexed coordination queries in both directions. It excludes proposals, denied sends and completed history, tracks a one-way input only while its producing run is active, and follows queued returns through their request before destination pinning. No transcript scan or new schema is involved. The historical related-chat query is removed from the polling response.
+
+Verification: 92 focused coordination, query-plan and gallery tests pass across 12 suites. Typecheck, scoped ESLint and diff whitespace checks pass. Browser qualification covers all coordination states on desktop and phone in both themes, approval decisions, idle and finished visibility, pause/resume, permission changes, forwarding, model and effort selection. Standalone dialogs additionally pass at 1440 × 900, 500 × 630 and 390 × 844, including long unbroken chat titles, long agent names, centering, viewport margins, horizontal overflow, model picker wheel scrolling, closing and reopening. Screenshots were inspected. Interactive gallery tests use a fixed chat viewport so the preview's automatic iframe resizing cannot move pointer targets as its simulated log grows. Standalone previews independently verify actual viewport centering, overflow and wheel scrolling. No production restart or database migration occurred.
 
 ## Fresh-review corrections
 

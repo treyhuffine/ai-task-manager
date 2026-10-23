@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull, lte, or, desc, ne, gt, sql } from 'drizzle-orm';
 import { publishChatEvent } from '@/lib/realtime/bus';
 import { getDb } from '@/lib/db';
-import { agentCoordinationRequests as requests, agentCoordinationDeliveries as deliveries, chatSessions, executions, workspaces, userState, workerCommands } from './schema';
+import { agentCoordinationRequests as requests, agentCoordinationDeliveries as deliveries, chatSessions, executions, workspaces, userState, workerCommands, runs } from './schema';
 import type { AgentRequestRecord, ChatEventRecord, AgentDeliveryRecord, CreateAgentRequestInput, CreateAgentDeliveryInput, RunRecord } from '@/db/types';
 import { inputIsPreparing } from '@/lib/coordination/input-reservations';
 import { addressOf } from '@/lib/coordination/address';
@@ -111,6 +111,12 @@ export function humanCoordinationContext(sessionId: string, producingRunId: stri
 }
 export function pendingAgentApprovals(sessionId: string): AgentDeliveryRecord[] {
   return getDb().select().from(deliveries).where(and(eq(deliveries.sourceSessionId, sessionId), eq(deliveries.status, 'awaiting_approval'))).orderBy(deliveries.createdAt, deliveries.id).limit(100).all();
+}
+
+/** A scheduled turn cannot report success while its own sends need approval. */
+export function hasAgentApprovalForRun(runId: string): boolean {
+  return !!getDb().select({ id: deliveries.id }).from(deliveries)
+    .where(and(eq(deliveries.sourceRunId, runId), eq(deliveries.status, 'awaiting_approval'))).limit(1).get();
 }
 
 /** Preference mutations are intentionally separate from generic agent update actions. */
@@ -328,9 +334,36 @@ export function settleCoordinationForDeletedChat(sessionId: string): void {
   });
 }
 
-export function relatedCoordinationChats(sessionId: string) {
-  const rows = getDb().select({ sourceSessionId: deliveries.sourceSessionId, targetSessionId: deliveries.targetSessionId }).from(deliveries).where(or(eq(deliveries.sourceSessionId, sessionId), eq(deliveries.targetSessionId, sessionId))).orderBy(desc(deliveries.createdAt)).limit(100).all();
-  return [...new Set(rows.flatMap(row => [row.sourceSessionId, row.targetSessionId]).filter((id): id is string => !!id && id !== sessionId))].map(getChatSession).filter((chat): chat is NonNullable<typeof chat> => !!chat);
+/** Current exchanges only. Historical receipts and proposals awaiting approval
+ * must not keep composer controls visible forever. No transcript reads. */
+export function activeCoordinationChats(sessionId: string) {
+  const db = getDb();
+  const peers = new Set<string>();
+  let starting = false;
+  let assignmentsWaiting = 0;
+  for (const direction of ['incoming', 'outgoing'] as const) {
+    const incoming = direction === 'incoming';
+    const owed = db.select({ id: incoming ? requests.sourceSessionId : requests.targetSessionId, status: requests.status }).from(requests)
+      .innerJoin(deliveries, and(eq(deliveries.requestId, requests.id), eq(deliveries.kind, 'request'), inArray(deliveries.status, ['queued', 'delivered', 'accepted'])))
+      .where(and(eq(incoming ? requests.targetSessionId : requests.sourceSessionId, sessionId), inArray(requests.status, [...OPEN])))
+      .limit(100).all();
+    if (incoming) assignmentsWaiting = owed.filter(row => row.status === 'queued' || row.status === 'waiting').length;
+    const sending = db.selectDistinct({ id: incoming ? deliveries.sourceSessionId : deliveries.targetSessionId, kind: deliveries.kind }).from(deliveries)
+      .leftJoin(runs, eq(runs.id, sql`COALESCE(${deliveries.continuationRunId}, ${deliveries.acceptedByRunId})`))
+      .where(and(eq(incoming ? deliveries.targetSessionId : deliveries.sourceSessionId, sessionId),
+        or(inArray(deliveries.status, ['queued', 'delivered']), and(eq(deliveries.status, 'accepted'), inArray(runs.status, ['queued', 'running'])))))
+      .limit(100).all();
+    // Returns are queued before the dispatcher pins their receiving chat.
+    // Follow their existing request relationship while that pin is pending.
+    const returning = db.selectDistinct({ id: incoming ? requests.targetSessionId : requests.sourceSessionId }).from(requests)
+      .innerJoin(deliveries, and(eq(deliveries.requestId, requests.id), inArray(deliveries.kind, ['answer', 'blocked', 'failed', 'cancelled']), eq(deliveries.status, 'queued'), isNull(deliveries.targetSessionId)))
+      .where(eq(incoming ? requests.sourceSessionId : requests.targetSessionId, sessionId)).limit(100).all();
+    if (!incoming && (owed.some(row => !row.id) || sending.some(row => !row.id && (row.kind === 'request' || row.kind === 'message')))) starting = true;
+    for (const row of [...owed, ...sending, ...returning]) {
+      if (row.id && row.id !== sessionId) peers.add(row.id);
+    }
+  }
+  return { chatIds: [...peers], starting, assignmentsWaiting };
 }
 
 export function createInitiatingAgentDelivery(input: {

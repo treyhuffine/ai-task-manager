@@ -9894,6 +9894,7 @@ export function createExecutionWithChat(params: {
   prePlanMode?: ChatSessionRecord['prePlanMode'];
   /** Immutable native launch intent, committed with its child before any send. */
   launchIntentHash?: string;
+  agentCoordinationPolicy?: ChatSessionRecord['agentCoordinationPolicy'];
   /** Start-with-agent: associate this task with the new execution AND Start it
    * (Consider/Todo -> In progress) in the SAME transaction, so execution + chat
    * + association + start commit atomically. A terminal race rolls everything
@@ -9946,6 +9947,7 @@ export function createExecutionWithChat(params: {
         // backstop kept equal to this. See docs/schema-defaults.md.
         permissionMode,
         prePlanMode: params.prePlanMode ?? (permissionMode === 'plan' && getHome()?.kind === 'team' ? conservativePlanReturn(params.harness) : null),
+        agentCoordinationPolicy: params.agentCoordinationPolicy ?? null,
         // ISO (UTC) to match the execution's timestamps and to sort
         // consistently against ISO outcome/unread timestamps (the SQLite
         // `datetime('now')` default would store the space-format instead).

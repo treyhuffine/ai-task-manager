@@ -2325,7 +2325,7 @@ const create_trigger_action = defineAction({
   name: 'create_trigger',
   description:
     'Create a trigger. Kind-specific fields are enforced (cron requires cron_expression, every requires interval_seconds, at requires run_at, webhook generates credentials, manual takes no cadence fields and only fires via run_trigger). ' +
-    'provider picks who runs it (defaults to the user\'s default provider); model and effort are validated against that provider.',
+    'provider picks who runs it (defaults to the user\'s default provider); model and effort are validated against that provider. Enabling an automation authorizes its run chats to message and delegate within the assignment without per-send coordination approval. Create schedules only within the user\'s intent, never to bypass a denied send.',
   params: createTriggerShape,
   mutating: true,
   handler: async (_ctx, input) => {

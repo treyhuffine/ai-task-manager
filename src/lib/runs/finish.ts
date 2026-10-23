@@ -13,8 +13,8 @@
  */
 
 import type { RunRecord } from '@/db/types';
-import { bumpSessionOutcome, getRun, markRunCompleted, markRunFailed, setTriggerLastRun, settleAgentRequestsForRun } from '@/lib/db/queries';
-import { queueRunTerminal } from '@/lib/notifications/emit';
+import { bumpSessionOutcome, getRun, markRunCompleted, markRunFailed, setTriggerLastRun, settleAgentRequestsForRun, hasAgentApprovalForRun } from '@/lib/db/queries';
+import { queueRunTerminal, queueNeedsInput } from '@/lib/notifications/emit';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 import { settleHeartbeatRun } from '@/lib/heartbeat/quiet';
 import { runnerFor } from '@/lib/executor/placement';
@@ -32,6 +32,10 @@ export function finishRunInTransaction(runId: string, outcome: RunOutcome, after
   // The run's telemetry window closes with its turn.
   if (chatSessionId) endRun(runId, chatSessionId);
   if (before.status !== 'queued' && before.status !== 'running') return before;
+
+  if (outcome.ok && !outcome.stopped && before.triggerId && hasAgentApprovalForRun(runId)) {
+    outcome = { ok: false, errorCode: 'coordination_approval_required', errorMessage: 'This scheduled job could not complete because a message is waiting for your approval. Open its chat to approve or decline the send.' };
+  }
 
   const record = outcome.ok
     ? markRunCompleted(runId)
@@ -66,6 +70,12 @@ export function finishRunInTransaction(runId: string, outcome: RunOutcome, after
   // the run's own change, sent after commit.
   const queued = queueRunTerminal(runId);
   if (queued) after.notifications.push(queued);
+  // Use the existing terminal route when subscribed, falling back to the
+  // needs-input route for an unbound scheduled chat. Never send both.
+  if (!queued && !outcome.ok && outcome.errorCode === 'coordination_approval_required' && chatSessionId) {
+    const attention = queueNeedsInput({ sessionId: chatSessionId, requestId: `scheduled-approval:${runId}`, title: 'Scheduled job needs approval', body: outcome.errorMessage });
+    if (attention) after.notifications.push(attention);
+  }
   if (settleAgentRequestsForRun(runId, outcome)) {
     after.tasks.push(() => { void import('@/lib/coordination/service').then(({ drainAgentCoordination }) => drainAgentCoordination()); });
   }

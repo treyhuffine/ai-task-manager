@@ -198,3 +198,78 @@ it('forwards once into a new chat with the selected model and effort and no auto
   expect(q.getLastChatEventBySource(main.id, 'agent')?.id).toBe(selected.id);
   expect(q.getChatEventById(delivery.eventId)?.raw).toMatchObject({ agentCoordination: { senderKind: 'human', sourceEventId: selected.id, directions: 'Check these findings.' } });
 }, 20_000);
+
+it.each(['at', 'cron'] as const)('delivers an unattended %s message under Ask first defaults without an approval or automatic fireback', async kind => {
+  const {main,agentMain,runAction} = await setupRuntime();
+  q.setAgentCoordinationPolicy('global','1','ask');
+  q.setAgentCoordinationPolicy('agent',agentMain.workspaceId!,'ask');
+  const content = 'Continue your current work. Commit when you are ready.';
+  const received: string[] = [];
+  harness!.onTurn(async turn => {
+    const chatId = verifySessionCredential(turn.session.ctx.env?.RI_SESSION_CREDENTIAL,home!.token)!;
+    if (chatId === agentMain.id) {
+      received.push(turn.message);
+      await turn.say('Continuing the work.');
+      return;
+    }
+    expect(q.agentCoordinationPolicy(chatId)).toMatchObject({policy:'allow',source:'chat'});
+    expect(await runAction('message_agent',{response:'none',target:`session:${agentMain.id}`,request_id:'scheduled-exact-send',content},{remote:true,actor:{source:'ai',sessionId:chatId}})).toMatchObject({ok:true,result:{status:'queued'}});
+    await turn.say('The scheduled message is queued for delivery.');
+  });
+  (await import('./service')).startAgentCoordination();
+  const trigger = q.createTrigger({name:'Scheduled message',targetKind:'orchestrator',harness:'claude',prompt:'Send the requested message once.',kind,runAt:kind==='at'?new Date().toISOString():null,cronExpression:kind==='cron'?'* * * * *':null});
+  const {run,chatSession} = await (await import('@/lib/runs/dispatch')).dispatchRun({trigger,triggerKind:kind,scheduledFor:new Date().toISOString()});
+  await vi.waitFor(()=>expect(received).toHaveLength(1),{timeout:10_000,interval:25});
+  const deliveries = q.activeCoordinationChats(chatSession!.id);
+  expect(deliveries.starting).toBe(false);
+  expect(received[0]).toContain(content);
+  expect(q.pendingAgentApprovals(chatSession!.id)).toEqual([]);
+  expect(q.listAgentRequests(chatSession!.id)).toEqual([]);
+  await vi.waitFor(()=>expect(q.getRun(run.id)?.status).toBe('completed'));
+  expect(q.listChatEvents(main.id)).toEqual([]);
+  expect(harness!.sessions).toHaveLength(2);
+},15_000);
+
+it('allows a scheduled assignment to delegate and receive the finished outcome under Ask first defaults', async () => {
+  const {workspace,runAction} = await setupRuntime();
+  q.setAgentCoordinationPolicy('global','1','ask');
+  harness!.onTurn(async turn => {
+    const chatId = verifySessionCredential(turn.session.ctx.env?.RI_SESSION_CREDENTIAL,home!.token)!;
+    const chat = q.getChatSession(chatId)!;
+    if (chat.type === 'execution') {
+      await turn.say('The scheduled review is complete.');
+    } else if (turn.message.includes('[Ri agent request')) {
+      expect(turn.message).toContain('The scheduled review is complete.');
+      await turn.say('Your scheduled review is ready.');
+    } else {
+      expect(await runAction('delegate_work',{workspace_id:workspace.id,request_id:'scheduled-review',prompt:'Review the implementation.',provider:'claude'},{remote:true,actor:{source:'ai',sessionId:chatId}})).toMatchObject({ok:true});
+      await turn.say('The review is underway.');
+    }
+  });
+  (await import('./service')).startAgentCoordination();
+  const trigger = q.createTrigger({name:'Scheduled review',targetKind:'orchestrator',harness:'claude',prompt:'Delegate the review and bring back the outcome.',kind:'at',runAt:new Date().toISOString()});
+  const {chatSession} = await (await import('@/lib/runs/dispatch')).dispatchRun({trigger,triggerKind:'at'});
+  await vi.waitFor(()=>expect(q.getLastChatEventBySource(chatSession!.id,'agent')?.content).toBe('Your scheduled review is ready.'),{timeout:15_000,interval:25});
+  const [request] = q.listAgentRequests(chatSession!.id);
+  expect(request).toMatchObject({status:'completed',kind:'delegation'});
+  expect(q.pendingAgentApprovals(chatSession!.id)).toEqual([]);
+  expect(q.agentCoordinationPolicy(request.targetSessionId!).policy).toBe('allow');
+},20_000);
+
+it('surfaces a scheduled send blocked by a later human policy change as failed instead of completed', async () => {
+  const {agentMain,runAction} = await setupRuntime();
+  q.setAgentCoordinationPolicy('global','1','ask');
+  harness!.onTurn(async turn => {
+    const chatId = verifySessionCredential(turn.session.ctx.env?.RI_SESSION_CREDENTIAL,home!.token)!;
+    // A person can still change the chat policy after the automation starts.
+    q.setAgentCoordinationPolicy('chat',chatId,'ask');
+    expect(await runAction('message_agent',{response:'none',target:`session:${agentMain.id}`,request_id:'human-policy-changed',content:'Scheduled message.'},{remote:true,actor:{source:'ai',sessionId:chatId}})).toMatchObject({ok:true,result:{status:'awaiting_approval'}});
+    await turn.say('This message needs your approval before it can be sent.');
+  });
+  const trigger = q.createTrigger({name:'Changed policy',targetKind:'orchestrator',harness:'claude',prompt:'Send the message.',kind:'at',runAt:new Date().toISOString()});
+  const {run,chatSession} = await (await import('@/lib/runs/dispatch')).dispatchRun({trigger,triggerKind:'at'});
+  await vi.waitFor(()=>expect(q.getRun(run.id)).toMatchObject({status:'failed',errorCode:'coordination_approval_required'}),{timeout:10_000,interval:25});
+  expect(q.getTrigger(trigger.id)?.lastRunStatus).toBe('failed');
+  expect(q.pendingAgentApprovals(chatSession!.id)).toMatchObject([{sourceRunId:run.id,status:'awaiting_approval'}]);
+  expect(q.listChatEvents(agentMain.id)).toEqual([]);
+},15_000);

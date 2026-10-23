@@ -87,7 +87,15 @@ Hold and cancellation are checked during local preparation and immediately befor
 
 Queued work, approvals and unsent outcomes survive restart. Unaccepted coordination reservations use the `coordination_wait` run reason, including Hold and retry waits. Boot preserves those queued reservations for their own scheduler. They do not take the scheduled execution concurrency gate until started. Move-held scheduled fires retain their separate `held_by_move` behavior. Local work interrupted after acceptance is reported as interrupted rather than repeated. Connected-device work remains owned by its journal. Generic orphan-message recovery hands coordination back to its own scheduler instead of dispatching unbound work.
 
-Archive preserves exact history. Hard deletion settles unaccepted coordination before clearing nullable provenance. Referenced assignment requests and continuation runs are protected by restrictive foreign keys. Soft event references can become unavailable without replaying delivery or deleting another chat's transcript. The scheduler and related-chat queries use coordination indexes, never whole-transcript scans.
+Archive preserves exact history. Hard deletion settles unaccepted coordination before clearing nullable provenance. Referenced assignment requests and continuation runs are protected by restrictive foreign keys. Soft event references can become unavailable without replaying delivery or deleting another chat's transcript. The scheduler and active-exchange queries use coordination indexes, never whole-transcript scans.
+
+## Scheduled jobs
+
+Enabling an automation authorizes communication and delegation needed for its assignment. The dispatcher initializes each trigger-fired chat with the existing chat-level Allow automatically preference. This includes first-time execution creation, later recurring execution chats, orchestrator jobs, one-time jobs, interval jobs, webhooks and Run now. Ordinary interactive chat defaults remain unchanged. There are no new permission tables, recipient grants or trigger preference columns. Future fires of existing schedules use the new default without a migration or historical replay.
+
+A person may change that run chat's preference, pause incoming messages or stop the run. If the turn ends with its own send still awaiting approval, the run fails with `coordination_approval_required` and an actionable message. Its normal terminal notification route is used, with the existing needs-input route as fallback. There is one notification route per failure and no duplicate on repeated result callbacks. Already authorized queued messages remain delivery state. A run's completed turn is distinct from an accepted delivery or a finished delegated assignment.
+
+Schedule creation and enabling retain their existing authorizing operations. Agent instructions require user intent and prohibit using a schedule to bypass a denial. No new setup approval workflow is introduced.
 
 ## Human sharing and navigation
 
@@ -97,7 +105,7 @@ The receiving card says Shared by you, separates directions from quoted material
 
 The sending chat receives a compact linked receipt. A human forward that fails before acceptance creates a durable failure card there with its destination and reason. Receipts, approval history and Hold audits are system events that start zero agent turns. Instructions discourage acknowledgment-only chatter without a runtime prose classifier. Hold remains the dependable way to get the human back in control.
 
-Links preserve exact chat and event IDs. A direct message lookup works outside the currently loaded transcript page. Archived links open history without resuming the chat or replacing its current main chat. Related-chat shortcuts derive from recorded exchanges.
+Links preserve exact chat and event IDs. A direct message lookup works outside the currently loaded transcript page. Archived links open history without resuming the chat or replacing its current main chat. The composer shows linked participating chats and Pause incoming only while approved work or delivery is active. Completed history does not keep controls visible. An enabled pause stays visible with a waiting count and Resume. Standing preferences and pause controls live in the chat menu. The Send to chat dialog centers within viewport margins without horizontal scrolling, including when choosing a new chat model.
 
 ## Migration and rollout
 

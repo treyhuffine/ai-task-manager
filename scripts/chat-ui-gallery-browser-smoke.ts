@@ -65,6 +65,7 @@ async function main() {
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address(); assert(address && typeof address !== 'string');
+  const origin = `http://127.0.0.1:${address.port}`;
   const executablePath = [process.env.RI_BROWSER_EXECUTABLE, chromium.executablePath(), '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'].find((file): file is string => Boolean(file && existsSync(file)));
   assert(executablePath, 'Install Chromium or set RI_BROWSER_EXECUTABLE');
   const browser = await chromium.launch({ executablePath, headless: true });
@@ -127,6 +128,10 @@ async function main() {
       assert.equal(await frame.getByRole('link', { name: /^Request from/ }).count(), 0, 'Deleted sender is not a broken link');
     }
     async function exerciseCoordination() {
+      // Interaction tests use a stable chat viewport, like production. The
+      // gallery's auto-height is for previews and otherwise moves pointer
+      // targets whenever a simulated operation appends its fixture log.
+      const viewportStyle = await page.addStyleTag({content:'iframe[title="Coordination controls interactive example"] { height: 720px !important; }'});
       const failure = await select('coordination', 'forward-failed');
       await failure.getByLabel('Shared message delivery', {exact:true}).waitFor();
       await failure.getByText('Send failed', {exact:true}).waitFor();
@@ -143,18 +148,32 @@ async function main() {
       await page.getByRole('button', { name: 'Reset example', exact: true }).click();
       frame = await select('coordination', 'approval');
       await frame.getByRole('button', { name: 'Always allow in this chat', exact: true }).click();
-      await frame.getByRole('button', { name: 'Coordination: Allow automatically', exact: true }).waitFor();
+      await frame.getByRole('button', { name: 'Chat menu', exact: true }).click();
+      await frame.getByText('Allow automatically, from this chat.', { exact: true }).waitFor();
+      await frame.getByRole('button', { name: 'Chat menu', exact: true }).click();
+
+      for (const state of ['idle', 'finished', 'approval']) {
+        const quiet = await select('coordination', state);
+        assert.equal(await quiet.getByLabel('Chat collaboration', {exact:true}).count(), 0, `${state} has no composer controls`);
+      }
+      frame = await select('coordination', 'active');
+      await frame.getByRole('link', {name: /^Working with Review date handling/}).waitFor();
+      await frame.getByRole('button', {name:'Pause incoming', exact:true}).click();
+      await frame.getByText('Incoming agent messages paused', {exact:false}).waitFor();
+      await waitForText(frame, 'Incoming messages paused for the example chat');
+      await frame.getByRole('button', {name:'Resume', exact:true}).click();
+      await frame.getByRole('button', {name:'Pause incoming', exact:true}).waitFor();
 
       frame = await select('coordination', 'held');
-      const release = frame.getByRole('button', { name: /Release Hold/ });
+      const release = frame.getByRole('button', { name: 'Resume', exact:true });
       assert.equal(await release.getAttribute('aria-pressed'), 'true');
       await release.click();
-      await frame.getByRole('button', { name: 'Hold this chat', exact: true }).waitFor();
-      await waitForText(frame, 'Hold released. No real agent started');
-      await frame.getByRole('button', { name: /^Coordination:/ }).click();
+      await frame.getByRole('button', { name: 'Pause incoming', exact: true }).waitFor();
+      await waitForText(frame, 'Incoming messages resumed. No real agent started');
+      await frame.getByRole('button', { name: 'Chat menu', exact:true }).click();
       await frame.getByLabel('Coordination for chat', { exact: true }).selectOption('allow');
-      await frame.getByText('Effective setting: Allow automatically, from chat.', { exact: true }).waitFor();
-      await frame.getByRole('button', { name: /^Coordination:/ }).click();
+      await frame.getByText('Allow automatically, from this chat.', { exact: true }).waitFor();
+      await frame.getByRole('button', { name: 'Chat menu', exact:true }).click();
 
       frame = await select('coordination', 'long');
       await frame.getByText('Show full message', { exact: true }).click();
@@ -165,7 +184,21 @@ async function main() {
 
       frame = await select('coordination', 'shared');
       await frame.getByRole('button', { name: 'Send to chat', exact: true }).click();
-      let dialog = frame.getByRole('dialog');
+      let dialog = frame.getByRole('dialog', {name:'Send to chat',exact:true});
+      async function assertDialogLayout() {
+        const geometry = await dialog.evaluate(element => {
+          const box = element.getBoundingClientRect();
+          return {left:box.left,right:box.right,top:box.top,bottom:box.bottom,center:box.top+box.height/2,viewportHeight:innerHeight,viewportWidth:innerWidth,overflow:element.scrollWidth-element.clientWidth};
+        });
+        assert(geometry.overflow <= 1, `Dialog content fits horizontally: ${JSON.stringify(geometry)}`);
+        assert(geometry.left >= 15 && geometry.right <= geometry.viewportWidth - 15, 'Dialog stays within horizontal viewport margins');
+        assert(geometry.top >= 15 && geometry.bottom <= geometry.viewportHeight - 15, 'Dialog stays within vertical viewport margins');
+        assert(Math.abs(geometry.center - geometry.viewportHeight/2) <= 2, 'Dialog stays vertically centered');
+      }
+      await assertDialogLayout();
+      await dialog.getByLabel('Filter by agent', {exact:true}).selectOption('gallery-long-agent');
+      await assertDialogLayout();
+      await dialog.getByLabel('Filter by agent', {exact:true}).selectOption('');
       await dialog.getByLabel('Search chats', { exact: true }).fill('no matching chat');
       await dialog.getByText('No matching chats.', { exact: true }).waitFor();
       await dialog.getByLabel('Search chats', { exact: true }).fill('date');
@@ -173,25 +206,71 @@ async function main() {
       await dialog.getByRole('button', { name: /^Review date handling/ }).click();
       assert.equal(await dialog.getByRole('button', { name: /^Model and settings:/ }).count(), 0, 'Existing destinations keep their model settings');
       await dialog.getByRole('textbox', { name: 'Your directions, optional', exact: true }).fill('Compare the full review with your implementation.');
-      await page.screenshot({ path: path.join(output, `coordination-forward-existing-${page.viewportSize()!.width}.png`), fullPage: true });
+      await assertDialogLayout();
+      await dialog.screenshot({ path: path.join(output, `coordination-forward-existing-${page.viewportSize()!.width}.png`) });
       await dialog.getByRole('button', { name: 'Send to chat', exact: true }).click();
       await waitForText(frame, 'Example message shared. No real chat was created');
       await dialog.waitFor({ state: 'detached' });
 
       await frame.getByRole('button', { name: 'Send to chat', exact: true }).click();
-      dialog = frame.getByRole('dialog');
+      dialog = frame.getByRole('dialog', {name:'Send to chat',exact:true});
       await dialog.getByLabel('New chat', { exact: true }).check();
       await dialog.getByLabel('Filter by agent', { exact: true }).selectOption('019a0000-0000-7000-8000-000000000003');
+      await assertDialogLayout();
       await dialog.getByRole('button', { name: /^Model and settings: Example claude model/ }).click();
+      const modelPopover = frame.locator('[data-slot="popover-content"]').last();
+      await frame.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      const modelBox = await modelPopover.evaluate(element => {const r=element.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height};});
+      const viewport = await frame.evaluate(() => ({width:innerWidth,height:innerHeight}));
+      assert(modelBox.x >= 0 && modelBox.y >= 0 && modelBox.x+modelBox.width <= viewport.width+1 && modelBox.y+modelBox.height <= viewport.height+1, `Model picker fits the viewport: ${JSON.stringify({modelBox,viewport})}`);
+      await assertDialogLayout();
       await frame.getByRole('option', { name: 'Example codex model', exact: true }).click();
       await dialog.getByRole('button', { name: /^Model and settings: Example codex model/ }).click();
       await frame.getByRole('button', { name: 'Effort: Medium', exact: true }).click();
       await frame.getByRole('menuitemradio', { name: /^High/ }).click();
       await dialog.getByRole('button', { name: /^Model and settings: Example codex model, High effort/ }).waitFor();
       await frame.waitForFunction(() => !document.querySelector('[data-slot="popover-content"]'));
-      await page.screenshot({ path: path.join(output, `coordination-forward-new-${page.viewportSize()!.width}.png`), fullPage: true });
+      await assertDialogLayout();
+      await dialog.screenshot({ path: path.join(output, `coordination-forward-new-${page.viewportSize()!.width}.png`) });
       await dialog.getByRole('button', { name: 'Send to chat', exact: true }).click();
       await dialog.waitFor({ state: 'detached' });
+      await viewportStyle.evaluate(element=>{element.parentNode?.removeChild(element);});
+    }
+    async function exerciseStandaloneForward() {
+      const standalone = await browser.newPage();
+      try {
+        for (const [width,height] of [[1440,900],[500,630],[390,844]]) {
+          await standalone.setViewportSize({width,height});
+          await standalone.goto(`${origin}/chat-ui-gallery/coordination.html#example=coordination&state=shared&theme=dark`);
+          const source = standalone.getByRole('button', {name:'Send to chat',exact:true});
+          await source.click();
+          const dialog = standalone.getByRole('dialog', {name:'Send to chat',exact:true});
+          await dialog.getByLabel('Filter by agent', {exact:true}).selectOption('gallery-long-agent');
+          const geometry = await dialog.evaluate(element=>{
+            const r=element.getBoundingClientRect();
+            return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,center:r.top+r.height/2,overflow:element.scrollWidth-element.clientWidth};
+          });
+          assert(geometry.overflow <= 1 && geometry.left >= 15 && geometry.right <= width-15 && geometry.top >= 15 && geometry.bottom <= height-15 && Math.abs(geometry.center-height/2) <= 2, `Standalone dialog fits and centers at ${width}x${height}: ${JSON.stringify(geometry)}`);
+          await standalone.screenshot({path:path.join(output,`coordination-dialog-${width}x${height}.png`)});
+          await dialog.getByLabel('New chat', {exact:true}).check();
+          await dialog.getByRole('button', {name:/^Model and settings:/}).click();
+          const popover = standalone.locator('[data-slot="popover-content"]');
+          await standalone.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+          const box = await popover.boundingBox(); assert(box);
+          assert(box.x >= 0 && box.y >= 0 && box.x+box.width <= width+1 && box.y+box.height <= height+1, 'Standalone model picker fits');
+          if (await popover.evaluate(element=>element.scrollHeight > element.clientHeight)) {
+            await popover.hover();
+            await standalone.mouse.wheel(0,300);
+            await standalone.waitForFunction(()=>{const p=document.querySelector('[data-slot="popover-content"]')!; return [p,...p.querySelectorAll('*')].some(element=>element.scrollTop>0);},null,{timeout:5000}).catch(async error=>{console.error('Model scroll geometry',await popover.evaluate(p=>[p,...p.querySelectorAll('*')].filter(e=>e.scrollHeight>e.clientHeight).map(e=>({tag:e.tagName,cls:e.className,top:e.scrollTop,height:e.clientHeight,scrollHeight:e.scrollHeight}))));throw error;});
+          }
+          await standalone.keyboard.press('Escape');
+          await dialog.getByRole('button', {name:'Cancel',exact:true}).click();
+          await source.click();
+          await dialog.waitFor();
+          await standalone.keyboard.press('Escape');
+          await dialog.waitFor({state:'detached'});
+        }
+      } finally { await standalone.close(); }
     }
     async function exerciseTextFiles() {
       let frame = await select('text-files');
@@ -275,6 +354,7 @@ async function main() {
       if (focusedExample === 'shared-chat') await exerciseSharedChat();
       if (focusedExample === 'chat-messages') await exerciseChatMessages();
       if (focusedExample === 'coordination') {
+        await exerciseStandaloneForward();
         await exerciseCoordination();
         await page.setViewportSize({ width: 390, height: 1050 });
         await exerciseCoordination();

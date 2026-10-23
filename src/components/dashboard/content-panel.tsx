@@ -17,6 +17,8 @@ import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
 import { HarnessChat } from '@/components/chat/harness-chat';
 import { appMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
+import { CoordinationMenu } from '@/components/chat-ui/coordination/controls';
+import { useMainChat } from '@/hooks/use-main-chat';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
 import { MainChatOnboarding } from '@/components/chat/onboarding/main-chat-onboarding';
 import { HomeTerminal } from '@/components/dashboard/home-terminal';
@@ -65,6 +67,7 @@ function ChatHeaderBar({
   onNewChat: () => void;
   newChatPending: boolean;
 }) {
+  const { data: currentChat } = useMainChat(null);
   return (
     <div className="shrink-0 flex items-center justify-end gap-1.5 px-2 py-1 border-b border-border/50">
       {/* Who you're talking to, the same name the rail's home row shows. */}
@@ -74,6 +77,7 @@ function ChatHeaderBar({
           {name}
         </span>
       </span>
+      <CoordinationMenu sessionId={currentChat?.session?.id ?? null} />
       <MainChatHistoryMenu scope={null} />
       <Tip label="Start a new chat (archives the current one)">
         <button

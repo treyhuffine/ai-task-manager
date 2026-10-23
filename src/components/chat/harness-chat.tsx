@@ -9,6 +9,7 @@ import {
 	type EmptyChatActions,
 	type MainChatIntro,
 } from '@/components/chat/main-chat-intro';
+import { CoordinationMenu } from '@/components/chat-ui/coordination/controls';
 import { BackgroundTasksBar } from '@/components/chat-ui/activity/background-tasks-bar';
 import {
 	ExecutionComposer,
@@ -108,6 +109,7 @@ export function HarnessChat({
   return (
     <ChatRefreshBoundary error={error} retry={() => void refetch()}><HarnessChatSession
       sessionId={sessionId}
+      chatMenuInHeader
       isMobile={isMobile}
       composerPlaceholder={composerPlaceholder}
       autoFocusComposer={autoFocusComposer}
@@ -134,6 +136,8 @@ export function HarnessChat({
  */
 type HarnessChatSessionProps = {
   sessionId: string;
+  /** Main chats provide their menu in the surrounding header. Embedded chats keep it in their action row. */
+  chatMenuInHeader?: boolean;
   isMobile?: boolean;
   /** Placeholder for the composer. The agent-first entity view passes
    *  document-specific teaching copy; executions keep the default. */
@@ -170,6 +174,7 @@ function ChatSession({
   emptyState,
   onSwitchProvider,
   switchingProvider,
+  chatMenuInHeader = false,
 }: HarnessChatSessionProps) {
   const { data: session, error: sessionError, fetchStatus, refetch } = useSession(sessionId);
   const { data: runtime } = useRuntimeStatus(sessionId);
@@ -269,7 +274,7 @@ function ChatSession({
           effort={session.effort}
           serviceTier={session.serviceTier}
           harness={session.harness}
-          leadingActions={<AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />}
+          leadingActions={<><AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />{!chatMenuInHeader && <CoordinationMenu sessionId={session.id} />}</>}
           submitOnEnter={!isMobile}
           isRunning={isRunning}
           onSwitchProvider={onSwitchProvider}

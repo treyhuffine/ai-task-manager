@@ -7,6 +7,7 @@ import { agentMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useMainChat, useNewMainChat } from '@/hooks/use-main-chat';
 import { useDevice } from '@/hooks/use-devices';
 import type { WorkspaceRecord } from '@/db/types';
+import { CoordinationMenu } from '@/components/chat-ui/coordination/controls';
 import { Tip } from '@/components/ui/tip';
 import { useSession } from '@/hooks/use-execution';
 import { useWorkNavigation } from '@/contexts/work-context';
@@ -54,6 +55,7 @@ export function AgentChatPanel({ workspace, sessionId }: { workspace: WorkspaceR
           )}
         </span>
         <div className="flex items-center gap-1.5">
+          <CoordinationMenu sessionId={sessionId ?? current?.session?.id ?? null} />
           {sessionId ? <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => openAgent(workspace.id)}>Agent chat</button> : <MainChatHistoryMenu scope={workspace.id} />}
           {!archived && (
             <Tip label="Earlier conversations stay in History">
@@ -69,7 +71,7 @@ export function AgentChatPanel({ workspace, sessionId }: { workspace: WorkspaceR
           )}
         </div>
       </div>
-      {sessionId ? <HarnessChatSession sessionId={sessionId} composerPlaceholder={`Tell ${workspace.name} what to build, or ask about its work`}
+      {sessionId ? <HarnessChatSession sessionId={sessionId} chatMenuInHeader composerPlaceholder={`Tell ${workspace.name} what to build, or ask about its work`}
         onSwitchProvider={next => newChat.mutate({ sourceChatId: sessionId, providerId: next.harness, model: next.model, variant: next.variant, effort: next.effort }, { onSuccess: data => openExecution(data.session.id) })}
         switchingProvider={newChat.isPending} /> : <HarnessChat
         scope={workspace.id}

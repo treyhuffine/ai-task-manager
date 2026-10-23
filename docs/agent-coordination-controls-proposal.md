@@ -2,7 +2,7 @@
 
 Status: implemented in this checkout. Owner-controlled rollout pending.
 
-Updated: 2026-10-22. Implementation started from commit `3c1cda1d2950`.
+Updated: 2026-10-23. Implementation started from commit `3c1cda1d2950`.
 
 This is the normative specification. It supersedes the earlier proposals and review alternatives in this file. [Agent coordination](agent-coordination.md) describes the implementation and rollout. [Implementation evidence](agent-coordination-implementation.md) maps its acceptance criteria to verification. Production has not been restarted or migrated by this work.
 
@@ -151,7 +151,15 @@ For agent-created chats, initialize coordination permission from the creator's e
 
 This initialization is a platform rule for delegated chats, not an agent-callable permission setter. Later human changes to an explicit destination scope remain available through its controls. A more specific explicit child preference follows the normal precedence rule and is not silently rewritten by a global-default change.
 
-### 5.4 Harness permission ceiling
+### 5.4 Enabled automation
+
+Enabling an automation authorizes its run chats to communicate and delegate within the assignment. Every trigger-fired chat starts with the existing chat-level Allow automatically preference, including later fires in a recurring execution. This covers one-time, cron, interval, webhook and manually fired triggers. Interactive chats retain the ordinary permission defaults. This requires no new permission table, recipient rules or trigger permission columns. Agents create or enable schedules only within the user's intent and never to bypass a denied send. A person may still change a run chat's preference, pause incoming messages or stop its work. Disabling the schedule prevents future automatic fires.
+
+A scheduled turn ending with its own sends still awaiting approval is failed with an actionable reason, rather than reported as completed. Use its normal terminal notification routing, falling back to the existing needs-input notification route when no terminal notification is queued. Repeated terminal callbacks do not create another notification. A person's Stop and an existing specific failure remain authoritative. Queued authorized messages retain their delivery state, and are not classified as needing approval. A run records a harness turn, while delivery and request rows record message acceptance and owed outcomes separately.
+
+Existing enabled schedules gain this default on their next fire. Do not replay historical work or automatically release old approval requests.
+
+### 5.5 Harness permission ceiling
 
 Coordination authorization does not grant broader tool authority.
 
@@ -169,7 +177,7 @@ Human composer sends and human forwards may start a turn in a held destination. 
 
 Releasing Hold schedules eligible pending messages and assignment continuations. If the chat is already working, wait or batch into the appropriate turn according to capability and request ownership. Never release every pending item as a burst of concurrent assignment turns.
 
-A per-chat Hold is local. It does not stop other chats, cancel assignments, or prevent an already running or human-directed turn from making authorized outgoing sends. The UI must say Hold this chat, not imply a fleet-wide pause.
+A per-chat Hold is local. It does not stop other chats, cancel assignments, or prevent an already running or human-directed turn from making authorized outgoing sends. The UI calls this Pause incoming and describes its scope as this chat.
 
 ### 6.1 Human direction and ownership
 
@@ -349,7 +357,9 @@ Use the same Send to chat action to forward an answer back. Version one does not
 
 Long cards show a bounded preview and a clear expansion action. The full selected material is available to the receiver. Related-chat shortcuts derive from recorded exchanges without another table. Links navigate to the exact archived transcript without silently resuming it or replacing a current main chat.
 
-Place Hold this chat beside the composer/status controls so it stays reachable during running, waiting, and typing states. Show Hold on and the number of received messages waiting for acceptance. Stop remains independently available. Release Hold is an explicit action.
+Ordinary idle chats show no collaboration row above the composer. An attempted send under Ask first displays an approval card stating that the message has not been sent. Approved unfinished exchanges show a compact status linking to participating chats and Pause incoming. Determine activity from open approved requests, queued deliveries and accepted inputs whose producing run is still active, never historical receipts. Once the exchange finishes, the row disappears.
+
+An enabled pause remains visible even when idle, with Incoming agent messages paused, a waiting count and Resume. Keep standing permission preferences and a pause control in the chat menu so both remain reachable without an active exchange. Stop remains independently available. The Send to chat dialog stays centered within viewport margins, scrolls vertically on short screens and never scrolls horizontally. Its model picker remains usable inside the dialog scroll lock.
 
 ## 11. Migration and rollout
 
@@ -393,6 +403,9 @@ The implementation is complete only when the following behavior is verified:
 21. Human forwarding preserves actual sender, full source material, exact links, and destination settings. Repeated new-chat forwarding creates one destination. Model and effort options respect the selected harness/model.
 22. Deleted or archived sources, targets, requests, and event references produce the defined historical display or failure, without unintentional rerouting, input replay, or transcript deletion.
 23. Pending coordination queries stay bounded and indexed. Representative plans, migration rehearsals, typecheck, relevant tests, and UI states in the chat gallery pass.
+24. Trigger-fired chats start with Allow automatically under Ask first defaults, including later chats in recurring executions. A scheduled message reaches its recipient without a per-send prompt, and a scheduled delegation returns its outcome. Interactive chats retain their inherited defaults.
+25. A scheduled turn ending with its own pending send approval fails visibly with an actionable reason. Failure text takes precedence over a misleading success reply in notifications and run lists. Terminal callbacks do not duplicate notifications. Human Stop and a specific provider failure retain their meaning.
+26. Idle and completed chats show no permanent collaboration row. Active exchanges show linked participating chats and Pause incoming. An enabled pause remains visible with Resume. Preferences remain accessible in chat menus, including embedded chats. Send to chat fits and centers on desktop, phone and short viewports without horizontal overflow, including long titles and agent names and a usable nested model picker.
 
 No new passive-context mode, mandatory takeover ceremony, generic thread entity, or work-wide grant is required to satisfy these criteria.
 

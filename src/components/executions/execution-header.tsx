@@ -35,6 +35,7 @@ import { ResyncMenuItem } from './resync-menu-item';
 import { useSteadyRunning } from './steady-running';
 import { LocationMenu, MoveActions } from './transfer/location-menu';
 import { Tip } from '@/components/ui/tip';
+import { CoordinationSettings } from '@/components/chat-ui/coordination/controls';
 import { ExecutionResultsShortcut } from '@/components/results/execution-results-shortcut';
 
 interface ExecutionHeaderProps {
@@ -381,6 +382,8 @@ export function ExecutionHeader({
                 menu's height cap used to push it out of sight. */}
             {archiveMenuItem}
           </div>
+
+          <details className="border-t border-border p-3 text-xs"><summary className="cursor-pointer font-medium">Chat collaboration</summary><div className="pt-3"><CoordinationSettings sessionId={session.id} /></div></details>
 
           {/* The links render nothing on a screen that can't open the folder
               (a browser on another device), so the section's divider and

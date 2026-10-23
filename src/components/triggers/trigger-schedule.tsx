@@ -22,6 +22,7 @@ export function TriggerSchedule({ trigger }: { trigger: TriggerRecord }) {
           </button>
         )}
       </div>
+      <p className="text-[12px] text-muted-foreground">When this job runs, it can message other chats and start new chats for its assignment.</p>
       {editing ? (
         <ScheduleForm trigger={trigger} onClose={() => setEditing(false)} />
       ) : (

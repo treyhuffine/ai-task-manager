@@ -162,6 +162,32 @@ describe('dispatchRun', () => {
     expect(r.chatSession?.type).toBe('orchestration');
   });
 
+  it.each([
+    ['workspace', 'at'], ['workspace', 'cron'], ['orchestrator', 'at'],
+    ['orchestrator', 'cron'], ['orchestrator', 'every'],
+    ['orchestrator', 'manual'], ['orchestrator', 'webhook'],
+  ] as const)('%s %s fires can coordinate under Ask first defaults', async (targetKind, kind) => {
+    const { wsId } = await seed();
+    const q = await import('@/lib/db/queries');
+    const { dispatchRun } = await import('./dispatch');
+    q.setAgentCoordinationPolicy('global', '1', 'ask');
+    q.setAgentCoordinationPolicy('agent', wsId, 'ask');
+    const trigger = q.createTrigger({ name: 'Unattended work', workspaceId: targetKind === 'workspace' ? wsId : null, targetKind, harness: 'claude', prompt: 'Send the requested message.', kind, cronExpression: kind === 'cron' ? '* * * * *' : null, intervalSeconds: kind === 'every' ? 60 : null, runAt: kind === 'at' ? new Date().toISOString() : null });
+    const fire = await dispatchRun({ trigger, triggerKind: kind });
+    expect(fire.chatSession?.agentCoordinationPolicy).toBe('allow');
+    expect(q.agentCoordinationPolicy(fire.chatSession!.id)).toMatchObject({ policy: 'allow', source: 'chat' });
+    await vi.waitFor(() => expect(q.getRun(fire.run.id)?.status).toBe('completed'));
+    if (kind === 'cron' && targetKind === 'workspace') {
+      q.setAgentCoordinationPolicy('execution', fire.run.executionId!, 'ask');
+      const next = await dispatchRun({ trigger: q.getTrigger(trigger.id)!, triggerKind: 'cron' });
+      expect(next.chatSession?.id).not.toBe(fire.chatSession?.id);
+      expect(q.agentCoordinationPolicy(next.chatSession!.id)).toMatchObject({ policy: 'allow', source: 'chat' });
+      await vi.waitFor(() => expect(q.getRun(next.run.id)?.status).toBe('completed'));
+    }
+    const interactive = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Interactive' }).session;
+    expect(q.agentCoordinationPolicy(interactive.id).policy).toBe('ask');
+  });
+
   it('skip_if_running: second fire while first is running is recorded as skipped', async () => {
     const { wsId } = await seed();
     const queries = await import('@/lib/db/queries');

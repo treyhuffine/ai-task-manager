@@ -168,6 +168,8 @@ Each schedule has: `prompt`, `harness`, `target_kind` (`workspace` or `orchestra
 - `skip_missed` (default)
 - `run_all` — fire once per missed window, capped at 3
 
+**Coordination permission:** enabling a job authorizes its run chats to message other chats and delegate within the assignment. Each fire initializes the existing chat-level coordination preference to Allow automatically, including a fresh chat in an existing execution. No separate schedule permission table or per-recipient grant is used. Human pause, Stop and disabling future fires remain available. A run ending with its own sends still awaiting approval is reported as failed with an actionable reason and the existing notification routing, rather than successful completion.
+
 **Active hours:** optional `active_hours_start` / `active_hours_end` (HH:MM in timezone) for "only fire during business hours." Heartbeat will use this heavily when it ships; V1 schedules can opt in.
 
 ### 4.3 Runs

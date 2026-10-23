@@ -234,6 +234,7 @@ export function TriggerCreateForm({ onCreated, onCancel }: TriggerCreateFormProp
             />
           </div>
         </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">When this job runs, it can message other chats and start new chats for its assignment.</p>
         {noWorkspaces && (
           <p className="text-[11px] text-destructive mt-1">
             Create an agent before adding a scheduled task.

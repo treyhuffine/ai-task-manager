@@ -69,7 +69,8 @@ export function runTerminalNotification(runId: string): { event: NotificationEve
  */
 function runText(run: RunRecord, fallback: string): Pick<NotificationEvent, 'body' | 'fullBody'> {
   const reply = run.chatSessionId ? turnReplyText(run.chatSessionId) : run.summary;
-  const text = reply || (run.status === 'failed' && run.errorMessage?.trim()) || fallback;
+  const approvalBlock = run.status === 'failed' && run.errorCode === 'coordination_approval_required' ? run.errorMessage?.trim() : null;
+  const text = approvalBlock || reply || (run.status === 'failed' && run.errorMessage?.trim()) || fallback;
   const body = fitText(oneLine(text), LINE_BODY_MAX);
   const fullBody = fitText(text, FULL_BODY_MAX);
   return fullBody === body ? { body } : { body, fullBody };
