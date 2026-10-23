@@ -33,8 +33,10 @@ customModels: text({ mode: 'json' }).$type<string[]>().notNull().default([])
 Two invariants make everything else fall out:
 
 1. **A pin is always enabled.** `addCustomHarnessModel` writes the id into
-   `customModels` and `enabledModels` in one transaction. A pin that is not
-   visible in the picker is indistinguishable from one that never saved.
+   `customModels` and `enabledModels` in one transaction. It remains available
+   through provider expansion and search. Selecting a new pin shows it in the
+   compact list, which otherwise follows recent use rather than keeping every
+   historical pin visible forever.
 2. **A pin is a catalog member.** `getHarnessModelCatalog` merges
    `customModelCatalog(providerId)` alongside discovered and bundled models, so
    every validator that already asks "is this model real?" accepts it with no
@@ -53,11 +55,11 @@ after a TTL.
 
 ### Ordering
 
-Pins are appended **last** in the catalog and rendered **first** in the list.
+Pins are appended **last** in the catalog. The compact menu follows recent use.
 Catalog order matters because `explicitModelForProvider` falls back to
 `catalog[0]` for an unresolvable id, and that fallback should stay the
-provider's flagship. List order is a separate, human question: an exact pin is
-the one row the user typed, so it outranks the alias it was created to bypass.
+provider's flagship. The compact list follows the same recent-use ordering for
+pins and catalog models. The current selection always remains visible.
 
 ### Labels
 
@@ -80,11 +82,11 @@ so on the first send.
 
 | Where | What it gets |
 | --- | --- |
-| Composer model menu | Visible pins first within their harness, search, an expander per provider, Manage models opens Settings |
+| Composer model menu | Recent models and the current selection, search, an expander per provider including pins, Manage models opens Settings |
 | Launcher model control | Same compact menu, with no provider-switch confirmation |
 | Settings default picker | Same, via `ModelList` |
 | Settings → Models | Pin input under the model search, unpin control on pinned rows |
-| Trigger model pill | Lists the provider's visible models plus pins, and pins from the same input |
+| Trigger model pill | Same compact menu and provider expansion, including pins |
 | Onboarding | Pins appear in the catalog grid |
 
 The composer and launcher share `ModelMenuContent` and `VisibleModelOptions`

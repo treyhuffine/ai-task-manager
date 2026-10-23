@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server';
 const getChatSessionWithExecution = vi.fn();
 const updateChatSession = vi.fn();
 const updateUserState = vi.fn();
+const recordHarnessModelUse = vi.fn();
 const setExecutionPR = vi.fn();
 const setExecutionLabel = vi.fn();
 const isRunning = vi.fn();
@@ -19,6 +20,7 @@ vi.mock('@/lib/db/queries', () => ({
   getChatSessionWithExecution: (id: string) => getChatSessionWithExecution(id),
   updateChatSession: (id: string, input: unknown) => updateChatSession(id, input),
   updateUserState: (input: unknown) => updateUserState(input),
+  recordHarnessModelUse: (harness: string, model: string) => recordHarnessModelUse(harness, model),
   setExecutionPR: (id: string, value: number | null) => setExecutionPR(id, value),
   setExecutionLabel: (id: string, value: string | null) => setExecutionLabel(id, value),
 }));
@@ -81,6 +83,7 @@ beforeEach(() => {
   getChatSessionWithExecution.mockReset().mockReturnValue(existing);
   updateChatSession.mockReset().mockImplementation((_id, input) => ({ ...existing, ...input }));
   updateUserState.mockReset();
+  recordHarnessModelUse.mockReset();
   setExecutionPR.mockReset();
   setExecutionLabel.mockReset();
   isRunning.mockReset().mockReturnValue(false);
@@ -129,6 +132,7 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
     });
     expect(updateChatSession).not.toHaveBeenCalled();
     expect(updateUserState).not.toHaveBeenCalled();
+    expect(recordHarnessModelUse).not.toHaveBeenCalled();
     expect(recycleForModeChange).not.toHaveBeenCalled();
   });
 
@@ -141,6 +145,7 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
     // side effect of changing one chat (docs/default-selection.md).
     expect(updateUserState).not.toHaveBeenCalled();
     expect(recycleForModeChange).toHaveBeenCalledWith(SESSION_ID);
+    expect(recordHarnessModelUse).not.toHaveBeenCalled();
   });
 
   it('requires a new chat when the runtime cannot change effort in place', async () => {
@@ -209,6 +214,7 @@ describe('PATCH /api/sessions/[id] selection changes', () => {
 
     expect(response.status).toBe(200);
     expect(updateChatSession).toHaveBeenCalledWith(SESSION_ID, { model: 'opencode/grok-4.5' });
+    expect(recordHarnessModelUse).toHaveBeenCalledWith('opencode', 'opencode/grok-4.5');
     expect(updateUserState).not.toHaveBeenCalled();
   });
 });

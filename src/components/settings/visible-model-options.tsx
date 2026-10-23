@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ModelMenuProvider } from '@/components/chat-ui/model-menu/model-menu-provider';
+import { compactModels } from '@/components/chat-ui/model-menu/compact-models';
+import { trpc } from '@/lib/trpc/client';
 import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
 import { useHarnessConnection } from '@/hooks/use-harness-connection';
 import { useHarnessModels } from '@/hooks/use-harness-models';
@@ -14,7 +16,7 @@ import {
   type ProviderId,
 } from '@/lib/harness/options';
 
-/** Connected harnesses, saved visible models and a supported-catalog expander for each. */
+/** Recent choices up front, with each provider's remaining models in its expander. */
 export function VisibleModelOptions({
   currentProvider,
   model,
@@ -65,7 +67,8 @@ function ProviderModels({
   disabled?: boolean;
   markProviderSwitches: boolean;
 }) {
-  const { models } = useHarnessModels(harness);
+  const enabled = useHarnessModels(harness);
+  const { models } = enabled;
   const { canConfigureModels } = useExecutionRuntimeScope();
   const catalog = useHarnessModels(harness, { catalog: true });
   const { connection } = useHarnessConnection(harness);
@@ -73,18 +76,21 @@ function ProviderModels({
   const queryClient = useQueryClient();
   const [pendingModel, setPendingModel] = useState<string | null>(null);
   if (!connection.connected && harness !== currentProvider) return null;
-  const rows = [
-    ...models.filter((model) => model.custom),
-    ...models.filter((model) => !model.custom),
-  ];
-  const visibleIds = new Set(models.map((model) => model.id));
-  const additionalModels = canConfigureModels ? catalog.models.filter(
+  const currentModel = harness === currentProvider ? selectedModel : null;
+  const currentOption = catalog.models.find(model => model.id === currentModel);
+  const candidates = currentOption && !models.some(model => model.id === currentOption.id) ? [...models, currentOption] : models;
+  const rows = compactModels(candidates, enabled.data?.recentModelIds ?? [], currentModel,
+    defaultSelection?.harness === harness ? defaultSelection.model : enabled.data?.defaultModel ?? null);
+  const enabledIds = new Set(models.map((model) => model.id));
+  const visibleIds = new Set(rows.map(model => model.id));
+  const remaining = new Map([...models, ...(canConfigureModels ? catalog.models : [])].map(model => [model.id, model]));
+  const additionalModels = [...remaining.values()].filter(
     (model) =>
       !visibleIds.has(model.id) && model.availability !== 'unavailable',
-  ) : [];
+  );
   const pick = async (model: ModelOption) => {
     if (disabled || pendingModel || !connection.connected) return;
-    if (visibleIds.has(model.id)) {
+    if (enabledIds.has(model.id)) {
       onPick(harness, model);
       return;
     }
@@ -108,7 +114,7 @@ function ProviderModels({
       // The composer resolves a pick against the enabled list immediately.
       // Refresh it before handing off so it never falls back to another model.
       await queryClient.refetchQueries(
-        { queryKey: ['agent-models', harness] },
+        { queryKey: trpc.harness.modelsGet.queryKey({ query: { provider: harness } }), exact: true },
         { throwOnError: true },
       );
       onPick(harness, model);

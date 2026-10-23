@@ -6,17 +6,30 @@ Search matches model labels, exact IDs and harness names across the supported
 catalog, including models inside collapsed sections. Arrow keys and Enter select
 a result. Closing the menu clears its search and collapses the provider sections.
 
-The main list contains saved visible models from connected harnesses. Pins
-come first within their harness. Unavailable models cannot be selected.
+The compact list shows the two most recently used enabled models per connected
+harness, based on choices within the last 30 days. The current selection
+stays visible even when it is older. Empty drafts, scheduled chats and AI-review
+chats do not crowd out the person's choices. Archived chats and imported native
+history count. A provider with no recent history shows its configured default
+or first available model, rather than its whole catalog. Unavailable models
+cannot be selected.
 Each provider has its own More models expander for additional supported models.
-Picking one adds it to the saved visible list before selecting it, preserving the
+Picking a model already enabled selects it directly. Picking another adds it to
+the enabled list before selecting it, preserving the
 provider's configured default model, variant and effort. Unavailable models are
 excluded from these additional choices. If the provider's whole supported list
 is already visible, its All models expander says so.
 
 Manage models opens Settings > Models, where the existing Visible models
-checklist controls the compact list. This uses the existing saved allowlist,
-with no additional preference or usage-history query. Connecting a harness and
+checklist controls eligible models. Recency shapes the compact list without
+changing those settings. Remaining enabled models are also expandable for team
+members who cannot configure model settings. Accepted sends and explicit model
+changes record usage separately from preferences, so switching models within
+one chat preserves both choices. Existing chats bootstrap the history from
+their metadata, without reading transcript events. Usage refreshes when the
+menu reopens after 30 seconds. Migration 0025 adds the small usage table without
+changing existing data or defaults.
+Connecting a harness and
 pinning an exact model ID also live in Settings.
 
 Picking another harness in an existing chat still asks to start a new chat.
@@ -113,6 +126,9 @@ stay local to the example.
 
 ## Implementation and verification
 
+- [x] Persist deliberate model choices and bootstrap from chat metadata without scanning transcripts
+- [x] Keep two recent models per provider and the current selection visible
+- [x] Verify full enabled catalogs collapse, provider expansion, search and cold starts
 - [x] One searchable menu in the chat composer, launcher and scheduled-run pickers
 - [x] Existing model visibility settings and one Manage models destination
 - [x] Independent provider expanders and search across additional supported models
@@ -154,6 +170,13 @@ enabling a hidden model without changing defaults, save failures, running-state 
 speed capability sets and phone-width collision handling. They never start a
 harness or access a real home's data. Set `RI_REVIEW_CHROMIUM` to override the
 Chromium executable and `RI_MODEL_MENU_SCREENSHOTS` to save review images.
+
+Recent model regressions: `pnpm exec vitest run src/lib/db/queries.recent-models.test.ts src/lib/executor/recent-models.test.ts src/components/chat-ui/model-menu/compact-models.test.ts`.
+These cover same-chat model changes, accepted and rejected sends, schedule
+exclusion, imported and archived history, stale choices, disabled models and
+first-use fallbacks. The browser suite also checks a fully enabled catalog,
+independent expanders, search and selection without changing settings,
+including for team members without settings access.
 
 Speed integration regressions: `pnpm exec vitest run src/lib/harness/service-tiers.test.ts src/lib/executor/speed.test.ts src/lib/executor/trigger-selection.test.ts src/lib/executor/devices.speed.test.ts`. The browser suite also covers live native tier IDs, unavailable choices and launcher persistence.
 

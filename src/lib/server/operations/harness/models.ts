@@ -1,7 +1,7 @@
 import { homeSettingsAdmission } from '@/lib/home/settings-authority';
 
 import { getAppRoot } from '@/lib/config/paths';
-import { ensureHarnessSettings, upsertHarnessSettings } from '@/lib/db/queries';
+import { ensureHarnessSettings, listRecentHarnessModelIds, upsertHarnessSettings } from '@/lib/db/queries';
 import { getHarnessModels, withBundledFallback } from '@/lib/harness/model-discovery';
 import { customModelOption, modelsForProvider, type ModelOption } from '@/lib/harness/options';
 import { isHarnessId } from '@/lib/harness/registry';
@@ -82,18 +82,20 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, request: Operat
     }
   }
 
+  const enabledModels = models.filter((model) => model.enabled && model.availability !== 'unavailable');
   return reply({
     source: discovery.source,
     customModelIds: settings.customModels,
     models: showCatalog
       ? models
-      : models.filter((model) => model.enabled && model.availability !== 'unavailable'),
+      : enabledModels,
     enabledModelIds: settings.enabledModels,
     defaultModel: settings.defaultModel,
     defaultVariant: settings.defaultVariant,
     defaultEffort: settings.defaultEffort,
     defaultServiceTier: settings.defaultServiceTier,
     catalogRefreshedAt: settings.catalogRefreshedAt,
+    recentModelIds: showCatalog ? [] : listRecentHarnessModelIds(provider, { modelIds: enabledModels.map(model => model.id) }),
   });
 }
 

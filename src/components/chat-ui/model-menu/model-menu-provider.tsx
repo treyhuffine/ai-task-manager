@@ -12,7 +12,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ModelMenuItem } from './model-menu';
 
-/** Saved visible models first, with each harness's supported catalog one click away. */
+/** Compact choices first, with each harness's remaining models one click away. */
 export function ModelMenuProvider({
   harness,
   models,

@@ -88,11 +88,17 @@ beforeAll(async () => {
           builder.onLoad({ filter: /.*/, namespace: 'menu-fixture' }, () => ({
             loader: 'js',
             contents: `
-        const fixture = window.__modelMenuFixture ??= {saved:[], models:{
+        const fixture = window.__modelMenuFixture ??= {saved:[], recent:{codex:['gpt-6.1-sol','gpt-6-astra'],claude:['opus']}, models:{
           codex:[{id:'gpt-6.1-sol',label:'6.1 Sol',supportedEfforts:['low','medium','high','xhigh']},{id:'gpt-6-astra',label:'6 Astra',supportedEfforts:['medium','high','max']}],
           claude:[{id:'opus',label:'Opus',supportedEfforts:['low','medium','high','max']}],
           cursor:[{id:'disconnected-model',label:'Disconnected model'}],opencode:[],antigravity:[]
         }};
+        if(location.search.includes('all-enabled')) {
+          fixture.models.codex.push({id:'gpt-6-sol',label:'6 Sol'},{id:'gpt-6-luna',label:'6 Luna'},{id:'gpt-5.6-sol',label:'5.6 Sol'},{id:'gpt-5.6-terra',label:'5.6 Terra'},{id:'gpt-5.6-luna',label:'5.6 Luna'});
+          fixture.models.claude.push({id:'fable',label:'Fable'},{id:'sonnet',label:'Sonnet'},{id:'haiku',label:'Haiku'});
+          fixture.recent.claude = ['opus','fable'];
+        }
+        if(location.search.includes('no-history')) fixture.recent = {};
         if(location.search.includes('speed')) {
           fixture.models.codex[0].serviceTiers = [{id:'default',name:'Standard',availability:'available'},{id:'priority',name:'Fast',availability:'unknown'},{id:'ultrafast',name:'Ultrafast',availability:'unknown'}];
           fixture.models.codex[1].serviceTiers = [{id:'default',name:'Standard',availability:'available'},{id:'priority',name:'Fast',availability:'unavailable',reason:'Disabled by provider'}];
@@ -101,7 +107,7 @@ beforeAll(async () => {
         const extra = {codex:[{id:'gpt-6-luna',label:'6 Luna',supportedEfforts:['low','medium','high']},{id:'retired',label:'Retired model',availability:'unavailable'}],claude:[{id:'sonnet',label:'Sonnet',supportedEfforts:['low','medium','high']}],cursor:[],opencode:[],antigravity:[]};
         export const useHarnessModels = (harness,options={}) => ({
           models:options.catalog ? [...(fixture.models[harness]??[]),...(extra[harness]??[])] : fixture.models[harness]??[],
-          data: harness ? {enabledModelIds:(fixture.models[harness]??[]).map(model=>model.id), defaultModel:harness==='codex'?'gpt-6.1-sol':'opus',defaultVariant:'standard',defaultEffort:'xhigh'} : undefined,
+          data: harness ? {recentModelIds:fixture.recent[harness]??[],enabledModelIds:(fixture.models[harness]??[]).map(model=>model.id), defaultModel:harness==='codex'?'gpt-6.1-sol':'opus',defaultVariant:'standard',defaultEffort:'xhigh'} : undefined,
           isLoading:false,isError:false,refetch:async()=>{}
         });
         export const useSaveHarnessModels = () => ({mutateAsync:async input=>{
@@ -685,6 +691,61 @@ it.skipIf(!enabled)('Team members can select enabled models and speeds without c
     await page.getByRole('combobox', { name: 'Search models' }).fill('6 Astra');
     await page.getByRole('option', { name: /6 Astra/ }).click();
     expect(await page.locator('output[aria-label="Selection"]').textContent()).toBe('gpt-6-astra:high');
+    expect(await page.evaluate('window.__modelMenuFixture.saved')).toEqual([]);
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('collapses a fully enabled catalog to Astra, 6.1, Opus and Fable, with independent provider expansion', async () => {
+  const page = await openPage('?all-enabled');
+  try {
+    await openMenu(page);
+    expect(await page.getByRole('option').allTextContents()).toEqual([
+      expect.stringContaining('6.1 Sol'), expect.stringContaining('6 Astra'),
+      expect.stringContaining('Opus'), expect.stringContaining('Fable'),
+    ]);
+    expect(await page.getByRole('option', { name: /5.6 Sol|Sonnet/ }).count()).toBe(0);
+    if (process.env.RI_MODEL_MENU_SCREENSHOTS) {
+      await fs.mkdir(process.env.RI_MODEL_MENU_SCREENSHOTS, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.RI_MODEL_MENU_SCREENSHOTS, 'model-menu-recent.png'), animations: 'disabled' });
+    }
+    await page.getByRole('button', { name: /More Codex models/ }).click();
+    expect(await page.getByRole('option', { name: '5.6 Sol', exact: true }).isVisible()).toBe(true);
+    expect(await page.getByRole('option', { name: /Sonnet/ }).count()).toBe(0);
+    await page.getByRole('button', { name: /More Claude Code models/ }).click();
+    expect(await page.getByRole('option', { name: 'Sonnet, new chat', exact: true }).isVisible()).toBe(true);
+    await page.getByRole('button', { name: /Fewer Codex models/ }).click();
+    expect(await page.getByRole('option', { name: '5.6 Sol', exact: true }).count()).toBe(0);
+    expect(await page.getByRole('option', { name: 'Sonnet, new chat', exact: true }).isVisible()).toBe(true);
+    await page.getByRole('combobox', { name: 'Search models' }).fill('gpt-5.6-sol');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expect.poll(() => page.getByLabel('Selection', { exact: true }).textContent()).toBe('gpt-5.6-sol:high');
+    expect(await page.evaluate('window.__modelMenuFixture.saved')).toEqual([]);
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('keeps a cold-start menu compact and lets an enabled model be selected from More without saving settings', async () => {
+  const page = await openPage('?no-history');
+  try {
+    await openMenu(page);
+    expect(await page.getByRole('option').count()).toBe(2);
+    expect(await page.getByRole('option', { name: '6 Astra', exact: true }).count()).toBe(0);
+    await page.getByRole('button', { name: /More Codex models/ }).click();
+    await page.getByRole('option', { name: '6 Astra', exact: true }).click();
+    await expect.poll(() => page.getByLabel('Selection', { exact: true }).textContent()).toBe('gpt-6-astra:high');
+    expect(await page.evaluate('window.__modelMenuFixture.saved')).toEqual([]);
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('keeps remaining enabled models reachable for a member who cannot configure the catalog', async () => {
+  const page = await openPage('?member&all-enabled');
+  try {
+    await openMenu(page);
+    expect(await page.getByRole('option').count()).toBe(4);
+    expect(await page.getByRole('button', { name: /Manage models/ }).count()).toBe(0);
+    await page.getByRole('button', { name: /More Codex models/ }).click();
+    await page.getByRole('option', { name: '6 Luna', exact: true }).click();
+    await expect.poll(() => page.getByLabel('Selection', { exact: true }).textContent()).toBe('gpt-6-luna:high');
     expect(await page.evaluate('window.__modelMenuFixture.saved')).toEqual([]);
   } finally { await page.close(); }
 });

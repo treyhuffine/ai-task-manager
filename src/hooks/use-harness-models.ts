@@ -22,7 +22,9 @@ export function useHarnessModels(
     queryKey: key,
     queryFn: () => trpcClient.harness.modelsGet.query({query: rpcQuery({ provider: providerId, ...(options.catalog ? { scope: 'catalog' } : {}) })}),
     enabled: providerId != null,
-    staleTime: 15 * 60 * 1000,
+    // Catalog discovery is cached on the server. Usage needs a shorter window
+    // so reopening the compact menu follows work done in other chats too.
+    staleTime: options.catalog ? 15 * 60 * 1000 : 30_000,
     refetchInterval: false,
   });
   const refresh = useCallback(async () => {

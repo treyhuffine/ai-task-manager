@@ -163,7 +163,7 @@ function HarnessPane({
           <div>
             <p className="font-medium text-foreground">Visible models</p>
             <p className="text-[10.5px] text-muted-foreground">
-              {enabled.length} selected. Only selected models appear in the composer.
+              {enabled.length} selected. Recent choices appear first in the composer. Expand a provider to see more.
             </p>
           </div>
           <Button

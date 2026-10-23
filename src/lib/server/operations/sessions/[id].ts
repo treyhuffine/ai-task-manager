@@ -10,6 +10,7 @@ import {
   setExecutionLabel,
   setExecutionPR,
   updateChatSession,
+  recordHarnessModelUse,
 } from '@/lib/db/queries';
 import * as executor from '@/lib/executor/adapter';
 import { supportedPermissionModes } from '@/lib/executor/permission-map';
@@ -308,6 +309,7 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, request: Op
 
     const row = updateChatSession(id, updates);
     if (!row) return reply({ error: 'Session not found' }, { status: 404 });
+    if (updates.model && updates.model !== existing.model) recordHarnessModelUse(existing.harness, updates.model);
     if ('label' in body) {
       publishSessionTitle(id, row.executionId);
       void import('@/lib/sessions/derive-label').then(({ syncSessionTitle }) => syncSessionTitle(id));

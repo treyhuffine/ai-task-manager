@@ -35,6 +35,7 @@ import {
   getRun,
   getChatEventById,
   updateChatSession,
+  recordHarnessModelUse,
   listChatSessions,
   listMainChats,
   createRun as createRunRow,
@@ -614,6 +615,9 @@ async function dispatchTo(
     endDispatchPreparation(chatSessionId, preparation);
   }
   options.onTaken?.();
+  if (delivered.outcome !== 'held' && !session.createdByRunId && session.surfaceKind !== 'result_review') {
+    recordHarnessModelUse(session.harness, selection.model);
+  }
   // Another dispatch of this message waiting on this one learns what became of it.
   settle(delivered.outcome === 'held' ? { kind: 'again' } : { kind: 'accepted' });
   // Said once the chat no longer reads as busy with this dispatch: a message

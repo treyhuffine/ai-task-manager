@@ -25,7 +25,7 @@ export { listPersonalAreaDefaults, setPersonalAreaDefault } from './private-area
 import { emailDraftFieldsSchema, emailDraftPatchSchema, parseEmailDraft, EmailDraftError, type EmailDraftFields } from '@/lib/email/validation';
 import type { EmailDraft } from '@/db/types';
 import { teamContentChanged } from '@/lib/spaces/generation';
-import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
+import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessModelUsage, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { normalizeNoteRow } from '@/lib/notes/kind';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
@@ -9577,6 +9577,57 @@ export function listAgentMainChats(): AgentMainChatState[] {
 export function getChatSession(id: string): ChatSessionRecord | undefined {
   const db = getDb();
   return db.select().from(chatSessions).where(eq(chatSessions.id, id)).get();
+}
+
+/** Remember actual choices even when one chat switches between several models. */
+export function recordHarnessModelUse(harness: HarnessId, model: string, at: Date = new Date()): void {
+  getDb().insert(harnessModelUsage).values({ id: uuidv7(), harness, model, lastUsedAt: at.toISOString() })
+    .onConflictDoUpdate({
+      target: [harnessModelUsage.harness, harnessModelUsage.model],
+      set: { lastUsedAt: sql`max(${harnessModelUsage.lastUsedAt}, excluded.last_used_at)` },
+    }).run();
+}
+
+/** Two recent choices are shown by the menu. Bootstrap from small chat metadata,
+ * never transcripts. Empty drafts and unattended schedule/review chats do not
+ * count as use. Archived chats and native history imports still count. */
+export function listRecentHarnessModelIds(harness: HarnessId, options: { now?: Date; modelIds?: string[] } = {}): string[] {
+  const { now = new Date(), modelIds } = options;
+  if (modelIds?.length === 0) return [];
+  const db = getDb();
+  const activity = sql`julianday(coalesce(${chatSessions.lastActivityAt}, ${chatSessions.startedAt}))`;
+  const since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const history = db.select({ model: chatSessions.model, lastUsed: sql<number>`max(${activity})` })
+    .from(chatSessions)
+    .where(and(
+      eq(chatSessions.harness, harness),
+      modelIds ? inArray(chatSessions.model, modelIds) : undefined,
+      isNotNull(chatSessions.model),
+      isNull(chatSessions.createdByRunId),
+      sql`(${chatSessions.surfaceKind} IS NULL OR ${chatSessions.surfaceKind} <> 'result_review')`,
+      sql`(${chatSessions.externalSessionId} IS NOT NULL OR EXISTS (
+        SELECT 1 FROM ${externalSessionImports} WHERE ${externalSessionImports.chatSessionId} = ${chatSessions.id}
+      ))`,
+      sql`${activity} >= julianday(${since})`,
+    ))
+    .groupBy(chatSessions.model)
+    .orderBy(sql`max(${activity}) DESC`, asc(chatSessions.model))
+    .limit(32)
+    .all();
+  const recorded = db.select({ model: harnessModelUsage.model, lastUsed: sql<number>`julianday(${harnessModelUsage.lastUsedAt})` })
+    .from(harnessModelUsage)
+    .where(and(
+      eq(harnessModelUsage.harness, harness),
+      modelIds ? inArray(harnessModelUsage.model, modelIds) : undefined,
+      gte(harnessModelUsage.lastUsedAt, since),
+    ))
+    .orderBy(desc(harnessModelUsage.lastUsedAt), asc(harnessModelUsage.model))
+    .limit(32).all();
+  const recent = new Map<string, number>();
+  for (const { model, lastUsed } of [...history, ...recorded]) {
+    if (model) recent.set(model, Math.max(lastUsed, recent.get(model) ?? 0));
+  }
+  return [...recent].sort(([a, aTime], [b, bTime]) => bTime - aTime || a.localeCompare(b)).slice(0, 32).map(([model]) => model);
 }
 
 export function createChatSession(input: CreateChatSessionInput & { id?: string }): ChatSessionRecord {

@@ -211,6 +211,16 @@ export const harnessSettings = sqliteTable('harness_settings', {
   catalogRefreshedAt: text(),
 });
 
+// Usage is separate from settings: choosing a model must not change defaults
+// or remount an open settings form by bumping its updatedAt.
+export const harnessModelUsage = sqliteTable('harness_model_usage', {
+  id: text().primaryKey(),
+  ...timestamps,
+  harness: text({ enum: HARNESS_VALUES }).notNull(),
+  model: text().notNull(),
+  lastUsedAt: text().notNull(),
+}, (table) => [uniqueIndex('idx_harness_model_usage_model').on(table.harness, table.model)]);
+
 export const harnessOperations = sqliteTable(
   'harness_operations',
   {
