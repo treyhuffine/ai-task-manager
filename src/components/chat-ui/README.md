@@ -29,6 +29,11 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 permission card from the current pending requests. The cards own their separate
 UI state and use the existing pending-input hooks.
 
+Message copy buttons stay visible on touch devices and devices without hover.
+Coarse pointers get a 44 px tap target. With a mouse, user-message copy buttons
+appear on row hover or button focus, while agent-message copy buttons stay
+visible. These controls are shared across chat surfaces.
+
 ## Boundaries
 
 Component-specific presentation helpers and their tests stay beside the

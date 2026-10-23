@@ -14,8 +14,9 @@ interface CopyMessageButtonProps {
   align?: 'left' | 'right';
   /**
    * When true, the button stays visible all the time (used for AI
-   * messages — always-on so the user has an obvious affordance to grab
-   * the response). When false, fades in on row hover (user messages).
+   * messages so the user has an obvious affordance to grab the response).
+   * When false, fades in on row hover or button focus (user messages).
+   * Touch devices and devices without hover always show the button.
    */
   alwaysVisible?: boolean;
   /**
@@ -28,7 +29,7 @@ interface CopyMessageButtonProps {
 }
 
 /**
- * Hover-revealed action row under a chat message. Carries a copy icon
+ * Action row under a chat message. Carries a copy icon
  * and (optionally) the message timestamp. Shared between execution
  * chat and the orchestrator chat so both surfaces read the same.
  *
@@ -86,9 +87,10 @@ export function CopyMessageButton({
         aria-label={copied ? 'Copied' : 'Copy message'}
         className={cn(
           'inline-flex items-center justify-center w-5 h-5 rounded',
+          'pointer-coarse:size-11 pointer-coarse:[&_svg]:size-4',
           'text-muted-foreground hover:text-foreground hover:bg-muted/60',
           'transition-all',
-          alwaysVisible ? '' : 'opacity-0 group-hover:opacity-100 focus:opacity-100',
+          alwaysVisible ? '' : 'opacity-0 group-hover:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 [@media(hover:none)]:opacity-100',
         )}
       >
         {copied ? <Check size={11} /> : <Copy size={11} />}
