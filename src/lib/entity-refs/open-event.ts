@@ -13,8 +13,14 @@ import type { EntityMarker } from './parse-markers';
 
 const EVENT_NAME = 'ri:open-reference';
 
+/**
+ * A marker that opens in the chat's Notes & tasks view. Files open in their
+ * own preview, and an agent opens its own view.
+ */
+export type ReferenceMarker = Exclude<EntityMarker, { kind: 'file' } | { kind: 'agent' }>;
+
 export interface OpenReferenceDetail {
-  marker: Exclude<EntityMarker, { kind: 'file' }>;
+  marker: ReferenceMarker;
 }
 
 export function dispatchOpenReference(marker: OpenReferenceDetail['marker']): void {

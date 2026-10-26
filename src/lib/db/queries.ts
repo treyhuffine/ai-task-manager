@@ -11532,8 +11532,10 @@ export function deleteEventRefs(eventId: string): number {
  * Scan a `chat_events.content` string for `[[task:id]]` / `[[note:id]]`
  * / `[[scratchpad]]` markers and materialize one chat_refs row per
  * occurrence, all bound to `eventId`. File markers are tracked via
- * `chat_events.attachments` — not duplicated here. Idempotent: wipes
- * prior event refs before inserting.
+ * `chat_events.attachments` — not duplicated here. Agent markers aren't
+ * context the chat carries (Notes & tasks, backlinks), they say who to
+ * involve, so they stay in the message only. Idempotent: wipes prior
+ * event refs before inserting.
  */
 export function materializeEventRefs(
   eventId: string,
@@ -11547,7 +11549,7 @@ export function materializeEventRefs(
   const createdBy = opts.createdBy;
   let position = 0;
   for (const m of markers) {
-    if (m.kind === 'file') continue;
+    if (m.kind === 'file' || m.kind === 'agent') continue;
     const entityId = m.kind === 'scratchpad' ? sessionId : m.id;
     if (!entityId) continue;
     const row = createChatRef({

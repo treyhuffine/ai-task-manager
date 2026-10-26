@@ -1,21 +1,26 @@
 /**
- * Server-side hydration of `[[task:id]]` / `[[note:id]]` / `[[scratchpad]]`
- * markers. Counterpart to `src/lib/attachments/expand-markers.ts` for the
- * file path — same idea, just resolved against rows in the DB instead of
- * bytes on disk.
+ * Server-side hydration of `[[task:id]]` / `[[note:id]]` / `[[agent:id]]` /
+ * `[[scratchpad]]` markers. Counterpart to `src/lib/attachments/expand-markers.ts`
+ * for the file path — same idea, just resolved against rows in the DB instead
+ * of bytes on disk.
  *
  * Each marker is replaced inline with the entity's title + body wrapped
- * in `<task>` / `<note>` / `<scratchpad>` XML-ish tags. Format chosen
- * to match the `<attachment>` tag the file extractor already emits, so
- * the agent sees a single consistent shape regardless of reference kind.
+ * in `<task>` / `<note>` / `<agent>` / `<scratchpad>` XML-ish tags. Format
+ * chosen to match the `<attachment>` tag the file extractor already emits,
+ * so the agent sees a single consistent shape regardless of reference kind.
+ *
+ * An agent mention carries who it is, what it's for and its coordination
+ * address, not its folder: the chat reaches another agent through
+ * `message_agent` / `delegate_work` (docs/agent-coordination.md), where that
+ * agent's own scope, permission and Hold apply.
  *
  * Unknown ids fall through as the literal marker — same approach as
  * file markers, so the agent / user can see something went sideways
  * rather than the reference silently disappearing.
  */
-import { getTask, getNote, getChatSession } from '@/lib/db/queries';
+import { getTask, getNote, getChatSession, getWorkspace } from '@/lib/db/queries';
 
-const MARKER_RE = /\[\[(task|note|scratchpad)(?::([A-Za-z0-9_.-]+))?\]\]/g;
+const MARKER_RE = /\[\[(task|note|agent|scratchpad)(?::([A-Za-z0-9_.-]+))?\]\]/g;
 
 /** Truncate the body inlined into a turn so a 50k-char note doesn't blow context. */
 const ENTITY_BODY_CHAR_CAP = 20_000;
@@ -53,6 +58,18 @@ function renderNoteMarker(id: string): string | null {
     : `<note id="${id}" title="${titleAttr}" />`;
 }
 
+function renderAgentMarker(id: string): string | null {
+  const w = getWorkspace(id);
+  if (!w) return null;
+  const nameAttr = escapeXmlAttr(w.name);
+  // An archived agent can't be reached, so the tag says so rather than
+  // leaving the chat to find out from a refused send.
+  const statusAttr = w.status === 'active' ? '' : ` status="${w.status}"`;
+  const open = `<agent id="${id}" name="${nameAttr}" address="agent:${id}"${statusAttr}`;
+  const purpose = trim(w.purpose?.trim());
+  return purpose ? `${open}>\n${purpose}\n</agent>` : `${open} />`;
+}
+
 function renderScratchpadMarker(sessionId: string): string | null {
   const s = getChatSession(sessionId);
   if (!s) return null;
@@ -63,7 +80,7 @@ function renderScratchpadMarker(sessionId: string): string | null {
 }
 
 /**
- * Resolve every task/note/scratchpad marker in `content` into its
+ * Resolve every task/note/agent/scratchpad marker in `content` into its
  * inlined body form. `sessionId` is required because `[[scratchpad]]`
  * resolves against the owning session's pad. File markers are handled
  * by the sibling module — this one passes them through untouched.
@@ -77,6 +94,7 @@ export function expandEntityMarkers(content: string, sessionId: string): string 
     if (!id) return raw;
     if (kind === 'task') return renderTaskMarker(id) ?? raw;
     if (kind === 'note') return renderNoteMarker(id) ?? raw;
+    if (kind === 'agent') return renderAgentMarker(id) ?? raw;
     return raw;
   });
 }

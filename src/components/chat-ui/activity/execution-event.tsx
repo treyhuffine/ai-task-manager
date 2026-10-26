@@ -25,6 +25,7 @@ import { useClaudeAuthStatus, useClaudeLogin } from '@/hooks/use-claude-login';
 import type { ClientEventStatus } from '@/hooks/use-execution';
 import { useCancelDelivery, useDeliveries, useRetrySend, useScratchpad, useSendMessage, useSessionEntities, useSessionEvents } from '@/hooks/use-execution';
 import { useHarnessConnection, useRecheckHarnessConnection } from '@/hooks/use-harness-connection';
+import { useWorkspaces } from '@/hooks/use-workspaces';
 import { hot } from '@/lib/_debug/hot-path';
 import type { ChatEventRecord } from '@/lib/api/dto/records';
 import { sessionsApi } from '@/lib/api/sessions';
@@ -1358,11 +1359,14 @@ function RenderMessageSegments({
   hot('render RenderMessageSegments');
   const entitiesQuery = useSessionEntities(sessionId ?? null);
   const scratchpadQuery = useScratchpad(sessionId ?? null);
+  // Agent chips draw from the rail's own list, already in the cache.
+  const agentsQuery = useWorkspaces({ status: 'active' });
   const attachmentMap = new Map(attachments.map((a) => [a.fileName, a]));
 
   const lookup: EntityLookup = {
     tasksById: new Map((entitiesQuery.data?.tasks ?? []).map((t) => [t.id, t])),
     notesById: new Map((entitiesQuery.data?.notes ?? []).map((n) => [n.id, n])),
+    agentsById: new Map((agentsQuery.data ?? []).map((w) => [w.id, w])),
     scratchpad: scratchpadQuery.data?.scratchPad ?? null,
   };
 
@@ -1385,6 +1389,7 @@ function RenderMessageSegments({
             key={i}
             marker={m}
             lookup={lookup}
+            tone={tone}
             onOpen={(marker) => dispatchOpenReference(marker)}
           />
         );

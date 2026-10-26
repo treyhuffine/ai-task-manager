@@ -7,6 +7,10 @@ import { sessionsApi, type HistoryResponse, type RailResponse } from '@/lib/api/
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
 import type { DirtyWorktreeBody, UncommittedFile } from '@/lib/workspaces/uncommitted-files';
 import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import type { AgentMentionItem } from '@/components/chat/editor/mention-menu/types';
+import { resolveAgentPicture } from '@/components/agents/agent-icon';
+import { useAreas } from '@/hooks/use-areas';
 import { invalidateReferenceCatalogs } from '@/hooks/use-reference-folders';
 import { toast } from 'sonner';
 import { optimisticPatch } from '@/lib/query/optimistic-entity';
@@ -40,6 +44,30 @@ export function useWorkspaces(filter?: { status?: WorkspaceStatus }) {
     // leaving it queued behind the page's streams (gate B finding).
     queryFn: ({ signal }) => workspacesApi.list(filter, { signal }),
   });
+}
+
+/**
+ * Active agents as `@`-picker items, in the rail's order and from the rail's
+ * own list, so the picker never waits on a request of its own. Empty when
+ * `enabled` is false (a chat that can't reach other agents).
+ */
+export function useMentionAgents(enabled = true): AgentMentionItem[] {
+  const { data } = useWorkspaces({ status: 'active' });
+  const { data: areas } = useAreas();
+  return useMemo(
+    () =>
+      enabled
+        ? (data ?? []).map((w) => ({
+            kind: 'agent' as const,
+            id: w.id,
+            name: w.name,
+            slug: w.slug,
+            picture: resolveAgentPicture(w, areas),
+            purpose: w.purpose,
+          }))
+        : [],
+    [data, areas, enabled],
+  );
 }
 
 export function useWorkspace(id: string | null) {

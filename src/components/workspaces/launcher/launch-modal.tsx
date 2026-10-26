@@ -21,7 +21,8 @@ import type { EffortLevel } from '@/db/types';
 import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
 import { useHarnessModels } from '@/hooks/use-harness-models';
 import { useUserState } from '@/hooks/use-user-state';
-import { useRunOn, useSetDefaultDevice, useWorkspacePRs, useWorkspaces } from '@/hooks/use-workspaces';
+import { useMentionAgents, useRunOn, useSetDefaultDevice, useWorkspacePRs, useWorkspaces } from '@/hooks/use-workspaces';
+import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { useLoadReferenceTree, useReferenceFolders } from '@/hooks/use-reference-folders';
 import type { ReferenceFolderMentionItem } from '@/components/chat/editor/mention-menu/types';
 import { apiErrorText } from '@/lib/api/client';
@@ -198,6 +199,9 @@ function LaunchModalInner({
         : [],
     [referenceFolders, runsHere],
   );
+  // Other agents to bring in, as in any chat's composer. A team's chats
+  // can't reach each other, so its launcher offers none.
+  const mentionAgents = useMentionAgents(useChatCapabilities().coordination !== false);
   const loadReferenceTree = useLoadReferenceTree();
 
   // The editor owns its own document; we only mirror "is there anything to
@@ -761,7 +765,8 @@ function LaunchModalInner({
                   File `@`-mentions and slash commands are deliberately absent:
                   both are sourced from a worktree/harness that doesn't exist
                   until this modal creates one. Reference folders aren't: they
-                  belong to the agent, so `@alias` finds them here too. */}
+                  belong to the agent, so `@alias` finds them here too. Nor
+                  are agents, which need no worktree. */}
               <div
                 onKeyDownCapture={handleEditorKeyDownCapture}
                 className="rounded-lg border border-border bg-background px-3 py-2.5 focus-within:border-primary/40 focus-within:ring-1 focus-within:ring-primary/30"
@@ -773,6 +778,7 @@ function LaunchModalInner({
                   prs={prMentions}
                   mentionReferenceFolders={mentionReferenceFolders}
                   loadReferenceTree={loadReferenceTree}
+                  mentionAgents={mentionAgents}
                   // Opened with no agent, the draft is the launcher's own and
                   // stays put while an agent is picked. Keyed to the agent, a
                   // pick would swap in that agent's draft over what you typed.

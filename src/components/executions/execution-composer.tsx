@@ -27,7 +27,7 @@ import {
   useSessionEvents,
 } from '@/hooks/use-execution';
 import { buildRecallHistory } from '@/components/chat/editor/history-recall';
-import { useMarkSessionRead } from '@/hooks/use-workspaces';
+import { useMarkSessionRead, useMentionAgents } from '@/hooks/use-workspaces';
 import { cn } from '@/lib/utils';
 import { PERMISSION_MODE_META } from '@/lib/permission-modes';
 import { HarnessPermissionNotice } from '@/components/settings/harness-permission-notice';
@@ -74,6 +74,7 @@ import { DEFAULT_HARNESS, harnessDefinition, type HarnessId } from '@/lib/harnes
 import { Tip } from '@/components/ui/tip';
 import { ChatComposer } from '@/components/chat-ui/chat-composer';
 import { CoordinationControls } from '@/components/chat-ui/coordination/controls';
+import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { AppContextStrip } from '@/components/chat-ui/references/app-context-strip';
 import { useConnectedContextGroups } from '@/hooks/use-connected-context';
 
@@ -334,6 +335,10 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       [referenceFoldersQuery.data?.referenceFolders],
     );
     const loadReferenceTree = useLoadReferenceTree();
+
+    // Agents → `@`-picker items, from the rail's own list. Offered only where
+    // chats can reach each other: a team chat has no coordination.
+    const mentionAgents = useMentionAgents(useChatCapabilities().coordination !== false);
 
     // GitHub PRs → items in the `@`-picker's `#` filter (`@#193`). Empty
     // when gh is missing / unauthenticated or the workspace is non-git; the
@@ -701,7 +706,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 <ChatInputEditor
                   sourceChatId={sessionId ?? undefined}
                   ref={editorRef}
-                  placeholder={placeholder ?? "Ask your agent to do any work. You can @mention apps, files, tasks, or notes. Reference PRs with @# or use a slash to run /skills"}
+                  placeholder={placeholder ?? "Ask your agent to do any work. You can @mention agents, apps, files, tasks, or notes. Reference PRs with @# or use a slash to run /skills"}
                   // Don't disable the editor while `sending` — the
                   // user can queue the next message during the POST
                   // round-trip (concurrent send is supported all the
@@ -721,6 +726,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   mentionReferenceFolders={mentionReferenceFolders}
                   loadReferenceTree={loadReferenceTree}
                   searchMentionEntities={searchMentionEntities}
+                  mentionAgents={mentionAgents}
                   prs={prMentions}
                   draftKey={draftKey ?? (sessionId ? `exec:${sessionId}` : undefined)}
                   history={messageHistory}

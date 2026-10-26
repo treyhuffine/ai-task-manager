@@ -73,10 +73,11 @@ runtime.subscribe(() => { void client.invalidateQueries({ refetchType: 'active' 
 
 function References() {
   const [opened, setOpened] = useState<string | null>(null);
-  const lookup = { tasksById: new Map(config.state === 'missing' ? [] : [[RECORD_ID, { id: RECORD_ID, title: 'Prepare the Friday review', status: 'todo' }]]), notesById: new Map([[RECORD_ID, { id: RECORD_ID, title: 'Project review notes' }]]), scratchpad: 'Alex prefers a short video call.\n\nKeep the agenda focused on decisions.' };
+  const lookup = { tasksById: new Map(config.state === 'missing' ? [] : [[RECORD_ID, { id: RECORD_ID, title: 'Prepare the Friday review', status: 'todo' }]]), notesById: new Map([[RECORD_ID, { id: RECORD_ID, title: 'Project review notes' }]]), agentsById: new Map(config.state === 'missing' ? [] : [[RECORD_ID, { id: RECORD_ID, name: 'Research', emoji: '🔎', attachments: [], areaId: null, purpose: 'Finds and summarizes sources for the review.', status: 'active' as const }]]), scratchpad: 'Alex prefers a short video call.\n\nKeep the agenda focused on decisions.' };
   return <div className="space-y-5 text-sm leading-8">
     <p>The next step is <MessageEntityChip marker={{ kind: 'task', id: RECORD_ID }} lookup={lookup} onOpen={() => setOpened('Prepare the Friday review')} />.</p>
     <p>I kept the context in <MessageEntityChip marker={{ kind: 'note', id: RECORD_ID }} lookup={lookup} onOpen={() => setOpened('Project review notes')} />.</p>
+    <p>I asked <MessageEntityChip marker={{ kind: 'agent', id: RECORD_ID }} lookup={lookup} /> for the sources.</p>
     <p><MessageEntityChip marker={{ kind: 'scratchpad' }} lookup={lookup} onOpen={() => setOpened('Scratchpad')} /></p>
     <Dialog open={!!opened} onOpenChange={open => { if (!open) setOpened(null); }}><DialogContent><DialogHeader><DialogTitle>{opened}</DialogTitle></DialogHeader><p className="whitespace-pre-wrap text-sm text-muted-foreground">{opened === 'Scratchpad' ? lookup.scratchpad : 'This is a fictional record. In your chat, this reference opens the corresponding task or note.'}</p></DialogContent></Dialog>
   </div>;

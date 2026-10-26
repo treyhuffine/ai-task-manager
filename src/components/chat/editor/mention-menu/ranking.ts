@@ -5,11 +5,12 @@
  *
  * Tasks and notes arrive already searched and ranked by the server (the
  * whole home, this chat and this agent first), so they're placed here, not
- * scored. Files, reference folders and PRs are ranked locally.
+ * scored. Agents, files, reference folders and PRs are ranked locally.
  */
 
 import type {
   MentionItem,
+  AgentMentionItem,
   FileMentionItem,
   ReferenceFolderMentionItem,
   PrMentionMenuItem,
@@ -22,17 +23,17 @@ import { PR_QUERY_PREFIX } from './pr-trigger'
 
 export const MAX_FILES = 30
 /**
- * Tasks, and notes, in the mixed `@` list. Each kind ends with an "All N"
- * row when more matched, which narrows to that kind.
+ * Agents, tasks, and notes, in the mixed `@` list. Each kind ends with an
+ * "All N" row when more matched, which narrows to that kind.
  */
 export const ENTITY_PREVIEW_LIMIT = 6
-/** Rows in a list narrowed to one kind (`@task:`, `@note:`, `@file:`). */
+/** Rows in a list narrowed to one kind (`@task:`, `@note:`, `@agent:`, `@file:`). */
 export const NARROWED_LIMIT = 50
 export const MAX_REFERENCES = 8
 export const MAX_PRS = 30
 
 /** What a query narrows the picker to, read from how it opens. */
-export type MentionFilter = 'task' | 'note' | 'file' | 'pr' | 'app' | 'connector'
+export type MentionFilter = 'task' | 'note' | 'agent' | 'file' | 'pr' | 'app' | 'connector'
 
 export interface ParsedMentionQuery {
   filter: MentionFilter | null
@@ -53,6 +54,8 @@ const FILTER_PREFIXES: ReadonlyArray<readonly [string, MentionFilter]> = [
   ['connectors:', 'connector'],
   ['note:', 'note'],
   ['notes:', 'note'],
+  ['agent:', 'agent'],
+  ['agents:', 'agent'],
   ['file:', 'file'],
   ['files:', 'file'],
 ]
@@ -69,17 +72,18 @@ export function parseMentionQuery(query: string): ParsedMentionQuery {
 }
 
 /**
- * Task and note titles have spaces, so a query narrowed to them may too
- * (`@task:deploy keys`). Everything else ends at a space as before, which
- * keeps a mid-sentence `@` from swallowing the rest of the sentence.
+ * Task and note titles have spaces, and so do agent names, so a query
+ * narrowed to them may too (`@task:deploy keys`, `@agent:job search`).
+ * Everything else ends at a space as before, which keeps a mid-sentence `@`
+ * from swallowing the rest of the sentence.
  */
 export function queryAllowsSpaces(query: string): boolean {
   const { filter } = parseMentionQuery(query)
-  return filter === 'task' || filter === 'note' || filter === 'app' || filter === 'connector'
+  return filter === 'task' || filter === 'note' || filter === 'agent' || filter === 'app' || filter === 'connector'
 }
 
 /** The text that narrows the picker to one kind, keeping the search. */
-export function narrowedQueryText(of: 'task' | 'note' | 'app', text: string): string {
+export function narrowedQueryText(of: MoreMentionItem['of'], text: string): string {
   return `@${of}:${text}`
 }
 
@@ -178,6 +182,30 @@ function rankReferenceFiles(entries: FileMentionItem[], query: string): FileMent
     })
     .slice(0, MAX_FILES)
     .map((s) => s.item)
+}
+
+/**
+ * Rank agents on their name or slug (`Job Search`, `job-search`), whichever
+ * matches better. No search keeps the rail's order.
+ */
+export function rankAgents(agents: AgentMentionItem[], query: string): AgentMentionItem[] {
+  if (!query) return agents
+  const q = query.toLowerCase()
+  return agents
+    .map((item) => ({ item, score: Math.min(scoreText(item.name, q), scoreText(item.slug, q)) }))
+    .filter((s) => Number.isFinite(s.score))
+    .sort((a, b) => a.score - b.score || a.item.name.length - b.item.name.length)
+    .map((s) => s.item)
+}
+
+/** Ranked agents, ending with how many more matched when some didn't fit. */
+function agentRows(agents: AgentMentionItem[], text: string, narrowed: boolean): MentionItem[] {
+  const ranked = rankAgents(agents, text)
+  const rows: MentionItem[] = ranked.slice(0, narrowed ? NARROWED_LIMIT : ENTITY_PREVIEW_LIMIT)
+  if (ranked.length > rows.length) {
+    rows.push({ kind: 'more', of: 'agent', total: ranked.length, shown: rows.length, query: text, narrowed })
+  }
+  return rows
 }
 
 export function rankReferences(
@@ -313,7 +341,7 @@ export function toReferenceFileItems(
 /** One kind's server results, ending with how many more matched when some didn't fit. */
 function entityRows(
   results: MentionEntityResults | null,
-  of: 'task' | 'note' | 'app',
+  of: 'task' | 'note',
   text: string,
   narrowed: boolean,
 ): MentionItem[] {
@@ -328,14 +356,16 @@ function entityRows(
 
 /**
  * Build the full picker list. By default entity options come first
- * (scratchpad, then a few tasks, then a few notes, each kind ending with an
+ * (scratchpad, then a few agents, tasks and notes, each kind ending with an
  * "All N" row that narrows to it), followed by reference folders and file
- * matches. A path-like query (`src/`, `.tsx`) puts files first instead, so
- * a home full of tasks never buries the file being named.
+ * matches. Agents lead the entities because a name is short and specific:
+ * `@ri` that matches an agent almost always means it. A path-like query
+ * (`src/`, `.tsx`) puts files first instead, so a home full of tasks never
+ * buries the file being named.
  *
- * A filter after the `@` narrows to one kind: `task:` and `note:` (up to
- * NARROWED_LIMIT rows, with a caption when more matched), `file:`, and `#`
- * for pull requests.
+ * A filter after the `@` narrows to one kind: `task:`, `note:` and `agent:`
+ * (up to NARROWED_LIMIT rows, with a caption when more matched), `file:`,
+ * and `#` for pull requests.
  *
  * Inside a drill-down (`@alias/…`) that reference's files lead, since the user
  * has said exactly where they are looking — but worktree matches still follow
@@ -344,6 +374,8 @@ function entityRows(
  */
 export function buildItems(args: {
   files: FileMentionItem[]
+  /** Agents this chat can mention, in the rail's order. */
+  agents?: AgentMentionItem[]
   /** The server's tasks and notes for this query. Null when it wasn't asked, or failed. */
   entities: MentionEntityResults | null
   references: ReferenceFolderMentionItem[]
@@ -352,7 +384,7 @@ export function buildItems(args: {
   drillDown: ReferenceDrillDown | null
   query: string
 }): MentionItem[] {
-  const { files, entities, references, referenceFiles, prs, drillDown, query } = args
+  const { files, agents = [], entities, references, referenceFiles, prs, drillDown, query } = args
   const parsed = parseMentionQuery(query)
 
   // Checked before everything else so a filter wins even if the remainder
@@ -360,6 +392,7 @@ export function buildItems(args: {
   if (parsed.filter === 'app' || parsed.filter === 'connector') return []
   if (parsed.filter === 'pr') return rankPrs(prs, parsed.text)
   if (parsed.filter === 'file') return rankFiles(files, parsed.text, NARROWED_LIMIT)
+  if (parsed.filter === 'agent') return agentRows(agents, parsed.text, true)
   if (parsed.filter === 'task' || parsed.filter === 'note') {
     return entityRows(entities, parsed.filter, parsed.text, true)
   }
@@ -382,6 +415,7 @@ export function buildItems(args: {
     out.push({ kind: 'scratchpad' })
   }
 
+  out.push(...agentRows(agents, query, false))
   out.push(...entityRows(entities, 'task', query, false))
   out.push(...entityRows(entities, 'note', query, false))
   for (const r of rankReferences(references, query)) out.push(r)

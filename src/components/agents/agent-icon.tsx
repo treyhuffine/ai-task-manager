@@ -3,7 +3,7 @@
 import { useAreas } from '@/hooks/use-areas';
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { agentInitials } from '@/lib/client/agent-initials';
-import type { WorkspaceRecord } from '@/db/types';
+import type { AreaRecord, WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
 
 const SIZES = {
@@ -12,6 +12,30 @@ const SIZES = {
   md: { box: 'w-7 h-7', emoji: 'text-xl', initials: 'text-[11px]' },
   lg: { box: 'w-9 h-9', emoji: 'text-2xl', initials: 'text-[13px]' },
 } as const;
+
+/** What an agent's icon shows: an image, an emoji, or (neither) its initials. */
+export interface AgentPictureSource {
+  image: string | null;
+  emoji: string | null;
+}
+
+/**
+ * Resolve an agent's picture the way the rail does: the workspace's own image
+ * or emoji, then its area's, then nothing (initials). Pure, for places that
+ * render outside the app's providers, like the composer's `@` popup.
+ */
+export function resolveAgentPicture(
+  workspace: Pick<WorkspaceRecord, 'attachments' | 'emoji' | 'areaId'>,
+  areas: ReadonlyArray<Pick<AreaRecord, 'id' | 'attachments' | 'emoji'>> | undefined,
+): AgentPictureSource {
+  const ownImage = coverAttachmentUrl(workspace.attachments);
+  const area = workspace.areaId ? areas?.find((a) => a.id === workspace.areaId) : undefined;
+  const areaImage = area ? coverAttachmentUrl(area.attachments) : null;
+  return {
+    image: ownImage ?? (workspace.emoji ? null : areaImage),
+    emoji: workspace.emoji ?? (ownImage ? null : area?.emoji ?? null),
+  };
+}
 
 /**
  * An agent's icon, resolved the way the rail resolves it: the workspace's
@@ -27,13 +51,22 @@ export function AgentIcon({
   className?: string;
 }) {
   const { data: areas } = useAreas();
-  const dims = SIZES[size];
-  const ownImage = coverAttachmentUrl(workspace.attachments);
-  const area = workspace.areaId ? areas?.find((a) => a.id === workspace.areaId) : undefined;
-  const areaImage = area ? coverAttachmentUrl(area.attachments) : null;
-  const image = ownImage ?? (workspace.emoji ? null : areaImage);
-  const emoji = workspace.emoji ?? (ownImage ? null : area?.emoji ?? null);
+  return <AgentPicture picture={resolveAgentPicture(workspace, areas)} name={workspace.name} size={size} className={className} />;
+}
 
+/** An already resolved agent picture. Needs no providers. */
+export function AgentPicture({
+  picture: { image, emoji },
+  name,
+  size = 'md',
+  className,
+}: {
+  picture: AgentPictureSource;
+  name: string;
+  size?: keyof typeof SIZES;
+  className?: string;
+}) {
+  const dims = SIZES[size];
   return (
     <span className={cn('relative flex items-center justify-center flex-shrink-0', dims.box, className)}>
       {image ? (
@@ -44,7 +77,7 @@ export function AgentIcon({
           {emoji}
         </span>
       ) : (
-        <AgentInitials name={workspace.name} size={size} />
+        <AgentInitials name={name} size={size} />
       )}
     </span>
   );

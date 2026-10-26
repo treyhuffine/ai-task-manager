@@ -24,7 +24,7 @@ v2 tried to make the markdown mirror a first-class consumer of the projection sp
 
 ### Non-goals
 
-- Area targets. Grammar has `file | task | note | scratchpad`, no `area`. Targets are `task | note`. Area is a later extension (Section 13).
+- Area targets. Grammar has `file | task | note | agent | scratchpad` (agent since the chat `@` mention, not a link target), no `area`. Targets are `task | note`. Area is a later extension (Section 13).
 - Per-mention "linked references with context." One deduped edge per (source, target). See Section 13.
 - Touching `chat_refs` (Section 12). Shared only at the grammar.
 - A backlinks file. Index lives in the DB; the vault gets backlinks natively from Obsidian.

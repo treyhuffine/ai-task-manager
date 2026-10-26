@@ -73,6 +73,7 @@ import type { SlashCommand } from './slash-menu/types';
 import { MentionMenuExtension } from './mention-menu/extension';
 import { debouncedAppMentionSearch } from './mention-menu/app-mentions';
 import type {
+  AgentMentionItem,
   FileMentionItem,
   ReferenceFolderMentionItem,
   SearchMentionEntities,
@@ -234,6 +235,12 @@ export interface ChatInputEditorProps {
    */
   searchMentionEntities?: SearchMentionEntities;
   /**
+   * Agents for the `@`-picker, in the rail's order. Picking one inserts an
+   * `[[agent:id]]` chip, which reaches the chat as that agent's name,
+   * purpose and coordination address. When omitted the picker offers none.
+   */
+  mentionAgents?: AgentMentionItem[];
+  /**
    * Reference folders surfaced in the `@`-picker
    * (docs/reference-folders-spec.md §8). Selecting one inserts a folder
    * mention. Typing `/` after it optionally searches within the folder.
@@ -392,6 +399,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       slashCommands,
       mentionFiles,
       searchMentionEntities,
+      mentionAgents,
       sourceChatId,
       mentionReferenceFolders,
       loadReferenceTree,
@@ -440,6 +448,8 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     appMentionSearchRef.current = appMentionSearch;
     const searchMentionEntitiesRef = useRef(searchMentionEntities);
     searchMentionEntitiesRef.current = searchMentionEntities;
+    const mentionAgentsRef = useRef(mentionAgents);
+    mentionAgentsRef.current = mentionAgents;
     const mentionReferenceFoldersRef = useRef(mentionReferenceFolders);
     mentionReferenceFoldersRef.current = mentionReferenceFolders;
     const loadReferenceTreeRef = useRef(loadReferenceTree);
@@ -800,6 +810,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           searchEntities: (search) =>
             searchMentionEntitiesRef.current?.(search) ??
             Promise.resolve({ tasks: [], notes: [], totals: { tasks: 0, notes: 0 } }),
+          getAgents: () => mentionAgentsRef.current ?? [],
           getReferenceFolders: () => mentionReferenceFoldersRef.current ?? [],
           loadReferenceTree: (id: string) =>
             loadReferenceTreeRef.current?.(id) ?? Promise.resolve([]),
@@ -1200,10 +1211,10 @@ export function buildMarkerOutput(editor: Pick<Editor, 'state'> | null): { text:
       return false;
     }
     if (node.type.name === ENTITY_CHIP_NAME) {
-      // Task / note / scratchpad chips emit `[[task:id]]`, `[[note:id]]`,
-      // or `[[scratchpad]]`. The server-side expandEntityMarkers
-      // resolves these into inline `<task>` / `<note>` / `<scratchpad>`
-      // blocks before dispatch.
+      // Task / note / agent / scratchpad chips emit `[[task:id]]`,
+      // `[[note:id]]`, `[[agent:id]]` or `[[scratchpad]]`. The server-side
+      // expandEntityMarkers resolves these into inline `<task>` / `<note>` /
+      // `<agent>` / `<scratchpad>` blocks before dispatch.
       const attrs = node.attrs as EntityChipAttrs;
       const marker =
         attrs.kind === 'scratchpad'

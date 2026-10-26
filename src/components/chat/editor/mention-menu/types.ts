@@ -1,13 +1,17 @@
 import type { SourceSearchItem, SourceSearchResult } from '@/lib/chat-sources/types';
 import type { McpIcon } from '@/lib/integrations/mcp-icons';
+import type { AgentPictureSource } from '@/components/agents/agent-icon';
 /**
- * Items in the `@`-mention picker. One picker covers six kinds, with a
+ * Items in the `@`-mention picker. One picker covers seven kinds, with a
  * discriminator so the popup can section-render and the extension can
  * dispatch to the right chip on select.
  *
  *   - file / dir — worktree paths. Insertion → MentionChipNode (`@<path>`).
  *   - task / note — entity references. Insertion → EntityChipNode
  *     (`[[task:id]]` / `[[note:id]]`).
+ *   - agent — another agent (a workspace). Insertion → EntityChipNode
+ *     (`[[agent:id]]`), which reaches the chat as the agent's name, purpose
+ *     and coordination address, so it can consult or delegate to it.
  *   - scratchpad — the session's own scratchpad. Always one option,
  *     surfaced near the top so the user doesn't have to search for it.
  *     Insertion → EntityChipNode (`[[scratchpad]]`).
@@ -17,9 +21,9 @@ import type { McpIcon } from '@/lib/integrations/mcp-icons';
  *   - pr — a GitHub pull request, reached by typing `@#` (see
  *     `pr-trigger.ts`). Insertion → PrChipNode, which serializes to a
  *     full context line via `formatPrRef`.
- *   - more — the end of a short task or note list: how many matched in
- *     all. Picking it narrows the picker to that kind (`@task:<query>`).
- *     In a narrowed picker it's only a caption.
+ *   - more — the end of a short task, note or agent list: how many
+ *     matched in all. Picking it narrows the picker to that kind
+ *     (`@task:<query>`). In a narrowed picker it's only a caption.
  *
  * Tasks and notes come from a server search over the whole home
  * (`SearchMentionEntities`), so a mention can reach any of them.
@@ -60,6 +64,20 @@ export interface NoteMentionItem {
   title: string;
 }
 
+/**
+ * An agent, as the rail shows it, plus what it's for. Its picture arrives
+ * resolved (`resolveAgentPicture`): the popup renders in its own React root,
+ * outside the providers the area lookup needs.
+ */
+export interface AgentMentionItem {
+  kind: 'agent';
+  id: string;
+  name: string;
+  slug: string;
+  picture: AgentPictureSource;
+  purpose: string | null;
+}
+
 export interface ScratchpadMentionItem {
   kind: 'scratchpad';
 }
@@ -89,7 +107,7 @@ export interface PrMentionMenuItem extends PrMentionItem {
 
 export interface MoreMentionItem {
   kind: 'more';
-  of: 'task' | 'note' | 'app';
+  of: 'task' | 'note' | 'agent' | 'app';
   /** Every match, shown or not. */
   total: number;
   shown: number;
@@ -131,6 +149,7 @@ export type MentionItem =
   | FileMentionItem
   | TaskMentionItem
   | NoteMentionItem
+  | AgentMentionItem
   | ScratchpadMentionItem
   | ReferenceFolderMentionItem
   | PrMentionMenuItem

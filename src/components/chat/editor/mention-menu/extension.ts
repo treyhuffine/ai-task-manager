@@ -22,6 +22,7 @@ import {
 } from './ranking'
 import type {
   MentionItem,
+  AgentMentionItem,
   FileMentionItem,
   MentionEntityResults,
   ReferenceFolderMentionItem,
@@ -61,6 +62,11 @@ interface MentionMenuOptions {
    */
   searchEntities?: SearchMentionEntities
   /**
+   * Agents this chat can mention, in the rail's order. Omitted (team chats,
+   * which have no coordination): no agents.
+   */
+  getAgents?: () => AgentMentionItem[]
+  /**
    * Reference folders visible from this session's workspace
    * (docs/reference-folders-spec.md §8). Linked folders outside the
    * worktree that the agent has been told about.
@@ -84,16 +90,16 @@ interface MentionMenuOptions {
 }
 
 /**
- * Tiptap extension that opens an `@`-picker covering files / tasks / notes /
- * scratchpad / reference folders / pull requests. One trigger, six kinds — the
- * popup renders results in sections so visual scanning stays fast. Ranking
- * lives in `./ranking`, which is deliberately free of Tiptap so it can be
- * tested alone.
+ * Tiptap extension that opens an `@`-picker covering files / agents / tasks /
+ * notes / scratchpad / reference folders / pull requests. One trigger, seven
+ * kinds — the popup renders results in sections so visual scanning stays
+ * fast. Ranking lives in `./ranking`, which is deliberately free of Tiptap so
+ * it can be tested alone.
  *
  * Selecting a file inserts a `MentionChipNode` (the existing chip —
- * serialized to `@<path>` on send). Selecting a task / note / scratchpad
- * inserts an `EntityChipNode` (serialized to `[[task:id]]` / `[[note:id]]`
- * / `[[scratchpad]]`). Selecting a PR inserts a `PrChipNode` (serialized to
+ * serialized to `@<path>` on send). Selecting an agent / task / note /
+ * scratchpad inserts an `EntityChipNode` (serialized to `[[agent:id]]` /
+ * `[[task:id]]` / `[[note:id]]` / `[[scratchpad]]`). Selecting a PR inserts a `PrChipNode` (serialized to
  * a full context line via `formatPrRef`). Selecting a reference folder
  * inserts a folder chip and closes the picker. Typing `/` just after that chip
  * restores `@<alias>/` to optionally search its files.
@@ -101,8 +107,9 @@ interface MentionMenuOptions {
  * PRs are gated behind a `#` after the `@` (`@#193`) — see `pr-trigger.ts`.
  * This replaced a standalone `#` trigger whose send-time raw-text expansion
  * surprised users by rewriting numbers they meant literally. `task:`,
- * `note:` and `file:` narrow the same way (`parseMentionQuery`), and the
- * task and note filters take spaces, since titles have them.
+ * `note:`, `agent:` and `file:` narrow the same way (`parseMentionQuery`),
+ * and the task, note and agent filters take spaces, since titles and names
+ * have them.
  */
 export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
   name: 'mentionMenu',
@@ -115,6 +122,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
     return {
       getFileEntries: undefined,
       searchEntities: undefined,
+      getAgents: undefined,
       getReferenceFolders: undefined,
       loadReferenceTree: undefined,
       getPrs: undefined,
@@ -126,6 +134,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
     let pending: AbortController | null = null
     const getFiles = () => this.options.getFileEntries?.() ?? []
     const searchEntities = this.options.searchEntities
+    const getAgents = () => this.options.getAgents?.() ?? []
     const getReferences = () => this.options.getReferenceFolders?.() ?? []
     const getPrs = () => this.options.getPrs?.() ?? []
     const loadReferenceTree = this.options.loadReferenceTree
@@ -135,7 +144,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
       pluginKey: MENTION_MENU_PLUGIN_KEY,
       char: '@',
       // Paths never contain spaces, so a query ends at one, except after
-      // `task:` or `note:`, where titles do.
+      // `task:`, `note:` or `agent:`, where titles and names do.
       allowSpaces: false,
       findSuggestionMatch: (config) => {
         const spaced = findSuggestionMatch({ ...config, allowSpaces: true })
@@ -185,6 +194,7 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
         if (sources && sources.total > sources.items.length) sourceItems.push({ kind: 'more', of: 'app', total: sources.total, shown: sources.items.length, query: parsed.text, narrowed: !!parsed.filter })
         return settledItems([...sourceItems, ...appMentionItems(appMentions, parsed.filter === 'app'), ...buildItems({
           files: getFiles(),
+          agents: getAgents(),
           entities,
           references,
           referenceFiles,
@@ -235,6 +245,11 @@ export const MentionMenuExtension = Extension.create<MentionMenuOptions>({
         } else if (item.kind === 'note') {
           chain
             .insertEntityChip({ kind: 'note', id: item.id, title: item.title })
+            .insertContent(' ')
+            .run()
+        } else if (item.kind === 'agent') {
+          chain
+            .insertEntityChip({ kind: 'agent', id: item.id, title: item.name })
             .insertContent(' ')
             .run()
         } else if (item.kind === 'more') {

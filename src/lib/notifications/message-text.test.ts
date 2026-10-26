@@ -45,6 +45,11 @@ describe('messageText', () => {
     expect(messageText(reply, (kind, id) => names[`${kind}:${id}`])).toBe('Created:\n\nFix *login*\n\nRunning in Auth work.');
   });
 
+  it('names an agent by its name', () => {
+    expect(messageText('Asked [[agent:01a0f1c2-0000]] to check.', (kind, id) => (kind === 'agent' && id === '01a0f1c2-0000' ? 'Finances' : null)))
+      .toBe('Asked Finances to check.');
+  });
+
   it('keeps soft line breaks, so a column of names stays a column', () => {
     expect(messageText('Needs you\n[[task:aaaaaaaa]]\n[[task:bbbbbbbb]]', (_, id) => `Task ${id.slice(0, 1)}`))
       .toBe('Needs you\nTask a\nTask b');

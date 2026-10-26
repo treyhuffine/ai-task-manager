@@ -107,6 +107,12 @@ The sending chat receives a compact linked receipt. A human forward that fails b
 
 Links preserve exact chat and event IDs. A direct message lookup works outside the currently loaded transcript page. Archived links open history without resuming the chat or replacing its current main chat. The composer shows linked participating chats and Pause incoming only while approved work or delivery is active. Completed history does not keep controls visible. An enabled pause stays visible with a waiting count and Resume. Standing preferences and pause controls live in the chat menu. The Send to chat dialog centers within viewport margins without horizontal scrolling, including when choosing a new chat model.
 
+## Mentioning an agent
+
+Typing `@` in a personal chat's composer, or in the new-chat launcher, offers the home's active agents (`agent:` narrows to them). A mention is saved in the message as `[[agent:<workspace id>]]` and reaches the chat's agent as that agent's name, purpose and stable address: `<agent id="…" name="…" address="agent:…">purpose</agent>`, with `status="archived"` when it can no longer be reached. The folder is left out. Another agent is reached through its address, where its own scope applies.
+
+A mention says who to involve. It authorizes nothing by itself. The chat's agent decides whether to consult (`message_agent`) or delegate (`delegate_work`), and those sends follow the chat's effective policy, so Ask first shows the usual approval card. Mentions add no `chat_refs` rows, since Notes & tasks and backlinks hold what a chat carries, not who it should involve. Team chats have no coordination and offer no agent mentions.
+
 ## Migration and rollout
 
 Forward migration `0022_agent_coordination_controls.sql` evolves the two old coordination tables and adds nullable preferences and Hold. It does not rebuild `chat_events`, chats or runs. Existing FYIs become deliveries without retained obligations. Request, delivery, event and retry identities and exact saved message bytes are preserved. Historical accepted work is not re-run to fill missing metadata. No manual database cleanup script is needed.

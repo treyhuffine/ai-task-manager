@@ -114,7 +114,8 @@ export class GalleryRuntime {
         : 'Review date handling';
       return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: ['chat-messages', 'html'].includes(this.example) ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : this.example === 'coordination' && id === SENDER_CHAT_ID ? 'Review date handling across every market calendar before the next scheduled run and confirm all source dates against the bounded historical runner' : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
     }
-    if (path === 'workspaces.get') return { id: RECORD_ID, name: 'Research', status: 'active' };
+    // A missing reference's agent is gone too, so its chip says so.
+    if (path === 'workspaces.get') { if (this.example === 'references' && this.state === 'missing') throw new Error('That agent was not found.'); return { id: RECORD_ID, name: 'Research', status: 'active' }; }
     if (path === 'userState.list') return { orchestratorName: 'Ri', defaultHarness:'claude', defaultModel:'example-claude', defaultEffort:'medium' };
     if (path === 'sessions.messagesPost') { this.changed('Example message received'); return { event: event('user', { content: String(body.content ?? '') }) }; }
     if (path === 'integrations.pendingApprovalsGet') return { pending: this.state === 'expired' ? [] : this.events.filter(row => row.source === 'approval_request' && !this.events.some(answer => answer.source === 'approval_response' && (answer.toolInput as { approvalIds?: string[] })?.approvalIds?.includes((row.toolInput as { approvalId: string }).approvalId))).map(row => ({ id: (row.toolInput as { approvalId: string }).approvalId })) };

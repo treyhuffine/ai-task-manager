@@ -13,8 +13,10 @@ import {
   toReferenceFileItems,
   rankReferences,
   rankPrs,
+  rankAgents,
 } from './ranking';
 import type {
+  AgentMentionItem,
   FileMentionItem,
   ReferenceFolderMentionItem,
   MentionEntityResults,
@@ -461,4 +463,67 @@ describe('buildItems with server results', () => {
   function kinds(items: MentionItem[]): string[] {
     return items.map((i) => i.kind);
   }
+});
+
+describe('agents in the picker', () => {
+  function agent(name: string, overrides: Partial<AgentMentionItem> = {}): AgentMentionItem {
+    const slug = name.toLowerCase().replace(/\s+/g, '-');
+    return { kind: 'agent', id: `ws-${slug}`, name, slug, picture: { image: null, emoji: null }, purpose: null, ...overrides };
+  }
+  const names = (items: MentionItem[]) => items.map((i) => (i.kind === 'agent' ? i.name : i.kind));
+
+  it('lists agents after the scratchpad and ahead of tasks, in the rail order, when nothing is typed', () => {
+    const items = buildItems({
+      ...EMPTY,
+      agents: [agent('Ri'), agent('Finances')],
+      entities: entities(['Deploy'], ['Plan']),
+      query: '',
+    });
+    expect(names(items)).toEqual(['scratchpad', 'Ri', 'Finances', 'task', 'note']);
+  });
+
+  it('ends a long list with an "All N agents" row that narrows to them', () => {
+    const many = Array.from({ length: 9 }, (_, i) => agent(`Agent ${i}`));
+    const items = buildItems({ ...EMPTY, agents: many, query: '' });
+    const rows = items.filter((i) => i.kind === 'agent');
+    expect(rows).toHaveLength(ENTITY_PREVIEW_LIMIT);
+    expect(items.find((i) => i.kind === 'more')).toEqual({ kind: 'more', of: 'agent', total: 9, shown: ENTITY_PREVIEW_LIMIT, query: '', narrowed: false });
+  });
+
+  it('matches on the name or the slug, the closer match first', () => {
+    const agents = [agent('Travel Ri'), agent('Ri'), agent('Job Search'), agent('Finances')];
+    expect(rankAgents(agents, 'ri').map((a) => a.name)).toEqual(['Ri', 'Travel Ri']);
+    expect(rankAgents(agents, 'job-se').map((a) => a.name)).toEqual(['Job Search']);
+    expect(rankAgents(agents, 'zzz')).toEqual([]);
+    expect(rankAgents(agents, '')).toBe(agents);
+  });
+
+  it('leads a mixed search with a matching agent, and leaves agents out when none match', () => {
+    const agents = [agent('Ri'), agent('Finances')];
+    expect(names(buildItems({ ...EMPTY, agents, entities: entities(['Ri launch'], []), query: 'ri' }))).toEqual(['Ri', 'task']);
+    expect(names(buildItems({ ...EMPTY, agents, entities: entities(['Deploy'], []), query: 'deploy' }))).toEqual(['task']);
+  });
+
+  it('narrows to agents alone for `agent:`, names with spaces included', () => {
+    const agents = [agent('Job Search'), agent('Jobs Board'), agent('Ri')];
+    const items = buildItems({ ...EMPTY, agents, files: [file('job.ts')], entities: entities(['Job'], []), query: 'agent:job search' });
+    expect(names(items)).toEqual(['Job Search']);
+    expect(parseMentionQuery('Agents:ri')).toEqual({ filter: 'agent', text: 'ri' });
+    expect(queryAllowsSpaces('agent:job search')).toBe(true);
+    expect(entitySearchFor(parseMentionQuery('agent:job'), false)).toBeNull();
+    expect(narrowedQueryText('agent', 'jo')).toBe('@agent:jo');
+  });
+
+  it('keeps agents out of the PR, file and drill-down lists', () => {
+    const agents = [agent('Ri')];
+    expect(names(buildItems({ ...EMPTY, agents, prs: [pr({ title: 'Ri fix' })], query: '#ri' }))).toEqual(['pr']);
+    expect(names(buildItems({ ...EMPTY, agents, files: [file('ri.ts')], query: 'file:ri' }))).toEqual(['file']);
+    const refs = [reference({ alias: 'ri' })];
+    const drillDown = parseReferenceDrillDown('ri/', refs);
+    expect(names(buildItems({ ...EMPTY, agents, references: refs, drillDown, query: 'ri/' }))).toEqual([]);
+  });
+
+  it('offers none when the chat passes no agents', () => {
+    expect(names(buildItems({ ...EMPTY, entities: entities(['Ri launch'], []), query: 'ri' }))).toEqual(['task']);
+  });
 });

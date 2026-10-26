@@ -29,7 +29,8 @@ const MODULES: Record<string, string> = {
     const idle={mutate:()=>{},isPending:false};
     export const useWorkspaces=()=>({data:agents});export const useRunOn=()=>({data:undefined});export const useSetDefaultDevice=()=>idle;
     export const useWorkspacePRs=()=>({data:[]});export const useWorkspaceBranches=()=>({data:[],isLoading:false});
-    export const useSetUpAgent=()=>idle;export const useSetupPlan=()=>({data:undefined});`,
+    export const useSetUpAgent=()=>idle;export const useSetupPlan=()=>({data:undefined});
+    export const useMentionAgents=()=>[];`,
   'hooks/use-devices': `export const useRunsOnSeveralDevices=()=>false;`,
   'hooks/use-reference-folders': `export const useReferenceFolders=()=>({data:[]});export const useLoadReferenceTree=()=>async()=>[];`,
   'hooks/use-harness-models': `export const useHarnessModels=()=>({models:[]});`,

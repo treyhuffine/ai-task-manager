@@ -23,9 +23,9 @@ export const FULL_BODY_MAX = 50_000;
  */
 export const LINE_BODY_MAX = 1000;
 
-const ENTITY_MARKER = /\[\[(task|note|area|deck|execution|file|scratchpad):([^\]\n]*)\]\]/g;
+const ENTITY_MARKER = /\[\[(task|note|area|deck|execution|agent|file|scratchpad):([^\]\n]*)\]\]/g;
 
-export type EntityMarkerKind = 'task' | 'note' | 'area' | 'deck' | 'execution' | 'file' | 'scratchpad';
+export type EntityMarkerKind = 'task' | 'note' | 'area' | 'deck' | 'execution' | 'agent' | 'file' | 'scratchpad';
 
 /** What a marker reads as in plain text: the entity's name, or null to drop it. */
 export type NameEntity = (kind: EntityMarkerKind, id: string) => string | null | undefined;

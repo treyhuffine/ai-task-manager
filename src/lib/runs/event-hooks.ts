@@ -110,7 +110,7 @@ function stripMarkdown(text: string): string {
   return text
     // Entity references render as chips in the transcript but are raw ids in
     // a one-line summary. Drop them; the chat has the chips.
-    .replace(/\[\[(?:task|note|area|deck|execution|file|scratchpad):[^\]]*\]\]/g, ' ')
+    .replace(/\[\[(?:task|note|area|deck|execution|agent|file|scratchpad):[^\]]*\]\]/g, ' ')
     // Code fences and inline code → keep contents.
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`([^`]+)`/g, '$1')

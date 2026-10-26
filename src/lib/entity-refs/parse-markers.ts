@@ -1,6 +1,6 @@
 /**
  * Inline references in chat messages use the same `[[<kind>:<id>]]`
- * convention as file attachments. One regex, four kinds — sibling
+ * convention as file attachments. One regex, five kinds — sibling
  * to `src/components/chat/editor/parse-file-markers.ts`, but covering
  * the entity-level references too:
  *
@@ -8,6 +8,8 @@
  *   - `[[task:<taskId>]]`           — task reference.
  *   - `[[note:<note_id>]]`           — note reference.
  *   - `[[scratchpad]]`               — the owning session's scratchpad.
+ *   - `[[agent:<workspaceId>]]`      — an agent (a workspace), by its id.
+ *     Same id as its coordination address `agent:<workspace id>`.
  *
  * The parser is pure: no DB access, no React. The composer uses it to
  * tokenize on send, the transcript uses it to swap chips in for raw
@@ -18,6 +20,7 @@ export type EntityMarker =
   | { kind: 'file'; fileName: string }
   | { kind: 'task'; id: string }
   | { kind: 'note'; id: string }
+  | { kind: 'agent'; id: string }
   | { kind: 'scratchpad' };
 
 export type EntitySegment =
@@ -25,7 +28,7 @@ export type EntitySegment =
   | { kind: 'marker'; marker: EntityMarker; raw: string };
 
 /** Strict id charset matches what UUIDv7 + fileName conventions emit. */
-const MARKER_RE = /\[\[(file|task|note|scratchpad)(?::([A-Za-z0-9_.-]+))?\]\]/g;
+const MARKER_RE = /\[\[(file|task|note|agent|scratchpad)(?::([A-Za-z0-9_.-]+))?\]\]/g;
 
 /**
  * Split a chat message into text + marker segments in document order.
@@ -41,14 +44,14 @@ export function parseEntitySegments(text: string): EntitySegment[] {
     if (start > lastIndex) {
       segments.push({ kind: 'text', text: text.slice(lastIndex, start) });
     }
-    const kind = match[1] as 'file' | 'task' | 'note' | 'scratchpad';
+    const kind = match[1] as 'file' | 'task' | 'note' | 'agent' | 'scratchpad';
     const id = match[2];
     let marker: EntityMarker | null = null;
     if (kind === 'scratchpad') {
       marker = { kind: 'scratchpad' };
     } else if (kind === 'file' && id) {
       marker = { kind: 'file', fileName: id };
-    } else if ((kind === 'task' || kind === 'note') && id) {
+    } else if ((kind === 'task' || kind === 'note' || kind === 'agent') && id) {
       marker = { kind, id };
     }
     if (marker) {
@@ -73,7 +76,7 @@ export function listEntityMarkers(text: string): EntityMarker[] {
   return out;
 }
 
-/** Just the task / note / scratchpad markers — files use a separate path. */
+/** Just the task / note / agent / scratchpad markers — files use a separate path. */
 export function listNonFileMarkers(
   text: string,
 ): Array<Exclude<EntityMarker, { kind: 'file' }>> {

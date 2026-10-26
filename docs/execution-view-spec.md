@@ -204,18 +204,32 @@ it, and running background work is a borderless strip attached to the top
 of the composer card, inset like a tab, so it reads as part of the input.
 
 **The `@` picker** (`chat/editor/mention-menu/`). One trigger for the
-scratchpad, tasks, notes, reference folders and files. Tasks and notes are
+scratchpad, agents, tasks, notes, reference folders and files. Tasks and notes are
 a server search over the whole home per query (the `picker` operation over
 `listSessionReferences`), in the Notes & tasks order: this chat's, then the
 agent's (open tasks first), then everything else, with a title that is or
-starts with the search ahead of one that only contains it. The plain list
-shows a few of each, and each kind ends with "All N tasks" (or notes),
-which narrows to it. A path-like query (`src/`, `.tsx`) puts files first.
-A filter after the `@` searches one kind: `task:` and `note:` (spaces
-allowed, since titles have them, up to 50 with a "Showing 50 of N"
+starts with the search ahead of one that only contains it. Agents come from
+the rail's own list (`useMentionAgents`), ranked on name or slug, and lead
+the entities, since `@ri` matching an agent almost always means it. Team
+chats, which have no coordination, offer none. The plain list
+shows a few of each, and each kind ends with "All N tasks" (or notes, or
+agents), which narrows to it. A path-like query (`src/`, `.tsx`) puts files first.
+A filter after the `@` searches one kind: `task:`, `note:` and `agent:` (spaces
+allowed, since titles and names have them, up to 50 with a "Showing 50 of N"
 caption), `file:`, and `#` for pull requests. The plain list ends with a
 line naming them. While a search is in flight the last list stays up
-(`asyncItems` in `suggestion/renderer.ts`) instead of flashing empty.
+(`asyncItems` in `suggestion/renderer.ts`) instead of flashing empty. The
+popup has its own React root, outside the app's providers, so its rows take
+resolved data (an agent's picture through `resolveAgentPicture`) and call
+no hooks.
+
+An agent mention sends as `[[agent:<workspace id>]]`. The chat's agent
+receives the mentioned agent's name, purpose and coordination address
+(`<agent id name address>purpose</agent>`, `entity-refs/expand-markers.ts`),
+never its folder, and reaches it through `message_agent` or `delegate_work`
+under the usual permission and Hold (docs/agent-coordination.md). In the
+transcript the chip shows the agent's icon, its purpose on hover, and opens
+the agent.
 
 **Chat tabs.** "≡ N" (all chats) leads the strip and never scrolls, then
 the open tabs, then +. Only the tabs scroll. + follows the last tab and

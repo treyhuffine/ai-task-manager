@@ -3,7 +3,7 @@
  * ended, as notification text. `runs.summary` is a one-line cut of the same message for run
  * lists. A notification starts from the whole reply and lets each channel take what fits.
  */
-import { getArea, getChatSession, getNote, getTask, listRecentChatEvents } from '@/lib/db/queries';
+import { getArea, getChatSession, getNote, getTask, getWorkspace, listRecentChatEvents } from '@/lib/db/queries';
 import { messageText, type NameEntity } from './message-text';
 
 /** How far back to look. A turn's reply sits just before its result and a few status events. */
@@ -34,6 +34,8 @@ export const nameEntity: NameEntity = (kind, id) => {
       return getArea(id)?.name;
     case 'execution':
       return getChatSession(id)?.label;
+    case 'agent':
+      return getWorkspace(id)?.name;
     case 'deck':
       return 'Deck';
     default:
