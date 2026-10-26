@@ -9,7 +9,7 @@
  *   pnpm backup status      the job, and the backups on disk
  *
  * Backs up the production home (`~/ri`, or whatever RI_ROOT names) into
- * `~/ri-backups/daily` (RI_BACKUP_DIR), keeping the newest 7. Safe while Ri
+ * `~/ri-backups/daily` (RI_BACKUP_DIR), keeping the newest 7 (RI_BACKUP_KEEP). Safe while Ri
  * runs: the home is only read.
  */
 

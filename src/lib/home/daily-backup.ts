@@ -24,7 +24,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { BACKUP_MANIFEST, createHomeBackup } from './backup';
 
-export const DAILY_BACKUP_KEEP = 7;
+/** How many nightly backups to keep: 7, or `RI_BACKUP_KEEP`. */
+export const DAILY_BACKUP_KEEP = Math.max(1, Math.floor(Number(process.env.RI_BACKUP_KEEP)) || 7);
 export const DAILY_BACKUP_LABEL = 'app.ri.home-backup';
 const NAME = /^ri-\d{8}-\d{6}$/;
 
@@ -129,13 +130,16 @@ export async function runDailyBackup(opts: { root: string; dir?: string; keep?: 
 export function dailyBackupPlist(opts: { node: string; repo: string; home: string; log: string; hour?: number; minute?: number }): string {
   const x = (v: string) => v.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   const args = [opts.node, path.join(opts.repo, 'node_modules/tsx/dist/cli.mjs'), path.join(opts.repo, 'scripts/backup-home.ts'), 'run'];
+  // Carry this module's overrides into the job, which doesn't see the installing shell's environment.
+  const env = ['RI_BACKUP_DIR', 'RI_BACKUP_KEEP'].filter((k) => process.env[k])
+    .map((k) => `<key>${k}</key><string>${x(process.env[k]!)}</string>`).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${DAILY_BACKUP_LABEL}</string>
 <key>ProgramArguments</key><array>${args.map((a) => `<string>${x(a)}</string>`).join('')}</array>
 <key>WorkingDirectory</key><string>${x(opts.repo)}</string>
-<key>EnvironmentVariables</key><dict><key>HOME</key><string>${x(opts.home)}</string><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+<key>EnvironmentVariables</key><dict><key>HOME</key><string>${x(opts.home)}</string><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>${env}</dict>
 <key>StartCalendarInterval</key><dict><key>Hour</key><integer>${opts.hour ?? 3}</integer><key>Minute</key><integer>${opts.minute ?? 30}</integer></dict>
 <key>StandardOutPath</key><string>${x(opts.log)}</string>
 <key>StandardErrorPath</key><string>${x(opts.log)}</string>
