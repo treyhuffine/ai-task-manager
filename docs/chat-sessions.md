@@ -298,7 +298,9 @@ scheme use HTTPS when they start with `//`, `www.`, or a domain followed by a pa
 Autolinks keep the explicit protocol supplied by the Markdown parser.
 Explicit HTTP(S) links support localhost, IP addresses and ports. Plain
 file links use the previews described below when their format is supported and
-the chat has a file source. Other destinations keep the copy/open dialog.
+the chat has a file source. Other destinations keep the copy/open dialog and
+show their destination in a tooltip on hover or keyboard focus. Existing entity
+and artifact hover previews keep their own presentation.
 Prefix a domain-shaped local folder with `./` to make it a path.
 The remark plugin carries local destinations through sanitization as encoded
 path references so copying keeps their original spelling, including `./` and `../`.

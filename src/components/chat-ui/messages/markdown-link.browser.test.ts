@@ -26,12 +26,13 @@ beforeAll(async () => {
       import { createRoot } from 'react-dom/client';
       import { MessageResponse } from './src/components/ai-elements/message';
       import { MarkdownLink } from './src/components/chat-ui/messages/markdown-link';
-      createRoot(document.getElementById('root')).render(<main className="p-6 max-w-xl">
+      import { TipProvider } from './src/components/ui/tip';
+      createRoot(document.getElementById('root')).render(<TipProvider><main className="p-6 max-w-xl">
         <MessageResponse mode="static">{${JSON.stringify(markdown)}}</MessageResponse>
         <MarkdownLink href="streamdown:incomplete-link">Still streaming</MarkdownLink>
         <MessageResponse mode="static" components={{a: ({children}) => <span data-custom-link>{children}</span>}}>[Custom renderer](https://example.com/custom)</MessageResponse>
         <textarea aria-label="Chat composer" />
-      </main>);
+      </main></TipProvider>);
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     define: { 'process.env': '{"NODE_ENV":"production"}' }, loader: { '.css': 'empty' },
@@ -169,7 +170,13 @@ it.skipIf(!enabled)('does not reopen a dismissed preview when a hover timer fire
 
 it.skipIf(!enabled)('retains the dialog for paths, filenames and other schemes', async () => {
   for (const [label, target] of [['Source', './src/app.tsx'], ['Readme', 'README.md'], ['Email', 'mailto:sam@example.com']]) {
-    await page.getByRole('button', { name: label, exact: true }).click();
+    const link = page.getByRole('button', { name: label, exact: true });
+    await link.hover();
+    const tooltip = page.getByRole('tooltip').filter({ hasText: target });
+    await tooltip.waitFor();
+    expect(await tooltip.textContent()).toContain(target);
+    expect(await page.getByRole('dialog', { name: 'Open link', exact: true }).count()).toBe(0);
+    await link.click();
     const dialog = page.getByRole('dialog', { name: 'Open link', exact: true });
     expect(await dialog.textContent()).toContain(target);
     await dialog.getByRole('button', { name: 'Copy', exact: true }).click();
@@ -177,6 +184,17 @@ it.skipIf(!enabled)('retains the dialog for paths, filenames and other schemes',
     expect(await dialog.getByRole('link', { name: 'Open in new tab' }).getAttribute('href')).toBe(target);
     await page.keyboard.press('Escape');
   }
+});
+
+it.skipIf(!enabled)('shows a dialog link destination on keyboard focus and opens it with Enter', async () => {
+  await page.keyboard.press('Tab');
+  const link = page.getByRole('button', { name: 'Source', exact: true });
+  await link.focus();
+  await page.getByRole('tooltip').waitFor();
+  expect(await page.getByRole('tooltip').textContent()).toContain('./src/app.tsx');
+  await link.press('Enter');
+  await page.getByRole('dialog', { name: 'Open link', exact: true }).waitFor();
+  await page.getByRole('tooltip').waitFor({ state: 'hidden' });
 });
 
 it.skipIf(!enabled)('preserves sanitization, incomplete links and caller-supplied renderers', async () => {

@@ -6,6 +6,7 @@ import { Check, Copy, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { FileSourceTip } from '@/components/chat-ui/artifacts/file-source-tip';
 import { markdownLinkTarget, markdownWebUrl } from './markdown-link-target';
 
 function CopyLink({ value }: { value: string }) {
@@ -40,7 +41,11 @@ export function MarkdownLink({ href: renderedHref, children, className, title, n
   if (!href || href === 'streamdown:incomplete-link') return <span className={style}>{children}</span>;
   if (url) return <WebLink {...props} href={url} className={style} description={title}>{children}</WebLink>;
   return <Dialog>
-    <DialogTrigger asChild><button type="button" className={style}>{children}</button></DialogTrigger>
+    <DialogTrigger asChild>
+      <FileSourceTip source={href} onlyWhenTextHidden={children === href}>
+        <button type="button" className={style}>{children}</button>
+      </FileSourceTip>
+    </DialogTrigger>
     <DialogContent>
       <DialogHeader>
         <DialogTitle>Open link</DialogTitle>
