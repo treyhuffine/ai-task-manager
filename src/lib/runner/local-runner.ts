@@ -59,7 +59,7 @@ import { harnessDefinition, type HarnessId } from '@/lib/harness/registry';
 import { withAppSessionInstructions } from '@/lib/executor/prompts/standing-instructions';
 import { ExecutorError } from './errors';
 import { withFirstTurnPreamble } from './first-turn';
-import { runnerState, isRunning, hasBackgroundTasks, sessionSelectionKey } from './live-state';
+import { runnerState, isRunning, hasBackgroundTasks, sessionSelectionKey, unconfirmedCloseRefusal } from './live-state';
 import { parseStreamEvent } from './parse';
 import {
   answerRefusal,
@@ -495,10 +495,38 @@ export function _endActiveDispatch(chatSessionId: string, ref: DispatchLifecycle
 
 // ─── Sending ──────────────────────────────────────────────────
 
+/**
+ * Before a send starts a harness, the chat's previous one must be confirmed
+ * stopped: two harnesses on one chat would both write its worktree and
+ * transcript. Idle cleanup and settings recycling in flight are invisible to
+ * a sender, which joins them. A close that couldn't be confirmed earlier is
+ * retried here, exactly as Restart chat would, so the sender's message is
+ * the recovery and nobody has to know a process was involved. Each send
+ * makes one fresh attempt, a joined close counting as it, and refuses only
+ * when the old harness still won't confirm.
+ */
+async function confirmPreviousClose(chatSessionId: string): Promise<void> {
+  let attempted = false;
+  let error: string | undefined;
+  for (;;) {
+    const closing = closingSessions.get(chatSessionId);
+    if (closing) {
+      ({ error } = await closing);
+      attempted = true;
+      continue;
+    }
+    if (!state.unconfirmedCloses.has(chatSessionId)) return;
+    if (attempted) throw new ExecutorError('already_running', unconfirmedCloseRefusal(chatSessionId, error));
+    attempted = true;
+    ({ error } = await close(chatSessionId));
+  }
+}
+
 /** A live handle for the chat, dropping a dead one on the way. */
 function liveHandle(chatSessionId: string): AgentSession | null {
   const cached = state.harnessSessions.get(chatSessionId);
-  if (state.unconfirmedCloses.has(chatSessionId)) throw new ExecutorError('already_running', 'The previous harness close is unconfirmed. Restart it to retry cleanup.');
+  // Rechecked at the handle, after preparation: a close can fail in between.
+  if (state.unconfirmedCloses.has(chatSessionId)) throw new ExecutorError('already_running', unconfirmedCloseRefusal(chatSessionId));
   if (!cached) return null;
   if (isHarnessSessionAlive(chatSessionId)) return cached;
   // Stale corpse: the SDK or our liveness probe knows the subprocess is
@@ -523,13 +551,7 @@ function liveHandle(chatSessionId: string): AgentSession | null {
  */
 export async function send(req: SendRequest): Promise<SendResult> {
   const { chatSessionId } = req;
-  // Idle cleanup and settings recycling are invisible to a sender. Join
-  // them, then recheck the Home's live authority before starting fresh.
-  let closing: Promise<StopReport> | undefined;
-  while ((closing = closingSessions.get(chatSessionId))) {
-    const report = await closing;
-    if (!report.closed) throw new ExecutorError('already_running', report.error ?? 'The previous harness close is unconfirmed. Restart this chat to retry cleanup.');
-  }
+  await confirmPreviousClose(chatSessionId);
   if (req.signal?.aborted) throw new ExecutorError('invalid_state', 'It was given up before it was sent.');
   const preparation = beginDispatchPreparation(chatSessionId);
   try { return await sendPrepared(req); }
@@ -1201,6 +1223,9 @@ export async function closeIdleForMaintenance(): Promise<void> {
  * closing a handle mid-turn cuts the turn off.
  */
 export async function recycleWhenIdle(chatSessionId: string): Promise<void> {
+  // Already waiting on a confirmed stop: the next send retries it and starts
+  // the harness with the saved settings. A settings save doesn't wait on it.
+  if (state.unconfirmedCloses.has(chatSessionId)) return;
   if (isRunning(chatSessionId) || hasBackgroundTasks(chatSessionId)) {
     state.pendingRecycles.add(chatSessionId);
     return;
@@ -1238,10 +1263,10 @@ export async function recycleHarnessSessions(harness: HarnessId): Promise<void> 
  * use it for lifecycle invalidation where closing the old handle is expected.
  */
 export async function recycleForModeChange(chatSessionId: string): Promise<void> {
-  if (state.unconfirmedCloses.has(chatSessionId)) throw new ExecutorError('already_running', 'Restart this chat to confirm its previous harness stopped before changing modes.');
+  // An earlier unconfirmed close is retried by this one, as a send retries it.
   state.pendingRecycles.delete(chatSessionId);
   const report = await closeOnce(chatSessionId, undefined, true);
-  if (!report.closed) throw new ExecutorError('already_running', report.error ?? 'The previous harness could not stop. Restart this chat to retry cleanup.');
+  if (!report.closed) throw new ExecutorError('already_running', unconfirmedCloseRefusal(chatSessionId, report.error));
 }
 
 /** After a clean close: its process is gone, so drop it from the record. */

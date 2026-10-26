@@ -77,3 +77,4 @@ export function listSessionsWithPending(): string[] {
 
 export function hasUnconfirmedClose(chatSessionId: string): boolean { return local.hasUnconfirmedClose(chatSessionId); }
 export function unconfirmedCloseProblem(chatSessionId: string): string | null { return local.unconfirmedCloseProblem(chatSessionId); }
+export function unconfirmedCloseRefusal(chatSessionId: string, error?: string): string { return local.unconfirmedCloseRefusal(chatSessionId, error); }

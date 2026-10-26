@@ -95,28 +95,23 @@ it('only an explicit empty server response offers New and sends once to the retu
   expect(h.calls.filter(call => call === 'messagesPost:C')).toHaveLength(1);
 });
 
-it('a running main chat exposes Restart chat and calls its actual hook', async () => {
-  h.running = true;
+it.each([['healthy idle', false], ['running', true]] as const)('a %s main chat has no inline Restart row', async (_, running) => {
+  h.running = running;
   const { HarnessChat } = await import('@/components/chat/harness-chat');
   await act(async () => root.render(createElement(QueryClientProvider, { client }, createElement(HarnessChat, { scope: 'agent' }))));
   await settle(); await settle();
+  expect(text()).not.toContain('Restart chat');
+});
+it('an unconfirmed close exposes Restart chat even when idle, and it calls the actual hook', async () => {
+  h.closeUnconfirmed = true;
+  const { HarnessChat } = await import('@/components/chat/harness-chat');
+  await act(async () => root.render(createElement(QueryClientProvider, { client }, createElement(HarnessChat, { scope: 'agent' }))));
+  await settle(); await settle();
+  expect(text()).toContain('Your next message checks again');
   const restart = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('Restart chat'));
   expect(restart).toBeTruthy();
   await act(async () => { restart!.dispatchEvent(new win.Event('click', { bubbles: true })); });
   await settle();
   expect(h.calls.filter(call => call === 'restart:X')).toHaveLength(1);
   expect(text()).toContain('Restarted');
-});
-
-it('a healthy idle main chat has no Restart row', async () => {
-  const { HarnessChat } = await import('@/components/chat/harness-chat');
-  await act(async () => root.render(createElement(QueryClientProvider, { client }, createElement(HarnessChat, { scope: 'agent' }))));
-  await settle(); await settle();
-  expect(text()).not.toContain('Restart chat');
-});
-it('an unconfirmed close exposes Restart chat even when idle', async () => {
-  h.closeUnconfirmed = true;
-  const { HarnessChat } = await import('@/components/chat/harness-chat');
-  await act(async () => root.render(createElement(QueryClientProvider, { client }, createElement(HarnessChat, { scope: 'agent' }))));
-  await settle(); await settle(); expect(text()).toContain('Restart chat');
 });

@@ -9,7 +9,7 @@ import {
 	type EmptyChatActions,
 	type MainChatIntro,
 } from '@/components/chat/main-chat-intro';
-import { CoordinationMenu } from '@/components/chat-ui/coordination/controls';
+import { ChatMenu } from '@/components/chat-ui/chat-menu';
 import { BackgroundTasksBar } from '@/components/chat-ui/activity/background-tasks-bar';
 import {
 	ExecutionComposer,
@@ -256,7 +256,7 @@ function ChatSession({
         />
       )}
       <div className="flex-shrink-0 bg-background">
-        <ChatRecovery sessionId={session.id} runtime={runtime} onRestart={sendMessage.reset} active={session.type === 'orchestration' && !session.executionId && Boolean(isRunning || runtime?.backgroundTasks || sendMessage.isError)} />
+        <ChatRecovery sessionId={session.id} runtime={runtime} />
         <PendingInputArea sessionId={session.id} />
         <BackgroundTasksBar
           sessionId={session.id}
@@ -274,7 +274,7 @@ function ChatSession({
           effort={session.effort}
           serviceTier={session.serviceTier}
           harness={session.harness}
-          leadingActions={<><AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />{!chatMenuInHeader && <CoordinationMenu sessionId={session.id} />}</>}
+          leadingActions={<><AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />{!chatMenuInHeader && <ChatMenu sessionId={session.id} />}</>}
           submitOnEnter={!isMobile}
           isRunning={isRunning}
           onSwitchProvider={onSwitchProvider}

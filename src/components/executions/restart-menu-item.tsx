@@ -6,12 +6,15 @@ import { useRestartSession } from '@/hooks/use-execution';
 import { Tip } from '@/components/ui/tip';
 
 /**
- * "Restart agent" — under the 3-dot menu. We keep coding sessions open for
- * the life of the server (snappy reuse, no idle spin-down), so this is the
- * manual way to recycle the CLI subprocess: pick up an in-place binary
- * upgrade or clear a process's accumulated working memory. Kills the
- * current process; the next message spawns a fresh one that resumes the
- * conversation from disk, so nothing is lost.
+ * "Restart chat", in the chat's menu: the execution header's, or the chat
+ * menu every other chat has. Stops the chat's harness; the next message
+ * starts a fresh one that resumes the conversation from disk, so nothing is
+ * lost. The manual way to recycle it: pick up an in-place binary upgrade or
+ * clear a long-lived process.
+ *
+ * Also the check for a chat blocked on a harness that hasn't confirmed it
+ * stopped, where `ChatRecovery` shows it inline. A send retries that same
+ * check by itself, so pressing it is never required.
  *
  * Sits above Resync. Restart is the proactive "fresh process" gesture;
  * Resync is the reactive "this is stuck, recover it" gesture (which also
@@ -20,13 +23,13 @@ import { Tip } from '@/components/ui/tip';
  * Feedback mirrors Resync: a transient inline "Restarted ✓" for 2s, error
  * inline on failure. No toast — it's a quiet, private gesture.
  */
-type RestartProps = { sessionId: string; onRestart?: () => void; active?: boolean };
+type RestartProps = { sessionId: string; active?: boolean };
 
 export function RestartMenuItem(props: RestartProps) {
   return <ChatRestart key={props.sessionId} {...props} />;
 }
 
-function ChatRestart({ sessionId, onRestart, active = true }: RestartProps) {
+function ChatRestart({ sessionId, active = true }: RestartProps) {
   const restart = useRestartSession(sessionId);
   const [doneAt, setDoneAt] = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,7 +44,6 @@ function ChatRestart({ sessionId, onRestart, active = true }: RestartProps) {
     setDoneAt(null);
     restart.mutate(undefined, {
       onSuccess: () => {
-        onRestart?.();
         setDoneAt(Date.now());
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => setDoneAt(null), 2000);

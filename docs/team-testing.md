@@ -107,7 +107,7 @@ The final-source ledger records the commit, exact commands, exit status, counts 
 
 ### Sixth-review recovery and offline checks
 
-With an uncached agent chat, go offline before opening it. The pending view must show offline recovery, with no new-conversation composer. Reconnect and verify the same current chat opens. Fail a background refresh with a chat already loaded and verify the transcript stays mounted with Retry. A failed History Resume shows its reason and retains selection. The main chat has Restart, preserving history while closing its harness.
+With an uncached agent chat, go offline before opening it. The pending view must show offline recovery, with no new-conversation composer. Reconnect and verify the same current chat opens. Fail a background refresh with a chat already loaded and verify the transcript stays mounted with Retry. A failed History Resume shows its reason and retains selection. The main chat's menu has Restart chat, preserving history while closing its harness.
 
 Automated tests cover actual agentex shutdown escalation using controlled Node CLIs, signed Team CLI success/forged/expired refusal, real MCP/HTTP alias admission, concurrent launch receipts and final teardown-script refusal. The GitHub account notice is visible to ordinary members on dedicated servers with AI on or off. Known sending chats retain their message attribution. These tests use disposable Homes and no real accounts.
 
@@ -118,8 +118,9 @@ Archive must confirm shutdown before removing the worktree. Check Cursor with
 its exec launcher and detached tool, not only a direct Node stand-in. Failed
 agent/session reads must show Retry, offline reads must not create another chat,
 and background refresh must retain the exact mounted composer and draft with
-one notice. Healthy idle and first-run screens have no Restart row. Running or
-failed-close main chats expose Restart chat. A native MCP launch using
+one notice. Healthy idle, running and first-run screens have no inline Restart
+row. Only a failed-close chat shows Restart chat inline, beside its reason, and
+every chat's menu has Restart chat. A native MCP launch using
 permission_mode, harness and task_id must retain those choices, and unknown or
 conflicting fields must refuse without a child. A JSON-only signed CLI get_task
 must work. A failed-first-send retry must retain its original intent. These
@@ -127,8 +128,11 @@ checks are automated in the review7 ledger and are rerun by the full suite.
 
 
 Settings saves that cannot recycle an idle harness still save the changes. Open
-that chat to see its Restart recovery notice. No new send uses the stale handle
-until confirmed Restart succeeds. New and History Resume failures retain the
+that chat to see its recovery notice. No new send uses the stale handle until
+its close is confirmed: the next send retries the close once and goes on when it
+holds, so nobody needs Restart, which checks the same thing on demand. A send
+that still can't confirm is refused with its reason. Mode changes retry the same
+way. New and History Resume failures retain the
 viewed conversation and refresh this recovery state. The native Linux subreaper
 tests run only on Linux with Python 3. A macOS pass qualifies the identity and
 cleanup fixtures, not the Linux kernel probes.
@@ -141,14 +145,17 @@ Review9 adds these checks to the shared paths:
   reload, then change viewer or Home and verify the choice stays scoped.
 - While a member works, owner settings edits still interrupt that work and
   cancel queued turns. Settings remain saved even when shutdown fails. Only
-  the affected chat blocks further sends until Restart confirms cleanup.
+  the affected chat refuses further sends, and each send retries the close
+  first, continuing once it confirms.
 - A task, note or skill chat with an unconfirmed close exposes Restart beside
-  its explanation. Successful Restart shows feedback and clears the control
-  error. A successful message Retry removes stale Restart recovery. An unsent
-  failed message stays available for Retry after Restart.
+  its explanation, and has Restart chat in its menu. Successful Restart shows
+  feedback and clears the control error. A failed send alone shows Retry,
+  never Restart. An unsent failed message stays available for Retry after
+  Restart.
 - A readable leftover record names the actual surviving process by PID and
   executable, without exposing command arguments. The server owner inspects
-  it. Once it exits, Restart checks again and clears recovery. Other chats
+  it. Once it exits, the next message (or Restart) checks again and clears
+  recovery. Other chats
   continue normally. Corrupt or unreadable recovery state still disables AI
   for the Home, while tasks and notes remain usable.
 - A connection decision whose notification cannot run is saved visibly with

@@ -17,7 +17,7 @@ import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
 import { HarnessChat } from '@/components/chat/harness-chat';
 import { appMainChatIntro } from '@/components/chat/main-chat-intro';
 import { useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
-import { CoordinationMenu } from '@/components/chat-ui/coordination/controls';
+import { ChatMenu } from '@/components/chat-ui/chat-menu';
 import { useMainChat } from '@/hooks/use-main-chat';
 import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
 import { MainChatOnboarding } from '@/components/chat/onboarding/main-chat-onboarding';
@@ -77,7 +77,7 @@ function ChatHeaderBar({
           {name}
         </span>
       </span>
-      <CoordinationMenu sessionId={currentChat?.session?.id ?? null} />
+      <ChatMenu sessionId={currentChat?.session?.id ?? null} />
       <MainChatHistoryMenu scope={null} />
       <Tip label="Start a new chat (archives the current one)">
         <button

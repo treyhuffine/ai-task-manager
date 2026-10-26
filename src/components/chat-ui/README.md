@@ -15,6 +15,8 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 | `chat-transcript.tsx` | Common event grouping, paging, scroll anchoring and subagent navigation. Personal and team adapters provide data and attribution slots. |
 | `chat-composer.tsx` | Common composer layout around `ChatInputEditor` and contextual actions. Transport, receipts and allowed tools stay in their adapters. |
 | `chat-capabilities.tsx` | Explicit delivery and result interactions, without enabling personal endpoints in a team transcript. |
+| `chat-menu.tsx` | A chat's ⋯ menu: coordination preferences (personal chats) and Restart chat for whoever may stop it, personal or shared |
+| `chat-recovery.tsx` | The inline reason and Restart chat, shown only while a chat is blocked on a harness that hasn't confirmed it stopped |
 | `email/` | Shared email draft editor and delivery receipt |
 | `questions/` | Structured questions, answer choices and free-form answers |
 | `permissions/` | Tool permission requests and their input preview |
@@ -41,6 +43,12 @@ Active collaboration and incoming pause appear inside the composer card, above
 the editor. The status, linked chat and pause action share its border and width.
 Idle chats have no status row. Standing preferences remain in the chat menu.
 The coordination gallery uses this same composition, including long chat titles.
+
+Restart chat lives in the chat menu, never as a row on a working chat. When a
+previous harness hasn't confirmed it stopped, the next send retries that check
+by itself and goes on once it holds. Until then the composer shows the reason
+and Restart chat, which runs the same check on demand. A failed message offers
+Retry, not Restart.
 
 ## Boundaries
 

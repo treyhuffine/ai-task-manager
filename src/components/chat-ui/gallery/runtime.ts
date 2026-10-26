@@ -100,6 +100,7 @@ export class GalleryRuntime {
       if (content !== null) return { path: file, content, encoding: 'utf8', mime: file?.endsWith('.md') ? 'text/markdown' : 'application/javascript', size: content.length, isBinary: false, tooLarge: false };
     }
     if (path === 'sessions.pendingInputGet') return this.pending;
+    if (path === 'sessions.restartPost') { this.changed('Example chat restarted. No harness stopped'); return { ok: true }; }
     if (path === 'sessions.runtimeStatusGet') return { running: this.pending.length > 0, backgroundTasks: false, backgroundTaskIds: [], canStop: true, activeTurnId: null };
     if (path === 'sessions.pendingInputRequestIdPost') {
       this.pending = [];

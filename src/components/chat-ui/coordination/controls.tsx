@@ -1,6 +1,6 @@
 'use client';
 import { useChatCapabilities } from '@/components/chat-ui/chat-capabilities';
-import { Pause, Play, MessagesSquare, ChevronDown, MoreHorizontal } from 'lucide-react';
+import { Pause, Play, MessagesSquare, ChevronDown } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useCoordinationState, useCoordinationHold, useCoordinationPolicy } from '@/hooks/use-coordination';
 import { Tip } from '@/components/ui/tip';
@@ -57,12 +57,6 @@ function AvailableCoordinationSettings({ sessionId }: { sessionId: string }) {
     <p className="text-muted-foreground">Applies to new sends. Approved messages keep their authorization.</p>
     <div className="border-t pt-2"><IncomingPauseButton sessionId={sessionId} /><p className="mt-1 text-muted-foreground">Pause queues incoming agent messages in this chat. Your messages still run. Work already running continues.</p></div>
   </div>;
-}
-
-export function CoordinationMenu({ sessionId }: { sessionId: string | null }) {
-  const enabled = useChatCapabilities().coordination !== false;
-  if (!enabled || !sessionId) return null;
-  return <Popover><PopoverTrigger asChild><Tip label="Chat permissions and incoming messages"><button type="button" aria-label="Chat menu" className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><MoreHorizontal size={14} /></button></Tip></PopoverTrigger><PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)]"><CoordinationSettings sessionId={sessionId} /></PopoverContent></Popover>;
 }
 
 export function DefaultCoordinationSetting() {

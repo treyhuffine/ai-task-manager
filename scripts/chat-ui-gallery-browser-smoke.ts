@@ -169,7 +169,12 @@ async function main() {
       await frame.getByRole('button', { name: 'Always allow in this chat', exact: true }).click();
       await frame.getByRole('button', { name: 'Chat menu', exact: true }).click();
       await frame.getByText('Allow automatically, from this chat.', { exact: true }).waitFor();
+      // Restart lives in the chat menu, not as a row above the composer.
+      await frame.getByRole('button', { name: 'Restart chat', exact: true }).click();
+      await frame.getByRole('button', { name: 'Restarted', exact: true }).waitFor();
+      await waitForText(frame, 'Example chat restarted. No harness stopped');
       await frame.getByRole('button', { name: 'Chat menu', exact: true }).click();
+      assert.equal(await frame.getByRole('button', { name: 'Restart chat', exact: true }).count(), 0, 'Restart is only in the chat menu');
 
       for (const state of ['idle', 'finished', 'approval']) {
         const quiet = await select('coordination', state);

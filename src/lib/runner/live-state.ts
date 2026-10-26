@@ -189,6 +189,12 @@ export function activeSendCount(chatSessionId: string): number {
   return runnerState.activeDispatchCount.get(chatSessionId) ?? 0;
 }
 
-/** A close that requires explicit recovery rather than an automatic new send. */
+/** A close not yet confirmed. The next send, mode change or Restart retries it before another harness starts. */
 export function hasUnconfirmedClose(chatSessionId: string): boolean { return runnerState.unconfirmedCloses.has(chatSessionId); }
 export function unconfirmedCloseProblem(chatSessionId: string): string | null { return runnerState.closeProblems.get(chatSessionId) ?? null; }
+/** Why such a chat can't start another harness yet, after its retry, naming surviving processes when known. */
+export function unconfirmedCloseRefusal(chatSessionId: string, error?: string): string {
+  const cause = error?.trim().replace(/([^.!?])$/, '$1.') || 'The previous harness has not confirmed it stopped.';
+  return unconfirmedCloseProblem(chatSessionId)
+    ?? `${cause} Ri won't start another harness beside it. Saved changes are preserved. Try again in a moment to check once more.`;
+}

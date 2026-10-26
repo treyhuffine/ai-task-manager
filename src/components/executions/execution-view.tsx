@@ -697,7 +697,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
             <TransferProgress sessionId={session.id} />
             <ReviewBar session={session} workspace={workspace} />
           </div>
-          <ChatRecovery sessionId={session.id} runtime={runtime} onRestart={sendMessage.reset} />
+          <ChatRecovery sessionId={session.id} runtime={runtime} />
           <PendingInputArea sessionId={session.id} />
           {isMirroredImport && (
             <ImportedTakeoverBar

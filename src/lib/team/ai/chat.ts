@@ -18,7 +18,7 @@ import { processState } from '@/lib/process-state';
 import type { TeamChatTurnRecord, Attachment } from '@/db/types';
 
 import { isNativeTeamChat, teamChatAvailability, runNativeTeamTurn, bindTeamChatAgent } from './native-turn';
-import { isRunning, hasBackgroundTasks, activeSendCount } from '@/lib/runner/live-state';
+import { isRunning, hasBackgroundTasks, activeSendCount, hasUnconfirmedClose, unconfirmedCloseRefusal } from '@/lib/runner/live-state';
 import { chatLifecycleClosing, chatLifecycleReason, executionLifecycleClosing, closeChatAdmission } from '@/lib/sessions/lifecycle-admission';
 
 export const TEAM_CHAT_MESSAGE_MAX = 20_000;
@@ -82,11 +82,14 @@ export async function sendToTeamAi(input: { chatId: string; memberId: string; re
     return { turn: prior.turn, message: prior.message, created: false };
   }
   if (chat.status !== 'active') throw new q.TeamChatError('not_found', 'That chat is gone.');
+  // A harness that hasn't confirmed it stopped blocks the chat. The next
+  // send retries the confirmation, as Restart chat would, and goes on once
+  // it holds, so a member never has to know a process was involved.
   const blocked = state.blocked.get(chat.id);
-  if (blocked) {
+  if (blocked || hasUnconfirmedClose(chat.id)) {
     const result = await (await import('@/lib/executor/adapter')).close(chat.id, { source: 'system' });
-    if (!result.closed) throw new q.TeamChatError('unavailable', blocked.reason);
-    state.blocked.delete(chat.id);
+    if (!result.closed) throw new q.TeamChatError('unavailable', blocked?.reason ?? unconfirmedCloseRefusal(chat.id, result.error));
+    if (state.blocked.get(chat.id) === blocked) state.blocked.delete(chat.id);
   }
   if (!chat.workspaceId) {
     if (!input.requestingApiKeyId) throw new q.TeamError('not_allowed', 'This send needs its active member sign-in.');
@@ -128,6 +131,12 @@ async function drain(chatId: string): Promise<void> {
     if (state.blocked.has(chatId) || chatLifecycleClosing(chatId) || executionLifecycleClosing(q.getTeamChat(chatId)?.executionId)) return;
     state.again.delete(chatId);
     if (!q.hasQueuedTeamChatTurns(chatId)) return;
+    // A close that failed after these were accepted is retried once, as
+    // their sends would have, before the waiting turns are refused.
+    if (hasUnconfirmedClose(chatId)) {
+      await (await import('@/lib/executor/adapter')).close(chatId, { source: 'system' })
+        .catch(error => console.error('[team ai] retrying an unconfirmed close failed:', error));
+    }
     const status = await teamChatAvailability(chatId);
     if (status.state !== 'ready') {
       // Waiting turns can't be answered: say so on each, honestly.
@@ -201,9 +210,9 @@ async function runOne(turn: TeamChatTurnRecord, work: ChatWork): Promise<void> {
  */
 export async function stopTeamAiWork(filter: { memberId?: string; apiKeyId?: string; turnId?: string; chatId?: string } = {}, reason: string, options: { allowUnconfirmed?: boolean } = {}): Promise<void> {
   // Only a configuration already saved uses this option. Keep its runtime
-  // block and explicit Restart recovery, without reporting a failed save or
-  // repeatedly retrying a known failed close on each settings edit.
-  const { hasUnconfirmedClose } = await import('@/lib/executor/adapter');
+  // block, which the next send or Restart retries, without reporting a
+  // failed save or repeatedly retrying a known failed close on each settings
+  // edit.
   const { running } = q.cancelQueuedTeamChatTurns(filter, reason);
   const waits: Promise<void>[] = [];
   for (const [chatId, blocked] of state.blocked) {

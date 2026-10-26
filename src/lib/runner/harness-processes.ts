@@ -225,7 +225,7 @@ async function recoveryProblems(entries: HarnessProcessEntry[], survivors: Proce
     // Executable names identify the actual survivors without leaking command
     // arguments, which can include prompts or credentials.
     const descriptions = processes.map(value => `pid ${value.pid} (${path.basename(value.command.split(/\s+/)[0]).slice(0, 80)})`);
-    return { chatId, processes, message: `This chat's previous harness could not be confirmed stopped: ${descriptions.join(', ')}. Ask the server owner to inspect these processes. Once they have stopped, use Restart chat to check again. Saved changes are preserved.` };
+    return { chatId, processes, message: `This chat's previous harness could not be confirmed stopped: ${descriptions.join(', ')}. Ask the server owner to inspect these processes. Once they have stopped, your next message checks again. Saved changes are preserved.` };
   });
 }
 async function removeStoppedEntries(file: string, stopped: HarnessProcessEntry[]) {
@@ -238,7 +238,7 @@ async function removeStoppedEntries(file: string, stopped: HarnessProcessEntry[]
 async function changedRecordError(entries: HarnessProcessEntry[]) {
   const problems = await recoveryProblems(entries, entries.flatMap(tree));
   for (const entry of entries) if (!problems.some(problem => problem.chatId === entry.chatSessionId)) {
-    problems.push({ chatId: entry.chatSessionId, processes: [], message: 'This chat\'s process record changed during cleanup. Use Restart chat to check its latest processes before continuing.' });
+    problems.push({ chatId: entry.chatSessionId, processes: [], message: 'This chat\'s process record changed during cleanup. Your next message checks its latest processes before continuing.' });
   }
   return new HarnessProcessRecoveryError(problems);
 }

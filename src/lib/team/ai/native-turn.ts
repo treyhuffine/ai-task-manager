@@ -4,7 +4,8 @@ import { executionStartPolicy } from '@/lib/sessions/home-policy';
 import { bindLegacyTeamChat } from '@/lib/db/team-chat-cutover';
 /** Native team policy on the common execution dispatcher, not a provider loop. */
 import * as q from '@/lib/db/queries';
-import { dispatch, hasUnconfirmedClose, unconfirmedCloseProblem, SessionCloseError } from '@/lib/executor/adapter';
+import { dispatch, hasUnconfirmedClose, SessionCloseError } from '@/lib/executor/adapter';
+import { unconfirmedCloseRefusal } from '@/lib/executor/live-state';
 import { getHarnessRuntime, resolveHarnessAuth } from '@/lib/harness/runtime';
 import { harnessDefinition } from '@/lib/harness/registry';
 import { teamAiMessage, teamAiTurnPrompt, teamTaskScopeContext, type RunTeamTurnInput, type TeamTurnOutcome } from './turn-prompt';
@@ -21,7 +22,7 @@ export async function teamChatAvailability(chatId: string, candidate?: { workspa
   const chat = original && candidate ? { ...original, ...candidate } : original;
   if (!chat) return { state: 'unavailable' as const, reason: 'This chat is gone.' };
   if (!chat.workspaceId) return { state: 'unavailable' as const, reason: 'Choose a team agent to continue this conversation.' };
-  if (hasUnconfirmedClose(chat.id)) return { state: 'unavailable' as const, reason: unconfirmedCloseProblem(chat.id) ?? 'The previous harness has not confirmed it stopped. Restart this chat before sending again. Saved changes are preserved.' };
+  if (hasUnconfirmedClose(chat.id)) return { state: 'unavailable' as const, reason: unconfirmedCloseRefusal(chat.id) };
   return teamAgentAvailability({ workspaceId: chat.workspaceId, harness: chat.harness });
 }
 export async function teamAgentAvailability(chat: { workspaceId: string; harness: import('@/lib/harness/registry').HarnessId }) {

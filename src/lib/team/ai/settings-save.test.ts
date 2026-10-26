@@ -34,7 +34,7 @@ afterEach(async () => {
   await stopTeamAiWork({}, 'Fixture ended.').catch(() => {}); await settledTeamAi(); await closeAllSessions(); _resetExecutorState();
   fake.restore(); await fixture.cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals();
 }, 30_000);
-it('saves Team settings repeatedly despite a rejected idle close, refuses sends, and recovers through Restart', async () => {
+it('saves Team settings repeatedly despite a rejected idle close, and the next send retries it before recovering by itself', async () => {
   const chat = await owner.team.ai.chats.create.mutate({ workspaceId: fixture.workspace.id, label: 'Review recovery' });
   await member.team.ai.send.mutate({ chatId: chat.id, clientSendId: 'review9-warmup', text: 'Hello' }); await settledTeamAi();
   const handle = fake.latest(), close = vi.spyOn(handle, 'close').mockRejectedValue(new Error('Provider shutdown failed'));
@@ -48,15 +48,17 @@ it('saves Team settings repeatedly despite a rejected idle close, refuses sends,
   await expect(owner.workspaces.update.mutate({ params: { id: fixture.workspace.id }, body: { cwd: nextCwd } })).resolves.toMatchObject({ cwd: nextCwd });
   expect(close).toHaveBeenCalledOnce(); expect(executor.hasHarnessSession(chat.id)).toBe(true);
   expect(await member.sessions.runtimeStatusGet.query({ params: { id: chat.id } })).toMatchObject({ closeUnconfirmed: true });
-  await expect(member.team.ai.send.mutate({ chatId: chat.id, clientSendId: 'review9-blocked', text: 'Must wait' })).rejects.toThrow(/Restart this chat/);
+  // The send retries the close once itself, and refuses only because it still fails.
+  await expect(member.team.ai.send.mutate({ chatId: chat.id, clientSendId: 'review9-blocked', text: 'Must wait' })).rejects.toThrow(/^Provider shutdown failed\. Ri won't start another harness beside it\..*Try again in a moment/);
+  expect(close).toHaveBeenCalledTimes(2);
   expect(q.listTeamChatTurns(chat.id)).toHaveLength(1); expect(handle.messages).toHaveLength(1);
   // Explicit controls remain strict, even though settings persistence succeeded.
   await expect(member.sessions.restartPost.mutate({ params: { id: chat.id }, body: {} })).rejects.toThrow(/shutdown|stop/i);
   expect(executor.hasUnconfirmedClose(chat.id)).toBe(true);
   close.mockRestore();
-  await member.sessions.restartPost.mutate({ params: { id: chat.id }, body: {} });
-  expect(executor.hasUnconfirmedClose(chat.id)).toBe(false);
+  // Once the old harness can stop, the next send confirms it and goes on. Nobody presses Restart.
   await member.team.ai.send.mutate({ chatId: chat.id, clientSendId: 'review9-recovered', text: 'Continue' }); await settledTeamAi();
+  expect(executor.hasUnconfirmedClose(chat.id)).toBe(false);
   expect(q.listTeamChatTurns(chat.id).map(turn => turn.status)).toEqual(['done', 'done']);
   expect(fake.latest()).not.toBe(handle);
   expect(fake.latest().ctx.cwd).toBe(nextCwd);
@@ -91,7 +93,7 @@ it('persists settings while an explicit close owns admission and joins its one f
   expect(await restarting).toBeInstanceOf(Error);
   expect(close).toHaveBeenCalledOnce(); expect(executor.hasUnconfirmedClose(chat.id)).toBe(true);
 });
-it('quarantines a real ambiguous leftover to its chat, keeps other Team work available, and clears on Restart after exit', async () => {
+it('quarantines a real ambiguous leftover to its chat, keeps other Team work available, and the next send clears it after exit', async () => {
   const blocked = await owner.team.ai.chats.create.mutate({ workspaceId: fixture.workspace.id, label: 'Review recovery' });
   const healthy = await owner.team.ai.chats.create.mutate({ workspaceId: fixture.workspace.id, label: 'Review recovery' });
   const child = spawn(process.execPath, ['-e', 'console.log("ready"); setInterval(() => {}, 1000)'], { stdio: ['ignore', 'pipe', 'ignore'] }); children.push(child);
@@ -107,14 +109,14 @@ it('quarantines a real ambiguous leftover to its chat, keeps other Team work ava
   const runtime = await member.sessions.runtimeStatusGet.query({ params: { id: blocked.id } });
   expect(runtime).toMatchObject({ closeUnconfirmed: true, closeProblem: expect.stringContaining(`pid ${child.pid} (node)`) });
   expect(() => process.kill(child.pid!, 0)).not.toThrow();
-  await expect(member.team.ai.send.mutate({ chatId: blocked.id, clientSendId: 'review9-refused', text: 'No duplicate harness' })).rejects.toThrow(/inspect.*Restart chat/);
+  await expect(member.team.ai.send.mutate({ chatId: blocked.id, clientSendId: 'review9-refused', text: 'No duplicate harness' })).rejects.toThrow(/inspect.*your next message checks again/);
   await member.team.ai.send.mutate({ chatId: healthy.id, clientSendId: 'review9-unrelated', text: 'Independent work' }); await settledTeamAi();
   expect(q.listTeamChatTurns(healthy.id).at(-1)?.status).toBe('done');
   expect(fake.sessions).toHaveLength(1);
   const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
-  await member.sessions.restartPost.mutate({ params: { id: blocked.id }, body: {} });
+  // The send itself rechecks the leftover, finds it gone and starts the harness.
+  await member.team.ai.send.mutate({ chatId: blocked.id, clientSendId: 'review9-now-safe', text: 'Recovered work' }); await settledTeamAi();
   expect(await member.sessions.runtimeStatusGet.query({ params: { id: blocked.id } })).not.toHaveProperty('closeUnconfirmed');
   expect(JSON.parse(fs.readFileSync(file, 'utf8')).entries).toEqual([]);
-  await member.team.ai.send.mutate({ chatId: blocked.id, clientSendId: 'review9-now-safe', text: 'Recovered work' }); await settledTeamAi();
   expect(q.listTeamChatTurns(blocked.id).at(-1)?.status).toBe('done');
 }, 20_000);

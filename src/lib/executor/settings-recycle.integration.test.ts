@@ -26,7 +26,7 @@ function connectionCard(sessionId: string) {
     connectionId: null, account: null, scopes: null, authConfigId: null };
   return q.insertChatEvent({ sessionId, role: 'system', source: 'connection_request', content: 'Connect Gmail', toolInput: view })!;
 }
-it('agent settings and connector scopes save repeatedly after failed idle close, while sends require confirmed Restart', async () => {
+it('agent settings and connector scopes save repeatedly after failed idle close, and a send confirms the close before it starts fresh', async () => {
   const cwd = path.join(home.root, 'project'); fs.mkdirSync(cwd);
   const workspace = q.createWorkspace({ name: 'Personal agent', cwd, isGit: false });
   const chat = q.createChatSession({ harness: 'codex', model: 'gpt-6.1-sol', workspaceId: workspace.id, type: 'orchestration' });
@@ -44,12 +44,14 @@ it('agent settings and connector scopes save repeatedly after failed idle close,
   expect(q.getWorkspace(workspace.id)?.integrationScopes).toEqual([]);
   unsubscribe(); expect(frames).toContainEqual({ kind: 'runtime', running: false });
   expect(close).toHaveBeenCalledOnce(); expect(executor.hasUnconfirmedClose(chat.id)).toBe(true); expect(executor.hasHarnessSession(chat.id)).toBe(true);
-  await expect(send({ chatSessionId: chat.id, message: 'Must not use stale config', turnId: 'turn', runId: null, spec: null })).rejects.toMatchObject({ code: 'already_running' });
-  expect(sendMessage).not.toHaveBeenCalled();
+  // The send retries the failed close once, and refuses only because it fails again.
+  await expect(send({ chatSessionId: chat.id, message: 'Must not use stale config', turnId: 'turn', runId: null, spec: null })).rejects.toMatchObject({ code: 'already_running', message: expect.stringMatching(/^Shutdown failed\. Ri won't start another harness beside it\./) });
+  expect(close).toHaveBeenCalledTimes(2); expect(sendMessage).not.toHaveBeenCalled();
+  // Once the old harness stops, the next send confirms it by itself and goes on to a fresh one.
   close.mockResolvedValueOnce(undefined as never);
-  expect(await executor.close(chat.id)).toMatchObject({ closed: true });
-  expect(executor.hasUnconfirmedClose(chat.id)).toBe(false); expect(executor.hasHarnessSession(chat.id)).toBe(false);
   expect(await send({ chatSessionId: chat.id, message: 'Fresh config required', turnId: 'next', runId: null, spec: null })).toEqual({ status: 'needs_spec' });
+  expect(close).toHaveBeenCalledTimes(3); expect(sendMessage).not.toHaveBeenCalled();
+  expect(executor.hasUnconfirmedClose(chat.id)).toBe(false); expect(executor.hasHarnessSession(chat.id)).toBe(false);
 });
 
 it('Archive preserves a real worktree when a legacy process record has ambiguous ancestry', async () => {
