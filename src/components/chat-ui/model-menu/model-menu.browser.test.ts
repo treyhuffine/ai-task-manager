@@ -41,7 +41,7 @@ beforeAll(async () => {
         const [schedule,setSchedule] = useState({provider:'codex',model:'gpt-6.1-sol',effort:'high',serviceTier:null});
         const settings = useSettingsStore();
         const preview = params.get('preview');
-        return <TipProvider><main style={{padding:24}}>
+        return <TipProvider><main style={params.has('bottom')?{position:'fixed',left:24,bottom:24}:{padding:24}}>
           {preview ? <ModelMenuPreview state={preview} /> : params.has('schedule') ? <>
             <RunsOnPicker value={schedule} onChange={change=>setSchedule(current=>({...current,...change}))}/>
             <output hidden aria-label="Schedule selection">{JSON.stringify(schedule)}</output>
@@ -99,12 +99,22 @@ beforeAll(async () => {
           fixture.recent.claude = ['opus','fable'];
         }
         if(location.search.includes('no-history')) fixture.recent = {};
+        if(location.search.includes('all-providers')) {
+          fixture.models.claude = [...fixture.models.claude,{id:'fable',label:'Fable'}];
+          fixture.recent.claude = ['opus','fable'];
+          fixture.models.cursor = [];
+          fixture.models.antigravity = [{id:'gemini-flash',label:'Gemini 3.8 Flash (High)'}];
+        }
         if(location.search.includes('speed')) {
           fixture.models.codex[0].serviceTiers = [{id:'default',name:'Standard',availability:'available'},{id:'priority',name:'Fast',availability:'unknown'},{id:'ultrafast',name:'Ultrafast',availability:'unknown'}];
           fixture.models.codex[1].serviceTiers = [{id:'default',name:'Standard',availability:'available'},{id:'priority',name:'Fast',availability:'unavailable',reason:'Disabled by provider'}];
           fixture.models.claude[0].serviceTiers = [{id:'default',name:'Standard',availability:'available'},{id:'fast',name:'Fast',availability:'unknown'}];
         }
         const extra = {codex:[{id:'gpt-6-luna',label:'6 Luna',supportedEfforts:['low','medium','high']},{id:'retired',label:'Retired model',availability:'unavailable'}],claude:[{id:'sonnet',label:'Sonnet',supportedEfforts:['low','medium','high']}],cursor:[],opencode:[],antigravity:[]};
+        if(location.search.includes('all-providers')) {
+          extra.cursor = Array.from({length:266},(_,i)=>({id:'cursor-model-'+i,label:'Cursor model '+i}));
+          extra.antigravity = Array.from({length:12},(_,i)=>({id:'gemini-'+i,label:'Gemini '+i}));
+        }
         export const useHarnessModels = (harness,options={}) => ({
           models:options.catalog ? [...(fixture.models[harness]??[]),...(extra[harness]??[])] : fixture.models[harness]??[],
           data: harness ? {recentModelIds:fixture.recent[harness]??[],enabledModelIds:(fixture.models[harness]??[]).map(model=>model.id), defaultModel:harness==='codex'?'gpt-6.1-sol':'opus',defaultVariant:'standard',defaultEffort:'xhigh'} : undefined,
@@ -118,7 +128,7 @@ beforeAll(async () => {
         export const useHarnesses = () => ({data:{harnesses:[]}});
         export const useAddCustomModel = () => ({});
         export const useRemoveCustomModel = () => ({});
-        export const useHarnessConnection = harness => ({connection:{connected:harness==='codex'||harness==='claude'}});
+        export const useHarnessConnection = harness => ({connection:{connected:harness==='codex'||harness==='claude'||(location.search.includes('all-providers')&&['cursor','antigravity'].includes(harness))}});
         export const useRecheckHarnessConnection = () => ({isPending:false,mutate(){}});
         export const useDefaultSelection = () => ({harness:'codex',model:'gpt-6.1-sol',effort:'high'});
         export const useSetDefaultSelection = () => ({isPending:false,mutate(){}});
@@ -136,7 +146,7 @@ beforeAll(async () => {
   server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.end(
-      `<style>${css}</style><div id="root"></div><script>${bundle.outputFiles[0].text.replace(/<\/script/gi, '<\\/script')}</script>`,
+      `<meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style><div id="root"></div><script>${bundle.outputFiles[0].text.replace(/<\/script/gi, '<\\/script')}</script>`,
     );
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -152,10 +162,10 @@ afterAll(async () => {
   await browser?.close();
   if (server)
     await new Promise<void>((resolve) => server.close(() => resolve()));
-});
+}, 30_000);
 
-async function openPage(query = '', width = 1000) {
-  const page = await browser.newPage({ viewport: { width, height: 800 } });
+async function openPage(query = '', width = 1000, height = 800, touch = false) {
+  const page = await browser.newPage({ viewport: { width, height }, hasTouch: touch, isMobile: touch });
   page.on('pageerror', (error) => {
     console.error('Model menu fixture:', error.message);
   });
@@ -170,6 +180,8 @@ async function openMenu(page: Page) {
     .getByRole('button', { name: 'Model and settings: 6.1 Sol, High effort' })
     .click();
   await page.getByRole('combobox', { name: 'Search models' }).waitFor();
+  await page.locator('[data-slot="popover-content"]').evaluate(element =>
+    Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => {}))));
 }
 
 it.skipIf(!enabled)(
@@ -549,6 +561,181 @@ it.skipIf(!enabled)('saves native speed ids through the live composer menu', asy
     await page.getByRole('button', { name: 'Speed: Fast' }).click();
     await page.getByRole('menuitemradio', { name: 'Normal', exact: true }).click();
     await expect.poll(() => page.getByLabel('Speed selection', { exact: true }).textContent()).toBe('default');
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('opens effort and speed on hover, preserves values, and keeps pointer transit and click working', async () => {
+  const page = await openPage('?speed');
+  try {
+    await openMenu(page);
+    const effort = page.getByRole('button', { name: 'Effort: High' });
+    await effort.hover();
+    await page.getByRole('menuitemradio', { name: /Extra high/ }).waitFor();
+    expect(await page.getByLabel('Selection', { exact: true }).textContent()).toBe('gpt-6.1-sol:high');
+    const choice = page.getByRole('menuitemradio', { name: /Extra high/ });
+    const target = await choice.boundingBox();
+    await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2, { steps: 12 });
+    await page.waitForTimeout(300);
+    expect(await choice.isVisible()).toBe(true);
+    const speed = page.getByRole('button', { name: 'Speed: Normal' });
+    await speed.hover();
+    await page.getByRole('menuitemradio', { name: 'Fast', exact: true }).waitFor();
+    await expect.poll(() => page.getByRole('menu').count()).toBe(1);
+    expect(await page.getByRole('menuitemradio', { name: /Extra high/ }).count()).toBe(0);
+    expect(await page.getByLabel('Speed selection', { exact: true }).textContent()).toBe('default');
+    await speed.click();
+    expect(await page.getByRole('menuitemradio', { name: 'Fast', exact: true }).isVisible()).toBe(true);
+    await page.getByRole('menuitemradio', { name: 'Fast', exact: true }).click();
+    await expect.poll(() => page.getByLabel('Speed selection', { exact: true }).textContent()).toBe('priority');
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('closes a hover menu after leaving and never reopens it after the parent closes', async () => {
+  const page = await openPage('?speed');
+  try {
+    await openMenu(page);
+    await page.getByRole('button', { name: 'Effort: High' }).hover();
+    await page.getByRole('menu').waitFor();
+    await page.mouse.move(900, 700);
+    await page.getByRole('menu').waitFor({ state: 'hidden' });
+    expect(await page.getByRole('combobox').isVisible()).toBe(true);
+    await page.getByRole('button', { name: 'Speed: Normal' }).hover();
+    await page.getByRole('button', { name: /Model and settings:/ }).click();
+    await page.waitForTimeout(300);
+    expect(await page.getByRole('menu').count()).toBe(0);
+    expect(await page.getByRole('combobox').count()).toBe(0);
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('opens option menus with ArrowRight and restores keyboard focus on Escape', async () => {
+  const page = await openPage('?speed');
+  try {
+    await openMenu(page);
+    const effort = page.getByRole('button', { name: 'Effort: High' });
+    await effort.focus();
+    await page.keyboard.press('ArrowRight');
+    await page.getByRole('menu').waitFor();
+    await expect.poll(() => page.getByRole('menuitemradio').first().evaluate(element => element === document.activeElement)).toBe(true);
+    await page.keyboard.press('ArrowLeft');
+    await page.getByRole('menu').waitFor({ state: 'hidden' });
+    expect(await effort.evaluate(element => element === document.activeElement)).toBe(true);
+    await page.keyboard.press('ArrowRight');
+    await page.getByRole('menu').waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('menu').waitFor({ state: 'hidden' });
+    expect(await effort.evaluate(element => element === document.activeElement)).toBe(true);
+    const speed = page.getByRole('button', { name: 'Speed: Normal' });
+    await speed.focus();
+    await page.keyboard.press('ArrowRight');
+    await page.getByRole('menuitemradio', { name: 'Normal', exact: true }).waitFor();
+    await expect.poll(() => page.getByRole('menuitemradio', { name: 'Normal', exact: true }).evaluate(element => element === document.activeElement)).toBe(true);
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(() => page.getByRole('menuitemradio', { name: 'Fast', exact: true }).evaluate(element => element === document.activeElement)).toBe(true);
+    await page.keyboard.press('Enter');
+    await expect.poll(() => page.getByLabel('Speed selection', { exact: true }).textContent()).toBe('priority');
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('uses tap on phones and does not open an option menu from hovering', async () => {
+  const page = await openPage('?speed', 390, 800, true);
+  try {
+    await page.getByRole('button', { name: /Model and settings:/ }).tap();
+    const effort = page.getByRole('button', { name: 'Effort: High' });
+    await effort.hover();
+    await page.waitForTimeout(250);
+    expect(await page.getByRole('menu').count()).toBe(0);
+    await effort.tap();
+    await page.getByRole('menuitemradio', { name: /Extra high/ }).tap();
+    await expect.poll(() => page.getByLabel('Selection', { exact: true }).textContent()).toBe('gpt-6.1-sol:xhigh');
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('shows the providers below Claude without scrolling when desktop space is available', async () => {
+  const page = await openPage('?all-providers&speed');
+  try {
+    await openMenu(page);
+    const list = page.getByRole('listbox');
+    const lastProvider = page.getByRole('button', { name: /More Antigravity models/ });
+    const bounds = await list.boundingBox();
+    const last = await lastProvider.boundingBox();
+    expect(last!.y + last!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height);
+    expect(await list.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
+    expect(await page.getByRole('button', { name: 'More models below', exact: true }).count()).toBe(0);
+    if (process.env.RI_MODEL_MENU_SCREENSHOTS) {
+      await page.evaluate(() => document.documentElement.classList.add('dark'));
+      await fs.mkdir(process.env.RI_MODEL_MENU_SCREENSHOTS, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.RI_MODEL_MENU_SCREENSHOTS, 'model-menu-all-providers.png'), animations: 'disabled' });
+    }
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('makes overflow visible and scrollable while keeping search and settings fixed on a short screen', async () => {
+  const page = await openPage('?all-providers&speed', 1000, 440);
+  try {
+    await openMenu(page);
+    const list = page.getByRole('listbox');
+    const effort = page.getByRole('button', { name: 'Effort: High' });
+    const effortBefore = await effort.boundingBox();
+    await page.getByRole('button', { name: 'More models below', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(10);
+    expect(await page.getByLabel('Selection', { exact: true }).textContent()).toBe('gpt-6.1-sol:high');
+    await page.getByRole('button', { name: 'More models above', exact: true }).waitFor();
+    const effortAfter = await effort.boundingBox();
+    expect(effortAfter!.y).toBe(effortBefore!.y);
+    const panel = await page.getByRole('dialog').boundingBox();
+    expect(panel!.y).toBeGreaterThanOrEqual(0);
+    expect(panel!.y + panel!.height).toBeLessThanOrEqual(440);
+    if (process.env.RI_MODEL_MENU_SCREENSHOTS) {
+      await page.evaluate(() => document.documentElement.classList.add('dark'));
+      await fs.mkdir(process.env.RI_MODEL_MENU_SCREENSHOTS, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.RI_MODEL_MENU_SCREENSHOTS, 'model-menu-short-screen.png'), animations: 'disabled' });
+    }
+    await list.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await page.getByRole('button', { name: 'More models below', exact: true }).waitFor({ state: 'hidden' });
+    const previous = await list.evaluate(element => element.scrollTop);
+    await page.getByRole('button', { name: 'More models above', exact: true }).click();
+    await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeLessThan(previous - 10);
+    await page.getByRole('combobox').fill('Gemini 3.8 Flash');
+    await expect.poll(() => page.getByRole('option').count()).toBe(1);
+    await expect.poll(() => page.getByRole('button', { name: /More models (above|below)/ }).count()).toBe(0);
+    expect(await page.getByRole('option', { name: 'Gemini 3.8 Flash (High), new chat', exact: true }).isVisible()).toBe(true);
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('keeps a large expanded provider searchable and signals its scrollable results', async () => {
+  const page = await openPage('?all-providers&speed');
+  try {
+    await openMenu(page);
+    const expand = page.getByRole('button', { name: /More Cursor models/ });
+    await expand.focus();
+    await page.keyboard.press('Enter');
+    expect(await page.getByRole('button', { name: /Fewer Cursor models/ }).getAttribute('aria-expanded')).toBe('true');
+    await page.getByRole('button', { name: 'More models below', exact: true }).waitFor();
+    await page.getByRole('combobox').fill('cursor-model-265');
+    await page.getByRole('option', { name: 'Cursor model 265, new chat', exact: true }).waitFor();
+    await expect.poll(() => page.getByRole('option').count()).toBeLessThan(5);
+    await expect.poll(() => page.getByRole('button', { name: 'More models below', exact: true }).count()).toBe(0);
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('fits above a bottom composer and opens its option menus within the viewport', async () => {
+  const page = await openPage('?all-providers&speed&bottom');
+  try {
+    await openMenu(page);
+    const panel = page.locator('[data-slot="popover-content"]');
+    expect(await panel.getAttribute('data-side')).toBe('top');
+    const bounds = await panel.boundingBox();
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(800);
+    await page.getByRole('button', { name: /More Antigravity models/ }).waitFor();
+    expect(await page.getByRole('button', { name: 'More models below', exact: true }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Speed: Normal' }).hover();
+    await page.getByRole('menuitemradio', { name: 'Fast', exact: true }).waitFor();
+    await page.getByRole('menu').evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => {}))));
+    const speed = await page.getByRole('menu').boundingBox();
+    expect(speed!.y).toBeGreaterThanOrEqual(0);
+    expect(speed!.y + speed!.height).toBeLessThanOrEqual(800);
   } finally { await page.close(); }
 });
 

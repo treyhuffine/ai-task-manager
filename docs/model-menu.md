@@ -6,6 +6,13 @@ Search matches model labels, exact IDs and harness names across the supported
 catalog, including models inside collapsed sections. Arrow keys and Enter select
 a result. Closing the menu clears its search and collapses the provider sections.
 
+The panel grows to use the available viewport space, up to 720px. Only the
+model list scrolls, keeping search and settings visible. When choices are
+clipped, clickable More models above/below cues show the direction to scroll.
+Effort, variant and speed open on mouse hover after a short delay on desktop.
+Click, tap and keyboard also work. Only one option menu opens at a time, and
+moving from the row into its menu does not close it. Hover never changes a value.
+
 The compact list shows the two most recently used enabled models per connected
 harness, based on choices within the last 30 days. The current selection
 stays visible even when it is older. Empty drafts, scheduled chats and AI-review
@@ -126,6 +133,8 @@ stay local to the example.
 
 ## Implementation and verification
 
+- [x] Verify hover, pointer transit, click, touch and keyboard option menus
+- [x] Verify provider visibility, scroll cues, search and short viewport layout
 - [x] Persist deliberate model choices and bootstrap from chat metadata without scanning transcripts
 - [x] Keep two recent models per provider and the current selection visible
 - [x] Verify full enabled catalogs collapse, provider expansion, search and cold starts
@@ -170,6 +179,11 @@ enabling a hidden model without changing defaults, save failures, running-state 
 speed capability sets and phone-width collision handling. They never start a
 harness or access a real home's data. Set `RI_REVIEW_CHROMIUM` to override the
 Chromium executable and `RI_MODEL_MENU_SCREENSHOTS` to save review images.
+
+Presentation regressions include hover-to-click handoff, delayed close across
+the submenu gap, focus when switching option menus, ArrowRight/ArrowLeft and
+Escape, touch without hover, four connected providers, a 266-model expander,
+short viewports and scroll cues that update after search or scrolling.
 
 Recent model regressions: `pnpm exec vitest run src/lib/db/queries.recent-models.test.ts src/lib/executor/recent-models.test.ts src/components/chat-ui/model-menu/compact-models.test.ts`.
 These cover same-chat model changes, accepted and rejected sends, schedule
