@@ -142,7 +142,7 @@ it.skipIf(!enabled)("opens the PDF in the browser's viewer, downloads it, and st
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
     expect(await dialog.locator('[data-slot="dialog-title"]').textContent()).toBe('member-offers.pdf');
-    expect(await dialog.locator('[data-slot="dialog-description"]').textContent()).toBe('/tmp/exports/member-offers.pdf');
+    expect(await dialog.locator('[data-slot="dialog-description"]').textContent()).toContain('/tmp/exports/member-offers.pdf');
     await dialog.locator('iframe[title="PDF: member-offers.pdf"]').waitFor();
     // Chrome's viewer took the frame: its extension page loaded inside it,
     // for the URL that ends in the file's name.
@@ -163,7 +163,7 @@ it.skipIf(!enabled)("opens the PDF in the browser's viewer, downloads it, and st
     expect(await dialog.getByRole('link', { name: 'Download' }).count()).toBe(0);
     await page.keyboard.press('ArrowRight');
     await dialog.getByText('3 of 4').waitFor();
-    expect(await dialog.locator('[data-slot="dialog-description"]').textContent()).toBe('Friday agenda.pdf');
+    expect(await dialog.locator('[data-slot="dialog-description"]').textContent()).toContain('/api/attachments/agenda.pdf');
     const [upload] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('link', { name: 'Download' }).click()]);
     expect(upload.suggestedFilename()).toBe('Friday agenda.pdf');
     expect(fs.readFileSync((await upload.path())!).equals(AGENDA)).toBe(true);

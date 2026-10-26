@@ -1,12 +1,12 @@
 'use client';
 
+import { useId } from 'react';
 import { ChevronLeft, ChevronRight, Copy, Download, Expand, File, FileArchive, FileAudio, FileCode2, FileText, FileVideo, ImageIcon, PanelLeft, PanelRight, Sheet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tip } from '@/components/ui/tip';
 import { HtmlView } from '@/components/chat-ui/artifacts/html-view';
 import { HOTKEYS } from '@/constants/commands';
 import { sessionFolder } from '@/lib/folders/source';
-import { artifactImageSource } from '@/lib/sessions/artifact-image';
 import type { PreviewPlace } from '@/lib/client/preview-place';
 import { cn } from '@/lib/utils';
 import { previewCopySource, previewDownload, type ArtifactPreview } from './artifact-previews';
@@ -15,7 +15,8 @@ import { PdfView } from './pdf-view';
 import { TextFileView } from './text-file-view';
 import { copyText } from '@/lib/clipboard';
 import { FilePreviewView } from './file-preview-view';
-import { filePreviewKind, filePreviewUrl } from '@/lib/files/preview-types';
+import { filePreviewKind } from '@/lib/files/preview-types';
+import { FileSourceTip } from './file-source-tip';
 import { useSessionCookieReady } from '@/hooks/use-session-cookie-ready';
 import { syncSessionCookie } from '@/lib/api/client';
 
@@ -23,12 +24,6 @@ import { syncSessionCookie } from '@/lib/api/client';
 
 export function previewName(preview: ArtifactPreview): string {
   return preview.kind === 'html' || preview.kind === 'text' ? preview.path.split('/').at(-1) || preview.path : preview.name;
-}
-
-/** Where the file is: the image's source, the PDF's path or upload, or the document's path. */
-export function previewSource(preview: ArtifactPreview): string {
-  if (preview.kind === 'file') return preview.source.kind === 'session' ? preview.source.path : filePreviewUrl(preview.source);
-  return preview.kind === 'image' ? artifactImageSource(preview.src) : preview.kind === 'pdf' ? preview.source : preview.path;
 }
 
 export function PreviewIcon({ preview, size = 13, className }: { preview: ArtifactPreview; size?: number; className?: string }) {
@@ -68,19 +63,25 @@ export function PreviewDownload({ preview, compact = false }: { preview: Artifac
   return <Tip label="Download"><Button asChild variant="ghost" size="icon-sm" className="shrink-0">{link}</Button></Tip>;
 }
 
-/** The same copy action in the lightbox and beside-chat header. Embedded images have no path. */
-export function PreviewCopyPath({ preview, compact = false }: { preview: ArtifactPreview; compact?: boolean }) {
+/** The destination and its explicit copy action stay together in both preview headers. */
+export function PreviewSource({ preview }: { preview: ArtifactPreview }) {
+  const descriptionId = useId();
   const source = previewCopySource(preview);
-  if (!source) return null;
-  const button = <Button type="button" variant="ghost" size={compact ? 'icon-sm' : 'sm'} aria-label={source.label} className="shrink-0"
-    onClick={() => {
-      let value = source.value;
-      if (source.label === 'Copy link') {
-        try { value = new URL(value, window.location.href).href; } catch { /* An invalid source is still useful to copy as written. */ }
-      }
-      void copyText(value, source.label === 'Copy path' ? 'Path copied' : 'Link copied');
-    }}><Copy />{!compact && source.label}</Button>;
-  return compact ? <Tip label={source.label}>{button}</Tip> : button;
+  if (!source) return <span className="text-xs text-muted-foreground">Embedded image</span>;
+  return <FileSourceTip source={source.value} onlyWhenTextHidden>
+    <button type="button" aria-label={source.label} aria-describedby={descriptionId}
+      className="flex w-full min-w-0 items-center gap-3 rounded-md border border-border bg-muted/30 px-2.5 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={() => {
+        let value = source.value;
+        if (source.label === 'Copy link') {
+          try { value = new URL(value, window.location.href).href; } catch { /* An invalid source is still useful to copy as written. */ }
+        }
+        void copyText(value, source.label === 'Copy path' ? 'Path copied' : 'Link copied');
+      }}>
+      <span id={descriptionId} className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">{source.value}</span>
+      <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-foreground"><Copy size={12} aria-hidden />{source.label}</span>
+    </button>
+  </FileSourceTip>;
 }
 
 /** Previous and Next through the other files in the same chat, with where this one is. */

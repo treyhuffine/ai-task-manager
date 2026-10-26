@@ -11,7 +11,7 @@ export function HtmlPreviewLink({ sessionId, path, children }: { sessionId: stri
   const name = path.split('/').at(-1) || path;
   const preview = useMemo<ArtifactPreview>(() => ({ kind: 'html', sessionId, path }), [sessionId, path]);
   return (
-    <ArtifactCard preview={preview} name={name} aria-label={`Open HTML: ${name}`} aria-description={typeof children === 'string' ? children : undefined} icon={<FileCode2 size={13} className="shrink-0 text-muted-foreground" />}>
+    <ArtifactCard preview={preview} name={name} details={<span className="block max-h-60 overflow-y-auto wrap-anywhere font-mono text-[11px]">{path}</span>} aria-label={`Open HTML: ${name}`} aria-description={typeof children === 'string' ? children : undefined} icon={<FileCode2 size={13} className="shrink-0 text-muted-foreground" />}>
       <HtmlView source={sessionFolder(sessionId)} path={path} thumbnail />
     </ArtifactCard>
   );

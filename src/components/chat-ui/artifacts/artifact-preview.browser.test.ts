@@ -178,7 +178,7 @@ it.skipIf(!enabled)('shows the original source and server error on hover and in 
     await card.click();
     const dialog = page.getByRole('dialog');
     await dialog.waitFor();
-    expect(await dialog.locator('[data-slot="dialog-description"]').textContent()).toBe(source);
+    expect(await dialog.locator('[data-slot="dialog-description"]').textContent()).toContain(source);
     await dialog.getByText('HTTP 404: The screenshot file was not found.', { exact: true }).waitFor();
     if (process.env.RI_ARTIFACT_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, 'image-lightbox.png') });
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
@@ -222,7 +222,12 @@ it.skipIf(!enabled)('keeps working thumbnails, keyboard details and full-size lo
     await image.waitFor();
     await page.waitForFunction(() => [...document.querySelectorAll<HTMLImageElement>('[role="dialog"] img')].some(img => img.naturalWidth > 0));
     expect(requests.some(url => url.endsWith('/api/attachments/good.svg'))).toBe(true);
-    expect(await dialog.locator('[data-slot="dialog-description"]').textContent()).toBe('/api/attachments/good.svg');
+    expect(await dialog.locator('[data-slot="dialog-description"]').textContent()).toContain('/api/attachments/good.svg');
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { (window as unknown as { copied: string }).copied = value; } } }));
+    const copy = dialog.getByRole('button', { name: 'Copy link', exact: true });
+    expect(await copy.innerText()).toContain('Copy link');
+    await copy.click();
+    expect(await page.evaluate(() => (window as unknown as { copied: string }).copied)).toBe(`${address}/api/attachments/good.svg`);
   } finally { await page.close(); }
 }, 30_000);
 
@@ -250,7 +255,7 @@ it.skipIf(!enabled)('keeps image and lightbox header hover clear while thumbnail
     await page.waitForTimeout(700);
     expect(await page.getByRole('tooltip').count()).toBe(0);
     const sourceText = dialog.locator('[data-slot="dialog-description"]');
-    expect(await sourceText.textContent()).toBe('/api/attachments/good.svg');
+    expect(await sourceText.textContent()).toContain('/api/attachments/good.svg');
     await sourceText.hover();
     await page.waitForTimeout(700);
     expect(await page.getByRole('tooltip').count()).toBe(0);

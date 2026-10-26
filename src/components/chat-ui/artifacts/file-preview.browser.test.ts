@@ -22,6 +22,8 @@ let dir: string;
 const reads: string[] = [];
 const deliveries: { name: string; cookie: string }[] = [];
 const names = ['demo.webm', 'memo.wav', 'data.xlsx', 'data.csv', 'review.docx', 'review.pptx', 'files.zip', 'output.bin', 'broken.mov', 'review.md'];
+const outputPath = `/fixture/${'a-long-folder-name/'.repeat(60)}output.bin`;
+const prose = 'Verified browser/gallery and desktop/mobile checks.\n\n`browser/gallery` and `desktop/mobile` stay text too.\n\n[Website](https://example.com/review)';
 
 beforeAll(async () => {
   if (!enabled) return;
@@ -43,8 +45,9 @@ beforeAll(async () => {
       import{PREVIEW_HOST_ATTRIBUTE}from'./src/components/chat-ui/artifacts/artifact-preview-store';import{BesideFileView}from'./src/components/chat-ui/artifacts/artifact-beside';
       import{AgentResponse}from'./src/components/chat-ui/messages/agent-response';
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+      function DetectionExamples(){return <>{['streaming','static'].map(mode=><section key={mode} aria-label={mode+' path detection'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(prose)}}/></section>)}</>}
       function Chat(){const [shown,setShown]=useState(false);const file=useBesidePreview('fixture');useBesideRegion('fixture',{available:true,side:'right',showing:shown&&!!file,show:()=>setShown(true)});
-      return <main className="flex h-screen"><section role="log" aria-label="Chat" {...{[PREVIEW_HOST_ATTRIBUTE]:'fixture'}} className="w-1/2 space-y-3 p-6"><AgentResponse sessionId="fixture" text={${JSON.stringify(names.map(name => `[${name}](/fixture/${name})`).join('\n\n'))}}/></section><aside className="w-1/2 border-l">{file&&<BesideFileView host="fixture"/>}</aside></main>}
+      return <main className="flex h-screen"><section role="log" aria-label="Chat" {...{[PREVIEW_HOST_ATTRIBUTE]:'fixture'}} className="min-w-0 w-1/2 space-y-3 p-6"><AgentResponse sessionId="fixture" text={${JSON.stringify(names.map(name => `[${name}](${name === 'output.bin' ? outputPath : `/fixture/${name}`})`).join('\n\n'))}}/><DetectionExamples/></section><aside className="min-w-0 w-1/2 border-l">{file&&<BesideFileView host="fixture"/>}</aside></main>}
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><TipProvider><ArtifactPreviewProvider><Chat/></ArtifactPreviewProvider></TipProvider></QueryClientProvider>);
     ` }, bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', define: { 'process.env': '{"NODE_ENV":"production"}' },
     plugins: [{ name: 'fixture-trpc', setup(builder) {
@@ -109,6 +112,20 @@ afterAll(async () => { await browser?.close(); if (server) await new Promise<voi
 async function page() { const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 1200, height: 900 } }); const page = await context.newPage(); page.setDefaultTimeout(15_000); await page.goto(address); return page; }
 async function open(page: Page, name: string) { await page.getByRole('button', { name: `Open file: ${name}`, exact: true }).click(); const view = page.getByRole('region', { name: `${name}, beside the chat`, exact: true }); await view.waitFor(); return view; }
 
+it.skipIf(!enabled)('keeps slash-separated prose as text in streaming and static replies', async () => {
+  const p = await page();
+  try {
+    for (const mode of ['streaming', 'static']) {
+      const example = p.getByRole('region', { name: `${mode} path detection`, exact: true });
+      await example.getByText('Verified browser/gallery and desktop/mobile checks.', { exact: true }).waitFor();
+      expect(await example.getByRole('button').count()).toBe(0);
+      expect(await example.getByRole('link').count()).toBe(1);
+      expect(await example.getByRole('link', { name: 'Website', exact: true }).getAttribute('href')).toBe('https://example.com/review');
+      expect(await example.getByRole('link', { name: 'Website', exact: true }).getAttribute('target')).toBe('_blank');
+    }
+  } finally { await p.context().close(); }
+}, 30_000);
+
 it.skipIf(!enabled)('opens a shared Markdown path in a chat without an agent folder', async () => {
   const p = await page();
   try {
@@ -163,14 +180,41 @@ it.skipIf(!enabled)('copies and downloads unsupported original bytes in both pre
   const p = await page();
   try {
     await p.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (value: string) => { (window as unknown as { copied: string }).copied = value; } }, configurable: true }));
+    await p.getByRole('button', { name: 'Open file: output.bin', exact: true }).hover();
+    await p.getByRole('tooltip').waitFor();
+    expect(await p.getByRole('tooltip').innerText()).toContain(outputPath);
     const view = await open(p, 'output.bin');
     await view.getByText('No preview is available for this file type. Download it to open it.', { exact: true }).waitFor();
-    await view.getByRole('button', { name: 'Copy path', exact: true }).click(); expect(await p.evaluate(() => (window as unknown as { copied: string }).copied)).toBe('/fixture/output.bin');
+    await view.getByRole('heading', { name: 'output.bin', exact: true }).waitFor();
+    const besideCopy = view.getByRole('button', { name: 'Copy path', exact: true });
+    expect(await besideCopy.innerText()).toContain('Copy path');
+    expect(await besideCopy.innerText()).toContain(outputPath);
+    await besideCopy.hover(); await p.getByRole('tooltip').waitFor();
+    expect(await p.getByRole('tooltip').innerText()).toContain(outputPath);
+    expect((await p.locator('[data-slot="tooltip-content"]').boundingBox())!.height).toBeLessThan(280);
+    expect(await p.locator('[data-slot="tooltip-content"] > span').first().evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    await besideCopy.click(); expect(await p.evaluate(() => (window as unknown as { copied: string }).copied)).toBe(outputPath);
     await view.getByRole('button', { name: 'Show large', exact: true }).click();
-    const dialog = p.getByRole('dialog'); await dialog.getByRole('button', { name: 'Copy path', exact: true }).click();
-    expect(await p.evaluate(() => (window as unknown as { copied: string }).copied)).toBe('/fixture/output.bin');
+    const dialog = p.getByRole('dialog');
+    const largeCopy = dialog.getByRole('button', { name: 'Copy path', exact: true });
+    expect(await largeCopy.innerText()).toContain('Copy path');
+    await largeCopy.focus(); await p.keyboard.press('Tab'); await p.keyboard.press('Shift+Tab');
+    expect(await largeCopy.evaluate(element => element === document.activeElement)).toBe(true);
+    await p.getByRole('tooltip').waitFor();
+    expect(await p.getByRole('tooltip').innerText()).toContain(outputPath);
+    await largeCopy.press('Enter');
+    expect(await p.evaluate(() => (window as unknown as { copied: string }).copied)).toBe(outputPath);
     const [download] = await Promise.all([p.waitForEvent('download'), dialog.getByRole('link', { name: 'Download output.bin', exact: true }).click()]);
     expect(download.suggestedFilename()).toBe('output.bin'); expect(await fs.readFile((await download.path())!)).toEqual(Buffer.from([0, 1, 2, 3]));
+    await p.setViewportSize({ width: 390, height: 844 });
+    expect(await largeCopy.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    if (process.env.RI_ARTIFACT_SCREENSHOTS) await p.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, 'file-path-large-phone.png') });
+    await dialog.getByRole('button', { name: 'Show beside the chat', exact: true }).click();
+    await view.getByRole('heading', { name: 'output.bin', exact: true }).waitFor();
+    expect(await besideCopy.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    if (process.env.RI_ARTIFACT_SCREENSHOTS) await p.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, 'file-path-beside-phone.png') });
+    await p.setViewportSize({ width: 1200, height: 900 });
+    if (process.env.RI_ARTIFACT_SCREENSHOTS) await p.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, 'file-path-beside-desktop.png') });
   } finally { await p.context().close(); }
 }, 30_000);
 

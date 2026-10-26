@@ -6,7 +6,7 @@ import { Tip } from '@/components/ui/tip';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { cn } from '@/lib/utils';
 import { useArtifactPreviewStore, useBesidePreview } from './artifact-preview-provider';
-import { PlaceSwitch, PreviewBody, PreviewCopyPath, PreviewDownload, PreviewIcon, PreviewSteps, previewName, previewSource } from './artifact-preview-parts';
+import { PlaceSwitch, PreviewBody, PreviewSource, PreviewDownload, PreviewIcon, PreviewSteps, previewName } from './artifact-preview-parts';
 
 /**
  * A file beside a chat (docs/chat-sessions.md, "Files beside the chat"). The
@@ -130,12 +130,16 @@ export function BesideFileView({ host }: { host: string }) {
       }}
       className="flex h-full min-h-0 min-w-0 flex-col bg-background outline-none"
     >
-      <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border py-1 pl-3 pr-2">
-        <p className="min-w-0 basis-full truncate font-mono text-[11px] text-muted-foreground select-text">{previewSource(preview)}</p>
-        <PreviewCopyPath preview={preview} compact />
-        <PreviewDownload preview={preview} compact />
-        <PreviewSteps index={index} count={sequence.length} onStep={step} />
-        <PlaceSwitch place="beside" side={side} onMove={() => store.toLarge(host)} />
+      <div className="min-w-0 shrink-0 space-y-2 border-b border-border p-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Tip label={previewName(preview)} onlyWhenTextHidden>
+            <h2 className="min-w-24 flex-1 truncate text-sm font-medium">{previewName(preview)}</h2>
+          </Tip>
+          <PreviewDownload preview={preview} compact />
+          <PreviewSteps index={index} count={sequence.length} onStep={step} />
+          <PlaceSwitch place="beside" side={side} onMove={() => store.toLarge(host)} />
+        </div>
+        <PreviewSource preview={preview} />
       </div>
       <div className="min-h-0 flex-1"><PreviewBody preview={preview} /></div>
     </section>

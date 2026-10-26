@@ -16,7 +16,7 @@ export function PdfPreviewCard({ src, name, source, description }: { src: string
   const onErrorChange = useCallback((message: string | undefined) => setFailure(message ? { src, message } : null), [src]);
   const error = failure?.src === src ? failure.message : undefined;
   const details = (
-    <span className="block space-y-1">
+    <span className="block max-h-60 space-y-1 overflow-y-auto">
       <span className="block font-medium">{name}</span>
       {source !== name && <span className="block font-mono text-[11px] wrap-anywhere">{source}</span>}
       {error && <span className="block">{error}</span>}

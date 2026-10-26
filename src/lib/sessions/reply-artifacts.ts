@@ -7,7 +7,9 @@ const PREFIX = '#ri-file=';
 export function isLocalArtifactTarget(target: string): boolean {
   if (!target || /[\0\r\n]/.test(target) || /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/api\/|#)/i.test(target) && !/^file:\/\//i.test(target)) return false;
   if (/^(?:www\.|(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?\/)/i.test(target)) return false;
-  return isLocalTextTarget(target) || isLocalFileTarget(target, '[a-z0-9][a-z0-9._+-]*') || /^(?:file:\/\/|~\/|\/|\.{1,2}\/|[\w.-]+\/)/i.test(target);
+  // A slash alone is common prose, such as browser/gallery or desktop/mobile.
+  // Extensionless paths need an explicit prefix or a recognized text filename.
+  return isLocalTextTarget(target) || isLocalFileTarget(target, '[a-z0-9][a-z0-9._+-]*') || /^(?:file:\/\/|~\/|\/|\.{1,2}\/)/i.test(target);
 }
 
 export function filePreviewTarget(href?: string): string | null {

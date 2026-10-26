@@ -314,13 +314,23 @@ beside the chat or in the large view. Markdown starts rendered and has a Source
 toggle. Other text formats show their source. Links, standalone paths in backticks,
 and explicit paths in prose are recognized. Code blocks stay code, web URLs keep
 opening in a browser tab. Other local files open the file previews below.
+Automatic file detection requires an explicit prefix (`/`, `./`, `../`, `~/`
+or `file://`), a filename extension, or a recognized filename such as `README`.
+Slash-separated prose such as `browser/gallery` and `desktop/mobile` stays text,
+including inside backticks. An ambiguous destination explicitly written as a
+Markdown link keeps the copy/open dialog.
 Relative links and images in a rendered document resolve against its directory.
 Source locations such as `app.tsx:12` open their file, and Markdown fragments
 identify the document. Stored replies and copied messages retain the original paths.
 
 Files load only when opened, through the existing tRPC file read and its 1 MiB
 preview cap. Missing, oversized and binary files show a readable explanation.
-Both preview headers offer Copy path and Download. Text downloads stream the
+Both preview headers show the filename above a clickable path row with a visible
+Copy path label. Clicking anywhere on that row copies the original path. A
+truncated path shows its full destination on hover or keyboard focus, in a
+tooltip that scrolls for very long paths. File links in replies also expose
+their destination before opening, including when a short label fits on screen.
+Download stays in the header. Text downloads stream the
 original bytes through an authenticated download route, so a local file can be
 saved even when it exceeds the display cap. Files on another device retain that
 device's transfer limit. Uploads and web images offer Copy link instead of a

@@ -2,9 +2,9 @@
 
 import { useMemo, type ReactNode } from 'react';
 import { File, FileArchive, FileAudio, FileVideo, Sheet } from 'lucide-react';
-import { Tip } from '@/components/ui/tip';
 import { filePreviewKind, type FilePreviewSource } from '@/lib/files/preview-types';
 import { useArtifactPreview, useArtifactPreviewCard, type ArtifactPreview } from './artifact-preview-provider';
+import { FileSourceTip } from './file-source-tip';
 
 export function FilePreviewLink({ source, name, children }: { source: FilePreviewSource; name: string; children?: ReactNode }) {
   const sourceKind = source.kind;
@@ -18,8 +18,9 @@ export function FilePreviewLink({ source, name, children }: { source: FilePrevie
   const open = useArtifactPreview();
   const kind = filePreviewKind(name);
   const Icon = kind === 'video' ? FileVideo : kind === 'audio' ? FileAudio : kind === 'table' ? Sheet : kind === 'archive' ? FileArchive : File;
-  return <Tip label={source.kind === 'session' ? source.path : name} onlyWhenTextHidden>
+  const destination = source.kind === 'session' ? source.path : name;
+  return <FileSourceTip source={destination} onlyWhenTextHidden={(children || name) === destination}>
     <button ref={ref} type="button" data-artifact-card="" aria-label={`Open file: ${name}`} onClick={event => { event.stopPropagation(); open(preview, event.currentTarget); }}
       className="inline-flex max-w-full items-baseline gap-1 text-left font-medium text-primary underline underline-offset-2"><Icon size={12} aria-hidden className="shrink-0 self-center" /><span className="wrap-anywhere">{children || name}</span></button>
-  </Tip>;
+  </FileSourceTip>;
 }
