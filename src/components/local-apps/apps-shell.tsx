@@ -7,7 +7,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { viewFromSearchParams } from '@/lib/client/active-view';
 import { AppBuilder } from './app-builder';
 import { useLocalApps } from './app-hooks';
-import { AppLibrary } from './app-library';
+import { AppsLayoutReview } from './layout-review';
 import { AppPage } from './app-page';
 import { ConnectedAppPage } from '@/components/mcp-apps/page';
 
@@ -34,7 +34,7 @@ export function AppsShell({ route }: { route: string }) {
   // One page per connection, so a deep link to a screen that is open reaches its live view instead of a new one.
   if (parts[0] === '~connected' && parts[1]) return <ConnectedAppPage key={parts[1]} serverId={parts[1]} navigate={navigate} resultId={appQuery.result} screenId={appQuery.screen} launch={appQuery.open} deepLink={appQuery.path}/>;
   // The library includes connections and skills even when local execution is off.
-  if (parts.length === 0 || parts[0] === 'new') return <AppLibrary data={data} localEnabled={enabled}
+  if (parts.length === 0 || parts[0] === 'new') return <AppsLayoutReview data={data} localEnabled={enabled}
     localLoading={checking || (enabled && !data && !error)} localError={error} query={appQuery} navigate={navigate} />;
 
   const frame = (children: React.ReactNode) => (

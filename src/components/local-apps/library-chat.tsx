@@ -12,16 +12,16 @@ import { offerSourceToChat } from '@/lib/client/source-handoff';
 import { SOURCE_STATUS_LABELS } from '@/lib/chat-sources/types';
 import type { LibraryItem } from './library-model';
 
-export function LibraryChat({ item, onClose }: { item: LibraryItem | null; onClose: () => void }) {
+export function LibraryChat({ item, onClose, onOpenChat }: { item: LibraryItem | null; onClose: () => void; onOpenChat?: () => void }) {
   return <Dialog open={!!item} onOpenChange={open => { if (!open) onClose(); }}>
     <DialogContent className="max-h-[85vh] overflow-y-auto">
       <DialogHeader><DialogTitle>Use {item?.name} in chat</DialogTitle><DialogDescription>Choose what to reference. Your message stays a draft until you send it.</DialogDescription></DialogHeader>
-      {item && <SourceChoices key={item.key} item={item} onClose={onClose} />}
+      {item && <SourceChoices key={item.key} item={item} onClose={onClose} onOpenChat={onOpenChat} />}
     </DialogContent>
   </Dialog>;
 }
 
-function SourceChoices({ item, onClose }: { item: LibraryItem; onClose: () => void }) {
+function SourceChoices({ item, onClose, onOpenChat }: { item: LibraryItem; onClose: () => void; onOpenChat?: () => void }) {
   const dashboard = useDashboard();
   const queryClient = useQueryClient();
   const [failure, setFailure] = useState<string | null>(null);
@@ -48,7 +48,9 @@ function SourceChoices({ item, onClose }: { item: LibraryItem; onClose: () => vo
     if (!sources.data) return;
     try {
       if (sourceRef) offerSourceToChat(sources.data.chatId, sourceRef);
-      onClose(); dashboard.goHome(); dashboard.showPanelTab('chat'); dashboard.setMobileTab('chat');
+      onClose();
+      if (onOpenChat) { onOpenChat(); return; }
+      dashboard.goHome(); dashboard.showPanelTab('chat'); dashboard.setMobileTab('chat');
       if (dashboard.isFocusMode) dashboard.exitFocusMode();
     } catch (error) { setFailure(error instanceof Error ? error.message : 'Could not prepare the reference.'); }
   };

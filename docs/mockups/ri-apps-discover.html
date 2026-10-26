@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Ri · Discover</title>
+<style>
+:root { color-scheme:light dark; }
+* { box-sizing:border-box; }
+html,body { margin:0; padding:0; }
+body { background:light-dark(#fff,#09090b); }
+button,input,textarea,select { font:inherit; }
+button { cursor:pointer; }
+button:disabled { cursor:default; opacity:.45; }
+button:focus-visible,a:focus-visible { outline:2px solid light-dark(#71717a,#d4d4d8); outline-offset:3px; }
+[hidden] { display:none!important; }
+#ri {
+  --bg:light-dark(#fff,#09090b); --fg:light-dark(#18181b,#fafafa);
+  --soft:light-dark(#f4f4f5,#18181b); --card:light-dark(#fff,#111113);
+  --muted:light-dark(#71717a,#a1a1aa); --line:light-dark(#e4e4e7,#27272a);
+  --strong:light-dark(#27272a,#e4e4e7); --on:light-dark(#fafafa,#18181b);
+  --green:light-dark(#15803d,#4ade80); --amber:light-dark(#a16207,#eab308);
+  --blue:light-dark(#2563eb,#60a5fa); --red:light-dark(#b91c1c,#f87171);
+  font:13px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  height:100dvh; min-height:560px; display:flex; flex-direction:column;
+  background:var(--bg); color:var(--fg); isolation:isolate;
+}
+#ri :is(h1,h2,h3,p) { margin:0; }
+#ri h1 { font-size:13px; font-weight:600; }
+#ri h2 { font-size:19px; line-height:1.35; letter-spacing:-.4px; font-weight:600; }
+#ri h3 { font-size:13px; line-height:1.5; font-weight:600; }
+#ri button { border:0; background:none; color:inherit; padding:0; text-align:left; }
+#ri svg { width:15px; height:15px; stroke-width:1.6; flex-shrink:0; vertical-align:middle; }
+#ri input,#ri textarea,#ri select { color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:9px 10px; width:100%; min-width:0; }
+#ri textarea { resize:vertical; }
+#ri input::placeholder,#ri textarea::placeholder { color:var(--muted); opacity:1; }
+#ri .muted { color:var(--muted); }
+#ri .small { font-size:11px; color:var(--muted); }
+#ri .kicker { font-size:10px; letter-spacing:.09em; font-weight:600; color:var(--muted); text-transform:uppercase; }
+#ri .grow { flex:1; min-width:0; }
+#ri .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+#ri .stack { display:flex; flex-direction:column; gap:12px; }
+#ri .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:29px; padding:5px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg); font-size:11px; font-weight:500; white-space:nowrap; }
+#ri .btn:hover { background:var(--soft); }
+#ri .primary { color:var(--on); background:var(--strong); border-color:var(--strong); font-weight:600; }
+#ri .primary:hover { color:var(--on); background:var(--strong); opacity:.9; }
+#ri .quiet { color:var(--muted); background:transparent; border-color:transparent; }
+#ri .danger { color:var(--red); }
+#ri .icon-button { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; color:var(--muted); flex-shrink:0; }
+#ri .icon-button:hover { color:var(--fg); background:var(--soft); }
+#ri .mark { width:34px; height:34px; border-radius:9px; background:var(--soft); display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+#ri .mark svg { width:18px; height:18px; }
+#ri .mark.sm { width:24px; height:24px; border-radius:6px; }
+#ri .mark.sm svg { width:13px; height:13px; }
+#ri .mark[data-tone="green"] { color:light-dark(#277553,#80c6a2); background:light-dark(#eef7f0,#18281f); }
+#ri .mark[data-tone="blue"] { color:light-dark(#366db9,#92b8e4); background:light-dark(#eef4fc,#192332); }
+#ri .mark[data-tone="red"] { color:light-dark(#bd5951,#db918b); background:light-dark(#fff0ee,#2b1c1d); }
+#ri .mark[data-tone="purple"] { color:light-dark(#73559d,#c5a5eb); background:light-dark(#f5f0fa,#251e30); }
+#ri .mark[data-tone="gold"] { color:light-dark(#a77732,#d0b17d); background:light-dark(#faf5eb,#2a241b); }
+#ri .brand { width:22px; height:22px; border-radius:50%; background:var(--strong); color:var(--on); display:inline-grid; place-items:center; font-weight:700; font-size:12px; letter-spacing:-1px; flex-shrink:0; }
+#ri .hud { height:40px; flex-shrink:0; display:flex; align-items:center; gap:15px; padding:0 16px; border-bottom:1px solid var(--line); }
+#ri .statuses { display:flex; align-items:center; gap:11px; font-size:10px; color:var(--muted); }
+#ri .statuses span { display:inline-flex; align-items:center; gap:4px; }
+#ri .statuses svg { width:11px; height:11px; }
+#ri .statuses span:nth-child(-n+2) { color:var(--amber); }
+#ri .statuses span:nth-child(3) { color:var(--green); }
+#ri .hud .btn { min-height:25px; padding:3px 9px; font-size:10px; border-radius:15px; }
+#ri .event { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--muted); }
+#ri .shell { display:grid; grid-template-columns:256px minmax(0,1fr); flex:1; min-height:0; }
+#ri .rail { display:flex; flex-direction:column; border-right:1px solid var(--line); padding:8px; min-height:0; }
+#ri .rail-home { display:flex; align-items:center; gap:8px; padding:3px 5px 12px; }
+#ri .rail-home .name { font-size:13px; font-weight:600; }
+#ri .nav-item { display:flex; align-items:center; gap:9px; min-height:32px; padding:7px 8px; border-radius:7px; color:var(--muted); font-size:12px; width:100%; }
+#ri .nav-item:hover,#ri .nav-item[aria-current="page"] { color:var(--fg); background:var(--soft); }
+#ri .nav-item .chevron { margin-left:auto; }
+#ri .rule { height:1px; background:var(--line); margin:10px 5px; }
+#ri .rail-list { overflow:auto; min-height:0; }
+#ri .rail-group { display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--line); padding:12px 5px 8px; margin-bottom:5px; }
+#ri .rail-group span { font-size:9px; letter-spacing:.1em; font-weight:600; }
+#ri .agent-row { display:flex; align-items:center; gap:7px; padding:9px 5px 5px; font-weight:500; font-size:12px; }
+#ri .avatar { width:20px; height:20px; border-radius:4px; background:var(--soft); display:inline-grid; place-items:center; font-weight:600; font-size:9px; flex-shrink:0; }
+#ri .chat-link { display:flex; align-items:center; gap:7px; padding:7px 6px 7px 33px; width:100%; color:var(--muted); font-size:11px; border-radius:5px; }
+#ri .chat-link:hover { background:var(--soft); }
+#ri .dot { width:5px; height:5px; border-radius:50%; background:var(--green); flex-shrink:0; }
+#ri .rail-bottom { margin-top:auto; padding-top:16px; }
+#ri .accounts { border:1px solid var(--line); margin-top:5px; border-radius:6px; }
+#ri .prototype-footer { display:flex; align-items:center; gap:8px; padding:12px 8px 4px; font-size:10px; color:var(--muted); }
+#ri .prototype-footer button { text-decoration:underline; text-underline-offset:3px; font-size:10px; }
+#ri .main { display:flex; flex-direction:column; min-width:0; min-height:0; }
+#ri .page-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 16px; border-bottom:1px solid var(--line); min-height:54px; flex-shrink:0; }
+#ri .page-head p { margin-top:1px; color:var(--muted); font-size:10.5px; }
+#ri .notice { display:flex; align-items:center; gap:8px; padding:8px 16px; background:var(--soft); border-bottom:1px solid var(--line); font-size:11px; flex-shrink:0; }
+#ri .notice span { flex:1; }
+#ri .browser { display:grid; grid-template-columns:minmax(0,1fr); flex:1; min-height:0; min-width:0; }
+#ri .browser.with-inspector { grid-template-columns:minmax(0,1fr) 390px; }
+#ri .catalog-scroll { overflow-y:auto; padding:24px 28px 32px; min-width:0; scroll-behavior:auto; }
+#ri .catalog-inner { max-width:1120px; margin:0 auto; }
+#ri .section-title { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+#ri .section-title h2 { font-size:13px; letter-spacing:0; }
+#ri .count { font-size:11px; color:var(--muted); font-weight:400; margin-left:6px; }
+#ri .shortcuts { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+#ri .shortcut { display:flex; align-items:center; gap:8px; border-radius:7px; background:var(--soft); padding:9px 12px; font-size:11px; font-weight:500; min-width:130px; flex:1; max-width:210px; }
+#ri .shortcut:hover { box-shadow:inset 0 0 0 1px var(--line); }
+#ri .discover-heading { display:flex; align-items:center; gap:10px; margin:30px 0 16px; }
+#ri .discover-heading p { font-size:12px; color:var(--muted); margin-top:4px; }
+#ri .search { display:flex; align-items:center; gap:9px; padding:0 11px; min-height:39px; border:1px solid var(--line); border-radius:8px; background:var(--soft); }
+#ri .search svg { color:var(--muted); }
+#ri .search input { border:0; border-radius:4px; background:transparent; padding:9px 0; font-size:12px; }
+#ri .filters { display:flex; gap:4px; flex-wrap:wrap; margin:12px 0 20px; }
+#ri .filter { font-size:11px; color:var(--muted); border:1px solid transparent; border-radius:20px; padding:4px 11px; }
+#ri .filter[aria-pressed="true"],#ri .filter:hover { background:var(--soft); color:var(--fg); border-color:var(--line); }
+#ri .collections { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:25px; }
+#ri .collection { display:flex; align-items:flex-start; gap:10px; padding:15px 13px; background:var(--soft); border:1px solid var(--line); border-radius:9px; }
+#ri .collection:hover { border-color:var(--muted); }
+#ri .collection > svg { margin-top:3px; }
+#ri .collection b { display:block; font-size:12px; font-weight:500; }
+#ri .collection small { display:block; color:var(--muted); font-size:10.5px; margin-top:4px; line-height:1.6; }
+#ri .tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(225px,100%),1fr)); gap:12px; }
+#ri .tile { background:var(--card); border:1px solid var(--line); border-radius:11px; padding:16px; display:flex; flex-direction:column; min-width:0; gap:15px; }
+#ri .tile.is-selected { border-color:var(--muted); background:var(--soft); }
+#ri .tile:hover { border-color:var(--muted); }
+#ri .tile-top { display:flex; align-items:flex-start; gap:11px; min-width:0; width:100%; }
+#ri .tile-copy { flex:1; min-width:0; }
+#ri .tile-name { display:block; font-size:13px; font-weight:600; }
+#ri .tile-description { display:block; font-size:11px; line-height:1.7; color:var(--muted); margin-top:4px; }
+#ri .tile-bottom { display:flex; gap:6px; align-items:center; margin-top:auto; flex-wrap:wrap; }
+#ri .tile-status { display:flex; align-items:center; gap:4px; color:var(--muted); font-size:10px; flex:1; }
+#ri .tile-status svg { width:11px; height:11px; }
+#ri .empty { padding:30px 0; font-size:12px; color:var(--muted); }
+#ri .bundle-intro { margin:18px 0; padding:16px; background:var(--soft); border-radius:9px; }
+#ri .bundle-intro p { font-size:12px; color:var(--muted); margin:6px 0 13px; line-height:1.7; }
+#ri .inspector { border-left:1px solid var(--line); background:var(--bg); padding:20px; min-width:0; overflow-y:auto; }
+#ri .inspector-head { display:flex; align-items:center; gap:11px; margin:2px 0 15px; }
+#ri .inspector-head .mark { width:42px; height:42px; border-radius:11px; }
+#ri .inspector-head h2 { font-size:17px; }
+#ri .inspector-description { font-size:12px; color:var(--muted); line-height:1.8; }
+#ri .inspector-actions { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin:17px 0; }
+#ri .inspector-tabs { display:flex; align-items:center; gap:22px; border-bottom:1px solid var(--line); margin-bottom:20px; }
+#ri .inspector-tabs button { padding:10px 0; font-size:11px; color:var(--muted); }
+#ri .inspector-tabs button[aria-selected="true"] { color:var(--fg); box-shadow:inset 0 -2px var(--fg); }
+#ri .preview { border:1px solid var(--line); border-radius:9px; background:var(--card); overflow:hidden; margin-top:16px; }
+#ri .preview-bar { display:flex; align-items:center; gap:7px; font-size:10px; color:var(--muted); padding:10px 12px; border-bottom:1px solid var(--line); }
+#ri .preview-bar .small { margin-left:auto; font-size:9px; }
+#ri .preview-content { padding:17px; }
+#ri .preview-content h3 { font-size:14px; }
+#ri .preview-copy { margin:14px 0!important; font-size:11px; line-height:1.8; }
+#ri .money { font-size:29px; font-weight:500; letter-spacing:-1px; line-height:1.4; margin:5px 0 14px; }
+#ri .money small { font-size:14px; color:var(--muted); letter-spacing:0; }
+#ri .bar { height:4px; background:var(--soft); border-radius:4px; margin:8px 0 13px; }
+#ri .bar span { display:block; height:100%; width:64%; border-radius:4px; background:var(--green); }
+#ri .data-row { display:flex; align-items:center; gap:9px; border-top:1px solid var(--line); padding:11px 0; font-size:11px; }
+#ri .data-row strong { margin-left:auto; font-size:11px; font-weight:500; white-space:nowrap; }
+#ri .capabilities { display:flex; flex-wrap:wrap; gap:10px 16px; font-size:10px; color:var(--muted); margin:18px 0; }
+#ri .capabilities span { display:flex; align-items:center; gap:5px; }
+#ri .capabilities svg { width:12px; height:12px; }
+#ri .setting { display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--line); padding:16px 0; }
+#ri .setting-copy { flex:1; font-size:12px; font-weight:500; }
+#ri .setting-copy small { display:block; font-size:10.5px; color:var(--muted); font-weight:400; margin-top:3px; line-height:1.7; }
+#ri .switch { position:relative; width:33px; min-width:33px; height:28px; display:flex; align-items:center; }
+#ri .switch::before { content:""; position:absolute; width:31px; height:18px; top:5px; left:0; border-radius:12px; background:var(--line); }
+#ri .switch span { position:absolute; width:14px; height:14px; border-radius:50%; background:var(--bg); top:7px; left:2px; box-shadow:0 1px 2px light-dark(#0002,#0006); }
+#ri .switch[aria-checked="true"]::before { background:var(--strong); }
+#ri .switch[aria-checked="true"] span { left:15px; background:var(--on); }
+#ri .field { display:block; font-size:11px; margin:18px 0; }
+#ri .field input,#ri .field select,#ri .field textarea { margin-top:7px; font-size:12px; }
+#ri .remove-area { border-top:1px solid var(--line); padding-top:16px; margin-top:25px; }
+#ri .confirm { padding:13px; border:1px solid var(--line); border-radius:8px; background:var(--soft); margin-top:10px; font-size:11px; line-height:1.8; }
+#ri .confirm .row { margin-top:10px; }
+#ri .surface { overflow:auto; flex:1; min-height:0; }
+#ri .app-tabs { display:flex; gap:20px; padding:0 24px; border-bottom:1px solid var(--line); }
+#ri .app-tabs button { padding:13px 0; font-size:11px; color:var(--muted); }
+#ri .app-tabs button[aria-pressed="true"] { color:var(--fg); box-shadow:inset 0 -2px var(--fg); }
+#ri .app-page { padding:30px; max-width:1100px; margin:0 auto; }
+#ri .app-columns { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(210px,.65fr); gap:40px; }
+#ri .app-page .money { font-size:42px; margin:8px 0; }
+#ri .chart { display:flex; align-items:flex-end; height:150px; gap:9px; border-bottom:1px solid var(--line); margin:30px 0 6px; padding:0 6px; }
+#ri .chart span { flex:1; background:color-mix(in srgb,var(--green) 32%,var(--bg)); border-radius:4px 4px 0 0; }
+#ri .chart-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); margin-bottom:24px; }
+#ri .app-aside { border-left:1px solid var(--line); padding-left:26px; }
+#ri .app-aside p { font-size:12px; line-height:1.8; color:var(--muted); margin:14px 0 18px; }
+#ri .chat-page { display:flex; flex-direction:column; flex:1; min-height:0; }
+#ri .transcript { overflow:auto; flex:1; padding:28px; }
+#ri .transcript-inner { display:flex; flex-direction:column; gap:24px; max-width:720px; margin:0 auto; }
+#ri .speaker { display:flex; align-items:center; gap:7px; font-size:10px; font-weight:600; margin-bottom:10px; }
+#ri .chat-body { font-size:13px; line-height:1.85; }
+#ri .user-message { align-self:flex-end; background:var(--strong); color:var(--on); padding:12px 15px; border-radius:13px 13px 2px 13px; max-width:85%; font-size:12px; }
+#ri .composer { margin:15px auto 18px; padding:11px; border:1px solid var(--line); border-radius:12px; width:calc(100% - 48px); max-width:720px; background:var(--card); }
+#ri .composer textarea { border:0; background:none; min-height:80px; padding:4px 2px; font-size:12px; }
+#ri .composer-bottom { display:flex; gap:7px; align-items:center; font-size:10px; color:var(--muted); }
+#ri .send { display:grid; place-items:center; width:27px; height:27px; border-radius:50%; background:var(--strong); color:var(--on); margin-left:auto; }
+#ri .create-page { padding:32px 28px; max-width:580px; margin:auto; width:100%; }
+#ri .create-options { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:22px 0; }
+#ri .create-options button { display:flex; flex-direction:column; align-items:center; gap:8px; border:1px solid var(--line); border-radius:8px; padding:15px 8px; font-size:11px; }
+#ri .create-options button[aria-pressed="true"] { border-color:var(--muted); background:var(--soft); }
+#ri .mobile-header,#ri .mobile-nav { display:none; }
+#ri .shell.collapsed { grid-template-columns:44px minmax(0,1fr); }
+#ri .shell.collapsed .rail { padding:8px 4px; align-items:center; }
+#ri .shell.collapsed :is(.rail .label,.rail .chevron,.rail .name,.rail .collapse,.rail-list,.prototype-footer) { display:none; }
+#ri .shell.collapsed .rail-home { padding:3px 2px 11px; }
+#ri .shell.collapsed .nav-item { justify-content:center; width:34px; padding:8px; }
+#ri .shell.collapsed .rule { width:24px; margin:8px 0; }
+#ri .shell.collapsed .accounts { border:0; }
+@media (max-width:1200px) {
+  #ri .browser.with-inspector { grid-template-columns:minmax(0,1fr) 350px; }
+  #ri .with-inspector .collections { grid-template-columns:1fr; }
+  #ri .with-inspector .collection { padding:11px 12px; }
+  #ri .with-inspector .collection small { display:none; }
+  #ri .shortcut { min-width:125px; }
+  #ri .hud .event { display:none; }
+}
+@media (max-width:1000px) {
+  #ri .shell { grid-template-columns:44px minmax(0,1fr); }
+  #ri .rail { padding:8px 4px; align-items:center; }
+  #ri :is(.rail .label,.rail .chevron,.rail .name,.rail .collapse,.rail-list,.prototype-footer) { display:none; }
+  #ri .rail-home { padding:3px 2px 11px; }
+  #ri .nav-item { justify-content:center; width:34px; padding:8px; }
+  #ri .rule { width:24px; margin:8px 0; }
+  #ri .accounts { border:0; }
+  #ri .catalog-scroll { padding:22px; }
+}
+@media (max-width:760px) {
+  #ri { height:auto; min-height:100dvh; }
+  #ri .hud,#ri .rail { display:none; }
+  #ri .shell,#ri .shell.collapsed { display:flex; flex-direction:column; flex:1; }
+  #ri .mobile-header { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--line); font-size:12px; }
+  #ri .page-head { padding:10px 14px; }
+  #ri .page-head > .grow { min-width:155px; }
+  #ri .main { flex:1; }
+  #ri .catalog-scroll { overflow:visible; padding:20px 16px; }
+  #ri .browser,#ri .browser.with-inspector { display:flex; flex-direction:column; }
+  #ri .inspector { order:-1; border-left:0; border-bottom:1px solid var(--line); padding:20px 16px; overflow:visible; }
+  #ri .collections { grid-template-columns:1fr; }
+  #ri .collection { padding:12px; }
+  #ri .collection small { margin-top:2px; }
+  #ri .shortcuts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  #ri .shortcut { min-width:0; max-width:none; font-size:11px; padding:9px; }
+  #ri .tiles { grid-template-columns:repeat(auto-fill,minmax(min(230px,100%),1fr)); }
+  #ri .discover-heading { margin-top:25px; }
+  #ri .mobile-nav { display:flex; align-items:center; justify-content:space-around; gap:4px; border-top:1px solid var(--line); padding:10px 5px; margin-top:auto; }
+  #ri .mobile-nav button { display:flex; flex-direction:column; align-items:center; gap:4px; padding:5px; font-size:10px; color:var(--muted); }
+  #ri .mobile-nav button[aria-current="page"] { color:var(--fg); }
+  #ri .app-page { padding:22px 16px; }
+  #ri .app-columns { grid-template-columns:1fr; gap:25px; }
+  #ri .app-aside { border-left:0; border-top:1px solid var(--line); padding:20px 0 0; }
+  #ri .app-tabs { padding:0 16px; gap:17px; flex-wrap:wrap; }
+  #ri .surface { overflow:visible; }
+  #ri .transcript { padding:22px 16px; min-height:300px; }
+  #ri .composer { width:calc(100% - 32px); }
+  #ri .create-page { padding:24px 16px; }
+}
+@media (pointer:coarse) {
+  #ri button { min-height:44px; }
+  #ri .icon-button { min-width:44px; }
+  #ri input,#ri textarea,#ri select { font-size:16px!important; }
+  #ri .switch::before { top:13px; }
+  #ri .switch span { top:15px; }
+}
+@media (prefers-reduced-motion:no-preference) {
+  #ri .tile,#ri .collection,#ri .btn { transition:background .12s,border-color .12s; }
+}
+</style>
+</head>
+<body>
+<div id="ri" aria-label="Ri Apps prototype"></div>
+<noscript>This interactive Ri prototype needs JavaScript enabled.</noscript>
+<!-- Icons generated from lucide-react.
+ISC License
+
+Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2026 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2026.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+- --
+
+The MIT License (MIT) (for portions derived from Feather)
+
+Copyright (c) 2013-2026 Cole Bemis
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-->
+<script id="ri-icons" type="application/json">{"circle":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-circle\" aria-hidden=\"true\">\u003ccircle cx=\"12\" cy=\"12\" r=\"10\">\u003c/circle>\u003c/svg>","wallet-cards":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-wallet-cards\" aria-hidden=\"true\">\u003crect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\">\u003c/rect>\u003cpath d=\"M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2\">\u003c/path>\u003cpath d=\"M3 11h3c.8 0 1.6.3 2.1.9l1.1.9c1.6 1.6 4.1 1.6 5.7 0l1.1-.9c.5-.5 1.3-.9 2.1-.9H21\">\u003c/path>\u003c/svg>","contact-round":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-contact-round\" aria-hidden=\"true\">\u003cpath d=\"M16 2v2\">\u003c/path>\u003cpath d=\"M17.915 22a6 6 0 0 0-12 0\">\u003c/path>\u003cpath d=\"M8 2v2\">\u003c/path>\u003ccircle cx=\"12\" cy=\"12\" r=\"4\">\u003c/circle>\u003crect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\">\u003c/rect>\u003c/svg>","mail":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-mail\" aria-hidden=\"true\">\u003cpath d=\"m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7\">\u003c/path>\u003crect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\">\u003c/rect>\u003c/svg>","calendar-check":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-calendar-check\" aria-hidden=\"true\">\u003cpath d=\"M8 2v4\">\u003c/path>\u003cpath d=\"M16 2v4\">\u003c/path>\u003crect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\">\u003c/rect>\u003cpath d=\"M3 10h18\">\u003c/path>\u003cpath d=\"m9 16 2 2 4-4\">\u003c/path>\u003c/svg>","database":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-database\" aria-hidden=\"true\">\u003cellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\">\u003c/ellipse>\u003cpath d=\"M3 5V19A9 3 0 0 0 21 19V5\">\u003c/path>\u003cpath d=\"M3 12A9 3 0 0 0 21 12\">\u003c/path>\u003c/svg>","calendar":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-calendar\" aria-hidden=\"true\">\u003cpath d=\"M8 2v4\">\u003c/path>\u003cpath d=\"M16 2v4\">\u003c/path>\u003crect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\">\u003c/rect>\u003cpath d=\"M3 10h18\">\u003c/path>\u003c/svg>","calendar-days":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-calendar-days\" aria-hidden=\"true\">\u003cpath d=\"M8 2v4\">\u003c/path>\u003cpath d=\"M16 2v4\">\u003c/path>\u003crect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\">\u003c/rect>\u003cpath d=\"M3 10h18\">\u003c/path>\u003cpath d=\"M8 14h.01\">\u003c/path>\u003cpath d=\"M12 14h.01\">\u003c/path>\u003cpath d=\"M16 14h.01\">\u003c/path>\u003cpath d=\"M8 18h.01\">\u003c/path>\u003cpath d=\"M12 18h.01\">\u003c/path>\u003cpath d=\"M16 18h.01\">\u003c/path>\u003c/svg>","slack":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-slack\" aria-hidden=\"true\">\u003crect width=\"3\" height=\"8\" x=\"13\" y=\"2\" rx=\"1.5\">\u003c/rect>\u003cpath d=\"M19 8.5V10h1.5A1.5 1.5 0 1 0 19 8.5\">\u003c/path>\u003crect width=\"3\" height=\"8\" x=\"8\" y=\"14\" rx=\"1.5\">\u003c/rect>\u003cpath d=\"M5 15.5V14H3.5A1.5 1.5 0 1 0 5 15.5\">\u003c/path>\u003crect width=\"8\" height=\"3\" x=\"14\" y=\"13\" rx=\"1.5\">\u003c/rect>\u003cpath d=\"M15.5 19H14v1.5a1.5 1.5 0 1 0 1.5-1.5\">\u003c/path>\u003crect width=\"8\" height=\"3\" x=\"2\" y=\"8\" rx=\"1.5\">\u003c/rect>\u003cpath d=\"M8.5 5H10V3.5A1.5 1.5 0 1 0 8.5 5\">\u003c/path>\u003c/svg>","hash":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-hash\" aria-hidden=\"true\">\u003cline x1=\"4\" x2=\"20\" y1=\"9\" y2=\"9\">\u003c/line>\u003cline x1=\"4\" x2=\"20\" y1=\"15\" y2=\"15\">\u003c/line>\u003cline x1=\"10\" x2=\"8\" y1=\"3\" y2=\"21\">\u003c/line>\u003cline x1=\"16\" x2=\"14\" y1=\"3\" y2=\"21\">\u003c/line>\u003c/svg>","map-pinned":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-map-pinned\" aria-hidden=\"true\">\u003cpath d=\"M18 8c0 3.613-3.869 7.429-5.393 8.795a1 1 0 0 1-1.214 0C9.87 15.429 6 11.613 6 8a6 6 0 0 1 12 0\">\u003c/path>\u003ccircle cx=\"12\" cy=\"8\" r=\"2\">\u003c/circle>\u003cpath d=\"M8.714 14h-3.71a1 1 0 0 0-.948.683l-2.004 6A1 1 0 0 0 3 22h18a1 1 0 0 0 .948-1.316l-2-6a1 1 0 0 0-.949-.684h-3.712\">\u003c/path>\u003c/svg>","panels-top-left":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-panels-top-left\" aria-hidden=\"true\">\u003crect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\">\u003c/rect>\u003cpath d=\"M3 9h18\">\u003c/path>\u003cpath d=\"M9 21V9\">\u003c/path>\u003c/svg>","file-pen-line":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-file-pen-line\" aria-hidden=\"true\">\u003cpath d=\"M14.364 13.634a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506l4.013-4.009a1 1 0 0 0-3.004-3.004z\">\u003c/path>\u003cpath d=\"M14.487 7.858A1 1 0 0 1 14 7V2\">\u003c/path>\u003cpath d=\"M20 19.645V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l2.516 2.516\">\u003c/path>\u003cpath d=\"M8 18h1\">\u003c/path>\u003c/svg>","circle-dot":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-circle-dot\" aria-hidden=\"true\">\u003ccircle cx=\"12\" cy=\"12\" r=\"10\">\u003c/circle>\u003ccircle cx=\"12\" cy=\"12\" r=\"1\">\u003c/circle>\u003c/svg>","notebook-pen":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-notebook-pen\" aria-hidden=\"true\">\u003cpath d=\"M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4\">\u003c/path>\u003cpath d=\"M2 6h4\">\u003c/path>\u003cpath d=\"M2 10h4\">\u003c/path>\u003cpath d=\"M2 14h4\">\u003c/path>\u003cpath d=\"M2 18h4\">\u003c/path>\u003cpath d=\"M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z\">\u003c/path>\u003c/svg>","briefcase-business":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-briefcase-business\" aria-hidden=\"true\">\u003cpath d=\"M12 12h.01\">\u003c/path>\u003cpath d=\"M16 6V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2\">\u003c/path>\u003cpath d=\"M22 13a18.15 18.15 0 0 1-20 0\">\u003c/path>\u003crect width=\"20\" height=\"14\" x=\"2\" y=\"6\" rx=\"2\">\u003c/rect>\u003c/svg>","house":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-house\" aria-hidden=\"true\">\u003cpath d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\">\u003c/path>\u003cpath d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\">\u003c/path>\u003c/svg>","pencil-ruler":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-pencil-ruler\" aria-hidden=\"true\">\u003cpath d=\"M13 7 8.7 2.7a2.41 2.41 0 0 0-3.4 0L2.7 5.3a2.41 2.41 0 0 0 0 3.4L7 13\">\u003c/path>\u003cpath d=\"m8 6 2-2\">\u003c/path>\u003cpath d=\"m18 16 2-2\">\u003c/path>\u003cpath d=\"m17 11 4.3 4.3c.94.94.94 2.46 0 3.4l-2.6 2.6c-.94.94-2.46.94-3.4 0L11 17\">\u003c/path>\u003cpath d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\">\u003c/path>\u003cpath d=\"m15 5 4 4\">\u003c/path>\u003c/svg>","check":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-check\" aria-hidden=\"true\">\u003cpath d=\"M20 6 9 17l-5-5\">\u003c/path>\u003c/svg>","circle-pause":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-circle-pause\" aria-hidden=\"true\">\u003ccircle cx=\"12\" cy=\"12\" r=\"10\">\u003c/circle>\u003cline x1=\"10\" x2=\"10\" y1=\"15\" y2=\"9\">\u003c/line>\u003cline x1=\"14\" x2=\"14\" y1=\"15\" y2=\"9\">\u003c/line>\u003c/svg>","settings-2":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-settings2 lucide-settings-2\" aria-hidden=\"true\">\u003cpath d=\"M14 17H5\">\u003c/path>\u003cpath d=\"M19 7h-9\">\u003c/path>\u003ccircle cx=\"17\" cy=\"17\" r=\"3\">\u003c/circle>\u003ccircle cx=\"7\" cy=\"7\" r=\"3\">\u003c/circle>\u003c/svg>","chevron-right":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-chevron-right\" aria-hidden=\"true\">\u003cpath d=\"m9 18 6-6-6-6\">\u003c/path>\u003c/svg>","panel-left-close":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-panel-left-close\" aria-hidden=\"true\">\u003crect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\">\u003c/rect>\u003cpath d=\"M9 3v18\">\u003c/path>\u003cpath d=\"m16 15-3-3 3-3\">\u003c/path>\u003c/svg>","plus":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-plus\" aria-hidden=\"true\">\u003cpath d=\"M5 12h14\">\u003c/path>\u003cpath d=\"M12 5v14\">\u003c/path>\u003c/svg>","search":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-search\" aria-hidden=\"true\">\u003cpath d=\"m21 21-4.34-4.34\">\u003c/path>\u003ccircle cx=\"11\" cy=\"11\" r=\"8\">\u003c/circle>\u003c/svg>","layout-grid":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-layout-grid\" aria-hidden=\"true\">\u003crect width=\"7\" height=\"7\" x=\"3\" y=\"3\" rx=\"1\">\u003c/rect>\u003crect width=\"7\" height=\"7\" x=\"14\" y=\"3\" rx=\"1\">\u003c/rect>\u003crect width=\"7\" height=\"7\" x=\"14\" y=\"14\" rx=\"1\">\u003c/rect>\u003crect width=\"7\" height=\"7\" x=\"3\" y=\"14\" rx=\"1\">\u003c/rect>\u003c/svg>","square-kanban":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-square-kanban\" aria-hidden=\"true\">\u003crect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\">\u003c/rect>\u003cpath d=\"M8 7v7\">\u003c/path>\u003cpath d=\"M12 7v4\">\u003c/path>\u003cpath d=\"M16 7v9\">\u003c/path>\u003c/svg>","clock":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-clock\" aria-hidden=\"true\">\u003ccircle cx=\"12\" cy=\"12\" r=\"10\">\u003c/circle>\u003cpath d=\"M12 6v6l4 2\">\u003c/path>\u003c/svg>","chevron-down":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-chevron-down\" aria-hidden=\"true\">\u003cpath d=\"m6 9 6 6 6-6\">\u003c/path>\u003c/svg>","settings":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-settings\" aria-hidden=\"true\">\u003cpath d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\">\u003c/path>\u003ccircle cx=\"12\" cy=\"12\" r=\"3\">\u003c/circle>\u003c/svg>","library":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-library\" aria-hidden=\"true\">\u003cpath d=\"m16 6 4 14\">\u003c/path>\u003cpath d=\"M12 6v14\">\u003c/path>\u003cpath d=\"M8 8v12\">\u003c/path>\u003cpath d=\"M4 4v16\">\u003c/path>\u003c/svg>","plug":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-plug\" aria-hidden=\"true\">\u003cpath d=\"M12 22v-5\">\u003c/path>\u003cpath d=\"M15 8V2\">\u003c/path>\u003cpath d=\"M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z\">\u003c/path>\u003cpath d=\"M9 8V2\">\u003c/path>\u003c/svg>","circle-alert":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-circle-alert\" aria-hidden=\"true\">\u003ccircle cx=\"12\" cy=\"12\" r=\"10\">\u003c/circle>\u003cline x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\">\u003c/line>\u003cline x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\">\u003c/line>\u003c/svg>","zap":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-zap\" aria-hidden=\"true\">\u003cpath d=\"M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z\">\u003c/path>\u003c/svg>","gauge":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-gauge\" aria-hidden=\"true\">\u003cpath d=\"m12 14 4-4\">\u003c/path>\u003cpath d=\"M3.34 19a10 10 0 1 1 17.32 0\">\u003c/path>\u003c/svg>","x":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-x\" aria-hidden=\"true\">\u003cpath d=\"M18 6 6 18\">\u003c/path>\u003cpath d=\"m6 6 12 12\">\u003c/path>\u003c/svg>","sun":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-sun\" aria-hidden=\"true\">\u003ccircle cx=\"12\" cy=\"12\" r=\"4\">\u003c/circle>\u003cpath d=\"M12 2v2\">\u003c/path>\u003cpath d=\"M12 20v2\">\u003c/path>\u003cpath d=\"m4.93 4.93 1.41 1.41\">\u003c/path>\u003cpath d=\"m17.66 17.66 1.41 1.41\">\u003c/path>\u003cpath d=\"M2 12h2\">\u003c/path>\u003cpath d=\"M20 12h2\">\u003c/path>\u003cpath d=\"m6.34 17.66-1.41 1.41\">\u003c/path>\u003cpath d=\"m19.07 4.93-1.41 1.41\">\u003c/path>\u003c/svg>","moon":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-moon\" aria-hidden=\"true\">\u003cpath d=\"M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401\">\u003c/path>\u003c/svg>","sun-moon":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-sun-moon\" aria-hidden=\"true\">\u003cpath d=\"M12 2v2\">\u003c/path>\u003cpath d=\"M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 5.26 5.259c.589-.255 1.396.09 1.248.715\">\u003c/path>\u003cpath d=\"M16 12a4 4 0 0 0-4-4\">\u003c/path>\u003cpath d=\"m19 5-1.256 1.256\">\u003c/path>\u003cpath d=\"M20 12h2\">\u003c/path>\u003c/svg>","arrow-right":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-arrow-right\" aria-hidden=\"true\">\u003cpath d=\"M5 12h14\">\u003c/path>\u003cpath d=\"m12 5 7 7-7 7\">\u003c/path>\u003c/svg>","compass":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-compass\" aria-hidden=\"true\">\u003ccircle cx=\"12\" cy=\"12\" r=\"10\">\u003c/circle>\u003cpath d=\"m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z\">\u003c/path>\u003c/svg>","map-pin":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-map-pin\" aria-hidden=\"true\">\u003cpath d=\"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0\">\u003c/path>\u003ccircle cx=\"12\" cy=\"10\" r=\"3\">\u003c/circle>\u003c/svg>","pin":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-pin\" aria-hidden=\"true\">\u003cpath d=\"M12 17v5\">\u003c/path>\u003cpath d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\">\u003c/path>\u003c/svg>","pencil":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-pencil\" aria-hidden=\"true\">\u003cpath d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\">\u003c/path>\u003cpath d=\"m15 5 4 4\">\u003c/path>\u003c/svg>","message-circle":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-message-circle\" aria-hidden=\"true\">\u003cpath d=\"M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719\">\u003c/path>\u003c/svg>","hammer":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-hammer\" aria-hidden=\"true\">\u003cpath d=\"m15 12-9.373 9.373a1 1 0 0 1-3.001-3L12 9\">\u003c/path>\u003cpath d=\"m18 15 4-4\">\u003c/path>\u003cpath d=\"m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172v-.344a2 2 0 0 0-.586-1.414l-1.657-1.657A6 6 0 0 0 12.516 3H9l1.243 1.243A6 6 0 0 1 12 8.485V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5\">\u003c/path>\u003c/svg>","arrow-left":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-arrow-left\" aria-hidden=\"true\">\u003cpath d=\"m12 19-7-7 7-7\">\u003c/path>\u003cpath d=\"M19 12H5\">\u003c/path>\u003c/svg>","user":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-user\" aria-hidden=\"true\">\u003cpath d=\"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2\">\u003c/path>\u003ccircle cx=\"12\" cy=\"7\" r=\"4\">\u003c/circle>\u003c/svg>","at-sign":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-at-sign\" aria-hidden=\"true\">\u003ccircle cx=\"12\" cy=\"12\" r=\"4\">\u003c/circle>\u003cpath d=\"M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8\">\u003c/path>\u003c/svg>","arrow-up":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-arrow-up\" aria-hidden=\"true\">\u003cpath d=\"m5 12 7-7 7 7\">\u003c/path>\u003cpath d=\"M12 19V5\">\u003c/path>\u003c/svg>","import":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-import\" aria-hidden=\"true\">\u003cpath d=\"M12 3v12\">\u003c/path>\u003cpath d=\"m8 11 4 4 4-4\">\u003c/path>\u003cpath d=\"M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4\">\u003c/path>\u003c/svg>","upload":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-upload\" aria-hidden=\"true\">\u003cpath d=\"M12 3v12\">\u003c/path>\u003cpath d=\"m17 8-5-5-5 5\">\u003c/path>\u003cpath d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\">\u003c/path>\u003c/svg>","server":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-server\" aria-hidden=\"true\">\u003crect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\">\u003c/rect>\u003crect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\">\u003c/rect>\u003cline x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\">\u003c/line>\u003cline x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\">\u003c/line>\u003c/svg>","bot":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-bot\" aria-hidden=\"true\">\u003cpath d=\"M12 8V4H8\">\u003c/path>\u003crect width=\"16\" height=\"12\" x=\"4\" y=\"8\" rx=\"2\">\u003c/rect>\u003cpath d=\"M2 14h2\">\u003c/path>\u003cpath d=\"M20 14h2\">\u003c/path>\u003cpath d=\"M15 13v2\">\u003c/path>\u003cpath d=\"M9 13v2\">\u003c/path>\u003c/svg>","filter":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-funnel\" aria-hidden=\"true\">\u003cpath d=\"M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z\">\u003c/path>\u003c/svg>","book-open":"\u003csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"lucide lucide-book-open\" aria-hidden=\"true\">\u003cpath d=\"M12 7v14\">\u003c/path>\u003cpath d=\"M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z\">\u003c/path>\u003c/svg>"}</script>
+<script>
+(() => {
+  'use strict';
+  const root = document.getElementById('ri');
+  const icons = JSON.parse(document.getElementById('ri-icons').textContent);
+  const storageKey = 'ri-apps-discover-prototype-v1';
+  const icon = name => icons[name] || icons['circle'];
+  const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const initialCatalog = [
+    {id:'finances',name:'Finances',icon:'wallet-cards',tone:'green',kind:'app',group:'Life',description:'Your money, in one clear picture.',detail:'See spending, track recurring costs, and plan what comes next. Open the app or ask Ri about your money.',sample:'Help me review my subscriptions.',keywords:'money budget spending bills finances'},
+    {id:'people',name:'People',icon:'contact-round',tone:'blue',kind:'app',group:'Work',description:'Remember people. Follow up thoughtfully.',detail:'Keep the context behind your relationships and see who you want to follow up with.',sample:'Who should I follow up with this week?',keywords:'crm contacts relationships customers'},
+    {id:'gmail',name:'Gmail',icon:'mail',tone:'red',kind:'connection',group:'Work',description:'Find emails and draft your replies.',detail:'Bring your email into the conversation. Find what matters and prepare replies with the context you need.',sample:'Find the latest email from Maya and draft a reply.',keywords:'email mail inbox account'},
+    {id:'weekly',name:'Weekly review',icon:'calendar-check',tone:'purple',kind:'skill',group:'Life',description:'Turn a busy week into a clear plan.',detail:'A repeatable way for Ri to review your notes and unfinished work, then help you plan the week ahead.',sample:'Help me review my week and plan Monday.',keywords:'week planning review organize'},
+    {id:'company',name:'Company data',icon:'database',tone:'blue',kind:'mcp',group:'Work',description:'Ask questions about your business.',detail:'Your custom connection to company reports and customer data, available inside a conversation with Ri.',sample:'Summarize this month’s customer growth.',keywords:'custom mcp server data metrics reports'},
+    {id:'calendar',name:'Google Calendar',icon:'calendar-days',tone:'blue',kind:'connection',group:'Life',description:'Make plans around your actual day.',detail:'Find time, prepare for meetings, and plan your day with the calendar you already use.',sample:'Find time for two hours of focused work tomorrow.',keywords:'calendar schedule meetings time account'},
+    {id:'slack',name:'Slack',icon:'hash',tone:'purple',kind:'connection',group:'Work',description:'Bring team conversations into the picture.',detail:'Find decisions and context from your team’s conversations when you need them.',sample:'What did the team decide about the launch?',keywords:'team messages conversations account'},
+    {id:'travel',name:'Travel',icon:'map-pinned',tone:'gold',kind:'app',group:'Life',description:'Keep a whole trip together.',detail:'Collect places, bookings, and plans in a single itinerary you and Ri can work on together.',sample:'Help me plan a long weekend in Lisbon.',keywords:'trip vacation travel itinerary plans'},
+    {id:'slides',name:'Presentations',icon:'panels-top-left',tone:'gold',kind:'skill',group:'Create',description:'Make a clear story out of your ideas.',detail:'A repeatable process for turning notes into a clear outline and a useful presentation.',sample:'Turn my project notes into a five-slide update.',keywords:'presentation slides story deck'},
+    {id:'proposal',name:'Proposal writer',icon:'file-pen-line',tone:'purple',kind:'skill',group:'Create',description:'Write proposals that sound like you.',detail:'Start from a brief and write with your preferred tone, structure, and examples.',sample:'Write a proposal for a six-week design project.',keywords:'writing proposal voice sales'},
+    {id:'linear',name:'Linear',icon:'circle-dot',tone:'blue',kind:'connection',group:'Work',description:'Keep your project work moving.',detail:'Bring the context of your issues and projects into planning and follow-up conversations.',sample:'Which launch issues are still blocked?',keywords:'project tasks issues account'},
+    {id:'research',name:'Research brief',icon:'notebook-pen',tone:'green',kind:'skill',group:'Create',description:'Go from a question to a useful brief.',detail:'Gather sources, weigh what they say, and turn your findings into a concise brief.',sample:'Research the options for our next team offsite.',keywords:'research sources report brief'}
+  ];
+  const collections = [
+    {id:'business',name:'Run a small business',icon:'briefcase-business',description:'People, proposals, and the next follow-up.',detail:'Know your customers, find the conversation, and write the next proposal.',items:['people','gmail','proposal']},
+    {id:'life',name:'Make room for life',icon:'house',description:'Your money, your time, and a weekly reset.',detail:'A clear view of your money and time, plus a simple rhythm for staying on top of both.',items:['finances','calendar','weekly']},
+    {id:'ideas',name:'Bring ideas to life',icon:'pencil-ruler',description:'Research, clear stories, and project work.',detail:'Go from a question to a grounded idea, a clear presentation, and the work to make it real.',items:['research','slides','linear']}
+  ];
+  const defaults = () => ({version:1,view:'discover',selected:null,detailTab:'overview',query:'',filter:'All',collection:null,added:['finances','people','gmail','weekly','company'],off:['company'],pinned:['finances','people','gmail','weekly'],custom:[],settings:{},theme:'system',railOpen:true});
+  let state = defaults();
+  try {
+    const saved=JSON.parse(localStorage.getItem(storageKey)||'null');
+    if(saved?.version===1){
+      for(const key of ['added','off','pinned'])if(Array.isArray(saved[key]))state[key]=saved[key].filter(v=>typeof v==='string');
+      if(Array.isArray(saved.custom))state.custom=saved.custom.filter(v=>v&&typeof v.id==='string'&&typeof v.name==='string'&&['skill','mcp','app'].includes(v.kind)).slice(0,30);
+      if(saved.settings&&typeof saved.settings==='object'&&!Array.isArray(saved.settings))state.settings=saved.settings;
+      if(['light','dark','system'].includes(saved.theme))state.theme=saved.theme;
+      if(typeof saved.railOpen==='boolean')state.railOpen=saved.railOpen;
+    }
+  }catch{}
+  let justAdded=[],notice='',confirmRemove=false,createMode='build',draft='',messages=[],appTab='Overview',previousView='discover',returnScroll=0,lastSelected=null;
+  const catalog = () => [...initialCatalog,...state.custom];
+  const get = id => catalog().find(i=>i.id===id);
+  const isAdded = i => !!i&&state.added.includes(i.id);
+  const enabled = i => isAdded(i)&&!state.off.includes(i.id);
+  const settingsFor = i => ({currency:'USD',account:'work',access:'ask',instructions:'Keep it clear and practical. Use my preferred tone.',url:'https://data.example.com/mcp',...(state.settings[i.id]||{})});
+  function save(){try{localStorage.setItem(storageKey,JSON.stringify({version:1,added:state.added,off:state.off,pinned:state.pinned,custom:state.custom,settings:state.settings,theme:state.theme,railOpen:state.railOpen}));}catch{}}
+  const mark = (i,small=false) => `<span class="mark${small?' sm':''}" data-tone="${esc(i.tone)}">${icon(i.icon)}</span>`;
+  const btn = (text,action,id='',cls='',extra='') => `<button type="button" class="btn ${cls}" data-action="${action}"${id?` data-id="${esc(id)}"`:''} ${extra}>${text}</button>`;
+  const ib = (glyph,label,action,id='') => `<button type="button" class="icon-button" aria-label="${esc(label)}" data-action="${action}"${id?` data-id="${esc(id)}"`:''}>${icon(glyph)}</button>`;
+  const sw = (checked,label,action,id) => `<button type="button" class="switch" role="switch" aria-checked="${checked}" aria-label="${esc(label)}" data-action="${action}" data-id="${esc(id)}"><span></span></button>`;
+  const status = i => isAdded(i)?enabled(i)?i.kind==='connection'?'Connected':'Added':'Turned off':i.kind==='app'?'Made for Ri':i.kind==='connection'?'Connect an account':'A way of working';
+  function primary(i,style=''){
+    const label=!isAdded(i)?'Add to Ri':!enabled(i)?'Manage':i.kind==='app'?'Open':'Try in chat';
+    const action=!isAdded(i)?'add':!enabled(i)?'manage':i.kind==='app'?'open':'try';
+    return btn(label,action,i.id,style,`aria-label="${esc(label+' '+i.name)}"`);
+  }
+  function card(i){return `<article class="tile${state.selected===i.id?' is-selected':''}" data-item="${esc(i.id)}"><button type="button" class="tile-top" data-action="details" data-id="${esc(i.id)}" aria-label="Details for ${esc(i.name)}">${mark(i)}<span class="tile-copy"><span class="tile-name">${esc(i.name)}</span><span class="tile-description">${esc(i.description)}</span></span></button><div class="tile-bottom"><span class="tile-status">${isAdded(i)?icon(enabled(i)?'check':'circle-pause'):''}${status(i)}</span>${primary(i)}${isAdded(i)?ib('settings-2','Manage '+i.name,'manage',i.id):''}</div></article>`;}
+  function nav(label,glyph,action,id='',current=false){return `<button type="button" class="nav-item" data-action="${action}" data-id="${esc(id)}" aria-label="${esc(label)}"${current?' aria-current="page"':''}>${icon(glyph)}<span class="label">${label}</span>${label==='Apps'?`<span class="chevron">${icon('chevron-right')}</span>`:''}</button>`;}
+  function rail(){return `<aside class="rail" aria-label="Ri navigation"><div class="rail-home"><span class="brand">Ri</span><span class="name grow">Ri</span><span class="collapse">${ib('panel-left-close','Collapse rail','collapse')}</span></div>${nav('New chat','plus','new-chat')}${nav('Search chats','search','context','Search chats')}<div class="rule"></div>${nav('Apps','layout-grid','discover','',true)}${nav('Task Board','square-kanban','context','Task Board')}${nav('Calendar','calendar','context','Calendar')}${nav('Schedules and Triggers','clock','context','Schedules and Triggers')}<div class="rail-list"><div class="rail-group"><span>AGENTS</span><span class="muted">RECENT</span><span class="grow"></span>${ib('plus','New agent','context','New agent')}</div><div class="agent-row"><span class="avatar">D</span>Design${icon('chevron-down')}</div><button type="button" class="chat-link" data-action="new-chat"><span class="dot"></span>Explore the next direction</button><button type="button" class="chat-link" data-action="new-chat"><span class="dot" style="background:var(--blue)"></span>Website review</button><div class="agent-row"><span class="avatar">W</span>Work${icon('chevron-right')}</div><div class="agent-row"><span class="avatar">P</span>Personal${icon('chevron-right')}</div></div><div class="rail-bottom">${nav('Settings','settings','library')}<div class="accounts">${nav('Connect accounts','plug','accounts')}</div><div class="prototype-footer"><span>Interactive prototype</span><span class="grow"></span><button type="button" data-action="reset">Reset</button></div></div></aside>`;}
+  function hud(){return `<div class="hud"><div class="statuses"><span>${icon('circle-alert')}1</span><span>${icon('circle')}2</span><span>${icon('zap')}1</span><span>${icon('clock')}0</span>${icon('gauge')}</div>${btn(icon('x')+' Close apps','context','Home','quiet')}<span class="grow"></span><span class="event">${icon('calendar')}Design review in 24m</span>${ib('search','Search additions','search')}${ib(state.theme==='dark'?'sun':'moon','Switch appearance','theme')}${btn(icon('plus')+' CREATE','create','','primary')}</div><div class="mobile-header"><span class="brand">Ri</span><strong>Ri</strong><span class="grow"></span><span class="small">Prototype</span>${ib('sun-moon','Switch appearance','theme')}${ib('search','Search additions','search')}</div>`;}
+  function pageHead(title,subtitle,actions='',glyph='layout-grid'){return `<header class="page-head"><span class="mark">${icon(glyph)}</span><div class="grow"><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div><div class="row">${actions}</div></header>`;}
+  function shortLibrary(){const pinned=state.pinned.map(get).filter(enabled);return `<section aria-label="Your library shortcuts"><div class="section-title"><h2>Your library<span class="count">${state.added.length}</span></h2>${btn('View all '+icon('arrow-right'),'library','','quiet')}</div>${pinned.length?`<div class="shortcuts">${pinned.map(i=>`<button type="button" class="shortcut" data-action="${i.kind==='app'?'open':'try'}" data-id="${esc(i.id)}">${mark(i,true)}<span>${esc(i.name)}</span></button>`).join('')}</div>`:'<p class="small">Your favorite additions will be ready here.</p>'}</section>`;}
+  function matches(i){const words=(state.query.toLowerCase().match(/[a-z0-9]+/g)||[]).filter(w=>!['help','me','i','want','to','my','the','a','an','with','and','do','make','manage'].includes(w));const text=`${i.name} ${i.description} ${i.detail} ${i.kind} ${i.keywords||''}`.toLowerCase();return (!words.length||words.some(w=>text.includes(w.length>4?w.replace(/s$/,''):w)))&&(state.filter==='All'||state.filter===i.group);}
+  function browseContent(){
+    const library=state.view==='library',collection=collections.find(c=>c.id===state.collection);
+    let items=library?catalog().filter(isAdded):collection?collection.items.map(get).filter(Boolean):state.query?catalog():catalog().filter(i=>!isAdded(i)||justAdded.includes(i.id));
+    items=items.filter(matches);
+    return `<div class="catalog-inner">${library?`<div class="section-title"><h2>Your library<span class="count">${state.added.length}</span></h2>${btn(icon('compass')+' Discover','discover','','quiet')}</div><p class="small" style="margin-bottom:18px">Open what you use, and manage what Ri can do.</p>`:shortLibrary()+`<div class="discover-heading"><div class="grow"><h2>Discover</h2><p>Find your next useful addition.</p></div></div>`}<label class="search">${icon('search')}<input data-field="query" type="search" aria-label="Search additions" placeholder="${library?'Search your library':'Search a name or something you want to do'}" value="${esc(state.query)}">${state.query?ib('x','Clear search','clear'):''}</label><div class="filters" aria-label="Browse by purpose">${['All','Work','Life','Create'].map(f=>`<button type="button" class="filter" data-action="filter" data-id="${f}" aria-pressed="${f===state.filter}">${f}</button>`).join('')}</div>${!library&&!state.query&&state.filter==='All'&&!collection?`<div class="collections" aria-label="Useful collections">${collections.map(c=>`<button type="button" class="collection" data-action="collection" data-id="${c.id}">${icon(c.icon)}<span><b>${c.name}</b><small>${c.description}</small></span></button>`).join('')}</div>`:''}${collection&&!library?`<div class="bundle-intro"><div class="row"><h3 class="grow">${collection.name}</h3>${ib('x','Show all collections','clear-collection')}</div><p>${collection.detail}</p>${collection.items.some(id=>!state.added.includes(id))?btn('Add what’s missing','add-collection',collection.id,'primary'):`<span class="small">${icon('check')}Everything in this collection is already yours.</span>`}</div>`:''}<div class="section-title"><h2>${state.query?'Search results':library?'Added to Ri':collection?'In this collection':'Explore'}<span class="count" aria-live="polite">${items.length}</span></h2>${!library&&!state.query&&!collection?'<span class="small">Apps, services, and ways of working</span>':''}</div><div class="tiles">${items.map(card).join('')}</div>${!items.length?`<div class="empty">${state.query?'No matches. Try another name or something you want help with.':library?'Your library is empty. Discover something useful to add.':'Nothing more in this category yet.'}${btn('Browse everything','discover','','quiet')}</div>`:''}</div>`;
+  }
+  function previewContent(i){
+    if(i.id==='finances')return `<span class="small">Spent this month</span><div class="money">${settingsFor(i).currency==='EUR'?'€':'$'}2,840<small>.00</small></div><div class="bar"><span></span></div><p class="small" style="margin-bottom:16px">1,160 left in your monthly plan</p>${[['Food and groceries','$428.00'],['Subscriptions','$86.00'],['Transport','$124.00']].map(r=>`<div class="data-row"><span>${r[0]}</span><strong>${r[1]}</strong></div>`).join('')}`;
+    if(i.id==='people')return `<h3>Keep in touch</h3><p class="small" style="margin:5px 0 15px">A little context goes a long way.</p>${[['ML','Maya Lee','Follow up on the proposal'],['JT','Jordan Taylor','Coffee next week'],['AK','Alex Kim','Last spoke 2 weeks ago']].map(r=>`<div class="data-row"><span class="avatar">${r[0]}</span><span>${r[1]}<br><span class="small">${r[2]}</span></span></div>`).join('')}`;
+    if(i.id==='travel')return `<span class="kicker">Your next trip</span><h3 style="margin:6px 0 18px;font-size:19px">A weekend in Lisbon</h3>${[['Friday','Arrive and settle in'],['Saturday','Alfama and the waterfront'],['Sunday','A day in Sintra']].map(r=>`<div class="data-row">${icon('map-pin')}<span>${r[0]}<br><span class="small">${r[1]}</span></span></div>`).join('')}`;
+    return `<div class="user-message" style="margin-left:15px;max-width:none">${esc(i.sample)}</div><div style="margin-top:20px"><div class="speaker"><span class="brand">Ri</span>Ri</div><p class="preview-copy">${i.id==='gmail'?'Maya asked for the revised scope by Thursday. Here is a reply that confirms the timeline and explains the next step.':i.id==='calendar'?'You have a clear window from 9:00 to 11:00 tomorrow. That leaves time to prepare for your afternoon review.':i.id==='proposal'?'Let’s turn the brief into a clear proposal: the goal, the scope, the timeline, and the next step.':i.id==='weekly'?'Let’s look at what moved forward, what needs attention, and what you want to make room for next week.':i.kind==='skill'?'I’ll use your preferred workflow to gather the context and shape a clear result.':'I can bring this information into the work we’re doing here.'}</p></div>`;
+  }
+  function settingsContent(i){const settings=settingsFor(i);return `<div class="setting"><span class="setting-copy">Available to Ri<small>Turn it off without losing your setup.</small></span>${sw(enabled(i),'Available to Ri','toggle',i.id)}</div><div class="setting"><span class="setting-copy">Keep handy<small>Show it in your library shortcuts.</small></span>${sw(state.pinned.includes(i.id),'Keep handy','pin',i.id)}</div>${i.kind==='connection'?`<label class="field">Connected account<select data-setting="account" aria-label="Connected account"><option value="work"${settings.account==='work'?' selected':''}>Work · alex@example.com</option><option value="personal"${settings.account==='personal'?' selected':''}>Personal · alex.personal@example.com</option></select></label><label class="field">Ri can<select data-setting="access" aria-label="Account access"><option value="ask"${settings.access==='ask'?' selected':''}>Ask before making changes</option><option value="read"${settings.access==='read'?' selected':''}>Only read information</option></select></label>`:i.kind==='skill'?`<label class="field">Your instructions<textarea rows="5" data-setting="instructions" aria-label="Your instructions">${esc(settings.instructions)}</textarea></label><p class="small">Tell Ri how to use this workflow for you.</p>${btn(icon('pencil')+' Edit with Ri','edit-skill',i.id,'quiet')}`:i.kind==='mcp'?`<form data-form="server"><label class="field">Server address<input name="serverUrl" type="url" value="${esc(settings.url)}" aria-label="Server address" required></label><button type="submit" class="btn">Save connection</button><p class="small" style="margin-top:12px">Custom MCP connection · Sample configuration</p></form>`:i.id==='finances'?`<label class="field">Currency<select data-setting="currency" aria-label="Currency"><option value="USD"${settings.currency==='USD'?' selected':''}>US Dollar (USD)</option><option value="EUR"${settings.currency==='EUR'?' selected':''}>Euro (EUR)</option></select></label>`:'<p class="small" style="margin-top:18px">Your preferences stay with this addition.</p>'}<div class="remove-area">${btn('Remove from Ri','remove',i.id,'quiet danger')}${confirmRemove?`<div class="confirm" role="alert">Remove ${esc(i.name)} from your library? You can add it again later.<div class="row">${btn('Keep it','cancel-remove')}${btn('Remove','confirm-remove',i.id,'danger')}</div></div>`:''}</div>`;}
+  function inspector(){const i=get(state.selected);if(!i)return '';const added=isAdded(i),settings=state.detailTab==='settings'&&added;return `<aside class="inspector" aria-label="${esc(i.name)} details"><div class="inspector-head">${mark(i)}<div class="grow"><h2>${esc(i.name)}</h2><span class="small">${status(i)}</span></div>${ib('x','Close preview','close-preview')}</div><p class="inspector-description">${esc(i.description)}</p><div class="inspector-actions">${primary(i,'primary')}${enabled(i)&&i.kind==='app'?btn(icon('message-circle')+' Try in chat','try',i.id):''}</div>${added?`<div class="inspector-tabs" role="tablist" aria-label="${esc(i.name)} views"><button type="button" role="tab" id="overview-tab" aria-controls="inspector-content" aria-selected="${!settings}" data-action="detail-tab" data-id="overview">Overview</button><button type="button" role="tab" id="settings-tab" aria-controls="inspector-content" aria-selected="${settings}" data-action="detail-tab" data-id="settings">Settings</button></div>`:''}<div id="inspector-content"${added?` role="tabpanel" aria-labelledby="${settings?'settings':'overview'}-tab"`:''}>${settings?settingsContent(i):`<p class="inspector-description">${esc(i.detail)}</p><div class="preview"><div class="preview-bar">${icon(i.kind==='app'?'layout-grid':'message-circle')}<span>${i.kind==='app'?'Inside '+esc(i.name):'Example in chat'}</span><span class="small">Sample</span></div><div class="preview-content">${previewContent(i)}</div></div><div class="capabilities"><span>${icon('message-circle')}Works in chat</span>${i.kind==='app'?`<span>${icon('layout-grid')}Opens in Ri</span>`:''}</div>${!added?`<p class="small">${i.kind==='connection'?'Connect an account to bring it into your conversations.':'Add it once, then use it wherever you work with Ri.'}</p>`:''}`}</div></aside>`;}
+  function browse(){return pageHead('Apps','More ways to work with Ri.',btn(icon('hammer')+' Build','create-build','','quiet')+btn(icon('plus')+' Add your own','create','','primary'))+`<div class="browser${state.selected?' with-inspector':''}"><section class="catalog-scroll" aria-label="${state.view==='library'?'Your library':'Discover additions'}">${browseContent()}</section>${inspector()}</div>`;}
+  function appView(){
+    const i=get(state.selected);if(!i)return browse();
+    const tabs=i.id==='finances'?['Overview','Transactions','Recurring','Accounts']:i.id==='people'?['People','Follow-ups','Notes']:['Itinerary','Saved places'];
+    let description=previewContent(i);
+    if(i.id==='finances'&&appTab==='Transactions'){
+      description=`<h2>Recent transactions</h2>${[['Oct 18 · Groceries','$62.40'],['Oct 17 · Coffee','$5.50'],['Oct 16 · Train','$18.00']].map(r=>`<div class="data-row"><span>${r[0]}</span><strong>${r[1]}</strong></div>`).join('')}`;
+    }else if(i.id==='finances'&&appTab==='Recurring'){
+      description=`<h2>Recurring costs</h2>${[['Music','$10.99'],['Cloud storage','$2.99'],['Design tools','$29.00']].map(r=>`<div class="data-row"><span>${r[0]}</span><strong>${r[1]} / month</strong></div>`).join('')}`;
+    }else if(i.id==='finances'&&appTab==='Accounts'){
+      description='<h2>Your accounts</h2><div class="data-row">Everyday checking<strong>Connected</strong></div><div class="data-row">Savings<strong>Connected</strong></div>';
+    }
+    return pageHead(i.name,i.description,btn(icon('arrow-left')+' Apps','back-browse','','quiet')+btn(icon('settings-2')+' Manage','manage',i.id)+btn(icon('message-circle')+' Chat','try',i.id),i.icon)+`<div class="surface"><nav class="app-tabs" aria-label="${esc(i.name)} sections">${tabs.map(t=>`<button type="button" data-action="app-tab" data-id="${t}" aria-pressed="${appTab===t}">${t}</button>`).join('')}</nav><div class="app-page"><div class="app-columns"><section>${description}${i.id==='finances'&&appTab==='Overview'?`<div class="chart" role="img" aria-label="Sample spending during October">${[26,40,31,48,42,54,36,65,46,54,70,50,73,62,81,70,76,89].map(h=>`<span style="height:${h}%"></span>`).join('')}</div><div class="chart-labels"><span>October 1</span><span>Today</span></div>`:''}</section><aside class="app-aside"><div class="speaker"><span class="brand">Ri</span>Ri</div><p>${i.id==='finances'?'You have three subscriptions renewing next week. Want to review them together?':i.id==='people'?'You wanted to follow up with Maya about the proposal. We can pick up from your last conversation.':'Your plans can stay flexible. Tell me what you want this trip to feel like.'}</p>${btn('Work on this with Ri','try',i.id)}</aside></div></div></div>`;
+  }
+  function chatView(){const i=get(state.selected);return pageHead(i?'Chat with '+i.name:'Chat with Ri',i?'Available in this conversation':'A place to think and work.',btn(icon('arrow-left')+' Apps','back-browse','','quiet'), 'message-circle')+`<div class="chat-page"><section class="transcript" aria-label="Chat messages"><div class="transcript-inner"><div><div class="speaker"><span class="brand">Ri</span>Ri</div><p class="chat-body">${i?`${esc(i.name)} is ready to use. Tell me what you’d like to work on.`:'What would you like to work on?'}</p>${i?`<div class="capabilities"><span>${mark(i,true)}${esc(i.name)}</span></div>`:''}</div>${messages.map(m=>m.role==='user'?`<div class="user-message">${esc(m.text)}</div>`:`<div><div class="speaker"><span class="brand">Ri</span>Ri</div><p class="chat-body">${esc(m.text)}</p></div>`).join('')}</div></section><form class="composer" data-form="chat"><textarea data-field="draft" aria-label="Message Ri" placeholder="Message Ri…">${esc(draft)}</textarea><div class="composer-bottom">${icon('at-sign')}<span>${i?esc(i.name):'Ri'}</span><span class="grow"></span><span>Claude</span>${icon('chevron-down')}<button type="submit" class="send" aria-label="Send message">${icon('arrow-up')}</button></div></form></div>`;}
+  function createView(){return pageHead('Add your own','Make Ri work your way.',btn(icon('arrow-left')+' Apps','back-browse','','quiet'),'plus')+`<div class="surface"><div class="create-page"><h2>What would you like to add?</h2><div class="create-options">${[['build','hammer','Build with Ri'],['import','upload','Import'],['mcp','server','Connect MCP']].map(r=>`<button type="button" data-action="create-mode" data-id="${r[0]}" aria-pressed="${createMode===r[0]}">${icon(r[1])}${r[2]}</button>`).join('')}</div>${createMode==='build'?`<form data-form="build"><label class="field">What should Ri help you do?<textarea name="idea" rows="5" placeholder="A tracker for my subscriptions, or a workflow for writing in my voice…" required></textarea></label><button type="submit" class="btn primary">Start building</button></form>`:createMode==='mcp'?`<form data-form="mcp"><label class="field">Name<input name="name" placeholder="Company data" required></label><label class="field">Server address<input name="url" type="url" placeholder="https://example.com/mcp" required></label><button type="submit" class="btn primary">Add connection</button><p class="small" style="margin-top:15px">This prototype saves a sample connection. It does not contact a server.</p></form>`:`<label class="field">Choose a skill or app package<input type="file" data-field="import" accept=".md,.zip,.tgz,.gz"></label><p class="small">This prototype uses the file name for a sample addition. File contents are not read or uploaded.</p>`}</div></div>`;}
+  function render(options={}){
+    const catalogScroll=root.querySelector('.catalog-scroll')?.scrollTop??returnScroll;
+    const inspectorScroll=root.querySelector('.inspector')?.scrollTop??0;
+    const active=document.activeElement;
+    const inputFocus=active?.dataset?.field==='query';
+    const selectionStart=inputFocus?active.selectionStart:null;
+    const target=options.focus;
+    document.documentElement.style.colorScheme=state.theme==='system'?'light dark':state.theme;
+    const content=['discover','library'].includes(state.view)?browse():state.view==='app'?appView():state.view==='chat'?chatView():createView();
+    root.innerHTML=hud()+`<div class="shell${state.railOpen?'':' collapsed'}">${rail()}<main class="main">${notice?`<div class="notice" role="status">${icon('check')}<span>${esc(notice)}</span>${ib('x','Dismiss message','dismiss')}</div>`:''}${content}</main></div><nav class="mobile-nav" aria-label="Ri mobile navigation"><button type="button" data-action="new-chat">${icon('message-circle')}Ri</button><button type="button" data-action="context" data-id="Task Board">${icon('square-kanban')}Tasks</button><button type="button" data-action="discover" aria-current="page">${icon('layout-grid')}Apps</button><button type="button" data-action="context" data-id="Agents">${icon('bot')}Agents</button><button type="button" data-action="create">${icon('plus')}Create</button></nav>`;
+    const scroll=root.querySelector('.catalog-scroll');if(scroll)scroll.scrollTop=options.top?0:catalogScroll;
+    const inspectorEl=root.querySelector('.inspector');if(inspectorEl)inspectorEl.scrollTop=options.inspectorTop?0:inspectorScroll;
+    if(inputFocus){const input=root.querySelector('[data-field="query"]');if(input){input.focus({preventScroll:true});try{input.setSelectionRange(selectionStart,selectionStart);}catch{}}}
+    else if(target){const next=root.querySelector(target);if(next)next.focus({preventScroll:true});}
+    if(options.revealInspector&&matchMedia('(max-width:760px)').matches)inspectorEl?.scrollIntoView({block:'start'});
+  }
+  function beginBrowse(view='discover'){state.view=view;state.selected=null;state.query='';state.filter='All';state.collection=null;notice='';confirmRemove=false;returnScroll=0;}
+  function openDetails(id,settings=false){
+    if(!get(id))return;
+    if(!['discover','library'].includes(state.view))state.view=previousView;
+    state.selected=id;lastSelected=id;state.detailTab=settings?'settings':'overview';confirmRemove=false;
+  }
+  function add(id){const i=get(id);if(!i)return;if(!isAdded(i)){state.added.push(id);justAdded.push(id);}state.off=state.off.filter(v=>v!==id);notice=i.kind==='connection'?`${i.name} connected to a sample Work account.`:`${i.name} added to this prototype.`;}
+  function rememberBrowse(){if(['discover','library'].includes(state.view)){previousView=state.view;returnScroll=root.querySelector('.catalog-scroll')?.scrollTop||0;}}
+  function startChat(id,idea=''){rememberBrowse();state.view='chat';state.selected=get(id)?id:null;draft=idea||(get(id)?.sample||'');messages=[];}
+  root.addEventListener('click',event=>{
+    const button=event.target.closest('button[data-action]');if(!button)return;
+    const action=button.dataset.action,id=button.dataset.id,i=get(id);let options={};notice='';
+    if(action==='discover'){beginBrowse();options.top=true;}
+    else if(action==='library'){beginBrowse('library');options.top=true;}
+    else if(action==='details'||action==='manage'){openDetails(id,action==='manage');options={inspectorTop:true,revealInspector:true,focus:'.inspector [data-action="close-preview"]'};}
+    else if(action==='detail-tab'){state.detailTab=id;confirmRemove=false;options={inspectorTop:true,focus:`[data-action="detail-tab"][data-id="${id}"]`};}
+    else if(action==='close-preview'){state.selected=null;confirmRemove=false;options.focus=`[data-action="details"][data-id="${lastSelected}"]`;}
+    else if(action==='add'){add(id);options.focus=state.selected===id?'.inspector .primary':`[data-item="${id}"] .btn`;}
+    else if(action==='open'&&i){if(!enabled(i)){openDetails(id,true);options.revealInspector=true;}else{rememberBrowse();state.view='app';state.selected=id;appTab=i.id==='finances'?'Overview':i.id==='people'?'People':'Itinerary';}}
+    else if(action==='try'&&i){if(!enabled(i))openDetails(id,true);else startChat(id);}
+    else if(action==='back-browse'){state.view=previousView;state.selected=null;confirmRemove=false;}
+    else if(action==='filter'){state.filter=id;state.collection=null;options.top=true;}
+    else if(action==='clear'){state.query='';options.focus='[data-field="query"]';}
+    else if(action==='collection'){state.collection=id;state.query='';state.filter='All';state.selected=null;options.top=true;}
+    else if(action==='clear-collection'){state.collection=null;options.top=true;}
+    else if(action==='add-collection'){const c=collections.find(v=>v.id===id);c?.items.filter(id=>!state.added.includes(id)).forEach(add);notice='The missing additions are ready in this prototype.';}
+    else if(action==='toggle'){state.off=state.off.includes(id)?state.off.filter(v=>v!==id):[...state.off,id];options.focus='.inspector [data-action="toggle"]';}
+    else if(action==='pin'){state.pinned=state.pinned.includes(id)?state.pinned.filter(v=>v!==id):[...state.pinned,id];options.focus='.inspector [data-action="pin"]';}
+    else if(action==='remove'){confirmRemove=true;options.focus='.inspector [data-action="cancel-remove"]';}
+    else if(action==='cancel-remove'){confirmRemove=false;options.focus='.inspector [data-action="remove"]';}
+    else if(action==='confirm-remove'){state.added=state.added.filter(v=>v!==id);state.off=state.off.filter(v=>v!==id);state.pinned=state.pinned.filter(v=>v!==id);delete state.settings[id];state.detailTab='overview';confirmRemove=false;notice=`${i.name} removed from this prototype.`;options.focus='.inspector .primary';}
+    else if(action==='create'||action==='create-build'){rememberBrowse();state.view='create';createMode='build';}
+    else if(action==='create-mode'){createMode=id;}
+    else if(action==='new-chat'){startChat(null);}
+    else if(action==='edit-skill'){startChat(id,'Help me customize '+i.name+'.');}
+    else if(action==='app-tab'){appTab=id;options.focus=`[data-action="app-tab"][data-id="${id}"]`;}
+    else if(action==='collapse'){state.railOpen=!state.railOpen;}
+    else if(action==='accounts'){beginBrowse('library');state.query='account';options.top=true;}
+    else if(action==='search'){beginBrowse();options={top:true,focus:'[data-field="query"]'};}
+    else if(action==='theme'){const currentlyDark=state.theme==='dark'||state.theme==='system'&&matchMedia('(prefers-color-scheme:dark)').matches;state.theme=currentlyDark?'light':'dark';}
+    else if(action==='reset'){state=defaults();justAdded=[];messages=[];notice='Prototype reset.';options.top=true;}
+    else if(action==='context'){notice=`${id} stays in its existing Ri view. This prototype focuses on Apps.`;}
+    else if(action==='dismiss'){notice='';}
+    save();render(options);
+  });
+  root.addEventListener('input',event=>{
+    if(event.target.dataset.field==='query'){state.query=event.target.value;render({top:true});}
+    if(event.target.dataset.field==='draft')draft=event.target.value;
+    if(event.target.dataset.setting==='instructions'&&state.selected){state.settings[state.selected]={...settingsFor(get(state.selected)),instructions:event.target.value};save();}
+  });
+  root.addEventListener('change',event=>{
+    const key=event.target.dataset.setting;
+    if(key&&state.selected){state.settings[state.selected]={...settingsFor(get(state.selected)),[key]:event.target.value};save();}
+    if(event.target.dataset.field==='import'&&event.target.files?.length){
+      const file=event.target.files[0],name=file.name.replace(/\.(md|zip|tgz|gz)$/i,'').replace(/[-_]/g,' ');
+      const id='custom-'+Date.now().toString(36);
+      state.custom.push({id,name,icon:'book-open',tone:'purple',kind:'skill',group:'Create',description:'Your imported way of working.',detail:'An imported workflow, ready to customize with Ri.',sample:'Help me use '+name+'.',keywords:'custom skill imported workflow'});
+      add(id);state.view='library';state.selected=id;state.detailTab='settings';notice='Sample addition created from the file name. Nothing was uploaded.';save();render({top:true,revealInspector:true});
+    }
+  });
+  root.addEventListener('submit',event=>{
+    const form=event.target.closest('form[data-form]');if(!form)return;event.preventDefault();
+    const type=form.dataset.form,values=new FormData(form);
+    if(type==='chat'){
+      if(!draft.trim())return;
+      messages.push({role:'user',text:draft.trim()},{role:'assistant',text:'This is a sample conversation. In Ri, your agent would continue here using the additions you chose.'});draft='';render({focus:'[data-field="draft"]'});const transcript=root.querySelector('.transcript');transcript.scrollTop=transcript.scrollHeight;return;
+    }
+    if(type==='build'){startChat(null,String(values.get('idea')||''));notice='Your idea is ready in the preview chat.';}
+    if(type==='server'){state.settings[state.selected]={...settingsFor(get(state.selected)),url:String(values.get('serverUrl'))};notice='Sample connection saved. No server was contacted.';}
+    if(type==='mcp'){
+      const name=String(values.get('name')).trim(),url=String(values.get('url')).trim();
+      if(!/^https?:\/\//i.test(url)){notice='Use an HTTP or HTTPS server address.';render();return;}
+      const id='custom-'+Date.now().toString(36);
+      state.custom.push({id,name,icon:'database',tone:'blue',kind:'mcp',group:'Work',description:'Your custom connection to company tools.',detail:'Bring this server’s information and tools into conversations with Ri.',sample:'What can I do with '+name+'?',keywords:'custom mcp server connection'});
+      state.settings[id]={url};add(id);state.view='library';state.selected=id;state.detailTab='settings';notice='Sample connection added. No server was contacted.';
+    }
+    save();render({top:type==='mcp',revealInspector:type==='mcp'});
+  });
+  document.addEventListener('keydown',event=>{
+    if(event.key==='Escape'&&state.selected&&['discover','library'].includes(state.view)){state.selected=null;confirmRemove=false;render({focus:`[data-action="details"][data-id="${lastSelected}"]`});}
+    if(event.target.getAttribute('role')==='tab'&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
+      event.preventDefault();state.detailTab=event.key==='Home'?'overview':event.key==='End'?'settings':state.detailTab==='overview'?'settings':'overview';render({focus:`[data-action="detail-tab"][data-id="${state.detailTab}"]`});
+    }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

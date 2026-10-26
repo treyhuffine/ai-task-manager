@@ -1,0 +1,598 @@
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&display=swap');
+.rx-app {
+  --rx-bg:light-dark(#ffffff,#09090b); --rx-fg:light-dark(#18181b,#fafafa);
+  --rx-soft:light-dark(#f4f4f5,#18181b); --rx-card:light-dark(#ffffff,#111113);
+  --rx-muted:light-dark(#71717a,#a1a1aa); --rx-line:light-dark(#e4e4e7,#27272a);
+  --rx-strong:light-dark(#27272a,#e4e4e7); --rx-on:light-dark(#fafafa,#18181b);
+  --rx-green:light-dark(#15803d,#4ade80); --rx-amber:light-dark(#a16207,#eab308);
+  --rx-blue:light-dark(#2563eb,#60a5fa); --rx-red:light-dark(#b91c1c,#f87171);
+  --rx-gap:20px; --rx-rail:256px;
+  font:13px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color:var(--rx-fg); background:var(--rx-bg); min-height:840px;
+  display:flex; flex-direction:column; width:100%; text-align:left;
+}
+.rx-stage { min-height:840px; }
+.rx-app *, .rx-app *::before, .rx-app *::after { box-sizing:border-box; }
+.rx-app [hidden] { display:none!important; }
+.rx-app button,.rx-app input,.rx-app textarea,.rx-app select { font:inherit; color:inherit; max-width:100%; }
+.rx-app button { border:0; background:none; padding:0; text-align:left; }
+.rx-app button:hover { color:var(--rx-fg); }
+.rx-app input,.rx-app textarea,.rx-app select { background:var(--rx-bg); border:1px solid var(--rx-line); border-radius:7px; padding:8px 10px; width:100%; }
+.rx-app textarea { resize:vertical; }
+.rx-app input::placeholder,.rx-app textarea::placeholder { color:var(--rx-muted); opacity:1; }
+.rx-app :is(h1,h2,h3,p) { margin:0; }
+.rx-app h1 { font-size:13px; font-weight:600; line-height:1.4; }
+.rx-app h2 { font-size:17px; font-weight:600; letter-spacing:-.3px; line-height:1.4; }
+.rx-app h3 { font-size:13px; font-weight:600; line-height:1.4; }
+.rx-app svg { flex-shrink:0; width:15px; height:15px; stroke-width:1.6; }
+.rx-app .rx-muted { color:var(--rx-muted); }
+.rx-app .rx-tiny { font-size:11px; color:var(--rx-muted); }
+.rx-app .rx-kicker { font-size:10px; letter-spacing:.09em; text-transform:uppercase; font-weight:600; color:var(--rx-muted); }
+.rx-app .rx-line { height:1px; background:var(--rx-line); margin:10px 6px; }
+.rx-app .rx-grow { flex:1; min-width:0; }
+.rx-app .rx-inline { display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap; }
+.rx-app .rx-end { margin-left:auto; }
+.rx-app .rx-stack { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.rx-app .rx-space { height:12px; }
+.rx-app .rx-btn { min-height:28px; padding:5px 9px; border:1px solid var(--rx-line); border-radius:7px; display:inline-flex; align-items:center; justify-content:center; gap:5px; font-size:11px; font-weight:500; white-space:nowrap; background:var(--rx-bg); }
+.rx-app .rx-btn:hover { background:var(--rx-soft); }
+.rx-app .rx-primary { background:var(--rx-strong); color:var(--rx-on); border-color:var(--rx-strong); font-weight:600; }
+.rx-app .rx-primary:hover { background:var(--rx-strong); color:var(--rx-on); opacity:.9; }
+.rx-app .rx-quiet { border-color:transparent; background:transparent; color:var(--rx-muted); }
+.rx-app .rx-icon { padding:6px; min-width:28px; min-height:28px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; color:var(--rx-muted); }
+.rx-app .rx-icon:hover { background:var(--rx-soft); }
+.rx-app .rx-danger { color:var(--rx-red); }
+.rx-app .rx-link { font-size:11px; font-weight:500; display:inline-flex; gap:5px; align-items:center; }
+.rx-app .rx-link:hover { text-decoration:underline; text-underline-offset:3px; }
+.rx-app .rx-mark { flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:9px; background:var(--rx-soft); color:var(--rx-fg); }
+.rx-app .rx-mark svg { width:18px; height:18px; }
+.rx-app .rx-mark.rx-small { width:24px; height:24px; border-radius:6px; }
+.rx-app .rx-mark.rx-small svg { width:13px; height:13px; }
+.rx-app .rx-mark[data-tone="green"] { color:light-dark(#277553,#80c6a2); background:light-dark(#eef7f0,#18281f); }
+.rx-app .rx-mark[data-tone="blue"] { color:light-dark(#366db9,#92b8e4); background:light-dark(#eef4fc,#192332); }
+.rx-app .rx-mark[data-tone="red"] { color:light-dark(#bd5951,#db918b); background:light-dark(#fff0ee,#2b1c1d); }
+.rx-app .rx-mark[data-tone="purple"] { color:light-dark(#73559d,#c5a5eb); background:light-dark(#f5f0fa,#251e30); }
+.rx-app .rx-mark[data-tone="gold"] { color:light-dark(#a77732,#d0b17d); background:light-dark(#faf5eb,#2a241b); }
+.rx-app .rx-brand { border-radius:50%; background:var(--rx-strong); color:var(--rx-on); width:22px; height:22px; display:grid; place-items:center; font-weight:700; font-size:12px; letter-spacing:-1px; flex-shrink:0; }
+.rx-app .rx-hud { min-height:40px; border-bottom:1px solid var(--rx-line); display:flex; align-items:center; gap:14px; padding:6px 16px; font-size:10px; }
+.rx-app .rx-statuses { display:flex; gap:11px; align-items:center; color:var(--rx-muted); }
+.rx-app .rx-status { display:flex; gap:4px; align-items:center; font-size:10px; }
+.rx-app .rx-status svg { width:11px; height:11px; }
+.rx-app .rx-status:nth-child(1),.rx-app .rx-status:nth-child(2) { color:var(--rx-amber); }
+.rx-app .rx-status:nth-child(3) { color:var(--rx-green); }
+.rx-app .rx-hud-event { display:flex; align-items:center; gap:5px; }
+.rx-app .rx-hud .rx-btn { min-height:25px; font-size:10px; border-radius:15px; padding:3px 9px; }
+.rx-app .rx-shortcut { font-size:9px; padding:0 3px; background:var(--rx-bg); border-radius:3px; color:var(--rx-muted); }
+.rx-app .rx-mobile-top { display:none; }
+.rx-app .rx-shell { display:grid; grid-template-columns:var(--rx-rail) minmax(0,1fr); flex:1; min-width:0; }
+.rx-app .rx-rail { border-right:1px solid var(--rx-line); padding:8px; display:flex; flex-direction:column; gap:2px; background:var(--rx-bg); min-width:0; }
+.rx-app .rx-home { display:flex; align-items:center; gap:8px; padding:1px 5px 10px; }
+.rx-app .rx-home > button:first-child { display:flex; align-items:center; gap:8px; flex:1; font-weight:600; }
+.rx-app .rx-nav { display:flex; align-items:center; gap:9px; width:100%; min-height:32px; padding:6px 8px; border-radius:7px; font-size:12px; color:var(--rx-muted); }
+.rx-app .rx-nav[aria-current="page"],.rx-app .rx-nav:hover { background:var(--rx-soft); color:var(--rx-fg); }
+.rx-app .rx-nav .rx-count { margin-left:auto; font-size:10px; color:var(--rx-muted); }
+.rx-app .rx-list-header { display:flex; align-items:center; gap:12px; padding:12px 5px 8px; border-bottom:1px solid var(--rx-line); margin-bottom:6px; }
+.rx-app .rx-list-header button { font-size:9px; letter-spacing:.09em; font-weight:600; color:var(--rx-muted); }
+.rx-app .rx-list-header .rx-selected { color:var(--rx-fg); }
+.rx-app .rx-agent { display:flex; align-items:center; gap:7px; padding:8px 5px 4px; font-size:12px; font-weight:500; }
+.rx-app .rx-avatar { width:20px; height:20px; border-radius:4px; background:var(--rx-soft); display:grid; place-items:center; font-size:9px; font-weight:600; flex-shrink:0; }
+.rx-app .rx-chatlink { padding:6px 7px 6px 33px; display:flex; gap:7px; align-items:center; font-size:11px; color:var(--rx-muted); width:100%; border-radius:5px; }
+.rx-app .rx-chatlink:hover { background:var(--rx-soft); }
+.rx-app .rx-dot { width:5px; height:5px; display:inline-block; flex-shrink:0; border-radius:50%; background:var(--rx-green); }
+.rx-app .rx-dot.rx-unread { background:var(--rx-blue); }
+.rx-app .rx-foot { margin-top:auto; padding-top:24px; }
+.rx-app .rx-account-link { border:1px solid var(--rx-line); margin-top:5px; }
+.rx-app .rx-rail-owned { display:flex; align-items:center; gap:7px; padding:7px 5px; min-width:0; }
+.rx-app .rx-rail-owned > button:first-child { display:flex; gap:7px; align-items:center; min-width:0; flex:1; font-size:12px; }
+.rx-app .rx-rail-owned .rx-owner-name { overflow-wrap:anywhere; }
+.rx-app .rx-collapsed { --rx-rail:44px; }
+.rx-app .rx-collapsed .rx-rail { padding:7px 4px; align-items:center; }
+.rx-app .rx-collapsed .rx-rail :is(.rx-nav-text,.rx-list-header,.rx-agent,.rx-chatlink,.rx-rail-owned,.rx-rail-mode,.rx-rail-note,.rx-home-label,.rx-home .rx-collapse,.rx-nav .rx-count) { display:none; }
+.rx-app .rx-collapsed .rx-home { padding:3px 3px 9px; }
+.rx-app .rx-collapsed .rx-nav { width:34px; justify-content:center; padding:8px; }
+.rx-app .rx-collapsed .rx-rail .rx-line { width:24px; margin:8px 0; }
+.rx-app .rx-rail-bot { display:none; }
+.rx-app .rx-collapsed .rx-rail-bot { display:flex; }
+.rx-app .rx-work { min-width:0; display:flex; flex-direction:column; }
+.rx-app .rx-page-head { padding:10px 16px; border-bottom:1px solid var(--rx-line); display:flex; align-items:center; gap:10px; min-height:54px; flex-wrap:wrap; }
+.rx-app .rx-page-head p { font-size:10.5px; color:var(--rx-muted); margin-top:1px; }
+.rx-app .rx-head-actions { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:auto; }
+.rx-app .rx-page { padding:24px 28px; min-width:0; }
+.rx-app .rx-section-title { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+.rx-app .rx-section-title h2 { font-size:13px; letter-spacing:0; }
+.rx-app .rx-section-title h2 span { font-size:11px; color:var(--rx-muted); margin-left:5px; font-weight:400; }
+.rx-app .rx-section { margin-top:24px; }
+.rx-app .rx-search { display:flex; align-items:center; gap:8px; background:var(--rx-soft); border:1px solid var(--rx-line); border-radius:8px; padding:0 11px; min-height:37px; }
+.rx-app .rx-search input { border:0; background:none; padding:9px 0; min-width:0; font-size:12px; }
+.rx-app .rx-search svg { color:var(--rx-muted); }
+.rx-app .rx-filters { display:flex; gap:3px; flex-wrap:wrap; margin:12px 0 18px; }
+.rx-app .rx-filter { font-size:11px; color:var(--rx-muted); border:1px solid transparent; padding:4px 10px; border-radius:16px; }
+.rx-app .rx-filter[aria-pressed="true"],.rx-app .rx-filter:hover { background:var(--rx-soft); color:var(--rx-fg); border-color:var(--rx-line); }
+.rx-app .rx-tiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.rx-app .rx-tile { border:1px solid var(--rx-line); border-radius:11px; padding:15px; display:flex; flex-direction:column; gap:12px; background:var(--rx-card); min-width:0; }
+.rx-app .rx-tile:hover { border-color:var(--rx-muted); }
+.rx-app .rx-tile-top { display:flex; gap:10px; align-items:flex-start; text-align:left; width:100%; }
+.rx-app .rx-tile-top > span:last-child { min-width:0; flex:1; }
+.rx-app .rx-title { display:block; font-size:13px; font-weight:600; }
+.rx-app .rx-description { display:block; color:var(--rx-muted); font-size:11px; line-height:1.65; margin-top:4px; }
+.rx-app .rx-tile-bottom { display:flex; align-items:center; gap:6px; margin-top:auto; padding-top:2px; flex-wrap:wrap; }
+.rx-app .rx-state { display:inline-flex; gap:4px; align-items:center; font-size:10px; color:var(--rx-muted); }
+.rx-app .rx-state svg { width:11px; height:11px; }
+.rx-app .rx-tile-bottom .rx-btn { margin-left:auto; }
+.rx-app .rx-quick { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+.rx-app .rx-shortcut-item { display:flex; align-items:center; gap:8px; padding:8px; min-width:0; border-radius:7px; background:var(--rx-soft); font-size:11px; font-weight:500; }
+.rx-app .rx-shortcut-item span:last-child { overflow-wrap:anywhere; }
+.rx-app .rx-hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(140px,.75fr); gap:16px; border:1px solid var(--rx-line); border-radius:10px; padding:20px; margin:18px 0; background:var(--rx-soft); align-items:center; }
+.rx-app .rx-hero h2 { font-size:20px; margin:7px 0; max-width:240px; }
+.rx-app .rx-hero p { font-size:12px; color:var(--rx-muted); margin-bottom:14px; max-width:270px; }
+.rx-app .rx-mini-preview { background:var(--rx-bg); border:1px solid var(--rx-line); border-radius:9px; padding:15px; min-width:0; }
+.rx-app .rx-mini-preview strong { font-size:22px; font-weight:500; display:block; margin:5px 0 10px; letter-spacing:-.6px; }
+.rx-app .rx-mini-row { display:flex; justify-content:space-between; gap:10px; font-size:10px; padding:7px 0; border-top:1px solid var(--rx-line); }
+.rx-app .rx-bar { height:4px; background:var(--rx-soft); border-radius:3px; margin:6px 0 13px; }
+.rx-app .rx-bar > span { display:block; background:var(--rx-green); height:100%; border-radius:3px; }
+.rx-app .rx-foot-link { margin-top:18px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+.rx-app .rx-empty { padding:28px 8px; color:var(--rx-muted); font-size:12px; }
+.rx-app .rx-split-library { display:grid; grid-template-columns:minmax(210px,.82fr) minmax(0,1.18fr); flex:1; }
+.rx-app .rx-owned-pane { padding:20px; border-right:1px solid var(--rx-line); }
+.rx-app .rx-catalog-pane { padding:20px; min-width:0; }
+.rx-app .rx-catalog-pane .rx-tiles { grid-template-columns:1fr; }
+.rx-app .rx-owned-row { display:flex; align-items:center; gap:9px; padding:13px 0; border-bottom:1px solid var(--rx-line); min-width:0; }
+.rx-app .rx-owned-row .rx-own-open { display:flex; align-items:center; gap:9px; flex:1; min-width:0; }
+.rx-app .rx-owned-row .rx-own-copy { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.rx-app .rx-owned-row .rx-own-copy > span:first-child { font-size:12px; font-weight:500; }
+.rx-app .rx-owned-row .rx-own-copy > span:last-child { font-size:10px; color:var(--rx-muted); }
+.rx-app .rx-flat-row { display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--rx-line); padding:13px 0; min-width:0; }
+.rx-app .rx-flat-main { display:flex; align-items:center; gap:11px; flex:1; min-width:0; }
+.rx-app .rx-flat-main .rx-description { margin:2px 0 0; }
+.rx-app .rx-flat-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.rx-app .rx-flat-actions .rx-state { min-width:38px; }
+.rx-app .rx-purpose { display:grid; grid-template-columns:155px minmax(0,1fr); gap:18px; margin-top:26px; }
+.rx-app .rx-purpose h3 { font-size:12px; padding-top:12px; }
+.rx-app .rx-purpose p { margin-top:5px; font-size:11px; color:var(--rx-muted); }
+.rx-app .rx-inline-detail { border:1px solid var(--rx-line); background:var(--rx-soft); padding:20px; border-radius:8px; margin:12px 0; }
+.rx-app .rx-pane-tabs { display:flex; align-items:center; gap:19px; padding:0 13px; min-height:38px; border-bottom:1px solid var(--rx-line); flex-wrap:wrap; }
+.rx-app .rx-pane-tabs button { font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:var(--rx-muted); padding:12px 0; font-weight:600; }
+.rx-app .rx-pane-tabs button[aria-pressed="true"] { color:var(--rx-fg); box-shadow:inset 0 -2px var(--rx-fg); }
+.rx-app .rx-home-panes { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); flex:1; }
+.rx-app .rx-home-panes > section + section { border-left:1px solid var(--rx-line); }
+.rx-app .rx-chat { display:flex; flex-direction:column; min-width:0; min-height:625px; }
+.rx-app .rx-transcript { padding:22px; display:flex; flex-direction:column; gap:21px; }
+.rx-app .rx-speaker { display:flex; align-items:center; gap:7px; font-size:10px; font-weight:600; margin-bottom:9px; }
+.rx-app .rx-transcript p { font-size:12px; line-height:1.8; margin-bottom:10px; }
+.rx-app .rx-user { background:var(--rx-strong); color:var(--rx-on); padding:11px 13px; border-radius:13px 13px 2px 13px; margin-left:32px; font-size:12px; align-self:flex-end; }
+.rx-app .rx-message-tools { display:flex; align-items:center; gap:7px; color:var(--rx-muted); font-size:10px; margin-top:8px; flex-wrap:wrap; }
+.rx-app .rx-composer { margin:22px 16px 14px; margin-top:auto; border:1px solid var(--rx-line); border-radius:12px; padding:10px 11px 7px; background:var(--rx-card); }
+.rx-app .rx-composer textarea { background:none; border:0; padding:2px 2px 8px; min-height:65px; font-size:12px; }
+.rx-app .rx-compose-bottom { display:flex; align-items:center; gap:7px; font-size:10px; color:var(--rx-muted); }
+.rx-app .rx-send { background:var(--rx-strong); color:var(--rx-on); border-radius:50%; margin-left:auto; min-width:26px; min-height:26px; padding:4px; display:grid; place-items:center; }
+.rx-app .rx-send:hover { color:var(--rx-on); opacity:.85; }
+.rx-app .rx-home-content { padding:18px; }
+.rx-app .rx-home-content .rx-quick { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.rx-app .rx-task { display:flex; align-items:center; gap:9px; padding:12px 0; border-bottom:1px solid var(--rx-line); font-size:11px; }
+.rx-app .rx-task .rx-task-check { width:15px; height:15px; border:1px solid var(--rx-muted); border-radius:4px; display:grid; place-items:center; flex-shrink:0; }
+.rx-app .rx-task[data-done="true"] .rx-task-name { text-decoration:line-through; color:var(--rx-muted); }
+.rx-app .rx-home-discover { margin-top:23px; padding-top:18px; border-top:1px solid var(--rx-line); }
+.rx-app .rx-home-discover .rx-tile { padding:12px; }
+.rx-app .rx-chat-workbench { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(260px,.9fr); flex:1; }
+.rx-app .rx-chat-workbench > aside { border-left:1px solid var(--rx-line); min-width:0; }
+.rx-app .rx-browser-list { display:grid; grid-template-columns:240px minmax(0,1fr); flex:1; }
+.rx-app .rx-browser-menu { padding:18px 14px; border-right:1px solid var(--rx-line); }
+.rx-app .rx-browser-item { display:flex; align-items:center; gap:10px; padding:10px 9px; width:100%; border-radius:7px; margin-top:3px; min-width:0; }
+.rx-app .rx-browser-item[aria-pressed="true"],.rx-app .rx-browser-item:hover { background:var(--rx-soft); }
+.rx-app .rx-browser-item > span:last-child { display:flex; flex-direction:column; min-width:0; font-size:12px; }
+.rx-app .rx-browser-item small { font-size:10px; color:var(--rx-muted); margin-top:1px; }
+.rx-app .rx-preview-main { padding:24px; min-width:0; }
+.rx-app .rx-preview-header { display:flex; align-items:center; gap:11px; flex-wrap:wrap; padding-bottom:18px; border-bottom:1px solid var(--rx-line); }
+.rx-app .rx-preview-window { margin-top:22px; border:1px solid var(--rx-line); border-radius:10px; background:var(--rx-card); }
+.rx-app .rx-preview-window .rx-app-content { padding:22px; }
+.rx-app .rx-preview-window .rx-app-tabs { font-size:10px; }
+.rx-app .rx-app-tabs { display:flex; gap:16px; align-items:center; padding:12px 18px; border-bottom:1px solid var(--rx-line); font-size:11px; color:var(--rx-muted); flex-wrap:wrap; }
+.rx-app .rx-app-tabs .rx-active { color:var(--rx-fg); }
+.rx-app .rx-app-content { padding:24px 28px; }
+.rx-app .rx-balance { font-size:33px; font-weight:500; letter-spacing:-1.2px; line-height:1.2; margin:7px 0 16px; }
+.rx-app .rx-mini-chart { height:80px; display:flex; gap:6px; align-items:flex-end; margin-top:20px; border-bottom:1px solid var(--rx-line); padding:0 10px; }
+.rx-app .rx-mini-chart span { flex:1; background:color-mix(in srgb,var(--rx-green) 32%,var(--rx-bg)); border-radius:3px 3px 0 0; }
+.rx-app .rx-chart-labels { display:flex; justify-content:space-between; color:var(--rx-muted); font-size:9px; margin:6px 0 22px; }
+.rx-app .rx-data-row { display:flex; align-items:center; gap:9px; padding:10px 0; border-bottom:1px solid var(--rx-line); font-size:11px; }
+.rx-app .rx-data-row strong { margin-left:auto; font-size:11px; font-weight:500; }
+.rx-app .rx-preview-points { display:flex; flex-wrap:wrap; gap:10px 20px; margin:18px 0; font-size:11px; color:var(--rx-muted); }
+.rx-app .rx-preview-points span { display:flex; align-items:center; gap:6px; }
+.rx-app .rx-preview-points svg { width:12px; height:12px; }
+.rx-app .rx-bundle-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:20px; }
+.rx-app .rx-bundle { display:flex; flex-direction:column; align-items:flex-start; text-align:left; padding:18px; border:1px solid var(--rx-line); border-radius:10px; min-width:0; gap:10px; background:var(--rx-card); }
+.rx-app .rx-bundle[aria-pressed="true"] { border-color:var(--rx-fg); background:var(--rx-soft); }
+.rx-app .rx-bundle h3 { font-size:14px; }
+.rx-app .rx-bundle p { font-size:11px; color:var(--rx-muted); }
+.rx-app .rx-bundle-icons { display:flex; gap:4px; margin-top:auto; padding-top:6px; }
+.rx-app .rx-bundle-detail { margin-top:20px; border:1px solid var(--rx-line); border-radius:10px; padding:20px; }
+.rx-app .rx-bundle-detail .rx-flat-row:last-child { border-bottom:0; }
+.rx-app .rx-tab-dock { display:flex; flex-wrap:wrap; gap:2px; border-bottom:1px solid var(--rx-line); background:var(--rx-soft); padding:6px 10px 0; align-items:center; }
+.rx-app .rx-tab-dock button { display:flex; gap:7px; align-items:center; padding:10px 13px; font-size:11px; border-radius:7px 7px 0 0; border:1px solid transparent; border-bottom:0; }
+.rx-app .rx-tab-dock button[aria-pressed="true"] { background:var(--rx-bg); border-color:var(--rx-line); box-shadow:0 1px 0 var(--rx-bg); }
+.rx-app .rx-control-center { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(260px,.9fr); flex:1; }
+.rx-app .rx-table-head { display:grid; grid-template-columns:minmax(0,1fr) 40px 28px; gap:8px; border-bottom:1px solid var(--rx-line); padding:10px 0; font-size:10px; color:var(--rx-muted); }
+.rx-app .rx-table-row { display:grid; grid-template-columns:minmax(0,1fr) 40px 28px; gap:8px; align-items:center; padding:14px 0; border-bottom:1px solid var(--rx-line); }
+.rx-app .rx-table-name { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:500; min-width:0; }
+.rx-app .rx-table-name small { display:block; font-size:10px; font-weight:400; color:var(--rx-muted); margin-top:2px; }
+.rx-app .rx-toggle { width:29px; height:17px; padding:2px; border-radius:10px; background:var(--rx-line); display:inline-flex; align-items:center; }
+.rx-app .rx-toggle > span { width:13px; height:13px; border-radius:50%; background:var(--rx-bg); box-shadow:0 1px 2px light-dark(#0002,#0006); }
+.rx-app .rx-toggle[aria-checked="true"] { background:var(--rx-strong); }
+.rx-app .rx-toggle[aria-checked="true"] > span { margin-left:auto; background:var(--rx-on); }
+.rx-app .rx-agent-banner { display:flex; gap:13px; padding:20px 22px; align-items:center; border-bottom:1px solid var(--rx-line); }
+.rx-app .rx-agent-banner .rx-avatar { width:38px; height:38px; font-size:15px; border-radius:9px; }
+.rx-app .rx-agent-tools { display:grid; grid-template-columns:minmax(240px,.8fr) minmax(0,1.2fr); flex:1; }
+.rx-app .rx-instructions { background:var(--rx-soft); border-radius:7px; padding:12px; font-size:11px; line-height:1.8; }
+.rx-app .rx-scope-note { display:flex; gap:8px; align-items:flex-start; font-size:11px; padding:11px 0; color:var(--rx-muted); }
+.rx-app .rx-shelf { border-top:1px solid var(--rx-line); padding:16px 22px 20px; margin-top:auto; background:var(--rx-soft); }
+.rx-app .rx-shelf .rx-search { background:var(--rx-bg); }
+.rx-app .rx-shelf-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:14px; }
+.rx-app .rx-shelf-grid .rx-tile { padding:12px; }
+.rx-app .rx-shelf-grid .rx-tile-top { flex-direction:column; gap:8px; }
+.rx-app .rx-shelf-grid .rx-tile .rx-description { font-size:10.5px; }
+.rx-app .rx-shelf-top { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(180px,.6fr); gap:22px; padding:24px; }
+.rx-app .rx-shelf-insight { border-left:1px solid var(--rx-line); padding-left:20px; }
+.rx-app .rx-shelf-insight p { margin:10px 0 15px; font-size:11px; color:var(--rx-muted); line-height:1.8; }
+.rx-app .rx-detail { padding:22px; min-width:0; }
+.rx-app .rx-back { font-size:11px; color:var(--rx-muted); display:flex; align-items:center; gap:5px; margin-bottom:21px; }
+.rx-app .rx-detail-lead { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+.rx-app .rx-detail-lead h2 { font-size:19px; }
+.rx-app .rx-detail-lead .rx-mark { width:42px; height:42px; border-radius:11px; }
+.rx-app .rx-detail-copy { font-size:12px; color:var(--rx-muted); line-height:1.8; margin-bottom:18px; }
+.rx-app .rx-detail-actions { display:flex; flex-wrap:wrap; gap:7px; margin:18px 0 22px; }
+.rx-app .rx-settings-row { display:flex; align-items:center; gap:12px; padding:16px 0; border-top:1px solid var(--rx-line); }
+.rx-app .rx-settings-row > span:first-child { flex:1; min-width:0; font-size:12px; font-weight:500; }
+.rx-app .rx-settings-row small { display:block; font-size:10.5px; color:var(--rx-muted); font-weight:400; margin-top:3px; }
+.rx-app .rx-field { display:block; font-size:11px; margin:15px 0; }
+.rx-app .rx-field :is(input,textarea,select) { margin-top:7px; font-size:12px; }
+.rx-app .rx-confirm { padding:12px; border:1px solid var(--rx-line); border-radius:8px; background:var(--rx-soft); margin-top:14px; font-size:11px; }
+.rx-app .rx-confirm .rx-inline { margin-top:10px; }
+.rx-app .rx-notice { display:flex; align-items:center; gap:7px; padding:9px 16px; border-bottom:1px solid var(--rx-line); font-size:11px; background:var(--rx-soft); }
+.rx-app .rx-notice > span { flex:1; }
+.rx-app .rx-create { max-width:550px; margin:auto; padding:28px; width:100%; }
+.rx-app .rx-create-options { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; margin:18px 0; }
+.rx-app .rx-create-options button { border:1px solid var(--rx-line); border-radius:7px; padding:12px 8px; font-size:11px; display:flex; align-items:center; gap:7px; flex-direction:column; }
+.rx-app .rx-create-options button[aria-pressed="true"] { border-color:var(--rx-fg); background:var(--rx-soft); }
+.rx-app .rx-import-zone { border:1px dashed var(--rx-muted); border-radius:8px; padding:25px 15px; text-align:center; font-size:11px; color:var(--rx-muted); margin-top:10px; }
+.rx-app .rx-phone-nav { display:none; }
+.rx-app[data-descriptions="false"] .rx-description { display:none; }
+.rx-app[data-density="Compact"] { --rx-gap:14px; }
+.rx-app[data-density="Compact"] .rx-page { padding:18px 22px; }
+.rx-app[data-density="Compact"] .rx-tile { padding:11px; gap:9px; }
+.rx-app[data-density="Compact"] .rx-flat-row { padding:9px 0; }
+@media (max-width:1000px) {
+  .rx-app .rx-quick { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .rx-app .rx-purpose { grid-template-columns:120px minmax(0,1fr); gap:15px; }
+  .rx-app .rx-bundle-grid { gap:8px; }
+  .rx-app .rx-bundle { padding:13px; }
+}
+@media (max-width:900px) {
+  .rx-app { --rx-rail:44px; }
+  .rx-app .rx-rail { padding:7px 4px; align-items:center; }
+  .rx-app .rx-rail :is(.rx-nav-text,.rx-list-header,.rx-agent,.rx-chatlink,.rx-rail-owned,.rx-rail-mode,.rx-rail-note,.rx-home-label,.rx-home .rx-collapse,.rx-nav .rx-count) { display:none; }
+  .rx-app .rx-home { padding:3px 3px 9px; }
+  .rx-app .rx-nav { width:34px; justify-content:center; padding:8px; }
+  .rx-app .rx-rail .rx-line { width:24px; margin:8px 0; }
+  .rx-app .rx-rail-bot { display:flex; }
+  .rx-app .rx-quick { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .rx-app .rx-hud-event,.rx-app .rx-shortcut { display:none; }
+}
+@media (max-width:650px) {
+  .rx-app .rx-hud { display:none; }
+  .rx-app .rx-mobile-top { display:flex; align-items:center; gap:9px; padding:11px 14px; border-bottom:1px solid var(--rx-line); font-size:12px; }
+  .rx-app .rx-shell { grid-template-columns:1fr; }
+  .rx-app .rx-rail { display:none; }
+  .rx-app .rx-page { padding:20px 16px; }
+  .rx-app .rx-page-head { padding:10px 14px; }
+  .rx-app .rx-page-head .rx-head-actions { margin-left:0; }
+  .rx-app .rx-page-head .rx-grow { min-width:160px; }
+  .rx-app .rx-page-head .rx-mark { width:28px; height:28px; }
+  .rx-app .rx-page-head p { font-size:10px; }
+  .rx-app .rx-quick { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .rx-app .rx-hero { grid-template-columns:1fr; padding:16px; }
+  .rx-app .rx-hero .rx-mini-preview { display:none; }
+  .rx-app .rx-hero h2 { max-width:none; font-size:19px; }
+  .rx-app .rx-hero p { max-width:none; }
+  .rx-app .rx-tiles { grid-template-columns:1fr; }
+  .rx-app .rx-split-library,.rx-app .rx-home-panes,.rx-app .rx-chat-workbench,.rx-app .rx-control-center,.rx-app .rx-agent-tools { grid-template-columns:1fr; }
+  .rx-app .rx-owned-pane { border-right:0; border-bottom:1px solid var(--rx-line); padding:16px; }
+  .rx-app .rx-catalog-pane { padding:18px 16px; }
+  .rx-app .rx-purpose { grid-template-columns:1fr; gap:3px; }
+  .rx-app .rx-purpose h3 { font-size:13px; }
+  .rx-app .rx-purpose p { display:none; }
+  .rx-app .rx-flat-row { flex-wrap:wrap; gap:8px; }
+  .rx-app .rx-flat-main { flex-basis:170px; }
+  .rx-app .rx-flat-actions { margin-left:auto; }
+  .rx-app .rx-flat-actions .rx-state { display:none; }
+  .rx-app .rx-home-panes > section + section,.rx-app .rx-chat-workbench > aside { border-left:0; border-top:1px solid var(--rx-line); }
+  .rx-app .rx-chat { min-height:450px; }
+  .rx-app .rx-chat-workbench > aside { order:-1; }
+  .rx-app .rx-browser-list { grid-template-columns:1fr; }
+  .rx-app .rx-browser-menu { border-right:0; border-bottom:1px solid var(--rx-line); }
+  .rx-app .rx-browser-items { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .rx-app .rx-browser-item { padding:8px 5px; }
+  .rx-app .rx-browser-item > span:last-child { font-size:11px; }
+  .rx-app .rx-browser-item small { font-size:9px; }
+  .rx-app .rx-preview-main { padding:18px 16px; }
+  .rx-app .rx-preview-header .rx-head-actions { margin:0; }
+  .rx-app .rx-bundle-grid { grid-template-columns:1fr; }
+  .rx-app .rx-bundle { display:grid; grid-template-columns:32px minmax(0,1fr) auto; align-items:center; gap:11px; padding:12px; }
+  .rx-app .rx-bundle .rx-bundle-icons { grid-column:2/-1; padding:0; }
+  .rx-app .rx-bundle p { margin-top:4px; }
+  .rx-app .rx-bundle-detail { padding:15px; }
+  .rx-app .rx-tab-dock button { padding:9px 8px; }
+  .rx-app .rx-shelf-top { grid-template-columns:1fr; padding:20px 16px; }
+  .rx-app .rx-shelf-insight { border-left:0; border-top:1px solid var(--rx-line); padding:15px 0 0; }
+  .rx-app .rx-shelf-grid { grid-template-columns:1fr; }
+  .rx-app .rx-shelf-grid .rx-tile-top { flex-direction:row; }
+  .rx-app .rx-shelf { padding:16px; }
+  .rx-app .rx-phone-nav { display:flex; align-items:center; justify-content:space-around; gap:4px; border-top:1px solid var(--rx-line); padding:10px 5px; margin-top:auto; }
+  .rx-app .rx-phone-nav button { font-size:9px; display:flex; align-items:center; flex-direction:column; gap:4px; color:var(--rx-muted); padding:4px; }
+  .rx-app .rx-phone-nav button[aria-current="page"] { color:var(--rx-fg); }
+  .rx-app .rx-create { padding:22px 16px; }
+  .rx-app .rx-detail { padding:18px 16px; }
+}
+@media (pointer:coarse) {
+  .rx-app button { min-height:44px; }
+  .rx-app .rx-icon { min-width:44px; }
+  .rx-app input,.rx-app textarea,.rx-app select { font-size:16px!important; }
+  .rx-app .rx-toggle { min-height:44px; background:none; width:40px; position:relative; }
+  .rx-app .rx-toggle::before { content:""; position:absolute; top:13px; left:2px; width:29px; height:17px; border-radius:10px; background:var(--rx-line); }
+  .rx-app .rx-toggle[aria-checked="true"]::before { background:var(--rx-strong); }
+  .rx-app .rx-toggle > span { position:absolute; top:15px; left:4px; }
+  .rx-app .rx-toggle[aria-checked="true"] > span { left:16px; }
+}
+</style>
+<div id="ri-current-ui-options" class="viz-carousel" aria-label="Twelve ways to extend Ri">
+  <section data-variant="Discover first" aria-label="Discover first layout"><div class="rx-stage"><div class="rx-app" data-layout="discover" aria-label="Discover first"></div></div></section>
+  <section data-variant="Split library" aria-label="Split library layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="split" aria-label="Split library"></div></div></section>
+  <section data-variant="Apps rail" aria-label="Apps rail layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="rail" aria-label="Apps rail"></div></div></section>
+  <section data-variant="One collection" aria-label="One collection layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="collection" aria-label="One collection"></div></div></section>
+  <section data-variant="Home discovery" aria-label="Home discovery layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="home" aria-label="Home discovery"></div></div></section>
+  <section data-variant="Beside your chat" aria-label="Beside your chat layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="chat" aria-label="Beside your chat"></div></div></section>
+  <section data-variant="Preview browser" aria-label="Preview browser layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="preview" aria-label="Preview browser"></div></div></section>
+  <section data-variant="Goal bundles" aria-label="Goal bundles layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="bundles" aria-label="Goal bundles"></div></div></section>
+  <section data-variant="App tabs" aria-label="App tabs layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="tabs" aria-label="App tabs"></div></div></section>
+  <section data-variant="Control center" aria-label="Control center layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="control" aria-label="Control center"></div></div></section>
+  <section data-variant="Agent tools" aria-label="Agent tools layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="agent" aria-label="Agent tools"></div></div></section>
+  <section data-variant="Discovery shelf" aria-label="Discovery shelf layout" hidden><div class="rx-stage"><div class="rx-app" data-layout="shelf" aria-label="Discovery shelf"></div></div></section>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('ri-current-ui-options');
+  const catalog = [
+    {id:'finances',name:'Finances',icon:'wallet-cards',tone:'green',kind:'app',group:'Life',description:'Your money, in one clear picture.',detail:'See spending, track recurring costs, and plan what comes next. Open the app or ask Ri about your money.',sample:'How much did I spend on subscriptions this month?'},
+    {id:'people',name:'People',icon:'contact-round',tone:'blue',kind:'app',group:'Work',description:'Remember people. Follow up thoughtfully.',detail:'Keep the context behind your relationships and see who you want to follow up with.',sample:'Who should I follow up with this week?'},
+    {id:'gmail',name:'Gmail',icon:'mail',tone:'red',kind:'connection',group:'Work',description:'Find emails and draft your replies.',detail:'Let Ri search your email and prepare replies using the account you connect.',sample:'Find the latest email from Maya and draft a reply.'},
+    {id:'weekly',name:'Weekly review',icon:'calendar-check',tone:'purple',kind:'skill',group:'Life',description:'Turn a busy week into a clear plan.',detail:'A repeatable way for Ri to review your notes and unfinished work, then help you plan the week ahead.',sample:'Help me review my week and make a plan for Monday.'},
+    {id:'company',name:'Company data',icon:'database',tone:'blue',kind:'mcp',group:'Work',description:'Ask questions about your business.',detail:'Your custom connection to company reports and customer data. Choose which agents can use it.',sample:'Summarize this month’s customer growth.'},
+    {id:'calendar',name:'Google Calendar',icon:'calendar-days',tone:'blue',kind:'connection',group:'Life',description:'Make plans around your actual day.',detail:'Connect your calendar so Ri can find time, prepare for meetings, and help plan your day.',sample:'Find time for a two-hour focus session tomorrow.'},
+    {id:'slack',name:'Slack',icon:'hash',tone:'purple',kind:'connection',group:'Work',description:'Bring team conversations into the picture.',detail:'Find decisions and context in your team’s conversations when you need them.',sample:'What did the team decide about the launch?'},
+    {id:'travel',name:'Travel',icon:'map-pinned',tone:'gold',kind:'app',group:'Life',description:'Keep a whole trip together.',detail:'Collect places, bookings, and plans in a single itinerary you and Ri can work on together.',sample:'Help me plan a long weekend in Lisbon.'},
+    {id:'slides',name:'Presentations',icon:'panels-top-left',tone:'gold',kind:'skill',group:'Create',description:'Make a clear story out of your ideas.',detail:'Give Ri a repeatable process for turning your notes into an outline and a presentation.',sample:'Turn my project notes into a five-slide update.'},
+    {id:'proposal',name:'Proposal writer',icon:'file-pen-line',tone:'purple',kind:'skill',group:'Create',description:'Write proposals that sound like you.',detail:'A writing workflow that starts from your brief and follows your tone, structure, and examples.',sample:'Write a proposal for a six-week design project.'},
+    {id:'linear',name:'Linear',icon:'circle-dot',tone:'blue',kind:'connection',group:'Work',description:'Keep your project work moving.',detail:'Give Ri the context of your issues and projects so it can help you plan and follow up.',sample:'Which launch issues are still blocked?'},
+    {id:'research',name:'Research brief',icon:'notebook-pen',tone:'green',kind:'skill',group:'Create',description:'Go from a question to a useful brief.',detail:'A research workflow that gathers sources, weighs what they say, and writes a concise brief.',sample:'Research the options for our next team offsite.'}
+  ];
+  const bundles = [
+    {id:'business',name:'Run a small business',icon:'briefcase-business',description:'People, proposals, and the next follow-up.',items:['people','gmail','proposal'],copy:'Know your customers, find the conversation, and write the next proposal.'},
+    {id:'life',name:'Get life organized',icon:'house',description:'Money, your calendar, and a weekly reset.',items:['finances','calendar','weekly'],copy:'A clear view of your money and time, plus a simple rhythm for staying on top of both.'},
+    {id:'ideas',name:'Bring ideas to life',icon:'pencil-ruler',description:'Research, clear stories, and project work.',items:['research','slides','linear'],copy:'Go from a question to a grounded idea, a clear presentation, and the work to make it real.'}
+  ];
+  const allRoots = [...root.querySelectorAll('.rx-app')];
+  const states = {};
+  const validIds = new Set(catalog.map(i=>i.id));
+  const cleanIds = ids => Array.isArray(ids) ? [...new Set(ids.filter(id=>validIds.has(id)))] : [];
+  const defaults = key => ({view:'main',selected:key==='preview'?'finances':null,query:'',filter:'All',all:false,added:['finances','people','gmail','weekly','company'],off:['company'],pinned:['finances','people','gmail','weekly'],panel:'overview',bundle:'business',dock:'discover',openTabs:['finances','people'],scope:'Design',agentTools:['people','gmail'],draft:'',sent:'',confirm:false,notice:'',createMode:'build',currency:'USD',instructions:'Keep it clear and practical. Use my preferred tone.',access:'Ask before making changes',density:'Comfortable',descriptions:true,railOpen:!['preview','agent','chat'].includes(key),done:[]});
+  allRoots.forEach(app=>states[app.dataset.layout]=defaults(app.dataset.layout));
+  let lastSaved='';
+  function hydrate(snapshot){
+    if(snapshot?.privateContent?.version!==4) return;
+    const saved=snapshot.privateContent.layouts;
+    if(!saved || typeof saved!=='object')return;
+    for(const app of allRoots){
+      const key=app.dataset.layout, v=saved[key];
+      if(!v||typeof v!=='object')continue;
+      const s=states[key];
+      for(const field of ['added','off','pinned','openTabs','agentTools']) if(Array.isArray(v[field]))s[field]=cleanIds(v[field]);
+      for(const field of ['query','filter','bundle','dock','scope','currency','instructions','access','density'])if(typeof v[field]==='string')s[field]=v[field].slice(0,800);
+      if(['main','library','detail','open','create','chat'].includes(v.view))s.view=v.view;
+      if(validIds.has(v.selected)||v.selected===null)s.selected=v.selected;
+      for(const field of ['all','descriptions','railOpen'])if(typeof v[field]==='boolean')s[field]=v[field];
+    }
+  }
+  hydrate(window.openai?.widgetState);
+  const esc = value => String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const item = id => catalog.find(i=>i.id===id)||catalog[0];
+  const icon = name => `<i data-lucide="${name}" aria-hidden="true"></i>`;
+  const mark = (i,small=false) => `<span class="rx-mark${small?' rx-small':''}" data-tone="${i.tone}">${icon(i.icon)}</span>`;
+  const btn = (label,action,id='',cls='',extra='') => `<button type="button" class="rx-btn cursor-interaction ${cls}" data-action="${action}"${id?` data-id="${esc(id)}"`:''} ${extra}>${label}</button>`;
+  const ib = (name,label,action,id='') => `<button type="button" class="rx-icon cursor-interaction" aria-label="${esc(label)}" data-action="${action}"${id?` data-id="${esc(id)}"`:''}>${icon(name)}</button>`;
+  const toggle = (checked,action,id,label) => `<button type="button" class="rx-toggle cursor-interaction" role="switch" aria-checked="${checked}" aria-label="${esc(label)}" data-action="${action}" data-id="${id}"><span></span></button>`;
+  const has = (s,i) => s.added.includes(i.id);
+  const active = (s,i) => has(s,i)&&!s.off.includes(i.id);
+  const own = s => catalog.filter(i=>has(s,i));
+  const stateLabel = (s,i) => !has(s,i)?(i.kind==='app'?'Made for Ri':i.kind==='connection'?'Connect an account':i.kind==='mcp'?'Custom connection':'A way of working'):s.off.includes(i.id)?'Turned off':i.kind==='connection'?'Connected':i.kind==='mcp'?'Ready':'Added';
+  function primary(s,i,cls=''){
+    const label = !has(s,i)?'Add to Ri':!active(s,i)?'Turn on':i.kind==='app'?'Open':'Try in chat';
+    const action = !has(s,i)?'add':!active(s,i)?'toggle':i.kind==='app'?'open':'try';
+    return btn(label,action,i.id,cls,`aria-label="${esc(label+' '+i.name)}"`);
+  }
+  function card(s,i){return `<article class="rx-tile"><button type="button" class="rx-tile-top cursor-interaction" data-action="select" data-id="${i.id}" aria-label="Details for ${esc(i.name)}">${mark(i)}<span><span class="rx-title">${i.name}</span><span class="rx-description">${i.description}</span></span></button><div class="rx-tile-bottom"><span class="rx-state">${has(s,i)?icon(active(s,i)?'check':'circle-pause'):''}${stateLabel(s,i)}</span>${primary(s,i)}${has(s,i)?ib('settings-2',`Manage ${i.name}`,'manage',i.id):''}</div></article>`;}
+  function flat(s,i,inline=false){return `<div class="rx-flat-row"><button type="button" class="rx-flat-main cursor-interaction" data-action="select" data-id="${i.id}" aria-label="Details for ${esc(i.name)}">${mark(i)}<span><span class="rx-title">${i.name}</span><span class="rx-description">${i.description}</span></span></button><div class="rx-flat-actions"><span class="rx-state">${has(s,i)?(active(s,i)?'Added':'Off'):''}</span>${primary(s,i)}${has(s,i)?ib('settings-2',`Manage ${i.name}`,'manage',i.id):''}</div></div>${inline&&s.selected===i.id?`<div class="rx-inline-detail">${detailBody(s,i)}</div>`:''}`;}
+  function ownedRows(s){return own(s).map(i=>`<div class="rx-owned-row"><button type="button" class="rx-own-open cursor-interaction" data-action="${active(s,i)?(i.kind==='app'?'open':'try'):'manage'}" data-id="${i.id}">${mark(i)}<span class="rx-own-copy"><span>${i.name}</span><span>${!active(s,i)?'Turned off':i.kind==='app'?'Open app':i.kind==='connection'?'Work account':i.kind==='mcp'?'Custom connection':'Use in chat'}</span></span></button>${ib('settings-2',`Manage ${i.name}`,'manage',i.id)}</div>`).join('');}
+  function sectionTitle(name,actionLabel='',action='',count=''){return `<div class="rx-section-title"><h2>${name}${count!==''?` <span>${count}</span>`:''}</h2>${actionLabel?btn(actionLabel,action,'','rx-quiet'):''}</div>`;}
+  function search(s,placeholder='Search a name or something you want to do'){return `<label class="rx-search">${icon('search')}<input data-field="query" type="search" value="${esc(s.query)}" placeholder="${esc(placeholder)}" aria-label="Search additions">${s.query?ib('x','Clear search','clear'):''}</label>`;}
+  function filters(s,names=['All','Work','Life','Create']){return `<div class="rx-filters" aria-label="Browse filters">${names.map(n=>`<button type="button" class="rx-filter cursor-interaction" data-action="filter" data-id="${n}" aria-pressed="${s.filter===n}">${n}</button>`).join('')}</div>`;}
+  function matching(s,list=catalog){
+    const words=(s.query.toLowerCase().match(/[a-z0-9]+/g)||[]).filter(w=>!['help','me','i','want','to','my','the','a','an','with','and','do','make','manage'].includes(w));
+    const aliases={finances:'money budget spending finances bills',people:'crm contacts relationships customers',gmail:'email mail inbox account',calendar:'calendar schedule meetings account',slack:'team messages account',linear:'project tasks issues account',weekly:'week planning review organize',travel:'trip vacation travel plans',slides:'presentation slides deck',proposal:'writing proposal voice',research:'research sources report brief',company:'custom mcp server data metrics reports'};
+    return list.filter(i=>{
+      const haystack=`${i.name} ${i.description} ${i.detail} ${i.kind} ${aliases[i.id]}`.toLowerCase();
+      return (!words.length||words.some(w=>haystack.includes(w.length>4?w.replace(/s$/,''):w)))&&(s.filter==='All'||s.filter==='Added'&&has(s,i)||s.filter==='Available'&&!has(s,i)||s.filter===i.group);
+    });
+  }
+  function tiles(s,list=catalog,limit=6){const matches=matching(s,list);return `<div class="rx-tiles">${matches.slice(0,s.all||s.query?99:limit).map(i=>card(s,i)).join('')}</div>${!matches.length?'<p class="rx-empty">No matches. Try a name or something you want help with.</p>':''}${matches.length>limit&&!s.all&&!s.query?`<div class="rx-foot-link">${btn(`Browse all ${matches.length}`+` ${icon('arrow-right')}`,'all','','rx-quiet')}</div>`:''}`;}
+  function quick(s){return `<div class="rx-quick">${s.pinned.map(item).filter(i=>active(s,i)).map(i=>`<button type="button" class="rx-shortcut-item cursor-interaction" data-action="${i.kind==='app'?'open':'try'}" data-id="${i.id}">${mark(i,true)}<span>${i.name}</span></button>`).join('')}</div>`;}
+  function head(title='Apps',subtitle='More ways to work with Ri.',actions='',glyph='layout-grid'){return `<header class="rx-page-head"><span class="rx-mark">${icon(glyph)}</span><div class="rx-grow"><h1>${title}</h1><p>${subtitle}</p></div><div class="rx-head-actions">${actions||btn(icon('hammer')+' Build','create','','rx-quiet')+btn(icon('plus')+' Add your own','create','','rx-primary')}</div></header>`;}
+  function nav(label,glyph,action,selected=false,id=''){return `<button type="button" class="rx-nav cursor-interaction" data-action="${action}" data-id="${id}" aria-label="${label}"${selected?' aria-current="page"':''}>${icon(glyph)}<span class="rx-nav-text">${label}</span>${label==='Apps'?`<span class="rx-count">${icon('chevron-right')}</span>`:''}</button>`;}
+  function rail(s,key){
+    const isApps=!['home','chat','agent'].includes(key)||s.view!=='main';
+    const agents=`<div class="rx-list-header"><button type="button" class="rx-selected cursor-interaction" data-action="agent-view">AGENTS</button><button type="button" class="cursor-interaction" data-action="recent">RECENT</button><span class="rx-grow"></span>${ib('plus','New agent','new-agent')}</div><div class="rx-agent"><span class="rx-avatar">D</span><button type="button" class="cursor-interaction" data-action="agent-view">Design</button>${icon('chevron-down')}</div><button type="button" class="rx-chatlink cursor-interaction" data-action="chat-view"><span class="rx-dot"></span>Explore the next direction</button><button type="button" class="rx-chatlink cursor-interaction" data-action="chat-view"><span class="rx-dot rx-unread"></span>Website review</button><div class="rx-agent"><span class="rx-avatar">W</span><button type="button" class="cursor-interaction" data-action="agent-view">Work</button>${icon('chevron-right')}</div><div class="rx-agent"><span class="rx-avatar">P</span><button type="button" class="cursor-interaction" data-action="agent-view">Personal</button>${icon('chevron-right')}</div>`;
+    const owned=`<div class="rx-list-header"><span class="rx-kicker">Your library</span><span class="rx-grow"></span>${ib('settings-2','Manage library','library')}</div>${own(s).map(i=>`<div class="rx-rail-owned"><button type="button" class="cursor-interaction" data-action="${active(s,i)?(i.kind==='app'?'open':'try'):'manage'}" data-id="${i.id}">${mark(i,true)}<span class="rx-owner-name">${i.name}${!active(s,i)?' <span class="rx-tiny">Off</span>':''}</span></button>${ib('settings-2',`Manage ${i.name}`,'manage',i.id)}</div>`).join('')}<div class="rx-line"></div><p class="rx-rail-note rx-tiny" style="padding:8px">Added once, ready wherever you work.</p><div class="rx-list-header"><button type="button" class="cursor-interaction" data-action="agent-view">${icon('bot')} Back to agents</button></div>`;
+    return `<aside class="rx-rail" aria-label="Ri navigation"><div class="rx-home"><button type="button" class="cursor-interaction" data-action="home-view" aria-label="Ri home"><span class="rx-brand">Ri</span><span class="rx-home-label">Ri</span></button><span class="rx-collapse">${ib('panel-left-close','Collapse rail','rail-toggle')}</span></div>${nav('New chat','plus','new-chat')}${nav('Search chats','search','search-chats')}<div class="rx-line"></div>${nav('Apps','layout-grid','main',isApps)}${key==='rail'?`<div class="rx-rail-mode">${nav('Discover','compass','main',s.view==='main')}${nav('Your library','library','library',s.view==='library')}</div>`:''}${nav('Task Board','square-kanban','board')}${nav('Calendar','calendar','calendar-view')}${nav('Schedules and Triggers','clock','schedules')}<div class="rx-rail-bot">${nav('Agents','bot','agent-view')}</div>${key==='rail'?owned:agents}<div class="rx-foot">${nav('Settings','settings','settings')}<div class="rx-account-link">${nav('Connect accounts','plug','accounts')}</div></div></aside>`;
+  }
+  function hud(key){return `<div class="rx-hud"><div class="rx-statuses"><span class="rx-status">${icon('circle-alert')} 1</span><span class="rx-status">${icon('circle')} 2</span><span class="rx-status">${icon('zap')} 1</span><span class="rx-status">${icon('clock')} 0</span>${icon('gauge')}</div>${btn(icon('x')+' <span>Close '+(['home','chat','agent'].includes(key)?'view':'apps')+'</span> <span class="rx-shortcut">⌘E</span>','home-view','','rx-quiet')}<span class="rx-grow"></span><span class="rx-hud-event rx-muted">${icon('calendar')} Design review in 24m</span>${ib('search','Search Ri','global-search')}${btn(icon('plus')+' CREATE','create','','rx-primary')}</div><div class="rx-mobile-top"><span class="rx-brand">Ri</span><strong>Ri</strong><span class="rx-grow"></span>${ib('search','Search Ri','global-search')}${ib('layout-grid','Apps','main')}</div>`;}
+  function miniature(){return `<div class="rx-mini-preview"><span class="rx-tiny">YOUR NEXT TRIP</span><strong>Lisbon</strong><div class="rx-mini-row"><span>Friday</span><span>Arrive and settle in</span></div><div class="rx-mini-row"><span>Saturday</span><span>Explore Alfama</span></div><div class="rx-mini-row"><span>Sunday</span><span>A day in Sintra</span></div></div>`;}
+  function discover(s){return `${head()}<div class="rx-page">${sectionTitle('Your library','Manage','library',s.added.length)}${quick(s)}<section class="rx-section"><div class="rx-section-title"><h2>Discover</h2><span class="rx-tiny">Make Ri your own</span></div>${search(s)}${filters(s)}${!s.query&&s.filter==='All'&&!s.all?`<div class="rx-hero"><div><span class="rx-kicker">Made for everyday life</span><h2>A whole trip, all together.</h2><p>Places, plans, and bookings in one shared itinerary.</p>${btn('Explore Travel '+icon('arrow-right'),'select','travel')}</div>${miniature()}</div>`:''}${tiles(s,s.query?catalog:catalog.filter(i=>!has(s,i)),6)}</section></div>`;}
+  function split(s){return `${head('Apps','Your library and the next thing you can do.')}<div class="rx-split-library"><section class="rx-owned-pane">${sectionTitle('Your library','','',s.added.length)}<p class="rx-tiny">Ready when you need it.</p>${ownedRows(s)}<div class="rx-space"></div>${btn(icon('plus')+' Add your own','create','','rx-quiet')}</section><section class="rx-catalog-pane">${s.selected?detail(s,item(s.selected),true):`${sectionTitle('Discover')}${search(s,'Find more for your Ri')}${filters(s)}${tiles(s,catalog.filter(i=>!has(s,i)),4)}`}</section></div>`;}
+  function railLayout(s){return `${head('Discover','Find your next useful addition.',btn(icon('hammer')+' Build','create','','rx-quiet')+btn(icon('plus')+' Add your own','create'))}<div class="rx-page">${search(s)}${filters(s)}<div class="rx-section-title"><h2>${s.query?'Search results':'Make more possible'}</h2><span class="rx-tiny">Apps, services, and ways of working</span></div>${tiles(s,s.query?catalog:catalog.filter(i=>!has(s,i)),8)}</div>`;}
+  function collection(s){const groups=[{name:'Stay connected',hint:'People and conversations.',ids:['people','gmail','slack','linear']},{name:'Make room for life',hint:'Money, time, and plans.',ids:['finances','calendar','travel','weekly']},{name:'Think and create',hint:'From information to something useful.',ids:['research','slides','proposal','company']}];return `${head('Apps','Everything Ri can do, together.')}<div class="rx-page">${search(s)}${filters(s,['All','Added','Available'])}${groups.map(g=>{const rows=matching(s,g.ids.map(item));return rows.length?`<section class="rx-purpose"><div><h3>${g.name}</h3><p>${g.hint}</p></div><div>${rows.map(i=>flat(s,i,true)).join('')}</div></section>`:''}).join('')}${!matching(s).length?'<p class="rx-empty">No matching additions.</p>':''}</div>`;}
+  function composer(s,label='Message Ri…'){return `<div class="rx-composer"><textarea data-field="draft" aria-label="Message Ri" placeholder="${label}">${esc(s.draft)}</textarea><div class="rx-compose-bottom">${ib('plus','Attach a file','attach')}${icon('at-sign')}<span>Claude</span>${icon('chevron-down')}<span class="rx-grow"></span>${icon('mic')}<button type="button" class="rx-send cursor-interaction" data-action="send" aria-label="Send message">${icon('arrow-up')}</button></div></div>`;}
+  function chatPane(s,context='home'){
+    const chosen=s.selected?item(s.selected):null;
+    const text=context==='active'?'Help me put together the next client proposal.':context==='try'&&chosen?chosen.sample:'What should I focus on today?';
+    let response=context==='active'?'I can help you shape the scope and write the proposal. People and Gmail are already available, so we can pull in the context from your client conversations.':context==='try'&&chosen?`You can use ${chosen.name} here. Tell me what you want to work on.`:'You have a design review this afternoon and two things worth finishing first. I’ve pulled them into your deck.';
+    return `<section class="rx-chat"><div class="rx-pane-tabs"><button type="button" class="cursor-interaction" aria-pressed="true" data-action="chat-view">CHAT</button><button type="button" class="cursor-interaction" data-action="board">TASKS</button><button type="button" class="cursor-interaction" data-action="notes">NOTES</button><span class="rx-grow"></span>${ib('history','Chat history','recent')}</div><div class="rx-transcript"><div class="rx-user">${esc(text)}</div><div><div class="rx-speaker"><span class="rx-brand">Ri</span> Ri</div><p>${response}</p>${context==='active'?`<div class="rx-message-tools">${mark(item('people'),true)} People ${mark(item('gmail'),true)} Gmail</div><div class="rx-space"></div><p>Proposal writer can also help keep the structure and voice consistent across your proposals.</p>${btn('See Proposal writer '+icon('arrow-right'),'select','proposal')}`:''}<div class="rx-message-tools">${icon('copy')}${icon('rotate-ccw')}<span>Just now</span></div></div>${s.sent?`<div class="rx-user">${esc(s.sent)}</div><div><div class="rx-speaker"><span class="rx-brand">Ri</span> Ri</div><p>This is a preview conversation. In Ri, your agent would continue here using the additions you chose.</p></div>`:''}</div>${composer(s)}</section>`;
+  }
+  function home(s){return `<div class="rx-home-panes">${chatPane(s)}<section><div class="rx-pane-tabs"><button type="button" class="cursor-interaction" data-action="chat-view">CHAT</button><button type="button" class="cursor-interaction" aria-pressed="true" data-action="home-view">DECK</button><button type="button" class="cursor-interaction" data-action="notes">NOTES</button><span class="rx-grow"></span>${ib('plus','Create','create')}</div><div class="rx-home-content">${sectionTitle('Today')}<p class="rx-tiny">Monday, October 19</p>${['Finish the proposal outline','Prepare for the design review'].map((t,n)=>`<button type="button" class="rx-task cursor-interaction" data-action="task" data-id="${n}" data-done="${s.done.includes(String(n))}" style="width:100%"><span class="rx-task-check">${s.done.includes(String(n))?icon('check'):''}</span><span class="rx-task-name">${t}</span></button>`).join('')}<section class="rx-section">${sectionTitle('Your library','Manage','library')}${quick(s)}</section><section class="rx-home-discover">${s.selected?detail(s,item(s.selected),true):`${sectionTitle('Discover','Browse all','all')}${search(s,'Find something for your Ri')}<div class="rx-space"></div>${tiles(s,catalog.filter(i=>!has(s,i)),2)}`}</section></div></section></div>`;}
+  function chatLayout(s){return `${head('Client proposal','Design · New chat',btn(icon('layout-grid')+' Browse','main','','rx-primary')+btn('Your library','library'),'message-circle')}<div class="rx-chat-workbench">${chatPane(s,'active')}<aside><div class="rx-page-head"><div class="rx-grow"><h1>Discover</h1><p>More ways to move this forward.</p></div>${ib('settings-2','Manage library','library')}</div><div class="rx-catalog-pane">${s.selected?detail(s,item(s.selected),true):`${search(s,'Find a tool or a way to work')}${filters(s)}<p class="rx-kicker" style="margin-bottom:12px">For this conversation</p>${tiles(s,[item('proposal'),item('slides'),item('research'),...catalog.filter(i=>!['proposal','slides','research'].includes(i.id))],3)}<section class="rx-section">${sectionTitle('Already available')}${own(s).filter(i=>active(s,i)).slice(0,2).map(i=>flat(s,i)).join('')}</section>`}</div></aside></div>`;}
+  function appInterior(s,i,compact=false){
+    if(i.id==='people')return `<div class="rx-app-tabs"><span class="rx-active">People</span><span>Follow-ups</span><span>Notes</span></div><div class="rx-app-content"><div class="rx-section-title"><h2>Your relationships</h2>${btn(icon('plus')+' Add person','demo-person')}</div><p class="rx-tiny">A little context goes a long way.</p>${[['ML','Maya Lee','Follow up on the proposal'],['JT','Jordan Taylor','Coffee next week'],['AK','Alex Kim','Last spoke 2 weeks ago']].map(x=>`<div class="rx-data-row"><span class="rx-avatar">${x[0]}</span><span>${x[1]}<br><span class="rx-tiny">${x[2]}</span></span><strong>${icon('chevron-right')}</strong></div>`).join('')}</div>`;
+    if(i.id==='travel')return `<div class="rx-app-tabs"><span class="rx-active">Trips</span><span>Saved places</span></div><div class="rx-app-content"><span class="rx-kicker">Your next trip</span><h2 style="margin:8px 0 20px">A long weekend in Lisbon</h2>${[['Friday','Arrive and settle in'],['Saturday','Alfama and the waterfront'],['Sunday','A day in Sintra']].map(x=>`<div class="rx-data-row">${icon('map-pin')}<span>${x[0]}<br><span class="rx-tiny">${x[1]}</span></span>${ib('chevron-right','View '+x[0],'trip-day',x[0])}</div>`).join('')}</div>`;
+    return `<div class="rx-app-tabs"><span class="rx-active">Overview</span><span>Transactions</span><span>Recurring</span><span>Accounts</span></div><div class="rx-app-content"><span class="rx-tiny">Spent this month</span><div class="rx-balance">${s.currency==='EUR'?'€':'$'}2,840<span style="font-size:15px;letter-spacing:0;color:var(--rx-muted)">.00</span></div><span class="rx-tiny">${s.currency==='EUR'?'€':'$'}1,160 left in your monthly plan</span>${!compact?`<div class="rx-mini-chart" role="img" aria-label="Example monthly spending bars">${[26,40,31,48,42,54,36,65,46,54,70,50,73,62,81,70,76,89].map(v=>`<span style="height:${v}%"></span>`).join('')}</div><div class="rx-chart-labels"><span>Oct 1</span><span>Today</span></div>`:'<div class="rx-space"></div>'}${[['Food and groceries','$428.00'],['Subscriptions','$86.00'],['Transport','$124.00']].map(x=>`<div class="rx-data-row"><span>${x[0]}</span><strong>${x[1]}</strong></div>`).join('')}</div>`;
+  }
+  function preview(s){const i=item(s.selected||'finances');return `${head('Apps','Browse something. See what it can do.',btn('Your library','library')+btn(icon('plus')+' Add your own','create','','rx-primary'))}<div class="rx-browser-list"><section class="rx-browser-menu">${search(s,'Search the catalog')}${filters(s,['All','Added','Available'])}<div class="rx-browser-items">${matching(s).map(x=>`<button type="button" class="rx-browser-item cursor-interaction" data-action="select" data-id="${x.id}" aria-pressed="${x.id===i.id}">${mark(x)}<span>${x.name}<small>${stateLabel(s,x)}</small></span></button>`).join('')}</div>${!matching(s).length?'<p class="rx-empty">No matches.</p>':''}</section><section class="rx-preview-main">${s.panel==='manage'?detail(s,i,true):`<div class="rx-preview-header">${mark(i)}<div class="rx-grow"><h2>${i.name}</h2><p class="rx-tiny">${i.description}</p></div><div class="rx-head-actions">${primary(s,i,'rx-primary')}${has(s,i)?ib('settings-2','Manage '+i.name,'manage',i.id):''}</div></div><div class="rx-preview-window">${i.kind==='app'?appInterior(s,i):`<div class="rx-app-tabs"><span class="rx-active">Example in chat</span></div><div class="rx-transcript"><div class="rx-user">${i.sample}</div><div><div class="rx-speaker"><span class="rx-brand">Ri</span> Ri</div><p>${i.id==='gmail'?'Maya asked for the revised scope by Thursday. Here is a draft that confirms the timeline and explains the next step.':i.kind==='skill'?'I’ll use your preferred workflow. First, we’ll gather the context, then shape the result together.':'I can bring this information into the work we’re doing here.'}</p></div></div>`}</div><div class="rx-preview-points"><span>${icon('message-circle')}Works in chat</span>${i.kind==='app'?`<span>${icon('layout-grid')}Opens in Ri</span>`:''}<span>${icon('settings-2')}Your settings</span></div><p class="rx-detail-copy">${i.detail}</p>`}</section></div>`;}
+  function bundleLayout(s){const b=bundles.find(b=>b.id===s.bundle)||bundles[0];return `${head('Apps','Start with what you want to do.')}<div class="rx-page">${search(s)}${s.query||s.all?`${filters(s)}${tiles(s)}`:`<h2 style="margin-top:22px">What would make your day easier?</h2><div class="rx-bundle-grid">${bundles.map(b=>`<button type="button" class="rx-bundle cursor-interaction" data-action="bundle" data-id="${b.id}" aria-pressed="${s.bundle===b.id}"><span class="rx-mark">${icon(b.icon)}</span><span><h3>${b.name}</h3><p>${b.description}</p></span><div class="rx-bundle-icons">${b.items.map(id=>mark(item(id),true)).join('')}</div></button>`).join('')}</div><div class="rx-bundle-detail"><div class="rx-section-title"><h2>${b.name}</h2><span class="rx-tiny">${b.items.filter(id=>s.added.includes(id)).length} of ${b.items.length} already added</span></div><p class="rx-tiny">${b.copy}</p>${b.items.map(id=>flat(s,item(id))).join('')}<div class="rx-space"></div>${btn(b.items.every(id=>s.added.includes(id))?'Open your library':'Add what’s missing',b.items.every(id=>s.added.includes(id))?'library':'add-bundle',b.id,'rx-primary')}</div><div class="rx-foot-link">${btn('Browse everything '+icon('arrow-right'),'all','','rx-quiet')}${btn('Your library · '+s.added.length,'library','','rx-quiet')}</div>`}</div>`;}
+  function tabDock(s){return `<nav class="rx-tab-dock" aria-label="Open apps"><button type="button" class="cursor-interaction" data-action="dock" data-id="discover" aria-pressed="${s.dock==='discover'}">${icon('compass')}Discover</button>${s.openTabs.filter(id=>s.added.includes(id)).map(id=>`<button type="button" class="cursor-interaction" data-action="dock" data-id="${id}" aria-pressed="${s.dock===id}">${mark(item(id),true)}${item(id).name}</button>`).join('')}<span class="rx-grow"></span><button type="button" class="cursor-interaction" data-action="library" aria-label="Your library">${icon('library')}<span>All added</span></button></nav>`;}
+  function tabs(s){return `${tabDock(s)}${s.dock!=='discover'?`${head(item(s.dock).name,item(s.dock).description,btn(icon('settings-2')+' Manage','manage',s.dock)+btn(icon('message-circle')+' Chat','try',s.dock),item(s.dock).icon)}${appInterior(s,item(s.dock))}`:`${head('Discover','Find something useful, then open it alongside your work.')}<div class="rx-page">${search(s)}${filters(s)}${sectionTitle('For your next idea')}${tiles(s,catalog.filter(i=>!has(s,i)),6)}<section class="rx-section">${sectionTitle('Already yours','Manage','library')}${quick(s)}</section></div>`}`;}
+  function control(s){return `${head('Apps','See what Ri can use. Add what’s missing.')}<div class="rx-control-center"><section class="rx-owned-pane">${sectionTitle('Available to Ri','','',s.added.length)}<div class="rx-table-head"><span>Name</span><span>On</span><span></span></div>${own(s).map(i=>`<div class="rx-table-row"><button type="button" class="rx-table-name cursor-interaction" data-action="${i.kind==='app'?'open':'try'}" data-id="${i.id}">${mark(i,true)}<span>${i.name}<small>${i.kind==='connection'?'Work account':i.kind==='mcp'?'Custom connection':i.kind==='app'?'Open app':'Use in chat'}</small></span></button>${toggle(active(s,i),'toggle',i.id,'Allow Ri to use '+i.name)}${ib('settings-2','Manage '+i.name,'manage',i.id)}</div>`).join('')}<p class="rx-tiny" style="margin-top:16px">Turn something off without losing its setup.</p><div class="rx-space"></div>${btn(icon('plus')+' Add your own','create','','rx-quiet')}</section><section class="rx-catalog-pane">${s.selected?detail(s,item(s.selected),true):`${sectionTitle('Discover')}${search(s,'Search for something new')}${filters(s)}${tiles(s,catalog.filter(i=>!has(s,i)),4)}`}</section></div>`;}
+  function agent(s){return `<div class="rx-agent-banner"><span class="rx-avatar">D</span><div class="rx-grow"><h2>Design</h2><p class="rx-tiny">Help shape ideas and make them real.</p></div>${btn(icon('plus')+' New chat','new-chat','','rx-primary')}</div><div class="rx-pane-tabs"><button type="button" class="cursor-interaction" data-action="chat-view">CHATS</button><button type="button" class="cursor-interaction" data-action="agent-view" aria-pressed="true">TOOLS</button><button type="button" class="cursor-interaction" data-action="agent-instructions">INSTRUCTIONS</button></div><div class="rx-agent-tools"><section class="rx-owned-pane">${sectionTitle('Design can use')}<p class="rx-tiny">Choose what belongs in this agent’s work.</p>${catalog.filter(i=>s.agentTools.includes(i.id)&&has(s,i)).map(i=>`<div class="rx-owned-row"><span>${mark(i,true)}</span><div class="rx-grow"><h3>${i.name}</h3><span class="rx-tiny">${stateLabel(s,i)}</span></div>${toggle(true,'agent-toggle',i.id,'Use '+i.name+' with Design')}${ib('settings-2','Manage '+i.name,'manage',i.id)}</div>`).join('')}<div class="rx-space"></div><p class="rx-kicker">Agent instructions</p><p class="rx-instructions" style="margin-top:10px">Start from the user’s goal. Explore different directions before narrowing the answer.</p><div class="rx-space"></div>${btn('All of Ri’s additions','library','','rx-quiet')}</section><section class="rx-catalog-pane">${s.selected?detail(s,item(s.selected),true):`${sectionTitle('Discover for Design')}${search(s,'Find something this agent can use')}${filters(s)}<div class="rx-scope-note">${icon('bot')}<span>Add to Ri, then choose whether Design can use it.</span></div>${tiles(s,[item('proposal'),item('slides'),item('research'),item('linear'),item('people'),item('gmail')],4)}`}</section></div>`;}
+  function shelf(s){return `${head('Finances','Your money, in one clear picture.',btn(icon('settings-2')+' Manage','manage','finances')+btn('Your library','library'),'wallet-cards')}<div class="rx-app-tabs"><span class="rx-active">Overview</span><span>Transactions</span><span>Recurring</span><span>Accounts</span></div><div class="rx-shelf-top"><div><span class="rx-tiny">Spent this month</span><div class="rx-balance">$2,840<span style="font-size:15px;letter-spacing:0;color:var(--rx-muted)">.00</span></div><div class="rx-bar"><span style="width:64%"></span></div><p class="rx-tiny">$1,160 left in your monthly plan</p><div class="rx-data-row">Subscriptions<strong>$86.00</strong></div><div class="rx-data-row">Food and groceries<strong>$428.00</strong></div></div><div class="rx-shelf-insight"><div class="rx-speaker"><span class="rx-brand">Ri</span> Ri</div><p>You have three subscriptions renewing next week. Want to review them together?</p>${btn('Review with Ri','try','finances')}</div></div><section class="rx-shelf">${s.selected?detail(s,item(s.selected),true):`${sectionTitle('Discover more for your Ri','Browse all','all')}${search(s,'Find an app, service, or way of working')}${filters(s)}<div class="rx-shelf-grid">${matching(s,s.all||s.query?catalog:[item('calendar'),item('travel'),item('weekly')]).map(i=>card(s,i)).join('')}</div>${!matching(s,s.all||s.query?catalog:[item('calendar'),item('travel'),item('weekly')]).length?'<p class="rx-empty">No matches.</p>':''}`}</section>`;}
+  function detailBody(s,i){const isAdded=has(s,i);return `<div class="rx-detail-lead">${mark(i)}<div><h2>${i.name}</h2><span class="rx-tiny">${stateLabel(s,i)}</span></div>${ib('x','Close details','close-detail')}</div><p class="rx-detail-copy">${i.detail}</p><div class="rx-detail-actions">${primary(s,i,'rx-primary')}${isAdded&&i.kind==='app'?btn(icon('message-circle')+' Try in chat','try',i.id):''}</div>${isAdded?`<div class="rx-settings-row"><span>Available to Ri<small>Turning this off keeps your setup.</small></span>${toggle(active(s,i),'toggle',i.id,'Allow Ri to use '+i.name)}</div><div class="rx-settings-row"><span>Keep handy<small>Show ${i.name} in your shortcuts.</small></span>${toggle(s.pinned.includes(i.id),'pin',i.id,'Keep '+i.name+' handy')}</div>${s.scope==='Design'&&s.key==='agent'?`<div class="rx-settings-row"><span>Use with Design<small>Available to this agent.</small></span>${toggle(s.agentTools.includes(i.id),'agent-toggle',i.id,'Use '+i.name+' with Design')}</div>`:''}${i.kind==='connection'?`<div class="rx-settings-row"><span>Connected account<small>alex@example.com · Work</small></span>${btn('Change','account',i.id)}</div><label class="rx-field">Ri can<select data-field="access"><option${s.access==='Ask before making changes'?' selected':''}>Ask before making changes</option><option${s.access==='Only read information'?' selected':''}>Only read information</option></select></label>`:i.kind==='mcp'?`<label class="rx-field">Server address<input data-field="server" value="https://data.example.com/mcp" aria-label="Server address"></label><p class="rx-tiny">Custom MCP · 8 tools available</p>`:i.kind==='skill'?`<label class="rx-field">Your instructions<textarea data-field="instructions" rows="3">${esc(s.instructions)}</textarea></label>${btn(icon('pencil')+' Edit workflow','edit-skill',i.id)}`:i.id==='finances'?`<label class="rx-field">Currency<select data-field="currency"><option value="USD"${s.currency==='USD'?' selected':''}>US Dollar (USD)</option><option value="EUR"${s.currency==='EUR'?' selected':''}>Euro (EUR)</option></select></label>`:''}<div class="rx-space"></div>${btn('Remove from Ri','remove',i.id,'rx-quiet rx-danger')}${s.confirm?`<div class="rx-confirm">Remove ${i.name} from this preview? You can add it again from Discover.<div class="rx-inline">${btn('Remove','confirm-remove',i.id,'rx-danger')}${btn('Keep it','cancel-remove')}</div></div>`:''}`:`<div class="rx-settings-row"><span>What happens when you add it<small>${i.kind==='connection'?'Connect an account, then choose what Ri can do.':i.kind==='app'?'Open it in Ri or use it through a conversation.':'This way of working becomes available to Ri.'}</small></span></div><p class="rx-tiny">You can change its settings or remove it whenever you want.</p>`}`;}
+  function detail(s,i,embedded=false){return `<div class="rx-detail"${embedded?' style="padding:0"':''}><button type="button" class="rx-back cursor-interaction" data-action="close-detail">${icon('arrow-left')}Back to browsing</button>${detailBody(s,i)}</div>`;}
+  function library(s){return `${head('Your library',`${s.added.length} additions, ready wherever you work.`,btn(icon('compass')+' Discover','main','','rx-primary')+btn(icon('plus')+' Add your own','create'))}<div class="rx-page">${search(s,'Search your library')}${filters(s,['All','Work','Life','Create'])}${tiles(s,own(s),99)}</div>`;}
+  function openApp(s){const i=item(s.selected);return `${head(i.name,i.description,btn(icon('arrow-left')+' Apps','main','','rx-quiet')+btn(icon('settings-2')+' Manage','manage',i.id)+btn(icon('message-circle')+' Chat','try',i.id),i.icon)}${appInterior(s,i)}`;}
+  function create(s){return `${head('Add your own','Make Ri work your way.',btn(icon('arrow-left')+' Apps','main','','rx-quiet'),'plus')}<div class="rx-create"><h2>What would you like to add?</h2><div class="rx-create-options">${[['build','hammer','Build with Ri'],['import','upload','Import'],['mcp','server','Connect MCP']].map(x=>`<button type="button" class="cursor-interaction" data-action="create-mode" data-id="${x[0]}" aria-pressed="${s.createMode===x[0]}">${icon(x[1])}${x[2]}</button>`).join('')}</div>${s.createMode==='build'?`<label class="rx-field">What should Ri help you do?<textarea data-field="buildPrompt" rows="5" placeholder="A tracker for my subscriptions, or a workflow for writing in my voice…"></textarea></label>${btn('Start building','start-build','','rx-primary')}`:s.createMode==='mcp'?`<label class="rx-field">Name<input data-field="customName" placeholder="Company data"></label><label class="rx-field">Server address<input data-field="customUrl" type="url" placeholder="https://example.com/mcp"></label>${btn('Connect','connect-custom','','rx-primary')}`:`<label class="rx-field">Choose a skill or app package<input type="file" data-field="importFile" accept=".zip,.gz,.tgz,.md"></label><p class="rx-tiny">Review its details before adding it to Ri.</p>`}</div>`;}
+  const layouts={discover,split,rail:railLayout,collection,home,chat:chatLayout,preview,bundles:bundleLayout,tabs,control,agent,shelf};
+  function render(app){
+    const key=app.dataset.layout,s=states[key];s.key=key;
+    app.dataset.density=s.density;app.dataset.descriptions=String(s.descriptions);
+    let body;
+    if(s.view==='library')body=library(s);
+    else if(s.view==='detail')body=head('Apps','More ways to work with Ri.',btn(icon('arrow-left')+' Browse','main','','rx-quiet'))+detail(s,item(s.selected));
+    else if(s.view==='open')body=openApp(s);
+    else if(s.view==='create')body=create(s);
+    else if(s.view==='chat')body=head('Chat with Ri',s.selected?`Using ${item(s.selected).name}`:'A place to think and work.',btn('Browse additions','main'))+chatPane(s,'try');
+    else if(s.view==='home')body=home(s);
+    else if(s.view==='agent')body=agent(s);
+    else if(s.view==='board')body=head('Task Board','Your work, at a glance.',btn('Browse additions','main'),'square-kanban')+`<div class="rx-page">${sectionTitle('Today')}${['Finish the proposal outline','Review the launch plan','Follow up with Maya'].map((t,n)=>`<button type="button" class="rx-task cursor-interaction" data-action="task" data-id="${n}" data-done="${s.done.includes(String(n))}" style="width:100%"><span class="rx-task-check">${s.done.includes(String(n))?icon('check'):''}</span><span class="rx-task-name">${t}</span></button>`).join('')}</div>`;
+    else body=layouts[key](s);
+    app.innerHTML=`${hud(key)}<div class="rx-shell${s.railOpen?'':' rx-collapsed'}">${rail(s,key)}<main class="rx-work">${s.notice?`<div class="rx-notice" role="status">${icon('check')}<span>${esc(s.notice)}</span>${ib('x','Dismiss message','dismiss')}</div>`:''}${body}</main></div><nav class="rx-phone-nav" aria-label="Ri mobile navigation"><button type="button" class="cursor-interaction" data-action="home-view">${icon('message-circle')}Ri</button><button type="button" class="cursor-interaction" data-action="board">${icon('square-kanban')}Tasks</button><button type="button" class="cursor-interaction" data-action="main" aria-current="page">${icon('layout-grid')}Apps</button><button type="button" class="cursor-interaction" data-action="agent-view">${icon('bot')}Agents</button><button type="button" class="cursor-interaction" data-action="create">${icon('plus')}Create</button></nav>`;
+    app.querySelectorAll('[data-field="currency"]').forEach(el=>el.setAttribute('aria-label','Currency'));
+    app.querySelectorAll('[data-field="access"]').forEach(el=>el.setAttribute('aria-label','Ri can'));
+    if(globalThis.lucide)lucide.createIcons({attrs:{width:15,height:15}});
+  }
+  function save(){
+    const compact={};
+    for(const [key,s] of Object.entries(states)){compact[key]={};for(const field of ['view','selected','query','filter','all','added','off','pinned','bundle','dock','openTabs','scope','agentTools','currency','access','instructions','density','descriptions','railOpen'])compact[key][field]=s[field];}
+    const snapshot={modelContent:{concepts:allRoots.map(app=>app.getAttribute('aria-label'))},privateContent:{version:4,layouts:compact}};
+    const serialized=JSON.stringify(snapshot);if(serialized===lastSaved)return;lastSaved=serialized;
+    window.openai?.setWidgetState?.(snapshot)?.catch(()=>{});
+  }
+  const embedded=new Set(['split','home','chat','control','agent','shelf']);
+  function select(s,key,id,manage=false){s.selected=id;s.panel=manage?'manage':'overview';s.confirm=false;if(key==='preview'||key==='collection'||embedded.has(key)){s.view='main';}else{s.view='detail';}}
+  function closeDetails(s,key){s.selected=key==='preview'?(s.selected||'finances'):null;s.panel='overview';s.confirm=false;s.view='main';}
+  function add(s,id){if(!s.added.includes(id))s.added.push(id);s.off=s.off.filter(x=>x!==id);const i=item(id);s.notice=i.kind==='connection'?`${i.name} connected to a sample account.`:`${i.name} added to this preview.`;}
+  function perform(app,action,id,button){
+    const key=app.dataset.layout,s=states[key],i=item(id);s.notice='';
+    if(action==='main'){s.view='main';s.query='';s.filter='All';s.all=false;s.dock='discover';closeDetails(s,key);}
+    else if(action==='library'){s.view='library';s.query='';s.filter='All';s.selected=null;}
+    else if(action==='select'||action==='manage'){select(s,key,id,action==='manage');}
+    else if(action==='close-detail'){closeDetails(s,key);}
+    else if(action==='add'){add(s,id);}
+    else if(action==='toggle'){if(!s.added.includes(id))add(s,id);else if(s.off.includes(id))s.off=s.off.filter(x=>x!==id);else s.off.push(id);}
+    else if(action==='pin'){s.pinned=s.pinned.includes(id)?s.pinned.filter(x=>x!==id):[...s.pinned,id];s.notice=s.pinned.includes(id)?`${i.name} kept in your shortcuts.`:`${i.name} removed from shortcuts.`;}
+    else if(action==='open'){if(!active(s,i)){select(s,key,id,true);}else if(key==='tabs'){s.view='main';s.dock=id;if(!s.openTabs.includes(id))s.openTabs.push(id);}else{s.view='open';s.selected=id;}}
+    else if(action==='try'){if(!active(s,i)){select(s,key,id,true);}else{s.view='chat';s.selected=id;s.draft=i.sample;s.sent='';}}
+    else if(action==='remove'){s.confirm=true;}
+    else if(action==='cancel-remove'){s.confirm=false;}
+    else if(action==='confirm-remove'){s.added=s.added.filter(x=>x!==id);s.pinned=s.pinned.filter(x=>x!==id);s.off=s.off.filter(x=>x!==id);s.openTabs=s.openTabs.filter(x=>x!==id);s.confirm=false;s.notice=`${i.name} removed from this preview.`;s.dock='discover';}
+    else if(action==='filter'){s.filter=id;s.selected=key==='preview'?s.selected:null;}
+    else if(action==='all'){s.all=true;s.query='';s.filter='All';s.selected=key==='preview'?s.selected:null;}
+    else if(action==='clear'){s.query='';}
+    else if(action==='bundle'){s.bundle=id;}
+    else if(action==='add-bundle'){const b=bundles.find(b=>b.id===id);if(b){b.items.forEach(id=>add(s,id));s.notice=`${b.name} is ready in this preview.`;}}
+    else if(action==='dock'){s.dock=id;s.view='main';s.selected=null;}
+    else if(action==='agent-toggle'){s.agentTools=s.agentTools.includes(id)?s.agentTools.filter(x=>x!==id):[...s.agentTools,id];}
+    else if(action==='create'){s.view='create';}
+    else if(action==='create-mode'){s.createMode=id;}
+    else if(action==='connect-custom'){const address=app.querySelector('[data-field="customUrl"]')?.value||'';if(!/^https?:\/\/.+/.test(address)){s.notice='Enter a server address, such as https://example.com/mcp.';}else{add(s,'company');select(s,key,'company',true);s.notice='Sample custom connection added. No server was contacted.';}}
+    else if(action==='start-build'){const prompt=app.querySelector('[data-field="buildPrompt"]')?.value?.trim();if(!prompt){s.notice='Describe what you would like to build.';}else{s.view='chat';s.selected=null;s.draft=prompt;s.notice='Your idea is ready in the preview chat.';}}
+    else if(action==='send'){if(s.draft.trim()){s.sent=s.draft.trim();s.draft='';}}
+    else if(action==='dismiss'){s.notice='';}
+    else if(action==='rail-toggle'){s.railOpen=!s.railOpen;}
+    else if(action==='home-view'){s.view=key==='home'?'main':'home';s.selected=null;}
+    else if(action==='agent-view'){s.view=key==='agent'?'main':'agent';s.selected=null;}
+    else if(action==='new-chat'||action==='chat-view'){s.view='chat';s.selected=null;s.draft='';s.sent='';}
+    else if(action==='board'){s.view='board';}
+    else if(action==='task'){s.done=s.done.includes(id)?s.done.filter(x=>x!==id):[...s.done,id];}
+    else if(action==='accounts'){s.view='library';s.filter='All';s.query='account';}
+    else if(action==='settings'){s.view='library';s.filter='All';s.query='';s.notice='Choose an addition’s settings to manage it.';}
+    else if(action==='edit-skill'){s.view='chat';s.selected=id;s.draft='Help me customize '+i.name+'.';}
+    else if(action==='account'){s.notice='Account settings preview: Work account, alex@example.com.';}
+    else if(action==='global-search'||action==='search-chats'){s.view='main';s.selected=null;s.notice='Search additions by name or by what you want to do.';}
+    else if(action==='demo-person'){s.notice='People preview: a new person would open in an editor here.';}
+    else if(action==='trip-day'){s.notice=id+' itinerary selected in the preview.';}
+    else if(action==='agent-instructions'){s.notice='Design: Start from the user’s goal. Explore different directions before narrowing the answer.';}
+    else if(action==='recent'){s.notice='Recent chats: Explore the next direction, Website review.';}
+    else if(action==='new-agent'){s.notice='New agents would be created here. This preview focuses on additions.';}
+    else if(action==='notes'){s.notice='Notes stay in your existing Ri view. Use Apps to continue this exploration.';}
+    else if(action==='calendar-view'){s.notice='Design review at 2:00 PM. Calendar keeps its current place in the rail.';}
+    else if(action==='schedules'){s.notice='Schedules and Triggers keeps its current place in the rail.';}
+    else if(action==='attach'){s.notice='Attachments work through the existing chat composer.';}
+    render(app);save();measure();
+    if(['select','manage','library','open','create'].includes(action)){const focus=app.querySelector('.rx-work .rx-back, .rx-work button');if(focus)focus.focus({preventScroll:true});}
+  }
+  allRoots.forEach(app=>{
+    app.addEventListener('click',event=>{const b=event.target.closest('button[data-action]');if(b&&app.contains(b))perform(app,b.dataset.action,b.dataset.id||'',b);});
+    app.addEventListener('input',event=>{
+      const field=event.target.dataset.field;if(!field)return;
+      const s=states[app.dataset.layout];
+      if(field==='query'){
+        const pos=event.target.selectionStart;s.query=event.target.value;render(app);
+        const input=app.querySelector('[data-field="query"]');if(input){input.focus({preventScroll:true});try{input.setSelectionRange(pos,pos);}catch{}}
+        save();measure();
+      }else if(['draft','instructions'].includes(field)){s[field]=event.target.value;}
+    });
+    app.addEventListener('change',event=>{const field=event.target.dataset.field;const s=states[app.dataset.layout];if(['currency','access'].includes(field)){s[field]=event.target.value;save();}if(field==='importFile'&&event.target.files?.length){s.notice=`${event.target.files[0].name} selected for this preview. Nothing was uploaded.`;render(app);measure();}});
+    render(app);
+    if(globalThis.Tweak){const s=states[app.dataset.layout];const tweak=new Tweak({container:app,onChange:()=>{render(app);save();measure();}});tweak.addSelect(s,'density',{label:'Spacing',options:['Comfortable','Compact']});tweak.addToggle(s,'descriptions',{label:'Show descriptions'});tweak.addToggle(s,'railOpen',{label:'Expanded agent rail'});}
+  });
+  let measuring=false,lastWidth=0;
+  function measure(){
+    if(measuring)return;measuring=true;
+    requestAnimationFrame(()=>{
+      const sections=[...root.children].filter(e=>e.hasAttribute('data-variant'));
+      const hidden=sections.map(e=>e.hidden);
+      let height=840;
+      for(const [index,section] of sections.entries()){
+        section.hidden=false;
+        const app=section.querySelector('.rx-app');app.style.minHeight='840px';
+        height=Math.max(height,Math.ceil(app.getBoundingClientRect().height));
+        section.hidden=hidden[index];
+      }
+      allRoots.forEach(app=>{app.style.minHeight=height+'px';app.parentElement.style.minHeight=height+'px';});
+      measuring=false;
+    });
+  }
+  const observer=new ResizeObserver(entries=>{const width=Math.round(entries[0].contentRect.width);if(width!==lastWidth){lastWidth=width;measure();}});observer.observe(root);
+  document.fonts?.ready.then(measure);
+  window.addEventListener('openai:set_globals',event=>{
+    const saved=event.detail?.globals?.widgetState;if(!saved)return;
+    const serialized=JSON.stringify(saved);if(serialized===lastSaved)return;lastSaved=serialized;
+    hydrate(saved);allRoots.forEach(render);measure();
+  });
+  measure();
+})();
+</script>
