@@ -204,14 +204,13 @@ it, and running background work is a borderless strip attached to the top
 of the composer card, inset like a tab, so it reads as part of the input.
 
 **The `@` picker** (`chat/editor/mention-menu/`). One trigger for the
-scratchpad, agents, tasks, notes, reference folders and files. Tasks and notes are
+scratchpad, tasks, notes, agents, reference folders and files. Tasks and notes are
 a server search over the whole home per query (the `picker` operation over
 `listSessionReferences`), in the Notes & tasks order: this chat's, then the
 agent's (open tasks first), then everything else, with a title that is or
 starts with the search ahead of one that only contains it. Agents come from
-the rail's own list (`useMentionAgents`), ranked on name or slug, and lead
-the entities, since `@ri` matching an agent almost always means it. Team
-chats, which have no coordination, offer none. The plain list
+the rail's own list (`useMentionAgents`), ranked on name or slug, and follow
+the tasks and notes. Team chats, which have no coordination, offer none. The plain list
 shows a few of each, and each kind ends with "All N tasks" (or notes, or
 agents), which narrows to it. A path-like query (`src/`, `.tsx`) puts files first.
 A filter after the `@` searches one kind: `task:`, `note:` and `agent:` (spaces

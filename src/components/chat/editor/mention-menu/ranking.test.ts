@@ -472,14 +472,16 @@ describe('agents in the picker', () => {
   }
   const names = (items: MentionItem[]) => items.map((i) => (i.kind === 'agent' ? i.name : i.kind));
 
-  it('lists agents after the scratchpad and ahead of tasks, in the rail order, when nothing is typed', () => {
+  it('lists agents after tasks and notes, in the rail order, when nothing is typed', () => {
     const items = buildItems({
       ...EMPTY,
       agents: [agent('Ri'), agent('Finances')],
       entities: entities(['Deploy'], ['Plan']),
+      references: [reference()],
+      files: [file('src/app.ts')],
       query: '',
     });
-    expect(names(items)).toEqual(['scratchpad', 'Ri', 'Finances', 'task', 'note']);
+    expect(names(items)).toEqual(['scratchpad', 'task', 'note', 'Ri', 'Finances', 'reference', 'file']);
   });
 
   it('ends a long list with an "All N agents" row that narrows to them', () => {
@@ -498,9 +500,9 @@ describe('agents in the picker', () => {
     expect(rankAgents(agents, '')).toBe(agents);
   });
 
-  it('leads a mixed search with a matching agent, and leaves agents out when none match', () => {
+  it('follows the tasks and notes in a mixed search, and leaves agents out when none match', () => {
     const agents = [agent('Ri'), agent('Finances')];
-    expect(names(buildItems({ ...EMPTY, agents, entities: entities(['Ri launch'], []), query: 'ri' }))).toEqual(['Ri', 'task']);
+    expect(names(buildItems({ ...EMPTY, agents, entities: entities(['Ri launch'], ['Ri notes']), query: 'ri' }))).toEqual(['task', 'note', 'Ri']);
     expect(names(buildItems({ ...EMPTY, agents, entities: entities(['Deploy'], []), query: 'deploy' }))).toEqual(['task']);
   });
 

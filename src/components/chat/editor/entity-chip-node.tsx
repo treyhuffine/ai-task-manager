@@ -146,7 +146,7 @@ function AgentChipView(props: NodeViewProps) {
   return (
     <ChipFrame
       {...props}
-      icon={agent ? <AgentIcon workspace={agent} size="xs" /> : <AgentInitials name={label} size="xs" />}
+      icon={agent ? <AgentIcon workspace={agent} size="inline" /> : <AgentInitials name={label} size="inline" />}
       label={label}
       tip={purpose || label}
       tipOnlyWhenTextHidden={!purpose}
@@ -192,7 +192,8 @@ function ChipFrame({
         )}
       >
         {icon}
-        <span className="text-[11px] truncate max-w-[200px]">{label}</span>
+        {/* The label sets the chip's baseline, so a picture first doesn't lift it off the line. */}
+        <span className="self-baseline text-[11px] truncate max-w-[200px]">{label}</span>
         <button
           type="button"
           onMouseDown={handleRemove}

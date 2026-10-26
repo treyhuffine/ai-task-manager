@@ -90,8 +90,8 @@ interface MentionMenuOptions {
 }
 
 /**
- * Tiptap extension that opens an `@`-picker covering files / agents / tasks /
- * notes / scratchpad / reference folders / pull requests. One trigger, seven
+ * Tiptap extension that opens an `@`-picker covering files / tasks / notes /
+ * agents / scratchpad / reference folders / pull requests. One trigger, seven
  * kinds — the popup renders results in sections so visual scanning stays
  * fast. Ranking lives in `./ranking`, which is deliberately free of Tiptap so
  * it can be tested alone.

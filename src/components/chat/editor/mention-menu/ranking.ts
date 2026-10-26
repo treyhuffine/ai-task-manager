@@ -23,7 +23,7 @@ import { PR_QUERY_PREFIX } from './pr-trigger'
 
 export const MAX_FILES = 30
 /**
- * Agents, tasks, and notes, in the mixed `@` list. Each kind ends with an
+ * Tasks, notes, and agents, in the mixed `@` list. Each kind ends with an
  * "All N" row when more matched, which narrows to that kind.
  */
 export const ENTITY_PREVIEW_LIMIT = 6
@@ -356,12 +356,10 @@ function entityRows(
 
 /**
  * Build the full picker list. By default entity options come first
- * (scratchpad, then a few agents, tasks and notes, each kind ending with an
+ * (scratchpad, then a few tasks, notes and agents, each kind ending with an
  * "All N" row that narrows to it), followed by reference folders and file
- * matches. Agents lead the entities because a name is short and specific:
- * `@ri` that matches an agent almost always means it. A path-like query
- * (`src/`, `.tsx`) puts files first instead, so a home full of tasks never
- * buries the file being named.
+ * matches. A path-like query (`src/`, `.tsx`) puts files first instead, so
+ * a home full of tasks never buries the file being named.
  *
  * A filter after the `@` narrows to one kind: `task:`, `note:` and `agent:`
  * (up to NARROWED_LIMIT rows, with a caption when more matched), `file:`,
@@ -415,9 +413,9 @@ export function buildItems(args: {
     out.push({ kind: 'scratchpad' })
   }
 
-  out.push(...agentRows(agents, query, false))
   out.push(...entityRows(entities, 'task', query, false))
   out.push(...entityRows(entities, 'note', query, false))
+  out.push(...agentRows(agents, query, false))
   for (const r of rankReferences(references, query)) out.push(r)
 
   const fileRows = rankFiles(files, query)

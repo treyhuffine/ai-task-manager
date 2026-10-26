@@ -93,7 +93,7 @@ function keyFor(item: MentionItem): string {
 
 /**
  * `@`-picker popup. One vertical list — but rows are visually banded
- * into sections (Scratchpad / Agents / Tasks / Notes / Files) using inline
+ * into sections (Scratchpad / Tasks / Notes / Agents / Files) using inline
  * dividers so a glance tells you what kind of result you're hovering.
  *
  * Single index drives both arrow navigation and selection — section
@@ -171,7 +171,7 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
 
     // Walk the (already-ordered) item list and inject a divider before
     // each new section's first row. The ordering convention from
-    // buildItems() is: scratchpad → agents → tasks → notes → reference
+    // buildItems() is: scratchpad → tasks → notes → agents → reference
     // folders → files, or (inside a drill-down) that reference's files →
     // worktree files.
     const rows: React.ReactNode[] = []
@@ -265,7 +265,7 @@ function MentionRow({ item, index, selected, onSelect, onHover }: MentionRowProp
       onClick={() => onSelect(index)}
       onMouseEnter={() => onHover(index)}
     >
-      <span className="shrink-0 flex items-center justify-center w-3.5">
+      <span className={cn('shrink-0 flex items-center justify-center', item.kind === 'agent' ? 'w-5' : 'w-3.5')}>
         <RowIcon item={item} />
       </span>
       <RowBody item={item} />
@@ -301,7 +301,7 @@ function RowIcon({ item }: { item: MentionItem }) {
   }
   if (item.kind === 'agent') {
     // This popup has its own React root, so the picture comes resolved.
-    return <AgentPicture picture={item.picture} name={item.name} size="xs" />
+    return <AgentPicture picture={item.picture} name={item.name} size="sm" />
   }
   if (item.kind === 'pr') {
     return <PrRowIcon state={item.state} isDraft={item.isDraft} />

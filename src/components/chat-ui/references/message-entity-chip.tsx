@@ -65,6 +65,9 @@ export function MessageEntityChip({ marker, lookup, onOpen, tone = 'surface' }: 
   return null;
 }
 
+// Each chip's label is `self-baseline`, so the chip's baseline is its text's
+// and it sits on the line with the words around it. Otherwise a flex box takes
+// the first item's baseline, the bottom edge of an icon or agent picture.
 const CHIP_BASE =
   'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5 ' +
   'rounded-md border text-[12px] font-medium transition-colors cursor-pointer select-none';
@@ -110,7 +113,7 @@ function TaskChip({
         className={cn(look.chip, !task && 'opacity-70')}
       >
         <Icon size={11} className={look.icon} />
-        <span className="text-[11px] truncate max-w-[200px]">{title}</span>
+        <span className="self-baseline text-[11px] truncate max-w-[200px]">{title}</span>
       </button>
     </Tip>
   );
@@ -136,7 +139,7 @@ function NoteChip({
         className={cn(look.chip, !note && 'opacity-70')}
       >
         <StickyNote size={11} className={look.icon} />
-        <span className="text-[11px] truncate max-w-[200px]">{title}</span>
+        <span className="self-baseline text-[11px] truncate max-w-[200px]">{title}</span>
       </button>
     </Tip>
   );
@@ -163,7 +166,7 @@ function ScratchpadChip({
         className={look.chip}
       >
         <Notebook size={11} className={look.icon} />
-        <span className="text-[11px]">Scratchpad</span>
+        <span className="self-baseline text-[11px]">Scratchpad</span>
       </button>
     </Tip>
   );
@@ -191,8 +194,8 @@ function AgentChip({
     : archived
       ? `${name} (archived)`
       : purpose || name;
-  const icon = agent ? <AgentIcon workspace={agent} size="xs" /> : <Bot size={11} className={look.icon} />;
-  const label = <span className="text-[11px] truncate max-w-[200px]">{name}</span>;
+  const icon = agent ? <AgentIcon workspace={agent} size="inline" /> : <Bot size={11} className={look.icon} />;
+  const label = <span className="self-baseline text-[11px] truncate max-w-[200px]">{name}</span>;
   // Opens where the agent lives. Nothing to open for one that's gone, or
   // outside a document that can navigate (the gallery).
   const open = agent && !archived && navigation ? () => navigation.openAgent(agent.id) : null;

@@ -7,6 +7,9 @@ import type { AreaRecord, WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
 
 const SIZES = {
+  // In a line of text (a mention chip): the same box as xs, with the emoji
+  // filling it and initials big enough to read.
+  inline: { box: 'w-4 h-4', emoji: 'text-[15px]', initials: 'text-[8px]' },
   xs: { box: 'w-4 h-4', emoji: 'text-[12px]', initials: 'text-[7px]' },
   sm: { box: 'w-5 h-5', emoji: 'text-base', initials: 'text-[9px]' },
   md: { box: 'w-7 h-7', emoji: 'text-xl', initials: 'text-[11px]' },
