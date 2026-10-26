@@ -39,6 +39,12 @@ const beginDispatchPreparation = vi.fn((id: string) => {
   return PREPARATION_REF;
 });
 const endDispatchPreparation = vi.fn();
+/** The saved message is held from the save until its dispatch has it. */
+const releaseMessage = vi.fn();
+const beginMessagePreparation = vi.fn((eventId: string) => {
+  void eventId;
+  return releaseMessage;
+});
 const ensureWorktreeReady = vi.fn(async () => ({ ok: true }) as { ok: true } | { ok: false; error: string });
 const healthCheckSession = vi.fn(async () => {});
 const expandMarkers = vi.fn(async (s: string) => s);
@@ -87,6 +93,7 @@ vi.mock('@/lib/runs/dispatch', () => ({
 
 vi.mock('@/lib/executor/adapter', () => ({
   beginDispatchPreparation: (id: string) => beginDispatchPreparation(id),
+  beginMessagePreparation: (eventId: string) => beginMessagePreparation(eventId),
   dispatch: async (id: string, content: string, options: { onTaken?: () => void } = {}) => {
     dispatchOptions = options;
     return (dispatch as unknown as (id: string, content: string) => Promise<void>)(id, content);
@@ -151,6 +158,8 @@ beforeEach(() => {
   dispatch.mockReset().mockResolvedValue(undefined);
   beginDispatchPreparation.mockReset().mockReturnValue(PREPARATION_REF);
   endDispatchPreparation.mockReset();
+  releaseMessage.mockReset();
+  beginMessagePreparation.mockReset().mockReturnValue(releaseMessage);
   ensureWorktreeReady.mockReset().mockResolvedValue({ ok: true });
   healthCheckSession.mockReset().mockResolvedValue(undefined);
   expandMarkers.mockReset().mockImplementation(async (s: string) => s);

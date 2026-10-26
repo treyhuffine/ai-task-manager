@@ -77,6 +77,8 @@ interface PostBody {
  * provider doesn't silently double-send.
  */
 export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: OperationContext) {
+  // Held from the moment a fresh message is saved until its dispatch has it.
+  let releaseMessage: (() => void) | null = null;
   try {
     const { id } = rpcInput.params;
     const body: PostBody = rpcInput.body;
@@ -202,6 +204,30 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     }
     const requestRefusal = agentRequestMessageRefusal(body.id);
     if (requestRefusal) return reply({ error: requestRefusal }, { status: 409 });
+
+    // Self-heal in-memory state before dispatch. Catches the dead
+    // cached `agentSession` case so the next send doesn't silently
+    // throw "Session is closed."
+    //
+    // Before the message is saved, so the check sees the chat as it was
+    // rather than this message, which isn't an orphan: it's on its way.
+    //
+    // On a fresh send: `redispatchOrphans:false` because this route
+    // is about to dispatch the same content — letting health also
+    // dispatch would double-fire.
+    //
+    // On a retry (the row already exists): `redispatchOrphans:true`. We
+    // DON'T fire route-level dispatch below; instead we delegate to
+    // health's orphan logic, which leaves alone a message its original
+    // send is still preparing (`isMessageBeingPrepared`), lets a second
+    // dispatch wait on one already sending, and redispatches one that
+    // never went.
+    try {
+      await healthCheckSession(id, { redispatchOrphans: isExistingRetry });
+    } catch (err) {
+      console.error(`[POST /api/sessions/:id/messages] pre-send health check failed for ${id}:`, err);
+    }
+
     const inserted = insertChatEvent({
       ...(frozenContext || connectedContext ? { raw: {...(frozenContext ? {localAppContext: frozenContext} : {}), ...(connectedContext ? {connectedAppContext: connectedContext} : {})} } : {}),
       id: body.id,
@@ -223,6 +249,14 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
 
     if (row.sessionId !== id || row.content !== content || row.role !== 'user' || row.source !== 'user' || (row.senderSessionId ?? null) !== senderSessionId)
       return reply({ error: 'This message ID already belongs to different content or a different chat.' }, { status: 409 });
+
+    // In the same tick as the save: from here the message is this send's,
+    // until `dispatch` reserves it. Opening a new chat runs recovery while
+    // its worktree is still being made, and recovery used to take the
+    // message for an orphan, send it ahead of the worktree, and say it
+    // wasn't sent ("Session has no resolvable cwd") as this send went on to
+    // deliver it.
+    if (!isRetry) releaseMessage = executor.beginMessagePreparation(row.id);
 
     // A person who writes in the chat instead of answering the first-run
     // question on screen there has passed it over: it's skipped, and the rest
@@ -279,31 +313,15 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     // and get a retrospective summary at archive time instead
     // (`deriveRetrospectiveLabel`). Naming starts in onTaken below.
 
-    // Self-heal in-memory state before dispatch. Catches the dead
-    // cached `agentSession` case so the next send doesn't silently
-    // throw "Session is closed."
-    //
-    // On a fresh send: `redispatchOrphans:false` because this route
-    // is about to dispatch the same content — letting health also
-    // dispatch would double-fire.
-    //
-    // On a retry (PK conflict): `redispatchOrphans:true`. The row
-    // already existed, so we DON'T fire route-level dispatch below;
-    // instead we delegate to health's orphan logic which correctly
-    // distinguishes "original dispatch never ran" (subprocess dead →
-    // redispatch) from "original dispatch still mid-flight"
-    // (subprocess alive → leave alone).
-    try {
-      await healthCheckSession(id, { redispatchOrphans: isRetry });
-    } catch (err) {
-      console.error(`[POST /api/sessions/:id/messages] pre-send health check failed for ${id}:`, err);
-    }
-
     // Dispatch the *expanded* content to the agent. Fire-and-forget;
     // failures surface via logs and the runtime-status indicator.
     // Skip on retry — the health check already decided whether to
     // redispatch via the orphan path.
     if (!isRetry) {
+      // Held until `dispatch` reserves it, or, refused before that, until
+      // the refusal is written.
+      const releaseOwnMessage = releaseMessage ?? (() => {});
+      releaseMessage = null;
       // Cover the accepted-message -> worktree/provider preparation gap. The
       // nested dispatch takes its own reference, so the runtime flag remains
       // true until both preparation and the actual root turn have settled.
@@ -371,7 +389,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[POST /api/sessions/:id/messages] dispatch failed for ${id}:`, msg);
         refused(msg);
-      });
+      }).finally(releaseOwnMessage);
     }
 
     // Same projection as GET /events and the SSE stream. This row lands in
@@ -384,6 +402,9 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
     if (denied) return denied;
     console.error('[POST /api/sessions/:id/messages]', err);
     return reply({ error: String(err) }, { status: 500 });
+  } finally {
+    // Failed before its dispatch took it: a retry of it is recovery's to send.
+    releaseMessage?.();
   }
 }
 

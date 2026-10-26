@@ -46,6 +46,7 @@ import {
 } from '@/lib/db/queries';
 import { admitSend } from '@/lib/transfer/moving';
 import { getAppRoot } from '@/lib/config/paths';
+import { processState } from '@/lib/process-state';
 import type { Attachment, PermissionMode, WorkerCommandActor, WorkerCommandRecord } from '@/db/types';
 import { budgetGate } from '@/lib/runs/budget';
 import { beginRun } from '@/lib/runs/artifact-bucket';
@@ -138,7 +139,37 @@ function reserveSending(eventId: string): Sending {
     },
   };
   sendingEvents.set(eventId, sending);
+  // Prepared, it's the dispatch's now.
+  preparingMessages.delete(eventId);
   return sending;
+}
+
+/**
+ * Messages saved and on their way to `dispatch`, by chat event. The messages
+ * route saves a message, then expands its markers and waits for the chat's
+ * worktree (seconds, for a new chat) before `dispatch` reserves it in
+ * `sendingEvents`. Recovery (`healthCheckSession`) must not take a message
+ * in that gap for an orphan and send it itself: its sender still has it, and
+ * says what became of it. From the reservation on, `sendingEvents` answers
+ * for it, and a second dispatch of it waits there or is held by a move.
+ */
+const preparingMessages = processState('executor.preparingMessages', () => new Map<string, object>());
+
+/**
+ * Mark a message just saved as its sender's until `dispatch` reserves it, or
+ * the sender lets go first. Returns the release, safe to call more than once.
+ */
+export function beginMessagePreparation(eventId: string): () => void {
+  const hold = {};
+  preparingMessages.set(eventId, hold);
+  return () => {
+    if (preparingMessages.get(eventId) === hold) preparingMessages.delete(eventId);
+  };
+}
+
+/** Whether a message saved here is still being prepared, before `dispatch` reserves it. */
+export function isMessageBeingPrepared(eventId: string): boolean {
+  return preparingMessages.has(eventId);
 }
 
 function releaseStartingSend(chatSessionId: string): void {

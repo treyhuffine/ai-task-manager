@@ -43,6 +43,7 @@ import {
   isHarnessSessionAlive,
   invalidateHarnessSession,
   forceClearInflight,
+  isMessageBeingPrepared,
   isRunning,
   dispatch,
 } from './adapter';
@@ -186,6 +187,15 @@ export async function healthCheckSession(
     }
   }
 
+  const recent = listRecentChatEvents(sessionId, 30);
+  const activity = inspectActivity(recent);
+  // The newest message was just saved here and its send is still preparing
+  // it (a new chat waits seconds for its worktree) before `dispatch` has it.
+  // It isn't an orphan, the running flag is that send's, and that send says
+  // what became of it. Re-sending it from here ran ahead of the worktree and
+  // put "Session has no resolvable cwd" in the chat as the message went.
+  const preparing = !!activity.orphan && isMessageBeingPrepared(activity.orphan.id);
+
   // 2. In-memory ↔ reality. For a chat elsewhere, "alive" is what its
   //    device last reported: working, or not.
   const alive = remote ? isRunning(sessionId) : isHarnessSessionAlive(sessionId);
@@ -196,15 +206,16 @@ export async function healthCheckSession(
     // so this covers both "handle present but dead" and "no handle but
     // still flagged running" cases.
     invalidateHarnessSession(sessionId);
-    if (wasRunning) {
+    if (wasRunning && !preparing) {
       forceClearInflight(sessionId);
       fixes.push('cleared stale running flag');
     }
   }
 
   // 3. Orphan detection + re-fire.
-  const recent = listRecentChatEvents(sessionId, 30);
-  const activity = inspectActivity(recent);
+  if (preparing) {
+    return { classification: 'healthy', fixes, redispatched, replayed, error };
+  }
 
   if (activity.hasRecentAgentEvent) {
     return { classification: 'healthy', fixes, redispatched, replayed, error };
