@@ -11,6 +11,7 @@ import {
   Chrome,
   ListChecks,
   Download,
+  FileInput,
   HeartPulse,
   Users,
   type LucideIcon,
@@ -134,7 +135,7 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
   {
     id: 'imports',
     label: 'Imports',
-    icon: Download,
+    icon: FileInput,
     title: 'Import agent history',
     description: 'Bring local projects and chats from Claude Code and Codex into Ri.',
   },
