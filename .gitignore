@@ -86,12 +86,11 @@ next-env.d.ts
 # Packaged desktop artifacts
 /release/
 
-# Local source-mentions delivery and qualification artifacts
-/.work/chat-sources/
-/.work/email-composer/
-/.work/chat-ui-gallery/
-/.work/connected-services/
-/public/chat-ui-gallery/
+# Local scratch, browser captures, logs, experiments and nested worktrees.
+# Keep reusable source, tests and documentation in their normal project folders.
+# Root-only patterns leave source folders such as src/lib/work tracked.
+/.work/
+/work/
 
-# Editor mention browser screenshots
-/.work/reference-mention/
+# Generated interactive chat gallery
+/public/chat-ui-gallery/
