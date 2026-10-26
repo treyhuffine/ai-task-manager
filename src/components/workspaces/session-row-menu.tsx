@@ -33,6 +33,8 @@ interface SessionRowMenuProps {
    * Whether this row's execution is pinned to the rail's Pinned group.
    * Toggles the menu item between "Pin to top" and "Unpin". Omitted on
    * rows that can't be pinned (no execution) — the item is hidden then.
+   * Rail rows leave it out too: their pin is a button beside the menu
+   * (`SessionRowActions`), one click either way.
    */
   isPinned?: boolean;
   label: string;
@@ -40,6 +42,12 @@ interface SessionRowMenuProps {
   onOpenWorkspaceSettings?: (id: string) => void;
   /** Open the launcher seeded with the row's workspace. Hidden when omitted. */
   onOpenLauncher?: (workspaceId: string) => void;
+  /**
+   * The trigger shows only while its row is hovered or the menu is open.
+   * False where something around it already decides that (a rail row's
+   * actions), so the trigger always shows within it.
+   */
+  revealOnRowHover?: boolean;
   className?: string;
 }
 
@@ -64,6 +72,7 @@ export function SessionRowMenu({
   label,
   onOpenWorkspaceSettings,
   onOpenLauncher,
+  revealOnRowHover = true,
   className,
 }: SessionRowMenuProps) {
   const { archive } = useArchiveExecution();
@@ -96,9 +105,11 @@ export function SessionRowMenu({
             // data-[state=open] is set by Radix on the trigger while
             // the menu is open, which keeps the button visible after
             // the mouse leaves the row.
-            'opacity-0 pointer-events-none',
-            'group-hover:opacity-100 group-hover:pointer-events-auto',
-            'data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto',
+            revealOnRowHover && [
+              'opacity-0 pointer-events-none',
+              'group-hover:opacity-100 group-hover:pointer-events-auto',
+              'data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto',
+            ],
             className,
           )}
         >

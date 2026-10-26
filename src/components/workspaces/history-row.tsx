@@ -8,7 +8,7 @@ import { splitHighlight, type HighlightSegment } from '@/lib/search/highlight';
 import { cn } from '@/lib/utils';
 import type { RailSession } from '@/lib/api/sessions';
 import { hasChatStatus, StatusPip, useChatStatus } from './chat-status';
-import { SessionRowMenu } from './session-row-menu';
+import { ROW_ACTIONS_GIVE_WAY, SessionRowActions } from './session-row-actions';
 import { useSessionRowHover } from './session-hover-context';
 import { executionView } from '@/lib/client/active-view';
 import { agentInitials } from '@/lib/client/agent-initials';
@@ -38,6 +38,10 @@ interface HistoryRowProps {
  * Archived sessions render muted but still navigable so the user can
  * jump back into past work; the row's `isArchived` flag just tones the
  * left edge so the eye reads the active rows first. They carry no status.
+ *
+ * On hover the date gives way to the pin toggle and the kebab
+ * (`SessionRowActions`). Archived rows can't be pinned, so they get the
+ * kebab alone.
  */
 export function HistoryRow({
   session,
@@ -52,7 +56,7 @@ export function HistoryRow({
   const isActive = activeSessionId === session.id;
   const isArchived = session.status === 'archived';
   // Only active executions live in the rail, so only they can be pinned.
-  // Archived rows carry a cleared pin and hide the Pin menu item entirely.
+  // Archived rows carry a cleared pin and drop the pin toggle entirely.
   const isPinned = !isArchived && !!session.execution?.pinnedAt;
 
   const handleOpen = () => {
@@ -100,48 +104,51 @@ export function HistoryRow({
         )}
       </span>
 
-      <div className="flex-1 min-w-0 leading-tight">
-        <div className="flex items-baseline gap-1.5">
-          <span
-            className={cn(
-              'flex-1 text-[11.5px] truncate',
-              labelIsPlaceholder
-                ? 'italic text-muted-foreground/70'
-                : 'font-medium text-foreground/90',
-              status.isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
-            )}
-          >
-            {label}
-          </span>
-          <span className="text-[9px] text-muted-foreground/60 flex-shrink-0 transition-opacity group-hover:opacity-0 group-has-data-[state=open]:opacity-0">
-            {formatCompactRelative(timestamp)}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 text-[9.5px] text-muted-foreground/70 mt-0.5 min-w-0">
-          {isPinned && (
-            <Pin size={9} className="fill-current text-muted-foreground/50 flex-shrink-0 -rotate-45" aria-label="Pinned" />
-          )}
-          <span className="truncate">{wsName}</span>
-          {branch && (
-            <span className="flex items-center gap-0.5 truncate min-w-0">
-              <GitBranch size={8} className="opacity-60 flex-shrink-0" />
-              <span className="truncate">{branch}</span>
+      <div className="flex-1 min-w-0 flex items-start">
+        <div className="flex-1 min-w-0 leading-tight">
+          <div className="flex items-baseline gap-1.5">
+            <span
+              className={cn(
+                'flex-1 text-[11.5px] truncate',
+                labelIsPlaceholder
+                  ? 'italic text-muted-foreground/70'
+                  : 'font-medium text-foreground/90',
+                status.isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
+              )}
+            >
+              {label}
             </span>
-          )}
+            <span className={cn('text-[9px] text-muted-foreground/60 flex-shrink-0', ROW_ACTIONS_GIVE_WAY)}>
+              {formatCompactRelative(timestamp)}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[9.5px] text-muted-foreground/70 mt-0.5 min-w-0">
+            {isPinned && (
+              <Pin size={9} className="fill-current text-muted-foreground/50 flex-shrink-0 -rotate-45" aria-label="Pinned" />
+            )}
+            <span className="truncate">{wsName}</span>
+            {branch && (
+              <span className="flex items-center gap-0.5 truncate min-w-0">
+                <GitBranch size={8} className="opacity-60 flex-shrink-0" />
+                <span className="truncate">{branch}</span>
+              </span>
+            )}
+          </div>
+          {snippet && <SearchSnippet snippet={snippet} />}
         </div>
-        {snippet && <SearchSnippet snippet={snippet} />}
-      </div>
 
-      <SessionRowMenu
-        sessionId={session.id}
-        workspaceId={session.workspaceId ?? null}
-        isUnread={status.isUnread || status.isPending}
-        isPinned={isArchived ? undefined : isPinned}
-        label={label}
-        onOpenWorkspaceSettings={onOpenWorkspaceSettings}
-        onOpenLauncher={onOpenLauncher}
-        className="absolute right-1 top-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
-      />
+        {/* Beside the title line, pulled up so it doesn't push the row taller. */}
+        <SessionRowActions
+          sessionId={session.id}
+          workspaceId={session.workspaceId ?? null}
+          isUnread={status.isUnread || status.isPending}
+          isPinned={isArchived ? undefined : isPinned}
+          label={label}
+          onOpenWorkspaceSettings={onOpenWorkspaceSettings}
+          onOpenLauncher={onOpenLauncher}
+          className="-my-1"
+        />
+      </div>
     </div>
   );
 }

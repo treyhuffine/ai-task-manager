@@ -2,17 +2,15 @@
 
 import { Checkbox } from '@/components/ui/checkbox';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useArchiveExecution } from '@/hooks/use-archive-execution';
-import { useUnpinSession } from '@/hooks/use-workspaces';
 import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { cn } from '@/lib/utils';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
-import { Archive, GitBranch, Moon, Pin, PinOff } from 'lucide-react';
+import { GitBranch, Moon, Pin } from 'lucide-react';
 
 import { executionView } from '@/lib/client/active-view';
 import { StatusPip, useChatStatus } from './chat-status';
 import { useSessionRowHover } from './session-hover-context';
-import { SessionRowMenu } from './session-row-menu';
+import { ROW_ACTIONS_GIVE_WAY, SessionRowActions } from './session-row-actions';
 import { useWorkspaceSelection } from './workspace-selection-context';
 import { Tip } from '@/components/ui/tip';
 import { useDismissRailFlyout } from './rail-flyout';
@@ -37,23 +35,25 @@ interface SessionRowProps {
   onOpenLauncher?: (workspaceId: string) => void;
   /**
    * Suppress the inline "pinned" marker. Set by the Pinned group, where a
-   * per-row pin glyph would just repeat the section title. The kebab still
-   * offers Unpin regardless. Everywhere else the marker stays on so a pinned
-   * execution is recognizable in its natural home under its workspace.
+   * per-row pin glyph would just repeat the section title. The pin beside
+   * the kebab still offers Unpin regardless. Everywhere else the marker stays
+   * on so a pinned execution is recognizable in its natural home under its
+   * workspace.
    */
   hidePinMarker?: boolean;
   /**
    * `compact` is the agents-first rail's thread row (docs/rail-agents-first.md):
    * one line, label then a right-aligned cluster (pin, where it runs, time)
-   * that gives way to the kebab on hover. `regular` is the two-line row
-   * (Pinned, Needs you). Neither shows diff stats: in the rail they don't
-   * help decide where to go, they live in the execution's header.
+   * that gives way to the pin toggle and the kebab on hover. `regular` is
+   * the two-line row (Pinned, Needs you). Neither shows diff stats: in the
+   * rail they don't help decide where to go, they live in the execution's
+   * header.
    */
   density?: 'regular' | 'compact';
   /**
    * Idle past the inactive threshold (src/lib/sessions/inactive.ts). The row
-   * dims, marks its age with a moon, and offers Archive (and Unpin when
-   * pinned) on hover, so stale work is one click from gone.
+   * dims, marks its age with a moon, and adds Archive to its hover actions,
+   * so stale work is one click from gone.
    */
   inactive?: boolean;
 }
@@ -72,8 +72,9 @@ interface SessionRowProps {
  * async content last; nothing on screen ever moves.
  *
  * Pip-on-the-left makes the rail scannable: your eye runs the left
- * edge, picks out the colored rows, ignores the rest. The kebab fades
- * into the vacant right half on hover without displacing anything.
+ * edge, picks out the colored rows, ignores the rest. On hover the pin
+ * toggle and the kebab (`SessionRowActions`) take the end of the row,
+ * and the title truncates before them rather than running under them.
  */
 export function SessionRow({
   session,
@@ -138,6 +139,22 @@ export function SessionRow({
   const label = session.execution?.label ?? session.label ?? 'Untitled';
   const labelIsPlaceholder = !(session.execution?.label ?? session.label);
   const isPinned = !!session.execution?.pinnedAt;
+
+  // Hidden in selection mode: the row's only job then is to toggle, and a
+  // per-row pin or menu would invite a one-off action that competes with
+  // the batch one.
+  const actions = !selectable && (
+    <SessionRowActions
+      sessionId={session.id}
+      workspaceId={session.workspaceId ?? null}
+      isUnread={isUnread || isPending}
+      isPinned={isPinned}
+      archivable={inactive}
+      label={label}
+      onOpenWorkspaceSettings={onOpenWorkspaceSettings}
+      onOpenLauncher={onOpenLauncher}
+    />
+  );
 
   return (
     <div
@@ -224,137 +241,78 @@ export function SessionRow({
             {label}
           </span>
           {/* Static tokens only, so nothing arrives late and moves. The
-              kebab takes this slot on hover. */}
-          <span
-            className={cn(
-              'flex flex-shrink-0 items-center gap-1.5 text-[9px] leading-none transition-opacity',
-              !selectable && 'group-hover:opacity-0',
-            )}
-          >
-            {isPinned && !hidePinMarker && (
-              <Pin size={9} className="text-muted-foreground/50 fill-current -rotate-45" aria-label="Pinned" />
-            )}
-            {session.location && !session.location.isHome && (
-              <Tip label={`Runs on ${session.location.name}`}>
-                <span className="max-w-[5rem] truncate text-muted-foreground/60">
-                  {session.location.name}
-                </span>
-              </Tip>
-            )}
-            {inactive && <Moon size={9} className="text-muted-foreground/60" aria-label="Inactive" />}
-            <span className="text-muted-foreground/60 tabular-nums">{formatCompactRelative(timestamp)}</span>
+              actions take this slot on hover. */}
+          <span className="flex flex-shrink-0 items-center">
+            <span
+              className={cn(
+                'flex items-center gap-1.5 text-[9px] leading-none',
+                !selectable && ROW_ACTIONS_GIVE_WAY,
+              )}
+            >
+              {isPinned && !hidePinMarker && (
+                <Pin size={9} className="text-muted-foreground/50 fill-current -rotate-45" aria-label="Pinned" />
+              )}
+              {session.location && !session.location.isHome && (
+                <Tip label={`Runs on ${session.location.name}`}>
+                  <span className="max-w-[5rem] truncate text-muted-foreground/60">
+                    {session.location.name}
+                  </span>
+                </Tip>
+              )}
+              {inactive && <Moon size={9} className="text-muted-foreground/60" aria-label="Inactive" />}
+              <span className="text-muted-foreground/60 tabular-nums">{formatCompactRelative(timestamp)}</span>
+            </span>
+            {actions}
           </span>
         </>
       ) : (
-        <div className="flex-1 min-w-0">
-          <span
-            className={cn(
-              'block text-[11px] truncate',
-              labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
-              isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
-            )}
-          >
-            {label}
-          </span>
-          {/* Metadata line: the timestamp anchors it, then the workspace
-              tag (Pinned and Needs you) and where it runs. */}
-          <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
-            {isPinned && !hidePinMarker && (
-              <Pin
-                size={9}
-                className="text-muted-foreground/50 fill-current flex-shrink-0 -rotate-45"
-                aria-label="Pinned"
-              />
-            )}
-            {inactive && (
-              <Moon size={9} className="text-muted-foreground/60 flex-shrink-0" aria-label="Inactive" />
-            )}
-            <Tip label={inactive ? `Inactive: no activity for ${formatCompactRelative(timestamp)}` : undefined}>
-              <span
-                className="text-muted-foreground/60 flex-shrink-0"
-              >
-                {formatCompactRelative(timestamp)}
-              </span>
-            </Tip>
-            {showWorkspaceLabel && (
-              <span className="text-muted-foreground/50 truncate">· {showWorkspaceLabel}</span>
-            )}
-            {/* Work away from the home says where (P3.1). The home's own stays quiet. */}
-            {session.location && !session.location.isHome && (
-              <Tip label={`Runs on ${session.location.name}`}>
-                <span className="text-muted-foreground/60 truncate">· {session.location.name}</span>
+        // The actions end the row, beside both lines, so the title and the
+        // metadata line truncate before them.
+        <div className="flex-1 min-w-0 flex items-center">
+          <div className="flex-1 min-w-0">
+            <span
+              className={cn(
+                'block text-[11px] truncate',
+                labelIsPlaceholder ? 'italic text-muted-foreground/70' : 'font-medium',
+                isUnread && !labelIsPlaceholder && 'font-semibold text-foreground',
+              )}
+            >
+              {label}
+            </span>
+            {/* Metadata line: the timestamp anchors it, then the workspace
+                tag (Pinned and Needs you) and where it runs. */}
+            <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
+              {isPinned && !hidePinMarker && (
+                <Pin
+                  size={9}
+                  className="text-muted-foreground/50 fill-current flex-shrink-0 -rotate-45"
+                  aria-label="Pinned"
+                />
+              )}
+              {inactive && (
+                <Moon size={9} className="text-muted-foreground/60 flex-shrink-0" aria-label="Inactive" />
+              )}
+              <Tip label={inactive ? `Inactive: no activity for ${formatCompactRelative(timestamp)}` : undefined}>
+                <span
+                  className="text-muted-foreground/60 flex-shrink-0"
+                >
+                  {formatCompactRelative(timestamp)}
+                </span>
               </Tip>
-            )}
+              {showWorkspaceLabel && (
+                <span className="text-muted-foreground/50 truncate">· {showWorkspaceLabel}</span>
+              )}
+              {/* Work away from the home says where (P3.1). The home's own stays quiet. */}
+              {session.location && !session.location.isHome && (
+                <Tip label={`Runs on ${session.location.name}`}>
+                  <span className="text-muted-foreground/60 truncate">· {session.location.name}</span>
+                </Tip>
+              )}
+            </div>
           </div>
+          {actions}
         </div>
       )}
-      {/* The metadata cluster is left-anchored, so the row's right
-          half is dead space — the kebab fades in there without hiding
-          or displacing anything. Hidden in selection mode: the row's
-          only job then is to toggle, and a per-row menu would invite a
-          one-off archive that competes with the batch action. */}
-      {!selectable && inactive && (
-        <InactiveQuickActions sessionId={session.id} label={label} isPinned={isPinned} />
-      )}
-      {!selectable && (
-        <SessionRowMenu
-          sessionId={session.id}
-          workspaceId={session.workspaceId ?? null}
-          isUnread={isUnread || isPending}
-          isPinned={isPinned}
-          label={label}
-          onOpenWorkspaceSettings={onOpenWorkspaceSettings}
-          onOpenLauncher={onOpenLauncher}
-          className="absolute right-1 top-1/2 -translate-y-1/2"
-        />
-      )}
     </div>
-  );
-}
-
-/**
- * One-click ways out for an inactive row, beside the kebab on hover: Unpin
- * (pinned rows) and Archive. Everything else stays in the kebab.
- */
-function InactiveQuickActions({ sessionId, label, isPinned }: { sessionId: string; label: string; isPinned: boolean }) {
-  const unpin = useUnpinSession();
-  const { archive } = useArchiveExecution();
-  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
-  const button =
-    'p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/40';
-  return (
-    <span
-      onPointerDown={stop}
-      className="absolute right-7 top-1/2 -translate-y-1/2 flex items-center opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity"
-    >
-      {isPinned && (
-        <Tip label="Unpin">
-          <button
-            type="button"
-            aria-label="Unpin"
-            className={button}
-            onClick={(e) => {
-              stop(e);
-              unpin.mutate(sessionId);
-            }}
-          >
-            <PinOff size={12} />
-          </button>
-        </Tip>
-      )}
-      <Tip label="Archive">
-        <button
-          type="button"
-          aria-label="Archive"
-          className={button}
-          onClick={(e) => {
-            stop(e);
-            void archive({ id: sessionId, label });
-          }}
-        >
-          <Archive size={12} />
-        </button>
-      </Tip>
-    </span>
   );
 }

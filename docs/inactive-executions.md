@@ -79,7 +79,7 @@ section ids and their folds (`docs/rail.md`).
 
 **Pins fold too.** An inactive pin leaves the Pinned group (and its agent,
 and the header's status pills) for the same "N inactive hidden" toggle.
-Shown, it is dimmed with a moon and offers Unpin and Archive on hover, so a
+Shown, it is dimmed with a moon and adds Archive beside its pin on hover, so a
 stale pin is one click from gone. In the agents-first rail the execution open
 right now stays among its agent's threads, marked, whatever its age.
 
