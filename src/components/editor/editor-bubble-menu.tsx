@@ -92,11 +92,62 @@ function MenuButton({
  *  the menu clips it rather than starting the row with a stray line. */
 function MenuGroup({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative -ml-px flex items-center gap-0.5 px-1">
+    <div className="relative -ml-px flex shrink-0 items-center gap-0.5 px-1">
       <div aria-hidden className="absolute left-0 h-5 w-px bg-border" />
       {children}
     </div>
   )
+}
+
+/** How many rows groups of these widths fill at `width`, left to right. */
+function rowsAt(widths: readonly number[], width: number): number {
+  let rows = 1
+  let used = 0
+  for (const w of widths) {
+    if (used > 0 && used + w > width) {
+      rows++
+      used = 0
+    }
+    used += w
+  }
+  return rows
+}
+
+/** The narrowest width that fits groups of these widths in as few rows as
+ *  `available` allows. A row only ends between groups, so the answer is the
+ *  width of some run of neighboring groups: the shortest run that keeps the
+ *  row count. When even the widest group doesn't fit, that group's width. */
+export function balancedMenuWidth(widths: readonly number[], available: number): number {
+  const widest = Math.max(0, ...widths)
+  if (available <= widest) return widest
+  const rows = rowsAt(widths, available)
+  let best = available
+  for (let start = 0; start < widths.length; start++) {
+    let run = 0
+    for (let end = start; end < widths.length; end++) {
+      run += widths[end]
+      // Narrower than the widest group would leave that group overflowing
+      if (run >= widest && run < best && rowsAt(widths, run) <= rows) best = run
+    }
+  }
+  return best
+}
+
+/** Sizes the menu box to its groups (see balancedMenuWidth). */
+function fitMenuWidth(menu: HTMLElement, availableWidth: number) {
+  const row = menu.firstElementChild
+  // Not laid out (display: none) measures as zero: size it once it shows.
+  if (!(row instanceof HTMLElement) || menu.offsetWidth === 0) return
+  // Layout widths, not getBoundingClientRect: a scaled panel would skew those.
+  const chrome = menu.offsetWidth - row.clientWidth
+  const widths = Array.from(row.children, (group) => {
+    const style = getComputedStyle(group)
+    return (group as HTMLElement).offsetWidth + parseFloat(style.marginLeft) + parseFloat(style.marginRight)
+  })
+  // +1 so a row that fits exactly isn't wrapped by subpixel rounding
+  const width = balancedMenuWidth(widths, availableWidth - chrome) + chrome + 1
+  // max-width, since Tiptap sets width: max-content after every positioning
+  menu.style.maxWidth = `${Math.ceil(width)}px`
 }
 
 export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
@@ -130,13 +181,13 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
         placement: 'top',
         offset: 8,
         shift: { padding: 8 },
-        // Never wider than the space it has: on a phone the groups wrap into
-        // rows instead of running off the screen.
+        // One row when it fits. Otherwise the groups wrap, and the menu takes
+        // the narrowest width that needs no more rows, so it hugs its longest
+        // row and the rows come out even. Left to CSS, wrapped flex content
+        // keeps the full available width and leaves every row short.
         size: {
           padding: 8,
-          apply: ({ availableWidth, elements }) => {
-            elements.floating.style.maxWidth = `${Math.max(availableWidth, 0)}px`
-          },
+          apply: ({ availableWidth, elements }) => fitMenuWidth(elements.floating, availableWidth),
         },
       }}
       // z-[51]: above the gutter's grip and + (z-index 50 in globals.css),
@@ -195,6 +246,29 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
             title="Highlight"
           >
             <Highlighter size={iconSize} />
+          </MenuButton>
+
+          <MenuButton
+            onClick={() => {
+              const previousUrl = editor.getAttributes('link').href
+              const url = window.prompt('URL', previousUrl)
+              if (url === null) return
+              if (url === '') {
+                editor.chain().focus().extendMarkRange('link').unsetLink().run()
+                return
+              }
+              editor
+                .chain()
+                .focus()
+                .extendMarkRange('link')
+                .setLink({ href: url })
+                .run()
+            }}
+            isActive={active.link}
+            title="Link"
+            shortcut="⌘K"
+          >
+            <Link size={iconSize} />
           </MenuButton>
         </MenuGroup>
 
@@ -271,29 +345,6 @@ export function EditorBubbleMenu({ editor }: EditorBubbleMenuProps) {
             title="Turn into toggle"
           >
             <ListCollapse size={iconSize} />
-          </MenuButton>
-
-          <MenuButton
-            onClick={() => {
-              const previousUrl = editor.getAttributes('link').href
-              const url = window.prompt('URL', previousUrl)
-              if (url === null) return
-              if (url === '') {
-                editor.chain().focus().extendMarkRange('link').unsetLink().run()
-                return
-              }
-              editor
-                .chain()
-                .focus()
-                .extendMarkRange('link')
-                .setLink({ href: url })
-                .run()
-            }}
-            isActive={active.link}
-            title="Link"
-            shortcut="⌘K"
-          >
-            <Link size={iconSize} />
           </MenuButton>
         </MenuGroup>
       </div>

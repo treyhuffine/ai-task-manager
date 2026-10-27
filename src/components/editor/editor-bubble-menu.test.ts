@@ -6,7 +6,7 @@ import TaskList from '@tiptap/extension-task-list'
 import { CollapsibleHeading } from './collapsible-heading'
 import { Paragraph } from './paragraph'
 import { TaskItem } from './task-item'
-import { LIST_FORMATS } from './editor-bubble-menu'
+import { LIST_FORMATS, balancedMenuWidth } from './editor-bubble-menu'
 
 /**
  * The list buttons in the selection menu, run against the editor's own nodes
@@ -128,5 +128,40 @@ describe('list buttons on selected lines', () => {
     select(ed, 'Ideas', 'other notes')
     expect(press(ed, 'Bullet list')).toBe(true)
     expect(ed.getMarkdown().trim()).toBe('- Ideas\n- Search other notes')
+  })
+})
+
+describe('selection menu width', () => {
+  // The menu's groups as laid out: text formatting and link, headings, lists,
+  // then quote and toggle (outer widths in px).
+  const GROUPS = [208, 92, 92, 63]
+  const ONE_ROW = 455
+
+  it('stays one row when there is room', () => {
+    expect(balancedMenuWidth(GROUPS, 1000)).toBe(ONE_ROW)
+    expect(balancedMenuWidth(GROUPS, ONE_ROW)).toBe(ONE_ROW)
+  })
+
+  it('on a phone, hugs two even rows: text formatting, then line formatting', () => {
+    // 420, 375 and 320px screens, less the 8px margins and the menu's own padding
+    for (const available of [398, 353, 298]) {
+      // Row two (headings, lists, quote and toggle) is the longer one, and row
+      // one (text formatting and link) is a button short of it.
+      expect(balancedMenuWidth(GROUPS, available)).toBe(92 + 92 + 63)
+    }
+  })
+
+  it('just short of one row, splits evenly instead of leaving one group alone', () => {
+    // Filling left to right would put three groups on the first row and quote
+    // and toggle alone on the second.
+    expect(balancedMenuWidth(GROUPS, ONE_ROW - 1)).toBe(92 + 92 + 63)
+  })
+
+  it('in a very narrow panel takes as many rows as it must, still no wider than needed', () => {
+    expect(balancedMenuWidth(GROUPS, 230)).toBe(208)
+  })
+
+  it('narrower than its widest group, takes that group\'s width', () => {
+    expect(balancedMenuWidth(GROUPS, 150)).toBe(208)
   })
 })
