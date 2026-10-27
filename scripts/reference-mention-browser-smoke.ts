@@ -144,6 +144,21 @@ async function main() {
         assert.equal(await page.evaluate(() => window.referenceMentionFixture.treeLoads()), 0);
         cases++;
 
+        // A pick while a newer search is still loading replaces the whole
+        // token as typed, not just the part the list on screen was searched
+        // with (which once left `-t` behind, before the chip).
+        await reset();
+        await page.keyboard.type('@agentex');
+        await page.locator('.slash-command-popup button').filter({ hasText: '@agentex' }).first().waitFor();
+        await page.evaluate(() => window.referenceMentionFixture.settleSearches());
+        await page.waitForTimeout(100);
+        await page.keyboard.type('-t');
+        await page.keyboard.press('Enter');
+        await chip.waitFor();
+        assert.equal(await chip.innerText(), 'agentex');
+        assert.equal(await page.evaluate(() => window.referenceMentionFixture.output()), '@/code/agentex');
+        cases++;
+
         await reset();
         await page.evaluate(() => window.referenceMentionFixture.insert('@agentex'));
         await page.locator('.slash-command-popup button').filter({ hasText: '@agentex' }).first().waitFor();

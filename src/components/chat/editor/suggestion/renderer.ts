@@ -89,6 +89,12 @@ export function createSuggestionPopupRenderer<TItem>(
     let releasePosition: (() => void) | null = null
     let updatePosition: (() => void) | null = null
     let latestProps: SuggestionProps<TItem> | null = null
+    // The suggestion as it is now. Tiptap hands over each keystroke's range
+    // before that query's items load, and only then updates the list, so the
+    // list on screen can still be the previous query's. A pick from it acts on
+    // the whole token as typed so far: with the list's own range, picking
+    // during a search left the newer letters behind (`ai-` before the chip).
+    let newest: SuggestionProps<TItem> | null = null
     // Escape closes the menu for the rest of the current token. The
     // Tiptap plugin stays active on purpose — force-exiting it would
     // let the very next keystroke re-match `#1` → `#12` and pop the
@@ -98,6 +104,14 @@ export function createSuggestionPopupRenderer<TItem>(
     let dismissed = false
 
     return {
+      onBeforeStart(props: SuggestionProps<TItem>) {
+        newest = props
+      },
+
+      onBeforeUpdate(props: SuggestionProps<TItem>) {
+        newest = props
+      },
+
       onStart(props: SuggestionProps<TItem>) {
         cleanup()
         dismissed = false
@@ -161,7 +175,7 @@ export function createSuggestionPopupRenderer<TItem>(
             componentRef = r
           },
           items: props.items,
-          command: (item: TItem) => props.command(item),
+          command: (item: TItem) => (newest ?? props).command(item),
           query: props.query,
         }),
       )
