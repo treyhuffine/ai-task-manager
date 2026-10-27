@@ -10,8 +10,8 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Definition, Nodes } from 'mdast';
 
-// Bare filenames need an explicit Markdown link or inline code. In prose,
-// require a path prefix or a directory, so "saved shot.png" stays prose.
+// Inferred files need a directory and extension. An authored Markdown link
+// can still name a bare filename or an extensionless file.
 const PATH_PREFIX = String.raw`(?:file:\/\/|~\/|\/(?!\/)|\.{1,2}\/|[\w.-]+\/)`;
 const STANDALONE_PATH = new RegExp(String.raw`^(?:${PATH_PREFIX}|[^\s/]+$)`, 'i');
 
@@ -24,6 +24,13 @@ export function isLocalFileTarget(target: string, extensions: string): boolean {
   if (/^(?:www\.|(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?\/)/i.test(target)) return false;
   const path = target.replace(/^file:\/\//i, '').split(/[?#]/)[0] ?? '';
   return new RegExp(`\\.(?:${extensions})$`, 'i').test(path);
+}
+
+/** Syntax only: never probe the filesystem while rendering a message. */
+function isInferredFileTarget(target: string): boolean {
+  const file = target.split(/[?#]/)[0].replace(/:\d+(?::\d+)?$/, '');
+  return file.replace(/^file:\/\//i, '').includes('/')
+    && isLocalFileTarget(file, '[a-z0-9][a-z0-9._+-]*');
 }
 
 interface Replacement {
@@ -66,6 +73,8 @@ interface ReferenceOptions {
   relativeTo?: string;
   basenames?: string;
   anyFile?: boolean;
+  /** Text controls keep the original path, quotes and inline code styling. */
+  preservePathText?: boolean;
   /** Non-Markdown artifact references, such as the visualize output marker. */
   marker?: { pattern: RegExp; target: (match: RegExpMatchArray) => string | null };
 }
@@ -80,6 +89,7 @@ export function rewriteLocalFileReferences(markdown: string, options: ReferenceO
     ? new RegExp(String.raw`(^|[\s("'<>])(${PATH_PREFIX}[^\s"'\x60<>\[\]{}]+)`, 'gi')
     : new RegExp(String.raw`(^|[\s("'<>])(${PATH_PREFIX}[^\s"'\x60<>\[\]{}]*?${ext})(?![\w/]|\.[\w])`, 'gi');
   const matchesTarget = options.matches ?? ((target: string) => isLocalFileTarget(target, extensions));
+  const matchesInferredTarget = (target: string) => isInferredFileTarget(target) && matchesTarget(target);
   const tree = fromMarkdown(markdown);
   const definitions = new Map<string, Definition>();
   const replacements: Replacement[] = [];
@@ -130,8 +140,9 @@ export function rewriteLocalFileReferences(markdown: string, options: ReferenceO
       // Agents routinely put a single file path in backticks. Code examples
       // containing more than that path stay code, as do fenced/indented blocks.
       const target = node.value.trim();
-      if (STANDALONE_PATH.test(target) && matchesTarget(target)) {
-        replacements.push({ start, end, text: render(target) });
+      if (STANDALONE_PATH.test(target) && matchesInferredTarget(target)) {
+        const control = render(target, options.preservePathText ? node.value : undefined);
+        replacements.push({ start, end, text: options.preservePathText ? `<code>${control}</code>` : control });
       }
       return;
     }
@@ -141,19 +152,21 @@ export function rewriteLocalFileReferences(markdown: string, options: ReferenceO
       const paths: Replacement[] = [];
       for (const match of source.matchAll(quotedPath)) {
         const target = match[1] ?? match[2];
-        if (!matchesTarget(target)) continue;
+        if (!matchesInferredTarget(target)) continue;
         const at = start + match.index;
         const until = at + match[0].length;
         if (markerRanges.some(range => at < range.end && until > range.start)) continue;
-        paths.push({ start: at, end: until, text: render(target) });
+        const control = render(target, options.preservePathText ? target : undefined);
+        const quote = match[0][0];
+        paths.push({ start: at, end: until, text: options.preservePathText ? `${quote}${control}${quote}` : control });
       }
       for (const match of source.matchAll(barePath)) {
         const target = options.anyFile ? match[2].replace(/[.,;:!?\)]+$/, '') : match[2];
-        if (!matchesTarget(target)) continue;
+        if (!matchesInferredTarget(target)) continue;
         const at = start + match.index + match[1].length;
         if (markerRanges.some(range => at < range.end && at + target.length > range.start)) continue;
         if (paths.some((p) => at >= p.start && at < p.end)) continue;
-        paths.push({ start: at, end: at + target.length, text: render(target) });
+        paths.push({ start: at, end: at + target.length, text: render(target, options.preservePathText ? target : undefined) });
       }
       replacements.push(...paths);
       return;

@@ -66,6 +66,14 @@ it('handles zero-byte files and suffix ranges safely', async () => {
   expect((await fileBytes(new Request('http://ri.local/', { headers: { range: 'bytes=-1' } }), file, 'empty.bin')).status).toBe(416);
 });
 
+it('reports the exact location tried for a missing inferred file without searching elsewhere', async () => {
+  await fs.mkdir(path.join(folder, 'actual'));
+  await fs.writeFile(path.join(folder, 'actual', 'result.zip'), 'another file with the same name');
+  await expect(previewFile({ kind: 'session', sessionId, path: './output/result.zip' })).rejects.toMatchObject({
+    status: 404, body: { error: `File not found: ${path.join(folder, 'output/result.zip')}` },
+  });
+});
+
 it('accepts video uploads and serves uploaded media with seeking and an original-name download', async () => {
   const bytes = Buffer.from('0123456789');
   const form = new FormData(); form.append('file', new File([new Uint8Array(bytes)], 'Screen recording.mp4', { type: 'video/mp4' }));

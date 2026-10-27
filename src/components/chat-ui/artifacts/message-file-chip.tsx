@@ -18,6 +18,8 @@ interface MessageFileChipProps {
   attachment: Attachment;
   /** Layout density. `inline` for chips embedded in a sentence; `block` for their own line. */
   variant?: 'inline' | 'block';
+  /** Sent message bubbles invert the page's colors. */
+  tone?: 'surface' | 'bubble';
   /** Shared work in My Ri resolves files through its team's store. */
   fileUrl?: (fileName: string) => string;
 }
@@ -29,8 +31,8 @@ interface MessageFileChipProps {
  *   - image/* → small thumbnail; click to view full size in a lightbox.
  *   - PDF     → first-page thumbnail; click to read it in the lightbox,
  *               which also downloads it.
- *   - text/*  → expandable chip; click toggles inline content fetch.
- *   - other   → file chip with a download link.
+ *   - other local attachments → bordered chip opening the shared preview.
+ *   - shared/custom URLs → expandable text or a download chip.
  *
  * Distinct from the editor's `FileChipNode`, which is interactive and
  * lives inside Tiptap.
@@ -44,7 +46,7 @@ export function MessageFileChip(props: MessageFileChipProps) {
   return <>{chip}<OpenWithApp file={{ kind: 'attachment', fileName, name: originalName || fileName }} className="inline-flex align-baseline" /></>;
 }
 
-function FileChip({ attachment, variant = 'inline', fileUrl = attachmentUrl }: MessageFileChipProps) {
+function FileChip({ attachment, variant = 'inline', tone = 'surface', fileUrl = attachmentUrl }: MessageFileChipProps) {
   const { fileName, originalName, mimeType, size } = attachment;
   const display = originalName || fileName;
   const isImage = mimeType.startsWith('image/');
@@ -58,18 +60,18 @@ function FileChip({ attachment, variant = 'inline', fileUrl = attachmentUrl }: M
     return <span className={cn(variant === 'block' && 'block my-1')}><PdfPreviewCard src={attachmentPdfUrl(url, display)} name={display} source={display} /></span>;
   }
   if (url === `/api/attachments/${fileName}`) {
-    return <span className={cn(variant === 'block' && 'block my-1')}><FilePreviewLink source={{ kind: 'attachment', fileName, ...(/^(audio|video)\//.test(mimeType) ? { media: mimeType.startsWith('audio/') ? 'audio' as const : 'video' as const } : {}) }} name={display} /></span>;
+    return <span className={cn(variant === 'block' && 'block my-1')}><FilePreviewLink source={{ kind: 'attachment', fileName, ...(/^(audio|video)\//.test(mimeType) ? { media: mimeType.startsWith('audio/') ? 'audio' as const : 'video' as const } : {}) }} name={display} appearance="chip" tone={tone} size={size} /></span>;
   }
   if (isText) {
-    return <TextExpandChip url={url} display={display} variant={variant} size={size} />;
+    return <TextExpandChip url={url} display={display} variant={variant} tone={tone} size={size} />;
   }
-  return <DownloadChip url={url} display={display} variant={variant} size={size} />;
+  return <DownloadChip url={url} display={display} variant={variant} tone={tone} size={size} />;
 }
 
 // ─── Text variant ──────────────────────────────────────────────
 
-function TextExpandChip({ url, display, variant, size }: {
-  url: string; display: string; variant: 'inline' | 'block'; size: number;
+function TextExpandChip({ url, display, variant, tone, size }: {
+  url: string; display: string; variant: 'inline' | 'block'; tone: 'surface' | 'bubble'; size: number;
 }) {
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState<string | null>(null);
@@ -108,32 +110,32 @@ function TextExpandChip({ url, display, variant, size }: {
           onClick={handleToggle}
           className={cn(
             'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
-            'rounded-md border border-border bg-muted/40 text-foreground text-[12px] font-medium',
-            'hover:border-foreground/30 hover:bg-muted/60 transition-colors',
+            'rounded-md border text-[12px] font-medium transition-colors',
+            tone === 'bubble' ? 'border-current/20 bg-current/10 text-inherit hover:border-current/35 hover:bg-current/15' : 'border-border bg-muted/40 text-foreground hover:border-foreground/30 hover:bg-muted/60',
             'cursor-pointer',
           )}
         >
-          <FileText size={11} className="text-muted-foreground/80 shrink-0" />
+          <FileText size={11} className="opacity-70 shrink-0" />
           <span className="font-mono text-[11px] truncate max-w-[200px]">{display}</span>
-          <span className="text-[10px] text-muted-foreground/70 ml-0.5">{formatSize(size)}</span>
+          <span className="text-[10px] opacity-70 ml-0.5">{formatSize(size)}</span>
           {open ? (
-            <ChevronDown size={10} className="text-muted-foreground/70" />
+            <ChevronDown size={10} className="opacity-70" />
           ) : (
-            <ChevronRight size={10} className="text-muted-foreground/70" />
+            <ChevronRight size={10} className="opacity-70" />
           )}
         </button>
       </Tip>
       {open && (
-        <span className="block mt-1 mb-2 rounded-md border border-border bg-muted/30 max-h-72 overflow-y-auto">
+        <span className={cn('block mt-1 mb-2 rounded-md border max-h-72 overflow-y-auto', tone === 'bubble' ? 'border-current/20 bg-current/5' : 'border-border bg-muted/30')}>
           {loading ? (
-            <span className="flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-2 px-3 py-2 text-[11px] opacity-70">
               <Loader2 size={11} className="animate-spin" />
               Loading…
             </span>
           ) : error ? (
             <span className="block px-3 py-2 text-[11px] text-destructive">Failed to load: {error}</span>
           ) : (
-            <pre className="text-[11px] font-mono text-foreground/90 px-3 py-2 whitespace-pre-wrap break-words">
+            <pre className="text-[11px] font-mono text-inherit px-3 py-2 whitespace-pre-wrap break-words">
               {content ?? ''}
             </pre>
           )}
@@ -145,8 +147,8 @@ function TextExpandChip({ url, display, variant, size }: {
 
 // ─── Download variant ─────────────────────────────────────────
 
-function DownloadChip({ url, display, variant, size }: {
-  url: string; display: string; variant: 'inline' | 'block'; size: number;
+function DownloadChip({ url, display, variant, tone, size }: {
+  url: string; display: string; variant: 'inline' | 'block'; tone: 'surface' | 'bubble'; size: number;
 }) {
   return (
     <span className={cn(variant === 'block' && 'block my-1')}>
@@ -158,14 +160,14 @@ function DownloadChip({ url, display, variant, size }: {
           rel="noopener noreferrer"
           className={cn(
             'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
-            'rounded-md border border-border bg-muted/40 text-foreground text-[12px] font-medium',
-            'hover:border-foreground/30 hover:bg-muted/60 transition-colors',
+            'rounded-md border text-[12px] font-medium transition-colors',
+            tone === 'bubble' ? 'border-current/20 bg-current/10 text-inherit hover:border-current/35 hover:bg-current/15' : 'border-border bg-muted/40 text-foreground hover:border-foreground/30 hover:bg-muted/60',
             'cursor-pointer no-underline',
           )}
         >
-          <Download size={11} className="text-muted-foreground/80 shrink-0" />
+          <Download size={11} className="opacity-70 shrink-0" />
           <span className="font-mono text-[11px] truncate max-w-[200px]">{display}</span>
-          <span className="text-[10px] text-muted-foreground/70 ml-0.5">{formatSize(size)}</span>
+          <span className="text-[10px] opacity-70 ml-0.5">{formatSize(size)}</span>
         </a>
       </Tip>
     </span>

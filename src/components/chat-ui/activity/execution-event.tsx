@@ -1382,7 +1382,7 @@ function RenderMessageSegments({
         if (m.kind === 'file') {
           const att = attachmentMap.get(m.fileName);
           // Unknown attachment — fall back to literal token.
-          return att ? <MessageFileChip key={i} attachment={att} /> : <span key={i}>{seg.raw}</span>;
+          return att ? <MessageFileChip key={i} attachment={att} tone={tone} /> : <span key={i}>{seg.raw}</span>;
         }
         return (
           <MessageEntityChip

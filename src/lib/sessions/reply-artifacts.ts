@@ -7,8 +7,8 @@ const PREFIX = '#ri-file=';
 export function isLocalArtifactTarget(target: string): boolean {
   if (!target || /[\0\r\n]/.test(target) || /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/api\/|#)/i.test(target) && !/^file:\/\//i.test(target)) return false;
   if (/^(?:www\.|(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?\/)/i.test(target)) return false;
-  // A slash alone is common prose, such as browser/gallery or desktop/mobile.
-  // Extensionless paths need an explicit prefix or a recognized text filename.
+  // Authored links can name extensionless files. The shared scanner applies
+  // stricter rules to inferred paths in code and prose.
   return isLocalTextTarget(target) || isLocalFileTarget(target, '[a-z0-9][a-z0-9._+-]*') || /^(?:file:\/\/|~\/|\/|\.{1,2}\/)/i.test(target);
 }
 
@@ -21,6 +21,7 @@ export function rewriteLocalArtifacts(markdown: string, sessionId?: string | nul
   if (!sessionId) return markdown;
   return rewriteLocalFileReferences(markdown, {
     extensions: '[a-z0-9][a-z0-9._+-]*', anyFile: true, matches: isLocalArtifactTarget, relativeTo,
+    preservePathText: true,
     render: (path, label) => `<${FILE_PREVIEW_TAG} href="${PREFIX}${encodeURIComponent(path)}">${(label || path.split('/').at(-1) || path).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}</${FILE_PREVIEW_TAG}>`,
   });
 }

@@ -49,7 +49,7 @@ describe('rewriteLocalImages', () => {
   });
 
   it('shows paths written in backticks, including spaces and multiple-backtick spans', () => {
-    for (const target of ['/tmp/shot.png', '~/Desktop/Screen Shot.png', './screenshots/desktop.webp', 'file:///Users/agent/shot.png', 'shot.png']) {
+    for (const target of ['/tmp/shot.png', '~/Desktop/Screen Shot.png', './screenshots/desktop.webp', 'file:///Users/agent/shot.png']) {
       expect(rewriteLocalImages(`Here: \`${target}\``, SID)).toBe(`Here: ![${target.split('/').at(-1)}](${url(target)})`);
     }
     expect(rewriteLocalImages('``/tmp/shot.png``', SID)).toBe(`![shot.png](${url('/tmp/shot.png')})`);
@@ -72,6 +72,7 @@ describe('rewriteLocalImages', () => {
       '````md\n```\n/tmp/shot.png\n```\n````',
       '    /tmp/shot.png\n    ![x](/tmp/shot.png)',
       'Saved shot.png and shot.png.bak.',
+      '`shot.png`',
       '/tmp/shot.png.bak and /tmp/shot.png/notes.txt',
       'https://example.com/tmp/shot.png and //cdn.example.com/shot.png',
       '[/tmp/shot.png](https://example.com)',

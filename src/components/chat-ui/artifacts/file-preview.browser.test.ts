@@ -23,7 +23,9 @@ const reads: string[] = [];
 const deliveries: { name: string; cookie: string }[] = [];
 const names = ['demo.webm', 'memo.wav', 'data.xlsx', 'data.csv', 'review.docx', 'review.pptx', 'files.zip', 'output.bin', 'broken.mov', 'review.md'];
 const outputPath = `/fixture/${'a-long-folder-name/'.repeat(60)}output.bin`;
-const prose = 'Verified browser/gallery and desktop/mobile checks.\n\n`browser/gallery` and `desktop/mobile` stay text too.\n\n[Website](https://example.com/review)';
+const prose = 'Verified browser/gallery and desktop/mobile checks.\n\n`browser/gallery` and `desktop/mobile` stay text too.\n\nRoutes: `/v1/realtime/status/flow`, `/v1/products/option-flow/count`, `/flow`.\n\nFiles: `FlowFeed.ts`, `FeedPublisher.ts`, `protocol.ts`, `report.pdf`, `shot.png`, `index.html`.\n\n[Website](https://example.com/review)';
+const inferred = 'Open `/fixture/nested/plan.md` or `/fixture/missing.bin`.\n\nSee "./output/result.zip".';
+const pastedName = 'pasted_text_2026-10-27-15-01-25.md';
 
 beforeAll(async () => {
   if (!enabled) return;
@@ -44,10 +46,12 @@ beforeAll(async () => {
       import{TipProvider}from'./src/components/ui/tip';import{ArtifactPreviewProvider,useBesidePreview,useBesideRegion}from'./src/components/chat-ui/artifacts/artifact-preview-provider';
       import{PREVIEW_HOST_ATTRIBUTE}from'./src/components/chat-ui/artifacts/artifact-preview-store';import{BesideFileView}from'./src/components/chat-ui/artifacts/artifact-beside';
       import{AgentResponse}from'./src/components/chat-ui/messages/agent-response';
+      import{Message,MessageContent}from'./src/components/ai-elements/message';import{MessageFileChip}from'./src/components/chat-ui/artifacts/message-file-chip';
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
-      function DetectionExamples(){return <>{['streaming','static'].map(mode=><section key={mode} aria-label={mode+' path detection'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(prose)}}/></section>)}</>}
+      function DetectionExamples(){return <>{['streaming','static'].map(mode=><React.Fragment key={mode}><section aria-label={mode+' path detection'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(prose)}}/></section><section aria-label={mode+' inferred files'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(inferred)}}/></section></React.Fragment>)}</>}
+      function AttachmentExample(){return <section aria-label="Sent attachment"><Message from="user"><MessageContent><MessageFileChip tone="bubble" attachment={{fileName:'review.md',originalName:${JSON.stringify(pastedName)},mimeType:'text/markdown',size:99,uploadedAt:'2026-10-27T15:01:25Z'}}/></MessageContent></Message></section>}
       function Chat(){const [shown,setShown]=useState(false);const file=useBesidePreview('fixture');useBesideRegion('fixture',{available:true,side:'right',showing:shown&&!!file,show:()=>setShown(true)});
-      return <main className="flex h-screen"><section role="log" aria-label="Chat" {...{[PREVIEW_HOST_ATTRIBUTE]:'fixture'}} className="min-w-0 w-1/2 space-y-3 p-6"><AgentResponse sessionId="fixture" text={${JSON.stringify(names.map(name => `[${name}](${name === 'output.bin' ? outputPath : `/fixture/${name}`})`).join('\n\n'))}}/><DetectionExamples/></section><aside className="min-w-0 w-1/2 border-l">{file&&<BesideFileView host="fixture"/>}</aside></main>}
+      return <main className="flex h-screen"><section role="log" aria-label="Chat" {...{[PREVIEW_HOST_ATTRIBUTE]:'fixture'}} className="min-w-0 w-1/2 space-y-3 overflow-auto p-6"><AttachmentExample/><AgentResponse sessionId="fixture" text={${JSON.stringify(names.map(name => `[${name}](${name === 'output.bin' ? outputPath : `/fixture/${name}`})`).join('\n\n'))}}/><DetectionExamples/></section><aside className="min-w-0 w-1/2 border-l">{file&&<BesideFileView host="fixture"/>}</aside></main>}
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><TipProvider><ArtifactPreviewProvider><Chat/></ArtifactPreviewProvider></TipProvider></QueryClientProvider>);
     ` }, bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', define: { 'process.env': '{"NODE_ENV":"production"}' },
     plugins: [{ name: 'fixture-trpc', setup(builder) {
@@ -83,7 +87,12 @@ beforeAll(async () => {
       }
       if (url.pathname === '/api/trpc/filePreviews.read') {
         const input = JSON.parse(url.searchParams.get('input') || '{}');
-        const name = String(input.path ?? input.json?.path ?? '').split('/').at(-1)!;
+        const source = input.json ?? input;
+        const name = String(source.path ?? source.fileName ?? '').split('/').at(-1)!;
+        if (name === 'missing.bin') {
+          reads.push(name); res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: 'File not found: /fixture/missing.bin', code: -32004, data: { code: 'NOT_FOUND', httpStatus: 404 } } })); return;
+        }
         if (!names.includes(name)) { res.writeHead(404); res.end(); return; }
         reads.push(name);
         const file = path.join(dir, name);
@@ -119,10 +128,71 @@ it.skipIf(!enabled)('keeps slash-separated prose as text in streaming and static
       const example = p.getByRole('region', { name: `${mode} path detection`, exact: true });
       await example.getByText('Verified browser/gallery and desktop/mobile checks.', { exact: true }).waitFor();
       expect(await example.getByRole('button').count()).toBe(0);
+      for (const text of ['/v1/realtime/status/flow', '/v1/products/option-flow/count', '/flow', 'FlowFeed.ts', 'FeedPublisher.ts', 'protocol.ts', 'report.pdf', 'shot.png', 'index.html']) {
+        expect(await example.locator('code').filter({ hasText: text }).count()).toBeGreaterThan(0);
+      }
       expect(await example.getByRole('link').count()).toBe(1);
       expect(await example.getByRole('link', { name: 'Website', exact: true }).getAttribute('href')).toBe('https://example.com/review');
       expect(await example.getByRole('link', { name: 'Website', exact: true }).getAttribute('target')).toBe('_blank');
     }
+  } finally { await p.context().close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('retains inferred paths and code styling without checking files until clicked', async () => {
+  const before = reads.length;
+  const p = await page();
+  try {
+    for (const mode of ['streaming', 'static']) {
+      const example = p.getByRole('region', { name: `${mode} inferred files`, exact: true });
+      const button = example.getByRole('button', { name: 'Open file: plan.md', exact: true });
+      await button.waitFor();
+      expect(await button.innerText()).toBe('/fixture/nested/plan.md');
+      expect(await button.locator('xpath=ancestor::code').count()).toBe(1);
+      expect(await example.textContent()).toContain('See "./output/result.zip".');
+    }
+    await p.waitForLoadState('networkidle');
+    expect(reads.length).toBe(before);
+    await p.getByRole('region', { name: 'static inferred files', exact: true }).getByRole('button', { name: 'Open file: missing.bin', exact: true }).click();
+    const view = p.getByRole('region', { name: 'missing.bin, beside the chat', exact: true });
+    await view.getByRole('status').filter({ hasText: 'File not found: /fixture/missing.bin' }).waitFor();
+    expect(await view.getByRole('button', { name: 'Copy path', exact: true }).innerText()).toContain('/fixture/missing.bin');
+    expect(reads.slice(before)).toEqual(['missing.bin']);
+  } finally { await p.context().close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('keeps uploaded text as a readable chip in both themes and opens the shared viewer', async () => {
+  const p = await page();
+  try {
+    const chip = p.getByRole('region', { name: 'Sent attachment', exact: true }).getByRole('button', { name: `Open file: ${pastedName}`, exact: true });
+    await chip.waitFor();
+    for (const dark of [false, true]) {
+      await p.evaluate(value => document.documentElement.classList.toggle('dark', value), dark);
+      await chip.evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
+      const contrast = await chip.evaluate(element => {
+        const bubble = element.closest('.is-user')!.firstElementChild!;
+        const style = getComputedStyle(element);
+        const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = getComputedStyle(bubble).backgroundColor; ctx.fillRect(0, 0, 1, 1);
+        ctx.fillStyle = style.backgroundColor; ctx.fillRect(0, 0, 1, 1);
+        const background = Array.from(ctx.getImageData(0, 0, 1, 1).data).slice(0, 3);
+        ctx.fillStyle = style.color; ctx.fillRect(0, 0, 1, 1);
+        const foreground = Array.from(ctx.getImageData(0, 0, 1, 1).data).slice(0, 3);
+        const luminance = (rgb: number[]) => rgb.map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+        const a = luminance(foreground), b = luminance(background);
+        return { ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05), border: parseFloat(style.borderTopWidth), radius: parseFloat(style.borderRadius), color: style.color, background: style.backgroundColor, bubble: getComputedStyle(bubble).backgroundColor, bubbleColor: getComputedStyle(bubble).color };
+      });
+      expect(contrast.ratio, JSON.stringify({ dark, ...contrast })).toBeGreaterThanOrEqual(4.5);
+      expect(contrast.border).toBeGreaterThan(0);
+      expect(contrast.radius).toBeGreaterThan(0);
+      expect(await chip.innerText()).toContain('99 B');
+      if (process.env.RI_ARTIFACT_SCREENSHOTS) await chip.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, `attachment-chip-${dark ? 'dark' : 'light'}.png`) });
+    }
+    await chip.click();
+    const view = p.getByRole('region', { name: `${pastedName}, beside the chat`, exact: true });
+    await view.getByRole('heading', { name: 'Shared review', exact: true }).waitFor();
+    await view.getByRole('button', { name: 'Show large', exact: true }).click();
+    await p.getByRole('dialog').getByRole('heading', { name: 'Shared review', exact: true }).waitFor();
   } finally { await p.context().close(); }
 }, 30_000);
 

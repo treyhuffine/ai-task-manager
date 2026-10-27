@@ -316,13 +316,19 @@ beside the chat or in the large view. Markdown starts rendered and has a Source
 toggle. Other text formats show their source. Links, standalone paths in backticks,
 and explicit paths in prose are recognized. Code blocks stay code, web URLs keep
 opening in a browser tab. Other local files open the file previews below.
-Automatic file detection requires an explicit prefix (`/`, `./`, `../`, `~/`
-or `file://`), a filename extension, or a recognized filename such as `README`.
-Slash-separated prose such as `browser/gallery` and `desktop/mobile` stays text,
-including inside backticks. An ambiguous destination explicitly written as a
-Markdown link keeps the copy/open dialog.
+Automatic file detection requires both a directory component and a filename
+extension, such as `/tmp/report.md`, `./src/app.tsx` or `src/app.tsx`.
+API routes such as `/v1/realtime/status/flow`, slash-separated prose such as
+`browser/gallery`, and bare filenames such as `FlowFeed.ts` stay text, including
+inside backticks. Inferred text and generic file controls keep the full path,
+quotes and inline code styling. Authored Markdown links can still open bare
+filenames and extensionless files such as `Dockerfile`. Other destinations
+explicitly written as Markdown links keep the copy/open dialog.
+Detection uses syntax only, with no background filesystem or API checks. Opening
+a file resolves that exact path through the existing reader and authorization.
+Missing files show an explanation without searching for another file by name.
 Relative links and images in a rendered document resolve against its directory.
-Source locations such as `app.tsx:12` open their file, and Markdown fragments
+Source locations such as `src/app.tsx:12` open their file, and Markdown fragments
 identify the document. Stored replies and copied messages retain the original paths.
 
 Files load only when opened, through the existing tRPC file read and its 1 MiB
@@ -402,7 +408,7 @@ interface Attachment {
 1. Editor's paste/drop/paperclip handler → `POST /api/attachments` (multipart) → server writes bytes, returns `Attachment` record.
 2. Editor inserts a `FileChip` Tiptap node at the cursor with the returned attrs. Body text gets a `[[file:<file_name>]]` marker at that position (compact, position-preserving, doesn't bloat events polls).
 3. On send → `POST /api/sessions/:id/messages` with `{ content, attachments: Attachment[] }`. Server persists the event row with `content` carrying markers and `attachments` carrying the JSON array.
-4. Transcript renderer parses markers via `parseFileMarkers`, resolves each to its `Attachment`, renders inline chips (image thumb / expandable text / download button) via `MessageFileChip`.
+4. Transcript renderer parses markers via `parseFileMarkers`, resolves each to its `Attachment`, and renders it via `MessageFileChip`: image and PDF cards, or bordered filename and size chips opening the shared viewer. Chip colors follow the sent message bubble in both themes. Shared/custom attachment URLs retain inline text expansion and download chips.
 
 **Sending to the model.**
 

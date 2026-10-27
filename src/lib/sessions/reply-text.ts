@@ -32,6 +32,7 @@ export function rewriteLocalText(markdown: string, sessionId: string | null | un
     basenames: TEXT_BASENAMES,
     matches: target => isLocalTextTarget(target) && !/\.(csv|tsv)$/i.test(textFilePath(target)),
     relativeTo,
+    preservePathText: true,
     render: (path, label) => {
       const text = (label || path.split('/').at(-1) || path).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       return `<${TEXT_PREVIEW_TAG} href="${TEXT_REFERENCE_PREFIX}${encodeURIComponent(textFilePath(path))}">${text}</${TEXT_PREVIEW_TAG}>`;

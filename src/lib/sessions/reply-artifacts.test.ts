@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { filePreviewTarget, isLocalArtifactTarget, replyNamesFile, rewriteLocalArtifacts } from './reply-artifacts';
 import { rewriteLocalText, isLocalTextTarget } from './reply-text';
 
-it.each(['[Movie](/tmp/demo.mp4)', '`./clip.webm`', '[Audio](./memo.m4a)', 'Saved /tmp/budget.xlsx.', '[Archive](files.zip)', '[Other](file:///tmp/output.bin)', '`/tmp/no-extension`'])('previews %s', text => { expect(rewriteLocalArtifacts(text, 'chat')).toContain('<ri-file-preview'); expect(rewriteLocalArtifacts(text, null)).toBe(text); });
+it.each(['[Movie](/tmp/demo.mp4)', '`./clip.webm`', '[Audio](./memo.m4a)', 'Saved /tmp/budget.xlsx.', '[Archive](files.zip)', '[Other](file:///tmp/output.bin)', '[Output](/tmp/no-extension)'])('previews %s', text => { expect(rewriteLocalArtifacts(text, 'chat')).toContain('<ri-file-preview'); expect(rewriteLocalArtifacts(text, null)).toBe(text); });
 it.each(['https://example.com/movie.mp4', '[Web](example.com/file.zip)', '[Mail](mailto:a@example.com)', '```\ncat /tmp/private.bin\n```', '`cat /tmp/private.bin`', '[Internal](#section)', '[API](/api/files/demo.mp4)'])('preserves %s', text => { expect(rewriteLocalArtifacts(text, 'chat')).toBe(text); });
 it.each(['browser/gallery', 'desktop/mobile', 'unit/backend', 'and/or', 'input/output', 'src/components', 'feature/previews'])('leaves ambiguous slash-separated text %s alone', target => {
   expect(isLocalArtifactTarget(target)).toBe(false);
@@ -12,12 +12,20 @@ it.each(['browser/gallery', 'desktop/mobile', 'unit/backend', 'and/or', 'input/o
   }
   expect(filePreviewTarget(`#ri-file=${encodeURIComponent(target)}`)).toBeNull();
 });
-it.each(['/tmp/no-extension', './build/output', '../build/output', '~/Downloads/output', 'file:///tmp/output', 'results/output.custom', 'src/.hidden', 'docs/README'])('keeps definite file references %s available', target => {
+it.each(['results/output.custom', 'src/.hidden'])('keeps definite file references %s available', target => {
   expect(isLocalArtifactTarget(target)).toBe(true);
   for (const text of [`Saved ${target}.`, `\`${target}\``, `[File](${target})`]) {
     expect(rewriteLocalArtifacts(text, 'chat')).toContain('<ri-file-preview');
     expect(replyNamesFile(text, target)).toBe(true);
   }
+});
+it.each(['/tmp/no-extension', './build/output', '../build/output', '~/Downloads/output', 'file:///tmp/output', 'docs/README'])('requires an authored link for extensionless paths such as %s', target => {
+  for (const text of [`Saved ${target}.`, `\`${target}\``, `"${target}"`]) {
+    expect(rewriteLocalArtifacts(text, 'chat')).toBe(text);
+    expect(replyNamesFile(text, target)).toBe(false);
+  }
+  expect(rewriteLocalArtifacts(`[File](${target})`, 'chat')).toContain('<ri-file-preview');
+  expect(replyNamesFile(`[File](${target})`, target)).toBe(true);
 });
 it('checks exact reference boundaries and its own markers', () => {
   expect(replyNamesFile('Open /tmp/movie.mp4.', '/tmp/movie.mp4')).toBe(true);

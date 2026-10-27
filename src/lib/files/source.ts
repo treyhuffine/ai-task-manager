@@ -35,7 +35,7 @@ export async function previewFile(source: FilePreviewSource) {
     if (!stat.isFile()) throw new OperationError(400, { error: 'This path is not a regular file.' });
     return { file, name, size: stat.size, modified: stat.mtimeMs };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new OperationError(404, { error: 'This file is no longer there.' });
+    if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw new OperationError(404, { error: `File not found: ${file}` });
     throw error;
   }
 }
