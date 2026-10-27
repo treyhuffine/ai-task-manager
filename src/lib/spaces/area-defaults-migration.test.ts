@@ -33,6 +33,10 @@ it.each([['personal', 18], ['team', 18], ['personal', 19], ['team', 19], ['perso
   const insert = (table: string, values: Record<string, string | number | null>) => {
     const columns = Object.keys(values); raw.prepare(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`).run(...Object.values(values));
   };
+  // In the predecessor's own columns: today's query code writes columns it doesn't have yet.
+  const existingAiClient = (id: string, memberId: string | null) => insert('api_keys', {
+    id, name: 'Existing client', prefix: 'ri_live', suffix: id.slice(-4), hash: `hash-${id}`, env: 'live', role: 'ai_client', member_id: memberId, device_id: null,
+  });
   q.createTask({ title: 'Findable task', body: 'Findable task body' });
   q.createNote({ title: 'Findable note', body: 'Findable note body' });
   insert('chat_sessions', { id: 'kept-chat', type: 'orchestration', harness: 'claude', status: 'active', permission_mode: 'auto_all', surface_kind: kind === 'team' ? q.TEAM_CHAT_SURFACE : null });
@@ -40,8 +44,12 @@ it.each([['personal', 18], ['team', 18], ['personal', 19], ['team', 19], ['perso
   insert('chat_events', { id: 'event-a', session_id: 'kept-chat', role: 'assistant', source: 'agent', content: 'Earlier answer', created_at: '2026-10-18T10:00:01.000Z' });
   if (predecessorIndex >= 20) raw.prepare('UPDATE chat_sessions SET service_tier = ? WHERE id = ?').run('fast', 'kept-chat');
   if (kind === 'team') {
-    const owner = q.createTeamOwner({ creationId: 'upgrade-fixture', name: 'Owner', device: { kind: 'computer', name: 'Browser' } });
-    q.createMemberAiClient(owner.member.id, 'Existing client');
+    // The owner, signed in on one device, as createTeamOwner leaves them.
+    const owner = { member: { id: 'existing-owner' } };
+    insert('members', { id: owner.member.id, name: 'Owner', role: 'owner', status: 'active', creation_id: 'upgrade-fixture' });
+    insert('devices', { id: 'existing-owner-device', name: 'Browser', kind: 'computer', status: 'active' });
+    insert('api_keys', { id: 'existing-owner-sign-in', name: 'Owner on Browser', prefix: 'ri_live', suffix: 'sign', hash: 'hash-existing-owner-sign-in', env: 'live', role: 'sign_in', member_id: owner.member.id, device_id: 'existing-owner-device' });
+    existingAiClient('existing-team-client', owner.member.id);
     q.saveTeamAiSettings({ enabled: true, mainChatSessionId: 'kept-chat', model: 'existing-model' }, owner.member.id);
     await saveTeamAiApiKey('fixture-sealed-unused-key');
     for (const [seq, status] of [[1, 'done'], [2, 'running'], [3, 'queued']] as const) {
@@ -50,7 +58,7 @@ it.each([['personal', 18], ['team', 18], ['personal', 19], ['team', 19], ['perso
       insert('team_chat_turns', { id: `legacy-${seq}`, chat_session_id: 'kept-chat', member_id: owner.member.id, message_event_id: eventId, client_send_id: `legacy-send-${seq}`, seq, status });
     }
   } else {
-    q.createPersonalAiClient('Existing external client');
+    existingAiClient('existing-personal-client', null);
     const connection = q.saveTeamConnection({ id: 'kept-source-team', name: 'Same name', url: 'https://fixture.example', memberId: 'kept-remote-member', memberName: 'Member', role: 'member' });
     const area = q.createArea({ name: 'Private organization' });
     const reference = q.createTask({ title: 'Retained shared task', body: 'Canonical cached text', areaId: area.id, userContext: 'Private plan', sortKey: 'a0' });

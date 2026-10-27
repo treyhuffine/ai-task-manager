@@ -29,6 +29,8 @@ import { teamLink } from './links';
 import { teamSummary } from './summary';
 import { teamAddressSettings, teamLinkAddress, verifyTeamAddress, openTeamBeamdAddress, saveTeamAddressPrefix, isLoopbackTeamAddress, normalizeTeamAddress } from './address';
 import { TEAM_MCP_PATH } from './credential';
+import { aiClient } from '@/lib/external-ai/client-config';
+import { aiClientKeyInput } from '@/lib/external-ai/key-input';
 import { teamAiRouter } from './ai/router';
 import { z as toolSchema } from 'zod';
 import { TEAM_TOOLS, runTeamTool, type TeamToolResult } from './mcp/tools';
@@ -148,9 +150,17 @@ export const teamRouter = router({
    */
   aiClients: router({
     list: memberProcedure.query(({ ctx }) => q.listMemberAiClients(me(ctx).id)),
-    create: memberProcedure.input(z.object({ name: z.string().min(1).max(q.AI_CLIENT_NAME_MAX) }).strict()).mutation(async ({ ctx, input }) => {
+    /** Where a member's agents connect, shown in each agent's steps before any key is made. */
+    address: memberProcedure.query(async ({ ctx }) => {
+      me(ctx);
+      const { base, reachable } = await teamLinkAddress(requestOrigin(ctx.request));
+      return { mcpUrl: `${base}${TEAM_MCP_PATH}`, reachable };
+    }),
+    create: memberProcedure.input(aiClientKeyInput).mutation(async ({ ctx, input }) => {
       const member = me(ctx);
-      const { client, token } = q.createMemberAiClient(member.id, input.name);
+      const agent = aiClient(input.client);
+      if (agent.limitation) throw new q.TeamError('invalid', agent.limitation);
+      const { client, token } = q.createMemberAiClient(member.id, input.name ?? agent.keyName, input.client);
       const { base, reachable } = await teamLinkAddress(requestOrigin(ctx.request));
       return { client, token: token.plaintext, mcpUrl: `${base}${TEAM_MCP_PATH}`, reachable };
     }),

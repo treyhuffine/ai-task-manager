@@ -42,3 +42,26 @@ export function externalWebUrl(raw: string): string | null {
     return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : null;
   } catch { return null; }
 }
+
+/**
+ * An outside agent's own "add this MCP server" link, from Settings → Connect
+ * your agent: Cursor, VS Code, Goose and LM Studio, each on its exact
+ * install path. The agent asks before adding anything. Only these, so no other
+ * custom scheme ever leaves the window, and only from a main-frame navigation
+ * (`will-navigate`), never a subframe's `window.open`.
+ */
+export function agentInstallUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.username || url.password) return null;
+    const place = `${url.protocol}//${url.host}${url.pathname}`;
+    const allowed = [
+      'cursor://anysphere.cursor-deeplink/mcp/install',
+      'goose://extension',
+      'lmstudio://add_mcp',
+    ];
+    if (allowed.includes(place)) return url.href;
+    if ((url.protocol === 'vscode:' || url.protocol === 'vscode-insiders:') && url.pathname === 'mcp/install' && !url.host) return url.href;
+    return null;
+  } catch { return null; }
+}

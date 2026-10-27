@@ -9,7 +9,7 @@ import { useSetupChecklist, type SetupChecklist } from './use-setup-checklist';
 vi.mock('@/hooks/use-user-state', () => ({ useUserState: () => ({ data: undefined }) }));
 vi.mock('@/lib/api/settings', () => ({ settingsApi: {} }));
 vi.mock('@/lib/trpc/client', () => ({
-  trpc: { harness: { skillsGlobalGet: { queryOptions: () => ({ queryKey: ['skills'] }) } } },
+  trpc: { externalAi: { list: { queryOptions: () => ({ queryKey: ['agent-keys'] }) } } },
   trpcClient: {},
 }));
 vi.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: undefined, isFetched: false }) }));

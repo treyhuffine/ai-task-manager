@@ -5,6 +5,7 @@ import {
   Cpu,
   Mic,
   Plug,
+  Cable,
   Bell,
   MonitorSmartphone,
   Globe,
@@ -73,11 +74,13 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     description: 'Remote access URL, paired devices, and host-machine settings.',
   },
   {
+    // Outside agents connected to Ri's MCP (docs/external-ai.md). The id
+    // predates the name and stays, since links carry it.
     id: 'external-ai',
-    label: 'MCP access',
-    icon: Plug,
-    title: 'MCP access',
-    description: 'Use your agent from another app to work with your Home.',
+    label: 'Connect your agent',
+    icon: Cable,
+    title: `Connect your agent to ${APP_NAME}’s MCP`,
+    description: `Let Claude Code, Codex, Cursor and other agents read and update your ${APP_NAME} tasks, notes and deck.`,
   },
   {
     // Teams this Ri works with (docs/homes-spec.md §3.1, §9.3).

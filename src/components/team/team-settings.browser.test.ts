@@ -53,22 +53,25 @@ beforeAll(async () => {
         space: `export const useSpace=()=>null;`,
         confirm: `export const useConfirm=()=>async()=>true;`,
         api: `
-          window.connectionCalls=[];let clients=[];const local=new URLSearchParams(location.search).has('local');
+          window.connectionCalls=[];window.setUpCalls=[];let clients=[];const local=new URLSearchParams(location.search).has('local');
+          const labels={claude_code:'Claude Code',codex:'Codex',cursor:'Cursor',ri:'Another Ri',other:'MCP client'};
+          const makeKey=input=>({keyId:String(clients.length),name:input.name??labels[input.client]??input.client,client:input.client,createdAt:'2026-10-14',lastUsedAt:null});
+          let agents=[{kind:'claude_code',installed:true,connection:null,stale:null,config:'~/.claude.json'},{kind:'codex',installed:true,connection:null,stale:null,config:'~/.codex/config.toml'},{kind:'cursor',installed:false,connection:null,stale:null,config:'~/.cursor/mcp.json'}];
           let status={enabled:false,state:'off',legacyProfileAvailable:!new URLSearchParams(location.search).has('fresh')};
           const query=(name,fn=()=>[])=>({queryKey:()=>[name],queryOptions:()=>({queryKey:[name],queryFn:async()=>fn()})});
           export const trpc={userState:{list:query('user-state',()=>({})),update:{mutationKey:()=>['user-state','update']}},homeContext:query('home'),homeExecutionChoices:query('execution'),team:{
             me:query('me'),members:query('members'),invitations:{list:query('invitations')},signIns:{list:query('signIns')},
             address:{get:query('address',()=>({address:'https://team.example.test',tunnelName:'team-huffine',suggestedName:'team-huffine',autoTunnel:false,nameLocked:false}))},
-            aiClients:{list:query('clients',()=>clients)},ai:{status:query('status',()=>status),configuration:query('configuration',()=>({enabled:status.enabled})),chats:{list:query('chats')}}
+            aiClients:{list:query('clients',()=>clients),address:query('teamAddress',()=>({mcpUrl:'https://team.example.test/api/team/mcp',reachable:true}))},ai:{status:query('status',()=>status),configuration:query('configuration',()=>({enabled:status.enabled})),chats:{list:query('chats')}}
           }};
           for(const root of ['tasks','notes','areas']) trpc[root]={pathKey:()=>[root],list:query(root),get:query(root+'-detail')};
           trpc.results={capabilities:query('result-capabilities',()=>({handoffsEnabled:false,aiReviewEnabled:false}))};
-          trpc.externalAi={list:query('personalClients',()=>clients),address:query('personalAddress',()=>({mcpUrl:(local?'http://localhost:4224':'https://home.example.test')+'/api/orchestrator/mcp',reachable:!local}))};
+          trpc.externalAi={list:query('personalClients',()=>clients),address:query('personalAddress',()=>({mcpUrl:(local?'http://localhost:4224':'https://home.example.test')+'/api/orchestrator/mcp',reachable:!local,server:'ri',tokenVar:'RI_MCP_TOKEN'})),local:query('localAgents',()=>({device:'Mac Mini',agents}))};
           trpc.harness={skillsGlobalGet:query('skill',()=>({appOnly:false,enabled:true,configured:true,installed:true,conflicts:[],folders:['~/.agents/skills','~/.claude/skills','~/.gemini/config/skills']}))};
           const unreachable={mutate:async()=>({reachable:false})};
           export const trpcClient={team:{
             invitations:{createRemote:unreachable},signIns:{createRemote:unreachable},
-            aiClients:{create:{mutate:async input=>{window.connectionCalls.push(input);const client={keyId:String(clients.length),name:input.name,createdAt:'2026-10-14',lastUsedAt:null};clients=[...clients,client];return {client,token:'fictional-test-token',mcpUrl:'https://team.example.test/api/team/mcp',reachable:true};}},revoke:{mutate:async()=>{clients=[];}}},
+            aiClients:{create:{mutate:async input=>{window.connectionCalls.push(input);const client=makeKey(input);clients=[...clients,client];return {client,token:'fictional-test-token',mcpUrl:'https://team.example.test/api/team/mcp',reachable:true};}},revoke:{mutate:async()=>{clients=[];}}},
             ai:{configure:{mutate:async input=>{status={...status,...input};}},setEnabled:{mutate:async({enabled})=>{status={...status,enabled,state:enabled?'ready':'off'};}}}
           }};
           const skillParams=new URLSearchParams(location.search);const skillOwner=skillParams.get('role')!=='member';
@@ -82,7 +85,10 @@ beforeAll(async () => {
             moveRefPost:{mutate:async({params,body})=>{if(!skillOwner)throw Error('Owner only');const old=one(params.ref);const skill=makeSkill(body.to+':'+old.name,{...old,ref:body.to+':'+old.name,location:{kind:body.to}});skills=skills.map(value=>value.ref===params.ref?skill:value);return{skill};}}
           };
           trpcClient.harness={skillsGlobalPut:{mutate:async()=>({})}};
-          trpcClient.externalAi={create:{mutate:async input=>{window.connectionCalls.push(input);const client={keyId:String(clients.length),name:input.name,createdAt:'2026-10-14',lastUsedAt:null};clients=[...clients,client];return {client,token:'fictional-personal-token',mcpUrl:(local?'http://localhost:4224':'https://home.example.test')+'/api/orchestrator/mcp',reachable:!local};}},revoke:{mutate:async()=>{clients=[];}}};
+          const personalAddress=()=>({mcpUrl:(local?'http://localhost:4224':'https://home.example.test')+'/api/orchestrator/mcp',reachable:!local,server:'ri',tokenVar:'RI_MCP_TOKEN'});
+          trpcClient.externalAi={create:{mutate:async input=>{window.connectionCalls.push(input);const client=makeKey(input);clients=[...clients,client];return {client,token:'fictional-personal-token',...personalAddress()};}},revoke:{mutate:async()=>{clients=[];}},
+            setUp:{mutate:async({client})=>{window.setUpCalls.push(client);const connection=makeKey({client,name:labels[client]+' on Mac Mini'});clients=[...clients,connection];agents=agents.map(a=>a.kind===client?{...a,connection}:a);return {kind:client,connection,config:'~/.codex/config.toml',server:'ri',skills:{state:'ready',blocked:[]},next:'Start a new Codex session, in the CLI or the Codex app. Run /mcp there to see ri.'};}},
+            disconnectLocal:{mutate:async({client})=>{const id=agents.find(a=>a.kind===client)?.connection?.keyId;clients=clients.filter(c=>c.keyId!==id);agents=agents.map(a=>a.kind===client?{...a,connection:null}:a);return {removed:true,revoked:true};}}};
         `,
       }[path]! }));
     } }],
@@ -154,7 +160,7 @@ it.skipIf(!enabled)('uses linked sections, preserves drafts while navigating and
     await nav.getByRole('button', { name: 'AI & Models', exact: true }).click();
     expect(new URL(page.url()).searchParams.get('settings')).toBe('ai');
     await page.getByRole('button', { name: 'Turn on', exact: true }).waitFor();
-    expect(await page.getByRole('button', { name: 'Create MCP connection', exact: true }).count()).toBe(0);
+    expect(await page.getByRole('button', { name: 'Create key', exact: true }).count()).toBe(0);
     expect(await page.locator('input[type=password]').count()).toBe(0);
     await screenshot(page, 'team-settings-ai-desktop.png');
     await nav.getByRole('button', { name: 'General', exact: true }).click();
@@ -168,26 +174,34 @@ it.skipIf(!enabled)('uses linked sections, preserves drafts while navigating and
   } finally { await page.close(); }
 }, 30_000);
 
-it.skipIf(!enabled)('explains optional external access, defaults the connection label and keeps custom labels optional', async () => {
+it.skipIf(!enabled)('lists every agent and makes a key inside its item the moment its steps need one', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
     await page.goto(`${address}/?panel=settings&settings=external-ai`);
-    await page.getByRole('button', { name: 'Create MCP connection', exact: true }).click();
-    await page.getByText('MCP gives your agent tools', { exact: false }).waitFor();
-    expect(await page.getByRole('textbox', { name: 'Connection label', exact: true }).isVisible()).toBe(false);
-    await page.getByRole('button', { name: 'Get connection instructions', exact: true }).click();
-    await page.getByText('claude mcp add', { exact: false }).waitFor();
-    expect(await page.evaluate('window.connectionCalls')).toEqual([{ name: 'Claude Code' }]);
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
-    await page.getByText('Not used yet', { exact: true }).waitFor();
+    await page.getByText('Connected agents work on Team Huffine’s shared tasks', { exact: false }).waitFor();
+    const order = await page.locator('[data-agent-client]').evaluateAll(items => items.map(item => item.getAttribute('data-agent-client')));
+    expect(order.slice(0, 4)).toEqual(['claude_code', 'codex', 'cursor', 'vscode']);
+    expect(order.slice(-3)).toEqual(['chatgpt', 'ri', 'other']);
+    const claude = page.locator('[data-agent-client=claude_code]');
+    await claude.getByRole('button', { name: /Claude Code/ }).click();
+    // The whole steps first, with the key's place waiting for one. No key yet, and no Set up on a team.
+    await claude.getByText("export RI_TEAM_HUFFINE_TOKEN='<your key>'", { exact: true }).waitFor();
+    expect(await claude.getByRole('button', { name: 'Set up', exact: true }).count()).toBe(0);
+    expect(await page.evaluate('window.connectionCalls')).toEqual([]);
+    await claude.getByRole('button', { name: 'Create key', exact: true }).click();
+    await claude.getByText("export RI_TEAM_HUFFINE_TOKEN='fictional-test-token'", { exact: true }).waitFor();
+    expect(await claude.locator('ol pre').nth(1).textContent()).toBe("claude mcp add --transport http --scope user ri-team-huffine 'https://team.example.test/api/team/mcp' --header 'Authorization: Bearer ${RI_TEAM_HUFFINE_TOKEN}'");
+    expect(await page.evaluate('window.connectionCalls')).toEqual([{ client: 'claude_code' }]);
+    await claude.getByText('Not used yet', { exact: true }).waitFor();
     await screenshot(page, 'team-settings-external-desktop.png');
-    await page.getByRole('button', { name: 'Create MCP connection', exact: true }).click();
-    await page.getByText('Codex', { exact: true }).click();
-    await page.getByText('Connection label (optional)', { exact: true }).click();
-    await page.getByRole('textbox', { name: 'Connection label', exact: true }).fill('Codex on my laptop');
-    await page.getByRole('button', { name: 'Get connection instructions', exact: true }).click();
-    await page.getByText('codex mcp add', { exact: false }).waitFor();
-    expect(await page.evaluate('window.connectionCalls')).toEqual([{ name: 'Claude Code' }, { name: 'Codex on my laptop' }]);
+    const codex = page.locator('[data-agent-client=codex]');
+    await codex.getByRole('button', { name: /Codex/ }).click();
+    await codex.getByRole('button', { name: 'Create key', exact: true }).click();
+    await codex.locator('ol pre', { hasText: 'Bearer fictional-test-token' }).waitFor();
+    expect(await codex.locator('ol pre').first().textContent()).toBe('[mcp_servers.ri-team-huffine]\nurl = "https://team.example.test/api/team/mcp"\nhttp_headers = { Authorization = "Bearer fictional-test-token" }');
+    expect(await page.evaluate('window.connectionCalls')).toEqual([{ client: 'claude_code' }, { client: 'codex' }]);
+    await page.locator('[data-agent-client=chatgpt]').getByRole('button', { name: /ChatGPT/ }).click();
+    await page.getByText('ChatGPT connects to an MCP server only with an OAuth sign-in', { exact: false }).waitFor();
   } finally { await page.close(); }
 }, 30_000);
 
@@ -195,24 +209,17 @@ it.skipIf(!enabled)('shows Ri’s server fields on a phone and uses the existing
   const page = await browser.newPage({ viewport: { width: 375, height: 812 } });
   try {
     await page.goto(`${address}/?panel=settings&settings=external-ai&role=member`);
-    await page.getByText('Connections act as Trey, using your existing team membership.', { exact: false }).waitFor();
-    await page.getByRole('button', { name: 'Create MCP connection', exact: true }).click();
-    await page.getByRole('dialog').getByText('Ri', { exact: true }).click();
-    expect(await page.getByRole('radio', { name: 'Ri', exact: true }).isChecked()).toBe(true);
-    await page.getByRole('button', { name: 'Get connection instructions', exact: true }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByRole('heading', { name: 'Set up My Ri', exact: true }).waitFor();
-    expect(await dialog.locator('pre').allTextContents()).toEqual([
-      'Team Huffine', 'https://team.example.test/api/team/mcp', 'fictional-test-token',
-    ]);
-    await dialog.getByText('Choose Bearer token under Auth', { exact: false }).waitFor();
-    await dialog.getByText('Click Add and connect, then start a new chat', { exact: false }).waitFor();
-    expect(await page.evaluate('window.connectionCalls')).toEqual([{ name: 'My Ri' }]);
+    await page.getByText('as Trey, with their own model, using your existing membership', { exact: false }).waitFor();
+    const ri = page.locator('[data-agent-client=ri]');
+    await ri.getByRole('button', { name: /Another Ri/ }).click();
+    await ri.getByRole('button', { name: 'Create key', exact: true }).click();
+    await ri.getByText('fictional-test-token', { exact: true }).waitFor();
+    expect(await ri.locator('ol pre').allTextContents()).toEqual(['Team Huffine', 'https://team.example.test/api/team/mcp', 'fictional-test-token']);
+    await ri.getByText('Choose Bearer token under Auth', { exact: false }).waitFor();
+    await ri.getByText('Click Add and connect, then start a new chat', { exact: false }).waitFor();
+    expect(await page.evaluate('window.connectionCalls')).toEqual([{ client: 'ri' }]);
     expect(await page.evaluate('document.documentElement.scrollWidth <= innerWidth')).toBe(true);
     await screenshot(page, 'team-mcp-ri-phone.png');
-    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
-    await page.getByRole('button', { name: 'Create MCP connection', exact: true }).click();
-    expect(await page.getByRole('dialog').textContent()).not.toContain('fictional-test-token');
   } finally { await page.close(); }
 }, 30_000);
 
@@ -226,8 +233,8 @@ it.skipIf(!enabled)('keeps all phone sections reachable and hides owner-only set
     await nav.getByRole('button', { name: 'Your access', exact: true }).click();
     await page.getByRole('button', { name: 'Sign in on another device', exact: true }).click();
     await page.getByText('Ask a team owner', { exact: false }).waitFor();
-    await nav.getByRole('button', { name: 'MCP access', exact: true }).click();
-    await page.getByRole('button', { name: 'Create MCP connection', exact: true }).waitFor();
+    await nav.getByRole('button', { name: 'Connect your agent', exact: true }).click();
+    await page.locator('[data-agent-client=claude_code]').waitFor();
     expect(await page.evaluate('document.documentElement.scrollWidth <= innerWidth')).toBe(true);
     const navBox = await nav.boundingBox();
     const closeBox = await page.getByRole('button', { name: 'Close', exact: true }).boundingBox();
@@ -252,45 +259,71 @@ it.skipIf(!enabled)('preserves the personal settings checklist and search', asyn
   } finally { await page.close(); }
 }, 20_000);
 
-it.skipIf(!enabled)('connects and disconnects personal assistants without exposing the token again', async () => {
+it.skipIf(!enabled)('sets up an agent on this computer in one click, and disconnects it', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
     await page.goto(`${address}/?personal=1&external=1`);
-    await page.getByText('Uses your Home’s remote address.', { exact: false }).waitFor();
-    // Coding tools on this computer come first, through Ri's skills, with no key.
-    await page.getByRole('heading', { name: 'Coding tools on this computer', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Uninstall', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Create MCP connection', exact: true }).click();
-    await page.getByText('Codex', { exact: true }).click();
-    await page.getByRole('button', { name: 'Get connection instructions', exact: true }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByRole('heading', { name: 'Set up Codex', exact: true }).waitFor();
-    expect(await dialog.textContent()).toContain('https://home.example.test/api/orchestrator/mcp');
-    expect(await dialog.textContent()).toContain('RI_HOME_TOKEN');
-    expect(await dialog.textContent()).not.toContain('the team');
+    await page.getByText('Agents on other computers use your remote address.', { exact: false }).waitFor();
+    await page.getByText('https://home.example.test/api/orchestrator/mcp', { exact: true }).waitFor();
+    // Ri's skills close the section, with no key.
+    await page.getByRole('heading', { name: 'Ri’s skills', exact: true }).waitFor();
+    const codex = page.locator('[data-agent-client=codex]');
+    await codex.getByText('Installed', { exact: true }).waitFor();
+    expect(await page.locator('[data-agent-client=cursor]').getByText('Installed', { exact: true }).count()).toBe(0);
+    await codex.getByRole('button', { name: /Codex/ }).click();
+    await codex.getByText('On Mac Mini', { exact: true }).waitFor();
+    await codex.getByRole('button', { name: 'Set up', exact: true }).click();
+    await codex.getByText('Start a new Codex session', { exact: false }).waitFor();
+    await codex.getByText('Ri’s skill is installed for it.', { exact: false }).waitFor();
+    await codex.getByText('Connected', { exact: true }).first().waitFor();
+    expect(await page.evaluate('window.setUpCalls')).toEqual(['codex']);
+    // Its key is the connection here, never listed again among the others.
+    expect(await codex.getByText('Codex on Mac Mini', { exact: true }).count()).toBe(0);
+    expect(await page.evaluate('window.connectionCalls')).toEqual([]);
     await screenshot(page, 'personal-external-ai-desktop.png');
-    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
-    await page.getByText('Not used yet', { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Create MCP connection', exact: true }).click();
-    expect(await page.getByRole('dialog').textContent()).not.toContain('fictional-personal-token');
-    await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
-    await page.getByRole('button', { name: 'Disconnect', exact: true }).waitFor({ state: 'hidden' });
+    await codex.getByRole('button', { name: 'Disconnect', exact: true }).click();
+    await codex.getByRole('button', { name: 'Set up', exact: true }).waitFor();
   } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('copies a setup prompt with a new key, and opens an agent’s own install link', async () => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: address });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${address}/?personal=1&external=1`);
+    const cursor = page.locator('[data-agent-client=cursor]');
+    await cursor.getByRole('button', { name: /Cursor/ }).click();
+    expect(await cursor.getByRole('button', { name: 'Set up', exact: true }).count()).toBe(0);
+    await cursor.getByRole('button', { name: 'Copy setup prompt', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('fictional-personal-token');
+    const prompt = await page.evaluate(() => navigator.clipboard.readText());
+    expect(prompt).toContain('Connect Cursor on this computer to my Ri');
+    expect(prompt).toContain('Authorization: Bearer fictional-personal-token');
+    expect(prompt).toContain('~/.cursor/mcp.json');
+    expect(await page.evaluate('window.connectionCalls')).toEqual([{ client: 'cursor' }]);
+    // The same key fills the steps, shown once.
+    await cursor.getByText('"Authorization": "Bearer fictional-personal-token"', { exact: false }).waitFor();
+    const launched = page.waitForRequest(request => request.url().startsWith('cursor://'), { timeout: 2_000 }).then(request => request.url()).catch(() => null);
+    await cursor.getByRole('button', { name: 'Add to Cursor', exact: true }).click();
+    const href = await launched;
+    if (href) expect(href).toMatch(/^cursor:\/\/anysphere\.cursor-deeplink\/mcp\/install\?name=ri&config=/);
+    expect(await page.evaluate('window.connectionCalls')).toEqual([{ client: 'cursor' }]);
+  } finally { await context.close(); }
 }, 30_000);
 
 it.skipIf(!enabled)('explains local-only personal access on a phone and links to Devices', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   try {
     await page.goto(`${address}/?personal=1&external=1&local=1`);
-    await page.getByRole('button', { name: 'Create MCP connection', exact: true }).click();
-    await page.getByRole('button', { name: 'Get connection instructions', exact: true }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByText('This is a local address.', { exact: false }).waitFor();
-    expect(await dialog.textContent()).toContain('http://localhost:4224/api/orchestrator/mcp');
+    await page.getByText('To connect one on another computer, set a remote address first.', { exact: false }).waitFor();
+    const other = page.locator('[data-agent-client=other]');
+    await other.getByRole('button', { name: /Any MCP client/ }).click();
+    await other.getByRole('button', { name: 'Create key', exact: true }).first().click();
+    await other.getByText('This is a local address', { exact: false }).waitFor();
+    expect(await other.locator('ol pre').first().textContent()).toBe('http://localhost:4224/api/orchestrator/mcp');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await screenshot(page, 'personal-external-ai-phone.png');
-    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
     await page.getByRole('button', { name: 'Remote access in Devices', exact: true }).click();
     expect(await page.getByRole('navigation', { name: 'Settings', exact: true }).getByRole('button', { name: 'Devices', exact: true }).getAttribute('aria-current')).toBe('page');
   } finally { await page.close(); }

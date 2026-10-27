@@ -221,7 +221,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'home_not_active',
-        message: 'This copy of your home is not active on this device. Run `ri home claim` here if it should be.',
+        message: 'This copy of your Ri is not active on this device. Run `ri home claim` here if it should be.',
       },
       { status: 503 },
     );
@@ -312,7 +312,7 @@ export function proxy(request: NextRequest) {
   // An outside assistant reaches only the content-scoped MCP, never a viewer route.
   if (key.role === 'ai_client') {
     if (!isPersonalAiClientKey(key)) return unauthorized();
-    if (request.nextUrl.pathname !== HOME_MCP_PATH) return forbidden('ai_client', 'This connection can only use the Home’s MCP tools.');
+    if (request.nextUrl.pathname !== HOME_MCP_PATH) return forbidden('ai_client', 'This connection can only use Ri’s MCP tools.');
     touchApiKey(key.id, { ip: request.headers.get('x-forwarded-for'), userAgent: request.headers.get('user-agent') });
     const headers = new Headers(request.headers);
     for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);

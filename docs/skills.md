@@ -125,10 +125,11 @@ manage tasks and notes from any project. That global install:
   Ri. A home seeded with `globalSkillEnabled: false` (an isolated or dev
   home) is never switched on, since the global skills belong to whichever Ri
   installed them.
-- Is shown, with one-click install and uninstall, in two places: a Get started
-  item (usually where someone learns it's on) and MCP access, its home, next
-  to the keyed connections for assistants elsewhere
-  (`src/components/settings/agent-skill-access.tsx`). Models no longer carries it.
+- Is installed for one agent when that agent is connected on this computer
+  (Settings → Connect your agent → Set up, `connect_agent`, `ri mcp connect`),
+  and shown with one-click install and uninstall at the end of Connect your
+  agent (`src/components/settings/agent-skill-access.tsx`, docs/external-ai.md).
+  The Get started item is Connect your agent itself. Models no longer carries it.
 - Reports what's on disk, not the saved choice (`inspectGlobalSkills`): a
   link or copy deleted by hand reads as not installed, and an entry holding
   the name that isn't this home's (someone's own skill, another live home's
@@ -277,7 +278,7 @@ home backups and comparisons include `skill-drafts` (`src/lib/home/`).
 | `src/lib/skills/exclusions.ts` | What a builder or try chat gets differently |
 | `src/lib/skills/builder-brief.ts` | The builder chat's brief |
 | `src/lib/agent-skills/shipped.ts` | Ri's shipped skills: materializing, the home links, the global links and copies, `inspectGlobalSkills` |
-| `src/components/settings/agent-skill-access.tsx` | The one-click install and uninstall in Get started and MCP access |
+| `src/components/settings/agent-skill-access.tsx` | The one-click install and uninstall at the end of Connect your agent |
 
 ## Not built yet
 

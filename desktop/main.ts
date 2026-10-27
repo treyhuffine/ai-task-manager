@@ -10,7 +10,7 @@ import { createInterface } from 'node:readline';
 import { APP_NAME, PAIRING_TOKEN_FRAGMENT_KEY } from '../src/constants/app';
 import { getConfigDir, getProductionAppRoot } from '../src/lib/config/paths';
 import { demoEnvironment, demoRoot, type BackendMessage, type BackendReady } from './config';
-import { certificateDecision, desktopRequestHeaders, externalWebUrl, sameOrigin } from './trust';
+import { agentInstallUrl, certificateDecision, desktopRequestHeaders, externalWebUrl, sameOrigin } from './trust';
 import { installTerminalCommand, removeTerminalCommand, type CliInstallation } from './cli-install';
 import { updateDesktop } from './shell-update';
 import { parseDeepLink, resultLocation, watchOAuthResults } from './oauth-client';
@@ -884,7 +884,12 @@ function configureViewerSession(ready: BackendReady | undefined) {
     if (isViewerReload(url, window!.webContents.getURL(), ready.origin)) return;
     event.preventDefault();
     if (sameOrigin(url, ready.origin)) void navigateSafely(url);
-    else openExternal(url);
+    else {
+      // Settings → Connect your agent opens an agent's install link from the main frame.
+      const install = agentInstallUrl(url);
+      if (install) void shell.openExternal(install).catch(() => {});
+      else openExternal(url);
+    }
   });
 }
 

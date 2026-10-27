@@ -183,6 +183,13 @@
       "when": 1792770859619,
       "tag": "0025_flimsy_old_lace",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1793119129041,
+      "tag": "0026_ai_client_kind",
+      "breakpoints": true
     }
   ]
 }

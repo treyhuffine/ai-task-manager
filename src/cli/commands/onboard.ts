@@ -14,7 +14,7 @@
 
 import { intro, outro, log, confirm, select, isCancel, spinner } from '@clack/prompts';
 import pc from 'picocolors';
-import { AGENT_SKILL_NAME, APP_NAME } from '@/constants/app';
+import { AGENT_SKILL_NAME, APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { ensureLocalToken, getLocalBaseUrl } from '@/lib/auth/bootstrap';
 import { resetDb } from '@/lib/db';
 import { getIsOnboarded, markOnboarded, getOnboardedAt } from '@/lib/config/onboarded';
@@ -186,8 +186,8 @@ export async function runWizard(): Promise<void> {
     log.warn(`A user-level skill named ${AGENT_SKILL_NAME} already exists and was left unchanged.`);
   } else if (!desktop) {
     log.info(
-      'Claude Code, Codex and other coding tools can now manage your tasks and notes from any project. ' +
-        'Uninstall in one click in Settings, MCP access.',
+      'Claude Code, Codex and other coding tools can now manage your tasks and notes from any project, through the ri command. ' +
+        `Connect them to ${APP_NAME}'s MCP with ${APP_SHORT_ID} mcp connect <agent>, or in Settings, Connect your agent.`,
     );
   }
 

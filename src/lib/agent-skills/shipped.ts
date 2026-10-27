@@ -5,10 +5,11 @@
  * discover the skill from their own cwd. The user-level install makes the same
  * skills available to ordinary coding-tool sessions in any project, for every
  * harness Ri can run. First-run setup turns it on as the conversation opens,
- * unless the home already chose, and Settings (Get started, MCP access)
- * shows it with one-click install and uninstall
- * (`src/components/settings/agent-skill-access.tsx`). Project repositories are
- * never an ownership location for shipped skills.
+ * unless the home already chose, connecting an outside agent puts it in that
+ * agent's own folders (`inspectSkillFolders`, `src/lib/external-ai/local-setup.ts`),
+ * and Settings → Connect your agent shows it with one-click install and
+ * uninstall (`src/components/settings/agent-skill-access.tsx`). Project
+ * repositories are never an ownership location for shipped skills.
  */
 
 import fs from 'node:fs';
@@ -113,7 +114,7 @@ export function getGlobalSkillPreference(): boolean | null {
  * not just the default, so one switched to later already has them. A folder
  * shared by harnesses gets copies if any of them can't use a link.
  */
-export function globalSkillFolders(): Array<{ folder: string; links: boolean }> {
+export function globalSkillFolders(): SkillFolder[] {
   const home = os.homedir();
   const folders = new Map<string, boolean>();
   for (const id of KNOWN_HARNESS_IDS) {
@@ -150,10 +151,47 @@ export async function inspectGlobalSkills(): Promise<GlobalSkillStatus> {
   return { installed, conflicts, folders: globalSkillFolders().map(({ folder }) => displayHomePath(folder)) };
 }
 
-/** Each shipped skill's place in every user-level folder, and what's there now. */
-function globalShippedEntries() {
+/**
+ * Whether every shipped skill is usable in the folders given, when connecting
+ * one outside agent: this home's own link or copy, or another live Ri's (the
+ * same skills, so the agent has them either way). `blocked` lists entries
+ * holding someone's own skill under a shipped name, which stay as they are.
+ */
+export function inspectSkillFolders(folders: SkillFolder[]): { ready: boolean; blocked: string[] } {
+  const blocked: string[] = [];
+  let ready = true;
+  for (const { dest, state } of globalShippedEntries(folders)) {
+    if (state === 'ours' || (state === 'other' && isAnotherRisSkill(dest))) continue;
+    ready = false;
+    if (state === 'other') blocked.push(displayHomePath(dest));
+  }
+  return { ready, blocked };
+}
+
+/**
+ * Ri only ever puts a link or a marked copy at a shipped name, so a live link
+ * there, or a copy marked by a home that still exists, is another Ri's.
+ * A plain folder is someone's own skill.
+ */
+function isAnotherRisSkill(dest: string): boolean {
+  try {
+    if (fs.lstatSync(dest).isSymbolicLink()) return fs.existsSync(path.join(dest, 'SKILL.md'));
+    const home = readCopyMarker(dest);
+    return home !== null && fs.existsSync(home);
+  } catch {
+    return false;
+  }
+}
+
+export type SkillFolder = { folder: string; links: boolean };
+
+/**
+ * Each shipped skill's place in every user-level folder, or in just the
+ * folders given (one outside agent's, when connecting it), and what's there now.
+ */
+function globalShippedEntries(folders: SkillFolder[] = globalSkillFolders()) {
   const dirs = shippedSkillDirs();
-  return globalSkillFolders().flatMap(({ folder, links }) =>
+  return folders.flatMap(({ folder, links }) =>
     dirs.map((source) => {
       const dest = path.join(folder, path.basename(source));
       return { folder, links, source, dest, state: entryState(dest, source, links) };
@@ -264,10 +302,10 @@ export async function installAppRootSkills(): Promise<SkillInstallResult> {
  * the other form is swapped for the right one. Anything live and not this
  * home's stays, as a conflict.
  */
-export async function installGlobalSkills(): Promise<SkillInstallResult> {
+export async function installGlobalSkills(folders?: SkillFolder[]): Promise<SkillInstallResult> {
   const { ensureSkillSymlink } = await loadAgentex();
   const entries: SkillInstallEntry[] = [];
-  for (const { folder, links, source, dest, state } of globalShippedEntries()) {
+  for (const { folder, links, source, dest, state } of globalShippedEntries(folders)) {
     const entry = { target: folder, skillName: path.basename(source), targetPath: dest };
     if (state === 'other') {
       entries.push({ ...entry, status: 'conflict' });
@@ -294,9 +332,9 @@ export async function removeAppRootSkills(): Promise<SkillRemoveResult> {
 }
 
 /** Remove only this home's links and copies. Anything else under a shipped name stays. */
-export async function removeGlobalSkills(): Promise<SkillRemoveResult> {
+export async function removeGlobalSkills(folders?: SkillFolder[]): Promise<SkillRemoveResult> {
   const entries: SkillRemoveEntry[] = [];
-  for (const { folder, source, dest, state } of globalShippedEntries()) {
+  for (const { folder, source, dest, state } of globalShippedEntries(folders)) {
     const entry = { target: folder, skillName: path.basename(source), targetPath: dest };
     if (state !== 'ours' && state !== 'replace') {
       entries.push({ ...entry, status: state === 'missing' ? 'not_found' : 'conflict' });

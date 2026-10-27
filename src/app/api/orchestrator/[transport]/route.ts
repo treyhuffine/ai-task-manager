@@ -35,6 +35,27 @@ Guidelines:
 
 Today's date: ${new Date().toISOString().slice(0, 10)}.`;
 
+/**
+ * What an outside agent connected with its own key (Settings → Connect your
+ * agent) is told when it connects: the essentials of Ri's skill
+ * (`skills/orchestrator/SKILL.md`), so an agent on another computer works
+ * well without installing it.
+ */
+function contentInstructions(): string {
+  return `${APP_NAME} content tools: search, read and update the user's tasks, notes, areas and priority deck.
+
+- Search before creating, so you never add a duplicate. IDs are UUIDs: look them up with list_* or search, never pass a name.
+- Something to do is a task, with an imperative title ("Ship the new MCP"). Pure capture (an idea, a link, a reference) is a note.
+- New tasks start in todo. Use consider only for a tentative possibility. Change status with transition_task and finish with complete_task. update_task changes content and metadata only.
+- Read before writing. When you edit a body, pass its current revision so newer text is never replaced.
+- A decision is a note with kind "decision", titled with what was decided.
+- There is no delete. Archive instead.
+
+These tools act directly on the user's ${APP_NAME}. They do not start ${APP_NAME} chats or run commands, and they can't reach the private capture stream, chats, files or settings.
+
+Today's date: ${new Date().toISOString().slice(0, 10)}.`;
+}
+
 async function handle(request: Request) {
   if (!isMcpTransport(new URL(request.url).pathname.split('/').pop())) return mcpNotFound();
   const contentOnly = getRequestKey(request.headers)?.scope === 'ai_client';
@@ -59,14 +80,14 @@ async function handle(request: Request) {
               isError: !envelope.ok,
             };
           },
-          contentOnly ? { params: action.localContract?.params ?? action.params, description: action.name === 'search' ? 'Search this Home’s tasks and notes by meaning or keyword.' : action.localContract?.description ?? action.description } : undefined,
+          contentOnly ? { params: action.localContract?.params ?? action.params, description: action.name === 'search' ? 'Search the tasks and notes in this Ri by meaning or keyword.' : action.localContract?.description ?? action.description } : undefined,
         );
       }
     },
     {
       name: `${APP_NAME.toLowerCase()}-orchestrator`,
       version: '0.1.0',
-      instructions: contentOnly ? 'Ri Home content tools: search, read and update tasks, notes, areas and the priority deck. Read before writing and use the current body revision when editing. These tools act directly on your Home. They do not start Ri chats or run commands. No access to the private capture stream, chats, files or settings.' : SERVER_INSTRUCTIONS,
+      instructions: contentOnly ? contentInstructions() : SERVER_INSTRUCTIONS,
     },
   );
   return handler(request);

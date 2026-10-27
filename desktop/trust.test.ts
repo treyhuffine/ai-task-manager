@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { X509Certificate } from 'node:crypto';
 import { generateCaPair, generateLeafPair } from '../src/lib/config/tls-x509';
-import { certificateDecision, externalWebUrl, sameOrigin } from './trust';
+import { agentInstallUrl, certificateDecision, externalWebUrl, sameOrigin } from './trust';
 
 let certificate: string;
 let otherCertificate: string;
@@ -49,5 +49,18 @@ describe('window navigation', () => {
     for (const url of ['javascript:alert(1)', 'file:///tmp/a', 'ri://command', 'https://user:secret@example.com', 'invalid']) {
       expect(externalWebUrl(url)).toBeNull();
     }
+  });
+  it('opens only the agents’ own MCP install links, on their exact paths', () => {
+    for (const url of [
+      'cursor://anysphere.cursor-deeplink/mcp/install?name=ri&config=e30%3D',
+      'vscode:mcp/install?%7B%22name%22%3A%22ri%22%7D',
+      'vscode-insiders:mcp/install?%7B%7D',
+      'goose://extension?url=https%3A%2F%2Fri.example%2Fapi%2Forchestrator%2Fmcp&type=streamable_http',
+      'lmstudio://add_mcp?name=ri&config=e30%3D',
+    ]) expect(agentInstallUrl(url)).toBe(new URL(url).href);
+    for (const url of [
+      'cursor://anysphere.cursor-deeplink/settings', 'cursor://file/etc/passwd', 'vscode://file/tmp/a', 'vscode:extension/evil.pack',
+      'goose://recipe?config=x', 'lmstudio://other', 'kiro://kiro.mcp/add?name=ri', 'ri://command', 'javascript:alert(1)', 'https://cursor.com/en/install-mcp?name=ri', 'invalid',
+    ]) expect(agentInstallUrl(url)).toBeNull();
   });
 });

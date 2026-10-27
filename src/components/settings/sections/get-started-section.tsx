@@ -1,16 +1,15 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { CheckCircle2, Circle, ArrowRight, Loader2 } from 'lucide-react';
+import { CheckCircle2, Circle, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAgentSkillAccess } from '@/components/settings/agent-skill-access';
 import { setSettingsSection } from '@/components/settings/settings-store';
-import { AGENT_SKILL_ITEM, type ChecklistItem, type SetupChecklist } from '@/components/settings/use-setup-checklist';
+import type { ChecklistItem, SetupChecklist } from '@/components/settings/use-setup-checklist';
 import { APP_NAME } from '@/constants/app';
 
 /**
  * The "Get started" checklist. Each item is derived-done, actionable (jump to
- * its tab, or one click right here for the agent skills), or dismissed
+ * its tab), or dismissed
  * (button → inline "do it later" guidance, with undo).
  * The whole tab auto-hides once every item is done-or-dismissed (handled by the
  * modal), so this pane only renders while there's still something to nudge.
@@ -37,10 +36,9 @@ export function GetStartedSection({ checklist }: { checklist: SetupChecklist }) 
       </div>
 
       <ul className="space-y-2">
-        {items.map((item) => {
-          const Item = item.id === AGENT_SKILL_ITEM ? AgentSkillItem : JumpItem;
-          return <Item key={item.id} item={item} dismiss={() => dismiss(item.id)} restore={() => restore(item.id)} />;
-        })}
+        {items.map((item) => (
+          <JumpItem key={item.id} item={item} dismiss={() => dismiss(item.id)} restore={() => restore(item.id)} />
+        ))}
       </ul>
     </div>
   );
@@ -113,77 +111,6 @@ function JumpItem({ item, dismiss, restore }: ItemProps) {
           </button>
         </div>
       )}
-    </Row>
-  );
-}
-
-/**
- * Ri's user-level skills, one click either way right here. First-run setup
- * installs them, so this is usually where someone learns they're on and how
- * to take them off. An uninstall reads as skipped (`useSetupChecklist`),
- * with Install to bring them back. Only a name taken by another skill needs
- * MCP access, which says where.
- */
-function AgentSkillItem({ item, dismiss, restore }: ItemProps) {
-  const skill = useAgentSkillAccess();
-  const spinner = skill.busy && <Loader2 size={11} className="animate-spin" aria-hidden />;
-
-  if (item.done) {
-    return (
-      <Row item={item} note="On for every coding tool you can use here, in every project. Uninstall in one click any time.">
-        <button type="button" onClick={skill.uninstall} disabled={skill.busy} className={quietClass}>
-          {spinner}
-          Uninstall
-        </button>
-      </Row>
-    );
-  }
-  if (skill.state === 'declined') {
-    return (
-      <Row item={item} note="Install it here or in MCP access any time.">
-        <button type="button" onClick={skill.install} disabled={skill.busy} className={quietClass}>
-          {spinner}
-          Install
-        </button>
-      </Row>
-    );
-  }
-  if (item.dismissed) {
-    return (
-      <Row item={item} note={item.hint}>
-        <button type="button" onClick={restore} className={quietClass}>
-          Undo
-        </button>
-      </Row>
-    );
-  }
-  const skip = (
-    <button type="button" onClick={dismiss} className={quietClass}>
-      Skip
-    </button>
-  );
-  if (skill.state === 'blocked') {
-    return (
-      <Row item={item} note="Another skill already uses the same name. MCP access shows where.">
-        <div className="flex shrink-0 items-center gap-1">
-          <SetUpButton item={item} />
-          {skip}
-        </div>
-      </Row>
-    );
-  }
-  return (
-    <Row
-      item={item}
-      note="Claude Code, Codex and every other coding tool you can use here get your tasks and notes in every project. Uninstall in one click any time."
-    >
-      <div className="flex shrink-0 items-center gap-1">
-        <button type="button" onClick={skill.install} disabled={skill.busy} className={primaryClass}>
-          {spinner}
-          Install
-        </button>
-        {skip}
-      </div>
     </Row>
   );
 }

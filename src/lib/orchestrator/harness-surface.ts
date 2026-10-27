@@ -383,7 +383,9 @@ tool per action: \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`,
 \`browser_batch\`, \`browser_tabs\`, \`browser_open\`, \`browser_profiles\`,
 \`browser_status\`, \`browser_close\`. Skills (the home skill library the user builds in
 Plugins) via \`list_skills\`, \`get_skill\`, \`create_skill\`, \`save_skill\`,
-\`move_skill\`. Plus workspace/trigger/run management and
+\`move_skill\`. Outside agent apps on this computer (Claude Code, Codex, Cursor
+and others, not Ri's own agents) connect to Ri's MCP via \`list_agent_connections\`,
+\`connect_agent\`, \`disconnect_agent\`. Plus workspace/trigger/run management and
 \`describe_paths\` / \`describe_schema\`.
 
 Use these MCP tools for every read and write. Reading files in your home dir

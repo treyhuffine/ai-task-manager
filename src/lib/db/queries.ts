@@ -50,7 +50,7 @@ import { replyNamesTextFile } from '@/lib/sessions/reply-text';
 import { replyNamesFile } from '@/lib/sessions/reply-artifacts';
 import { activityReasonForEventSource, isActivity, shouldThrottledBump, type ActivityReason } from '@/lib/sessions/activity';
 import type { ReferencePage, ReferenceRow, ReferenceSection } from '@/lib/sessions/contracts';
-import { generateToken, teamAdmissionToken, type GeneratedToken } from '@/lib/auth/tokens';
+import { generateToken, hashToken, teamAdmissionToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import { assertSupportedPermissionMode, conservativePlanReturn } from '@/lib/executor/permission-map';
 import { DEFAULT_FILES_TO_COPY } from '@/lib/workspaces/defaults';
@@ -6224,19 +6224,34 @@ export function revokeMemberSignIn(memberId: string, keyId: string): void {
 
 export const AI_CLIENT_NAME_MAX = 80;
 
-export type AiClientView = Pick<ApiKeyRecord, 'name' | 'createdAt' | 'lastUsedAt'> & { keyId: ApiKeyRecord['id'] };
+/** `client` is the outside agent the key was made for, when it was recorded (`api_keys.client`). */
+export type AiClientView = Pick<ApiKeyRecord, 'name' | 'createdAt' | 'lastUsedAt' | 'client'> & { keyId: ApiKeyRecord['id'] };
 
 function aiClientView(key: ApiKeyRecord): AiClientView {
-  return { keyId: key.id, name: key.name, createdAt: key.createdAt, lastUsedAt: key.lastUsedAt };
+  return { keyId: key.id, name: key.name, createdAt: key.createdAt, lastUsedAt: key.lastUsedAt, client: key.client };
 }
 
 /** Personal clients have no device or member and never become sign-in credentials. */
-export function createPersonalAiClient(name: string): { client: AiClientView; token: GeneratedToken } {
+export function createPersonalAiClient(name: string, client: string | null = null): { client: AiClientView; token: GeneratedToken } {
   assertPersonalCapability('Personal external assistants');
   const clean = name.trim().replace(/\s+/g, ' ');
   if (!clean || clean.length > AI_CLIENT_NAME_MAX) throw new TeamError('invalid', `Use a connection label of ${AI_CLIENT_NAME_MAX} characters or fewer.`);
-  const { key, token } = insertApiKey(getDb(), { name: clean, role: 'ai_client', memberId: null, deviceId: null });
+  // Only a recorded client is written, so older schemas (upgrade fixtures) still take the row.
+  const { key, token } = insertApiKey(getDb(), { name: clean, role: 'ai_client', memberId: null, deviceId: null, ...(client ? { client } : {}) });
   return { client: aiClientView(key), token };
+}
+
+/**
+ * The working personal client key a plaintext token belongs to, or null. Lets
+ * Settings recognize the key it wrote into an agent's own configuration.
+ */
+export function findPersonalAiClientByToken(plaintext: string): AiClientView | null {
+  assertPersonalCapability('Personal external assistants');
+  const key = getDb().select().from(apiKeys)
+    .where(and(eq(apiKeys.hash, hashToken(plaintext)), eq(apiKeys.role, 'ai_client'), isNull(apiKeys.memberId), isNull(apiKeys.deviceId), isNull(apiKeys.revokedAt)))
+    .get();
+  if (!key || (key.expiresAt && new Date(key.expiresAt).getTime() <= Date.now())) return null;
+  return aiClientView(key);
 }
 
 export function listPersonalAiClients(): AiClientView[] {
@@ -6256,7 +6271,7 @@ export function revokePersonalAiClient(keyId: string): void {
 }
 
 /** A new AI client for an active member. The token is shown once, here. */
-export function createMemberAiClient(memberId: string, name: string): { client: AiClientView; token: GeneratedToken } {
+export function createMemberAiClient(memberId: string, name: string, client: string | null = null): { client: AiClientView; token: GeneratedToken } {
   const clean = name.trim().replace(/\s+/g, ' ');
   if (!clean || clean.length > AI_CLIENT_NAME_MAX) {
     throw new TeamError('invalid', `Name the AI client in ${AI_CLIENT_NAME_MAX} characters or fewer.`);
@@ -6264,7 +6279,7 @@ export function createMemberAiClient(memberId: string, name: string): { client: 
   return getDb().transaction((tx) => {
     const member = tx.select().from(members).where(eq(members.id, memberId)).get();
     if (!member || member.status !== 'active') throw new TeamError('not_allowed', 'Only a member of the team can connect an AI.');
-    const { key, token } = insertApiKey(tx, { name: clean, role: 'ai_client', memberId, deviceId: null });
+    const { key, token } = insertApiKey(tx, { name: clean, role: 'ai_client', memberId, deviceId: null, ...(client ? { client } : {}) });
     return { client: aiClientView(key), token };
   }, { behavior: 'immediate' });
 }

@@ -831,6 +831,11 @@ export const apiKeys = sqliteTable(
     // §9.1). A member has one per client, each revocable on its own. A team
     // key without one is the host's own key, which is never a member.
     memberId: text().references((): AnySQLiteColumn => members.id),
+    // For an `ai_client` key, the outside agent it was made for (an
+    // `AiClientKind` in src/lib/external-ai/clients.ts: `codex`, `cursor`, ...),
+    // so Settings lists and revokes keys per client. Null for every other key,
+    // and for AI client keys made before clients were recorded.
+    client: text(),
   },
   (table) => [
     index('idx_api_keys_hash').on(table.hash),

@@ -5,13 +5,15 @@ description: Use when the user references tasks, notes, or their daily deck — 
 
 # Orchestrator
 
-This app is the user's task + note + deck system. Data lives in a user-configurable data directory — SQLite (`data.db`) plus a markdown mirror. The exact on-disk paths are discoverable via the `describe_paths` action; never hardcode them. The data root can be moved via the `<APP>_ROOT` / `<APP>_BRAIN_PATH` env overrides, so always ask the app where things are rather than assuming.
+Ri is the user's task + note + deck system. It keeps its data in one folder on the computer running it: a SQLite database (`data.db`) plus a markdown mirror. The folder can move, so never hardcode a path. On that computer, the `describe_paths` action says where everything is.
 
 Every write you make through the orchestrator automatically updates embeddings and the markdown mirror. If you bypass it and edit the DB or the mirror by hand, those invariants break and the user notices a week later.
 
 ## How to interact
 
-You have two equivalent surfaces. Prefer MCP tools when the user's Claude Code has them wired; fall back to CLI.
+You have two equivalent surfaces. Prefer MCP tools when this agent has Ri's MCP connected (Settings → Connect your agent). On the computer running Ri, the `ri` command works too, so use it when MCP isn't connected.
+
+An agent connected to Ri's MCP from outside Ri gets a smaller set of tools: tasks, notes, areas, the deck and search. The other tools below are for the chats Ri runs, or through `ri` on the computer running Ri.
 
 **MCP tools** (one per action):
 
@@ -28,19 +30,19 @@ You have two equivalent surfaces. Prefer MCP tools when the user's Claude Code h
 - Deck: `get_deck`, `update_deck`, `regenerate_deck`
 - Search: `search`
 - User state: `get_user_state`, `update_user_state`
-- Memory, from a session that can't read the home's files (on a connected device): `read_memory`. Send findings with `message_agent`, target `orchestrator`, response `none`, and a stable `request_id`. Ask the main chat to consider recording the finding in MEMORY.md, which it keeps
+- Memory, from a session on another device that can't read Ri's files: `read_memory`. Send findings with `message_agent`, target `orchestrator`, response `none`, and a stable `request_id`. Ask the main chat to consider recording the finding in MEMORY.md, which it keeps
 - Execution oversight: `list_executions`, `get_session_messages`, `message_agent`, `get_pending_input`, `answer_pending_input`, `delegate_work`, `archive_execution`
 - Workspaces (the user calls a workspace an "agent"): `list_workspaces`, `get_workspace`, `create_workspace`, `update_workspace`, `archive_workspace`, `list_workspace_sessions`
 - Triggers / runs: `list_triggers`, `get_trigger`, `create_trigger`, `update_trigger`, `delete_trigger`, `run_trigger`, `list_runs`, `get_run`, `cancel_run`, `reset_trigger_failures`
 - Skills (what the user builds under Plugins): `list_skills`, `get_skill`, `create_skill`, `save_skill`, `move_skill`. A new skill is a draft (`draft:<name>`), which no agent uses until it's installed. Installed, it lives in Ri (every chat Ri runs uses it), globally (`~/.claude/skills`, every agent on this computer), or in a project (an agent's repo, shared by committing it), and each has a `ref` like `ri:weekly-review`. `move_skill` installs a draft, moves an installed skill, or uninstalls it (`to: "draft"`). Install or move only when the user asks or agrees. Pass the `hash` from `get_skill` as `baseHash` to `save_skill`: the user may be editing the same skill, and a stale save is refused instead of overwriting them.
 
-**CLI**: `<cli> agent <action> [params]` (the concrete `<cli>` binary is named in the AGENTS.md at the app's data root). Output is JSON on stdout — pipe to `jq`. Run `<cli> agent <action> --help` to see params, or `<cli> agent describe_paths` to confirm where the app is installed on this machine.
+**CLI**, on the computer running Ri: `ri agent <action> [params]`. Output is JSON on stdout, so pipe it to `jq`. Run `ri agent <action> --help` to see params, or `ri agent describe_paths` to confirm where Ri keeps its data on this machine.
 
 Both surfaces share the same action registry — same names, same params, same return shape.
 
 ## Before doing anything
 
-1. `describe_paths` — confirm the app is installed and which brain this session is talking to.
+1. `describe_paths`: confirm which Ri this session is working with and where it keeps its data.
 2. `list_tasks` / `list_notes` with a filter — or `search` — before creating, to avoid duplicates.
 3. `describe_schema` if you're planning a multi-step operation and need exact column names.
 
@@ -133,7 +135,7 @@ live-status chip that opens the execution on click.
 
 If you need a column, filter, or operation that isn't exposed in the action list, **do not** reach into the database or edit the markdown mirror directly. Tell the user what's missing, and propose adding an action to `src/lib/orchestrator/registry.ts`. The point of the typed action surface is that every dangerous operation goes through review.
 
-Exception: purely *reading* a file under the brain directory (the markdown mirror — get its path via `describe_paths`) to orient yourself is fine. Writing to it is not.
+Exception: purely *reading* a file in Ri's data folder (the markdown mirror, whose path `describe_paths` gives) to orient yourself is fine. Writing to it is not.
 
 ## Error shape
 

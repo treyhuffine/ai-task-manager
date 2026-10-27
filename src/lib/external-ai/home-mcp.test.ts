@@ -79,7 +79,11 @@ it('issues one-time credentials through viewer settings with a saved remote addr
   expect(made).toMatchObject({ client: { name: 'Laptop Claude', lastUsedAt: null }, mcpUrl: `https://my-home.example${HOME_MCP_PATH}`, reachable: true });
   expect(made.token).toBeTruthy();
   expect(await api.list()).toEqual([made.client]);
-  expect(Object.keys(made.client).sort()).toEqual(['createdAt', 'keyId', 'lastUsedAt', 'name']);
+  expect(Object.keys(made.client).sort()).toEqual(['client', 'createdAt', 'keyId', 'lastUsedAt', 'name']);
+  expect(made).toMatchObject({ client: { client: 'other' }, server: 'ri', tokenVar: 'RI_MCP_TOKEN' });
+  const cursor = await api.create({ client: 'cursor' });
+  expect(cursor.client).toMatchObject({ name: 'Cursor', client: 'cursor' });
+  await expect(api.create({ client: 'chatgpt' })).rejects.toThrow(/OAuth/);
   const q = await import('@/lib/db/queries');
   expect(q.getApiKey(made.client.keyId)?.hash).not.toBe(made.token);
 });

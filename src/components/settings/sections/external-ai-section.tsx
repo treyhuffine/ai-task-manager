@@ -1,41 +1,61 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { APP_NAME } from '@/constants/app';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import { apiErrorText } from '@/lib/api/client';
-import { AgentSkillAccess } from '../agent-skill-access';
-import { ExternalAssistants } from '../external-assistants';
+import type { AiConnectionTarget } from '@/lib/external-ai/client-config';
+import { AgentSkillFooter } from '../agent-skill-access';
+import { ConnectAgents } from '../connect-agents';
 import { setSettingsSection } from '../settings-store';
 
 /**
- * Two ways in from outside Ri: the coding tools on this computer, through
- * Ri's user-level skills, and any assistant anywhere, through a keyed MCP
- * connection.
+ * Settings → Connect your agent, for a personal Ri: every outside agent's
+ * steps, one-click Set up for the agents on the computer running Ri, and Ri's
+ * skills for agents there (docs/external-ai.md).
  */
 export function ExternalAiSection() {
-  const clients = useQuery(trpc.externalAi.list.queryOptions());
+  const keys = useQuery(trpc.externalAi.list.queryOptions());
   const address = useQuery(trpc.externalAi.address.queryOptions());
-  return <div className="space-y-6">
-    <AgentSkillAccess />
-    <ExternalAssistants
-      space={{ kind: 'personal', name: 'Home' }} clients={clients.data ?? []}
-      ready={clients.isSuccess && address.isSuccess}
-      createClient={name => trpcClient.externalAi.create.mutate({ name })}
-      revokeClient={keyId => trpcClient.externalAi.revoke.mutate({ keyId })}
-      onChanged={() => void clients.refetch()}
-    >
-      <p className="mt-2 text-xs text-muted-foreground">This gives access to your personal work, including private notes. It does not start Ri chats or give access to settings, terminals or your computer’s files.</p>
-      <div className="my-3 rounded-md border border-border p-3 text-xs">
-        {address.data?.reachable ? <>
-          <p>Uses your Home’s remote address. The computer hosting it must stay on and reachable.</p>
-          <p className="mt-1 break-all font-mono text-muted-foreground">{address.data.mcpUrl}</p>
-        </> : <p>To connect an assistant on another computer, first set your Home’s remote address. Without one, these instructions work on the computer hosting Ri.</p>}
-        <button type="button" className="mt-2 underline" onClick={() => setSettingsSection('devices')}>Remote access in Devices</button>
-      </div>
-      {(clients.isError || address.isError) && <p role="alert" className="mb-2 text-xs text-destructive">
-        {apiErrorText(clients.error ?? address.error)}{' '}
-        <button type="button" className="underline" onClick={() => { void clients.refetch(); void address.refetch(); }}>Retry</button>
-      </p>}
-    </ExternalAssistants>
-  </div>;
+  const local = useQuery(trpc.externalAi.local.queryOptions());
+  const refresh = () => { void keys.refetch(); void local.refetch(); };
+  const target: AiConnectionTarget | null = address.data
+    ? { space: { kind: 'personal' }, mcpUrl: address.data.mcpUrl, server: address.data.server, tokenVar: address.data.tokenVar }
+    : null;
+
+  return (
+    <div className="space-y-6">
+      <ConnectAgents
+        target={target}
+        keys={keys.data ?? []}
+        ready={keys.isSuccess && address.isSuccess}
+        createKey={client => trpcClient.externalAi.create.mutate({ client })}
+        revokeKey={keyId => trpcClient.externalAi.revoke.mutate({ keyId })}
+        onChanged={refresh}
+        local={{
+          device: local.data?.device ?? null,
+          agents: local.data?.agents,
+          loading: local.isPending,
+          setUp: client => trpcClient.externalAi.setUp.mutate({ client }),
+          disconnect: client => trpcClient.externalAi.disconnectLocal.mutate({ client }),
+        }}
+      >
+        <p className="text-xs text-muted-foreground">
+          {`Connected agents can search, read and update your tasks, notes, areas and deck, private notes included, with their own model. They can’t start ${APP_NAME} chats, change settings or reach this computer’s files. Each agent gets its own key, and you can disconnect it here any time.`}
+        </p>
+        <div className="rounded-md border border-border p-3 text-xs">
+          {address.data?.reachable ? <>
+            <p>Agents on other computers use your remote address. The computer running {APP_NAME} must stay on and reachable.</p>
+            <p className="mt-1 break-all font-mono text-muted-foreground">{address.data.mcpUrl}</p>
+          </> : <p>Agents on this computer connect without anything else. To connect one on another computer, set a remote address first.</p>}
+          <button type="button" className="mt-2 underline" onClick={() => setSettingsSection('devices')}>Remote access in Devices</button>
+        </div>
+        {(keys.isError || address.isError || local.isError) && <p role="alert" className="text-xs text-destructive">
+          {apiErrorText(keys.error ?? address.error ?? local.error)}{' '}
+          <button type="button" className="underline" onClick={() => { refresh(); void address.refetch(); }}>Retry</button>
+        </p>}
+      </ConnectAgents>
+      <AgentSkillFooter />
+    </div>
+  );
 }

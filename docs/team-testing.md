@@ -70,7 +70,7 @@ Existing restricted chats keep IDs, authors, cursors, links and history. At upgr
 
 ## 7. Optional external MCP clients
 
-An invited person joins once, then opens **Settings → MCP access → Create MCP connection** and chooses the client preset. The optional label names a separately revocable client, not another member. Store the one-time token in the client's secret field. Existing `external-ai` settings links continue to resolve.
+An invited person joins once, then opens **Settings → Connect your agent**, expands their agent and uses **Create key** in its steps, its install link or **Copy setup prompt** (docs/external-ai.md). Each key is a separately revocable client of that agent, not another member, and is listed in the agent's item. Store the one-time token where the steps say. Existing `external-ai` settings links continue to resolve.
 
 Read/create/edit/assign/complete/archive disposable shared records through `/api/team/mcp`, using canonical IDs, body revisions and idempotency keys. This works with the team's built-in AI off. Permanent deletion and native team execution are outside the external content allowlist, including for an owner's client.
 

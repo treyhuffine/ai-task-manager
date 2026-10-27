@@ -6,14 +6,14 @@ import { build } from 'esbuild';
 import { chromium, type Browser, type Locator, type Page } from 'playwright-core';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
-// Ri's user-level skills in Settings: the Get started item (the real checklist
-// hook) and the MCP access block, against a fake server that keeps state.
+// Ri's user-level skills at the end of Connect your agent, and its Get started
+// item (the real checklist hook), against a fake server that keeps state.
 const enabled = process.env.RI_SPACES_BROWSER_TEST === '1';
 let browser: Browser;
 let server: http.Server;
 let address: string;
 
-const LABEL = 'Let your coding tools manage tasks and notes';
+const LABEL = 'Connect your agent';
 const CONFLICT = '~/.claude/skills/agent-work-tasks-notes_ri';
 const FOLDERS = 'in ~/.agents/skills, ~/.claude/skills and ~/.gemini/config/skills';
 
@@ -26,13 +26,13 @@ beforeAll(async () => {
       import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
       import {Toaster} from 'sonner';
       import {GetStartedSection} from './src/components/settings/sections/get-started-section';
-      import {AgentSkillAccess} from './src/components/settings/agent-skill-access';
+      import {AgentSkillFooter} from './src/components/settings/agent-skill-access';
       import {useSetupChecklist} from './src/components/settings/use-setup-checklist';
       function App() {
         const checklist = useSetupChecklist(true);
         return <div className='flex gap-8 p-6'>
           <main aria-label='Get started' style={{flex:1}}><GetStartedSection checklist={checklist}/></main>
-          <aside aria-label='MCP access' style={{flex:1}}><AgentSkillAccess/></aside>
+          <aside aria-label='Connect your agent' style={{flex:1}}><AgentSkillFooter/></aside>
         </div>;
       }
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})}><App/><Toaster/></QueryClientProvider>);
@@ -48,11 +48,11 @@ beforeAll(async () => {
         settings: `export const settingsApi={getBaseUrls:async()=>({tunnel:null})};`,
         api: `
           const params=new URLSearchParams(location.search);
-          const desktop=params.has('desktop');const blocked=params.has('blocked');
+          const desktop=params.has('desktop');const blocked=params.has('blocked');const keys=params.has('keys')?[{keyId:'k',name:'Codex',client:'codex',createdAt:'2026-10-27',lastUsedAt:null}]:[];
           window.skillCalls=[];
           let skill={appOnly:desktop,enabled:!desktop,configured:true,installed:!desktop&&!blocked,conflicts:blocked?['${CONFLICT}']:[],folders:desktop?[]:['~/.agents/skills','~/.claude/skills','~/.gemini/config/skills']};
           const query=(name,fn)=>({queryKey:()=>[name],queryOptions:()=>({queryKey:[name],queryFn:async()=>fn()})});
-          export const trpc={harness:{skillsGlobalGet:query('skill',()=>skill)}};
+          export const trpc={harness:{skillsGlobalGet:query('skill',()=>skill)},externalAi:{list:query('agent-keys',()=>keys)}};
           export const trpcClient={
             harness:{skillsGlobalPut:{mutate:async({body})=>{
               window.skillCalls.push(body.enabled);
@@ -98,68 +98,64 @@ async function screenshot(page: Page, name: string) {
 const row = (page: Page): Locator => page.getByRole('listitem').filter({ hasText: LABEL });
 const calls = (page: Page) => page.evaluate('window.skillCalls');
 
-it.skipIf(!enabled)('says the skills are on and takes them off and back in one click, from either place', async () => {
+it.skipIf(!enabled)('says the skills are on and takes them off and back in one click', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   try {
     await page.goto(address);
-    const external = page.getByRole('complementary', { name: 'MCP access' });
-    await row(page).getByText('Uninstall in one click any time.', { exact: false }).waitFor();
-    await external.getByText(FOLDERS, { exact: true }).waitFor();
-    // Every harness, so switching later loses nothing.
-    await external.getByText('Codex, Claude Code, Cursor, OpenCode and Antigravity can manage your tasks', { exact: false }).waitFor();
-    await page.getByText('2/7 done', { exact: true }).waitFor();
+    const footer = page.getByRole('complementary', { name: 'Connect your agent' });
+    await footer.getByText(FOLDERS, { exact: true }).waitFor();
+    // Every harness, so switching later loses nothing, and the CLI works before connecting.
+    await footer.getByText('Codex, Claude Code, Cursor, OpenCode and Antigravity on this computer have Ri’s skills', { exact: false }).waitFor();
+    await footer.getByText('even before you connect them', { exact: false }).waitFor();
     await screenshot(page, 'agent-skill-on.png');
 
-    // Uninstall from MCP access: both places follow, and the toast can undo it.
-    await external.getByRole('button', { name: 'Uninstall', exact: true }).click();
-    await external.getByText('Not installed', { exact: true }).waitFor();
-    await row(page).getByText('Install it here or in MCP access any time.', { exact: true }).waitFor();
-    await page.getByText('1/7 done', { exact: true }).waitFor();
+    await footer.getByRole('button', { name: 'Uninstall', exact: true }).click();
+    await footer.getByText('Not installed', { exact: true }).waitFor();
     expect(await calls(page)).toEqual([false]);
     await screenshot(page, 'agent-skill-uninstalled.png');
     await page.getByRole('button', { name: 'Undo', exact: true }).click();
-    await external.getByText(FOLDERS, { exact: true }).waitFor();
+    await footer.getByText(FOLDERS, { exact: true }).waitFor();
     expect(await calls(page)).toEqual([false, true]);
-
-    // The same from the Get started row, which never asks to undo a choice.
-    await row(page).getByRole('button', { name: 'Uninstall', exact: true }).click();
-    await row(page).getByText('Install it here or in MCP access any time.', { exact: true }).waitFor();
-    expect(await row(page).getByRole('button', { name: 'Skip', exact: true }).count()).toBe(0);
-    await row(page).getByRole('button', { name: 'Install', exact: true }).click();
-    await row(page).getByText('Uninstall in one click any time.', { exact: false }).waitFor();
-    expect(await calls(page)).toEqual([false, true, false, true]);
   } finally { await page.close(); }
 }, 30_000);
 
-it.skipIf(!enabled)('names what holds the skill name and lets the row be skipped', async () => {
+it.skipIf(!enabled)('folds the skills into connecting an agent, in Get started', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  try {
+    await page.goto(address);
+    await page.getByText('1/7 done', { exact: true }).waitFor();
+    expect(await page.getByText('Let your coding tools manage tasks and notes', { exact: true }).count()).toBe(0);
+    await row(page).getByRole('button', { name: 'Set up', exact: true }).waitFor();
+    await row(page).getByRole('button', { name: 'Skip', exact: true }).click();
+    await row(page).getByText('Connect Claude Code, Codex or another agent in Connect your agent any time.', { exact: true }).waitFor();
+    await row(page).getByRole('button', { name: 'Undo', exact: true }).click();
+    await row(page).getByRole('button', { name: 'Set up', exact: true }).waitFor();
+    // Any agent with its own key counts.
+    await page.goto(`${address}/?keys=1`);
+    await page.getByText('2/7 done', { exact: true }).waitFor();
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('names what holds the skill name', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   try {
     await page.goto(`${address}/?blocked=1`);
-    const external = page.getByRole('complementary', { name: 'MCP access' });
-    await external.getByRole('alert').getByText(`Another skill is already at ${CONFLICT}`, { exact: false }).waitFor();
-    await row(page).getByText('MCP access shows where.', { exact: false }).waitFor();
+    const footer = page.getByRole('complementary', { name: 'Connect your agent' });
+    await footer.getByRole('alert').getByText(`Another skill is already at ${CONFLICT}`, { exact: false }).waitFor();
     await screenshot(page, 'agent-skill-blocked.png');
-
-    await external.getByRole('button', { name: 'Install', exact: true }).click();
+    await footer.getByRole('button', { name: 'Install', exact: true }).click();
     await page.getByText('Could not install the skills', { exact: true }).waitFor();
-    await external.getByRole('alert').waitFor();
+    await footer.getByRole('alert').waitFor();
     expect(await calls(page)).toEqual([true]);
-
-    await row(page).getByRole('button', { name: 'Skip', exact: true }).click();
-    await row(page).getByText('Install it in MCP access any time.', { exact: true }).waitFor();
-    await row(page).getByRole('button', { name: 'Undo', exact: true }).click();
-    await row(page).getByRole('button', { name: 'Set up', exact: true }).waitFor();
   } finally { await page.close(); }
 }, 30_000);
 
-it.skipIf(!enabled)('offers nothing in the desktop app, where the skills stay inside it', async () => {
+it.skipIf(!enabled)('shows no skill controls in the desktop app, where the skills stay inside it until an agent connects', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   try {
     await page.goto(`${address}/?desktop=1`);
-    const external = page.getByRole('complementary', { name: 'MCP access' });
-    await external.getByText('In the desktop app, task and note access stays inside Ri.', { exact: false }).waitFor();
-    await page.getByText('1/6 done', { exact: true }).waitFor();
-    expect(await row(page).count()).toBe(0);
-    expect(await external.getByRole('button').count()).toBe(0);
+    await page.getByText('1/7 done', { exact: true }).waitFor();
+    expect(await page.getByRole('complementary', { name: 'Connect your agent' }).getByRole('button').count()).toBe(0);
+    await row(page).getByRole('button', { name: 'Set up', exact: true }).waitFor();
   } finally { await page.close(); }
 }, 30_000);
