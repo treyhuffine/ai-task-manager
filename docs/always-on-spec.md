@@ -113,6 +113,9 @@ The `ri service ...` commands stay as the detailed form (`status` as JSON, `awak
 - **Updates.** A Home on this computer updates by the rule in section 7.2, the same rule as everywhere else: the heads-up shows in the app's window, with **Not now** and **Update now**. When the app's own part changes too (its menus, Quick Capture, notifications), the window relaunches as part of that same update. When the app is connected to a Home elsewhere, its own update applies like a browser refresh (section 4.3), right after the Home moves (section 7.7).
 - **Settings, This computer.** Shows the same status as `ri status`, including "This app 0.4.2, your Home 0.4.2". A "Keep Ri running on this computer" switch is on for every Home, and turning it off removes supervision. "Add `ri` to Terminal" writes the launcher, adds `~/.local/bin` to the shell's PATH if needed, and says what it changed.
 - **Settings, Updates** (`src/components/settings/sections/updates-section.tsx`). Shows "Up to date", or what a downloaded update is waiting for ("Waiting for 2 chats to finish"), with **Update now**. Also holds the automatic updates switch and, under Advanced, the channel.
+  - This section belongs to the Home's own Settings, not to the desktop app. Like every page, it comes from the Home, so it works the same in a browser, on a phone or in the app.
+  - Only the Home's owner can change it (the section's existing `canManage` gate).
+  - Opened from a laptop, it changes the computer the Home runs on, so the Mini's updates can be switched off from anywhere.
 - **App menu.** "Check for Updates…", the Mac convention.
 - **Opening the window at login** is a separate, optional preference. It's for convenience and has nothing to do with whether the Home is up.
 - **Removed:** Tools > Start at Login… / Disable Start at Login… (replaced by the switch) and Tools > Install terminal command, which today writes `~/.local/bin/ri-desktop` (replaced by "Add `ri` to Terminal", which installs the same `ri` the install script does).
@@ -204,9 +207,14 @@ Windows uses a Scheduled Task running as the user, triggered at boot and at logo
 
 ### 7.1 Automatic by default
 
-Automatic updates are on for every installation, with an off switch: Settings in the desktop app, or `ri update --auto off` (and `--auto on`) in the CLI. The switch applies to the whole installation, so every Home on the computer follows it.
+Automatic updates are on for every installation, with an off switch, in two places:
 
-Setup never asks about it. Most people can't judge the choice before they've used Ri, and a question at setup turns a default into a decision. Instead, `ri start` ends its output with one line, "Ri updates itself when it's quiet. To turn that off: ri update --auto off", and the desktop app shows the switch in Settings. Someone scripting a server's setup runs `ri update --auto off` before `ri start`.
+- **Settings > Updates**, in any window showing the Home: browser, phone or desktop app. Only the owner can change it.
+- **`ri update --auto off`** (and `--auto on`) in the CLI.
+
+The switch applies to the whole installation, so every Home on that computer follows it. A connected computer has no switch of its own, because it always follows its Home's version (section 7.7).
+
+Setup never asks about it. Most people can't judge the choice before they've used Ri, and a question at setup turns a default into a decision. Instead, `ri start` ends its output with one line, "Ri updates itself when it's quiet. To turn that off: ri update --auto off", and Settings > Updates shows the switch to anyone who looks. Someone scripting a server's setup runs `ri update --auto off` before `ri start`.
 
 Once automatic updates are on:
 
@@ -438,7 +446,7 @@ Acceptance: an SSH-only Linux server goes from `curl … | sh` and `ri start` to
 - Everything Ri installs outside its folders (skills, the launcher, agent connections, OS jobs) belongs to the installation or the Home and is refreshed by updates (section 9).
 - A Home runs an unchanging release and moves only through the update switch, including for the owner.
 - Published releases update automatically, by one rule for every Home: after 10 quiet minutes (chats, background tasks, MCP calls and people all count) and a 1-minute heads-up. Not now holds it an hour and then asks again. It never stops running work, and updates at most every 12 hours. The `ri` command picks up a new release at its next run, and windows and tabs by a refresh notice.
-- Automatic updates have one switch for the whole installation (Settings, or `ri update --auto off|on`), and setup never asks about it. `ri start` names the switch in one line of its output.
+- Automatic updates have one switch for the whole installation: Settings > Updates in any window showing the Home (owner only), or `ri update --auto off|on`. Setup never asks about it. `ri start` names the switch in one line of its output.
 - A release without migrations starts once, with no check boot.
 - A connected computer follows its Home's version, right away unless it is running chats for it.
 - Source builds happen only when the owner runs `ri update`. They run at background priority, and are never stopped at a fraction of memory, only on a true runaway.
