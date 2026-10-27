@@ -25,6 +25,8 @@ const names = ['demo.webm', 'memo.wav', 'data.xlsx', 'data.csv', 'review.docx', 
 const outputPath = `/fixture/${'a-long-folder-name/'.repeat(60)}output.bin`;
 const prose = 'Verified browser/gallery and desktop/mobile checks.\n\n`browser/gallery` and `desktop/mobile` stay text too.\n\nRoutes: `/v1/realtime/status/flow`, `/v1/products/option-flow/count`, `/flow`.\n\nFiles: `FlowFeed.ts`, `FeedPublisher.ts`, `protocol.ts`, `report.pdf`, `shot.png`, `index.html`.\n\n[Website](https://example.com/review)';
 const inferred = 'Open `/fixture/nested/plan.md` or `/fixture/missing.bin`.\n\nSee "./output/result.zip".';
+const literalPaths = ['~/.claude.json', '~/.codex/config.toml', '~/notes/my_file.txt', '/tmp/a[1].txt', '/tmp/literal\\name.md', '/tmp/a*b.zip', '/tmp/a|b.zip', '/tmp/`name`.txt'];
+const literalExamples = literalPaths.map(target => `Open \`\`${target}\`\`.`).join('\n\n');
 const pastedName = 'pasted_text_2026-10-27-15-01-25.md';
 
 beforeAll(async () => {
@@ -48,7 +50,7 @@ beforeAll(async () => {
       import{AgentResponse}from'./src/components/chat-ui/messages/agent-response';
       import{Message,MessageContent}from'./src/components/ai-elements/message';import{MessageFileChip}from'./src/components/chat-ui/artifacts/message-file-chip';
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
-      function DetectionExamples(){return <>{['streaming','static'].map(mode=><React.Fragment key={mode}><section aria-label={mode+' path detection'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(prose)}}/></section><section aria-label={mode+' inferred files'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(inferred)}}/></section></React.Fragment>)}</>}
+      function DetectionExamples(){return <>{['streaming','static'].map(mode=><React.Fragment key={mode}><section aria-label={mode+' path detection'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(prose)}}/></section><section aria-label={mode+' inferred files'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(inferred)}}/></section><section aria-label={mode+' literal file labels'}><AgentResponse sessionId="fixture" mode={mode} text={${JSON.stringify(literalExamples)}}/></section></React.Fragment>)}</>}
       function AttachmentExample(){return <section aria-label="Sent attachment"><Message from="user"><MessageContent><MessageFileChip tone="bubble" attachment={{fileName:'review.md',originalName:${JSON.stringify(pastedName)},mimeType:'text/markdown',size:99,uploadedAt:'2026-10-27T15:01:25Z'}}/></MessageContent></Message></section>}
       function Chat(){const [shown,setShown]=useState(false);const file=useBesidePreview('fixture');useBesideRegion('fixture',{available:true,side:'right',showing:shown&&!!file,show:()=>setShown(true)});
       return <main className="flex h-screen"><section role="log" aria-label="Chat" {...{[PREVIEW_HOST_ATTRIBUTE]:'fixture'}} className="min-w-0 w-1/2 space-y-3 overflow-auto p-6"><AttachmentExample/><AgentResponse sessionId="fixture" text={${JSON.stringify(names.map(name => `[${name}](${name === 'output.bin' ? outputPath : `/fixture/${name}`})`).join('\n\n'))}}/><DetectionExamples/></section><aside className="min-w-0 w-1/2 border-l">{file&&<BesideFileView host="fixture"/>}</aside></main>}
@@ -157,6 +159,21 @@ it.skipIf(!enabled)('retains inferred paths and code styling without checking fi
     await view.getByRole('status').filter({ hasText: 'File not found: /fixture/missing.bin' }).waitFor();
     expect(await view.getByRole('button', { name: 'Copy path', exact: true }).innerText()).toContain('/fixture/missing.bin');
     expect(reads.slice(before)).toEqual(['missing.bin']);
+  } finally { await p.context().close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('shows home paths and filename punctuation literally without leaking Markdown escapes', async () => {
+  const p = await page();
+  try {
+    for (const mode of ['streaming', 'static']) {
+      const example = p.getByRole('region', { name: `${mode} literal file labels`, exact: true });
+      for (const target of literalPaths) {
+        const button = example.getByRole('button', { name: `Open file: ${target.split('/').at(-1)}`, exact: true });
+        await button.waitFor();
+        expect(await button.innerText()).toBe(target);
+        expect(await button.locator('xpath=ancestor::code').count()).toBe(1);
+      }
+    }
   } finally { await p.context().close(); }
 }, 30_000);
 

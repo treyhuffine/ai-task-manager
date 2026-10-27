@@ -1,4 +1,4 @@
-import { rewriteLocalFileReferences, isLocalFileTarget } from './local-file-references';
+import { escapeFilePreviewLabel, rewriteLocalFileReferences, isLocalFileTarget } from './local-file-references';
 import { isLocalTextTarget } from './reply-text';
 
 export const FILE_PREVIEW_TAG = 'ri-file-preview';
@@ -22,7 +22,7 @@ export function rewriteLocalArtifacts(markdown: string, sessionId?: string | nul
   return rewriteLocalFileReferences(markdown, {
     extensions: '[a-z0-9][a-z0-9._+-]*', anyFile: true, matches: isLocalArtifactTarget, relativeTo,
     preservePathText: true,
-    render: (path, label) => `<${FILE_PREVIEW_TAG} href="${PREFIX}${encodeURIComponent(path)}">${(label || path.split('/').at(-1) || path).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}</${FILE_PREVIEW_TAG}>`,
+    render: (path, label) => `<${FILE_PREVIEW_TAG} href="${PREFIX}${encodeURIComponent(path)}">${escapeFilePreviewLabel(label || path.split('/').at(-1) || path)}</${FILE_PREVIEW_TAG}>`,
   });
 }
 

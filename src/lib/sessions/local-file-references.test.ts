@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { DOMParser } from 'linkedom';
 import { rewriteLocalArtifacts } from './reply-artifacts';
 import { rewriteLocalText } from './reply-text';
 import { rewriteLocalImages } from './reply-image-urls';
@@ -20,7 +21,8 @@ it.each(['FlowFeed.ts', 'report.pdf', 'shot.png', 'index.html', 'movie.mp4', 'RE
 it.each(['/Users/agent/report.txt', '~/report.md', './src/file.ts', '../src/file.ts', 'src/file.ts', 'src/file.ts:12:4', 'docs/plan.md#decisions', 'file:///tmp/review.txt', 'data/output.zip'])('keeps the full inferred path and inline code styling for %s', target => {
   const rendered = rewrite(`Open \`${target}\`.`);
   expect(rendered).toMatch(/^Open <code><ri-(text|file)-preview /);
-  expect(rendered).toContain(`>${target}</ri-`);
+  const doc = new DOMParser().parseFromString(rendered, 'text/html');
+  expect(doc.querySelector('code > ri-text-preview, code > ri-file-preview')?.textContent).toBe(target);
   expect(rendered).toMatch(/<\/ri-(text|file)-preview><\/code>\.$/);
 });
 

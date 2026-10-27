@@ -8,17 +8,13 @@
  * query asks for the thumbnail, a page image or a download.
  */
 
-import { isLocalFileTarget, rewriteLocalFileReferences } from './local-file-references';
+import { escapeFilePreviewLabel, isLocalFileTarget, rewriteLocalFileReferences } from './local-file-references';
 
 const PDF_REFERENCE_PREFIX = '#ri-pdf=';
 export const PDF_PREVIEW_TAG = 'ri-pdf-preview';
 
 export function isLocalPdfTarget(target: string): boolean {
   return isLocalFileTarget(target, 'pdf');
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 export function pdfPreviewHref(target: string): string {
@@ -42,7 +38,7 @@ export function rewriteLocalPdfs(markdown: string, sessionId: string | null | un
   return rewriteLocalFileReferences(markdown, {
     extensions: 'pdf',
     relativeTo,
-    render: (target, label) => `<${PDF_PREVIEW_TAG} href="${pdfPreviewHref(target)}">${escapeHtml(label || target.split('/').at(-1) || target)}</${PDF_PREVIEW_TAG}>`,
+    render: (target, label) => `<${PDF_PREVIEW_TAG} href="${pdfPreviewHref(target)}">${escapeFilePreviewLabel(label || target.split('/').at(-1) || target)}</${PDF_PREVIEW_TAG}>`,
   });
 }
 

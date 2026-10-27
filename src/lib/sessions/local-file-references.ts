@@ -49,6 +49,13 @@ export function markdownLabel(label: string): string {
   return label.replace(/[\\\[\]]/g, '\\$&').replace(/\n/g, ' ');
 }
 
+/** Streamdown escapes Markdown punctuation in literal tags. Entities keep
+ * that punctuation literal inside inline code too, where escapes stay visible. */
+export function escapeFilePreviewLabel(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    .replace(/[\\`*_~[\]|]/g, character => `&#${character.charCodeAt(0)};`);
+}
+
 /** A document's relative links refer to its own directory, not to the chat's root. */
 export function resolveFileReference(target: string, relativeTo?: string): string {
   if (!relativeTo || /^(?:[a-z][a-z0-9+.-]*:|\/|~\/|#)/i.test(target)) return target;

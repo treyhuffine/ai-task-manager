@@ -1,4 +1,4 @@
-import { isLocalFileTarget, rewriteLocalFileReferences } from './local-file-references';
+import { escapeFilePreviewLabel, isLocalFileTarget, rewriteLocalFileReferences } from './local-file-references';
 
 // Formats we can read as text. Everything else keeps the copy/open dialog.
 export const TEXT_FILE_EXTENSIONS = 'md|mdx|markdown|txt|text|log|json|jsonc|json5|ya?ml|toml|ini|cfg|conf|env|csv|tsv|[cm]?[jt]sx?|css|scss|sass|less|xml|sh|bash|zsh|fish|py|pyi|rb|go|rs|java|kt|swift|c|h|cc|cpp|cxx|hh|hpp|hxx|cs|sql|graphql|gql|vue|svelte|astro|php|pl|pm|lua|r|jl|dart|ex|exs|elm|scala|groovy|ps1|bat|cmd|properties|gitignore|gitattributes|editorconfig|prettierrc|eslintrc|dockerignore|diff|patch';
@@ -34,7 +34,7 @@ export function rewriteLocalText(markdown: string, sessionId: string | null | un
     relativeTo,
     preservePathText: true,
     render: (path, label) => {
-      const text = (label || path.split('/').at(-1) || path).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const text = escapeFilePreviewLabel(label || path.split('/').at(-1) || path);
       return `<${TEXT_PREVIEW_TAG} href="${TEXT_REFERENCE_PREFIX}${encodeURIComponent(textFilePath(path))}">${text}</${TEXT_PREVIEW_TAG}>`;
     },
   });

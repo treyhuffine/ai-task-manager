@@ -1,14 +1,10 @@
-import { isLocalFileTarget, rewriteLocalFileReferences } from './local-file-references';
+import { escapeFilePreviewLabel, isLocalFileTarget, rewriteLocalFileReferences } from './local-file-references';
 
 const HTML_REFERENCE_PREFIX = '#ri-html=';
 export const HTML_PREVIEW_TAG = 'ri-html-preview';
 
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 export function htmlPreviewReference(target: string, label?: string | null): string {
-  return `<${HTML_PREVIEW_TAG} href="${htmlPreviewHref(target)}">${escapeHtml(label || target.split('/').at(-1) || target)}</${HTML_PREVIEW_TAG}>`;
+  return `<${HTML_PREVIEW_TAG} href="${htmlPreviewHref(target)}">${escapeFilePreviewLabel(label || target.split('/').at(-1) || target)}</${HTML_PREVIEW_TAG}>`;
 }
 
 export function isLocalHtmlTarget(target: string): boolean {
