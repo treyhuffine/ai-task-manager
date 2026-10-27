@@ -8,6 +8,8 @@ Production runs from this checkout, `~/ai-task-manager`, serving the real home `
 
 ## Production on the Mac Mini
 
+Production isn't supervised yet: a crash, a hang or a restart leaves it down until someone starts it again. [always-on-spec.md](always-on-spec.md) is the plan to change that, and this section is rewritten when it ships.
+
 | | |
 | --- | --- |
 | Code | this checkout (`pnpm build` to rebuild the app) |
@@ -131,3 +133,4 @@ Sessions on a connected device reach the home over HTTP and keep that device's o
 - docs/desktop.md: the desktop app, the headless runtime and its update flow
 - docs/homes-model.md: one home, devices that connect to it
 - docs/homes-cutover.md: retiring a MacBook home and connecting it instead
+- docs/always-on-spec.md: proposed, keeping every Home running and current (supervision, releases, automatic updates), including how production on the Mini moves to it
