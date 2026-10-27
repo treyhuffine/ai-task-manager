@@ -127,7 +127,14 @@ A browser tab shows a Home's pages, so it runs whatever version that Home served
 
 Today every open viewer saves its drafts and reloads by itself as soon as the build changes (`ServiceConnection` in `src/components/desktop/service-connection.tsx`, mounted in `src/app/layout.tsx`).
 
-The desktop app's window follows the same rule, because it is essentially a browser for the Home's pages. A connected app loads the Home's own address (`remoteViewerOrigin(connected.homeUrl)` in `desktop/backend.ts`), and a local one loads the local service's. The app itself provides only its own few screens (first run, connecting, offline) and the native parts: menus, Quick Capture, notifications, and running agents on this computer if that is turned on.
+The desktop app's window follows the same rule, because it is essentially a browser for a Home's pages:
+
+- **The app carries the whole Ri server.** That's Node, the built web app (`.next-desktop`) and the CLI (`desktop/package.mjs` copies them into the app's resources). The pages are bundled, but as a server, not as files the window opens.
+- **When this computer is the Home,** the app starts that server as the local service. The window then loads the service's address on localhost with a local certificate (`local.origin` from the service's `/session`, in `desktop/backend.ts`), the same pages a browser on this computer would get.
+- **When the app is connected to a Home elsewhere,** the window loads that Home's own address instead (`remoteViewerOrigin(connected.homeUrl)`). The bundled server then runs only if this computer runs agents for that Home.
+- **What the app draws itself** is limited to three screens (`desktop/local-window.ts`): `companion` for first run, connecting and "Ri on this device", `maintenance`, and `loading`. Beyond those come the native parts: menus, Quick Capture and notifications.
+
+One set of pages therefore serves the browser, the phone and the desktop window. That is why closing the window never stops the Home, and why an update to the Home updates what every window shows.
 
 ## 5. Installing
 
@@ -197,7 +204,11 @@ Windows uses a Scheduled Task running as the user, triggered at boot and at logo
 
 ### 7.1 Automatic by default
 
-Automatic updates are on for every installation, with an off switch (Settings, or `ri update --auto off`):
+Automatic updates are on for every installation, with an off switch: Settings in the desktop app, or `ri update --auto off` (and `--auto on`) in the CLI. The switch applies to the whole installation, so every Home on the computer follows it.
+
+Setup never asks about it. Most people can't judge the choice before they've used Ri, and a question at setup turns a default into a decision. Instead, `ri start` ends its output with one line, "Ri updates itself when it's quiet. To turn that off: ri update --auto off", and the desktop app shows the switch in Settings. Someone scripting a server's setup runs `ri update --auto off` before `ri start`.
+
+Once automatic updates are on:
 
 - The installation checks for a new published release when a controller starts and every 6 hours after that, as the updater does today.
 - A new release downloads in the background, along with the desktop app's new shell if the app is installed. Today a downloaded update waits for someone to approve it (`approve` and `tick` in `src/lib/service/update.ts`), and the shell updater doesn't download on its own (`autoDownload = false` in `desktop/shell-update.ts`).
@@ -427,6 +438,7 @@ Acceptance: an SSH-only Linux server goes from `curl … | sh` and `ri start` to
 - Everything Ri installs outside its folders (skills, the launcher, agent connections, OS jobs) belongs to the installation or the Home and is refreshed by updates (section 9).
 - A Home runs an unchanging release and moves only through the update switch, including for the owner.
 - Published releases update automatically, by one rule for every Home: after 10 quiet minutes (chats, background tasks, MCP calls and people all count) and a 1-minute heads-up. Not now holds it an hour and then asks again. It never stops running work, and updates at most every 12 hours. The `ri` command picks up a new release at its next run, and windows and tabs by a refresh notice.
+- Automatic updates have one switch for the whole installation (Settings, or `ri update --auto off|on`), and setup never asks about it. `ri start` names the switch in one line of its output.
 - A release without migrations starts once, with no check boot.
 - A connected computer follows its Home's version, right away unless it is running chats for it.
 - Source builds happen only when the owner runs `ri update`. They run at background priority, and are never stopped at a fraction of memory, only on a true runaway.
