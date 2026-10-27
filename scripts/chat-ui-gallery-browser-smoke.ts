@@ -180,6 +180,20 @@ async function main() {
         const quiet = await select('coordination', state);
         assert.equal(await quiet.getByLabel('Chat collaboration', {exact:true}).count(), 0, `${state} has no composer controls`);
       }
+      frame = await select('coordination', 'manager');
+      await frame.getByRole('button', {name:'Chat menu',exact:true}).click();
+      const managerSettings = frame.locator('[data-slot="popover-content"]');
+      await managerSettings.getByText('Manager chats are unrestricted.', {exact:false}).waitFor();
+      assert.equal(await managerSettings.locator('select').count(), 0, 'Manager settings never offer ineffective Ask or Allow choices');
+      await managerSettings.getByRole('button', {name:'Pause incoming',exact:true}).click();
+      await managerSettings.getByRole('button', {name:'Resume',exact:true}).waitFor();
+      await frame.getByRole('button', {name:'Chat menu',exact:true}).click();
+      await frame.getByLabel('Chat collaboration', {exact:true}).getByText('Incoming agent messages paused', {exact:false}).waitFor();
+      await frame.getByRole('button', {name:'Chat menu',exact:true}).click();
+      await managerSettings.getByRole('button', {name:'Resume',exact:true}).click();
+      await managerSettings.getByRole('button', {name:'Pause incoming',exact:true}).waitFor();
+      await frame.getByRole('button', {name:'Chat menu',exact:true}).click();
+
       frame = await select('coordination', 'active');
       await frame.getByRole('link', {name: /^Working with Review date handling/}).waitFor();
       await assertCoordinationPlacement(frame);

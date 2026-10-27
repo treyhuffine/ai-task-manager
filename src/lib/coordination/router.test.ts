@@ -10,6 +10,15 @@ afterEach(async()=>{await home.cleanup();});
 function caller(scope:'viewer'|'session'|'worker'='viewer',headers?:HeadersInit) {
   return coordinationRouter.createCaller({request:new Request('http://localhost/api/trpc',{headers}),key:{apiKeyId:'fixture',scope,location:'home',workerDeviceId:null,sessionChatId:null}});
 }
+it('reports manager authority from the saved chat and keeps its Ask preference separate', async () => {
+  const workspace = q.createWorkspace({ name: 'Project', cwd: home.root, isGit: false });
+  const manager = q.createChatSession({ harness: 'claude', type: 'orchestration', workspaceId: workspace.id });
+  const { session } = q.createExecutionWithChat({ harness: 'claude', workspaceId: workspace.id, label: null });
+  for (const chat of [manager, session]) {
+    q.setAgentCoordinationPolicy('chat', chat.id, 'ask');
+    expect(await caller().state({ sessionId: chat.id })).toMatchObject({ unrestricted: chat.id === manager.id, policy: 'ask', source: 'chat' });
+  }
+});
 it.each(['session','worker'] as const)('keeps policy, Hold, decisions and human forwarding unavailable to %s callers',async scope=>{
   const api=caller(scope);
   await expect(api.policy({scope:'global',id:'1',policy:'allow'})).rejects.toMatchObject({code:'FORBIDDEN'});

@@ -6,6 +6,8 @@ Consult and delegate proactively within the user's intent and coordination permi
 
 The receiving chat can answer in its final response or use reply_agent_request with the assigned request ID. A blocked update identifies the chat whose pending question needs attention. Permission approvals reserved for the human stay with the human.
 
+Ri's main orchestrator chat and each agent's main chat are unrestricted for messaging and delegation, regardless of saved coordination preferences. get_session_context reports this as coordination.unrestricted. Execution and other chats still follow their coordination policy. This does not release older sends awaiting approval or change incoming Hold.
+
 Enabled automations authorize communication for their assignment. Their run chats start with Allow automatically, including new chats on later fires. Create, enable or change schedules only within the user's intent. Never create a schedule to bypass a denied send or other human restriction. When scheduling a send, confirm the schedule is enabled and report its time and destination. A queued or saved delivery is still pending, not completed. If a run is blocked, identify what did not happen and what needs attention.
 
 For history, search_sessions includes personal main chats, get_session_events pages complete messages, and get_chat_event reads the rest of a long message.

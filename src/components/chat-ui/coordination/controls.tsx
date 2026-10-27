@@ -48,6 +48,7 @@ function AvailableCoordinationSettings({ sessionId }: { sessionId: string }) {
   if (!data) return null;
   return <div className="space-y-3 text-xs">
     <p className="font-medium">Messages to other chats</p>
+    {data.unrestricted ? <p className="text-muted-foreground">Manager chats are unrestricted. This chat can message other chats and start new ones without coordination approval. Execution and other chats still follow their saved preferences.</p> : <>
     <p className="text-muted-foreground">{data.policy === 'allow' ? 'Allow automatically' : 'Ask first'}{data.source === 'default' ? ' by default' : `, from ${data.source === 'global' ? 'your default' : `this ${data.source}`}`}.</p>
     {data.levels.filter(level => level.source !== 'global').map(level => {
       const id = data.scopes[level.source];
@@ -55,6 +56,8 @@ function AvailableCoordinationSettings({ sessionId }: { sessionId: string }) {
       return <label key={level.source} className="flex min-w-0 items-center justify-between gap-3"><span>{level.source === 'chat' ? 'This chat' : level.source === 'execution' ? 'All chats in this execution' : 'This agent'}</span><select aria-label={`Coordination for ${level.source}`} className="min-w-0 max-w-40 rounded border bg-background p-1" value={level.value ?? ''} disabled={policy.isPending} onChange={event => policy.mutate({ scope: level.source, id, policy: event.target.value === 'ask' ? 'ask' : event.target.value === 'allow' ? 'allow' : null })}><option value="">Inherit</option><option value="ask">Ask first</option><option value="allow">Allow automatically</option></select></label>;
     })}
     <p className="text-muted-foreground">Applies to new sends. Approved messages keep their authorization.</p>
+    </>}
+    {data.unrestricted && data.approvals.length > 0 && <p className="text-muted-foreground">Earlier sends still await your decision. Open their approval cards to approve or decline.</p>}
     <div className="border-t pt-2"><IncomingPauseButton sessionId={sessionId} /><p className="mt-1 text-muted-foreground">Pause queues incoming agent messages in this chat. Your messages still run. Work already running continues.</p></div>
   </div>;
 }
@@ -62,7 +65,7 @@ function AvailableCoordinationSettings({ sessionId }: { sessionId: string }) {
 export function DefaultCoordinationSetting() {
   const { data } = useQuery({ queryKey: ['coordination', 'defaults'], queryFn: () => trpcClient.coordination.defaults.query() });
   const mutation = useCoordinationPolicy();
-  return <div className="space-y-2"><label className="flex items-center justify-between gap-3 text-sm"><span>Default coordination</span><select aria-label="Default coordination" className="rounded-md border bg-background px-2 py-1" value={data?.global ?? 'ask'} disabled={mutation.isPending} onChange={event => mutation.mutate({ scope: 'global', id: '1', policy: event.target.value === 'allow' ? 'allow' : 'ask' })}><option value="ask">Ask first</option><option value="allow">Allow automatically</option></select></label><p className="text-xs text-muted-foreground">Allow agents to message chats and start new chats within your intent. Agent, execution and chat overrides take precedence. Already approved sends keep their authorization.</p></div>;
+  return <div className="space-y-2"><label className="flex items-center justify-between gap-3 text-sm"><span>Default coordination</span><select aria-label="Default coordination" className="rounded-md border bg-background px-2 py-1" value={data?.global ?? 'ask'} disabled={mutation.isPending} onChange={event => mutation.mutate({ scope: 'global', id: '1', policy: event.target.value === 'allow' ? 'allow' : 'ask' })}><option value="ask">Ask first</option><option value="allow">Allow automatically</option></select></label><p className="text-xs text-muted-foreground">Applies to execution and other chats. Agent, execution and chat overrides take precedence. Agent main chats and Ri&apos;s main chat are unrestricted. Already approved sends keep their authorization.</p></div>;
 }
 
 export function IncomingDeliveryStatus({sessionId,deliveryId}:{sessionId:string;deliveryId:string}) {

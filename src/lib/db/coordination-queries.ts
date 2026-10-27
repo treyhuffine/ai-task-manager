@@ -4,7 +4,7 @@ import { getDb } from '@/lib/db';
 import { agentCoordinationRequests as requests, agentCoordinationDeliveries as deliveries, chatSessions, executions, workspaces, userState, workerCommands, runs } from './schema';
 import type { AgentRequestRecord, ChatEventRecord, AgentDeliveryRecord, CreateAgentRequestInput, CreateAgentDeliveryInput, RunRecord } from '@/db/types';
 import { inputIsPreparing } from '@/lib/coordination/input-reservations';
-import { addressOf } from '@/lib/coordination/address';
+import { addressOf, isManagerChat } from '@/lib/coordination/address';
 import { coordinationProducer } from '@/lib/coordination/run-context';
 import { stableCoordinationId } from '@/lib/coordination/ids';
 import { AGENT_RESPONSE_INSTRUCTIONS, AGENT_BLOCKED_INSTRUCTIONS, CHAT_MESSAGE_SENT } from '@/lib/sessions/chat-message';
@@ -129,7 +129,9 @@ export function agentCoordinationPolicy(sessionId: string) {
   const global = db.select({ policy: userState.agentCoordinationPolicy }).from(userState).where(eq(userState.id, 1)).get();
   const levels = [{ source: 'chat', value: chat.agentCoordinationPolicy }, { source: 'execution', value: execution?.policy }, { source: 'agent', value: workspace?.policy }, { source: 'global', value: global?.policy }] as const;
   const effective = levels.find(level => level.value != null);
-  return { policy: effective?.value ?? 'ask', source: effective?.source ?? 'default', levels, heldAt: chat.coordinationHeldAt };
+  // Keep preferences intact for child initialization. Manager authority is
+  // determined from the chat, never inherited by executions as an Allow flag.
+  return { unrestricted: isManagerChat(chat), policy: effective?.value ?? 'ask', source: effective?.source ?? 'default', levels, heldAt: chat.coordinationHeldAt };
 }
 export function setAgentCoordinationPolicy(scope: 'global' | 'agent' | 'execution' | 'chat', id: string, policy: 'ask' | 'allow' | null): void {
   const db = getDb();

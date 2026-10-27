@@ -1,6 +1,36 @@
 # Agent coordination implementation and evidence
 
-Source: [final specification](agent-coordination-controls-proposal.md). Updated 2026-10-23.
+Source: [final specification](agent-coordination-controls-proposal.md). Updated 2026-10-27.
+
+## Manager chat authority and delegation readiness
+
+Manager authority comes from the saved chat's identity: personal orchestration,
+no execution, no creating run, and a main or unset surface. This is the same
+classification as its stable manager address. Saved Ask/Allow preferences remain
+intact and continue to initialize execution chats exactly as before.
+
+- [x] Verify agent main and Ri main messaging and delegation bypass Ask, while executions and other chats retain policy enforcement
+- [x] Verify delegation waits for its worktree and reports setup failure without starting a harness
+- [x] Show manager authority honestly in settings and update coordination instructions and docs
+- [x] Count pending approvals read-only without releasing or rewriting existing pending deliveries
+
+
+The first delegated message previously reached the executor before its asynchronous
+worktree creation completed. Coordination now joins the same readiness guard as
+interactive and scheduled sends. A real Git repository test delays provisioning,
+proves no native send occurs while it waits, and verifies one worktree, one
+producing run and one returned outcome. A setup failure produces a failure
+outcome without starting the destination harness. Connected-device preparation
+continues to run on that device's ordered queue.
+
+Verification: 137 focused checks across 18 suites pass, including connected-device
+preparation, deferred commands and query plans. The final core/UI rerun passes
+48 checks, including additional Hold and explicit-reply regressions. Typecheck,
+scoped ESLint and the coordination gallery pass. Browser checks cover all states
+on desktop and phone in both themes, manager settings without ineffective
+selectors, and incoming pause and resume. The read-only Home check on 2026-10-27
+found two pending approvals, one from a manager chat. None was released. No
+production restart, migration, full app build or dependency install was needed.
 
 ## Scheduled automation follow-up
 

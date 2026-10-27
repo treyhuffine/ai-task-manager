@@ -202,6 +202,7 @@ describe('permission and Hold', () => {
     q.setAgentCoordinationPolicy('chat',session.id,'ask'); expect(q.agentCoordinationPolicy(session.id).source).toBe('chat');
   });
   it('persists pending approval, approves once and does not re-request on policy changes or retries', async () => {
+  main = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: null }).session;
     q.setAgentCoordinationPolicy('global','1','ask');
     const delivery = await send(main, { request_id: 'approval' });
     expect(delivery.status).toBe('awaiting_approval'); expect(accepted).toHaveLength(0);
@@ -212,6 +213,7 @@ describe('permission and Hold', () => {
     q.setAgentCoordinationHold(agentMain.id,false); await drainAgentCoordination(); expect(accepted).toHaveLength(1);
   });
   it('always allow permits arbitrary destinations while denial creates no target work', async () => {
+  main = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: null }).session;
     q.setAgentCoordinationPolicy('global','1','ask');
     const denied = await send(); q.decideAgentDelivery(denied.id,'deny'); await drainAgentCoordination();
     expect(q.getAgentRequest(denied.requestId!)?.status).toBe('cancelled'); expect(accepted.filter(row=>row.sessionId===agentMain.id)).toHaveLength(0);
@@ -221,6 +223,7 @@ describe('permission and Hold', () => {
     expect((await send(main,{target:`session:${third.id}`,response:'none'})).status).toBe('accepted');
   });
   it('covers verified current-requester clarifications while requiring approval for third-chat contact', async () => {
+  agentMain = q.createChatSession({ type: 'content', harness: 'claude', workspaceId: agent.id });
     const initial = await send(); q.setAgentCoordinationPolicy('chat',agentMain.id,'ask');
     expect((await send(agentMain,{target:'requester'})).status).toBe('accepted');
     const third = q.createChatSession({type:'content',harness:'claude'});
@@ -270,6 +273,7 @@ describe('permission and Hold', () => {
 
 describe('launch, provenance and guards', () => {
   it('waits for approval before creating a destination, then reserves stable launch and prompt identities', async () => {
+    main = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: null }).session;
     q.setAgentCoordinationPolicy('global','1','ask');
     const input = {workspace_id:agent.id,request_id:'launch',prompt:'Implement the fix.',provider:'claude',model:'sonnet',effort:'high',permission_mode:'plan'};
     const result = await act(main,'delegate_work',input); expect(result.ok).toBe(true);
@@ -308,6 +312,7 @@ describe('launch, provenance and guards', () => {
 });
 
 it('resumes an approved parent after its proposed child is denied, without starting the child target', async () => {
+  agentMain = q.createChatSession({ type: 'content', harness: 'claude', workspaceId: agent.id });
   const initial=await send();
   const third=q.createChatSession({type:'content',harness:'claude'});
   q.setAgentCoordinationPolicy('chat',agentMain.id,'ask');
@@ -405,6 +410,7 @@ it('does not turn a cancelled producing assignment into fresh independent work',
 });
 
 it('settles an unaccepted assignment before its empty destination is deleted', async () => {
+  main = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: null }).session;
   const target = q.createChatSession({ type: 'content', harness: 'claude' });
   q.setAgentCoordinationPolicy('chat', main.id, 'ask');
   const delivery = await send(main, { target: `session:${target.id}` });
@@ -449,4 +455,82 @@ it('rolls back receiving text, outgoing receipt and delivery state without publi
     expect(q.getAgentDelivery(id)?.status).toBe('queued');
     expect(heard).toEqual([]);
   } finally {getRawDb().exec('DROP TRIGGER fail_delivery');for(const stop of unsub)stop();}
+});
+
+
+it.each(['agent', 'orchestrator'] as const)('%s manager messages and delegations bypass every saved Ask preference', async kind => {
+  const source = kind === 'agent' ? agentMain : main;
+  q.updateChatSession(source.id, { surfaceKind: kind === 'agent' ? 'main' : null });
+  q.setAgentCoordinationPolicy('global', '1', 'ask');
+  q.setAgentCoordinationPolicy('agent', agent.id, 'ask');
+  q.setAgentCoordinationPolicy('chat', source.id, 'ask');
+  expect(q.agentCoordinationPolicy(source.id)).toMatchObject({ unrestricted: true, policy: 'ask' });
+  const target = q.createChatSession({ type: 'content', harness: 'claude' });
+  for (const response of ['none', 'required']) {
+    expect(await act(source, 'message_agent', { target: `session:${target.id}`, request_id: `manager-${response}`, content: 'Review the implementation.', response }))
+      .toMatchObject({ ok: true, result: { status: 'queued' } });
+  }
+  const result = await act(source, 'delegate_work', { workspace_id: agent.id, request_id: 'manager-delegation', prompt: 'Implement the change.' });
+  expect(result).toMatchObject({ ok: true, result: { status: 'queued' } });
+  await drainAgentCoordination();
+  expect(q.pendingAgentApprovals(source.id)).toEqual([]);
+  const child = q.listAgentRequests(source.id).find(request => request.kind === 'delegation')!;
+  expect(q.agentCoordinationPolicy(child.targetSessionId!)).toMatchObject({ unrestricted: false, policy: 'ask' });
+});
+
+it.each(['execution', 'content', 'scheduled', 'orchestration-in-execution'] as const)('%s chat retains Ask and Allow for messages and delegation', async kind => {
+  const execution = q.createExecutionWithChat({ workspaceId: agent.id, harness: 'claude', label: null });
+  const source = kind === 'execution' ? execution.session : q.createChatSession({
+    type: kind === 'content' ? 'content' : 'orchestration', harness: 'claude',
+    ...(kind === 'scheduled' ? { createdByRunId: q.createRun({ harness: 'claude', triggerKind: 'manual', status: 'completed' }).id } : {}),
+    ...(kind === 'orchestration-in-execution' ? { workspaceId: agent.id, executionId: execution.execution.id } : {}),
+  });
+  q.setAgentCoordinationPolicy('global', '1', 'ask');
+  expect(q.agentCoordinationPolicy(source.id)).toMatchObject({ unrestricted: false, policy: 'ask' });
+  for (const policy of ['ask', 'allow'] as const) {
+    q.setAgentCoordinationPolicy('chat', source.id, policy);
+    const status = policy === 'ask' ? 'awaiting_approval' : 'queued';
+    expect(await act(source, 'message_agent', { target: `session:${agentMain.id}`, request_id: `worker-${policy}`, content: 'Inspect this.', response: 'none' })).toMatchObject({ ok: true, result: { status } });
+    expect(await act(source, 'delegate_work', { workspace_id: agent.id, request_id: `worker-delegate-${policy}`, prompt: 'Inspect this.' })).toMatchObject({ ok: true, result: { status } });
+  }
+  await drainAgentCoordination();
+  expect(q.pendingAgentApprovals(source.id)).toHaveLength(2);
+});
+
+it('leaves earlier manager approvals and their retries waiting while new sends proceed', async () => {
+  const key = 'historical-manager-proposal';
+  const id = stableCoordinationId('request', main.id, key);
+  q.createInitiatingAgentDelivery({ id, source: main, sourceRunId: null, address: `session:${agentMain.id}`, targetSessionId: agentMain.id, requestKey: key, parentRequestId: null, kind: 'message', content: 'Review the change.', options: null, eventId: 'old-input', prompt: 'Review the change.', status: 'awaiting_approval' });
+  q.setAgentCoordinationPolicy('global', '1', 'ask');
+  recoverAgentCoordination();
+  expect(await act(main, 'message_agent', { target: `session:${agentMain.id}`, request_id: key, content: 'Review the change.', response: 'none' })).toMatchObject({ ok: true, result: { status: 'awaiting_approval' } });
+  await send(main, { response: 'none' });
+  expect(q.getAgentDelivery(id)?.status).toBe('awaiting_approval');
+  expect(q.pendingAgentApprovals(main.id).map(row => row.id)).toEqual([id]);
+});
+
+
+it('keeps incoming Hold in force for unrestricted manager sends', async () => {
+  q.setAgentCoordinationPolicy('global', '1', 'ask');
+  q.setAgentCoordinationPolicy('chat', main.id, 'ask');
+  q.setAgentCoordinationHold(agentMain.id, true);
+  const delivery = await send(main, { response: 'none' });
+  expect(delivery.status).toBe('delivered');
+  expect(accepted).toHaveLength(0);
+  expect(q.pendingAgentApprovals(main.id)).toEqual([]);
+  expect(q.getChatSession(agentMain.id)?.coordinationHeldAt).toBeTruthy();
+  q.setAgentCoordinationHold(agentMain.id, false);
+  await drainAgentCoordination();
+  expect(q.getAgentDelivery(delivery.id)?.status).toBe('accepted');
+});
+
+it('returns an explicit manager answer under Ask without a new approval', async () => {
+  q.setAgentCoordinationPolicy('global', '1', 'ask');
+  q.setAgentCoordinationPolicy('chat', main.id, 'ask');
+  const worker = q.createChatSession({ type: 'content', harness: 'claude', agentCoordinationPolicy: 'allow' });
+  const question = await send(worker, { target: `session:${main.id}` });
+  expect(await act(main, 'reply_agent_request', { id: question.requestId, content: 'Use the existing implementation.' })).toMatchObject({ ok: true });
+  await drainAgentCoordination();
+  expect(q.terminalAgentDelivery(question.requestId!)?.status).toBe('accepted');
+  expect(q.pendingAgentApprovals(main.id)).toEqual([]);
 });

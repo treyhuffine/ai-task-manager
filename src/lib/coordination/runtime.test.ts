@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createTestHome, type TestHome } from '@/test/fixtures/home';
 import { installFakeHarness, type FakeHarness } from '@/test/fixtures/fake-harness';
@@ -8,12 +9,21 @@ import { verifySessionCredential } from '@/lib/orchestrator/session-credential';
 import * as q from '@/lib/db/queries';
 
 const bridge = vi.hoisted(() => ({ fetch: vi.fn() }));
+const worktrees = vi.hoisted(() => ({ beforeCreate: null as (() => Promise<void>) | null }));
 vi.mock('@/lib/orchestrator/server-client', async (original) => ({ ...await original<object>(), serverFetch: bridge.fetch }));
+vi.mock('@/lib/workspaces', async original => {
+  const actual = await original<typeof import('@/lib/workspaces')>();
+  return { ...actual, createWorktreeForSession: async (args: Parameters<typeof actual.createWorktreeForSession>[0]) => {
+    await worktrees.beforeCreate?.();
+    return actual.createWorktreeForSession(args);
+  } };
+});
 
 let home: TestHome | undefined;
 let harness: FakeHarness | undefined;
 
 afterEach(async () => {
+  worktrees.beforeCreate = null;
   await (await import('./service')).stopAgentCoordination();
   const executor = await import('@/lib/executor/adapter');
   await vi.waitFor(() => expect(executor.listRunningSessions()).toHaveLength(0));
@@ -21,6 +31,67 @@ afterEach(async () => {
   harness?.restore();
   await home?.cleanup();
 });
+
+function makeGitWorkspace(workspace: ReturnType<typeof q.createWorkspace>) {
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: workspace.cwd });
+  execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'Initial'], { cwd: workspace.cwd });
+  q.updateWorkspace(workspace.id, { isGit: true, baseBranch: 'main', filesToCopy: [], worktreeRoot: path.join(home!.root, 'worktrees') });
+}
+
+it('waits for a delegated worktree before the first native send and preserves one launch and one outcome', async () => {
+  const { workspace, main, runAction } = await setupRuntime();
+  makeGitWorkspace(workspace);
+  q.setAgentCoordinationPolicy('global', '1', 'ask');
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let provisions = 0;
+  worktrees.beforeCreate = async () => { provisions++; await gate; };
+  harness!.onTurn(async turn => {
+    const id = verifySessionCredential(turn.session.ctx.env?.RI_SESSION_CREDENTIAL, home!.token)!;
+    if (id === main.id) { await turn.say('The work is ready for review.'); return; }
+    const session = q.getChatSessionWithExecution(id)!;
+    expect(session.worktreePath).toBeTruthy();
+    expect(fs.existsSync(session.worktreePath!)).toBe(true);
+    expect(turn.session.ctx.cwd).toBe(session.worktreePath);
+    expect(turn.session.ctx.cwd).not.toBe(workspace.cwd);
+    await turn.say('The delegated work ran in its own worktree.');
+  });
+  const { drainAgentCoordination } = await import('./service');
+  try {
+    expect(await runAction('delegate_work', { workspace_id: workspace.id, request_id: 'slow-worktree', prompt: 'Inspect the implementation.', provider: 'claude' }, { remote: true, actor: { source: 'ai', sessionId: main.id } })).toMatchObject({ ok: true, result: { status: 'queued' } });
+    await vi.waitFor(() => {
+      const [request] = q.listAgentRequests(main.id);
+      expect(request.runId).toBeTruthy();
+      expect(q.getRun(request.runId!)?.status).toBe('queued');
+    });
+    expect(provisions).toBe(1);
+    expect(harness!.sessions).toHaveLength(0);
+    release();
+    await drainAgentCoordination();
+    await vi.waitFor(() => expect(q.listAgentRequests(main.id)[0].status).toBe('completed'), { timeout: 10_000, interval: 25 });
+    await drainAgentCoordination();
+    const [request] = q.listAgentRequests(main.id);
+    expect(q.getRun(request.runId!)?.status).toBe('completed');
+    expect(q.listAgentDeliveries(request.id).filter(row => row.kind === 'answer')).toHaveLength(1);
+    expect(q.getExecution(q.getChatSession(request.targetSessionId!)!.executionId!)?.setupError).toBeNull();
+    expect(provisions).toBe(1);
+    expect(harness!.sessions.filter(session => verifySessionCredential(session.ctx.env?.RI_SESSION_CREDENTIAL, home!.token) === request.targetSessionId)).toHaveLength(1);
+  } finally { release(); }
+}, 20_000);
+
+it('reports delegated worktree setup failure without starting the destination harness', async () => {
+  const { workspace, main, runAction } = await setupRuntime();
+  makeGitWorkspace(workspace);
+  worktrees.beforeCreate = async () => { throw new Error('Fixture worktree creation failed'); };
+  harness!.onTurn(async turn => { await turn.say('The delegated work could not start.'); });
+  await runAction('delegate_work', { workspace_id: workspace.id, request_id: 'failed-worktree', prompt: 'Inspect the implementation.', provider: 'claude' }, { remote: true, actor: { source: 'ai', sessionId: main.id } });
+  await (await import('./service')).drainAgentCoordination();
+  const [request] = q.listAgentRequests(main.id);
+  expect(request.status).toBe('failed');
+  expect(q.getRun(request.runId!)).toMatchObject({ status: 'failed', errorMessage: expect.stringContaining('Fixture worktree creation failed') });
+  expect(harness!.sessions.every(session => verifySessionCredential(session.ctx.env?.RI_SESSION_CREDENTIAL, home!.token) !== request.targetSessionId)).toBe(true);
+  expect(q.terminalAgentDelivery(request.id)?.payload.content).toContain('Fixture worktree creation failed');
+}, 15_000);
 
 /** Real Ri operations, dispatcher, runner, event ingestion, run completion,
  * SQLite migration and reply queue. Only the harness model is a stand-in. */

@@ -61,6 +61,10 @@ Removed tools have no MCP or CLI aliases. The orchestration registry generates b
 
 ## Permission and Hold
 
+Ri's main orchestrator chat and each agent's main chat are unrestricted for coordination. The server identifies them as personal orchestration chats without an execution or creating run, on a main or unset surface. Their new messages and delegations queue without approval even when saved preferences say Ask first. The chat menu states this authority instead of showing ineffective Ask/Allow choices. Incoming pause, tool permissions and restricted team/reviewer boundaries remain unchanged. Earlier sends awaiting approval still need the person's decision.
+
+The policy below applies to execution and other chats. `get_session_context` and the coordination state expose manager authority as `unrestricted`, separately from saved preferences. This exemption is not inherited by delegated execution chats. Their existing policy initialization remains unchanged.
+
 Nullable `agent_coordination_policy` preferences live on `chat_sessions`, `executions`, `workspaces` and `user_state`. Resolve in that order. All unset means Ask first in code, with no database policy default. UI controls display the effective setting and its source.
 
 Under Ask first, a send is durably saved as awaiting approval in its source chat. The human can Allow once, Always allow in this chat, or Deny. The broader choice allows arbitrary destinations and new chats from that chat. Denial starts no target work. Policy changes govern future sends, while previously approved sends keep their authorization.
@@ -80,6 +84,8 @@ Human composer sends and forwards can run a held chat with eligible pending mate
 Delivery states are awaiting_approval, queued, delivered, accepted, denied, failed and cancelled. Delivered means the receiving event is saved. Accepted means the native harness received the input. A queued device command alone is not acceptance. Request states are queued, working, waiting, completed, failed and cancelled.
 
 Receiving text, an outgoing receipt and delivered state commit together, with realtime publication after commit. Delivery payloads retain exact accepted text and attachments. Retries do not reconstruct text from updated templates or edited source messages. Long material stays fully available through attachments or explicitly paged source retrieval.
+
+Before dispatching a coordination turn into an execution, wait for the shared worktree readiness guard. This joins any background provisioning already in progress, including the first message of a new delegation. Failed setup returns a failed outcome without starting the destination harness. Connected-device preparation stays on that device's ordered command queue.
 
 Distinct required assignments receive separate producing turns. An offline device’s pending command and an existing reservation count as occupied work even when its live mirror says idle. Ordinary messages batch in persisted order. Related steering may join a supported active assignment. Late one-way follow-ups wake normally without reopening terminal work or editing an earlier outcome.
 

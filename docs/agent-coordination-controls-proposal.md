@@ -2,7 +2,7 @@
 
 Status: implemented in this checkout. Owner-controlled rollout pending.
 
-Updated: 2026-10-23. Implementation started from commit `3c1cda1d2950`.
+Updated: 2026-10-27. Implementation started from commit `3c1cda1d2950`.
 
 This is the normative specification. It supersedes the earlier proposals and review alternatives in this file. [Agent coordination](agent-coordination.md) describes the implementation and rollout. [Implementation evidence](agent-coordination-implementation.md) maps its acceptance criteria to verification. Production has not been restarted or migrated by this work.
 
@@ -88,7 +88,7 @@ For `message_agent`:
 
 The existing `request_id` argument remains the caller-supplied idempotency key for this send. It is not the server request ID used in `related_request_id`. Describe this distinction in tool schemas and receipts. Do not reuse one field for both meanings.
 
-`delegate_work` retains its launch options, including agent, device, harness/provider, model, effort, task, label, and permission mode. Approval precedes destination creation. Launch retries reuse the reserved chat and execution identities.
+`delegate_work` retains its launch options, including agent, device, harness/provider, model, effort, task, label, and permission mode. Approval precedes destination creation. Launch retries reuse the reserved chat and execution identities. Before the first native send, join the shared worktree readiness guard. A worktree setup failure reports the failure without starting a harness, and connected-device work remains on its worker.
 
 ### 4.2 Reply and inspection
 
@@ -123,6 +123,10 @@ Add nullable `agent_coordination_policy` preferences to these existing tables:
 | `executions` | All existing and future chats in this execution |
 | `chat_sessions` | This exact chat |
 
+Manager chats are unrestricted for new coordinating sends. These are personal orchestration chats with no execution, no creating run, and a main or unset surface, including Ri's main chat and each agent's main chat. The server derives this authority from the saved chat. No coordination setting can make a manager chat ask before messaging or delegating. Existing pending approvals remain pending, including unchanged retries. The panel explains the exemption and retains incoming pause, without offering Ask/Allow choices for the manager. Restricted team and reviewer surfaces remain outside this authority.
+
+Saved preferences remain separate from this exemption. The following precedence and child-initialization rules continue to govern execution and other chats. Manager authority does not initialize a child to Allow automatically.
+
 Values are ask, allow, or unset. Unset inherits. Resolve chat, execution, agent, then global, skipping missing levels. If all are unset, use ask as the code-level initial product default. Do not put policy defaults in SQLite.
 
 The UI shows the effective setting and its source. Global controls say Default coordination, with Ask first and Allow automatically choices. A chat can explicitly override that default. Changing a default does not erase explicit narrower choices.
@@ -153,7 +157,7 @@ This initialization is a platform rule for delegated chats, not an agent-callabl
 
 ### 5.4 Enabled automation
 
-Enabling an automation authorizes its run chats to communicate and delegate within the assignment. Every trigger-fired chat starts with the existing chat-level Allow automatically preference, including later fires in a recurring execution. This covers one-time, cron, interval, webhook and manually fired triggers. Interactive chats retain the ordinary permission defaults. This requires no new permission table, recipient rules or trigger permission columns. Agents create or enable schedules only within the user's intent and never to bypass a denied send. A person may still change a run chat's preference, pause incoming messages or stop its work. Disabling the schedule prevents future automatic fires.
+Enabling an automation authorizes its run chats to communicate and delegate within the assignment. Every trigger-fired chat starts with the existing chat-level Allow automatically preference, including later fires in a recurring execution. This covers one-time, cron, interval, webhook and manually fired triggers. Interactive execution and other non-manager chats retain the ordinary permission defaults. This requires no new permission table, recipient rules or trigger permission columns. Agents create or enable schedules only within the user's intent and never to bypass a denied send. A person may still change a run chat's preference, pause incoming messages or stop its work. Disabling the schedule prevents future automatic fires.
 
 A scheduled turn ending with its own sends still awaiting approval is failed with an actionable reason, rather than reported as completed. Use its normal terminal notification routing, falling back to the existing needs-input notification route when no terminal notification is queued. Repeated terminal callbacks do not create another notification. A person's Stop and an existing specific failure remain authoritative. Queued authorized messages retain their delivery state, and are not classified as needing approval. A run records a harness turn, while delivery and request rows record message acceptance and owed outcomes separately.
 

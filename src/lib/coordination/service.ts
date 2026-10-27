@@ -144,14 +144,15 @@ export async function submitAgentRequest(ctx: ActionContext, input: { target: st
     ancestor = ancestor.parentRequestId ? q.getAgentRequest(ancestor.parentRequestId) : null;
   }
   // A stable address is exempt only while it still names the exact requester.
-  // Delegation always creates another chat and requires its own authorization.
+  // Delegation creates another chat, so the requester exemption never covers it.
   if (!target && input.kind !== 'delegation' && parent?.sourceSessionId && address === parent.sourceAddress) {
     const scope = address === 'orchestrator' ? null : address.startsWith('agent:') ? address.slice(6) : undefined;
     const current = scope !== undefined ? q.listMainChats(scope, { status: 'active', limit: 1 })[0] : null;
     if (current?.id === parent.sourceSessionId) target = personalChat(current.id, source.userId);
   }
   const toRequester = input.kind !== 'delegation' && !!parent?.sourceSessionId && target?.id === parent.sourceSessionId;
-  const status = toRequester || q.agentCoordinationPolicy(source.id).policy === 'allow' ? 'queued' : 'awaiting_approval';
+  const authority = q.agentCoordinationPolicy(source.id);
+  const status = toRequester || authority.unrestricted || authority.policy === 'allow' ? 'queued' : 'awaiting_approval';
   const eventId = input.kind === 'delegation' ? requestScopedId('prompt', options!.workspaceId, id) : stableCoordinationId('input', id);
   const prompt = `[Ri agent ${input.kind}. Request ID: ${id}. Requesting chat: ${source.id}.]\n${content}\n\n${input.kind === 'message' ? AGENT_MESSAGE_INSTRUCTIONS : AGENT_REQUEST_REPLY_INSTRUCTIONS}`;
   const delivery = q.createInitiatingAgentDelivery({ id, source, sourceRunId, address, targetSessionId: target?.id ?? null, requestKey: input.requestId, parentRequestId: parent?.id ?? null, kind: input.kind, content, options, eventId, prompt, relatedRequestId: input.relatedRequestId, status });
@@ -229,6 +230,13 @@ async function dispatchReserved(sessionId: string, run: ReturnType<typeof q.getR
   const first = messages[0];
   const actor = human ? { source: 'human' as const, sessionId: null, apiKeyId: null } : first?.senderKind === 'agent' && first.sourceSessionId ? { source: 'ai' as const, sessionId: first.sourceSessionId, apiKeyId: null } : { source: 'system' as const, sessionId: null, apiKeyId: null };
   try {
+    // Launch returns before background worktree creation finishes. Join the
+    // same readiness guard as interactive and scheduled sends before dispatch.
+    // Connected-device executions stay on their worker's ordered prepare queue.
+    const { ensureWorktreeReady } = await import('@/lib/runs/dispatch');
+    const session = q.getChatSession(sessionId);
+    const ready = await ensureWorktreeReady(sessionId, session?.executionId ? q.getExecution(session.executionId) ?? null : null);
+    if (!ready.ok) throw new ActionError('conflict', ready.error);
     await new Promise<void>((resolve, reject) => {
       void executor.dispatch(sessionId, expanded, { runId: run.id, sourceEventId: run.sourceEventId, coordinationDeliveryIds: messages.map(message => message.id), attachments,
         actor, onTaken: resolve, onQueued: resolve }).then(resolve, reject);
