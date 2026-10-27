@@ -25,8 +25,9 @@ import { AppsReviewRailSlot } from '@/components/local-apps/layout-review/rail-p
  *     (`rail-nav.tsx`).
  *   - **Places**: Apps, Board, Calendar, Schedules and Triggers. Rows that
  *     scroll away with the list. Apps opens your apps beside the rail.
- *   - **The list header**: Agents | Recent as the list's title, with the
- *     list's actions. Sticky at the top once the places have scrolled off.
+ *   - **The list header**: the Agents | Recent switch as the list's title,
+ *     with the list's actions. Sticky at the top once the places have
+ *     scrolled off.
  *   - **The list**: pins, then the agent tree or the recent feed
  *     (`rail-list.tsx`).
  *   - **Footer**: Settings and Connect accounts (`RailFooter`). Fixed.

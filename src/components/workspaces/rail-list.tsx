@@ -35,12 +35,11 @@ import { WorkspaceSelectionBoundary, useWorkspaceSelection } from './workspace-s
  */
 
 /**
- * The list's header: which list, and the list's actions. Agents and Recent
- * are labels in the rail's group-label grammar (the same as Pinned and
- * Needs you below), the one in force bright, the other quiet, so the
- * switch is the list's title and not a second row of buttons. On Agents,
- * selecting executions to archive and New agent sit at the right. While
- * selecting, the toolbar (count, Archive, Cancel) takes the row.
+ * The list's header: which list, and the list's actions. Agents | Recent is
+ * a segmented switch at the left (`ListSwitch`), so the header is still one
+ * row and the switch reads as the list's title. On Agents, selecting
+ * executions to archive and New agent sit at the right. While selecting,
+ * the toolbar (count, Archive, Cancel) takes the row.
  */
 export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (next: RailTab) => void }) {
   const selection = useWorkspaceSelection();
@@ -105,14 +104,7 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
         </>
       ) : (
         <>
-          <div role="tablist" aria-label="Rail list" className="flex items-center gap-3">
-            <TabLabel active={tab === 'workspace'} onClick={() => onSelect('workspace')}>
-              Agents
-            </TabLabel>
-            <TabLabel active={tab === 'history'} onClick={() => onSelect('history')}>
-              Recent
-            </TabLabel>
-          </div>
+          <ListSwitch tab={tab} onSelect={onSelect} />
           <div className="flex-1" />
           {tab === 'workspace' && selection && (
             <div className="flex items-center gap-1">
@@ -145,7 +137,27 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
   );
 }
 
-function TabLabel({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+/**
+ * Agents | Recent: both lists in one soft track, the open one raised, the
+ * kind of switch the Agent | Document toggle on tasks and notes is. In
+ * sentence case on purpose: in the rail, sentence case is what you click
+ * (New chat, Board) and small caps label a group (Pinned, Needs you), so
+ * the switch can't pass for one more heading.
+ */
+function ListSwitch({ tab, onSelect }: { tab: RailTab; onSelect: (next: RailTab) => void }) {
+  return (
+    <div role="tablist" aria-label="Rail list" className="inline-flex items-center rounded-md bg-muted p-0.5 dark:bg-muted/50">
+      <SwitchTab active={tab === 'workspace'} onClick={() => onSelect('workspace')}>
+        Agents
+      </SwitchTab>
+      <SwitchTab active={tab === 'history'} onClick={() => onSelect('history')}>
+        Recent
+      </SwitchTab>
+    </div>
+  );
+}
+
+function SwitchTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -153,9 +165,11 @@ function TabLabel({ active, onClick, children }: { active: boolean; onClick: () 
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        'rounded-sm py-1.5 text-[9px] font-bold uppercase tracking-[0.15em] transition-colors',
+        'rounded-[5px] px-2.5 py-[3px] text-[11.5px] font-medium transition-[color,background-color,box-shadow] pointer-coarse:py-1.5',
         'focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-        active ? 'text-foreground' : 'text-muted-foreground/55 hover:text-muted-foreground',
+        active
+          ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60 dark:bg-accent'
+          : 'text-muted-foreground hover:bg-background/60 hover:text-foreground dark:hover:bg-accent/40',
       )}
     >
       {children}
