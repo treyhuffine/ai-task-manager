@@ -212,7 +212,7 @@ Automatic updates are on for every installation, with an off switch, in two plac
 - **Settings > Updates**, in any window showing the Home: browser, phone or desktop app. Only the owner can change it.
 - **`ri update --auto off`** (and `--auto on`) in the CLI.
 
-The switch applies to the whole installation, so every Home on that computer follows it. A connected computer has no switch of its own, because it always follows its Home's version (section 7.7).
+The switch applies to the whole installation, so every Home on that computer follows it. From a connected computer, the owner changes the Home's switch the same way, in the Home's Settings > Updates, since that page comes from the Home. What a connected computer lacks is a separate switch for itself, because it always follows its Home's version (section 7.7).
 
 Setup never asks about it. Most people can't judge the choice before they've used Ri, and a question at setup turns a default into a decision. Instead, `ri start` ends its output with one line, "Ri updates itself when it's quiet. To turn that off: ri update --auto off", and Settings > Updates shows the switch to anyone who looks. Someone scripting a server's setup runs `ri update --auto off` before `ri start`.
 
