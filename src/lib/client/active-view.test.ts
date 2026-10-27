@@ -61,6 +61,29 @@ describe('applyViewToSearchParams', () => {
   });
 });
 
+describe('overlays over an app', () => {
+  const overlays = ['board=activity', 'board=tasks&boardFocus=unread', 'calendar=1', 'settings=plugins&plugin=mcp%3As-1'];
+
+  it('leaves the app where it was when the Board, the Calendar or Settings opens over it', () => {
+    for (const path of ['/apps', '/apps/finance/views/view-1']) {
+      const before = viewFromSearchParams(params('layout=discover'), path);
+      for (const overlay of overlays) {
+        expect(viewKey(viewFromSearchParams(params(`layout=discover&${overlay}`), path))).toBe(viewKey(before));
+      }
+    }
+  });
+
+  it('keeps an open overlay in the URL while the app moves, and never lets an app write one', () => {
+    const app = { kind: 'apps' as const, route: 'finance', query: { filter: 'dining' } };
+    for (const overlay of overlays) {
+      const next = applyViewToSearchParams(params(`filter=dining&${overlay}`), { kind: 'apps', route: 'finance', query: { period: 'October' } }, app);
+      expect(next.toString()).toBe(`${overlay}&period=October`);
+    }
+    const written = applyViewToSearchParams(params(''), { kind: 'apps', route: 'finance', query: { board: 'tasks', calendar: '1', settings: 'general', period: 'October' } });
+    expect(written.toString()).toBe('period=October');
+  });
+});
+
 describe('comparing views', () => {
   it('treats views as equal by content', () => {
     expect(sameView(agentView('ws-1', 'files'), { kind: 'agent', id: 'ws-1', tab: 'files' })).toBe(true);

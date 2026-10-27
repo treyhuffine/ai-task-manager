@@ -30,6 +30,7 @@ function remember(view: BoardView) {
 function remembered(): BoardView {
   try { return window.localStorage.getItem(BOARD_VIEW_KEY) === 'tasks' ? 'tasks' : 'activity'; } catch { return 'activity'; }
 }
+/** `board` and `boardFocus` are among the names an app's query never holds (`active-view.ts`). */
 function writeUrl() {
   const url = new URL(window.location.href);
   if (state.open) url.searchParams.set('board', state.view);

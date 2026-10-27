@@ -71,7 +71,10 @@ import { WorkStats } from './work/work-stats';
 import type { WorkLayer } from './work/work-style';
 import { Tip } from '@/components/ui/tip';
 
-/** `?calendar=1` keeps the calendar open across a reload and makes it linkable. */
+/**
+ * `?calendar=1` keeps the calendar open across a reload and makes it linkable.
+ * An app's query never holds it (`active-view.ts`), so it opens over Apps too.
+ */
 const CALENDAR_PARAM = 'calendar';
 
 const STALE_MS = 15 * 60_000;

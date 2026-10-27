@@ -9,7 +9,20 @@ import { AGENT_TABS, type ActiveView, type AgentTab } from '@/types/dashboard';
  */
 
 export const HOME_VIEW: ActiveView = { kind: 'home' };
-const NATIVE_QUERY_KEYS = new Set(['session','message','history','agent','tab','skill','task','note','area']);
+/**
+ * Query names Ri keeps for itself on every page, an app's included, so an
+ * app's query never holds them: the view's own, the slideouts, and the
+ * overlays that open over any view and keep themselves in the URL, the Board
+ * (`board`, `boardFocus`), the Calendar (`calendar`) and Settings
+ * (`settings`, `plugin`). Opening one of those over an app is not the app
+ * going somewhere else. Read as the app's own, `board` and `calendar` changed
+ * the view as they opened, which closed them at once and reloaded the app.
+ */
+const NATIVE_QUERY_KEYS = new Set([
+  'session', 'message', 'history', 'agent', 'tab', 'skill',
+  'task', 'note', 'area',
+  'board', 'boardFocus', 'calendar', 'settings', 'plugin',
+]);
 
 export const executionView = (id: string, eventId?: string, history = false): ActiveView => ({ kind: 'execution', id, ...(eventId ? { eventId } : {}), ...(history ? { history: true } : {}) });
 

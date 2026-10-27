@@ -112,7 +112,9 @@ export function SettingsModal() {
   }, []);
 
   // Reflect open state + active section in the URL so the modal is linkable
-  // and survives a refresh, without a router round-trip.
+  // and survives a refresh, without a router round-trip. An app's query never
+  // holds `settings` or `plugin` (`active-view.ts`), so a link or reload that
+  // opens Settings over an app doesn't hand them to the app.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (open) params.set('settings', section);

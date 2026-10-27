@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { boardFromSearch, openBoard, openTaskBoard, closeTaskBoard, clearBoardFocus, syncBoardFromUrl, BOARD_VIEW_KEY } from './task-board';
+import { viewFromSearchParams, viewKey } from './active-view';
 
 const storage = new Map<string, string>();
 let url: URL;
@@ -27,6 +28,16 @@ describe('Board entry contract', () => {
     closeTaskBoard();
     openBoard();
     expect(url.searchParams.get('board')).toBe('tasks');
+  });
+  it('opens over an app without moving it, since the Board closes when the view changes', () => {
+    url = new URL('http://localhost/apps/finance/views/view-1?period=October');
+    const view = () => viewKey(viewFromSearchParams(url.searchParams, url.pathname));
+    const before = view();
+    openBoard({ focusBucket: 'unread' });
+    expect(url.searchParams.get('board')).toBe('activity');
+    expect(view()).toBe(before);
+    closeTaskBoard();
+    expect(url.search).toBe('?period=October');
   });
   it('preserves legacy Tasks links and validates activity focus', () => {
     expect(boardFromSearch('?board=1')).toEqual({ open: true, view: 'tasks', focusBucket: null });
