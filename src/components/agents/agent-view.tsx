@@ -21,6 +21,7 @@ import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { AgentHeader } from './agent-header';
 import { AgentChatPanel } from './agent-chat-panel';
 import { AgentTools, type BesideChatTab } from './agent-tools';
+import { AgentToolsBox } from './agent-tools-box';
 import { useMainChat } from '@/hooks/use-main-chat';
 import { useAgentChatPlace } from '@/lib/client/agent-chat-place';
 import { routeAgentChat } from '@/lib/client/agent-chat-routing';
@@ -223,6 +224,26 @@ export function AgentView({
     setUnder('tool');
   }, [onNavigate, tab, under]);
   const showChat = useCallback(() => bring('chat'), [bring]);
+
+  // ── The tools box, while the tools are closed ─────────────────────
+  // A row opens the panel on that tool by hand, so putting a file or chat
+  // away later leaves the panel open.
+  const openTools = useCallback(() => {
+    openedForBeside.current = false;
+    toolsRef.current?.expand();
+  }, [toolsRef]);
+  const showToolFromBox = useCallback((next: AgentTab) => {
+    openTools();
+    selectTab(next);
+  }, [openTools, selectTab]);
+  const showFileFromBox = useCallback(() => {
+    openTools();
+    bring('file');
+  }, [openTools, bring]);
+  const showChatFromBox = useCallback(() => {
+    openTools();
+    bring('chat');
+  }, [openTools, bring]);
   const openFull = useCallback((id: string) => navigation.openExecution(id), [navigation]);
 
   // Everything inside the view (the main chat's links, Overview's rows,
@@ -306,7 +327,18 @@ export function AgentView({
     );
   }
 
-  const chat = <AgentChatPanel key={workspace.id} workspace={workspace} sessionId={chatSessionId} />;
+  // The tools box floats over the main chat while the panel is closed, as
+  // the execution view's does. One pane at a time has the Chat / Tools
+  // switch instead.
+  const toolsBox = onScreen && !narrow && toolsCollapsed ? (
+    <AgentToolsBox
+      workspace={workspace}
+      onShow={showToolFromBox}
+      file={besideFile ? { host: besideHost, onShow: showFileFromBox } : null}
+      chat={besideId ? { id: besideId, onShow: showChatFromBox } : null}
+    />
+  ) : null;
+  const chat = <AgentChatPanel key={workspace.id} workspace={workspace} sessionId={chatSessionId} overlay={toolsBox} />;
   const chatTab: BesideChatTab | null = besideId
     ? { id: besideId, active: chatActive, onShow: showChat, onClose: closeBeside, onOpenChat: openBeside, onOpenFull: openFull }
     : null;

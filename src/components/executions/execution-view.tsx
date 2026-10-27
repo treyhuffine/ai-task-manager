@@ -37,7 +37,7 @@ import { useWorkbenchViewRequests, type WorkbenchViewAsk } from './workbench/vie
 import { PANEL_VIEW_LABELS, type PanelView } from './workbench/workbench-state';
 import { WorkbenchPanel } from './workbench/workbench-panel';
 import { TerminalDrawer } from './workbench/terminal-drawer';
-import { ToolsBox } from './workbench/tools-box';
+import { ToolsBox, TOOLS_BOX_CLEARANCE } from './workbench/tools-box';
 import { ResizeHandle } from './workbench/resize-handle';
 import { MobileDestination, MobileToolsSheet } from './workbench/mobile-workbench';
 import type { WorkbenchViewContext } from './workbench/workbench-views';
@@ -503,7 +503,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
       chat={chat}
       composerRef={composerHandleRef}
       submitOnEnter={submitOnEnter}
-      clearBox={withBox ? '@max-[1390px]/chat:pr-[308px] @max-[1060px]/chat:pr-[60px]' : undefined}
+      clearBox={withBox ? TOOLS_BOX_CLEARANCE : undefined}
       // Sibling-chat tabs: conversations only, never files.
       tabs={!!session.executionId && (
         <ExecutionChatTabs

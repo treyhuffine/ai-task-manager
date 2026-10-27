@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { AppWindow, FolderTree, LayoutGrid, Settings2, SquareTerminal, X } from 'lucide-react';
+import { AppWindow, FolderTree, LayoutGrid, Settings2, SquareTerminal, X, type LucideIcon } from 'lucide-react';
 import type { WorkspaceRecord } from '@/db/types';
 import type { AgentTab } from '@/types/dashboard';
 import { cn } from '@/lib/utils';
@@ -14,12 +14,13 @@ import { Tip } from '@/components/ui/tip';
 import { BesideFileClose, BesideFileTab, BesideFileView } from '@/components/chat-ui/artifacts/artifact-beside';
 import { AgentBesideChat, BesideChatTabLabel } from './agent-beside-chat';
 
-const TABS: ReadonlyArray<{ id: AgentTab; label: string; icon: ReactNode }> = [
-  { id: 'overview', label: 'Overview', icon: <LayoutGrid size={12} /> },
-  { id: 'files', label: 'Files', icon: <FolderTree size={12} /> },
-  { id: 'terminal', label: 'Terminal', icon: <SquareTerminal size={12} /> },
-  { id: 'preview', label: 'Preview', icon: <AppWindow size={12} /> },
-  { id: 'setup', label: 'Setup', icon: <Settings2 size={12} /> },
+/** The tools, in order: the panel's tabs, and the rows of the box shown while it's closed. */
+export const AGENT_TOOL_TABS: ReadonlyArray<{ id: AgentTab; label: string; Icon: LucideIcon }> = [
+  { id: 'overview', label: 'Overview', Icon: LayoutGrid },
+  { id: 'files', label: 'Files', Icon: FolderTree },
+  { id: 'terminal', label: 'Terminal', Icon: SquareTerminal },
+  { id: 'preview', label: 'Preview', Icon: AppWindow },
+  { id: 'setup', label: 'Setup', Icon: Settings2 },
 ];
 
 /** A chat open beside the main chat, as a tab in the tools (docs/agents-view-spec.md, "Chats beside the agent"). */
@@ -87,7 +88,7 @@ export function AgentTools({
     <div className="@container flex flex-col h-full min-h-0">
       <div className="shrink-0 flex items-center gap-0.5 border-b border-border px-2 py-1">
       <div role="tablist" aria-label="Agent tools" className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
-        {TABS.map((t) => (
+        {AGENT_TOOL_TABS.map((t) => (
           <Tip key={t.id} label={t.label} onlyWhenTextHidden>
             <button
               role="tab"
@@ -100,7 +101,7 @@ export function AgentTools({
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
               )}
             >
-              {t.icon}
+              <t.Icon size={12} />
               <span className="hidden @[380px]:inline">{t.label}</span>
             </button>
           </Tip>
@@ -151,7 +152,7 @@ export function AgentTools({
       )}
       </div>
       <div className="flex-1 min-h-0 relative">
-        {TABS.filter((t) => visited.has(t.id)).map((t) => (
+        {AGENT_TOOL_TABS.filter((t) => visited.has(t.id)).map((t) => (
           // Inactive tabs stay laid out (so a terminal keeps its size) but
           // are transparent and inert. Not `visibility: hidden`, which a
           // descendant that sets `visibility: visible` (the terminal panel

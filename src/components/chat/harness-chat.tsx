@@ -41,6 +41,7 @@ import { ChatLookupState, ChatRefreshBoundary } from './chat-lookup-state';
 import { ChatRecovery } from '@/components/chat-ui/chat-recovery';
 import type { Attachment } from '@/db/types';
 import { RefreshCw } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useEffect, useRef, useState } from 'react';
 
 /**
@@ -65,6 +66,7 @@ export function HarnessChat({
   autoFocusComposer,
   intro,
   emptyState,
+  clearBox,
 }: {
   isMobile?: boolean;
   scope?: MainChatScope;
@@ -74,6 +76,8 @@ export function HarnessChat({
   intro?: MainChatIntro;
   /** Drawn while the chat is empty, instead of `intro` (the main chat's first run). It reads the chat's send and draft through `useEmptyChatActions`. */
   emptyState?: React.ReactNode;
+  /** Pads the chat clear of a tools box floating over it (`TOOLS_BOX_CLEARANCE`). */
+  clearBox?: string;
 }) {
   const { data, error, refetch, fetchStatus } = useMainChat(scope);
   const newChat = useNewMainChat(scope);
@@ -81,7 +85,7 @@ export function HarnessChat({
 
   if (!data) return <ChatLookupState paused={fetchStatus === 'paused'} error={error} retry={() => void refetch()} />;
 
-  if (data.session === null && scope) return <ChatRefreshBoundary error={error} retry={() => void refetch()}><NewAgentConversation scope={scope} placeholder={composerPlaceholder} /></ChatRefreshBoundary>;
+  if (data.session === null && scope) return <ChatRefreshBoundary error={error} retry={() => void refetch()}><NewAgentConversation scope={scope} placeholder={composerPlaceholder} clearBox={clearBox} /></ChatRefreshBoundary>;
 
   if (!sessionId) {
     return (
@@ -115,6 +119,7 @@ export function HarnessChat({
       autoFocusComposer={autoFocusComposer}
       intro={intro}
       emptyState={emptyState}
+      clearBox={clearBox}
       onSwitchProvider={(next) => newChat.mutate({
         providerId: next.harness,
         model: next.model,
@@ -150,6 +155,8 @@ type HarnessChatSessionProps = {
   intro?: MainChatIntro;
   /** Drawn while the conversation is empty, instead of `intro`. */
   emptyState?: React.ReactNode;
+  /** Pads the chat clear of a tools box floating over it (`TOOLS_BOX_CLEARANCE`). */
+  clearBox?: string;
   /** Optional: enables the composer's provider switcher (starts a fresh chat
    *  on the chosen provider). The host owns what "new chat" means. */
   onSwitchProvider?: (next: {
@@ -175,6 +182,7 @@ function ChatSession({
   onSwitchProvider,
   switchingProvider,
   chatMenuInHeader = false,
+  clearBox,
 }: HarnessChatSessionProps) {
   const { data: session, error: sessionError, fetchStatus, refetch } = useSession(sessionId);
   const { data: runtime } = useRuntimeStatus(sessionId);
@@ -237,25 +245,30 @@ function ChatSession({
         composerHandleRef.current?.focus({ end: true });
       }}
     >
-      {reconciling && <SyncingPill />}
+      {reconciling && <div className={clearBox}><SyncingPill /></div>}
       {showIntro && emptyState ? (
-        <EmptyChatActionsContext.Provider value={emptyActions}>{emptyState}</EmptyChatActionsContext.Provider>
+        <div className={cn('flex min-h-0 flex-1 flex-col', clearBox)}>
+          <EmptyChatActionsContext.Provider value={emptyActions}>{emptyState}</EmptyChatActionsContext.Provider>
+        </div>
       ) : showIntro && intro ? (
-        <MainChatIntroPanel
-          intro={intro}
-          disabled={emptyActions.disabled}
-          onSend={emptyActions.send}
-          onDraft={emptyActions.draft}
-        />
+        <div className={cn('flex min-h-0 flex-1 flex-col', clearBox)}>
+          <MainChatIntroPanel
+            intro={intro}
+            disabled={emptyActions.disabled}
+            onSend={emptyActions.send}
+            onDraft={emptyActions.draft}
+          />
+        </div>
       ) : (
         <ExecutionTranscript
           session={session}
           workspace={undefined}
           isRunning={isRunning}
           voiceSentIds={voiceSentIds}
+          scrollClassName={clearBox}
         />
       )}
-      <div className="flex-shrink-0 bg-background">
+      <div className={cn('flex-shrink-0 bg-background', clearBox)}>
         <ChatRecovery sessionId={session.id} runtime={runtime} />
         <PendingInputArea sessionId={session.id} />
         <BackgroundTasksBar
@@ -305,7 +318,7 @@ function ChatSession({
 }
 
 /** Opening an agent is read-only. Its first message creates the shared chat. */
-function NewAgentConversation({ scope, placeholder }: { scope: string; placeholder?: string }) {
+function NewAgentConversation({ scope, placeholder, clearBox }: { scope: string; placeholder?: string; clearBox?: string }) {
   const cache = useQueryClient();
   const availability = useHomeExecutionChoices();
   const created = useRef<Awaited<ReturnType<typeof createMainChat>> | null>(null);
@@ -321,7 +334,7 @@ function NewAgentConversation({ scope, placeholder }: { scope: string; placehold
     onSuccess: chat => switchToMainChat(cache, scope, chat),
     onError: error => toast.error('Could not send your message', { description: apiErrorText(error) }),
   });
-  return <div className="flex min-h-0 flex-1 flex-col">
+  return <div className={cn('flex min-h-0 flex-1 flex-col', clearBox)}>
     <div className="flex-1 p-6 text-sm text-muted-foreground">Start a conversation. Everyone on the team can read it.</div>
     {availability.error && <button type="button" className="mx-4 mb-2 self-start text-xs text-muted-foreground underline" onClick={() => void availability.refetch()}>Retry agent availability</button>}
     <ExecutionComposer sessionId="" draftKey={`main:new:${scope}`} permissionMode={DEFAULT_PERMISSION_MODE} model={null} effort={null} harness={null}

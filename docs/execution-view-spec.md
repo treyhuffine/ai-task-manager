@@ -137,7 +137,9 @@ Start / Stop / Restart, opens Run), a **Preview** row (opens the
 interface, or offers an explicit "Start & preview" when stopped), then
 Changes (N files, +/-), Files (⌘P), Terminal (⌃`), then Notes & tasks and
 Scratchpad. Status is text, rows navigate (chevron), labeled buttons run
-something. The chat pads for the box where it would cover text, and the
+something. Its shell, rows and strip icons (`FloatingToolsBox`, `ToolsRow`,
+`ToolsMini`, `TOOLS_BOX_CLEARANCE`) are shared with the agent view's box
+(docs/agents-view-spec.md §9). The chat pads for the box where it would cover text, and the
 box folds to an icon strip when the chat column is narrow.
 
 **Panel (open).** The same tools as tabs: Run · Preview · Changes · Files,

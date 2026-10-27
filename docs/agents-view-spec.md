@@ -590,9 +590,12 @@ Found during the work and left open:
 
 **Not done, on purpose:** the agent's main chat inside the full view (the reverse direction), several chats beside at once, prev and next between chats, and a chat beside on the phone.
 
+**The tools box while the tools are closed** (added 2026-10-27 at Trey's request). With the tools panel collapsed, the only sign the tools existed was the panel toggle in the header. Now the execution view's floating box shows over the main chat's right side, with the agent view's own tools: one row per tab in the strip's order (Overview, Files, Terminal, Preview, Setup), then the file and the chat open beside when there are any. A row opens the panel on that tool, by hand, so putting a file or chat away later leaves the panel open. Status is text, as in the execution's box, and only what the view already knows: who needs you or what's working in Overview (the header pill's counts), how many previews are running. It is the execution's box, not a copy: `FloatingToolsBox`, `ToolsRow`, `ToolsMini` and `TOOLS_BOX_CLEARANCE` in `workbench/tools-box.tsx` are shared, the main chat pads clear of the box the same way (the harness chat takes `clearBox`), and it folds into an icon strip below 1060px of chat width. One pane at a time keeps its Chat / Tools switch and shows no box, as the phone's execution view has no box. Code: `src/components/agents/agent-tools-box.tsx`, the tab list `AGENT_TOOL_TABS` in `agent-tools.tsx`.
+
 | Area | Files |
 |---|---|
 | Agent view | `src/components/agents/agent-view.tsx`, `agent-tools.tsx`, `agent-beside-chat.tsx`, `dashboard-agent-view.tsx` |
 | Routing and setting | `src/lib/client/agent-chat-routing.ts`, `agent-chat-place.ts`, `active-view.ts`, `src/types/dashboard.ts` |
-| Shared with the execution view | `src/components/executions/execution-chat-column.tsx`, `chat-status.tsx`, `execution-chat-tabs.tsx` (`ExecutionChatsMenu`), `workbench/view-request.ts` |
+| Shared with the execution view | `src/components/executions/execution-chat-column.tsx`, `chat-status.tsx`, `execution-chat-tabs.tsx` (`ExecutionChatsMenu`), `workbench/view-request.ts`, `workbench/tools-box.tsx` (the floating box) |
+| Tools box | `src/components/agents/agent-tools-box.tsx`, `agent-chat-panel.tsx`, `src/components/chat/harness-chat.tsx` (`clearBox`) |
 | Composer focus | `src/components/chat/editor/composer-focus.ts`, `chat-input-editor.tsx`, `src/components/executions/execution-composer.tsx` |

@@ -62,23 +62,12 @@ export function ToolsList({
   touch = false,
 }: ToolsListProps) {
   const rowH = touch ? 'h-11 text-[14.5px]' : 'h-9 text-[13px]';
-  const go = <ChevronRight size={13} className="flex-shrink-0 text-muted-foreground/50 group-hover:text-muted-foreground" />;
+  const go = <RowChevron />;
   const status = c.runStatus;
   const port = c.state?.port ?? null;
 
   const row = (view: PanelView, icon: React.ReactNode, label: string, right: React.ReactNode, title?: string) => (
-    <Tip label={title}>
-      <button
-        type="button"
-        onClick={() => onShow(view)}
-        className={cn('group flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left font-medium text-foreground/85 transition-colors hover:bg-muted/60 hover:text-foreground', rowH)}
-      >
-        <span className="flex-shrink-0 text-muted-foreground group-hover:text-foreground">{icon}</span>
-        {label}
-        <span className="ml-auto flex min-w-0 items-center gap-2 text-[11.5px] font-normal text-muted-foreground/80">{right}</span>
-        {go}
-      </button>
-    </Tip>
+    <ToolsRow icon={icon} label={label} right={right} title={title} touch={touch} onClick={() => onShow(view)} />
   );
 
   // The process row: status in words, one labeled action, and it opens Run.
@@ -198,7 +187,7 @@ export function ToolsList({
         {go}
       </div>
 
-      <div className="my-1.5 h-px bg-border" />
+      <ToolsDivider />
       {row(
         'changes',
         <GitCompareArrows size={15} />,
@@ -238,7 +227,7 @@ export function ToolsList({
         </Tip>
       )}
 
-      <div className="my-1.5 h-px bg-border" />
+      <ToolsDivider />
       {row('notes', <ListTodo size={15} />, 'Notes & tasks', linkedCount > 0 ? <span>{linkedCount} linked</span> : null)}
       {row(
         'scratch',
@@ -255,57 +244,140 @@ export function ToolsList({
 }
 
 /**
- * The floating box shown while the panel is closed. It floats over the
- * chat column's right side (the chat pads for it at narrower widths, so it
- * never covers text) and folds into an icon strip when the column is tight.
- * Borderless on purpose: the surface and shadow separate it.
+ * Pads a chat column's parts clear of a `FloatingToolsBox` floating over
+ * it: below ~1390px of `@container/chat` width the box would cover text,
+ * and below ~1060px it folds into an icon strip. Put it on the scrolling
+ * element rather than its frame, so the scrollbar stays at the far right.
  */
-export function ToolsBox(props: ToolsListProps) {
-  const { controller: c, diffStats, onShow, terminal } = props;
-  const status = c.runStatus;
-  const mini = (view: PanelView, icon: React.ReactNode, label: string, badge?: string) => (
+export const TOOLS_BOX_CLEARANCE = '@max-[1390px]/chat:pr-[308px] @max-[1060px]/chat:pr-[60px]';
+
+/**
+ * The floating box shown while a tools panel is closed: the execution
+ * view's (`ToolsBox`) and the agent view's. It floats over the chat
+ * column's right side (the chat pads for it with `TOOLS_BOX_CLEARANCE`, so
+ * it never covers text) and folds into an icon strip, `strip`, when the
+ * column is tight. Needs a `@container/chat` ancestor. Borderless on
+ * purpose: the surface and shadow separate it.
+ */
+export function FloatingToolsBox({ list, strip, label = 'Tools' }: { list: React.ReactNode; strip: React.ReactNode; label?: string }) {
+  return (
+    <>
+      <div role="group" aria-label={label} className="absolute right-4 top-3 z-20 w-[288px] rounded-2xl bg-card p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.28)] @max-[1060px]/chat:hidden dark:shadow-[0_12px_32px_rgba(0,0,0,0.5)]">
+        {list}
+      </div>
+      <div role="group" aria-label={label} className="absolute right-3 top-3 z-20 hidden flex-col gap-0.5 rounded-xl bg-card p-1 shadow-[0_12px_32px_rgba(0,0,0,0.28)] @max-[1060px]/chat:flex dark:shadow-[0_12px_32px_rgba(0,0,0,0.5)]">
+        {strip}
+      </div>
+    </>
+  );
+}
+
+/** A row in a tools list: it opens that tool, and carries a chevron. Status goes on its right, as text. */
+export function ToolsRow({
+  icon,
+  label,
+  right,
+  title,
+  touch = false,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: React.ReactNode;
+  right?: React.ReactNode;
+  title?: string;
+  /** Larger touch targets for a phone sheet. */
+  touch?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Tip label={title}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          'group flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left font-medium text-foreground/85 transition-colors hover:bg-muted/60 hover:text-foreground',
+          touch ? 'h-11 text-[14.5px]' : 'h-9 text-[13px]',
+        )}
+      >
+        <span className="flex-shrink-0 text-muted-foreground group-hover:text-foreground">{icon}</span>
+        <span className="min-w-0 truncate">{label}</span>
+        <span className="ml-auto flex min-w-0 flex-shrink-0 items-center gap-2 text-[11.5px] font-normal text-muted-foreground/80">{right}</span>
+        <RowChevron />
+      </button>
+    </Tip>
+  );
+}
+
+/** A divider between groups of rows. */
+export function ToolsDivider() {
+  return <div className="my-1.5 h-px bg-border" />;
+}
+
+/** One tool in the folded icon strip, with an optional status dot. */
+export function ToolsMini({
+  icon,
+  label,
+  badge,
+  active = false,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  /** The dot's color classes, when there's something to see. */
+  badge?: string;
+  /** Shown as on, like the terminal while its drawer is open. */
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
     <Tip label={label}>
       <button
         type="button"
-        onClick={() => onShow(view)}
+        onClick={onClick}
         aria-label={label}
-        className="relative inline-flex size-9 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-muted/70 hover:text-foreground"
+        className={cn(
+          'relative inline-flex size-9 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-muted/70 hover:text-foreground',
+          active && 'bg-muted/70 text-foreground',
+        )}
       >
         {icon}
         {badge && <span aria-hidden className={cn('absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full', badge)} />}
       </button>
     </Tip>
   );
+}
+
+/** A divider in the icon strip. */
+export function ToolsStripDivider() {
+  return <span className="mx-1.5 my-0.5 h-px bg-border" />;
+}
+
+function RowChevron() {
+  return <ChevronRight size={13} className="flex-shrink-0 text-muted-foreground/50 group-hover:text-muted-foreground" />;
+}
+
+/** The execution view's box: its tools, while the panel is closed. */
+export function ToolsBox(props: ToolsListProps) {
+  const { controller: c, diffStats, onShow, terminal } = props;
+  const status = c.runStatus;
   return (
-    <>
-      <div className="absolute right-4 top-3 z-20 w-[288px] rounded-2xl bg-card p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.28)] @max-[1060px]/chat:hidden dark:shadow-[0_12px_32px_rgba(0,0,0,0.5)]">
-        <ToolsList {...props} />
-      </div>
-      <div className="absolute right-3 top-3 z-20 hidden flex-col gap-0.5 rounded-xl bg-card p-1 shadow-[0_12px_32px_rgba(0,0,0,0.28)] @max-[1060px]/chat:flex dark:shadow-[0_12px_32px_rgba(0,0,0,0.5)]">
-        {mini('run', <Play size={15} />, `Run · ${RUN_STATUS_LABEL[status]}`, status === 'not-configured' || status === 'stopped' || status === 'elsewhere' ? undefined : runDotClass(status))}
-        {mini('preview', <AppWindow size={16} />, 'Preview')}
-        {mini('changes', <GitCompareArrows size={16} />, diffStats?.files ? `Changes · ${filesLabel(diffStats.files)}` : 'Changes', diffStats?.files ? 'bg-amber-500' : undefined)}
-        {mini('files', <FileText size={16} />, 'Files')}
-        {terminal && (
-          <Tip label={terminal.open ? 'Hide the terminal' : 'Terminal'}>
-            <button
-              type="button"
-              onClick={terminal.onToggle}
-              aria-label="Terminal"
-              className={cn(
-                'inline-flex size-9 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-muted/70 hover:text-foreground',
-                terminal.open && 'bg-muted/70 text-foreground',
-              )}
-            >
-              <SquareTerminal size={16} />
-            </button>
-          </Tip>
-        )}
-        <span className="mx-1.5 my-0.5 h-px bg-border" />
-        {mini('notes', <ListTodo size={16} />, 'Notes & tasks')}
-        {mini('scratch', <NotebookPen size={16} />, 'Scratchpad', props.scratchHasContent ? 'bg-muted-foreground/70' : undefined)}
-      </div>
-    </>
+    <FloatingToolsBox
+      list={<ToolsList {...props} />}
+      strip={
+        <>
+          <ToolsMini onClick={() => onShow('run')} icon={<Play size={15} />} label={`Run · ${RUN_STATUS_LABEL[status]}`} badge={status === 'not-configured' || status === 'stopped' || status === 'elsewhere' ? undefined : runDotClass(status)} />
+          <ToolsMini onClick={() => onShow('preview')} icon={<AppWindow size={16} />} label="Preview" />
+          <ToolsMini onClick={() => onShow('changes')} icon={<GitCompareArrows size={16} />} label={diffStats?.files ? `Changes · ${filesLabel(diffStats.files)}` : 'Changes'} badge={diffStats?.files ? 'bg-amber-500' : undefined} />
+          <ToolsMini onClick={() => onShow('files')} icon={<FileText size={16} />} label="Files" />
+          {terminal && (
+            <ToolsMini onClick={terminal.onToggle} icon={<SquareTerminal size={16} />} label={terminal.open ? 'Hide the terminal' : 'Terminal'} active={terminal.open} />
+          )}
+          <ToolsStripDivider />
+          <ToolsMini onClick={() => onShow('notes')} icon={<ListTodo size={16} />} label="Notes & tasks" />
+          <ToolsMini onClick={() => onShow('scratch')} icon={<NotebookPen size={16} />} label="Scratchpad" badge={props.scratchHasContent ? 'bg-muted-foreground/70' : undefined} />
+        </>
+      }
+    />
   );
 }
 

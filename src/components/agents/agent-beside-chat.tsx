@@ -306,11 +306,11 @@ function useReadWhileShown(chatId: string, shown: boolean, isRunning: boolean) {
 }
 
 /**
- * The beside chat's tab in the tools strip: its title and a dot for how
- * it's doing, the same signals the rail shows (working, waiting on you,
- * something running in the background).
+ * The chat beside, in a word and a dot: its title, and how it's doing by
+ * the same signals the rail shows (working, waiting on you, something
+ * running in the background). Its tab and the tools box both show it.
  */
-export function BesideChatTabLabel({ chatId }: { chatId: string }) {
+export function useBesideChatSummary(chatId: string): { title: string; dot: string | null } {
   const { data: session } = useSession(chatId);
   const { streamingSessionIds, pendingInputSessionIds, backgroundSessionIds } = useWorkActivity();
   const title = session ? session.execution?.label ?? session.label ?? 'Untitled chat' : 'Chat';
@@ -321,6 +321,12 @@ export function BesideChatTabLabel({ chatId }: { chatId: string }) {
       : backgroundSessionIds.has(chatId)
         ? BACKGROUND_DOT
         : null;
+  return { title, dot };
+}
+
+/** The beside chat's tab in the tools strip. */
+export function BesideChatTabLabel({ chatId }: { chatId: string }) {
+  const { title, dot } = useBesideChatSummary(chatId);
   return (
     <>
       <MessageSquare size={12} className="flex-shrink-0" />
