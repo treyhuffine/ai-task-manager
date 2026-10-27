@@ -1107,11 +1107,19 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           // Style placeholder via the extension's `is-editor-empty`
           // class. Otherwise placeholder bleeds into the chip when an
           // attachment exists with no typed text.
+          //
+          // A full-width float whose right margin cancels its width takes
+          // no room on the line, so the caret still starts at the first
+          // character. It keeps its real height, though, and the editor
+          // (a scroll container, so it holds its floats) grows to fit every
+          // line. The usual `h-0` float spilled a wrapped placeholder below
+          // a one-line box, where it was cut off.
           '[&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]',
           '[&_.ProseMirror_p.is-editor-empty:first-child::before]:text-muted-foreground/50',
           '[&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left',
           '[&_.ProseMirror_p.is-editor-empty:first-child::before]:pointer-events-none',
-          '[&_.ProseMirror_p.is-editor-empty:first-child::before]:h-0',
+          '[&_.ProseMirror_p.is-editor-empty:first-child::before]:w-full',
+          '[&_.ProseMirror_p.is-editor-empty:first-child::before]:-mr-[100%]',
           className,
         )}
       /></EditorSourceProvider>

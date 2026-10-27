@@ -79,6 +79,19 @@ import { AppContextStrip } from '@/components/chat-ui/references/app-context-str
 import { useConnectedContextGroups } from '@/hooks/use-connected-context';
 
 /**
+ * What the box is for, and a pointer to the two menus. Each menu explains
+ * itself once its character is typed, so the placeholder doesn't list them.
+ */
+export const DEFAULT_COMPOSER_PLACEHOLDER = 'Ask for anything. @ to mention, / for skills';
+
+/**
+ * Room on the placeholder's right for the focus hint, from `sm` up like the
+ * hint itself: its width past the editor's padding, plus a small gap.
+ * `execution-composer-placeholder.browser.test.ts` checks it against the drawn hint.
+ */
+const FOCUS_HINT_CLEARANCE = 'sm:[&_.ProseMirror_p.is-editor-empty:first-child::before]:pr-[66px]';
+
+/**
  * Imperative handle for the execution composer. Exposes the minimum
  * surface other panels need — inserting text at the cursor and focusing
  * the editor — without leaking the full ChatInputEditorHandle (which
@@ -687,8 +700,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
               second callback through ChatInputEditor. */}
             <AppContextStrip groups={contextGroups} onRemove={(viewId) => contextGroups.find(group => group.viewId === viewId)?.remove()} />
             <div
-              // The placeholder wraps short of the hint rather than under it.
-              className={cn('relative', showFocusHint && 'sm:[&_.ProseMirror_p.is-editor-empty:first-child]:pr-20')}
+              className="relative"
               onFocus={() => setEditorFocused(true)}
               onBlur={() => setEditorFocused(false)}
             >
@@ -711,7 +723,12 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 <ChatInputEditor
                   sourceChatId={sessionId ?? undefined}
                   ref={editorRef}
-                  placeholder={placeholder ?? "Ask your agent to do any work. You can @mention agents, apps, files, tasks, or notes. Reference PRs with @# or use a slash to run /skills"}
+                  placeholder={placeholder ?? DEFAULT_COMPOSER_PLACEHOLDER}
+                  // The placeholder wraps short of the focus hint rather than
+                  // under it, in the composer ⌘I reaches. Held while focused
+                  // too (the hint hides then), so nothing reflows on click.
+                  // Typed text keeps the full width.
+                  className={hotkeyTarget ? FOCUS_HINT_CLEARANCE : undefined}
                   // Don't disable the editor while `sending` — the
                   // user can queue the next message during the POST
                   // round-trip (concurrent send is supported all the
