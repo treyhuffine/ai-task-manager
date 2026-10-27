@@ -1,67 +1,39 @@
 'use client';
 
-import { useHomeDocumentScope } from '@/components/home/home-context';
-import { scopedDraftKey, encodeChatDraft } from '@/components/chat/editor/draft-storage';
-
 import { useSearchParams } from 'next/navigation';
 import { LinkedChatView } from '@/components/chat-ui/messages/linked-chat-view';
-import { AppCompanion } from '@/components/local-apps/app-companion';
-import { AppCompanionButton } from '@/components/local-apps/app-companion-button';
-import type { HarnessId } from '@/lib/harness/registry';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { MessageSquare } from 'lucide-react';
-import { preparedFolder } from '@/lib/executions/location';
 import { useViewportTier } from '@/hooks/use-viewport-tier';
 import { useWorkNavigation, useWorkActivity } from '@/contexts/work-context';
 import {
   useSession,
-  useSendMessage,
-  useRuntimeStatus,
-  useInterruptSession,
   useContinueSession,
-  useNewExecutionChat,
-  useWorktreeScope,
   useSessionReferences,
   useScratchpad,
 } from '@/hooks/use-execution';
-import { useSessionStream } from '@/hooks/use-session-stream';
-import { useSessionReconcile } from '@/hooks/use-session-reconcile';
-import { useWorkspace, useMarkSessionRead, useDiffStats } from '@/hooks/use-workspaces';
+import { useMarkSessionRead, useDiffStats } from '@/hooks/use-workspaces';
 import { useElementWidth } from '@/hooks/use-element-width';
 import type { RailResponse } from '@/lib/api/sessions';
-import type { EffortLevel } from '@/db/types';
 import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { cn } from '@/lib/utils';
 import { ExecutionHeader } from './execution-header';
 import { ExecutionChatTabs } from './execution-chat-tabs';
-import { ExecutionTranscript } from './execution-transcript';
-import { ExecutionReviewBar } from './execution-review-bar';
-import { ChatRecovery } from '@/components/chat-ui/chat-recovery';
-import { ExecutionComposer, type ExecutionComposerHandle } from './execution-composer';
-import { BackgroundTasksBar } from '@/components/chat-ui/activity/background-tasks-bar';
-import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
-import { SyncingPill } from './syncing-pill';
-import { WipHandoffBanner } from './wip-handoff-banner';
-import { TransferProgress } from './transfer/transfer-progress';
-import { ReviewBar } from './transfer/review-bar';
+import { type ExecutionComposerHandle } from './execution-composer';
+import { ExecutionChatColumn, useExecutionChat, useStartExecutionChat } from './execution-chat-column';
 import { sessionFolder } from '@/lib/folders/source';
 import { useOpenFileListener, toWorktreeRelative } from '@/lib/entity-refs/open-file-event';
 import { useFileHistory } from '@/hooks/use-file-history';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
-import { ImportedTakeoverBar } from './imported-takeover-bar';
-import { providerLabel as importedProviderLabel } from './setup-card';
 import { ExecutionSkeleton } from './execution-skeleton';
 import { useOpenReferenceListener } from '@/lib/entity-refs/open-event';
-import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
-import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
-import { DRAFT_STORAGE_PREFIX } from '@/components/chat/editor/draft-storage';
 import { hot } from '@/lib/_debug/hot-path';
 import { usePreviewController } from './preview/use-preview-controller';
 import { runDotClass } from './preview/run-status';
 import { useWorkbench, DEFAULT_PANEL_PCT, DEFAULT_TERMINAL_PCT } from './workbench/use-workbench';
-import { useWorkbenchViewRequests } from './workbench/view-request';
+import { useWorkbenchViewRequests, type WorkbenchViewAsk } from './workbench/view-request';
 import { PANEL_VIEW_LABELS, type PanelView } from './workbench/workbench-state';
 import { WorkbenchPanel } from './workbench/workbench-panel';
 import { TerminalDrawer } from './workbench/terminal-drawer';
@@ -69,7 +41,6 @@ import { ToolsBox } from './workbench/tools-box';
 import { ResizeHandle } from './workbench/resize-handle';
 import { MobileDestination, MobileToolsSheet } from './workbench/mobile-workbench';
 import type { WorkbenchViewContext } from './workbench/workbench-views';
-import { isImportMirror } from '@/lib/import/mirror';
 import { Tip } from '@/components/ui/tip';
 import { useBesidePreview, useBesideRegion } from '@/components/chat-ui/artifacts/artifact-preview-provider';
 import { PREVIEW_HOST_ATTRIBUTE } from '@/components/chat-ui/artifacts/artifact-preview-store';
@@ -120,18 +91,13 @@ export function ExecutionView(props: ExecutionViewProps) {
 
 function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   const { openAgent, openExecution, goHome } = useWorkNavigation();
-  const { setActiveExecutionId, setSessionStreaming, pendingInputSessionIds } = useWorkActivity();
+  const { setActiveExecutionId, pendingInputSessionIds } = useWorkActivity();
   const qc = useQueryClient();
-  const { data: session, isLoading, error } = useSession(sessionId);
-  const { data: workspace } = useWorkspace(session?.workspaceId ?? null);
-  const { data: runtime } = useRuntimeStatus(sessionId);
-  const hasBackgroundTasks = runtime?.backgroundTasks ?? false;
-  // Live chat-event stream: appends rows into the events cache as the
-  // executor (or any other write path) inserts them.
-  useSessionStream(sessionId);
-  // Catch up to the on-disk Claude JSONL on open. The indicator below
-  // renders only if the server actually finds drift and starts a replay.
-  const { reconciling } = useSessionReconcile(sessionId);
+  // The chat itself: its row, runtime, stream, setup poll and turn-end
+  // refreshes (execution-chat-column.tsx, shared with a chat open beside an
+  // agent's main chat).
+  const chat = useExecutionChat(sessionId);
+  const { session, isLoading, error, workspace, isRunning, hasBackgroundTasks, worktreeScope, isSettingUp } = chat;
 
   // Tell the rail which execution is open so its (one-row-per-execution)
   // workspace-tree row stays highlighted even when the active chat is a
@@ -140,19 +106,11 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     setActiveExecutionId(session?.executionId ?? null);
   }, [session?.executionId, setActiveExecutionId]);
   useEffect(() => () => setActiveExecutionId(null), [setActiveExecutionId]);
-  const sendMessage = useSendMessage(sessionId);
-  const interruptSession = useInterruptSession(sessionId);
   const continueWork = useContinueSession(sessionId);
-  const newExecutionChat = useNewExecutionChat(sessionId);
-  const isRunning = runtime?.running ?? false;
-
-  // Cache scope for everything read off the worktree. Execution-keyed, so
-  // it holds steady while the user hops between this execution's chats.
-  const worktreeScope = useWorktreeScope(sessionId);
 
   // The execution, not the chat, is what "which code am I looking at"
   // means. Every reset below keys off this: a new chat on the same
-  // execution is the same worktree, the same files, the same terminal —
+  // execution is the same worktree, the same files, the same terminal,
   // so selection, the workbench and the preview survive it.
   const executionId = session?.executionId ?? null;
 
@@ -162,35 +120,11 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   const worktreeId = executionId ?? sessionId;
 
   // Start a fresh chat on this execution's worktree (the "New chat" button and
-  // the composer's provider switcher), then navigate to it. Provider switch
-  // passes { providerId, model }; a plain new chat passes nothing.
-  const draftScope = useHomeDocumentScope();
-  const startNewChat = (opts?: {
-    providerId?: HarnessId;
-    model?: string;
-    variant?: string;
-    effort?: EffortLevel; serviceTier?: string;
-  }, draft?: EditorSnapshot | null) => {
-    newExecutionChat
-      .mutateAsync(opts ?? undefined)
-      .then((r) => {
-        if (draft) {
-          try {
-            window.localStorage.setItem(
-              `${DRAFT_STORAGE_PREFIX}${scopedDraftKey(`exec:${r.session.id}`, draftScope)}`,
-              encodeChatDraft(scopedDraftKey(`exec:${r.session.id}`, draftScope), draft.doc),
-            );
-          } catch {
-            // Draft persistence is best-effort when storage is unavailable.
-          }
-        }
-        openExecution(r.session.id);
-      })
-      .catch(() => { });
-  };
+  // the composer's provider switcher), then navigate to it.
+  const newChat = useStartExecutionChat(sessionId, openExecution);
 
   // Conductor-style auto-resume: opening an archived execution is the
-  // signal to reopen — fire `continue` once on mount so the row flips to
+  // signal to reopen: fire `continue` once on mount so the row flips to
   // active and a fresh worktree provisions in the background. The
   // setting-up state covers the wait.
   //
@@ -211,17 +145,8 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.status, sessionId]);
 
-  // Setting-up state: dispatch creates the chat_session row immediately
-  // and provisions the worktree in the background (~2-5s for `git
-  // worktree add` + fromSource apply). Until worktreePath lands on the
-  // row the worktree views show a placeholder. The row gets updated by
-  // the server, so we poll the session query.
-  // Wherever it runs: on a laptop the folder is on its placement (P3.1).
-  const isSettingUp =
-    !!session && !!workspace && workspace.isGit === true && !preparedFolder(session);
-
   // Gate for the terminal's auto-spawn. Its cwd resolves to the session's
-  // worktree, but `workspace` loads from a separate query than `session` —
+  // worktree, but `workspace` loads from a separate query than `session`,
   // so there's a window where the session is ready while `workspace` is
   // still `undefined`. Spawning then would land the PTY in the workspace's
   // main checkout for good (a PTY's cwd is frozen), so treat "workspace not
@@ -229,58 +154,11 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   const terminalNotReady =
     isSettingUp || (!!session?.workspaceId && workspace === undefined);
 
-  // The setup script runs in the background AFTER the worktree is ready, so
-  // keep polling through it too — otherwise the "Running setup script…" row
-  // never clears (and a failure never surfaces) without a manual refresh.
-  const isSetupScriptRunning = session?.setupScriptStatus === 'running';
-
-  useEffect(() => {
-    hot('effect ExecutionView.isSettingUp-poll');
-    if ((!isSettingUp && !isSetupScriptRunning) || !sessionId) return;
-    const id = setInterval(() => {
-      qc.invalidateQueries({ queryKey: ['session', sessionId] });
-    }, 1500);
-    return () => clearInterval(id);
-  }, [isSettingUp, isSetupScriptRunning, sessionId, qc]);
-
-  // Mirror server runtime state into the dashboard's streamingSessionIds
-  // so the rail's "● working" badge and other consumers stay in sync.
-  useEffect(() => {
-    hot('effect ExecutionView.mirror-streaming');
-    setSessionStreaming(sessionId, isRunning);
-    return () => setSessionStreaming(sessionId, false);
-  }, [sessionId, isRunning, setSessionStreaming]);
-
-  // Events and runtime-status come through the SSE stream in order. Diff
-  // state, though, isn't streamed. Refresh it and the session metadata
-  // whenever either the root turn or detached child work ends. A child can
-  // keep editing after the root result, so the background edge needs its
-  // own refresh.
-  const prevRunningRef = useRef(isRunning);
-  const prevBackgroundTasksRef = useRef(hasBackgroundTasks);
-  useEffect(() => {
-    hot('effect ExecutionView.runtime-edge');
-    const rootEnded = prevRunningRef.current && !isRunning;
-    const backgroundEnded = prevBackgroundTasksRef.current && !hasBackgroundTasks;
-    prevRunningRef.current = isRunning;
-    prevBackgroundTasksRef.current = hasBackgroundTasks;
-
-    if (!sessionId || (!rootEnded && !backgroundEnded)) return;
-    if (worktreeScope) {
-      // One prefix covers diff / tree / status / pr — everything the turn
-      // or detached child may have moved on disk.
-      qc.invalidateQueries({ queryKey: worktreeScope });
-    }
-    // Plus the row itself for its derived metadata. `exact` keeps this off
-    // the transcript, whose events already arrive over SSE.
-    qc.invalidateQueries({ queryKey: ['session', sessionId], exact: true });
-  }, [isRunning, hasBackgroundTasks, sessionId, worktreeScope, qc]);
-
   // Worktree just landed (provisioning finished) → pull the file tree + diff
   // immediately. The tree was fetched empty while `worktreePath` was null, and
   // nothing else refetches it on this transition.
   // Its folder wherever it runs (P3.1): the worktree here, or the one its device prepared.
-  const folder = session ? preparedFolder(session) : null;
+  const { folder } = chat;
   const prevWorktreeRef = useRef(!!folder);
   useEffect(() => {
     hot('effect ExecutionView.worktree-edge');
@@ -298,10 +176,6 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     );
     return () => clearTimeout(t);
   }, [folder, sessionId, worktreeScope, qc]);
-
-  // Voice-sent event ids tracked in client memory for this open session.
-  // Lost on reload by design. The set only grows.
-  const [voiceSentIds, setVoiceSentIds] = useState<Set<string>>(() => new Set());
 
   // ── Which subtree is on screen ───────────────────────────────────────
   // Width 0 means hidden (this subtree, or this whole instance). Heavy
@@ -406,20 +280,25 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   // Transcript task / note chips fire `ri:open-reference`: show Notes & tasks.
   useOpenReferenceListener(useCallback(() => openViewHere('notes', 'jump'), [openViewHere]));
 
-  // A view asked for from outside (Review in the archive dialog), usually
-  // just before navigating here, so neither half may have measured yet:
-  // open it on the half the viewport shows, or both while that's unknown.
+  // A view asked for from outside (Review in the archive dialog, a file
+  // chip in this chat open beside its agent's main chat), usually just
+  // before navigating here, so neither half may have measured yet: open it
+  // on the half the viewport shows, or both while that's unknown.
   const wideRef = useRef(wide);
   wideRef.current = wide;
+  const folderRef = useRef(folder);
+  folderRef.current = folder;
   useWorkbenchViewRequests(
     session?.id === sessionId ? sessionId : null,
-    useCallback((view: PanelView) => {
+    useCallback(({ view, path }: WorkbenchViewAsk) => {
+      const rel = path ? toWorktreeRelative(path, folderRef.current) : null;
+      if (rel) selectFile(rel);
       if (wideRef.current !== false) workbenchRef.current.show(view);
       if (wideRef.current !== true) {
         setToolsSheetOpen(false);
         setMobileView(view);
       }
-    }, []),
+    }, [selectFile]),
   );
 
   // Lets the file tree drop an `@<path>` token into the composer when the
@@ -571,26 +450,6 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     );
   }
 
-  // While running, leave the composer enabled so the stop button reads
-  // as active (it lives in the send slot).
-  //
-  // Archived: covers the brief window between mount and the auto-resume
-  // mutation succeeding, to avoid a 400 from a very fast send.
-  //
-  // An imported chat mirrors a session this app doesn't drive. Sending would
-  // spawn an agent with none of the context shown above it, so the composer
-  // stays locked until the user takes the chat over on purpose.
-  const isMirroredImport = isImportMirror(session);
-  const isResuming = session.status === 'archived';
-  const composerDisabled = isResuming || isSettingUp || isMirroredImport;
-  const composerDisabledReason = isResuming
-    ? 'Resuming…'
-    : isSettingUp
-      ? 'Setting up worktree…'
-      : isMirroredImport
-        ? 'Continue here to reply'
-        : undefined;
-
   const isGitWorktree = !!workspace?.isGit && !!folder;
   const chatLabel = session.label ?? 'this chat';
   const needsInput = pendingInputSessionIds.has(session.id);
@@ -609,7 +468,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     workspaceId: session.workspaceId ?? null,
     worktreeId,
     // Its folder wherever it runs: the Files view's paths and Open are on that device (P3.5).
-    worktreePath: preparedFolder(session),
+    worktreePath: folder,
     baseBranch: workspace?.baseBranch ?? null,
     chatLabel,
     settingUp: isSettingUp ? { failed: !!session.setupError } : null,
@@ -628,141 +487,44 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     besideHost,
   });
 
-  // Chat body — tabs, WIP banner, transcript, composer. Rendered in both
-  // the phone (`lg:hidden`) and desktop (`hidden lg:flex`) subtrees, with
-  // opposite Enter semantics: the phone composer treats Enter as a newline
-  // (send via button, like a native keyboard), the desktop composer
-  // submits on Enter. Binding it to the subtree rather than a runtime
-  // viewport check keeps each instance matched to the layout it's in.
+  // Chat body: tabs, then the chat column (execution-chat-column.tsx).
+  // Rendered in both the phone (`lg:hidden`) and desktop (`hidden lg:flex`)
+  // subtrees, with opposite Enter semantics: the phone composer treats
+  // Enter as a newline (send via button, like a native keyboard), the
+  // desktop composer submits on Enter. Binding it to the subtree rather
+  // than a runtime viewport check keeps each instance matched to the
+  // layout it's in.
   //
   // `withBox` floats the tools box over the chat's right side. Below
   // ~1390px of chat width the parts it would cover pad themselves clear of
-  // it, and below ~1060px the box folds into an icon strip. The transcript
-  // pads its scrolling element rather than its frame, so the scrollbar
-  // stays at the column's far right edge instead of floating mid-page.
-  const renderChatBody = (submitOnEnter: boolean, withBox: boolean) => {
-    const clearBox = withBox ? '@max-[1390px]/chat:pr-[308px] @max-[1060px]/chat:pr-[60px]' : undefined;
-    return (
-    <AppCompanion chatId={session.id} surfaceKind={session.surfaceKind}>
-    <ChatDropZone
-      className="flex flex-1 min-h-0 flex-col"
-      onFiles={(files) => {
-        for (const f of files) void composerHandleRef.current?.uploadFile(f);
-        composerHandleRef.current?.focus({ end: true });
-      }}
-      disabled={composerDisabled}
-    >
-      {/* Sibling-chat tabs: conversations only, never files. */}
-      {!!session.executionId && (
+  // it, and below ~1060px the box folds into an icon strip.
+  const renderChatBody = (submitOnEnter: boolean, withBox: boolean) => (
+    <ExecutionChatColumn
+      chat={chat}
+      composerRef={composerHandleRef}
+      submitOnEnter={submitOnEnter}
+      clearBox={withBox ? '@max-[1390px]/chat:pr-[308px] @max-[1060px]/chat:pr-[60px]' : undefined}
+      // Sibling-chat tabs: conversations only, never files.
+      tabs={!!session.executionId && (
         <ExecutionChatTabs
           sessionId={session.id}
           executionId={session.executionId}
-          onNewChat={() => startNewChat()}
-          newChatPending={newExecutionChat.isPending}
+          onNewChat={() => newChat.start()}
+          newChatPending={newChat.isPending}
         />
       )}
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        {workspace?.isGit &&
-          !!folder &&
-          folder !== workspace.cwd && (
-            // Skip for Live / in-place sessions: their "worktree" IS the source
-            // checkout, so no WIP ever "stayed behind".
-            <div className={clearBox}>
-              <WipHandoffBanner sessionId={session.id} worktreeReady={!!folder} />
-            </div>
-          )}
-        {reconciling && (
-          <div className={clearBox}>
-            <SyncingPill />
-          </div>
-        )}
-        <ExecutionTranscript
-          session={session}
-          workspace={workspace}
-          isRunning={isRunning}
-          voiceSentIds={voiceSentIds}
-          scrollClassName={clearBox}
+      overlay={withBox && desktopVisible && (
+        <ToolsBox
+          {...toolsListProps}
+          onShow={workbench.show}
+          onStartAndPreview={startAndPreview}
+          terminal={{ open: wb.terminalOpen, onToggle: () => workbench.dispatch({ type: 'toggleTerminal' }) }}
         />
-        {session.executionId && !isRunning && (
-          <div className={clearBox}>
-            <ExecutionReviewBar executionId={session.executionId} />
-          </div>
-        )}
-        {/* The input region: pending questions, then running background
-            work as a strip attached to the top of the composer. No rule
-            above it, so it reads as one piece with the conversation. */}
-        <div className={cn('flex-shrink-0 bg-background', clearBox)}>
-          {/* A move to another device, while it runs or once it stopped (P4.2). */}
-          <div className="space-y-1.5 px-3 pt-2 empty:hidden">
-            <TransferProgress sessionId={session.id} />
-            <ReviewBar session={session} workspace={workspace} />
-          </div>
-          <ChatRecovery sessionId={session.id} runtime={runtime} />
-          <PendingInputArea sessionId={session.id} />
-          {isMirroredImport && (
-            <ImportedTakeoverBar
-              sessionId={session.id}
-              providerLabel={importedProviderLabel(session.surfaceRef)}
-              cwd={workspace?.cwd ?? null}
-            />
-          )}
-          <BackgroundTasksBar
-            sessionId={session.id}
-            runtimeHasBackgroundTasks={runtime?.backgroundTasks}
-            runtimeBackgroundTaskIds={runtime?.backgroundTaskIds}
-          />
-          <ExecutionComposer
-            ref={composerHandleRef}
-            sessionId={session.id}
-            permissionMode={session.permissionMode}
-            model={session.model}
-            modelVariant={session.modelVariant}
-            effort={session.effort}
-          serviceTier={session.serviceTier}
-            harness={session.harness}
-            leadingActions={<AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />}
-            disabled={composerDisabled}
-            disabledReason={composerDisabledReason}
-            submitOnEnter={submitOnEnter}
-            isRunning={isRunning}
-            onSwitchProvider={(next, draft) => startNewChat({
-              providerId: next.harness,
-              model: next.model,
-              variant: next.variant,
-              effort: next.effort,
-              serviceTier: next.serviceTier,
-            }, draft)}
-            switchingProvider={newExecutionChat.isPending}
-            onSend={async (content, opts) => {
-              const event = await sendMessage.mutateAsync({
-                content,
-                attachments: opts?.attachments,
-              });
-              if (opts?.viaVoice && event?.id) {
-                setVoiceSentIds((prev) => {
-                  if (prev.has(event.id)) return prev;
-                  const next = new Set(prev);
-                  next.add(event.id);
-                  return next;
-                });
-              }
-            }}
-            onStop={runtime?.canStop ? async () => { await interruptSession.mutateAsync(); } : undefined}
-          />
-        </div>
-        {withBox && desktopVisible && (
-          <ToolsBox
-            {...toolsListProps}
-            onShow={workbench.show}
-            onStartAndPreview={startAndPreview}
-            terminal={{ open: wb.terminalOpen, onToggle: () => workbench.dispatch({ type: 'toggleTerminal' }) }}
-          />
-        )}
-      </div>
-    </ChatDropZone>
-    </AppCompanion>
-    );
-  };
+      )}
+      onSwitchProvider={newChat.start}
+      switchingProvider={newChat.isPending}
+    />
+  );
 
   const panelOpen = !!wb.view;
   const maximized = panelOpen && wb.maximized;

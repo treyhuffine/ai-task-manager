@@ -45,6 +45,7 @@ import { useHomeDocumentScope, useOptionalHomeContext } from '@/components/home/
 import { registerChatDraftWriter } from '@/lib/client/chat-drafts';
 import { registerAppChatComposer, type AppDraftPart } from '@/lib/client/app-chat-intent';
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import { composerTarget, isComposerElement, noteComposerFocus, registerComposer, subscribeComposers, type ComposerEntry } from './composer-focus';
 import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -214,6 +215,8 @@ export interface ChatInputEditorProps {
    * the user has to actually engage with the textarea.
    */
   onFocus?: () => void;
+  /** Whether ⌘I focuses this composer, as that changes (several can be on screen). */
+  onHotkeyTargetChange?: (isTarget: boolean) => void;
   className?: string;
   /**
    * Optional slash-command descriptors surfaced via `/`. When provided
@@ -395,6 +398,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       onBackspaceOnEmpty,
       onUploadError,
       onFocus,
+      onHotkeyTargetChange,
       className,
       slashCommands,
       mentionFiles,
@@ -974,26 +978,51 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       };
     }, [writeDraftSync]);
 
-    // Global hotkey focuses the chat input. Only one ChatInputEditor is
-    // ever mounted (orchestrator vs. executor views are mutually
-    // exclusive), so a window-level listener is unambiguous. Skip when
-    // focus is in another rich editor (note/task body) so the user's
-    // italic shortcut still works there — plain inputs/textareas don't
-    // bind Cmd+I, so it's safe to steal from those.
+    // Global hotkey focuses the chat input. More than one composer can be
+    // on screen (an agent's main chat with a chat beside it), so every
+    // composer registers and the first listener to see the key sends it to
+    // the one `composer-focus.ts` picks: the last focused while it still
+    // shows, else the first on screen. Skip when focus is in another rich
+    // editor (note/task body) so the user's italic shortcut still works
+    // there. Plain inputs/textareas don't bind Cmd+I, so it's safe to
+    // steal from those.
     useEffect(() => {
       if (!editor) return;
+      const entry: ComposerEntry = { el: editor.view.dom, focus: () => editor.chain().focus('end').run() };
+      const unregister = registerComposer(entry);
+      const onEditorFocus = () => noteComposerFocus(entry);
+      editor.on('focus', onEditorFocus);
       const handler = (e: KeyboardEvent) => {
-        if (!matchesHotkey(e, HOTKEYS.focusChatInput)) return;
+        if (e.defaultPrevented || !matchesHotkey(e, HOTKEYS.focusChatInput)) return;
         const target = e.target;
         if (target instanceof HTMLElement) {
           const ce = target.closest('[contenteditable="true"]');
-          if (ce && !editor.view.dom.contains(target)) return;
+          if (ce && !isComposerElement(ce)) return;
         }
+        const to = composerTarget();
+        if (!to) return;
         e.preventDefault();
-        editor.chain().focus('end').run();
+        to.focus();
       };
       window.addEventListener('keydown', handler);
-      return () => window.removeEventListener('keydown', handler);
+      return () => {
+        window.removeEventListener('keydown', handler);
+        editor.off('focus', onEditorFocus);
+        unregister();
+      };
+    }, [editor]);
+
+    // Tell the composer whether ⌘I comes here, for its "to focus" hint.
+    const onHotkeyTargetChangeRef = useRef(onHotkeyTargetChange);
+    useEffect(() => {
+      onHotkeyTargetChangeRef.current = onHotkeyTargetChange;
+    }, [onHotkeyTargetChange]);
+    useEffect(() => {
+      if (!editor) return;
+      const dom = editor.view.dom;
+      const update = () => onHotkeyTargetChangeRef.current?.(composerTarget()?.el === dom);
+      update();
+      return subscribeComposers(update);
     }, [editor]);
 
     useImperativeHandle(

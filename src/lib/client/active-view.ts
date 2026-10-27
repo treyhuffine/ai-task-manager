@@ -3,9 +3,10 @@ import { AGENT_TABS, type ActiveView, type AgentTab } from '@/types/dashboard';
 /**
  * Building, comparing and URL-encoding the dashboard's active view
  * (`ActiveView` in `src/types/dashboard.ts`). The URL is the canonical
- * owner: `?session=` for an execution, `?agent=` (plus `&tab=`) for an
- * agent's view, `?skill=` for a skill's builder, none of them for Home.
- * `session` wins if a URL somehow carries more than one, then `agent`.
+ * owner: `?session=` for an execution, `?agent=` (plus `&tab=`, and
+ * `&chat=` for a chat open beside its main chat) for an agent's view,
+ * `?skill=` for a skill's builder, none of them for Home. `session` wins
+ * if a URL somehow carries more than one, then `agent`.
  */
 
 export const HOME_VIEW: ActiveView = { kind: 'home' };
@@ -19,15 +20,24 @@ export const HOME_VIEW: ActiveView = { kind: 'home' };
  * the view as they opened, which closed them at once and reloaded the app.
  */
 const NATIVE_QUERY_KEYS = new Set([
-  'session', 'message', 'history', 'agent', 'tab', 'skill',
+  'session', 'message', 'history', 'agent', 'tab', 'chat', 'skill',
   'task', 'note', 'area',
   'board', 'boardFocus', 'calendar', 'settings', 'plugin',
 ]);
 
 export const executionView = (id: string, eventId?: string, history = false): ActiveView => ({ kind: 'execution', id, ...(eventId ? { eventId } : {}), ...(history ? { history: true } : {}) });
 
-export const agentView = (id: string, tab?: AgentTab): ActiveView =>
-  tab ? { kind: 'agent', id, tab } : { kind: 'agent', id };
+/**
+ * An agent's view, optionally on a tools tab, with `chat` open beside its
+ * main chat (docs/agents-view-spec.md, "Chats beside the agent"). `message`
+ * names one message in that chat, as a link to it does.
+ */
+export const agentView = (id: string, tab?: AgentTab, chat?: string, message?: string): ActiveView => ({
+  kind: 'agent',
+  id,
+  ...(tab ? { tab } : {}),
+  ...(chat ? { chat, ...(message ? { message } : {}) } : {}),
+});
 
 export const skillView = (ref: string): ActiveView => ({ kind: 'skill', ref });
 
@@ -47,7 +57,7 @@ export function viewFromSearchParams(params: Pick<URLSearchParams, 'get' | 'toSt
   const agent = params.get('agent');
   if (agent) {
     const tab = params.get('tab');
-    return agentView(agent, isAgentTab(tab) ? tab : undefined);
+    return agentView(agent, isAgentTab(tab) ? tab : undefined, params.get('chat') ?? undefined, params.get('message') ?? undefined);
   }
   const skill = params.get('skill');
   if (skill) return skillView(skill);
@@ -72,6 +82,7 @@ export function applyViewToSearchParams(params: URLSearchParams, view: ActiveVie
   params.delete('history');
   params.delete('agent');
   params.delete('tab');
+  params.delete('chat');
   params.delete('skill');
   if (view.kind === 'apps') {
     for(const [key,value] of Object.entries(view.query??{}))if(!NATIVE_QUERY_KEYS.has(key))params.set(key,value);
@@ -82,6 +93,10 @@ export function applyViewToSearchParams(params: URLSearchParams, view: ActiveVie
   if (view.kind === 'agent') {
     params.set('agent', view.id);
     if (view.tab) params.set('tab', view.tab);
+    if (view.chat) {
+      params.set('chat', view.chat);
+      if (view.message) params.set('message', view.message);
+    }
   }
   return params;
 }
@@ -96,7 +111,7 @@ export function viewKey(view: ActiveView): string {
     case 'execution':
       return `execution:${view.id}${view.eventId ? `:${view.eventId}` : ''}${view.history ? ':history' : ''}`;
     case 'agent':
-      return `agent:${view.id}:${view.tab ?? ''}`;
+      return `agent:${view.id}:${view.tab ?? ''}${view.chat ? `:chat:${view.chat}${view.message ? `:${view.message}` : ''}` : ''}`;
     case 'skill':
       return `skill:${view.ref}`;
   }

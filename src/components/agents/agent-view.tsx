@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { apiErrorStatus } from '@/lib/api/client';
 import { ChatLookupState, ChatRefreshBoundary } from '@/components/chat/chat-lookup-state';
 import {
@@ -10,7 +10,7 @@ import {
   type LayoutStorage,
   type PanelSize,
 } from 'react-resizable-panels';
-import { useWorkNavigation } from '@/contexts/work-context';
+import { WorkContext, useWorkActivity, useWorkNavigation, type WorkNavigation } from '@/contexts/work-context';
 import { useWorkspace } from '@/hooks/use-workspaces';
 import { useElementWidth } from '@/hooks/use-element-width';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -20,7 +20,11 @@ import { cn } from '@/lib/utils';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 import { AgentHeader } from './agent-header';
 import { AgentChatPanel } from './agent-chat-panel';
-import { AgentTools } from './agent-tools';
+import { AgentTools, type BesideChatTab } from './agent-tools';
+import { useMainChat } from '@/hooks/use-main-chat';
+import { useAgentChatPlace } from '@/lib/client/agent-chat-place';
+import { routeAgentChat } from '@/lib/client/agent-chat-routing';
+import { hasWorkbenchView } from '@/components/executions/workbench/view-request';
 import { useHomeStorageScope } from '@/components/home/home-context';
 import { homeStorageIdentity } from '@/lib/home/document-scope';
 import { useBesidePreview, useBesideRegion } from '@/components/chat-ui/artifacts/artifact-preview-provider';
@@ -39,7 +43,17 @@ import { PREVIEW_HOST_ATTRIBUTE } from '@/components/chat-ui/artifacts/artifact-
  * phone, a tablet, a squeezed window) it shows one pane at a time, chat
  * first, with a Chat / Tools switch in the header. Both panes stay mounted,
  * so switching keeps the chat's draft and a terminal's scrollback.
+ *
+ * A chat opened from inside the view (a link in the main chat, a row in
+ * Overview, a chat chip) opens in the tools as one more tab, beside the main
+ * chat, rather than leaving for its full view (docs/agents-view-spec.md,
+ * "Chats beside the agent"). That needs room for two panes and a URL that
+ * can say so (`onNavigate`), and it's a trial with a setting back to the
+ * full view (`agent-chat-place.ts`). Routing: `agent-chat-routing.ts`.
  */
+
+/** What's in front in the tools: a tool tab, the file beside, or the chat beside. */
+type Front = 'tool' | 'file' | 'chat';
 
 const CHAT_PANEL = 'agent-chat';
 const TOOLS_PANEL = 'agent-tools';
@@ -61,6 +75,8 @@ export function AgentView({
   onBack,
   assumeNarrow = false,
   chatSessionId,
+  besideChat = null,
+  onNavigate,
 }: {
   workspaceId: string;
   tab?: AgentTab;
@@ -70,14 +86,32 @@ export function AgentView({
   assumeNarrow?: boolean;
   /** An explicit saved conversation, independent of the agent's current main chat. */
   chatSessionId?: string;
+  /** The chat open beside the main chat (`&chat=`), and one message in it (`&message=`). */
+  besideChat?: { id: string; message?: string } | null;
+  /**
+   * Move within this agent's view: a tools tab, and the chat beside (null
+   * puts it away). Given where the URL can carry a chat beside (the
+   * personal dashboard). Without it, chats open in their full view.
+   */
+  onNavigate?: (tab: AgentTab | undefined, chat: { id: string; message?: string } | null) => void;
 }) {
   const [measureRef, width] = useElementWidth<HTMLDivElement>();
   const narrow = width === null ? assumeNarrow : width < NARROW_WIDTH;
   // A tab in the URL means the user asked for a tool, so narrow mode opens on it.
   const [pane, setPane] = useState<AgentPane>(() => (tab ? 'tools' : 'chat'));
   const { data: workspace, error, fetchStatus, refetch } = useWorkspace(workspaceId);
-  const { openAgent, goHome } = useWorkNavigation();
+  const navigation = useWorkNavigation();
+  const activity = useWorkActivity();
+  const { openAgent, goHome } = navigation;
   const storageId = homeStorageIdentity(workspaceId, useHomeStorageScope());
+
+  // The chat beside the main chat: where the view can keep one, there's
+  // room for two panes, and chats are set to open beside.
+  const { place } = useAgentChatPlace();
+  const besideId = onNavigate && place === 'beside' && !narrow ? besideChat?.id ?? null : null;
+  // The main chat is already on the left, so a link to it stays put.
+  const { data: currentMainChat } = useMainChat(workspaceId, !chatSessionId);
+  const mainChatId = chatSessionId ?? currentMainChat?.session?.id ?? null;
 
   // The tab in the URL wins. Without one, the agent reopens on the tab it
   // last showed. Read through useSyncExternalStore so the server render and
@@ -89,29 +123,56 @@ export function AgentView({
   );
   const activeTab = tab ?? lastTab;
 
-  // A file opened from the main chat shows in the tools as one more tab, in
-  // front until another tab is picked (here or through the URL). Narrow,
-  // with one pane at a time, files open large instead.
+  // A file or a chat opened from the main chat shows in the tools as one
+  // more tab, in front until another tab is picked (here or through the
+  // URL). Putting it away shows what it came forward over. Narrow, with one
+  // pane at a time, files open large and chats in their full view instead.
   const besideHost = `agent:${workspaceId}`;
   const besideFile = useBesidePreview(besideHost);
-  const [fileActive, setFileActive] = useState(false);
+  const [front, setFront] = useState<Front>(() => (besideId ? 'chat' : 'tool'));
+  const [under, setUnder] = useState<Front>('tool');
+  const bring = useCallback((next: Front) => {
+    if (front !== next) setUnder(front);
+    setFront(next);
+  }, [front]);
   const [shownTab, setShownTab] = useState(activeTab);
   if (shownTab !== activeTab) {
     setShownTab(activeTab);
-    setFileActive(false);
+    setFront('tool');
+    setUnder('tool');
   }
-  // Tools collapsed to make the chat full width open for a file, and fold
-  // away again when it closes, unless a tool was picked meanwhile.
-  const openedForFile = useRef(false);
+  // A chat arriving through the URL (Back, Forward, a reload) comes forward too.
+  const [shownChat, setShownChat] = useState(besideId);
+  if (shownChat !== besideId) {
+    setShownChat(besideId);
+    if (besideId) {
+      if (front !== 'chat') setUnder(front);
+      setFront('chat');
+    }
+  }
+  // What's actually in front: what was brought forward while it's still
+  // there, else what it covered, else the tool.
+  const has = (f: Front) => (f === 'file' ? !!besideFile : f === 'chat' ? !!besideId : true);
+  const shownFront: Front = has(front) ? front : front !== 'tool' && has(under) ? under : 'tool';
+  const fileActive = shownFront === 'file';
+  const chatActive = shownFront === 'chat';
+
+  // Tools collapsed to make the chat full width open for a file or a chat,
+  // and fold away again once both are put away, unless a tool was picked
+  // meanwhile.
+  const openedForBeside = useRef(false);
 
   const selectTab = useCallback(
     (next: AgentTab) => {
-      setFileActive(false);
-      openedForFile.current = false;
+      setFront('tool');
+      setUnder('tool');
+      openedForBeside.current = false;
       writeLastAgentTab(storageId, next);
-      openAgent(workspaceId, next, chatSessionId);
+      // Picking a tool keeps the chat beside as a tab behind it.
+      if (onNavigate) onNavigate(next, besideChat ? { id: besideChat.id } : null);
+      else openAgent(workspaceId, next, chatSessionId);
     },
-    [openAgent, workspaceId, storageId, chatSessionId],
+    [openAgent, onNavigate, besideChat, workspaceId, storageId, chatSessionId],
   );
 
   const [storage] = useState<LayoutStorage>(() => (typeof window === 'undefined' ? NOOP_STORAGE : window.localStorage));
@@ -122,27 +183,78 @@ export function AgentView({
   const toggleTools = useCallback(() => {
     const panel = toolsRef.current;
     if (!panel) return;
-    // Set by hand now, so closing the file leaves them as they are.
-    openedForFile.current = false;
+    // Set by hand now, so putting the file or chat away leaves them as they are.
+    openedForBeside.current = false;
     if (panel.isCollapsed()) panel.expand();
     else panel.collapse();
   }, [toolsRef]);
-
-  const showFile = useCallback(() => {
+  const expandForBeside = useCallback(() => {
     const panel = toolsRef.current;
     if (panel?.isCollapsed()) {
       panel.expand();
-      openedForFile.current = true;
+      openedForBeside.current = true;
     }
-    setFileActive(true);
   }, [toolsRef]);
+
+  const showFile = useCallback(() => {
+    expandForBeside();
+    bring('file');
+  }, [expandForBeside, bring]);
   useEffect(() => {
-    if (besideFile || !openedForFile.current) return;
-    openedForFile.current = false;
+    if (besideFile || besideId || !openedForBeside.current) return;
+    openedForBeside.current = false;
     toolsRef.current?.collapse();
-  }, [besideFile, toolsRef]);
+  }, [besideFile, besideId, toolsRef]);
   // A tool picked through the URL is a tool in use, as one picked here is.
-  useEffect(() => { openedForFile.current = false; }, [activeTab]);
+  useEffect(() => { openedForBeside.current = false; }, [activeTab]);
+
+  // ── The chat beside ────────────────────────────────────────────────
+  const openBeside = useCallback(
+    (id: string, message?: string) => {
+      onNavigate?.(tab, { id, message });
+      expandForBeside();
+      bring('chat');
+    },
+    [onNavigate, tab, expandForBeside, bring],
+  );
+  const closeBeside = useCallback(() => {
+    onNavigate?.(tab, null);
+    setFront((current) => (current === 'chat' ? under : current));
+    setUnder('tool');
+  }, [onNavigate, tab, under]);
+  const showChat = useCallback(() => bring('chat'), [bring]);
+  const openFull = useCallback((id: string) => navigation.openExecution(id), [navigation]);
+
+  // Everything inside the view (the main chat's links, Overview's rows,
+  // chips in either chat) opens chats through this, so they land beside.
+  const routed = useMemo<WorkNavigation>(() => {
+    if (!onNavigate) return navigation;
+    const route = (id: string) =>
+      routeAgentChat({ chatId: id, mainChatId, place, narrow, canKeepBeside: true, wantsWorkbench: hasWorkbenchView(id) });
+    return {
+      ...navigation,
+      openExecution: (id) => {
+        const where = route(id);
+        if (where === 'beside') openBeside(id);
+        else if (where === 'full') navigation.openExecution(id);
+      },
+      openLinkedChat: (id, eventId) => {
+        const where = route(id);
+        if (where === 'beside') openBeside(id, eventId);
+        else if (where === 'full') (navigation.openLinkedChat ?? navigation.openExecution)(id, eventId);
+      },
+      // This agent, from inside it: stay, keeping the chat beside.
+      openAgent: (id, nextTab, chatId) => {
+        if (id !== workspaceId || chatId) return navigation.openAgent(id, nextTab, chatId);
+        if (nextTab) selectTab(nextTab);
+      },
+    };
+  }, [navigation, onNavigate, mainChatId, place, narrow, openBeside, workspaceId, selectTab]);
+  // Overview marks the row of the chat beside, as the rail marks an open one.
+  const routedActivity = useMemo(
+    () => (besideId ? { ...activity, activeSessionId: besideId } : activity),
+    [activity, besideId],
+  );
 
   // The tools hotkey, as in an execution: shows or hides the tools panel, or
   // switches panes when there's room for one. Only the copy on screen listens
@@ -151,7 +263,7 @@ export function AgentView({
   useBesideRegion(besideHost, {
     available: onScreen && !narrow,
     side: 'right',
-    showing: onScreen && !narrow && !toolsCollapsed && fileActive && !!besideFile,
+    showing: onScreen && !narrow && !toolsCollapsed && fileActive,
     show: showFile,
   });
   useEffect(() => {
@@ -169,7 +281,9 @@ export function AgentView({
   // Measured in every state, so the layout is known before the agent loads.
   const frame = (children: React.ReactNode) => (
     <div ref={measureRef} className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
-      <ChatRefreshBoundary error={workspace ? error : null} retry={() => void refetch()}>{children}</ChatRefreshBoundary>
+      <WorkContext navigation={routed} activity={routedActivity}>
+        <ChatRefreshBoundary error={workspace ? error : null} retry={() => void refetch()}>{children}</ChatRefreshBoundary>
+      </WorkContext>
     </div>
   );
 
@@ -193,13 +307,17 @@ export function AgentView({
   }
 
   const chat = <AgentChatPanel key={workspace.id} workspace={workspace} sessionId={chatSessionId} />;
+  const chatTab: BesideChatTab | null = besideId
+    ? { id: besideId, active: chatActive, onShow: showChat, onClose: closeBeside, onOpenChat: openBeside, onOpenFull: openFull }
+    : null;
   const tools = (
     <AgentTools
       key={workspace.id}
       workspace={workspace}
       tab={activeTab}
       onSelectTab={selectTab}
-      file={narrow ? null : { host: besideHost, active: fileActive && !!besideFile, onShow: showFile }}
+      file={narrow ? null : { host: besideHost, active: fileActive, onShow: showFile }}
+      chat={chatTab}
     />
   );
 

@@ -1,7 +1,7 @@
 # Agents view: spec and task list
 
 **Status:** done 2026-09-22 (Phases 0 to 10). Written 2026-09-22. Follow-ups are in §7.
-**Current follow-up:** shared and agent-specific handoff preferences are implemented through [Handoff and review preferences](work-result-guidance.md). The dated phase evidence below remains historical.
+**Current follow-up:** shared and agent-specific handoff preferences are implemented through [Handoff and review preferences](work-result-guidance.md). Chats opened from the agent view open beside its main chat (§9, 2026-10-27). The dated phase evidence below remains historical.
 **How to use this doc:** it is the task list. Check a box (`- [x]`) when the work lands on `main`, and append the short commit hash when useful. Keep the "Done when" lines honest: a phase is done when every line under it is true, not when the code compiles. Record surprises inline under the task they affect.
 
 ---
@@ -394,7 +394,7 @@ One registry generates both surfaces, so every item lands on both.
   - A file opened from the main chat joins the strip as one more tab, in front until another tab is picked, with × to close it (docs/chat-sessions.md, "Files beside the chat"). Collapsed tools open for it and fold away again when it closes. In one-pane (narrow) mode files open large.
   - A tab stays mounted once visited, so a terminal keeps its scrollback. Inactive tabs are transparent and `inert`, not `visibility: hidden`: the terminal panel sets `visibility: visible` on its active terminal, which painted through the Overview (caught in the light screenshots).
 - [x] **Overview**
-  - Executions grouped with the rail's classification (`StatusView`): **Needs you** (approval and unread), **Working**, **Recent**. Rows show label, diff stats, harness and last activity. Clicking opens the execution view.
+  - Executions grouped with the rail's classification (`StatusView`): **Needs you** (approval and unread), **Working**, **Recent**. Rows show label, diff stats, harness and last activity. Clicking opens the execution view (since 2026-10-27, beside the main chat, §9).
   - **Pinned:** this agent's pinned executions.
   - **Tasks:** tasks linked to this agent's executions.
   - **Preview:** running or stopped, port, open link.
@@ -559,3 +559,40 @@ Found during the work and left open:
 | Reused view parts | `src/components/chat/harness-chat.tsx`, `src/components/executions/file-tree/`, `viewer/`, `execution-terminal-panel.tsx`, `preview/`, `execution-header.tsx` |
 | Trial preference | `src/lib/client/agent-view-mode.ts` (after the `entity-view-mode.ts` pattern), `src/components/settings/sections/general-section.tsx` |
 | Mobile | `src/components/mobile/mobile-layout.tsx`, `mobile-agents-view.tsx`, `tablet-layout.tsx`, `src/hooks/use-element-width.ts` |
+
+---
+
+## 9. Chats beside the agent (2026-10-27)
+
+**The problem.** The agent view is where you oversee an agent: its main chat starts and steers work, Overview lists that work. But every way of looking at the work left the view. A row in Overview, a chat chip, the "Sent to" card and the "Working with" bar in the main chat all navigated to the full execution view, which also collapses the rail. Checking on one chat meant losing the conversation that started it, then finding the way back. Oversight with no window onto the work.
+
+**What a click on a chat is for**, from the agent view, in order of how often: see where it stands and what it said, answer it (a question, an approval), steer it, then review what it produced. Rarely: work in it (files, terminal, preview). The first three need the conversation and its composer, live. Only the last needs the workbench. Data from the prod home (2026-10-27): 580 of 647 executions have one chat, and 25 of the 248 executions started in the last 30 days have more than one.
+
+**Decision: the chat opens in the tools panel, beside the main chat, as itself.**
+
+- **The chat, not the workbench, and not a preview.** It's the same chat column the execution view has (transcript, questions and approvals, background work, composer, review bar), now one component (`execution-chat-column.tsx`), so the conversation behaves the same in both places. A read-only preview would fail the most common reason to click, a chat waiting on you, and permission prompts belong to the person. The workbench stays out: its chat, panel and terminal drawer are three regions, and nesting them in a column beside another chat leaves nothing usable, while it already has a screen of its own one click away.
+- **Full view** in its header opens the workbench. Back returns to the agent with the chat still beside (the URL carries it). A file chip in the chat opens the full view on Files at that file, since the tree and viewer are the workbench's (`requestWorkbenchView` carries the path). Anything that asks the workbench for a tool (the archive dialog's Review asks for Changes) goes to the full view too (`hasWorkbenchView`).
+- **The git chip comes along** in the header, since it's where the work ends up (commit, push, open the PR, merge), and that is often what the main chat reports. Archiving from it puts the chat away instead of going Home.
+- **One chat at a time.** Opening another replaces it. Overview is the list, and the chat is the one you're looking at. When the execution has more than one chat, the header leads with the same All chats list the tab strip has (`ExecutionChatsMenu`). No tab strip, new chat, rename or reorder: that's managing an execution's chats, which is workbench work.
+- **A tab in the tools strip**, like a file beside the chat: after the tools and any file, with the chat's title, a dot for working, waiting or background, and an × to put it away. It's in front when it opens. Picking Overview or another tool keeps it as a tab behind, so a look at the list and back is two clicks, and its dot stays live. Overview marks its row. Putting it away shows whatever it came forward over, and its tooltip says the chat keeps going: putting it away never closes or archives anything ("Close chat" means archive elsewhere in the app, so the × doesn't use that wording).
+- **Collapsed tools open for it**, and fold away again once the chat and any file are put away, unless a tool was picked meanwhile (the file rule).
+- **Looking isn't resuming.** An archived chat shows its conversation with Continue, rather than resuming on sight as the full view does, since a link to an old chat is often just a look.
+- **Viewing is the read receipt**: the chat is marked read when its tab comes to the front and when a reply lands while it's in front.
+- **Links between chats** follow the same rule. A link to the agent's own main chat stays put (it's on the left). A link to another agent's chat or the app's main chat opens it beside too, named by whose it is.
+- **One pane at a time** (a phone, a narrow window, below the view's 820px) opens the full view, as before. A team's agent view does too, since its URL can't carry a chat beside yet.
+- **Ships as a trial**: Settings, General, Agents, "Opening a chat from an agent": Beside its main chat (default) or Full view (`ri.client.agentChatPlace`, `agent-chat-place.ts`).
+
+**Two composers on one screen.** ⌘I used to assume one composer, so with a chat beside it went to whichever registered last, which could be a chat hidden behind Overview. Now it goes to the composer last focused while that one is showing, otherwise the first on screen (`composer-focus.ts`), and only that composer shows the "⌘I to focus" hint. The hint also keeps a long placeholder from running under it. The chat beside has a short placeholder of its own, "Steer this chat".
+
+**URL.** `?agent=<id>&tab=<tab>&chat=<chatId>` and, from a link to one message, `&message=<eventId>`, which the transcript's linked-message card reads as it does for `?session=`. Moving within the agent view replaces the history entry, as switching tabs always has.
+
+**Compared with Claude's threads pane** (screenshots Trey shared 2026-10-27): the same shape, a list of threads (Waiting on you, Idle, Resolved) on the right, a thread opening in that pane with its own composer ("Steer this thread"), expand, and close. The differences are deliberate. Ri keeps the chat as a tab rather than a breadcrumb drill-in, because the right panel also holds Files, Terminal, Preview and Setup, and a tab lets you glance at Overview and back with the chat's live dot in view. Expand is a labeled "Full view", following the workbench's rule that a redundant word costs less than a wrong click.
+
+**Not done, on purpose:** the agent's main chat inside the full view (the reverse direction), several chats beside at once, prev and next between chats, and a chat beside on the phone.
+
+| Area | Files |
+|---|---|
+| Agent view | `src/components/agents/agent-view.tsx`, `agent-tools.tsx`, `agent-beside-chat.tsx`, `dashboard-agent-view.tsx` |
+| Routing and setting | `src/lib/client/agent-chat-routing.ts`, `agent-chat-place.ts`, `active-view.ts`, `src/types/dashboard.ts` |
+| Shared with the execution view | `src/components/executions/execution-chat-column.tsx`, `chat-status.tsx`, `execution-chat-tabs.tsx` (`ExecutionChatsMenu`), `workbench/view-request.ts` |
+| Composer focus | `src/components/chat/editor/composer-focus.ts`, `chat-input-editor.tsx`, `src/components/executions/execution-composer.tsx` |

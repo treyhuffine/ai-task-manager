@@ -114,7 +114,6 @@ export function ExecutionChatTabs({
 }) {
   const { openExecution } = useWorkNavigation();
   const qc = useQueryClient();
-  const [historyOpen, setHistoryOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [edges, setEdges] = useState<ScrollEdges>({ left: false, right: false });
   const updateEdges = useCallback(() => {
@@ -293,114 +292,13 @@ export function ExecutionChatTabs({
       {/* All chats leads the strip and never scrolls: overview first, then
           the open tabs, then + for a new one. New chat is also its first row,
           since the list is where you look for a chat before starting one. */}
-      <PopoverPrimitive.Root open={historyOpen} onOpenChange={setHistoryOpen}>
-        <PopoverPrimitive.Trigger asChild>
-          <Tip label={`All chats on this execution (${entries.length})`}>
-            <button
-              type="button"
-              aria-label="All chats"
-              className={cn(
-                'relative flex h-7 flex-shrink-0 items-center gap-1.5 rounded px-1.5 text-[11.5px] font-medium tabular-nums transition-colors',
-                historyOpen ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-              )}
-            >
-              <List size={12} />
-              <span>{entries.length}</span>
-              {hiddenUnread && (
-                <span aria-hidden className="absolute right-0.5 top-1 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
-              )}
-            </button>
-          </Tip>
-        </PopoverPrimitive.Trigger>
-        <PopoverPrimitive.Portal>
-          <PopoverPrimitive.Content
-            side="bottom"
-            align="start"
-            sideOffset={6}
-            collisionPadding={12}
-            className="z-50 max-h-[360px] w-[min(19rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl outline-none"
-          >
-            {onNewChat && (
-              <>
-                <button
-                  type="button"
-                  disabled={newChatPending}
-                  onClick={() => {
-                    setHistoryOpen(false);
-                    onNewChat();
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
-                >
-                  {newChatPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-                  New chat
-                  <span className="ml-auto text-[10.5px] font-normal text-muted-foreground/75">same worktree</span>
-                </button>
-                <div className="my-1 h-px bg-border" />
-              </>
-            )}
-            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-              All chats
-            </div>
-            {entries.map((s) => {
-              const unread = !s.isCurrent && isSessionUnread(s);
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => {
-                    if (!s.isCurrent) openExecution(s.id);
-                    setHistoryOpen(false);
-                  }}
-                  className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
-                    s.isCurrent ? 'bg-primary/10' : 'hover:bg-muted/50',
-                  )}
-                >
-                  <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                    <span className="flex w-full items-center gap-1.5">
-                      {unread && (
-                        <span aria-hidden className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
-                      )}
-                      <span
-                        className={cn(
-                          'min-w-0 flex-1 truncate text-[12px] text-foreground',
-                          unread ? 'font-semibold' : 'font-medium',
-                        )}
-                      >
-                        {s.label ?? 'Untitled chat'}
-                      </span>
-                      {s.running ? (
-                        <span
-                          aria-hidden
-                          className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"
-                        />
-                      ) : s.background ? (
-                        <Tip label={BACKGROUND_LABEL}>
-                          <span aria-label={BACKGROUND_LABEL} className={cn('h-1.5 w-1.5 flex-shrink-0', BACKGROUND_DOT)} />
-                        </Tip>
-                      ) : null}
-                    </span>
-                    <span className="text-[10.5px] text-muted-foreground/75">
-                      {s.isCurrent ? (
-                        'Current'
-                      ) : (
-                        <>
-                          {unread && <span className="text-primary">Unread · </span>}
-                          {s.status === 'archived' && 'Archived · '}
-                          {formatWhen(latestActivityAt(s) ?? s.startedAt)}
-                        </>
-                      )}
-                    </span>
-                  </span>
-                  {s.isCurrent && (
-                    <Check size={12} className="flex-shrink-0 text-primary" strokeWidth={3} />
-                  )}
-                </button>
-              );
-            })}
-          </PopoverPrimitive.Content>
-        </PopoverPrimitive.Portal>
-      </PopoverPrimitive.Root>
+      <ExecutionChatsMenu
+        entries={entries}
+        onOpen={openExecution}
+        onNewChat={onNewChat}
+        newChatPending={newChatPending}
+        unreadElsewhere={hiddenUnread}
+      />
 
       <span aria-hidden className="mx-1 h-4 w-px flex-shrink-0 bg-border" />
 
@@ -464,6 +362,143 @@ export function ExecutionChatTabs({
 interface ScrollEdges {
   left: boolean;
   right: boolean;
+}
+
+type ChatsMenuEntry = ExecutionChatHistoryEntry & { isCurrent: boolean };
+
+/**
+ * "All chats": the list button (count, and a dot for unread chats you
+ * can't already see) and its jump-list of every chat on the execution,
+ * open tabs included, current one marked, in hotness order. The tab strip
+ * leads with it, and a chat open beside an agent's main chat shows it when
+ * the execution has more than one chat. `onNewChat` adds New chat as its
+ * first row.
+ */
+export function ExecutionChatsMenu({
+  entries,
+  onOpen,
+  onNewChat,
+  newChatPending,
+  unreadElsewhere,
+}: {
+  entries: ChatsMenuEntry[];
+  onOpen: (chatId: string) => void;
+  onNewChat?: () => void;
+  newChatPending?: boolean;
+  /** Dot the button for an unread chat that isn't on screen some other way. */
+  unreadElsewhere: boolean;
+}) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+  return (
+    <PopoverPrimitive.Root open={historyOpen} onOpenChange={setHistoryOpen}>
+      <PopoverPrimitive.Trigger asChild>
+        <Tip label={`All chats on this execution (${entries.length})`}>
+          <button
+            type="button"
+            aria-label="All chats"
+            className={cn(
+              'relative flex h-7 flex-shrink-0 items-center gap-1.5 rounded px-1.5 text-[11.5px] font-medium tabular-nums transition-colors',
+              historyOpen ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+            )}
+          >
+            <List size={12} />
+            <span>{entries.length}</span>
+            {unreadElsewhere && (
+              <span aria-hidden className="absolute right-0.5 top-1 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
+            )}
+          </button>
+        </Tip>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          collisionPadding={12}
+          className="z-50 max-h-[360px] w-[min(19rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl outline-none"
+        >
+          {onNewChat && (
+            <>
+              <button
+                type="button"
+                disabled={newChatPending}
+                onClick={() => {
+                  setHistoryOpen(false);
+                  onNewChat();
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] font-medium text-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
+              >
+                {newChatPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                New chat
+                <span className="ml-auto text-[10.5px] font-normal text-muted-foreground/75">same worktree</span>
+              </button>
+              <div className="my-1 h-px bg-border" />
+            </>
+          )}
+          <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            All chats
+          </div>
+          {entries.map((s) => {
+            const unread = !s.isCurrent && isSessionUnread(s);
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => {
+                  if (!s.isCurrent) onOpen(s.id);
+                  setHistoryOpen(false);
+                }}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
+                  s.isCurrent ? 'bg-primary/10' : 'hover:bg-muted/50',
+                )}
+              >
+                <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                  <span className="flex w-full items-center gap-1.5">
+                    {unread && (
+                      <span aria-hidden className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
+                    )}
+                    <span
+                      className={cn(
+                        'min-w-0 flex-1 truncate text-[12px] text-foreground',
+                        unread ? 'font-semibold' : 'font-medium',
+                      )}
+                    >
+                      {s.label ?? 'Untitled chat'}
+                    </span>
+                    {s.running ? (
+                      <span
+                        aria-hidden
+                        className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500"
+                      />
+                    ) : s.background ? (
+                      <Tip label={BACKGROUND_LABEL}>
+                        <span aria-label={BACKGROUND_LABEL} className={cn('h-1.5 w-1.5 flex-shrink-0', BACKGROUND_DOT)} />
+                      </Tip>
+                    ) : null}
+                  </span>
+                  <span className="text-[10.5px] text-muted-foreground/75">
+                    {s.isCurrent ? (
+                      'Current'
+                    ) : (
+                      <>
+                        {unread && <span className="text-primary">Unread · </span>}
+                        {s.status === 'archived' && 'Archived · '}
+                        {formatWhen(latestActivityAt(s) ?? s.startedAt)}
+                      </>
+                    )}
+                  </span>
+                </span>
+                {s.isCurrent && (
+                  <Check size={12} className="flex-shrink-0 text-primary" strokeWidth={3} />
+                )}
+              </button>
+            );
+          })}
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  );
 }
 
 function readEdges(el: HTMLElement): ScrollEdges {

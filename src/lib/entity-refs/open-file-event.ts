@@ -17,11 +17,17 @@ const EVENT_NAME = 'ri:open-file';
 export interface OpenFileDetail {
   /** Absolute or worktree-relative path. */
   path: string;
+  /**
+   * The element clicked, when there is one. A listener that answers only
+   * for its own chat (one open beside an agent's main chat) checks it is
+   * inside. The execution view answers for every chip on screen.
+   */
+  origin?: Element | null;
 }
 
-export function dispatchOpenFile(path: string): void {
+export function dispatchOpenFile(path: string, origin?: Element | null): void {
   if (typeof window === 'undefined' || !path) return;
-  window.dispatchEvent(new CustomEvent<OpenFileDetail>(EVENT_NAME, { detail: { path } }));
+  window.dispatchEvent(new CustomEvent<OpenFileDetail>(EVENT_NAME, { detail: { path, origin } }));
 }
 
 export function useOpenFileListener(handler: (detail: OpenFileDetail) => void): void {

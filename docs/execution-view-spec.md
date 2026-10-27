@@ -37,7 +37,11 @@ preview of a running webapp, user-configurable sort orders.
 The chat owns the space. Tools open only when asked for, in one panel on
 the right, and the terminal is a drawer across the bottom. Code:
 `src/components/executions/execution-view.tsx` and
-`src/components/executions/workbench/`.
+`src/components/executions/workbench/`. The chat column itself
+(transcript, input region, composer) is `execution-chat-column.tsx`,
+shared with a chat opened beside an agent's main chat
+(docs/agents-view-spec.md §9), and the header's status line is
+`chat-status.tsx`.
 
 ```
 ┌──┬──────────────────────────────────────────────────────────────────────┐

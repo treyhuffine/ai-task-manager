@@ -70,7 +70,7 @@ export function FileChip({ path, diff, label, className }: FileChipProps) {
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        dispatchOpenFile(path);
+        dispatchOpenFile(path, e.currentTarget);
       }}
       className={cn(
         'inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background',

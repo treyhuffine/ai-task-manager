@@ -153,7 +153,7 @@ function MentionChipView({ node, editor, getPos, selected }: NodeViewProps) {
               ? (e) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  if (attrs.path) dispatchOpenFile(attrs.path)
+                  if (attrs.path) dispatchOpenFile(attrs.path, e.currentTarget)
                 }
               : undefined
           }

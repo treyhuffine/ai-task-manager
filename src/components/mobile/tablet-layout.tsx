@@ -4,7 +4,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { ContentPanel } from '@/components/dashboard/content-panel';
 import { PowerRail } from '@/components/dashboard/power-rail';
 import { ExecutionView } from '@/components/executions/execution-view';
-import { AgentView } from '@/components/agents/agent-view';
+import { DashboardAgentView } from '@/components/agents/dashboard-agent-view';
 import { AppsShell } from '@/components/local-apps/apps-shell';
 import { SkillView } from '@/components/skills/skill-view';
 
@@ -27,7 +27,7 @@ export function TabletLayout() {
         {activeView.kind === 'apps' ? (<AppsShell route={activeView.route}/>) : activeView.kind === 'execution' ? (
           <ExecutionView sessionId={activeView.id} />
         ) : activeView.kind === 'agent' ? (
-          <AgentView workspaceId={activeView.id} tab={activeView.tab} />
+          <DashboardAgentView view={activeView} />
         ) : activeView.kind === 'skill' ? (
           <SkillView skillRef={activeView.ref} />
         ) : (

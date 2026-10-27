@@ -8,7 +8,7 @@ import { TopHud } from './top-hud';
 import { PowerRail } from './power-rail';
 import { PanelLayout } from './panel-layout';
 import { ExecutionView } from '@/components/executions/execution-view';
-import { AgentView } from '@/components/agents/agent-view';
+import { DashboardAgentView } from '@/components/agents/dashboard-agent-view';
 import { AppsShell } from '@/components/local-apps/apps-shell';
 import { SkillView } from '@/components/skills/skill-view';
 import { FocusView } from './focus-view';
@@ -151,7 +151,7 @@ function DashboardShell() {
             {activeView.kind === 'apps' ? (<AppsShell route={activeView.route}/>) : activeView.kind === 'execution' ? (
               <ExecutionView sessionId={activeView.id} />
             ) : activeView.kind === 'agent' ? (
-              <AgentView workspaceId={activeView.id} tab={activeView.tab} />
+              <DashboardAgentView view={activeView} />
             ) : activeView.kind === 'skill' ? (
               <SkillView skillRef={activeView.ref} />
             ) : (

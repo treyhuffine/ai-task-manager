@@ -220,6 +220,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const [modeMenuOpen, setModeMenuOpen] = useState(false);
     const [modelMenuOpen, setModelMenuOpen] = useState(false);
     const [editorFocused, setEditorFocused] = useState(false);
+    // Whether ⌘I comes to this composer, when there's more than one on screen.
+    const [hotkeyTarget, setHotkeyTarget] = useState(true);
     const editorRef = useRef<ChatInputEditorHandle | null>(null);
 
     // Expose a narrow imperative surface — just enough for the file tree
@@ -665,6 +667,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   : null;
     const statusIsError = !!voice.error;
 
+    // The "⌘I to focus" nudge: an empty, idle composer that ⌘I would reach.
+    const showFocusHint = !voice.isRecording && !disabled && !hasContent && !editorFocused && hotkeyTarget;
     return (
       <div className="flex-shrink-0" onKeyDown={handleKeyDown}>
         {/* No top padding: a band of solid background above the card would
@@ -683,7 +687,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
               second callback through ChatInputEditor. */}
             <AppContextStrip groups={contextGroups} onRemove={(viewId) => contextGroups.find(group => group.viewId === viewId)?.remove()} />
             <div
-              className="relative"
+              // The placeholder wraps short of the hint rather than under it.
+              className={cn('relative', showFocusHint && 'sm:[&_.ProseMirror_p.is-editor-empty:first-child]:pr-20')}
               onFocus={() => setEditorFocused(true)}
               onBlur={() => setEditorFocused(false)}
             >
@@ -721,6 +726,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   submitOnEnter={submitOnEnter}
                   onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
                   onFocus={handleEditorFocus}
+                  onHotkeyTargetChange={setHotkeyTarget}
                   slashCommands={slashCommandsQuery.data?.commands}
                   mentionFiles={mentionFiles}
                   mentionReferenceFolders={mentionReferenceFolders}
@@ -734,7 +740,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
               )}
               {/* Floating focus hint — only when the editor is the empty
                 "placeholder" state, mirroring the placeholder's tone. */}
-              {!voice.isRecording && !disabled && !hasContent && !editorFocused && (
+              {showFocusHint && (
                 <span className="pointer-events-none absolute top-1.5 right-2.5 hidden sm:flex items-center gap-1 text-[10px] text-muted-foreground/50">
                   <kbd className="px-1 py-0.5 bg-muted/60 rounded text-[9px] font-sans">
                     {HOTKEYS.focusChatInput.label}

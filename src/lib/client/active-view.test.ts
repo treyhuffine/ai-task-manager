@@ -30,6 +30,15 @@ describe('viewFromSearchParams', () => {
     expect(viewFromSearchParams(params('agent=ws-1&tab=nope'))).toEqual({ kind: 'agent', id: 'ws-1' });
   });
 
+  it('reads a chat open beside the agent’s main chat, and one message in it', () => {
+    expect(viewFromSearchParams(params('agent=ws-1&chat=c-1'))).toEqual({ kind: 'agent', id: 'ws-1', chat: 'c-1' });
+    expect(viewFromSearchParams(params('agent=ws-1&tab=files&chat=c-1&message=e-1'))).toEqual({
+      kind: 'agent', id: 'ws-1', tab: 'files', chat: 'c-1', message: 'e-1',
+    });
+    // A message means one in the chat beside, so without a chat it means nothing.
+    expect(viewFromSearchParams(params('agent=ws-1&message=e-1'))).toEqual({ kind: 'agent', id: 'ws-1' });
+  });
+
   it('lets session win when a URL carries both', () => {
     expect(viewFromSearchParams(params('agent=ws-1&session=s-1'))).toEqual({ kind: 'execution', id: 's-1' });
   });
@@ -37,7 +46,7 @@ describe('viewFromSearchParams', () => {
 
 describe('applyViewToSearchParams', () => {
   it('round-trips every view and keeps unrelated params', () => {
-    for (const view of [HOME_VIEW, agentView('ws-1'), agentView('ws-1', 'setup'), executionView('s-1')]) {
+    for (const view of [HOME_VIEW, agentView('ws-1'), agentView('ws-1', 'setup'), agentView('ws-1', undefined, 'c-1'), agentView('ws-1', 'files', 'c-1', 'e-1'), executionView('s-1')]) {
       const out = applyViewToSearchParams(params('session=old&agent=old&tab=files&task=t-1'), view);
       expect(viewFromSearchParams(out)).toEqual(view);
       expect(out.get('task')).toBe('t-1');
@@ -47,6 +56,14 @@ describe('applyViewToSearchParams', () => {
   it('clears the tab when the new view has none', () => {
     const out = applyViewToSearchParams(params('agent=ws-1&tab=files'), agentView('ws-2'));
     expect(out.toString()).toBe('agent=ws-2');
+  });
+
+  it('puts the chat beside away, with its message, and drops both when leaving the agent', () => {
+    const beside = applyViewToSearchParams(params('agent=ws-1&tab=files'), agentView('ws-1', 'files', 'c-1', 'e-1'));
+    expect(beside.toString()).toBe('agent=ws-1&tab=files&chat=c-1&message=e-1');
+    expect(applyViewToSearchParams(new URLSearchParams(beside), agentView('ws-1', 'files')).toString()).toBe('agent=ws-1&tab=files');
+    expect(applyViewToSearchParams(new URLSearchParams(beside), executionView('c-1')).toString()).toBe('session=c-1');
+    expect(viewHref(agentView('ws-1', undefined, 'c-1'))).toBe('/?agent=ws-1&chat=c-1');
   });
   it('preserves native entity links while replacing and then clearing app query state',()=>{
     const app={kind:'apps' as const,route:'finance',query:{filter:'dining'}};
@@ -90,6 +107,9 @@ describe('comparing views', () => {
     expect(sameView(agentView('ws-1'), agentView('ws-1', 'overview'))).toBe(false);
     expect(sameView(executionView('x'), agentView('x'))).toBe(false);
     expect(new Set([viewKey(HOME_VIEW), viewKey(executionView('x')), viewKey(agentView('x'))]).size).toBe(3);
+    expect(sameView(agentView('ws-1', undefined, 'c-1'), agentView('ws-1'))).toBe(false);
+    expect(sameView(agentView('ws-1', undefined, 'c-1'), agentView('ws-1', undefined, 'c-2'))).toBe(false);
+    expect(sameView(agentView('ws-1', 'files', 'c-1'), { kind: 'agent', id: 'ws-1', tab: 'files', chat: 'c-1' })).toBe(true);
   });
 
   it('names the session or agent on screen', () => {

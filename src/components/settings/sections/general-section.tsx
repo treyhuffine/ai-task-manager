@@ -25,6 +25,7 @@ import { useTranscriptDensity, type TranscriptDensity } from '@/lib/client/trans
 import { useDeviceLabelMode, type DeviceLabelMode } from '@/lib/client/device-label-mode';
 import { useEntityViewMode, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { useAgentViewMode, type AgentViewMode } from '@/lib/client/agent-view-mode';
+import { useAgentChatPlace, type AgentChatPlace } from '@/lib/client/agent-chat-place';
 import { useRailStyle, type RailStyle } from '@/lib/client/rail-style';
 import { useInactivity, useSetInactiveAfterDays } from '@/hooks/use-inactivity';
 import { DEFAULT_INACTIVE_AFTER_DAYS, formatInactiveAfter, INACTIVE_AFTER_PRESETS } from '@/lib/sessions/inactive';
@@ -120,6 +121,7 @@ export function GeneralSection() {
   const { mode: deviceLabelMode, setMode: setDeviceLabelMode } = useDeviceLabelMode();
   const { mode: entityViewMode, setMode: setEntityViewMode } = useEntityViewMode();
   const { mode: agentViewMode, setMode: setAgentViewMode } = useAgentViewMode();
+  const { place: agentChatPlace, setPlace: setAgentChatPlace } = useAgentChatPlace();
   const { style: railStyle, setStyle: setRailStyle } = useRailStyle();
 
   return (
@@ -325,6 +327,22 @@ export function GeneralSection() {
             {agentViewMode === 'view'
               ? "Clicking an agent's name in the rail opens its view: its main chat on the left, its work and tools on the right. The chevron still folds its list. Switch back here at any time."
               : "Clicking an agent's name in the rail folds or unfolds its list of chats."}
+          </p>
+          <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
+            <span className="text-sm text-foreground">Opening a chat from an agent</span>
+            <select
+              value={agentChatPlace}
+              onChange={(e) => setAgentChatPlace(e.target.value as AgentChatPlace)}
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="beside">Beside its main chat (trial)</option>
+              <option value="full">Full view</option>
+            </select>
+          </div>
+          <p className="text-[11px] text-muted-foreground/85">
+            {agentChatPlace === 'beside'
+              ? "A chat you open from an agent's view (a link in its main chat, a row in Overview) opens on the right as one more tab, so you can read and answer it next to the main chat. Full view is one click away for its files, preview and terminal."
+              : "A chat you open from an agent's view leaves the agent for that chat's full view, with its files, preview and terminal."}
           </p>
           <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
             <span className="text-sm text-foreground">Agents in the rail</span>

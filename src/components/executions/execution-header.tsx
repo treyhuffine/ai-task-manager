@@ -1,14 +1,13 @@
 'use client';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { BACKGROUND_DOT } from '@/components/workspaces/activity-style';
 import { HOTKEYS } from '@/constants/commands';
 import { Kbd } from '@/components/ui/kbd';
-import { useWorkNavigation, useWorkActivity } from '@/contexts/work-context';
+import { useWorkNavigation } from '@/contexts/work-context';
 import type { WorkspaceRecord } from '@/db/types';
 import { useArchiveExecution } from '@/hooks/use-archive-execution';
-import { useDevice, useRunsOnSeveralDevices } from '@/hooks/use-devices';
-import { useDeliveries, useLastTurnEndedAt, useUpdateSession } from '@/hooks/use-execution';
+import { useRunsOnSeveralDevices } from '@/hooks/use-devices';
+import { useUpdateSession } from '@/hooks/use-execution';
 import { useOpenablePr } from '@/hooks/use-execution-actions';
 import { useOpener } from '@/hooks/use-opener';
 import { useMarkSessionRead, useMarkSessionUnread, usePinSession, useUnpinSession } from '@/hooks/use-workspaces';
@@ -21,18 +20,16 @@ import { locationLabel, preparedFolder } from '@/lib/executions/location';
 import { sessionFolder } from '@/lib/folders/source';
 import { harnessDefinition, isKnownHarnessId, resumeCommandForHarness } from '@/lib/harness/registry';
 import { cn } from '@/lib/utils';
-import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { Archive, ArrowUpRight, Check, ChevronLeft, Copy, Eye, EyeOff, FolderOpen, Loader2, MoreHorizontal, Pin, PinOff, Rows3, SquareArrowOutUpRight, Zap } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
-import { deriveExecutionHeaderStatus, describeChatStatus, type ChatStatusTone } from './execution-header-status';
+import { ChatStatusText, useChatStatus } from './chat-status';
 import { ExecutionTaskChips } from './execution-task-chips';
 import { RestartMenuItem } from './restart-menu-item';
 import { ResyncMenuItem } from './resync-menu-item';
-import { useSteadyRunning } from './steady-running';
 import { LocationMenu, MoveActions } from './transfer/location-menu';
 import { Tip } from '@/components/ui/tip';
 import { CoordinationSettings } from '@/components/chat-ui/coordination/controls';
@@ -62,33 +59,6 @@ interface ExecutionHeaderProps {
   toolsBadgeClass?: string | null;
 }
 
-const TONE_DOT: Record<ChatStatusTone, string> = {
-  green: 'bg-emerald-500',
-  amber: 'bg-amber-500',
-  rose: 'bg-rose-500',
-  blue: 'bg-blue-500',
-  sky: BACKGROUND_DOT,
-  muted: 'bg-transparent ring-[1.5px] ring-inset ring-muted-foreground/60',
-};
-
-const TONE_TEXT: Record<ChatStatusTone, string> = {
-  green: 'text-muted-foreground',
-  amber: 'text-amber-700 dark:text-amber-400',
-  rose: 'text-rose-700 dark:text-rose-400',
-  blue: 'text-muted-foreground',
-  sky: 'text-muted-foreground',
-  muted: 'text-muted-foreground',
-};
-
-/** Re-render on an interval so "Finished 5m ago" stays true. */
-function useMinuteTick() {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 30_000);
-    return () => window.clearInterval(id);
-  }, []);
-}
-
 /**
  * The execution's header. Desktop: the agent and title, the selected chat's
  * status in words, the menu, then the labeled Terminal and Tools toggles
@@ -110,14 +80,12 @@ export function ExecutionHeader({
   toolsBadgeClass,
 }: ExecutionHeaderProps) {
   const { openAgent, goHome } = useWorkNavigation();
-  const { pendingInputSessionIds } = useWorkActivity();
   const { archive } = useArchiveExecution();
   const updateSession = useUpdateSession();
   const markRead = useMarkSessionRead();
   const markUnread = useMarkSessionUnread();
   const pin = usePinSession();
   const unpin = useUnpinSession();
-  useMinuteTick();
 
   // Inline rename: click the label → swap to input. Enter / blur saves
   // via PATCH /api/sessions/:id; Escape cancels. The local draft holds
@@ -170,15 +138,7 @@ export function ExecutionHeader({
     setDraft(displayLabel ?? '');
   };
 
-  const lastTurnEndedAt = useLastTurnEndedAt(session.id);
-  const isPending = pendingInputSessionIds.has(session.id);
   const isArchived = session.status === 'archived';
-  const isSetupFailed = !!session.setupError;
-  // Mirror ExecutionView's derivation: git workspace whose session
-  // hasn't been provisioned yet. setupError wins (separate state) so
-  // we don't render "setting up" forever on a failed provision.
-  const isSettingUp =
-    !!workspace && workspace.isGit === true && !preparedFolder(session) && !isSetupFailed;
   // Which device it runs on, by name (P3.1): the exception only. Work on
   // the home is unlabeled unless this browser asked to always show it.
   const severalDevices = useRunsOnSeveralDevices();
@@ -187,54 +147,9 @@ export function ExecutionHeader({
   // The chip opens the moves this screen can make (P4.2).
   const locationChip = where ? <LocationMenu session={session} workspace={workspace} name={where} /> : null;
 
-  // Away from the home, what its device is doing shapes the status: a
-  // message waiting for it, or a turn under way when it lost contact (P3.2).
-  const remote = session.location && !session.location.isHome ? session.location : null;
-  const device = useDevice(remote?.deviceId);
-  const { data: deliveries } = useDeliveries(remote ? session.id : null);
-  const elsewhere = remote
-    ? {
-        // Until the list loads, assume connected rather than claim it dropped.
-        connected: device?.worker?.connected ?? true,
-        asleep: device?.worker?.reportedState === 'asleep',
-        waiting: Object.values(deliveries ?? {}).some((d) => d.state === 'waiting'),
-      }
-    : null;
-
-  // Whichever knows first that a turn ended: the session, or its transcript here.
-  const lastOutcomeEventAt = [session.lastOutcomeEventAt, lastTurnEndedAt].filter(Boolean).sort().at(-1) ?? null;
-  const steadyRunning = useSteadyRunning(isRunning, lastOutcomeEventAt);
-  const statusKind = deriveExecutionHeaderStatus({
-    isArchived,
-    isSetupFailed,
-    isSettingUp,
-    isPending,
-    isRunning: steadyRunning,
-    hasBackgroundTasks,
-    lastOutcomeEventAt,
-    lastViewedAt: session.lastViewedAt,
-    elsewhere,
-  });
-  // The selected chat's status in words. Status is text with a dot: no
-  // border, no hover, so it never reads as a button.
-  const chatStatus = describeChatStatus(
-    statusKind,
-    lastOutcomeEventAt,
-    formatCompactRelative,
-    remote ? { name: remote.name, lastSeenAt: device?.lastSeenAt ?? null } : null,
-  );
-  const statusEl = (
-    <Tip label={chatStatus.title}>
-      <span
-        aria-label={`Status: ${chatStatus.label}${chatStatus.detail ? `, ${chatStatus.detail}` : ''}`}
-        className={cn('inline-flex min-w-0 cursor-default items-center gap-1.5 whitespace-nowrap text-[12px]', TONE_TEXT[chatStatus.tone])}
-      >
-        <span aria-hidden className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', TONE_DOT[chatStatus.tone], chatStatus.pulse && 'animate-pulse')} />
-        <span>{chatStatus.label}</span>
-        {chatStatus.detail && <span className="truncate text-muted-foreground/80">· {chatStatus.detail}</span>}
-      </span>
-    </Tip>
-  );
+  // The selected chat's status in words.
+  const chatStatus = useChatStatus({ session, workspace, isRunning, hasBackgroundTasks });
+  const statusEl = <ChatStatusText status={chatStatus} />;
 
   const handleArchive = () => {
     void archive({
