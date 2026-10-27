@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CANARY_DIR, memoryLimitBytes, reservedBytes, runWithMemoryLimit, tracesListingCanary, treeResidentBytes } from './next-build.mjs';
+import { CANARY_DIR, DEFAULT_MEMORY_LIMIT_GB, memoryLimitBytes, reservedBytes, runWithMemoryLimit, TRACED_SOURCE_ALLOWED, tracedSourceFiles, tracesListingCanary, treeResidentBytes } from './next-build.mjs';
 
 const GB = 2 ** 30;
 const temporary: string[] = [];
@@ -34,12 +34,13 @@ describe('reservedBytes', () => {
 });
 
 describe('memoryLimitBytes', () => {
-  it('defaults to this computer’s memory and takes a limit in GB, or 0 for none', () => {
-    expect(memoryLimitBytes({}, 32 * GB)).toBe(32 * GB);
-    expect(memoryLimitBytes({ RI_BUILD_MEMORY_LIMIT_GB: '12.5' }, 32 * GB)).toBe(12.5 * GB);
-    expect(memoryLimitBytes({ RI_BUILD_MEMORY_LIMIT_GB: '0' }, 32 * GB)).toBe(0);
-    expect(memoryLimitBytes({ RI_BUILD_MEMORY_LIMIT_GB: ' ' }, 32 * GB)).toBe(32 * GB);
-    expect(() => memoryLimitBytes({ RI_BUILD_MEMORY_LIMIT_GB: 'lots' }, 32 * GB)).toThrow(/number of GB/);
+  it('defaults to 64 GB and takes a limit in GB, or 0 for none', () => {
+    expect(DEFAULT_MEMORY_LIMIT_GB).toBe(64);
+    expect(memoryLimitBytes({})).toBe(64 * GB);
+    expect(memoryLimitBytes({ RI_BUILD_MEMORY_LIMIT_GB: '12.5' })).toBe(12.5 * GB);
+    expect(memoryLimitBytes({ RI_BUILD_MEMORY_LIMIT_GB: '0' })).toBe(0);
+    expect(memoryLimitBytes({ RI_BUILD_MEMORY_LIMIT_GB: ' ' })).toBe(64 * GB);
+    expect(() => memoryLimitBytes({ RI_BUILD_MEMORY_LIMIT_GB: 'lots' })).toThrow(/number of GB/);
   });
 });
 
@@ -64,6 +65,27 @@ describe('tracesListingCanary', () => {
 
   it('ships canaries for the shapes that sweep a full checkout', () => {
     expect(fs.readdirSync(CANARY_DIR).sort()).toEqual(['trace-canary', 'trace-canary.js', 'trace-canary.json', 'trace-canary.md', 'trace-canary.ts', 'trace-canary.txt']);
+  });
+});
+
+describe('tracedSourceFiles', () => {
+  it('counts the source and docs files traces list, but not dependencies, build output or allowed files', () => {
+    const repo = tempDir();
+    const dist = path.join(repo, '.next');
+    const trace = (file: string, listed: string[]) => {
+      const at = path.join(dist, file);
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      fs.writeFileSync(at, JSON.stringify({ version: 1, files: listed.map(f => path.relative(path.dirname(at), path.join(repo, f))) }));
+    };
+    trace('server/app/api/a/route.js.nft.json', ['src/lib/sessions/chat.ts', 'docs/plan.md', 'node_modules/x/index.js', 'src/lib/db/schema.ts', 'drizzle/meta/_journal.json']);
+    trace('server/app/api/b/route.js.nft.json', ['src/lib/sessions/chat.ts', '.next/server/chunks/a.js', 'srcfoo/x.ts']);
+    trace('cache/old.js.nft.json', ['src/lib/other.ts']);
+    expect(tracedSourceFiles(dist, repo, ['src/lib/db/schema.ts'])).toEqual(new Map([['src/lib/sessions/chat.ts', 2], ['docs/plan.md', 1]]));
+  });
+
+  it('allows only files the server really reads', () => {
+    expect(TRACED_SOURCE_ALLOWED).toEqual(['src/lib/db/schema.ts']);
+    expect(fs.readFileSync(path.resolve(__dirname, '../src/lib/orchestrator/registry.ts'), 'utf8')).toContain("require.resolve('@/lib/db/schema')");
   });
 });
 

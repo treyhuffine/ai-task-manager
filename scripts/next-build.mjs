@@ -9,16 +9,17 @@
  * before the build could name the line. So the build runs under a memory
  * limit, and afterwards it fails if any server trace lists the canary files in
  * scripts/trace-canary, which no code reads. A pattern that matches every file
- * in the checkout, or every file with a common extension, lists them too.
+ * in the checkout, or every file with a common extension, lists them too. It
+ * also fails on a narrower pattern, one that lists a source or docs file
+ * because a runtime folder was joined to a name a checkout folder shares.
  *
  *   node scripts/next-build.mjs [next build options]
  *
- * RI_BUILD_MEMORY_LIMIT_GB sets the limit (default: this computer's memory,
- * 0 turns it off). A failed memory sample never stops a build.
+ * RI_BUILD_MEMORY_LIMIT_GB sets the limit (default 64 GB, 0 turns it off). A
+ * failed memory sample never stops a build.
  */
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -84,15 +85,18 @@ async function sampleMemory(root, baseline) {
   return treeResidentBytes(stdout, root) + Math.max(0, reserved - baseline);
 }
 
+/** A healthy build peaks near 15 GB, and a runaway passes 150 GB. */
+export const DEFAULT_MEMORY_LIMIT_GB = 64;
+
 /** @param {Record<string, string | undefined>} env */
-export function memoryLimitBytes(env = process.env, totalMemory = os.totalmem()) {
+export function memoryLimitBytes(env = process.env) {
   const configured = env.RI_BUILD_MEMORY_LIMIT_GB;
   if (configured !== undefined && configured.trim() !== '') {
     const gb = Number(configured);
     if (!Number.isFinite(gb) || gb < 0) throw new Error(`RI_BUILD_MEMORY_LIMIT_GB must be a number of GB, or 0 for no limit. It is "${configured}".`);
     return gb * GB;
   }
-  return totalMemory;
+  return DEFAULT_MEMORY_LIMIT_GB * GB;
 }
 
 /**
@@ -164,6 +168,44 @@ export function tracesListingCanary(distDir, canaryDir = CANARY_DIR) {
   return swept.sort();
 }
 
+/** Source files the server really reads at runtime, so a server trace may list them. */
+export const TRACED_SOURCE_ALLOWED = [
+  // describe_schema returns the schema's source, read through require.resolve.
+  'src/lib/db/schema.ts',
+];
+
+/**
+ * Files under src/ or docs/ that server traces list, with how many traces
+ * list each. The server bundles its source and never reads docs, so a listed
+ * file means a path built from a runtime folder matched one with the same
+ * name in the checkout.
+ * @param {string} distDir @param {string} repoDir @param {string[]} allowed
+ * @returns {Map<string, number>}
+ */
+export function tracedSourceFiles(distDir, repoDir = repo, allowed = TRACED_SOURCE_ALLOWED) {
+  const root = path.resolve(repoDir) + path.sep;
+  /** @type {Map<string, number>} */
+  const found = new Map();
+  /** @param {string} dir */
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (entry.name !== 'cache') walk(file); continue; }
+      if (!entry.name.endsWith('.nft.json')) continue;
+      const { files = [] } = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const listed of /** @type {string[]} */ (files)) {
+        const absolute = path.resolve(dir, listed);
+        if (!absolute.startsWith(root)) continue;
+        const relative = absolute.slice(root.length).split(path.sep).join('/');
+        if (!/^(src|docs)\//.test(relative) || allowed.includes(relative)) continue;
+        found.set(relative, (found.get(relative) ?? 0) + 1);
+      }
+    }
+  };
+  walk(distDir);
+  return found;
+}
+
 async function main() {
   const limit = memoryLimitBytes();
   const distDir = path.resolve(process.env.NEXT_DIST_DIR || '.next');
@@ -187,6 +229,15 @@ async function main() {
     if (swept.length > 8) console.error(`  and ${swept.length - 8} more`);
     console.error('Some fs, path or spawn call in server code matches every file in the checkout. In a full checkout that');
     console.error('takes the build past 100 GB. "Traced paths" in AGENTS.md says how to find and mark it.');
+    process.exit(1);
+  }
+  const source = [...tracedSourceFiles(distDir)].sort((a, b) => b[1] - a[1]);
+  if (source.length) {
+    console.error(`\nServer traces list ${source.length} source or docs files the server never reads:`);
+    for (const [file, count] of source.slice(0, 12)) console.error(`  ${file} (${count} traces)`);
+    if (source.length > 12) console.error(`  and ${source.length - 12} more`);
+    console.error('A path built from a runtime folder matches files of the same name in the checkout. Mark the fs, path.join or');
+    console.error('path.resolve call ("Traced paths" in AGENTS.md). A file the server really reads goes in TRACED_SOURCE_ALLOWED here.');
     process.exit(1);
   }
   console.info(`Build memory peaked at ${result.peak ? formatGb(result.peak) : 'an unmeasured amount'}${limit ? ` of the ${formatGb(limit)} limit` : ''}. No server trace sweeps the checkout.`);
