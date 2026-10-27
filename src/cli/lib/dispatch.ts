@@ -34,8 +34,8 @@ export async function dispatchAction(name: string, input: unknown): Promise<Disp
       const body = await response.json().catch(() => null) as DispatchEnvelope | { error?: string; message?: string } | null;
       if (body && 'ok' in body) return body;
       const unauthorized = response.status === 401 || response.status === 403;
-      return { ok: false, action: name, error: { code: unauthorized ? 'unsupported' : body?.error ?? 'invalid_params', message: unauthorized ? 'This Team Home no longer authorizes this session action.' : body?.message ?? `The Team Home returned HTTP ${response.status}.` } };
-    } catch (error) { return { ok: false, action: name, error: { code: 'unreachable', message: error instanceof Error ? error.message : 'The Team Home is unavailable.' } }; }
+      return { ok: false, action: name, error: { code: unauthorized ? 'unsupported' : body?.error ?? 'invalid_params', message: unauthorized ? 'The team no longer authorizes this session action.' : body?.message ?? `The team server returned HTTP ${response.status}.` } };
+    } catch (error) { return { ok: false, action: name, error: { code: 'unreachable', message: error instanceof Error ? error.message : 'The team server is unavailable.' } }; }
   }
   if (getInstallationRole() === 'connected') return runActionAtHome(name, input);
   // From a harness session's shell, its signed credential names the chat that
@@ -47,7 +47,7 @@ export async function dispatchAction(name: string, input: unknown): Promise<Disp
 export async function runActionAtHome(name: string, input: unknown): Promise<DispatchEnvelope> {
   const connection = readConnection();
   if (!connection) {
-    return { ok: false, action: name, error: { code: 'not_connected', message: 'This device is not connected to a home.' } };
+    return { ok: false, action: name, error: { code: 'not_connected', message: 'This device is not connected to a Ri.' } };
   }
   const credential = process.env[SESSION_CREDENTIAL_ENV];
   try {

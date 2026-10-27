@@ -60,7 +60,7 @@ it('never discovers host/global or coincidentally local project skills and refus
   fs.symlinkSync(host, path.join(fixture.home.root, 'skill-drafts/safe-skill/references'));
   await expect(owner.skills.RefPut.mutate({ params: { ref: valid.skill.ref }, body: { files: [{ path: 'references/private.md', content: 'Unauthorized overwrite' }], baseHash: valid.skill.hash } })).rejects.toThrow(/symbolic links/);
   fs.rmSync(library, { recursive: true }); fs.symlinkSync(path.join(host, '.claude/skills'), library);
-  await expect(owner.skills.create.mutate({ body: { name: 'root-escape', location: 'ri', description: 'Cannot install outside the shared Home.', body: 'Keep the Home boundary.' } })).rejects.toThrow(/inside its Home/);
+  await expect(owner.skills.create.mutate({ body: { name: 'root-escape', location: 'ri', description: 'Cannot install outside the shared Home.', body: 'Keep the Home boundary.' } })).rejects.toThrow(/inside the team’s folder/);
   expect(fs.existsSync(path.join(host, '.claude/skills/root-escape'))).toBe(false);
   expect(fs.readFileSync(secret, 'utf8')).toBe('PRIVATE-SKILL-CANARY');
 });

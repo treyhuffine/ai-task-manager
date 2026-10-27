@@ -444,7 +444,7 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
             const peer = event.peer ? PeerReleaseSchema.parse(event.peer) : undefined;
             const agreement = negotiateWorker(peer?.compatibility ?? legacyCompatibility(event.protocol), runtimePeerRelease().compatibility);
             if (!agreement.compatible) throw new WorkerProtocolError(compatibilityMessage(agreement, target.deviceName, target.homeName), agreement.update);
-            if (event.protocol !== agreement.protocol) throw new WorkerProtocolError('The Home selected a worker protocol outside the agreed contract.', 'home');
+            if (event.protocol !== agreement.protocol) throw new WorkerProtocolError('The connected Ri selected a worker protocol outside the agreed contract.', 'home');
             accepted = true;
             attempt = 0;
             // A journal that was cleared numbers on after what the home holds.
@@ -460,7 +460,7 @@ async function runLocked(options: WorkerRunOptions): Promise<WorkerExit> {
             void poster.kick();
             void processor.resendAcks();
           } else if (!accepted) {
-            throw new WorkerNetworkError('The Home sent work before its compatibility handshake.');
+            throw new WorkerNetworkError('The connected Ri sent work before its compatibility handshake.');
           } else if (options.paused?.() && (event.type === 'command' || event.type === 'request')) {
             current.abort();
             break; // No receipt cursor advance, so reconnect delivers it exactly once.

@@ -161,7 +161,7 @@ describe('desktop welcome and connection flow', () => {
     expect(ui.visible('help')).toBe(true);
     expect(ui.element('help').textContent).toContain('starts unchecked');
     expect(ui.element('help').textContent).toContain('Your personal Ri can connect to team spaces');
-    expect(ui.element('help').textContent).toContain('without setting up a personal Home');
+    expect(ui.element('help').textContent).toContain('without setting up a personal Ri');
     expect(ui.request).toHaveBeenCalledTimes(count);
     await ui.click('back');
     expect(ui.visible('connect')).toBe(true);

@@ -286,7 +286,7 @@ function ComposioSetup({ first, onDone, onCancel }: { first: boolean; onDone: ()
             </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            The key lets Ri reach your Composio project. It isn&apos;t a sign-in to any app. It stays sealed on this home and isn&apos;t shown again.
+            The key lets Ri reach your Composio project. It isn&apos;t a sign-in to any app. It stays sealed in this Ri and isn&apos;t shown again.
           </p>
           {error && <p role="alert" className="text-[11px] text-destructive">{error}</p>}
         </form>

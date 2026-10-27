@@ -11,11 +11,11 @@ import { replaceAttachmentReferences } from '@/lib/attachments/derive';
 import { TEAM_TOOLS } from '@/lib/team/mcp/tools';
 
 function authorize(ctx: ActionContext) {
-  if (isTeamAuthority()) throw new ActionError('unsupported', 'Connected Home access belongs to a personal Home.');
-  if (ctx.caller?.scope === 'home_content') throw new ActionError('unsupported', 'This external content connection is scoped to its personal Home.');
+  if (isTeamAuthority()) throw new ActionError('unsupported', 'Connected team access belongs to a personal Ri.');
+  if (ctx.caller?.scope === 'home_content') throw new ActionError('unsupported', 'This external content connection can only reach your personal Ri.');
   if (!ctx.remote && ctx.caller?.location === 'home') return;
   const chat = ctx.actor?.sessionId ? q.getChatSession(ctx.actor.sessionId) : null;
-  if (!chat || chat.status !== 'active' || chat.surfaceKind === 'result_review') throw new ActionError('unsupported', 'Connected Homes require an active signed Ri chat.');
+  if (!chat || chat.status !== 'active' || chat.surfaceKind === 'result_review') throw new ActionError('unsupported', 'Connected teams require an active signed Ri chat.');
 }
 
 const target = z.string().min(1).max(100).optional().describe('Stable Home ID from list_homes. Omit for the calling chat’s own Home. Never infer a destination from the current browser view or a record title.');
@@ -23,12 +23,12 @@ const target = z.string().min(1).max(100).optional().describe('Stable Home ID fr
 export async function callConnectedHome(ctx: ActionContext, homeId: string, name: string, input: Record<string, unknown>): Promise<{ target_home: { id: string; name: string }; result: unknown; replayed: boolean }> {
   authorize(ctx);
   const team = await teamFor(homeId);
-  if (!team) throw new ActionError('not_found', 'That Home is unknown, disconnected, or revoked. Use list_homes and choose its stable ID.');
+  if (!team) throw new ActionError('not_found', 'That team is unknown, disconnected, or revoked. Use list_homes and choose its stable ID.');
   const tool = TEAM_TOOLS.find((t) => t.name === name);
-  if (!tool) throw new ActionError('unsupported', 'This operation is not available in a connected Home.');
+  if (!tool) throw new ActionError('unsupported', 'This operation is not available in a connected team.');
   const { wire, areaStatus } = teamContentInput(name, input);
   const parsed = z.object(tool.shape).strict().safeParse(wire);
-  if (!parsed.success) throw new ActionError('invalid_params', 'These fields are not valid for the selected Home.', undefined, parsed.error.issues);
+  if (!parsed.success) throw new ActionError('invalid_params', 'These fields are not valid for the selected team.', undefined, parsed.error.issues);
   try {
     const response = tool.kind === 'read'
       ? await team.client.team.nativeRead.query({ action: name, input: parsed.data })
@@ -44,9 +44,9 @@ export async function callConnectedHome(ctx: ActionContext, homeId: string, name
     if (error instanceof ActionError) throw error;
     const status = apiErrorStatus(error);
     if (status === 401) recordTeamFailure(homeId, error, team);
-    if (status && status >= 400 && status < 500) throw new ActionError(status === 401 || status === 403 ? 'unsupported' : status === 404 ? 'not_found' : 'invalid_params', error instanceof Error ? error.message : 'The Home refused this request.', undefined, { retryable: false });
+    if (status && status >= 400 && status < 500) throw new ActionError(status === 401 || status === 403 ? 'unsupported' : status === 404 ? 'not_found' : 'invalid_params', error instanceof Error ? error.message : 'The team refused this request.', undefined, { retryable: false });
     recordTeamFailure(homeId, error, team);
-    throw new ActionError('conflict', error instanceof Error ? error.message : 'The selected Home could not be reached.', 'Retry against the same Home and reuse the idempotency_key. No personal fallback was attempted.');
+    throw new ActionError('conflict', error instanceof Error ? error.message : 'The selected team could not be reached.', 'Retry against the same team and reuse the idempotency_key. No personal fallback was attempted.');
   }
 }
 
@@ -74,7 +74,7 @@ export function withConnectedHome(action: Action): Action {
       const localInput = { ...rest };
       if (!action.params.idempotency_key) delete localInput.idempotency_key;
       const local = z.object(action.params).strict().safeParse(localInput);
-      if (!local.success) throw new ActionError('invalid_params', 'These fields are not available in this personal Home.', undefined, local.error.issues);
+      if (!local.success) throw new ActionError('invalid_params', 'These fields are not available in your personal Ri.', undefined, local.error.issues);
       return action.handler(ctx, local.data);
     },
   };
@@ -106,7 +106,7 @@ export const connectedHomeActions = [
     handler: async (ctx, { target_home_id, task_id, idempotency_key, ...input }): Promise<unknown> => {
       authorize(ctx);
       const team = await teamFor(target_home_id);
-      if (!team) throw new ActionError('not_found', 'The selected Home is not connected.');
+      if (!team) throw new ActionError('not_found', 'The selected team is not connected.');
       try {
         const copies = [];
         const names = new Map<string, string>();
@@ -128,7 +128,7 @@ export const connectedHomeActions = [
           throw new ActionError(data.code === 'NOT_FOUND' ? 'not_found' : data.code === 'FORBIDDEN' || data.code === 'UNAUTHORIZED' ? 'unsupported' : 'invalid_params', error instanceof Error ? error.message : 'The team refused publication.', undefined, { retryable: false });
         }
         recordTeamFailure(target_home_id, error, team);
-        throw new ActionError('conflict', error instanceof Error ? error.message : 'Publication could not be confirmed.', 'Retry with the same Home and idempotency_key.');
+        throw new ActionError('conflict', error instanceof Error ? error.message : 'Publication could not be confirmed.', 'Retry with the same team and idempotency_key.');
       }
     },
   }),

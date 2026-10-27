@@ -218,14 +218,14 @@ export function GeneralSection() {
               onChange={(e) => setDeviceLabelMode(e.target.value as DeviceLabelMode)}
               className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             >
-              <option value="away">Only when it isn&apos;t the home (trial)</option>
+              <option value="away">Only when it runs elsewhere (trial)</option>
               <option value="always">Always</option>
             </select>
           </div>
           <p className="text-[11px] text-muted-foreground/85">
             {deviceLabelMode === 'away'
-              ? 'Work runs on the home unless you pick another device, so only the exception is labeled. Its device is always in its details, and moving it is in its … menu.'
-              : 'Every chat names its device once more than one runs agents, the home included.'}
+              ? 'Work runs on the computer that hosts Ri unless you pick another device, so only the exception is labeled. Its device is always in its details, and moving it is in its … menu.'
+              : 'Every chat names its device once more than one runs agents, including the computer that hosts Ri.'}
           </p>
         </div>
       </section>

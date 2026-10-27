@@ -327,8 +327,8 @@ const CAPABILITY_LABELS: Record<keyof HarnessCapabilities, string> = {
 };
 const CAPABILITY_REASONS: Partial<Record<HarnessId, Partial<Record<keyof HarnessCapabilities, string>>>> = {
   opencode: { strictMcpIsolation: 'OpenCode can use its own configured MCP tools. This adapter does not supply a restricted MCP configuration.' },
-  cursor: { permissionRequests: 'Cursor uses its CLI permission policy and does not send approval prompts to Ri.', questionRequests: 'Cursor does not expose interactive questions to Ri.', strictMcpIsolation: 'Cursor can use its own configured MCP tools in addition to the tools supplied by this Home.' },
-  antigravity: { permissionRequests: 'Antigravity uses its CLI permission policy and does not send approval prompts to Ri.', questionRequests: 'Antigravity does not expose interactive questions to Ri.', strictMcpIsolation: 'Antigravity can use its own configured MCP tools in addition to the tools supplied by this Home.' },
+  cursor: { permissionRequests: 'Cursor uses its CLI permission policy and does not send approval prompts to Ri.', questionRequests: 'Cursor does not expose interactive questions to Ri.', strictMcpIsolation: 'Cursor can use its own configured MCP tools in addition to the tools Ri supplies.' },
+  antigravity: { permissionRequests: 'Antigravity uses its CLI permission policy and does not send approval prompts to Ri.', questionRequests: 'Antigravity does not expose interactive questions to Ri.', strictMcpIsolation: 'Antigravity can use its own configured MCP tools in addition to the tools Ri supplies.' },
 };
 export function harnessCapabilityReason(harness: HarnessId, capability: keyof HarnessCapabilities): string {
   return CAPABILITY_REASONS[harness]?.[capability] ?? `${HARNESS_REGISTRY[harness].name} does not expose ${CAPABILITY_LABELS[capability]} to Ri.`;

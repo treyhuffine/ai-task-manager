@@ -33,7 +33,7 @@ export async function acquireAppBackup(
   }
   if (path.resolve(root) !== path.resolve(getAppRoot()))
     throw new Error(
-      "Back up a running app Home with RI_ROOT set to that Home, so its supervisor can stop its databases",
+      "Back up a running Ri with RI_ROOT set to its folder, so its supervisor can stop its databases",
     );
   try {
     const result = await serverFetch<{ lease: string }>("/local-apps/backup", {
@@ -55,7 +55,7 @@ export async function acquireAppBackup(
       return async () => {};
     }
     throw new Error(
-      "App backup could not stop the running Home. Stop it or repair its local app supervisor before backing up",
+      "App backup could not stop the running Ri. Stop it or repair its local app supervisor before backing up",
     );
   }
 }
@@ -121,7 +121,7 @@ export async function verifyStoppedAppWriters(root: string) {
       if (!command.includes(`--ownership ${record.generation}`)) break;
       if (Date.now() >= deadline)
         throw new Error(
-          "An app still owns a database writer. Stop its Home and wait for its supervisor before backing up",
+          "An app still owns a database writer. Stop Ri and wait for its supervisor before backing up",
         );
       await new Promise((resolve) => setTimeout(resolve, 100));
     }

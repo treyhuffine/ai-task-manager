@@ -57,7 +57,7 @@ it('renders loaded ExecutionView, AgentView and AgentOverview in the real Team p
       const html = renderToStaticMarkup(<QueryClientProvider client={client}><TipProvider><ConfirmProvider><HomeBoundary><ArtifactPreviewProvider><WorkContext navigation={navigation} activity={activity}>{child}</WorkContext></ArtifactPreviewProvider></HomeBoundary></ConfirmProvider></TipProvider></QueryClientProvider>);
       expect(html).toContain(child.key === 'agent' ? 'Shared agent' : 'Shared execution');
       expect(html).not.toContain('Opening Home');
-      expect(html).not.toContain('This Home could not be opened');
+      expect(html).not.toContain('This Ri could not be opened');
     }
   } finally { client.clear(); await fixture.cleanup(); }
 }, 30_000);

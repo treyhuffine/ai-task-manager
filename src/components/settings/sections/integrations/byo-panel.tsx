@@ -56,7 +56,7 @@ export function ByoPanel({
         {!registered && provider.desktopCallback?.kind === 'loopback'
           ? `Create a desktop or native OAuth app with ${provider.displayName} that accepts loopback redirects on a temporary port. Paste its client ID below.`
           : `Register an app with ${provider.displayName}, add the callback address below, then paste the client below.`}
-        {' '}Credentials are stored encrypted in your app home.
+        {' '}Credentials are stored encrypted in your Ri.
       </p>
       {setup && setup.length > 0 && (
         <ol className="list-decimal space-y-1 pl-4 text-[11px] leading-normal text-muted-foreground">

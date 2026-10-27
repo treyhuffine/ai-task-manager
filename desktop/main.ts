@@ -527,7 +527,7 @@ async function refreshRole() {
 async function localWorkerCommand(action: 'stop' | 'resume') {
   if (action === 'stop') {
     const choice = await dialog.showMessageBox({ type: 'question', message: 'Stop execution on this device?',
-      detail: 'Local agent sessions stop. Your Home and work on other devices keep running. Local execution stays stopped until you resume it.',
+      detail: 'Local agent sessions stop. Your Ri and work on other devices keep running. Local execution stays stopped until you resume it.',
       buttons: ['Keep running', 'Stop local execution'], defaultId: 0, cancelId: 0 });
     if (choice.response !== 1) return;
   }
@@ -545,7 +545,7 @@ function changeDesktopPreferences(raw: unknown) {
 
 /** Turn this computer's notifications on or off, or send a test, once the person has decided. */
 async function changeNotifications(kind: 'enable' | 'disable' | 'test') {
-  if (!notifications) throw new Error('Open your Home before configuring notifications.');
+  if (!notifications) throw new Error('Open your Ri before configuring notifications.');
   if (kind !== 'test') notificationPermission?.set(kind === 'enable');
   try { return await notifications.action(kind); }
   catch (error) { if (kind === 'enable') notificationPermission?.set(false); throw error; }
@@ -567,7 +567,7 @@ const remoteNotifications = remoteNotificationChanges({
   permitted: () => !!notificationPermission?.enabled(),
   change: changeNotifications,
   status: async () => {
-    if (!notifications) throw new Error('Open your Home before configuring notifications.');
+    if (!notifications) throw new Error('Open your Ri before configuring notifications.');
     return notifications.action('status');
   },
 });
@@ -586,7 +586,7 @@ const companion = companionWindow(async (action, value) => {
     return { ...setup, ...teamStatus, desktop: app.getVersion(), service, worker: service?.worker, update: update?.update, connectionError: selectionError, connection: desktopConnection.snapshot(), connecting, hasViewer: !!viewerTransitions.current,
       detectedInstallation: discover ? discovered : null,
       login: { enabled: hasLoginSupervision() }, preferences: captureShortcut ? { shortcut: captureShortcut.status(), login: desktopLogin.status() } : null,
-      notifications: notifications ? await notifications.action('status').catch(() => ({ supported: Notification.isSupported(), enabled: notificationPermission?.enabled() ?? false, error: 'Waiting for your Home to reconnect.' })) : null };
+      notifications: notifications ? await notifications.action('status').catch(() => ({ supported: Notification.isSupported(), enabled: notificationPermission?.enabled() ?? false, error: 'Waiting for your Ri to reconnect.' })) : null };
   }
   if (action === 'preferences') return changeDesktopPreferences(value);
   if (action === 'use-detected') {
@@ -660,7 +660,7 @@ const companion = companionWindow(async (action, value) => {
   }
   if (action === 'enable-worker') {
     const choice = await dialog.showMessageBox({ type: 'question', message: 'Run agents on this device?',
-      detail: 'Your Home will be able to run work in the agent folders you set up here, using this device’s tools and harness sign-ins.',
+      detail: 'Your Ri will be able to run work in the agent folders you set up here, using this device’s tools and harness sign-ins.',
       buttons: ['Cancel', 'Enable local execution'], defaultId: 0, cancelId: 0 });
     if (choice.response === 1) { await connectionRequest({ action: 'enable-worker', consent: true }); await refreshRole(); }
     return {};

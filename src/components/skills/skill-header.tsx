@@ -69,10 +69,10 @@ export function SkillHeader({
       title: `Archive ${skill.name}?`,
       description:
         skill.location.kind === 'project'
-          ? "It leaves the repo, and its chats are archived with it. The folder moves to the archive in your Ri home, so nothing is deleted. Commit the removal to take it away from your team too."
+          ? "It leaves the repo, and its chats are archived with it. The folder moves to the archive in your Ri folder, so nothing is deleted. Commit the removal to take it away from your team too."
           : skill.location.kind === 'draft'
-            ? 'Its chats are archived with it. The folder moves to the archive in your Ri home, so nothing is deleted.'
-            : 'No agent will use it anymore, and its chats are archived with it. The folder moves to the archive in your Ri home, so nothing is deleted.',
+            ? 'Its chats are archived with it. The folder moves to the archive in your Ri folder, so nothing is deleted.'
+            : 'No agent will use it anymore, and its chats are archived with it. The folder moves to the archive in your Ri folder, so nothing is deleted.',
       confirmLabel: 'Archive',
       tone: 'destructive',
     });

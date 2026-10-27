@@ -40,12 +40,12 @@ export function registerServiceCommand(program: Command) {
   });
   service.command('start').description('Start or attach without keeping this terminal open')
     .option('--dev', 'use the development server')
-    .option('--home', 'choose this new installation as a Home before starting')
+    .option('--home', 'make this new installation your Ri before starting')
     .action(async (options: { dev?: boolean; home?: boolean }) => {
       const ready = await startBackgroundService(options);
-      console.info(ready.origin ? `Ri is running at ${ready.origin}\nData: ${ready.identity.root}` : `Ri service: ${ready.role ?? ready.phase}\n${ready.home ? `Home: ${ready.home.url}\n` : ''}Local folder: ${ready.identity.root}`);
+      console.info(ready.origin ? `Ri is running at ${ready.origin}\nData: ${ready.identity.root}` : `Ri service: ${ready.role ?? ready.phase}\n${ready.home ? `Your Ri: ${ready.home.url}\n` : ''}Local folder: ${ready.identity.root}`);
     });
-  service.command('worker <action>').description('Stop or resume local execution without stopping your Home or viewer')
+  service.command('worker <action>').description('Stop or resume local execution without stopping your Ri or viewer')
     .action(async (action: string) => {
       if (!['stop', 'resume'].includes(action)) throw new Error('Choose stop or resume.');
       console.info(JSON.stringify(await serviceRequest(`/worker/${action}`, 'POST', 60_000), null, 2));

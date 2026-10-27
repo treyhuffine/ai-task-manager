@@ -306,7 +306,7 @@ export class AppStateStore {
         if (draft.buildStatus === "building") {
           draft.buildStatus = "failed";
           draft.buildError =
-            "The Home stopped during the build. Build this draft again";
+            "Ri stopped during the build. Build this draft again";
           draft.updatedAt = now;
         }
       for (const instance of state.instances)

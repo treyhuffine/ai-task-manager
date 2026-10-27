@@ -48,7 +48,7 @@ export function requireWorker(headers: Headers): WorkerCaller | Response {
     const mismatch = !agreement.compatible ? agreement : { compatible: false as const, update: 'worker' as const, reason: 'Select the negotiated worker protocol before dispatch.' };
     recordWorkerCompatibility(device.id, key.apiKeyId, peer, undefined, false, protocol);
     return Response.json({ error: 'worker_protocol', protocol: WORKER_PROTOCOL, update: mismatch.update, peer: local,
-      message: compatibilityMessage(mismatch, device.name, 'your Home') }, { status: 426 });
+      message: compatibilityMessage(mismatch, device.name, 'the computer running your Ri') }, { status: 426 });
   }
   return { apiKeyId: key.apiKeyId, device, peer, agreement };
 }

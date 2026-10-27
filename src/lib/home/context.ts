@@ -25,9 +25,9 @@ export interface HomeContext {
 /** Resolve live authority on the server, never from a selected browser view. */
 export async function resolveHomeContext(key: RequestKey | null): Promise<HomeContext> {
   const home = getHome();
-  if (!home) throw new TeamError('not_found', 'This Home is not ready.');
+  if (!home) throw new TeamError('not_found', 'Ri is not ready yet.');
   if (home.kind === 'personal') {
-    if (key?.scope !== 'viewer') throw new TeamError('not_allowed', 'Sign in to this Home.');
+    if (key?.scope !== 'viewer') throw new TeamError('not_allowed', 'Sign in to your Ri.');
     return {
       home: { id: home.id, kind: home.kind, name: home.name },
       viewer: { id: 'local', name: home.name, role: 'personal' },
@@ -36,7 +36,7 @@ export async function resolveHomeContext(key: RequestKey | null): Promise<HomeCo
     };
   }
   const member = key?.scope === 'member' && key.memberId ? memberForApiKey(key.apiKeyId) : null;
-  if (!member || member.id !== key?.memberId) throw new TeamError('not_allowed', 'Sign in as an active member of this Home.');
+  if (!member || member.id !== key?.memberId) throw new TeamError('not_allowed', `Sign in as an active member of ${home.name}.`);
   return {
     home: { id: home.id, kind: home.kind, name: home.name },
     viewer: { id: member.id, name: member.name, role: member.role },

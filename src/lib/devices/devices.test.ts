@@ -143,7 +143,7 @@ describe('running agents', () => {
 
   it("never enrolls the home's own device", async () => {
     const { q, host } = await homeWithWorker();
-    expect(() => q.createDeviceGrant({ kind: 'enroll', deviceId: host.id, createdByApiKeyId: null })).toThrow(/where this home runs/);
+    expect(() => q.createDeviceGrant({ kind: 'enroll', deviceId: host.id, createdByApiKeyId: null })).toThrow(/where this Ri runs/);
   });
 });
 

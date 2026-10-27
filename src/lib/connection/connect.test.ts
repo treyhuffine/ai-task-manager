@@ -80,7 +80,7 @@ describe('connectToHome', () => {
     handler = reply(404, {});
     await expect(connectToHome({ homeUrl: url, token: 'k' })).rejects.toThrow(/older version of Ri/);
     handler = reply(200, { hello: 'world' });
-    await expect(connectToHome({ homeUrl: url, token: 'k' })).rejects.toThrow(/didn't answer like a Ri home/);
+    await expect(connectToHome({ homeUrl: url, token: 'k' })).rejects.toThrow(/didn't answer like a Ri\./);
     expect(readConnection()).toBeNull();
   });
 
@@ -98,7 +98,7 @@ describe('connectToHome', () => {
 
     handler = reply(200, { id: 'home-2', kind: 'personal', name: 'Other Ri', host: { id: 'd', name: 'Else', platform: 'darwin' } });
     await expect(changeHomeAddress(moved, url)).rejects.toThrow(
-      'is a different home (Other Ri), not My Ri. Nothing was changed.',
+      'is a different Ri (Other Ri), not My Ri. Nothing was changed.',
     );
     handler = reply(401, { error: 'unauthorized' });
     await expect(changeHomeAddress(moved, url)).rejects.toThrow(/didn't accept this device's key/);

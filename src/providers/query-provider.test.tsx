@@ -17,6 +17,6 @@ it('keeps server request caches separate and never bootstraps an unauthenticated
   expect(render(identity('First Home'))).toContain('First Home');
   expect(render(identity('Second Home'))).toBe('<p>Second Home</p>');
   const unsigned = render();
-  expect(unsigned).toContain('aria-label="Loading Home"');
+  expect(unsigned).toContain('aria-label="Loading Ri"');
   expect(unsigned).not.toContain('First Home'); expect(unsigned).not.toContain('Second Home');
 });

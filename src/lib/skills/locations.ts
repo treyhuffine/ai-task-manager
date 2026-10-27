@@ -132,9 +132,9 @@ interface Channels {
 
 function channelsOf(location: SkillLocation): Channels {
   if (homeSkillLibraryOnly()) {
-    if (location.kind !== 'draft' && location.kind !== 'ri') throw new SkillError('not_found', 'Only this Home’s own skill library is available.');
+    if (location.kind !== 'draft' && location.kind !== 'ri') throw new SkillError('not_found', 'Only the team’s own skill library is available.');
     const root = location.kind === 'draft' ? skillDraftsDir() : riSkillsDir();
-    if (fs.existsSync(root) && (fs.lstatSync(root).isSymbolicLink() || !fs.realpathSync(root).startsWith(fs.realpathSync(getAppRoot()) + path.sep))) throw new SkillError('invalid', 'The shared skill library must stay inside its Home.');
+    if (fs.existsSync(root) && (fs.lstatSync(root).isSymbolicLink() || !fs.realpathSync(root).startsWith(fs.realpathSync(getAppRoot()) + path.sep))) throw new SkillError('invalid', 'The shared skill library must stay inside the team’s folder.');
   }
   switch (location.kind) {
     case 'draft':

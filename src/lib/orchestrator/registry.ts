@@ -1771,8 +1771,8 @@ function assertCallerOnHome(ctx: ActionContext, what: string): void {
   if (ctx.caller?.location === 'home') return;
   throw new ActionError(
     'unsupported',
-    `${what} runs against folders on the home device, and this call came from another device.`,
-    "Run it on the home, or set up the agent's folder on this device from the app.",
+    `${what} runs against folders on the computer running Ri, and this call came from another device.`,
+    "Run it on the computer running Ri, or set up the agent's folder on this device from the app.",
   );
 }
 
@@ -2127,8 +2127,8 @@ const answer_pending_input_action = defineAction({
 const read_memory_action = defineAction({
   name: 'read_memory',
   description:
-    'Read MEMORY.md, the durable memory this home keeps across conversations. It lives at the home ' +
-    "only. A session that can't read the home's files reads it here, and sends anything worth " +
+    'Read MEMORY.md, the durable memory this Ri keeps across conversations. It lives only on the ' +
+    "computer running Ri. A session that can't read Ri's files reads it here, and sends anything worth " +
     'remembering to target orchestrator with message_agent, response:"none", and a stable request_id. Ask the orchestrator to consider recording it in MEMORY.md.',
   params: {},
   handler: () => {
@@ -2920,18 +2920,18 @@ async function callerDevice(ctx: ActionContext) {
   if (!device) {
     throw new ActionError(
       'conflict',
-      'This device is not registered with your home yet.',
+      'This device is not registered with your Ri yet.',
       'Run `ri setup` on it, which registers it first.',
     );
   }
-  if (device.status !== 'active') throw new ActionError('conflict', `${device.name} was removed from your home.`);
+  if (device.status !== 'active') throw new ActionError('conflict', `${device.name} was removed from your Ri.`);
   return device;
 }
 
 const register_device_action = defineAction({
   name: 'register_device',
   description:
-    "Report the calling computer's details (platform, hostname) to this home, on its key's device. With deviceId, the id this home gave this computer before, the key joins that device, so a computer paired again stays one device. It doesn't let the home run agents there, and the key's own access is unchanged.",
+    "Report the calling computer's details (platform, hostname) to this Ri, on its key's device. With deviceId, the id this Ri gave this computer before, the key joins that device, so a computer paired again stays one device. It doesn't let Ri run agents there, and the key's own access is unchanged.",
   params: {
     name: z.string().min(1).max(120),
     platform: z.string().max(40).nullable().optional(),
@@ -2940,7 +2940,7 @@ const register_device_action = defineAction({
       .string()
       .nullable()
       .optional()
-      .describe('The id this home gave this computer before, so a new key joins the same device'),
+      .describe('The id this Ri gave this computer before, so a new key joins the same device'),
   },
   mutating: true,
   handler: async (ctx, input) => {
@@ -2957,7 +2957,7 @@ const register_device_action = defineAction({
 const rename_device_action = defineAction({
   name: 'rename_device',
   description:
-    'Rename a device of this home, e.g. "MacBook" or "Mac Mini". Without deviceId, renames the calling device. Names are for people: they never identify a device.',
+    'Rename a device of this Ri, e.g. "MacBook" or "Mac Mini". Without deviceId, renames the calling device. Names are for people: they never identify a device.',
   params: {
     deviceId: z.string().optional(),
     name: z.string().trim().min(1).max(120),
@@ -2974,7 +2974,7 @@ const rename_device_action = defineAction({
 const list_devices_action = defineAction({
   name: 'list_devices',
   description:
-    "This home's devices, each once: the home's own, computers that run agents (connected right now or not, and what each worker last reported), and the phones and browsers paired to it, with the keys each signs in with.",
+    "This Ri's devices, each once: the one Ri runs on, computers that run agents (connected right now or not, and what each worker last reported), and the phones and browsers paired to it, with the keys each signs in with.",
   params: {},
   handler: async () => serverFetch<unknown[]>('/devices'),
 });
@@ -2982,7 +2982,7 @@ const list_devices_action = defineAction({
 const describe_device_harnesses_action = defineAction({
   name: 'describe_device_harnesses',
   description:
-    "The harnesses a device can run: installed, version, and capabilities. By default its worker's last report; with fresh=true the home asks the worker now, which needs it connected.",
+    "The harnesses a device can run: installed, version, and capabilities. By default its worker's last report; with fresh=true Ri asks the worker now, which needs it connected.",
   params: {
     deviceId: z.string().min(1),
     fresh: z.boolean().optional(),
@@ -3025,7 +3025,7 @@ async function deviceFor(ctx: ActionContext, deviceId: string | undefined) {
 const set_workspace_folder_action = defineAction({
   name: 'set_workspace_folder',
   description:
-    "Record an agent's project folder on a device, the calling one unless deviceId says another. The home's records are the only place an agent's folders are kept. That device checks the folder is there.",
+    "Record an agent's project folder on a device, the calling one unless deviceId says another. Ri's records are the only place an agent's folders are kept. That device checks the folder is there.",
   params: {
     agent: z.string().min(1).describe('The agent, by id or name'),
     folder: z.string().min(1).describe('An absolute path on that device'),
@@ -3090,7 +3090,7 @@ const remove_workspace_setup_action = defineAction({
 const list_device_folders_action = defineAction({
   name: 'list_device_folders',
   description:
-    "A folder's folders on one of this home's devices, for choosing a project or linked folder there: within the person's home folder, hidden ones left out, Git projects marked. Without path, the home folder. A device elsewhere must be connected.",
+    "A folder's folders on one of this Ri's devices, for choosing a project or linked folder there: within the person's home folder, hidden ones left out, Git projects marked. Without path, the home folder. A device elsewhere must be connected.",
   params: {
     deviceId: z.string().min(1),
     path: z.string().optional(),

@@ -21,7 +21,7 @@ export function ApiTransportSettings() {
         <summary className="cursor-pointer">Transport diagnostics</summary>
         <p>Completed HTTP requests: {status.httpRequests}. Last response: {status.httpMs === null ? 'none' : `${Math.round(status.httpMs)} ms`}.</p>
         <p>Completed WebSocket requests: {status.websocketRequests}. Last response: {status.websocketMs === null ? 'none' : `${Math.round(status.websocketMs)} ms`}.</p>
-        <p>Response times include Home work. Compare the same operations on the same connection.</p>
+        <p>Response times include the work Ri does to answer. Compare the same operations on the same connection.</p>
       </details>
     </section>
   );

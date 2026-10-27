@@ -47,10 +47,10 @@ export function versionMeta(caller: SharedCaller, source: EntityVersionSource = 
  */
 export function teamWriteSource(key: RequestKey | null, source?: Exclude<EntityVersionSource, 'human'>): EntityVersionSource {
   if (source === undefined) return 'human';
-  if (!sharedCaller(key).team || !key) throw new TeamError('not_allowed', 'Only a connected personal home can relay an actor source.');
+  if (!sharedCaller(key).team || !key) throw new TeamError('not_allowed', 'Only a connected personal Ri can relay an actor source.');
   const apiKey = getApiKey(key.apiKeyId);
   const device = apiKey?.deviceId ? getDevice(apiKey.deviceId) : null;
-  if (!apiKey || apiKey.memberId !== key.memberId || device?.kind !== 'service') throw new TeamError('not_allowed', 'Only a connected personal home can relay an actor source.');
+  if (!apiKey || apiKey.memberId !== key.memberId || device?.kind !== 'service') throw new TeamError('not_allowed', 'Only a connected personal Ri can relay an actor source.');
   return source;
 }
 

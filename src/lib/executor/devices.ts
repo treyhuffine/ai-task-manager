@@ -100,5 +100,5 @@ export function workingFolderOn(
       problem: setup ? setupProblem(`This agent's folder on ${name}`, setup) : `This agent isn't on ${name} yet. Set it up there first.`,
     };
   }
-  return { problem: `Only an agent's work runs on ${name}. This chat runs on your home.` };
+  return { problem: `Only an agent's work runs on ${name}. This chat runs where your Ri runs.` };
 }

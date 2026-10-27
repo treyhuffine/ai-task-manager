@@ -31,7 +31,7 @@ export async function uploadLocalAttachment(filePath: string): Promise<Attachmen
     const init = { method: 'POST', body: form, ...(credential ? { headers: { [SESSION_CREDENTIAL_HEADER]: credential } } : {}) };
     if (getInstallationRole() === 'connected') {
       const connection = readConnection();
-      if (!connection) throw new Error('This device is not connected to a home.');
+      if (!connection) throw new Error('This device is not connected to a Ri.');
       const response = await homeFetch(connection, '/api/attachments', init);
       if (!response.ok) throw new Error(`Attachment upload failed (${response.status}).`);
       return await response.json() as Attachment;

@@ -8,7 +8,7 @@ import { getTransportMode, recordTransportRequest, reportTransportStatus, subscr
 
 export class UnconfirmedWebSocketWrite extends ApiError {
   constructor() {
-    super(424, { code: 'unconfirmed_write', error: 'unconfirmed_write', message: 'The connection closed before this write was confirmed. It may have reached Home. Check the result before retrying.' }, '/api/trpc/ws');
+    super(424, { code: 'unconfirmed_write', error: 'unconfirmed_write', message: 'The connection closed before this write was confirmed. It may have been saved. Check the result before retrying.' }, '/api/trpc/ws');
     this.name = 'UnconfirmedWebSocketWrite';
   }
 }
@@ -105,7 +105,7 @@ export function createTransportLink(options: Options): { link: TRPCLink<AppRoute
         status({ state: 'connecting', reason: null });
         if (!strict) {
           const capability = await httpClient.transport.capabilities.query(undefined, { signal: setupSignal });
-          if (!capability.websocket) { fallback('This Home does not support WebSocket transport. Using HTTP.', false); return; }
+          if (!capability.websocket) { fallback('This Ri does not support WebSocket transport. Using HTTP.', false); return; }
         }
         if (disposed || version !== generation || mode() !== 'websocket') return;
         const url = new URL(options.url, typeof window === 'undefined' ? 'http://localhost' : window.location.origin);

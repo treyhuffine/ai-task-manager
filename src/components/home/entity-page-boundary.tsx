@@ -13,5 +13,5 @@ export function EntityPageBoundary({ kind, id, children }: { kind: 'task' | 'not
   const router = useRouter();
   const destination = home.home.kind === 'team' ? homeResourceHref(kind, id, { kind: 'team', spaceId: space?.id }) : null;
   useEffect(() => { if (destination) router.replace(destination); }, [destination, router]);
-  return destination ? <a href={destination} className="p-6 text-sm">Opening {kind} in this Home…</a> : <RouteWorkBoundary>{children}</RouteWorkBoundary>;
+  return destination ? <a href={destination} className="p-6 text-sm">Opening {kind} in {home.home.name}…</a> : <RouteWorkBoundary>{children}</RouteWorkBoundary>;
 }

@@ -120,7 +120,7 @@ function statusOf(listed: ListedHistorySession, ledger: ExternalSessionImportRec
 /** A device's sessions, grouped by folder, with what Ri already has of each. */
 export async function discoverRemoteSessions(deviceId: string): Promise<ExternalAgentDiscovery> {
   const device = getDevice(deviceId);
-  if (!device) throw new Error('That device is not part of this home.');
+  if (!device) throw new Error('That device is not part of this Ri.');
   const listing = await listOn(deviceId);
   const ledgers = importsOn(deviceId);
   const own = riSessionsOn(deviceId, listing.sessions);
@@ -316,7 +316,7 @@ export async function importRemoteSessions(deviceId: string, sessionKeys: string
   const keys = [...new Set(sessionKeys)];
   if (keys.length > MAX_SELECTION) throw new Error(`Select at most ${MAX_SELECTION} chats per import.`);
   const device = getDevice(deviceId);
-  if (!device) throw new Error('That device is not part of this home.');
+  if (!device) throw new Error('That device is not part of this Ri.');
   const result = emptyImportResult();
   const listing = await listOn(deviceId);
   const listedByKey = new Map(listing.sessions.map((s) => [s.key, s]));

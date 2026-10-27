@@ -78,7 +78,7 @@ export const spacesRouter = router({
   personalExecutionChoices: p.query(({ ctx }) => resolveHomeExecutionChoices(ctx.key)),
   entityTitles: p.input(z.object({ teamId: z.string().min(1), refs: z.string().max(500) }).strict()).query(async ({ input }): Promise<{ titles: ReturnType<typeof q.resolveEntityTitles> }> => {
     const team = await teamFor(input.teamId);
-    if (!team) throw new q.TeamError('not_found', 'This Home is not connected.');
+    if (!team) throw new q.TeamError('not_found', 'This team is not connected.');
     return team.client.entities.titlesGet.query({ query: { refs: input.refs } });
   }),
   areaDefaults: router({

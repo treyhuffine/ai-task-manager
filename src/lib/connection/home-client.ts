@@ -53,13 +53,13 @@ export function describeHomeProblem(
     case 'unreachable':
       return `Cannot reach ${where(connection)}. Check that it is awake and online, then try again.`;
     case 'unauthorized':
-      return `${connection.homeName} no longer accepts this device. Connect it again from your home.`;
+      return `${connection.homeName} no longer accepts this device. Connect it again from your Ri.`;
     case 'wrong_home':
-      return `${connection.homeUrl} now answers for a different Ri. Connect again, or update the address if your home moved.`;
+      return `${connection.homeUrl} now answers for a different Ri. Connect again, or update the address if your Ri moved.`;
     case 'not_active':
       return `${connection.homeName} isn't active on the device at ${connection.homeUrl}.`;
     case 'untrusted_certificate':
-      return `${connection.homeUrl} uses a certificate this device doesn't trust. Use your home's Beamd or other trusted HTTPS address.`;
+      return `${connection.homeUrl} uses a certificate this device doesn't trust. Use the Beamd or other trusted HTTPS address of your Ri.`;
     default:
       return detail ? `${connection.homeName} returned an error: ${detail}` : `${connection.homeName} returned an error.`;
   }

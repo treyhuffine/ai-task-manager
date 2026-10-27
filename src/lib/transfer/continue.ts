@@ -117,7 +117,7 @@ function destinationProblem(workspaceId: string, harness: string, toDeviceId: st
   const host = getHome()?.hostDeviceId ?? null;
   const name = deviceName(toDeviceId);
   const device = getDevice(toDeviceId);
-  if (!device || device.status !== 'active') return `${name} is no longer connected to this home.`;
+  if (!device || device.status !== 'active') return `${name} is no longer connected to this Ri.`;
   const choice = runOnFor(workspaceId)?.choices.find((c) => c.deviceId === toDeviceId);
   if (!choice) return `${getWorkspace(workspaceId)?.name ?? 'The agent'} isn't on ${name} yet. Set it up there first.`;
   if (!choice.ready) return choice.problem ?? `${name} can't take this work yet.`;
@@ -153,7 +153,7 @@ export function startTransfer(input: StartTransferInput): ExecutionTransferRecor
     throw new TransferError('not_git', "Work that isn't in a Git repository runs on its own device, and doesn't move through Ri yet.");
   }
   const placement = placementOf(execution.id);
-  if (!placement) throw new TransferError('not_found', 'This home has no device yet.');
+  if (!placement) throw new TransferError('not_found', 'This Ri has no device yet.');
   if (placement.deviceId === input.toDeviceId) throw new TransferError('same_device', `It already runs on ${deviceName(input.toDeviceId)}.`);
   const host = getHome()?.hostDeviceId ?? null;
   if (placement.deviceId !== host && !isDeviceConnected(placement.deviceId)) {

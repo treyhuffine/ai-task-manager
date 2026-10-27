@@ -99,8 +99,8 @@ export function refusalFor(commandName: string, subcommand?: string): string | n
   }
   if (ROUTED_WHEN_CONNECTED.has(commandName)) return null;
   const connection = readConnection();
-  const where = connection ? `${connection.homeName} at ${connection.homeUrl}` : 'your home';
-  return `This device is connected to ${where}, where your data lives. \`${APP_SHORT_ID} ${commandName}\` runs on the home itself.`;
+  const where = connection ? `${connection.homeName} at ${connection.homeUrl}` : 'your Ri';
+  return `This device is connected to ${where}, where your data lives. \`${APP_SHORT_ID} ${commandName}\` runs on the computer that hosts it.`;
 }
 
 export function installRoleGuard(program: Command): void {

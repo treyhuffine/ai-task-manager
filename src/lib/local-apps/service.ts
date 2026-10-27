@@ -60,7 +60,7 @@ export function requireLocalApps() {
   if (!localAppsEnabled())
     throw new AppError(
       "unsupported",
-      "Local apps are not enabled on this Home",
+      "Local apps are not enabled in this Ri",
     );
 }
 const now = () => new Date().toISOString();
@@ -146,7 +146,7 @@ export class LocalAppsService {
     if (this.paused)
       throw new AppError(
         "busy",
-        "Apps are paused for a stopped snapshot or Home maintenance",
+        "Apps are paused for a stopped snapshot or Ri maintenance",
       );
   }
   async beginSnapshot() {

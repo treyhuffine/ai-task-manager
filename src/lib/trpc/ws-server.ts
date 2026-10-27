@@ -77,7 +77,7 @@ export function createWebSocketServer(router: AnyRouter): WebSocketRuntime {
       clearInterval(sweep);
       await spaces.close();
       handler.broadcastReconnectNotification();
-      for (const client of wss.clients) client.close(1012, 'Home is restarting');
+      for (const client of wss.clients) client.close(1012, 'Ri is restarting');
       const force = setTimeout(() => { for (const client of wss.clients) client.terminate(); }, 1_000);
       force.unref();
       await new Promise<void>(resolve => wss.close(() => resolve()));

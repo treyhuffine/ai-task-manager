@@ -159,7 +159,7 @@ async function requestFor(
   const ws = getWorkspace(workspaceId);
   if (!ws) throw new SetupError('That agent no longer exists.');
   const device = getDevice(deviceId);
-  if (!device || device.status !== 'active') throw new SetupError('That device is no longer connected to this home.');
+  if (!device || device.status !== 'active') throw new SetupError('That device is no longer connected to this Ri.');
   const host = getHome()?.hostDeviceId ?? null;
   // The agent's folder on the home, which a copy and its linked folders follow.
   const homeSetup = host && host !== deviceId ? getWorkspaceSetup(ws.id, host) : null;

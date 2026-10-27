@@ -60,6 +60,6 @@ it('does not offer a personal Home link from a standalone team', () => {
   mocks.space = null;
   expect(render()).not.toContain('Back to My Ri');
   mocks.me.isLoading = true;
-  expect(render()).toContain('aria-label="Loading Home"');
+  expect(render()).toContain('aria-label="Loading Ri"');
   expect(render()).not.toContain('Back to My Ri');
 });

@@ -36,13 +36,13 @@ export function parsePairingLink(raw: string): ParsedPairingLink {
   try {
     url = new URL(text);
   } catch {
-    throw new ConnectError("That isn't a link. Paste the whole pairing link from your home's Devices settings.");
+    throw new ConnectError("That isn't a link. Paste the whole pairing link from Devices settings in your Ri.");
   }
   const fragment = new URLSearchParams(url.hash.replace(/^#/, ''));
   const token = fragment.get(PAIRING_TOKEN_FRAGMENT_KEY) ?? url.searchParams.get(PAIRING_TOKEN_FRAGMENT_KEY);
   if (!token) {
     throw new ConnectError(
-      "That link has no pairing key. Use the pairing link from your home's Devices settings, the one its QR code opens.",
+      "That link has no pairing key. Use the pairing link from Devices settings in your Ri, the one its QR code opens.",
     );
   }
   return { homeUrl: normalizeHomeUrl(`${url.protocol}//${url.host}`), token };
@@ -57,7 +57,7 @@ export function assertSecureAddress(homeUrl: string, opts: { allowInsecureHttp?:
   if (url.protocol === 'https:' || isLoopback(url.hostname) || opts.allowInsecureHttp) return;
   throw new ConnectError(
     `${homeUrl} isn't HTTPS, so the key and everything you send would cross the network unencrypted. ` +
-      "Use your home's HTTPS address (its Beamd address, for example). On a home network you trust, pass --insecure-http.",
+      "Use the HTTPS address of your Ri (its Beamd address, for example). On a home network you trust, pass --insecure-http.",
   );
 }
 
@@ -80,7 +80,7 @@ export async function verifyPairingLink(link: ParsedPairingLink, opts: { allowIn
     if (err instanceof HomeRequestError) {
       throw new ConnectError(
         err.problem === 'unauthorized'
-          ? `${link.homeUrl} didn't accept that pairing key. Make a new link in your home's Devices settings and try again.`
+          ? `${link.homeUrl} didn't accept that pairing key. Make a new link in Devices settings in your Ri and try again.`
           : err.message,
       );
     }
@@ -91,7 +91,7 @@ export async function verifyPairingLink(link: ParsedPairingLink, opts: { allowIn
   }
   if (!res.ok) throw new ConnectError(`${link.homeUrl} answered with HTTP ${res.status}.`);
   const home = (await res.json().catch(() => null)) as HomeSummary | null;
-  if (!home?.id) throw new ConnectError(`${link.homeUrl} didn't answer like a Ri home.`);
+  if (!home?.id) throw new ConnectError(`${link.homeUrl} didn't answer like a Ri.`);
   return home;
 }
 
@@ -148,9 +148,9 @@ export async function changeHomeAddress(
   }
   if (!res.ok) throw new ConnectError(`${homeUrl} answered with HTTP ${res.status}.`);
   const home = (await res.json().catch(() => null)) as HomeSummary | null;
-  if (!home?.id) throw new ConnectError(`${homeUrl} didn't answer like a Ri home.`);
+  if (!home?.id) throw new ConnectError(`${homeUrl} didn't answer like a Ri.`);
   if (home.id !== current.homeId) {
-    throw new ConnectError(`${homeUrl} is a different home (${home.name}), not ${current.homeName}. Nothing was changed.`);
+    throw new ConnectError(`${homeUrl} is a different Ri (${home.name}), not ${current.homeName}. Nothing was changed.`);
   }
   return writeConnection({ ...current, homeUrl, homeName: home.name, homeHostName: home.host?.name ?? current.homeHostName });
 }

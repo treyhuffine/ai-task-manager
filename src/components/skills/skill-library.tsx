@@ -17,7 +17,7 @@ export function SkillLibrary({ canManage }: { canManage: boolean }) {
   const navigation = useMemo(() => ({ openSkill: setRef, goHome: () => setRef(null), closeCatalog: keepCatalog, canManage, showSetupHelp: false }), [canManage]);
   return <SkillNavigationProvider value={navigation}>
     <div className="min-w-0 space-y-3">
-      <p className="text-xs text-muted-foreground">Installed skills are shared with every chat on this Home&apos;s approved workers. Owners manage the library. Drafts stay unused until installed.</p>
+      <p className="text-xs text-muted-foreground">Installed skills are shared with every chat on the team&apos;s approved workers. Owners manage the library. Drafts stay unused until installed.</p>
       {ref ? <div className="flex min-h-[30rem] min-w-0 flex-col overflow-hidden rounded-lg border border-border">
         {selected.data ? <><SkillHeader skill={selected.data} onBack={() => setRef(null)} /><SkillEditor key={selected.data.ref} skill={selected.data} aiWriting={false} /></> :
           <p role={selected.error ? 'alert' : 'status'} className="p-4 text-xs">{selected.error ? apiErrorText(selected.error) : 'Loading skill…'} <button className="underline" onClick={() => setRef(null)}>Back to skills</button></p>}

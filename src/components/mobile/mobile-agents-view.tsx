@@ -488,7 +488,7 @@ function EmptyWorkspaces({ onCreate }: { onCreate?: () => void }) {
       <Bot className="w-8 h-8 mx-auto opacity-30 mb-3" />
       <p className="text-[13px] font-medium text-foreground">No agents yet</p>
       <p className="text-[11px] text-muted-foreground/70 mt-1 leading-relaxed">
-        {onCreate ? 'Add one to get started.' : 'No agents have been configured for this Home.'}
+        {onCreate ? 'Add one to get started.' : 'No agents have been set up here yet.'}
       </p>
       {onCreate && <button
         type="button"

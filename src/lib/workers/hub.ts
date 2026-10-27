@@ -48,7 +48,7 @@ const hub = globalRef[HUB_KEY]!;
 
 export class WorkerUnavailableError extends Error {
   constructor(readonly deviceId: string) {
-    super('That device is not connected to its home right now.');
+    super('That device is not connected to Ri right now.');
     this.name = 'WorkerUnavailableError';
   }
 }
@@ -119,7 +119,7 @@ export function requestWorker(
   timeoutMs = WORKER_REQUEST_TIMEOUT_MS,
   requiredCapability = 'worker.protocol4',
 ): Promise<unknown> {
-  if (readMaintenance()) return Promise.reject(new WorkerRequestError('The Home is preparing an update. Please retry shortly.'));
+  if (readMaintenance()) return Promise.reject(new WorkerRequestError('Ri is preparing an update. Please retry shortly.'));
   const connection = newest(deviceId);
   if (!connection) return Promise.reject(new WorkerUnavailableError(deviceId));
   if (!(connection.capabilities ?? ['worker.protocol4']).includes(requiredCapability)) {

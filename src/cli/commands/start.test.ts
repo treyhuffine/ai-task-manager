@@ -126,7 +126,7 @@ describe('CLI first start', () => {
     await createTeam();
     await start();
     expect(getHome()).toMatchObject({ kind: 'team', name: 'Acme' });
-    expect(mocks.log.info).not.toHaveBeenCalledWith(expect.stringContaining('Starting a new home here'));
+    expect(mocks.log.info).not.toHaveBeenCalledWith(expect.stringContaining('Starting a new Ri here'));
   });
 
   it('refuses an unreadable team declaration before personal setup or database creation', async () => {

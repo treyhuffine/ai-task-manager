@@ -71,8 +71,8 @@ export function AppsShell({ route }: { route: string }) {
   if (error) return notice('Apps couldn’t load.', error.message);
   if (!checking && !enabled) {
     return notice(
-      'Apps are disabled for this Home.',
-      'Remove the RI_LOCAL_APPS override and restart the Home to enable Apps.',
+      'Apps are disabled in this Ri.',
+      'Remove the RI_LOCAL_APPS override and restart Ri to enable Apps.',
     );
   }
   if (!data) {

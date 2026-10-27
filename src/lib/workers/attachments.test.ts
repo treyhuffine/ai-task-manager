@@ -200,7 +200,7 @@ describe("the worker's copy", () => {
     fs.rmSync(attachmentPath(notes.fileName));
 
     await expect(fetchInputFiles({ target: laptop.target, commandId, dir: laptopDir, files: attachments })).rejects.toThrow(
-      "Couldn't fetch notes.txt from My Ri: notes.txt is no longer at home.",
+      "Couldn't fetch notes.txt from My Ri: notes.txt is no longer stored in Ri.",
     );
   });
 });

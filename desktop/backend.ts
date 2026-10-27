@@ -115,7 +115,7 @@ void (async () => {
       } else if (current?.phase === 'failed') throw new Error(current.error ?? 'The background service needs recovery.');
       else if (!current) throw new DesktopSessionError('This computer’s Ri service is not responding. Checking again automatically. If it stays unavailable, review Desktop Settings.', 'network');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Cannot reach your Home.';
+      const message = error instanceof Error ? error.message : 'Cannot reach your Ri.';
       if (message !== reportedFailure) send({ type: 'error', message, issue: connectionFailure(error) });
       reportedFailure = message;
     } finally { checking = false; }

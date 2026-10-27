@@ -16,7 +16,7 @@ export async function startHomeExecutionRuntime() {
     try { await action(); }
     catch (error) {
       console.warn(`[runner] ${name} failed`, error);
-      if (requiredForAi && !recovery.has(root)) recovery.set(root, `AI is unavailable because ${name} failed. Restart this Home after fixing the problem. ${error instanceof Error ? error.message : String(error)}`);
+      if (requiredForAi && !recovery.has(root)) recovery.set(root, `AI is unavailable because ${name} failed. Restart Ri after fixing the problem. ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   await step('stopping leftover harnesses', async () => {

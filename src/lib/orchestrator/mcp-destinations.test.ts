@@ -42,7 +42,7 @@ it.each(cases)('%s tools/call refuses foreign targets before any personal change
     expect(reply.result?.isError, raw).toBe(true);
     const envelope = JSON.parse(reply.result.content[0].text);
     expect(envelope).toMatchObject({ ok: false, error: { code: expect.stringMatching(/unsupported|invalid_params|not_found/) } });
-    expect(envelope.error.message).toMatch(/No personal write|No write was attempted|Home is unknown, disconnected/);
+    expect(envelope.error.message).toMatch(/No personal write|No write was attempted|team is unknown, disconnected/);
     expect(getRawDb().prepare('SELECT total_changes() AS n').get()).toEqual(before);
   }
 });

@@ -23,7 +23,7 @@ it.each([
   [401, true, 'credential', /Restart the local service, then retry/],
   [403, false, 'forbidden', /access settings/],
   [403, true, 'forbidden', /local service log/],
-  [500, false, 'server', /Home service log/],
+  [500, false, 'server', /service log on the computer running your Ri/],
   [503, true, 'server', /local service log/],
   [429, false, 'response', /Wait before retrying/],
   [404, true, 'response', /unexpected sign-in response/],

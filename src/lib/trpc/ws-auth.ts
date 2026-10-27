@@ -56,7 +56,7 @@ export function createWebSocketContext(request: Request, params: Record<string, 
     const mismatch = apiCompatibilityIssue(protocol, CURRENT_COMPATIBILITY.apiProtocols);
     if (mismatch) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: mismatch.message, cause: new OperationError(426, mismatch) });
     if (!isHomeActive() || process.env.RI_SERVICE_VALIDATING === '1' || readMaintenance()?.phase === 'offline') {
-      throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Home is preparing an update. Please retry shortly.' });
+      throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'Ri is preparing an update. Please retry shortly.' });
     }
     const member = teamMember(found);
     const expected = params?.documentHome !== undefined || params?.documentViewer !== undefined ? { homeId: params.documentHome, viewerId: params.documentViewer } : bindingFromHeaders(request.headers);

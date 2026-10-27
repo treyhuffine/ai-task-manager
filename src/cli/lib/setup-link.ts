@@ -13,7 +13,7 @@ import { dispatchAction } from './dispatch';
 export class SetupCommandError extends Error {}
 
 export function unwrap<T>(envelope: DispatchEnvelope): T {
-  if (!envelope.ok) throw new SetupCommandError(envelope.error?.message ?? `The home refused ${envelope.action}.`);
+  if (!envelope.ok) throw new SetupCommandError(envelope.error?.message ?? `Your Ri refused ${envelope.action}.`);
   return envelope.result as T;
 }
 
@@ -24,7 +24,7 @@ export async function thisDeviceId(): Promise<string> {
     return ensureHomeIdentity().device.id;
   }
   const connection = readConnection();
-  if (!connection) throw new SetupCommandError('This device is not connected to a home.');
+  if (!connection) throw new SetupCommandError('This device is not connected to a Ri.');
   if (connection.deviceId) return connection.deviceId;
   const { device } = unwrap<{ device: { id: string } }>(
     await dispatchAction('register_device', { ...thisDeviceFacts(), deviceId: rememberedDeviceId(connection.homeId) }),

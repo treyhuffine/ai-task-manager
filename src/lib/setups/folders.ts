@@ -278,7 +278,7 @@ export function agentFoldersEverywhere(workspaceId: string): AgentFoldersOn[] {
  */
 export async function removeFromDevice(workspaceId: string, deviceId: string): Promise<boolean> {
   if (isHost(deviceId)) {
-    throw new FolderError(`${nameOf(deviceId)} is your Ri's home, so the agent always has a folder there. Change it instead, or archive the agent.`);
+    throw new FolderError(`${nameOf(deviceId)} is where your Ri runs, so the agent always has a folder there. Change it instead, or archive the agent.`);
   }
   const removed = removeWorkspaceSetup(workspaceId, deviceId);
   // New work there would only ask to set it up again: it starts on the home instead.

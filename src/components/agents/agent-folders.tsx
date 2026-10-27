@@ -102,7 +102,7 @@ export function AgentFoldersSection({ workspace }: { workspace: WorkspaceRecord 
                     s === 'none' && 'border border-muted-foreground/50',
                   )}
                 />
-                {c.isHome && <HomeIcon size={11} className="shrink-0" aria-label="Your Ri's home" />}
+                {c.isHome && <HomeIcon size={11} className="shrink-0" aria-label="Hosts your Ri" />}
                 {c.name}
                 {s === 'none' && <span className="text-muted-foreground/70">· not set up</span>}
               </button>

@@ -106,7 +106,7 @@ export function TeamAddressSetup({ onSaved, onDone }: { onSaved?: () => void; on
           <p className="break-words text-xs text-muted-foreground">
             {preview ? `Expected address: ${preview}` : 'Uses the Beamd account connected on the hosting computer. Beamd adds its account and domain suffix to the prefix.'}
           </p>
-          {data.address && normalizedName !== data.tunnelName && <p className="text-xs text-muted-foreground">After changing the address, use new sign-in and invitation links. Personal Homes already connected may need to reconnect at the new address.</p>}
+          {data.address && normalizedName !== data.tunnelName && <p className="text-xs text-muted-foreground">After changing the address, use new sign-in and invitation links. A personal Ri already connected to the team may need to reconnect at the new address.</p>}
           <p className="text-xs text-muted-foreground">Ri keeps this address connected while the hosting computer is running. People still need an invitation or sign-in link to access the team.</p>
           {beamd.error && <GateNotice tone="error">{apiErrorText(beamd.error)}</GateNotice>}
           <GateButton type="submit" busy={beamd.isPending} disabled={busy || !isValidPreviewLabel(normalizedName)}>Use Beamd address</GateButton>

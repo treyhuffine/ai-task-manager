@@ -322,10 +322,10 @@ function NewAgentConversation({ scope, placeholder }: { scope: string; placehold
     onError: error => toast.error('Could not send your message', { description: apiErrorText(error) }),
   });
   return <div className="flex min-h-0 flex-1 flex-col">
-    <div className="flex-1 p-6 text-sm text-muted-foreground">Start a conversation. Everyone in this Home can read it.</div>
+    <div className="flex-1 p-6 text-sm text-muted-foreground">Start a conversation. Everyone on the team can read it.</div>
     {availability.error && <button type="button" className="mx-4 mb-2 self-start text-xs text-muted-foreground underline" onClick={() => void availability.refetch()}>Retry agent availability</button>}
     <ExecutionComposer sessionId="" draftKey={`main:new:${scope}`} permissionMode={DEFAULT_PERMISSION_MODE} model={null} effort={null} harness={null}
-      placeholder={placeholder} helperText="Starts with this Home's default model and permissions." disabled={send.isPending || !choice?.available}
+      placeholder={placeholder} helperText="Starts with the team's default model and permissions." disabled={send.isPending || !choice?.available}
       disabledReason={availability.isPending ? 'Checking agent availability…' : availability.error ? 'Agent availability could not be checked.' : choice?.unavailableReason ?? undefined}
       onSend={(content, opts) => send.mutateAsync({ content, attachments: opts?.attachments }).then(() => {})} />
   </div>;

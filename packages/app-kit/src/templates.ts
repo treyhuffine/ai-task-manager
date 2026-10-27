@@ -121,7 +121,7 @@ export async function writeAppTemplate(
   );
   await fs.writeFile(
     path.join(dir, "AGENTS.md"),
-    "# App maintenance\n\nThis is owner-trusted native code. Edit this package only. Never read Home credentials or personal records. Use the pinned SDK for actions and SQLite. Definitions generate contract.json. Keep fixtures synthetic. Use the builder actions to build, preview, author bundled skills and request activation. Do not edit built output or Ri source. Never claim a preview has live account access.\n",
+    "# App maintenance\n\nThis is owner-trusted native code. Edit this package only. Never read Ri credentials or personal records. Use the pinned SDK for actions and SQLite. Definitions generate contract.json. Keep fixtures synthetic. Use the builder actions to build, preview, author bundled skills and request activation. Do not edit built output or Ri source. Never claim a preview has live account access.\n",
   );
   await fs.writeFile(
     path.join(dir, "src/ui.html"),

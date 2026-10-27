@@ -4664,7 +4664,7 @@ export function setHomeDefaultSelection(selection: {
       defaultServiceTier: selection.serviceTier ?? null,
       updatedAt: now,
     }).where(eq(userState.id, 1)).returning().get();
-    if (!saved) throw new Error('This home has no user state yet');
+    if (!saved) throw new Error('This Ri has no user state yet');
     return hydrateUserState(saved);
   });
 }
@@ -4755,7 +4755,7 @@ export function createHomeIdentity(input: {
   const db = getDb();
   return db.transaction((tx) => {
     const existing = tx.select().from(home).get();
-    if (existing) throw new Error(`This database already belongs to home ${existing.id}.`);
+    if (existing) throw new Error(`This database already belongs to Ri ${existing.id}.`);
     const now = new Date().toISOString();
     const device = tx
       .insert(devices)
@@ -4896,7 +4896,7 @@ export function removeDevice(id: string, reason: string): { device: DeviceRecord
     const device = tx.select().from(devices).where(eq(devices.id, id)).get();
     if (!device || device.status !== 'active') return null;
     if (tx.select({ id: home.id }).from(home).where(eq(home.hostDeviceId, id)).get()) {
-      throw new Error(`${device.name} is where this home runs. It can't be removed.`);
+      throw new Error(`${device.name} is where this Ri runs. It can't be removed.`);
     }
     const now = new Date().toISOString();
     const workerKeyId = activeWorkerKeyIn(tx, id);
@@ -4922,9 +4922,9 @@ export function setHomeHost(deviceId: string): HomeRecord {
   const db = getDb();
   return db.transaction((tx) => {
     const current = tx.select().from(home).get();
-    if (!current) throw new Error('This database has no home yet.');
+    if (!current) throw new Error('This database has no Ri identity yet.');
     const device = tx.select().from(devices).where(eq(devices.id, deviceId)).get();
-    if (!device || device.status !== 'active') throw new Error(`Device ${deviceId} is not an active device of this home.`);
+    if (!device || device.status !== 'active') throw new Error(`Device ${deviceId} is not an active device of this Ri.`);
     return tx
       .update(home)
       .set({ hostDeviceId: deviceId, updatedAt: new Date().toISOString() })
@@ -4961,10 +4961,10 @@ export function moveHomeHost(newHostId: string): { from: string; to: string; pin
   const db = getDb();
   const moved = db.transaction((tx) => {
     const current = tx.select().from(home).get();
-    if (!current) throw new Error('This database has no home yet.');
+    if (!current) throw new Error('This database has no Ri identity yet.');
     const oldHostId = current.hostDeviceId;
     const device = tx.select().from(devices).where(eq(devices.id, newHostId)).get();
-    if (!device || device.status !== 'active') throw new Error(`Device ${newHostId} is not an active device of this home.`);
+    if (!device || device.status !== 'active') throw new Error(`Device ${newHostId} is not an active device of this Ri.`);
     const result = { from: oldHostId, to: newHostId, pinnedExecutions: 0, pinnedChats: 0, freshChats: 0, revokeKeys: [] as string[] };
     if (oldHostId === newHostId) return result;
     const now = new Date().toISOString();
@@ -5031,7 +5031,7 @@ export function moveHomeHost(newHostId: string): { from: string; to: string; pin
     result.revokeKeys = workerKeyId ? [workerKeyId] : [];
     return result;
   }, { behavior: 'immediate' });
-  for (const id of moved.revokeKeys) revokeApiKey(id, 'This device is the home now, so it runs agents itself.');
+  for (const id of moved.revokeKeys) revokeApiKey(id, 'This device runs Ri now, so it runs agents itself.');
   const { revokeKeys: _revoked, ...summary } = moved;
   return summary;
 }
@@ -5148,7 +5148,7 @@ export function createDeviceGrant(input: {
       const device = tx.select().from(devices).where(eq(devices.id, input.deviceId)).get();
       if (!device || device.status !== 'active') throw new GrantError('invalid', 'That device is not active.');
       if (input.kind === 'enroll' && device.id === hostDeviceIdIn(tx)) {
-        throw new GrantError('not_allowed', `${device.name} is where this home runs. It already runs agents.`);
+        throw new GrantError('not_allowed', `${device.name} is where this Ri runs. It already runs agents.`);
       }
     } else if (input.kind === 'associate') {
       throw new GrantError('invalid', 'An association grant needs a device.');
@@ -5218,13 +5218,13 @@ export function redeemEnrollGrant(input: {
     const grant = usableGrant(tx, input.secret, 'enroll');
     const now = new Date().toISOString();
     const homeRow = tx.select().from(home).get();
-    if (!homeRow) throw new GrantError('invalid', 'This home has no identity yet.');
+    if (!homeRow) throw new GrantError('invalid', 'This Ri has no identity yet.');
     let device: DeviceRecord;
     if (grant.deviceId) {
       const existing = tx.select().from(devices).where(eq(devices.id, grant.deviceId)).get();
       if (!existing || existing.status !== 'active') throw new GrantError('invalid', 'That device was removed.');
       if (existing.id === homeRow.hostDeviceId) {
-        throw new GrantError('not_allowed', `${existing.name} is where this home runs.`);
+        throw new GrantError('not_allowed', `${existing.name} is where this Ri runs.`);
       }
       device = existing;
     } else {
@@ -5260,7 +5260,7 @@ export function redeemEnrollGrant(input: {
 
     const { key, token } = insertApiKey(tx, {
       name: `${device.name} worker`,
-      description: 'Runs agents on this device for the home. Issued by enrollment.',
+      description: 'Runs agents on this device for Ri. Issued by enrollment.',
       deviceId: device.id,
       role: 'worker',
     });
@@ -5300,7 +5300,7 @@ export function redeemAssociateGrant(input: { secret: string; apiKeyId: string }
     if (!device || device.status !== 'active') throw new GrantError('invalid', 'That device was removed.');
     const now = new Date().toISOString();
     if (key.deviceId && key.deviceId === hostDeviceIdIn(tx)) {
-      throw new GrantError('not_allowed', "This browser signs in with the home's own key. It stays the home's.");
+      throw new GrantError('not_allowed', "This browser signs in with Ri's own key. It stays with Ri.");
     }
     if (key.deviceId !== device.id) {
       tx.update(apiKeys).set({ deviceId: device.id, updatedAt: now }).where(eq(apiKeys.id, key.id)).run();

@@ -157,7 +157,7 @@ export function useOpenInPreferredEditor(opener?: Opener | null): {
           return Promise.resolve({
             ok: false,
             reason: 'unsupported',
-            message: 'Your custom editor command runs only on the home. Pick an editor app in Settings to open files here.',
+            message: 'Your custom editor command runs only on the computer that hosts Ri. Pick an editor app in Settings to open files here.',
           });
         }
         return opener.open(absPath, choice, opts);

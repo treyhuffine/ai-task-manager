@@ -45,7 +45,7 @@ export function LiveApp({ item }: { item: ReviewItem }) {
   };
   if (item.connectedAppId) return <div className={s.livePane}><ConnectedAppPage serverId={item.connectedAppId} navigate={navigate} /></div>;
   const target = item.target;
-  if (target.kind === 'app' && !review.localEnabled) return <Empty>Local apps are disabled for this Home. Your connections and skills are still available.</Empty>;
+  if (target.kind === 'app' && !review.localEnabled) return <Empty>Local apps are disabled in this Ri. Your connections and skills are still available.</Empty>;
   const instance = target.kind === 'app' ? review.data?.instances.find(instance => instance.id === target.id) : undefined;
   if (!instance || !review.data) return <Empty>Choose an installed app to open it here.</Empty>;
   return <div className={s.livePane}><AppPage instance={instance} data={review.data} path={location.path} query={location.query} navigate={navigate} /></div>;

@@ -43,7 +43,7 @@ export function TeamHome() {
     // A sign-in that stopped working signs this browser out on its own
     // (src/lib/api/client.ts). Anything else is the team being unreachable.
     if (apiErrorStatus(me.error) === 401) return null;
-    if (apiErrorCode(me.error) === DOCUMENT_AUTHOR_CHANGED) return <TeamGate title="This sign-in changed"><p>Your drafts are kept for their original author.</p><GateButton onClick={() => window.location.reload()}>Reload Home</GateButton>{space && <BackToMyRi />}</TeamGate>;
+    if (apiErrorCode(me.error) === DOCUMENT_AUTHOR_CHANGED) return <TeamGate title="This sign-in changed"><p>Your drafts are kept for their original author.</p><GateButton onClick={() => window.location.reload()}>Reload</GateButton>{space && <BackToMyRi />}</TeamGate>;
     // Inside My Ri, the team can refuse this Ri's sign-in (docs/homes-spec.md §9.4).
     if (apiErrorCode(me.error) === 'team_signed_out') {
       return (

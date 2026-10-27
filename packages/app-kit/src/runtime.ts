@@ -152,7 +152,7 @@ export function assertTarget(
   )
     throw new AppError(
       "unsupported",
-      "This service artifact does not support the Node runtime and platform used by this Home",
+      "This service artifact does not support the Node runtime and platform used by this Ri",
     );
 }
 export function runtimeEnvironment(

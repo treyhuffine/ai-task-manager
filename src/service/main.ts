@@ -154,7 +154,7 @@ const control = http.createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/role/refresh') {
       if (updater.status().busy || coordination.handingOff || roleChange) throw new Error('Wait for the current service action before refreshing this device.');
       if (['recovery-required', 'validating', 'checkpointing', 'draining'].includes(updater.status().phase)) throw new Error('Complete runtime recovery before changing this device connection.');
-      if (next || gateway) throw new Error('Stop the local Home before changing this device connection.');
+      if (next || gateway) throw new Error('Stop the local Ri before changing this device connection.');
       roleChange = refreshRole();
       try { await roleChange; } finally { roleChange = undefined; }
       return reply({});

@@ -59,7 +59,7 @@ async function askOpen<T>(request: Pick<Request, 'headers'>, place: OpenPlace, b
   if (place.at === 'nowhere') return failure({ error: place.error }, place.status);
   if (place.at === 'home') {
     return failure(
-      { error: 'at_home', message: 'These files are on this home. Open them from a browser on it.' },
+      { error: 'at_home', message: 'These files are on the computer running Ri. Open them from a browser on it.' },
       409,
     );
   }

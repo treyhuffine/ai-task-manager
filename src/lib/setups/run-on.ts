@@ -103,7 +103,7 @@ export function cantRunAgentThere(workspaceId: string | null, deviceName: string
   const ws = workspaceId ? getWorkspace(workspaceId) : null;
   const host = getHome()?.hostDeviceId ?? null;
   if (!ws || !host || getWorkspaceSetup(ws.id, host)) return base;
-  return `${base} Or set ${ws.name} up on ${getDevice(host)?.name ?? 'this home'} in its Setup tab.`;
+  return `${base} Or set ${ws.name} up on ${getDevice(host)?.name ?? 'the computer running Ri'} in its Setup tab.`;
 }
 
 function problemOf(agentName: string, deviceName: string, setup: WorkspaceSetupWithDevice | undefined, enrolled: boolean): string | null {
@@ -129,7 +129,7 @@ export function runOnFor(workspaceId: string): RunOn | null {
   if (host && (homeSetup || setups.length === 0)) {
     choices.push({
       deviceId: host,
-      name: getDevice(host)?.name ?? 'This home',
+      name: getDevice(host)?.name ?? 'The computer running Ri',
       isHome: true,
       ready: !homeSetup || setupUsable(homeSetup.status),
       problem: homeSetup && !setupUsable(homeSetup.status) ? setupProblem(`${ws.name}'s folder here`, homeSetup) : null,
@@ -185,7 +185,7 @@ export function runOnFor(workspaceId: string): RunOn | null {
       ready: false,
       problem:
         !device || device.status !== 'active'
-          ? `${device?.name ?? 'That device'} is no longer connected to this home.`
+          ? `${device?.name ?? 'That device'} is no longer connected to this Ri.`
           : problemOf(ws.name, device.name, undefined, enrolled.has(saved)),
       connected: false,
       needsSetup: false,
@@ -202,7 +202,7 @@ export function runOnFor(workspaceId: string): RunOn | null {
   const livesOn = livesOnId
     ? {
         deviceId: livesOnId,
-        name: choices.find((c) => c.deviceId === livesOnId)?.name ?? getDevice(livesOnId)?.name ?? 'This home',
+        name: choices.find((c) => c.deviceId === livesOnId)?.name ?? getDevice(livesOnId)?.name ?? 'The computer running Ri',
         isHome: livesOnId === host,
         folder:
           livesOnId === host
@@ -226,7 +226,7 @@ export function homeCantRun(workspaceId: string): string | null {
   if (!ws || !host) return null;
   const setups = listWorkspaceSetups({ workspaceId });
   if (setups.length === 0 || setups.some((s) => s.deviceId === host)) return null;
-  const name = getDevice(host)?.name ?? 'this home';
+  const name = getDevice(host)?.name ?? 'the computer running Ri';
   return `${ws.name} isn't set up on ${name}, where scheduled work runs. Attach its folder there to run this.`;
 }
 
@@ -251,7 +251,7 @@ export function setDefaultDevice(workspaceId: string, deviceId: string | null): 
   if (!ws) throw new RunOnError('No such agent.');
   if (deviceId !== null) {
     const device = getDevice(deviceId);
-    if (!device || device.status !== 'active') throw new RunOnError('That device is no longer connected to this home.');
+    if (!device || device.status !== 'active') throw new RunOnError('That device is no longer connected to this Ri.');
     const isHome = deviceId === getHome()?.hostDeviceId;
     if (!isHome && !listWorkspaceSetups({ workspaceId, deviceId }).length) {
       throw new RunOnError(`${ws.name} isn't on ${device.name} yet. Set it up there first.`);

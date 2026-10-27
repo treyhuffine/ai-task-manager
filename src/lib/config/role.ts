@@ -23,9 +23,9 @@ export type InstallationRole = 'home' | 'connected' | 'fresh';
 export class RoleConflictError extends Error {
   constructor() {
     super(
-      `This folder holds both a Ri database (${getDbPath()}) and a connection to a home elsewhere ` +
-        `(${getConnectionPath()}). Keep one: move the database aside to use this device through your home, ` +
-        'or remove the connection file to use this folder as a home.',
+      `This folder holds both a Ri database (${getDbPath()}) and a connection to a Ri elsewhere ` +
+        `(${getConnectionPath()}). Keep one: move the database aside to use this device through your Ri, ` +
+        'or remove the connection file to keep a Ri of its own in this folder.',
     );
     this.name = 'RoleConflictError';
   }
@@ -34,7 +34,7 @@ export class RoleConflictError extends Error {
 export class ConnectedInstallationError extends Error {
   constructor(action = 'This') {
     super(
-      `${action} needs a Ri database, and this device keeps none: it is connected to your home, ` +
+      `${action} needs a Ri database, and this device keeps none: it is connected to your Ri, ` +
         'where your data lives. Nothing was created here.',
     );
     this.name = 'ConnectedInstallationError';

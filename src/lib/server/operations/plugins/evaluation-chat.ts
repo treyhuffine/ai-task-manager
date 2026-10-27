@@ -25,7 +25,7 @@ export function chatWithPluginEvaluation(value: Input, viewer?: string): Promise
   const input = evaluationChatInputSchema.parse(value);
   if (input.allowChanges && !allowsEvaluationChanges(input.context)) unavailable('This third-party demo attachment is read only.', 400);
   const descriptor = evaluationDescriptor();
-  if (!descriptor) unavailable('The examples are offline on your Home computer.');
+  if (!descriptor) unavailable('The examples are offline on the computer running your Ri.');
   const url = new URL(input.viewUrl);
   const match = url.pathname.match(/^\/s\/([a-f0-9]{64})\/index\.html$/);
   const params = [...url.searchParams];
@@ -72,7 +72,7 @@ async function run(input: Input, token: string, key: string, account?: string, v
   const accountChanges = publicContext && input.allowChanges && !!publicContext.operation && !!account && !!viewer;
   const accountTurn = accountChanges ? await beginAccountChat(account!, viewer!, input.context.invocationId, input.turnId, publicContext!.operation!.toolName) : null;
   const localToken = accountTurn ? readAuthConfig()?.localToken : undefined;
-  if (accountTurn && !localToken) unavailable('The Home harness credential is unavailable.');
+  if (accountTurn && !localToken) unavailable('The local harness credential is unavailable.');
   const viewChanges = publicContext && input.allowChanges && !!publicContext.update;
   const diagramChanges = publicContext && input.allowChanges && !!publicContext.diagram;
   const serverName = accountTurn ? 'account_demo' : viewChanges ? 'view_demo' : diagramChanges ? 'excalidraw_demo' : publicView ? 'public_context' : 'scenario_demo';

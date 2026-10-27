@@ -23,7 +23,7 @@ export function hasDesktopHomeIntent(): boolean {
 
 export function writeDesktopHomeIntent(): void {
   if (getInstallationRole() !== 'fresh' || retiredHomes().length) {
-    throw new Error('Choose a new empty installation to start a Home. Existing or retired data was left unchanged.');
+    throw new Error('Choose a new empty installation to start a new Ri. Existing or retired data was left unchanged.');
   }
   atomicWriteFile(desktopHomeIntentPath(), JSON.stringify({ version: 1, role: 'home' }));
 }

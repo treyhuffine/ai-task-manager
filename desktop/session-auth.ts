@@ -8,8 +8,8 @@ export class DesktopSessionError extends Error {
 }
 
 function responseFailure(status: number, local: boolean) {
-  const home = local ? 'The local Ri service' : 'Your Home';
-  const log = local ? 'the local service log' : 'the Home service log';
+  const home = local ? 'The local Ri service' : 'Your Ri';
+  const log = local ? 'the local service log' : 'the service log on the computer running your Ri';
   if (status === 401) return new DesktopSessionError(local
     ? `${home} rejected its desktop sign-in credential (HTTP 401). Restart the local service, then retry.`
     : `${home} rejected this device's sign-in credential (HTTP 401). Connect this device again.`, 'credential', status);
@@ -35,7 +35,7 @@ export async function signInDesktopSession(options: {
       method: 'POST', headers: { authorization: `Bearer ${options.token}` }, redirect: 'error', signal,
     });
   } catch (error) {
-    const home = options.local ? 'The local Ri service' : 'Your Home';
+    const home = options.local ? 'The local Ri service' : 'Your Ri';
     if (signal.aborted || (error instanceof Error && error.name === 'TimeoutError')) {
       throw new DesktopSessionError(`${home} did not finish signing in within 15 seconds. Retry when it is ready and reachable.`, 'timeout');
     }

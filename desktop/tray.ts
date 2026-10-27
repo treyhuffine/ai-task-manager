@@ -31,7 +31,7 @@ export function desktopMenuCommands(actions: DesktopMenuActions) {
 }
 
 export function activitySummary(snapshot: DesktopActivitySnapshot) {
-  if (snapshot.connection === 'connected' && !snapshot.activity) return 'Connected to your Home';
+  if (snapshot.connection === 'connected' && !snapshot.activity) return 'Connected to your Ri';
   if (snapshot.connection !== 'connected' || !snapshot.activity) return snapshot.connection === 'connecting' ? 'Connecting to Ri…' : 'Ri service is unreachable';
   const { running, needsInput, unread } = snapshot.activity;
   if (!running && !needsInput && !unread) return 'No sessions need attention';

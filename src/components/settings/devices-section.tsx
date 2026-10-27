@@ -256,8 +256,8 @@ function PairingPanel({
           <p className="text-xs font-medium text-foreground">Pairing link for {pairing.device.name}</p>
           <p className="text-[11px] text-muted-foreground/70">Shown once. Scan or copy it on that device.</p>
           <p className="text-[11px] text-muted-foreground/70">
-            A phone or computer reaches {APP_NAME} through its home, at the address in the link. It works while the
-            home is awake and that address is reachable. On a computer, paste the link into{' '}
+            A phone or computer reaches {APP_NAME} at the address in the link. It works while the computer
+            running {APP_NAME} is awake and that address is reachable. On a computer, paste the link into{' '}
             <code className="font-mono text-foreground/80">{APP_SHORT_ID} connect</code> to use this {APP_NAME} there.
           </p>
         </div>
@@ -475,7 +475,7 @@ function DeviceCard({
             <div className="flex flex-wrap items-center gap-1.5">
               <p className="text-sm font-medium text-foreground truncate">{device.name}</p>
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">{kindLabel(device.kind)}</span>
-              {device.isHome && <Marker tone="agents">Home, runs agents</Marker>}
+              {device.isHome && <Marker tone="agents">Runs Ri and agents</Marker>}
               {!device.isHome && device.runsAgents && <Marker tone="agents">Runs agents</Marker>}
               {device.isThisDevice && <Marker>This device</Marker>}
             </div>
@@ -579,7 +579,7 @@ function DeviceRelease({ device }: { device: DeviceView }) {
       {compatibility?.state === 'compatible' && <p>Compatible{device.worker?.connected ? '' : ' at last contact'}</p>}
       {compatibility?.state === 'unknown' && <p>Waiting for this device to report its version.</p>}
       {!!compatibility?.openTurns && <p>Waiting for {compatibility.openTurns} execution{compatibility.openTurns === 1 ? '' : 's'} to finish before updating.</p>}
-      {pending > 0 && <p>{pending} result{pending === 1 ? '' : 's'} waiting to reach your Home.</p>}
+      {pending > 0 && <p>{pending} result{pending === 1 ? '' : 's'} waiting to reach your Ri.</p>}
     </div>
   );
 }

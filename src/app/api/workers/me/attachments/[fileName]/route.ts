@@ -57,7 +57,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     size = (await handle.stat()).size;
     stream = handle.createReadStream();
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return notFound(`${file.originalName} is no longer at home.`);
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return notFound(`${file.originalName} is no longer stored in Ri.`);
     throw err;
   }
   // Checked again after opening: a worker turned off meanwhile gets nothing.

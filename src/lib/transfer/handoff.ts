@@ -45,7 +45,7 @@ export function deterministicHandoff(input: HandoffInput): string {
   const lines: string[] = [];
   lines.push(`This work was continued here on ${input.toDevice}, from ${input.fromDevice}.`);
   lines.push(
-    'You are starting a fresh session: you have not seen the earlier one. What it was doing is below, and its whole conversation is at the home.',
+    'You are starting a fresh session: you have not seen the earlier one. What it was doing is below, and its whole conversation is saved in Ri.',
   );
   lines.push('');
   lines.push(`Task: ${input.executionLabel ?? `work in ${input.agentName}`}`);

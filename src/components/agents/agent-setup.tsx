@@ -128,7 +128,7 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
   const { goHome } = useWorkNavigation();
   const { data: areas } = useAreas();
   const { data: devices } = useDevices();
-  const homeName = devices?.find((d) => d.isHome)?.name ?? 'This home';
+  const homeName = devices?.find((d) => d.isHome)?.name ?? 'Ri';
   const update = useUpdateWorkspace();
   const { data: resultCapabilities } = useResultCapabilities();
   const archive = useArchiveWorkspace();

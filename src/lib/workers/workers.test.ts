@@ -167,7 +167,7 @@ describe('enrolling', () => {
       body: { protocol: 99, version: 'x', harnesses: [], state: 'awake' },
     });
     expect(res.status).toBe(426);
-    expect(res.json!.message).toMatch(/Update Ri on your Home/);
+    expect(res.json!.message).toMatch(/Update Ri on the computer running your Ri/);
     const older = await call('/api/workers/me/heartbeat', {
       bearer: target.workerKey, headers: { 'x-ri-worker-protocol': '3' }, body: { protocol: 3, version: 'old', harnesses: [], state: 'awake' },
     });

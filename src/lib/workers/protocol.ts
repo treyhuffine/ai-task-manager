@@ -319,6 +319,6 @@ export type WorkerRequestResult =
 
 /** What a home says to a worker on another protocol. */
 export function protocolMismatchMessage(deviceName: string, peerProtocol = 0): string {
-  const side = peerProtocol > WORKER_PROTOCOL ? 'your Home' : deviceName;
+  const side = peerProtocol > WORKER_PROTOCOL ? 'the computer running your Ri' : deviceName;
   return `Update Ri on ${side}. These releases do not share a supported worker protocol. Existing work and enrollment are retained.`;
 }

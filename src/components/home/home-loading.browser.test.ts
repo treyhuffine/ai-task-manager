@@ -56,7 +56,7 @@ it.skipIf(!enabled).each(['personal', 'team'])('opens a bootstrapped %s Home wit
     await title.waitFor(); await title.fill('Draft during slow discovery');
     expect(await page.evaluate('window.identityCalls')).toBe(0);
     expect(await page.evaluate('window.runtimeCalls')).toBe(1);
-    expect(await page.getByLabel('Loading Home').count()).toBe(0);
+    expect(await page.getByLabel('Loading Ri').count()).toBe(0);
     await page.getByRole('button', { name: 'Notes', exact: true }).click();
     expect(await page.getByRole('heading', { name: 'Notes', exact: true }).count()).toBe(1);
     await page.getByRole('button', { name: 'Chat history', exact: true }).click();
@@ -77,7 +77,7 @@ it.skipIf(!enabled).each([390, 1280])('shows anonymous application chrome at %ip
   const page = await fixture.browser.newPage({ viewport: { width, height: 850 } });
   try {
     await page.goto(`${fixture.url}/?team&cold&dark`);
-    await page.getByLabel('Loading Home', { exact: true }).waitFor();
+    await page.getByLabel('Loading Ri', { exact: true }).waitFor();
     expect(await page.getByRole('textbox').count()).toBe(0);
     expect(await page.locator('[data-slot="skeleton"]').count()).toBeGreaterThan(5);
     expect(await page.evaluate('window.runtimeCalls')).toBe(0);
@@ -86,7 +86,7 @@ it.skipIf(!enabled).each([390, 1280])('shows anonymous application chrome at %ip
     await page.evaluate('window.releaseIdentity()');
     await page.getByRole('textbox', { name: 'Task title' }).waitFor();
     expect(await page.getByText('Checking agents', { exact: true }).count()).toBe(1);
-    expect(await page.getByLabel('Loading Home').count()).toBe(0);
+    expect(await page.getByLabel('Loading Ri').count()).toBe(0);
   } finally { await page.close(); }
 }, 25_000);
 

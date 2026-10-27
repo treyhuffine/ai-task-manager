@@ -412,7 +412,7 @@ export default function IntegrationsTestPage() {
                   <p className="text-xs text-neutral-500">
                     Register an app with {p.displayName}, add the redirect URI{' '}
                     <code className="rounded bg-neutral-100 px-1 text-neutral-800">{redirectUri}</code>, then paste the client below. Stored
-                    sealed in your home (<code>.config/{INTEGRATION_LABELS.plural.toLowerCase()}</code>), never in the repo.
+                    sealed in your Ri folder (<code>.config/{INTEGRATION_LABELS.plural.toLowerCase()}</code>), never in the repo.
                   </p>
                   {(byoConfigs[p.id] ?? []).map((cfg) => (
                     <div key={cfg.id} className="flex items-center justify-between rounded bg-neutral-50 px-2 py-1 text-xs text-neutral-800">

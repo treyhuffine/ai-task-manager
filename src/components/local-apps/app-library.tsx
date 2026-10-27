@@ -175,7 +175,7 @@ function LibraryOverview({ data, localEnabled, localLoading, localError, query, 
             </div>
           </div>
           {failures.map(failure => <div key={failure.name} role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/20 px-3 py-2 text-xs"><span className="flex-1 text-destructive">{failure.name} could not load. {failure.error?.message}</span><Button variant="ghost" size="xs" onClick={failure.retry}>Retry</Button></div>)}
-          {!localEnabled && !localLoading && !localError && filter === 'apps' && <p className="text-sm text-muted-foreground">Building and running local apps is disabled for this Home. Your connections and skills are still available.</p>}
+          {!localEnabled && !localLoading && !localError && filter === 'apps' && <p className="text-sm text-muted-foreground">Building and running local apps is disabled in this Ri. Your connections and skills are still available.</p>}
           {loading && <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 size={13} className="animate-spin" />Loading your library…</p>}
           {mode === 'discover' && localEnabled && (filter === 'all' || filter === 'apps') && <IncludedApps data={data} search={searchDraft} navigate={navigate} />}
           {groups.filter(group => group.items.length).map(group => <section key={group.name} aria-label={group.name} className="space-y-3">

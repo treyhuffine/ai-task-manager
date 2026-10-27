@@ -81,7 +81,7 @@ it.each(['wide', 'collapsed', 'phone'] as const)('shows only the authenticated s
     const text = item.cloneNode(true) as HTMLElement;
     text.querySelectorAll('[aria-hidden]').forEach(child => child.remove());
     return text.textContent?.trim();
-  })).toEqual(['Team Huffine', 'Home settings']);
+  })).toEqual(['Team Huffine', 'Team settings']);
   expect(document.body.textContent).not.toMatch(/My Ri|Join a team|Create a team/);
   await act(async () => items[1]!.click());
   expect(mocks.settings).toHaveBeenCalledOnce();

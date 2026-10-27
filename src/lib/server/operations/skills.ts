@@ -34,7 +34,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, request: Oper
   try {
     const member = authorizeSkillOperation(request.headers, true);
     const destination = locationFrom(location, workspaceId);
-    if (member && !['draft', 'ri'].includes(destination.kind)) return reply({ error: 'Shared skills stay in this Home’s library.', code: 'invalid' }, { status: 400 });
+    if (member && !['draft', 'ri'].includes(destination.kind)) return reply({ error: 'Shared skills stay in the team’s library.', code: 'invalid' }, { status: 400 });
     const created = await newSkill({ ...input, location: member ? { kind: 'draft' } : destination });
     const skill = member && destination.kind !== 'draft' ? await moveSkill(created.ref, destination) : created;
     return reply({ skill: skillViewForHome(skill, member) }, { status: 201 });

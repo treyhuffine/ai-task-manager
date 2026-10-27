@@ -63,7 +63,7 @@ export function InteractiveExamples() {
           {launch.isPending ? 'Opening…' : 'Try interactive examples'}
         </Button>
       </div>
-      {!status.data?.available && <p role="status" className="text-xs text-muted-foreground">The interactive host is offline on your Home computer. Account setup is still available.</p>}
+      {!status.data?.available && <p role="status" className="text-xs text-muted-foreground">The interactive host is offline on the computer running your Ri. Account setup is still available.</p>}
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs" aria-label="Interactive plugin demos">
           <thead><tr className="border-b border-border text-muted-foreground"><th className="pb-2 pr-3 font-medium">Plugin</th><th className="pb-2 pr-3 font-medium">What you can try</th><th className="pb-2 font-medium">Access and actions</th></tr></thead>

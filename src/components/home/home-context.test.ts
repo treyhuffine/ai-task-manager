@@ -58,7 +58,7 @@ it('keeps a mounted editor and unsent text when a background Home refetch fails'
   });
   expect(container.querySelector('input')).toBe(input);
   expect(input.value).toBe('A draft typed before the network failed');
-  expect(container.textContent).toContain('Home updates are temporarily unavailable');
+  expect(container.textContent).toContain('Live updates are temporarily unavailable');
   expect(container.textContent).toContain('Retry');
   expect(mounted).toHaveBeenCalledTimes(1);
 });

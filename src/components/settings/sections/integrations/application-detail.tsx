@@ -242,7 +242,7 @@ function ConnectMethodPanel(props: ApplicationDetailProps & { onStarted: (attemp
       const why = explicit ? `the method you picked for ${app.displayName}` : selection.basis === 'override' ? `the method you chose for ${app.displayName}` : selection.basis === 'preferred' ? 'your preferred source' : null;
       return `Using ${chosen.source.label}${why ? `, ${why}` : ''}. ${chosen.source.label} stores this connection and processes its tool requests.`;
     }
-    if (chosen.kind === 'direct') return `Using a direct sign-in with your Google OAuth app. The account's tokens stay on this home.`;
+    if (chosen.kind === 'direct') return `Using a direct sign-in with your Google OAuth app. The account's tokens stay in this Ri.`;
     return null;
   })();
 
@@ -553,7 +553,7 @@ function ExistingAccounts({ applicationId, sources, onChanged, onError }: {
         <ExternalLink size={14} className="shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1">
           <span className="block text-xs font-medium text-foreground">Accounts already in Composio</span>
-          <span className="block text-[11px] text-muted-foreground">Add one this home connected before, without signing in again.</span>
+          <span className="block text-[11px] text-muted-foreground">Add one this Ri connected before, without signing in again.</span>
         </span>
         <ChevronDown size={14} className={open ? 'shrink-0 rotate-180 text-muted-foreground' : 'shrink-0 text-muted-foreground'} />
       </button>

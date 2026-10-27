@@ -16,7 +16,7 @@ import { openBrowser } from '../lib/browser';
 
 export async function runConnected(opts: { open: boolean }): Promise<void> {
   const connection = readConnection();
-  if (!connection) throw new Error('This device has no connection to a home.');
+  if (!connection) throw new Error('This device has no connection to a Ri.');
 
   try {
     const home = await checkHome(connection);

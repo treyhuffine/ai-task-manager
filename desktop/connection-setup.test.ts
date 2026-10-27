@@ -172,13 +172,13 @@ describe('pairing and local execution are distinct', () => {
   });
   it('preserves an existing worker instead of switching its Home', async () => {
     writeWorkerConfig({ homeId: 'old-home', deviceId: 'old-device', deviceName: 'Old laptop', workerKey: 'preserved', enrolledAt: 'then' });
-    await expect(connect()).rejects.toThrow(/another Home/);
+    await expect(connect()).rejects.toThrow(/another Ri/);
     expect(readConnection()).toBeNull();
     expect(readWorkerConfig()?.workerKey).toBe('preserved');
   });
   it('refuses a copied Home-host key instead of marking this laptop as the Home computer', async () => {
     remoteDeviceId = 'home-device';
-    await expect(connect()).rejects.toThrow(/belongs to the Home computer/);
+    await expect(connect()).rejects.toThrow(/belongs to the computer running your Ri/);
     expect(readConnection()).toBeNull();
     expect(calls.some(call => call.url.endsWith('/register_device'))).toBe(false);
   });
@@ -200,8 +200,8 @@ describe('pairing and local execution are distinct', () => {
     await connect();
     expect(await connectionSetup({ action: 'session' }, development)).toEqual({ homeUrl: origin, homeId: 'home-1', homeName: 'My Ri', deviceId: 'laptop-device', signInKey: signIn });
     remoteHomeId = 'different-home';
-    await expect(connectionSetup({ action: 'session' }, development)).rejects.toThrow(/different Home/);
-    await expect(connectionSetup({ action: 'enable-worker', consent: true }, development)).rejects.toThrow(/different Home/);
+    await expect(connectionSetup({ action: 'session' }, development)).rejects.toThrow(/different Ri/);
+    await expect(connectionSetup({ action: 'enable-worker', consent: true }, development)).rejects.toThrow(/different Ri/);
     expect(readConnection()?.homeId).toBe('home-1');
     expect(readWorkerConfig()).toBeNull();
   });
@@ -329,7 +329,7 @@ describe('same-Home repair', () => {
   });
   it('refuses to replace the saved Home identity when repairing access', async () => {
     await connect(); const before = readConnection(); remoteHomeId = 'different';
-    await expect(connect()).rejects.toThrow(/different Home/);
+    await expect(connect()).rejects.toThrow(/different Ri/);
     expect(readConnection()).toEqual(before);
   });
   it('refuses to change the address while a foreground worker owns its journal', async () => {

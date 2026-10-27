@@ -357,11 +357,11 @@ export function McpServerForm({
         {authKind === 'oauth' && detected?.method !== 'oauth' && (
           <p className="rounded-lg border border-border/50 bg-muted/30 p-2.5 text-[11px] leading-normal text-muted-foreground">
             You&apos;ll be redirected to sign in. We register a client automatically (no secret to paste) and store the
-            tokens sealed in your home, refreshed for you.
+            tokens sealed in your Ri, refreshed for you.
           </p>
         )}
         <p className="text-[11px] leading-normal text-muted-foreground">
-          {usesSecret && 'The secret is sealed in your home and never shown to the model. '}
+          {usesSecret && 'The secret is sealed in your Ri and never shown to the model. '}
           If an agent session is already running, restart it to use newly added tools.
         </p>
         <Button type="submit" size="sm" disabled={busy || !ready} className="text-xs font-semibold">

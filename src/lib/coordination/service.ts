@@ -392,7 +392,7 @@ export function recoverAgentCoordination(): void {
       const run = q.getRun(request.runId);
       const placement = request.targetSessionId ? q.chatPlacement(request.targetSessionId) : null;
       if (run?.status === 'running' && placement?.isHome !== false) {
-        q.finishAgentRequest(request.id, 'failed', 'The home restarted while this work was running. Its execution is interrupted and was not repeated. Inspect the responding chat before continuing.');
+        q.finishAgentRequest(request.id, 'failed', 'Ri restarted while this work was running. Its execution is interrupted and was not repeated. Inspect the responding chat before continuing.');
       }
     }
   }

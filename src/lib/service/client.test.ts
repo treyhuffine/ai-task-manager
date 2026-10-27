@@ -48,7 +48,7 @@ it('attaches a worker status without requesting local Home credentials', async (
   await listen((request, response) => { routes.push(request.url!); response.end(JSON.stringify({ protocol: 1, identity: servicePaths().identity, phase: 'running', role: 'worker', home: { url: 'https://home.example', name: 'Home' } })); });
   expect((await ensureServiceStatus({ repo: '/repo', node: '/node' })).role).toBe('worker');
   expect(routes).not.toContain('/session');
-  await expect(ensureService({ repo: '/repo', node: '/node' })).rejects.toThrow('Home elsewhere');
+  await expect(ensureService({ repo: '/repo', node: '/node' })).rejects.toThrow('Ri on another computer');
   expect(routes).not.toContain('/session');
 });
 it('returns a first-run status for setup without inventing a local session', async () => {

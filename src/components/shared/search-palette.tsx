@@ -32,7 +32,7 @@ export function SearchPalette({ open, onOpenChange, query, onQueryChange, search
   useEffect(() => { list.current?.scrollTo(0, 0); }, [results]);
   const hasQuery = searchQuery.trim().length > 0;
   return <Command.Dialog open={open} onOpenChange={onOpenChange} label="Search" shouldFilter={false} className="fixed inset-0 z-50">
-    <VisuallyHidden.Root><DialogPrimitive.Title>Search</DialogPrimitive.Title><DialogPrimitive.Description>Find work in this Home</DialogPrimitive.Description></VisuallyHidden.Root>
+    <VisuallyHidden.Root><DialogPrimitive.Title>Search</DialogPrimitive.Title><DialogPrimitive.Description>Find work in Ri</DialogPrimitive.Description></VisuallyHidden.Root>
     <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => onOpenChange(false)}/>
     <div className="relative mx-auto mt-[15vh] w-full max-w-2xl overflow-hidden rounded-xl border bg-card shadow-2xl">
       <div className="flex items-center gap-3 border-b px-4 py-3"><Search size={16} className="shrink-0 text-muted-foreground"/><Command.Input ref={inputRef} value={query} onValueChange={onQueryChange} placeholder={placeholder} className="min-w-0 flex-1 border-none bg-transparent text-sm outline-none"/>{hasQuery && fetching && <Loader2 size={14} className="animate-spin"/>}{typeFilter && <span className="text-[9px] uppercase text-primary">{typeFilter}</span>}<button aria-label="Close search" onClick={() => onOpenChange(false)}><X size={14}/></button></div>

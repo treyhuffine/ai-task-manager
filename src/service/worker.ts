@@ -25,7 +25,7 @@ async function main() {
     if (reasons.length) throw new Error(reasons.join(' '));
     process.exit(0);
   }
-  if (resolveServiceRole().role !== 'worker') throw new Error('This device is not enrolled with its connected Home.');
+  if (resolveServiceRole().role !== 'worker') throw new Error('This device is not enrolled with the Ri it connects to.');
   const connection = readConnection()!;
   const worker = readWorkerConfig()!;
   const target = { homeUrl: connection.homeUrl, homeId: connection.homeId, homeName: connection.homeName, deviceName: worker.deviceName, workerKey: worker.workerKey };

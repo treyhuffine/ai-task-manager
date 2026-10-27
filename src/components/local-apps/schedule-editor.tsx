@@ -26,7 +26,7 @@ export function AppSchedules({instanceId,contract}:{instanceId:string;contract:A
     }catch(error){toast.error(error instanceof Error?error.message:'Schedule could not be saved');}finally{setBusy(false);}
   }
   return <section className="space-y-3 rounded border p-4"><h3 className="font-medium">Schedules</h3>
-    <p className="text-sm text-muted-foreground">Jobs use their own reviewed permission. An overdue job runs once after the Home returns. Overlapping slots are skipped.</p>
+    <p className="text-sm text-muted-foreground">Jobs use their own reviewed permission. An overdue job runs once when Ri is running again. Overlapping slots are skipped.</p>
     {data?.schedules.filter(job=>job.instanceId===instanceId).map(job=><div key={job.id} className="flex items-center gap-2 text-sm"><span className="mr-auto">{job.action} · {job.cron} · {job.enabled?'Enabled':'Disabled'}</span><Button size="sm" variant="outline" onClick={()=>setJobId(job.id)}>Edit</Button></div>)}
     {!!actions.length&&!jobId&&<Button variant="outline" onClick={()=>setJobId(crypto.randomUUID())}>New schedule</Button>}
     {jobId&&<div key={jobId} className="space-y-3"><AppGrantEditor instanceId={instanceId} principal={{kind:'job',id:jobId}}/>

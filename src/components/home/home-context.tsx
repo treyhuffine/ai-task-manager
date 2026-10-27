@@ -38,17 +38,17 @@ export function HomeBoundary({ children, expected }: { children?: ReactNode; exp
     return () => { active = false; };
   }, [homeId, viewerId, bound, ready, expected]);
   if (apiErrorCode(context.error) === DOCUMENT_AUTHOR_CHANGED) return <HomeSignInChanged />;
-  if (context.error && !context.data) return <div role="alert" className="p-6 text-sm">This Home could not be opened. <button className="underline" onClick={() => void context.refetch()}>Retry</button></div>;
+  if (context.error && !context.data) return <div role="alert" className="p-6 text-sm">This Ri could not be opened. <button className="underline" onClick={() => void context.refetch()}>Retry</button></div>;
   if (!context.data) return <HomeLoading />;
   const declared = typeof document === 'undefined' ? null : document.documentElement.dataset.riAuthority;
   if (declared && (context.data.home.kind === 'team' ? !['team', 'space'].includes(declared) : ['team', 'space'].includes(declared))) return <HomeSignInChanged />;
   if (homeId && viewerId && (!documentBindingMatches(bound ?? readDocumentBinding(), { homeId, viewerId }) || !documentBindingMatches(expected ?? null, { homeId, viewerId }))) return <HomeSignInChanged />;
   if (homeId && !ready) return <HomeLoading />;
-  return <Context.Provider value={context.data}>{context.error && <div role="status" className="px-3 py-1 text-xs text-muted-foreground">Home updates are temporarily unavailable. <button className="underline" onClick={() => void context.refetch()}>Retry</button></div>}<HomeErrorBoundary key={`${context.data.home.id}:${context.data.viewer.id}`}>{children}</HomeErrorBoundary></Context.Provider>;
+  return <Context.Provider value={context.data}>{context.error && <div role="status" className="px-3 py-1 text-xs text-muted-foreground">Live updates are temporarily unavailable. <button className="underline" onClick={() => void context.refetch()}>Retry</button></div>}<HomeErrorBoundary key={`${context.data.home.id}:${context.data.viewer.id}`}>{children}</HomeErrorBoundary></Context.Provider>;
 }
 
 function HomeSignInChanged() {
-  return <div role="alert" className="p-6 text-sm">This sign-in changed. Your drafts are kept for their original author. <button className="underline" onClick={() => window.location.reload()}>Reload Home</button></div>;
+  return <div role="alert" className="p-6 text-sm">This sign-in changed. Your drafts are kept for their original author. <button className="underline" onClick={() => window.location.reload()}>Reload</button></div>;
 }
 
 export function useHomeContext() {

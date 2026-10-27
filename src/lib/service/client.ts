@@ -106,7 +106,7 @@ export async function ensureServiceStatus(options: ServiceStartOptions): Promise
 /** Only a local Home can issue the private native session. */
 export async function ensureService(options: ServiceStartOptions): Promise<ServiceSession> {
   const status = await ensureServiceStatus(options);
-  if (status.role && !['home', 'first-run'].includes(status.role)) throw new Error('This device connects to a Home elsewhere. Use its connected viewer session.');
+  if (status.role && !['home', 'first-run'].includes(status.role)) throw new Error('This device connects to a Ri on another computer. Use its connected viewer session.');
   if (!status.origin) throw new Error('Choose how to use this device before opening Ri.');
   return serviceRequest<ServiceSession>('/session');
 }

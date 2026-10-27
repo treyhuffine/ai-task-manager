@@ -24,7 +24,7 @@ export function createSpaceWebSocketRelay() {
     if (!checks.size) return;
     perfScope('timer:space-websocket-authority', () => {
       for (const [client, check] of checks) {
-        try { check(); } catch { client.close(4403, 'The Home or team sign-in changed.'); }
+        try { check(); } catch { client.close(4403, 'Your Ri or team sign-in changed.'); }
       }
     });
   }, 1_000);
@@ -59,7 +59,7 @@ export function createSpaceWebSocketRelay() {
       if (team) recordTeamFailure(teamId, new TeamRequestError('signed_out', teamProblemMessage('signed_out', team.connection.name), 401), team);
       // A team sign-out must never sign the viewer out of their personal Home.
       if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ id: null, error: {
-        code: -32003, message: 'The team no longer accepts this Home’s sign-in.',
+        code: -32003, message: 'The team no longer accepts your Ri’s sign-in.',
         data: { code: 'FORBIDDEN', httpStatus: 403, domainCode: 'team_signed_out' },
       } }));
       end(4403, 'The team sign-in ended.');
@@ -78,7 +78,7 @@ export function createSpaceWebSocketRelay() {
         if (isParams) params = { token: typeof message.data?.token === 'string' ? message.data.token : undefined, protocol: typeof message.data?.protocol === 'string' ? message.data.protocol : undefined, documentHome: typeof message.data?.documentHome === 'string' ? message.data.documentHome : undefined, documentViewer: typeof message.data?.documentViewer === 'string' ? message.data.documentViewer : undefined };
         context = createWebSocketContext(request, params);
         if (context.key?.scope !== 'viewer' || isTeamAuthority()) throw new Error('Only the personal owner can open a connected team.');
-      } catch { end(4401, 'Sign in to your Home.'); return; }
+      } catch { end(4401, 'Sign in to your Ri.'); return; }
       try {
         team = await teamFor(teamId);
         if (team && !documentBindingMatches(params ? {homeId:params.documentHome,viewerId:params.documentViewer} : null, {homeId:team.connection.id,viewerId:team.connection.memberId})) throw new Error('This document belongs to another team sign-in.');
@@ -95,7 +95,7 @@ export function createSpaceWebSocketRelay() {
         upstream.on('close', code => { if (code === 4401) signedOut(); else end(code === 1012 ? 1012 : 1011, 'The team connection closed.'); });
         upstream.on('message', (data, binary) => {
           if (binary) { end(1003, 'Unsupported team frame.'); return; }
-          try { live(); } catch { end(4403, 'The Home or team sign-in changed.'); return; }
+          try { live(); } catch { end(4403, 'Your Ri or team sign-in changed.'); return; }
           const text = data.toString();
           let safe: string;
           try {
@@ -115,9 +115,9 @@ export function createSpaceWebSocketRelay() {
             if (!isParams) send(first);
             for (const text of pending) send(text);
             pending = []; pendingBytes = 0;
-          } catch { end(4403, 'The Home or team sign-in changed.'); }
+          } catch { end(4403, 'Your Ri or team sign-in changed.'); }
         });
-      } catch { end(4403, 'This team is no longer connected to your Home.'); }
+      } catch { end(4403, 'This team is no longer connected to your Ri.'); }
     };
     client.on('message', (data, binary) => {
       if (binary) { end(1003, 'Unsupported frame.'); return; }
@@ -146,7 +146,7 @@ export function createSpaceWebSocketRelay() {
     },
     async close() {
       if (closing) return; closing = true; clearInterval(sweep);
-      for (const client of server.clients) client.close(1012, 'Home is restarting.');
+      for (const client of server.clients) client.close(1012, 'Ri is restarting.');
       const force = setTimeout(() => { for (const client of server.clients) client.terminate(); }, 1_000); force.unref();
       await new Promise<void>(resolve => server.close(() => resolve())); clearTimeout(force);
     },

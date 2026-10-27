@@ -32,7 +32,7 @@ export type WorkerChildMessage = Reply | { type: 'state'; state: { state: Servic
 function enrollmentIdentity(): string {
   const connection = readConnection();
   const worker = readWorkerConfig();
-  if (!connection || !worker || worker.homeId !== connection.homeId || (connection.deviceId && connection.deviceId !== worker.deviceId)) throw new Error('This device is not enrolled with its connected Home.');
+  if (!connection || !worker || worker.homeId !== connection.homeId || (connection.deviceId && connection.deviceId !== worker.deviceId)) throw new Error('This device is not enrolled with the Ri it connects to.');
   return createHash('sha256').update(JSON.stringify([worker.homeId, worker.deviceId, worker.workerKey])).digest('hex');
 }
 function preferenceFile() { return path.join(getConfigDir(), 'worker-service.json'); }

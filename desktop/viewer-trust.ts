@@ -23,7 +23,7 @@ export function remoteViewerOrigin(raw: string, development = false) {
   const url = new URL(raw);
   const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
   if ((url.protocol !== 'https:' && !(development && loopback && url.protocol === 'http:')) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
-    throw new Error('A remote Home must use HTTPS. Loopback HTTP is allowed only in development.');
+    throw new Error('A remote Ri must use HTTPS. Loopback HTTP is allowed only in development.');
   }
   return url.origin;
 }
@@ -32,7 +32,7 @@ export function remoteViewerOrigin(raw: string, development = false) {
 /** Existing local desktop releases implement bridge 1. New runtimes must
  * explicitly keep that bridge or tell this shell to update before opening it. */
 export function assertLocalBridge(peer?: { compatibility: { nativeBridge: number[] } }) {
-  if (peer && !peer.compatibility.nativeBridge.includes(1)) throw new Error('Update the Ri desktop app on this device before opening this Home runtime. Its native bridge is incompatible.');
+  if (peer && !peer.compatibility.nativeBridge.includes(1)) throw new Error('Update the Ri desktop app on this device before opening this Ri. Its native bridge is incompatible.');
 }
 
 

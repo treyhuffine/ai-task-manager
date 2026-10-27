@@ -574,7 +574,7 @@ function IdentityStep({ newHome, onDone }: { newHome: boolean; onDone: (name: st
           <p className="text-[10.5px] leading-snug text-muted-foreground">
             Already use {APP_NAME} on another computer? Stop this one and run{' '}
             <code className="font-mono text-foreground/80">{APP_SHORT_ID} connect</code> to use that one here. A
-            new home with nothing in it is set aside, not deleted.
+            new Ri with nothing in it is set aside, not deleted.
           </p>
         ) : (
           <span />

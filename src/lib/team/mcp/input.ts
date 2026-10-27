@@ -60,7 +60,7 @@ export function teamContentInput(name: string, input: Record<string, unknown>) {
 /** HTTP session actions and the Team MCP normalize and validate together. */
 export function parseTeamContentInput(name: string, shape: z.ZodRawShape, raw: unknown, homeId: string | undefined) {
   const input = normalizeHomeDestination(raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {}, shape);
-  if ('target_home_id' in input && input.target_home_id !== homeId) throw new ActionError('unsupported', 'This connection acts only in its Team Home.');
+  if ('target_home_id' in input && input.target_home_id !== homeId) throw new ActionError('unsupported', 'This connection acts only in its team.');
   delete input.target_home_id;
   const { wire, areaStatus } = teamContentInput(name, input);
   const parsed = z.object(shape).strict().safeParse(wire);

@@ -57,11 +57,11 @@ async function roleHere(): Promise<'home' | 'connected' | 'fresh'> {
 /** The connection and enrollment this device works from, or a reason it can't. */
 function enrolledTarget(): { connection: ConnectionConfig; worker: WorkerConfig; target: WorkerTarget } | string {
   const connection = readConnection();
-  if (!connection) return `This device isn't connected to a home. Run \`${APP_SHORT_ID} connect\` first.`;
+  if (!connection) return `This device isn't connected to a Ri. Run \`${APP_SHORT_ID} connect\` first.`;
   const worker = readWorkerConfig();
   if (!worker) return `This device isn't enrolled to run agents. Run \`${APP_SHORT_ID} worker enroll\` first.`;
   if (worker.homeId !== connection.homeId) {
-    return `This device's enrollment is for a different home than it's connected to. Run \`${APP_SHORT_ID} worker enroll\` again.`;
+    return `This device's enrollment is for a different Ri than it's connected to. Run \`${APP_SHORT_ID} worker enroll\` again.`;
   }
   return {
     connection,
@@ -79,15 +79,15 @@ function enrolledTarget(): { connection: ConnectionConfig; worker: WorkerConfig;
 async function enroll(opts: { code?: string; yes?: boolean }): Promise<void> {
   const role = await roleHere();
   if (role === 'home') {
-    return fail(`This device is your home. Its agents already run here, so it doesn't enroll as a worker.`);
+    return fail(`This device runs your Ri. Its agents already run here, so it doesn't enroll as a worker.`);
   }
   const connection = readConnection();
-  if (!connection) return fail(`This device isn't connected to a home. Run \`${APP_SHORT_ID} connect\` first.`);
+  if (!connection) return fail(`This device isn't connected to a Ri. Run \`${APP_SHORT_ID} connect\` first.`);
 
   console.log(
     `Enrolling lets ${pc.bold(connection.homeName)} run agents on this device: in the folders you set up ` +
       `for them, with the harnesses installed here, under the permissions you choose for each session. ` +
-      `You can turn it off here with \`${APP_SHORT_ID} worker disable\`, or from your home's Devices settings.`,
+      `You can turn it off here with \`${APP_SHORT_ID} worker disable\`, or from Devices settings in your Ri.`,
   );
   if (!opts.yes && !(await confirm('Enroll this device?'))) {
     console.log('Nothing changed.');
@@ -128,7 +128,7 @@ async function enroll(opts: { code?: string; yes?: boolean }): Promise<void> {
       return fail(body?.message ?? `${connection.homeName} refused the enrollment (HTTP ${res.status}).`);
     }
     if (body.homeId !== connection.homeId) {
-      return fail(`${connection.homeUrl} enrolled this device with a different home. Nothing was saved.`);
+      return fail(`${connection.homeUrl} enrolled this device with a different Ri. Nothing was saved.`);
     }
     writeWorkerConfig({
       homeId: body.homeId,
@@ -218,7 +218,7 @@ async function status(): Promise<void> {
   try {
     const { sendHeartbeat } = await import('@/lib/worker/run');
     await sendHeartbeat(target, workerVersion());
-    console.log(`${pc.green('The home accepts this worker.')} Run \`${APP_SHORT_ID} worker run\` to keep it connected.`);
+    console.log(`${pc.green('Your Ri accepts this worker.')} Run \`${APP_SHORT_ID} worker run\` to keep it connected.`);
   } catch (err) {
     if (err instanceof WorkerStoppedError || err instanceof WorkerNetworkError) return fail(err.message);
     throw err;
@@ -259,7 +259,7 @@ async function disable(): Promise<void> {
 
 async function grant(opts: { device?: string; name?: string }): Promise<void> {
   if ((await roleHere()) !== 'home') {
-    return fail(`Make enrollment codes on your home. On this device, \`${APP_SHORT_ID} worker enroll\` makes its own.`);
+    return fail(`Make enrollment codes on the computer that hosts your Ri. On this device, \`${APP_SHORT_ID} worker enroll\` makes its own.`);
   }
   const { createDeviceGrant, GrantError, listDevices } = await import('@/lib/db/queries');
   let deviceId: string | null = null;
@@ -289,20 +289,20 @@ async function grant(opts: { device?: string; name?: string }): Promise<void> {
 }
 
 export function registerWorkerCommand(program: Command) {
-  const worker = program.command('worker').description('Run agents on this device for your home');
+  const worker = program.command('worker').description('Run agents on this device for your Ri');
   worker
     .command('enroll')
-    .description('Let your home run agents on this device')
-    .option('--code <code>', 'an enrollment code made on your home')
+    .description('Let your Ri run agents on this device')
+    .option('--code <code>', 'an enrollment code made on the computer that hosts your Ri')
     .option('-y, --yes', 'enroll without asking')
     .action(enroll);
-  worker.command('run').description('Connect to your home and stay connected').action(run);
+  worker.command('run').description('Connect to your Ri and stay connected').action(run);
   worker.command('status').description("This device's enrollment").action(status);
   worker.command('open').description("Open your Ri in this device's browser, as This Mac").action(open);
   worker.command('disable').description('Stop running agents on this device').action(disable);
   worker
     .command('grant')
-    .description('On your home: make a code another device enrolls with')
+    .description('On the computer that hosts your Ri: make a code another device enrolls with')
     .option('--device <name>', 'an existing device, by name or id')
     .option('--name <name>', 'a name for a new device')
     .action(grant);

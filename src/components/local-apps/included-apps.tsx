@@ -175,7 +175,7 @@ export function IncludedApps({ data, search, navigate }: { data?: LocalAppsList;
             <dt className="text-muted-foreground">Starts</dt>
             <dd>
               {details?.runtime === 'mcp-http-v1'
-                ? 'As a background service with your Home.'
+                ? 'As a background service while your Ri runs.'
                 : 'When opened or run.'}
             </dd>
             <dt className="text-muted-foreground">Digest</dt>

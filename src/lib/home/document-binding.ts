@@ -4,7 +4,7 @@ import { APP_SHORT_ID } from '@/constants/app';
 export const DOCUMENT_HOME_HEADER = `x-${APP_SHORT_ID}-document-home`;
 export const DOCUMENT_VIEWER_HEADER = `x-${APP_SHORT_ID}-document-viewer`;
 export const DOCUMENT_AUTHOR_CHANGED = 'document_author_changed';
-export const DOCUMENT_AUTHOR_CHANGED_MESSAGE = 'This sign-in changed. Your drafts are kept for their original author. Reload after signing in to the intended Home.';
+export const DOCUMENT_AUTHOR_CHANGED_MESSAGE = 'This sign-in changed. Your drafts are kept for their original author. Reload after signing in to the Ri or team you meant to open.';
 export interface DocumentBinding { homeId: string; viewerId: string }
 export function documentBindingMatches(expected: Partial<DocumentBinding> | null, actual: DocumentBinding) {
   return !expected || (expected.homeId === undefined && expected.viewerId === undefined) || (expected.homeId === actual.homeId && expected.viewerId === actual.viewerId);

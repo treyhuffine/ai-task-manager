@@ -4,7 +4,7 @@ import { HomeShell } from './home-shell';
 
 /** Anonymous chrome only. No member data, drafts or interactive editors mount. */
 export function HomeLoading({ children }: { children?: ReactNode }) {
-  return <div role="status" aria-label="Loading Home" aria-busy="true">
+  return <div role="status" aria-label="Loading Ri" aria-busy="true">
     <HomeShell navigation={<aside aria-hidden className="hidden w-[256px] shrink-0 flex-col gap-5 border-r border-border p-4 md:flex">
       <Skeleton className="h-7 w-32 motion-reduce:animate-none" />
       {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-5 w-full motion-reduce:animate-none" />)}

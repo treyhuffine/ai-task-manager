@@ -86,7 +86,7 @@ function collect(value: string, previous: string[] = []): string[] {
 export function registerSetupCommand(program: Command) {
   const setup = program
     .command('setup')
-    .description("Your agents' folders on this device, as your home records them")
+    .description("Your agents' folders on this device, as your Ri records them")
     .action(async () => {
       await run(async () => {
         const deviceId = await thisDeviceId();

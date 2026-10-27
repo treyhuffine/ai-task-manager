@@ -35,8 +35,8 @@ export function pluginEvaluationStatus() {
 
 export async function launchPluginEvaluation(parentOrigin: string, example?: 'excalidraw' | 'flint' | 'buildings' | 'tldraw') {
   const value = evaluationDescriptor();
-  if (!value) throw new OperationError(503, { error: 'evaluation_offline', message: 'The interactive examples are offline on your Home computer.' });
-  if (parentOrigin !== value.parentOrigin) throw new OperationError(400, { error: 'unsupported_origin', message: 'Open these examples from your Home’s configured remote Ri URL.' });
+  if (!value) throw new OperationError(503, { error: 'evaluation_offline', message: 'The interactive examples are offline on the computer running your Ri.' });
+  if (parentOrigin !== value.parentOrigin) throw new OperationError(400, { error: 'unsupported_origin', message: 'Open these examples from the remote URL configured for your Ri.' });
   const response = await fetch('http://127.0.0.1:48885/__launch', {
     method: 'POST', headers: { 'x-ri-evaluation-key': value.key }, signal: AbortSignal.timeout(5000),
   }).catch(() => null);

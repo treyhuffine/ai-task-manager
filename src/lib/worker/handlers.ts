@@ -460,7 +460,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
               if (typeof current?.allowed !== 'boolean') throw new Error('Invalid admission response.');
             } catch (error) {
               if (error instanceof WorkerStoppedError) throw error;
-              throw new WorkerCommandDeferredError('The home could not confirm admission.');
+              throw new WorkerCommandDeferredError('Ri could not confirm admission.');
             }
             if (current.allowed) return true;
             if (current.held) throw new WorkerCommandDeferredError('This chat is held.');
@@ -657,7 +657,7 @@ export function executionHandlers(options: ExecutionHandlerOptions): CommandHand
       options.flushEvents?.();
       const deadline = Date.now() + (options.flushTimeoutMs ?? 30_000);
       while ((options.events?.ackedPosition() ?? upTo) < upTo) {
-        if (Date.now() > deadline) return { state: 'failed', error: "Its last events didn't reach the home in time." };
+        if (Date.now() > deadline) return { state: 'failed', error: "Its last events didn't reach Ri in time." };
         await new Promise((r) => setTimeout(r, 100));
         options.flushEvents?.();
       }

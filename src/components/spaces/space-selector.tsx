@@ -143,7 +143,7 @@ export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | '
         ))}
         <DropdownMenuSeparator />
         {standalone ? <DropdownMenuItem onSelect={onOpenSettings} className="gap-2 text-[13px]">
-          <Settings size={14} className="text-muted-foreground" /> Home settings
+          <Settings size={14} className="text-muted-foreground" /> Team settings
         </DropdownMenuItem> : <><DropdownMenuItem onSelect={openTeamsSettings} className="gap-2 text-[13px]">
           <UserPlus size={14} className="text-muted-foreground" /> Join a team
         </DropdownMenuItem>

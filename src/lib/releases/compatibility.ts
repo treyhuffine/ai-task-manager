@@ -37,7 +37,7 @@ export function legacyCompatibility(protocol: number): RuntimeCompatibility {
 export function negotiateWorker(home: RuntimeCompatibility, worker: RuntimeCompatibility): CompatibilityResult {
   if (!home.apiProtocols.some(p => worker.apiProtocols.includes(p))) return { compatible: false,
     update: Math.max(...home.apiProtocols) < Math.min(...worker.apiProtocols) ? 'home' : 'worker',
-    reason: 'These releases do not share a supported Home API.' };
+    reason: 'These releases do not share a supported Ri API.' };
   const common = home.workerProtocols.filter(p => worker.workerProtocols.includes(p));
   if (!common.length) {
     const update = Math.max(...home.workerProtocols) < Math.min(...worker.workerProtocols) ? 'home'

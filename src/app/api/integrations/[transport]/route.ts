@@ -177,7 +177,7 @@ function handle(req: NextRequest): Promise<Response> {
   const ticket = new URL(req.url).searchParams.get('evaluation');
   if (ticket) {
     const key = getRequestKey(req.headers);
-    if (key?.scope !== 'viewer' || key.location !== 'home' || !z.string().uuid().safeParse(ticket).success) return Promise.resolve(new Response('This demo gateway is restricted to its Home harness.', { status: 403 }));
+    if (key?.scope !== 'viewer' || key.location !== 'home' || !z.string().uuid().safeParse(ticket).success) return Promise.resolve(new Response('This demo gateway is restricted to Ri’s local harness.', { status: 403 }));
     return riMcpHandler(async server => { await serveAccountChat(server, ticket); }, { name: 'account_demo', version: '1' })(req);
   }
   const ws = new URL(req.url).searchParams.get('ws');

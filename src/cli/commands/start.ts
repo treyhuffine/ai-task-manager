@@ -198,9 +198,9 @@ async function startForegroundCommand(opts: StartOptions) {
         if (!(await runConnect(undefined, { open: opts.open }))) process.exitCode = 1;
         return;
       }
-      log.info(pc.dim('You can move your home to an always-on device later.'));
+      log.info(pc.dim('You can move your Ri to an always-on device later.'));
     } else {
-      log.info(`Starting a new home here. If you already use ${APP_NAME} on another device, run \`${APP_SHORT_ID} connect\` instead.`);
+      log.info(`Starting a new Ri here. If you already use ${APP_NAME} on another device, run \`${APP_SHORT_ID} connect\` instead.`);
     }
   }
 
@@ -253,7 +253,7 @@ async function startForegroundCommand(opts: StartOptions) {
   try {
     const identity = ensureHomeIdentity();
     team = identity.home.kind === 'team';
-    if (identity.created) log.success(team ? `Created the team ${identity.home.name} on ${identity.device.name}` : `Created your home on ${identity.device.name}`);
+    if (identity.created) log.success(team ? `Created the team ${identity.home.name} on ${identity.device.name}` : `Created your Ri on ${identity.device.name}`);
   } catch (err) {
     s.stop('Not starting');
     // A retired home in this folder: say what happened, never open a new one.

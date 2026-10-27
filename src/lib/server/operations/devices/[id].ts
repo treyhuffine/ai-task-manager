@@ -41,7 +41,7 @@ export async function DELETE(rpcInput: rpcZ.infer<typeof DELETEInput>, _request:
   const device = getDevice(id);
   if (!device || device.status !== 'active') return reply({ error: 'not_found', message: 'No such device.' }, { status: 404 });
   if (getHome()?.hostDeviceId === id) {
-    return reply({ error: 'home_device', message: `${device.name} is where this home runs. It can't be removed.` }, { status: 409 });
+    return reply({ error: 'home_device', message: `${device.name} is where this Ri runs. It can't be removed.` }, { status: 409 });
   }
   const reason = searchParams(rpcInput.query).get('reason') ?? `${device.name} was removed by the owner`;
   // Its worker first, so its work is settled and its stream closes now.

@@ -62,8 +62,8 @@ export async function runConnect(linkArg: string | undefined, opts: ConnectOptio
     }
     if (!describeHomeUse().unused) {
       log.error(
-        'This folder is a home with data in it, so it stays a home. To use your other Ri here, move what you ' +
-          `need into that one, then retire this home (\`${APP_SHORT_ID} home retire\`, which keeps its data here) and connect.`,
+        'This folder holds a Ri with data in it, so it stays as it is. To use your other Ri here, move what you ' +
+          `need into that one, then retire this one (\`${APP_SHORT_ID} home retire\`, which keeps its data here) and connect.`,
       );
       return false;
     }
@@ -91,7 +91,7 @@ export async function runConnect(linkArg: string | undefined, opts: ConnectOptio
     let yes = opts.yes === true;
     if (!yes && process.stdin.isTTY) {
       const answer = await confirm({
-        message: `This folder has a new, empty Ri home. Set it aside (nothing is deleted) and connect to ${home.name} instead?`,
+        message: `This folder has a new, empty Ri. Set it aside (nothing is deleted) and connect to ${home.name} instead?`,
       });
       yes = answer === true;
     }
@@ -128,8 +128,8 @@ export function registerConnectCommands(program: Command) {
     .description('Connect this device to your existing Ri, with a pairing link from its Devices settings')
     .option('--insecure-http', 'allow a plain http:// address on a home network you trust')
     .option('--no-open', "don't open your Ri in the browser")
-    .option('-y, --yes', 'set aside an unused new home in this folder without asking')
-    .option('--address <url>', 'your home answers at a new address: follow it, keeping this device as it is')
+    .option('-y, --yes', 'set aside an unused new Ri in this folder without asking')
+    .option('--address <url>', 'your Ri answers at a new address: follow it, keeping this device as it is')
     .action(async (link: string | undefined, opts: ConnectOptions & { address?: string }) => {
       if (opts.address) {
         const current = readConnection();
@@ -162,7 +162,7 @@ export function registerConnectCommands(program: Command) {
     .action(() => {
       const connection = readConnection();
       if (getInstallationRole() !== 'connected' || !connection) {
-        console.error('This device is not connected to a home.');
+        console.error('This device is not connected to a Ri.');
         process.exitCode = 1;
         return;
       }

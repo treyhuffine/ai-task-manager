@@ -26,7 +26,7 @@ export const mcpViews = () => processState('mcp-app-views', () => new McpViewSto
   // watch still ends at unsubscribe.
   if (view.capture.kind === 'file') void import('./files').then(files => files.closeHostWatches(view)).catch(() => {});
 }));
-const assertEnabled = () => { if (!mcpAppsEnabled()) throw new Error('Connected app views are disabled for this Home'); };
+const assertEnabled = () => { if (!mcpAppsEnabled()) throw new Error('Connected app views are disabled in this Ri'); };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
 /** "Todoist · find-tasks-by-date", or the name once when a screen is titled for its service. */

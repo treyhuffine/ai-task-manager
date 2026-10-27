@@ -11,8 +11,8 @@ export function apiCompatibilityIssue(header: string | null, supported: readonly
   if (protocol !== null && Number.isSafeInteger(protocol) && supported.includes(protocol)) return null;
   const update = protocol !== null && protocol > Math.max(...supported) ? 'home' : 'client';
   return { error: 'api_protocol', code: 'api_protocol', update, protocol, supported: [...supported], message: update === 'home'
-    ? 'Update Ri on your Home to use this newer view. Your drafts are retained on this device.'
-    : 'Reload this view to use the updated Home. Your drafts are retained on this device.' };
+    ? 'Update Ri on the computer that hosts it to use this newer view. Your drafts are retained on this device.'
+    : 'Reload this view to use the updated Ri. Your drafts are retained on this device.' };
 }
 /** These authenticated transports negotiate their own protocol. This does
  * not bypass authentication or the scope checks that protect those routes. */

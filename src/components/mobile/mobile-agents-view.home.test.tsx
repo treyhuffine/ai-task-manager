@@ -21,7 +21,7 @@ it('renders the ordinary agent directory for a team member without a personal da
     activity={{ activeSessionId: null, streamingSessionIds: new Set(), backgroundSessionIds: new Set(), pendingInputSessionIds: new Set(), setActiveExecutionId: noop, setSessionStreaming: noop }}
   ><MobileAgentsView /></WorkContext></TipProvider></HomeBoundary></QueryClientProvider>);
   expect(html).toContain('No agents yet');
-  expect(html).toContain('No agents have been configured for this Home.');
+  expect(html).toContain('No agents have been set up here yet.');
   expect(html).not.toContain('New agent');
   expect(html).not.toContain('Add one to get started.');
   cache.clear();

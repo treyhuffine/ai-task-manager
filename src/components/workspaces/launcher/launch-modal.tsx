@@ -280,7 +280,7 @@ function LaunchModalInner({
     [harnessPick, fallbackProvider, fallbackModel],
   );
   const { models } = useHarnessModels(selection.harness);
-  const runtimeProblem = !personalControls && workspaceId && !workspace ? 'Opening the selected agent…' : !personalControls && (!selectedModelAvailable(models, selection.model) || (!harnessPick && !defaultSelection)) ? 'Choose an available model on this Home.' : null;
+  const runtimeProblem = !personalControls && workspaceId && !workspace ? 'Opening the selected agent…' : !personalControls && (!selectedModelAvailable(models, selection.model) || (!harnessPick && !defaultSelection)) ? 'Choose a model available to the team.' : null;
   const selectedModelOption = useMemo(
     () => models.find((m) => m.id === selection.model) ?? null,
     [models, selection.model],

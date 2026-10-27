@@ -121,7 +121,7 @@ export function AppSourcesDialog({ instanceId, open, onOpenChange }: { instanceI
               return (
                 <section key={binding.binding} className="space-y-2">
                   <GroupHeading count={accounts.length}>{binding.name}</GroupHeading>
-                  {!binding.available && <p className="text-[12px] text-muted-foreground">{binding.name} is not available on this Home.</p>}
+                  {!binding.available && <p className="text-[12px] text-muted-foreground">{binding.name} is not available in this Ri.</p>}
                   {binding.available && !accounts.length && (
                     <div className="rounded-lg border border-dashed border-border p-3 text-[12px] text-muted-foreground">
                       No account for {binding.name} is connected to Ri yet.

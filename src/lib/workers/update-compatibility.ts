@@ -25,7 +25,7 @@ function readReport(deviceId: string, keyId: string) {
 export function homeCompatibilityReasons(candidate: RuntimeCompatibility | null): string[] {
   const enrolled = listEnrolledDeviceIds();
   if (!enrolled.size) return [];
-  if (!candidate) return ['This release has no worker compatibility metadata. Install a bridge release before updating a Home with enrolled devices.'];
+  if (!candidate) return ['This release has no worker compatibility metadata. Install a bridge release before updating Ri while devices are enrolled.'];
   const reasons: string[] = [];
   for (const device of listDevices()) {
     if (!enrolled.has(device.id)) continue;
@@ -37,7 +37,7 @@ export function homeCompatibilityReasons(candidate: RuntimeCompatibility | null)
     // incompatible offline device cannot still be producing old-format events.
     const journal = report?.journal;
     const safelyStopped = report?.stopped && journal && !journal.pendingEvents && !journal.pendingCommands && !journal.openTurns;
-    if (unresolved || !safelyStopped) reasons.push(`Update ${device.name} through a compatible bridge first. Its current or undelivered work cannot be discarded for this Home update.`);
+    if (unresolved || !safelyStopped) reasons.push(`Update ${device.name} through a compatible bridge first. Its current or undelivered work cannot be discarded for this update.`);
   }
   return reasons;
 }
@@ -56,7 +56,7 @@ export function workerCompatibilityView(deviceId: string, deviceName: string, pr
     protocol: agreement.compatible ? agreement.protocol : undefined,
     capabilities: agreement.compatible ? agreement.capabilities : [],
     update: agreement.compatible ? undefined : agreement.update,
-    reason: agreement.compatible ? undefined : compatibilityMessage(agreement, deviceName, 'your Home'),
+    reason: agreement.compatible ? undefined : compatibilityMessage(agreement, deviceName, 'the computer running your Ri'),
     pendingEvents: report?.journal?.pendingEvents,
     pendingCommands: report?.journal?.pendingCommands,
     openTurns: report?.journal?.openTurns,

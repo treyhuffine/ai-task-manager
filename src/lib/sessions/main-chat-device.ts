@@ -41,8 +41,8 @@ export function followAgentUntilRun(chatSessionId: string): { moved: boolean; wi
   if (hasRun) return unchanged;
   if (queuedSends.length > 0 && pinned && listEnrolledDeviceIds().has(pinned)) return unchanged;
 
-  const from = pinned ? (getDevice(pinned)?.name ?? 'that device') : (getDevice(host ?? '')?.name ?? 'this home');
-  const to = target ? (getDevice(target)?.name ?? 'another device') : (getDevice(host ?? '')?.name ?? 'this home');
+  const from = pinned ? (getDevice(pinned)?.name ?? 'that device') : (getDevice(host ?? '')?.name ?? 'the computer running Ri');
+  const to = target ? (getDevice(target)?.name ?? 'another device') : (getDevice(host ?? '')?.name ?? 'the computer running Ri');
   let withdrawn = 0;
   for (const command of queued) {
     if (command.kind !== 'send') cancelWorkerCommand(command.id, `${workspace.name}'s main chat moved to ${to} before this reached ${from}.`);

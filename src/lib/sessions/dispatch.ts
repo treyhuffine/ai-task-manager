@@ -255,7 +255,7 @@ export async function dispatchExecutionSession(
   const elsewhere = target && target !== host ? target : null;
   if (elsewhere) {
     const device = getDevice(elsewhere);
-    if (!device || device.status !== 'active') throw new DeviceUnavailableForDispatch('That device is no longer connected to this home.');
+    if (!device || device.status !== 'active') throw new DeviceUnavailableForDispatch('That device is no longer connected to this Ri.');
     if (!listEnrolledDeviceIds().has(elsewhere)) {
       throw new DeviceUnavailableForDispatch(cantRunAgentThere(ws.id, device.name));
     }

@@ -55,7 +55,7 @@ async function dispatch(
     catch (error) { return { ok: false, action: name, error: { code: 'invalid_params', message: error instanceof Error ? error.message : 'Invalid destination.' } }; }
   }
   if (ctx.caller?.scope === 'home_content') {
-    if (rawInput && typeof rawInput === 'object' && 'target_home_id' in rawInput) return { ok: false, action: name, error: { code: 'unsupported', message: 'This external connection is scoped to its personal Home.' } };
+    if (rawInput && typeof rawInput === 'object' && 'target_home_id' in rawInput) return { ok: false, action: name, error: { code: 'unsupported', message: 'This external connection can only reach your personal Ri.' } };
     const key = ctx.caller.apiKeyId ? getApiKey(ctx.caller.apiKeyId) : null;
     if (isTeamAuthority() || !key || !isPersonalAiClientKey(key) || key.revokedAt
       || (key.expiresAt && new Date(key.expiresAt).getTime() <= Date.now()) || !permitsHomeContentAction(name)) {
@@ -71,7 +71,7 @@ async function dispatch(
   }
 
   if (rawInput && typeof rawInput === 'object' && 'target_home_id' in rawInput && !action.params.target_home_id && rawInput.target_home_id !== getHome()?.id) {
-    return { ok: false, action: name, error: { code: 'unsupported', message: 'This operation cannot target that Home. No personal write was attempted.' } };
+    return { ok: false, action: name, error: { code: 'unsupported', message: 'This operation cannot target that destination. No personal write was attempted.' } };
   }
 
   if (rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)) {

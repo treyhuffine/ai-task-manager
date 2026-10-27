@@ -75,7 +75,7 @@ export function RunOnSheet({
                             : !choice.connected
                               ? "Not connected: it'll start when it's back."
                               : choice.isHome
-                                ? 'The home'
+                                ? 'Where Ri runs'
                                 : 'Ready'}
                         </span>
                       </span>

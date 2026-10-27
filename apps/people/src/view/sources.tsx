@@ -337,7 +337,7 @@ function ExportPanel() {
   return (
     <section className="pe-stack" aria-labelledby="pe-export-heading">
       <h2 id="pe-export-heading" className="ri-h2">Export</h2>
-      <p className="pe-small pe-muted">CSV and JSON files with stable IDs and a format version. Message bodies are never exported. This is not a full backup: whole-Home backup in Ri keeps everything, including sources and decisions.</p>
+      <p className="pe-small pe-muted">CSV and JSON files with stable IDs and a format version. Message bodies are never exported. This is not a full backup: a whole Ri backup keeps everything, including sources and decisions.</p>
       <div className="pe-row">{TABLES.map(([table, label]) => <Button key={table} size="sm" busy={busy === table} onClick={() => void run(table)}>{label}</Button>)}</div>
       {error && <InlineError>{error}</InlineError>}
     </section>
