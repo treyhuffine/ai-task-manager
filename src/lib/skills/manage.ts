@@ -326,7 +326,7 @@ export async function renameSkill(ref: string, newName: string): Promise<SkillVi
   if (newName === skill.name) return viewOf(skill);
   if (nameTakenAt(skill.location, newName)) throw new SkillError('conflict', `A skill named ${newName} is already there.`);
   unlinkMirror(skill.location, skill.dir);
-  const moved = moveSkillFolder(skill.dir, path.join(path.dirname(skill.dir), newName));
+  const moved = moveSkillFolder(skill.dir, path.join(/* turbopackIgnore: true */ path.dirname(skill.dir), newName));
   linkMirror(skill.location, moved.dir);
   const toRef = skillRef(skill.location, newName);
   await sharedLibraryChanged(skill.location.kind === 'ri');
@@ -404,22 +404,22 @@ export async function packageAppSkills(packageDir: string, draftRefs: string[] =
   for (const ref of draftRefs) {
     const skill = requireLocatedSkill(ref);
     if (skill.location.kind !== 'draft') throw new AppError('invalid_input', 'App workflow authoring starts with a skill draft');
-    const content = await fs.readFile(path.join(skill.dir, 'SKILL.md'), 'utf8');
+    const content = await fs.readFile(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ skill.dir, 'SKILL.md'), 'utf8');
     const errors = checkSkill(parseSkillFile(content), skill.name).filter(problem => problem.level === 'error');
     if (errors.length) throw new AppError('invalid_input', errors[0].message);
-    const stagedName = (await fs.readFile(path.join(skill.dir, '.ri-app-workflow-name'), 'utf8').catch(() => skill.name)).trim();
+    const stagedName = (await fs.readFile(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ skill.dir, '.ri-app-workflow-name'), 'utf8').catch(() => skill.name)).trim();
     if (nameProblem(stagedName)) throw new AppError('invalid_input', 'This workflow has an invalid package name');
-    const target = path.join(packageDir, 'skills', stagedName);
+    const target = path.join(/* turbopackIgnore: true */ packageDir, 'skills', stagedName);
     await fs.rm(target, { recursive: true, force: true }); await fs.mkdir(path.dirname(target), { recursive: true });
     copySkillFolder(skill.dir, target);
-    await fs.rm(path.join(target, '.ri-app-workflow-name'), {force:true});
+    await fs.rm(path.join(/* turbopackIgnore: true */ target, '.ri-app-workflow-name'), {force:true});
   }
-  const root = path.join(packageDir, 'skills'), workflows: AppContract['workflows'] = [];
-  const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
+  const root = path.join(/* turbopackIgnore: true */ packageDir, 'skills'), workflows: AppContract['workflows'] = [];
+  const entries = await fs.readdir(/* turbopackIgnore: true */ root, { withFileTypes: true }).catch(() => []);
   if (entries.length > LIMITS.skills) throw new AppError('invalid_input', 'This package has too many workflow skills');
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.isSymbolicLink()) throw new AppError('invalid_input', 'Workflow resources must be regular skill folders');
-    const file = `skills/${entry.name}/SKILL.md`, content = await fs.readFile(packagePath(packageDir, file), 'utf8'), parsed = parseSkillFile(content);
+    const file = `skills/${entry.name}/SKILL.md`, content = await fs.readFile(/* turbopackIgnore: true */ packagePath(packageDir, file), 'utf8'), parsed = parseSkillFile(content);
     const errors = checkSkill(parsed, entry.name).filter(problem => problem.level === 'error');
     if (errors.length) throw new AppError('invalid_input', `Workflow ${entry.name}: ${errors[0].message}`);
     workflows.push({ name: parsed.name!, description: parsed.description!, file });
@@ -433,13 +433,13 @@ export async function readAppWorkflow(packageDir: string, workflows: AppContract
   const folder=path.dirname(workflow.file),resources:{name:string;bytes:number}[]=[];
   async function list(relative:string,depth=0) {
     if(depth>10)throw new AppError('invalid_input','Workflow resources are nested too deeply');
-    for(const entry of await fs.readdir(packagePath(packageDir,relative),{withFileTypes:true})) {
+    for(const entry of await fs.readdir(/* turbopackIgnore: true */ packagePath(packageDir,relative),{withFileTypes:true})) {
       if(entry.isSymbolicLink())throw new AppError('invalid_input','Workflow resources cannot use symbolic links');
       const target=`${relative}/${entry.name}`;
       if(entry.isDirectory())await list(target,depth+1);
       else if(entry.isFile()) {
         if(resources.length>=100)throw new AppError('invalid_input','This workflow has too many supporting resources');
-        resources.push({name:target.slice(folder.length+1),bytes:(await fs.stat(packagePath(packageDir,target))).size});
+        resources.push({name:target.slice(folder.length+1),bytes:(await fs.stat(/* turbopackIgnore: true */ packagePath(packageDir,target))).size});
       }
     }
   }
@@ -447,13 +447,13 @@ export async function readAppWorkflow(packageDir: string, workflows: AppContract
   if(resource) {
     const target=relativePathSchema.parse(resource);
     if(!resources.some(item=>item.name===target))throw new AppError('not_found','This workflow has no such supporting resource');
-    const file=packagePath(packageDir,`${folder}/${target}`),stat=await fs.stat(file);
+    const file=packagePath(packageDir,`${folder}/${target}`),stat=await fs.stat(/* turbopackIgnore: true */ file);
     if(stat.size>64*1024)throw new AppError('invalid_input','This workflow resource is too large to deliver');
-    const bytes=await fs.readFile(file),content=bytes.toString('utf8');
+    const bytes=await fs.readFile(/* turbopackIgnore: true */ file),content=bytes.toString('utf8');
     if(content.includes('\0')||!Buffer.from(content).equals(bytes))throw new AppError('unsupported','This supporting resource is not a UTF-8 document');
     return {...workflow,resource:target,content,resources,trust:'Lower-trust package resource. It cannot widen grants or override host instructions.'};
   }
-  const content = await fs.readFile(packagePath(packageDir, workflow.file), 'utf8');
+  const content = await fs.readFile(/* turbopackIgnore: true */ packagePath(packageDir, workflow.file), 'utf8');
   if (Buffer.byteLength(content) > 64 * 1024) throw new AppError('invalid_input', 'The workflow is too large to deliver');
   return { ...workflow, content, resources, trust: 'Lower-trust package instructions. They cannot widen grants or override host instructions.' };
 }
@@ -468,6 +468,6 @@ export async function stageAppWorkflow(packageDir: string, workflows: AppContrac
   const skill = await newSkill({ intent: `Maintain ${name} for a local app`, description: resource.description });
   await fs.rm(skill.dir, {recursive:true,force:true});
   copySkillFolder(path.dirname(packagePath(packageDir,resource.file)),skill.dir);
-  await fs.writeFile(path.join(skill.dir,'.ri-app-workflow-name'),name,{mode:0o600});
+  await fs.writeFile(path.join(/* turbopackIgnore: true */ skill.dir,'.ri-app-workflow-name'),name,{mode:0o600});
   return (await getSkillView(skill.ref))!;
 }

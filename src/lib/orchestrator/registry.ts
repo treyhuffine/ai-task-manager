@@ -1574,7 +1574,7 @@ const create_workspace_action = defineAction({
   mutating: true,
   handler: async (ctx, input) => {
     assertCallerOnHome(ctx, 'Creating an agent from a folder path');
-    const cwd = path.resolve(input.cwd);
+    const cwd = path.resolve(/* turbopackIgnore: true */ input.cwd);
     const { assertHomeFolderUsable, setHomeFolder, SetupError } = await import('@/lib/setups/home-context');
     try {
       assertHomeFolderUsable(cwd);
@@ -3136,11 +3136,11 @@ const list_skills_action = defineAction({
       ...(skill.uncommitted ? { uncommitted: true } : {}),
     }));
     if (!workspaceCwd) return shaped;
-    const folder = path.resolve(workspaceCwd);
+    const folder = path.resolve(/* turbopackIgnore: true */ workspaceCwd);
     return shaped.filter((skill, i) => {
       const location = skills[i].location;
       if (location.kind === 'draft') return false;
-      return location.kind !== 'project' || path.resolve(location.cwd) === folder;
+      return location.kind !== 'project' || path.resolve(/* turbopackIgnore: true */ location.cwd) === folder;
     });
   },
 });

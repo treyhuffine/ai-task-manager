@@ -20,7 +20,7 @@ export interface StackSuggestion {
 const EMPTY: StackSuggestion = { setup: '', start: '' };
 
 export function detectStack(cwd: string): StackSuggestion {
-  if (!cwd || !existsSync(cwd)) return EMPTY;
+  if (!cwd || !existsSync(/* turbopackIgnore: true */ cwd)) return EMPTY;
 
   // ── Node ───────────────────────────────────────────────────────────────
   if (has(cwd, 'package.json')) {
@@ -71,12 +71,12 @@ export function detectStack(cwd: string): StackSuggestion {
 // ── helpers ──────────────────────────────────────────────────────────────
 
 function has(cwd: string, ...names: string[]): boolean {
-  return names.some((n) => existsSync(path.join(cwd, n)));
+  return names.some((n) => existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ cwd, n)));
 }
 
 function hasExt(cwd: string, exts: string[]): boolean {
   try {
-    return readdirSync(cwd).some((f) => exts.some((e) => f.endsWith(e)));
+    return readdirSync(/* turbopackIgnore: true */ cwd).some((f) => exts.some((e) => f.endsWith(e)));
   } catch {
     return false;
   }
@@ -84,7 +84,7 @@ function hasExt(cwd: string, exts: string[]): boolean {
 
 function pyprojectHas(cwd: string, marker: string): boolean {
   try {
-    return readFileSync(path.join(cwd, 'pyproject.toml'), 'utf8').includes(marker);
+    return readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ cwd, 'pyproject.toml'), 'utf8').includes(marker);
   } catch {
     return false;
   }
@@ -95,7 +95,7 @@ type NodePm = 'npm' | 'pnpm' | 'yarn' | 'bun';
 function detectNodePm(cwd: string): NodePm {
   // `packageManager` (corepack) is authoritative when present.
   try {
-    const pkg = JSON.parse(readFileSync(path.join(cwd, 'package.json'), 'utf8')) as { packageManager?: unknown };
+    const pkg = JSON.parse(readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ cwd, 'package.json'), 'utf8')) as { packageManager?: unknown };
     const pm = typeof pkg.packageManager === 'string' ? pkg.packageManager : '';
     if (pm.startsWith('pnpm')) return 'pnpm';
     if (pm.startsWith('yarn')) return 'yarn';
@@ -114,7 +114,7 @@ function detectNodePm(cwd: string): NodePm {
 
 function detectNodeStart(cwd: string, pm: NodePm): string {
   try {
-    const pkg = JSON.parse(readFileSync(path.join(cwd, 'package.json'), 'utf8')) as { scripts?: Record<string, unknown> };
+    const pkg = JSON.parse(readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ cwd, 'package.json'), 'utf8')) as { scripts?: Record<string, unknown> };
     const scripts = pkg.scripts && typeof pkg.scripts === 'object' ? pkg.scripts : {};
     const name = ['dev', 'start', 'serve'].find((s) => typeof scripts[s] === 'string');
     // `<pm> run <script>` works for every Node package manager.

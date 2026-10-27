@@ -50,12 +50,12 @@ export function inventory(
   limit: number = LIMITS.sourceBytes,
   forExport = false,
 ): PackageFile[] {
-  const root = fs.realpathSync(packageDir),
+  const root = fs.realpathSync(/* turbopackIgnore: true */ packageDir),
     files: PackageFile[] = [];
   let total = 0;
   function walk(relative: string) {
     for (const entry of fs
-      .readdirSync(path.join(root, relative), { withFileTypes: true })
+      .readdirSync(path.join(/* turbopackIgnore: true */ root, relative), { withFileTypes: true })
       .sort((a, b) => a.name.localeCompare(b.name))) {
       if (
         (!relative && [".ri-build", ".next", "release"].includes(entry.name)) ||
@@ -89,15 +89,15 @@ export function inventory(
           "invalid_input",
           "Artifacts contain only ordinary files",
         );
-      const file = path.join(root, name),
-        size = fs.statSync(file).size;
+      const file = path.join(/* turbopackIgnore: true */ root, name),
+        size = fs.statSync(/* turbopackIgnore: true */ file).size;
       total += size;
       if (total > limit || files.length >= 20000)
         throw new AppError(
           "invalid_input",
           "The package exceeds its inventory limit",
         );
-      const contents = fs.readFileSync(file);
+      const contents = fs.readFileSync(/* turbopackIgnore: true */ file);
       if (
         forExport &&
         /\.(?:json|[cm]?js|tsx?|jsx|md|ya?ml|html|txt)$/i.test(name)
@@ -121,18 +121,18 @@ export function inventory(
 }
 export function packagePath(packageDir: string, relative: string): string {
   relativePathSchema.parse(relative);
-  const root = fs.realpathSync(packageDir),
-    file = path.join(root, relative);
+  const root = fs.realpathSync(/* turbopackIgnore: true */ packageDir),
+    file = path.join(/* turbopackIgnore: true */ root, relative);
   let current = root;
   for (const part of relative.split("/")) {
-    current = path.join(current, part);
-    if (fs.lstatSync(current).isSymbolicLink())
+    current = path.join(/* turbopackIgnore: true */ current, part);
+    if (fs.lstatSync(/* turbopackIgnore: true */ current).isSymbolicLink())
       throw new AppError(
         "invalid_input",
         "A package path contains a symbolic link",
       );
   }
-  const canonical = fs.realpathSync(file);
+  const canonical = fs.realpathSync(/* turbopackIgnore: true */ file);
   if (!canonical.startsWith(`${root}${path.sep}`))
     throw new AppError("invalid_input", "A package path escapes its directory");
   return canonical;
@@ -231,12 +231,12 @@ export function prepareHtml(source: string): PreparedHtml {
 export function validateArtifact(packageDir: string): ValidatedArtifact {
   const validator = new ContractValidator();
   const manifest = validator.manifest(
-    JSON.parse(fs.readFileSync(packagePath(packageDir, "plugin.json"), "utf8")),
+    JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ packagePath(packageDir, "plugin.json"), "utf8")),
   );
   const extension = manifest.extensions["com.ri"];
   const contract = validator.contract(
     JSON.parse(
-      fs.readFileSync(packagePath(packageDir, extension.contract), "utf8"),
+      fs.readFileSync(/* turbopackIgnore: true */ packagePath(packageDir, extension.contract), "utf8"),
     ),
     manifest,
   );
@@ -263,7 +263,7 @@ export function validateArtifact(packageDir: string): ValidatedArtifact {
   for (const resource of extension.ui?.resources ?? [])
     if (resource.file)
       prepareHtml(
-        fs.readFileSync(packagePath(packageDir, resource.file), "utf8"),
+        fs.readFileSync(/* turbopackIgnore: true */ packagePath(packageDir, resource.file), "utf8"),
       );
   for (const workflow of contract.workflows)
     packagePath(packageDir, workflow.file);
@@ -281,7 +281,7 @@ export function validateArtifact(packageDir: string): ValidatedArtifact {
     manifest,
     contract,
     digest,
-    packageDir: fs.realpathSync(packageDir),
+    packageDir: fs.realpathSync(/* turbopackIgnore: true */ packageDir),
     files,
     sourceDigest,
     contractDigest,
@@ -318,7 +318,7 @@ export async function importPackage(
   archive: string,
   destination: string,
 ): Promise<ValidatedArtifact> {
-  if (fs.statSync(archive).size > LIMITS.serviceBytes)
+  if (fs.statSync(/* turbopackIgnore: true */ archive).size > LIMITS.serviceBytes)
     throw new AppError("invalid_input", "The archive is too large");
   const names = new Set<string>();
   let expanded = 0;
@@ -355,7 +355,7 @@ export async function importPackage(
     },
   });
   if (problem) throw new AppError("invalid_input", problem);
-  if (fs.existsSync(destination))
+  if (fs.existsSync(/* turbopackIgnore: true */ destination))
     throw new AppError("conflict", "The import destination already exists");
   fs.mkdirSync(destination, { recursive: true, mode: 0o700 });
   try {
@@ -378,10 +378,10 @@ export async function stoppedSnapshot(
   stop: () => Promise<void>,
 ): Promise<void> {
   await stop();
-  if (fs.existsSync(destination))
+  if (fs.existsSync(/* turbopackIgnore: true */ destination))
     throw new AppError("conflict", "The snapshot destination already exists");
   fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
-  if (!fs.existsSync(source)) {
+  if (!fs.existsSync(/* turbopackIgnore: true */ source)) {
     fs.mkdirSync(destination, { recursive: true, mode: 0o700 });
     return;
   }
@@ -389,7 +389,7 @@ export async function stoppedSnapshot(
     recursive: true,
     dereference: false,
     filter: (file) => {
-      if (fs.lstatSync(file).isSymbolicLink())
+      if (fs.lstatSync(/* turbopackIgnore: true */ file).isSymbolicLink())
         throw new AppError(
           "invalid_input",
           "App data snapshots cannot follow symbolic links",
@@ -411,8 +411,8 @@ export interface BuildOptions {
 export function appKitToolchain() {
   const require = kitRequire();
   const resolve = require.resolve.bind(require);
-  const kitDir = path.resolve(path.dirname(resolve(['@ri/app-kit', 'build'].join('/'))), '..');
-  return { packageDir: kitDir, pnpm: path.join(path.dirname(require.resolve('pnpm/package.json')), 'bin/pnpm.mjs'), validationWorker: path.join(kitDir, 'dist/validation-worker.js') };
+  const kitDir = path.resolve(/* turbopackIgnore: true */ path.dirname(resolve(['@ri/app-kit', 'build'].join('/'))), '..');
+  return { packageDir: kitDir, pnpm: path.join(/* turbopackIgnore: true */ path.dirname(require.resolve('pnpm/package.json')), 'bin/pnpm.mjs'), validationWorker: path.join(/* turbopackIgnore: true */ kitDir, 'dist/validation-worker.js') };
 }
 /** Run supported build operations with the kit's own pinned tools. No package
  * lifecycle scripts or arbitrary shell build commands are executed. */
@@ -422,7 +422,7 @@ export async function buildPackage(
   const validator = new ContractValidator();
   const manifest = validator.manifest(
     JSON.parse(
-      fs.readFileSync(path.join(options.packageDir, "plugin.json"), "utf8"),
+      fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ options.packageDir, "plugin.json"), "utf8"),
     ),
   );
   const artifact: Artifact = {
@@ -475,7 +475,7 @@ export async function buildPackage(
       },
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
-    const ownership = path.join(path.dirname(options.packageDir),'cache','ownership.json');
+    const ownership = path.join(/* turbopackIgnore: true */ path.dirname(options.packageDir),'cache','ownership.json');
     fs.writeFileSync(ownership, JSON.stringify({version:1,pid:child.pid,generation}), {mode:0o600});
     let reportedCode: number | null | undefined;
     child.on('message', value => {const message = value as {type?:string;code?:number|null};if(message.type === 'owned-exit') reportedCode = message.code;});
@@ -511,7 +511,7 @@ export async function buildPackage(
   }
   try {
     await run([
-      path.join(path.dirname(require.resolve("pnpm/package.json")), "bin/pnpm.mjs"),
+      path.join(/* turbopackIgnore: true */ path.dirname(require.resolve("pnpm/package.json")), "bin/pnpm.mjs"),
       "install",
       "--frozen-lockfile",
       "--ignore-scripts",

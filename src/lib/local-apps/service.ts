@@ -309,7 +309,7 @@ export class LocalAppsService {
     return draft;
   }
   draftDir(id: string) {
-    return path.join(getAppDraftsDir(), this.draft(id).id, "package");
+    return path.join(/* turbopackIgnore: true */ getAppDraftsDir(), this.draft(id).id, "package");
   }
   retry(id: string, draft = false) {
     this.admitted();
@@ -322,13 +322,13 @@ export class LocalAppsService {
     artifact: ValidatedArtifact,
     draft = false,
   ): InstalledArtifact {
-    const root = path.join(draft ? getAppDraftsDir() : getLocalAppsDir(), id);
+    const root = path.join(/* turbopackIgnore: true */ draft ? getAppDraftsDir() : getLocalAppsDir(), id);
     return {
       ...artifact,
       instanceId: id,
-      dataDir: path.join(root, "data"),
-      cacheDir: path.join(root, "cache"),
-      logsDir: path.join(root, "logs"),
+      dataDir: path.join(/* turbopackIgnore: true */ root, "data"),
+      cacheDir: path.join(/* turbopackIgnore: true */ root, "cache"),
+      logsDir: path.join(/* turbopackIgnore: true */ root, "logs"),
     };
   }
   async artifact(id: string, draft = false): Promise<ValidatedArtifact> {
@@ -342,7 +342,7 @@ export class LocalAppsService {
     // Validation runs outside the Home's synchronous request thread.
     const { validatePackage } = await import("./validation");
     const artifact = await validatePackage(
-      path.join(draft ? getAppDraftsDir() : getLocalAppsDir(), id, "package"),
+      path.join(/* turbopackIgnore: true */ draft ? getAppDraftsDir() : getLocalAppsDir(), id, "package"),
     );
     if (expected && artifact.digest !== expected)
       throw new AppError(
@@ -771,19 +771,19 @@ export class LocalAppsService {
       throw new AppError("busy", "This app is already being repaired");
     this.transitions.add(id);
     const release = beginActivity(),
-      root = path.join(getLocalAppsDir(), id);
+      root = path.join(/* turbopackIgnore: true */ getLocalAppsDir(), id);
     let reserved = false;
     const present = async (file: string) =>
-      !!(await fs.stat(file).catch(() => null));
+      !!(await fs.stat(/* turbopackIgnore: true */ file).catch(() => null));
     try {
       await this.store.edit(revision, () => {});
       reserved = true;
       this.invalidate(id);
       await this.engine.stop(id);
-      const current = path.join(root, "package"),
-        previous = path.join(root, "previous-package"),
-        snapshot = path.join(root, "previous-data"),
-        replacement = path.join(root, `replacement-${journal.replacementId}`),
+      const current = path.join(/* turbopackIgnore: true */ root, "package"),
+        previous = path.join(/* turbopackIgnore: true */ root, "previous-package"),
+        snapshot = path.join(/* turbopackIgnore: true */ root, "previous-data"),
+        replacement = path.join(/* turbopackIgnore: true */ root, `replacement-${journal.replacementId}`),
         hasCurrent = await present(current);
       const source =
         choice === "previous"
@@ -812,7 +812,7 @@ export class LocalAppsService {
             "The previous stopped-data snapshot is unavailable",
           );
         await stoppedSnapshot(
-          path.join(root, "data"),
+          path.join(/* turbopackIgnore: true */ root, "data"),
           snapshot,
           async () => {},
         );
@@ -824,27 +824,27 @@ export class LocalAppsService {
           !(await present(snapshot))
         )
           await stoppedSnapshot(
-            path.join(root, "data"),
+            path.join(/* turbopackIgnore: true */ root, "data"),
             snapshot,
             async () => {},
           );
         const failedId = uuid();
         let copySource = source;
         if (hasCurrent) {
-          const failedPackage = path.join(root, `failed-package-${failedId}`);
+          const failedPackage = path.join(/* turbopackIgnore: true */ root, `failed-package-${failedId}`);
           await fs.rename(current, failedPackage);
           if (source === current) copySource = failedPackage;
         }
         await fs.cp(copySource, current, { recursive: true });
         if (choice === "previous") {
-          if (await present(path.join(root, "data")))
+          if (await present(path.join(/* turbopackIgnore: true */ root, "data")))
             await fs.rename(
-              path.join(root, "data"),
-              path.join(root, `failed-data-${failedId}`),
+              path.join(/* turbopackIgnore: true */ root, "data"),
+              path.join(/* turbopackIgnore: true */ root, `failed-data-${failedId}`),
             );
           await stoppedSnapshot(
             snapshot,
-            path.join(root, "data"),
+            path.join(/* turbopackIgnore: true */ root, "data"),
             async () => {},
           );
         }
@@ -932,7 +932,7 @@ export class LocalAppsService {
       buildStatus: "idle",
       buildError: null,
     };
-    const root = path.join(getAppDraftsDir(), id);
+    const root = path.join(/* turbopackIgnore: true */ getAppDraftsDir(), id);
     await fs.mkdir(root, { recursive: true, mode: 0o700 });
     try {
       if (source) {
@@ -947,7 +947,7 @@ export class LocalAppsService {
         }
       } else {
         const { createAppTemplate } = await import("./template");
-        await createAppTemplate(path.join(root, "package"), profile, id);
+        await createAppTemplate(path.join(/* turbopackIgnore: true */ root, "package"), profile, id);
       }
       if (source) {
         const artifact = await this.artifact(source.id);
@@ -1021,9 +1021,9 @@ export class LocalAppsService {
           },
         });
       } finally {
-        const logs = path.join(getAppDraftsDir(), id, "logs");
+        const logs = path.join(/* turbopackIgnore: true */ getAppDraftsDir(), id, "logs");
         await fs.mkdir(logs, { recursive: true });
-        await fs.writeFile(path.join(logs, "build.log"), output, {
+        await fs.writeFile(path.join(/* turbopackIgnore: true */ logs, "build.log"), output, {
           mode: 0o600,
         });
       }
@@ -1081,10 +1081,10 @@ export class LocalAppsService {
       throw new AppError("busy", "This app is already being changed");
     this.transitions.add(instanceId);
     const release = beginActivity();
-    const root = path.join(getLocalAppsDir(), instanceId),
-      replacement = path.join(root, `replacement-${replacementId}`),
-      previous = path.join(root, "previous-package"),
-      snapshot = path.join(root, "previous-data");
+    const root = path.join(/* turbopackIgnore: true */ getLocalAppsDir(), instanceId),
+      replacement = path.join(/* turbopackIgnore: true */ root, `replacement-${replacementId}`),
+      previous = path.join(/* turbopackIgnore: true */ root, "previous-package"),
+      snapshot = path.join(/* turbopackIgnore: true */ root, "previous-data");
     const old = draft.sourceInstanceId
       ? this.instance(instanceId, false)
       : null;
@@ -1096,7 +1096,7 @@ export class LocalAppsService {
         recursive: true,
         filter: (file) =>
           !file.split(path.sep).includes("node_modules") ||
-          file.startsWith(path.join(artifact.packageDir, "dist")),
+          file.startsWith(path.join(/* turbopackIgnore: true */ artifact.packageDir, "dist")),
       });
       await this.store.edit(revision, (state) => {
         if (
@@ -1148,18 +1148,18 @@ export class LocalAppsService {
       await fs.rm(snapshot, { recursive: true, force: true });
       if (old) {
         await stoppedSnapshot(
-          path.join(root, "data"),
+          path.join(/* turbopackIgnore: true */ root, "data"),
           snapshot,
           async () => {},
         );
-        await fs.rename(path.join(root, "package"), previous);
+        await fs.rename(path.join(/* turbopackIgnore: true */ root, "package"), previous);
       }
       await this.store.edit(undefined, (state) => {
         state.instances.find(
           (item) => item.id === instanceId,
         )!.activation!.phase = "switching";
       });
-      await fs.rename(replacement, path.join(root, "package"));
+      await fs.rename(replacement, path.join(/* turbopackIgnore: true */ root, "package"));
       this.artifacts.delete(instanceId);
       await this.store.edit(undefined, (state) => {
         const item = state.instances.find((item) => item.id === instanceId)!;
@@ -1173,7 +1173,7 @@ export class LocalAppsService {
         });
         item.activation!.phase = "checking";
       });
-      const installed = { ...artifact, packageDir: path.join(root, "package") };
+      const installed = { ...artifact, packageDir: path.join(/* turbopackIgnore: true */ root, "package") };
       this.artifacts.set(instanceId, installed);
       if (artifact.manifest.extensions["com.ri"].runtime.kind === "node")
         await this.engine.start(this.installed(instanceId, installed));
@@ -1242,10 +1242,10 @@ export class LocalAppsService {
     this.admitted();
     requireLocalApps();
     const id = uuid(),
-      root = path.join(getAppDraftsDir(), id),
+      root = path.join(/* turbopackIgnore: true */ getAppDraftsDir(), id),
       release = beginActivity();
     try {
-      const artifact = await importPackage(archive, path.join(root, "package"));
+      const artifact = await importPackage(archive, path.join(/* turbopackIgnore: true */ root, "package"));
       if(expectedArtifactDigest && artifact.digest!==expectedArtifactDigest)throw new AppError('invalid_input','The catalog package differs from its reviewed artifact');
       await (await import('@/lib/skills/manage')).validateAppWorkflows(artifact.packageDir, artifact.contract.workflows);
       const previous = update ? this.instance(update.instanceId, false) : null;
@@ -1272,7 +1272,7 @@ export class LocalAppsService {
         const state = this.store.read();
         const exact = state.drafts.some(item => !item.sourceInstanceId && item.catalogSource?.packageId === catalogSource.packageId && item.catalogSource.artifactDigest === catalogSource.artifactDigest);
         if (!exact && !state.instances.some(item => item.packageId === catalogSource.packageId)) {
-          const refreshed = await this.refreshCatalogDraft(path.join(root, "package"), artifact, catalogSource);
+          const refreshed = await this.refreshCatalogDraft(path.join(/* turbopackIgnore: true */ root, "package"), artifact, catalogSource);
           if (refreshed) {
             await fs.rm(root, { recursive: true, force: true });
             return refreshed;
@@ -1323,19 +1323,19 @@ export class LocalAppsService {
       item.buildStatus === "validated" &&
       item.validatedDigest === item.catalogSource.artifactDigest);
     if (!stale || this.builds.has(stale.id)) return null;
-    const dir = path.join(getAppDraftsDir(), stale.id);
+    const dir = path.join(/* turbopackIgnore: true */ getAppDraftsDir(), stale.id);
     const { validatePackage } = await import("./validation");
-    const current = await validatePackage(path.join(dir, "package")).catch(() => null);
+    const current = await validatePackage(path.join(/* turbopackIgnore: true */ dir, "package")).catch(() => null);
     if (!current || current.digest !== stale.validatedDigest) return null;
     this.invalidate(stale.id);
     await this.engine.stop(stale.id);
     this.artifacts.delete(stale.id);
-    const previous = path.join(dir, `previous-${randomUUID()}`);
-    await fs.rename(path.join(dir, "package"), previous);
+    const previous = path.join(/* turbopackIgnore: true */ dir, `previous-${randomUUID()}`);
+    await fs.rename(path.join(/* turbopackIgnore: true */ dir, "package"), previous);
     try {
-      await fs.rename(staged, path.join(dir, "package"));
+      await fs.rename(staged, path.join(/* turbopackIgnore: true */ dir, "package"));
     } catch (error) {
-      await fs.rename(previous, path.join(dir, "package"));
+      await fs.rename(previous, path.join(/* turbopackIgnore: true */ dir, "package"));
       throw error;
     }
     let refreshed: AppDraft | undefined;
@@ -1355,32 +1355,32 @@ export class LocalAppsService {
       });
     } catch (error) {
       // Put the old preview back exactly as it was.
-      await fs.rm(path.join(dir, "package"), { recursive: true, force: true });
-      await fs.rename(previous, path.join(dir, "package"));
+      await fs.rm(path.join(/* turbopackIgnore: true */ dir, "package"), { recursive: true, force: true });
+      await fs.rename(previous, path.join(/* turbopackIgnore: true */ dir, "package"));
       throw error;
     }
     // Preview records belong to the old version's schema. The new version seeds its own.
-    await fs.rm(path.join(dir, "data"), { recursive: true, force: true });
-    await fs.rm(path.join(dir, "cache"), { recursive: true, force: true });
+    await fs.rm(path.join(/* turbopackIgnore: true */ dir, "data"), { recursive: true, force: true });
+    await fs.rm(path.join(/* turbopackIgnore: true */ dir, "cache"), { recursive: true, force: true });
     await fs.rm(previous, { recursive: true, force: true });
-    this.artifacts.set(stale.id, { ...artifact, packageDir: path.join(dir, "package") });
+    this.artifacts.set(stale.id, { ...artifact, packageDir: path.join(/* turbopackIgnore: true */ dir, "package") });
     return refreshed!;
   }
   async export(id: string) {
     this.instance(id, false);
     const dir = getLocalAppsWorkDir();
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-    for(const entry of await fs.readdir(dir)){if(!/^[a-f0-9-]{36}\.tar\.gz$/.test(entry))continue;const full=path.join(dir,entry),stat=await fs.lstat(full);if(stat.isFile()&&stat.mtimeMs<Date.now()-24*60*60_000)await fs.rm(full,{force:true});}
+    for(const entry of await fs.readdir(/* turbopackIgnore: true */ dir)){if(!/^[a-f0-9-]{36}\.tar\.gz$/.test(entry))continue;const full=path.join(/* turbopackIgnore: true */ dir,entry),stat=await fs.lstat(/* turbopackIgnore: true */ full);if(stat.isFile()&&stat.mtimeMs<Date.now()-24*60*60_000)await fs.rm(full,{force:true});}
     const name = `${uuid()}.tar.gz`,
-      file = path.join(dir, name);
+      file = path.join(/* turbopackIgnore: true */ dir, name);
     const inventory = await exportPackage(await this.artifact(id), file);
     return { name, inventory };
   }
   async readLog(id:string,draft=false) {
     requireLocalApps();if(draft)this.draft(id);else this.instance(id,false);
-    const directory=path.join(draft?getAppDraftsDir():getLocalAppsDir(),id,'logs');
-    const file=path.join(directory,draft?'build.log':'runtime.log');
-    const handle=await fs.open(file,'r').catch(error=>{if(error.code==='ENOENT')return null;throw error;});if(!handle)return {text:'No app output has been recorded.'};
+    const directory=path.join(/* turbopackIgnore: true */ draft?getAppDraftsDir():getLocalAppsDir(),id,'logs');
+    const file=path.join(/* turbopackIgnore: true */ directory,draft?'build.log':'runtime.log');
+    const handle=await fs.open(/* turbopackIgnore: true */ file,'r').catch(error=>{if(error.code==='ENOENT')return null;throw error;});if(!handle)return {text:'No app output has been recorded.'};
     try{const stat=await handle.stat();if(!stat.isFile())throw new AppError('invalid_input','Invalid app log');const bytes=Buffer.alloc(Math.min(32768,stat.size));await handle.read(bytes,0,bytes.length,Math.max(0,stat.size-bytes.length));return {text:bytes.toString('utf8')};}finally{await handle.close();}
   }
   async remove(id: string, revision: number) {
@@ -1405,7 +1405,7 @@ export class LocalAppsService {
         (item) => item.instanceId !== id,
       );
     });
-    await fs.rm(path.join(getLocalAppsDir(), id), {
+    await fs.rm(path.join(/* turbopackIgnore: true */ getLocalAppsDir(), id), {
       recursive: true,
       force: true,
     });

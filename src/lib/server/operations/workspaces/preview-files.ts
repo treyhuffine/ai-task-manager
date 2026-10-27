@@ -24,7 +24,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
 
     if (!cwd) return reply({ error: 'cwd is required' }, { status: 400 });
 
-    const resolved = path.resolve(cwd);
+    const resolved = path.resolve(/* turbopackIgnore: true */ cwd);
     const result = await previewFilesToCopy(resolved, globs);
     return reply({ ...result, root: resolved });
   } catch (err) {

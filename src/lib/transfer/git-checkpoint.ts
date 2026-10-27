@@ -100,7 +100,7 @@ async function unfinishedOperation(worktree: string): Promise<string | null> {
   const conflicted = paths((await git(worktree, ['diff', '--name-only', '--diff-filter=U', '-z'], { allowFail: true })).stdout);
   for (const [name, what] of markers) {
     const where = (await git(worktree, ['rev-parse', '--git-path', name])).stdout;
-    if (fs.existsSync(path.resolve(worktree, where))) {
+    if (fs.existsSync(/* turbopackIgnore: true */ path.resolve(/* turbopackIgnore: true */ worktree, where))) {
       return conflicted.length > 0 ? `${what} is in progress, with conflicts in ${listed(conflicted)}` : `${what} is in progress`;
     }
   }

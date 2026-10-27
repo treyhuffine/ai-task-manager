@@ -36,7 +36,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     const home = os.homedir();
     const expanded = parentRaw.startsWith('~')
       ? path.join(home, parentRaw.slice(1).replace(/^[/]/, ''))
-      : path.resolve(parentRaw);
+      : path.resolve(/* turbopackIgnore: true */ parentRaw);
 
     let resolvedParent: string;
     try {

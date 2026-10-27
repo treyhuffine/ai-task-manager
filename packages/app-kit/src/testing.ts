@@ -30,21 +30,21 @@ export async function createOfflineAppTemplate(dir: string, profile: 'react' | '
 
 export async function buildOfflineAppFixture(options: Parameters<typeof buildPackage>[0]) {
   const {packageDir: kit} = appKitToolchain();
-  const require = createRequire(path.join(kit, 'package.json'));
-  const modules = path.join(options.packageDir, 'node_modules');
-  fs.mkdirSync(path.join(modules, '@ri'), {recursive: true});
+  const require = createRequire(path.join(/* turbopackIgnore: true */ kit, 'package.json'));
+  const modules = path.join(/* turbopackIgnore: true */ options.packageDir, 'node_modules');
+  fs.mkdirSync(path.join(/* turbopackIgnore: true */ modules, '@ri'), {recursive: true});
   for (const [name, target] of [
     ['@ri/app-kit', kit],
     ...['zod', 'react', 'react-dom'].map(name => [name, path.dirname(require.resolve(`${name}/package.json`))]),
   ]) {
-    const link = path.join(modules, name);
-    if (!fs.existsSync(link)) fs.symlinkSync(target, link, 'dir');
+    const link = path.join(/* turbopackIgnore: true */ modules, name);
+    if (!fs.existsSync(/* turbopackIgnore: true */ link)) fs.symlinkSync(target, link, 'dir');
   }
   const node = (options.driver as {nodeExecutable?: string}).nodeExecutable;
   if (!node) throw new Error('The fixture needs the build driver’s pinned Node');
   try {
     const result = await promisify(execFile)(node, [
-      path.join(kit, 'dist/build-worker.js'), options.packageDir, JSON.stringify(options.workflows ?? []),
+      path.join(/* turbopackIgnore: true */ kit, 'dist/build-worker.js'), options.packageDir, JSON.stringify(options.workflows ?? []),
     ], {
       cwd: options.packageDir, env: runtimeEnvironment(node, options.packageDir),
       signal: options.signal, timeout: 30_000, maxBuffer: 1024 * 1024,
@@ -124,16 +124,16 @@ export function fixtureHost(node: string, root: string) {
       return {
         ...artifact,
         instanceId,
-        dataDir: path.join(root, instanceId, "data"),
-        cacheDir: path.join(root, instanceId, "cache"),
-        logsDir: path.join(root, instanceId, "logs"),
+        dataDir: path.join(/* turbopackIgnore: true */ root, instanceId, "data"),
+        cacheDir: path.join(/* turbopackIgnore: true */ root, instanceId, "cache"),
+        logsDir: path.join(/* turbopackIgnore: true */ root, instanceId, "logs"),
       };
     },
   };
 }
 export function staticFixture(directory: string, name = "local-reference") {
   fs.mkdirSync(directory, { recursive: true });
-  fs.mkdirSync(path.join(directory, "dist"), { recursive: true });
+  fs.mkdirSync(path.join(/* turbopackIgnore: true */ directory, "dist"), { recursive: true });
   const manifest: AppManifest = {
     $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
     name,
@@ -167,23 +167,23 @@ export function staticFixture(directory: string, name = "local-reference") {
     workflows: [],
   };
   fs.writeFileSync(
-    path.join(directory, "plugin.json"),
+    path.join(/* turbopackIgnore: true */ directory, "plugin.json"),
     JSON.stringify(manifest),
   );
   fs.writeFileSync(
-    path.join(directory, "contract.json"),
+    path.join(/* turbopackIgnore: true */ directory, "contract.json"),
     JSON.stringify(contract),
   );
   fs.writeFileSync(
-    path.join(directory, "README.md"),
+    path.join(/* turbopackIgnore: true */ directory, "README.md"),
     "Fictional reference fixture",
   );
   fs.writeFileSync(
-    path.join(directory, "AGENTS.md"),
+    path.join(/* turbopackIgnore: true */ directory, "AGENTS.md"),
     "Maintain the static fixture",
   );
   fs.writeFileSync(
-    path.join(directory, "dist/ui.html"),
+    path.join(/* turbopackIgnore: true */ directory, "dist/ui.html"),
     '<html><body><h1>Reference</h1><script>document.body.dataset.ready="yes"</script></body></html>',
   );
   return validateArtifact(directory);
@@ -276,7 +276,7 @@ export function createFixtureMcpServer(
           uri: resource.uri,
           mimeType: "text/html;profile=mcp-app",
           text: fs.readFileSync(
-            path.join(instance.packageDir, resource.file),
+            path.join(/* turbopackIgnore: true */ instance.packageDir, resource.file),
             "utf8",
           ),
           _meta: {

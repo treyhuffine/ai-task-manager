@@ -94,7 +94,7 @@ function listSupportingFiles(dir: string): SkillFileEntry[] {
   const walk = (current: string, rel: string) => {
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
+      entries = fs.readdirSync(/* turbopackIgnore: true */ current, { withFileTypes: true });
     } catch {
       return;
     }
@@ -104,11 +104,11 @@ function listSupportingFiles(dir: string): SkillFileEntry[] {
       if (entry.name.startsWith('.')) continue;
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (!rel && entry.name === SKILL_FILE) continue;
-      const full = path.join(current, entry.name);
+      const full = path.join(/* turbopackIgnore: true */ current, entry.name);
       if (entry.isDirectory()) walk(full, relPath);
       else if (entry.isFile()) {
         try {
-          out.push({ path: relPath, size: fs.statSync(full).size });
+          out.push({ path: relPath, size: fs.statSync(/* turbopackIgnore: true */ full).size });
         } catch {
           // Vanished mid-walk.
         }
@@ -122,13 +122,13 @@ function listSupportingFiles(dir: string): SkillFileEntry[] {
 /** The skill in this folder, or null when there's no readable SKILL.md. */
 export function readSkillAt(dir: string): SkillDocument | null {
   const name = path.basename(dir);
-  const file = path.join(dir, SKILL_FILE);
+  const file = path.join(/* turbopackIgnore: true */ dir, SKILL_FILE);
   let content: string;
   let mtime: Date;
   try {
-    if (!fs.lstatSync(file).isFile() || !fs.realpathSync(file).startsWith(fs.realpathSync(dir) + path.sep)) return null;
-    content = fs.readFileSync(file, 'utf8');
-    mtime = fs.statSync(file).mtime;
+    if (!fs.lstatSync(/* turbopackIgnore: true */ file).isFile() || !fs.realpathSync(/* turbopackIgnore: true */ file).startsWith(fs.realpathSync(/* turbopackIgnore: true */ dir) + path.sep)) return null;
+    content = fs.readFileSync(/* turbopackIgnore: true */ file, 'utf8');
+    mtime = fs.statSync(/* turbopackIgnore: true */ file).mtime;
   } catch {
     return null;
   }
@@ -154,7 +154,7 @@ export function requireSkillAt(dir: string): SkillDocument {
 
 export function writeAtomic(file: string, content: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${randomBytes(4).toString('hex')}.tmp`);
+  const tmp = path.join(/* turbopackIgnore: true */ path.dirname(file), `.${path.basename(file)}.${randomBytes(4).toString('hex')}.tmp`);
   fs.writeFileSync(tmp, content);
   try {
     fs.renameSync(tmp, file);
@@ -174,10 +174,10 @@ export function createSkillAt(dir: string, input: CreateSkillInput = {}): SkillD
   const name = path.basename(dir);
   const problem = nameProblem(name);
   if (problem) throw new SkillError('invalid', problem);
-  if (fs.existsSync(dir)) throw new SkillError('conflict', `A skill named ${name} is already there.`);
+  if (fs.existsSync(/* turbopackIgnore: true */ dir)) throw new SkillError('conflict', `A skill named ${name} is already there.`);
   fs.mkdirSync(dir, { recursive: true });
   writeAtomic(
-    path.join(dir, SKILL_FILE),
+    path.join(/* turbopackIgnore: true */ dir, SKILL_FILE),
     renderSkillFile(null, { name, description: input.description ?? '', body: input.body ?? '' }),
   );
   return requireSkillAt(dir);
@@ -227,13 +227,13 @@ export function resolveSupportingPath(dir: string, relPath: string): string {
   if (normalized === SKILL_FILE) {
     throw new SkillError('invalid', 'Change SKILL.md through its fields or content, not as a supporting file.');
   }
-  const full = path.join(dir, ...segments);
+  const full = path.join(/* turbopackIgnore: true */ dir, ...segments);
   if (!full.startsWith(dir + path.sep)) throw new SkillError('invalid', `"${relPath}" is outside the skill.`);
   let current = dir;
   for (const segment of segments) {
-    current = path.join(current, segment);
+    current = path.join(/* turbopackIgnore: true */ current, segment);
     try {
-      if (fs.lstatSync(current).isSymbolicLink()) throw new SkillError('invalid', 'Supporting files must stay inside the skill without symbolic links.');
+      if (fs.lstatSync(/* turbopackIgnore: true */ current).isSymbolicLink()) throw new SkillError('invalid', 'Supporting files must stay inside the skill without symbolic links.');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') break;
       throw error;
@@ -265,7 +265,7 @@ export function writeSkillAt(dir: string, input: WriteSkillInput): SkillDocument
     if (!alreadyApplied) throw new SkillError('stale', `${current.name} changed since you last read it.`, current);
     return current;
   }
-  if (next !== current.content) writeAtomic(path.join(dir, SKILL_FILE), next);
+  if (next !== current.content) writeAtomic(path.join(/* turbopackIgnore: true */ dir, SKILL_FILE), next);
 
   for (const file of planned) {
     if (file.content === null) {
@@ -281,7 +281,7 @@ export function writeSkillAt(dir: string, input: WriteSkillInput): SkillDocument
 
 function fileHolds(full: string, content: string | null): boolean {
   try {
-    return content !== null && fs.readFileSync(full, 'utf8') === content;
+    return content !== null && fs.readFileSync(/* turbopackIgnore: true */ full, 'utf8') === content;
   } catch {
     return content === null;
   }
@@ -291,7 +291,7 @@ function pruneEmptyDirs(from: string, stopAt: string): void {
   let current = from;
   while (current.startsWith(stopAt + path.sep)) {
     try {
-      if (fs.readdirSync(current).length > 0) return;
+      if (fs.readdirSync(/* turbopackIgnore: true */ current).length > 0) return;
       fs.rmdirSync(current);
     } catch {
       return;
@@ -304,7 +304,7 @@ function pruneEmptyDirs(from: string, stopAt: string): void {
 export function syncNameToFolder(dir: string): void {
   const skill = requireSkillAt(dir);
   if (skill.parsed.frontmatterError === null && skill.parsed.name !== skill.name) {
-    writeAtomic(path.join(dir, SKILL_FILE), renderSkillFile(skill.content, { name: skill.name }));
+    writeAtomic(path.join(/* turbopackIgnore: true */ dir, SKILL_FILE), renderSkillFile(skill.content, { name: skill.name }));
   }
 }
 
@@ -317,7 +317,7 @@ export function moveSkillFolder(from: string, to: string): SkillDocument {
   requireSkillAt(from);
   const problem = nameProblem(path.basename(to));
   if (problem) throw new SkillError('invalid', problem);
-  if (fs.existsSync(to)) throw new SkillError('conflict', `A skill named ${path.basename(to)} is already there.`);
+  if (fs.existsSync(/* turbopackIgnore: true */ to)) throw new SkillError('conflict', `A skill named ${path.basename(to)} is already there.`);
   fs.mkdirSync(path.dirname(to), { recursive: true });
   try {
     fs.renameSync(from, to);
@@ -335,7 +335,7 @@ export function copySkillFolder(from: string, to: string): SkillDocument {
   requireSkillAt(from);
   const problem = nameProblem(path.basename(to));
   if (problem) throw new SkillError('invalid', problem);
-  if (fs.existsSync(to)) throw new SkillError('conflict', `A skill named ${path.basename(to)} is already there.`);
+  if (fs.existsSync(/* turbopackIgnore: true */ to)) throw new SkillError('conflict', `A skill named ${path.basename(to)} is already there.`);
   fs.mkdirSync(path.dirname(to), { recursive: true });
   fs.cpSync(from, to, { recursive: true, dereference: true, errorOnExist: true, force: false });
   syncNameToFolder(to);
@@ -352,7 +352,7 @@ function archiveTarget(root: string, label: string): string {
 
 /** Move a folder into `<app-root>/.archive/<bucket>/`, where the home backup keeps it. */
 export function archiveFolder(source: string, bucket: string, label: string): string {
-  const root = path.join(getAppRoot(), '.archive', bucket);
+  const root = path.join(/* turbopackIgnore: true */ getAppRoot(), '.archive', bucket);
   fs.mkdirSync(root, { recursive: true });
   const target = archiveTarget(root, label);
   try {

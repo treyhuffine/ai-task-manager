@@ -122,17 +122,17 @@ export function referenceFolderPath(ref: ReferenceFolderRecord, deviceId?: strin
   const atHome = !on || on === host;
   if (ref.targetWorkspaceId) {
     const setup = on ? getWorkspaceSetup(ref.targetWorkspaceId, on) : null;
-    if (setup) return path.resolve(setup.sourcePath);
+    if (setup) return path.resolve(/* turbopackIgnore: true */ setup.sourcePath);
     if (!atHome) return null;
     // Archived target workspaces still resolve. Archiving a workspace is a
     // statement about the rail, not about whether its folder is readable.
     const ws = getWorkspace(ref.targetWorkspaceId);
-    return ws?.cwd ? path.resolve(ws.cwd) : null;
+    return ws?.cwd ? path.resolve(/* turbopackIgnore: true */ ws.cwd) : null;
   }
   const link = on ? getFolderLink(on, ref.id) : null;
-  if (link) return link.path ? path.resolve(link.path) : null;
+  if (link) return link.path ? path.resolve(/* turbopackIgnore: true */ link.path) : null;
   // The home's path from before its records held it, until the boot step moves it.
-  return atHome && ref.path ? path.resolve(ref.path) : null;
+  return atHome && ref.path ? path.resolve(/* turbopackIgnore: true */ ref.path) : null;
 }
 
 function isDirectory(absolutePath: string): boolean {
@@ -172,7 +172,7 @@ export async function resolveReferenceFolder(
     git,
     global: ref.workspaceId === null,
     redundantWithCwd: options.consumerCwd
-      ? isWithin(path.resolve(options.consumerCwd), absolutePath)
+      ? isWithin(path.resolve(/* turbopackIgnore: true */ options.consumerCwd), absolutePath)
       : false,
   };
 }

@@ -64,22 +64,22 @@ function shq(value: string): string {
  * which Codex's sandbox refuses.
  */
 function cliEntry(repo: string): { args: string[]; env: Record<string, string> } | null {
-  const source = path.join(repo, 'src/cli/index.ts');
-  const loader = path.join(repo, 'node_modules/tsx/dist/loader.mjs');
-  if (process.env.NODE_ENV === 'development' && fs.existsSync(source) && fs.existsSync(loader)) {
-    return { args: ['--import', loader, source], env: { TSX_TSCONFIG_PATH: path.join(repo, 'tsconfig.json') } };
+  const source = path.join(/* turbopackIgnore: true */ repo, 'src/cli/index.ts');
+  const loader = path.join(/* turbopackIgnore: true */ repo, 'node_modules/tsx/dist/loader.mjs');
+  if (process.env.NODE_ENV === 'development' && fs.existsSync(/* turbopackIgnore: true */ source) && fs.existsSync(/* turbopackIgnore: true */ loader)) {
+    return { args: ['--import', loader, source], env: { TSX_TSCONFIG_PATH: path.join(/* turbopackIgnore: true */ repo, 'tsconfig.json') } };
   }
-  const built = path.join(repo, 'dist/cli/index.mjs');
-  return fs.existsSync(built) ? { args: [built], env: {} } : null;
+  const built = path.join(/* turbopackIgnore: true */ repo, 'dist/cli/index.mjs');
+  return fs.existsSync(/* turbopackIgnore: true */ built) ? { args: [built], env: {} } : null;
 }
 
 /** What the launcher would contain for this server. Pure apart from reading the checkout. */
 export function planSessionCli(): SessionCliPlan | null {
-  const repo = path.resolve(runtimeRepository());
+  const repo = path.resolve(/* turbopackIgnore: true */ runtimeRepository());
   const entry = cliEntry(repo);
   if (!entry) return null;
 
-  const binDir = path.join(getWorkDir(), 'bin');
+  const binDir = path.join(/* turbopackIgnore: true */ getWorkDir(), 'bin');
   // The home's own folders, pinned only when the shell hasn't chosen a home.
   // An override this server runs with goes along, so the CLI opens the same
   // database the server does.
@@ -103,7 +103,7 @@ export function planSessionCli(): SessionCliPlan | null {
     `exec ${[process.execPath, ...entry.args].map(shq).join(' ')} "$@"`,
     '',
   ].join('\n');
-  return { binDir, launcher: path.join(binDir, LAUNCHER_NAME), content };
+  return { binDir, launcher: path.join(/* turbopackIgnore: true */ binDir, LAUNCHER_NAME), content };
 }
 
 /**

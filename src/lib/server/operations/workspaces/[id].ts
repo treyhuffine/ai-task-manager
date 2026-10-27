@@ -83,7 +83,7 @@ export async function PATCH(rpcInput: rpcZ.infer<typeof PATCHInput>, request: Op
       }
     };
     if (changingTeamConfiguration) guardChats();
-    if (typeof body.cwd === 'string') body.cwd = path.resolve(body.cwd);
+    if (typeof body.cwd === 'string') body.cwd = path.resolve(/* turbopackIgnore: true */ body.cwd);
     // Assigned inside `finish` too, so declared without narrowing to null.
     let row = null as ReturnType<typeof updateWorkspace>;
     if (typeof body.cwd === 'string' && body.cwd !== before.cwd) {

@@ -474,16 +474,16 @@ Two user-owned files shape who you're working with and how you show up.
 Read them at the start of the conversation and treat them as authoritative.
 **Never edit them**, they belong to the user:
 
-- \`${path.join(appRoot, 'USER.md')}\`
-- \`${path.join(appRoot, 'SOUL.md')}\`
+- \`${path.join(/* turbopackIgnore: true */ appRoot, 'USER.md')}\`
+- \`${path.join(/* turbopackIgnore: true */ appRoot, 'SOUL.md')}\`
 
-Your durable cross-session memory is \`${path.join(appRoot, 'MEMORY.md')}\`. Consult
+Your durable cross-session memory is \`${path.join(/* turbopackIgnore: true */ appRoot, 'MEMORY.md')}\`. Consult
 it for past context and keep it current through your tools. It can grow
 large, so read it when relevant rather than assuming it's already in context.`;
   }
   const read = (name: string) => {
     try {
-      return fs.readFileSync(path.join(appRoot, name), 'utf8').trim() || '(empty)';
+      return fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ appRoot, name), 'utf8').trim() || '(empty)';
     } catch {
       return '(not written yet)';
     }
@@ -658,7 +658,7 @@ user's requested scope. Replies return here automatically.`,
     LONG_RUNNING_SECTION,
     RULES_SECTION,
     entityReferencesSection(
-      reach.elsewhere ? 'the path on this device that the message gives in its place' : `\`${path.join(getAttachmentsDir(), '<name>')}\``,
+      reach.elsewhere ? 'the path on this device that the message gives in its place' : `\`${path.join(/* turbopackIgnore: true */ getAttachmentsDir(), '<name>')}\``,
     ),
     OUTPUT_STYLE_SECTION,
   ];
@@ -766,7 +766,7 @@ export function browserMcpServer(
  */
 function removeStaleMcpConfig(root: string): void {
   try {
-    fs.rmSync(path.join(root, 'tmp', 'orchestrator-mcp.json'), { force: true });
+    fs.rmSync(path.join(/* turbopackIgnore: true */ root, 'tmp', 'orchestrator-mcp.json'), { force: true });
   } catch {
     /* best-effort */
   }
@@ -818,10 +818,10 @@ export async function installOrchestratorSurface(opts: { name?: string } = {}): 
   });
   removeStaleMcpConfig(root);
 
-  const claudeMdPath = path.join(root, 'CLAUDE.md');
+  const claudeMdPath = path.join(/* turbopackIgnore: true */ root, 'CLAUDE.md');
   return {
-    agentsMdPath: path.join(root, 'AGENTS.md'),
-    claudeMdPath: fs.existsSync(claudeMdPath) ? claudeMdPath : null,
+    agentsMdPath: path.join(/* turbopackIgnore: true */ root, 'AGENTS.md'),
+    claudeMdPath: fs.existsSync(/* turbopackIgnore: true */ claudeMdPath) ? claudeMdPath : null,
   };
 }
 

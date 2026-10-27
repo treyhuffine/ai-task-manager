@@ -18,8 +18,8 @@ export interface ManagedSpeechStatus {
 }
 export interface SpeechPreferences { enabled: boolean; cloudFallback: boolean }
 export function speechPaths() {
-  const root = path.join(getWorkDir(), 'speech');
-  return { root, model: path.join(root, PARAKEET_REVISION), staging: path.join(root, `${PARAKEET_REVISION}.staging`), settings: path.join(getConfigDir(), 'managed-speech.json') };
+  const root = path.join(/* turbopackIgnore: true */ getWorkDir(), 'speech');
+  return { root, model: path.join(/* turbopackIgnore: true */ root, PARAKEET_REVISION), staging: path.join(/* turbopackIgnore: true */ root, `${PARAKEET_REVISION}.staging`), settings: path.join(/* turbopackIgnore: true */ getConfigDir(), 'managed-speech.json') };
 }
 function helperPath() {
   return process.env.RI_SPEECH_HELPER || path.join(process.env.RI_RUNTIME_REPO || process.cwd(), 'speech-helper', 'ri-speech-helper');
@@ -49,7 +49,7 @@ export class ManagedSpeech {
 
   status(): ManagedSpeechStatus {
     const preferences = speechPreferences();
-    const installed = fs.existsSync(path.join(speechPaths().model, 'verified.json'));
+    const installed = fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ speechPaths().model, 'verified.json'));
     const supported = ['darwin', 'linux'].includes(process.platform) && ['arm64', 'x64'].includes(process.arch);
     return {
       phase: this.phase === 'not-installed' && installed ? 'installed' : this.phase,
@@ -61,8 +61,8 @@ export class ManagedSpeech {
   private claim() {
     if (this.ownership) return;
     fs.mkdirSync(speechPaths().root, { recursive: true, mode: 0o700 });
-    const file = path.join(speechPaths().root, 'owner.sqlite');
-    fs.closeSync(fs.openSync(file, 'a', 0o600));
+    const file = path.join(/* turbopackIgnore: true */ speechPaths().root, 'owner.sqlite');
+    fs.closeSync(fs.openSync(/* turbopackIgnore: true */ file, 'a', 0o600));
     const lock = new Database(file, { timeout: 0 });
     try { lock.exec('BEGIN EXCLUSIVE'); this.ownership = lock; }
     catch { lock.close(); throw new Error('Another Ri backend manages local speech for this installation'); }
@@ -112,22 +112,22 @@ export class ManagedSpeech {
     for (const spec of PARAKEET_FILES) {
       signal.throwIfAborted();
       // Repair reuses intact model files and only downloads damaged artifacts.
-      if (!fs.existsSync(path.join(paths.staging, spec.name)) && await verifyModelFile(path.join(paths.model, spec.name), spec)) {
-        await fs.promises.copyFile(path.join(paths.model, spec.name), path.join(paths.staging, spec.name));
+      if (!fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ paths.staging, spec.name)) && await verifyModelFile(path.join(/* turbopackIgnore: true */ paths.model, spec.name), spec)) {
+        await fs.promises.copyFile(path.join(/* turbopackIgnore: true */ paths.model, spec.name), path.join(/* turbopackIgnore: true */ paths.staging, spec.name));
       }
       await downloadModelFile({ directory: paths.staging, spec, url: modelUrl(spec.name), signal, progress: bytes => { this.downloaded = completed + bytes; } });
       completed += spec.size;
     }
     this.phase = 'verifying';
-    for (const spec of PARAKEET_FILES) if (!(await verifyModelFile(path.join(paths.staging, spec.name), spec))) throw new Error('Model verification failed');
+    for (const spec of PARAKEET_FILES) if (!(await verifyModelFile(path.join(/* turbopackIgnore: true */ paths.staging, spec.name), spec))) throw new Error('Model verification failed');
     signal.throwIfAborted();
-    atomicWriteFile(path.join(paths.staging, 'verified.json'), JSON.stringify({ revision: PARAKEET_REVISION, verifiedAt: new Date().toISOString() }));
+    atomicWriteFile(path.join(/* turbopackIgnore: true */ paths.staging, 'verified.json'), JSON.stringify({ revision: PARAKEET_REVISION, verifiedAt: new Date().toISOString() }));
     // The prior verified model remains usable until the complete replacement is ready.
     const previous = `${paths.model}.previous`;
     await fs.promises.rm(previous, { recursive: true, force: true });
     if (fs.existsSync(/* turbopackIgnore: true */ paths.model)) await fs.promises.rename(paths.model, previous);
     try { await fs.promises.rename(paths.staging, paths.model); }
-    catch (error) { if (fs.existsSync(previous)) await fs.promises.rename(previous, paths.model); throw error; }
+    catch (error) { if (fs.existsSync(/* turbopackIgnore: true */ previous)) await fs.promises.rename(previous, paths.model); throw error; }
     const directory = await fs.promises.open(/* turbopackIgnore: true */ paths.root, 'r');
     try { await directory.sync(); } finally { await directory.close(); }
     await fs.promises.rm(previous, { recursive: true, force: true });
@@ -171,7 +171,7 @@ export class ManagedSpeech {
     this.claim();
     this.starting = (async () => {
       this.phase = 'starting'; this.error = undefined;
-      for (const spec of PARAKEET_FILES) if (!(await verifyModelFile(path.join(speechPaths().model, spec.name), spec))) throw new Error('Local speech model is damaged. Use Repair in Voice settings');
+      for (const spec of PARAKEET_FILES) if (!(await verifyModelFile(path.join(/* turbopackIgnore: true */ speechPaths().model, spec.name), spec))) throw new Error('Local speech model is damaged. Use Repair in Voice settings');
       signal.throwIfAborted();
       const token = randomBytes(32).toString('hex');
       const child = spawn(untraced(helperPath()), [], { stdio: 'pipe', cwd: speechPaths().root, env: { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH, HOME: process.env.HOME, HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1' } });

@@ -49,7 +49,7 @@ export interface AttachmentsGcStats {
 }
 
 function archiveAttachmentsDir(): string {
-  return path.join(getBrainDir(), '.archive', 'attachments');
+  return path.join(/* turbopackIgnore: true */ getBrainDir(), '.archive', 'attachments');
 }
 
 function ensureAttachmentsDirsExist(): void {

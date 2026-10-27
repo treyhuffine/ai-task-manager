@@ -135,7 +135,7 @@ export async function folderOn(deviceId: string, typed: string): Promise<string>
     folder = t === '~' ? home : path.join(home, t.slice(2));
   }
   if (!path.isAbsolute(folder)) throw new FolderNotThereError('Type the whole path, from / or ~.');
-  folder = path.resolve(folder);
+  folder = path.resolve(/* turbopackIgnore: true */ folder);
   const there = await folderThere(deviceId, folder);
   if (there === false) throw new FolderNotThereError(`${folder} isn't a folder on ${nameOf(deviceId)}.`);
   return folder;

@@ -58,7 +58,7 @@ export function describeRetired(retired: RetiredHome, dir: string): string {
  * explicit override), or a folder never retired, pass.
  */
 export function assertNotRetired(dbPath: string): void {
-  if (fs.existsSync(dbPath) || path.resolve(dbPath) !== path.resolve(getDbPath())) return;
+  if (fs.existsSync(/* turbopackIgnore: true */ dbPath) || path.resolve(/* turbopackIgnore: true */ dbPath) !== path.resolve(/* turbopackIgnore: true */ getDbPath())) return;
   const latest = retiredHomes()[0];
   if (latest) throw new RetiredHomeError(latest.retired, latest.dir);
 }

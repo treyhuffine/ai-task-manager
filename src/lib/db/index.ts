@@ -400,7 +400,7 @@ export function getDb(dbPath?: string): DB {
     // checkout's working tree may hold a draft.
     const assetsRoot = process.env.RI_RUNTIME_REPO ??
       (process.env.RI_DESKTOP === '1' ? process.env.RI_DESKTOP_REPO : undefined) ?? runtimeRepository();
-    const migrationsFolder = path.resolve(assetsRoot, 'drizzle');
+    const migrationsFolder = path.resolve(/* turbopackIgnore: true */ assetsRoot, 'drizzle');
     const history = inspectMigrationHistory(sqlite, migrationsFolder);
     const ownsSchema = history.applied === 0 || migrationsAllowed();
     // Only a starting server (or `pnpm db:migrate`) upgrades an existing home.

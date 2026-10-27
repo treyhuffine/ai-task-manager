@@ -28,7 +28,7 @@ import { getWorkDir } from '@/lib/config/paths';
 const execFileP = promisify(execFile);
 
 async function readBundleIconFile(appPath: string): Promise<string | null> {
-  const plistPath = path.join(appPath, 'Contents', 'Info.plist');
+  const plistPath = path.join(/* turbopackIgnore: true */ appPath, 'Contents', 'Info.plist');
   try {
     const { stdout } = await execFileP('plutil', [
       '-extract',
@@ -52,7 +52,7 @@ async function readBundleIconFile(appPath: string): Promise<string | null> {
  * sometimes mis-set it).
  */
 async function resolveIcnsPath(appPath: string): Promise<string | null> {
-  const resourcesDir = path.join(appPath, 'Contents', 'Resources');
+  const resourcesDir = path.join(/* turbopackIgnore: true */ appPath, 'Contents', 'Resources');
   const declared = await readBundleIconFile(appPath);
   const candidates: string[] = [];
   if (declared) {
@@ -62,10 +62,10 @@ async function resolveIcnsPath(appPath: string): Promise<string | null> {
 
   for (const name of candidates) {
     const candidate = name.endsWith('.icns')
-      ? path.join(resourcesDir, name)
-      : path.join(resourcesDir, `${name}.icns`);
+      ? path.join(/* turbopackIgnore: true */ resourcesDir, name)
+      : path.join(/* turbopackIgnore: true */ resourcesDir, `${name}.icns`);
     try {
-      await fs.access(candidate);
+      await fs.access(/* turbopackIgnore: true */ candidate);
       return candidate;
     } catch {
       // Try next candidate.
@@ -74,9 +74,9 @@ async function resolveIcnsPath(appPath: string): Promise<string | null> {
 
   // Last-resort scan: pick any `.icns` in Resources/. Still fast.
   try {
-    const entries = await fs.readdir(resourcesDir);
+    const entries = await fs.readdir(/* turbopackIgnore: true */ resourcesDir);
     const icns = entries.find((e) => e.toLowerCase().endsWith('.icns'));
-    if (icns) return path.join(resourcesDir, icns);
+    if (icns) return path.join(/* turbopackIgnore: true */ resourcesDir, icns);
   } catch {
     // Resources/ unreadable — nothing we can do.
   }
@@ -85,7 +85,7 @@ async function resolveIcnsPath(appPath: string): Promise<string | null> {
 }
 
 function iconCacheDir(): string {
-  return path.join(getWorkDir(), 'icons');
+  return path.join(/* turbopackIgnore: true */ getWorkDir(), 'icons');
 }
 
 async function ensureCacheDir(): Promise<string> {
@@ -107,16 +107,16 @@ export async function extractAppIconPng(appPath: string): Promise<Buffer | null>
 
   let mtimeMs: number;
   try {
-    const stat = await fs.stat(appPath);
+    const stat = await fs.stat(/* turbopackIgnore: true */ appPath);
     mtimeMs = stat.mtimeMs;
   } catch {
     return null;
   }
 
   const dir = await ensureCacheDir();
-  const cachedPath = path.join(dir, `${cacheKey(appPath, mtimeMs)}.png`);
+  const cachedPath = path.join(/* turbopackIgnore: true */ dir, `${cacheKey(appPath, mtimeMs)}.png`);
   try {
-    return await fs.readFile(cachedPath);
+    return await fs.readFile(/* turbopackIgnore: true */ cachedPath);
   } catch {
     // Fall through to extraction.
   }
@@ -141,7 +141,7 @@ export async function extractAppIconPng(appPath: string): Promise<Buffer | null>
   }
 
   try {
-    return await fs.readFile(cachedPath);
+    return await fs.readFile(/* turbopackIgnore: true */ cachedPath);
   } catch {
     return null;
   }

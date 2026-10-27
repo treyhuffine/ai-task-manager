@@ -74,12 +74,12 @@ export function sameLocation(a: SkillLocation, b: SkillLocation): boolean {
 
 /** `<app-root>/skills`. */
 export function riSkillsDir(): string {
-  return path.join(getAppRoot(), 'skills');
+  return path.join(/* turbopackIgnore: true */ getAppRoot(), 'skills');
 }
 
 /** `<app-root>/skill-drafts`, which no harness reads. */
 export function skillDraftsDir(): string {
-  return path.join(getAppRoot(), 'skill-drafts');
+  return path.join(/* turbopackIgnore: true */ getAppRoot(), 'skill-drafts');
 }
 
 /**
@@ -104,14 +104,14 @@ export interface ProjectInfo {
 export function listProjects(): ProjectInfo[] {
   if (homeSkillLibraryOnly()) return [];
   return listWorkspaces({ status: 'active' })
-    .filter((ws) => ws.cwd && fs.existsSync(ws.cwd))
+    .filter((ws) => ws.cwd && fs.existsSync(/* turbopackIgnore: true */ ws.cwd))
     .map((ws) => ({ workspaceId: ws.id, name: ws.name, cwd: ws.cwd!, isGit: ws.isGit }));
 }
 
 export function projectFor(workspaceId: string): ProjectInfo | null {
   if (homeSkillLibraryOnly()) return null;
   const ws = getWorkspace(workspaceId);
-  if (!ws || ws.status !== 'active' || !ws.cwd || !fs.existsSync(ws.cwd)) return null;
+  if (!ws || ws.status !== 'active' || !ws.cwd || !fs.existsSync(/* turbopackIgnore: true */ ws.cwd)) return null;
   return { workspaceId: ws.id, name: ws.name, cwd: ws.cwd, isGit: ws.isGit };
 }
 
@@ -134,7 +134,7 @@ function channelsOf(location: SkillLocation): Channels {
   if (homeSkillLibraryOnly()) {
     if (location.kind !== 'draft' && location.kind !== 'ri') throw new SkillError('not_found', 'Only the team’s own skill library is available.');
     const root = location.kind === 'draft' ? skillDraftsDir() : riSkillsDir();
-    if (fs.existsSync(root) && (fs.lstatSync(root).isSymbolicLink() || !fs.realpathSync(root).startsWith(fs.realpathSync(getAppRoot()) + path.sep))) throw new SkillError('invalid', 'The shared skill library must stay inside the team’s folder.');
+    if (fs.existsSync(/* turbopackIgnore: true */ root) && (fs.lstatSync(/* turbopackIgnore: true */ root).isSymbolicLink() || !fs.realpathSync(/* turbopackIgnore: true */ root).startsWith(fs.realpathSync(/* turbopackIgnore: true */ getAppRoot()) + path.sep))) throw new SkillError('invalid', 'The shared skill library must stay inside the team’s folder.');
   }
   switch (location.kind) {
     case 'draft':
@@ -143,14 +143,14 @@ function channelsOf(location: SkillLocation): Channels {
       return { primary: riSkillsDir(), mirror: null, legacy: [] };
     case 'global': {
       const home = os.homedir();
-      return { primary: path.join(home, '.claude', 'skills'), mirror: path.join(home, '.agents', 'skills'), legacy: [] };
+      return { primary: path.join(/* turbopackIgnore: true */ home, '.claude', 'skills'), mirror: path.join(/* turbopackIgnore: true */ home, '.agents', 'skills'), legacy: [] };
     }
     case 'project': {
       const { cwd } = requireProject(location.workspaceId);
       return {
-        primary: path.join(cwd, '.claude', 'skills'),
-        mirror: path.join(cwd, '.agents', 'skills'),
-        legacy: [path.join(cwd, '.ri', 'skills')],
+        primary: path.join(/* turbopackIgnore: true */ cwd, '.claude', 'skills'),
+        mirror: path.join(/* turbopackIgnore: true */ cwd, '.agents', 'skills'),
+        legacy: [path.join(/* turbopackIgnore: true */ cwd, '.ri', 'skills')],
       };
     }
   }
@@ -171,8 +171,8 @@ export interface LocatedSkill {
 
 function hasSkillFile(dir: string): boolean {
   try {
-    const file = path.join(dir, SKILL_FILE);
-    return fs.lstatSync(file).isFile() && fs.realpathSync(file).startsWith(fs.realpathSync(dir) + path.sep);
+    const file = path.join(/* turbopackIgnore: true */ dir, SKILL_FILE);
+    return fs.lstatSync(/* turbopackIgnore: true */ file).isFile() && fs.realpathSync(/* turbopackIgnore: true */ file).startsWith(fs.realpathSync(/* turbopackIgnore: true */ dir) + path.sep);
   } catch {
     return false;
   }
@@ -180,7 +180,7 @@ function hasSkillFile(dir: string): boolean {
 
 function linkTarget(entry: string): string | null {
   try {
-    return path.resolve(path.dirname(entry), fs.readlinkSync(entry));
+    return path.resolve(/* turbopackIgnore: true */ path.dirname(entry), fs.readlinkSync(/* turbopackIgnore: true */ entry));
   } catch {
     return null;
   }
@@ -195,20 +195,20 @@ export function listSkillsAt(location: SkillLocation): LocatedSkill[] {
     return [];
   }
   const roots = [channels.primary, ...(channels.mirror ? [channels.mirror] : []), ...channels.legacy];
-  const ours = new Set(roots.map((root) => path.resolve(root)));
+  const ours = new Set(roots.map((root) => path.resolve(/* turbopackIgnore: true */ root)));
   const shipped = location.kind === 'global' ? new Set(shippedSkillNames()) : null;
   const byName = new Map<string, LocatedSkill>();
 
   for (const root of roots) {
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(root, { withFileTypes: true });
+      entries = fs.readdirSync(/* turbopackIgnore: true */ root, { withFileTypes: true });
     } catch {
       continue;
     }
     for (const entry of entries) {
       if (!isSafeFolderName(entry.name) || byName.has(entry.name)) continue;
-      const full = path.join(root, entry.name);
+      const full = path.join(/* turbopackIgnore: true */ root, entry.name);
       let linkedFrom: string | null = null;
       let dir = full;
       if (entry.isSymbolicLink()) {
@@ -220,7 +220,7 @@ export function listSkillsAt(location: SkillLocation): LocatedSkill[] {
         // links into Ri's skills aren't separate skills. In a project, Ri's
         // folder or the drafts, an outside link is left over from a session.
         if (location.kind !== 'global' || shipped?.has(entry.name)) continue;
-        if (path.dirname(target) === path.resolve(riSkillsDir())) continue;
+        if (path.dirname(target) === path.resolve(/* turbopackIgnore: true */ riSkillsDir())) continue;
         linkedFrom = target;
         dir = target;
       } else if (!entry.isDirectory()) {
@@ -264,7 +264,7 @@ export function nameTakenAt(location: SkillLocation, name: string): boolean {
   const channels = channelsOf(location);
   return [channels.primary, ...(channels.mirror ? [channels.mirror] : []), ...channels.legacy].some((root) => {
     try {
-      fs.lstatSync(path.join(root, name));
+      fs.lstatSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ root, name));
       return true;
     } catch {
       return false;
@@ -278,7 +278,7 @@ export function newSkillDir(location: SkillLocation, name: string): string {
   if (location.kind === 'global' && !canWriteGlobal()) {
     throw new SkillError('invalid', 'The desktop app keeps skills inside Ri and leaves your other tools alone.');
   }
-  return path.join(channelsOf(location).primary, name);
+  return path.join(/* turbopackIgnore: true */ channelsOf(location).primary, name);
 }
 
 /**
@@ -291,7 +291,7 @@ export function linkMirror(location: SkillLocation, dir: string): void {
   if (!channels.mirror || path.dirname(dir) !== path.resolve(/* turbopackIgnore: true */ channels.primary)) return;
   const link = path.join(/* turbopackIgnore: true */ channels.mirror, path.basename(dir));
   try {
-    fs.lstatSync(link);
+    fs.lstatSync(/* turbopackIgnore: true */ link);
     return;
   } catch {
     // Not there yet.
@@ -311,7 +311,7 @@ export function unlinkMirror(location: SkillLocation, dir: string): void {
   }
   if (!channels.mirror) return;
   const link = path.join(/* turbopackIgnore: true */ channels.mirror, path.basename(dir));
-  if (linkTarget(link) === path.resolve(dir)) fs.rmSync(link, { force: true });
+  if (linkTarget(link) === path.resolve(/* turbopackIgnore: true */ dir)) fs.rmSync(link, { force: true });
 }
 
 /**
@@ -322,7 +322,7 @@ export function projectPaths(skill: LocatedSkill): { cwd: string; paths: string[
   if (skill.location.kind !== 'project') return null;
   const { cwd } = requireProject(skill.location.workspaceId);
   const channels = channelsOf(skill.location);
-  const candidates = [path.join(channels.primary, skill.name), ...(channels.mirror ? [path.join(/* turbopackIgnore: true */ channels.mirror, skill.name)] : [])];
+  const candidates = [path.join(/* turbopackIgnore: true */ channels.primary, skill.name), ...(channels.mirror ? [path.join(/* turbopackIgnore: true */ channels.mirror, skill.name)] : [])];
   const inside = skill.dir.startsWith(cwd + path.sep) ? [skill.dir] : [];
   const paths = [...new Set([...inside, ...candidates])].map((p) => path.relative(cwd, p));
   return { cwd, paths };

@@ -50,13 +50,13 @@ export interface AuditEntry {
 }
 
 function auditDir(): string {
-  const dir = path.join(getConfigDir(), 'browser', 'audit');
+  const dir = path.join(/* turbopackIgnore: true */ getConfigDir(), 'browser', 'audit');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
 function auditPath(): string {
-  return path.join(auditDir(), 'audit.jsonl');
+  return path.join(/* turbopackIgnore: true */ auditDir(), 'audit.jsonl');
 }
 
 const PREVIEW_CHARS = 240;
@@ -71,11 +71,11 @@ const PREVIEW_CHARS = 240;
 export function storeScript(fn: string): AuditScript {
   const text = redactSecrets(fn);
   const sha256 = crypto.createHash('sha256').update(text).digest('hex');
-  const dir = path.join(auditDir(), 'scripts');
-  const file = path.join(dir, `${sha256}.js`);
+  const dir = path.join(/* turbopackIgnore: true */ auditDir(), 'scripts');
+  const file = path.join(/* turbopackIgnore: true */ dir, `${sha256}.js`);
   try {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    if (!fs.existsSync(file)) fs.writeFileSync(file, text, { mode: 0o600 });
+    if (!fs.existsSync(/* turbopackIgnore: true */ file)) fs.writeFileSync(file, text, { mode: 0o600 });
   } catch {
     // Auditing must never break a run.
   }
@@ -107,7 +107,7 @@ export function appendAudit(entry: Omit<AuditEntry, 'ts'>): void {
 /** The most recent audit entries, newest last. */
 export function readAuditTail(limit = 20): AuditEntry[] {
   try {
-    const raw = fs.readFileSync(auditPath(), 'utf8');
+    const raw = fs.readFileSync(/* turbopackIgnore: true */ auditPath(), 'utf8');
     const lines = raw.split('\n').filter(Boolean);
     return lines
       .slice(-limit)

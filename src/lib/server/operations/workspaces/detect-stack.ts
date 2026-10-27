@@ -15,7 +15,7 @@ export async function POST(rpcInput: rpcZ.infer<typeof POSTInput>, _request: Ope
     const body = (rpcInput.body) as { cwd?: string };
     const cwd = body.cwd?.trim();
     if (!cwd) return reply({ setup: '', start: '' });
-    return reply(detectStack(path.resolve(cwd)));
+    return reply(detectStack(path.resolve(/* turbopackIgnore: true */ cwd)));
   } catch (err) {
     console.error('[POST /api/workspaces/detect-stack]', err);
     return reply({ setup: '', start: '' });

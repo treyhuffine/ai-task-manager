@@ -42,7 +42,7 @@ export function resolveReplyFilePath(requested: string, folder: string | null): 
   }
   if (p === '~' || p.startsWith('~/')) p = path.join(os.homedir(), p.slice(1));
   if (path.isAbsolute(p)) return path.normalize(p);
-  return folder ? path.resolve(folder, p) : null;
+  return folder ? path.resolve(/* turbopackIgnore: true */ folder, p) : null;
 }
 
 function inside(child: string, parent: string): boolean {

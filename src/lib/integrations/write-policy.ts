@@ -63,7 +63,7 @@ interface WritePolicyFile {
 }
 
 function policyPath(): string {
-  return path.join(getConfigDir(), 'integrations', 'write-policy.json');
+  return path.join(/* turbopackIgnore: true */ getConfigDir(), 'integrations', 'write-policy.json');
 }
 
 let cache: { file: string; mtimeMs: number; data: WritePolicyFile } | null = null;
@@ -71,9 +71,9 @@ let cache: { file: string; mtimeMs: number; data: WritePolicyFile } | null = nul
 function read(): WritePolicyFile {
   try {
     const file = policyPath();
-    const st = fs.statSync(file);
+    const st = fs.statSync(/* turbopackIgnore: true */ file);
     if (cache && cache.file === file && cache.mtimeMs === st.mtimeMs) return cache.data;
-    const data = JSON.parse(fs.readFileSync(file, 'utf8')) as WritePolicyFile;
+    const data = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ file, 'utf8')) as WritePolicyFile;
     cache = { file, mtimeMs: st.mtimeMs, data: data && typeof data === 'object' ? data : {} };
     return cache.data;
   } catch {
@@ -82,7 +82,7 @@ function read(): WritePolicyFile {
 }
 
 function write(data: WritePolicyFile): void {
-  const dir = path.join(getConfigDir(), 'integrations');
+  const dir = path.join(/* turbopackIgnore: true */ getConfigDir(), 'integrations');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = `${policyPath()}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });

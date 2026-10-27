@@ -19,7 +19,7 @@ export async function runSourceInvocation(chatId: string, invocationId: string, 
   }
   const promise = (async () => {
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-    const lock = fileLock({ dir: path.join(dir, 'locks') });
+    const lock = fileLock({ dir: path.join(/* turbopackIgnore: true */ dir, 'locks') });
     const write = async (receipt: Receipt) => {
       const temp = `${file}.${randomUUID()}.tmp`;
       const handle = await fs.open(temp, 'wx', 0o600);
