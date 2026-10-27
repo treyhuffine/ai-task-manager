@@ -11,7 +11,7 @@
     "dev:web": "tsx scripts/dev.ts",
     "dev:stt": "docker compose -f modules/parakeet-stt/docker-compose.yml up parakeet-cpu",
     "iso": "tsx scripts/isolated.ts",
-    "build": "pnpm --filter @ri/app-kit build && pnpm gallery:build && pnpm apps:catalog --compatible && next build",
+    "build": "pnpm --filter @ri/app-kit build && pnpm gallery:build && pnpm apps:catalog --compatible && node scripts/next-build.mjs",
     "desktop:build": "pnpm cli:build && tsup --config desktop/tsup.config.ts",
     "desktop:demo": "pnpm desktop:build && node desktop/launch.mjs",
     "desktop:dev": "pnpm desktop:build && node desktop/launch.mjs --dev",

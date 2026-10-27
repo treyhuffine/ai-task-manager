@@ -37,7 +37,7 @@ try {
     console.info('Building the production app for the Electron demo…');
     const buildEnv = { ...env, RI_ROOT: root, NEXT_DIST_DIR: '.next-desktop', NODE_ENV: 'production' };
     for (const name of ['RI_DB_PATH', 'RI_CONFIG_DIR', 'RI_WORK_DIR']) buildEnv[name] = '';
-    await run(process.execPath, [path.join(repo, 'node_modules/next/dist/bin/next'), 'build'], buildEnv);
+    await run(process.execPath, [path.join(repo, 'scripts/next-build.mjs')], buildEnv);
   }
   if (!dev && !fs.existsSync(path.join(repo, '.next-desktop/BUILD_ID'))) {
     throw new Error('Run pnpm desktop:demo once to build the production app, or use pnpm desktop:dev.');
