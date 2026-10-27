@@ -110,9 +110,9 @@ The `ri service ...` commands stay as the detailed form (`status` as JSON, `awak
 ### 4.2 Desktop app
 
 - **First run.** "Use this computer as your Home" creates the Home and keeps it running in one step. "Connect to your Home" pairs, as today. Advanced lets someone choose the folder or create a team. Nobody has to find a separate "Start at Login" choice.
-- **Update ready.** When a new version has downloaded, a quiet notice offers **Restart now**, **When idle** and **Later**. **When idle** is what happens if nobody chooses, so the standard case needs no click. **Later** waits until the app next starts. Restarting replaces both the window and the Home's software: the window relaunches in a second or two, and the Home switches as in section 7.4.
+- **Updates.** A Home on this computer updates by the rule in section 7.2, the same rule as everywhere else: the heads-up shows in the app's window, with **Not now** and **Update now**. When the app's own part changes too (its menus, Quick Capture, notifications), the window relaunches as part of that same update. When the app is connected to a Home elsewhere, its own update applies like a browser refresh (section 4.3), right after the Home moves (section 7.7).
 - **Settings, This computer.** Shows the same status as `ri status`, including "This app 0.4.2, your Home 0.4.2". A "Keep Ri running on this computer" switch is on for every Home, and turning it off removes supervision. "Add `ri` to Terminal" writes the launcher, adds `~/.local/bin` to the shell's PATH if needed, and says what it changed.
-- **Settings, Updates** (`src/components/settings/sections/updates-section.tsx`). Shows "Up to date", or the update-ready notice with its three choices, plus the automatic updates switch and, under Advanced, the channel.
+- **Settings, Updates** (`src/components/settings/sections/updates-section.tsx`). Shows "Up to date", or what a downloaded update is waiting for ("Waiting for 2 chats to finish"), with **Update now**. Also holds the automatic updates switch and, under Advanced, the channel.
 - **App menu.** "Check for Updates…", the Mac convention.
 - **Opening the window at login** is a separate, optional preference. It's for convenience and has nothing to do with whether the Home is up.
 - **Removed:** Tools > Start at Login… / Disable Start at Login… (replaced by the switch) and Tools > Install terminal command, which today writes `~/.local/bin/ri-desktop` (replaced by "Add `ri` to Terminal", which installs the same `ri` the install script does).
@@ -125,7 +125,9 @@ A browser tab shows a Home's pages, so it runs whatever version that Home served
 - A tab in the background saves its drafts and reloads by itself, so it is current when you come back to it.
 - A tab whose version can no longer talk to the Home (the API protocol check, `apiCompatibilityIssue`) can't keep working. It shows the same notice, which can't be dismissed.
 
-Today every open viewer saves its drafts and reloads by itself as soon as the build changes (`ServiceConnection` in `src/components/desktop/service-connection.tsx`, mounted in `src/app/layout.tsx`). The desktop window shows a Home's pages too, so it follows the same rule, and updating its shell is section 4.2.
+Today every open viewer saves its drafts and reloads by itself as soon as the build changes (`ServiceConnection` in `src/components/desktop/service-connection.tsx`, mounted in `src/app/layout.tsx`).
+
+The desktop app's window follows the same rule, because it is essentially a browser for the Home's pages. A connected app loads the Home's own address (`remoteViewerOrigin(connected.homeUrl)` in `desktop/backend.ts`), and a local one loads the local service's. The app itself provides only its own few screens (first run, connecting, offline) and the native parts: menus, Quick Capture, notifications, and running agents on this computer if that is turned on.
 
 ## 5. Installing
 
@@ -207,15 +209,37 @@ Automatic updates apply to published releases only. A checkout builds only when 
 
 ### 7.2 When a downloaded release takes effect
 
+Every Home follows one rule, whether it was set up from the desktop app or the CLI, and whether it sits on a laptop or a server nobody watches:
+
+1. **Wait for 10 quiet minutes.** Quiet means all of these:
+   - The coordinator's activity check finds nothing. It already counts running chats, agents' background tasks, permissions waiting on someone, and terminals or previews the server owns (`activity()` in `src/service/main.ts`, reading `/__ri_activity`).
+   - No requests are in flight.
+   - Nobody has used Ri for the whole 10 minutes: no typing or clicking in any window, and no calls from agents connected over MCP ("Connect your agent").
+2. **Give a 1-minute heads-up** in every window showing the Home (browser, desktop app, phone): "Ri will update in 1 minute", with **Not now** and **Update now**.
+   - If no window is open, as on a server used only through MCP, there is no one to tell and the minute simply passes.
+   - Any new activity during the minute (a chat starts, a background task begins) cancels it, and the wait starts over.
+3. **Update.** The restart takes seconds (section 7.4).
+   - Open windows then show the refresh notice (section 4.3).
+   - An agent whose MCP call lands in those seconds gets an error and retries, as it would after any dropped connection.
+
+Around that rule:
+
+- **Not now** holds the update for an hour. After that, the next quiet stretch brings the heads-up back. It asks again, and never gives up or goes ahead silently.
+- **Update now** (in the heads-up, in Settings, or `ri update`) skips the wait. If chats are running, it says which and offers to wait for them or stop them.
+- **Automatic updates never stop running work.** A Home that is never quiet for 10 minutes keeps its version, and after 24 hours `ri status` and Settings say what it is waiting for.
+- **At most one automatic update every 12 hours,** so a Home on `latest` doesn't restart for every release. A release that arrives in between is picked up at the next one.
+- **Only the Home's owner sees the heads-up and its buttons.** Members of a team Home see the refresh notice afterwards.
+- **A maintenance window** (`ri update when-idle --hour`) still narrows when step 1 can happen.
+
+For everything else:
+
 | What | When it moves to the new release |
 | --- | --- |
 | The `ri` command | At its next run. The launcher points at the newest release, the same as Claude Code taking effect at its next start. |
-| A Home with the desktop app on its computer | When the person picks on the update-ready notice: Restart now, When idle (what happens if nobody chooses) or Later (section 4.2). |
-| A Home run from the CLI, usually a server nobody sits at | At the server's next start (a reboot, `ri restart`, or a memory or crash restart), or in its first idle moment between 3 and 5 a.m. Home time, whichever comes first. A supervised Home can run for weeks without restarting, so waiting only for a start could leave it on an old version indefinitely, security fixes included. |
-| A browser tab | When its person refreshes, or on its own if it's in the background (section 4.3). |
-| A connected computer | When its Home moves (section 7.7). |
+| A browser tab or desktop window | When its person refreshes, or on its own if it's in the background (section 4.3). |
+| A connected computer | Right after its Home moves, unless it is running chats for that Home (section 7.7). |
 
-"Idle" means what it means to the coordinator today (`UpdateCoordinator.apply` in `src/lib/service/update.ts`): no chats running, no permission waiting on someone, no terminals or previews the server owns, no requests in flight. An optional maintenance window still narrows when that can happen (`ri update when-idle --hour`).
+This sits between the tools before it. Hermes never updates itself: it shows a banner, waits for `hermes update`, and then drains running work for up to 30 minutes. OpenClaw leaves automatic updates off for its server by default. Turned on, they wait for running work, give a one-minute countdown, allow one hour's hold, and go ahead anyway after 15 minutes even if work remains. Its connected machines update by default, only when idle, at most every 12 hours. Ri is on by default like Claude Code and OpenClaw's machines, and borrows OpenClaw's countdown, hold and spacing, but drops its forced deadline, because a Home's running work is a person's agents mid-task.
 
 ### 7.3 Channels
 
@@ -230,19 +254,19 @@ The existing preference allows `stable` and `beta` (`src/lib/service/update-sett
 
 The steps are those of `UpdateCoordinator.apply` today, with the checkpoint made proportional:
 
-1. Wait until the Home is idle, then drain new work and in-flight requests (existing).
+1. Wait for the quiet stretch and the heads-up (section 7.2), then drain new work and in-flight requests (existing).
 2. Stop the server (existing).
 3. **Snapshot only what the release can change.**
    - The config folder is always copied. It's small, and a release may write a newer config format.
    - The database is snapshotted only when the release has migrations this database hasn't applied, found by comparing the release's migration journal with `__drizzle_migrations`. On macOS that's an instant APFS clone of the stopped database file (`clonefile`). Elsewhere it's SQLite's backup API.
    - Attachments and the work folder are never copied, because no release migrates them.
    - Today's checkpoint copies every file under the root, config and work folders, plus the database, on every update (`createCheckpoint` in `src/lib/service/checkpoint.ts`). For the owner's Home that is a 19.6 GiB database plus everything else, on a disk with 24 GiB free.
-4. Boot the new release in validation mode and check the database (existing).
+4. **Boot the new release in validation mode and check the database** (existing), but only when the release has migrations. A release without migrations skips this boot. If it then fails to start, the Home goes straight back to the previous release with nothing to restore, so the check boot would only double the downtime.
 5. **Commit, point the Home at the new release, and start it** (existing). The controller itself belongs to the release, so it hands over by exiting with code 75. The launcher runs the controller in a loop that starts the next release's controller at once on that code. That way launchd's 30-second relaunch throttle (`ThrottleInterval`) never adds to the downtime.
 6. **Refresh what the release installs** (section 9).
 7. **Watch the first 10 minutes.** If the new release crash-loops (section 6.2), section 7.6 applies.
 
-A typical update without migrations is a drain, a stop and a start: seconds of downtime, and no copies.
+A typical update without migrations is a drain, a stop and one start: seconds of downtime, and no copies. Phase B measures the real figure on the owner's Home, from the request to stop to the first page served.
 
 ### 7.5 Keeping releases
 
@@ -263,9 +287,9 @@ Several things have a version, and this design keeps them in step:
 | Pair | How they stay aligned |
 | --- | --- |
 | A Home and the pages it shows | Always the same, because the Home's server serves them. A tab loaded before an update is handled by section 4.3. |
-| The desktop app and a Home on the same computer | The same installation, so one update covers both, and the update-ready notice restarts both together. |
+| The desktop app and a Home on the same computer | The same installation, so one update covers both, and the window relaunches as part of the Home's update (section 4.2). |
 | The `ri` command and a Home | Commands about a Home run that Home's release (section 3.2). |
-| A connected computer and its Home elsewhere (a laptop and the Mini) | The connected computer follows its Home. When the Home moves to a new version, the computer's installation fetches that same version from the published releases and switches (with the desktop app's update-ready notice, if it has one). It doesn't move ahead of its Home on its own schedule. |
+| A connected computer and its Home elsewhere (a laptop and the Mini) | The connected computer follows its Home. When the Home moves to a new version, the computer's installation fetches that same version from the published releases and switches right away, since everything it shows comes from the Home and nothing of the Home runs on it. The exception is a computer running chats for its Home (the "Run agents on this device" option): it waits for those chats to finish first. Its window then refreshes by section 4.3. It never moves ahead of its Home on its own schedule. |
 
 The exception is a Home on a version that isn't published, such as one built from a checkout. A connected computer can't fetch that version, so it keeps its own. The existing compatibility contract (`src/lib/releases/compatibility.ts`) then decides whether the two still work together, and keeps a Home from switching to a release its connected computers can't speak to. Both versions show in `ri status` and Settings, and so does which one needs updating.
 
@@ -372,20 +396,21 @@ Acceptance:
 - A Linux VM with linger on: back after a reboot without a login.
 
 **C. Automatic updates and alignment.**
-- Automatic download and the timing in section 7.2, including the night window for CLI Homes.
+- Automatic download and the rule in section 7.2: the quiet stretch (MCP calls and background tasks included), the heads-up, Not now and Update now, the 12-hour spacing, and owner-only buttons.
 - The 24-hour waiting notice, `stable` and `latest`, and the shell updater following the setting.
-- The CLI's one-line notices, the browser's refresh prompt (section 4.3), and connected computers following their Home (section 7.7).
+- The single boot for releases without migrations (section 7.4).
+- The CLI's one-line notices, the refresh notice in browsers and the desktop window (section 4.3), and connected computers following their Home (section 7.7).
 
 Acceptance, against a test feed:
-- An idle CLI Home updates in its night window.
-- A desktop Home follows Restart now, When idle and Later.
-- A busy Home waits and says why.
-- A connected computer follows its Home.
+- A Home with no window open, used only over MCP, updates after 10 quiet minutes, and an MCP call during the restart succeeds on retry.
+- A Home with a window open shows the heads-up. Not now brings it back after an hour. A chat or background task starting during the minute cancels it.
+- A busy Home never updates by itself and says why after 24 hours.
+- A connected computer switches right after its Home, and waits when it is running chats for it.
 - A release that crash-loops without migrations rolls itself back.
 
-**D. Desktop surfaces.** First run that creates and supervises, the update-ready notice, Settings This computer and Updates, "Add `ri` to Terminal", "Check for Updates…", and removing the old Tools items.
+**D. Desktop surfaces.** First run that creates and supervises, the heads-up and refresh notice in the app's window, Settings This computer and Updates, "Add `ri` to Terminal", "Check for Updates…", and removing the old Tools items.
 
-Acceptance: a fresh Mac account goes from first launch to a supervised Home in one click, survives a restart, and updates from the notice.
+Acceptance: a fresh Mac account goes from first launch to a supervised Home in one click, survives a restart, and updates through the heads-up.
 
 **E. Distribution.** The install script, a published feed with signing and the CI release matrix (macOS arm64 and x64, Linux arm64 and x64, already declared in CI), and the Windows Scheduled Task adapter with Windows release builds.
 
@@ -401,12 +426,9 @@ Acceptance: an SSH-only Linux server goes from `curl … | sh` and `ri start` to
 - One installation per computer, shared by the desktop app and the CLI. Releases belong to it, Homes point at them, and the folder says what kind of Home it is.
 - Everything Ri installs outside its folders (skills, the launcher, agent connections, OS jobs) belongs to the installation or the Home and is refreshed by updates (section 9).
 - A Home runs an unchanging release and moves only through the update switch, including for the owner.
-- Published releases update automatically:
-  - the `ri` command at its next run
-  - a desktop Home when its person chooses (When idle if nobody does)
-  - a CLI Home at its next start, or overnight when idle
-  - browser tabs when refreshed, prompted by a notice
-- A connected computer follows its Home's version.
+- Published releases update automatically, by one rule for every Home: after 10 quiet minutes (chats, background tasks, MCP calls and people all count) and a 1-minute heads-up. Not now holds it an hour and then asks again. It never stops running work, and updates at most every 12 hours. The `ri` command picks up a new release at its next run, and windows and tabs by a refresh notice.
+- A release without migrations starts once, with no check boot.
+- A connected computer follows its Home's version, right away unless it is running chats for it.
 - Source builds happen only when the owner runs `ri update`. They run at background priority, and are never stopped at a fraction of memory, only on a true runaway.
 - Snapshots match the change: config always, the database only with migrations.
 - Automatic rollback only when no data could be lost.
@@ -421,11 +443,10 @@ Acceptance: an SSH-only Linux server goes from `curl … | sh` and `ri start` to
 2. **Publishing.** The owner will choose the hosting. Nothing in phases A or B depends on it. What does depend on it:
    - Before phase C: a download address to keep. The feed's address is written into every installation (`release-policy.json`), so changing it later means migrating every installation. Also a release signing key: the format already expects an Ed25519 key.
    - Before the desktop app goes to anyone else: a Developer ID. macOS opens an unsigned downloaded app only after a warning, and the desktop updater can't apply an update to an unsigned Mac app. This is the same Developer ID decision already open for notifications.
-3. **The night window for CLI Homes** (section 7.2). Is 3 to 5 a.m. Home time the right default, and is it wanted at all? The alternative is waiting only for the next start.
-4. **A Home handing its release to its connected computers,** so source-built setups stay aligned too (section 7.7).
-5. **Windows.** Native first, or WSL first, as OpenClaw supports both?
-6. **Before-login Macs.** A system LaunchDaemon for Macs that must serve before anyone logs in. Not planned, and it can't reach the login keychain.
-7. **Backups.** The nightly backup is an owner-only launchd job (`pnpm backup install`). Whether every Home should get one, kept by the same controller, is a separate decision.
+3. **A Home handing its release to its connected computers,** so source-built setups stay aligned too (section 7.7).
+4. **Windows.** Native first, or WSL first, as OpenClaw supports both?
+5. **Before-login Macs.** A system LaunchDaemon for Macs that must serve before anyone logs in. Not planned, and it can't reach the login keychain.
+6. **Backups.** The nightly backup is an owner-only launchd job (`pnpm backup install`). Whether every Home should get one, kept by the same controller, is a separate decision.
 
 ## 14. Prior art
 
