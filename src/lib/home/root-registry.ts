@@ -16,7 +16,7 @@ export function registerHomeRoot(kind: HomeKind, root = getAppRoot(), directory 
     const canonical = fs.realpathSync(root);
     const name = createHash('sha256').update(canonical).digest('hex') + '.json';
     const file = path.join(/* turbopackIgnore: true */ directory, name), contents = JSON.stringify({ root: canonical, kind }) + '\n';
-    if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === contents) return;
+    if (fs.existsSync(/* turbopackIgnore: true */ file) && fs.readFileSync(/* turbopackIgnore: true */ file, 'utf8') === contents) return;
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     atomicWriteFile(file, contents);
   } catch { /* A warning registry must never block a Home from starting. */ }

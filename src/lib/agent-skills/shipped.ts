@@ -175,9 +175,9 @@ export function inspectSkillFolders(folders: SkillFolder[]): { ready: boolean; b
  */
 function isAnotherRisSkill(dest: string): boolean {
   try {
-    if (fs.lstatSync(dest).isSymbolicLink()) return fs.existsSync(path.join(dest, 'SKILL.md'));
+    if (fs.lstatSync(dest).isSymbolicLink()) return fs.existsSync(path.join(/* turbopackIgnore: true */ dest, 'SKILL.md'));
     const home = readCopyMarker(dest);
-    return home !== null && fs.existsSync(home);
+    return home !== null && fs.existsSync(/* turbopackIgnore: true */ home);
   } catch {
     return false;
   }
