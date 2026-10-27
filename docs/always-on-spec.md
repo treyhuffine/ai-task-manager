@@ -1,6 +1,6 @@
 # Always on, always current: installing, running and updating Ri
 
-**Status:** proposed build spec, written 2026-10-27 and revised the same day with the owner's decisions (section 13). Nothing here is built yet. Section 11 lists what changes in the current code, and section 12 the order to build it in.
+**Status:** decided, 2026-10-27. The owner settled every choice phases A and B need (section 13). What remains open belongs to later phases or future work. Nothing here is built yet. Section 11 lists what changes in the current code, and section 12 the order to build it in.
 
 **Promise:** once Ri is installed and a Home is created, it is running whenever its computer is on. It updates itself, along with everything it installs (its skills included), and a person never has to restart, babysit or rebuild it. This holds for the desktop app and the CLI, on a laptop, a Mac Mini in a closet, or a Linux server reached only over SSH. The standard case takes no flags.
 
@@ -102,7 +102,7 @@ Flags exist only for the unusual case:
 | `ri update --now`, `ri restart --now` | Don't wait for running chats. |
 | `ri update --rollback` | Go back one release (section 7.6). |
 | `ri update --from <checkout>` and `--from published` | Contributors only: build releases from a checkout, or go back to published ones (section 8). Remembered. |
-| `ri update --channel latest\|stable`, `ri update --auto off\|on` | The same settings the desktop app shows. Remembered. |
+| `ri update --channel latest\|stable`, `ri update --auto off\|on` | The same settings as Settings > Updates. Remembered. |
 | `ri start --foreground` | Today's `ri start`, for debugging. It refuses a Home that is supervised. |
 
 The `ri service ...` commands stay as the detailed form (`status` as JSON, `awake`, `configure`, `worker stop|resume`, `install`, `uninstall`), so existing scripts keep working. `ri service install` becomes the takeover step that `ri start` runs, and `ri service uninstall` removes supervision while keeping the data, as it does today.
@@ -111,10 +111,10 @@ The `ri service ...` commands stay as the detailed form (`status` as JSON, `awak
 
 - **First run.** "Use this computer as your Home" creates the Home and keeps it running in one step. "Connect to your Home" pairs, as today. Advanced lets someone choose the folder or create a team. Nobody has to find a separate "Start at Login" choice.
 - **Updates.** A Home on this computer updates by the rule in section 7.2, the same rule as everywhere else: the heads-up shows in the app's window, with **Not now** and **Update now**. A Ri update usually changes only pages and server code, and those reach the window through the Home with no app download. The app's own part (its three screens, menus, Quick Capture, notifications and the bridge between the pages and the Mac) downloads only when its own files changed.
-
-- **The Home is on this computer.** A changed app part comes with the Home's update, and the window relaunches as part of that same restart.
-- **The Home is elsewhere.** A changed app part downloads in the background and takes effect the next time the app starts, the way Claude Code does.
-- **The Home needs a newer app** (its pages rely on a native bridge version the app doesn't have, the check `assertLocalBridge` in `desktop/viewer-trust.ts` already makes). The window says "Update the Ri desktop app to keep using this Ri", with **Restart now**.
+  - **The Home is on this computer.** A changed app part comes with the Home's update, and the window relaunches as part of that same restart.
+  - **The Home is elsewhere.** A changed app part downloads in the background and takes effect the next time the app starts, the way Claude Code does.
+  - **The Home needs a newer app** (its pages rely on a native bridge version the app doesn't have, the check `assertLocalBridge` in `desktop/viewer-trust.ts` already makes). The window says "Update the Ri desktop app to keep using this Ri", with **Restart now**.
+  - The app updating itself on macOS needs a signed app (section 13, open question 2). Until then a locally built app is rebuilt by hand, as today.
 - **Settings, This computer.** Shows the same status as `ri status`, including "This app 0.4.2, your Home 0.4.2". A "Keep Ri running on this computer" switch is on for every Home, and turning it off removes supervision. "Add `ri` to Terminal" writes the launcher, adds `~/.local/bin` to the shell's PATH if needed, and says what it changed.
 - **Settings, Updates** (`src/components/settings/sections/updates-section.tsx`). Shows "Up to date", or what a downloaded update is waiting for ("Waiting for 2 chats to finish"), with **Update now**. Also holds the automatic updates switch and, under Advanced, the channel.
   - This section belongs to the Home's own Settings, not to the desktop app. Like every page, it comes from the Home, so it works the same in a browser, on a phone or in the app.
@@ -170,7 +170,7 @@ The OS supervises the controller, and the controller supervises the server.
 | The server stops answering | The controller probes `/__ri_ready` every 15 s with a 10 s timeout. After 3 minutes without a successful probe it kills the server's process group and restarts it. The probe runs on the server's event loop, so a frozen loop fails it while an ordinary 2 s stall doesn't. Startup has its own deadline (three minutes today) instead, extended while migrations are running. |
 | The server's JavaScript heap passes 75% of its limit | Restart at the next idle moment. |
 | The heap passes 90% of its limit | Drain for 15 s, then restart, even if chats are running, because a crash at the limit is worse. The reason is recorded. |
-| 5 unexpected exits within 15 minutes | Stop restarting. The controller stays up with its diagnostics, `ri status` and the desktop app say why, and an update rollback may apply (section 7.6). |
+| 5 unexpected exits within 15 minutes | Stop restarting. The controller stays up with its diagnostics, `ri status` and Settings say why, and an update rollback may apply (section 7.6). |
 
 The ready probe reports the heap in use, the heap limit and the resident memory. The perf log's minute rollups record the same three numbers, so `ri perf` shows memory over days and the heap limit seen in section 1 can be told apart from a leak.
 
@@ -223,7 +223,7 @@ Setup never asks about it. Most people can't judge the choice before they've use
 Once automatic updates are on:
 
 - The installation checks for a new published release when a controller starts and every 6 hours after that, as the updater does today.
-- A new release downloads in the background, along with the desktop app's new shell if the app is installed. Today a downloaded update waits for someone to approve it (`approve` and `tick` in `src/lib/service/update.ts`), and the shell updater doesn't download on its own (`autoDownload = false` in `desktop/shell-update.ts`).
+- A new release downloads in the background, along with the desktop app's own part when that changed (section 4.2). Today a downloaded update waits for someone to approve it (`approve` and `tick` in `src/lib/service/update.ts`), and the shell updater doesn't download on its own (`autoDownload = false` in `desktop/shell-update.ts`).
 - When the new release takes effect depends on what is running (section 7.2).
 - If a Home hasn't been able to switch for 24 hours, `ri status` and Settings say what it is waiting for ("2 chats running") and offer to update now.
 - The CLI prints one line when an update is ready but waiting, and one line after a Home has moved ("Updated ~/ri to 0.4.2"), like Claude Code's update notices. It stays quiet otherwise.
@@ -260,7 +260,7 @@ For everything else:
 | --- | --- |
 | The `ri` command | At its next run. The launcher points at the newest release, the same as Claude Code taking effect at its next start. |
 | A browser tab or desktop window | When its person refreshes, or on its own if it's in the background (section 4.3). |
-| A connected computer | Right after its Home moves, unless it is running chats for that Home (section 7.7). |
+| A connected computer | Its server part right after its Home moves, or once the chats it runs for that Home finish. Its desktop app part at the app's next start (section 7.7). |
 
 This sits between the tools before it. Hermes never updates itself: it shows a banner, waits for `hermes update`, and then drains running work for up to 30 minutes. OpenClaw leaves automatic updates off for its server by default. Turned on, they wait for running work, give a one-minute countdown, allow one hour's hold, and go ahead anyway after 15 minutes even if work remains. Its connected machines update by default, only when idle, at most every 12 hours. Ri is on by default like Claude Code and OpenClaw's machines, and borrows OpenClaw's countdown, hold and spacing, but drops its forced deadline, because a Home's running work is a person's agents mid-task.
 
@@ -277,7 +277,7 @@ The existing preference allows `stable` and `beta` (`src/lib/service/update-sett
 
 The steps are those of `UpdateCoordinator.apply` today, with the checkpoint made proportional:
 
-1. Wait for the quiet stretch and the heads-up (section 7.2), then drain new work and in-flight requests (existing).
+1. Wait for the quiet stretch and the heads-up (section 7.2), which Update now and `ri update` skip. Then drain new work and in-flight requests (existing).
 2. Stop the server (existing).
 3. **Snapshot only what the release can change.**
    - The config folder is always copied. It's small, and a release may write a newer config format.
@@ -310,7 +310,7 @@ Several things have a version, and this design keeps them in step:
 | Pair | How they stay aligned |
 | --- | --- |
 | A Home and the pages it shows | Always the same, because the Home's server serves them. A tab loaded before an update is handled by section 4.3. |
-| The desktop app and a Home on the same computer | The same installation, so one update covers both, and the window relaunches as part of the Home's update (section 4.2). |
+| The desktop app and a Home on the same computer | The same installation, so one update covers both. When the app's own part changed, the window relaunches as part of the Home's update (section 4.2). |
 | The `ri` command and a Home | Commands about a Home run that Home's release (section 3.2). |
 | A connected computer and its Home elsewhere (a laptop and the Mini) | The connected computer follows its Home, and never moves ahead of it on its own schedule. It has three parts, and each follows differently. **What it shows** needs nothing: the pages come from the Home, so the Home's update is already the window's update, after a refresh (section 4.3). **Its own server part** runs only if the computer runs chats for its Home (the "Run agents on this device" option). It fetches the Home's version from the published releases and switches right away, or after its running chats finish. **The desktop app's own part** downloads only when the app's files changed, and takes effect at the app's next start (section 4.2). |
 
@@ -433,7 +433,7 @@ Acceptance, against a test feed:
 
 **D. Desktop surfaces.** First run that creates and supervises, the heads-up and refresh notice in the app's window, Settings This computer and Updates, "Add `ri` to Terminal", "Check for Updates…", and removing the old Tools items.
 
-Acceptance: a fresh Mac account goes from first launch to a supervised Home in one click, survives a restart, and updates through the heads-up.
+Acceptance: a fresh Mac account goes from first launch to a supervised Home in one click, survives a restart, and updates through the heads-up. The app updating its own part needs the signed app from open question 2, so that check runs once one exists.
 
 **E. Distribution.** The install script, a published feed with signing and the CI release matrix (macOS arm64 and x64, Linux arm64 and x64, already declared in CI), and the Windows Scheduled Task adapter with Windows release builds.
 
