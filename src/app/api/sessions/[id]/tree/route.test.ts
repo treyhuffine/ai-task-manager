@@ -2,7 +2,7 @@
  * A non-git agent's chat works in the agent's own folder, and its Files view
  * reads that folder: the tree, a file, a save. It used to get an empty tree
  * (no stored worktree path), which the view showed as loading rows forever.
- * Archiving the chat leaves the folder alone, since it is the person's own.
+ * Archiving one leaves the folder alone: src/lib/sessions/archive-agent-folder.test.ts.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -85,11 +85,4 @@ it('opens and saves a file in the folder', async () => {
   );
   expect(saved.status).toBe(200);
   expect(fs.readFileSync(path.join(folder, 'src', 'main.ts'), 'utf8')).toBe('export const ready = true;\n');
-});
-
-it("archiving the chat keeps the agent's folder", async () => {
-  const { archiveExecutionSession } = await import('@/lib/sessions/dispatch');
-  const archived = await archiveExecutionSession({ sessionId: chatId });
-  expect(archived?.status).toBe('archived');
-  expect(fs.readdirSync(folder).sort()).toEqual(['README.md', 'node_modules', 'src']);
 });

@@ -742,21 +742,17 @@ async function archiveAdmitted(
     if (failed) throw new (await import('@/lib/db/queries')).TeamChatError('unavailable', failed.error ?? 'The harness could not stop. This execution remains active so you can retry.');
     // A final tool write can finish while the process closes. Preserve queued
     // work if that edit makes archive refuse after the initial clean check.
-    if (session.worktreePath && session.worktreePath !== ws?.cwd) await preflightArchiveSessionWorktree({ session, sourceCheckoutPath: ws?.cwd, force: args.force });
+    if (removesWorktreeOnArchive(session, ws)) await preflightArchiveSessionWorktree({ session, sourceCheckoutPath: ws?.cwd, force: args.force });
     policy.verify();
   }
   // Stop execution-owned terminals before teardown can make its final clean
   // check. A terminal outside this execution remains outside this operation.
   if (!elsewhere) killAllForOwner(terminalOwnerId(session));
-  // Workspace lookup is best-effort — a workspace can be deleted out from
-  // under sessions, but we still want to be able to archive the row.
-  if (!elsewhere && session.worktreePath) {
-    // Live-mode sessions point at the workspace's actual cwd. Removing
-    // that "worktree" would wipe the user's project. Detect the match
-    // and skip teardown — just flip status.
+  // Only a worktree Ri made is torn down. Every other folder an execution
+  // works in is the person's, so archive just flips status.
+  if (!elsewhere) {
     const ws = session.workspaceId ? getWorkspace(session.workspaceId) : null;
-    const isLive = !!ws && session.worktreePath === ws.cwd;
-    if (!isLive) {
+    if (removesWorktreeOnArchive(session, ws)) {
       await archiveSessionWorktree({
         session,
         teardownCommand: ws?.teardownCommand ?? null,
@@ -782,6 +778,20 @@ async function archiveAdmitted(
   }
 
   return getChatSessionWithExecution(args.sessionId);
+}
+
+/**
+ * Whether archiving an execution here removes its folder: only when it is a
+ * worktree Ri made, which is only ever for a git agent and never its
+ * checkout. Live and imported chats work in the agent's checkout, and a
+ * non-git agent's chats in its folder. Those are the person's, and agentex
+ * removes a plain folder recursively, so a path that used to be the agent's
+ * folder (an import's, kept after the agent's folder moved) must not reach
+ * it either. An agent that can't be found removes nothing: what isn't known
+ * to be Ri's is left on disk.
+ */
+function removesWorktreeOnArchive(session: ChatSessionWithExecution, ws: WorkspaceRecord | null | undefined): boolean {
+  return !!session.worktreePath && !!ws?.isGit && session.worktreePath !== ws.cwd;
 }
 
 /** A worktree with work that isn't committed, on another device (P4.5): archiving it would lose that. */
