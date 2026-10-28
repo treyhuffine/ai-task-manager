@@ -297,9 +297,10 @@ export async function dispatchExecutionSession(
   // Create the execution artifact + its first chat atomically. For
   // worktree dispatches the execution starts with null worktree fields
   // and the background provisioner populates them ~2-5s later. For Live
-  // mode (or non-git workspaces) the path/branch/sha are populated up
-  // front. The durable state lives on the execution; the chat just points
-  // at it via executionId.
+  // mode the path/branch/sha are populated up front. A non-git workspace
+  // stores none: it works in the agent's folder, which the read bridge
+  // reports as its path (`agentFolderHere` in queries.ts). The durable
+  // state lives on the execution; the chat just points at it via executionId.
   // Create the execution + chat AND (for Start-with-agent) associate + Start the
   // task, all in ONE transaction. If a lifecycle race (the task moved to terminal
   // since the pre-check) makes Start illegal, the whole thing rolls back — no

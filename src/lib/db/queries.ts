@@ -9267,10 +9267,11 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
   row: T & { execution: ExecutionRecord | null },
 ): T & ChatSessionWithExecution {
   const e = row.execution && row.execution.id != null ? row.execution : null;
+  const location = e ? executionLocation(e.id) : null;
   return {
     ...row,
     execution: e,
-    worktreePath: e?.worktreePath ?? null,
+    worktreePath: e ? e.worktreePath ?? agentFolderHere(e, location) : null,
     branchName: e?.branchName ?? null,
     baseSha: e?.baseSha ?? null,
     prNumber: e?.prNumber ?? null,
@@ -9279,8 +9280,32 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
     setupWarning: e?.setupWarning ?? null,
     setupScriptStatus: e?.setupScriptStatus ?? null,
     setupScriptError: e?.setupScriptError ?? null,
-    location: e ? executionLocation(e.id) : null,
+    location,
   } as T & ChatSessionWithExecution;
+}
+
+/**
+ * The folder an execution of a non-git agent works in on the home: the
+ * agent's own folder, where its harness, terminals and preview already run
+ * (no worktree is ever made for it). Reported as its `worktreePath` so the
+ * Files view, the file routes and folder links find it too. Without it the
+ * Files view read a null path as "still setting up" and showed loading rows
+ * forever.
+ *
+ * Derived from the agent's folder on every read, never stored. A stored copy
+ * would go stale when the agent's folder changes, and archive removes any
+ * worktree that isn't the agent's current folder, which for a plain folder
+ * means deleting it. Elsewhere the device prepared a folder of its own
+ * (`location.folder`).
+ */
+function agentFolderHere(e: ExecutionRecord, location: ExecutionLocation | null): string | null {
+  if (location && !location.isHome) return null;
+  const ws = getDb()
+    .select({ cwd: workspaces.cwd, isGit: workspaces.isGit })
+    .from(workspaces)
+    .where(eq(workspaces.id, e.workspaceId))
+    .get();
+  return ws && !ws.isGit ? ws.cwd : null;
 }
 
 /** Where an execution runs, by its device's name (P3.1). Null before the home has an identity. */

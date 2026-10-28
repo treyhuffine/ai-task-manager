@@ -406,6 +406,11 @@ export type UpdateExternalSessionImportInput = Partial<Omit<CreateExternalSessio
  */
 export type ChatSessionWithExecution = ChatSessionRecord & {
   execution: ExecutionRecord | null;
+  /**
+   * The folder it works in on the home: its worktree, the agent's checkout
+   * for Live and imported chats, or for a non-git agent the agent's folder
+   * (derived, never stored). Null while a worktree is set up and elsewhere.
+   */
   worktreePath: string | null;
   branchName: string | null;
   baseSha: string | null;
