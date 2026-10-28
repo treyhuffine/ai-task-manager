@@ -1,11 +1,10 @@
 'use client';
 
 import { RailLayout } from '@/components/home/home-navigation';
-import { useState } from 'react';
 import { PanelLeftClose } from 'lucide-react';
 import { HOTKEYS } from '@/constants/commands';
 import { useRailTab } from '@/lib/client/rail-tab';
-import { TriggersModal } from '@/components/triggers/triggers-modal';
+import { openSchedulesWindow, useSchedulesWindow } from '@/lib/client/schedules-window';
 import { RailHome } from './rail-home';
 import { RailFooter } from './rail-footer';
 import { RailIconButton, RailPlaceRows, RailVerbRows, useRailPlaces, type RailPlace } from './rail-nav';
@@ -37,14 +36,9 @@ import { AppsReviewRailSlot } from '@/components/local-apps/layout-review/rail-p
  * `onToggle` is absent where the rail can't widen (tablets).
  */
 export function Rail({ expanded, onToggle }: { expanded: boolean; onToggle?: () => void }) {
-  const [schedulesOpen, setSchedulesOpen] = useState(false);
-  const places = useRailPlaces({ schedulesOpen, onOpenSchedules: () => setSchedulesOpen(true) });
-  return (
-    <>
-      {expanded ? <WideRail places={places} onToggle={onToggle} /> : <RailStrip places={places} onToggle={onToggle} />}
-      <TriggersModal open={schedulesOpen} onClose={() => setSchedulesOpen(false)} />
-    </>
-  );
+  const schedulesOpen = useSchedulesWindow().open;
+  const places = useRailPlaces({ schedulesOpen, onOpenSchedules: () => openSchedulesWindow() });
+  return expanded ? <WideRail places={places} onToggle={onToggle} /> : <RailStrip places={places} onToggle={onToggle} />;
 }
 
 function WideRail({ places, onToggle }: { places: readonly RailPlace[]; onToggle?: () => void }) {

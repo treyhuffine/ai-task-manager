@@ -1,6 +1,6 @@
 /**
  * Friendly-frequency compiler — the bridge between the simplified
- * "Create scheduled task" UI (Manual / One time / Hourly / Daily / Weekly /
+ * "Create scheduled task" UI (Manual / One time / Hourly / Daily / Weekdays / Weekly /
  * Monthly / Interval / Webhook / Custom cron) and the trigger row's
  * `kind` + cadence fields.
  *
@@ -26,6 +26,7 @@ export type FrequencyKind =
   | 'every'
   | 'hourly'
   | 'daily'
+  | 'weekdays'
   | 'weekly'
   | 'monthly'
   | 'webhook'
@@ -40,6 +41,8 @@ export interface FrequencyChoice {
   time?: string;
   /** Weekday for `weekly`. Default Monday (1). */
   weekday?: Weekday;
+  /** Several weekdays for `weekly` (Monday, Wednesday and Friday). Wins over `weekday`. */
+  weekdays?: Weekday[];
   /** Day-of-month for `monthly` (1–28; we cap so all months are valid). */
   dayOfMonth?: number;
   /** Raw cron expression for `custom`. */
@@ -90,7 +93,7 @@ export function frequencyToTrigger(choice: FrequencyChoice): CompiledTrigger {
     case 'every': {
       const seconds = choice.intervalSeconds;
       if (!seconds || !Number.isSafeInteger(seconds) || seconds <= 0) {
-        throw new Error('Enter a positive whole number of seconds.');
+        throw new Error('Enter how often it should run.');
       }
       return { kind: 'every', cronExpression: null, intervalSeconds: seconds };
     }
@@ -100,10 +103,14 @@ export function frequencyToTrigger(choice: FrequencyChoice): CompiledTrigger {
       const { minute, hour } = parseHHMM(choice.time ?? '09:00');
       return { kind: 'cron', cronExpression: `${minute} ${hour} * * *` };
     }
+    case 'weekdays': {
+      const { minute, hour } = parseHHMM(choice.time ?? '09:00');
+      return { kind: 'cron', cronExpression: `${minute} ${hour} * * 1-5` };
+    }
     case 'weekly': {
       const { minute, hour } = parseHHMM(choice.time ?? '09:00');
-      const dow = choice.weekday ?? 1;
-      return { kind: 'cron', cronExpression: `${minute} ${hour} * * ${dow}` };
+      const days = choice.weekdays?.length ? choice.weekdays : [choice.weekday ?? 1];
+      return { kind: 'cron', cronExpression: `${minute} ${hour} * * ${dowField(days)}` };
     }
     case 'monthly': {
       const { minute, hour } = parseHHMM(choice.time ?? '09:00');
@@ -153,20 +160,15 @@ export function triggerToFrequency(row: Pick<TriggerRecord, 'kind' | 'cronExpres
   if (isInt && dom === '*' && month === '*' && dow === '*') {
     return { kind: 'daily', time: formatHHMM(hourNum, minuteNum) };
   }
-  const dowNum = Number(dow);
-  if (
-    isInt &&
-    dom === '*' &&
-    month === '*' &&
-    Number.isInteger(dowNum) &&
-    dowNum >= 0 &&
-    dowNum <= 6
-  ) {
-    return {
-      kind: 'weekly',
-      time: formatHHMM(hourNum, minuteNum),
-      weekday: dowNum as Weekday,
-    };
+  if (isInt && dom === '*' && month === '*' && dow === '1-5') {
+    return { kind: 'weekdays', time: formatHHMM(hourNum, minuteNum) };
+  }
+  const days = parseDowField(dow);
+  if (isInt && dom === '*' && month === '*' && days) {
+    const time = formatHHMM(hourNum, minuteNum);
+    return days.length === 1
+      ? { kind: 'weekly', time, weekday: days[0] }
+      : { kind: 'weekly', time, weekday: days[0], weekdays: days };
   }
   const domNum = Number(dom);
   if (
@@ -200,7 +202,7 @@ export function describeFrequency(row: {
 }): string {
   if (row.kind === 'manual') return 'Manual (Run now only)';
   if (row.kind === 'webhook') return 'Webhook';
-  if (row.kind === 'every') return `every ${row.intervalSeconds ?? '?'}s`;
+  if (row.kind === 'every') return describeInterval(row.intervalSeconds);
   if (row.kind === 'at') {
     return row.runAt ? `Once at ${formatIso(row.runAt, row.timezone ?? 'UTC')}` : 'Once (no time)';
   }
@@ -211,15 +213,28 @@ export function describeFrequency(row: {
       return 'Hourly';
     case 'daily':
       return `Daily at ${humanTime(choice.time!)}`;
+    case 'weekdays':
+      return `Weekdays at ${humanTime(choice.time!)}`;
     case 'weekly':
-      return `Weekly on ${weekdayName(choice.weekday!)} at ${humanTime(choice.time!)}`;
+      return choice.weekdays && choice.weekdays.length > 1
+        ? `${listDays(choice.weekdays)} at ${humanTime(choice.time!)}`
+        : `Weekly on ${weekdayName(choice.weekday!)} at ${humanTime(choice.time!)}`;
     case 'monthly':
       return `Monthly on the ${ordinal(choice.dayOfMonth!)} at ${humanTime(choice.time!)}`;
     case 'custom':
-      return `cron \`${row.cronExpression}\` (${row.timezone ?? 'UTC'})`;
+      return `Custom: ${row.cronExpression}`;
     default:
       return row.cronExpression ?? '-';
   }
+}
+
+/** "Every 30 minutes", "Every hour", "Every 2 days", in the largest whole unit. */
+export function describeInterval(seconds: number | null): string {
+  if (!seconds || seconds <= 0) return 'Every interval (not set)';
+  const units: [number, string][] = [[86_400, 'day'], [3600, 'hour'], [60, 'minute'], [1, 'second']];
+  const [size, name] = units.find(([unit]) => seconds % unit === 0)!;
+  const n = seconds / size;
+  return n === 1 ? `Every ${name}` : `Every ${n} ${name}s`;
 }
 
 // ── helpers ──────────────────────────────────────────────────
@@ -247,6 +262,42 @@ function humanTime(hhmm: string): string {
 }
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+/**
+ * Cron's day-of-week field from a set of days, Monday first in the week
+ * people mean, with runs as ranges: [1,2,3,4,5] → "1-5", [1,3,5] → "1,3,5".
+ */
+function dowField(days: readonly Weekday[]): string {
+  const sorted = [...new Set(days)].sort((a, b) => a - b);
+  const parts: string[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+    parts.push(j - i >= 2 ? `${sorted[i]}-${sorted[j]}` : sorted.slice(i, j + 1).join(','));
+    i = j;
+  }
+  return parts.join(',');
+}
+
+/** The days a day-of-week field names (digits, lists and ranges, 7 as Sunday), or null for anything else. */
+function parseDowField(field: string): Weekday[] | null {
+  const days = new Set<Weekday>();
+  for (const part of field.split(',')) {
+    const m = part.match(/^(\d)(?:-(\d))?$/);
+    if (!m) return null;
+    const from = Number(m[1]);
+    const to = m[2] === undefined ? from : Number(m[2]);
+    if (from > 7 || to > 7 || to < from) return null;
+    for (let d = from; d <= to; d++) days.add((d % 7) as Weekday);
+  }
+  return days.size > 0 ? [...days].sort((a, b) => a - b) : null;
+}
+
+/** "Mon, Wed and Fri", in week order from Monday. */
+function listDays(days: readonly Weekday[]): string {
+  const names = [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => weekdayName(d).slice(0, 3));
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]!;
+}
+
 function weekdayName(d: Weekday): string {
   return WEEKDAYS[d] ?? 'Monday';
 }

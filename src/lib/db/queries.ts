@@ -11990,6 +11990,23 @@ export function deleteTrigger(id: string): boolean {
   return result.changes > 0;
 }
 
+/**
+ * A schedule's active builder chats: the content chats beside its form in
+ * the Schedules window (surfaceKind 'trigger', src/lib/triggers/builder-brief.ts).
+ */
+export function listScheduleChats(triggerId: string): ChatSessionRecord[] {
+  return getDb()
+    .select()
+    .from(chatSessions)
+    .where(and(
+      eq(chatSessions.type, 'content'),
+      eq(chatSessions.surfaceKind, 'trigger'),
+      eq(chatSessions.surfaceRef, triggerId),
+      eq(chatSessions.status, 'active'),
+    ))
+    .all();
+}
+
 /** Triggers due to fire — what the tick reads. */
 export function listDueTriggers(now: Date): TriggerRecord[] {
   const db = getDb();

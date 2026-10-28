@@ -1,4 +1,4 @@
-/** Real schedule controls in Chromium, with only data and harness controls replaced. */
+/** The real schedule form in Chromium, with only data and harness controls replaced. */
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -29,8 +29,10 @@ beforeAll(async () => {
     const Context=createContext(null);
     export function FixtureProvider({children}) {
       const kind=new URLSearchParams(location.search).get('kind') || 'cron';
-      const [trigger,setTrigger]=useState({id:'fixture-job',name:'Daily briefing',kind,
-        prompt:'Keep my instructions',enabled:false,timezone:'America/Denver',
+      const [trigger,setTrigger]=useState({id:'fixture-job',name:'Daily briefing',kind,description:null,
+        prompt:'Keep my instructions',enabled:false,timezone:'America/Denver',targetKind:'workspace',workspaceId:'agent-id',
+        provider:'codex',harness:'codex',model:'gpt-5.5',effort:null,serviceTier:null,timeoutSeconds:null,
+        concurrencyPolicy:'coalesce_if_active',activeHoursStart:null,activeHoursEnd:null,
         cronExpression:kind==='cron'?'0 9 * * *':null,intervalSeconds:kind==='every'?90:null,
         runAt:kind==='at'?(location.search.includes('fold')?'2030-11-03T08:30:45.000Z':'2030-10-20T15:30:00.000Z'):null,nextRunAt:null});
       window.refreshTrigger=()=>setTrigger(t=>({...t,prompt:'New instructions from another viewer'}));
@@ -59,11 +61,10 @@ beforeAll(async () => {
       import React from 'react';
       import {createRoot} from 'react-dom/client';
       import {FixtureProvider,useFixture} from 'fixture-hooks';
-      import {TriggerSchedule} from '@/components/triggers/trigger-schedule';
-      import {TriggerCreateForm} from '@/components/triggers/trigger-create-form';
+      import {TriggerForm} from '@/components/triggers/trigger-form';
       window.changes=[];
       function App(){const {trigger}=useFixture();return <main className="mx-auto max-w-xl p-6">
-        {location.search.includes('create')?<TriggerCreateForm onCreated={()=>{}} onCancel={()=>{}}/>:<TriggerSchedule trigger={trigger}/>}
+        {location.search.includes('create')?<TriggerForm onCreated={()=>{}} onCancel={()=>{}}/>:<TriggerForm trigger={trigger}/>}
       </main>;}
       createRoot(document.getElementById('root')).render(<FixtureProvider><App/></FixtureProvider>);
     ` },
@@ -107,29 +108,35 @@ async function open(query = ''): Promise<Page> {
 
 const changes = (page: Page) => page.evaluate(() => (window as unknown as FixtureWindow).changes);
 
-it('edits cron through presets or a raw expression, validates input, and preserves a draft across refreshes', async () => {
+const save = (page: Page) => page.getByRole('button', { name: 'Save changes' });
+
+it('edits cron through presets or a raw expression, validates input, and merges a change made elsewhere', async () => {
   const page = await open();
   try {
-    await page.getByRole('button', { name: 'Edit schedule' }).click();
+    expect(await save(page).isDisabled()).toBe(true);
     expect(await page.getByLabel('Frequency').inputValue()).toBe('daily');
     await page.getByLabel('Frequency').selectOption('weekly');
-    await page.getByLabel('Day of week').selectOption('5');
+    // Weekly starts on Monday. Friday instead:
+    await page.getByRole('button', { name: 'Friday' }).click();
+    await page.getByRole('button', { name: 'Monday' }).click();
     await page.getByLabel('Time', { exact: true }).fill('16:45');
+    // The builder chat or another screen changes the message meanwhile: the
+    // untouched message takes it, the schedule being edited keeps the draft.
     await page.evaluate(() => (window as unknown as FixtureWindow).refreshTrigger());
+    expect(await page.getByLabel('Message').inputValue()).toBe('New instructions from another viewer');
     expect(await page.getByLabel('Time', { exact: true }).inputValue()).toBe('16:45');
-    await page.getByRole('button', { name: 'Save schedule' }).click();
+    await save(page).click();
     expect(await changes(page)).toEqual([{ id: 'fixture-job', cronExpression: '45 16 * * 5', timezone: 'America/Denver' }]);
-    expect(await page.getByText('Weekly on Friday at 4:45 PM').isVisible()).toBe(true);
-    await page.getByRole('button', { name: 'Edit schedule' }).click();
+    expect(await save(page).isDisabled()).toBe(true);
     await page.getByLabel('Frequency').selectOption('custom');
     await page.getByLabel('Cron expression').fill('bad cron');
-    expect(await page.getByRole('button', { name: 'Save schedule' }).isDisabled()).toBe(true);
+    expect(await save(page).isDisabled()).toBe(true);
     expect(await page.getByRole('alert').textContent()).toContain('Expected 5 fields');
     await page.getByLabel('Cron expression').fill('*/15 9-17 * * 1-5');
     await page.getByLabel('Timezone').fill('Bad/Zone');
-    expect(await page.getByRole('button', { name: 'Save schedule' }).isDisabled()).toBe(true);
+    expect(await save(page).isDisabled()).toBe(true);
     await page.getByLabel('Timezone').fill('Europe/London');
-    await page.getByRole('button', { name: 'Save schedule' }).click();
+    await save(page).click();
     expect((await changes(page))[1]).toEqual({ id: 'fixture-job', cronExpression: '*/15 9-17 * * 1-5', timezone: 'Europe/London' });
   } finally { await page.close(); }
 });
@@ -137,47 +144,54 @@ it('edits cron through presets or a raw expression, validates input, and preserv
 it('edits a one-time calendar date in its saved timezone and keeps failures retryable', async () => {
   const page = await open('?kind=at');
   try {
-    await page.getByRole('button', { name: 'Edit schedule' }).click();
     expect(await page.getByLabel('Date', { exact: true }).inputValue()).toBe('2030-10-20');
     expect(await page.getByLabel('Time', { exact: true }).inputValue()).toBe('09:30');
     await page.getByLabel('Date', { exact: true }).fill('2020-01-01');
-    expect(await page.getByRole('button', { name: 'Save schedule' }).isDisabled()).toBe(true);
+    expect(await save(page).isDisabled()).toBe(true);
     await page.getByLabel('Date', { exact: true }).fill('2030-12-20');
     await page.getByLabel('Time', { exact: true }).fill('14:15');
     await page.evaluate(() => { (window as unknown as FixtureWindow).failSave = true; });
-    await page.getByRole('button', { name: 'Save schedule' }).click();
+    await save(page).click();
     expect(await page.getByRole('alert').textContent()).toContain('could not be saved');
     expect(await page.getByLabel('Date', { exact: true }).inputValue()).toBe('2030-12-20');
     await page.evaluate(() => { (window as unknown as FixtureWindow).failSave = false; });
-    await page.getByRole('button', { name: 'Save schedule' }).click();
+    await save(page).click();
     expect(await changes(page)).toEqual([{ id: 'fixture-job', cronExpression: null, runAt: '2030-12-20T21:15:00.000Z', timezone: 'America/Denver' }]);
   } finally { await page.close(); }
 });
 
-it('cancels without saving and edits existing intervals without changing their kind', async () => {
+it('discards without saving, edits intervals in their unit, and switches how a job is timed', async () => {
   const page = await open('?kind=every');
   try {
-    await page.getByRole('button', { name: 'Edit schedule' }).click();
-    expect(await page.getByLabel('Interval (seconds)').inputValue()).toBe('90');
-    await page.getByLabel('Interval (seconds)').fill('120');
-    await page.getByRole('button', { name: 'Cancel' }).click();
+    // 90 seconds isn't whole minutes, so it shows in seconds.
+    expect(await page.getByLabel('Every', { exact: true }).inputValue()).toBe('90');
+    expect(await page.getByLabel('Unit').inputValue()).toBe('1');
+    await page.getByLabel('Every', { exact: true }).fill('120');
+    await page.getByRole('button', { name: 'Discard changes' }).click();
     expect(await changes(page)).toEqual([]);
-    await page.getByRole('button', { name: 'Edit schedule' }).click();
-    expect(await page.getByLabel('Interval (seconds)').inputValue()).toBe('90');
-    await page.getByLabel('Interval (seconds)').fill('120');
-    await page.getByRole('button', { name: 'Save schedule' }).click();
-    expect(await changes(page)).toEqual([{ id: 'fixture-job', cronExpression: null, intervalSeconds: 120, timezone: 'America/Denver' }]);
+    expect(await page.getByLabel('Every', { exact: true }).inputValue()).toBe('90');
+    await page.getByLabel('Unit').selectOption({ label: 'minutes' });
+    await page.getByLabel('Every', { exact: true }).fill('30');
+    await save(page).click();
+    expect(await changes(page)).toEqual([{ id: 'fixture-job', cronExpression: null, intervalSeconds: 1800, timezone: 'America/Denver' }]);
+    await page.getByLabel('Frequency').selectOption('daily');
+    await page.getByLabel('Time', { exact: true }).fill('07:15');
+    await save(page).click();
+    expect((await changes(page))[1]).toEqual({ id: 'fixture-job', kind: 'cron', cronExpression: '15 7 * * *', timezone: 'America/Denver' });
   } finally { await page.close(); }
 });
 
-it('preserves the saved instant when re-saving a one-time job in a repeated daylight saving hour', async () => {
+it('never re-sends an unchanged one-time instant, even in a repeated daylight saving hour', async () => {
   const page = await open('?kind=at&fold');
   try {
-    await page.getByRole('button', { name: 'Edit schedule' }).click();
     expect(await page.getByLabel('Time', { exact: true }).inputValue()).toBe('01:30');
     expect(await page.getByText(/Sun, Nov 3, 2030, 1:30 AM MST/).isVisible()).toBe(true);
-    await page.getByRole('button', { name: 'Save schedule' }).click();
-    expect((await changes(page))[0]?.runAt).toBe('2030-11-03T08:30:45.000Z');
+    await page.getByLabel('Time', { exact: true }).fill('02:30');
+    await page.getByLabel('Time', { exact: true }).fill('01:30');
+    expect(await save(page).isDisabled()).toBe(true);
+    await page.getByLabel('Message').fill('Prepare the notes');
+    await save(page).click();
+    expect(await changes(page)).toEqual([{ id: 'fixture-job', prompt: 'Prepare the notes' }]);
   } finally { await page.close(); }
 });
 
@@ -186,7 +200,6 @@ it('creates a one-time job using the calendar and time picker, and fits a narrow
   try {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByLabel('Name', { exact: false }).fill('One-time briefing');
-    await page.getByLabel('Description', { exact: false }).fill('Prepare before the meeting');
     await page.getByPlaceholder("Check my calendar for today's meetings", { exact: false }).fill('Prepare the briefing.');
     await page.getByLabel('Frequency').selectOption('once');
     await page.getByLabel('Date', { exact: true }).fill('2030-10-20');
@@ -196,8 +209,9 @@ it('creates a one-time job using the calendar and time picker, and fits a narrow
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     if (process.env.RI_SCHEDULE_SCREENSHOT) await page.screenshot({ path: process.env.RI_SCHEDULE_SCREENSHOT, fullPage: true });
     await page.getByRole('button', { name: 'Save', exact: true }).click();
+    // The description is optional.
     expect(await changes(page)).toEqual([expect.objectContaining({
-      name: 'One-time briefing', kind: 'at', runAt: '2030-10-20T15:30:00.000Z',
+      name: 'One-time briefing', description: null, kind: 'at', runAt: '2030-10-20T15:30:00.000Z',
       cronExpression: null, intervalSeconds: null, timezone: 'America/Denver', workspaceId: 'agent-id',
     })]);
   } finally { await page.close(); }

@@ -142,6 +142,36 @@ describe('triggerToFrequency (round trip)', () => {
 });
 
 describe('describeFrequency', () => {
+  it('several weekdays, both ways', () => {
+    expect(frequencyToTrigger({ kind: 'weekly', time: '08:15', weekdays: [5, 1, 3] })).toEqual({ kind: 'cron', cronExpression: '15 8 * * 1,3,5' });
+    expect(frequencyToTrigger({ kind: 'weekly', time: '08:15', weekdays: [0, 1, 2, 3, 6] })).toEqual({ kind: 'cron', cronExpression: '15 8 * * 0-3,6' });
+    expect(triggerToFrequency({ kind: 'cron', cronExpression: '15 8 * * 1,3,5' })).toEqual({ kind: 'weekly', time: '08:15', weekday: 1, weekdays: [1, 3, 5] });
+    expect(triggerToFrequency({ kind: 'cron', cronExpression: '0 9 * * 6-7' })).toEqual({ kind: 'weekly', time: '09:00', weekday: 0, weekdays: [0, 6] });
+    expect(describeFrequency({ kind: 'cron', cronExpression: '15 8 * * 1,3,5', intervalSeconds: null, runAt: null, timezone: 'UTC' }))
+      .toBe('Mon, Wed and Fri at 8:15 AM');
+    expect(describeFrequency({ kind: 'cron', cronExpression: '0 9 * * 6-7', intervalSeconds: null, runAt: null, timezone: 'UTC' }))
+      .toBe('Sat and Sun at 9:00 AM');
+    expect(describeFrequency({ kind: 'cron', cronExpression: '*/15 9-17 * * 1-5', intervalSeconds: null, runAt: null, timezone: 'UTC' }))
+      .toBe('Custom: */15 9-17 * * 1-5');
+  });
+
+  it('weekdays, both ways', () => {
+    expect(frequencyToTrigger({ kind: 'weekdays', time: '08:15' })).toEqual({ kind: 'cron', cronExpression: '15 8 * * 1-5' });
+    expect(triggerToFrequency({ kind: 'cron', cronExpression: '15 8 * * 1-5' })).toEqual({ kind: 'weekdays', time: '08:15' });
+    expect(describeFrequency({ kind: 'cron', cronExpression: '0 8 * * 1-5', intervalSeconds: null, runAt: null, timezone: 'UTC' }))
+      .toBe('Weekdays at 8:00 AM');
+  });
+
+  it('intervals in the largest whole unit', () => {
+    const every = (intervalSeconds: number) =>
+      describeFrequency({ kind: 'every', cronExpression: null, intervalSeconds, runAt: null, timezone: null });
+    expect(every(3600)).toBe('Every hour');
+    expect(every(1800)).toBe('Every 30 minutes');
+    expect(every(7200)).toBe('Every 2 hours');
+    expect(every(172_800)).toBe('Every 2 days');
+    expect(every(90)).toBe('Every 90 seconds');
+  });
+
   it('manual', () => {
     expect(
       describeFrequency({

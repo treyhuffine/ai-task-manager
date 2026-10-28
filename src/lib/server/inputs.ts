@@ -10,7 +10,7 @@ export const chatOverrideSchema = z.object({
 /** A new main chat: the composer's switches, and `forApp` for one a connected app asked for (`startNewMainChat`). */
 export const newMainChatSchema = chatOverrideSchema.extend({ forApp: z.boolean().optional(), sourceChatId: z.string().min(1).optional() });
 export const contentChatSchema = chatOverrideSchema.extend({
-  entityType: z.enum(['task', 'note', 'skill', 'skill-try', 'app', 'app-builder', 'app-try']), entityId: z.string().min(1),
+  entityType: z.enum(['task', 'note', 'skill', 'skill-try', 'app', 'app-builder', 'app-try', 'trigger']), entityId: z.string().min(1),
 });
 export const pathBody = z.object({ path: z.string().min(1) }).strict();
 export const fileBody = z.object({ content: z.string() }).strict();

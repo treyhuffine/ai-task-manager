@@ -1,59 +1,24 @@
 'use client';
 
 /**
- * Trigger detail at /triggers/<id>.
- *
- * Displays who runs it (provider, model, effort; editable in place), or
- * for a trigger that sends to one chat, that chat. Then the prompt, editable cadence, recent runs (links to the chat session), and
- * pause/delete actions.
- *
- * Failure banner (task #25): when consecutive_failures >= 3, show a
- * persistent banner at top with the last error and quick actions
- * (view last failed run, pause, reset failure count).
+ * Trigger detail at /triggers/<id>: a header over `TriggerDetail`, the same
+ * view the Schedules window shows beside the schedule's builder chat. Every
+ * field edits in place.
  */
 
-import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import {
-  AlertTriangle,
-  ArrowLeft,
-  PauseCircle,
-  PlayCircle,
-  Play,
-  RotateCcw,
-  Trash2,
-} from 'lucide-react';
-import Link from 'next/link';
-import {
-  useTrigger,
-  useUpdateTrigger,
-  useDeleteTrigger,
-  useRunTrigger,
-  useResetTriggerFailures,
-  useRuns,
-} from '@/hooks/use-triggers';
-import { cn } from '@/lib/utils';
-import type { RunRecord } from '@/db/types';
+import { ArrowLeft } from 'lucide-react';
+import { useTrigger } from '@/hooks/use-triggers';
 import { describeFrequency } from '@/lib/scheduler/frequency';
-import { RunActivityBadge } from '@/components/runs/run-activity-badge';
-import { isReservedTrigger, lockedFieldsFor, RESERVED_TRIGGER_IDS, type ReservedLockableField } from '@/lib/triggers/reserved';
-import { openSettings } from '@/components/settings/settings-store';
-import { TriggerRunsOn } from '@/components/triggers/trigger-runs-on';
-import { TriggerTargetChat } from '@/components/triggers/trigger-target-chat';
+import { isReservedTrigger } from '@/lib/triggers/reserved';
 import { AwakeNote } from '@/components/triggers/awake-note';
-import { TriggerSchedule } from '@/components/triggers/trigger-schedule';
+import { TriggerDetail } from '@/components/triggers/trigger-detail';
 
 export default function TriggerDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const id = params?.id;
   const { data: trigger, isLoading } = useTrigger(id ?? null);
-  const { data: recentRuns } = useRuns(id ? { triggerId: id, limit: 20 } : undefined);
-  const update = useUpdateTrigger();
-  const deleteTrigger = useDeleteTrigger();
-  const runTrigger = useRunTrigger();
-  const resetFailures = useResetTriggerFailures();
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   if (isLoading || !trigger || !id) {
     return (
@@ -63,16 +28,14 @@ export default function TriggerDetailPage() {
     );
   }
 
-  const failing = trigger.consecutiveFailures >= 3;
-  const lastFailedRun = (recentRuns ?? []).find((r) => r.status === 'failed');
   const managed = isReservedTrigger(id);
-  const isHeartbeat = id === RESERVED_TRIGGER_IDS.heartbeat;
 
   return (
     <div className="min-h-dvh bg-background text-foreground font-sans">
       <header className="border-b border-border px-6 py-4 flex items-center gap-3 sticky top-0 bg-background z-10">
         <button
           onClick={() => router.push('/triggers')}
+          aria-label="Back to schedules"
           className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft size={16} />
@@ -105,276 +68,9 @@ export default function TriggerDetailPage() {
         </div>
       </header>
 
-      {failing && (
-        <div className="px-6 py-3 bg-destructive/10 border-b border-destructive/30 flex items-start gap-3">
-          <AlertTriangle size={16} className="text-destructive mt-0.5 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-destructive">
-              This trigger has failed {trigger.consecutiveFailures} times in a row.
-            </p>
-            {(trigger.disabledReason || lastFailedRun?.errorMessage) && (
-              <p className="text-[12px] text-muted-foreground mt-1">
-                Last error:{' '}
-                <span className="font-mono">
-                  {trigger.disabledReason ?? lastFailedRun?.errorMessage}
-                </span>
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-2 mt-2">
-              {lastFailedRun && (
-                <Link
-                  href={`/runs/${lastFailedRun.id}`}
-                  className="px-2 py-1 rounded-md text-[12px] border border-border bg-card hover:bg-muted"
-                >
-                  View last failed run
-                </Link>
-              )}
-              {trigger.enabled && (
-                <button
-                  onClick={() => update.mutate({ id, enabled: false })}
-                  className="px-2 py-1 rounded-md text-[12px] border border-border bg-card hover:bg-muted"
-                >
-                  Pause trigger
-                </button>
-              )}
-              <button
-                onClick={() => resetFailures.mutate(id)}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-[12px] border border-border bg-card hover:bg-muted"
-              >
-                <RotateCcw size={11} />
-                Reset failure count
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <main className="px-6 py-6 max-w-3xl mx-auto space-y-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => runTrigger.mutate(id)}
-            disabled={runTrigger.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm hover:opacity-90 disabled:opacity-50"
-          >
-            <Play size={14} />
-            {runTrigger.isPending ? 'Firing…' : 'Run now'}
-          </button>
-          <button
-            onClick={() => update.mutate({ id, enabled: !trigger.enabled })}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-sm hover:bg-muted"
-          >
-            {trigger.enabled ? (
-              <>
-                <PauseCircle size={14} />
-                Pause
-              </>
-            ) : (
-              <>
-                <PlayCircle size={14} />
-                Resume
-              </>
-            )}
-          </button>
-          {!managed && (
-            <button
-              onClick={() => setConfirmingDelete(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-destructive/30 text-destructive text-sm hover:bg-destructive/10 ml-auto"
-            >
-              <Trash2 size={14} />
-              Delete
-            </button>
-          )}
-        </div>
-
-        {managed && (
-          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-[12px] text-muted-foreground">
-            <span className="flex-1">
-              This trigger is managed by the app. {describeLocks(lockedFieldsFor(id))} It is turned off
-              rather than deleted.{' '}
-              {isHeartbeat ? 'More options are in Settings > Heartbeat.' : 'Edit its schedule below or in settings.'}
-            </span>
-            <button
-              onClick={() => openSettings(isHeartbeat ? 'heartbeat' : 'general')}
-              className="flex-shrink-0 font-medium text-foreground hover:underline"
-            >
-              Open settings
-            </button>
-          </div>
-        )}
-
-        <TriggerSchedule key={trigger.id} trigger={trigger} />
-
-        {trigger.targetKind === 'session' ? (
-          <section>
-            <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
-              Sends to
-            </h2>
-            <TriggerTargetChat sessionId={trigger.targetSessionId} concurrencyPolicy={trigger.concurrencyPolicy} />
-          </section>
-        ) : (
-          <section>
-            <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
-              Runs on
-            </h2>
-            <TriggerRunsOn trigger={trigger} />
-          </section>
-        )}
-
-        <section>
-          <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
-            {isHeartbeat ? 'Instructions' : 'Prompt'}
-          </h2>
-          {isHeartbeat && (
-            <p className="text-[11px] text-muted-foreground mb-2">
-              Sent after the app&apos;s ground rules, which it always follows.
-            </p>
-          )}
-          <pre className="p-4 rounded-md border border-border bg-card text-sm whitespace-pre-wrap font-sans">
-            {trigger.prompt}
-          </pre>
-        </section>
-
-        {trigger.kind === 'webhook' && trigger.webhookPublicId && (
-          <section>
-            <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
-              Webhook endpoint
-            </h2>
-            <code className="block p-3 rounded-md border border-border bg-card text-xs font-mono break-all">
-              POST /api/webhooks/triggers/{trigger.webhookPublicId}
-            </code>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Sign body with HMAC-SHA256 using your stored secret. Send
-              hex as <code>X-Signature</code> and the plaintext as{' '}
-              <code>X-Webhook-Secret</code>.
-            </p>
-          </section>
-        )}
-
-        <section>
-          <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
-            Recent runs
-          </h2>
-          {recentRuns && recentRuns.length === 0 && (
-            <p className="text-sm text-muted-foreground">No runs yet.</p>
-          )}
-          {recentRuns && recentRuns.length > 0 && (
-            <div className="space-y-1">
-              {recentRuns.slice(0, 10).map((run) => (
-                <RunRowSmall key={run.id} run={run} />
-              ))}
-            </div>
-          )}
-        </section>
+      <main className="px-6 py-6 max-w-3xl mx-auto">
+        <TriggerDetail trigger={trigger} onDeleted={() => router.push('/triggers')} />
       </main>
-
-      {confirmingDelete && (
-        <div className="fixed inset-0 bg-background/80 z-50 flex items-center justify-center p-6">
-          <div className="bg-card border border-border rounded-lg p-6 max-w-md w-full space-y-4">
-            <h3 className="text-base font-semibold">Delete trigger?</h3>
-            <p className="text-sm text-muted-foreground">
-              Existing runs survive, only the trigger and its future fires
-              are removed.
-            </p>
-            <div className="flex items-center gap-2 justify-end">
-              <button
-                onClick={() => setConfirmingDelete(false)}
-                className="px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() =>
-                  deleteTrigger.mutate(id, {
-                    onSuccess: () => router.push('/triggers'),
-                  })
-                }
-                disabled={deleteTrigger.isPending}
-                className="px-3 py-1.5 rounded-md bg-destructive text-destructive-foreground text-sm hover:opacity-90"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
-}
-
-function RunRowSmall({ run }: { run: RunRecord }) {
-  const terminal =
-    run.status === 'completed' || run.status === 'failed' || run.status === 'skipped' || run.status === 'cancelled'
-      ? run.status
-      : undefined;
-  return (
-    <Link
-      href={run.chatSessionId ? `/?session=${run.chatSessionId}` : `/runs/${run.id}`}
-      className="flex items-center gap-3 p-2 rounded-md border border-border bg-card hover:bg-muted text-sm"
-    >
-      <RunActivityBadge runId={run.id} terminalStatus={terminal} />
-      <span className="flex-1 truncate text-muted-foreground text-[12px]">
-        {run.status === 'failed'
-          ? run.errorMessage ?? run.summary ?? '-'
-          : run.status === 'skipped' && run.statusReason
-            ? describeSkip(run.statusReason)
-            : run.summary ?? '-'}
-      </span>
-      <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
-        {run.startedAt ? humanize(run.startedAt) : '-'}
-      </span>
-      {run.costUsd != null && run.costUsd > 0 && (
-        <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
-          ${(run.costUsd ?? 0).toFixed(4)}
-        </span>
-      )}
-    </Link>
-  );
-}
-
-const SKIP_REASONS: Record<string, string> = {
-  trigger_busy: 'Skipped: its last run was still going',
-  execution_busy: 'Skipped: another run was going in the same folder',
-  coalesced_into_active: 'Added to the turn already under way',
-  chat_busy: 'Skipped: the chat was busy',
-  chat_paused: 'Skipped: the chat\u2019s incoming messages were paused',
-};
-
-/** Why a fire didn't run, in words. Unlisted reasons read as their code. */
-function describeSkip(reason: string): string {
-  return SKIP_REASONS[reason] ?? `Skipped: ${reason.replaceAll('_', ' ')}`;
-}
-
-const LOCK_LABELS: Record<ReservedLockableField, string> = {
-  name: 'name',
-  description: 'description',
-  prompt: 'prompt',
-  targetKind: 'target',
-  kind: 'trigger type',
-  concurrencyPolicy: 'overlap rule',
-  catchUpPolicy: 'missed-run rule',
-  timeoutSeconds: 'time limit',
-};
-
-/** "Its name, description, and target are locked." from a lock list. */
-function describeLocks(fields: readonly ReservedLockableField[]): string {
-  const labels = fields.map((f) => LOCK_LABELS[f]);
-  if (labels.length === 0) return '';
-  const list =
-    labels.length === 1
-      ? labels[0]
-      : labels.length === 2
-        ? `${labels[0]} and ${labels[1]}`
-        : `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`;
-  return `Its ${list} are locked.`;
-}
-
-function humanize(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
 }

@@ -1,37 +1,35 @@
 'use client';
 
 /**
- * Triggers quick-access modal. Triggered from the rail's "Triggers"
- * button. Body swaps between three states:
+ * The Schedules window. Opened from the rail and from a chat's Schedule
+ * button (src/lib/client/schedules-window.ts), mounted once in the
+ * dashboard. Its body is one of:
  *
- *   - `list` — existing triggers + a "+ New trigger" CTA
- *   - `new`  — `<TriggerCreateForm>` rendered inline
- *   - `webhook-credentials` — after a webhook save, the secret panel
- *     since the plaintext only shows once
+ *   - `list`: every schedule, with pause/resume and "New scheduled task"
+ *   - `edit`: one schedule, every field editable (`TriggerDetail`), with
+ *     its builder chat beside it
+ *   - `new`: the empty form with the new-schedule chat beside it. When the
+ *     chat creates the schedule, the window opens it and the conversation
+ *     comes along (`useScheduleChat`'s `movedTo`).
+ *   - `webhook`: a new webhook's secret, shown only once
  *
- * Routes (`/triggers`, `/triggers/new`, `/triggers/[id]`) stay
- * intact for deep linking; this modal is a faster surface, not a
- * replacement.
+ * The /triggers pages show the same parts for deep links.
  */
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import {
-  ArrowLeft,
-  Clock,
-  ExternalLink,
-  Pause,
-  Play,
-  Plus,
-  X,
-} from 'lucide-react';
-import { useTriggers, useUpdateTrigger } from '@/hooks/use-triggers';
+import { ArrowLeft, Clock, Pause, Play, Plus, X } from 'lucide-react';
+import { useTrigger, useTriggers, useUpdateTrigger } from '@/hooks/use-triggers';
 import { describeFrequency } from '@/lib/scheduler/frequency';
+import { closeSchedulesWindow, useSchedulesWindow } from '@/lib/client/schedules-window';
+import { NEW_SCHEDULE_REF } from '@/lib/triggers/schedule-chat';
 import {
   TriggerCreateForm,
   WebhookCredentialsPanel,
   type WebhookCredentials,
 } from './trigger-create-form';
+import { TriggerDetail } from './trigger-detail';
+import { ScheduleChatPanel } from './schedule-chat-panel';
+import { useAdoptMovedScheduleChat, useScheduleChat } from './use-schedule-chat';
 import { cn } from '@/lib/utils';
 import type { TriggerWithLastRun } from '@/db/types';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
@@ -43,145 +41,190 @@ import { findProvider } from '@/lib/harness/options';
 import { AwakeNote } from '@/components/triggers/awake-note';
 import { Tip } from '@/components/ui/tip';
 
-type View = 'list' | 'new' | 'webhook-credentials';
+type View =
+  | { kind: 'list' }
+  | { kind: 'new' }
+  | { kind: 'edit'; id: string }
+  | { kind: 'webhook'; credentials: WebhookCredentials };
 
-export interface TriggersModalProps {
-  open: boolean;
-  onClose: () => void;
-}
+export function TriggersModal() {
+  const { open, openId, triggerId } = useSchedulesWindow();
+  const [view, setView] = useState<View>({ kind: 'list' });
 
-export function TriggersModal({ open, onClose }: TriggersModalProps) {
-  const router = useRouter();
-  const [view, setView] = useState<View>('list');
-  const [createdWebhook, setCreatedWebhook] = useState<WebhookCredentials | null>(null);
-
-  // Each opening starts on the list. Reset while rendering, so a reopened
-  // modal never flashes the form it was closed on.
-  const [openedFor, setOpenedFor] = useState(open);
-  if (open !== openedFor) {
-    setOpenedFor(open);
-    if (open) {
-      setView('list');
-      setCreatedWebhook(null);
-    }
+  // Each opening starts where it was asked to. Reset while rendering, so a
+  // reopened window never flashes the view it was closed on.
+  const [openedFor, setOpenedFor] = useState(openId);
+  if (openId !== openedFor) {
+    setOpenedFor(openId);
+    setView(triggerId ? { kind: 'edit', id: triggerId } : { kind: 'list' });
   }
 
-  // ESC closes the modal at the top level. The form's Cancel button
-  // returns to the list view first (handled inline).
+  // Escape closes the window, unless something inside it (a menu, the
+  // chat's composer) already used the key.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !e.defaultPrevented) closeSchedulesWindow();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
+  const withChat = view.kind === 'new' || view.kind === 'edit';
+  const toList = () => setView({ kind: 'list' });
 
   return (
     <div
       className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onClose}
+      onClick={closeSchedulesWindow}
       role="dialog"
       aria-modal="true"
+      aria-label="Schedules and Triggers"
     >
       <div
-        // Width: max-w-4xl (~896px) — wide enough that the form's
-        // pills don't crowd and the list rows breathe, narrow enough
-        // that the single-column form doesn't look sparse.
-        //
-        // Height: three units doing three jobs.
-        //   - `min(88vh, 56rem)` caps height at 88% of viewport, but
-        //     never above ~896px. `rem` (not `px`) so the cap scales
-        //     with the user's root font size — bumping browser zoom
-        //     for accessibility grows this proportionally instead of
-        //     leaving a cramped modal under inflated chrome.
-        //   - `min-h-[36rem]` (~576px) floor for short viewports,
-        //     also in `rem` for the same reason.
-        // Fixed-feeling height keeps the modal from jumping when
-        // switching views; the body scrolls instead.
-        className="w-full max-w-4xl h-[min(88vh,56rem)] min-h-[36rem] bg-background border border-border rounded-lg shadow-2xl flex flex-col"
+        // Height: capped at 88% of the viewport and ~896px, floored for short
+        // screens, in rem so it scales with the user's font size. A steady
+        // height keeps the window from jumping between views; the body
+        // scrolls instead. Wider with the chat beside the form.
+        className={cn(
+          'w-full h-[min(88vh,56rem)] min-h-[36rem] bg-background border border-border rounded-lg shadow-2xl flex flex-col',
+          withChat ? 'max-w-6xl' : 'max-w-4xl',
+        )}
         onClick={(e) => e.stopPropagation()}
       >
-        <Header view={view} onBack={() => setView('list')} onClose={onClose} />
+        <Header view={view} onBack={toList} />
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5">
-          {view === 'list' && (
-            <ListBody
-              onNew={() => setView('new')}
-              onOpenDetail={(id) => {
-                onClose();
-                router.push(`/triggers/${id}`);
-              }}
-            />
-          )}
-          {view === 'new' && (
-            <TriggerCreateForm
-              onCreated={(_trigger, webhook) => {
-                if (webhook) {
-                  setCreatedWebhook(webhook);
-                  setView('webhook-credentials');
-                  return;
-                }
-                setView('list');
-              }}
-              onCancel={() => setView('list')}
-            />
-          )}
-          {view === 'webhook-credentials' && createdWebhook && (
+        {view.kind === 'list' && (
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5">
+            <ListBody onNew={() => setView({ kind: 'new' })} onOpen={(id) => setView({ kind: 'edit', id })} />
+          </div>
+        )}
+        {view.kind === 'new' && (
+          <NewBody
+            onOpen={(id) => setView({ kind: 'edit', id })}
+            onWebhook={(credentials) => setView({ kind: 'webhook', credentials })}
+            onCancel={toList}
+          />
+        )}
+        {view.kind === 'edit' && <EditBody key={view.id} id={view.id} onGone={toList} />}
+        {view.kind === 'webhook' && (
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5">
             <WebhookCredentialsPanel
-              publicId={createdWebhook.publicId}
-              secret={createdWebhook.secret}
-              onContinue={() => {
-                setCreatedWebhook(null);
-                setView('list');
-              }}
+              publicId={view.credentials.publicId}
+              secret={view.credentials.secret}
+              onContinue={toList}
             />
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ── Modal chrome ─────────────────────────────────────────────
+/** The form on the left and the schedule's chat on the right; stacked on a phone. */
+function WithChat({ children, chat }: { children: React.ReactNode; chat: React.ReactNode }) {
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto md:overflow-hidden flex flex-col md:flex-row">
+      <div className="md:flex-1 md:min-w-0 md:overflow-y-auto px-6 py-5">{children}</div>
+      <div className="h-[32rem] md:h-auto md:w-[26rem] flex-shrink-0 border-t md:border-t-0 md:border-l border-border min-h-0">
+        {chat}
+      </div>
+    </div>
+  );
+}
 
-function Header({
-  view,
-  onBack,
-  onClose,
+function NewBody({
+  onOpen,
+  onWebhook,
+  onCancel,
 }: {
-  view: View;
-  onBack: () => void;
-  onClose: () => void;
+  onOpen: (id: string) => void;
+  onWebhook: (credentials: WebhookCredentials) => void;
+  onCancel: () => void;
 }) {
+  const chat = useScheduleChat(NEW_SCHEDULE_REF);
+  const adopt = useAdoptMovedScheduleChat();
+  // The chat made the schedule: open it, with the conversation beside it.
+  const movedTo = chat.movedTo;
+  useEffect(() => {
+    if (!movedTo) return;
+    adopt(NEW_SCHEDULE_REF, movedTo);
+    onOpen(movedTo);
+  }, [movedTo, adopt, onOpen]);
+
+  return (
+    <WithChat chat={<ScheduleChatPanel chat={chat} scheduleRef={NEW_SCHEDULE_REF} />}>
+      <TriggerCreateForm
+        onCreated={(trigger, webhook) => (webhook ? onWebhook(webhook) : onOpen(trigger.id))}
+        onCancel={onCancel}
+      />
+    </WithChat>
+  );
+}
+
+function EditBody({ id, onGone }: { id: string; onGone: () => void }) {
+  const { data: trigger, isLoading, error } = useTrigger(id);
+  const chat = useScheduleChat(id);
+  return (
+    <WithChat chat={<ScheduleChatPanel chat={chat} scheduleRef={id} />}>
+      {trigger ? (
+        <TriggerDetail trigger={trigger} onDeleted={onGone} />
+      ) : isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p>{error ? 'This schedule could not be loaded.' : 'This schedule no longer exists.'}</p>
+          <button type="button" onClick={onGone} className="font-medium text-foreground hover:underline">
+            Back to all schedules
+          </button>
+        </div>
+      )}
+    </WithChat>
+  );
+}
+
+// ── Window chrome ────────────────────────────────────────────
+
+function Header({ view, onBack }: { view: View; onBack: () => void }) {
+  const editing = view.kind === 'edit' ? view.id : null;
+  const { data: trigger } = useTrigger(editing);
   const title =
-    view === 'list'
+    view.kind === 'list'
       ? 'Schedules and Triggers'
-      : view === 'new'
-        ? 'Create scheduled task'
-        : 'Webhook ready';
+      : view.kind === 'new'
+        ? 'New scheduled task'
+        : view.kind === 'webhook'
+          ? 'Webhook ready'
+          : trigger?.name ?? 'Schedule';
 
   return (
     <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-      {view !== 'list' ? (
-        <button
-          type="button"
-          onClick={onBack}
-          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
-          aria-label="Back to triggers"
-        >
-          <ArrowLeft size={16} />
-        </button>
+      {view.kind !== 'list' ? (
+        <Tip label="All schedules">
+          <button
+            type="button"
+            onClick={onBack}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+            aria-label="Back to schedules"
+          >
+            <ArrowLeft size={16} />
+          </button>
+        </Tip>
       ) : (
         <Clock size={16} className="text-primary mx-1.5" />
       )}
-      <h2 className="text-sm font-semibold">{title}</h2>
+      <h2 className="text-sm font-semibold truncate">{title}</h2>
+      {trigger && view.kind === 'edit' && (
+        <span className="flex-shrink-0 text-[11px] text-muted-foreground truncate">
+          {describeFrequency(trigger)}
+          {trigger.enabled ? '' : ' · paused'}
+        </span>
+      )}
       <div className="flex-1" />
       <button
         type="button"
-        onClick={onClose}
+        onClick={closeSchedulesWindow}
         className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
         aria-label="Close"
       >
@@ -195,10 +238,10 @@ function Header({
 
 function ListBody({
   onNew,
-  onOpenDetail,
+  onOpen,
 }: {
   onNew: () => void;
-  onOpenDetail: (id: string) => void;
+  onOpen: (id: string) => void;
 }) {
   const { data: triggers, isLoading } = useTriggers();
   const updateTrigger = useUpdateTrigger();
@@ -214,7 +257,7 @@ function ListBody({
       key={s.id}
       trigger={s}
       onToggle={(enabled) => updateTrigger.mutate({ id: s.id, enabled })}
-      onOpen={() => onOpenDetail(s.id)}
+      onOpen={() => onOpen(s.id)}
     />
   );
 
@@ -336,7 +379,7 @@ function Row({
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium truncate">{trigger.name}</p>
           {isReservedTrigger(trigger.id) && (
-            <Tip label="Managed by the app. Change its schedule in Settings › General.">
+            <Tip label="Managed by the app. Its schedule and who runs it can change, the rest is fixed.">
               <span
                 className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider font-medium bg-muted text-muted-foreground"
               >
@@ -366,16 +409,6 @@ function Row({
         </p>
       </button>
 
-      <Tip label="Open detail">
-        <button
-          type="button"
-          onClick={onOpen}
-          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground"
-          aria-label="Open detail"
-        >
-          <ExternalLink size={12} />
-        </button>
-      </Tip>
     </div>
   );
 }

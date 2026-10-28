@@ -13,6 +13,7 @@ vi.mock('@agentex/agent', () => ({
 vi.mock('@/lib/executor/adapter', () => ({
   dispatch: vi.fn(async () => {}),
   abort: vi.fn(async () => {}),
+  close: vi.fn(async () => {}),
   ExecutorError: class extends Error {},
 }));
 
@@ -573,6 +574,120 @@ describe('orchestrator trigger + run actions', () => {
       const list = await findAction('list_triggers');
       const rows = await list.handler({ remote: false }, { targetKind: 'session' } as never) as TriggerRecord[];
       expect(rows.map((r) => r.name)).toEqual(['check-in']);
+    });
+  });
+
+  describe('editing a whole schedule', () => {
+    it('update_trigger switches timing kind, clears the old kind\'s field and recomputes the next run', async () => {
+      await seed();
+      const q = await import('@/lib/db/queries');
+      const trigger = q.createTrigger({ name: 'switch', targetKind: 'orchestrator', harness: 'codex', prompt: 'P',
+        kind: 'cron', cronExpression: '0 9 * * *', timezone: 'UTC', enabled: true });
+      const update = await findAction('update_trigger');
+      const every = await update.handler({ remote: false }, { id: trigger.id, kind: 'every', intervalSeconds: 1800 } as never) as TriggerRecord;
+      expect(every).toMatchObject({ kind: 'every', intervalSeconds: 1800, cronExpression: null, runAt: null });
+      const next = Date.parse(every.nextRunAt!) - Date.now();
+      expect(next).toBeGreaterThan(1700_000);
+      expect(next).toBeLessThanOrEqual(1800_000);
+
+      const runAt = new Date(Date.now() + 86_400_000).toISOString();
+      const once = await update.handler({ remote: false }, { id: trigger.id, kind: 'at', runAt } as never) as TriggerRecord;
+      expect(once).toMatchObject({ kind: 'at', runAt, intervalSeconds: null, nextRunAt: runAt });
+
+      const manual = await update.handler({ remote: false }, { id: trigger.id, kind: 'manual' } as never) as TriggerRecord;
+      expect(manual).toMatchObject({ kind: 'manual', runAt: null, nextRunAt: null });
+    });
+
+    it('update_trigger re-arms a fired one-time job when it becomes one again', async () => {
+      await seed();
+      const q = await import('@/lib/db/queries');
+      const trigger = q.createTrigger({ name: 'rearm', targetKind: 'orchestrator', harness: 'codex', prompt: 'P',
+        kind: 'every', intervalSeconds: 600, enabled: true, lastFiredAt: new Date(Date.now() - 60_000).toISOString() });
+      const update = await findAction('update_trigger');
+      const runAt = new Date(Date.now() + 3_600_000).toISOString();
+      const once = await update.handler({ remote: false }, { id: trigger.id, kind: 'at', runAt } as never) as TriggerRecord;
+      expect(once).toMatchObject({ kind: 'at', lastFiredAt: null, nextRunAt: runAt });
+    });
+
+    it('update_trigger needs the new kind\'s field, and leaves webhooks alone', async () => {
+      await seed();
+      const q = await import('@/lib/db/queries');
+      const update = await findAction('update_trigger');
+      const manual = q.createTrigger({ name: 'm', targetKind: 'orchestrator', harness: 'codex', prompt: 'P', kind: 'manual', enabled: true });
+      await expect(update.handler({ remote: false }, { id: manual.id, kind: 'cron' } as never)).rejects.toThrow(/cron_expression is required/);
+      await expect(update.handler({ remote: false }, { id: manual.id, kind: 'every' } as never)).rejects.toThrow(/interval_seconds is required/);
+      await expect(update.handler({ remote: false }, { id: manual.id, kind: 'at' } as never)).rejects.toThrow(/run_at must be/);
+      await expect(update.handler({ remote: false }, { id: manual.id, kind: 'cron', cronExpression: 'nope' } as never)).rejects.toThrow(/Invalid cron/);
+
+      const create = await findAction('create_trigger');
+      const { trigger: hook } = await create.handler({ remote: false }, { name: 'hook', targetKind: 'orchestrator', prompt: 'P', kind: 'webhook' } as never) as { trigger: TriggerRecord };
+      await expect(update.handler({ remote: false }, { id: hook.id, kind: 'every', intervalSeconds: 60 } as never)).rejects.toThrow(/webhook trigger keeps its kind/);
+    });
+
+    it('update_trigger moves a workspace trigger to another agent, and only a workspace trigger', async () => {
+      const { wsId } = await seed();
+      const { getDb } = await import('@/lib/db');
+      const { uuidv7 } = await import('uuidv7');
+      const { workspaces } = await import('@/lib/db/schema');
+      const otherWs = uuidv7();
+      getDb().insert(workspaces).values({ id: otherWs, name: 'Other', slug: 'other-' + Date.now(), cwd: '/tmp/other', isGit: false,
+        status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true }).run();
+      const q = await import('@/lib/db/queries');
+      const update = await findAction('update_trigger');
+      const ws = q.createTrigger({ name: 'w', targetKind: 'workspace', workspaceId: wsId, harness: 'codex', prompt: 'P', kind: 'manual', enabled: true });
+      const moved = await update.handler({ remote: false }, { id: ws.id, workspaceId: otherWs } as never) as TriggerRecord;
+      expect(moved.workspaceId).toBe(otherWs);
+      await expect(update.handler({ remote: false }, { id: ws.id, workspaceId: 'missing' } as never)).rejects.toThrow(/Agent not found/);
+      const orch = q.createTrigger({ name: 'o', targetKind: 'orchestrator', harness: 'codex', prompt: 'P', kind: 'manual', enabled: true });
+      await expect(update.handler({ remote: false }, { id: orch.id, workspaceId: wsId } as never)).rejects.toThrow(/only change on a target_kind=workspace/);
+    });
+  });
+
+  describe('the Schedules window\'s builder chat', () => {
+    async function scheduleChat(ref: string) {
+      const q = await import('@/lib/db/queries');
+      return q.createChatSession({ type: 'content', harness: 'claude', surfaceKind: 'trigger', surfaceRef: ref, status: 'active' });
+    }
+
+    it('moves the new-schedule chat onto the schedule it creates', async () => {
+      const { wsId } = await seed();
+      const chat = await scheduleChat('new');
+      const create = await findAction('create_trigger');
+      const { trigger } = await create.handler({ remote: true, actor: { source: 'ai', sessionId: chat.id } },
+        { name: 'Morning triage', targetKind: 'workspace', workspaceId: wsId, prompt: 'Triage my inbox.', kind: 'cron', cronExpression: '0 8 * * 1-5', timezone: 'America/Denver' } as never) as { trigger: TriggerRecord };
+      const q = await import('@/lib/db/queries');
+      expect(q.getChatSession(chat.id)?.surfaceRef).toBe(trigger.id);
+
+      // A second create from the same (now moved) chat leaves it where it is.
+      const { trigger: second } = await create.handler({ remote: true, actor: { source: 'ai', sessionId: chat.id } },
+        { name: 'Another', targetKind: 'orchestrator', prompt: 'X', kind: 'manual' } as never) as { trigger: TriggerRecord };
+      expect(second.id).not.toBe(trigger.id);
+      expect(q.getChatSession(chat.id)?.surfaceRef).toBe(trigger.id);
+    });
+
+    it('closes and archives a schedule\'s builder chat when the schedule is deleted', async () => {
+      await seed();
+      const q = await import('@/lib/db/queries');
+      const trigger = q.createTrigger({ name: 'gone', targetKind: 'orchestrator', harness: 'codex', prompt: 'P', kind: 'manual', enabled: true });
+      const chat = await scheduleChat(trigger.id);
+      const other = await scheduleChat('new');
+      const del = await findAction('delete_trigger');
+      await del.handler({ remote: false }, { id: trigger.id } as never);
+      expect(q.getChatSession(chat.id)?.status).toBe('archived');
+      expect(q.getChatSession(other.id)?.status).toBe('active');
+    });
+
+    it('never defaults a chat target to itself', async () => {
+      const { wsId } = await seed();
+      const chat = await scheduleChat('new');
+      const create = await findAction('create_trigger');
+      await expect(create.handler({ remote: true, actor: { source: 'ai', sessionId: chat.id } },
+        { name: 'c', targetKind: 'session', prompt: 'X', kind: 'every', intervalSeconds: 600 } as never)).rejects.toThrow(/only sets schedules up/);
+      const q = await import('@/lib/db/queries');
+      const work = q.createExecutionWithChat({ workspaceId: wsId, harness: 'codex', label: 'Work' }).session;
+      const { trigger } = await create.handler({ remote: true, actor: { source: 'ai', sessionId: chat.id } },
+        { name: 'c', targetKind: 'session', targetSessionId: work.id, prompt: 'X', kind: 'every', intervalSeconds: 600 } as never) as { trigger: TriggerRecord };
+      expect(trigger.targetSessionId).toBe(work.id);
     });
   });
 });

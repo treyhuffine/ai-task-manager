@@ -95,3 +95,22 @@ describe('GET /api/document-chat — skill builder and try chats', () => {
     expect(unknown.status).toBe(400);
   });
 });
+
+describe('GET /api/document-chat — schedule builder chats', () => {
+  it('opens one chat for a new schedule and one per existing schedule, and refuses a missing one', async () => {
+    const { createTrigger } = await import('@/lib/db/queries');
+    const url = (ref: string) => `http://test/api/document-chat?entityType=trigger&entityId=${encodeURIComponent(ref)}`;
+    const fresh = await (await GET(new Request(url('new')))).json();
+    const again = await (await GET(new Request(url('new')))).json();
+    expect(fresh.session).toMatchObject({ type: 'content', surfaceKind: 'trigger', surfaceRef: 'new' });
+    expect(again.session.id).toBe(fresh.session.id);
+
+    const trigger = createTrigger({ name: 'daily', targetKind: 'orchestrator', harness: 'codex', prompt: 'P', kind: 'manual', enabled: true });
+    const existing = await (await GET(new Request(url(trigger.id)))).json();
+    expect(existing.session).toMatchObject({ surfaceKind: 'trigger', surfaceRef: trigger.id });
+    expect(existing.session.id).not.toBe(fresh.session.id);
+
+    const missing = await GET(new Request(url('no-such-trigger')));
+    expect(missing.status).toBe(404);
+  });
+});

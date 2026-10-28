@@ -49,6 +49,8 @@ import { prepareAgentMainChatSpawn, skillDirsWriteIntoCwd } from './agent-main-c
 import { SESSION_CLI_ENV, ensureSessionCli, sessionPath } from './session-cli';
 import { planSessionInstructions } from './session-instructions';
 import { renderSkillBuilderBrief } from '@/lib/skills/builder-brief';
+import { renderScheduleBuilderBrief } from '@/lib/triggers/builder-brief';
+import { SCHEDULE_CHAT_SURFACE } from '@/lib/triggers/schedule-chat';
 import { sessionSkillPlan } from '@/lib/skills/exclusions';
 import { harnessCapabilitiesOn } from './devices';
 import { pendingHandoff } from '@/lib/transfer/continue';
@@ -374,6 +376,14 @@ export async function buildSessionSpec(args: SessionSpecInput, target: SpecTarge
       if (args.sessionType === 'content' && args.surfaceKind === 'skill' && args.surfaceRef) {
         const brief = renderSkillBuilderBrief(args.surfaceRef);
         const plan = planSessionInstructions(providerType, [{ name: 'skill builder brief', text: brief }]);
+        if (plan.text) spec.instructions = [spec.instructions, plan.text].filter(Boolean).join('\n\n');
+        if (plan.undelivered.length > 0) spec.messagePreamble = [spec.messagePreamble, brief].filter(Boolean).join('\n\n');
+      }
+      // A schedule's builder chat, beside the editor in the Schedules window
+      // (src/lib/triggers/builder-brief.ts). Same delivery as the skill brief.
+      if (args.sessionType === 'content' && args.surfaceKind === SCHEDULE_CHAT_SURFACE && args.surfaceRef) {
+        const brief = renderScheduleBuilderBrief(args.surfaceRef);
+        const plan = planSessionInstructions(providerType, [{ name: 'schedule builder brief', text: brief }]);
         if (plan.text) spec.instructions = [spec.instructions, plan.text].filter(Boolean).join('\n\n');
         if (plan.undelivered.length > 0) spec.messagePreamble = [spec.messagePreamble, brief].filter(Boolean).join('\n\n');
       }

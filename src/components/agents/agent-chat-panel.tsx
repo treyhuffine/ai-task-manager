@@ -9,6 +9,7 @@ import { useMainChat, useNewMainChat } from '@/hooks/use-main-chat';
 import { useDevice } from '@/hooks/use-devices';
 import type { WorkspaceRecord } from '@/db/types';
 import { ChatMenu } from '@/components/chat-ui/chat-menu';
+import { ScheduleChatButton } from '@/components/triggers/schedule-chat-button';
 import { Tip } from '@/components/ui/tip';
 import { useSession } from '@/hooks/use-execution';
 import { useWorkNavigation } from '@/contexts/work-context';
@@ -67,6 +68,7 @@ export function AgentChatPanel({
           )}
         </span>
         <div className="flex items-center gap-1.5">
+          <ScheduleChatButton sessionId={sessionId ?? current?.session?.id ?? null} />
           <ChatMenu sessionId={sessionId ?? current?.session?.id ?? null} />
           {sessionId ? <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => openAgent(workspace.id)}>Agent chat</button> : <MainChatHistoryMenu scope={workspace.id} />}
           {!archived && (

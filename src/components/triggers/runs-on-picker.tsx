@@ -4,7 +4,7 @@
  * "Runs on": provider, model and effort for something that runs on a
  * schedule. A controlled picker built from the launcher's controls, so it
  * offers exactly the models and effort ladder a new execution would. Used by
- * a trigger's detail page (`TriggerRunsOn`) and by the heartbeat settings.
+ * the schedule form (`TriggerForm`) and by the heartbeat settings.
  *
  * Changing the model can switch provider, and that change always sends the
  * whole tuple (the picked model plus the effort resolved for it): the server

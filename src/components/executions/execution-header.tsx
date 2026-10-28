@@ -34,6 +34,7 @@ import { LocationMenu, MoveActions } from './transfer/location-menu';
 import { Tip } from '@/components/ui/tip';
 import { CoordinationSettings } from '@/components/chat-ui/coordination/controls';
 import { ExecutionResultsShortcut } from '@/components/results/execution-results-shortcut';
+import { ScheduleChatButton } from '@/components/triggers/schedule-chat-button';
 
 interface ExecutionHeaderProps {
   session: ChatSessionWithExecution;
@@ -404,6 +405,7 @@ export function ExecutionHeader({
           </div>
         </div>
 
+        <ScheduleChatButton sessionId={session.id} compact className="p-2" />
         {session.executionId && <ExecutionResultsShortcut executionId={session.executionId} />}
         {onOpenTools && (
           <button
@@ -462,6 +464,7 @@ export function ExecutionHeader({
 
         <span className="flex-1" />
 
+        <ScheduleChatButton sessionId={session.id} />
         {session.executionId && <ExecutionResultsShortcut executionId={session.executionId} />}
 
         {workbench && (

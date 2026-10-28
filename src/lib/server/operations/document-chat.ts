@@ -4,6 +4,7 @@ import { EFFORT_LEVELS, type ChatSessionWithExecution, type EffortLevel } from '
 import {
   archiveChatSession,
   createChatSession,
+  getTrigger,
   getUserState,
   listChatSessions,
 } from '@/lib/db/queries';
@@ -14,6 +15,7 @@ import { assertHarnessEnabled, DEFAULT_HARNESS, HarnessDisabledError, isKnownHar
 import { contentChatSchema } from '@/lib/server/inputs';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { findSkill } from '@/lib/skills/locations';
+import { NEW_SCHEDULE_REF } from '@/lib/triggers/schedule-chat';
 import { z as rpcZ } from 'zod/v4';
 
 /** Optional per-chat provider/model override (the composer's "switch provider"). */
@@ -69,9 +71,11 @@ function parseOverride(src: { providerId?: unknown; model?: unknown; variant?: u
  * (docs/skills.md): its builder chat ('skill', briefed to write the skill,
  * see src/lib/skills/builder-brief.ts) and its try chat ('skill-try', an
  * ordinary chat that gets the skill, wherever it lives). For both, the id
- * is the skill's ref (src/lib/skills/locations.ts).
+ * is the skill's ref (src/lib/skills/locations.ts). A schedule's builder
+ * chat ('trigger') is keyed by the schedule's id, or 'new' for the one that
+ * sets up a new schedule (src/lib/triggers/builder-brief.ts).
  */
-const SURFACE_KINDS = ['task', 'note', 'skill', 'skill-try', 'app', 'app-builder', 'app-try'] as const;
+const SURFACE_KINDS = ['task', 'note', 'skill', 'skill-try', 'app', 'app-builder', 'app-try', 'trigger'] as const;
 type SurfaceKind = (typeof SURFACE_KINDS)[number];
 
 interface EntityRef {
@@ -91,8 +95,12 @@ function parseEntity(source: { entityType?: unknown; entityId?: unknown }): Enti
   return { entityType, entityId };
 }
 
-/** A skill chat needs its skill. Tasks and notes are checked by the chat's own reads. */
+/** A skill or schedule chat needs its skill or schedule. Tasks and notes are checked by the chat's own reads. */
 function missingSkill(ref: EntityRef) {
+  if (ref.entityType === 'trigger') {
+    if (ref.entityId === NEW_SCHEDULE_REF || getTrigger(ref.entityId)) return null;
+    return reply({ error: "There's no such schedule." }, { status: 404 });
+  }
   if (ref.entityType.startsWith('app')) {
     try { if (ref.entityType === 'app') localApps().instance(ref.entityId); else localApps().draft(ref.entityId); return null; }
     catch (error) { return reply({ error: publicError(error).message }, { status: 409 }); }
@@ -102,7 +110,7 @@ function missingSkill(ref: EntityRef) {
   return reply({ error: "There's no such skill." }, { status: 404 });
 }
 
-const BAD_ENTITY = 'entityType (task|note|skill|skill-try) and entityId are required';
+const BAD_ENTITY = 'entityType (task|note|skill|skill-try|app|app-builder|app-try|trigger) and entityId are required';
 
 /** The active, user-opened content session for an entity (excludes scheduled/run-created chats). */
 function findCurrent(ref: EntityRef): ChatSessionWithExecution | null {

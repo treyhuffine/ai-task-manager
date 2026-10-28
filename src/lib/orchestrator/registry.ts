@@ -38,10 +38,13 @@ import {
 	createReferenceFolder,
 	createStream,
 	createTask,
+	archiveChatSession,
 	createTrigger,
 	createWorkspace,
 	defaultTriggerHarness,
 	deleteTrigger,
+	listScheduleChats,
+	updateChatSession,
 	detachExecutionFromTask,
 	effectiveAutonomyLevel,
 	findTriggerByName,
@@ -137,6 +140,7 @@ import {
 	TRANSITION_COMMANDS,
 } from '@/lib/tasks/lifecycle';
 import { isReservedTrigger, lockedFieldsFor } from '@/lib/triggers/reserved';
+import { NEW_SCHEDULE_REF, SCHEDULE_CHAT_SURFACE } from '@/lib/triggers/schedule-chat';
 import { generateWebhookCredentials } from '@/lib/triggers/webhook';
 import { detectBaseBranch, detectIsGit } from '@/lib/workspaces';
 import { describeUncommittedFiles, type DirtyWorktreeBody } from '@/lib/workspaces/uncommitted-files';
@@ -2338,6 +2342,17 @@ function resolveTriggerTargetChat(ctx: ActionContext, requested: string | null |
   return chat;
 }
 
+/**
+ * The calling chat when it is a schedule's builder chat, the one beside the
+ * editor in the Schedules window (src/lib/triggers/builder-brief.ts).
+ */
+function callingScheduleChat(ctx: ActionContext): ChatSessionRecord | null {
+  const id = ctx.actor?.sessionId;
+  if (!id) return null;
+  const chat = getChatSession(id);
+  return chat?.type === 'content' && chat.surfaceKind === SCHEDULE_CHAT_SURFACE ? chat : null;
+}
+
 /** A chat runs on its own engine, model, effort and speed, never a trigger's. */
 function assertNoRunsOnForChatTarget(input: { provider?: unknown; model?: unknown; effort?: unknown; serviceTier?: unknown }) {
   if (input.provider != null || input.model != null || input.effort != null || input.serviceTier != null) {
@@ -2376,6 +2391,13 @@ const create_trigger_action = defineAction({
       }
     } else if (input.kind === 'at') {
       assertValidRunAt(input.runAt);
+    }
+
+    // A schedule's builder chat only sets schedules up. Defaulting a chat
+    // target to it would have every fire land in the setup conversation.
+    const scheduleChat = callingScheduleChat(ctx);
+    if (input.targetKind === 'session' && !input.targetSessionId && scheduleChat) {
+      throw new ActionError('invalid_params', 'target_session_id is required here: this chat only sets schedules up. Name the chat each fire should go to.');
     }
 
     // A chat target takes its agent and engine from the chat itself.
@@ -2470,6 +2492,13 @@ const create_trigger_action = defineAction({
       nextRunAt,
     });
 
+    // The Schedules window's new-schedule chat moves onto the schedule it
+    // made, so the conversation carries on beside the result and the next
+    // new schedule starts a fresh chat.
+    if (scheduleChat?.surfaceRef === NEW_SCHEDULE_REF) {
+      updateChatSession(scheduleChat.id, { surfaceRef: row.id });
+    }
+
     return webhookCredentials
       ? {
           trigger: withTriggerProvider(row),
@@ -2486,6 +2515,8 @@ const update_trigger_action = defineAction({
   name: 'update_trigger',
   description:
     'Patch a trigger. Cron / interval / runAt changes recompute nextRunAt automatically. ' +
+    'kind switches between manual, at, every and cron: pass the new kind\'s cron_expression, interval_seconds or run_at in the same call, and the other kinds\' fields are cleared. A webhook keeps its kind. ' +
+    'workspace_id moves a workspace trigger to another agent. ' +
     'Changing provider resets model and effort to that provider\'s defaults unless the same call sets them.',
   params: {
     id: z.string().min(1),
@@ -2497,6 +2528,13 @@ const update_trigger_action = defineAction({
     enabled: z.boolean().optional(),
     prompt: z.string().min(1).optional(),
     skillHints: z.array(z.string()).nullable().optional(),
+    // Switch how it's timed. The new kind's field (cron_expression,
+    // interval_seconds or run_at) comes in the same call unless the row
+    // already has it, and the other kinds' fields are cleared. Webhooks
+    // keep their kind: their signing secret is shown once, at create.
+    kind: z.enum(['manual', 'at', 'every', 'cron']).optional(),
+    // The agent a workspace trigger starts each fire's chat in.
+    workspaceId: z.string().min(1).optional(),
     cronExpression: z.string().nullable().optional(),
     intervalSeconds: z.number().int().positive().nullable().optional(),
     runAt: z.string().nullable().optional(),
@@ -2508,7 +2546,8 @@ const update_trigger_action = defineAction({
     model: z.string().nullable().optional(),
     effort: effortLevel.nullable().optional(),
     serviceTier: z.string().regex(/^[a-z][a-z0-9_-]*$/).nullable().optional(),
-    timeoutSeconds: z.number().int().positive().optional(),
+    // Null removes the time limit.
+    timeoutSeconds: z.number().int().positive().nullable().optional(),
     disabledReason: z.string().nullable().optional(),
     // Replace the notifier digest binding (full set, not a delta). Pass []
     // to unbind. Validated against the trigger's existing target_kind.
@@ -2538,6 +2577,32 @@ const update_trigger_action = defineAction({
 
     if (current.targetKind === 'session') assertNoRunsOnForChatTarget({ provider, ...rest });
 
+    if (rest.workspaceId !== undefined && rest.workspaceId !== current.workspaceId) {
+      if (current.targetKind !== 'workspace') {
+        throw new ActionError('invalid_params', 'workspace_id can only change on a target_kind=workspace trigger.');
+      }
+      if (!getWorkspace(rest.workspaceId)) throw new ActionError('not_found', `Agent not found: ${rest.workspaceId}`);
+    }
+
+    // A kind switch clears the other kinds' fields, and needs its own.
+    const kind = rest.kind ?? current.kind;
+    const kindChanged = kind !== current.kind;
+    if (kindChanged) {
+      if (current.kind === 'webhook') {
+        throw new ActionError('invalid_params', 'A webhook trigger keeps its kind. Create a new trigger for a schedule.');
+      }
+      if (kind !== 'cron') rest.cronExpression = null;
+      if (kind !== 'every') rest.intervalSeconds = null;
+      if (kind !== 'at') rest.runAt = null;
+      if (kind === 'cron' && !(rest.cronExpression ?? current.cronExpression)) {
+        throw new ActionError('invalid_params', 'cron_expression is required when kind=cron');
+      }
+      if (kind === 'every' && !(rest.intervalSeconds ?? current.intervalSeconds)) {
+        throw new ActionError('invalid_params', 'interval_seconds is required when kind=every');
+      }
+      if (kind === 'at') assertValidRunAt(rest.runAt ?? current.runAt);
+    }
+
     // Provider switch. Model and effort only mean something within one
     // provider, so a switch that doesn't restate them resets both to the new
     // provider's defaults instead of carrying a Claude model onto a Codex run.
@@ -2564,12 +2629,12 @@ const update_trigger_action = defineAction({
 
     if (rest.timezone !== undefined) assertValidTriggerTimezone(rest.timezone);
     // Null retains the existing API's explicit disarm operation.
-    if (rest.runAt != null && current.kind === 'at') assertValidRunAt(rest.runAt);
+    if (rest.runAt != null && kind === 'at') assertValidRunAt(rest.runAt);
 
     // Validate cron if it's changing.
     const cronExpression =
       rest.cronExpression !== undefined ? rest.cronExpression : current.cronExpression;
-    if (cronExpression && current.kind === 'cron') {
+    if (cronExpression && kind === 'cron') {
       const tz = rest.timezone ?? current.timezone ?? 'UTC';
       const v = validateCronExpression(cronExpression, tz);
       if (!v.valid) throw new ActionError('invalid_params', `Invalid cron: ${v.error}`);
@@ -2577,18 +2642,20 @@ const update_trigger_action = defineAction({
 
     // Recompute nextRunAt when the trigger config changes.
     const triggerChanged =
+      kindChanged ||
       rest.cronExpression !== undefined ||
       rest.intervalSeconds !== undefined ||
       rest.runAt !== undefined ||
       rest.timezone !== undefined;
-    // A new instant explicitly re-arms a completed one-time trigger. Retrying
-    // the same timestamp after it fires must not arm it a second time.
-    const rearmOneTime = current.kind === 'at' && rest.runAt != null &&
-      Date.parse(rest.runAt) !== Date.parse(current.runAt ?? '');
+    // A new instant explicitly re-arms a completed one-time trigger, and so
+    // does becoming one. Retrying the same timestamp after it fires must not
+    // arm it a second time.
+    const rearmOneTime = kind === 'at' && (kindChanged || (rest.runAt != null &&
+      Date.parse(rest.runAt) !== Date.parse(current.runAt ?? '')));
     let nextRunAt = current.nextRunAt;
     if (triggerChanged) {
       nextRunAt = computeNextRun({
-        kind: current.kind,
+        kind,
         cronExpression: cronExpression ?? null,
         intervalSeconds:
           rest.intervalSeconds !== undefined ? rest.intervalSeconds : current.intervalSeconds,
@@ -2613,7 +2680,7 @@ const delete_trigger_action = defineAction({
   params: { id: z.string().min(1) },
   mutating: true,
   cli: { positional: ['id'] },
-  handler: (_ctx, { id }) => {
+  handler: async (_ctx, { id }) => {
     // App-managed rows are disabled, never deleted — otherwise the next boot's
     // ensure-seed would re-create the row and silently undo the user's intent.
     if (isReservedTrigger(id)) {
@@ -2624,6 +2691,16 @@ const delete_trigger_action = defineAction({
     }
     const ok = deleteTrigger(id);
     if (!ok) throw new ActionError('not_found', `Trigger not found: ${id}`);
+    // Its builder chat in the Schedules window goes with it, closed and
+    // archived (the transcript stays in history), as a skill's chats do.
+    const chats = listScheduleChats(id);
+    if (chats.length > 0) {
+      const { close } = await import('@/lib/executor/adapter');
+      for (const chat of chats) {
+        try { await close(chat.id); } catch { /* not running */ }
+        archiveChatSession(chat.id);
+      }
+    }
     return { id, deleted: true };
   },
 });
