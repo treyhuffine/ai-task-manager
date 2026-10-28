@@ -11,7 +11,7 @@ Open **Settings > Heartbeat**. When it needs you (never set up, paused, failed, 
 | Setting | What it does | Default |
 |---|---|---|
 | Check in regularly | On or off | Off |
-| Every | 30 minutes, 1 hour, 2 hours, 4 hours, or once a day | 1 hour |
+| Every | 30 minutes, 1 hour, 2 hours, 4 hours, or once a day | 30 minutes |
 | Hours | Only check in between two times, or any time | 09:00 to 21:00, in your timezone |
 | Runs on | Provider, model, and effort | Your default provider, its default model |
 | Instructions | What to look at and what to do each check-in | See below |
@@ -69,7 +69,7 @@ A check-in that changed anything is never treated as quiet, even if it replies `
 - The scheduler fires it like any interval trigger. Slots outside your hours are skipped. When you turn it on or change its schedule, the first check-in is one interval out, moved into your hours. If you turn it on before your hours start, it's the window opening, if that comes sooner.
 - Check-ins never overlap. If one is still running when the next is due, the next is skipped. A check-in that runs longer than 30 minutes is stopped and marked failed.
 - When you edit the schedule, the hours follow your timezone from Settings > General.
-- Each check-in is one session on the provider you picked. Hourly from 09:00 to 21:00 is 12 sessions a day, and quiet ones are short. Cost is recorded per run, and the monthly budget applies. If the budget runs out, the app turns the heartbeat off and Settings says why. Turning it back on clears that.
+- Each check-in is one session on the provider you picked. Every 30 minutes from 09:00 to 21:00 is 24 sessions a day, and quiet ones are short. Cost is recorded per run, and the monthly budget applies. If the budget runs out, the app turns the heartbeat off and Settings says why. Turning it back on clears that.
 
 ## For agents and the CLI
 

@@ -54,7 +54,7 @@ It's seeded at boot, only if missing, by `ensureHeartbeatTrigger()` (new, in `sr
 | Setting | Field | Default | Editable |
 |---|---|---|---|
 | On or off | `enabled` | `false` | yes |
-| How often | `intervalSeconds` | `3600` | yes: 1800, 3600, 7200, 14400, 86400 |
+| How often | `intervalSeconds` | `1800` | yes: 1800, 3600, 7200, 14400, 86400 |
 | Which hours | `activeHoursStart` / `activeHoursEnd` | `09:00` / `21:00` | yes, or cleared for any time |
 | Timezone | `timezone` | your timezone from Settings > General, else the host's | yes |
 | Provider | `harness` | `defaultTriggerHarness()` (your default provider) | yes, through the provider switch |
@@ -191,7 +191,7 @@ Heartbeat
 Checks in on your work on a schedule and tells you what it did.
 
   Check in regularly                                        [ on ]
-  Every  [ 1 hour ▾ ]   from [ 09:00 ]  to [ 21:00 ]
+  Every  [ 30 minutes ▾ ]   from [ 09:00 ]  to [ 21:00 ]
   Runs on [ Claude Code ▾ ]  Model [ Default ▾ ]  Effort [ Default ▾ ]
 
   Instructions
@@ -248,7 +248,7 @@ To let it start work on its own, change "Offer to start them" to "Start them."
 
 ## 9. Cost
 
-Each check-in is one orchestrator session on the default subscription harness. Hourly from 09:00 to 21:00 is 12 sessions a day, and quiet ones are short. Runs record their cost like any trigger run, and the existing monthly budget applies.
+Each check-in is one orchestrator session on the default subscription harness. Every 30 minutes from 09:00 to 21:00 is 24 sessions a day, and quiet ones are short. Runs record their cost like any trigger run, and the existing monthly budget applies.
 
 ## 10. Tests
 

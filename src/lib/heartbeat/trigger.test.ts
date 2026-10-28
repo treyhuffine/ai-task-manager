@@ -50,7 +50,7 @@ describe('ensureHeartbeatTrigger', () => {
       targetKind: 'orchestrator',
       workspaceId: null,
       kind: 'every',
-      intervalSeconds: 3600,
+      intervalSeconds: 1800,
       activeHoursStart: '09:00',
       activeHoursEnd: '21:00',
       concurrencyPolicy: 'skip_if_running',
@@ -104,11 +104,11 @@ describe('scheduling inside the active hours', () => {
     queries.updateTrigger(HEARTBEAT_ID, { timezone: 'UTC' });
 
     await updateHeartbeat({ enabled: true }, new Date('2026-09-22T14:00:00Z'));
-    expect(queries.getTrigger(HEARTBEAT_ID)!.nextRunAt).toBe('2026-09-22T15:00:00.000Z');
+    expect(queries.getTrigger(HEARTBEAT_ID)!.nextRunAt).toBe('2026-09-22T14:30:00.000Z');
 
     await updateHeartbeat({ enabled: false });
-    await updateHeartbeat({ enabled: true }, new Date('2026-09-22T20:30:00Z'));
-    // 21:30 is after hours, so the first check-in waits for 09:00.
+    await updateHeartbeat({ enabled: true }, new Date('2026-09-22T20:45:00Z'));
+    // 21:15 is after hours, so the first check-in waits for 09:00.
     expect(queries.getTrigger(HEARTBEAT_ID)!.nextRunAt).toBe('2026-09-23T09:00:00.000Z');
   });
 
@@ -169,7 +169,7 @@ describe('getHeartbeatConfig', () => {
       triggerId: HEARTBEAT_ID,
       enabled: false,
       instructionsAreDefault: true,
-      intervalSeconds: 3600,
+      intervalSeconds: 1800,
       provider: 'codex',
       nextCheckInAt: null,
       running: false,

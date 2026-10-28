@@ -37,7 +37,7 @@ export function isHeartbeatInterval(seconds: number): seconds is HeartbeatInterv
   return HEARTBEAT_INTERVAL_SECONDS.includes(seconds);
 }
 
-export const DEFAULT_HEARTBEAT_INTERVAL_SECONDS: HeartbeatIntervalSeconds = 3600;
+export const DEFAULT_HEARTBEAT_INTERVAL_SECONDS: HeartbeatIntervalSeconds = 1800;
 export const DEFAULT_HEARTBEAT_ACTIVE_HOURS_START = '09:00';
 export const DEFAULT_HEARTBEAT_ACTIVE_HOURS_END = '21:00';
 
