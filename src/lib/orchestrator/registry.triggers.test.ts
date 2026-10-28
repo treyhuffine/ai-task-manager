@@ -487,4 +487,92 @@ describe('orchestrator trigger + run actions', () => {
       expect(row.provider).toBe('codex');
     });
   });
+
+  describe('target_kind=session', () => {
+    async function chatIn(wsId: string, harness: HarnessId = 'codex') {
+      const q = await import('@/lib/db/queries');
+      return q.createExecutionWithChat({ workspaceId: wsId, harness, label: 'Backfill' }).session;
+    }
+    const checkIn = { name: 'check-in', targetKind: 'session', prompt: 'Check the job.', kind: 'every', intervalSeconds: 900 };
+
+    it('called from a chat with no target id, schedules that chat on its own engine and agent', async () => {
+      const { wsId } = await seed();
+      await setDefaultProvider('claude');
+      const chat = await chatIn(wsId, 'codex');
+      const create = await findAction('create_trigger');
+      const { trigger } = await create.handler({ remote: true, actor: { source: 'ai', sessionId: chat.id } }, checkIn as never) as { trigger: TriggerRecord & { provider: string } };
+      expect(trigger).toMatchObject({
+        targetKind: 'session', targetSessionId: chat.id, workspaceId: wsId,
+        harness: 'codex', provider: 'codex', model: null, effort: null, serviceTier: null,
+        // A busy chat is already awake, so the default skips it.
+        concurrencyPolicy: 'skip_if_running',
+      });
+    });
+
+    it('takes an explicit chat id from a person, and keeps an explicit overlap rule', async () => {
+      const { wsId } = await seed();
+      const chat = await chatIn(wsId);
+      const create = await findAction('create_trigger');
+      const { trigger } = await create.handler({ remote: false }, { ...checkIn, targetSessionId: chat.id,
+        concurrencyPolicy: 'coalesce_if_active', model: null, effort: null } as never) as { trigger: TriggerRecord };
+      expect(trigger).toMatchObject({ targetSessionId: chat.id, concurrencyPolicy: 'coalesce_if_active' });
+    });
+
+    it('needs a chat it can send to', async () => {
+      const { wsId } = await seed();
+      const q = await import('@/lib/db/queries');
+      const create = await findAction('create_trigger');
+      await expect(create.handler({ remote: false }, checkIn as never)).rejects.toThrow(/target_session_id is required/);
+      await expect(create.handler({ remote: false }, { ...checkIn, targetSessionId: 'missing' } as never)).rejects.toThrow(/Chat not found/);
+      const archived = await chatIn(wsId);
+      q.archiveChatSession(archived.id);
+      await expect(create.handler({ remote: false }, { ...checkIn, targetSessionId: archived.id } as never)).rejects.toThrow(/archived/);
+      const imported = q.createChatSession({ type: 'execution', harness: 'claude', surfaceKind: 'imported_agent', surfaceRef: 'claude', workspaceId: wsId });
+      await expect(create.handler({ remote: false }, { ...checkIn, targetSessionId: imported.id } as never)).rejects.toThrow(/imported from a terminal/);
+    });
+
+    it('refuses settings that belong to the chat or to other targets', async () => {
+      const { wsId } = await seed();
+      const chat = await chatIn(wsId);
+      const create = await findAction('create_trigger');
+      const ctx = { remote: false };
+      for (const extra of [{ provider: 'claude' }, { model: 'gpt-5.5' }, { effort: 'high' }, { serviceTier: 'priority' }]) {
+        await expect(create.handler(ctx, { ...checkIn, targetSessionId: chat.id, ...extra } as never)).rejects.toThrow(/own provider, model, effort and speed/);
+      }
+      const { wsId: otherWs } = await (async () => {
+        const { getDb } = await import('@/lib/db');
+        const { uuidv7 } = await import('uuidv7');
+        const { workspaces } = await import('@/lib/db/schema');
+        const id = uuidv7();
+        getDb().insert(workspaces).values({ id, name: 'Other', slug: 'other-' + Date.now(), cwd: '/tmp/other', isGit: false,
+          status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true }).run();
+        return { wsId: id };
+      })();
+      await expect(create.handler(ctx, { ...checkIn, targetSessionId: chat.id, workspaceId: otherWs } as never)).rejects.toThrow(/workspace_id comes from the target chat/);
+      await expect(create.handler(ctx, { ...checkIn, targetKind: 'workspace', workspaceId: wsId, targetSessionId: chat.id } as never)).rejects.toThrow(/only for target_kind=session/);
+    });
+
+    it('update_trigger edits schedule and prompt but not the chat\'s engine or model', async () => {
+      const { wsId } = await seed();
+      const chat = await chatIn(wsId);
+      const create = await findAction('create_trigger');
+      const { trigger } = await create.handler({ remote: false }, { ...checkIn, targetSessionId: chat.id } as never) as { trigger: TriggerRecord };
+      const update = await findAction('update_trigger');
+      const edited = await update.handler({ remote: false }, { id: trigger.id, enabled: false, prompt: 'Check it again.', intervalSeconds: 1800 } as never) as TriggerRecord;
+      expect(edited).toMatchObject({ enabled: false, prompt: 'Check it again.', intervalSeconds: 1800, targetSessionId: chat.id, harness: 'codex' });
+      await expect(update.handler({ remote: false }, { id: trigger.id, provider: 'claude' } as never)).rejects.toThrow(/own provider/);
+      await expect(update.handler({ remote: false }, { id: trigger.id, model: 'gpt-5.5' } as never)).rejects.toThrow(/own provider/);
+    });
+
+    it('list_triggers filters to chat targets', async () => {
+      const { wsId } = await seed();
+      const chat = await chatIn(wsId);
+      const create = await findAction('create_trigger');
+      await create.handler({ remote: false }, { ...checkIn, targetSessionId: chat.id } as never);
+      await create.handler({ remote: false }, { name: 'other', targetKind: 'orchestrator', prompt: 'X', kind: 'manual' } as never);
+      const list = await findAction('list_triggers');
+      const rows = await list.handler({ remote: false }, { targetKind: 'session' } as never) as TriggerRecord[];
+      expect(rows.map((r) => r.name)).toEqual(['check-in']);
+    });
+  });
 });

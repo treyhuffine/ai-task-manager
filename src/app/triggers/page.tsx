@@ -141,7 +141,9 @@ function TriggerRow({
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5">
           {humanizeCadence(trigger)}
-          {trigger.provider && ` · ${findProvider(trigger.provider)?.name ?? trigger.provider}`}
+          {trigger.targetKind === 'session'
+            ? ' · sends to a chat'
+            : trigger.provider && ` · ${findProvider(trigger.provider)?.name ?? trigger.provider}`}
           {trigger.nextRunAt && ` · next ${humanize(trigger.nextRunAt)}`}
           {trigger.lastRunStatus && ` · last ${trigger.lastRunStatus}`}
         </p>

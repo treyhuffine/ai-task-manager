@@ -11,6 +11,7 @@ import type {
 	CreateTriggerInput,
 	RunStatus,
 	RunTrigger,
+	TriggerTargetKind,
 	UpdateTriggerInput
 } from '@/db/types';
 import type { ProviderId } from '@/lib/harness/options';
@@ -31,7 +32,7 @@ export const triggersApi = {
   list(filter: {
     enabled?: boolean;
     workspaceId?: string | null;
-    targetKind?: 'workspace' | 'orchestrator';
+    targetKind?: TriggerTargetKind;
   } = {}) {
     const query: Record<string, string> = {};
     if (filter.enabled !== undefined) query.enabled = String(filter.enabled);

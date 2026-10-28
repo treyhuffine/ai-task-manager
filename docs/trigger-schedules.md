@@ -27,6 +27,14 @@ re-arm it. Paused jobs stay paused until resumed. The scheduler checks due jobs
 on its normal tick, so execution can start after the selected minute if the home
 is asleep or busy.
 
+A job can also send to one existing chat instead of starting a chat on each
+run. Agents and the CLI create these (`target_kind: "session"`, or
+`ri trigger create --target session --session <chat id>`), often for a chat's
+own check-ins. Its detail page shows **Sends to** with a link to that chat in
+place of **Runs on**, since the chat keeps its own provider and model. Lists say
+"sends to a chat". If that chat is archived or deleted, the next run pauses the
+job and says why.
+
 Schedule controls are shared by the creation form and detail editor. All saves
 use the existing tRPC procedures and orchestrator actions. No migration is needed.
 

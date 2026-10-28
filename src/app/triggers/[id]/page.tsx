@@ -3,8 +3,8 @@
 /**
  * Trigger detail at /triggers/<id>.
  *
- * Displays who runs it (provider, model, effort; editable in place),
- * prompt, editable cadence, recent runs (links to the chat session), and
+ * Displays who runs it (provider, model, effort; editable in place), or
+ * for a trigger that sends to one chat, that chat. Then the prompt, editable cadence, recent runs (links to the chat session), and
  * pause/delete actions.
  *
  * Failure banner (task #25): when consecutive_failures >= 3, show a
@@ -39,6 +39,7 @@ import { RunActivityBadge } from '@/components/runs/run-activity-badge';
 import { isReservedTrigger, lockedFieldsFor, RESERVED_TRIGGER_IDS, type ReservedLockableField } from '@/lib/triggers/reserved';
 import { openSettings } from '@/components/settings/settings-store';
 import { TriggerRunsOn } from '@/components/triggers/trigger-runs-on';
+import { TriggerTargetChat } from '@/components/triggers/trigger-target-chat';
 import { AwakeNote } from '@/components/triggers/awake-note';
 import { TriggerSchedule } from '@/components/triggers/trigger-schedule';
 
@@ -203,12 +204,21 @@ export default function TriggerDetailPage() {
 
         <TriggerSchedule key={trigger.id} trigger={trigger} />
 
-        <section>
-          <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
-            Runs on
-          </h2>
-          <TriggerRunsOn trigger={trigger} />
-        </section>
+        {trigger.targetKind === 'session' ? (
+          <section>
+            <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+              Sends to
+            </h2>
+            <TriggerTargetChat sessionId={trigger.targetSessionId} concurrencyPolicy={trigger.concurrencyPolicy} />
+          </section>
+        ) : (
+          <section>
+            <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+              Runs on
+            </h2>
+            <TriggerRunsOn trigger={trigger} />
+          </section>
+        )}
 
         <section>
           <h2 className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
@@ -303,7 +313,11 @@ function RunRowSmall({ run }: { run: RunRecord }) {
     >
       <RunActivityBadge runId={run.id} terminalStatus={terminal} />
       <span className="flex-1 truncate text-muted-foreground text-[12px]">
-        {run.status === 'failed' ? run.errorMessage ?? run.summary ?? '-' : run.summary ?? '-'}
+        {run.status === 'failed'
+          ? run.errorMessage ?? run.summary ?? '-'
+          : run.status === 'skipped' && run.statusReason
+            ? describeSkip(run.statusReason)
+            : run.summary ?? '-'}
       </span>
       <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
         {run.startedAt ? humanize(run.startedAt) : '-'}
@@ -315,6 +329,19 @@ function RunRowSmall({ run }: { run: RunRecord }) {
       )}
     </Link>
   );
+}
+
+const SKIP_REASONS: Record<string, string> = {
+  trigger_busy: 'Skipped: its last run was still going',
+  execution_busy: 'Skipped: another run was going in the same folder',
+  coalesced_into_active: 'Added to the turn already under way',
+  chat_busy: 'Skipped: the chat was busy',
+  chat_paused: 'Skipped: the chat\u2019s incoming messages were paused',
+};
+
+/** Why a fire didn't run, in words. Unlisted reasons read as their code. */
+function describeSkip(reason: string): string {
+  return SKIP_REASONS[reason] ?? `Skipped: ${reason.replaceAll('_', ' ')}`;
 }
 
 const LOCK_LABELS: Record<ReservedLockableField, string> = {

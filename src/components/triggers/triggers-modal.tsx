@@ -359,7 +359,9 @@ function Row({
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
           {cadence}
-          {trigger.provider && ` · ${findProvider(trigger.provider)?.name ?? trigger.provider}`}
+          {trigger.targetKind === 'session'
+            ? ' · sends to a chat'
+            : trigger.provider && ` · ${findProvider(trigger.provider)?.name ?? trigger.provider}`}
           {trigger.lastFiredAt && ` · ran ${ranAgo(trigger.lastFiredAt)}`}
         </p>
       </button>

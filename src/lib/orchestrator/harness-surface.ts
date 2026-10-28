@@ -262,7 +262,10 @@ didn't ask about.
 
 For recurring duties ("check my executions every morning and nudge stalled
 ones"), create a trigger with \`target_kind=orchestrator\`. Scheduled fires
-run with this same tool surface.`;
+run with this same tool surface. To check in on one chat ("ping that
+execution at 9 tomorrow"), create it with \`target_kind=session\` and
+\`target_session_id\`: each fire goes straight into that chat, with no
+relay chat in between. Omit the id to schedule a check-in on this chat.`;
 
 const BROWSER_SECTION = `## Browser
 

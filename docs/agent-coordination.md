@@ -36,6 +36,7 @@ Stable addresses are `orchestrator`, `agent` for the caller's own agent, and `ag
 | `cancel_agent_request` | Cancel an outgoing obligation and descendants, stopping delegated work |
 | `get_session_events` | Bounded, indexed history pages |
 | `get_chat_event` | One exact message or tool input in bounded text slices |
+| `create_trigger`, `list_triggers`, `get_trigger`, `update_trigger`, `delete_trigger` | Schedules, so a chat can book its own check-ins (see Scheduled jobs) |
 
 `message_agent` requires `target`, `content`, `response` and `request_id`. The last field is a caller retry key for unchanged intent. Receipts identify the server delivery and optional request separately. A changed operation under the same retry key conflicts.
 
@@ -98,6 +99,18 @@ Archive preserves exact history. Hard deletion settles unaccepted coordination b
 ## Scheduled jobs
 
 Enabling an automation authorizes communication and delegation needed for its assignment. The dispatcher initializes each trigger-fired chat with the existing chat-level Allow automatically preference. This includes first-time execution creation, later recurring execution chats, orchestrator jobs, one-time jobs, interval jobs, webhooks and Run now. Ordinary interactive chat defaults remain unchanged. There are no new permission tables, recipient grants or trigger preference columns. Future fires of existing schedules use the new default without a migration or historical replay.
+
+### Check-ins on an existing chat
+
+A trigger with `target_kind: "session"` sends each fire into one existing chat instead of starting a chat. `target_session_id` names it. Called from a chat with no id, it is the calling chat, so a chat can schedule its own check-ins ("look at the backfill every 15 minutes", "resume at 9 tomorrow"). Execution chats have the trigger tools on their coordination surface for this. The signed CLI already reached the same actions (`ri trigger create --target session`), so the tools grant nothing new. They give the agent typed parameters and guidance in place of discovering the CLI through `--help`.
+
+The fire is the trigger's prompt behind a `[from trigger <name> (<id>)]` marker, sent as its own run in that chat. The chat keeps its own engine, model, folder and coordination policy, so a chat target refuses provider, model, effort and service tier. Its agent and engine come from the chat. Nothing is created: no execution and no chat, and the chat's `created_by_run_id` stays as it was.
+
+- A fire while incoming messages are paused (Hold) is skipped as `chat_paused`, since a trigger is automatic input.
+- A fire while the chat is busy is skipped as `chat_busy`. Busy is a turn in flight here or on its device, background tasks, a send not yet taken, or the trigger's own earlier fire, the same reading coordination uses before delivering. Chat targets default to `skip_if_running`, because a busy chat is already awake. With `coalesce_if_active` the prompt joins the turn under way. One chat runs one turn at a time, so `allow_concurrent` skips too.
+- A chat that has been archived or deleted fails the fire with `target_chat_unavailable` and pauses the trigger. `target_session_id` is a plain id, not a foreign key: every fire looks the chat up.
+
+This replaces the relay pattern, where a workspace or orchestrator trigger started a fresh chat on every fire only to message the chat that owned the work. The trade-off is the one docs/executions-spec.md §6 names: the target chat's conversation grows with every fire. The creator chooses that by naming a chat.
 
 A person may change that run chat's preference, pause incoming messages or stop the run. If the turn ends with its own send still awaiting approval, the run fails with `coordination_approval_required` and an actionable message. Its normal terminal notification route is used, with the existing needs-input route as fallback. There is one notification route per failure and no duplicate on repeated result callbacks. Already authorized queued messages remain delivery state. A run's completed turn is distinct from an accepted delivery or a finished delegated assignment.
 

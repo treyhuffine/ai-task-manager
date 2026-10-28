@@ -11,7 +11,8 @@
  *     task #12, so manual chat shows up in the same run history
  *
  * Behavior derives from `trigger.kind` + `trigger.targetKind` per
- * docs/executions-spec.md §6. No `session_strategy` enum.
+ * docs/executions-spec.md §6. No `session_strategy` enum. A `session`
+ * target names one existing chat and sends into it (`dispatchToChat`).
  */
 
 import { assertPersonalCapability } from '@/lib/home/authority';
@@ -41,6 +42,9 @@ import {
   setTriggerLastRun,
   findActiveRunForExecution,
   findActiveRunForTrigger,
+  findActiveRunForChatSession,
+  getChatSession,
+  hasPendingCoordinationSend,
   bumpSessionOutcome,
   getWorkspace,
   insertChatEvent,
@@ -52,6 +56,8 @@ import { finishRun } from './finish';
 import { withdrawQueuedSend } from '@/lib/workers/undelivered';
 import { withApiLease } from '@/lib/runs/rate-lease';
 import { dispatch as executorDispatch, abort as executorAbort, type DispatchOptions } from '@/lib/executor/adapter';
+import { isRunning, hasBackgroundTasks } from '@/lib/executor/live-state';
+import { isImportMirror } from '@/lib/import/mirror';
 import { provisionWorktreeForSession } from '@/lib/sessions/dispatch';
 import { runArtifactBucket } from './artifact-bucket';
 import { budgetGate, BUDGET_DISABLED_REASON } from './budget';
@@ -108,6 +114,10 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
     setTriggerLastRun(trigger.id, skipped.id, 'skipped');
     return { run: skipped, chatSession: null };
   }
+
+  // A chat target sends into that chat as it is: its own engine, model and
+  // folder. No execution to resolve and no chat to create.
+  if (trigger.targetKind === 'session') return dispatchToChat(args);
 
   // Resolve before inserting any chat. A NULL model follows the same live
   // catalog used for speed validation, for both new and existing executions.
@@ -240,6 +250,82 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
   markRunStarted(run.id);
   void runUnderLease(run.id, chat.id, trigger, resolved.execution, triggerPayload);
 
+  return { run, chatSession: chat };
+}
+
+/** Why a chat target can't take a fire at all. Pauses the trigger. */
+export const TARGET_CHAT_UNAVAILABLE = 'target_chat_unavailable';
+
+/**
+ * A fire for a `session` target: the trigger's prompt goes into that existing
+ * chat as a message from the trigger, as its own run. Nothing is created, and
+ * the chat keeps its engine, model, folder and coordination policy.
+ *
+ * - A chat that is archived, deleted or can't take messages fails the fire
+ *   and pauses the trigger, so it never fires into nothing every interval.
+ * - A chat whose incoming messages are paused (Hold) skips the fire. Hold is
+ *   the person taking the chat back, and a trigger is automatic input.
+ * - A busy chat (a turn in flight here or on its device, background tasks, a
+ *   send not yet taken, or this trigger's earlier fire) follows the
+ *   trigger's concurrency policy: coalesce adds the prompt to the turn under
+ *   way, anything else skips. One chat runs one turn at a time, so
+ *   `allow_concurrent` skips too. "Busy" is the same reading coordination
+ *   uses before it delivers a message (`busy` in coordination/service.ts).
+ */
+async function dispatchToChat(args: DispatchRunArgs): Promise<DispatchedRunResult> {
+  const { trigger, triggerKind, triggerPayload = null, scheduledFor = null } = args;
+  const chat = trigger.targetSessionId ? getChatSession(trigger.targetSessionId) : undefined;
+  const unavailable = !chat ? 'The chat this trigger sends to no longer exists.'
+    : chat.status !== 'active' ? 'The chat this trigger sends to is archived.'
+    : chat.surfaceKind === 'team_chat' || chat.surfaceKind === 'result_review' || isImportMirror(chat)
+      ? 'The chat this trigger sends to cannot take messages.'
+      : null;
+  if (!chat || unavailable) {
+    updateTrigger(trigger.id, { enabled: false, disabledReason: TARGET_CHAT_UNAVAILABLE });
+    return recordTargetFailure(args, TARGET_CHAT_UNAVAILABLE, `${unavailable} The trigger is paused.`);
+  }
+
+  const skip = (reason: string): DispatchedRunResult => {
+    const skipped = recordSkipped({
+      trigger,
+      executionId: chat.executionId,
+      workspaceId: chat.workspaceId,
+      chatSessionId: chat.id,
+      triggerKind,
+      triggerPayload,
+      scheduledFor,
+      reason,
+    });
+    setTriggerLastRun(trigger.id, skipped.id, 'skipped');
+    return { run: skipped, chatSession: null };
+  };
+  if (chat.coordinationHeldAt) return skip('chat_paused');
+  const busy = isRunning(chat.id) || hasBackgroundTasks(chat.id) || hasPendingCoordinationSend(chat.id)
+    || !!findActiveRunForChatSession(chat.id);
+  if (busy) {
+    if (trigger.concurrencyPolicy !== 'coalesce_if_active') return skip('chat_busy');
+    appendCoalescedMessage({ blockerChatSessionId: chat.id, trigger, triggerPayload });
+    return skip(triggerConcurrencyReason('coalesce_if_active')!);
+  }
+
+  const execution = chat.executionId ? getExecution(chat.executionId) ?? null : null;
+  const run = createRun({
+    triggerId: trigger.id,
+    workspaceId: chat.workspaceId,
+    executionId: chat.executionId,
+    chatSessionId: chat.id,
+    // The chat's engine, which a harness switch may have changed since the
+    // trigger was made.
+    harness: chat.harness,
+    triggerKind,
+    triggerPayload,
+    scheduledFor,
+    status: 'queued',
+  });
+  // The chat already existed, so this run did not create it:
+  // `createdByRunId` stays as it was.
+  markRunStarted(run.id);
+  void runUnderLease(run.id, chat.id, trigger, execution, triggerPayload);
   return { run, chatSession: chat };
 }
 
@@ -451,11 +537,17 @@ function appendCoalescedMessage(args: {
     });
 }
 
+/**
+ * A fire's prompt as it lands in a chat someone else is already using: a
+ * coalesced fire, or any fire for a `session` target. The marker names the
+ * trigger for the person reading the chat, and gives the agent the id to
+ * change or pause it with.
+ */
 function composeCoalescedContent(
   trigger: TriggerRecord,
   triggerPayload: Record<string, unknown> | string | null,
 ): string {
-  const header = `[from trigger ${trigger.name}]`;
+  const header = `[from trigger ${trigger.name} (${trigger.id})]`;
   return `${header}\n\n${promptForTrigger(trigger, triggerPayload)}`;
 }
 
@@ -535,7 +627,9 @@ async function runUnderLease(
       bumpSessionOutcome(chatSessionId);
       return;
     }
-    const prompt = promptForTrigger(trigger, triggerPayload);
+    const prompt = trigger.targetKind === 'session'
+      ? composeCoalescedContent(trigger, triggerPayload)
+      : promptForTrigger(trigger, triggerPayload);
     // Persist a user chat_event mirroring the route layer's pattern
     // for normal sends. Without this, scheduled chats show only the
     // agent's responses with no record of what triggered them — and

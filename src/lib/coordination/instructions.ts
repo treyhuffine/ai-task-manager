@@ -10,6 +10,8 @@ Ri's main orchestrator chat and each agent's main chat are unrestricted for mess
 
 Enabled automations authorize communication for their assignment. Their run chats start with Allow automatically, including new chats on later fires. Create, enable or change schedules only within the user's intent. Never create a schedule to bypass a denied send or other human restriction. When scheduling a send, confirm the schedule is enabled and report its time and destination. A queued or saved delivery is still pending, not completed. If a run is blocked, identify what did not happen and what needs attention.
 
+To come back to your own work later (a job to check on, a time to resume), create a trigger with target_kind "session". It defaults to this chat, and each fire arrives here as a message from the trigger, skipped while you are busy. Pause it with update_trigger enabled=false once it is no longer needed. target_kind "workspace" starts a fresh chat on every fire, so keep it for independent recurring work.
+
 For history, search_sessions includes personal main chats, get_session_events pages complete messages, and get_chat_event reads the rest of a long message.
 
 When native coordination tools are unavailable, the same actions are available through the signed CLI: "\${RI_SESSION_CLI:-ri}" agent <action> --input '<JSON>'.`;

@@ -2831,7 +2831,13 @@ export const triggers = sqliteTable(
     // or the user's default one.
     harness: text({ enum: HARNESS_VALUES }).notNull(),
     workspaceId: text().references(() => workspaces.id, { onDelete: 'cascade' }),
-    targetKind: text({ enum: ['workspace', 'orchestrator'] }).notNull(),
+    targetKind: text({ enum: ['workspace', 'orchestrator', 'session'] }).notNull(),
+    // targetKind 'session': the existing chat every fire sends its prompt
+    // into, instead of starting a chat. That chat keeps its own engine and
+    // model, so `harness` mirrors it. A plain id, not a foreign key: every
+    // fire looks the chat up, and one that is archived or gone pauses the
+    // trigger, saying why (dispatch.ts `dispatchToChat`).
+    targetSessionId: text(),
 
     // The thing to do when fired.
     prompt: text().notNull(),

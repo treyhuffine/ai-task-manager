@@ -56,8 +56,17 @@ function registerTriggerCommand(program: Command) {
     .option('--webhook', 'Webhook-triggered trigger.')
     .option('--timezone <tz>', 'IANA timezone for cron interpretation.', 'UTC')
     // ── Target / provider ──
-    .option('--target <kind>', 'workspace | orchestrator', 'workspace')
+    .option(
+      '--target <kind>',
+      'workspace (a fresh chat in that agent each fire) | orchestrator (a fresh Ri chat each fire) | ' +
+        'session (one existing chat each fire)',
+      'workspace',
+    )
     .option('--workspace <id-or-slug>', 'Target workspace (required when target=workspace).')
+    .option(
+      '--session <chat-id>',
+      'Chat each fire sends to (target=session). Run from inside a chat, omit it to target that chat.',
+    )
     .option(
       '--provider <id>',
       `Who runs it: ${KNOWN_HARNESS_IDS.join(' | ')}. Defaults to your default provider.`,
@@ -72,8 +81,8 @@ function registerTriggerCommand(program: Command) {
     )
     .option(
       '--concurrency <policy>',
-      'skip_if_running | coalesce_if_active | allow_concurrent',
-      'coalesce_if_active',
+      'skip_if_running | coalesce_if_active | allow_concurrent. Defaults to skip_if_running for ' +
+        'target=session, coalesce_if_active otherwise.',
     )
     .action(async (opts) => {
       const promptText = opts.promptFile
@@ -99,6 +108,7 @@ function registerTriggerCommand(program: Command) {
         ...(opts.provider ? { provider: opts.provider } : {}),
         targetKind: opts.target,
         workspaceId: opts.workspace ?? null,
+        ...(opts.session ? { targetSessionId: opts.session } : {}),
         kind: compiled.kind,
         cronExpression: compiled.cronExpression,
         intervalSeconds: compiled.intervalSeconds,
@@ -109,7 +119,7 @@ function registerTriggerCommand(program: Command) {
         timeoutSeconds: opts.timeout,
         activeHoursStart: startHours,
         activeHoursEnd: endHours,
-        concurrencyPolicy: opts.concurrency,
+        ...(opts.concurrency ? { concurrencyPolicy: opts.concurrency } : {}),
       };
       const envelope = await dispatchAction('create_trigger', input);
       unwrapAndPrint(envelope);

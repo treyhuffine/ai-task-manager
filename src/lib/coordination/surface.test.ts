@@ -54,6 +54,13 @@ describe('execution coordination tools', () => {
     for (const name of ['update_workspace', 'create_workspace', 'create_skill', 'update_heartbeat']) expect(COORDINATION_TOOLS).not.toContain(name);
   });
 
+  it('lets a chat schedule its own check-ins with typed trigger tools', async () => {
+    for (const name of ['create_trigger', 'list_triggers', 'get_trigger', 'update_trigger', 'delete_trigger']) expect(COORDINATION_TOOLS).toContain(name);
+    for (const name of ['run_trigger', 'reset_trigger_failures', 'cancel_run']) expect(COORDINATION_TOOLS).not.toContain(name);
+    const { COORDINATION_INSTRUCTIONS } = await import('./surface');
+    expect(COORDINATION_INSTRUCTIONS).toContain('target_kind "session"');
+  });
+
   it.each([true, false])('reports this execution\'s identity, stable agent address and effective MCP reach when isolation is %s', async (strict) => {
     scope.strict = strict;
     const workspace = q.createWorkspace({ name: 'Project', cwd: home.root, isGit: false, browserEnabled: true });

@@ -526,7 +526,10 @@ The mutex check is a cheap indexed query; `runs(execution_id, status)` index mak
 V1 has **no `session_strategy` enum**. Behavior is derived from `schedules.kind` and `schedules.target_kind`. Three deterministic branches:
 
 ```
-if target_kind == 'orchestrator':
+if target_kind == 'session':
+    send into the chat named by target_session_id, every fire
+    no new execution, no new chat (see "Sending to an existing chat" below)
+elif target_kind == 'orchestrator':
     no execution (orchestrator chats have execution_id=NULL)
     create a new chat_session each fire
 elif kind == 'at':
@@ -555,6 +558,8 @@ This matches what OpenClaw, Hermes, Paperclip, GBrain, and Claude Code Routines 
 
 - **"Continuous" mode** (reuse both execution *and* chat across fires) is not exposed. It's a foot-gun — conversations grow forever, Claude's compaction does opaque work, early-fire context loses fidelity. If a real use case emerges in V2, add a `continuous_chat` boolean on `schedules`; existing schedules stay on derived behavior, new schedules can opt in. Pure additive change.
 - **"New execution per fire" on recurring schedules.** There's no clean workaround — the user wanting this should create the schedule as `kind='at'` and have something else re-create it, or accept that recurring workspace schedules accumulate. If a real use case emerges, add the knob in v2.
+
+**Sending to an existing chat (added 2026-10-27).** `target_kind='session'` is not the "continuous" mode above. That mode would have kept a trigger's own chat across fires. A session target names a chat that already exists, usually the one that owns the work, and each fire arrives there as a message from the trigger, on that chat's engine and model. It exists because the alternative was a relay: on 2026-10-26 a chat that wanted progress reports on a backfill made a 15-minute workspace trigger, and every fire started a new chat (23 in ten hours) whose only job was to message the original chat and wake it. The conversation growth this section warns about is real, so it is the creator's choice, made by naming the chat. Busy, paused, archived and deleted chats are handled at fire time (`dispatchToChat` in `src/lib/runs/dispatch.ts`, and docs/agent-coordination.md, Scheduled jobs).
 
 **Adding configurability back in V2 is non-breaking:** new nullable column, existing rows fall through to derived behavior. We're deferring the knob until we have data on whether it's wanted.
 

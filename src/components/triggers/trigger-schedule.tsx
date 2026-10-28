@@ -22,7 +22,11 @@ export function TriggerSchedule({ trigger }: { trigger: TriggerRecord }) {
           </button>
         )}
       </div>
-      <p className="text-[12px] text-muted-foreground">When this job runs, it can message other chats and start new chats for its assignment.</p>
+      <p className="text-[12px] text-muted-foreground">
+        {trigger.targetKind === 'session'
+          ? 'This job runs in its chat, under that chat\u2019s own permission to message other chats and start new ones.'
+          : 'When this job runs, it can message other chats and start new chats for its assignment.'}
+      </p>
       {editing ? (
         <ScheduleForm trigger={trigger} onClose={() => setEditing(false)} />
       ) : (

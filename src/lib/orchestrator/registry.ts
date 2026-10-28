@@ -145,6 +145,7 @@ import { uuidv7 } from 'uuidv7';
 import { z } from 'zod';
 import { browserActions } from './browser-actions';
 import { ActionError, defineAction, type Action, type ActionContext } from './types';
+import type { ChatSessionRecord } from '@/db/types';
 // `dispatchRun` and the executor `abort` transitively load `@agentex/agent`,
 // which has no `require` condition in its package exports. Top-level imports
 // here would crash `tsx src/cli/index.ts` (CJS resolution) on every CLI
@@ -2141,7 +2142,7 @@ const read_memory_action = defineAction({
 // ── Triggers + Runs ─────────────────────────────────────────
 
 const triggerKind = z.enum(['manual', 'at', 'every', 'cron', 'webhook']);
-const triggerTargetKind = z.enum(['workspace', 'orchestrator']);
+const triggerTargetKind = z.enum(['workspace', 'orchestrator', 'session']);
 const triggerConcurrencyPolicy = z.enum([
   'skip_if_running',
   'coalesce_if_active',
@@ -2285,6 +2286,9 @@ const createTriggerShape = {
   agentId: removedAgentIdParam,
   workspaceId: z.string().nullable().optional(),
   targetKind: triggerTargetKind,
+  // target_kind=session: the chat each fire messages. Called from a chat and
+  // omitted, it is that chat.
+  targetSessionId: z.string().min(1).nullable().optional(),
   prompt: z.string().min(1),
   skillHints: z.array(z.string()).nullable().optional(),
   kind: triggerKind,
@@ -2314,6 +2318,33 @@ function assertValidRunAt(runAt: string | null | undefined) {
   }
 }
 
+/**
+ * The chat a `target_kind=session` trigger sends to: the one named, or the
+ * calling chat when none is. It must be able to take a message now. Fires
+ * check again, and pause the trigger if it has since been archived or deleted.
+ */
+function resolveTriggerTargetChat(ctx: ActionContext, requested: string | null | undefined): ChatSessionRecord {
+  const id = requested ?? ctx.actor?.sessionId;
+  if (!id) {
+    throw new ActionError('invalid_params', 'target_session_id is required when target_kind=session. Called from a chat, omit it to target that chat.');
+  }
+  const chat = getChatSession(id);
+  if (!chat) throw new ActionError('not_found', `Chat not found: ${id}`);
+  if (chat.status !== 'active') throw new ActionError('conflict', 'That chat is archived. A trigger can only send to an active chat.');
+  if (chat.surfaceKind === 'team_chat' || chat.surfaceKind === 'result_review') {
+    throw new ActionError('unsupported', 'That chat uses a separate restricted tool surface, so a trigger cannot send to it.');
+  }
+  if (isImportMirror(chat)) throw new ActionError('unsupported', 'That chat mirrors a session imported from a terminal, so a trigger cannot send to it.');
+  return chat;
+}
+
+/** A chat runs on its own engine, model, effort and speed, never a trigger's. */
+function assertNoRunsOnForChatTarget(input: { provider?: unknown; model?: unknown; effort?: unknown; serviceTier?: unknown }) {
+  if (input.provider != null || input.model != null || input.effort != null || input.serviceTier != null) {
+    throw new ActionError('invalid_params', 'A target_kind=session trigger runs on its chat\'s own provider, model, effort and speed. Omit provider, model, effort and service_tier.');
+  }
+}
+
 function assertValidTriggerTimezone(timezone: string | null | undefined) {
   try {
     new Intl.DateTimeFormat('en', { timeZone: timezone ?? 'UTC' }).format();
@@ -2326,10 +2357,11 @@ const create_trigger_action = defineAction({
   name: 'create_trigger',
   description:
     'Create a trigger. Kind-specific fields are enforced (cron requires cron_expression, every requires interval_seconds, at requires run_at, webhook generates credentials, manual takes no cadence fields and only fires via run_trigger). ' +
-    'provider picks who runs it (defaults to the user\'s default provider); model and effort are validated against that provider. Enabling an automation authorizes its run chats to message and delegate within the assignment without per-send coordination approval. Create schedules only within the user\'s intent, never to bypass a denied send.',
+    'target_kind decides where each fire runs. session sends the prompt into one existing chat as a message from the trigger: target_session_id names it, and called from a chat it defaults to that chat, so a chat can schedule its own check-ins. The chat keeps its own provider and model, and a fire while it is busy is skipped unless concurrency_policy says otherwise. workspace starts a fresh chat in that agent on every fire. orchestrator starts a fresh Ri chat on every fire. ' +
+    'provider picks who runs a workspace or orchestrator trigger (defaults to the user\'s default provider); model and effort are validated against that provider. Enabling an automation authorizes its run chats to message and delegate within the assignment without per-send coordination approval. Create schedules only within the user\'s intent, never to bypass a denied send.',
   params: createTriggerShape,
   mutating: true,
-  handler: async (_ctx, input) => {
+  handler: async (ctx, input) => {
     assertValidTriggerTimezone(input.timezone);
     // Per-kind validation: catch bad rows here rather than at the tick.
     if (input.kind === 'cron') {
@@ -2344,6 +2376,17 @@ const create_trigger_action = defineAction({
       }
     } else if (input.kind === 'at') {
       assertValidRunAt(input.runAt);
+    }
+
+    // A chat target takes its agent and engine from the chat itself.
+    const targetChat = input.targetKind === 'session' ? resolveTriggerTargetChat(ctx, input.targetSessionId) : null;
+    if (targetChat) {
+      assertNoRunsOnForChatTarget(input);
+      if (input.workspaceId && input.workspaceId !== targetChat.workspaceId) {
+        throw new ActionError('invalid_params', 'workspace_id comes from the target chat when target_kind=session. Omit it.');
+      }
+    } else if (input.targetSessionId) {
+      throw new ActionError('invalid_params', 'target_session_id is only for target_kind=session');
     }
 
     // Workspace target needs workspace_id; orchestrator must not have one.
@@ -2365,7 +2408,7 @@ const create_trigger_action = defineAction({
     );
 
     rejectRemovedAgentId(input.agentId);
-    const harness = input.provider ?? defaultTriggerHarness();
+    const harness = targetChat?.harness ?? input.provider ?? defaultTriggerHarness();
     assertModelFitsProvider(harness, input.model);
 
     // Webhook credentials generated server-side; the plaintext secret
@@ -2391,14 +2434,15 @@ const create_trigger_action = defineAction({
     const nextRunAt = computeNextRun(draft);
 
     await validateTriggerSpeed(harness, input.model, input.serviceTier);
-    const serviceTier = input.serviceTier ?? await speedForTriggerModel(harness, input.model, null);
+    const serviceTier = targetChat ? null : input.serviceTier ?? await speedForTriggerModel(harness, input.model, null);
     const row = createTrigger({
       name: input.name,
       description: input.description ?? null,
       enabled: input.enabled ?? true,
       harness,
-      workspaceId: input.workspaceId ?? null,
+      workspaceId: targetChat ? targetChat.workspaceId : input.workspaceId ?? null,
       targetKind: input.targetKind,
+      targetSessionId: targetChat?.id ?? null,
       prompt: input.prompt,
       skillHints: input.skillHints ?? null,
       kind: input.kind,
@@ -2408,7 +2452,9 @@ const create_trigger_action = defineAction({
       timezone: input.timezone ?? 'UTC',
       activeHoursStart: input.activeHoursStart ?? null,
       activeHoursEnd: input.activeHoursEnd ?? null,
-      concurrencyPolicy: input.concurrencyPolicy ?? 'coalesce_if_active',
+      // A busy chat is already awake, so by default a fire skips it rather
+      // than landing in the middle of other work.
+      concurrencyPolicy: input.concurrencyPolicy ?? (targetChat ? 'skip_if_running' : 'coalesce_if_active'),
       catchUpPolicy: input.catchUpPolicy ?? 'skip_missed',
       maxCatchUpRuns: input.maxCatchUpRuns ?? 3,
       webhookPublicId,
@@ -2489,6 +2535,8 @@ const update_trigger_action = defineAction({
         );
       }
     }
+
+    if (current.targetKind === 'session') assertNoRunsOnForChatTarget({ provider, ...rest });
 
     // Provider switch. Model and effort only mean something within one
     // provider, so a switch that doesn't restate them resets both to the new

@@ -1,0 +1,1 @@
+ALTER TABLE `triggers` ADD `target_session_id` text;

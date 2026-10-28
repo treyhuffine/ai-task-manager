@@ -7,6 +7,10 @@ export const COORDINATION_TOOLS = [
   'get_session_context', 'message_agent', 'delegate_work', 'get_agent_request', 'get_agent_delivery', 'list_agent_requests', 'reply_agent_request', 'cancel_agent_request',
   'list_workspaces', 'get_workspace', 'get_session_messages', 'get_session_events', 'get_chat_event', 'search_sessions',
   'get_pending_input', 'answer_pending_input', 'read_memory',
+  // Schedules, so a chat can book its own check-ins (target_kind=session)
+  // with typed tools instead of shelling out to the signed CLI, which
+  // reaches the same actions.
+  'create_trigger', 'list_triggers', 'get_trigger', 'update_trigger', 'delete_trigger',
 ] as const;
 
 export function coordinationMcpServer(sessionId: string): McpServerConfig | null {
