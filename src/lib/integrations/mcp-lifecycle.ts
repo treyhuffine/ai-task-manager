@@ -6,7 +6,7 @@ import { hostedMcpConnectionId } from './hosted-mcp';
 import { mcpIngestOverrides } from './mcp-approval-policy';
 
 function lifecycleLock(): Lock {
-  return fileLock({ dir: path.join(getConfigDir(), 'integrations', 'locks') });
+  return fileLock({ dir: path.join(/* turbopackIgnore: true */ getConfigDir(), 'integrations', 'locks') });
 }
 
 // The derived connection id is stable across server removal/recreation. Using

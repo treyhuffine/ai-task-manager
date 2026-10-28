@@ -15,7 +15,7 @@ import { getConfigDir } from '@/lib/config/paths';
 const STORE_VERSION = 1;
 
 function dir(): string {
-  return path.join(getConfigDir(), 'team-ai');
+  return path.join(/* turbopackIgnore: true */ getConfigDir(), 'team-ai');
 }
 
 function harden(target: string, mode: number): void {
@@ -35,9 +35,9 @@ function ensureDir(): string {
 
 /** A secret file made once and kept, 0600. */
 function keptSecret(name: string, make: () => string): string {
-  const file = path.join(dir(), name);
+  const file = path.join(/* turbopackIgnore: true */ dir(), name);
   try {
-    const existing = fs.readFileSync(file, 'utf8').trim();
+    const existing = fs.readFileSync(/* turbopackIgnore: true */ file, 'utf8').trim();
     if (existing) {
       harden(file, 0o600);
       return existing;
@@ -53,7 +53,7 @@ function keptSecret(name: string, make: () => string): string {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
   }
   harden(file, 0o600);
-  return fs.readFileSync(file, 'utf8').trim();
+  return fs.readFileSync(/* turbopackIgnore: true */ file, 'utf8').trim();
 }
 
 function sealingKey(): string {
@@ -67,14 +67,14 @@ interface StoredFile {
 }
 
 function credentialFile(): string {
-  return path.join(dir(), 'credentials.json');
+  return path.join(/* turbopackIgnore: true */ dir(), 'credentials.json');
 }
 
 /** Keep the team's provider key. Replaces any earlier one. */
 export async function saveTeamAiApiKey(apiKey: string): Promise<void> {
   const sealedApiKey = await aesGcmSecretBox({ key: sealingKey() }).seal({ apiKey });
   const d = ensureDir();
-  const temporary = path.join(d, `credentials.${process.pid}.${Date.now()}.tmp`);
+  const temporary = path.join(/* turbopackIgnore: true */ d, `credentials.${process.pid}.${Date.now()}.tmp`);
   const value: StoredFile = { version: STORE_VERSION, sealedApiKey, setAt: new Date().toISOString() };
   fs.writeFileSync(temporary, JSON.stringify(value, null, 2), { mode: 0o600 });
   fs.renameSync(temporary, credentialFile());
@@ -85,7 +85,7 @@ export async function saveTeamAiApiKey(apiKey: string): Promise<void> {
 export async function readTeamAiApiKey(): Promise<string | null> {
   let stored: Partial<StoredFile>;
   try {
-    stored = JSON.parse(fs.readFileSync(credentialFile(), 'utf8')) as Partial<StoredFile>;
+    stored = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ credentialFile(), 'utf8')) as Partial<StoredFile>;
   } catch {
     return null;
   }
@@ -99,13 +99,13 @@ export async function readTeamAiApiKey(): Promise<string | null> {
 }
 
 export function hasTeamAiApiKey(): boolean {
-  return fs.existsSync(credentialFile());
+  return fs.existsSync(/* turbopackIgnore: true */ credentialFile());
 }
 
 /** An opaque revision of the saved credential, never the provider secret. */
 export function teamAiCredentialVersion(): string | null {
   try {
-    return createHash('sha256').update(fs.readFileSync(credentialFile())).digest('hex');
+    return createHash('sha256').update(fs.readFileSync(/* turbopackIgnore: true */ credentialFile())).digest('hex');
   } catch {
     return null;
   }

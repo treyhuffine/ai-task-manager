@@ -160,7 +160,7 @@ function realpathOr(folder: string): string {
   try {
     return fs.realpathSync(folder);
   } catch {
-    return path.resolve(folder);
+    return path.resolve(/* turbopackIgnore: true */ folder);
   }
 }
 

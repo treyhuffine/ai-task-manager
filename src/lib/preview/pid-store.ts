@@ -42,17 +42,17 @@ export interface PidRecord {
 }
 
 function getPreviewDir(): string {
-  return path.join(getWorkDir(), 'preview');
+  return path.join(/* turbopackIgnore: true */ getWorkDir(), 'preview');
 }
 
 function ensureDir(): string {
   const dir = getPreviewDir();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
 function recordPath(key: string): string {
-  return path.join(getPreviewDir(), `${sanitize(key)}.pid`);
+  return path.join(/* turbopackIgnore: true */ getPreviewDir(), `${sanitize(key)}.pid`);
 }
 
 /** Defensive — keys are UUIDs so this is documentation, not real sanitization. */
@@ -62,7 +62,7 @@ function sanitize(id: string): string {
 
 export function writePid(rec: PidRecord): void {
   const dir = ensureDir();
-  const tmp = path.join(dir, `${sanitize(rec.key)}.pid.tmp`);
+  const tmp = path.join(/* turbopackIgnore: true */ dir, `${sanitize(rec.key)}.pid.tmp`);
   const target = recordPath(rec.key);
   fs.writeFileSync(tmp, JSON.stringify(rec), { mode: 0o600 });
   // Atomic move so a partial write never leaves a half-formed file.
@@ -80,12 +80,12 @@ export function deletePid(key: string): void {
 
 export function listPidRecords(): PidRecord[] {
   const dir = getPreviewDir();
-  if (!fs.existsSync(dir)) return [];
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) return [];
   const out: PidRecord[] = [];
-  for (const name of fs.readdirSync(dir)) {
+  for (const name of fs.readdirSync(/* turbopackIgnore: true */ dir)) {
     if (!name.endsWith('.pid')) continue;
     try {
-      const raw = fs.readFileSync(path.join(dir, name), 'utf-8');
+      const raw = fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, name), 'utf-8');
       const parsed = JSON.parse(raw) as PidRecord;
       if (
         typeof parsed === 'object' && parsed !== null &&

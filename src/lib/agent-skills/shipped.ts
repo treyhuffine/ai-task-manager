@@ -29,14 +29,14 @@ async function loadAgentex() {
 function findPackageRoot(startDir: string): string {
   let dir = startDir;
   while (dir !== path.parse(dir).root) {
-    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
+    if (fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, 'package.json'))) return dir;
     dir = path.dirname(dir);
   }
   throw new Error(`Could not find package.json walking up from ${startDir}`);
 }
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
-const SKILLS_ROOT = path.join(findPackageRoot(MODULE_DIR), 'skills');
+const SKILLS_ROOT = path.join(/* turbopackIgnore: true */ findPackageRoot(MODULE_DIR), 'skills');
 
 /**
  * Shipped skills: a committed content template folder → the installed name.
@@ -53,13 +53,13 @@ const SHIPPED_SKILLS = [
 
 /** Regenerable materialization root — never synced, safe to delete (self-heals). */
 function generatedSkillsRoot(): string {
-  return path.join(getWorkDir(), 'skills');
+  return path.join(/* turbopackIgnore: true */ getWorkDir(), 'skills');
 }
 
 /** Read a committed skill template and substitute the composed installed name. */
 function renderSkillMarkdown(templateDir: string, name: string): string {
-  const src = path.join(SKILLS_ROOT, templateDir, 'SKILL.md');
-  return fs.readFileSync(src, 'utf8').replaceAll('{{SKILL_NAME}}', name);
+  const src = path.join(/* turbopackIgnore: true */ SKILLS_ROOT, templateDir, 'SKILL.md');
+  return fs.readFileSync(/* turbopackIgnore: true */ src, 'utf8').replaceAll('{{SKILL_NAME}}', name);
 }
 
 /** Installed names of the shipped skills (what shows in an agent's skill list). */
@@ -81,12 +81,12 @@ export function ensureShippedSkills(): string[] {
   const root = generatedSkillsRoot();
   const dirs: string[] = [];
   for (const skill of SHIPPED_SKILLS) {
-    const outDir = path.join(root, skill.name);
-    const outFile = path.join(outDir, 'SKILL.md');
+    const outDir = path.join(/* turbopackIgnore: true */ root, skill.name);
+    const outFile = path.join(/* turbopackIgnore: true */ outDir, 'SKILL.md');
     const rendered = renderSkillMarkdown(skill.template, skill.name);
     let current: string | null = null;
     try {
-      current = fs.readFileSync(outFile, 'utf8');
+      current = fs.readFileSync(/* turbopackIgnore: true */ outFile, 'utf8');
     } catch {
       // Not materialized yet — fall through to write.
     }
@@ -119,7 +119,7 @@ export function globalSkillFolders(): SkillFolder[] {
   const folders = new Map<string, boolean>();
   for (const id of KNOWN_HARNESS_IDS) {
     const { dir, links } = HARNESS_REGISTRY[id].globalSkills;
-    const folder = path.join(home, dir);
+    const folder = path.join(/* turbopackIgnore: true */ home, dir);
     folders.set(folder, (folders.get(folder) ?? true) && links);
   }
   return [...folders].map(([folder, links]) => ({ folder, links }));
@@ -175,7 +175,7 @@ export function inspectSkillFolders(folders: SkillFolder[]): { ready: boolean; b
  */
 function isAnotherRisSkill(dest: string): boolean {
   try {
-    if (fs.lstatSync(dest).isSymbolicLink()) return fs.existsSync(path.join(/* turbopackIgnore: true */ dest, 'SKILL.md'));
+    if (fs.lstatSync(/* turbopackIgnore: true */ dest).isSymbolicLink()) return fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dest, 'SKILL.md'));
     const home = readCopyMarker(dest);
     return home !== null && fs.existsSync(/* turbopackIgnore: true */ home);
   } catch {
@@ -193,7 +193,7 @@ function globalShippedEntries(folders: SkillFolder[] = globalSkillFolders()) {
   const dirs = shippedSkillDirs();
   return folders.flatMap(({ folder, links }) =>
     dirs.map((source) => {
-      const dest = path.join(folder, path.basename(source));
+      const dest = path.join(/* turbopackIgnore: true */ folder, path.basename(source));
       return { folder, links, source, dest, state: entryState(dest, source, links) };
     }),
   );
@@ -228,23 +228,23 @@ type EntryState = 'ours' | 'replace' | 'missing' | 'dead' | 'other';
 function entryState(dest: string, source: string, links: boolean): EntryState {
   let stat: fs.Stats;
   try {
-    stat = fs.lstatSync(dest);
+    stat = fs.lstatSync(/* turbopackIgnore: true */ dest);
   } catch {
     return 'missing';
   }
   if (stat.isSymbolicLink()) {
-    if (path.resolve(path.dirname(dest), fs.readlinkSync(dest)) === path.resolve(source)) return links ? 'ours' : 'replace';
-    return fs.existsSync(dest) ? 'other' : 'dead';
+    if (path.resolve(/* turbopackIgnore: true */ path.dirname(dest), fs.readlinkSync(/* turbopackIgnore: true */ dest)) === path.resolve(/* turbopackIgnore: true */ source)) return links ? 'ours' : 'replace';
+    return fs.existsSync(/* turbopackIgnore: true */ dest) ? 'other' : 'dead';
   }
   const home = stat.isDirectory() ? readCopyMarker(dest) : null;
   if (home === null) return 'other';
-  if (path.resolve(home) === path.resolve(getAppRoot())) return links ? 'replace' : 'ours';
-  return fs.existsSync(home) ? 'other' : 'dead';
+  if (path.resolve(/* turbopackIgnore: true */ home) === path.resolve(/* turbopackIgnore: true */ getAppRoot())) return links ? 'replace' : 'ours';
+  return fs.existsSync(/* turbopackIgnore: true */ home) ? 'other' : 'dead';
 }
 
 function readCopyMarker(dir: string): string | null {
   try {
-    return fs.readFileSync(path.join(dir, COPY_MARKER), 'utf8').trim() || null;
+    return fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, COPY_MARKER), 'utf8').trim() || null;
   } catch {
     return null;
   }
@@ -258,10 +258,10 @@ function readCopyMarker(dir: string): string | null {
 function writeCopy(source: string, dest: string): 'created' | 'skipped' {
   const home = getAppRoot();
   if (readCopyMarker(dest) === home && sameFiles(source, dest)) return 'skipped';
-  const staging = path.join(path.dirname(dest), `.${path.basename(dest)}.${process.pid}.tmp`);
+  const staging = path.join(/* turbopackIgnore: true */ path.dirname(dest), `.${path.basename(dest)}.${process.pid}.tmp`);
   fs.rmSync(staging, { recursive: true, force: true });
   fs.cpSync(source, staging, { recursive: true, dereference: true });
-  fs.writeFileSync(path.join(staging, COPY_MARKER), `${home}\n`);
+  fs.writeFileSync(path.join(/* turbopackIgnore: true */ staging, COPY_MARKER), `${home}\n`);
   fs.rmSync(dest, { recursive: true, force: true });
   fs.renameSync(staging, dest);
   return 'created';
@@ -270,15 +270,15 @@ function writeCopy(source: string, dest: string): 'created' | 'skipped' {
 /** The copy holds exactly the source's files, byte for byte, besides its marker. */
 function sameFiles(source: string, dest: string): boolean {
   const files = (dir: string) =>
-    (fs.readdirSync(dir, { recursive: true }) as string[])
-      .filter((file) => file !== COPY_MARKER && fs.statSync(path.join(dir, file)).isFile())
+    (fs.readdirSync(/* turbopackIgnore: true */ dir, { recursive: true }) as string[])
+      .filter((file) => file !== COPY_MARKER && fs.statSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, file)).isFile())
       .sort();
   try {
     const wanted = files(source);
     const have = files(dest);
     return wanted.length === have.length
       && wanted.every((file, i) => file === have[i]
-        && fs.readFileSync(path.join(source, file)).equals(fs.readFileSync(path.join(dest, file))));
+        && fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ source, file)).equals(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dest, file))));
   } catch {
     return false;
   }
@@ -382,7 +382,7 @@ export async function configureGlobalSkill(
  * conflicts and left untouched.
  */
 export async function removeOwnedProjectSkillLinks(cwd: string): Promise<SkillRemoveResult> {
-  if (path.resolve(cwd) === path.resolve(getAppRoot())) {
+  if (path.resolve(/* turbopackIgnore: true */ cwd) === path.resolve(/* turbopackIgnore: true */ getAppRoot())) {
     return { entries: [], removed: 0 };
   }
   const { removeSkills } = await loadAgentex();

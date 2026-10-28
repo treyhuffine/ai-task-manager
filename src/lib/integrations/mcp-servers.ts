@@ -332,7 +332,7 @@ export function toSlug(name: string): string {
 }
 
 export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lock: LockLike }): McpServerStore {
-  const file = path.resolve(deps.dir, 'mcp-servers.json');
+  const file = path.resolve(/* turbopackIgnore: true */ deps.dir, 'mcp-servers.json');
 
   /** The shared, frozen document: for reading only. */
   const readDocument = (): StoredDocument => readStoredDocument(file);
@@ -651,5 +651,5 @@ export function mcpServerStore(deps: { dir: string; secretBox: SecretBoxLike; lo
 
 /** Safe inert catalog read, from the same document the store keeps. No credential key creation, unsealing or network discovery. */
 export function readMcpMetadata(dir: string): { entry: McpServerEntry; capabilities: McpCapabilitySnapshot | null }[] {
-  return readStoredDocument(path.resolve(dir, 'mcp-servers.json')).servers.map(row => ({ entry: row.entry, capabilities: row.capabilities?.current ?? null }));
+  return readStoredDocument(path.resolve(/* turbopackIgnore: true */ dir, 'mcp-servers.json')).servers.map(row => ({ entry: row.entry, capabilities: row.capabilities?.current ?? null }));
 }

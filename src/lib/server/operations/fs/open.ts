@@ -65,7 +65,7 @@ async function confineToHome(raw: string): Promise<ConfineResult> {
   const home = os.homedir();
   const expanded = raw.startsWith('~')
     ? path.join(home, raw.slice(1).replace(/^[/]/, ''))
-    : path.resolve(raw);
+    : path.resolve(/* turbopackIgnore: true */ raw);
   let resolved: string;
   try {
     resolved = await fs.realpath(expanded);

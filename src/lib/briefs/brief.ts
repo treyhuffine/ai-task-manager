@@ -74,7 +74,7 @@ export function needsBrief(entityType: BriefEntityType, entity: BriefEntity): bo
 // ─── Cache ────────────────────────────────────────────────────────
 
 export function briefCacheDir(): string {
-  return path.join(getWorkDir(), 'briefs');
+  return path.join(/* turbopackIgnore: true */ getWorkDir(), 'briefs');
 }
 
 function briefPath(entityType: BriefEntityType, entityId: string): string {

@@ -54,7 +54,7 @@ export interface PdfPage {
 
 /** A render's cache key: the file, its stamps and the renderer's version. */
 export async function pdfVersion(file: string): Promise<string> {
-  const stat = await fs.stat(file);
+  const stat = await fs.stat(/* turbopackIgnore: true */ file);
   return createHash('sha256').update(`${file}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${RENDER_VERSION}`).digest('hex');
 }
 
@@ -62,11 +62,11 @@ export async function pdfVersion(file: string): Promise<string> {
 export async function renderPdfPage(file: string, version: string, { page, width }: { page: number; width: number }): Promise<PdfPage> {
   if (!Number.isInteger(page) || page < 1) throw new PdfRenderError('no_page', 'Pages are numbered from 1.');
   if (!ALLOWED_WIDTHS.has(width)) throw new Error(`Unsupported PDF render width ${width}`);
-  const cache = path.join(getWorkDir(), 'preview', 'pdf-pages');
-  const image = path.join(cache, `${version}-p${page}-w${width}.webp`);
-  const count = path.join(cache, `${version}.pages`);
+  const cache = path.join(/* turbopackIgnore: true */ getWorkDir(), 'preview', 'pdf-pages');
+  const image = path.join(/* turbopackIgnore: true */ cache, `${version}-p${page}-w${width}.webp`);
+  const count = path.join(/* turbopackIgnore: true */ cache, `${version}.pages`);
   try {
-    const [bytes, pages] = await Promise.all([fs.readFile(image), fs.readFile(count, 'utf8')]);
+    const [bytes, pages] = await Promise.all([fs.readFile(/* turbopackIgnore: true */ image), fs.readFile(/* turbopackIgnore: true */ count, 'utf8')]);
     return { bytes, pages: Number(pages) };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;

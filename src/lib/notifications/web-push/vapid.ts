@@ -30,7 +30,7 @@ function hardenMode(target: string, mode: number): void {
 /** Read or lazily create the VAPID keypair. Re-hardens perms on every read (restored files). */
 export function getVapidKeys(): VapidKeys {
   if (cached) return cached;
-  const dir = path.join(getConfigDir(), 'notifications');
+  const dir = path.join(/* turbopackIgnore: true */ getConfigDir(), 'notifications');
   const file = path.join(dir, 'vapid.json');
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as VapidKeys;

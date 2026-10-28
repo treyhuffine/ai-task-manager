@@ -17,7 +17,7 @@ async function creationPolicy(input: Input, key: RequestKey | null) {
   const authority = q.getHome()?.kind === 'team' ? authorizeTeamExecution(key, { operation: 'configure' }) : null;
   if (authority && input.defaultDeviceId && input.defaultDeviceId !== q.getHome()?.hostDeviceId) throw new q.TeamError('not_allowed', 'Team agents currently run on this server.');
   if (authority && input.integrationScopes?.length) throw new q.TeamError('not_allowed', 'Connectors are not available in a team.');
-  const cwd = path.resolve(input.cwd);
+  const cwd = path.resolve(/* turbopackIgnore: true */ input.cwd);
   try { assertHomeFolderUsable(cwd); }
   catch (error) { if (error instanceof SetupError) throw new WorkspaceCreationError(400, error.message); throw error; }
   const isGit = input.isGit ?? await detectIsGit(cwd);

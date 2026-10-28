@@ -16,7 +16,7 @@ export { SetupError };
 
 /** A folder the home can use for an agent: one that's there, as a folder. Returns it absolute. */
 export function assertHomeFolderUsable(folder: string): string {
-  const dir = path.resolve(folder);
+  const dir = path.resolve(/* turbopackIgnore: true */ folder);
   let isDir = false;
   try {
     isDir = fs.statSync(dir).isDirectory();

@@ -18,7 +18,7 @@ interface StoredFile {
 }
 
 function credentialsDir(): string {
-  return path.join(getConfigDir(), 'agents');
+  return path.join(/* turbopackIgnore: true */ getConfigDir(), 'agents');
 }
 
 function storePath(): string {

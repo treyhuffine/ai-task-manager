@@ -77,7 +77,7 @@ async function run(input: Input, token: string, key: string, account?: string, v
   const diagramChanges = publicContext && input.allowChanges && !!publicContext.diagram;
   const serverName = accountTurn ? 'account_demo' : viewChanges ? 'view_demo' : diagramChanges ? 'excalidraw_demo' : publicView ? 'public_context' : 'scenario_demo';
   await host('begin', 'kind' in input.context ? { context: input.context, allowChanges: diagramChanges || viewChanges } : { inputs: input.context.inputs, allowChanges: input.allowChanges });
-  const cwd = path.join(evaluationDirectory(), 'chat');
+  const cwd = path.join(/* turbopackIgnore: true */ evaluationDirectory(), 'chat');
   fs.mkdirSync(cwd, { recursive: true, mode: 0o700 });
   let text: string;
   try {

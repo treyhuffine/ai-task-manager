@@ -281,7 +281,7 @@ export function buildCredential(kind: CredentialType, fields: Record<string, str
 /** Shared metadata store, also used before a hosted integration has discovered any tools. */
 export function getIntegrationConnectionStore() {
   const dir = getIntegrationsDir();
-  return fileStore({ dir, lock: fileLock({ dir: path.join(dir, 'locks') }) });
+  return fileStore({ dir, lock: fileLock({ dir: path.join(/* turbopackIgnore: true */ dir, 'locks') }) });
 }
 
 let mcpStoreCached: { dir: string; store: McpServerStore } | null = null;
@@ -294,7 +294,7 @@ let mcpStoreCached: { dir: string; store: McpServerStore } | null = null;
 export function getMcpServerStore(): McpServerStore {
   const dir = getIntegrationsDir();
   if (mcpStoreCached?.dir === dir) return mcpStoreCached.store;
-  const lock = fileLock({ dir: path.join(dir, 'locks') });
+  const lock = fileLock({ dir: path.join(/* turbopackIgnore: true */ dir, 'locks') });
   const secretBox = aesGcmSecretBox({ key: getOrCreateKey(dir) });
   const store = mcpServerStore({ dir, secretBox, lock });
   mcpStoreCached = { dir, store };
@@ -320,7 +320,7 @@ export function getRegisteredMcpRedirectUrl(providerId: string): string {
 /** Read independently of runtime construction, which itself consumes these clients. */
 export function getIntegrationAuthConfigRegistry() {
   const dir = getIntegrationsDir();
-  const lock = fileLock({ dir: path.join(dir, 'locks') });
+  const lock = fileLock({ dir: path.join(/* turbopackIgnore: true */ dir, 'locks') });
   return storeAuthConfigRegistry({
     bundled: dedupeById([...DEFAULT_AUTH_CONFIGS, ...buildAuthConfigs()]),
     store: savedAuthConfigStore(dir, lock),
@@ -344,7 +344,7 @@ export async function selectHostedOAuthConfig(providerId: string, selectedId?: s
 
 /** Serialize pending connection creation against deleting its registered app. */
 export function withHostedOAuthConfigLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
-  return fileLock({ dir: path.join(getIntegrationsDir(), 'locks') }).withLock(`mcp-auth-config:${id}`, operation);
+  return fileLock({ dir: path.join(/* turbopackIgnore: true */ getIntegrationsDir(), 'locks') }).withLock(`mcp-auth-config:${id}`, operation);
 }
 
 /**
@@ -532,7 +532,7 @@ async function build(): Promise<Built> {
   const dir = getIntegrationsDir();
   // CLI + dev server share one home, so the file store's read-modify-write and the runtime's
   // refresh single-flight need a CROSS-PROCESS lock, not an in-process mutex.
-  const lock = fileLock({ dir: path.join(dir, 'locks') });
+  const lock = fileLock({ dir: path.join(/* turbopackIgnore: true */ dir, 'locks') });
   const store = fileStore({ dir, lock });
   const secretBox = aesGcmSecretBox({ key: getOrCreateKey(dir) });
   const authConfigStore = savedAuthConfigStore(dir, lock);

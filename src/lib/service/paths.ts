@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { getAppRoot, getConfigDir, getDbPath, getWorkDir } from '@/lib/config/paths';
 
 export function canonical(file: string): string {
-  const absolute = path.resolve(file);
+  const absolute = path.resolve(/* turbopackIgnore: true */ file);
   if (fs.existsSync(absolute)) return fs.realpathSync(absolute);
   const parent = path.dirname(absolute);
   return parent === absolute ? absolute : path.join(canonical(parent), path.basename(absolute));
@@ -33,5 +33,5 @@ export function getRuntimeInstallDir() {
   const base = process.env.RI_INSTALL_ROOT || (process.platform === 'darwin'
     ? path.join(os.homedir(), 'Library/Application Support', APP_NAME, 'runtime')
     : path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local/share'), APP_SHORT_ID, 'runtime'));
-  return canonical(path.resolve(base, servicePaths().id));
+  return canonical(path.resolve(/* turbopackIgnore: true */ base, servicePaths().id));
 }

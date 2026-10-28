@@ -46,9 +46,9 @@ export function newOperationId(): string {
 }
 
 function auditFile(): string {
-  const dir = path.join(getIntegrationsDir(), 'audit');
+  const dir = path.join(/* turbopackIgnore: true */ getIntegrationsDir(), 'audit');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  return path.join(dir, 'managed-actions.jsonl');
+  return path.join(/* turbopackIgnore: true */ dir, 'managed-actions.jsonl');
 }
 
 export function argumentSummary(args: unknown): { argumentNames: string[]; argumentsDigest: string } {
@@ -69,7 +69,7 @@ export function recordManagedAction(entry: Omit<ManagedAuditEntry, 'ts'>, redact
 /** Recent entries, newest last, for status views and investigation. */
 export function readManagedAudit(limit = 200): ManagedAuditEntry[] {
   try {
-    const lines = fs.readFileSync(auditFile(), 'utf8').trim().split('\n').filter(Boolean);
+    const lines = fs.readFileSync(/* turbopackIgnore: true */ auditFile(), 'utf8').trim().split('\n').filter(Boolean);
     return lines.slice(-limit).flatMap(line => {
       try { return [JSON.parse(line) as ManagedAuditEntry]; } catch { return []; }
     });

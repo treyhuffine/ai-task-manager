@@ -30,7 +30,7 @@ export function fileLock(opts: FileLockOptions): Lock {
   const timeoutMs = opts.timeoutMs ?? 15_000;
   const local = inProcessLock(); // also serialize same-process callers (no busy spin)
 
-  const lockPath = (key: string) => join(opts.dir, `${encodeURIComponent(key)}.lock`);
+  const lockPath = (key: string) => join(/* turbopackIgnore: true */ opts.dir, `${encodeURIComponent(key)}.lock`);
 
   async function acquire(path: string): Promise<void> {
     const start = Date.now();
@@ -41,7 +41,7 @@ export function fileLock(opts: FileLockOptions): Lock {
       } catch (e) {
         if ((e as NodeJS.ErrnoException)?.code !== 'EEXIST') throw e;
         try {
-          const s = await stat(path);
+          const s = await stat(/* turbopackIgnore: true */ path);
           if (Date.now() - s.mtimeMs > staleMs) {
             await rm(path, { recursive: true, force: true });
             continue;

@@ -120,7 +120,7 @@ export async function applySetupHere(request: SetupAgentRequest): Promise<SetupR
       } else if (ref.knownPath && isDirectory(ref.knownPath)) {
         links[ref.alias] = ref.knownPath;
       } else if (ref.relativePath) {
-        const target = path.resolve(folder, ref.relativePath);
+        const target = path.resolve(/* turbopackIgnore: true */ folder, ref.relativePath);
         if (isDirectory(target)) {
           links[ref.alias] = target;
         } else if (ref.remote) {
@@ -203,7 +203,7 @@ export function localPath(typed: string): string {
   const t = typed.trim();
   if (t === '~') return os.homedir();
   if (t.startsWith('~/')) return path.join(os.homedir(), t.slice(2));
-  return path.resolve(t);
+  return path.resolve(/* turbopackIgnore: true */ t);
 }
 
 function isDirectory(p: string): boolean {

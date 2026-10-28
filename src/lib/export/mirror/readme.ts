@@ -77,9 +77,9 @@ if you suspect drift).
 
 /** Ensure a README.md exists in the brain dir, writing the default if missing. */
 export async function ensureReadme(): Promise<void> {
-  const target = path.join(getBrainDir(), README_FILENAME);
+  const target = path.join(/* turbopackIgnore: true */ getBrainDir(), README_FILENAME);
   try {
-    await fs.access(target);
+    await fs.access(/* turbopackIgnore: true */ target);
     // Already exists — leave it alone so user annotations aren't clobbered.
   } catch {
     await fs.mkdir(getBrainDir(), { recursive: true });

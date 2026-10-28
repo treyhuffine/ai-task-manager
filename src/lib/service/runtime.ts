@@ -32,7 +32,7 @@ export function validateRuntimeLink(name: string, link: string | undefined) {
 function digestFile(file: string) {
   const hash = createHash('sha256');
   const buffer = Buffer.alloc(1024 * 1024);
-  const fd = fs.openSync(file, 'r');
+  const fd = fs.openSync(/* turbopackIgnore: true */ file, 'r');
   try {
     let count: number;
     while ((count = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, count));
@@ -46,16 +46,16 @@ function inventory(root: string): RuntimeFile[] {
   function walk(relative: string) {
     // Next's image/data cache is writable state, kept outside release files.
     if (relative === 'server/.next-desktop/cache') return;
-    const absolute = path.join(root, relative);
-    const stat = fs.lstatSync(absolute);
+    const absolute = path.join(/* turbopackIgnore: true */ root, relative);
+    const stat = fs.lstatSync(/* turbopackIgnore: true */ absolute);
     if (stat.isSymbolicLink()) {
-      const link = fs.readlinkSync(absolute);
+      const link = fs.readlinkSync(/* turbopackIgnore: true */ absolute);
       validateRuntimeLink(relative, link);
       const target = fs.realpathSync.native(absolute);
       if (!target.startsWith(`${physicalRoot}${path.sep}`)) throw new Error(`Runtime link escapes its package: ${relative}`);
       files.push({ name: relative, link, executable: false });
     } else if (stat.isDirectory()) {
-      for (const name of fs.readdirSync(absolute).sort()) walk(path.join(relative, name));
+      for (const name of fs.readdirSync(/* turbopackIgnore: true */ absolute).sort()) walk(path.join(/* turbopackIgnore: true */ relative, name));
     } else if (stat.isFile()) {
       files.push({ name: relative, sha256: digestFile(absolute), executable: !!(stat.mode & 0o111) });
     } else throw new Error(`Unsupported runtime entry: ${relative}`);
@@ -70,19 +70,19 @@ function manifestId(manifest: Omit<RuntimeManifest, 'id'>) {
 }
 
 export function createRuntimeManifest(resources: string): RuntimeManifest {
-  const pkg = JSON.parse(fs.readFileSync(path.join(resources, 'server/package.json'), 'utf8'));
+  const pkg = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ resources, 'server/package.json'), 'utf8'));
   // Keep release envelope 1 parseable by old updaters. This metadata is
   // authenticated transitively by the existing signed runtime inventory.
-  atomicWriteFile(path.join(resources, 'server/ri-compatibility.json'), JSON.stringify(CURRENT_COMPATIBILITY));
+  atomicWriteFile(path.join(/* turbopackIgnore: true */ resources, 'server/ri-compatibility.json'), JSON.stringify(CURRENT_COMPATIBILITY));
   const content = { format: 1 as const, version: pkg.version as string, platform: process.platform, arch: process.arch,
     node: process.versions.node, files: inventory(resources) };
   const manifest = { ...content, id: manifestId(content) };
-  atomicWriteFile(path.join(resources, 'runtime-manifest.json'), JSON.stringify(manifest));
+  atomicWriteFile(path.join(/* turbopackIgnore: true */ resources, 'runtime-manifest.json'), JSON.stringify(manifest));
   return manifest;
 }
 
 export function verifyRuntime(resources: string): RuntimeManifest {
-  const manifest = JSON.parse(fs.readFileSync(path.join(resources, 'runtime-manifest.json'), 'utf8')) as RuntimeManifest;
+  const manifest = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ resources, 'runtime-manifest.json'), 'utf8')) as RuntimeManifest;
   const { id, ...content } = manifest;
   if (manifest.format !== 1 || !/^[a-f0-9]{64}$/.test(id) || manifestId(content) !== id) throw new Error('Invalid runtime manifest');
   if (manifest.platform !== process.platform || manifest.arch !== process.arch) throw new Error('Runtime does not match this device');
@@ -95,12 +95,12 @@ export function verifyRuntime(resources: string): RuntimeManifest {
 
 export function installedRuntime() {
   const install = getRuntimeInstallDir();
-  const active = path.join(install, 'active-release');
-  if (!fs.existsSync(active)) return null;
-  const id = fs.readFileSync(active, 'utf8').trim();
+  const active = path.join(/* turbopackIgnore: true */ install, 'active-release');
+  if (!fs.existsSync(/* turbopackIgnore: true */ active)) return null;
+  const id = fs.readFileSync(/* turbopackIgnore: true */ active, 'utf8').trim();
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('Invalid active runtime selection');
-  const directory = path.join(install, 'releases', id);
-  return { id, directory, repo: path.join(directory, 'server'), node: path.join(directory, 'node/bin/node'), launcher: path.join(install, 'launch') };
+  const directory = path.join(/* turbopackIgnore: true */ install, 'releases', id);
+  return { id, directory, repo: path.join(/* turbopackIgnore: true */ directory, 'server'), node: path.join(/* turbopackIgnore: true */ directory, 'node/bin/node'), launcher: path.join(/* turbopackIgnore: true */ install, 'launch') };
 }
 
 /** A bundled runtime is trusted through the signed application distribution.
@@ -109,33 +109,33 @@ export function installedRuntime() {
 export function stageRuntime(resources: string) {
   const manifest = verifyRuntime(resources);
   const install = getRuntimeInstallDir();
-  fs.mkdirSync(path.join(install, 'releases'), { recursive: true, mode: 0o700 });
-  return withFileLock(path.join(install, 'stage'), () => {
-    const destination = path.join(install, 'releases', manifest.id);
-    if (!fs.existsSync(destination)) {
-      const temporary = path.join(install, 'releases', `.stage-${randomUUID()}`);
+  fs.mkdirSync(path.join(/* turbopackIgnore: true */ install, 'releases'), { recursive: true, mode: 0o700 });
+  return withFileLock(path.join(/* turbopackIgnore: true */ install, 'stage'), () => {
+    const destination = path.join(/* turbopackIgnore: true */ install, 'releases', manifest.id);
+    if (!fs.existsSync(/* turbopackIgnore: true */ destination)) {
+      const temporary = path.join(/* turbopackIgnore: true */ install, 'releases', `.stage-${randomUUID()}`);
       fs.mkdirSync(temporary, { mode: 0o700 });
       try {
         for (const name of ['node', 'server', 'runtime-manifest.json']) {
-          fs.cpSync(path.join(/* turbopackIgnore: true */ resources, name), path.join(temporary, name), { recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE });
+          fs.cpSync(path.join(/* turbopackIgnore: true */ resources, name), path.join(/* turbopackIgnore: true */ temporary, name), { recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE });
         }
         verifyRuntime(temporary);
         fs.renameSync(temporary, destination);
       } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
     } else verifyRuntime(destination);
-    const cache = path.join(install, 'cache', manifest.id);
+    const cache = path.join(/* turbopackIgnore: true */ install, 'cache', manifest.id);
     fs.mkdirSync(cache, { recursive: true, mode: 0o700 });
-    const cacheLink = path.join(destination, 'server/.next-desktop/cache');
-    if (fs.existsSync(path.dirname(cacheLink)) && !fs.existsSync(cacheLink)) fs.symlinkSync(cache, cacheLink);
-    const policy = path.join(resources, 'release-policy.json');
-    const installedPolicy = path.join(install, 'release-policy.json');
-    if (fs.existsSync(policy) && !fs.existsSync(installedPolicy)) atomicWriteFile(installedPolicy, fs.readFileSync(policy));
-    if (!installedRuntime()) atomicWriteFile(path.join(install, 'active-release'), `${manifest.id}\n`);
-    const launcher = path.join(install, 'launch');
+    const cacheLink = path.join(/* turbopackIgnore: true */ destination, 'server/.next-desktop/cache');
+    if (fs.existsSync(/* turbopackIgnore: true */ path.dirname(cacheLink)) && !fs.existsSync(/* turbopackIgnore: true */ cacheLink)) fs.symlinkSync(cache, cacheLink);
+    const policy = path.join(/* turbopackIgnore: true */ resources, 'release-policy.json');
+    const installedPolicy = path.join(/* turbopackIgnore: true */ install, 'release-policy.json');
+    if (fs.existsSync(/* turbopackIgnore: true */ policy) && !fs.existsSync(/* turbopackIgnore: true */ installedPolicy)) atomicWriteFile(installedPolicy, fs.readFileSync(/* turbopackIgnore: true */ policy));
+    if (!installedRuntime()) atomicWriteFile(path.join(/* turbopackIgnore: true */ install, 'active-release'), `${manifest.id}\n`);
+    const launcher = path.join(/* turbopackIgnore: true */ install, 'launch');
     const quoted = `'${install.replaceAll("'", "'\\''")}'`;
     const installBase = `'${path.dirname(install).replaceAll("'", "'\\''")}'`;
     const script = `#!/bin/sh\n# Ri stable runtime launcher\nbase=${quoted}\nexport RI_INSTALL_ROOT=${installBase}\nIFS= read -r release < "$base/active-release" || exit 1\ncase "$release" in ''|*[!a-f0-9]*) exit 1;; esac\n[ "\${#release}" -eq 64 ] || exit 1\nruntime="$base/releases/$release"\nexport RI_RUNTIME_REPO="$runtime/server"\nexport RI_DESKTOP_REPO="$runtime/server"\nexport NEXT_DIST_DIR=.next-desktop\nunset NODE_OPTIONS ELECTRON_RUN_AS_NODE\nexport PATH="$runtime/node/bin:$PATH"\ncd "$runtime/server" || exit 1\nif [ "\${1:-}" = cli ]; then\n  shift\n  exec "$runtime/node/bin/node" dist/cli/index.mjs "$@"\nfi\nexec "$runtime/node/bin/node" dist/service/main.cjs\n`;
-    if (fs.existsSync(launcher) && !fs.readFileSync(launcher, 'utf8').startsWith('#!/bin/sh\n# Ri stable runtime launcher\n')) throw new Error('The launcher path belongs to another program');
+    if (fs.existsSync(/* turbopackIgnore: true */ launcher) && !fs.readFileSync(/* turbopackIgnore: true */ launcher, 'utf8').startsWith('#!/bin/sh\n# Ri stable runtime launcher\n')) throw new Error('The launcher path belongs to another program');
     atomicWriteFile(launcher, script);
     fs.chmodSync(launcher, 0o700);
     return installedRuntime()!;

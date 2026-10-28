@@ -54,7 +54,7 @@ export function listFoldersHere(at: string | null, root = os.homedir()): FolderL
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   const folders = entries.slice(0, MAX_FOLDERS).map((e) => {
     const full = path.join(real, e.name);
-    return { name: e.name, path: full, isGit: fs.existsSync(path.join(full, '.git')) };
+    return { name: e.name, path: full, isGit: fs.existsSync(path.join(/* turbopackIgnore: true */ full, '.git')) };
   });
   const parent = real === realHome ? null : path.dirname(real);
   return { path: real, parent, home: realHome, folders, truncated: entries.length > MAX_FOLDERS };
@@ -64,7 +64,7 @@ function expand(typed: string, home: string): string {
   const t = typed.trim();
   if (t === '~') return home;
   if (t.startsWith('~/')) return path.join(home, t.slice(2));
-  return path.resolve(home, t);
+  return path.resolve(/* turbopackIgnore: true */ home, t);
 }
 
 function within(parent: string, child: string): boolean {

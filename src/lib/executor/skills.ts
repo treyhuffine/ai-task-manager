@@ -51,10 +51,10 @@ export interface DiscoveredSkill {
  * shouldn't kill session creation.
  */
 function readSkillDir(root: string, scope: DiscoveredSkill['scope']): DiscoveredSkill[] {
-  if (!fs.existsSync(root)) return [];
+  if (!fs.existsSync(/* turbopackIgnore: true */ root)) return [];
   let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(root, { withFileTypes: true });
+    entries = fs.readdirSync(/* turbopackIgnore: true */ root, { withFileTypes: true });
   } catch (err) {
     console.warn(`[skills] failed to enumerate ${root}:`, err);
     return [];
@@ -62,10 +62,10 @@ function readSkillDir(root: string, scope: DiscoveredSkill['scope']): Discovered
   const out: DiscoveredSkill[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const sourceDir = path.join(root, entry.name);
-    const skillFile = path.join(sourceDir, SKILL_FILE);
+    const sourceDir = path.join(/* turbopackIgnore: true */ root, entry.name);
+    const skillFile = path.join(/* turbopackIgnore: true */ sourceDir, SKILL_FILE);
     try {
-      if (!fs.existsSync(skillFile)) continue;
+      if (!fs.existsSync(/* turbopackIgnore: true */ skillFile)) continue;
     } catch {
       continue;
     }
@@ -82,11 +82,11 @@ export interface ResolveSkillsOptions {
 }
 
 function librarySkills(): DiscoveredSkill[] {
-  return readSkillDir(path.join(getAppRoot(), 'skills'), 'global');
+  return readSkillDir(path.join(/* turbopackIgnore: true */ getAppRoot(), 'skills'), 'global');
 }
 
 function workspaceSkills(workspaceCwd: string | null): DiscoveredSkill[] {
-  return workspaceCwd ? readSkillDir(path.join(workspaceCwd, '.ri', 'skills'), 'workspace') : [];
+  return workspaceCwd ? readSkillDir(path.join(/* turbopackIgnore: true */ workspaceCwd, '.ri', 'skills'), 'workspace') : [];
 }
 
 function mergeByName(library: DiscoveredSkill[], workspace: DiscoveredSkill[]): DiscoveredSkill[] {
@@ -111,7 +111,7 @@ export function resolveSkillsForSession(
   const excluded = new Set(opts.exclude ?? []);
   const library = librarySkills().filter((skill) => !excluded.has(skill.name));
   const extra = (opts.extra ?? [])
-    .filter((dir) => fs.existsSync(path.join(dir, SKILL_FILE)))
+    .filter((dir) => fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, SKILL_FILE)))
     .map((dir): DiscoveredSkill => ({ name: path.basename(dir), sourceDir: dir, scope: 'workspace' }));
   return mergeByName(library, [...workspaceSkills(workspaceCwd), ...extra]);
 }

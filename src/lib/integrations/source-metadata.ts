@@ -17,5 +17,5 @@ export async function integrationSourceMetadata() {
     const providerId = entry.providerId ?? `mcp_${entry.slug}`;
     if (!toolkits.some(t => t.id === providerId)) toolkits.push({ id: providerId, providerId, displayName: HOSTED_MCP_PROVIDERS.find(p => p.id === providerId)?.displayName ?? entry.displayName });
   }
-  return { toolkits, servers, connections: await fileStore({ dir: path.resolve(dir) }).list({ ownerId: 'local' }) };
+  return { toolkits, servers, connections: await fileStore({ dir: path.resolve(/* turbopackIgnore: true */ dir) }).list({ ownerId: 'local' }) };
 }

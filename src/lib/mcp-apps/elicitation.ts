@@ -297,7 +297,7 @@ export async function connectedFormFile(formId: string, viewerId: string, fieldN
     const base = folders.find(folder => pathToFileURL(folder.path).href === pick.folder);
     if (!base) throw new Error('That folder is not one of this chat\'s folders.');
     const relative = (pick.path ?? '').replace(/^[/\\]+/, '');
-    resolved = path.resolve(base.path, relative);
+    resolved = path.resolve(/* turbopackIgnore: true */ base.path, relative);
     const root = fs.realpathSync(base.path);
     const real = fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
     if (real !== root && !real.startsWith(root + path.sep)) throw new Error('That path leaves the folder.');

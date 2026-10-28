@@ -32,7 +32,7 @@ export interface HostInfoResponse {
 
 export function homeEnvironment(appRoot = getAppRoot(), mode = process.env.NODE_ENV): HomeEnvironment {
   if (mode === 'development') return 'development';
-  return path.resolve(appRoot) === path.resolve(getDevAppRoot()) ? 'development' : 'production';
+  return path.resolve(/* turbopackIgnore: true */ appRoot) === path.resolve(/* turbopackIgnore: true */ getDevAppRoot()) ? 'development' : 'production';
 }
 
 export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
@@ -42,7 +42,7 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, _request: Oper
     platform: process.platform,
     appRoot,
     environment: homeEnvironment(appRoot),
-    homeLabel: path.basename(path.resolve(appRoot)),
+    homeLabel: path.basename(path.resolve(/* turbopackIgnore: true */ appRoot)),
   };
   return reply(body);
 }

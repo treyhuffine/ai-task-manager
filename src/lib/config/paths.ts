@@ -78,7 +78,7 @@ export function getAppRoot(): string {
  * when nothing overrides it. Development launchers refuse to open it.
  */
 export function getProductionAppRoot(): string {
-  return path.join(homeDir(), APP_SHORT_ID);
+  return path.join(/* turbopackIgnore: true */ homeDir(), APP_SHORT_ID);
 }
 
 /**
@@ -91,7 +91,7 @@ export function getProductionAppRoot(): string {
  */
 export function resolveDevAppRoot(): string {
   const override = process.env[APP_ROOT_ENV];
-  if (override && path.resolve(override) !== path.resolve(getProductionAppRoot())) return override;
+  if (override && path.resolve(/* turbopackIgnore: true */ override) !== path.resolve(/* turbopackIgnore: true */ getProductionAppRoot())) return override;
   return getDevAppRoot();
 }
 
@@ -102,12 +102,12 @@ export function resolveDevAppRoot(): string {
  * `.work`, so dev/prod/test stay fully isolated.
  */
 export function getDevAppRoot(): string {
-  return path.join(homeDir(), `${APP_SHORT_ID}-dev`);
+  return path.join(/* turbopackIgnore: true */ homeDir(), `${APP_SHORT_ID}-dev`);
 }
 
 /** Test home. Smoke scripts wipe this; same opt-in contract as dev. */
 export function getTestAppRoot(): string {
-  return path.join(homeDir(), `${APP_SHORT_ID}-test`);
+  return path.join(/* turbopackIgnore: true */ homeDir(), `${APP_SHORT_ID}-test`);
 }
 
 /**
@@ -123,20 +123,20 @@ export function getBrainDir(): string {
 export function getDbPath(): string {
   const override = process.env[DB_PATH_ENV];
   if (override) return override;
-  return path.join(getAppRoot(), 'data.db');
+  return path.join(/* turbopackIgnore: true */ getAppRoot(), 'data.db');
 }
 
 export function getAttachmentsDir(): string {
-  return path.join(getAppRoot(), 'attachments');
+  return path.join(/* turbopackIgnore: true */ getAppRoot(), 'attachments');
 }
 
-export function getLocalAppsDir(): string { return path.join(getAppRoot(), 'apps'); }
-export function getAppDraftsDir(): string { return path.join(getAppRoot(), 'app-drafts'); }
-export function getLocalAppsStatePath(): string { return path.join(getConfigDir(), 'local-apps', 'state.json'); }
-export function getLocalAppsWorkDir(): string { return path.join(getWorkDir(), 'local-apps'); }
+export function getLocalAppsDir(): string { return path.join(/* turbopackIgnore: true */ getAppRoot(), 'apps'); }
+export function getAppDraftsDir(): string { return path.join(/* turbopackIgnore: true */ getAppRoot(), 'app-drafts'); }
+export function getLocalAppsStatePath(): string { return path.join(/* turbopackIgnore: true */ getConfigDir(), 'local-apps', 'state.json'); }
+export function getLocalAppsWorkDir(): string { return path.join(/* turbopackIgnore: true */ getWorkDir(), 'local-apps'); }
 /** Read-only distribution assets, separate from Home records and backups. */
 /** `RI_LOCAL_APPS_CATALOG_DIR` points a disposable qualification Home at its own catalog instead of the checkout's live one. */
-export function getBundledLocalAppsCatalogDir(): string { return process.env.RI_LOCAL_APPS_CATALOG_DIR ? path.resolve(process.env.RI_LOCAL_APPS_CATALOG_DIR) : path.join(process.env.RI_RUNTIME_REPO ?? process.cwd(), 'release', 'local-apps', 'catalog'); }
+export function getBundledLocalAppsCatalogDir(): string { return process.env.RI_LOCAL_APPS_CATALOG_DIR ? path.resolve(/* turbopackIgnore: true */ process.env.RI_LOCAL_APPS_CATALOG_DIR) : path.join(process.env.RI_RUNTIME_REPO ?? process.cwd(), 'release', 'local-apps', 'catalog'); }
 
 // ─── .config — precious-local (don't sync, don't lose) ────────────
 
@@ -144,7 +144,7 @@ export function getBundledLocalAppsCatalogDir(): string { return process.env.RI_
 export function getConfigDir(): string {
   const override = process.env[CONFIG_DIR_ENV];
   if (override) return override;
-  return path.join(getAppRoot(), '.config');
+  return path.join(/* turbopackIgnore: true */ getAppRoot(), '.config');
 }
 
 export function ensureConfigDir(): string {
@@ -154,7 +154,7 @@ export function ensureConfigDir(): string {
 }
 
 export function getConfigPath(): string {
-  return path.join(getConfigDir(), 'config.json');
+  return path.join(/* turbopackIgnore: true */ getConfigDir(), 'config.json');
 }
 
 /**
@@ -163,7 +163,7 @@ export function getConfigPath(): string {
  * carry it, so a restored copy can't take itself for the original host.
  */
 export function getMachineIdentityPath(): string {
-  return path.join(getConfigDir(), 'machine.json');
+  return path.join(/* turbopackIgnore: true */ getConfigDir(), 'machine.json');
 }
 
 /**
@@ -173,7 +173,7 @@ export function getMachineIdentityPath(): string {
  * which never opens a database of its own (src/lib/config/role.ts).
  */
 export function getConnectionPath(): string {
-  return path.join(getConfigDir(), 'connection.json');
+  return path.join(/* turbopackIgnore: true */ getConfigDir(), 'connection.json');
 }
 
 /**
@@ -182,7 +182,7 @@ export function getConnectionPath(): string {
  * credential for this machine alone, so backups never carry it.
  */
 export function getWorkerConfigPath(): string {
-  return path.join(getConfigDir(), 'worker.json');
+  return path.join(/* turbopackIgnore: true */ getConfigDir(), 'worker.json');
 }
 
 // ─── .work — regenerable scratch (don't sync, safe to delete) ─────
@@ -191,7 +191,7 @@ export function getWorkerConfigPath(): string {
 export function getWorkDir(): string {
   const override = process.env[WORK_DIR_ENV];
   if (override) return override;
-  return path.join(getAppRoot(), '.work');
+  return path.join(/* turbopackIgnore: true */ getAppRoot(), '.work');
 }
 
 export function ensureWorkDir(): string {
@@ -202,7 +202,7 @@ export function ensureWorkDir(): string {
 
 export function ensureAttachmentsDir(): string {
   const dir = getAttachmentsDir();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
@@ -212,23 +212,23 @@ export function ensureAttachmentsDir(): string {
  * themselves; nothing sweeps it.
  */
 export function getTmpDir(): string {
-  return path.join(getWorkDir(), 'tmp');
+  return path.join(/* turbopackIgnore: true */ getWorkDir(), 'tmp');
 }
 
 export function ensureTmpDir(): string {
   const dir = getTmpDir();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
 /** Recovery/backup staging (the durable backup is the upload target). */
 export function getBackupsDir(): string {
-  return path.join(getWorkDir(), 'backups');
+  return path.join(/* turbopackIgnore: true */ getWorkDir(), 'backups');
 }
 
 export function ensureBackupsDir(): string {
   const dir = getBackupsDir();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
@@ -241,28 +241,28 @@ export function ensureBackupsDir(): string {
  * `.work` (safe to delete).
  */
 export function getBrowserProfilesDir(): string {
-  return path.join(getConfigDir(), 'browser', 'profiles');
+  return path.join(/* turbopackIgnore: true */ getConfigDir(), 'browser', 'profiles');
 }
 
 /** One named agent browser profile dir. Default profile is `agent`. */
 export function getBrowserProfileDir(name = 'agent'): string {
-  return path.join(getBrowserProfilesDir(), name);
+  return path.join(/* turbopackIgnore: true */ getBrowserProfilesDir(), name);
 }
 
 export function ensureBrowserProfileDir(name = 'agent'): string {
   const dir = getBrowserProfileDir(name);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
 /** Regenerable browser scratch (pidfiles, read-spill). Safe to delete. */
 export function getBrowserWorkDir(): string {
-  return path.join(getWorkDir(), 'browser');
+  return path.join(/* turbopackIgnore: true */ getWorkDir(), 'browser');
 }
 
 export function ensureBrowserWorkDir(): string {
   const dir = getBrowserWorkDir();
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
@@ -291,12 +291,12 @@ snapshots/
  * mark itself is validated where a team starts.
  */
 function isTeamRoot(): boolean {
-  return fs.existsSync(path.join(getConfigDir(), 'team.json'));
+  return fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ getConfigDir(), 'team.json'));
 }
 
 export function ensureAppRoot(): string {
   const dir = getAppRoot();
-  if (!fs.existsSync(dir)) {
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   } else {
     try {
@@ -310,16 +310,16 @@ export function ensureAppRoot(): string {
   // overwritten — so users can edit freely. The orchestrator brief's managed
   // block is regenerated separately (installInstructions). A team space runs
   // no orchestrator, so it gets none.
-  const agentsMdPath = path.join(dir, 'AGENTS.md');
-  if (!isTeamRoot() && !fs.existsSync(agentsMdPath)) {
+  const agentsMdPath = path.join(/* turbopackIgnore: true */ dir, 'AGENTS.md');
+  if (!isTeamRoot() && !fs.existsSync(/* turbopackIgnore: true */ agentsMdPath)) {
     fs.writeFileSync(agentsMdPath, renderAppRootAgentsMd(), { mode: 0o600 });
   }
 
   // Ship a .gitignore so `git init && commit` syncs the home correctly with
   // zero thought — the machine-local dotfolders + DB sidecars are excluded.
   // Write-once; users own it after.
-  const gitignorePath = path.join(dir, '.gitignore');
-  if (!fs.existsSync(gitignorePath)) {
+  const gitignorePath = path.join(/* turbopackIgnore: true */ dir, '.gitignore');
+  if (!fs.existsSync(/* turbopackIgnore: true */ gitignorePath)) {
     fs.writeFileSync(gitignorePath, GITIGNORE_BODY, { mode: 0o644 });
   }
 
@@ -342,8 +342,8 @@ export function ensureBrainDir(): string {
   if (isTeamRoot()) return dir;
 
   const seed = (filename: string, render: () => string) => {
-    const p = path.join(dir, filename);
-    if (!fs.existsSync(p)) fs.writeFileSync(p, render(), { mode: 0o600 });
+    const p = path.join(/* turbopackIgnore: true */ dir, filename);
+    if (!fs.existsSync(/* turbopackIgnore: true */ p)) fs.writeFileSync(p, render(), { mode: 0o600 });
   };
   seed('MEMORY.md', renderBrainMemoryMd);
   seed(USER_MD_FILENAME, renderUserMdStub);
@@ -379,8 +379,8 @@ const CONFIG_ENTRIES = ['config.json', 'preview.json', 'cli-config.json'];
  *  dryRun, records the planned move without touching disk. */
 function migrateMove(src: string, dest: string, moved: string[], dryRun: boolean): void {
   try {
-    if (!fs.existsSync(src)) return;
-    if (fs.existsSync(dest)) return; // already migrated / would clobber
+    if (!fs.existsSync(/* turbopackIgnore: true */ src)) return;
+    if (fs.existsSync(/* turbopackIgnore: true */ dest)) return; // already migrated / would clobber
     if (!dryRun) {
       fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
       fs.renameSync(src, dest);
@@ -413,23 +413,23 @@ export function migrateLayout(
   if (process.env[DB_PATH_ENV]) return { migrated: false, moved: [] };
 
   const root = getAppRoot();
-  if (!fs.existsSync(root)) return { migrated: false, moved: [] };
+  if (!fs.existsSync(/* turbopackIgnore: true */ root)) return { migrated: false, moved: [] };
 
   const moved: string[] = [];
-  const brain = path.join(root, 'brain');
+  const brain = path.join(/* turbopackIgnore: true */ root, 'brain');
 
   // 1. brain/ → root (content) and brain/{icons,preview} → .work.
-  if (fs.existsSync(brain)) {
+  if (fs.existsSync(/* turbopackIgnore: true */ brain)) {
     for (const name of CONTENT_ENTRIES) {
-      migrateMove(path.join(brain, name), path.join(/* turbopackIgnore: true */ root, name), moved, dryRun);
+      migrateMove(path.join(/* turbopackIgnore: true */ brain, name), path.join(/* turbopackIgnore: true */ root, name), moved, dryRun);
     }
     for (const name of WORK_ENTRIES) {
-      migrateMove(path.join(brain, name), path.join(/* turbopackIgnore: true */ getWorkDir(), name), moved, dryRun);
+      migrateMove(path.join(/* turbopackIgnore: true */ brain, name), path.join(/* turbopackIgnore: true */ getWorkDir(), name), moved, dryRun);
     }
     // Drop brain/ if we emptied it (best-effort; leaves it if user has extras).
     if (!dryRun) {
       try {
-        if (fs.readdirSync(brain).length === 0) fs.rmdirSync(brain);
+        if (fs.readdirSync(/* turbopackIgnore: true */ brain).length === 0) fs.rmdirSync(brain);
       } catch { /* leave non-empty brain in place */ }
     }
   }
