@@ -207,8 +207,9 @@ view's shape: chat on the left (Build and Try it), the skill on the right.
 Write it by hand, tell the AI what it should do in Build (it writes a full
 first draft, names it, then asks one or two questions), or both.
 
-- The header is the skill's name (click to rename) and one control for where
-  it's installed, which carries the location so nothing else repeats it. On a
+- The header is one row: the skill's name, **Get setup help** (icon only on
+  a narrow header), and one control for where it's installed, which carries
+  the location so nothing else repeats it. On a
   draft it's **Install**, a menu of the places: Ri, Global, or a project. On
   an installed skill it names the place, and the same menu moves it (with a
   check on where it is now), adds a copy to a project to share it with that
@@ -218,9 +219,23 @@ first draft, names it, then asks one or two questions), or both.
   <branch>**, which commits only that skill's folder and link, leaves
   anything else staged or changed alone, runs the repo's hooks, and never
   pushes.
-- **Fields** edits "When to use it" (the description, with a counter) and the
-  instructions (CodeMirror, byte-exact markdown). **SKILL.md** edits the whole
-  file, for keys like `allowed-tools`. A new `name:` there renames the skill.
+- **Fields** edits the name, "When to use it" (the description, with a
+  counter) and the instructions (CodeMirror, byte-exact markdown). The name
+  saves on Enter or leaving the field, never per keystroke, since a rename
+  moves the folder and restarts the skill's chats. It runs in the same
+  serial queue as the other saves, after anything typed before it.
+  **SKILL.md** edits the whole file, for keys like `allowed-tools`. A new
+  `name:` there renames the skill.
+- **Files**, under either view, lists everything beside SKILL.md. Add files
+  from the computer (Add files, or drop them on the list), up to 1 MB each.
+  They go where the Agent Skills folders say, by extension
+  (`src/lib/skills/file-placement.ts`): code in `scripts/`, docs in
+  `references/`, everything else (templates, images, data) in `assets/`,
+  the same folders the builder AI writes to. Replacing a file asks first.
+  Open a file to read it (highlighted, read only), or remove it. Uploads are
+  sent as base64 one file per write, so binaries land byte for byte and each
+  message stays under the 2 MB WebSocket cap. A file's own changes go
+  through the builder chat, or a new version added over it.
 - It autosaves. Every save carries the hash it was based on. With nothing
   unsaved, the AI's changes flow into the editor as they land (the view polls
   while the builder AI works). If the file changed under unsaved typing,
@@ -236,6 +251,23 @@ verbatim, and the frontmatter is only re-serialized (through the `yaml`
 Document API, which keeps comments and order) when `name` or `description`
 actually changes.
 
+### Short by default
+
+The builder's brief (`src/lib/skills/builder-brief.ts`) sizes a draft to the
+request: a one-line ask gets a short description and a body of a sentence or
+a few lines, the user's own wording is kept as the skill, and additions are
+offered as questions instead of written in. Replies say what changed in a
+line or two. The chat's starters ask to finish a draft as short as it can be
+and to say what could be cut.
+
+Why, as of 2026-10-28: the brief asked for "a complete first draft" and
+listed steps, judgment calls, examples and edge cases as what a body holds.
+Asked for one-sentence skills, the builder wrote drafts of about 5 to 6 KB
+(complexity-review, simplified English) and recapped them at length, and
+both times the user cut them back to their own sentence (0.2 and 0.7 KB).
+That matches the Agent Skills guidance that the loading agent is already
+capable and every line costs context.
+
 ## Agent surface
 
 Orchestrator actions (`src/lib/orchestrator/registry.ts`):
@@ -245,7 +277,7 @@ Orchestrator actions (`src/lib/orchestrator/registry.ts`):
 | `list_skills` | Every skill with its `ref` and location, drafts included. With `workspaceCwd`, only what a chat there gets (no drafts). |
 | `get_skill` | The file, its parts, problems, files, and the `hash` to write against. |
 | `create_skill` | A draft, unless `location` installs it right away. A retry with the same content returns the same skill. |
-| `save_skill` | Fields, whole content, supporting `files`, `newName`. Pass `baseHash`: a stale save is refused with a hint to re-read. Refused from other devices. |
+| `save_skill` | Fields, whole content, supporting `files` (text, or a binary with `encoding: "base64"`, 1 MB each, `content: null` deletes), `newName`. Pass `baseHash`: a stale save is refused with a hint to re-read. Refused from other devices. |
 | `move_skill` | Install a draft, move an installed skill, or uninstall it (`to: "draft"`). `copy` keeps the original. A retry that already landed returns the skill. |
 
 Writes go through the app server (`/api/skills/...`), because a rename or
@@ -262,7 +294,10 @@ folders are the home's (docs/homes-spec.md §4.1). They can still create a
 draft, which nothing uses.
 
 HTTP: `GET/POST /api/skills`, `GET/PUT/DELETE /api/skills/:ref`,
-`POST /api/skills/:ref/move`, `POST /api/skills/:ref/commit`. Delete archives
+`POST /api/skills/:ref/move`, `POST /api/skills/:ref/commit`. The editor
+reads one supporting file through the `skills.fileRefGet` procedure (no REST
+route), which answers its text, or `text: null` for a binary or a file over
+1 MB. Delete archives
 to `<app-root>/.archive/skills/`. Drafts are home content like Ri's skills:
 home backups and comparisons include `skill-drafts` (`src/lib/home/`).
 
@@ -277,6 +312,8 @@ home backups and comparisons include `skill-drafts` (`src/lib/home/`).
 | `src/lib/skills/manage.ts` | Everything the routes and actions do, keeping folders, links and chats in step |
 | `src/lib/skills/exclusions.ts` | What a builder or try chat gets differently |
 | `src/lib/skills/builder-brief.ts` | The builder chat's brief |
+| `src/lib/skills/file-placement.ts` | Which folder a file added by hand goes in, and the 1 MB limit |
+| `src/components/skills/skill-files.tsx` | The editor's Files list: add, open, replace, remove |
 | `src/lib/agent-skills/shipped.ts` | Ri's shipped skills: materializing, the home links, the global links and copies, `inspectGlobalSkills` |
 | `src/components/settings/agent-skill-access.tsx` | The one-click install and uninstall at the end of Connect your agent |
 

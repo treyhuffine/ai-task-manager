@@ -26,6 +26,7 @@ import {
   type SkillFields,
   type SkillProblem,
 } from './format';
+import { SUPPORTING_FILE_MAX_BYTES } from './file-placement';
 
 export class SkillError extends Error {
   constructor(
@@ -152,7 +153,7 @@ export function requireSkillAt(dir: string): SkillDocument {
   return skill;
 }
 
-export function writeAtomic(file: string, content: string): void {
+export function writeAtomic(file: string, content: string | Buffer): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = path.join(/* turbopackIgnore: true */ path.dirname(file), `.${path.basename(file)}.${randomBytes(4).toString('hex')}.tmp`);
   fs.writeFileSync(tmp, content);
@@ -195,6 +196,8 @@ export interface SupportingFileWrite {
   path: string;
   /** New text, or null to delete the file. */
   content: string | null;
+  /** `base64` when `content` is a binary file, encoded. Text by default. */
+  encoding?: 'utf8' | 'base64';
 }
 
 export interface WriteSkillInput {
@@ -209,8 +212,6 @@ export interface WriteSkillInput {
   /** The hash the change was based on. A mismatch is refused as stale. */
   baseHash?: string | null;
 }
-
-const MAX_SUPPORTING_FILE_BYTES = 1024 * 1024;
 
 /** Resolve a supporting file path inside the folder, or throw. */
 export function resolveSupportingPath(dir: string, relPath: string): string {
@@ -247,43 +248,66 @@ export function writeSkillAt(dir: string, input: WriteSkillInput): SkillDocument
   const current = requireSkillAt(dir);
   // Check every file path before writing anything, so a bad one fails the whole change.
   const planned = (input.files ?? []).map((file) => {
-    if (file.content !== null && Buffer.byteLength(file.content) > MAX_SUPPORTING_FILE_BYTES) {
+    const bytes = file.content === null ? null : Buffer.from(file.content, file.encoding ?? 'utf8');
+    if (bytes !== null && bytes.length > SUPPORTING_FILE_MAX_BYTES) {
       throw new SkillError('invalid', `${file.path} is over 1 MB. Keep supporting files small, they cost context.`);
     }
-    return { ...file, full: resolveSupportingPath(dir, file.path) };
+    return { path: file.path, bytes, full: resolveSupportingPath(dir, file.path) };
   });
 
   let next = current.content;
   if (input.content !== undefined) next = input.content;
   else if (input.fields) next = renderSkillFile(current.content, input.fields);
-  const changed = next !== current.content || planned.some(file => !fileHolds(file.full, file.content));
+  const changed = next !== current.content || planned.some(file => !fileHolds(file.full, file.bytes));
 
   if (input.baseHash && input.baseHash !== current.hash) {
     // A retry of a write that already landed would change nothing, so it
     // isn't a conflict. Anything else would overwrite someone's edit.
-    const alreadyApplied = next === current.content && planned.every((file) => fileHolds(file.full, file.content));
+    const alreadyApplied = next === current.content && planned.every((file) => fileHolds(file.full, file.bytes));
     if (!alreadyApplied) throw new SkillError('stale', `${current.name} changed since you last read it.`, current);
     return current;
   }
   if (next !== current.content) writeAtomic(path.join(/* turbopackIgnore: true */ dir, SKILL_FILE), next);
 
   for (const file of planned) {
-    if (file.content === null) {
+    if (file.bytes === null) {
       fs.rmSync(file.full, { force: true });
       pruneEmptyDirs(path.dirname(file.full), dir);
     } else {
-      writeAtomic(file.full, file.content);
+      writeAtomic(file.full, file.bytes);
     }
   }
   if (changed) input.onChange?.();
   return requireSkillAt(dir);
 }
 
-function fileHolds(full: string, content: string | null): boolean {
+function fileHolds(full: string, bytes: Buffer | null): boolean {
   try {
-    return content !== null && fs.readFileSync(/* turbopackIgnore: true */ full, 'utf8') === content;
+    return bytes !== null && fs.readFileSync(/* turbopackIgnore: true */ full).equals(bytes);
   } catch {
-    return content === null;
+    return bytes === null;
+  }
+}
+
+export interface SupportingFileContent extends SkillFileEntry {
+  /** The file as text, or null when it isn't text or is too large to show. */
+  text: string | null;
+}
+
+/** One supporting file, as text when it is text and no larger than a supporting file may be. */
+export function readSupportingFile(dir: string, relPath: string): SupportingFileContent {
+  requireSkillAt(dir);
+  const full = resolveSupportingPath(dir, relPath);
+  const stat = fs.lstatSync(/* turbopackIgnore: true */ full, { throwIfNoEntry: false });
+  if (!stat?.isFile()) throw new SkillError('not_found', `There's no ${relPath} in this skill.`);
+  const entry = { path: relPath.replace(/\\/g, '/').trim(), size: stat.size };
+  if (stat.size > SUPPORTING_FILE_MAX_BYTES) return { ...entry, text: null };
+  const bytes = fs.readFileSync(/* turbopackIgnore: true */ full);
+  if (bytes.includes(0)) return { ...entry, text: null };
+  try {
+    return { ...entry, text: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+  } catch {
+    return { ...entry, text: null };
   }
 }
 

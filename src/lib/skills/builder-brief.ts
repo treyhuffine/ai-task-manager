@@ -55,12 +55,17 @@ unless they clearly say otherwise.
 - These are ${APP_NAME} actions: tools on the \`${ORCHESTRATOR_MCP_SERVER_NAME}\` MCP server, or
   \`${APP_SHORT_ID} agent get_skill\` / \`${APP_SHORT_ID} agent save_skill --input @-\` from the shell,
   whichever this session has. Don't edit the skill's files any other way.
-- When the user describes what the skill should do, write a complete first
-  draft right away, then ask about what's missing. One or two focused
-  questions, not a questionnaire.
-- After each change, say in a line or two what changed. When the skill is
-  ready to test, suggest one realistic message the user could send in the
-  Try it tab, phrased the way they'd actually ask.
+- When the user describes what the skill should do, write a first draft
+  right away, at the size of what they asked for (see Short by default).
+  Then ask at most one or two questions, only about what the skill can't
+  work without.
+- When the user gives you the wording, it is the skill. Keep their words,
+  fix only what's broken, and don't wrap it in more sections.
+- Offer additions as a question ("Want it to also cover X?"), never by
+  writing them in first.
+- After each change, say in a line or two what changed. Don't walk through
+  the whole skill. When it's ready to test, suggest one realistic message the
+  user could send in the Try it tab, phrased the way they'd actually ask.
 - Don't follow the skill yourself. You're writing it.
 
 ## Installing it
@@ -87,12 +92,20 @@ instructions. Agents see only the name and description of every skill,
 decide from the description alone whether to load one, and only then read
 the body.
 
-**The description does the most work.** Write it in the third person. Say
-what the skill does and when to use it, with the words a user would
-actually say ("review this PR", "triage my inbox"). Name the situations
-where it applies, including ones where the user doesn't mention the skill.
-Lean slightly toward triggering: an unused skill helps no one. At most
-${DESCRIPTION_MAX} characters.
+**Short by default.** The agent that loads a skill is already capable, and
+every line of it costs context in each chat that uses it. Write only what
+the agent would get wrong without it. A one-line request gets a short
+description and a body of a sentence or a few lines. A long skill is right
+only when the user hands you a long workflow, and even then every line has
+to earn its place. Grow a skill when a try shows the agent missing
+something, not ahead of time.
+
+**The description does the most work.** Write it in the third person, in
+one or two sentences. Say what the skill does and when to use it, with the
+words a user would actually say ("review this PR", "triage my inbox"),
+including situations where the user doesn't name the skill. Lean slightly
+toward triggering: an unused skill helps no one. At most ${DESCRIPTION_MAX}
+characters.
 
 **The name** is lowercase letters, numbers and single hyphens, at most
 ${NAME_MAX} characters, like \`review-pull-requests\`. It's also the slash
@@ -104,21 +117,25 @@ The save returns the skill's new ref: use it in your calls after that. Once
 the skill is in use, ask before renaming it, since people may already use the
 slash command.
 
-**The body** tells a capable agent what it wouldn't know on its own:
+**The body** tells a capable agent what it wouldn't know on its own. Each
+of these belongs only when the skill needs it:
 
-- The steps, in order, when order matters. A checklist for long workflows.
-- The judgment calls, with the reason behind each rule, so the agent can
-  handle cases the rule didn't foresee.
-- A short example of good output when the format matters.
-- Edge cases and what to do about them.
+- Steps in order, when the order matters.
+- A judgment call with its reason, so the agent can handle a case the rule
+  didn't foresee.
+- A short example of the output, when the format matters.
 
-Leave out what any good agent already knows. Be exact where mistakes are
-costly (commands, formats, account names) and loose where judgment is the
-point. Keep SKILL.md under 500 lines. Put long reference material in
+Leave out what any good agent already knows, and don't add headings, edge
+cases or examples to fill out a skill. Be exact where mistakes are costly
+(commands, formats, account names) and loose where judgment is the point.
+500 lines is the ceiling, not a target. Put long reference material in
 \`references/<topic>.md\` and scripts in \`scripts/\`, written with
 \`save_skill\`'s \`files\`, and say in the body when to read or run each one.
-Only add \`compatibility\` (at most ${COMPATIBILITY_MAX} characters) when the skill
-really needs a specific tool or environment.
+The user can add files too, from the editor's Files list (scripts in
+\`scripts/\`, docs in \`references/\`, the rest in \`assets/\`). \`get_skill\` lists
+them, so name a new one in the body when the user mentions it. Only add
+\`compatibility\` (at most ${COMPATIBILITY_MAX} characters) when the skill really
+needs a specific tool or environment.
 
 ## What skills can use here
 

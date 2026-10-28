@@ -49,6 +49,11 @@ export const skillsApi = {
     return trpcClient.skills.moveRefPost.mutate({ params: { ref }, body });
   },
 
+  /** One supporting file, as text when it is text (null otherwise). */
+  file(ref: string, path: string) {
+    return trpcClient.skills.fileRefGet.query({ params: { ref }, query: { path } });
+  },
+
   /** Commit a project skill's files in its repo. */
   commit(ref: string) {
     return trpcClient.skills.commitRefPost.mutate({ params: { ref } });

@@ -20,8 +20,9 @@ export function usePluginSetupHelp() {
   const request = useRef<PluginSetupHelpRequest | null>(null);
   const [isPending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const ask = async (target: PluginSetupHelpTarget) => {
-    if (!dashboard || inFlight.current) return;
+  /** Resolves to the failure it shows, or null. */
+  const ask = async (target: PluginSetupHelpTarget): Promise<string | null> => {
+    if (!dashboard || inFlight.current) return null;
     inFlight.current = true; setPending(true); setError(null);
     try {
       const content = pluginSetupHelpMessage(target);
@@ -38,8 +39,11 @@ export function usePluginSetupHelp() {
       dashboard.setFocusedPanel(dashboard.panelATab === 'chat' ? 'a' : dashboard.panelBTab === 'chat' ? 'b' : 'a');
       dashboard.setMobileTab('chat');
       if (dashboard.isFocusMode) dashboard.exitFocusMode();
+      return null;
     } catch (failure) {
-      setError(`Could not ask your main agent. ${apiErrorText(failure)}`);
+      const message = `Could not ask your main agent. ${apiErrorText(failure)}`;
+      setError(message);
+      return message;
     } finally {
       inFlight.current = false; setPending(false);
     }

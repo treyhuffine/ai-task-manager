@@ -9,6 +9,7 @@ import {
   createSkillAt,
   moveSkillFolder,
   readSkillAt,
+  readSupportingFile,
   writeSkillAt,
 } from './library';
 
@@ -122,6 +123,48 @@ describe('writeSkillAt', () => {
     const removed = writeSkillAt(dir('review'), { files: [{ path: 'scripts/run.sh', content: null }] });
     expect(removed.files.map((f) => f.path)).toEqual(['references/guide.md']);
     expect(fs.existsSync(path.join(dir('review'), 'scripts'))).toBe(false);
+  });
+
+  it('writes a binary file sent as base64, byte for byte, and treats its retry as done', () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0x10]);
+    const before = readSkillAt(dir('review'))!;
+    const write = { files: [{ path: 'assets/logo.png', content: png.toString('base64'), encoding: 'base64' as const }], baseHash: before.hash };
+    expect(writeSkillAt(dir('review'), write).files).toEqual([{ path: 'assets/logo.png', size: png.length }]);
+    expect(fs.readFileSync(path.join(dir('review'), 'assets/logo.png')).equals(png)).toBe(true);
+    writeSkillAt(dir('review'), { fields: { body: 'Someone else.\n' } });
+    expect(codeOf(() => writeSkillAt(dir('review'), write))).toBeNull();
+  });
+
+  it('measures the 1 MB limit in bytes, after decoding', () => {
+    const big = Buffer.alloc(1024 * 1024 + 1, 1).toString('base64');
+    expect(codeOf(() => writeSkillAt(dir('review'), { files: [{ path: 'assets/big.bin', content: big, encoding: 'base64' }] }))).toBe('invalid');
+    expect(codeOf(() => writeSkillAt(dir('review'), { files: [{ path: 'assets/ok.bin', content: Buffer.alloc(1024 * 1024).toString('base64'), encoding: 'base64' }] }))).toBeNull();
+  });
+
+  it('reads a supporting file as text only when it is text and small enough', () => {
+    writeSkillAt(dir('review'), {
+      files: [
+        { path: 'scripts/run.py', content: 'print("héllo")\n' },
+        { path: 'assets/logo.png', content: Buffer.from([0x89, 0x50, 0x00, 0x01]).toString('base64'), encoding: 'base64' },
+        { path: 'assets/latin1.txt', content: Buffer.from([0x63, 0x61, 0x66, 0xe9]).toString('base64'), encoding: 'base64' },
+      ],
+    });
+    expect(readSupportingFile(dir('review'), 'scripts/run.py')).toEqual({ path: 'scripts/run.py', size: 16, text: 'print("héllo")\n' });
+    expect(readSupportingFile(dir('review'), 'assets/logo.png')).toMatchObject({ size: 4, text: null });
+    expect(readSupportingFile(dir('review'), 'assets/latin1.txt').text).toBeNull();
+    fs.writeFileSync(path.join(dir('review'), 'references-large.md'), 'x'.repeat(1024 * 1024 + 1));
+    expect(readSupportingFile(dir('review'), 'references-large.md')).toMatchObject({ size: 1024 * 1024 + 1, text: null });
+  });
+
+  it('refuses to read SKILL.md, a missing file, a folder, or a path outside the skill', () => {
+    writeSkillAt(dir('review'), { files: [{ path: 'scripts/run.py', content: 'x' }] });
+    expect(codeOf(() => readSupportingFile(dir('review'), 'SKILL.md'))).toBe('invalid');
+    expect(codeOf(() => readSupportingFile(dir('review'), '../../etc/passwd'))).toBe('invalid');
+    expect(codeOf(() => readSupportingFile(dir('review'), 'scripts/missing.py'))).toBe('not_found');
+    expect(codeOf(() => readSupportingFile(dir('review'), 'scripts'))).toBe('not_found');
+    fs.writeFileSync(path.join(root, 'outside.md'), 'secret');
+    fs.symlinkSync(path.join(root, 'outside.md'), path.join(dir('review'), 'linked.md'));
+    expect(codeOf(() => readSupportingFile(dir('review'), 'linked.md'))).toBe('invalid');
   });
 
   it('refuses supporting file paths that leave the folder or touch SKILL.md', () => {

@@ -25,10 +25,14 @@ it('shares the normal draft, hash-checked editor and install operations, with li
   expect(JSON.stringify(made)).not.toContain(fixture.home.root);
   expect((await member.skills.list.query({})).skills).toEqual([]);
   await expect(member.skills.RefGet.query({ params: { ref: made.skill.ref } })).rejects.toThrow(/unavailable/);
+  await owner.skills.RefPut.mutate({ params: { ref: made.skill.ref }, body: { files: [{ path: 'references/checklist.md', content: '# Decisions\n' }] } });
+  await expect(member.skills.fileRefGet.query({ params: { ref: made.skill.ref }, query: { path: 'references/checklist.md' } })).rejects.toThrow(/unavailable/);
   await expect(member.skills.create.mutate({ body: { name: 'member-installed' } })).rejects.toThrow(/cannot perform/);
   const installed = await owner.skills.moveRefPost.mutate({ params: { ref: made.skill.ref }, body: { to: 'ri' } });
   const read = await member.skills.RefGet.query({ params: { ref: installed.skill.ref } });
   expect(read.skill).toMatchObject({ ref: 'ri:weekly-review', editable: false, canWriteGlobal: false });
+  expect((await member.skills.fileRefGet.query({ params: { ref: read.skill.ref }, query: { path: 'references/checklist.md' } })).file).toEqual({ path: 'references/checklist.md', size: 12, text: '# Decisions\n' });
+  await expect(member.skills.RefPut.mutate({ params: { ref: read.skill.ref }, body: { files: [{ path: 'references/checklist.md', content: null }] } })).rejects.toThrow(/cannot perform/);
   expect((await member.skills.list.query({})).skills.map(skill => skill.ref)).toEqual(['ri:weekly-review']);
   await expect(member.skills.RefPut.mutate({ params: { ref: read.skill.ref }, body: { body: 'Change another member’s execution policy.', baseHash: read.skill.hash } })).rejects.toThrow(/cannot perform/);
   const saved = await owner.skills.RefPut.mutate({ params: { ref: read.skill.ref }, body: { body: 'Updated shared instructions.', baseHash: read.skill.hash } });
@@ -59,6 +63,7 @@ it('never discovers host/global or coincidentally local project skills and refus
   const valid = await owner.skills.create.mutate({ body: { name: 'safe-skill', description: 'Safe shared file boundary checks.', body: 'Keep supporting files in the skill.' } });
   fs.symlinkSync(host, path.join(fixture.home.root, 'skill-drafts/safe-skill/references'));
   await expect(owner.skills.RefPut.mutate({ params: { ref: valid.skill.ref }, body: { files: [{ path: 'references/private.md', content: 'Unauthorized overwrite' }], baseHash: valid.skill.hash } })).rejects.toThrow(/symbolic links/);
+  await expect(owner.skills.fileRefGet.query({ params: { ref: valid.skill.ref }, query: { path: 'references/private.md' } })).rejects.toThrow(/symbolic links/);
   fs.rmSync(library, { recursive: true }); fs.symlinkSync(path.join(host, '.claude/skills'), library);
   await expect(owner.skills.create.mutate({ body: { name: 'root-escape', location: 'ri', description: 'Cannot install outside the shared Home.', body: 'Keep the Home boundary.' } })).rejects.toThrow(/inside the team’s folder/);
   expect(fs.existsSync(path.join(host, '.claude/skills/root-escape'))).toBe(false);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, apiErrorText } from '@/lib/api/client';
 import { assertDocumentCredential, homeDocumentKey } from '@/lib/home/document-scope';
 import type { SkillView, SaveSkillResult, SaveSkillBody } from '@/lib/api/skills';
 import { SkillFileSaver } from './skill-file-saver';
@@ -73,4 +73,33 @@ it('moves retained identity during a file rename and keeps newer input on the ne
   await pending;
   expect(write.mock.calls[1]).toEqual(['ri:renamed', { content: 'Newer renamed file', baseHash: 'second' }]);
   expect(files.has(keyFor('ri:review'))).toBe(false); expect(model.snapshot().saved.ref).toBe('ri:renamed');
+});
+
+it('renames only after earlier typing is saved, and keeps typing from during the rename', async () => {
+  const model = saver(); model.edit({ body: 'Typed before the rename' });
+  let finish!: (value: SaveSkillResult) => void;
+  write.mockImplementationOnce(async (ref, body) => { current = skill({ ...current, body: body.body!, hash: 'second' }); return { skill: current, renamedFrom: null }; });
+  write.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const renaming = model.rename('weekly-review');
+  await vi.advanceTimersByTimeAsync(0);
+  expect(write.mock.calls[0]).toEqual(['ri:review', { body: 'Typed before the rename', description: 'Review shared work.', baseHash: 'first' }]);
+  expect(write.mock.calls[1]).toEqual(['ri:review', { newName: 'weekly-review', baseHash: 'second' }]);
+  expect(model.snapshot().saving).toBe(true);
+  model.edit({ description: 'Typed during the rename' });
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(write).toHaveBeenCalledTimes(2);
+  current = skill({ ...current, ref: 'ri:weekly-review', name: 'weekly-review', content: 'name: weekly-review', hash: 'third' });
+  finish({ skill: current, renamedFrom: 'ri:review' });
+  await renaming;
+  expect(write.mock.calls[2]).toEqual(['ri:weekly-review', { body: 'Typed before the rename', description: 'Typed during the rename', baseHash: 'third' }]);
+  expect(model.snapshot().saved.ref).toBe('ri:weekly-review'); expect(model.snapshot().saving).toBe(false); expect(model.hasUnsaved()).toBe(false);
+  expect(acknowledged).toHaveBeenCalledWith(expect.objectContaining({ renamedFrom: 'ri:review' }));
+});
+
+it('hands a refused rename back to the Name field instead of keeping it as a save error', async () => {
+  const model = saver();
+  write.mockRejectedValueOnce(new ApiError(409, { error: 'A skill named taken is already there.', code: 'conflict' }, '/skills'));
+  expect(apiErrorText(await model.rename('taken').catch((error: unknown) => error))).toBe('A skill named taken is already there.');
+  expect(model.snapshot().error).toBeNull(); expect(model.snapshot().saving).toBe(false); expect(model.snapshot().saved.ref).toBe('ri:review');
+  await model.rename('review'); expect(write).toHaveBeenCalledTimes(1);
 });

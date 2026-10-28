@@ -29,6 +29,16 @@ export function useSkill(ref: string | null, opts: { live?: boolean } = {}) {
   });
 }
 
+/** A supporting file's text, fetched when it's opened. Keyed by size so a new version reads fresh. */
+export function useSkillFile(ref: string, file: { path: string; size: number } | null) {
+  return useQuery({
+    queryKey: [...skillKey(ref), 'file', file?.path ?? '', file?.size ?? 0],
+    queryFn: () => skillsApi.file(ref, file!.path).then((r) => r.file),
+    enabled: !!file,
+    staleTime: 2_000,
+  });
+}
+
 function useSettle() {
   const qc = useQueryClient();
   return (skill?: SkillView) => {

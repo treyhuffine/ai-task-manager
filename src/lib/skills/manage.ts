@@ -24,9 +24,11 @@ import {
   isBlankSkillAt,
   moveSkillFolder,
   readSkillAt,
+  readSupportingFile,
   requireSkillAt,
   writeSkillAt,
   type SkillFileEntry,
+  type SupportingFileContent,
   type SupportingFileWrite,
 } from './library';
 import { DRAFT, canWriteGlobal, findSkill, isInstalled, linkMirror, listAllSkills, listProjects, listSkillsAt, nameTakenAt, newSkillDir, parseSkillRef, projectFor, projectPaths, requireLocatedSkill, sameLocation, skillRef, unlinkMirror, type LocatedSkill, type ProjectInfo, type SkillLocation } from './locations';
@@ -202,6 +204,11 @@ async function viewOf(skill: LocatedSkill): Promise<SkillView> {
 export async function getSkillView(ref: string): Promise<SkillView | null> {
   const skill = findSkill(ref);
   return skill ? viewOf(skill) : null;
+}
+
+/** One of a skill's supporting files (scripts/, references/, assets/), as text when it is text. */
+export function getSkillFile(ref: string, relPath: string): SupportingFileContent {
+  return readSupportingFile(requireLocatedSkill(ref).dir, relPath);
 }
 
 function requireEditable(skill: LocatedSkill): void {

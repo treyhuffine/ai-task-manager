@@ -205,6 +205,7 @@ import * as operation189 from "@/lib/server/operations/settings/base-url/tunnel-
 import * as operation190 from "@/lib/server/operations/skills";
 import * as operation191 from "@/lib/server/operations/skills/[ref]";
 import * as operation193 from "@/lib/server/operations/skills/[ref]/commit";
+import * as operation265 from "@/lib/server/operations/skills/[ref]/file";
 import * as operation192 from "@/lib/server/operations/skills/[ref]/move";
 import * as operation194 from "@/lib/server/operations/stream";
 import * as operation195 from "@/lib/server/operations/stream/[id]";
@@ -585,6 +586,8 @@ export const internalRouters = {
     RefDelete: sp.input(operation191.DELETEInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation191.DELETE(input, operationContext(ctx.request, input, "/skills/[ref]")))),
     moveRefPost: sp.input(operation192.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation192.POST(input, operationContext(ctx.request, input, "/skills/[ref]/move")))),
     commitRefPost: sp.input(operation193.POSTInput).mutation(async ({ input, ctx }) => unwrapOperation(await operation193.POST(input, operationContext(ctx.request, input, "/skills/[ref]/commit")))),
+    // A supporting file's text for the editor's Files list (no REST route).
+    fileRefGet: sp.input(operation265.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation265.GET(input, operationContext(ctx.request, input, "/skills/[ref]/file")))),
   }),
   stream: router({
     list: p.input(operation194.GETInput).query(async ({ input, ctx }) => unwrapOperation(await operation194.GET(input, operationContext(ctx.request, input, "/stream")))),

@@ -18,9 +18,9 @@ function buildIntro(skill: SkillView): MainChatIntro {
     starters: empty
       ? [{ label: 'Describe what it does', prompt: 'This skill should ', draft: true }]
       : [
-          { label: 'Write a full draft', prompt: 'Write a complete draft of this skill from what is there now, then ask me what is missing.' },
+          { label: 'Finish the draft', prompt: 'Finish this skill from what is there now, as short as it can be while still working, then ask me what is missing.' },
           { label: 'Sharpen when it’s used', prompt: 'Rewrite the description so an agent reliably knows when to use this skill, and when not to.' },
-          { label: 'Review it', prompt: 'Review this skill the way an expert skill author would. What would make agents follow it more reliably?' },
+          { label: 'Review it', prompt: 'Review this skill the way an expert skill author would. What would make agents follow it more reliably, and what could be cut?' },
           { label: 'Suggest a test', prompt: 'Suggest three realistic messages I could send in the Try it tab to test this skill, including one where it should not trigger.' },
         ],
   };

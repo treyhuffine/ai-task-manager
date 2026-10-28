@@ -88,15 +88,7 @@ export class SkillFileSaver {
     this.running = (async () => {
       while (this.hasUnsaved()) {
         const { draft: sent, saved, mode } = this.value;
-        const result = await this.write(saved.ref, { ...(mode === 'file' ? { content: sent.content } : { description: sent.description, body: sent.body }), baseHash: saved.hash });
-        const now = this.value.draft, fresh = draftOf(result.skill);
-        this.value.saved = result.skill;
-        this.value.draft = { description: now.description === sent.description ? fresh.description : now.description, body: now.body === sent.body ? fresh.body : now.body, content: now.content === sent.content ? fresh.content : now.content };
-        const previousKey = this.key; this.key = this.keyFor(result.skill.ref);
-        if (this.hasUnsaved()) this.retain();
-        else { try { this.storage().removeItem(this.key); } catch { /* A surviving draft never replays automatically. */ } }
-        if (this.key !== previousKey) { try { this.storage().removeItem(previousKey); } catch { /* Retain the former identity for explicit recovery. */ } }
-        this.acknowledged(result); this.changed();
+        this.accept(sent, await this.write(saved.ref, { ...(mode === 'file' ? { content: sent.content } : { description: sent.description, body: sent.body }), baseHash: saved.hash }));
       }
     })();
     try { await this.running; }
@@ -106,6 +98,31 @@ export class SkillFileSaver {
       }
       this.value.error = apiErrorText(error); this.retain(); throw error;
     } finally { this.running = undefined; this.value.saving = false; this.changed(); }
+  };
+  /** Take an acknowledged write, keeping whatever was typed while it was in flight. */
+  private accept(sent: Draft, result: SaveSkillResult) {
+    const now = this.value.draft, fresh = draftOf(result.skill);
+    this.value.saved = result.skill;
+    this.value.draft = { description: now.description === sent.description ? fresh.description : now.description, body: now.body === sent.body ? fresh.body : now.body, content: now.content === sent.content ? fresh.content : now.content };
+    const previousKey = this.key; this.key = this.keyFor(result.skill.ref);
+    if (this.hasUnsaved()) this.retain();
+    else { try { this.storage().removeItem(this.key); } catch { /* A surviving draft never replays automatically. */ } }
+    if (this.key !== previousKey) { try { this.storage().removeItem(previousKey); } catch { /* Retain the former identity for explicit recovery. */ } }
+    this.acknowledged(result); this.changed();
+  }
+  /** Rename the skill (the Name field) once everything typed before it is saved. Its ref
+   * changes and the editor follows. A refusal is thrown for the field to show, not kept as
+   * a save error, since retrying the save wouldn't retry the rename. */
+  rename = async (name: string): Promise<void> => {
+    await this.flush();
+    const { saved, draft } = this.value;
+    if (name === saved.name) return;
+    if (!saved.editable || this.value.conflict || this.value.recovery) throw new Error('Resolve this skill draft before renaming it.');
+    this.value.saving = true; this.changed();
+    this.running = this.write(saved.ref, { newName: name, baseHash: saved.hash }).then(result => this.accept(draft, result));
+    try { await this.running; }
+    finally { this.running = undefined; this.value.saving = false; this.changed(); }
+    if (this.hasUnsaved()) await this.flush();
   };
   dispose() { clearTimeout(this.timer); this.listeners.clear(); }
 }

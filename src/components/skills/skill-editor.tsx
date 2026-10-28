@@ -8,11 +8,14 @@ import { documentCredential } from '@/lib/home/document-binding';
 import { homeDocumentKey, assertDocumentCredential } from '@/lib/home/document-scope';
 import { documentSaves } from '@/lib/client/document-saves';
 import { SkillFileSaver, type SkillEditMode } from '@/lib/client/skill-file-saver';
+import { apiErrorText } from '@/lib/api/client';
 import { skillsApi, type SkillView, type SaveSkillBody } from '@/lib/api/skills';
+import { NAME_MAX, nameProblem } from '@/lib/skills/format';
 import { cn } from '@/lib/utils';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, Check, FileText, Loader2, MessageCircleMore } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Check, Loader2, MessageCircleMore } from 'lucide-react';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { SkillFiles } from './skill-files';
 import { SkillMarkdownEditor } from './skill-markdown-editor';
 
 /** The same hash-checked file editor in personal and shared libraries. */
@@ -133,6 +136,12 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
 
           {effectiveMode === 'fields' ? (
             <>
+              <NameField
+                name={saved.name}
+                readOnly={readOnly || !!recovery || !!conflict}
+                onRename={(name) => saver.rename(name)}
+              />
+
               <section className="space-y-1.5">
                 <div className="flex items-baseline justify-between gap-3">
                   <label htmlFor="skill-description" className="text-[12px] font-semibold text-foreground">
@@ -166,8 +175,7 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
               <section className="flex flex-col gap-1.5">
                 <span className="text-[12px] font-semibold text-foreground">Instructions</span>
                 <p className="text-[11px] text-muted-foreground">
-                  What the agent follows once it picks the skill: the steps, the judgment calls and why, an example of
-                  good output.
+                  What the agent follows once it picks the skill. Only what it wouldn&apos;t do well on its own.
                 </p>
                 <div className="overflow-hidden rounded-lg border border-border bg-card/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30">
                   <SkillMarkdownEditor
@@ -207,20 +215,8 @@ export function SkillEditor({ skill, aiWriting }: { skill: SkillView; aiWriting:
             </section>
           )}
 
-          {saved.files.length > 0 && (
-            <section className="space-y-1.5">
-              <span className="text-[12px] font-semibold text-foreground">Files</span>
-              <ul className="space-y-0.5">
-                {saved.files.map((f) => (
-                  <li key={f.path} className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
-                    <FileText size={12} className="shrink-0" />
-                    <span className="truncate font-mono">{f.path}</span>
-                    <span className="shrink-0 tabular-nums text-muted-foreground/60">{formatBytes(f.size)}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          {/* The live skill's list: adding or removing a file leaves SKILL.md, and its hash, alone. */}
+          <SkillFiles skill={skill} editable={!readOnly} />
         </div>
       </div>
     </div>
@@ -250,8 +246,72 @@ function SaveStatus({ saving, dirty, aiWriting }: { saving: boolean; dirty: bool
   );
 }
 
-function formatBytes(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+/**
+ * The skill's name, which is also its folder and slash command. Saved on
+ * Enter or leaving the field, never per keystroke: a rename moves the folder
+ * and restarts the skill's chats.
+ */
+function NameField({ name, readOnly, onRename }: { name: string; readOnly: boolean; onRename: (name: string) => Promise<void> }) {
+  const [value, setValue] = useState(name);
+  const [shown, setShown] = useState(name);
+  const [renaming, setRenaming] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // Renamed elsewhere (the builder AI, the SKILL.md view): show the new name.
+  if (shown !== name) {
+    setShown(name);
+    setValue(name);
+  }
+  const problem = value === name ? null : nameProblem(value);
+  const commit = async () => {
+    if (value === name || problem || renaming) return;
+    setRenaming(true);
+    setRefusal(null);
+    try {
+      await onRename(value);
+    } catch (error) {
+      setRefusal(apiErrorText(error));
+    } finally {
+      setRenaming(false);
+    }
+  };
+  const note = problem ?? refusal;
+
+  return (
+    <section className="space-y-1.5">
+      <label htmlFor="skill-name" className="text-[12px] font-semibold text-foreground">
+        Name
+      </label>
+      <p className={cn('text-[11px]', note ? 'text-destructive' : 'text-muted-foreground')}>
+        {note ?? 'Also its slash command. Lowercase letters, numbers and single hyphens.'}
+      </p>
+      <div className="relative">
+        <input
+          id="skill-name"
+          value={value}
+          onChange={(e) => {
+            setRefusal(null);
+            setValue(e.target.value.toLowerCase().replace(/\s+/g, '-'));
+          }}
+          onBlur={() => void commit()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+            if (e.key === 'Escape') {
+              setValue(name);
+              setRefusal(null);
+            }
+          }}
+          readOnly={readOnly || renaming}
+          maxLength={NAME_MAX}
+          spellCheck={false}
+          autoComplete="off"
+          aria-invalid={note ? true : undefined}
+          className={cn(
+            'w-full rounded-lg border bg-card/30 px-3 py-2 font-mono text-[12.5px] text-foreground outline-none focus:ring-[3px]',
+            note ? 'border-destructive/60 focus:ring-destructive/20' : 'border-border focus:border-ring focus:ring-ring/30',
+          )}
+        />
+        {renaming && <Loader2 size={13} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />}
+      </div>
+    </section>
+  );
 }

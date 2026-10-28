@@ -2,12 +2,11 @@
 
 import { PluginSetupHelpButton } from '@/components/plugins/setup-help-button';
 import { documentSaves } from '@/lib/client/document-saves';
-import { useState } from 'react';
-import { Archive, ChevronLeft, Copy, GitCommitHorizontal, Loader2, MoreHorizontal, Pencil, ScrollText } from 'lucide-react';
+import { Archive, ChevronLeft, Copy, GitCommitHorizontal, Loader2, MoreHorizontal, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiErrorText } from '@/lib/api/client';
 import type { SkillView } from '@/lib/api/skills';
-import { useArchiveSkill, useCommitSkill, useSaveSkill } from '@/hooks/use-skills';
+import { useArchiveSkill, useCommitSkill } from '@/hooks/use-skills';
 import { useSkillNavigation } from '@/components/skills/skill-navigation';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
@@ -24,10 +23,11 @@ import { Tip } from '@/components/ui/tip';
 export type SkillPane = 'chat' | 'skill';
 
 /**
- * The skill builder's header: the skill's name (its slash command), where
- * it's installed (Install, for a draft), and for a project skill with
- * changes the repo hasn't committed, committing them. The location menu says
- * who uses it, so the header doesn't repeat it.
+ * The skill builder's header, one row: the skill's name (its slash command,
+ * renamed in the editor's Name field), setup help, where it's installed
+ * (Install, for a draft), and for a project skill with changes the repo
+ * hasn't committed, committing them. The location menu says who uses it, so
+ * the header doesn't repeat it.
  */
 export function SkillHeader({
   skill,
@@ -38,31 +38,11 @@ export function SkillHeader({
   onBack?: () => void;
   pane?: { value: SkillPane; onChange: (pane: SkillPane) => void };
 }) {
-  const { openSkill, goHome, canManage, showSetupHelp } = useSkillNavigation();
+  const { goHome, canManage, showSetupHelp } = useSkillNavigation();
   const confirm = useConfirm();
-  const save = useSaveSkill(skill.ref);
   const commit = useCommitSkill(skill.ref);
   const archive = useArchiveSkill();
-  const [renaming, setRenaming] = useState(false);
-  const [newName, setNewName] = useState(skill.name);
   const showCommit = skill.location.kind === 'project' && skill.git !== null && skill.uncommitted;
-
-  const rename = async () => {
-    const next = newName.trim();
-    setRenaming(false);
-    if (!next || next === skill.name) return;
-    try { await documentSaves.flushAll(); } catch (error) { toast.error(apiErrorText(error)); return; }
-    save.mutate(
-      { newName: next },
-      {
-        onSuccess: (result) => openSkill(result.skill.ref, { replace: true }),
-        onError: (err) => {
-          setNewName(skill.name);
-          toast.error(apiErrorText(err));
-        },
-      },
-    );
-  };
 
   const onArchive = async () => {
     const ok = await confirm({
@@ -102,44 +82,7 @@ export function SkillHeader({
         <span className="flex size-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <ScrollText size={16} />
         </span>
-        <div className="min-w-0">
-          {renaming ? (
-            <input
-              autoFocus
-              value={newName}
-              onChange={(e) => setNewName(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
-              onBlur={() => void rename()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void rename();
-                if (e.key === 'Escape') {
-                  setNewName(skill.name);
-                  setRenaming(false);
-                }
-              }}
-              aria-label="Skill name"
-              className="w-56 rounded-md border border-ring bg-background px-1.5 py-0.5 font-mono text-[13px] font-semibold text-foreground outline-none"
-            />
-          ) : skill.editable ? (
-            <Tip label="Rename. The name is also its slash command.">
-              <button
-                onClick={() => {
-                  setNewName(skill.name);
-                  setRenaming(true);
-                }}
-                className="group flex min-w-0 items-center gap-1.5 text-left"
-              >
-                <h1 className="truncate font-mono text-[13px] font-semibold text-foreground">{skill.name}</h1>
-                {save.isPending ? (
-                  <Loader2 size={11} className="flex-shrink-0 animate-spin text-muted-foreground" />
-                ) : (
-                  <Pencil size={11} className="flex-shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground" />
-                )}
-              </button>
-            </Tip>
-          ) : (
-            <h1 className="truncate font-mono text-[13px] font-semibold text-foreground">{skill.name}</h1>
-          )}
-        </div>
+        <h1 className="min-w-0 truncate font-mono text-[13px] font-semibold text-foreground">{skill.name}</h1>
 
         {showCommit && (
           <Tip label="Commit only this skill's files. Other changes in the repo are left alone.">
@@ -162,6 +105,7 @@ export function SkillHeader({
 
         <div className="flex-1" />
 
+        {showSetupHelp && <PluginSetupHelpButton compact target={{ kind: 'skill', skill }} />}
         {canManage && <SkillLocationControl skill={skill} />}
 
         <DropdownMenu>
@@ -174,16 +118,6 @@ export function SkillHeader({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {skill.editable && (
-              <DropdownMenuItem
-                onSelect={() => {
-                  setNewName(skill.name);
-                  setRenaming(true);
-                }}
-              >
-                <Pencil size={13} /> Rename
-              </DropdownMenuItem>
-            )}
             <DropdownMenuItem
               onSelect={() => {
                 void navigator.clipboard.writeText(skill.dir).then(() => toast.success('Folder path copied'));
@@ -220,7 +154,6 @@ export function SkillHeader({
           ))}
         </div>
       )}
-      {showSetupHelp && <div className="px-4 pb-2"><PluginSetupHelpButton target={{ kind: 'skill', skill }} /></div>}
     </header>
   );
 }

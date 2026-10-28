@@ -17,6 +17,7 @@ const TEXT_MAX = 2_000_000;
 export const supportingFileParam = z.object({
   path: z.string().min(1).max(500).describe('Relative to the skill folder, like references/guide.md.'),
   content: z.string().max(TEXT_MAX).nullable().describe('The file text, or null to delete the file.'),
+  encoding: z.enum(['utf8', 'base64']).optional().describe('"base64" when content is a binary file (an image, a template), encoded. Text by default.'),
 });
 
 const locationKind = z.enum(['draft', 'ri', 'global', 'project']);
