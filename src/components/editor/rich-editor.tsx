@@ -68,6 +68,9 @@ export interface RichEditorProps {
   /** Fires when the user toggles a heading fold. The full current set is sent
    *  every time so the parent just persists `foldedHeadings = arg`. */
   onFoldedHeadingsChange?: (folded: string[]) => void
+  /** The live editor once it exists (null on unmount), for a parent that acts
+   *  on the selection or replaces the text itself (the scratchpad). */
+  onEditor?: (editor: Editor | null) => void
 }
 
 export function RichEditor({
@@ -83,6 +86,7 @@ export function RichEditor({
   foldedHeadings,
   onFoldedHeadingsChange,
   applyExternalContent,
+  onEditor,
 }: RichEditorProps) {
   const externalContentRef = useRef(applyExternalContent)
   externalContentRef.current = applyExternalContent
@@ -266,6 +270,14 @@ export function RichEditor({
   })
 
   editorRef.current = editor
+
+  const onEditorRef = useRef(onEditor)
+  onEditorRef.current = onEditor
+  useEffect(() => {
+    if (!editor) return
+    onEditorRef.current?.(editor)
+    return () => onEditorRef.current?.(null)
+  }, [editor])
 
   // Sync editable state at runtime (e.g. disable while AI is working).
   // Blur before disabling so the focus gate in the content-sync effect

@@ -182,6 +182,19 @@ export const userState = sqliteTable('user_state', {
   usageWarnings: integer({ mode: 'boolean' }),
 });
 
+// ─── Scratchpad ───────────────────────────────────────────────
+
+// The person's own scratchpad: working memory beside every screen
+// (docs/scratchpad.md). One row (id 1) in a personal Home, Markdown as the
+// editor wrote it. Its own table, not a user_state column, because
+// get_user_state and the deck read that row, and nothing reads the
+// scratchpad unless the person asks. `updatedAt` is when it last changed.
+export const scratchpad = sqliteTable('scratchpad', {
+  id: integer().primaryKey(),
+  ...timestamps,
+  body: text().notNull(),
+});
+
 // ─── Harness Settings ─────────────────────────────────────────
 
 export const harnessSettings = sqliteTable('harness_settings', {

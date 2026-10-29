@@ -34,6 +34,7 @@ import { useTeamRefresh } from '@/components/spaces/use-team-refresh';
 import { TaskLaunchIntent } from '@/components/tasks/task-launch-intent';
 import { HomeShell } from '@/components/home/home-shell';
 import { HomeBoundary } from '@/components/home/home-context';
+import { ScratchpadColumn, ScratchpadSheet, ScratchpadShortcut } from '@/components/scratchpad/scratchpad-host';
 
 function DashboardShell() {
   const {
@@ -158,6 +159,8 @@ function DashboardShell() {
             ) : (
               <PanelLayout />
             )}
+            {/* Working memory beside every screen (docs/scratchpad.md). */}
+            <ScratchpadColumn />
           </div>
         )}
 
@@ -192,6 +195,8 @@ function DashboardShell() {
         <LaunchModal />
         <TaskLaunchIntent />
         <ChatSearchModal />
+        <ScratchpadSheet />
+        <ScratchpadShortcut />
         <AuthRecoveryCard />
       </HomeShell>
     </div>

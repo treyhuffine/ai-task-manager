@@ -56,7 +56,20 @@ describe('orchestrator core actions (areas / deck / search / user state / notes)
       'get_deck', 'update_deck', 'regenerate_deck',
       'search',
       'get_user_state', 'update_user_state',
+      'get_scratchpad',
     ]));
+  });
+
+  it("get_scratchpad reads the person's scratchpad, and nothing writes it", async () => {
+    await resetDb();
+    const { actions } = await import('./registry');
+    const get = await findAction('get_scratchpad');
+    expect(get.mutating ?? false).toBe(false);
+    expect(await get.handler(ctx, {} as never)).toEqual({ body: '', updatedAt: null });
+    const q = await import('@/lib/db/queries');
+    q.saveScratchpad('- [ ] Backfill GEX history', '');
+    expect(await get.handler(ctx, {} as never)).toMatchObject({ body: '- [ ] Backfill GEX history', updatedAt: expect.any(String) });
+    expect(actions.filter((a) => /scratchpad/.test(a.name)).map((a) => a.name)).toEqual(['get_scratchpad']);
   });
 
   it('update_note patches fields and archives without a delete action', async () => {

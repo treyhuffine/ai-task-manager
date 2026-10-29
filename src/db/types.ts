@@ -4,7 +4,7 @@
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import type { HarnessId } from '@/lib/harness/registry';
 import type {
-  userState, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, members, teamGrants, teamConnections, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
+  userState, scratchpad, harnessSettings, harnessOperations, areas, stream, tasks, taskCompletions, taskStatusChanges, notes, decks, apiKeys, home, devices, deviceGrants, members, teamGrants, teamConnections, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks,
   teamActivity, memberPreferences, memberChatViews, memberExecutionViews, workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs, agentCoordinationRequests, agentCoordinationDeliveries,
   triggers, runs, previewTargets, entityVersions, workResults, workResultTasks, workResultDecisions, workResultAiReviews,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
@@ -86,6 +86,10 @@ export type UserStateRecord = Omit<InferSelectModel<typeof userState>, 'orchestr
 export type UpdateUserStateInput = Partial<
   Omit<InferInsertModel<typeof userState>, 'id' | 'orchestratorImage'> & { orchestratorImage: Attachment | null }
 >;
+
+// ─── Scratchpad ────────────────────────────────────────────────
+
+export type ScratchpadRecord = InferSelectModel<typeof scratchpad>;
 
 export type HarnessSettingsRecord = InferSelectModel<typeof harnessSettings>;
 export type UpsertHarnessSettingsInput = Omit<InferInsertModel<typeof harnessSettings>, 'id'> & { id?: string };

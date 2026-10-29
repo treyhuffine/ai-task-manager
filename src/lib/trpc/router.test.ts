@@ -224,6 +224,20 @@ describe('typed UI API over the authenticated HTTP adapter', () => {
     expect(await client.home.info.query({})).toMatchObject({ id: expect.any(String), host: { id: expect.any(String) } });
   });
 
+  it("round-trips the person's scratchpad, merges a stale save, and refuses a chat's own key", async () => {
+    expect(await client.scratchpad.get.query()).toBeNull();
+    const first = await client.scratchpad.save.mutate({ body: 'Quotes', base: '' });
+    expect(first).toMatchObject({ merged: false, record: { body: 'Quotes' } });
+    await client.scratchpad.save.mutate({ body: 'Quotes\n\nphone', base: 'Quotes' });
+    expect(await client.scratchpad.save.mutate({ body: 'Quotes\n\ndesk', base: 'Quotes' })).toMatchObject({ merged: true, record: { body: 'Quotes\n\nphone\n\ndesk' } });
+    expect(await client.scratchpad.get.query()).toMatchObject({ body: 'Quotes\n\nphone\n\ndesk' });
+    await expect(client.scratchpad.save.mutate({ body: 'x'.repeat(200_001), base: '' })).rejects.toMatchObject({ data: { code: 'BAD_REQUEST' } });
+    const session = appRouter.createCaller({ request: new Request('http://localhost/api/trpc'), key: { apiKeyId: 'session', scope: 'session', location: 'home', workerDeviceId: null, sessionChatId: 'chat' } });
+    await expect(session.scratchpad.get()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(session.scratchpad.save({ body: 'agent', base: '' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(q.getScratchpad()?.body).toBe('Quotes\n\nphone\n\ndesk');
+  });
+
   it('keeps scoped missing-resource and native validation failures typed before effects', async () => {
     const before = q.listWorkspaces().length;
     await expect(client.workspaces.create.mutate({ body: { name: 'Unsafe', cwd: home.root, browserEnabled: 'yes' } as never })).rejects.toMatchObject({ data: { httpStatus: 400 } });

@@ -25,7 +25,7 @@ export { listPersonalAreaDefaults, setPersonalAreaDefault } from './private-area
 import { emailDraftFieldsSchema, emailDraftPatchSchema, parseEmailDraft, EmailDraftError, type EmailDraftFields } from '@/lib/email/validation';
 import type { EmailDraft } from '@/db/types';
 import { teamContentChanged } from '@/lib/spaces/generation';
-import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, harnessSettings, harnessModelUsage, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
+import { tasks, notes, areas, stream, taskCompletions, taskStatusChanges, executionReviews, executionTasks, decks, userState, scratchpad, harnessSettings, harnessModelUsage, harnessOperations, apiKeys, home, devices, deviceGrants, members, teamActivity, teamGrants, teamConnections, sharedOperationReceipts, teamAiSettings, teamChatTurns, workerCommands, executionPlacements, executionTransfers, nativeSessions, reviewCheckouts, workspaceSetups, folderLinks, workspaces, referenceFolders, executions, chatSessions, externalSessionImports, chatEvents, chatRefs, mcpToolResults, triggers, runs, previewTargets, entityVersions, entityLinks, entityProjectionState, notificationChannels, webPushSubscriptions, notificationDeliveries, triagePasses, triageDecisions, streamLinks, skillUsage, isBackgroundTaskEvent, isAuthRequiredEvent, isConnectionCardEvent, NOTE_KINDS } from '@/lib/db/schema';
 import { decodeBackgroundTaskEvent } from '@/lib/executor/background-task-event';
 import { normalizeNoteRow } from '@/lib/notes/kind';
 import { eq, and, or, desc, asc, sql, gt, lt, inArray, notInArray, isNull, isNotNull, notExists, gte, lte, getTableColumns, type SQL } from 'drizzle-orm';
@@ -38,13 +38,14 @@ import { calendarDaysUntil, toDateOnly } from '@/lib/dates';
 import { todayLocalDate } from '@/lib/deck/date';
 import { syncEntity, syncDeletion, MutationContext, syncBatch } from '@/lib/export/mirror';
 import { placeAtRank } from '@/lib/tasks/priority-rank';
-import type { AgentMainChatState, TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals, DeadlineTask, NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter, NoteKind, AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter, StreamRecord, CreateStreamInput, UpdateStreamInput, DeckRecord, CreateDeckInput, UpdateDeckInput, UpdateUserStateInput, UserStateRecord, ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput, TeamAiSettingsRecord, TeamChatTurnRecord, HomeRecord, HomeKind, DeviceRecord, CreateDeviceInput, UpdateDeviceInput, DeviceGrantRecord, DeviceGrantKind, DeviceKind, WorkerReportedState, WorkerHarnessReport, MemberRecord, MemberRole, TeamGrantRecord, TeamGrantKind, TeamConnectionRecord, TeamConnectionStatus, SharedTaskSource, SharedNoteSource, SharedSourceState, WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord, WorkspaceSetupRecord, SetupReferenceReport, FolderLinkRecord, Attachment, WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceIntegrationScope, ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput, ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution, ExecutionLocation, PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl, ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput, ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput, ChatEventRecord, CreateChatEventInput, ChatEventSource, ChatRefRecord, CreateChatRefInput, ChatRefEntityType, TriggerRecord, CreateTriggerInput, UpdateTriggerInput, RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun, RunArtifactRef, EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType, TaskStatus, Energy, Effort, NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput, WebPushSubscriptionRecord, CreateWebPushSubscriptionInput, NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification, SkillUsageRecord, HarnessSettingsRecord, UpsertHarnessSettingsInput, HarnessOperationRecord, StreamStatus, TriagePassRecord, TriagePassTrigger, TriageDecisionRecord, TriageDecisionState, TriageActor, StreamLinkRecord, CreateStreamLinkInput, StreamOutcome, StreamRecordWithOutcomes, TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel } from '@/db/types';
+import type { AgentMainChatState, TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals, DeadlineTask, NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter, NoteKind, AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter, StreamRecord, CreateStreamInput, UpdateStreamInput, DeckRecord, CreateDeckInput, UpdateDeckInput, UpdateUserStateInput, UserStateRecord, ScratchpadRecord, ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput, TeamAiSettingsRecord, TeamChatTurnRecord, HomeRecord, HomeKind, DeviceRecord, CreateDeviceInput, UpdateDeviceInput, DeviceGrantRecord, DeviceGrantKind, DeviceKind, WorkerReportedState, WorkerHarnessReport, MemberRecord, MemberRole, TeamGrantRecord, TeamGrantKind, TeamConnectionRecord, TeamConnectionStatus, SharedTaskSource, SharedNoteSource, SharedSourceState, WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord, WorkspaceSetupRecord, SetupReferenceReport, FolderLinkRecord, Attachment, WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceIntegrationScope, ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput, ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution, ExecutionLocation, PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl, ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput, ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput, ChatEventRecord, CreateChatEventInput, ChatEventSource, ChatRefRecord, CreateChatRefInput, ChatRefEntityType, TriggerRecord, CreateTriggerInput, UpdateTriggerInput, RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun, RunArtifactRef, EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType, TaskStatus, Energy, Effort, NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput, WebPushSubscriptionRecord, CreateWebPushSubscriptionInput, NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification, SkillUsageRecord, HarnessSettingsRecord, UpsertHarnessSettingsInput, HarnessOperationRecord, StreamStatus, TriagePassRecord, TriagePassTrigger, TriageDecisionRecord, TriageDecisionState, TriageActor, StreamLinkRecord, CreateStreamLinkInput, StreamOutcome, StreamRecordWithOutcomes, TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel } from '@/db/types';
 import { DEFAULT_HARNESS, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 import { workspaceReviewPreferencesSchema } from '@/lib/workspaces/review-preferences';
 import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
 import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import { OUTCOME_SOURCES } from '@/db/types';
+import { mergeScratchpad } from '@/lib/scratchpad/merge';
 import { FILE_TOOL_NAMES, fileTargetPath, isSubagentTool } from '@/lib/executions/tool-display';
 import { replyNamesTextFile } from '@/lib/sessions/reply-text';
 import { replyNamesFile } from '@/lib/sessions/reply-artifacts';
@@ -4384,6 +4385,42 @@ export function updateUserState(input: UpdateUserStateInput): UserStateRecord | 
     .returning()
     .get();
   return row ? hydrateUserState(row) : undefined;
+}
+
+// ─── Scratchpad ──────────────────────────────────────────────
+
+/** The person's scratchpad, or null before they first write in it (docs/scratchpad.md). */
+export function getScratchpad(): ScratchpadRecord | null {
+  return getDb().select().from(scratchpad).where(eq(scratchpad.id, 1)).get() ?? null;
+}
+
+export interface ScratchpadSave {
+  record: ScratchpadRecord;
+  /** True when another device wrote since `base`, so the saved text is both merged. */
+  merged: boolean;
+}
+
+/**
+ * Save the scratchpad. `base` is the text the saving device last had from
+ * here. If the stored text moved on since, another device wrote in between,
+ * and what's saved is the two merged (mergeScratchpad), so neither loses
+ * lines. The device then shows the saved text.
+ */
+export function saveScratchpad(body: string, base: string): ScratchpadSave {
+  const db = getDb();
+  return db.transaction(() => {
+    const current = db.select().from(scratchpad).where(eq(scratchpad.id, 1)).get();
+    const stored = current?.body ?? '';
+    const merged = stored !== base;
+    const next = merged ? mergeScratchpad(base, body, stored) : body;
+    if (current && next === stored) return { record: current, merged };
+    const now = new Date().toISOString();
+    const record = db.insert(scratchpad)
+      .values({ id: 1, body: next, createdAt: now, updatedAt: now })
+      .onConflictDoUpdate({ target: scratchpad.id, set: { body: next, updatedAt: now } })
+      .returning().get();
+    return { record, merged };
+  }, { behavior: 'immediate' });
 }
 
 // ─── Agent Harness Settings ──────────────────────────────────

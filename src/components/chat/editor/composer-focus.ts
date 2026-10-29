@@ -13,6 +13,8 @@ export interface ComposerEntry {
   /** The editable element. */
   el: HTMLElement;
   focus: () => void;
+  /** Add text at the end of what's typed, and focus it (the scratchpad's Chat action). */
+  insert: (text: string) => void;
 }
 
 const entries = new Set<ComposerEntry>();

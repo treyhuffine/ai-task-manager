@@ -1,4 +1,4 @@
-import { declaredAuthorityKind } from '@/lib/home/authority';
+import { declaredAuthorityKind, isTeamAuthority } from '@/lib/home/authority';
 import { nativeTeamExecutionAction } from '@/lib/team/mcp/native-start-action';
 import { coordinationActions } from '@/lib/coordination/actions';
 import { connectedHomeActions, withConnectedHome } from '@/lib/spaces/native-access';
@@ -67,6 +67,7 @@ import {
 	isBodyRevisionConflict,
 	getTrigger,
 	getUserState,
+	getScratchpad,
 	getWorkspace,
 	lifecyclePreflight,
 	listAreas,
@@ -1502,6 +1503,20 @@ const get_user_state_action = defineAction({
     'and free-text focus description.',
   params: {},
   handler: () => getUserState() ?? null,
+});
+
+const get_scratchpad_action = defineAction({
+  name: 'get_scratchpad',
+  description:
+    "Read the user's scratchpad: their working memory, one page they keep beside every screen. " +
+    'Read it only when the user points you at it ("my scratchpad", "what I jotted"), never as background context. ' +
+    'Read-only: agents never write it. Returns the Markdown body ("" when empty) and when it last changed.',
+  params: {},
+  handler: () => {
+    if (isTeamAuthority()) throw new ActionError('unsupported', 'A team has no scratchpad. It lives in your own Ri.');
+    const pad = getScratchpad();
+    return { body: pad?.body ?? '', updatedAt: pad?.updatedAt ?? null };
+  },
 });
 
 const update_user_state_action = defineAction({
@@ -3538,6 +3553,7 @@ export const typedActions = [
   search_action,
   get_user_state_action,
   update_user_state_action,
+  get_scratchpad_action,
   list_workspaces_action,
   get_workspace_action,
   create_workspace_action,

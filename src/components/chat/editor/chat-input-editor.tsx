@@ -988,7 +988,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     // steal from those.
     useEffect(() => {
       if (!editor) return;
-      const entry: ComposerEntry = { el: editor.view.dom, focus: () => editor.chain().focus('end').run() };
+      const entry: ComposerEntry = {
+        el: editor.view.dom,
+        focus: () => editor.chain().focus('end').run(),
+        insert: (text) => editor.chain().focus('end').insertContent(text).run(),
+      };
       const unregister = registerComposer(entry);
       const onEditorFocus = () => noteComposerFocus(entry);
       editor.on('focus', onEditorFocus);

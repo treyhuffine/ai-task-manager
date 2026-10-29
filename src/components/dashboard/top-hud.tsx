@@ -11,6 +11,7 @@ import { RateLimitsPill } from './rate-limits-pill';
 import { HudDayButton } from '@/components/calendar/hud-day-button';
 import { WorkHudPill } from '@/components/calendar/work/work-hud-pill';
 import { DesktopNavButtons } from '@/components/desktop/desktop-nav-buttons';
+import { ScratchpadButton } from '@/components/scratchpad/scratchpad-host';
 import { Tip } from '@/components/ui/tip';
 import { Kbd } from '@/components/ui/kbd';
 
@@ -109,6 +110,7 @@ export function TopHud() {
                 <Search size={14} />
               </button>
             </Tip>
+            <ScratchpadButton />
             <Tip label="Quick capture">
               <button
                 type="button"

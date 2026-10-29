@@ -158,6 +158,10 @@ const domainModelSection = (
   ${refs.stream})` : ''}.
 - **User state** is the user's current context: active area/task, energy,
   available minutes, free-text focus.
+- **Scratchpad** is the user's working memory, one page they keep beside
+  every screen. Nothing processes it. Read it with \`get_scratchpad\` only
+  when they point you at it ("my scratchpad", "what I jotted"), never as
+  background context. You can't write it: offer tasks or notes instead.
 - **Workspaces & executions**: workspaces are repos/folders the user
   delegates work into. **The user calls a workspace an "agent"** ("the ri
   agent" is the workspace named ri): its folder, what it can use, a
@@ -379,7 +383,7 @@ tool per action: \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`,
 \`begin_stream_sweep\`, \`finish_stream_sweep\`, \`get_triage_metrics\`,
 \`list_areas\`, \`get_area\`, \`create_area\`, \`update_area\`, \`get_deck\`,
 \`update_deck\`, \`regenerate_deck\`, \`reconcile_deck\`, \`search\`, \`get_user_state\`,
-\`update_user_state\`. Execution oversight via \`list_executions\`,
+\`update_user_state\`, \`get_scratchpad\`. Execution oversight via \`list_executions\`,
 \`get_session_messages\`, \`message_agent\`, \`get_pending_input\`,
 \`answer_pending_input\`, \`delegate_work\`, \`archive_execution\`. Workspaces
 (agents) via \`list_workspaces\`, \`get_workspace\`, \`update_workspace\`. Browser via \`browser_read\`, \`browser_act\`,

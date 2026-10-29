@@ -2,6 +2,7 @@
 
 import { Search } from 'lucide-react';
 import { SpaceSelector } from '@/components/spaces/space-selector';
+import { ScratchpadButton } from '@/components/scratchpad/scratchpad-host';
 
 export function MobileTopBar({ onSearch = () => document.dispatchEvent(new CustomEvent('open-search')), onOpenSettings }: { onSearch?: () => void; onOpenSettings?: () => void }) {
   return (
@@ -22,6 +23,7 @@ export function MobileTopBar({ onSearch = () => document.dispatchEvent(new Custo
         <Search size={15} className="flex-shrink-0" />
         <span className="truncate text-sm text-muted-foreground/70">Search tasks, notes, areas…</span>
       </button>
+      <ScratchpadButton variant="phone" />
     </header>
   );
 }

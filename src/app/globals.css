@@ -557,6 +557,17 @@ html[data-ri-desktop='darwin'] [data-slot='sheet-content']:is([data-side='left']
   min-height: 8rem;
 }
 
+/* The scratchpad (docs/scratchpad.md): a narrow column of quick lines, so a
+   smaller size, and the whole column below the text is room to click into. */
+.scratchpad-editor .rich-editor {
+  min-height: 100%;
+}
+.scratchpad-editor .rich-editor-body {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  min-height: 8rem;
+}
+
 /* Paragraphs */
 .rich-editor-body p {
   margin: 0.25em 0;

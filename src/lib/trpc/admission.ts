@@ -1,6 +1,6 @@
 /** Shared with the Node service, which admits a request before Next runs.
  * A batch drains only if EVERY operation is an ordinary document save. */
-export const DRAIN_SAVE_PROCEDURES = ['tasks.update', 'notes.update', 'areas.update', 'email.update'] as const;
+export const DRAIN_SAVE_PROCEDURES = ['tasks.update', 'notes.update', 'areas.update', 'email.update', 'scratchpad.save'] as const;
 export function isDrainSaveProcedure(path: string): boolean {
   return (DRAIN_SAVE_PROCEDURES as readonly string[]).includes(path);
 }
