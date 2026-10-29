@@ -1,6 +1,6 @@
 # Always on, always current: installing, running and updating Ri
 
-**Status:** decided 2026-10-27, revised 2026-10-28 after an independent review (section 13.3 lists what changed). Nothing here is built yet. Every choice phases A and B need is settled, and what stays open belongs to later phases or future work. Section 11 lists what changes in the current code, and section 12 the order to build it in.
+**Status:** decided 2026-10-27, revised 2026-10-28 after two passes of an independent review (section 13.3 lists what changed). Nothing here is built yet. Every choice phases A and B need is settled, and what stays open belongs to later phases or future work. Section 11 lists what changes in the current code, and section 12 the order to build it in.
 
 **Promise:** once Ri is installed and a Home is created, it is running whenever its computer is on. It updates itself, along with everything it installs (its skills included), and a person never has to restart, babysit or rebuild it. A bad update undoes itself without losing work. This holds for the desktop app and the CLI, on a laptop, a Mac Mini in a closet, or a Linux server reached only over SSH. The standard case takes no flags.
 
@@ -112,8 +112,9 @@ The `ri service ...` commands stay as the detailed form (`status` as JSON, `awak
 
 - **First run.** "Use this computer as your Home" creates the Home and keeps it running in one step. "Connect to your Home" pairs, as today. Advanced lets someone choose the folder or create a team. Nobody has to find a separate "Start at Login" choice.
 - **Updates.** A Home on this computer updates by the rule in section 7.2, the same rule as everywhere else: the heads-up shows in the app's window, with **Not now** and **Update now**. A Ri update usually changes only pages and server code, and those reach the window through the Home with no app download. The app's own part (its three screens, menus, Quick Capture, notifications and the bridge between the pages and the Mac) downloads only when its own files changed.
-  - **The Home is on this computer.** A changed app part comes with the Home's update, and the window relaunches as part of that same restart. If the Home's pages need a native bridge version the app doesn't have, the window says "Update the Ri desktop app to keep using this Ri", with **Restart now** (the check `assertLocalBridge` in `desktop/viewer-trust.ts` already makes).
-  - **The Home is elsewhere.** A changed app part downloads in the background and takes effect the next time the app starts, the way Claude Code does. A remote Home's pages get no native bridge at all (`desktop/backend.ts` returns the remote session before the bridge check), so there is no bridge version to keep in step.
+  - **The Home is on this computer.** A changed app part comes with the Home's update, and the window relaunches as part of that same restart.
+  - **The Home is elsewhere.** A changed app part downloads in the background and takes effect the next time the app starts, the way Claude Code does.
+  - **The bridge to the Mac must stay in step, local or remote.** Every Home's pages, including a remote Home's, get the app's bridge, `riDesktop` (`desktop/preload.ts`): opening links, notifications, connection controls and Quick Capture. Only its settings calls are limited to a Home on this computer. The bridge has a version. When a Home's pages need a bridge version this app doesn't have, the window says "Update the Ri desktop app to keep using this Ri", with **Restart now**. Today that check (`assertLocalBridge` in `desktop/viewer-trust.ts`) runs only for a Home on this computer, because `desktop/backend.ts` returns a remote session before reaching it. In this design it runs for a remote Home too. The Home's pages also check what the window's bridge offers before using a feature, so an older app loses only that feature instead of breaking.
   - The app updating itself on macOS needs a signed app (section 13.2, open question 2). Until then a locally built app is rebuilt by hand, as today.
 - **Settings, This computer.** Shows the same status as `ri status`, including "This app 0.4.2, your Home 0.4.2". A "Keep Ri running on this computer" switch is on for every Home, and turning it off removes supervision. "Add `ri` to Terminal" writes the launcher, adds `~/.local/bin` to the shell's PATH if needed, and says what it changed.
 - **Settings, Updates** (`src/components/settings/sections/updates-section.tsx`). Shows "Up to date", or what a downloaded update is waiting for ("Waiting for 2 chats to finish"), with **Update now**. Also holds the automatic updates switch and, under Advanced, the channel.
@@ -296,20 +297,26 @@ The steps build on `UpdateCoordinator.apply` today. Each Home's own controller r
 3. **Snapshot the config folder and the database, every time.**
    - **Why every time.** A release changes stored data at startup even without migrations: `initDatabase` rebuilds search tables and triggers and runs backfills (`src/lib/db/index.ts`), and `migrateIntegrationStorage` converts the connector settings folder (`src/lib/integrations/storage.ts`). So "no new migrations" doesn't mean the old release can read what the new one leaves behind, and only a snapshot makes going back exact.
    - **The database copy must include writes still in its log.** Ri runs SQLite in WAL mode (`journal_mode = WAL` in `src/lib/db/index.ts`), and a stop can end in `SIGKILL` (`src/service/main.ts`), so committed writes can still sit in `data.db-wal`. With the server stopped and the exclusive access lease held, the controller runs `PRAGMA wal_checkpoint(TRUNCATE)` and confirms the WAL is empty, then clones the file: `clonefile` on macOS, or a reflink on Linux filesystems that support it. Both are instant and take no extra space until the database changes. If the checkpoint can't finish or the filesystem can't clone, it falls back to SQLite's backup API, today's path (`createCheckpoint` in `src/lib/service/checkpoint.ts`), which reads the log correctly.
-   - **Space.** A full copy is checked against free disk first (`requireDiskSpace`, existing). One that doesn't fit makes the update wait and say so.
+   - **Where it goes.** The snapshot is kept inside the Home's folder, on the same disk as the database, so a clone works and a restore can rename instead of copy.
+   - **Space for the whole update, recovery included.** An update starts only when free space is at least the database's size (`requireDiskSpace`, existing). A clone starts out free but grows as the update rewrites the database, and a backup-API copy needs the full size at once, so the database's size is the honest worst case. An update that doesn't fit waits and says so.
+   - **Restoring needs no extra space.** A restore renames, never copies. The failed database, with its `-wal` and `-shm` files, is moved aside, and the snapshot is renamed into its place. Today's restore makes two full copies, one of the failed database and one staging copy of the snapshot (`restoreCheckpointDatabase` in `src/lib/service/checkpoint.ts`). With the owner's 19.6 GiB database and 24 GiB free, it could run out of space at exactly the moment recovery is needed.
+   - **Keeping snapshots.** Each Home keeps one snapshot, replaced by its next update and deleted after 7 days. A failed database moved aside by a restore is kept 7 days for diagnosis, or deleted sooner if free space falls below the warning level in section 6.5.
    - **Not copied:** attachments and the work folder, because no release changes them.
    - **Today** the checkpoint copies every file under the root, config and work folders, plus the database, on every update. For the owner's Home that is a 19.6 GiB database plus everything else, on a disk with 24 GiB free.
-4. **Boot the new release in validation mode and check the database** (existing), but only when the release has migrations. A release without migrations skips this boot. If it fails to start, step 5 puts the previous release back and restores the snapshot, so the check boot would only double the downtime.
-5. **Activate through the launcher.** The controller writes an activation record next to the Home's record (the candidate release, the previous one, the time), points the Home at the candidate, and exits with code 75. The launcher, which never changes, then:
-   - starts the candidate's controller, which must report ready (a ready file the launcher can read) within the startup deadline.
-   - if the candidate exits before it is ready, or misses the deadline, twice, points the Home back at the previous release, marks the snapshot to be restored, and starts the previous release's controller. That controller restores the snapshot before anything opens the database, and reports the failed update.
-   - on a ready report, clears the activation record.
+4. **Start the new release once in check-only mode, every update** (existing: the validation boot). In this mode the server only opens and prepares the database:
+   - `instrumentation.ts` returns before starting any background work (`validationBoot` in `src/lib/service/validation-boot.ts`).
+   - The server and its WebSocket refuse requests (`RI_SERVICE_VALIDATING` in `src/service/http-server.ts` and `src/lib/trpc/ws-server.ts`).
+
+   A normal start immediately does work outside the database: it re-sends unanswered chat messages, resumes agent requests and recovers interrupted moves (`instrumentation.ts`). If a new release did any of that and then failed, restoring the snapshot would erase the record of the work but not the work itself, and the old release would do it again. So **nothing that acts outside the database runs before the update is committed.** When the check-only start passes, the coordinator commits (existing: its `committed` phase).
+5. **Activate through the launcher.** The controller writes an activation record next to the Home's record (the candidate release, the previous one, the time), points the Home at the candidate, and exits with code 75. The launcher, which never changes, then starts the candidate's controller. That controller writes a "starting work" mark just before it starts its server, the first moment anything outside the database can happen.
+   - **If the candidate exits or misses the startup deadline before writing that mark, twice,** the launcher points the Home back at the previous release, marks the snapshot to be restored, and starts the previous release's controller. That controller restores the snapshot before anything opens the database, and reports the failed update. Up to that mark only the check-only start has run, so the restore is exact and nothing happens twice.
+   - **Once the mark is written,** the launcher clears the activation record. From then on the new release has started work, so a failure is the controller's to handle (section 6.2), and rollback is on request (section 7.6).
 
    This doesn't depend on the candidate's own code working at all, which a crash in its controller's startup would otherwise defeat. Because the launcher starts the next controller itself on code 75, launchd's 30-second relaunch throttle (`ThrottleInterval`) never adds to the downtime.
 6. **Refresh what the release installs** (section 9).
 7. **Watch the first 10 minutes.** If the new release crash-loops (section 6.2), section 7.6 applies.
 
-A typical update without migrations is a drain, a stop, a WAL checkpoint, a clone and one start: seconds of downtime. Phase A measures the real figure on the owner's Home, from the request to stop to the first page served.
+A typical update is a drain, a stop, a WAL checkpoint and clone, the check-only start and the real start: seconds of downtime. Phase A measures the real figure on the owner's Home, from the request to stop to the first page served. If the two starts turn out to cost too much, a later change can merge them into one start that holds back every outside action until the commit. It isn't built unless the measurement calls for it.
 
 ### 7.5 Keeping releases
 
@@ -327,8 +334,8 @@ Releases never change after staging, so staging hard-links every file whose chec
 
 ### 7.6 Rollback
 
-- **A release that never served is rolled back automatically.** It failed to start, its controller never reported ready (section 7.4 step 5), or it crash-looped before its first successful health check. Then it hasn't written anything except during its own startup, and the snapshot from step 3 undoes that. The Home returns to exactly its state before the update, and status says the update failed and why.
-- **A release that has served is rolled back only on request.** Once it has served, chats, tasks and notes may have been written in its format, and restoring the snapshot would lose them. If such a release crash-loops, it slows to retries (section 6.2) and status says rollback is available. `ri update --rollback` (or Settings, with this computer's own key) restores the snapshot after listing what would be lost: chats, tasks and notes changed since the switch.
+- **A release that never started work is rolled back automatically.** Its check-only start failed (section 7.4 step 4), or its controller exited before marking that it was starting work (step 5). Up to then only the check-only start has run, which changes the database and config and nothing outside them, and the snapshot from step 3 undoes that. The Home returns to exactly its state before the update, nothing it did is repeated, and status says the update failed and why.
+- **A release that has started work is rolled back only on request.** Once its server runs, it may have sent messages, resumed agent work and written chats, tasks and notes in its format. Restoring the snapshot would lose those records without undoing the work. If such a release crash-loops, it slows to retries (section 6.2) and status says rollback is available. `ri update --rollback` (or Settings, with this computer's own key) restores the snapshot after listing what would be lost: chats, tasks and notes changed since the switch. It also warns that work the new release already did, such as a message it sent, may be done again by the old one, because the restored records no longer show it happened.
 - `ri update --rollback` on a healthy Home works the same way.
 
 ### 7.7 Keeping versions aligned
@@ -444,6 +451,8 @@ So a takeover keeps the address:
 | Only this computer's own pairing key can change update settings (`isInstallationOwner`) | The personal Home owner's paired devices may also switch automatic updates and press Update now (section 7.1) |
 | Every viewer reloads by itself when the build changes (`ServiceConnection`) | A prompt in a visible tab, a reload in a hidden one (section 4.3) |
 | The checkpoint copies the whole Home on every update (`src/lib/service/checkpoint.ts`) | The config folder and a WAL-checkpointed clone of the database, every time (section 7.4) |
+| Restoring a snapshot makes two full copies (`restoreCheckpointDatabase`) | An update needs free space for the database's size, and a restore renames (section 7.4) |
+| The desktop bridge check runs only for a Home on this computer (`desktop/backend.ts`) | It runs for remote Homes too, against the bridge every Home's pages get (section 4.2) |
 | A Home whose update an enrolled computer can't follow waits for a bridge (`homeCompatibilityReasons`), with nothing to move that computer | The connected computer moves first to a bridge release (section 7.7) |
 | Releases come only from the signed feed (`checkRelease` in `src/lib/service/release.ts`), and no feed is published | A checkout origin, built on request (section 8). Publishing the feed is phase E |
 | A connected computer updates on its own schedule | It follows its Home's version (section 7.7) |
@@ -465,13 +474,15 @@ Each phase lands on main with its tests. The owner's Homes move after phase B, a
 - Leaving today's per-Home folders in place (section 10.1).
 - The launcher, with its activation record and its release choice for Home and installation commands.
 - Retention by use, and hard links.
-- The checkout origin, `ri update` (including `--now` and `--rollback`), the snapshot (section 7.4 step 3), automatic rollback of a release that never served (section 7.6), and the single boot for releases without migrations.
+- The checkout origin, `ri update` (including `--now` and `--rollback`), the snapshot with its space check, rename restore and retention (section 7.4 step 3), the check-only start before every commit (step 4), and automatic rollback of a release that never started work (section 7.6).
 - Section 9's skill refresh.
 
 Tests:
 - Commit selection against a fixture repository (ahead, behind, diverged, uncommitted changes).
 - A snapshot taken with committed writes still in the WAL and the writer killed, then restored: every committed write is there.
-- A candidate whose controller fails to import, and one whose server never gets ready: the launcher puts the previous release back and the database is exactly as before.
+- A candidate whose controller fails to import, and one whose check-only start fails: the launcher puts the previous release back and the database is exactly as before.
+- A Home with an unanswered chat message while a candidate goes through its check-only start and then fails: the message is sent only once, by the release that ends up running.
+- A restore with only the free space left after the snapshot: it succeeds by renaming. An update with less free space than the database's size waits and says so.
 - Two Homes on one store: one waits to activate a release while the other switches and prunes, and nothing either uses is deleted. A running chat's `ri` keeps working after its Home moves.
 - Retention, hard links, and the launcher's release choice with zero, one and several Homes.
 - Skills refreshed after a switch, with global skills from the release of the Home `ri agent` reaches.
@@ -556,8 +567,9 @@ Acceptance: an SSH-only Linux server goes from `curl … | sh` and `ri start` to
 - **Switching versions.**
   - Every update snapshots the config folder and a WAL-checkpointed database clone.
   - The launcher puts the previous release back when a candidate won't start, without relying on the candidate's code.
-  - A release without migrations starts once, with no check boot.
-  - Rollback is automatic only for a release that never served. After it has served, rollback is on request, listing what it would lose.
+  - Every update starts the new release once in check-only mode before it commits, and nothing that acts outside the database runs before the commit.
+  - An update needs free space at least the database's size. A restore renames instead of copying, so recovery needs no more. One snapshot is kept per Home, for at most 7 days.
+  - Rollback is automatic only for a release that never started work. After it has, rollback is on request, listing what it would lose and that work already done may be done again.
 - **Connected computers.** A connected computer follows its Home's version, and moves first to a bridge release when the Home's next release needs that.
 - **Source builds.** They happen only when the owner runs `ri update`, at background priority. They are stopped only on a true runaway (64 GB), not at a fixed share of memory, accepting that a build slows the Homes while it runs.
 - **Crashes.** A crash loop slows its retries to once every 15 minutes and never gives up.
@@ -598,11 +610,19 @@ An independent review of the 2026-10-27 version checked its claims against the c
 | The Settings gate is this computer's own key, not a remote owner check | Who can change update settings is now defined (section 7.1) |
 | The quiet check would count idle agent processes and wait about 40 minutes | Only work in progress counts (section 7.2) |
 | Stopping after 5 crashes broke the promise, and the re-send limit resets on restart | Slowed retries that never give up, which also bound re-sends. Safe mode is open question 3 (sections 6.2 and 6.3) |
-| Connected computers waiting for their Home could deadlock with a Home waiting for a bridge, and remote windows have no bridge check | Connected computers move first to a bridge release, and the bridge check is stated as local only (sections 4.2 and 7.7) |
+| Connected computers waiting for their Home could deadlock with a Home waiting for a bridge, and remote windows have no bridge check | Connected computers move first to a bridge release (section 7.7). The bridge claim made here was itself wrong, and the second pass corrected it |
 | Background priority doesn't reserve memory | The memory cost is stated plainly and measured in phase A, keeping the owner's choice not to stop builds at a fixed share (section 8) |
 | Global skills from the newest Home could describe commands the reached Home lacks | They follow the Home `ri agent` reaches, and take over the old copy markers (section 9) |
 | The backup job depends on the checkout | Stated as an owner-only exception (section 9) |
 | Safety needed for the Mini's move sat in phase C, and "without a login" was imprecise | Snapshot, activation, rollback and single boot moved to phase A. "Through automatic login" (section 12) |
+
+A second pass the same day found the design sound and three things still to tighten:
+
+| Finding | Change |
+| --- | --- |
+| A new release that starts work and then fails can't be undone by restoring the database: a normal start re-sends unanswered messages and resumes agent requests (`instrumentation.ts`), so restoring would erase the record of that work and the old release would repeat it. The first pass's single start for releases without migrations had removed today's protection | Every update keeps the check-only start (the existing validation boot), nothing that acts outside the database runs before the commit, and automatic rollback stops at the moment the new controller starts its server (sections 7.4 and 7.6). Merging the two starts is a later optimization, only if phase A's measurement calls for it |
+| Recovery could run out of disk: today's restore makes two full copies at the moment it's needed | An update starts only with free space for the database's size, a restore renames instead of copying, and each Home keeps one snapshot for at most 7 days (section 7.4) |
+| A remote Home's pages do get a desktop bridge (`desktop/preload.ts`: links, notifications, connection controls, Quick Capture), so the claim that they get none was wrong | The bridge version check runs for remote Homes too, and pages check what the bridge offers before using it (section 4.2) |
 
 ## 14. Prior art
 
