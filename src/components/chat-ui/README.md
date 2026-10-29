@@ -41,7 +41,7 @@ visible. These controls are shared across chat surfaces.
 
 Active collaboration and incoming pause appear inside the composer card, above
 the editor. The status, linked chat and pause action share its border and width.
-Idle chats have no status row. Standing preferences remain in the chat menu.
+Idle chats have no status row. Pending outgoing approvals stay above the editor until decided, independently of transcript paging, and are also actionable in the chat menu. Approve, Always and Decline use the same human-only decision endpoint. Standing preferences remain in the chat menu.
 The coordination gallery uses this same composition, including long chat titles.
 
 Restart chat lives in the chat menu, never as a row on a working chat. When a

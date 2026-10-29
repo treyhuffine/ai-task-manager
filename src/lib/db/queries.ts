@@ -10818,6 +10818,9 @@ function insertChatEventRow(input: CreateChatEventInput, broadcasts?: ChatEventR
   // row and the persisted row share React keys and there's no
   // unmount/remount when the POST resolves.
   const id = input.id ?? uuidv7();
+  // Transcript paging compares timestamp text. Match harness ISO events,
+  // including when coordination and other app writers omit a timestamp.
+  const at = input.createdAt ?? new Date().toISOString();
   const { attachments: inputAttachments, ...rest } = input;
   // `.returning().all()` gives us the row that was actually written (or
   // an empty array on conflict). Cheaper than a follow-up SELECT and
@@ -10828,6 +10831,7 @@ function insertChatEventRow(input: CreateChatEventInput, broadcasts?: ChatEventR
     .values({
       ...rest,
       id,
+      createdAt: at,
       ...(inputAttachments !== undefined ? { attachments: dehydrateAttachments(inputAttachments) ?? [] } : {}),
     })
     .onConflictDoNothing()
@@ -10836,7 +10840,6 @@ function insertChatEventRow(input: CreateChatEventInput, broadcasts?: ChatEventR
   if (rows.length === 0) return null;
   const row = hydrateRow(rows[0]!);
 
-  const at = input.createdAt ?? new Date().toISOString();
   if (isOutcomeEvent(input)) {
     bumpSessionOutcome(input.sessionId, at);
   }

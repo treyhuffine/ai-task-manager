@@ -158,15 +158,17 @@ async function main() {
       assert((await failure.getByRole('link', {name:/Destination/}).getAttribute('href'))?.includes('message=gallery-coordination-event'));
       await page.screenshot({path:path.join(output, `coordination-forward-failed-${page.viewportSize()!.width}.png`),fullPage:true});
       let frame = await select('coordination', 'approval');
-      await frame.getByRole('button', { name: 'Allow once', exact: true }).click();
+      await frame.getByLabel('Pending coordination approvals', {exact:true}).getByRole('button', { name: 'Approve', exact: true }).click();
       await waitForText(frame, 'Authorized and queued');
       await page.getByRole('button', { name: 'Reset example', exact: true }).click();
       frame = await select('coordination', 'approval');
-      await frame.getByRole('button', { name: 'Deny', exact: true }).click();
+      await frame.getByLabel('Pending coordination approvals', {exact:true}).getByRole('button', { name: 'Decline', exact: true }).click();
       await waitForText(frame, 'The receiving work was not started');
       await page.getByRole('button', { name: 'Reset example', exact: true }).click();
       frame = await select('coordination', 'approval');
-      await frame.getByRole('button', { name: 'Always allow in this chat', exact: true }).click();
+      await frame.getByRole('button', { name: 'Chat menu', exact:true }).click();
+      await frame.locator('[data-slot="popover-content"]').getByLabel('Pending coordination approvals', {exact:true}).getByRole('button', { name: 'Always', exact: true }).click();
+      if (await frame.getByRole('button', {name:'Chat menu',exact:true}).getAttribute('aria-expanded') === 'true') await frame.getByRole('button', {name:'Chat menu',exact:true}).click();
       await frame.getByRole('button', { name: 'Chat menu', exact: true }).click();
       await frame.getByText('Allow automatically, from this chat.', { exact: true }).waitFor();
       // Restart lives in the chat menu, not as a row above the composer.
@@ -185,14 +187,16 @@ async function main() {
       const managerSettings = frame.locator('[data-slot="popover-content"]');
       await managerSettings.getByText('Manager chats are unrestricted.', {exact:false}).waitFor();
       assert.equal(await managerSettings.locator('select').count(), 0, 'Manager settings never offer ineffective Ask or Allow choices');
+      await settleAnimations(frame);
       await managerSettings.getByRole('button', {name:'Pause incoming',exact:true}).click();
-      await managerSettings.getByRole('button', {name:'Resume',exact:true}).waitFor();
-      await frame.getByRole('button', {name:'Chat menu',exact:true}).click();
       await frame.getByLabel('Chat collaboration', {exact:true}).getByText('Incoming agent messages paused', {exact:false}).waitFor();
-      await frame.getByRole('button', {name:'Chat menu',exact:true}).click();
+      const managerMenu = frame.getByRole('button', {name:'Chat menu',exact:true});
+      if (await managerMenu.getAttribute('aria-expanded') === 'true') await managerMenu.click();
+      await managerMenu.click();
+      await settleAnimations(frame);
       await managerSettings.getByRole('button', {name:'Resume',exact:true}).click();
-      await managerSettings.getByRole('button', {name:'Pause incoming',exact:true}).waitFor();
-      await frame.getByRole('button', {name:'Chat menu',exact:true}).click();
+      await frame.getByLabel('Chat collaboration', {exact:true}).waitFor({state:'hidden'});
+      if (await managerMenu.getAttribute('aria-expanded') === 'true') await managerMenu.click();
 
       frame = await select('coordination', 'active');
       await frame.getByRole('link', {name: /^Working with Review date handling/}).waitFor();

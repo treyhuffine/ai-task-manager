@@ -7,7 +7,7 @@ import * as q from '@/lib/db/queries';
 import { drainAgentCoordination, personalChat } from './service';
 import { forwardToChat } from './human';
 import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
-import { EFFORT_LEVELS } from '@/db/types';
+import { EFFORT_LEVELS, type AgentDeliveryRecord } from '@/db/types';
 import { wakeDevice } from '@/lib/workers/hub';
 import { actorFromRequest } from '@/lib/auth/actor';
 
@@ -25,11 +25,16 @@ async function operation<T>(run: () => T | Promise<T>): Promise<T> {
     throw error;
   }
 }
+function deliveryView(delivery: AgentDeliveryRecord) {
+  const request = delivery.requestId ? q.getAgentRequest(delivery.requestId) : null;
+  const workspaceId = delivery.targetAddress.startsWith('agent:') ? delivery.targetAddress.slice(6) : null;
+  return { ...delivery, destinationName: workspaceId ? q.getWorkspace(workspaceId)?.name ?? 'Unavailable agent' : null, launchOptions: request?.kind === 'delegation' ? request.options : delivery.payload.launch ?? null };
+}
 export const coordinationRouter = router({
   state: p.input(z.object({ sessionId: id })).query(({ input }) => {
     const chat = personalChat(input.sessionId, 'local');
     const active = q.activeCoordinationChats(chat.id);
-    return { scopes: {chat:chat.id,execution:chat.executionId,agent:chat.workspaceId,global:'1'}, active, incoming:q.incomingAgentDeliveryState(chat.id), assignmentsWaiting:active.assignmentsWaiting, ...q.agentCoordinationPolicy(input.sessionId), pending: q.pendingAgentDeliveryCount(input.sessionId), approvals: q.pendingAgentApprovals(input.sessionId) };
+    return { scopes: {chat:chat.id,execution:chat.executionId,agent:chat.workspaceId,global:'1'}, active, incoming:q.incomingAgentDeliveryState(chat.id), assignmentsWaiting:active.assignmentsWaiting, ...q.agentCoordinationPolicy(input.sessionId), pending: q.pendingAgentDeliveryCount(input.sessionId), approvals: q.pendingAgentApprovals(input.sessionId).map(deliveryView) };
   }),
   message: p.input(z.object({ sessionId: id, eventId: id })).query(({ input }) => {
     personalChat(input.sessionId, 'local');
@@ -39,9 +44,7 @@ export const coordinationRouter = router({
   delivery: p.input(z.object({ id })).query(({ input }) => {
     const delivery = q.getAgentDelivery(input.id);
     if (!delivery) return null;
-    const request = delivery.requestId ? q.getAgentRequest(delivery.requestId) : null;
-    const workspaceId = delivery.targetAddress.startsWith('agent:') ? delivery.targetAddress.slice(6) : null;
-    return {...delivery, destinationName:workspaceId ? q.getWorkspace(workspaceId)?.name ?? 'Unavailable agent' : null, launchOptions:request?.kind === 'delegation' ? request.options : null};
+    return deliveryView(delivery);
   }),
   defaults: p.query(() => ({ global: q.getUserState()?.agentCoordinationPolicy ?? null })),
   policy: humanControl.input(z.object({ scope: z.enum(['global', 'agent', 'execution', 'chat']), id, policy }).strict()).mutation(({ input }) => {
