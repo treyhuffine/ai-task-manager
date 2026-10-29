@@ -39,27 +39,32 @@ Opening an agent marks its main chat read (`HarnessChat` does on mount), and the
 
 **Status:** trial, added 2026-10-29, off by default. Turn it on in Settings → General → Agents → "Agents in the rail" → Agents only. The same select switches back to Agents first or Classic.
 
-The idea: the rail lists agents and nothing else, so the way into work is talking to an agent. Chats are still there, one step away, but they stop competing with the agents for the rail.
+The idea: the rail lists agents and nothing else, so the way into work is talking to an agent. It changes only what the rail shows. Every chat's state (working, waiting on you, unread) is tracked exactly as before and shows everywhere else it did.
 
 What changes, all in the client (`railStyle` `agentsOnly`, no schema):
 
 - **No chats under the agents.** No thread rows, no Show chats toggle, no folded "N executions" line. Clicking an agent always opens it.
-- **The agent stands for its chats** (`agentRollup` in `src/lib/utils/agent-rail.ts`). Its chats no longer have rows, so the agent's row is the only place they can say they want you. The dot, the bold name and the second line cover the agent and its chats together. Wanting you beats working: amber while anything waits on you or is unread, green while something only runs. The line explains the dot, most urgent first: the agent's question, a chat waiting on you ("Fix login bug: waiting on you"), the agent's reply, an unread chat ("Fix login bug: new reply", or "3 chats need you · 1 working"), the agent thinking, a chat working. With nothing to explain, it's what the agent last said, as in agents first. Inactive chats don't count, the same as everywhere else.
-- **No Needs you group.** Every agent carries its own state, and the list is short enough to scan. The header's pills still count every chat from every view.
-- **No Agents | Recent switch, no select-to-archive.** Recent is a list of chats, and there are no chat rows to select. Search chats finds any chat, archived ones included. The agent's Overview lists its chats.
+- **Each agent shows only its own state**, as in agents first: the dot, the bold name and the line in its voice are its main chat's. Its chats' states aren't drawn on it. They show where chats are listed: resting on the agent, the agent's Overview, the header's pills and Board.
+- **No Needs you group.** The header's pills count every chat from every view.
+- **No Agents | Recent switch, no select-to-archive.** Recent is a list of chats, and there are no chat rows to select. Search chats finds any chat, archived ones included.
 - **Pins stay.** Pinned chats sit at the top, above an Agents label with New agent at its right. A pin is the escape hatch for the chats you're hands-on with. Pin one from its header or from the agent's peek.
-- **Resting on an agent peeks at its chats** beside the rail (the collapsed-agent chooser, `AgentChatsFlyout`), with their own dots. That's where per-chat state shows, along with the agent's Overview, pins, the header's pills and Board.
-- **An open chat lights its agent**, a shade lighter than the agent itself open, since the chat has no row of its own.
-- **Mark as read and Mark as unread** are in the agent's ⋯ menu (in agents first too). Unread marks the agent's main chat, the same `unread_marker_at` a chat's Mark as unread sets, so it's bold with a dot until you open it. Read clears what the row shows: the agent and, in agents only, every unread chat under it. Opening an agent clears only the agent: an unread chat keeps it lit until you open that chat (the line names it).
+- **Resting on an agent peeks at its chats** beside the rail (the collapsed-agent chooser, `AgentChatsFlyout`), each with its own dot.
+- **An open chat lights its agent**, a shade lighter than the agent itself open, since the chat has no row of its own. That's where you are, not a state.
 
-The collapsed rail's Agents flyout shows the same list, so in an execution (where the rail starts collapsed) you switch work by resting on Agents, then on an agent.
+### Coming back to an agent
+
+Opening an agent reads its main chat (`HarnessChat` marks it read on mount), so a reply you looked at but haven't dealt with stops showing. Two ways to put it back, in every rail style:
+
+- **The chat bar's Mark unread** (`ReadStateButton`, `src/components/chat-ui/read-state-button.tsx`), beside Schedule in the agent's main chat bar, where you are when you decide. Marked, it reads "Unread" in amber, and a click marks it read.
+- **Mark as unread / Mark as read** in the agent's ⋯ menu in the rail.
+
+Both set the main chat's own `unread_marker_at`, the one a chat's Mark as unread sets, through the optimistic hooks, so the rail, the header's Unread count and the button agree at once. The agent stays bold with a dot until you open it again. A reply that lands while you're watching still reads it (the running to idle mark in `HarnessChat`).
 
 What to watch:
 
 - Do you talk to the agent more, or go around it through the peek and Search chats?
-- Is "Chat: new reply" on the agent's line enough to act on, or do you miss seeing the chat?
-- Does the agent staying lit after you open it (because a chat under it is unread) read as right or as stuck?
-- Does Mark as unread get used to come back to an agent?
+- With chats' states off the rail, are the header's pills enough to notice work that wants you?
+- Does Mark unread get used to come back to an agent, and is the chat bar the place you reach for it?
 
 Not done on purpose: the phone (its own agents list), the desktop app's activity, and the New chat row at the top, which still starts a chat without picking an agent.
 
@@ -78,7 +83,7 @@ Not done on purpose: the phone (its own agents list), the desktop app's activity
 
 ## Retiring the switch
 
-If agents only wins: drop the thread rows, the fold line and the chevrons from `AgentRailRow`, retire `NeedsReviewSection`, `HistoryView` in the rail and the list header's switch and selection, and keep `agentRollup`. If it loses: delete `agentRollup` and the `agentsOnly` branches, keeping Mark as read and Mark as unread on the agent.
+If agents only wins: drop the thread rows, the fold line and the chevrons from `AgentRailRow`, and retire `NeedsReviewSection`, `HistoryView` in the rail and the list header's switch and selection. If it loses: delete the `agentsOnly` branches. Mark as read and Mark as unread on the agent stay either way.
 
 If agents first wins: make `AgentRailRow` the only agents row, delete `WorkspaceRow` and `rail-style.ts`, and move the Pinned group to the compact row. If it loses: delete `agent-rail-row.tsx`, `rail-style.ts` and the compact density. Keep `useAgentAttention` either way, since agents counting where attention is counted doesn't depend on the style.
 

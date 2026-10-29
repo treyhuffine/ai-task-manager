@@ -358,7 +358,7 @@ export function GeneralSection() {
           </div>
           <p className="text-[11px] text-muted-foreground/85">
             {railStyle === 'agentsOnly'
-              ? "Only your agents, no chats under them. An agent's dot and line cover its chats too, so it's bold when it or one of its chats wants you, and resting on it shows its chats beside the rail. Pinned chats stay at the top. Mark an agent unread from its menu to come back to it."
+              ? "Only your agents, each with its own state, and no chats under them. Chats are tracked as before: the header counts them, and resting on an agent shows its chats beside the rail. Pinned chats stay at the top. Mark an agent unread from its menu or its chat to come back to it."
               : railStyle === 'agents'
                 ? 'Each agent shows what it last said, bold with a dot when it wants you. Its chats hang under it on one line each, all of them, with the inactive ones behind a Show toggle.'
                 : 'One line per agent, with every active chat listed under it on two lines.'}

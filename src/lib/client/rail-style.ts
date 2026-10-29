@@ -12,9 +12,9 @@ import { useCallback, useSyncExternalStore } from 'react';
  *     always, a few recent quiet ones, and the rest one click away in the
  *     agent's view.
  *   - `agentsOnly` — agents and nothing else: no chats under them, no
- *     Needs you group and no Recent list. Each agent's dot and second line
- *     cover its chats too, so it still says when its work wants you. Pinned
- *     chats stay at the top, and resting on an agent peeks at its chats.
+ *     Needs you group and no Recent list. Each agent shows only its own
+ *     state. Chats are tracked as ever and show in the header's pills and
+ *     when resting on an agent peeks at its chats. Pinned chats stay on top.
  *   - `classic` — one-line agent rows over two-line execution rows, every
  *     active execution listed, as before the trial.
  *

@@ -10,11 +10,10 @@ import { useAgentViewMode } from '@/lib/client/agent-view-mode';
 import { useRailStyle } from '@/lib/client/rail-style';
 import { isSessionUnread, sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import {
-  agentRollup,
+  agentVoice,
   mainChatActivity,
   threadSummary,
   type AgentActivity,
-  type ThreadState,
   type VoiceTone,
 } from '@/lib/utils/agent-rail';
 import { AgentIcon } from '@/components/agents/agent-icon';
@@ -60,10 +59,10 @@ const SUMMARY_TONE = {
 /** The inactive toggle under an agent matches its 32px threads. */
 const THREAD_FOLD_ROW = 'h-8 py-0 text-[10.5px]';
 
-const PRESENCE_DOT: Record<Exclude<AgentActivity, null>, string> = {
-  waiting: 'bg-amber-500 animate-pulse',
-  thinking: 'bg-emerald-500 animate-pulse',
-  replied: 'bg-amber-500',
+const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: string }> = {
+  waiting: { dot: 'bg-amber-500 animate-pulse', label: 'Waiting on you' },
+  thinking: { dot: 'bg-emerald-500 animate-pulse', label: 'Thinking' },
+  replied: { dot: 'bg-amber-500', label: 'New reply' },
 };
 
 /**
@@ -87,12 +86,14 @@ const PRESENCE_DOT: Record<Exclude<AgentActivity, null>, string> = {
  * executions fold into a line that still says what wants you, so hiding
  * never hides that. The whole row drags.
  *
- * In the agents-only rail (`agentsOnly`) the executions have no rows. The
- * agent stands for them too (`agentRollup`): its dot, bold name and second
- * line cover its chats' states as well as its own, resting on it peeks at
- * its chats beside the rail, and it stays lit while one of its chats is open.
- * Its menu's Mark as read and Mark as unread act on what the row shows: read
- * clears the agent and every unread chat under it, unread marks the agent.
+ * In the agents-only rail (`agentsOnly`) the executions have no rows, and
+ * the agent still shows only its own state: its chats' states are tracked as
+ * ever and show where chats are listed (resting on the agent peeks at them,
+ * the header's pills, Board), not on the agent. The agent stays lit while one
+ * of its chats is open, so the rail still says where you are.
+ *
+ * Its menu marks the agent read or unread, which is its main chat's read
+ * state, so an agent you've opened can be put back to come back to.
  */
 export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onOpenLauncher }: AgentRailRowProps) {
   const { streamingSessionIds, pendingInputSessionIds, activeView, activeSessionId, activeExecutionId, openAgent } =
@@ -113,8 +114,17 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: workspace.id });
 
   const chat = rail?.mainChats?.find((c) => c.workspaceId === workspace.id) ?? null;
+  const activity = mainChatActivity(chat, pendingInputSessionIds, streamingSessionIds);
+  const wantsYou = activity === 'waiting' || activity === 'replied';
+  const unread = !!chat && isSessionUnread(chat);
+  const voice = agentVoice({
+    activity,
+    waitingOn: chat?.waitingOn ?? null,
+    preview: chat?.preview ?? null,
+    purpose: workspace.purpose,
+  });
 
-  const { sessions, inactive, total, summary, states, hasOpen } = useMemo(() => {
+  const { sessions, inactive, total, summary, hasOpen } = useMemo(() => {
     const all = sortSessionsHotnessDesc(
       (rail?.sessions ?? []).filter((s) => s.workspaceId === workspace.id && s.status === 'active'),
     );
@@ -126,24 +136,18 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     for (const s of all) (isInactive(s) && !isOpen(s) ? folded : kept).push(s);
     let working = 0;
     let needsYou = 0;
-    const states: ThreadState[] = [];
     for (const s of kept) {
       if (isInactive(s)) continue;
-      const pending = pendingInputSessionIds.has(s.id);
-      const streaming = streamingSessionIds.has(s.id);
-      const unread = !streaming && isSessionUnread(s);
-      states.push({ id: s.id, label: s.execution?.label ?? s.label ?? null, pending, streaming, unread });
       // The rail's buckets: pending wins over streaming, unread needs you too.
-      if (pending) needsYou++;
-      else if (streaming) working++;
-      else if (unread) needsYou++;
+      if (pendingInputSessionIds.has(s.id)) needsYou++;
+      else if (streamingSessionIds.has(s.id)) working++;
+      else if (isSessionUnread(s)) needsYou++;
     }
     return {
       sessions: kept,
       inactive: folded,
       total: all.length,
       summary: threadSummary({ total: all.length, needsYou, working }),
-      states,
       hasOpen: all.some(isOpen),
     };
   }, [
@@ -155,16 +159,6 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     activeExecutionId,
     isInactive,
   ]);
-
-  // The agent's own state, and in the agents-only rail its chats' too.
-  const { activity, activityLabel, wantsYou, voice, unreadIds } = agentRollup({
-    activity: mainChatActivity(chat, pendingInputSessionIds, streamingSessionIds),
-    mainChat: chat ? { id: chat.id, unread: isSessionUnread(chat) } : null,
-    waitingOn: chat?.waitingOn ?? null,
-    preview: chat?.preview ?? null,
-    purpose: workspace.purpose,
-    threads: agentsOnly ? states : [],
-  });
 
   const hasThreads = total > 0;
   const toggleThreads = () => updateWs.mutate({ id: workspace.id, collapsed: expanded });
@@ -222,11 +216,11 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
           isActive ? 'bg-secondary' : agentsOnly && hasOpen ? 'bg-secondary/60' : 'hover:bg-muted/40',
         )}
       >
-        <Tip label={activityLabel ?? undefined}>
+        <Tip label={activity ? PRESENCE[activity].label : undefined}>
           <button
             onClick={open}
             className="relative flex-shrink-0 rounded-md"
-            aria-label={activityLabel ? `${workspace.name}: ${activityLabel}` : `Open ${workspace.name}`}
+            aria-label={activity ? `${workspace.name}: ${PRESENCE[activity].label}` : `Open ${workspace.name}`}
           >
             <AgentIcon workspace={workspace} size="md" />
             {activity && (
@@ -234,7 +228,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
                 aria-hidden
                 className={cn(
                   'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-background',
-                  PRESENCE_DOT[activity],
+                  PRESENCE[activity].dot,
                 )}
               />
             )}
@@ -317,18 +311,20 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="text-[11px] min-w-[170px]" onPointerDown={stop} onClick={stop}>
-              {unreadIds.length > 0 ? (
-                <DropdownMenuItem onSelect={() => unreadIds.forEach((id) => markRead.mutate(id))}>
-                  <Eye size={12} /> Mark as read
-                </DropdownMenuItem>
-              ) : (
-                chat && (
-                  <DropdownMenuItem onSelect={() => markUnread.mutate(chat.id)}>
-                    <EyeOff size={12} /> Mark as unread
-                  </DropdownMenuItem>
-                )
+              {chat && (
+                <>
+                  {unread ? (
+                    <DropdownMenuItem onSelect={() => markRead.mutate(chat.id)}>
+                      <Eye size={12} /> Mark as read
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onSelect={() => markUnread.mutate(chat.id)}>
+                      <EyeOff size={12} /> Mark as unread
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                </>
               )}
-              {(unreadIds.length > 0 || chat) && <DropdownMenuSeparator />}
               <DropdownMenuItem onSelect={() => onOpenLauncher(workspace.id)}>
                 <Plus size={12} /> New chat
               </DropdownMenuItem>

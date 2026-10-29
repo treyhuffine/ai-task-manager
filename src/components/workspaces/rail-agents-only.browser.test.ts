@@ -1,14 +1,15 @@
 /**
  * The agents-only rail trial (docs/rail-agents-first.md#agents-only-trial)
  * against an isolated fixture: the real rail list (`RailListHeader` and
- * `RailListBody`) with the real data hooks over a seeded query cache, and
- * only the dashboard context stubbed. The API answers nothing, so a mutation
- * shows through its optimistic patch, and the server records what was sent.
+ * `RailListBody`) and the agent chat bar's `ReadStateButton`, with the real
+ * data hooks over a seeded query cache and only the dashboard context
+ * stubbed. The API answers nothing, so a mutation shows through its
+ * optimistic patch, and the server records what was sent.
  *
- * Checks that agents only lists agents and nothing else, that each agent's
- * line covers its chats, that Mark as read and Mark as unread act on what the
- * row shows, that resting on an agent peeks at its chats, and that Agents
- * first is unchanged.
+ * Checks that agents only lists agents and nothing else, each with only its
+ * own state, that an agent can be marked read or unread from the rail and
+ * from its chat bar (and both agree), that resting on an agent peeks at its
+ * chats, and that Agents first is unchanged.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -59,6 +60,7 @@ beforeAll(async () => {
       import {RailListBody,RailListHeader} from '@/components/workspaces/rail-list';
       import {WorkspaceSelectionProvider} from '@/components/workspaces/workspace-selection-context';
       import {SessionHoverProvider} from '@/components/workspaces/session-hover-context';
+      import {ReadStateButton} from '@/components/chat-ui/read-state-button';
       window.actions=[];
       const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity},mutations:{retry:false}}});
       const at=(minutesAgo)=>new Date(Date.now()-minutesAgo*60_000).toISOString();
@@ -99,6 +101,8 @@ beforeAll(async () => {
         main('notes-main','notes','Filed the meeting notes.'),
       ]});
       client.setQueryData(['sessions','needs-review'],sessions.filter(s=>s.id==='fin-1'||s.id==='fin-2'));
+      // The chat the agent view's chat bar shows: Notes's main chat, read.
+      client.setQueryData(['session','notes-main'],{...main('notes-main','notes','Filed the meeting notes.'),status:'active',label:null,executionId:null});
       const noop=()=>{};
       const navigation={openAgent:noop,openExecution:noop,openTask:noop,openNote:noop,goHome:noop};
       const activity={activeSessionId:null,streamingSessionIds:new Set(['ri-1','fin-3','res-main']),backgroundSessionIds:new Set(),pendingInputSessionIds:new Set(['web-1']),setActiveExecutionId:noop,setSessionStreaming:noop};
@@ -111,6 +115,7 @@ beforeAll(async () => {
                 <RailListBody tab="workspace"/>
               </WorkspaceSelectionProvider>
             </aside>
+            <div data-chat-bar className="fixed left-[300px] top-4 flex items-center gap-1.5"><ReadStateButton sessionId="notes-main"/></div>
           </SessionHoverProvider></WorkContext>
         </ConfirmProvider></TooltipProvider></QueryClientProvider>);
     ` },
@@ -196,7 +201,7 @@ const menu = async (page: Page, name: string) => {
 };
 
 for (const theme of ['dark', 'light'] as const) {
-  it(`lists agents and nothing else, each covering its chats (${theme})`, async () => {
+  it(`lists agents and nothing else, each with only its own state (${theme})`, async () => {
     const { page, errors } = await open('agentsOnly', theme);
     try {
       // No switch, no Needs you, no archive selection: Pinned, then Agents.
@@ -208,22 +213,25 @@ for (const theme of ['dark', 'light'] as const) {
       const agentsTop = (await page.getByText('Agents', { exact: true }).boundingBox())!.y;
       expect(pinnedTop).toBeLessThan(agentsTop);
 
-      // The pin is the only chat row. Every other chat folds into its agent.
+      // The pin is the only chat row.
       const chatRows = await page.locator('[role="button"][tabindex="0"]:not([aria-roledescription])').allInnerTexts();
       expect(chatRows).toHaveLength(1);
       expect(chatRows[0]).toContain('Tax estimate');
 
+      // Each agent says what it said. Its chats' states stay off the rail,
+      // though Website has one waiting and Finances two unread.
       expect(await agentLines(page)).toEqual([
         { name: 'Ri', line: 'Merged the schedules fix. Want me to restart dev?' },
-        { name: 'Website', line: 'Fix login bug: waiting on you' },
-        { name: 'Finances', line: '2 chats need you · 1 working' },
+        { name: 'Website', line: 'Deployed the preview build.' },
+        { name: 'Finances', line: 'Categorized October.' },
         { name: 'Research', line: 'Thinking…' },
         { name: 'Notes', line: 'Filed the meeting notes.' },
         { name: 'Docs', line: 'Keeps the product docs current' },
       ]);
-      // Bold when it or a chat wants you. Thinking is activity, not attention.
-      expect(Number(await nameWeight(page, 'Website'))).toBeGreaterThanOrEqual(600);
-      expect(Number(await nameWeight(page, 'Finances'))).toBeGreaterThanOrEqual(600);
+      // Bold only when the agent itself wants you.
+      expect(Number(await nameWeight(page, 'Ri'))).toBeGreaterThanOrEqual(600);
+      expect(Number(await nameWeight(page, 'Website'))).toBeLessThan(600);
+      expect(Number(await nameWeight(page, 'Finances'))).toBeLessThan(600);
       expect(Number(await nameWeight(page, 'Research'))).toBeLessThan(600);
       // The open chat has no row, so its agent is lit.
       const fill = (name: string) =>
@@ -240,14 +248,13 @@ for (const theme of ['dark', 'light'] as const) {
   });
 }
 
-it('marks read what the row shows, and marks an agent unread to come back to it', async () => {
+it('marks an agent read or unread from its rail menu, its main chat only', async () => {
   const { page, errors } = await open('agentsOnly');
   try {
-    // Finances is lit by two unread chats. Read clears both, and the line
-    // falls through to the chat still working.
-    await (await menu(page, 'Finances')).getByRole('menuitem', { name: 'Mark as read' }).click();
-    await expect.poll(async () => (await agentLines(page))[2]).toEqual({ name: 'Finances', line: 'Tax estimate: working' });
-    await expect.poll(() => sent.sort()).toEqual(['readPost:fin-1', 'readPost:fin-2']);
+    // Ri has a new reply. Read clears it, and nothing under it.
+    await (await menu(page, 'Ri')).getByRole('menuitem', { name: 'Mark as read' }).click();
+    await expect.poll(async () => Number(await nameWeight(page, 'Ri'))).toBeLessThan(600);
+    await expect.poll(() => sent).toEqual(['readPost:ri-main']);
 
     // Notes is quiet. Unread marks its main chat: bold, with its line.
     sent = [];
@@ -263,6 +270,29 @@ it('marks read what the row shows, and marks an agent unread to come back to it'
     const docs = await menu(page, 'Docs');
     expect(await docs.getByRole('menuitem').allInnerTexts()).toEqual(['New chat', 'Agent setup']);
     await page.keyboard.press('Escape');
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it("marks the chat you're reading unread from its chat bar, and the rail agrees", async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    const bar = page.locator('[data-chat-bar]');
+    await bar.getByRole('button', { name: 'Mark unread' }).click();
+    // The bar says so, and the agent lights up in the rail.
+    await bar.getByRole('button', { name: 'Unread, mark read' }).waitFor();
+    await expect.poll(async () => Number(await nameWeight(page, 'Notes'))).toBeGreaterThanOrEqual(600);
+    await expect.poll(() => sent).toEqual(['unreadPost:notes-main']);
+    await page.screenshot({ path: '/tmp/ri-chat-bar-unread.png', clip: { x: 0, y: 0, width: 420, height: 520 } });
+
+    // A click on it reads it again, in both places.
+    sent = [];
+    await bar.getByRole('button', { name: 'Unread, mark read' }).click();
+    await bar.getByRole('button', { name: 'Mark unread' }).waitFor();
+    await expect.poll(async () => Number(await nameWeight(page, 'Notes'))).toBeLessThan(600);
+    await expect.poll(() => sent).toEqual(['readPost:notes-main']);
     expect(errors).toEqual([]);
   } finally {
     await page.close();
