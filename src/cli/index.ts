@@ -31,6 +31,9 @@ import { registerAttachmentCommand } from './commands/attachment';
 import { registerTeamCommand, selectTeamRoot } from './commands/team';
 import { spawnSync } from 'node:child_process';
 import { delegationTarget, selectDefaultHome } from './lib/release-delegation';
+import { registerHomeControlCommands } from './commands/home-control';
+import path from 'node:path';
+import { APP_ROOT_ENV } from '@/lib/config/paths';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -49,6 +52,10 @@ program.hook('preAction', (_program, action) => {
   let top = action;
   while (top.parent && top.parent !== program) top = top.parent;
   const sub = top === action ? undefined : action.name();
+  // A Home command told its folder (`ri restart --root ~/team`) uses it (3.4).
+  // `ri service --root`, `team create --root` and `update --root` read their own.
+  const root = ['service', 'team', 'update'].includes(top.name()) ? undefined : action.opts().root as string | undefined;
+  if (root) process.env[APP_ROOT_ENV] = path.resolve(root);
   // `ri service --root` and `--dev` name their Home themselves.
   if (!(top.name() === 'service' && top.opts().root) && !action.opts().dev) selectDefaultHome(top.name(), sub);
   const target = delegationTarget(top.name(), sub);
@@ -63,7 +70,7 @@ program.hook('preAction', (_program, action) => {
     || (action.name() === 'upload' && action.parent?.name() === 'attachment')) return;
   let command = action;
   while (command.parent && command.parent !== program) command = command.parent;
-  if (!['service', 'update', 'start', 'stop'].includes(command.name())) {
+  if (!['service', 'update', 'start', 'stop', 'restart', 'logs'].includes(command.name())) {
     applyServiceEnvironment(process.execPath);
     releaseCommand = beginActivity();
   }
@@ -72,8 +79,10 @@ program.hook('postAction', () => { releaseCommand?.(); releaseCommand = undefine
 
 program
   .command('start', { isDefault: true })
-  .description(`Start ${APP_NAME} and open the app`)
-  .option('-p, --port <number>', 'port to bind (default: 4224, or 42241 with --dev)')
+  .description(`Start ${APP_NAME}, keep it running in the background, and open the app`)
+  .option('--root <dir>', 'the Home\'s folder, when it isn\'t ~/ri')
+  .option('--foreground', 'run in this terminal instead of the background, for debugging')
+  .option('-p, --port <number>', 'port for a new Home (default: 4224, or 42241 with --dev)')
   .option('--no-open', 'do not launch the browser')
   .option('--pair', 'open the pairing URL even if already paired')
   .option('--dev', 'run the server in dev mode (next dev) instead of production')
@@ -92,7 +101,8 @@ program
 
 program
   .command('stop')
-  .description(`Stop a running ${APP_NAME} server`)
+  .description(`Stop ${APP_NAME}, and keep it stopped after restarts until \`ri start\``)
+  .option('--root <dir>', 'the Home, when this computer runs several')
   .option('-p, --port <number>', 'port of the instance to stop')
   .option('--dev', 'target the dev instance (dev data root, default port 42241)')
   .option('-f, --force', 'send SIGKILL immediately instead of SIGTERM')
@@ -125,6 +135,7 @@ program
   .description('Run diagnostic checks')
   .action(doctorCommand);
 
+registerHomeControlCommands(program);
 registerVoiceCommand(program);
 registerSnapshotCommand(program);
 registerCommitCommand(program);

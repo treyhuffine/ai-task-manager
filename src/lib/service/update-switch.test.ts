@@ -78,6 +78,8 @@ it('runs the full integrity check only when the update changes the schema', asyn
   backend.pendingMigrations = vi.fn(async () => 2);
   const migrating = coordinator(); await migrating.offer(candidate); await migrating.apply();
   expect(backend.verifyDatabase).toHaveBeenCalledOnce();
+  // The check-only start learns it migrates, so the controller gives it longer.
+  expect(backend.validate).toHaveBeenLastCalledWith(expect.objectContaining({ id: candidate }), expect.any(String), 2);
 });
 
 it('restores the snapshot exactly when the launcher put the previous release back', async () => {

@@ -82,10 +82,16 @@ function fsyncPath(file: string) {
  * APFS volume, since `cp -c` quietly copies when it can't clone. Linux: the
  * FICLONE ioctl, on btrfs or xfs. False when this disk can't clone.
  */
+/** Whether `cp -c` clones from `source` into `directory`: the same APFS volume. */
+export function clonesOnMac(source: string, directory: string) {
+  return process.platform === 'darwin' && fs.statSync(/* turbopackIgnore: true */ source).dev === fs.statSync(/* turbopackIgnore: true */ directory).dev
+    && fs.statfsSync(/* turbopackIgnore: true */ directory).type === APFS;
+}
+
 function cloneFile(source: string, target: string) {
   const directory = path.dirname(target);
   if (process.platform === 'darwin') {
-    if (fs.statSync(/* turbopackIgnore: true */ source).dev !== fs.statSync(/* turbopackIgnore: true */ directory).dev || fs.statfsSync(/* turbopackIgnore: true */ directory).type !== APFS) return false;
+    if (!clonesOnMac(source, directory)) return false;
     try { execFileSync(untraced('/bin/cp'), ['-c', source, target], { stdio: 'ignore' }); return true; }
     catch { fs.rmSync(/* turbopackIgnore: true */ target, { force: true }); return false; }
   }

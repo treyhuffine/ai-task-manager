@@ -368,6 +368,46 @@ function inspectActivity(recentDesc: ChatEventRecord[]): ActivityProbe {
   return { hasRecentAgentEvent, orphan };
 }
 
+/** How far back a startup looks for work a restart cut off. A crash loop can
+ * keep a Home down for hours before it starts again. */
+const CUT_OFF_WINDOW_MS = 24 * 60 * 60_000;
+
+/** The facts about a chat that `cutOffByRestart` reads. */
+export interface CutOffFacts {
+  lastViewedAt: string | null;
+  unreadMarkerAt: string | null;
+  lastOutcomeEventAt: string | null;
+}
+
+const time = (value: string | null | undefined) => (value ? Date.parse(value) : 0) || 0;
+
+/**
+ * Whether a restart cut this chat off and nothing sends it again, so it must
+ * show as needing the person (docs/always-on-spec.md 6.3). Its newest turn
+ * event, read newest first, is the agent at work (a reply, thinking, a tool,
+ * a permission question whose prompt died with the server) or the person's
+ * message, not a turn's end. It is this app's own, not mirrored from a
+ * session in someone's terminal. It happened in the last day, after the
+ * person last looked. And the chat doesn't already show as unread, so a
+ * restart never adds noise or moves a chat that already asks for them.
+ * The caller rules out chats the startup sent again, chats on another
+ * device and import mirrors.
+ */
+export function cutOffByRestart(recentDesc: ChatEventRecord[], session: CutOffFacts, now = Date.now()): boolean {
+  for (const e of recentDesc) {
+    if (isSendRefusal(e)) return false;
+    const fromPerson = e.role === 'user' || e.source === 'permission_response';
+    if (!fromPerson && !AGENT_ACTIVITY_SOURCES.has(e.source as ChatEventSource) && e.source !== 'result') continue;
+    if (e.source === 'result' || e.externalEventId) return false;
+    const at = time(e.createdAt);
+    if (now - at > CUT_OFF_WINDOW_MS) return false;
+    const seen = Math.max(time(session.lastViewedAt), time(session.unreadMarkerAt));
+    const unread = Math.max(time(session.lastOutcomeEventAt), time(session.unreadMarkerAt)) > time(session.lastViewedAt);
+    return at > seen && !unread;
+  }
+  return false;
+}
+
 // Exported only for tests.
 export const _internals = {
   inspectActivity,

@@ -49,7 +49,12 @@ import {
   recordExecutionSetupError,
   getExternalSessionImportForChat,
   listChatEventIdentities,
+  getChatSession,
+  listRecentChatEvents,
+  markSessionUnread,
+  chatPlacement,
 } from '@/lib/db/queries';
+import { isImportMirror } from '@/lib/import/mirror';
 import {
   publishReconcileStarted,
   publishReconcileDone,
@@ -488,11 +493,12 @@ async function reconcileCodexSession(session: ChatSessionWithExecution, writer: 
  * user comes back to completed responses without having to open each
  * stuck session manually.
  */
-export async function reconcileAllSessions(options: { redispatchOrphans?: boolean; teamOnly?: boolean } = {}): Promise<{
+export async function reconcileAllSessions(options: { redispatchOrphans?: boolean; teamOnly?: boolean; markInterrupted?: boolean } = {}): Promise<{
   checked: number;
   drifted: number;
   replayed: number;
   redispatched: number;
+  interrupted: number;
   reapedStuckBootstraps: number;
   importsChecked: number;
   importsSynced: number;
@@ -500,7 +506,7 @@ export async function reconcileAllSessions(options: { redispatchOrphans?: boolea
 }> {
   // Local import — health.ts imports reconcileSession from this file,
   // so the top-of-file import would loop.
-  const { healthCheckSession } = await import('./health');
+  const { healthCheckSession, cutOffByRestart } = await import('./health');
 
   // Reap stuck bootstraps before the main sweep so they get a
   // setupError visible in the rail by the time the UI loads. The
@@ -533,6 +539,7 @@ export async function reconcileAllSessions(options: { redispatchOrphans?: boolea
   let drifted = 0;
   let replayed = 0;
   let redispatched = 0;
+  let interrupted = 0;
   let errors = 0;
 
   for (const session of sessions) {
@@ -542,6 +549,16 @@ export async function reconcileAllSessions(options: { redispatchOrphans?: boolea
       if (report.replayed > 0) drifted++;
       replayed += report.replayed;
       if (report.redispatched) redispatched++;
+      // A restart ended this chat's harness. Work it cut off that nothing
+      // sends again shows as needing the person (docs/always-on-spec.md 6.3).
+      // A chat on another device kept running there.
+      else if (options.markInterrupted && !isImportMirror(session) && chatPlacement(session.id)?.isHome !== false) {
+        const current = getChatSession(session.id);
+        if (current && cutOffByRestart(listRecentChatEvents(session.id, 30), current)) {
+          markSessionUnread(session.id);
+          interrupted++;
+        }
+      }
     } catch (err) {
       errors++;
       console.error(`[reconcile] session ${session.id} threw:`, err);
@@ -573,6 +590,7 @@ export async function reconcileAllSessions(options: { redispatchOrphans?: boolea
     drifted,
     replayed,
     redispatched,
+    interrupted,
     reapedStuckBootstraps,
     importsChecked,
     importsSynced,

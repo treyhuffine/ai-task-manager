@@ -123,10 +123,10 @@ export async function register() {
 
   try {
     const { reconcileAllSessions } = await import('@/lib/executor/reconcile');
-    perfScope('startup:reconcile', () => reconcileAllSessions())
+    perfScope('startup:reconcile', () => reconcileAllSessions({ markInterrupted: true }))
       .then((stats) => {
         console.log(
-          `[reconcile] startup sweep: checked=${stats.checked} drifted=${stats.drifted} replayed=${stats.replayed} redispatched=${stats.redispatched} reapedStuckBootstraps=${stats.reapedStuckBootstraps} importsChecked=${stats.importsChecked} importsSynced=${stats.importsSynced} errors=${stats.errors}`,
+          `[reconcile] startup sweep: checked=${stats.checked} drifted=${stats.drifted} replayed=${stats.replayed} redispatched=${stats.redispatched} interrupted=${stats.interrupted} reapedStuckBootstraps=${stats.reapedStuckBootstraps} importsChecked=${stats.importsChecked} importsSynced=${stats.importsSynced} errors=${stats.errors}`,
         );
       })
       .catch((err) => {

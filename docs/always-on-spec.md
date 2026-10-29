@@ -1,6 +1,6 @@
 # Always on, always current: installing, running and updating Ri
 
-**Status:** decided 2026-10-27, revised after three passes of an independent review (section 13.3 lists what changed). Phase A is built on the `always-on` branch, 2026-10-29, not yet merged. Phases B to E are not built. Every choice phases A and B need is settled, and what stays open belongs to later phases or future work. Section 11 lists what changes in the current code, and section 12 the order to build it in.
+**Status:** decided 2026-10-27, revised after three passes of an independent review (section 13.3 lists what changed). Phases A and B are built on the `always-on` branch, 2026-10-29, not yet merged. Phases C to E are not built. Every choice phases A and B need is settled, and what stays open belongs to later phases or future work. Section 11 lists what changes in the current code, and section 12 the order to build it in.
 
 **Promise:** once Ri is installed and a Home is created, it is running whenever its computer is on. It updates itself, along with everything it installs (its skills included), and a person never has to restart, babysit or rebuild it. An update that won't start puts the old version back by itself, exactly as it was. Once a new version has started working, going back is the owner's call, because undoing it could lose what it wrote. This holds for the desktop app and the CLI, on a laptop, a Mac Mini in a closet, or a Linux server reached only over SSH. The standard case takes no flags.
 
@@ -104,7 +104,7 @@ Flags exist only for the unusual case:
 | `ri update --rollback` | Go back one release (section 7.6). |
 | `ri update --from <checkout>` and `--from published` | Contributors only: build releases from a checkout, or go back to published ones (section 8). Remembered. |
 | `ri update --channel latest\|stable`, `ri update --auto off\|on` | The same settings as Settings > Updates. Remembered. |
-| `ri start --foreground` | Today's `ri start`, for debugging. It refuses a Home that is supervised. |
+| `ri start --foreground` | Today's `ri start`, for debugging. It refuses a Home that is supervised. The options that only make sense for a server run by hand (`--dev`, `--portless`, `--hot` and the HTTP/2 options) also run it in the terminal, and say so. A computer with no release yet, such as a checkout before its first `ri update --from`, runs it in the terminal too, with the command that installs one. |
 
 The `ri service ...` commands stay as the detailed form (`status` as JSON, `awake`, `configure`, `worker stop|resume`, `install`, `uninstall`), so existing scripts keep working. `ri service install` becomes the takeover step that `ri start` runs, and `ri service uninstall` removes supervision while keeping the data, as it does today.
 
@@ -168,9 +168,10 @@ The OS supervises the launcher, the launcher starts the controller, and the cont
 | Trigger | What happens |
 | --- | --- |
 | The server exits without being asked to | Restart after 1 s, then 5 s, 15 s and 60 s, then every 5 minutes. The delay resets after 10 healthy minutes. |
-| The server stops answering | The controller probes `/__ri_ready` every 15 s with a 10 s timeout. After 3 minutes without a successful probe it kills the server's process group and restarts it. The probe runs on the server's event loop, so a frozen loop fails it while an ordinary 2 s stall doesn't. Startup has its own deadline (three minutes today) instead, extended while migrations are running. |
+| The server stops answering | The controller probes `/__ri_ready` every 15 s with a 10 s timeout. After 3 minutes without a successful probe it kills the server's process group and restarts it. The probe runs on the server's event loop, so a frozen loop fails it while an ordinary 2 s stall doesn't. Startup has its own deadline instead: three minutes, or 30 for an update's check-only start that applies migrations. |
 | The server's JavaScript heap passes 75% of its limit | Restart at the next idle moment. |
 | The heap passes 90% of its limit | Drain for 15 s, then restart, even if chats are running, because a crash at the limit is worse. The reason is recorded. |
+| Either memory rule, in a server's first 10 minutes | Nothing. A new server hasn't had time to leak, so restarting can't lower it, and one that starts above the line would otherwise restart every time it's idle. |
 | 5 unexpected exits within 15 minutes | Slow down to one attempt every 15 minutes, and keep trying indefinitely. The controller stays up, so `ri status` and Settings show that the Home is crash-looping and the last error. If the loop began right after an update, section 7.6 applies first. |
 
 Every restart of the server runs the existing startup cleanup of harness processes whose server is gone (`stopOrphanedHarnesses` in `src/lib/runner/harness-processes.ts`), because killing the server doesn't prove every harness stopped.
@@ -187,7 +188,9 @@ Recovery after an interrupting restart stays as it is today:
 
 The "at most once every 3 minutes per chat" limit on re-sending lives in memory (`redispatchThrottle` in `health.ts`), so it resets on every restart. In a crash loop, the slowed retries in section 6.2 are what bound how often a message is sent again: a few times in the first minutes, then once every 15 minutes. Whether to go further and start without re-sending after repeated crashes is open (section 13.2).
 
-Phase B adds one requirement: every chat that was interrupted and not sent again shows as needing the person (unread), so nothing is dropped silently. Phase B's acceptance checks this against a real interrupted chat, because the unread state hasn't been confirmed for every case. Moving agent work out of the server, so restarts never interrupt it, is future work (section 13.2).
+Phase B adds one requirement: every chat that was interrupted and not sent again shows as needing the person (unread), so nothing is dropped silently. Phase B's acceptance checks this against a real interrupted chat, because the unread state hasn't been confirmed for every case.
+
+Checking it found that most interrupted chats were dropped silently. Startup re-sent only the person's unanswered message, and not even that within a minute of the agent's last event, which every quick restart is. A chat cut off mid-reply, or waiting on a permission question whose prompt lived only in the server's memory, stayed as it was. So the startup sweep now marks such a chat unread (`cutOffByRestart` in `src/lib/executor/health.ts`). It applies when the chat's newest turn event is the agent at work or the person's message, not a turn's end, and that event is this app's own, not mirrored from a terminal session. It must also be from the last day, after the person last looked, in a chat that isn't already unread and that the startup didn't send again. That makes it idempotent, so a chat is marked once, not at every restart. Opening a chat and the minute sweep never mark it. Two gaps remain. A chat whose harness never reported its session isn't in the sweep at all. Re-sending more than today is left as it is, since a duplicate send is worse than an unread chat. Moving agent work out of the server, so restarts never interrupt it, is future work (section 13.2).
 
 ### 6.4 Stopping
 
@@ -318,7 +321,7 @@ The steps build on `UpdateCoordinator.apply` today. Each Home's own controller r
 6. **Refresh what the release installs** (section 9).
 7. **Watch the first 10 minutes.** If the new release crash-loops (section 6.2), section 7.6 applies.
 
-A typical update is a drain, a stop, a WAL checkpoint and clone, the check-only start and the real start: seconds of downtime. Phase A measures the real figure on the owner's Home, from the request to stop to the first page served. If the two starts turn out to cost too much, a later change can merge them into one start that holds back every outside action until the commit. It isn't built unless the measurement calls for it.
+A typical update is a drain, a stop, a WAL checkpoint and clone, the check-only start and the real start: seconds of downtime. Measured while building, on a real release: 4.6 seconds from the request to stop to the first page served, and 2.3 seconds for a rollback. That needs the release hashed once per update, in full, while the Home still serves (about a minute for its 170,000 files). The steps while the Home is offline, and the new controller's own startup, check only the manifest and the files a Home starts from (`checkRuntime` in `src/lib/service/runtime-manifest.ts`). Hashing at each of those steps had made the same switch take 118 seconds. If the two starts turn out to cost too much, a later change can merge them into one start that holds back every outside action until the commit. It isn't built unless the measurement calls for it.
 
 ### 7.5 Keeping releases
 
@@ -332,7 +335,9 @@ A typical update is a drain, a stop, a WAL checkpoint and clone, the check-only 
 
 Everything else is deleted after a switch, as Claude Code keeps the two newest versions plus any in use.
 
-Releases never change after staging, so staging hard-links every file whose checksum matches a file already in the store. A release that changes only code then costs only its changed files, not another 3.3 GB.
+Releases never change after staging, so staging hard-links every file whose checksum matches a file already in the store. A release that changes only code then costs only its changed files, not another 3.3 GB. Measured: 38 to 47 MiB for each release after the first. A release copied in rather than moved (the desktop app's own, on its first launch) is cloned with `cp -c` on APFS before its shared files are linked, because Node's copy would write all of it again.
+
+Deleting a release removes over 150,000 files, which takes seconds. The controller renames it out of the store under the lock, which is instant, and deletes it without blocking its event loop, since the HTTPS gateway runs on that same loop and a synchronous delete stalled every request for 8 seconds.
 
 ### 7.6 Rollback
 
@@ -436,7 +441,8 @@ So a takeover keeps the address:
 - **Before the service first starts a Home it is taking over,** it records the Home's current port and scheme (from the Home's running port, as `getRunningPort` reads it) in that Home's `local-service.json`.
 - **The service then serves that address.** For a Home that ran on plain HTTP, that means the service serves plain HTTP on that port, which `startHome` doesn't do today.
 - **If the port is held by something else at takeover,** the takeover stops and says what holds it. It doesn't pick a new one.
-- **A Home created by the service** keeps whatever address it got the first time, as today.
+- **A Home created by the service** keeps whatever address it got the first time, as today. A team created with `ri team create` gets its address from the service this way. A personal Home created by `ri start` gets the address a terminal start would have given it: `http://localhost:4224`, or the port passed with `-p`.
+- **`-p` doesn't move a Home.** Once a Home's address is recorded, `ri start -p` with another port stops and says the Home's address, instead of breaking the tabs, agents and tunnel that use it.
 
 ## 11. What changes in the code
 
@@ -597,6 +603,7 @@ Acceptance: an SSH-only Linux server goes from `curl … | sh` and `ri start` to
 5. **Windows.** Native first, or WSL first, as OpenClaw supports both?
 6. **Backups.** The nightly backup is an owner-only launchd job (`pnpm backup install`). Whether every Home should get one, kept by the same controller, is a separate decision.
 7. **Before-login Macs.** A system LaunchDaemon for Macs that must serve before anyone logs in. Not planned, and it can't reach the login keychain.
+8. **The desktop app and a plain HTTP Home on the same computer** (phase D). A Home taken over from a terminal keeps `http://localhost:4224` (section 10.3), so its `/session` has no certificate. The desktop app's local window expects one (`isLocalViewer` in `desktop/viewer-trust.ts`), so today it would treat that Home as one elsewhere. Nobody runs the app on the owner's Mini, where both such Homes live. Phase D decides whether the app accepts a local HTTP Home or offers to move it to HTTPS.
 
 ### 13.3 Review, 2026-10-28
 
@@ -637,6 +644,20 @@ A third pass found the design ready to build, with three corrections, all made:
 | "A bad update undoes itself without losing work" promised more than the boundary allows | The promise now says an update that won't start undoes itself, and going back after a new version started working is the owner's call |
 
 Building phase A turned up four more, also folded in: Node's clone flag copies on macOS, so snapshots clone with `cp -c` (section 7.4). The full integrity check runs only when the schema changes. The store lives in the existing runtime folder. A Home's OS job doesn't change, because its launcher path stays the same (section 10.1).
+
+Running phase A and B on a real release (built from `main` in 620 seconds, using 2.2 GiB) turned up these, all fixed and folded in:
+
+| Finding | Change |
+| --- | --- |
+| Every step of a switch hashed the whole release again, a minute each, two of them while the Home was offline: 118 seconds of downtime | One full hash per update, before anything stops. Offline steps check the manifest and entry files: 4.6 seconds (section 7.4) |
+| A controller learned it could hand over with exit 75 only from the OS job's record, so under a launcher started any other way it took the unsupervised path and the launcher exited | The launcher tells its controller, with `RI_SERVICE_LAUNCHER=2` |
+| That unsupervised path started the next controller from the release it had validated, which a rollback never does, so a rolled-back Home ran the newer controller with the older server | It starts the release just selected |
+| Deleting old releases synchronously froze the controller, and the HTTPS gateway with it, for 8 seconds | Rename under the lock, delete off the event loop (section 7.5) |
+| Copying a release into a store copied every byte on macOS | Clone on APFS, then link shared files (section 7.5) |
+| A server whose idle heap starts above 75% would restart every time it was idle | No memory restart in a server's first 10 minutes (section 6.2) |
+| A restart's recorded reason carried the multi-line startup report | One line: what happened and the last error the server printed, such as a heap limit crash |
+| Tests could reach this computer's real installation folder | Every test gets its own (`src/test/setup-env.ts`) |
+| The doctor counted the Home's own port as "in use" | It says the Home uses it |
 
 ## 14. Prior art
 

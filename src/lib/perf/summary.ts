@@ -41,6 +41,8 @@ export interface PerfSummary {
   stalls: { count: number; totalMs: number; longest: PerfStall[] };
   slow: { count: number; groups: PerfSlowGroup[] };
   loop: { worstP99Ms: number | null; maxMs: number | null };
+  /** The server's JavaScript heap: its peak in the window, the limit, and the latest resident size. */
+  memory: { peakHeapMiB: number; heapLimitMiB: number; latestRssMiB: number } | null;
   byCalls: PerfLabelRow[];
   byDbTime: PerfLabelRow[];
 }
@@ -61,6 +63,7 @@ interface StallLine extends Line {
 interface RollupLine extends Line {
   windowMs: number;
   loop?: { p99Ms?: number; maxMs?: number };
+  memory?: { heapUsedMiB?: number; heapLimitMiB?: number; rssMiB?: number };
   labels?: Record<string, { n: number; ms: number; maxMs: number; dbMs: number; dbN: number }>;
 }
 
@@ -76,6 +79,8 @@ export function summarizePerfLog(lines: Iterable<string>, options: { since?: num
   let slowCount = 0;
   let worstP99: number | null = null;
   let maxLoop: number | null = null;
+  let memory: PerfSummary['memory'] = null;
+  let peakHeapMiB = 0;
   const labels = new Map<string, { n: number; ms: number; maxMs: number; dbMs: number; dbN: number }>();
 
   for (const raw of lines) {
@@ -115,6 +120,10 @@ export function summarizePerfLog(lines: Iterable<string>, options: { since?: num
         windowMs += Number(rollup.windowMs) || 0;
         if (typeof rollup.loop?.p99Ms === 'number') worstP99 = Math.max(worstP99 ?? 0, rollup.loop.p99Ms);
         if (typeof rollup.loop?.maxMs === 'number') maxLoop = Math.max(maxLoop ?? 0, rollup.loop.maxMs);
+        if (typeof rollup.memory?.heapUsedMiB === 'number') {
+          memory = { peakHeapMiB: Math.max(peakHeapMiB, rollup.memory.heapUsedMiB), heapLimitMiB: rollup.memory.heapLimitMiB ?? 0, latestRssMiB: rollup.memory.rssMiB ?? 0 };
+          peakHeapMiB = memory.peakHeapMiB;
+        }
         for (const [label, v] of Object.entries(rollup.labels ?? {})) {
           const row = labels.get(label) ?? { n: 0, ms: 0, maxMs: 0, dbMs: 0, dbN: 0 };
           row.n += v.n;
@@ -171,6 +180,7 @@ export function summarizePerfLog(lines: Iterable<string>, options: { since?: num
         .map(({ labelSet, ...group }) => ({ ...group, totalMs: round(group.totalMs), maxMs: round(group.maxMs), labels: [...labelSet] })),
     },
     loop: { worstP99Ms: worstP99, maxMs: maxLoop },
+    memory,
     byCalls: rows.filter((r) => r.n > 0).sort((a, b) => b.n - a.n).slice(0, top),
     byDbTime: rows.filter((r) => r.dbMs > 0).sort((a, b) => b.dbMs - a.dbMs).slice(0, top),
   };

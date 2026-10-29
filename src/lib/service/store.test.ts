@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { writeRuntimeFixture } from './runtime-fixture';
-import { latestRelease, listHomes, pruneReleases, releaseDirectory, stageRelease, storeDirectory } from './store';
+import { emptyTrash, latestRelease, listHomes, pruneReleases, releaseDirectory, stageRelease, storeDirectory } from './store';
 import { installedRuntime, stageRuntime, verifyRuntime } from './runtime';
 import { getRuntimeBaseDir, getRuntimeInstallDir } from './paths';
 
@@ -58,7 +58,7 @@ it('still finds a release a Home staged in its own folder before the store exist
   expect(installedRuntime()?.repo).toBe(path.join(install, 'releases', manifest.id, 'server'));
 });
 
-it('deletes only releases nothing uses', () => {
+it('deletes only releases nothing uses', async () => {
   const ids = ['a', 'b', 'c', 'd', 'e', 'f'].map((name, index) => stageRelease(release(name, `0.${index + 1}.0`)).id);
   const [active, previous, pending, running, unused, newest] = ids;
   const install = getRuntimeInstallDir();
@@ -75,6 +75,13 @@ it('deletes only releases nothing uses', () => {
   for (const id of [active, previous, pending, running, newest]) expect(fs.existsSync(path.join(storeDirectory(), id))).toBe(true);
   expect(fs.existsSync(stale)).toBe(false);
   expect(fs.existsSync(path.join(getRuntimeBaseDir(), 'cache', unused))).toBe(false);
+  // Out of use at once, and deleted off the event loop afterwards.
+  const trash = () => fs.readdirSync(storeDirectory()).filter(entry => entry.startsWith('.trash-'));
+  expect(trash()).toHaveLength(2);
+  expect(listHomes().map(home => home.active)).toEqual([active]);
+  await emptyTrash();
+  expect(trash()).toEqual([]);
+  expect(fs.readdirSync(path.join(getRuntimeBaseDir(), 'cache')).filter(entry => entry.startsWith('.trash-'))).toEqual([]);
 });
 
 it('keeps the release an activation names until the launcher is done with it', () => {
@@ -85,4 +92,21 @@ it('keeps the release an activation names until the launcher is done with it', (
   fs.writeFileSync(path.join(install, 'active-release'), `${kept}\n`);
   fs.writeFileSync(path.join(install, 'activation/candidate'), `${candidate}\n`);
   expect(pruneReleases({ running: () => [] })).toEqual([gone]);
+});
+
+it("stages a release from another store with this store's own cache, and nothing it doesn't list", () => {
+  const first = stageRelease(release('one', '0.1.0', { 'server/.next-desktop/BUILD_ID': 'build' }));
+  const source = path.join(storeDirectory(), first.id);
+  expect(fs.readlinkSync(path.join(source, 'server/.next-desktop/cache'))).toBe(path.join(getRuntimeBaseDir(), 'cache', first.id));
+  // A second installation, as the desktop app's first launch stages its own.
+  const other = path.join(root, 'other');
+  const staged = stageRelease(source, other);
+  const copy = path.join(storeDirectory(other), staged.id);
+  expect(staged.id).toBe(first.id);
+  expect(fs.readlinkSync(path.join(copy, 'server/.next-desktop/cache'))).toBe(path.join(other, 'cache', first.id));
+  expect(verifyRuntime(copy).id).toBe(first.id);
+  // A later release in that store still shares what's identical.
+  const second = stageRelease(release('two', '0.2.0', { 'server/.next-desktop/BUILD_ID': 'build' }), other);
+  const shared = (id: string) => path.join(storeDirectory(other), id, 'server/node_modules/big/index.js');
+  expect(inode(shared(first.id))).toBe(inode(shared(second.id)));
 });

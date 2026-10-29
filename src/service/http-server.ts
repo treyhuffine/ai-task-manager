@@ -2,6 +2,7 @@ import { localApps } from '@/lib/local-apps/service';
 import { localAppsEnabled } from '@/lib/config/features';
 /** The service's ordinary-Node HTTP boundary. Next remains the application. */
 import http from 'node:http';
+import v8 from 'node:v8';
 import next from 'next';
 import { beginActivity, readMaintenance } from '@/lib/service/maintenance';
 import './watchdog';
@@ -77,7 +78,11 @@ async function start() {
         return;
       }
       response.setHeader('content-type', 'application/json');
-      response.end(JSON.stringify({ ready: true, validation: process.env.RI_SERVICE_VALIDATING === '1', pid: process.pid, repo: process.cwd() }));
+      // Memory rides along, so the controller restarts a server heading for
+      // Node's heap limit before it crashes there (docs/always-on-spec.md 6.2).
+      const heap = v8.getHeapStatistics();
+      const memory = { heapUsed: heap.used_heap_size, heapLimit: heap.heap_size_limit, rss: process.memoryUsage.rss() };
+      response.end(JSON.stringify({ ready: true, validation: process.env.RI_SERVICE_VALIDATING === '1', pid: process.pid, repo: process.cwd(), memory }));
       return;
     }
     const workerCompletion = request.method === 'POST' && /^\/api\/workers\/me\/(?:heartbeat|events|commands\/[^/]+\/ack|requests\/[^/]+\/result)$/.test(pathname);

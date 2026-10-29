@@ -24,6 +24,9 @@ import { APP_SHORT_ID } from '@/constants/app';
 import { getAppRoot, getDbPath } from '@/lib/config/paths';
 import { readTeamIntent, writeTeamIntent, TeamIntentError } from '@/lib/home/team-intent';
 import { startBackgroundService } from './service';
+import { serviceStatus } from '@/lib/service/client';
+import { installService } from '@/lib/service/install';
+import { keepRunning, portHolder, releaseAvailable } from '@/lib/service/keep-running';
 import { openBrowser } from '../lib/browser';
 
 /** Resolve the explicit target before CLI environment and activity hooks run. */
@@ -95,7 +98,10 @@ export function registerTeamCommand(program: Command) {
           return;
         }
         console.log(`Starting ${pc.bold(intent.name)} in the background…`);
-        const service = await startBackgroundService();
+        // Creating a team keeps it running, across restarts too (4.1). On a
+        // computer with no release yet, it runs unsupervised as before.
+        const supervised = releaseAvailable() && (process.platform === 'darwin' || process.platform === 'linux');
+        const service = supervised ? await superviseTeam() : await startBackgroundService();
         if (!service.origin) throw new Error("The team's service has no address. Check its service logs and retry this command.");
         // The service owns schema changes. Attaching to an older running
         // service must not let this CLI migrate its database underneath it.
@@ -110,7 +116,7 @@ export function registerTeamCommand(program: Command) {
           ? (await (await import('@/lib/team/address')).teamLinkAddress()).base
           : (await (await import('@/lib/team/admission')).createSetupLink()).link;
         console.log(`${pc.bold(identity.home.name)} is running at ${service.origin}\nData: ${root}`);
-        console.log('You can close this terminal. The team keeps running.');
+        console.log(supervised ? 'You can close this terminal. The team keeps running, after restarts too.' : 'You can close this terminal. The team keeps running.');
         console.log('');
         console.log(hasOwner ? 'Open your team:' : 'Open this single-use link yourself to become the owner:');
         console.log(`  ${link}`);
@@ -120,6 +126,15 @@ export function registerTeamCommand(program: Command) {
         process.exitCode = 1;
       }
     });
+
+  async function superviseTeam() {
+    const result = await keepRunning({ address: 'service' }, {
+      status: serviceStatus, install: () => installService(), holder: portHolder,
+      sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: Date.now,
+    });
+    if (result.result !== 'running') throw new Error(result.result === 'failed' ? result.reason : 'No Ri release is installed on this computer.');
+    return result.status;
+  }
 
   team
     .command('setup-link')

@@ -16,6 +16,25 @@ import { getInstallationRole } from '@/lib/config/role';
 import { readConnection } from '@/lib/connection/config';
 import { checkHome, HomeRequestError } from '@/lib/connection/home-client';
 import { describeNeedsClaim, resolveHomeIdentity } from '@/lib/home/identity';
+import { serviceStatus } from '@/lib/service/client';
+import { hasLoginSupervision } from '@/lib/service/supervision-state';
+import { readStopped } from '@/lib/service/stopped';
+import { latestRelease, storeDirectory } from '@/lib/service/store';
+import { releaseCommit } from '@/lib/service/source-build';
+import { describeHomeStatus } from '@/lib/service/home-status';
+import fs from 'node:fs';
+import path from 'node:path';
+
+/** The newest release on this computer, what `ri` itself runs. */
+function computerRelease() {
+  const id = latestRelease();
+  if (!id) return null;
+  const repo = path.join(/* turbopackIgnore: true */ storeDirectory(), id, 'server');
+  try {
+    const version = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ repo, 'package.json'), 'utf8')).version as string;
+    return { version, commit: releaseCommit(repo) };
+  } catch { return null; }
+}
 
 export function registerStatusCommand(program: Command) {
   program
@@ -45,7 +64,18 @@ export function registerStatusCommand(program: Command) {
           console.log(`${pc.dim('runs on')} ${status.device.name}`);
         } else {
           console.log(pc.yellow(`${pc.dim('state')}   not active here. ${describeNeedsClaim(status.reason)}`));
+          return;
         }
+        const service = await serviceStatus().catch(() => null);
+        const lines = describeHomeStatus({
+          status: service, supervised: hasLoginSupervision(), stopped: readStopped(), computer: computerRelease(),
+          homeCommit: service?.repo ? releaseCommit(service.repo) : null, now: Date.now(),
+        });
+        for (const [label, value] of lines) {
+          const text = `${pc.dim(label.padEnd(7))} ${value}`;
+          console.log(label === 'error' ? pc.red(text) : text);
+        }
+        if (service && service.phase !== 'running') process.exitCode = 1;
         return;
       }
 

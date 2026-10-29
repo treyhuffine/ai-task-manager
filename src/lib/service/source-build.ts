@@ -81,6 +81,8 @@ export interface BuildOptions {
   /** Each step as it starts, for the person waiting on `ri update`. */
   step?: (description: string) => void;
   run?: Run;
+  /** Free bytes where the build goes. Tests pass a fixed value. */
+  free?: (directory: string) => number;
 }
 export interface BuildResult { id: string; version: string; commit: string; log: string }
 
@@ -97,7 +99,7 @@ export async function buildRelease(options: BuildOptions): Promise<BuildResult> 
   const run = options.run ?? runCommand;
   const builds = path.join(/* turbopackIgnore: true */ base, 'builds');
   fs.mkdirSync(/* turbopackIgnore: true */ builds, { recursive: true, mode: 0o700 });
-  const free = freeBytes(builds);
+  const free = (options.free ?? freeBytes)(builds);
   if (free < BUILD_FREE_BYTES) throw new Error(`Not enough free disk space to build Ri. A build needs ${(BUILD_FREE_BYTES / 1024 ** 3).toFixed(0)} GiB free and ${(free / 1024 ** 3).toFixed(1)} GiB is.`);
   const short = options.commit.slice(0, 12);
   const worktree = path.join(/* turbopackIgnore: true */ builds, short);

@@ -9,6 +9,7 @@ import { servicePaths } from './paths';
 import { acquireServiceOwner } from './owner';
 import { serviceRequest, serviceStatus, stopService } from './client';
 import { hasLoginSupervision, supervisionRecord } from './supervision-state';
+import { clearStopped } from './stopped';
 export { hasLoginSupervision } from './supervision-state';
 
 export interface ServiceDefinitionOptions {
@@ -120,8 +121,10 @@ export async function uninstallService() {
   if (process.platform === 'linux') execFileSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'pipe' });
 }
 
+/** An explicit start: it clears a recorded stop (docs/always-on-spec.md 6.4). */
 export async function startInstalledService(): Promise<boolean> {
   if (!hasLoginSupervision()) return false;
+  clearStopped();
   const job = definition();
   const existing = existingDefinition(job);
   if (existing === null || !ownsDefinition(job, existing)) throw new Error('The registered login service was modified or removed. Reinstall supervision explicitly.');

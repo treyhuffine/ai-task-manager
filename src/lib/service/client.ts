@@ -9,7 +9,9 @@ export interface ServiceStatus {
   identity: ReturnType<typeof serviceIdentity>;
   runId: string;
   pid: number;
-  phase: 'starting' | 'running' | 'stopping' | 'failed' | 'updating';
+  /** `restarting`: the server exited or stopped answering, and the controller
+   * is bringing it back (docs/always-on-spec.md section 6.2). */
+  phase: 'starting' | 'running' | 'stopping' | 'failed' | 'updating' | 'restarting';
   version: string;
   release?: import('../releases/compatibility').PeerRelease;
   repo: string;
@@ -26,6 +28,14 @@ export interface ServiceStatus {
   role?: import('./role').ServiceRole['role'];
   home?: { url: string; name: string } | null;
   worker?: import('./worker').ServiceWorkerStatus;
+  /** Restarts the controller made since it started, and the next one if it's waiting. */
+  restarts?: { count: number; last: { at: string; reason: string }; crashLoop: boolean; nextAttemptAt?: string };
+  /** A restart waiting for the Home to be idle, and what it waits for. */
+  restartPending?: { reason: string; waitingFor: string };
+  /** When the server now running started serving. */
+  since?: string;
+  /** The server's memory at its last readiness answer. */
+  memory?: import('./supervisor').Memory;
 }
 
 export interface ServiceSession extends ServiceStatus { origin: string; certificate: string; token: string; desktopClient: string }
@@ -78,6 +88,8 @@ export interface ServiceStartOptions { repo: string; node: string; env?: NodeJS.
 export async function ensureServiceStatus(options: ServiceStartOptions): Promise<ServiceStatus> {
   const paths = servicePaths();
   let status = await serviceStatus();
+  // Starting on purpose clears a recorded stop (docs/always-on-spec.md 6.4).
+  if (!status) (await import('./stopped')).clearStopped();
   if (!status && !(await (await import('./install')).startInstalledService())) {
     const entry = path.join(options.repo, 'dist/service/main.cjs');
     if (!fs.existsSync(entry)) throw new Error('Build the Ri runtime before starting its service (pnpm cli:build).');

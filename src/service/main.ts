@@ -19,10 +19,12 @@ import { startNextServer } from '@/cli/lib/server';
 import { startHttp2Gateway, type Http2GatewayHandle } from '@/cli/http2-gateway';
 import { readLiveServerRuntime, publishServerRuntime, clearServerRuntimeIfOwned, newRunId, PUBLIC_BASE_URL_ENV, isProcessAlive } from '@/lib/server-runtime/record';
 import { UpdateCoordinator, type RuntimeTarget } from '@/lib/service/update';
-import { assertNoLegacyWriters, ownedProcesses } from '@/lib/service/processes';
+import { assertNoLegacyWriters, ownedProcesses, ownedProcessIds } from '@/lib/service/processes';
+import { HANG_LIMIT_MS, HangDetector, memoryAction, PROBE_INTERVAL_MS, PROBE_TIMEOUT_MS, RestartTracker, type Memory } from '@/lib/service/supervisor';
+import { readStopped } from '@/lib/service/stopped';
 import { hasLoginSupervision } from '@/lib/service/install';
 import { installedRuntime } from '@/lib/service/runtime';
-import { pruneReleases, writeHomeRecord } from '@/lib/service/store';
+import { emptyTrash, pruneReleases, writeHomeRecord } from '@/lib/service/store';
 import { activationPending, clearActivation } from '@/lib/service/activation';
 import { pruneSnapshots } from '@/lib/service/snapshot';
 import { writeMaintenance, clearMaintenance, exclusiveActivity } from '@/lib/service/maintenance';
@@ -67,6 +69,18 @@ const awake = new ServiceAwake();
 let worker: ServiceWorker | undefined;
 let role = resolveServiceRole();
 let roleChange: Promise<void> | undefined;
+/** A Home served at the address it had before the service took it over keeps
+ * plain HTTP on that port (docs/always-on-spec.md section 10.3). */
+let scheme: 'http' | 'https' = 'https';
+let backendHost = '127.0.0.1';
+const restarts = new RestartTracker();
+const hangLimitMs = Number(process.env.RI_SERVICE_HANG_MS) || HANG_LIMIT_MS;
+const hang = new HangDetector(hangLimitMs);
+let restartTimer: ReturnType<typeof setTimeout> | undefined;
+let exitReason: string | undefined;
+let plannedRestart: Promise<void> | undefined;
+let urgentRestart = false;
+let probing = false;
 
 async function backendRequest<T>(route: string, timeout = 3000, body?: unknown): Promise<T> {
   const response = await fetch(`http://127.0.0.1:${privatePort}${route}`, {
@@ -90,7 +104,7 @@ async function stopBackend() {
   next = undefined;
   fs.rmSync(childRecord, { force: true });
 }
-async function startBackend(target?: RuntimeTarget, validating?: string) {
+async function startBackend(target?: RuntimeTarget, validating?: string, deadlineMs = 180_000) {
   if (stopping) throw new Error('The service is stopping');
   if (target) { repo = canonical(target.repo); node = target.node; }
   process.env.RI_RUNTIME_REPO = repo;
@@ -102,7 +116,7 @@ async function startBackend(target?: RuntimeTarget, validating?: string) {
   const secrets = [token, validating ?? '', ...Object.entries(environment).filter(([name]) => /KEY|TOKEN|SECRET|PASSWORD|COOKIE|AUTHORIZATION/i.test(name)).map(([, value]) => value ?? '')];
   startupDiagnostics = new StartupDiagnostics(secrets);
   const diagnostics = startupDiagnostics;
-  next = startNextServer({ port: privatePort, repo, node, dev: process.env.RI_DESKTOP_MODE === 'development', hostname: '127.0.0.1', supervised: true,
+  next = startNextServer({ port: privatePort, repo, node, dev: process.env.RI_DESKTOP_MODE === 'development', hostname: backendHost, supervised: true,
     env: { ...environment, NODE_ENV: process.env.RI_DESKTOP_MODE === 'development' ? 'development' : 'production', RI_SERVICE_VALIDATING: validating ? '1' : '', RI_MAINTENANCE_TOKEN: validating ?? '' } });
   const child = next;
   if (child.pid) atomicWriteFile(childRecord, JSON.stringify({ pid: child.pid, runId: status.runId }));
@@ -113,10 +127,13 @@ async function startBackend(target?: RuntimeTarget, validating?: string) {
   });
   let launchError: Error | undefined;
   child.once('error', error => { launchError = error; diagnostics.capture(`Error: ${error.message}`); });
-  child.once('exit', () => {
-    if (!expectedExit && !stopping && status.phase === 'running') { status.error = diagnostics.failure('Backend exited').message; void shutdown(1); }
+  child.once('exit', (code, signal) => {
+    if (expectedExit || stopping || status.phase !== 'running' || next !== child) return;
+    const reason = exitReason ?? diagnostics.brief(`The server exited (${signal ?? `exit ${code}`})`);
+    exitReason = undefined;
+    backendExited(reason);
   });
-  const deadline = Date.now() + 180_000;
+  const deadline = Date.now() + deadlineMs;
   while (Date.now() < deadline) {
     if (stopping) throw new Error('The service is stopping');
     if (launchError) throw diagnostics.failure('The local Next.js process could not start');
@@ -133,12 +150,135 @@ async function startBackend(target?: RuntimeTarget, validating?: string) {
     } catch { /* retry while Next initializes */ }
     await new Promise(resolve => setTimeout(resolve, 200));
   }
-  throw diagnostics.failure('Backend did not become ready within three minutes');
+  throw diagnostics.failure(`Backend did not become ready within ${Math.round(deadlineMs / 60_000)} minutes`);
 }
 function publish() {
   status.phase = 'running';
-  publishServerRuntime({ version: 1, runId: status.runId, launcherPid: process.pid, startedAt: new Date().toISOString(),
-    mode: 'https', http2: true, publicBaseUrl: status.origin!, publicPort, privateUpstreams: { next: `http://127.0.0.1:${privatePort}` } });
+  status.since = new Date().toISOString();
+  publishServerRuntime({ version: 1, runId: status.runId, launcherPid: process.pid, startedAt: status.since,
+    mode: scheme, http2: scheme === 'https', publicBaseUrl: status.origin!, publicPort, privateUpstreams: { next: `http://127.0.0.1:${privatePort}` } });
+}
+
+/**
+ * The server exited, or was stopped for not answering (docs/always-on-spec.md
+ * section 6.2). The controller restarts it itself, after 1 s, 5 s, 15 s and
+ * 60 s, then every 5 minutes, and a crash loop slows to every 15 minutes.
+ * It never gives up, and the control socket stays up to say why.
+ */
+function backendExited(failure: string) {
+  // Status shows one line. The service log keeps the rest.
+  const reason = failure.split('\n').filter(line => !line.startsWith('Open the service log')).join(' ').slice(0, 600);
+  next = undefined;
+  fs.rmSync(childRecord, { force: true });
+  const { delayMs, crashLoop } = restarts.failed();
+  status.phase = 'restarting';
+  status.error = reason;
+  status.restarts = { count: (status.restarts?.count ?? 0) + 1, last: { at: new Date().toISOString(), reason }, crashLoop,
+    nextAttemptAt: new Date(Date.now() + delayMs).toISOString() };
+  console.warn(`[service] ${reason}. Restarting it in ${Math.round(delayMs / 1000)} s${crashLoop ? ', more slowly because it keeps crashing' : ''}.`);
+  clearTimeout(restartTimer);
+  restartTimer = setTimeout(() => void restartBackend(), delayMs);
+}
+
+async function restartBackend() {
+  if (stopping || next) return;
+  // An update attempt holds the backend for a moment. Try again after it, or
+  // the Home would stay down until something else restarted it.
+  if (updater.status().busy || coordination.handingOff) { restartTimer = setTimeout(() => void restartBackend(), 5000); return; }
+  try {
+    await startBackend();
+    hang.reset();
+    publish();
+    status.error = undefined;
+    if (status.restarts) delete status.restarts.nextAttemptAt;
+    console.info('[service] The server is back.');
+  } catch (error) {
+    await stopBackend().catch(() => {});
+    backendExited(error instanceof Error ? error.message : 'The server failed to start');
+  }
+}
+
+/** Stop the server and every process under it. A hung server ignores SIGTERM. */
+async function killBackendTree(reason: string) {
+  const child = next;
+  if (!child?.pid) return;
+  exitReason = reason;
+  const pids = await ownedProcessIds(child.pid).catch(() => [] as number[]);
+  for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+  child.kill('SIGKILL');
+}
+
+/** Restart on purpose: for memory, or because someone asked. Unless urgent,
+ * it waits for the Home to be idle, then drains requests like an update does. */
+function planRestart(reason: string, now: boolean) {
+  if (now) urgentRestart = true;
+  if (plannedRestart) return plannedRestart;
+  plannedRestart = (async () => {
+    try {
+      while (!stopping && !urgentRestart) {
+        if (updater.status().busy || coordination.handingOff) return;
+        const reasons = await activity().catch(() => ['the server is unavailable']);
+        if (!reasons.length) break;
+        status.restartPending = { reason, waitingFor: reasons.join(', ') };
+        await new Promise(resolve => setTimeout(resolve, 30_000));
+      }
+      if (stopping || !next || updater.status().busy || coordination.handingOff) return;
+      const gate = { phase: 'draining' as const, token: randomBytes(32).toString('hex'), startedAt: new Date().toISOString() };
+      writeMaintenance(gate);
+      let lease: (() => void) | undefined;
+      try {
+        await backendRequest('/__ri_prepare', 30_000).catch(() => {});
+        const deadline = Date.now() + 15_000;
+        while (!lease && Date.now() < deadline) {
+          try { lease = exclusiveActivity(); } catch { await new Promise(resolve => setTimeout(resolve, 250)); }
+        }
+        writeMaintenance({ ...gate, phase: 'offline' });
+        status.phase = 'restarting';
+        status.restarts = { count: (status.restarts?.count ?? 0) + 1, last: { at: new Date().toISOString(), reason }, crashLoop: restarts.crashLooping };
+        console.info(`[service] Restarting the server: ${reason}.`);
+        await stopBackend();
+      } finally { lease?.(); clearMaintenance(); }
+      await startBackend();
+      hang.reset();
+      publish();
+    } catch (error) {
+      // The new server didn't come up: retry by the same schedule as a crash.
+      await stopBackend().catch(() => {});
+      if (!stopping) backendExited(error instanceof Error ? error.message : 'The server failed to restart');
+    } finally {
+      plannedRestart = undefined;
+      urgentRestart = false;
+      delete status.restartPending;
+    }
+  })();
+  return plannedRestart;
+}
+
+/** Every 15 s: is the server answering, and how much memory does it use?
+ * One probe at a time: a frozen server makes each one wait its full timeout. */
+async function probeBackend() {
+  if (probing || !servesHome(role) || status.phase !== 'running' || !next || stopping || updater.status().busy || coordination.handingOff) return;
+  probing = true;
+  try {
+    const ready = await backendRequest<{ ready: boolean; memory?: Memory }>('/__ri_ready', PROBE_TIMEOUT_MS);
+    if (!ready.ready) throw new Error('Not ready');
+    hang.answered();
+    restarts.healthy();
+    status.memory = ready.memory;
+    const uptime = status.since ? Date.now() - Date.parse(status.since) : 0;
+    // The grace and the idle line can be lowered for the lifecycle smoke, as the hang limit can.
+    const action = memoryAction(ready.memory, uptime, process.env.RI_SERVICE_MEMORY_GRACE_MS ? Number(process.env.RI_SERVICE_MEMORY_GRACE_MS) : undefined,
+      Number(process.env.RI_SERVICE_MEMORY_IDLE_SHARE) || undefined);
+    if (action !== 'none' && ready.memory) {
+      const share = Math.round(ready.memory.heapUsed / ready.memory.heapLimit * 100);
+      void planRestart(`its memory reached ${share}% of Node's limit`, action === 'now');
+    }
+  } catch {
+    if (!hang.hung() || !next) return;
+    const limit = hangLimitMs >= 120_000 ? `${Math.round(hangLimitMs / 60_000)} minutes` : `${Math.round(hangLimitMs / 1000)} seconds`;
+    console.warn(`[service] The server hasn't answered for ${limit}. Stopping it so it can restart.`);
+    await killBackendTree('The server stopped answering, so it was restarted');
+  } finally { probing = false; }
 }
 async function activity() {
   if (!servesHome(role)) return worker ? worker.activity() : [];
@@ -236,6 +376,14 @@ const control = http.createServer(async (request, response) => {
       });
       return;
     }
+    if (request.method === 'POST' && request.url === '/restart') {
+      if (!servesHome(role) || !next) throw new Error('This Home has no running server to restart.');
+      let bytes = 0; const chunks: Buffer[] = [];
+      for await (const chunk of request) { bytes += chunk.length; if (bytes > 1024) throw new Error('Control request too large'); chunks.push(chunk); }
+      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) as { now?: boolean } : {};
+      void planRestart('restarted on request', body.now === true);
+      return reply({});
+    }
     if (request.method === 'POST' && request.url === '/stop') {
       if (updater?.status().busy || coordination.handingOff || roleChange) return reply({ error: 'A service action is in progress. Wait before stopping the service.' }, 409);
       reply({ phase: 'stopping' }); void shutdown(); return;
@@ -249,6 +397,7 @@ async function shutdown(code = 0) {
   if (stopping) return stopping;
   stopping = (async () => {
     status.phase = 'stopping';
+    clearTimeout(restartTimer);
     await awake.stop();
     await worker?.dispose();
     await stopRuntimeJobs();
@@ -261,6 +410,9 @@ async function shutdown(code = 0) {
 }
 
 async function start() {
+  // Stopped by its owner: the OS started it at login or boot. Stay down (6.4).
+  const stopped = readStopped();
+  if (stopped) { console.info(`[service] Stopped by its owner at ${stopped.at}. Run \`ri start\` to start it again.`); process.exit(0); }
   releaseOwner = acquireServiceOwner();
   writeHomeRecord();
   await initializeRuntimeJobs();
@@ -288,8 +440,9 @@ async function start() {
     prepareIdle: async () => { if (servesHome(role)) await backendRequest('/__ri_prepare', 30_000); else await worker?.prepareIdle(); },
     resumeAdmission: async () => { if (!stopping) { if (servesHome(role)) await backendRequest('/__ri_resume', 30_000); else await worker?.resumeAdmission(); } },
     stop: async () => { status.phase = 'updating'; await stopBackend(); },
-    validate: async (target, secret) => {
-      if (servesHome(role)) return startBackend(target, secret);
+    validate: async (target, secret, migrations = 0) => {
+      // A start that migrates gets longer: minutes on a 20 GiB database (6.2).
+      if (servesHome(role)) return startBackend(target, secret, migrations > 0 ? 30 * 60_000 : undefined);
       await validateWorkerRuntime(target);
       repo = canonical(target.repo); node = target.node; process.env.RI_RUNTIME_REPO = repo;
     },
@@ -297,8 +450,12 @@ async function start() {
       // A new controller must load its own Node ABI and implementation before
       // the service accepts work. Validation boot has not started effects.
       await stopBackend();
-      if (hasLoginSupervision()) { setImmediate(() => void shutdown(75)); return; }
-      const relay = spawn(process.execPath, [path.join(process.env.RI_RUNTIME_REPO!, 'dist/service/handoff.cjs'), String(process.pid), node, repo], {
+      // The stable launcher starts the selected release on exit 75 itself, OS job or not.
+      if (process.env.RI_SERVICE_LAUNCHER === '2' || hasLoginSupervision()) { setImmediate(() => void shutdown(75)); return; }
+      // Unsupervised: the relay starts the release just selected, which a
+      // rollback never validated, so `repo` can still be this controller's.
+      const selected = installedRuntime() ?? { node, repo };
+      const relay = spawn(process.execPath, [path.join(process.env.RI_RUNTIME_REPO!, 'dist/service/handoff.cjs'), String(process.pid), selected.node, selected.repo], {
         cwd: repo, detached: true, stdio: 'ignore', env: { ...process.env, RI_SERVICE_VALIDATING: '', RI_MAINTENANCE_TOKEN: '' },
       });
       await new Promise<void>((resolve, reject) => { relay.once('spawn', resolve); relay.once('error', reject); });
@@ -366,17 +523,29 @@ async function refreshRole(force = false) {
 }
 
 async function startHome() {
-  let saved: { version: number; port: number; privatePort?: number };
+  let saved: { version: number; port: number; privatePort?: number; scheme?: 'http' | 'https'; host?: string };
   if (fs.existsSync(paths.settings)) saved = JSON.parse(fs.readFileSync(paths.settings, 'utf8'));
   else saved = { version: 1, port: await getPort({ host: '127.0.0.1', port: 42242 }) };
   if (saved.version !== 1 || !Number.isInteger(saved.port) || saved.port < 1024 || saved.port > 65535) throw new Error('Invalid local service endpoint configuration');
-  if (!saved.privatePort) saved.privatePort = await getPort({ host: '127.0.0.1', port: 42243, exclude: [saved.port] });
-  if (!Number.isInteger(saved.privatePort) || saved.privatePort < 1024 || saved.privatePort > 65535 || saved.privatePort === saved.port) throw new Error('Invalid private service endpoint configuration');
-  atomicWriteFile(paths.settings, JSON.stringify(saved));
-  publicPort = saved.port; privatePort = saved.privatePort;
-  status.origin = `https://localhost:${publicPort}`;
-  const tls = await ensureGeneratedTls(); certificate = tls.cert;
-  gateway = await startHttp2Gateway({ publicPort, publicBaseUrl: status.origin, upstreamHost: '127.0.0.1', upstreamPort: privatePort, tls });
+  if (saved.scheme !== undefined && saved.scheme !== 'http' && saved.scheme !== 'https') throw new Error('Invalid local service endpoint configuration');
+  scheme = saved.scheme ?? 'https';
+  if (scheme === 'http') {
+    // The address the Home had before the service took it over: plain HTTP,
+    // served by the server itself on that port, as `ri start` always did.
+    backendHost = saved.host === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1';
+    publicPort = saved.port; privatePort = saved.port;
+    status.origin = `http://localhost:${publicPort}`;
+    certificate = '';
+    atomicWriteFile(paths.settings, JSON.stringify(saved));
+  } else {
+    if (!saved.privatePort) saved.privatePort = await getPort({ host: '127.0.0.1', port: 42243, exclude: [saved.port] });
+    if (!Number.isInteger(saved.privatePort) || saved.privatePort < 1024 || saved.privatePort > 65535 || saved.privatePort === saved.port) throw new Error('Invalid private service endpoint configuration');
+    atomicWriteFile(paths.settings, JSON.stringify(saved));
+    publicPort = saved.port; privatePort = saved.privatePort;
+    status.origin = `https://localhost:${publicPort}`;
+    const tls = await ensureGeneratedTls(); certificate = tls.cert;
+    gateway = await startHttp2Gateway({ publicPort, publicBaseUrl: status.origin, upstreamHost: '127.0.0.1', upstreamPort: privatePort, tls });
+  }
   process.env[PUBLIC_BASE_URL_ENV] = status.origin; process.env.PORT = String(privatePort);
   // Consume the first-install permit before any database opener. A later lost
   // database must never be mistaken for an installation that has not begun.
@@ -398,8 +567,11 @@ async function startHome() {
   // release that fails before this is put back by its launcher (section 7.4).
   clearActivation();
   await startBackend();
-  const probe = await gateway.probe();
-  if (!probe.ok) throw startupDiagnostics.readinessFailure(probe);
+  hang.reset();
+  if (gateway) {
+    const probe = await gateway.probe();
+    if (!probe.ok) throw startupDiagnostics.readinessFailure(probe);
+  }
   publish(); console.info(`[service] Ready at ${status.origin}`);
   await awake.start();
   scheduleHousekeeping();
@@ -409,6 +581,7 @@ async function startHome() {
 function scheduleHousekeeping() {
   const run = () => {
     try { pruneReleases(); } catch (error) { console.warn('[service] Release cleanup skipped:', error instanceof Error ? error.message : 'Failed'); }
+    void emptyTrash().catch(error => console.warn('[service] Removing old releases failed:', error instanceof Error ? error.message : 'Failed'));
     try {
       const update = updater.status();
       const keep = update.checkpoint && ['validating', 'recovery-required', 'committed'].includes(update.phase) ? [update.checkpoint] : [];
@@ -423,7 +596,7 @@ function scheduleHousekeeping() {
 
 function startTimers() {
   const renewal = setInterval(() => {
-    if (!servesHome(role) || updater.status().busy || coordination.handingOff) return;
+    if (!servesHome(role) || scheme !== 'https' || updater.status().busy || coordination.handingOff) return;
     void ensureGeneratedTls().then(tls => {
       if (tls.cert !== certificate) { gateway?.rotate(tls); certificate = tls.cert; }
     }).catch(() => console.warn('[service] Certificate renewal failed. Check disk permissions and TLS diagnostics.'));
@@ -435,6 +608,7 @@ function startTimers() {
   }, 30_000);
   logRotation.unref();
   const tick = setInterval(() => void updateTick(), 30_000); tick.unref();
+  const probe = setInterval(() => void probeBackend(), Number(process.env.RI_SERVICE_PROBE_MS) || PROBE_INTERVAL_MS); probe.unref();
   // Checking/downloading never approves activation. Metered mode suppresses
   // automatic downloads, while an explicit Download remains available.
   const check = async () => {

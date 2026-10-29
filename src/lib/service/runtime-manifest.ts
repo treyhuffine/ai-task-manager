@@ -80,14 +80,36 @@ export function createRuntimeManifest(resources: string): RuntimeManifest {
   return manifest;
 }
 
-export function verifyRuntime(resources: string): RuntimeManifest {
+const REQUIRED = ['node/bin/node', 'server/dist/service/main.cjs', 'server/dist/service/http-server.cjs', 'server/dist/service/handoff.cjs', 'server/dist/service/runtime-job.cjs', 'server/dist/cli/index.mjs'];
+
+function readManifest(resources: string): RuntimeManifest {
   const manifest = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ resources, 'runtime-manifest.json'), 'utf8')) as RuntimeManifest;
   const { id, ...content } = manifest;
   if (manifest.format !== 1 || !/^[a-f0-9]{64}$/.test(id) || manifestId(content) !== id) throw new Error('Invalid runtime manifest');
   if (manifest.platform !== process.platform || manifest.arch !== process.arch) throw new Error('Runtime does not match this device');
-  if (JSON.stringify(inventory(resources)) !== JSON.stringify(manifest.files)) throw new Error('Runtime files do not match the manifest');
-  for (const required of ['node/bin/node', 'server/dist/service/main.cjs', 'server/dist/service/http-server.cjs', 'server/dist/service/handoff.cjs', 'server/dist/service/runtime-job.cjs', 'server/dist/cli/index.mjs']) {
+  for (const required of REQUIRED) {
     if (!manifest.files.some(file => file.name === required && file.sha256)) throw new Error(`Runtime missing ${required}`);
+  }
+  return manifest;
+}
+
+/** Hash every file against the manifest: about a minute for a whole release. */
+export function verifyRuntime(resources: string): RuntimeManifest {
+  const manifest = readManifest(resources);
+  if (JSON.stringify(inventory(resources)) !== JSON.stringify(manifest.files)) throw new Error('Runtime files do not match the manifest');
+  return manifest;
+}
+
+/**
+ * The quick check for a release verified in full moments ago, or one that was
+ * running: its manifest and the files a Home starts from, in milliseconds.
+ * An update hashes the release once, before it stops anything, so the steps
+ * while the Home is offline don't add a minute of downtime each.
+ */
+export function checkRuntime(resources: string): RuntimeManifest {
+  const manifest = readManifest(resources);
+  for (const required of REQUIRED) {
+    if (!fs.statSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ resources, required), { throwIfNoEntry: false })?.isFile()) throw new Error(`Runtime missing ${required}`);
   }
   return manifest;
 }

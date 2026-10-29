@@ -14,10 +14,22 @@ import { atomicWriteFile, withFileLock } from '@/lib/config/atomic-file';
 import { getRuntimeBaseDir, getRuntimeInstallDir, serviceIdentity } from './paths';
 import { untraced } from '@/lib/utils/untraced';
 import { verifyRuntime, type RuntimeManifest } from './runtime-manifest';
+import { clonesOnMac } from './snapshot';
 
 export const RELEASE_ID = /^[a-f0-9]{64}$/;
 const HOME_ID = /^[a-f0-9]{24}$/;
 const STALE_STAGE_MS = 60 * 60_000;
+const TRASH = '.trash-';
+
+/**
+ * Take a folder out of use at once, under the store lock, for `emptyTrash` to
+ * delete later. Deleting a release removes over 150,000 files, which takes
+ * seconds. Done synchronously in the controller, it froze the Home's gateway.
+ */
+function discard(directory: string) {
+  if (!fs.existsSync(/* turbopackIgnore: true */ directory)) return;
+  fs.renameSync(/* turbopackIgnore: true */ directory, path.join(/* turbopackIgnore: true */ path.dirname(directory), `${TRASH}${path.basename(directory)}-${randomUUID()}`));
+}
 
 export function storeDirectory(base = getRuntimeBaseDir()) {
   return path.join(/* turbopackIgnore: true */ base, 'releases');
@@ -83,7 +95,43 @@ function copyDirectories(source: string, destination: string) {
   }
 }
 
+/**
+ * Clone a release's folders in one step where the disk can: APFS on macOS,
+ * where it's instant and costs no space. Node's own clone flag copies every
+ * byte there, over 4 GB for a desktop app's release on its first launch.
+ */
+function cloneFolders(resources: string, destination: string) {
+  try {
+    if (!clonesOnMac(resources, destination)) return false;
+    for (const top of ['node', 'server']) {
+      execFileSync(untraced('/bin/cp'), ['-c', '-R', path.join(/* turbopackIgnore: true */ resources, top), path.join(/* turbopackIgnore: true */ destination, top)], { stdio: 'ignore' });
+    }
+    // A stored release's link to its own cache isn't one of its files.
+    fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ destination, 'server/.next-desktop/cache'), { recursive: true, force: true });
+    return true;
+  } catch {
+    for (const top of ['node', 'server']) fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ destination, top), { recursive: true, force: true });
+    return false;
+  }
+}
+
 function copyRelease(resources: string, destination: string, manifest: RuntimeManifest, known: Map<string, string>, move: boolean) {
+  if (!move && cloneFolders(resources, destination)) {
+    // Cloned already. A file the store holds becomes a hard link to it, so it
+    // stays shared when the folder it was cloned from goes away.
+    for (const file of manifest.files) {
+      if (file.link !== undefined) continue;
+      const target = path.join(/* turbopackIgnore: true */ destination, file.name);
+      const existing = known.get(`${file.sha256}:${file.executable}`);
+      if (existing) {
+        try { fs.rmSync(/* turbopackIgnore: true */ target); fs.linkSync(/* turbopackIgnore: true */ existing, target); continue; }
+        catch { if (!fs.existsSync(/* turbopackIgnore: true */ target)) fs.copyFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ resources, file.name), target); }
+      }
+      fs.chmodSync(/* turbopackIgnore: true */ target, file.executable ? 0o755 : 0o644);
+    }
+    fs.copyFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ resources, 'runtime-manifest.json'), path.join(/* turbopackIgnore: true */ destination, 'runtime-manifest.json'));
+    return;
+  }
   // Directories first, so an empty one the server expects is there too.
   for (const top of ['node', 'server']) {
     const source = path.join(/* turbopackIgnore: true */ resources, top);
@@ -244,12 +292,12 @@ export function pruneReleases(options: PruneOptions = {}): string[] {
         const directory = path.join(/* turbopackIgnore: true */ store, entry);
         if (entry.startsWith('.stage-')) {
           // A staging a crash left behind. A live one holds the store lock.
-          if (now - fs.statSync(/* turbopackIgnore: true */ directory).mtimeMs > STALE_STAGE_MS) fs.rmSync(/* turbopackIgnore: true */ directory, { recursive: true, force: true });
+          if (now - fs.statSync(/* turbopackIgnore: true */ directory).mtimeMs > STALE_STAGE_MS) discard(directory);
           continue;
         }
         if (!RELEASE_ID.test(entry) || keep.has(entry) || used(directory)) continue;
-        fs.rmSync(/* turbopackIgnore: true */ directory, { recursive: true, force: true });
-        fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ base, 'cache', entry), { recursive: true, force: true });
+        discard(directory);
+        discard(path.join(/* turbopackIgnore: true */ base, 'cache', entry));
         removed.push(entry);
       }
     }
@@ -259,11 +307,25 @@ export function pruneReleases(options: PruneOptions = {}): string[] {
       for (const entry of fs.readdirSync(/* turbopackIgnore: true */ legacy)) {
         const directory = path.join(/* turbopackIgnore: true */ legacy, entry);
         if (!RELEASE_ID.test(entry) || keep.has(entry) || used(directory)) continue;
-        fs.rmSync(/* turbopackIgnore: true */ directory, { recursive: true, force: true });
-        fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ home.directory, 'cache', entry), { recursive: true, force: true });
+        discard(directory);
+        discard(path.join(/* turbopackIgnore: true */ home.directory, 'cache', entry));
         removed.push(entry);
       }
     }
     return removed;
   }, base);
+}
+
+/** Delete what pruning took out of use, without blocking the event loop. Also
+ * finishes a deletion a crash interrupted. */
+export async function emptyTrash(base = getRuntimeBaseDir()) {
+  const folders = [storeDirectory(base), path.join(/* turbopackIgnore: true */ base, 'cache')];
+  for (const home of listHomes(base)) folders.push(path.join(/* turbopackIgnore: true */ home.directory, 'releases'), path.join(/* turbopackIgnore: true */ home.directory, 'cache'));
+  for (const folder of folders) {
+    let entries: string[];
+    try { entries = await fs.promises.readdir(/* turbopackIgnore: true */ folder); } catch { continue; }
+    for (const entry of entries) {
+      if (entry.startsWith(TRASH)) await fs.promises.rm(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ folder, entry), { recursive: true, force: true });
+    }
+  }
 }

@@ -7,13 +7,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import https from 'node:https';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stageRuntime } from '../src/lib/service/runtime';
 import { servicePaths } from '../src/lib/service/paths';
 import { ensureService, serviceRequest, serviceStatus, stopService, type ServiceSession } from '../src/lib/service/client';
 import { hasLoginSupervision, installService, uninstallService } from '../src/lib/service/install';
+import { markStopped, readStopped } from '../src/lib/service/stopped';
 import { assertDisposableSupervisorAccount, fixtureEnvironment } from './platform-qualification';
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: { 'os-supervisor': { type: 'boolean' }, report: { type: 'string' } } });
@@ -27,6 +28,9 @@ assert(parent, 'OS supervision requires RUNNER_TEMP');
 const temporary = fs.realpathSync(fs.mkdtempSync(path.join(parent, 'ri-service-lifecycle-')));
 if (native) assertDisposableSupervisorAccount(process.env, temporary, os.userInfo().homedir);
 const environment = fixtureEnvironment(process.env, { temporary, ...(native ? { accountHome: os.userInfo().homedir } : {}) });
+// The controller's hang limit and probe interval, shortened so the hung-server
+// check takes seconds instead of three minutes (docs/always-on-spec.md 6.2).
+Object.assign(environment, { RI_SERVICE_HANG_MS: '20000', RI_SERVICE_PROBE_MS: '2000' });
 // Helpers discover the same isolated identity as child processes. Deliberately
 // remove every inherited app override and provider credential first.
 for (const name of Object.keys(process.env)) delete process.env[name];
@@ -64,11 +68,23 @@ function track(session: ServiceSession) {
   observed.add(child.pid);
   return child.pid;
 }
-async function start() {
+async function start(env: NodeJS.ProcessEnv = environment) {
   assert(runtime);
-  const session = await ensureService({ repo: runtime.repo, node: runtime.node, env: environment });
+  const session = await ensureService({ repo: runtime.repo, node: runtime.node, env });
   track(session);
   return session;
+}
+/** Wait for the controller to bring its own server back, and return it. */
+async function restartedBy(session: ServiceSession, reason: RegExp, timeout: number) {
+  const count = (await serviceStatus())?.restarts?.count ?? 0;
+  const status = await waitFor(serviceStatus, value => value?.phase === 'running' && (value.restarts?.count ?? 0) > count, `controller restarts its server (${reason})`, timeout);
+  assert.equal(status!.runId, session.runId, 'The controller restarts its server instead of exiting');
+  assert.equal(status!.pid, session.pid);
+  assert.match(status!.restarts!.last.reason, reason);
+  const next = await serviceRequest<ServiceSession>('/session');
+  assert.equal(next.origin, session.origin);
+  assert.equal((await api(next, '/api/health')).status, 200);
+  return next;
 }
 async function api(session: ServiceSession, route: string, body?: object, authenticated = true) {
   return new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
@@ -149,11 +165,51 @@ async function main() {
 
     const failedBackend = track(session);
     console.info('Fault injection: terminating only the fixture backend');
+    let started = Date.now();
     process.kill(failedBackend, 'SIGKILL');
-    session = await reconnect(session);
+    session = await restartedBy(session, /exited|SIGKILL/, 10_000);
+    console.info(`Back ${((Date.now() - started) / 1000).toFixed(1)} s after kill -9`);
+    track(session);
     await waitFor(() => !alive(failedBackend), value => value, 'failed backend reaped', 30_000);
     assert.equal((await api(session, noteRoute)).body.body, note.body.body);
-    passed(native ? 'OS supervisor recovers a failed backend without a client launch' : 'backend failure releases ownership and clients reconnect after restart');
+    passed('a crashed server is restarted by its controller within 10 s, keeping data and origin');
+
+    const hungBackend = track(session);
+    console.info('Fault injection: freezing only the fixture backend');
+    started = Date.now();
+    process.kill(hungBackend, 'SIGSTOP');
+    session = await restartedBy(session, /stopped answering/, 60_000);
+    console.info(`Back ${((Date.now() - started) / 1000).toFixed(1)} s after kill -STOP (hang limit 20 s)`);
+    track(session);
+    await waitFor(() => !alive(hungBackend), value => value, 'hung backend killed', 30_000);
+    passed('a frozen server is stopped and restarted after the hang limit');
+
+    // A server past the idle line restarts at the next idle moment, with the
+    // reason recorded. The line is lowered under its real heap for this
+    // controller run only, which then stops. Squeezing the heap limit instead
+    // makes Next run out of memory while it boots.
+    await stopService();
+    session = await start({ ...environment, RI_SERVICE_MEMORY_IDLE_SHARE: '0.01', RI_SERVICE_MEMORY_GRACE_MS: '0' });
+    const memoryBefore = (await serviceStatus())?.restarts?.count ?? 0;
+    const memory = await waitFor(serviceStatus, value => (value?.restarts?.count ?? 0) > memoryBefore && value?.phase === 'running', 'memory restart', 120_000);
+    assert.match(memory!.restarts!.last.reason, /its memory reached \d+% of Node's limit/);
+    console.info(`Memory restart: ${memory!.restarts!.last.reason}`);
+    await stopService();
+    session = await start();
+    passed('a server past 75% of its heap restarts when idle, with the reason recorded');
+
+    // `ri stop` under supervision: the OS starting the controller at login
+    // finds the record and exits successfully, so it stays down.
+    await stopService();
+    markStopped();
+    assert(runtime);
+    const atLogin = spawn(runtime.node, [path.join(runtime.repo, 'dist/service/main.cjs')], { cwd: runtime.repo, env: { ...environment, RI_RUNTIME_REPO: runtime.repo }, stdio: 'ignore' });
+    const [code] = await new Promise<[number | null]>(resolve => atLogin.once('exit', exitCode => resolve([exitCode])));
+    assert.equal(code, 0, 'A stopped Home exits successfully, so the OS does not restart it');
+    assert.equal(await serviceStatus(), null);
+    session = await start();
+    assert.equal(readStopped(), null, 'An explicit start clears the recorded stop');
+    passed('a recorded stop keeps the Home down at login until an explicit start');
 
     const orphan = track(session);
     const failedController = session.pid;

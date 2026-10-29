@@ -49,10 +49,12 @@ const select = (id: string) => fs.writeFileSync(path.join(install, 'active-relea
 
 it('starts the next release at once when a controller hands over with 75', async () => {
   const next = controller('next', `${startWork}; exit 0`);
-  const old = controller('old', `printf '%s\\n' ${next} > "$RI_TEST_HOME/active-release"; exit 75`);
+  // The controller learns from the launcher that 75 hands over, OS job or not.
+  const old = controller('old', `echo "launcher $RI_SERVICE_LAUNCHER" >> "$RI_TEST_LOG"; printf '%s\\n' ${next} > "$RI_TEST_HOME/active-release"; exit 75`);
   first(old);
   expect(await launch().exit).toBe(0);
-  expect(runs()).toEqual(['old', 'next']);
+  expect(runs()).toEqual(['old', 'launcher', 'next']);
+  expect(fs.readFileSync(log, 'utf8')).toContain('launcher 2\n');
 });
 
 it('passes any other exit code to the OS, which decides whether to restart', async () => {
@@ -99,14 +101,15 @@ it('leaves a new release in place once it has started work, whatever happens aft
 });
 
 it('forwards a stop from the OS to the controller and exits with it', async () => {
-  const waiting = controller('waiting', `${startWork}; trap "exit 0" TERM; while :; do sleep 0.1; done`);
+  // `trapped` is written once the controller handles TERM, so a loaded machine can't stop it first.
+  const waiting = controller('waiting', `${startWork}; trap "exit 0" TERM; echo trapped >> "$RI_TEST_LOG"; while :; do sleep 0.1; done`);
   first(waiting);
   const { child, exit } = launch();
   const deadline = Date.now() + 5000;
-  while (!runs().length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+  while (!runs().includes('trapped') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
   child.kill('SIGTERM');
   expect(await exit).toBe(0);
-  expect(runs()).toEqual(['waiting']);
+  expect(runs()).toEqual(['waiting', 'trapped']);
 });
 
 it('runs the CLI of the release the Home points at', async () => {

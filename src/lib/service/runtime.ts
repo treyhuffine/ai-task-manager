@@ -65,7 +65,7 @@ while :; do
   resolve || exit 1
   candidate=
   if [ -f "$home/activation/candidate" ]; then IFS= read -r candidate < "$home/activation/candidate" || candidate=; fi
-  ( enter && exec "$runtime/node/bin/node" dist/service/main.cjs ) &
+  ( enter && RI_SERVICE_LAUNCHER=2 && export RI_SERVICE_LAUNCHER && exec "$runtime/node/bin/node" dist/service/main.cjs ) &
   child=$!
   if [ -n "$candidate" ] && [ "$candidate" = "$release" ]; then
     deadline=$(( $(date +%s) + \${RI_ACTIVATION_DEADLINE_SECONDS:-300} ))
@@ -113,13 +113,22 @@ export function writeRuntimeLauncher(install = getRuntimeInstallDir(), base = ge
  * step. Staging never replaces an already selected running runtime. */
 export function stageRuntime(resources: string) {
   const manifest = stageRelease(resources);
+  return adoptRelease(manifest.id, resources);
+}
+
+/**
+ * Give this Home a release from the store to run, if it has none, and its
+ * launcher and record. A Home that already runs a release keeps it: moving to
+ * another is an update (docs/always-on-spec.md section 7.4).
+ */
+export function adoptRelease(id: string, resources = releaseDirectory(id)) {
   const install = getRuntimeInstallDir();
   fs.mkdirSync(/* turbopackIgnore: true */ install, { recursive: true, mode: 0o700 });
   return withFileLock(path.join(/* turbopackIgnore: true */ install, 'stage'), () => {
     const policy = path.join(/* turbopackIgnore: true */ resources, 'release-policy.json');
     const installedPolicy = path.join(/* turbopackIgnore: true */ install, 'release-policy.json');
     if (fs.existsSync(/* turbopackIgnore: true */ policy) && !fs.existsSync(/* turbopackIgnore: true */ installedPolicy)) atomicWriteFile(installedPolicy, fs.readFileSync(/* turbopackIgnore: true */ policy));
-    if (!installedRuntime()) atomicWriteFile(path.join(/* turbopackIgnore: true */ install, 'active-release'), `${manifest.id}\n`);
+    if (!installedRuntime()) atomicWriteFile(path.join(/* turbopackIgnore: true */ install, 'active-release'), `${id}\n`);
     writeRuntimeLauncher(install);
     writeHomeRecord(install);
     return installedRuntime()!;

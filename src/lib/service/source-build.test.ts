@@ -72,7 +72,7 @@ it('ignores uncommitted changes and leaves the checkout exactly as it was', asyn
     if (command === 'git') { execFileSync('git', args, { stdio: 'ignore' }); return; }
   };
   const steps: string[] = [];
-  const result = await buildRelease({ checkout, commit: selectCommit(checkout).commit, run, step: step => steps.push(step) });
+  const result = await buildRelease({ checkout, commit: selectCommit(checkout).commit, run, free: () => 64 * 1024 ** 3, step: step => steps.push(step) });
   expect(seen).toEqual([JSON.stringify({ version: '0.3.0' })]);
   expect(result).toMatchObject({ version: '0.3.0', commit: head });
   expect(latestRelease()).toBe(result.id);
@@ -81,7 +81,7 @@ it('ignores uncommitted changes and leaves the checkout exactly as it was', asyn
   expect(git(checkout, 'worktree', 'list').split('\n')).toHaveLength(1);
   expect(git(checkout, 'status', '--porcelain')).toBe(before);
   expect(git(checkout, 'rev-parse', 'HEAD')).toBe(head);
-  expect(fs.readdirSync(path.join(root, 'installed/builds')).sort()).toEqual([`${head.slice(0, 12)}.log`, 'downloads']);
+  expect(fs.readdirSync(path.join(root, 'installed/builds')).sort()).toEqual([`${head.slice(0, 12)}.log`, 'downloads'].sort());
   expect(steps).toEqual([`Preparing ${head.slice(0, 12)}`, 'Installing dependencies', 'Building (a few minutes)', 'Adding it to this computer']);
 });
 
@@ -90,7 +90,14 @@ it('cleans up a failed build and keeps nothing half-staged', async () => {
     if (args.includes('desktop/package.mjs')) throw new Error('next build failed');
     if (command === 'git') execFileSync('git', args, { stdio: 'ignore' });
   };
-  await expect(buildRelease({ checkout, commit: selectCommit(checkout).commit, run })).rejects.toThrow('next build failed');
+  await expect(buildRelease({ checkout, commit: selectCommit(checkout).commit, run, free: () => 64 * 1024 ** 3 })).rejects.toThrow('next build failed');
   expect(git(checkout, 'worktree', 'list').split('\n')).toHaveLength(1);
   expect(latestRelease()).toBeNull();
+});
+
+it("refuses to start a build without 8 GiB free, before touching the checkout", async () => {
+  const run: Run = async () => { throw new Error('nothing should run'); };
+  await expect(buildRelease({ checkout, commit: selectCommit(checkout).commit, run, free: () => 7.2 * 1024 ** 3 }))
+    .rejects.toThrow('A build needs 8 GiB free and 7.2 GiB is.');
+  expect(git(checkout, 'worktree', 'list').split('\n')).toHaveLength(1);
 });

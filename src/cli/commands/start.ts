@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import path from 'node:path';
 import { teamHasOwner } from '@/lib/db/queries';
 import nodeTls from 'node:tls';
 import { intro, outro, log, spinner, select, isCancel, confirm } from '@clack/prompts';
@@ -6,6 +7,11 @@ import pc from 'picocolors';
 import getPort from 'get-port';
 import { acquireServiceOwner } from '@/lib/service/owner';
 import { serviceRequest, serviceStatus, type ServiceSession } from '@/lib/service/client';
+import { hasLoginSupervision } from '@/lib/service/supervision-state';
+import { installService } from '@/lib/service/install';
+import { AddressError, keepRunning, portHolder, releaseAvailable } from '@/lib/service/keep-running';
+import { readOrigin } from '@/lib/service/origin';
+import { writeDesktopHomeIntent } from '@/lib/service/desktop-role-intent';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import {
   ensureLocalToken,
@@ -62,6 +68,10 @@ import {
 
 export interface StartOptions {
   port?: string;
+  /** The Home's folder, when it isn't `~/ri`. */
+  root?: string;
+  /** Today's `ri start`: run in this terminal instead of keeping Ri running. */
+  foreground?: boolean;
   open: boolean;
   pair: boolean;
   dev?: boolean;
@@ -96,26 +106,220 @@ function resolvePortless(opt: StartOptions['portless']): PortlessConfig | null {
   return { name, url: `https://${name}.localhost` };
 }
 
+/**
+ * Why this start runs in the terminal instead of keeping Ri running, or null.
+ * These options belong to a server run by hand (docs/always-on-spec.md 4.1).
+ */
+export function foregroundReason(opts: StartOptions): string | null {
+  if (opts.foreground) return '--foreground';
+  if (opts.dev) return '--dev runs the server in development mode';
+  if (opts.portless) return '--portless fronts this terminal\'s server';
+  if (opts.hot) return '--hot changes how this terminal\'s server is built';
+  if (opts.http2 || opts.tlsCert || opts.tlsKey) return 'the HTTP/2 options apply to this terminal\'s server';
+  return null;
+}
+
 export async function startCommand(opts: StartOptions) {
+  if (opts.root) process.env[APP_ROOT_ENV] = path.resolve(opts.root);
   if (opts.dev) process.env[APP_ROOT_ENV] = resolveDevAppRoot();
   // Starting is when a home's database may change: this process opens it
   // before the server does (src/lib/db/migrate.ts).
   allowMigrations();
+  const foreground = foregroundReason(opts);
   const service = await serviceStatus();
   if (service) {
-    if (service.phase !== 'running') throw new Error(`Ri service is ${service.phase}. Use ri service status for details.`);
+    if (opts.foreground) {
+      log.error(`Ri keeps this Home running in the background${service.origin ? ` at ${service.origin}` : ''}. To run it in this terminal instead, stop it first with \`${APP_SHORT_ID} stop\`.`);
+      process.exitCode = 1;
+      return;
+    }
+    // An older unsupervised service: the same command takes it over (4.1).
+    if (!foreground && !hasLoginSupervision() && servesThisHome(service) && releaseAvailable()) {
+      await superviseHome(opts, service);
+      return;
+    }
+    if (service.phase !== 'running') throw new Error(`Ri service is ${service.phase}. Use \`${APP_SHORT_ID} status\` for details.`);
     const session = await serviceRequest<ServiceSession>('/session');
     if (opts.open) await openBrowser(buildPairingUrl(session.token, session.origin));
-    log.success(`Using the background service at ${session.origin}. It continues after this terminal closes.`);
+    log.success(`Ri is running at ${session.origin}. It keeps running after this terminal closes.`);
     return;
   }
   const live = readLiveServerRuntime();
   if (live) {
-    log.info(`A foreground Ri launcher is already running at ${live.publicBaseUrl}. Use it or stop it before changing launch mode.`);
+    log.info(foreground
+      ? `A foreground Ri launcher is already running at ${live.publicBaseUrl}. Use it or stop it before changing launch mode.`
+      : `Ri is running in a terminal at ${live.publicBaseUrl}. Stop it there with Ctrl-C, then run \`${APP_SHORT_ID} start\` again to keep it running in the background.`);
     return;
+  }
+  if (!foreground) {
+    if (releaseAvailable() && (process.platform === 'darwin' || process.platform === 'linux')) {
+      await superviseHome(opts, null);
+      return;
+    }
+    log.info(process.platform === 'darwin' || process.platform === 'linux'
+      ? `No Ri release is installed on this computer yet, so Ri runs in this terminal. To keep it running in the background, install one from this checkout with \`pnpm cli:dev update --from .\`, then run \`${APP_SHORT_ID} start\`.`
+      : 'Keeping Ri running in the background needs macOS or Linux for now, so Ri runs in this terminal.');
+  } else if (!opts.foreground) {
+    log.info(pc.dim(`Running in this terminal, because ${foreground}. Plain \`${APP_SHORT_ID} start\` keeps Ri running in the background.`));
   }
   const release = acquireServiceOwner();
   try { await startForegroundCommand(opts); } finally { release(); }
+}
+
+/** A service that serves a Home here, not a connected device's. */
+function servesThisHome(service: NonNullable<Awaited<ReturnType<typeof serviceStatus>>>) {
+  return service.role === 'home' || !!service.origin;
+}
+
+/**
+ * Keep this Home running under the OS (docs/always-on-spec.md 4.1 and 10.3):
+ * create it if it's new, give it a release, keep its address, install its OS
+ * job, and wait until it serves. `service` is an unsupervised controller
+ * already serving it, which hands over.
+ */
+async function superviseHome(opts: StartOptions, service: NonNullable<Awaited<ReturnType<typeof serviceStatus>>> | null) {
+  intro(pc.bgCyan(pc.black(` ${APP_NAME} `)));
+  if (!service && !(await chooseRole(opts))) return;
+  // This CLI runs the newest release, not necessarily the Home's, so it never
+  // opens the database here: the Home's own server does, with its own
+  // release. A new folder is marked as a Home, and that server creates it
+  // (the desktop's first run does the same).
+  let team: boolean;
+  let created = false;
+  try {
+    team = declaredAuthorityKind() === 'team';
+    if (!service && getInstallationRole() === 'fresh') {
+      if (!team) writeDesktopHomeIntent();
+      created = true;
+    }
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+    return;
+  }
+  const s = spinner();
+  if (!service && !team) {
+    await firstRunSetup();
+    // Docker keeps the voice container up from here on (restart: unless-stopped).
+    if (opts.voice ?? getVoiceEnabled()) await bringUpVoice(s);
+  }
+  let result: Awaited<ReturnType<typeof keepRunning>>;
+  try {
+    result = await keepRunning({ port: opts.port === undefined ? undefined : Number(opts.port) }, {
+      status: serviceStatus, install: () => installService(), holder: portHolder,
+      sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: Date.now, progress: line => s.start(line),
+    });
+  } catch (error) {
+    s.stop('Not running');
+    if (!(error instanceof AddressError)) throw error;
+    log.error(error.message);
+    process.exitCode = 1;
+    return;
+  }
+  if (result.result !== 'running') {
+    s.stop('Not running');
+    log.error(result.result === 'failed' ? result.reason : 'No Ri release is installed on this computer.');
+    if (result.result === 'failed') log.info(pc.dim(`The log: \`${APP_SHORT_ID} logs\``));
+    process.exitCode = 1;
+    return;
+  }
+  s.stop(`Ri is running at ${result.origin}`);
+  if (created) log.success(team ? 'Created the team on this computer' : 'Created your Ri on this computer');
+  log.success(service ? 'Ri now keeps this Home running, across restarts too.' : 'It keeps running after this terminal closes, and after restarts.');
+  const session = await serviceRequest<ServiceSession>('/session').catch(() => null);
+  const url = team || !session ? result.origin : buildPairingUrl(session.token, session.origin);
+  if (!team && session && (created || opts.pair)) log.info(`Pairing link: ${url}`);
+  const origin = readOrigin();
+  log.info(pc.dim(origin.source === 'checkout'
+    ? `To update, run \`${APP_SHORT_ID} update\`. It builds main from ${origin.checkout}.`
+    : origin.auto ? `Ri updates itself when it's idle. To turn that off: \`${APP_SHORT_ID} update --auto off\`` : `Automatic updates are off. To update: \`${APP_SHORT_ID} update\``));
+  if (opts.open) await openBrowser(url);
+  outro(opts.open ? 'Opened in browser' : `Open: ${url}`);
+}
+
+/**
+ * What this folder is decides what `ri start` does (docs/homes-spec.md §3.1).
+ * A connected device opens its home. A fresh folder starts a Home here or
+ * connects to the one this person has. False when there's nothing to start.
+ */
+async function chooseRole(opts: StartOptions): Promise<boolean> {
+  let role: InstallationRole;
+  let teamDeclared: boolean;
+  try {
+    role = getInstallationRole();
+    teamDeclared = declaredAuthorityKind() === 'team';
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+    return false;
+  }
+  if (role === 'connected') {
+    await runConnected({ open: opts.open });
+    return false;
+  }
+  // First run: start a home here, or connect to the Ri this person already
+  // has. A newly declared team has no database yet, but its choice was
+  // already made by `team create`. Validate its mark before any prompt.
+  // Without a terminal, keep starting a home, and say how to connect instead.
+  if (role === 'fresh' && !teamDeclared) {
+    // This folder's home was retired: its work lives in another home now, so
+    // the only way on from here is connecting to it (or undoing the retirement).
+    const retired = retiredHomes()[0];
+    if (retired) {
+      log.warn(describeRetired(retired.retired, retired.dir));
+      if (!process.stdin.isTTY) {
+        process.exitCode = 1;
+        return false;
+      }
+      const go = await confirm({ message: `Connect this device to your ${APP_NAME} now?` });
+      if (isCancel(go) || go !== true) {
+        outro('Nothing changed');
+        return false;
+      }
+      if (!(await runConnect(undefined, { open: opts.open }))) process.exitCode = 1;
+      return false;
+    }
+    if (process.stdin.isTTY) {
+      const choice = await select({
+        message: `Set up ${APP_NAME} on this device`,
+        options: [
+          { value: 'start', label: `Start using ${APP_NAME} here`, hint: 'your tasks, notes and agents live on this device' },
+          { value: 'connect', label: `Connect to your existing ${APP_NAME}`, hint: 'use the one you already have, from this device' },
+        ],
+      });
+      if (isCancel(choice)) {
+        outro('Nothing set up');
+        return false;
+      }
+      if (choice === 'connect') {
+        if (!(await runConnect(undefined, { open: opts.open }))) process.exitCode = 1;
+        return false;
+      }
+      log.info(pc.dim('You can move your Ri to an always-on device later.'));
+    } else {
+      log.info(`Starting a new Ri here. If you already use ${APP_NAME} on another device, run \`${APP_SHORT_ID} connect\` instead.`);
+    }
+  }
+  return true;
+}
+
+/**
+ * Open this folder's Home, creating it when it's new. A root whose data came
+ * from another device doesn't act as the home until someone claims it
+ * (docs/homes-spec.md §10.3). `created` is the line announcing a new Home.
+ */
+function openHome(): { info: ReturnType<typeof ensureLocalToken>; team: boolean; created: string | null } | { error: string } {
+  const info = ensureLocalToken();
+  try {
+    const identity = ensureHomeIdentity();
+    const team = identity.home.kind === 'team';
+    const created = !identity.created ? null : team ? `Created the team ${identity.home.name} on ${identity.device.name}` : `Created your Ri on ${identity.device.name}`;
+    return { info, team, created };
+  } catch (err) {
+    // A retired home in this folder: say what happened, never open a new one.
+    if (err instanceof HomeIdentityError || err instanceof RetiredHomeError) return { error: err.message };
+    throw err;
+  }
 }
 
 async function startForegroundCommand(opts: StartOptions) {
@@ -146,63 +350,7 @@ async function startForegroundCommand(opts: StartOptions) {
   // What this folder is decides what `ri` does (docs/homes-spec.md §3.1). A
   // connected device keeps no data: it opens the home, and never starts a
   // server or a database here.
-  let role: InstallationRole;
-  let teamDeclared: boolean;
-  try {
-    role = getInstallationRole();
-    teamDeclared = declaredAuthorityKind() === 'team';
-  } catch (err) {
-    log.error(err instanceof Error ? err.message : String(err));
-    process.exitCode = 1;
-    return;
-  }
-  if (role === 'connected') {
-    await runConnected({ open: opts.open });
-    return;
-  }
-  // First run: start a home here, or connect to the Ri this person already
-  // has. A newly declared team has no database yet, but its choice was
-  // already made by `team create`. Validate its mark before any prompt.
-  // Without a terminal, keep starting a home, and say how to connect instead.
-  if (role === 'fresh' && !teamDeclared) {
-    // This folder's home was retired: its work lives in another home now, so
-    // the only way on from here is connecting to it (or undoing the retirement).
-    const retired = retiredHomes()[0];
-    if (retired) {
-      log.warn(describeRetired(retired.retired, retired.dir));
-      if (!process.stdin.isTTY) {
-        process.exitCode = 1;
-        return;
-      }
-      const go = await confirm({ message: `Connect this device to your ${APP_NAME} now?` });
-      if (isCancel(go) || go !== true) {
-        outro('Nothing changed');
-        return;
-      }
-      if (!(await runConnect(undefined, { open: opts.open }))) process.exitCode = 1;
-      return;
-    }
-    if (process.stdin.isTTY) {
-      const choice = await select({
-        message: `Set up ${APP_NAME} on this device`,
-        options: [
-          { value: 'start', label: `Start using ${APP_NAME} here`, hint: 'your tasks, notes and agents live on this device' },
-          { value: 'connect', label: `Connect to your existing ${APP_NAME}`, hint: 'use the one you already have, from this device' },
-        ],
-      });
-      if (isCancel(choice)) {
-        outro('Nothing set up');
-        return;
-      }
-      if (choice === 'connect') {
-        if (!(await runConnect(undefined, { open: opts.open }))) process.exitCode = 1;
-        return;
-      }
-      log.info(pc.dim('You can move your Ri to an always-on device later.'));
-    } else {
-      log.info(`Starting a new Ri here. If you already use ${APP_NAME} on another device, run \`${APP_SHORT_ID} connect\` instead.`);
-    }
-  }
+  if (!(await chooseRole(opts))) return;
 
   // Resolve --portless before anything that reads the static URL (auth bootstrap
   // builds pairingUrl from it). Reject early if portless isn't on PATH so the
@@ -244,26 +392,18 @@ async function startForegroundCommand(opts: StartOptions) {
 
   // Auth first — used by both the health probe and the eventual app session.
   s.start('Bootstrapping auth');
-  const info = ensureLocalToken();
-  // A root whose data came from another device doesn't act as the home
-  // until someone claims it (docs/homes-spec.md §10.3).
   // A team space starts only its server: no skills, setup wizard, harness
   // checks or voice, which belong to a person's home (docs/homes-spec.md §9.2).
-  let team = false;
-  try {
-    const identity = ensureHomeIdentity();
-    team = identity.home.kind === 'team';
-    if (identity.created) log.success(team ? `Created the team ${identity.home.name} on ${identity.device.name}` : `Created your Ri on ${identity.device.name}`);
-  } catch (err) {
+  let opened: ReturnType<typeof openHome>;
+  try { opened = openHome(); } catch (err) { s.stop('Not starting'); throw err; }
+  if ('error' in opened) {
     s.stop('Not starting');
-    // A retired home in this folder: say what happened, never open a new one.
-    if (err instanceof HomeIdentityError || err instanceof RetiredHomeError) {
-      log.error(err.message);
-      process.exitCode = 1;
-      return;
-    }
-    throw err;
+    log.error(opened.error);
+    process.exitCode = 1;
+    return;
   }
+  const { info, team } = opened;
+  if (opened.created) log.success(opened.created);
   if (!team) try {
     const projectSkillCleanup = process.env.RI_DESKTOP === '1'
       ? { removed: 0, errors: 0 } : await cleanupKnownProjectSkillLinks();
@@ -338,26 +478,7 @@ async function startForegroundCommand(opts: StartOptions) {
     return;
   }
 
-  // First-run setup. Walk the CLI wizard if this brain has never been
-  // onboarded and we're attached to a real terminal. Headless invocations
-  // (smoke tests, CI, scripted starts) skip silently — `ri onboard` is
-  // available later if they want to configure interactively.
-  if (!team && !getIsOnboarded()) {
-    if (process.stdin.isTTY) {
-      await runWizard();
-      markOnboarded();
-      log.success('Setup complete');
-    } else {
-      log.info('Skipping CLI setup (non-interactive). Run `ri onboard` to configure.');
-    }
-  }
-
-  // Diagnostics preflight — surface misconfiguration before we start anything
-  // that depends on it (voice, server). Non-blocking: warnings are informational.
-  if (!team) {
-    const diagnostics = await runDoctorChecks();
-    printDoctorChecks(diagnostics, { compact: true });
-  }
+  if (!team) await firstRunSetup();
 
   // Voice: start the Parakeet sidecar before Next so transcription is
   // available the moment the UI loads. Voice startup is non-fatal — if
@@ -582,6 +703,27 @@ async function startForegroundCommand(opts: StartOptions) {
  * Bring up the voice sidecar. Returns true if the container is ours to stop
  * on shutdown; false if it was already running (don't touch it) or unavailable.
  */
+/**
+ * A personal Home's setup, before its server starts. Walk the CLI wizard if
+ * this brain has never been onboarded and we're attached to a real terminal.
+ * Headless invocations (smoke tests, CI, scripted starts) skip it, and
+ * `ri onboard` is available later. Then the diagnostics preflight surfaces
+ * misconfiguration before voice and the server. Its warnings are informational.
+ */
+async function firstRunSetup() {
+  if (!getIsOnboarded()) {
+    if (process.stdin.isTTY) {
+      await runWizard();
+      markOnboarded();
+      log.success('Setup complete');
+    } else {
+      log.info('Skipping CLI setup (non-interactive). Run `ri onboard` to configure.');
+    }
+  }
+  const diagnostics = await runDoctorChecks();
+  printDoctorChecks(diagnostics, { compact: true });
+}
+
 async function bringUpVoice(s: ReturnType<typeof spinner>): Promise<boolean> {
   const ctx = getVoiceContext();
 

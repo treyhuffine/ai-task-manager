@@ -32,6 +32,13 @@ export class StartupDiagnostics {
     this.errors = [...this.errors.filter(error => error !== value), value].slice(-MAX_ERRORS);
   }
 
+  /** One line for a restart's recorded reason: the summary and the last
+   * error the server printed, such as a heap limit crash. */
+  brief(summary: string): string {
+    const last = this.errors.at(-1);
+    return last ? `${this.clean(summary)}: ${last}` : this.clean(summary);
+  }
+
   failure(summary: string): Error {
     return new Error([
       this.clean(summary),

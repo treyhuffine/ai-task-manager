@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { atomicWriteFile } from '@/lib/config/atomic-file';
 import { serviceIdentity } from './paths';
 import { getRuntimeInstallDir, installedRuntime, verifyRuntime } from './runtime';
+import { checkRuntime } from './runtime-manifest';
 import { releaseDirectory } from './store';
 import { clearMaintenance, exclusiveActivity, exclusiveDatabaseAccess, writeMaintenance } from './maintenance';
 import type { MaintenanceGate } from './maintenance-state';
@@ -46,7 +47,8 @@ export interface UpdateBackend {
   prepareIdle?(): Promise<void>;
   resumeAdmission?(): Promise<void>;
   stop(): Promise<void>;
-  validate(target: RuntimeTarget, token: string): Promise<void>;
+  /** The check-only start. `migrations` it will apply, which can take minutes. */
+  validate(target: RuntimeTarget, token: string, migrations?: number): Promise<void>;
   activate(): Promise<void>;
   restart(target: RuntimeTarget): Promise<void>;
   unavailable?(error: string): void;
@@ -101,10 +103,12 @@ export class UpdateCoordinator {
     this.record = { ...this.record, ...change, changedAt: new Date().toISOString() };
     atomicWriteFile(this.file, JSON.stringify(this.record));
   }
-  private async target(id: string): Promise<RuntimeTarget> {
+  /** `full` hashes every file. Without it, only the manifest and entry files
+   * are checked, for a release verified earlier in the same step or that ran. */
+  private async target(id: string, full = false): Promise<RuntimeTarget> {
     if (!RELEASE_ID.test(id)) throw new Error('Invalid runtime selection');
     const directory = releaseDirectory(id, this.directory);
-    const manifest = this.backend.verify ? await this.backend.verify(directory) : verifyRuntime(directory);
+    const manifest = !full ? checkRuntime(directory) : this.backend.verify ? await this.backend.verify(directory) : verifyRuntime(directory);
     if (manifest.id !== id) throw new Error('Staged runtime identity mismatch');
     return { id, repo: path.join(/* turbopackIgnore: true */ directory, 'server'), node: path.join(/* turbopackIgnore: true */ directory, 'node/bin/node') };
   }
@@ -201,7 +205,8 @@ export class UpdateCoordinator {
     return this.exclusive(async () => {
       if (!this.record.release || !['ready', 'waiting'].includes(this.record.phase)) throw new Error('No verified update is ready');
       if (this.backend.storage === 'worker' && (!this.backend.checkpoint || !this.backend.restore || !this.backend.verifyDatabase || !this.backend.exclusiveStorage)) throw new Error('Connected-device updates require local journal checkpoint, restore, verification and writer lock support');
-      const target = await this.target(this.record.release.runtime.id);
+      // The one full check of the release, while the Home still serves.
+      const target = await this.target(this.record.release.runtime.id, true);
       const prior = installedRuntime(this.directory);
       if (!prior) throw new Error('Managed updates require a staged installation');
       if (!this.record.local) {
@@ -243,7 +248,7 @@ export class UpdateCoordinator {
         const migrations = this.backend.storage === 'worker' ? 0 : await (this.backend.pendingMigrations ?? pendingMigrations)(target);
         // The check-only start: the database is prepared and nothing that acts
         // outside it runs, so the snapshot can still undo everything (7.4 step 4).
-        await this.backend.validate(target, token);
+        await this.backend.validate(target, token, migrations);
         // A full integrity check reads the whole database. It can only find
         // something new when this update changed the schema.
         if (this.backend.storage === 'worker') await this.backend.verifyDatabase?.(target);
@@ -333,7 +338,7 @@ export class UpdateCoordinator {
     return this.exclusive(async () => {
       const state = this.rollbackStatus();
       if (!state.available) throw new Error(state.reason);
-      const target = await this.target(state.from!);
+      const target = await this.target(state.from!, true);
       const gate = { phase: 'draining' as const, token: randomBytes(32).toString('hex'), startedAt: new Date().toISOString() };
       let activity: (() => void) | undefined;
       let access: (() => void) | undefined;
