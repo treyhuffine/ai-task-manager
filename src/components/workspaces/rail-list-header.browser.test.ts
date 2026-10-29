@@ -76,6 +76,8 @@ async function open(theme: 'dark' | 'light'): Promise<{ page: Page; errors: stri
   page.setDefaultTimeout(5_000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
+  // The switch is the agents-first and classic rails'. Agents only has none.
+  await page.addInitScript(() => localStorage.setItem('ri.client.railStyle', 'agents'));
   await page.goto(`${base}/?theme=${theme}`);
   await page.getByRole('tablist', { name: 'Rail list' }).waitFor();
   return { page, errors };

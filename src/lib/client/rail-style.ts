@@ -6,15 +6,16 @@ import { useCallback, useSyncExternalStore } from 'react';
  * How the rail's Agents list looks. A reversible UI trial
  * (docs/rail-agents-first.md).
  *
- *   - `agents` (default) — agents first: each agent is a two-line row with
+ *   - `agents` — agents first: each agent is a two-line row with
  *     its icon, what its main chat is doing, and a one-line summary of its
  *     work. Its executions hang off it as one-line threads, the live ones
  *     always, a few recent quiet ones, and the rest one click away in the
  *     agent's view.
- *   - `agentsOnly` — agents and nothing else: no chats under them, no
- *     Needs you group and no Recent list. Each agent shows only its own
- *     state. Chats are tracked as ever and show in the header's pills and
- *     when resting on an agent peeks at its chats. Pinned chats stay on top.
+ *   - `agentsOnly` (default since 2026-10-29) — agents and nothing else:
+ *     no chats under them, no Needs you group and no Recent list. Each
+ *     agent shows only its own state. Chats are tracked as ever and show in
+ *     the header's pills and when resting on an agent peeks at its chats.
+ *     Pinned chats stay on top.
  *   - `classic` — one-line agent rows over two-line execution rows, every
  *     active execution listed, as before the trial.
  *
@@ -29,7 +30,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 export type RailStyle = 'agents' | 'agentsOnly' | 'classic';
 
 export const RAIL_STYLE_KEY = 'ri.client.railStyle';
-export const DEFAULT_RAIL_STYLE: RailStyle = 'agents';
+export const DEFAULT_RAIL_STYLE: RailStyle = 'agentsOnly';
 
 const CHANGE_EVENT = 'ri:rail-style-changed';
 

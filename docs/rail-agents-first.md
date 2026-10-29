@@ -1,6 +1,6 @@
 # Rail: agents first (trial)
 
-**Status:** trial, on by default since 2026-09-30, reworked the same day. Switch back in Settings → General → Agents → "Agents in the rail". The same select has a third style, [Agents only](#agents-only-trial), since 2026-10-29. The switch only changes how the Agents list is drawn: agents count wherever attention is counted in either style.
+**Status:** trial, on by default from 2026-09-30 (reworked the same day) until 2026-10-29, when [Agents only](#agents-only-trial) became the default. Choose it in Settings → General → Agents → "Agents in the rail". The switch only changes how the Agents list is drawn: agents count wherever attention is counted in either style.
 
 Code: `src/components/workspaces/agent-rail-row.tsx` (the agent row), `src/components/workspaces/agent-attention-row.tsx` (an agent in a list of things that want you), `src/hooks/use-agent-attention.ts` (which agents want you), `src/lib/utils/agent-rail.ts` (the rules), `src/lib/client/rail-style.ts` (the switch). The rail feed's `mainChats` comes from `listAgentMainChats` plus `waitingOn` in `GET /api/sessions/rail`.
 
@@ -37,7 +37,7 @@ Opening an agent marks its main chat read (`HarnessChat` does on mount), and the
 
 ## Agents only (trial)
 
-**Status:** trial, added 2026-10-29, off by default. Turn it on in Settings → General → Agents → "Agents in the rail" → Agents only. The same select switches back to Agents first or Classic.
+**Status:** trial, added 2026-10-29 and the default the same day. Settings → General → Agents → "Agents in the rail" switches back to Agents first or Classic. A browser where someone already chose a style keeps that choice.
 
 The idea: the rail lists agents and nothing else, so the way into work is talking to an agent. It changes only what the rail shows. Every chat's state (working, waiting on you, unread) is tracked exactly as before and shows everywhere else it did.
 

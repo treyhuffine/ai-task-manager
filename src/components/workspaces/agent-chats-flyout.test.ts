@@ -81,6 +81,8 @@ beforeAll(async () => {
       import {SessionHoverProvider} from '@/components/workspaces/session-hover-context';
       window.actions=[];
       const params=new URLSearchParams(location.search);
+      // These are the agents-first and classic rows, whose agents fold their chats.
+      localStorage.setItem('ri.client.railStyle',params.get('style')==='classic'?'classic':'agents');
       function Rows(){
         const {workspace}=useFixture();
         const sensors=useSensors(useSensor(PointerSensor,{activationConstraint:{distance:4}}));
