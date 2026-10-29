@@ -11,6 +11,10 @@ import { useCallback, useSyncExternalStore } from 'react';
  *     work. Its executions hang off it as one-line threads, the live ones
  *     always, a few recent quiet ones, and the rest one click away in the
  *     agent's view.
+ *   - `agentsOnly` — agents and nothing else: no chats under them, no
+ *     Needs you group and no Recent list. Each agent's dot and second line
+ *     cover its chats too, so it still says when its work wants you. Pinned
+ *     chats stay at the top, and resting on an agent peeks at its chats.
  *   - `classic` — one-line agent rows over two-line execution rows, every
  *     active execution listed, as before the trial.
  *
@@ -22,7 +26,7 @@ import { useCallback, useSyncExternalStore } from 'react';
  * default and the client snapshot takes over without an effect or a mismatch.
  */
 
-export type RailStyle = 'agents' | 'classic';
+export type RailStyle = 'agents' | 'agentsOnly' | 'classic';
 
 export const RAIL_STYLE_KEY = 'ri.client.railStyle';
 export const DEFAULT_RAIL_STYLE: RailStyle = 'agents';
@@ -31,7 +35,7 @@ const CHANGE_EVENT = 'ri:rail-style-changed';
 
 /** Narrow an unknown stored value to a style, defaulting anything else. */
 export function parseRailStyle(raw: unknown): RailStyle {
-  return raw === 'agents' || raw === 'classic' ? raw : DEFAULT_RAIL_STYLE;
+  return raw === 'agents' || raw === 'agentsOnly' || raw === 'classic' ? raw : DEFAULT_RAIL_STYLE;
 }
 
 function read(): RailStyle {

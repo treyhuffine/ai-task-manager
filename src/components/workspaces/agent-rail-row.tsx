@@ -1,18 +1,20 @@
 'use client';
 
 import { useMemo, useRef } from 'react';
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, MoreHorizontal, Plus, SlidersHorizontal } from 'lucide-react';
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Eye, EyeOff, MoreHorizontal, Plus, SlidersHorizontal } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDashboard } from '@/contexts/dashboard-context';
-import { useRailSessions, useUpdateWorkspace } from '@/hooks/use-workspaces';
+import { useMarkSessionRead, useMarkSessionUnread, useRailSessions, useUpdateWorkspace } from '@/hooks/use-workspaces';
 import { useAgentViewMode } from '@/lib/client/agent-view-mode';
+import { useRailStyle } from '@/lib/client/rail-style';
 import { isSessionUnread, sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import {
-  agentVoice,
+  agentRollup,
   mainChatActivity,
   threadSummary,
   type AgentActivity,
+  type ThreadState,
   type VoiceTone,
 } from '@/lib/utils/agent-rail';
 import { AgentIcon } from '@/components/agents/agent-icon';
@@ -20,6 +22,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -57,10 +60,10 @@ const SUMMARY_TONE = {
 /** The inactive toggle under an agent matches its 32px threads. */
 const THREAD_FOLD_ROW = 'h-8 py-0 text-[10.5px]';
 
-const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: string }> = {
-  waiting: { dot: 'bg-amber-500 animate-pulse', label: 'Waiting on you' },
-  thinking: { dot: 'bg-emerald-500 animate-pulse', label: 'Thinking' },
-  replied: { dot: 'bg-amber-500', label: 'New reply' },
+const PRESENCE_DOT: Record<Exclude<AgentActivity, null>, string> = {
+  waiting: 'bg-amber-500 animate-pulse',
+  thinking: 'bg-emerald-500 animate-pulse',
+  replied: 'bg-amber-500',
 };
 
 /**
@@ -83,32 +86,35 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * recent ones show. Hiding the executions is one click on hover, and hidden
  * executions fold into a line that still says what wants you, so hiding
  * never hides that. The whole row drags.
+ *
+ * In the agents-only rail (`agentsOnly`) the executions have no rows. The
+ * agent stands for them too (`agentRollup`): its dot, bold name and second
+ * line cover its chats' states as well as its own, resting on it peeks at
+ * its chats beside the rail, and it stays lit while one of its chats is open.
+ * Its menu's Mark as read and Mark as unread act on what the row shows: read
+ * clears the agent and every unread chat under it, unread marks the agent.
  */
 export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onOpenLauncher }: AgentRailRowProps) {
   const { streamingSessionIds, pendingInputSessionIds, activeView, activeSessionId, activeExecutionId, openAgent } =
     useDashboard();
   const { opensView } = useAgentViewMode();
+  const agentsOnly = useRailStyle().style === 'agentsOnly';
   const { data: rail } = useRailSessions();
   const updateWs = useUpdateWorkspace();
+  const markRead = useMarkSessionRead();
+  const markUnread = useMarkSessionUnread();
   const { isInactive } = useInactivity();
   const isActive = activeView.kind === 'agent' && activeView.id === workspace.id;
-  const expanded = !workspace.collapsed;
+  // Agents only: there's no list to fold, so the agent never shows one.
+  const expanded = !agentsOnly && !workspace.collapsed;
   const header = useRef<HTMLDivElement>(null);
   const selecting = useWorkspaceSelection()?.selecting ?? false;
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: workspace.id });
 
   const chat = rail?.mainChats?.find((c) => c.workspaceId === workspace.id) ?? null;
-  const activity = mainChatActivity(chat, pendingInputSessionIds, streamingSessionIds);
-  const wantsYou = activity === 'waiting' || activity === 'replied';
-  const voice = agentVoice({
-    activity,
-    waitingOn: chat?.waitingOn ?? null,
-    preview: chat?.preview ?? null,
-    purpose: workspace.purpose,
-  });
 
-  const { sessions, inactive, total, summary } = useMemo(() => {
+  const { sessions, inactive, total, summary, states, hasOpen } = useMemo(() => {
     const all = sortSessionsHotnessDesc(
       (rail?.sessions ?? []).filter((s) => s.workspaceId === workspace.id && s.status === 'active'),
     );
@@ -120,18 +126,25 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     for (const s of all) (isInactive(s) && !isOpen(s) ? folded : kept).push(s);
     let working = 0;
     let needsYou = 0;
+    const states: ThreadState[] = [];
     for (const s of kept) {
       if (isInactive(s)) continue;
+      const pending = pendingInputSessionIds.has(s.id);
+      const streaming = streamingSessionIds.has(s.id);
+      const unread = !streaming && isSessionUnread(s);
+      states.push({ id: s.id, label: s.execution?.label ?? s.label ?? null, pending, streaming, unread });
       // The rail's buckets: pending wins over streaming, unread needs you too.
-      if (pendingInputSessionIds.has(s.id)) needsYou++;
-      else if (streamingSessionIds.has(s.id)) working++;
-      else if (isSessionUnread(s)) needsYou++;
+      if (pending) needsYou++;
+      else if (streaming) working++;
+      else if (unread) needsYou++;
     }
     return {
       sessions: kept,
       inactive: folded,
       total: all.length,
       summary: threadSummary({ total: all.length, needsYou, working }),
+      states,
+      hasOpen: all.some(isOpen),
     };
   }, [
     rail?.sessions,
@@ -143,9 +156,20 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     isInactive,
   ]);
 
+  // The agent's own state, and in the agents-only rail its chats' too.
+  const { activity, activityLabel, wantsYou, voice, unreadIds } = agentRollup({
+    activity: mainChatActivity(chat, pendingInputSessionIds, streamingSessionIds),
+    mainChat: chat ? { id: chat.id, unread: isSessionUnread(chat) } : null,
+    waitingOn: chat?.waitingOn ?? null,
+    preview: chat?.preview ?? null,
+    purpose: workspace.purpose,
+    threads: agentsOnly ? states : [],
+  });
+
   const hasThreads = total > 0;
   const toggleThreads = () => updateWs.mutate({ id: workspace.id, collapsed: expanded });
-  const open = () => (opensView ? openAgent(workspace.id) : toggleThreads());
+  // With no list to fold, the agent always opens.
+  const open = () => (opensView || agentsOnly ? openAgent(workspace.id) : toggleThreads());
   const stop = (e: React.PointerEvent | React.MouseEvent) => e.stopPropagation();
 
   const threads = (
@@ -194,14 +218,15 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         {...listeners}
         className={cn(
           'group relative flex items-center gap-2 px-1.5 py-1.5 rounded-lg transition-colors cursor-grab active:cursor-grabbing select-none touch-none',
-          isActive ? 'bg-secondary' : 'hover:bg-muted/40',
+          // Agents only: an open chat has no row of its own, so it lights its agent.
+          isActive ? 'bg-secondary' : agentsOnly && hasOpen ? 'bg-secondary/60' : 'hover:bg-muted/40',
         )}
       >
-        <Tip label={activity ? PRESENCE[activity].label : undefined}>
+        <Tip label={activityLabel ?? undefined}>
           <button
             onClick={open}
             className="relative flex-shrink-0 rounded-md"
-            aria-label={activity ? `${workspace.name}: ${PRESENCE[activity].label}` : `Open ${workspace.name}`}
+            aria-label={activityLabel ? `${workspace.name}: ${activityLabel}` : `Open ${workspace.name}`}
           >
             <AgentIcon workspace={workspace} size="md" />
             {activity && (
@@ -209,7 +234,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
                 aria-hidden
                 className={cn(
                   'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-background',
-                  PRESENCE[activity].dot,
+                  PRESENCE_DOT[activity],
                 )}
               />
             )}
@@ -251,7 +276,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         {/* Takes no room until you hover, so at rest the name and its line
             get the full width. Stays while its menu is open. */}
         <div className="hidden group-hover:flex group-focus-within:flex has-[[data-state=open]]:flex items-center gap-0.5 flex-shrink-0">
-          {hasThreads && (
+          {hasThreads && !agentsOnly && (
             <Tip label={expanded ? 'Hide chats' : 'Show chats'}>
               <button
                 onPointerDown={stop}
@@ -292,6 +317,18 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="text-[11px] min-w-[170px]" onPointerDown={stop} onClick={stop}>
+              {unreadIds.length > 0 ? (
+                <DropdownMenuItem onSelect={() => unreadIds.forEach((id) => markRead.mutate(id))}>
+                  <Eye size={12} /> Mark as read
+                </DropdownMenuItem>
+              ) : (
+                chat && (
+                  <DropdownMenuItem onSelect={() => markUnread.mutate(chat.id)}>
+                    <EyeOff size={12} /> Mark as unread
+                  </DropdownMenuItem>
+                )
+              )}
+              {(unreadIds.length > 0 || chat) && <DropdownMenuSeparator />}
               <DropdownMenuItem onSelect={() => onOpenLauncher(workspace.id)}>
                 <Plus size={12} /> New chat
               </DropdownMenuItem>
@@ -311,7 +348,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         </div>
       )}
 
-      {hasThreads && !expanded && (
+      {hasThreads && !expanded && !agentsOnly && (
         <Tip label="Show chats">
           <button
             onPointerDown={stop}

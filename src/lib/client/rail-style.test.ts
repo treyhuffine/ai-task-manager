@@ -7,6 +7,7 @@ describe('parseRailStyle', () => {
     expect(DEFAULT_RAIL_STYLE).toBe('agents');
     expect(parseRailStyle('classic')).toBe('classic');
     expect(parseRailStyle('agents')).toBe('agents');
+    expect(parseRailStyle('agentsOnly')).toBe('agentsOnly');
     for (const raw of [null, undefined, '', 'workspace', 1]) expect(parseRailStyle(raw)).toBe('agents');
   });
 });

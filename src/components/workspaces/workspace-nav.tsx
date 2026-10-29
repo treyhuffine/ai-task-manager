@@ -93,10 +93,11 @@ export function WorkspaceNav() {
     <div className="flex flex-col">
       {/* The needs-review triage surface duplicates tree rows; hide it
           while selecting so a session never shows two checkboxes (or a
-          checkbox up top and a plain row below). */}
-      {!selecting && <NeedsReviewSection />}
+          checkbox up top and a plain row below). Agents only, each agent
+          says what wants you on its own row, so there's nothing to gather. */}
+      {!selecting && railStyle !== 'agentsOnly' && <NeedsReviewSection />}
 
-      <div className={cn('px-1', railStyle === 'agents' ? 'space-y-1' : 'space-y-0.5')}>
+      <div className={cn('px-1', railStyle === 'classic' ? 'space-y-0.5' : 'space-y-1')}>
         {isLoading && (
           <div className="flex flex-col gap-1 pt-1">
             <WorkspaceHeaderSkeleton />
@@ -109,7 +110,7 @@ export function WorkspaceNav() {
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={workspaces.map((w) => w.id)} strategy={verticalListSortingStrategy}>
               {workspaces.map((ws) =>
-                railStyle === 'agents' ? (
+                railStyle !== 'classic' ? (
                   <AgentRailRow
                     key={ws.id}
                     workspace={ws}

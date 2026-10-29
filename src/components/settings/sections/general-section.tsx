@@ -351,14 +351,17 @@ export function GeneralSection() {
               onChange={(e) => setRailStyle(e.target.value as RailStyle)}
               className="rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             >
+              <option value="agentsOnly">Agents only (trial)</option>
               <option value="agents">Agents first (trial)</option>
               <option value="classic">Classic</option>
             </select>
           </div>
           <p className="text-[11px] text-muted-foreground/85">
-            {railStyle === 'agents'
-              ? 'Each agent shows what it last said, bold with a dot when it wants you. Its chats hang under it on one line each, all of them, with the inactive ones behind a Show toggle.'
-              : 'One line per agent, with every active chat listed under it on two lines.'}
+            {railStyle === 'agentsOnly'
+              ? "Only your agents, no chats under them. An agent's dot and line cover its chats too, so it's bold when it or one of its chats wants you, and resting on it shows its chats beside the rail. Pinned chats stay at the top. Mark an agent unread from its menu to come back to it."
+              : railStyle === 'agents'
+                ? 'Each agent shows what it last said, bold with a dot when it wants you. Its chats hang under it on one line each, all of them, with the inactive ones behind a Show toggle.'
+                : 'One line per agent, with every active chat listed under it on two lines.'}
           </p>
         </div>
       </section>
