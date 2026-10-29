@@ -295,9 +295,9 @@ it('holds the worker journal writer lock through checkpoint and validation and p
   fs.writeFileSync(journal, pending);
   backend.storage = 'worker';
   backend.exclusiveStorage = async () => (await acquireWorkerLock()).release;
-  backend.checkpoint = async directory => {
+  backend.checkpoint = async ({ recovery }) => {
     await expect(acquireWorkerLock()).rejects.toThrow('already running');
-    return createWorkerCheckpoint(directory);
+    return createWorkerCheckpoint(recovery);
   };
   backend.restore = async directory => verifyWorkerCheckpoint(directory);
   backend.validate = async () => {

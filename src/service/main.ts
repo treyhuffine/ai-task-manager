@@ -22,6 +22,9 @@ import { UpdateCoordinator, type RuntimeTarget } from '@/lib/service/update';
 import { assertNoLegacyWriters, ownedProcesses } from '@/lib/service/processes';
 import { hasLoginSupervision } from '@/lib/service/install';
 import { installedRuntime } from '@/lib/service/runtime';
+import { pruneReleases, writeHomeRecord } from '@/lib/service/store';
+import { activationPending, clearActivation } from '@/lib/service/activation';
+import { pruneSnapshots } from '@/lib/service/snapshot';
 import { writeMaintenance, clearMaintenance, exclusiveActivity } from '@/lib/service/maintenance';
 import { releasePolicy } from '@/lib/service/release';
 import { updateReleasePreferences } from '@/lib/service/release-trust';
@@ -178,6 +181,7 @@ const control = http.createServer(async (request, response) => {
     }
     if (request.method === 'GET' && request.url === '/session' && status.phase === 'running' && servesHome(role) && !!status.origin) return reply({ certificate, token, desktopClient: process.env.RI_DESKTOP_CLIENT_SECRET });
     if (request.method === 'GET' && request.url === '/update') return reply({ update: updater.status() });
+    if (request.method === 'GET' && request.url === '/update/rollback') return reply({ rollback: servesHome(role) && next ? updater.rollbackPreview() : updater.rollbackStatus() });
     if (request.method === 'PATCH' && request.url === '/update/policy') {
       if (coordination.handingOff || updater.status().busy) throw new Error('Wait for the current service action before changing update preferences.');
       let bytes = 0; const chunks: Buffer[] = [];
@@ -191,10 +195,17 @@ const control = http.createServer(async (request, response) => {
         if (body.action === 'check' || body.action === 'download') {
           const promise = body.action === 'check' ? updater.check() : updater.download();
           void promise.catch(error => console.error('[update]', error instanceof Error ? error.message : 'Failed'));
-        } else if (body.action === 'apply' || body.action === 'when-idle') {
-          updater.approve(body.window);
-          if (body.action === 'apply') setImmediate(() => void updateTick());
+        } else if (body.action === 'apply' || body.action === 'when-idle' || body.action === 'apply-now') {
+          updater.approve(body.window, body.action === 'apply-now');
+          if (body.action !== 'when-idle') setImmediate(() => void updateTick());
         } else if (body.action === 'later') updater.later();
+        else if (body.action === 'offer') return updater.offer(body.release!, body.local).then(update => reply({ update }));
+        else if (body.action === 'rollback') {
+          if (!servesHome(role)) throw new Error('Only a Home can roll back.');
+          const state = updater.rollbackStatus();
+          if (!state.available) throw new Error(state.reason);
+          setImmediate(() => void updater.rollback().catch(error => console.error('[update] Rollback failed:', error instanceof Error ? error.message : 'Failed')));
+        }
         return reply({ update: updater.status() });
       });
       return;
@@ -251,6 +262,7 @@ async function shutdown(code = 0) {
 
 async function start() {
   releaseOwner = acquireServiceOwner();
+  writeHomeRecord();
   await initializeRuntimeJobs();
   if (readLiveServerRuntime()) throw new Error('An existing launcher is using this data root. Stop it before enabling the service.');
   if (fs.existsSync(childRecord)) {
@@ -268,7 +280,9 @@ async function start() {
       : workerUpdateCompatibility(target.repo),
     verify: directory => runtimeJob(controllerRepo, 'verify', directory),
     download: (release, progress) => runtimeJob(controllerRepo, 'download', release, progress),
-    checkpoint: directory => runtimeJob(controllerRepo, servesHome(role) ? 'checkpoint' : 'worker-checkpoint', directory),
+    checkpoint: request => servesHome(role)
+      ? runtimeJob(controllerRepo, 'checkpoint', { from: request.from, to: request.to })
+      : runtimeJob(controllerRepo, 'worker-checkpoint', request.recovery),
     restore: directory => runtimeJob(controllerRepo, servesHome(role) ? 'restore' : 'worker-checkpoint-verify', directory),
     verifyDatabase: target => servesHome(role) ? runtimeJob(target.repo, 'validate-database', paths.identity.database, undefined, target.node) : Promise.resolve(assertWorkerStorage()),
     prepareIdle: async () => { if (servesHome(role)) await backendRequest('/__ri_prepare', 30_000); else await worker?.prepareIdle(); },
@@ -334,6 +348,7 @@ async function refreshRole(force = false) {
   status.release = runtimePeerRelease(repo);
   if (!servesHome(role)) {
     delete status.origin;
+    clearActivation();
     if (role.role === 'worker') {
       worker = new ServiceWorker({ repo, node, onChild: pid => {
         if (pid) atomicWriteFile(childRecord, JSON.stringify({ pid, runId: status.runId, role: 'worker' }));
@@ -379,11 +394,31 @@ async function startHome() {
     resetDb();
   }
   if (stopping) return;
+  // The first moment anything outside the database can happen. A candidate
+  // release that fails before this is put back by its launcher (section 7.4).
+  clearActivation();
   await startBackend();
   const probe = await gateway.probe();
   if (!probe.ok) throw startupDiagnostics.readinessFailure(probe);
   publish(); console.info(`[service] Ready at ${status.origin}`);
   await awake.start();
+  scheduleHousekeeping();
+}
+
+/** A minute after the Home is up: delete releases and snapshots nothing uses. */
+function scheduleHousekeeping() {
+  const run = () => {
+    try { pruneReleases(); } catch (error) { console.warn('[service] Release cleanup skipped:', error instanceof Error ? error.message : 'Failed'); }
+    try {
+      const update = updater.status();
+      const keep = update.checkpoint && ['validating', 'recovery-required', 'committed'].includes(update.phase) ? [update.checkpoint] : [];
+      const database = paths.identity.database;
+      const size = fs.existsSync(database) ? fs.statSync(database).size : 0;
+      pruneSnapshots({ keep, lowDiskBytes: Math.max(20 * 1024 ** 3, size) });
+    } catch (error) { console.warn('[service] Snapshot cleanup skipped:', error instanceof Error ? error.message : 'Failed'); }
+  };
+  const first = setTimeout(run, 60_000); first.unref();
+  const daily = setInterval(run, 24 * 60 * 60_000); daily.unref();
 }
 
 function startTimers() {
@@ -417,6 +452,15 @@ void start().catch(async error => {
   console.error('[service]', error instanceof Error ? error.message : 'Startup failed');
   status.phase = 'failed'; status.error = error instanceof Error ? error.message : 'Startup failed';
   if (!control.listening) { releaseOwner?.(); process.exit(1); }
+  // A new release that fails before it starts work exits, so its launcher can
+  // try once more and then put the previous release back (section 7.4).
+  let own: string | undefined;
+  try { own = installedRuntime()?.id; } catch { /* an unreadable selection is not a candidate */ }
+  if (activationPending(own)) {
+    await stopBackend();
+    await gateway?.close(1000).catch(() => {});
+    control.close(); control.closeAllConnections(); releaseOwner?.(); process.exit(1);
+  }
   // Keep diagnostics/recovery available. Repeated startup failures must not
   // create a launchd restart loop or restore data written after an upgrade.
   await stopBackend();

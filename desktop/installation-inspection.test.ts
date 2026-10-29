@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../src/lib/db/migrate';
 import { inspectExistingInstallation } from './installation-inspection';
 import { getRuntimeInstallDir } from '../src/lib/service/paths';
+import { releaseDirectory } from '../src/lib/service/store';
 import { createRuntimeManifest, installedRuntime, stageRuntime } from '../src/lib/service/runtime';
 import { createCheckpoint } from '../src/lib/service/checkpoint';
 import { UpdateCoordinator, type UpdateBackend, type UpdateRecord } from '../src/lib/service/update';
@@ -127,7 +128,7 @@ it.each(['missing-release', 'wrong-prior', 'unknown-field', 'invalid-commit', 'w
   const invalid: Record<string, unknown> = { ...record };
   if (kind === 'missing-release') delete invalid.release;
   if (kind === 'wrong-prior') invalid.priorId = 'f'.repeat(64);
-  if (kind === 'unknown-field') invalid.force = true;
+  if (kind === 'unknown-field') invalid.surprise = true;
   if (kind === 'invalid-commit') invalid.committedAt = new Date().toISOString();
   if (kind === 'wrong-checkpoint-root') {
     const manifestFile = path.join(checkpoint, 'checkpoint.json');
@@ -135,7 +136,7 @@ it.each(['missing-release', 'wrong-prior', 'unknown-field', 'invalid-commit', 'w
     fs.writeFileSync(manifestFile, JSON.stringify(manifest));
   }
   if (kind === 'tampered-runtime') {
-    const manifestFile = path.join(getRuntimeInstallDir(), 'releases', targetId, 'runtime-manifest.json');
+    const manifestFile = path.join(releaseDirectory(targetId, getRuntimeInstallDir()), 'runtime-manifest.json');
     const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8')); manifest.version = '9.0.0';
     fs.writeFileSync(manifestFile, JSON.stringify(manifest));
   }
@@ -258,4 +259,24 @@ it('refuses conflicting and retired roots before opening a database', async () =
   fs.writeFileSync(path.join(retired, 'retired.json'), JSON.stringify({ version: 1, homeName: 'Old Ri', retiredAt: '2026-09-30' }));
   expect(await inspectExistingInstallation()).toMatchObject({ canUse: false, phase: 'retired' });
   expect(fs.existsSync(database)).toBe(false);
+});
+
+it('recognizes an update interrupted with a snapshot of a release built from a checkout', async () => {
+  const { record, priorId, targetId } = await interruptedUpdate();
+  // The always-on switch: a local release (id and version only) and a snapshot of the database and config.
+  const { createSnapshot } = await import('../src/lib/service/snapshot');
+  const snapshot = await createSnapshot({ from: priorId, to: targetId });
+  const local: UpdateRecord = { ...record, release: { version: '0.2.0', runtime: { id: targetId } } as unknown as Release, local: { commit: 'd'.repeat(40) }, force: false, checkpoint: snapshot };
+  fs.writeFileSync(path.join(getRuntimeInstallDir(), 'update.json'), JSON.stringify(local), { mode: 0o600 });
+  const before = fs.readFileSync(database);
+  expect(await inspectExistingInstallation()).toMatchObject({ phase: 'recovery-pending', canUse: true });
+  expect(fs.readFileSync(database)).toEqual(before);
+});
+
+it('leaves the restore to the controller when the launcher put the previous release back', async () => {
+  const { record } = await interruptedUpdate(true);
+  fs.writeFileSync(path.join(getRuntimeInstallDir(), 'update.json'), JSON.stringify({ ...record, phase: 'committed' }), { mode: 0o600 });
+  fs.mkdirSync(path.join(getRuntimeInstallDir(), 'activation'), { recursive: true });
+  fs.writeFileSync(path.join(getRuntimeInstallDir(), 'activation/restore'), '');
+  expect(await inspectExistingInstallation()).toMatchObject({ phase: 'recovery-pending', canUse: true });
 });

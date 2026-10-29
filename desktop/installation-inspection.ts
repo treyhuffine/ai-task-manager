@@ -9,6 +9,9 @@ import { canonical, getRuntimeInstallDir, serviceIdentity } from '../src/lib/ser
 import { readLiveServerRuntime } from '../src/lib/server-runtime/record';
 import { assertExistingInstallation, type InstallationInspection } from './installation';
 import { installedRuntime } from '../src/lib/service/runtime';
+import { releaseDirectory } from '../src/lib/service/store';
+import { snapshotRoot } from '../src/lib/service/snapshot';
+import { readActivation } from '../src/lib/service/activation';
 import { ReleaseSchema } from '../src/lib/service/release-trust';
 import { MaintenanceWindowSchema } from '../src/lib/service/update-settings';
 import { resolveServiceRole } from '../src/lib/service/role';
@@ -16,11 +19,16 @@ import { pendingDesktopInitialization } from '../src/lib/service/initialization'
 import { serviceOwnerHeld } from '../src/lib/service/owner';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
+/** A release built on this computer from a checkout names only its id and
+ * version. Its staged manifest is checked below like any other. */
+const localRelease = z.object({ version: z.string().min(1).max(80), runtime: z.object({ id: digest }).strict() }).strict();
 const updateRecord = z.object({
   format: z.literal(1), phase: z.enum(['idle', 'available', 'downloading', 'ready', 'waiting', 'draining', 'checkpointing', 'validating', 'committed', 'failed', 'recovery-required']),
-  changedAt: z.string().datetime(), release: ReleaseSchema.optional(), priorId: digest.optional(), checkpoint: z.string().optional(),
+  changedAt: z.string().datetime(), release: z.union([ReleaseSchema, localRelease]).optional(), priorId: digest.optional(), checkpoint: z.string().optional(),
   approved: z.boolean().optional(), bytes: z.number().int().nonnegative().optional(), reason: z.string().optional(), error: z.string().optional(),
   committedAt: z.string().datetime().optional(), window: MaintenanceWindowSchema.optional(),
+  local: z.object({ commit: z.string().regex(/^[a-f0-9]{40}$/).optional(), checkout: z.string().max(4096).optional() }).strict().optional(),
+  force: z.boolean().optional(),
 }).strict();
 
 function readPrivateJson(file: string, maximumBytes: number): unknown {
@@ -37,18 +45,20 @@ function hasRecordedRecovery(active: NonNullable<ReturnType<typeof installedRunt
   const file = path.join(install, 'update.json');
   if (!fs.existsSync(file)) return false;
   const record = updateRecord.parse(readPrivateJson(file, 256 * 1024));
+  // A launcher that put the previous release back leaves the restore to its controller.
+  if (readActivation(install).restore) return true;
   if (!['validating', 'committed', 'recovery-required'].includes(record.phase)) return false;
   const fail = () => { throw new Error('The saved update recovery record does not match this installation. Inspect the preserved files before starting.'); };
   const release = record.release;
   if (!release || !record.priorId || (!record.committedAt && !record.checkpoint) || (record.phase === 'committed' && !record.committedAt) ||
-      (record.phase === 'validating' && record.committedAt) || release.platform !== process.platform || release.arch !== process.arch ||
+      (record.phase === 'validating' && record.committedAt) || ('platform' in release && (release.platform !== process.platform || release.arch !== process.arch)) ||
       (active.id !== record.priorId && (!record.committedAt || active.id !== release.runtime.id))) return fail();
 
   // The record may refer only to its already staged runtime. Verify the
   // content-addressed inventory metadata and its migration journal without
   // selecting this shell's bundle or executing any target code.
   for (const id of new Set(record.committedAt ? [active.id, release.runtime.id] : [record.priorId, release.runtime.id])) {
-    const runtime = path.join(install, 'releases', id);
+    const runtime = releaseDirectory(id, install);
     if (canonical(runtime) !== runtime) return fail();
     const manifest = z.object({ format: z.literal(1), id: digest, version: z.string(), platform: z.string(), arch: z.string(), node: z.string(),
       files: z.array(z.object({ name: z.string(), sha256: digest.optional(), link: z.string().optional(), executable: z.boolean() }).strict()).max(200_000),
@@ -57,14 +67,24 @@ function hasRecordedRecovery(active: NonNullable<ReturnType<typeof installedRunt
     if (manifestId !== id || createHash('sha256').update(JSON.stringify(content)).digest('hex') !== id ||
         manifest.platform !== process.platform || manifest.arch !== process.arch ||
         !['node/bin/node', 'server/dist/service/main.cjs'].every(name => manifest.files.some(entry => entry.name === name && entry.sha256))) return fail();
-    if (id === release.runtime.id && (manifest.version !== release.version || createHash('sha256').update(fs.readFileSync(path.join(runtime, 'server/drizzle/meta/_journal.json'))).digest('hex') !== release.migrationHistory)) return fail();
+    if (id === release.runtime.id && (manifest.version !== release.version || ('migrationHistory' in release && createHash('sha256').update(fs.readFileSync(path.join(runtime, 'server/drizzle/meta/_journal.json'))).digest('hex') !== release.migrationHistory))) return fail();
   }
 
   // Forward recovery never restores a checkpoint or requires the prior files.
   // Old backups may have been removed after a successful committed upgrade.
   if (record.committedAt) return true;
   const checkpoint = canonical(record.checkpoint!);
-  if (!path.isAbsolute(record.checkpoint!) || checkpoint !== record.checkpoint || path.dirname(checkpoint) !== path.join(install, 'recovery')) return fail();
+  if (!path.isAbsolute(record.checkpoint!) || checkpoint !== record.checkpoint) return fail();
+  // An update snapshot (docs/always-on-spec.md section 7.4): the database and config.
+  if (path.dirname(checkpoint) === canonical(snapshotRoot(identity))) {
+    const snapshot = z.object({ format: z.literal(2), identity: z.object({ root: z.string(), database: z.string(), config: z.string(), work: z.string() }).strict() }).passthrough()
+      .parse(readPrivateJson(path.join(checkpoint, 'snapshot.json'), 1024 * 1024));
+    if (JSON.stringify(snapshot.identity) !== JSON.stringify(identity)) return fail();
+    // A restore interrupted after its rename has already put the database back.
+    if (!fs.existsSync(path.join(checkpoint, 'database.sqlite')) && !fs.existsSync(identity.database)) return fail();
+    return true;
+  }
+  if (path.dirname(checkpoint) !== path.join(install, 'recovery')) return fail();
   const manifest = z.object({ format: z.literal(1), identity: z.object({ root: z.string(), database: z.string(), config: z.string(), work: z.string() }).strict(),
     database: digest, entries: z.array(z.object({ source: z.string(), saved: z.string(), size: z.number().nonnegative().optional(), sha256: digest.optional(), link: z.string().optional() }).strict()),
   }).strict().parse(readPrivateJson(path.join(checkpoint, 'checkpoint.json'), 64 * 1024 * 1024));

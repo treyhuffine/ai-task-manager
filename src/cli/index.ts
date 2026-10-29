@@ -29,6 +29,8 @@ import { registerServiceCommand } from './commands/service';
 import { registerPerfCommand } from './commands/perf';
 import { registerAttachmentCommand } from './commands/attachment';
 import { registerTeamCommand, selectTeamRoot } from './commands/team';
+import { spawnSync } from 'node:child_process';
+import { delegationTarget, selectDefaultHome } from './lib/release-delegation';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -44,6 +46,17 @@ program
 let releaseCommand: (() => void) | undefined;
 program.hook('preAction', (_program, action) => {
   if (action.name() === 'create' && action.parent?.name() === 'team') selectTeamRoot(action.opts().root);
+  let top = action;
+  while (top.parent && top.parent !== program) top = top.parent;
+  const sub = top === action ? undefined : action.name();
+  // `ri service --root` and `--dev` name their Home themselves.
+  if (!(top.name() === 'service' && top.opts().root) && !action.opts().dev) selectDefaultHome(top.name(), sub);
+  const target = delegationTarget(top.name(), sub);
+  if (target) {
+    const result = spawnSync(target.node, [target.cli, ...process.argv.slice(2)], { stdio: 'inherit',
+      env: { ...process.env, RI_CLI_DELEGATED: '1', RI_RUNTIME_REPO: target.repo, RI_DESKTOP_REPO: target.repo, NEXT_DIST_DIR: '.next-desktop' } });
+    process.exit(result.status ?? 1);
+  }
   // These commands only read local inputs and call the running server. The
   // server owns persistence, including reports from a read-only reviewer.
   if (['report_result', 'report_result_review'].includes(action.name())

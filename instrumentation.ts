@@ -66,6 +66,10 @@ export async function register() {
     await (await import('@/lib/team/startup')).startTeamSpace();
     return;
   }
+  // Skills come from the release that runs them, so they stay current with
+  // every update (docs/always-on-spec.md section 9). Background, never blocking.
+  void perfScope('startup:skills', async () => (await import('@/lib/agent-skills/startup')).refreshSkillsAtStartup())
+    .catch((err: unknown) => console.warn('[skills] startup refresh skipped:', err instanceof Error ? err.message : String(err)));
   await (await import('@/lib/home/execution-startup')).startHomeExecutionRuntime();
 
   const { localAppsEnabled } = await import('@/lib/config/features');

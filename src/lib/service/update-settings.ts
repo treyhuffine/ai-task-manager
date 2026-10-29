@@ -16,10 +16,21 @@ export const MaintenanceWindowSchema = z.object({
   }, 'Choose a valid time zone, such as America/Denver'),
 }).strict();
 
+/** `offer` hands the controller a release built on this computer from a
+ * checkout (docs/always-on-spec.md section 8). `apply-now` switches without
+ * waiting for running chats. `rollback` goes back one release (section 7.6). */
 export const UpdateActionSchema = z.object({
-  action: z.enum(['check', 'download', 'apply', 'when-idle', 'later']),
+  action: z.enum(['check', 'download', 'apply', 'when-idle', 'later', 'offer', 'apply-now', 'rollback']),
   window: MaintenanceWindowSchema.optional(),
-}).strict().refine(value => value.window === undefined || value.action === 'when-idle', 'A maintenance window applies only to Update when idle');
+  release: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  local: z.object({
+    commit: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+    checkout: z.string().min(1).max(4096).optional(),
+  }).strict().optional(),
+}).strict()
+  .refine(value => value.window === undefined || value.action === 'when-idle', 'A maintenance window applies only to Update when idle')
+  .refine(value => (value.action === 'offer') === (value.release !== undefined), 'Only an offer names a release, and every offer names one')
+  .refine(value => value.local === undefined || value.action === 'offer', 'Only an offer describes a local release');
 
 export type UpdatePreferences = z.infer<typeof UpdatePreferencesSchema>;
 export type MaintenanceWindow = z.infer<typeof MaintenanceWindowSchema>;
