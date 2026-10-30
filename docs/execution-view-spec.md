@@ -221,8 +221,30 @@ shows a few of each, and each kind ends with "All N tasks" (or notes, or
 agents), which narrows to it. A path-like query (`src/`, `.tsx`) puts files first.
 A filter after the `@` searches one kind: `task:`, `note:` and `agent:` (spaces
 allowed, since titles and names have them, up to 50 with a "Showing 50 of N"
-caption), `file:`, and `#` for pull requests. The plain list ends with a
-line naming them. While a search is in flight the last list stays up
+caption), `app:` (every app and connector the chat can use) and `connector:`
+(connected accounts only), both with spaces too, `file:`, and `#` for pull
+requests. The plain list ends with a line naming them all.
+
+Kind chips sit above the list from the first `@`: All, Tasks, Notes, Agents,
+Apps, Connectors, Files, PRs, the current one pressed. A chip only writes its
+prefix into the query (`@task:`, keeping the search), so the editor text stays
+the one record of the filter and the chips, the text and the results can't
+disagree. All removes the prefix. While nothing is searched yet, ← and →
+(`HOTKEYS.mentionKindPrevious` / `mentionKindNext`) move between the chips and
+Enter or Tab applies one. Up and down go back to the results. Once a search is
+typed the arrows move the caret again, so a typo can still be fixed. A path
+(`@src/`, `@backend/`) shows no chips, since it is about files.
+
+Typing the start of a kind's name, two letters or more (`ta`, `no`, `ag`,
+`ap`, `co`, `fi`, `pr`), puts that kind on top ("Search tasks", `task:`).
+Tab or Enter completes the query to its prefix without choosing anything,
+and the search continues inside that kind. The results stay listed below,
+one ↓ away, and the row goes as soon as the typing leaves the kind's name, so
+"Take out trash" is the top result again at `@tak`. One letter never offers a
+kind, since it starts too many titles. Kinds, prefixes and labels come from
+one list, `MENTION_KINDS` in `mention-menu/ranking.ts`.
+
+While a search is in flight the last list stays up
 (`asyncItems` in `suggestion/renderer.ts`) instead of flashing empty. The
 popup has its own React root, outside the app's providers, so its rows take
 resolved data (an agent's picture through `resolveAgentPicture`) and call

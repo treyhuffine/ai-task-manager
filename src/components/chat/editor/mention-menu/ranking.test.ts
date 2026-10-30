@@ -4,8 +4,10 @@ import {
   canBrowseReference,
   ENTITY_PREVIEW_LIMIT,
   entitySearchFor,
+  filterQueryText,
+  kindSuggestions,
+  MENTION_KINDS,
   NARROWED_LIMIT,
-  narrowedQueryText,
   parseMentionQuery,
   parseReferenceDrillDown,
   toReferenceMention,
@@ -368,17 +370,19 @@ describe('parseMentionQuery', () => {
     expect(parseMentionQuery('src/task:x')).toEqual({ filter: null, text: 'src/task:x' });
   });
 
-  it('lets only the task and note filters run across spaces', () => {
+  it('lets the filters for things with names run across spaces, and nothing else', () => {
     expect(queryAllowsSpaces('task:deploy keys')).toBe(true);
     expect(queryAllowsSpaces('note:launch plan')).toBe(true);
+    expect(queryAllowsSpaces('app:google drive')).toBe(true);
+    expect(queryAllowsSpaces('connector:work gmail')).toBe(true);
     expect(queryAllowsSpaces('file:src')).toBe(false);
     expect(queryAllowsSpaces('#12')).toBe(false);
     expect(queryAllowsSpaces('deploy keys')).toBe(false);
   });
 
   it('writes the narrowed query a "more" row turns into', () => {
-    expect(narrowedQueryText('task', 'dep')).toBe('@task:dep');
-    expect(narrowedQueryText('note', '')).toBe('@note:');
+    expect(filterQueryText('task', 'dep')).toBe('@task:dep');
+    expect(filterQueryText('note', '')).toBe('@note:');
   });
 });
 
@@ -513,7 +517,7 @@ describe('agents in the picker', () => {
     expect(parseMentionQuery('Agents:ri')).toEqual({ filter: 'agent', text: 'ri' });
     expect(queryAllowsSpaces('agent:job search')).toBe(true);
     expect(entitySearchFor(parseMentionQuery('agent:job'), false)).toBeNull();
-    expect(narrowedQueryText('agent', 'jo')).toBe('@agent:jo');
+    expect(filterQueryText('agent', 'jo')).toBe('@agent:jo');
   });
 
   it('keeps agents out of the PR, file and drill-down lists', () => {
@@ -527,5 +531,90 @@ describe('agents in the picker', () => {
 
   it('offers none when the chat passes no agents', () => {
     expect(names(buildItems({ ...EMPTY, entities: entities(['Ri launch'], []), query: 'ri' }))).toEqual(['task']);
+  });
+});
+
+describe('kinds', () => {
+  it('reads every kind from its own prefix and its plural, and maps each back', () => {
+    for (const kind of MENTION_KINDS) {
+      expect(parseMentionQuery(`${kind.prefix}x`)).toEqual({ filter: kind.filter, text: 'x' });
+      if (kind.filter !== 'pr') {
+        expect(parseMentionQuery(`${kind.name}:x`)).toEqual({ filter: kind.filter, text: 'x' });
+        expect(parseMentionQuery(`${kind.prefix.toUpperCase()}x`).filter).toBe(kind.filter);
+      }
+    }
+    expect(MENTION_KINDS.map((kind) => kind.prefix)).toEqual(['task:', 'note:', 'agent:', 'app:', 'connector:', 'file:', '#']);
+    expect(MENTION_KINDS.map((kind) => kind.label)).toEqual(['Tasks', 'Notes', 'Agents', 'Apps', 'Connectors', 'Files', 'PRs']);
+  });
+
+  it('rewrites the query for a chip, keeping the search', () => {
+    expect(filterQueryText('task', '')).toBe('@task:');
+    expect(filterQueryText('note', 'launch')).toBe('@note:launch');
+    expect(filterQueryText('pr', '19')).toBe('@#19');
+    expect(filterQueryText('connector', 'gmail')).toBe('@connector:gmail');
+    expect(filterQueryText('file', 'page')).toBe('@file:page');
+    // All drops the prefix.
+    expect(filterQueryText(null, 'deploy')).toBe('@deploy');
+    expect(filterQueryText(null, '')).toBe('@');
+  });
+
+  it('keeps a spaced search only where the kind takes spaces, so the picker stays open', () => {
+    expect(filterQueryText('note', 'deploy keys')).toBe('@note:deploy keys');
+    expect(filterQueryText('app', 'google drive')).toBe('@app:google drive');
+    expect(filterQueryText(null, 'deploy keys')).toBe('@');
+    expect(filterQueryText('file', 'deploy keys')).toBe('@file:');
+    expect(filterQueryText('pr', 'deploy keys')).toBe('@#');
+  });
+
+  it('round-trips: the rewritten query parses back to the chip and the search', () => {
+    for (const filter of [null, ...MENTION_KINDS.map((kind) => kind.filter)]) {
+      expect(parseMentionQuery(filterQueryText(filter, 'dep').slice(1))).toEqual({ filter, text: 'dep' });
+    }
+  });
+});
+
+describe('kindSuggestions', () => {
+  const suggested = (query: string) => kindSuggestions(query).map((item) => item.filter);
+
+  it('offers the kind whose name starts with two or more typed letters', () => {
+    expect(suggested('ta')).toEqual(['task']);
+    expect(suggested('no')).toEqual(['note']);
+    expect(suggested('ag')).toEqual(['agent']);
+    expect(suggested('ap')).toEqual(['app']);
+    expect(suggested('co')).toEqual(['connector']);
+    expect(suggested('fi')).toEqual(['file']);
+    expect(suggested('pr')).toEqual(['pr']);
+  });
+
+  it('keeps offering it up to the whole name, singular or plural, case aside', () => {
+    expect(suggested('task')).toEqual(['task']);
+    expect(suggested('Tasks')).toEqual(['task']);
+    expect(suggested('connect')).toEqual(['connector']);
+    expect(suggested('prs')).toEqual(['pr']);
+  });
+
+  it('rewrites the query to the prefix alone, since the letters were the name', () => {
+    expect(kindSuggestions('ta')).toEqual([{ kind: 'filter', filter: 'task', query: '' }]);
+    expect(filterQueryText('task', kindSuggestions('ta')[0].query)).toBe('@task:');
+  });
+
+  // A title starting with the same letters stays one more letter away: the
+  // suggestion goes as soon as the typing leaves the kind's name.
+  it('stops as soon as the typing leaves the name, so a title like it is the top result again', () => {
+    expect(suggested('tak')).toEqual([]);
+    expect(suggested('taskboard')).toEqual([]);
+    expect(suggested('notebook')).toEqual([]);
+    expect(suggested('fix')).toEqual([]);
+    expect(suggested('process')).toEqual([]);
+  });
+
+  it('never fires on one letter, a filter, a path or a PR number', () => {
+    expect(suggested('')).toEqual([]);
+    expect(suggested('t')).toEqual([]);
+    expect(suggested('task:')).toEqual([]);
+    expect(suggested('task:ta')).toEqual([]);
+    expect(suggested('#12')).toEqual([]);
+    expect(suggested('files/')).toEqual([]);
+    expect(suggested('file.ts')).toEqual([]);
   });
 });

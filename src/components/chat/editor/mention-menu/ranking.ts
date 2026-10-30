@@ -12,6 +12,8 @@ import type {
   MentionItem,
   AgentMentionItem,
   FileMentionItem,
+  FilterMentionItem,
+  MentionFilter,
   ReferenceFolderMentionItem,
   PrMentionMenuItem,
   MentionEntityResults,
@@ -20,6 +22,8 @@ import type {
 } from './types'
 import type { PrMentionItem } from '../pr-menu/types'
 import { PR_QUERY_PREFIX } from './pr-trigger'
+
+export type { MentionFilter }
 
 export const MAX_FILES = 30
 /**
@@ -32,33 +36,48 @@ export const NARROWED_LIMIT = 50
 export const MAX_REFERENCES = 8
 export const MAX_PRS = 30
 
-/** What a query narrows the picker to, read from how it opens. */
-export type MentionFilter = 'task' | 'note' | 'agent' | 'file' | 'pr' | 'app' | 'connector'
-
 export interface ParsedMentionQuery {
   filter: MentionFilter | null
   /** The search itself, after any filter prefix. */
   text: string
 }
 
+export interface MentionKind {
+  filter: MentionFilter
+  /** Its chip, plural like the section headers. */
+  label: string
+  /** What narrows the picker to it when typed after the `@`. */
+  prefix: string
+  /** Its name in full, which a kind suggestion matches the start of (`ta`). */
+  name: string
+}
+
 /**
- * Filter prefixes after the `@`. `task:` reads like the `[[task:id]]`
- * markers chips become, and `#` is GitHub's own PR syntax.
+ * The kinds the picker narrows to, in the order their chips show. `task:`
+ * reads like the `[[task:id]]` markers chips become, and `#` is GitHub's
+ * own PR syntax. `app:` lists every app and connector a chat can use,
+ * `connector:` only connected accounts.
  */
-const FILTER_PREFIXES: ReadonlyArray<readonly [string, MentionFilter]> = [
-  ['task:', 'task'],
-  ['tasks:', 'task'],
-  ['app:', 'app'],
-  ['apps:', 'app'],
-  ['connector:', 'connector'],
-  ['connectors:', 'connector'],
-  ['note:', 'note'],
-  ['notes:', 'note'],
-  ['agent:', 'agent'],
-  ['agents:', 'agent'],
-  ['file:', 'file'],
-  ['files:', 'file'],
+export const MENTION_KINDS: readonly MentionKind[] = [
+  { filter: 'task', label: 'Tasks', prefix: 'task:', name: 'tasks' },
+  { filter: 'note', label: 'Notes', prefix: 'note:', name: 'notes' },
+  { filter: 'agent', label: 'Agents', prefix: 'agent:', name: 'agents' },
+  { filter: 'app', label: 'Apps', prefix: 'app:', name: 'apps' },
+  { filter: 'connector', label: 'Connectors', prefix: 'connector:', name: 'connectors' },
+  { filter: 'file', label: 'Files', prefix: 'file:', name: 'files' },
+  { filter: 'pr', label: 'PRs', prefix: PR_QUERY_PREFIX, name: 'prs' },
 ]
+
+export function mentionKind(filter: MentionFilter): MentionKind {
+  const kind = MENTION_KINDS.find((k) => k.filter === filter)
+  if (!kind) throw new Error(`Unknown mention filter: ${filter}`)
+  return kind
+}
+
+/** The word prefixes, singular and plural (`task:`, `tasks:`), case aside. */
+const FILTER_PREFIXES: ReadonlyArray<readonly [string, MentionFilter]> = MENTION_KINDS.flatMap((kind) =>
+  kind.prefix === PR_QUERY_PREFIX ? [] : [[kind.prefix, kind.filter] as const, [`${kind.name}:`, kind.filter] as const],
+)
 
 export function parseMentionQuery(query: string): ParsedMentionQuery {
   if (query.startsWith(PR_QUERY_PREFIX)) {
@@ -72,19 +91,46 @@ export function parseMentionQuery(query: string): ParsedMentionQuery {
 }
 
 /**
- * Task and note titles have spaces, and so do agent names, so a query
- * narrowed to them may too (`@task:deploy keys`, `@agent:job search`).
- * Everything else ends at a space as before, which keeps a mid-sentence `@`
- * from swallowing the rest of the sentence.
+ * Task and note titles have spaces, and so do agent, app and account names,
+ * so a query narrowed to them may too (`@task:deploy keys`, `@agent:job
+ * search`). Everything else ends at a space as before, which keeps a
+ * mid-sentence `@` from swallowing the rest of the sentence.
  */
-export function queryAllowsSpaces(query: string): boolean {
-  const { filter } = parseMentionQuery(query)
+function filterAllowsSpaces(filter: MentionFilter | null): boolean {
   return filter === 'task' || filter === 'note' || filter === 'agent' || filter === 'app' || filter === 'connector'
 }
 
-/** The text that narrows the picker to one kind, keeping the search. */
-export function narrowedQueryText(of: MoreMentionItem['of'], text: string): string {
-  return `@${of}:${text}`
+export function queryAllowsSpaces(query: string): boolean {
+  return filterAllowsSpaces(parseMentionQuery(query).filter)
+}
+
+/**
+ * The text that narrows the picker to one kind (null: every kind), keeping
+ * the search. A search with a space can't move to a kind whose query ends
+ * at one, since the picker would close on it, so that kind starts empty.
+ */
+export function filterQueryText(filter: MentionFilter | null, text: string): string {
+  const prefix = filter ? mentionKind(filter).prefix : ''
+  return `@${prefix}${filterAllowsSpaces(filter) || !/\s/.test(text) ? text : ''}`
+}
+
+/** One letter starts too many titles to suggest a kind for. */
+export const KIND_SUGGESTION_MIN_LENGTH = 2
+
+/**
+ * Kinds whose name starts with what's typed after the `@` (`ta`, `notes`),
+ * offered above the results. Picking one rewrites the query to its prefix
+ * (`@task:`) and the search goes on inside that kind. Only for a plain word:
+ * a filter, a path or a PR number already says what it's after.
+ */
+export function kindSuggestions(query: string): FilterMentionItem[] {
+  const q = query.toLowerCase()
+  if (q.length < KIND_SUGGESTION_MIN_LENGTH || !/^[a-z]+$/.test(q)) return []
+  return MENTION_KINDS.filter((kind) => kind.name.startsWith(q)).map((kind) => ({
+    kind: 'filter',
+    filter: kind.filter,
+    query: '',
+  }))
 }
 
 /**

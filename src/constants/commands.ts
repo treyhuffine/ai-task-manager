@@ -59,10 +59,18 @@ export const HOTKEYS = {
   previewNext: { key: 'ArrowRight', label: '\u2192' },
   // Closes the file beside the chat while focus is in it.
   previewClose: { key: 'Escape', label: 'Esc' },
+  // The `@` menu's kind chips (All, Tasks, Notes...), while nothing is
+  // searched yet. Once a search is typed they move the caret again, so a
+  // typo in it can still be fixed.
+  mentionKindPrevious: { key: 'ArrowLeft', label: '\u2190' },
+  mentionKindNext: { key: 'ArrowRight', label: '\u2192' },
 } as const satisfies Record<string, Hotkey>;
 
+/** What `matchesHotkey` reads, so a DOM or React event both fit. */
+export type HotkeyEvent = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>;
+
 /** Check if a KeyboardEvent matches a Hotkey (strict modifier match) */
-export function matchesHotkey(e: KeyboardEvent, hotkey: Hotkey): boolean {
+export function matchesHotkey(e: HotkeyEvent, hotkey: Hotkey): boolean {
   const shiftRequired = !!hotkey.shift;
   if (hotkey.ctrl) {
     if (!e.ctrlKey || e.metaKey) return false;

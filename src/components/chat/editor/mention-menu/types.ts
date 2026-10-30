@@ -24,6 +24,9 @@ import type { AgentPictureSource } from '@/components/agents/agent-icon';
  *   - more — the end of a short task, note or agent list: how many
  *     matched in all. Picking it narrows the picker to that kind
  *     (`@task:<query>`). In a narrowed picker it's only a caption.
+ *   - filter — narrows the picker to one kind by rewriting the query
+ *     (`@ta` becomes `@task:`). Offered as a row while a kind's name is
+ *     typed, and what the kind chips above the list apply.
  *
  * Tasks and notes come from a server search over the whole home
  * (`SearchMentionEntities`), so a mention can reach any of them.
@@ -117,7 +120,22 @@ export interface MoreMentionItem {
   narrowed: boolean;
 }
 
-export type SearchMentionSources = (query: string, filter?: 'app' | 'connector', groupId?: string, signal?: AbortSignal) => Promise<SourceSearchResult>;
+/** What a query narrows the picker to, read from how it opens (`task:`, `#`). */
+export type MentionFilter = 'task' | 'note' | 'agent' | 'file' | 'pr' | 'app' | 'connector';
+
+/**
+ * Narrows the picker to one kind, or back to every kind (`filter: null`),
+ * by rewriting the query. The editor text stays the only record of the
+ * filter, so the chips, the text and the results can't disagree.
+ */
+export interface FilterMentionItem {
+  kind: 'filter';
+  filter: MentionFilter | null;
+  /** The search carried into the new query. */
+  query: string;
+}
+
+export type SearchMentionSources =(query: string, filter?: 'app' | 'connector', groupId?: string, signal?: AbortSignal) => Promise<SourceSearchResult>;
 
 /**
  * One item a connected app's @ search returned (OpenAI's "Composer
@@ -153,7 +171,8 @@ export type MentionItem =
   | ScratchpadMentionItem
   | ReferenceFolderMentionItem
   | PrMentionMenuItem
-  | MoreMentionItem;
+  | MoreMentionItem
+  | FilterMentionItem;
 
 /** One server search for the picker's tasks and notes. `kind` asks for one. */
 export interface MentionEntitySearch {
