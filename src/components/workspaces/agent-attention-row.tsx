@@ -19,7 +19,8 @@ import { Tip } from '@/components/ui/tip';
  *     and whose header already names the state.
  *
  * The second line is what it's saying: the question it's waiting on, or its
- * reply. Opens the agent.
+ * reply. Opens the agent. In the rail it opens no tooltip on hover, like the
+ * agent rows. In a pill's popover a cut-off line shows whole on hover.
  */
 export function AgentAttentionRow({
   item,
@@ -46,30 +47,28 @@ export function AgentAttentionRow({
 
   if (variant === 'rail') {
     return (
-      <Tip label={`${workspace.name}: ${voice.text}`} onlyWhenTextHidden>
-        <button
-          onClick={open}
-          className={cn(
-            'relative w-full flex items-start gap-2 pl-5 pr-1.5 py-1 rounded-md text-left transition-colors',
-            isActive ? 'bg-secondary text-foreground' : 'hover:bg-muted/40',
-          )}
-        >
-          <span className="flex h-4 items-center flex-shrink-0">
-            <span
-              aria-label={waiting ? 'Waiting on you' : 'New reply'}
-              className={cn('w-2 h-2 rounded-full bg-amber-500', waiting && 'animate-pulse')}
-            />
+      <button
+        onClick={open}
+        className={cn(
+          'relative w-full flex items-start gap-2 pl-5 pr-1.5 py-1 rounded-md text-left transition-colors',
+          isActive ? 'bg-secondary text-foreground' : 'hover:bg-muted/40',
+        )}
+      >
+        <span className="flex h-4 items-center flex-shrink-0">
+          <span
+            aria-label={waiting ? 'Waiting on you' : 'New reply'}
+            className={cn('w-2 h-2 rounded-full bg-amber-500', waiting && 'animate-pulse')}
+          />
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="flex items-center gap-1.5 min-w-0">
+            <AgentIcon workspace={workspace} size="xs" />
+            <span className="truncate text-[11px] font-semibold text-foreground">{workspace.name}</span>
+            {time && <span className="ml-auto flex-shrink-0 text-[9px] text-muted-foreground/60">{time}</span>}
           </span>
-          <span className="flex-1 min-w-0">
-            <span className="flex items-center gap-1.5 min-w-0">
-              <AgentIcon workspace={workspace} size="xs" />
-              <span className="truncate text-[11px] font-semibold text-foreground">{workspace.name}</span>
-              {time && <span className="ml-auto flex-shrink-0 text-[9px] text-muted-foreground/60">{time}</span>}
-            </span>
-            <span className={cn('mt-0.5 block truncate text-[10px] leading-tight', voiceClass)}>{voice.text}</span>
-          </span>
-        </button>
-      </Tip>
+          <span className={cn('mt-0.5 block truncate text-[10px] leading-tight', voiceClass)}>{voice.text}</span>
+        </span>
+      </button>
     );
   }
 

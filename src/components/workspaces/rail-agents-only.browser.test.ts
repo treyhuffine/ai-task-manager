@@ -9,7 +9,8 @@
  * Checks that agents only lists agents and nothing else, each with only its
  * own state, that an agent can be marked read or unread from the rail and
  * from its chat bar (and both agree), that resting on an agent peeks at its
- * chats, and that Agents first is unchanged.
+ * chats, that hovering an agent opens no tooltip while its hover actions
+ * keep theirs, and that Agents first is unchanged.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -71,7 +72,7 @@ beforeAll(async () => {
         agent('fin','Finances','💵','Keeps the books'),
         agent('res','Research','🔬','Reads papers'),
         agent('notes','Notes','📝','Files meeting notes'),
-        agent('docs','Docs','📚','Keeps the product docs current'),
+        agent('docs','Docs','📚','Keeps the product docs current with every release, changelog included'),
       ];
       // read: viewed after its last outcome. unread: an outcome since.
       const chat=(id,workspaceId,label,{unread=false,pinnedAt=null}={})=>({
@@ -226,7 +227,7 @@ for (const theme of ['dark', 'light'] as const) {
         { name: 'Finances', line: 'Categorized October.' },
         { name: 'Research', line: 'Thinking…' },
         { name: 'Notes', line: 'Filed the meeting notes.' },
-        { name: 'Docs', line: 'Keeps the product docs current' },
+        { name: 'Docs', line: 'Keeps the product docs current with every release, changelog included' },
       ]);
       // Bold only when the agent itself wants you.
       expect(Number(await nameWeight(page, 'Ri'))).toBeGreaterThanOrEqual(600);
@@ -310,6 +311,37 @@ it("peeks at an agent's chats when you rest on it", async () => {
     expect(rows.join('\n')).toContain('Import Chase CSV');
     expect(rows.join('\n')).toContain('Tax estimate');
     await page.screenshot({ path: '/tmp/ri-rail-agents-only-peek.png', clip: { x: 0, y: 0, width: 600, height: 520 } });
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('opens no tooltip on an agent, only on its hover actions', async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    const row = (name: string) =>
+      page.locator('[aria-roledescription="sortable"]', { has: page.getByText(name, { exact: true }) });
+    // Longer than the tooltip's open delay (500ms).
+    const settle = () => page.waitForTimeout(900);
+
+    // The icon used to say the presence ("Thinking"). Research has no chats,
+    // so no peek opens over it either.
+    await page.getByRole('button', { name: 'Research: Thinking', exact: true }).hover();
+    await settle();
+    expect(await page.getByRole('tooltip').count()).toBe(0);
+
+    // Docs's line is cut off, which used to show the name and line whole.
+    await row('Docs').getByText('Docs', { exact: true }).hover();
+    const line = row('Docs').getByText(/^Keeps the product docs current/);
+    expect(await line.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    await settle();
+    expect(await page.getByRole('tooltip').count()).toBe(0);
+    await page.screenshot({ path: '/tmp/ri-rail-agent-hover.png', clip: { x: 0, y: 0, width: 420, height: 520 } });
+
+    // Its hover actions still say what they do.
+    await row('Docs').getByRole('button', { name: 'New chat', exact: true }).hover();
+    await page.getByRole('tooltip').filter({ hasText: 'shift-click' }).first().waitFor();
     expect(errors).toEqual([]);
   } finally {
     await page.close();

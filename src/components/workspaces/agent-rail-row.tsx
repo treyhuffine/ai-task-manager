@@ -94,6 +94,10 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  *
  * Its menu marks the agent read or unread, which is its main chat's read
  * state, so an agent you've opened can be put back to come back to.
+ *
+ * The agent itself opens no tooltip on hover: one on every agent the pointer
+ * crosses was distracting. The icon's label still says its presence to a
+ * screen reader. The hover actions keep theirs.
  */
 export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onOpenLauncher }: AgentRailRowProps) {
   const { streamingSessionIds, pendingInputSessionIds, activeView, activeSessionId, activeExecutionId, openAgent } =
@@ -216,52 +220,48 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
           isActive ? 'bg-secondary' : agentsOnly && hasOpen ? 'bg-secondary/60' : 'hover:bg-muted/40',
         )}
       >
-        <Tip label={activity ? PRESENCE[activity].label : undefined}>
-          <button
-            onClick={open}
-            className="relative flex-shrink-0 rounded-md"
-            aria-label={activity ? `${workspace.name}: ${PRESENCE[activity].label}` : `Open ${workspace.name}`}
-          >
-            <AgentIcon workspace={workspace} size="md" />
-            {activity && (
-              <span
-                aria-hidden
-                className={cn(
-                  'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-background',
-                  PRESENCE[activity].dot,
-                )}
-              />
-            )}
-          </button>
-        </Tip>
+        <button
+          onClick={open}
+          className="relative flex-shrink-0 rounded-md"
+          aria-label={activity ? `${workspace.name}: ${PRESENCE[activity].label}` : `Open ${workspace.name}`}
+        >
+          <AgentIcon workspace={workspace} size="md" />
+          {activity && (
+            <span
+              aria-hidden
+              className={cn(
+                'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-background',
+                PRESENCE[activity].dot,
+              )}
+            />
+          )}
+        </button>
         <AgentChatsFlyout
           name={workspace.name}
           enabled={hasThreads && !expanded && !isDragging && !selecting}
           hoverTarget={header}
           onClick={open}
           onNewChat={() => onOpenLauncher(workspace.id)}
-          trigger={({ ref, open: flyoutOpen, onClick }) => (
-            <Tip label={flyoutOpen ? undefined : voice ? `${workspace.name}: ${voice.text}` : workspace.name} onlyWhenTextHidden>
-              <button
-                ref={ref}
-                onClick={onClick}
-                className="flex-1 min-w-0 text-left"
-              >
-                <span
-                  className={cn(
-                    'block truncate text-[12.5px] leading-tight',
-                    wantsYou ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
-                  )}
-                >
-                  {workspace.name}
-                </span>
-                {voice && (
-                  <span className={cn('mt-0.5 block truncate text-[10.5px] leading-tight', VOICE_TONE[voice.tone])}>
-                    {voice.text}
-                  </span>
+          trigger={({ ref, onClick }) => (
+            <button
+              ref={ref}
+              onClick={onClick}
+              className="flex-1 min-w-0 text-left"
+            >
+              <span
+                className={cn(
+                  'block truncate text-[12.5px] leading-tight',
+                  wantsYou ? 'font-semibold text-foreground' : 'font-medium text-foreground/85',
                 )}
-              </button>
-            </Tip>
+              >
+                {workspace.name}
+              </span>
+              {voice && (
+                <span className={cn('mt-0.5 block truncate text-[10.5px] leading-tight', VOICE_TONE[voice.tone])}>
+                  {voice.text}
+                </span>
+              )}
+            </button>
           )}
         >
           {threads}

@@ -38,7 +38,8 @@ interface WorkspaceRowProps {
  * trial preference says so (`agent-view-mode.ts`). The icon area swaps on
  * hover: agent icon (image / emoji / area fallback / folder default) by
  * default, the fold chevron when the pointer is over the row, and the
- * chevron always folds.
+ * chevron always folds. The icon and name open no tooltip on hover, as in
+ * the agents-first row. The ↗ and + actions keep theirs.
  *
  * Aggregates work off the row's pre-counted candidates plus the runtime
  * streaming map: any child currently piping live stdio outranks "needs
@@ -185,40 +186,36 @@ export function WorkspaceRow({
       >
         <div className="flex-1 flex items-center gap-1 min-w-0">
           {/* Icon swap on hover: emoji/image when idle, the fold chevron on hover. */}
-          <Tip label={expanded ? 'Fold' : 'Unfold'}>
-            <button
-              onClick={toggleCollapse}
-              className="relative w-5 h-5 flex items-center justify-center flex-shrink-0"
-              aria-label={expanded ? `Fold ${workspace.name}` : `Unfold ${workspace.name}`}
-            >
-              <span className="group-hover:hidden flex items-center justify-center">
-                <AgentIcon workspace={workspace} size="sm" />
-              </span>
-              <ChevronRight
-                size={13}
-                className={cn(
-                  'hidden group-hover:block text-muted-foreground/80 transition-transform',
-                  expanded && 'rotate-90',
-                )}
-              />
-            </button>
-          </Tip>
+          <button
+            onClick={toggleCollapse}
+            className="relative w-5 h-5 flex items-center justify-center flex-shrink-0"
+            aria-label={expanded ? `Fold ${workspace.name}` : `Unfold ${workspace.name}`}
+          >
+            <span className="group-hover:hidden flex items-center justify-center">
+              <AgentIcon workspace={workspace} size="sm" />
+            </span>
+            <ChevronRight
+              size={13}
+              className={cn(
+                'hidden group-hover:block text-muted-foreground/80 transition-transform',
+                expanded && 'rotate-90',
+              )}
+            />
+          </button>
           <AgentChatsFlyout
             name={workspace.name}
             enabled={!expanded && childSessions.length > 0 && !isDragging && !selecting}
             hoverTarget={header}
             onClick={open}
             onNewChat={() => onOpenLauncher(workspace.id)}
-            trigger={({ ref, open: flyoutOpen, onClick }) => (
-              <Tip label={flyoutOpen ? undefined : workspace.name} onlyWhenTextHidden>
-                <button
-                  ref={ref}
-                  onClick={onClick}
-                  className="flex-1 min-w-0 text-left text-[11.5px] font-semibold truncate text-foreground"
-                >
-                  {workspace.name}
-                </button>
-              </Tip>
+            trigger={({ ref, onClick }) => (
+              <button
+                ref={ref}
+                onClick={onClick}
+                className="flex-1 min-w-0 text-left text-[11.5px] font-semibold truncate text-foreground"
+              >
+                {workspace.name}
+              </button>
             )}
           >
             {chats}
