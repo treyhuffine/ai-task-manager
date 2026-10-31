@@ -160,6 +160,8 @@ export const teamRouter = router({
       const member = me(ctx);
       const agent = aiClient(input.client);
       if (agent.limitation) throw new q.TeamError('invalid', agent.limitation);
+      // An agent that signs in (ChatGPT) does so to a personal Ri, never with a team key.
+      if (agent.signsIn) throw new q.TeamError('invalid', `${agent.label} signs in to a personal Ri. Connect it to your own Ri, which can reach this team’s shared tasks.`);
       const { client, token } = q.createMemberAiClient(member.id, input.name ?? agent.keyName, input.client);
       const { base, reachable } = await teamLinkAddress(requestOrigin(ctx.request));
       return { client, token: token.plaintext, mcpUrl: `${base}${TEAM_MCP_PATH}`, reachable };

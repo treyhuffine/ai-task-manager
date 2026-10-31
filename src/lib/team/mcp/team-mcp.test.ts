@@ -411,6 +411,13 @@ describe('when an AI client stops working', () => {
     expect(q.listMemberAiClients(maya.id)).toEqual([]);
   });
 
+  it('makes no team key for an agent that signs in to a personal Ri', async () => {
+    const maya = await joinAs('Maya');
+    await expect((await trpcFor(maya.token)).team.aiClients.create.mutate({ client: 'chatgpt' })).rejects.toThrow(/personal Ri/);
+    const q = await import('@/lib/db/queries');
+    expect(q.listMemberAiClients(maya.id)).toEqual([]);
+  });
+
   it('only lets a member disconnect their own clients', async () => {
     const maya = await joinAs('Maya');
     const theirs = await connectAi(maya.token);

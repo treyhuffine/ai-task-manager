@@ -201,7 +201,9 @@ it.skipIf(!enabled)('lists every agent and makes a key inside its item the momen
     expect(await codex.locator('ol pre').first().textContent()).toBe('[mcp_servers.ri-team-huffine]\nurl = "https://team.example.test/api/team/mcp"\nhttp_headers = { Authorization = "Bearer fictional-test-token" }');
     expect(await page.evaluate('window.connectionCalls')).toEqual([{ client: 'claude_code' }, { client: 'codex' }]);
     await page.locator('[data-agent-client=chatgpt]').getByRole('button', { name: /ChatGPT/ }).click();
-    await page.getByText('ChatGPT connects to an MCP server only with an OAuth sign-in', { exact: false }).waitFor();
+    // ChatGPT signs in to a personal Ri, so a team's item says where to connect it instead.
+    await page.getByText('ChatGPT signs in to a personal Ri', { exact: false }).waitFor();
+    expect(await page.locator('[data-agent-client=chatgpt]').getByText('In ChatGPT', { exact: true }).count()).toBe(0);
   } finally { await page.close(); }
 }, 30_000);
 

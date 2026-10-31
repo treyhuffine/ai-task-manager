@@ -6269,12 +6269,12 @@ function aiClientView(key: ApiKeyRecord): AiClientView {
 }
 
 /** Personal clients have no device or member and never become sign-in credentials. */
-export function createPersonalAiClient(name: string, client: string | null = null): { client: AiClientView; token: GeneratedToken } {
+export function createPersonalAiClient(name: string, client: string | null = null, options: { description?: string } = {}): { client: AiClientView; token: GeneratedToken } {
   assertPersonalCapability('Personal external assistants');
   const clean = name.trim().replace(/\s+/g, ' ');
   if (!clean || clean.length > AI_CLIENT_NAME_MAX) throw new TeamError('invalid', `Use a connection label of ${AI_CLIENT_NAME_MAX} characters or fewer.`);
   // Only a recorded client is written, so older schemas (upgrade fixtures) still take the row.
-  const { key, token } = insertApiKey(getDb(), { name: clean, role: 'ai_client', memberId: null, deviceId: null, ...(client ? { client } : {}) });
+  const { key, token } = insertApiKey(getDb(), { name: clean, role: 'ai_client', memberId: null, deviceId: null, description: options.description ?? null, ...(client ? { client } : {}) });
   return { client: aiClientView(key), token };
 }
 

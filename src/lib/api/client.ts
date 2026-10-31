@@ -185,6 +185,10 @@ export function clearAuthToken(): void {
 }
 
 function defaultOnUnauthorized(): void {
+  // An app's sign-in page signs the browser in where it stands. A refusal
+  // there only means "not signed in yet", and clearing would race its own
+  // sign-in and delete the cookie it just set.
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/oauth/')) return;
   clearAuthToken();
   sessionCookie = null;
   if (typeof window === 'undefined') return;
@@ -204,6 +208,15 @@ function defaultOnUnauthorized(): void {
   }
   if (window.location.pathname === '/pair') return;
   window.location.assign('/pair');
+}
+
+/**
+ * Pages a browser opens before it's signed in, which never send it to /pair:
+ * pairing itself, and the page an app's sign-in opens (`/oauth/authorize`),
+ * which signs the browser in where it stands so the app's request isn't lost.
+ */
+export function isSignInPage(pathname: string): boolean {
+  return pathname === '/pair' || pathname.startsWith('/oauth/');
 }
 
 /** Fired when a team's sign-in stops working on its own page, so it shows how to sign in again. */

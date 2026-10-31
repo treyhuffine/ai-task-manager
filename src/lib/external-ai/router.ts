@@ -36,6 +36,7 @@ export const externalAiRouter = router({
     const connection = address();
     const agent = aiClient(input.client);
     if (agent.limitation) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: agent.limitation });
+    if (agent.signsIn) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${agent.label} signs in to Ri with OAuth, so it never needs a key. Follow its steps instead.` });
     const { client, token } = q.createPersonalAiClient(input.name ?? agent.keyName, input.client);
     return { client, token: token.plaintext, ...connection };
   }),

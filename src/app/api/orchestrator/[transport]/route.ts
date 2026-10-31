@@ -16,7 +16,8 @@ import { registerActionTool } from '@/lib/orchestrator/mcp-registration';
 
 import { isMcpTransport, mcpNotFound, riMcpHandler } from '@/lib/mcp/http-server';
 import { getRequestKey } from '@/lib/auth/request-key';
-import { permitsHomeContentAction } from '@/lib/external-ai/policy';
+import { contentToolAnnotations, permitsHomeContentAction } from '@/lib/external-ai/policy';
+import { registerHomeViews, VIEW_CALLED_META, VIEW_CALLED_TOOLS } from '@/lib/external-ai/views/tools';
 import { APP_NAME } from '@/constants/app';
 import { actions } from '@/lib/orchestrator/registry';
 import { runAction } from '@/lib/orchestrator/dispatch';
@@ -50,6 +51,7 @@ function contentInstructions(): string {
 - Read before writing. When you edit a body, pass its current revision so newer text is never replaced.
 - A decision is a note with kind "decision", titled with what was decided.
 - There is no delete. Archive instead.
+- If you can show MCP Apps views, show_deck draws today's deck and show_tasks a list of tasks, where the user can start or finish them. Use them when the user should see the result, and the list_* and get_* tools to read for yourself.
 
 These tools act directly on the user's ${APP_NAME}. They do not start ${APP_NAME} chats or run commands, and they can't reach the private capture stream, chats, files or settings.
 
@@ -80,9 +82,16 @@ async function handle(request: Request) {
               isError: !envelope.ok,
             };
           },
-          contentOnly ? { params: action.localContract?.params ?? action.params, description: action.name === 'search' ? 'Search the tasks and notes in this Ri by meaning or keyword.' : action.localContract?.description ?? action.description } : undefined,
+          contentOnly ? {
+            params: action.localContract?.params ?? action.params,
+            description: action.name === 'search' ? 'Search the tasks and notes in this Ri by meaning or keyword.' : action.localContract?.description ?? action.description,
+            annotations: contentToolAnnotations(action),
+            ...(VIEW_CALLED_TOOLS.has(action.name) ? { _meta: VIEW_CALLED_META } : {}),
+          } : undefined,
         );
       }
+      // Outside assistants that draw MCP Apps views (ChatGPT, Claude) can show the deck and task lists.
+      if (contentOnly) registerHomeViews(server);
     },
     {
       name: `${APP_NAME.toLowerCase()}-orchestrator`,

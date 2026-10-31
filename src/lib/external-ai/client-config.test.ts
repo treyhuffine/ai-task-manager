@@ -52,12 +52,25 @@ describe('the list', () => {
       if (client.limitation) {
         expect(setup.steps).toEqual([]);
         expect(setup.caveat).toBe(client.limitation);
+      } else if (client.signsIn) {
+        // It signs in to Ri, so no step ever holds a key.
+        expect(setup.steps.length, client.kind).toBeGreaterThan(0);
+        expect(setup.steps.some(step => step.secret || step.text.includes(TOKEN)), client.kind).toBe(false);
       } else {
         expect(setup.steps.length, client.kind).toBeGreaterThan(0);
         expect(setup.steps.some(step => step.secret && step.text.includes(TOKEN)), client.kind).toBe(true);
       }
     }
-    expect(aiClient('chatgpt').limitation).toMatch(/OAuth/);
+  });
+
+  it('connects ChatGPT by signing in, with Ri’s address and nothing secret', () => {
+    expect(aiClient('chatgpt')).toMatchObject({ signsIn: true, local: null });
+    expect(aiClient('chatgpt').limitation).toBeUndefined();
+    const setup = aiClientSetup('chatgpt', personal);
+    expect(setup.steps.map(step => step.text)).toEqual(['Ri', personal.mcpUrl]);
+    expect(setup.caveat).toMatch(/OAuth/);
+    expect(aiClientSetup('chatgpt', { ...personal, ...personalMcpNames('development') }).steps[0].text).toBe('Ri dev');
+    expect(aiClientSetup('chatgpt', team)).toMatchObject({ steps: [], caveat: expect.stringMatching(/personal Ri/) });
   });
 
   it('waits for a key: placeholders and secret marks exactly where the key goes', () => {

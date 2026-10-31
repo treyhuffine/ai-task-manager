@@ -53,10 +53,27 @@ export interface RiMcpToolConfig {
 
 export type RiMcpToolHandler = (args: Record<string, unknown>, context: RiMcpToolContext) => RiMcpToolResult | Promise<RiMcpToolResult>;
 
+/** One resource's contents, such as an MCP Apps view's HTML. */
+export interface RiMcpResourceContents {
+  uri: string;
+  mimeType?: string;
+  text: string;
+  _meta?: Record<string, unknown>;
+}
+
+export interface RiMcpResourceConfig {
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  _meta?: Record<string, unknown>;
+}
+
 /** The registrar every Ri MCP route builds its tools on. */
 export interface RiMcpServer {
   readonly era: 'legacy' | 'modern';
   registerTool(name: string, config: RiMcpToolConfig, handler: RiMcpToolHandler): void;
+  /** A fixed resource. Registering one is what makes the server offer resources. */
+  registerResource(name: string, uri: string, config: RiMcpResourceConfig, read: () => { contents: RiMcpResourceContents[] }): void;
 }
 
 export interface RiMcpServerOptions {
@@ -144,6 +161,9 @@ function registrar(server: McpServer, era: 'legacy' | 'modern'): RiMcpServer {
       } else {
         server.registerTool(name, rest, ctx => call({}, ctx));
       }
+    },
+    registerResource(name, uri, config, read) {
+      server.registerResource(name, uri, config, () => read());
     },
   };
 }

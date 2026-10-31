@@ -90,6 +90,19 @@ const nextConfig: NextConfig = {
         { key: 'X-Content-Type-Options', value: 'nosniff' },
         { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self'; connect-src 'self'" },
       ],
+    }, {
+      // An app's sign-in page: never inside another site's frame, where a
+      // click on Allow could be stolen, and never cached (docs/mcp-oauth.md).
+      // No referrer leaves for other sites. Not `no-referrer`: under it a
+      // form POST carries `Origin: null`, and the proxy refuses a cookie POST
+      // whose origin isn't Ri's, so Allow would never arrive.
+      source: '/oauth/:path*',
+      headers: [
+        { key: 'X-Frame-Options', value: 'DENY' },
+        { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+        { key: 'Cache-Control', value: 'no-store' },
+        { key: 'Referrer-Policy', value: 'same-origin' },
+      ],
     }];
   },
   // StrictMode's dev-only double-fire of effects was causing real
