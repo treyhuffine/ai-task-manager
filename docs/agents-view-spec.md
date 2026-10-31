@@ -8,7 +8,7 @@
 
 ## 1. Summary
 
-Ri is becoming agent-forward. In the UI, a workspace is now called an **agent**. Clicking an agent in the rail opens its **agent view**: the agent's main chat on the left and its tools on the right. The agent's main chat **manages that agent's work**. It sees every execution, answers questions about them, steers them, starts new ones, and closes them out.
+Ri is becoming agent-forward. In the UI, a workspace is now called an **agent**. Clicking an agent in the rail opens its **agent view**: the agent's main chat on the left and its tools on the right. The agent's main chat **coordinates that agent's work**. It sees every execution, answers questions about them, steers them, starts new ones, and closes them out, and sends anything that would fill its own context (building, research, wide reading) to an execution.
 
 Along the way we delete the vestigial `agents` table (it only ever stored which engine runs a chat) and use the word **harness** wherever the code means the engine.
 
@@ -25,6 +25,7 @@ Locked during alignment on 2026-09-22.
 3. **Clicking an agent's name opens the agent view.** The chevron folds its execution list.
 4. **Agent view layout:** chat on the left, tools on the right as tabs: **Overview** (default), **Files**, **Terminal**, **Preview**, **Setup**.
 5. **The agent's main chat manages work:** see, answer, steer, start, close out. In a git agent it never edits the checkout. Code changes go through executions so it cannot collide with running worktrees. Agents that are not git repos may act directly.
+   - **Amended 2026-10-31: it is a coordinator.** The line is how much reading or work a job takes, not whether it is code. Research, investigation, debugging, a doc or report, and anything that reads more than a few files or runs more than a couple of minutes start an execution too, so the chat's context, which has to last for days, stays free for coordination and quick lookups. The rule and its reasons are in `docs/orchestrator-harness.md` (Agent main chats).
 6. **One persistent main chat per agent**, resumed when the agent view opens. History and "new chat" sit behind a menu.
 7. **Both the app's main chat and an agent's main chat may message any execution directly.** No chain of command. The execution transcript is the shared record, and every message records who sent it.
 8. **The old `agents` table is deleted.** The engine moves onto chats, triggers and runs as a `harness` column.

@@ -223,9 +223,9 @@ orchestrator itself can create on request.
 
 ## Agent main chats
 
-An agent (a workspace, in code) has its own main chat that manages its work
-(docs/agents-view-spec.md). It is an orchestration chat with the workspace
-set and no execution:
+An agent (a workspace, in code) has its own main chat that coordinates its
+work (docs/agents-view-spec.md). It is an orchestration chat with the
+workspace set and no execution:
 
 - **Routes.** `GET /api/workspaces/:id/chat` (ensure), `POST .../chat/new`,
   `GET .../chat/history`, `POST .../chat/resume`. Same shapes as the app's
@@ -243,22 +243,35 @@ set and no execution:
   instructions file and sends it ahead of the chat's first message (its
   `skillDirs` go in a temporary folder added with `--add-dir`, never the
   folder, since agentex 0.0.46).
-  Cursor and OpenCode drop session instructions, so the brief rides the
-  first message of a fresh chat.
+  Cursor and OpenCode drop session instructions, so the brief rides each
+  message the chat sends.
 - **Scope.** The same as its executions: its integration scopes (when the
   harness isolates MCP), the agent browser on the isolated `ws-<id>`
   profile, and its reference folders.
-- **Building is an execution.** When the user asks the main chat to build,
-  fix, or change something, it starts an execution rather than doing the
-  work in the chat, so the work is something the user can watch, steer and
-  review. Project context and decisions can be requested in an existing
-  agent main chat, where those conversations remain visible. The app's main chat follows
-  the same rule: building in an agent starts an execution there, never a
+- **A coordinator, not a worker.** The main chat runs for days, so its
+  context is the scarce resource: once it is summarized, it loses track of
+  what is running and what was decided. The brief draws the line by how
+  much reading or work a job takes, not by whether it is code. The chat
+  itself coordinates (reads transcripts, writes briefs, answers about work
+  in progress, steers, closes out), does quick lookups of a handful of tool
+  calls, including the reading a good brief needs, and answers from its own
+  conversation. Everything else starts an execution with `delegate_work`:
+  building, fixing or changing files, research, investigation, debugging, a
+  doc or report, anything that reads more than a few files or web pages or
+  runs more than a couple of minutes, and anything the user would want to
+  watch, steer or come back to. A research brief asks for a short report of
+  conclusions and evidence, no file changes unless asked, and no installs
+  unless the work needs them. Once it delegates, the chat waits for the
+  outcome and relays it instead of doing the work too. Project context and
+  decisions can be requested in an existing agent main chat, where those
+  conversations remain visible. The app's main chat follows the same rule
+  for building: building in an agent starts an execution there, never a
   message to that agent's main chat. This is prompt-level, since
   `message_agent` may still reach any session.
 - **The git rule.** In a git agent the file-editing tools are denied and the
-  brief sends every change through `delegate_work`, because the checkout
-  is what every execution's worktree branches from. Only Claude enforces
+  brief sends every change, and any reading wider than a quick question or a
+  brief needs, through `delegate_work`, because the checkout is what every
+  execution's worktree branches from. Only Claude enforces
   the tool filter, so elsewhere it is prompt-only and the adapter logs it. A
   non-git agent has no guard, and its brief edits a file directly only when
   the user asks for that edit in the chat.
@@ -267,7 +280,11 @@ set and no execution:
   executions and main chat, and name and purpose edits recycle only the
   main chat. A session mid-turn is recycled when the turn ends
   (`recycleWhenIdle`), so a chat editing its own agent never cuts itself
-  off.
+  off. The brief is rendered at every spawn, so a change to its code reaches
+  an existing main chat the next time it spawns on a server running that
+  code. Claude and Codex read it again when they resume, and Cursor and
+  OpenCode carry it with each message. Antigravity reads it only when a
+  conversation starts, so it reaches the next new chat there.
 - **Where it doesn't show.** Not in Needs Review (interactive orchestration
   chats never are), not in the rail or the agent's execution list (both
   list executions), not in session search.

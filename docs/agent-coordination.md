@@ -58,7 +58,7 @@ Receipts expose `delivery_id`, optional `request_id`, delivery `status`, `reques
 | `start_execution` | `delegate_work` |
 | `submit_memory_finding` | `message_agent`, target orchestrator, `response: "none"` |
 
-Removed tools have no MCP or CLI aliases. The orchestration registry generates both surfaces. Qualified personal chats receive the focused native coordination server, with a signed CLI fallback. Team chats and internal reviewers retain their restricted surfaces. The orchestrator and agent main chats are encouraged to consult and delegate proactively within the user's intent and permission.
+Removed tools have no MCP or CLI aliases. The orchestration registry generates both surfaces. Qualified personal chats receive the focused native coordination server, with a signed CLI fallback. Team chats and internal reviewers retain their restricted surfaces. The orchestrator and agent main chats are encouraged to consult and delegate proactively within the user's intent and permission. An agent's main chat delegates research and wide reading as well as building, keeping its own context for coordination (`docs/orchestrator-harness.md`, Agent main chats).
 
 ## Permission and Hold
 
