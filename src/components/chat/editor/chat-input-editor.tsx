@@ -56,6 +56,7 @@ import { uuidv7 } from 'uuidv7';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
+import { useTouchFirst } from '@/hooks/use-touch-first';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { attachmentUrl } from '@/lib/attachments/view';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
@@ -193,15 +194,16 @@ export interface ChatInputEditorProps {
    * placeholder and again when it resolves (or is removed on failure).
    */
   onPendingUploadsChange?: (hasPendingUploads: boolean) => void;
-  /** Called when the user hits Enter (without Shift). */
+  /** Called when the user sends from the keyboard (see `submitOnEnter`). */
   onSubmit?: () => void;
   /**
-   * Whether a bare Enter submits. `true` (default) is the desktop
-   * behavior — Enter sends, Shift+Enter inserts a newline. `false` flips
-   * it for touch UX: Enter inserts a newline and the user submits with
-   * the send button, matching the native iOS/Android return key. Mod+Enter
-   * (Cmd/Ctrl) always submits regardless, as a hardware-keyboard escape
-   * hatch.
+   * Whether a bare Enter submits. Left unset, it follows the device
+   * (`useTouchFirst`): on a computer Enter sends and Shift+Enter inserts a
+   * newline, and on a phone or tablet Enter inserts a newline, as the
+   * on-screen keyboard's return key does, and the send button sends.
+   * Mod+Enter (Cmd/Ctrl) always submits, for a tablet with a keyboard.
+   * Pass it only for a box that is one way everywhere, such as a
+   * multi-line feedback box (`false`).
    */
   submitOnEnter?: boolean;
   /** Called for any unhandled Backspace-on-empty (parent may want to react). */
@@ -394,7 +396,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
       onContentChange,
       onPendingUploadsChange,
       onSubmit,
-      submitOnEnter = true,
+      submitOnEnter,
       onBackspaceOnEmpty,
       onUploadError,
       onFocus,
@@ -426,10 +428,11 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
     const editableRef = useRef(!disabled);
     editableRef.current = !disabled;
     // Mirror in a ref so the keymap (built once via useMemo) always reads
-    // the latest value without re-creating the editor when the consumer
-    // flips between mobile/desktop layouts.
-    const submitOnEnterRef = useRef(submitOnEnter);
-    submitOnEnterRef.current = submitOnEnter;
+    // the latest value without re-creating the editor when the device
+    // changes (a trackpad connected to a tablet).
+    const touchFirst = useTouchFirst();
+    const submitOnEnterRef = useRef(submitOnEnter ?? !touchFirst);
+    submitOnEnterRef.current = submitOnEnter ?? !touchFirst;
     const onBackspaceRef = useRef(onBackspaceOnEmpty);
     onBackspaceRef.current = onBackspaceOnEmpty;
     const onUploadErrorRef = useRef(onUploadError);
@@ -492,8 +495,10 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           addKeyboardShortcuts() {
             return {
               Enter: () => {
-                // Mobile composer (submitOnEnter=false): Enter is a
-                // newline, like the native return key. Send is button-only.
+                // Touch-first device (or submitOnEnter=false): Enter is a
+                // newline, like the native return key. Send is the button
+                // or Mod+Enter. Open `/ @ #` menus take Enter first (their
+                // plugins run at a higher priority), so it still picks there.
                 if (!submitOnEnterRef.current) {
                   return this.editor.commands.setHardBreak();
                 }

@@ -488,21 +488,17 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
   });
 
   // Chat body: tabs, then the chat column (execution-chat-column.tsx).
-  // Rendered in both the phone (`lg:hidden`) and desktop (`hidden lg:flex`)
-  // subtrees, with opposite Enter semantics: the phone composer treats
-  // Enter as a newline (send via button, like a native keyboard), the
-  // desktop composer submits on Enter. Binding it to the subtree rather
-  // than a runtime viewport check keeps each instance matched to the
-  // layout it's in.
+  // Rendered in the phone (`lg:hidden`) or desktop (`hidden lg:flex`)
+  // subtree, whichever the viewport shows. Enter follows the device, not
+  // the layout (`useTouchFirst` in the editor).
   //
   // `withBox` floats the tools box over the chat's right side. Below
   // ~1390px of chat width the parts it would cover pad themselves clear of
   // it, and below ~1060px the box folds into an icon strip.
-  const renderChatBody = (submitOnEnter: boolean, withBox: boolean) => (
+  const renderChatBody = (withBox: boolean) => (
     <ExecutionChatColumn
       chat={chat}
       composerRef={composerHandleRef}
-      submitOnEnter={submitOnEnter}
       clearBox={withBox ? TOOLS_BOX_CLEARANCE : undefined}
       // Sibling-chat tabs: conversations only, never files.
       tabs={!!session.executionId && (
@@ -559,9 +555,8 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
               <ExecutionActionBar session={session} workspace={workspace} />
             </div>
           )}
-          {/* Phone: Enter inserts a newline; the send button submits. Only
-              where the viewport shows this half (useViewportTier). */}
-          {!wide && renderChatBody(false, false)}
+          {/* Only where the viewport shows this half (useViewportTier). */}
+          {!wide && renderChatBody(false)}
         </div>
         {mobileVisible && mobileView && (
           <MobileDestination
@@ -634,8 +629,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
               </div>
             )}
             <div key="chat" {...{ [PREVIEW_HOST_ATTRIBUTE]: besideHost }} className={cn('@container/chat relative flex min-h-0 min-w-0 flex-1 flex-col bg-background', maximized && 'hidden')}>
-              {/* Desktop: Enter submits (Shift+Enter for a newline). */}
-              {wide !== false && renderChatBody(true, !panelOpen)}
+              {wide !== false && renderChatBody(!panelOpen)}
             </div>
             {panelOpen && desktopVisible && (
               <>

@@ -60,7 +60,6 @@ import { useEffect, useRef, useState } from 'react';
  * agent's (docs/agents-view-spec.md §4). Same component, same composer.
  */
 export function HarnessChat({
-  isMobile = false,
   scope = null,
   composerPlaceholder,
   autoFocusComposer,
@@ -68,7 +67,6 @@ export function HarnessChat({
   emptyState,
   clearBox,
 }: {
-  isMobile?: boolean;
   scope?: MainChatScope;
   composerPlaceholder?: string;
   autoFocusComposer?: boolean;
@@ -114,7 +112,6 @@ export function HarnessChat({
     <ChatRefreshBoundary error={error} retry={() => void refetch()}><HarnessChatSession
       sessionId={sessionId}
       chatMenuInHeader
-      isMobile={isMobile}
       composerPlaceholder={composerPlaceholder}
       autoFocusComposer={autoFocusComposer}
       intro={intro}
@@ -143,7 +140,6 @@ type HarnessChatSessionProps = {
   sessionId: string;
   /** Main chats provide their menu in the surrounding header. Embedded chats keep it in their action row. */
   chatMenuInHeader?: boolean;
-  isMobile?: boolean;
   /** Placeholder for the composer. The agent-first entity view passes
    *  document-specific teaching copy; executions keep the default. */
   composerPlaceholder?: string;
@@ -174,7 +170,6 @@ export function HarnessChatSession(props: HarnessChatSessionProps) {
 
 function ChatSession({
   sessionId,
-  isMobile = false,
   autoFocusComposer = true,
   composerPlaceholder,
   intro,
@@ -288,7 +283,6 @@ function ChatSession({
           serviceTier={session.serviceTier}
           harness={session.harness}
           leadingActions={<><AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />{!chatMenuInHeader && <ChatMenu sessionId={session.id} />}</>}
-          submitOnEnter={!isMobile}
           isRunning={isRunning}
           onSwitchProvider={onSwitchProvider}
           switchingProvider={switchingProvider}

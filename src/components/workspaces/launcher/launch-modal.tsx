@@ -7,7 +7,7 @@ import { useHomeStorageScope } from '@/components/home/home-context';
 import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
 import { LaunchAudience } from './launch-audience';
 import { useDefaultSelection } from '@/hooks/use-default-selection';
-import { useViewportTier } from '@/hooks/use-viewport-tier';
+import { useTouchFirst } from '@/hooks/use-touch-first';
 import { useVisualViewportBottom } from '@/hooks/use-visual-viewport-bottom';
 
 import { AttachButton } from '@/components/chat/editor/attach-button';
@@ -158,12 +158,11 @@ function LaunchModalInner({
   const storageScope = useHomeStorageScope();
   const defaultSelection = useDefaultSelection();
 
-  // Below desktop (a phone's + sheet, a tablet) the launcher takes touch
-  // rules, the same ones the chat composer follows there: Enter adds a line
-  // and Start sends, no keys are hinted at, and the panel stays above the
-  // on-screen keyboard so Start is always in reach.
-  const tier = useViewportTier();
-  const touch = tier !== null && tier !== 'desktop';
+  // On a phone or tablet (by the input device, not the width) the launcher
+  // takes touch rules, the same ones every chat composer follows there: Enter
+  // adds a line and Start sends, no keys are hinted at, and the panel stays
+  // above the on-screen keyboard so Start is always in reach.
+  const touch = useTouchFirst();
   const visibleBottom = useVisualViewportBottom();
 
   // Where it runs (P3.1): the agent's default, unless picked for this one
@@ -617,9 +616,9 @@ function LaunchModalInner({
     && !runOnProblem
     && !runtimeProblem;
 
-  // The editor owns Enter (submit), Shift+Enter (newline) and
-  // Backspace-on-empty now. Only ⌥⏎ is ours, and it's caught in the capture
-  // phase so it lands before Tiptap sees it. ⌘⏎ is deliberately NOT bound
+  // The editor owns Enter (submit on a computer, a newline on touch),
+  // Shift+Enter (newline) and Backspace-on-empty now. Only ⌥⏎ is ours, and
+  // it's caught in the capture phase so it lands before Tiptap sees it. ⌘⏎ is deliberately NOT bound
   // here — the editor treats it as "submit regardless", and stealing it for
   // browse would break the hardware-keyboard escape hatch chat users rely on.
   const handleEditorKeyDownCapture = (e: React.KeyboardEvent) => {
@@ -785,7 +784,6 @@ function LaunchModalInner({
                   draftKey={pickAgent ? 'launcher:new' : workspaceId ? `launcher:${workspaceId}` : undefined}
                   onContentChange={setHasContent}
                   onPendingUploadsChange={setPendingUploads}
-                  submitOnEnter={!touch}
                   onSubmit={() => void launch()}
                   onBackspaceOnEmpty={() => setChips((prev) => prev.slice(0, -1))}
                   onUploadError={(err: Error) => setError(err.message)}

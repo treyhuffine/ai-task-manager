@@ -17,6 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LiveWaveform } from '@/components/ui/live-waveform';
 import { useVoiceInput } from '@/hooks/use-voice-input';
+import { useTouchFirst } from '@/hooks/use-touch-first';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import {
   useUpdateSession,
@@ -141,13 +142,6 @@ interface ExecutionComposerProps {
   helperText?: string;
   /** Editor placeholder. Defaults to the execution wording. */
   placeholder?: string;
-  /**
-   * Whether a bare Enter submits. Defaults to true (desktop). The mobile
-   * chat column passes false so Enter inserts a newline and the user
-   * sends with the button — matching the native phone keyboard. See
-   * `ChatInputEditor.submitOnEnter` for the keymap detail.
-   */
-  submitOnEnter?: boolean;
   /** A turn is currently in flight — flips Send to Stop. */
   isRunning?: boolean;
   /**
@@ -191,8 +185,9 @@ interface ExecutionComposerProps {
  * Composer for executions. Adopts the same vertical-stack layout as
  * `ai-elements/slideout-chat.tsx` — textarea on top, action row below
  * — so the placeholder centers naturally and the buttons get their own
- * baseline. Enter submits; Shift+Enter (or Alt/Option+Enter) inserts a
- * newline.
+ * baseline. Enter follows the device (`useTouchFirst`): on a computer it
+ * submits and Shift+Enter inserts a newline, on a phone or tablet it inserts
+ * a newline and Send submits.
  *
  * Voice input goes through the project's `useVoiceInput` hook, which
  * already handles the parakeet local STT, groq cloud, and the
@@ -216,7 +211,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
       disabledReason,
       helperText,
       placeholder,
-      submitOnEnter = true,
       isRunning,
       autoFocus = true,
       onSend,
@@ -233,6 +227,8 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     const [modeMenuOpen, setModeMenuOpen] = useState(false);
     const [modelMenuOpen, setModelMenuOpen] = useState(false);
     const [editorFocused, setEditorFocused] = useState(false);
+    // The same signal the editor reads for Enter, so Send names the key that sends.
+    const touchFirst = useTouchFirst();
     // Whether ⌘I comes to this composer, when there's more than one on screen.
     const [hotkeyTarget, setHotkeyTarget] = useState(true);
     const editorRef = useRef<ChatInputEditorHandle | null>(null);
@@ -740,7 +736,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                   onContentChange={setHasContent}
                   onPendingUploadsChange={setHasPendingUploads}
                   onSubmit={() => handleSend()}
-                  submitOnEnter={submitOnEnter}
                   onBackspaceOnEmpty={handleEditorBackspaceOnEmpty}
                   onFocus={handleEditorFocus}
                   onHotkeyTargetChange={setHotkeyTarget}
@@ -919,12 +914,13 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 </Tip>
               ) : !voice.isRecording ? (
                 <Tip
-                  label={
+                  label={hasPendingUploads ? 'Waiting for upload to finish…' : 'Send'}
+                  shortcut={
                     hasPendingUploads
-                      ? 'Waiting for upload to finish…'
-                      : submitOnEnter
-                        ? 'Send (Enter)'
-                        : 'Send'
+                      ? undefined
+                      : touchFirst
+                        ? HOTKEYS.sendMessageAnywhere.label
+                        : HOTKEYS.sendMessage.label
                   }
                 >
                   <button

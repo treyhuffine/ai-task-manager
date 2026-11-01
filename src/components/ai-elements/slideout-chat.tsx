@@ -141,9 +141,9 @@ export function SlideoutChat({
   const showPanel = !isMobile && slideoutWidth >= collapseThreshold
 
   if (showPanel) {
-    return <ChatPanel contextLabel={contextLabel} chat={chat} disabled={disabled} isMobile={isMobile} />
+    return <ChatPanel contextLabel={contextLabel} chat={chat} disabled={disabled} />
   }
-  return <ChatBubble contextLabel={contextLabel} chat={chat} disabled={disabled} isMobile={isMobile} />
+  return <ChatBubble contextLabel={contextLabel} chat={chat} disabled={disabled} />
 }
 
 // ─── Bubble mode ─────────────────────────────────────────────
@@ -152,12 +152,10 @@ function ChatBubble({
   contextLabel,
   chat,
   disabled,
-  isMobile,
 }: {
   contextLabel: string
   chat: DocumentChatHandle
   disabled: boolean
-  isMobile: boolean
 }) {
   const [bubbleOpen, setBubbleOpen] = useState(false)
   const active = chat.status === 'streaming'
@@ -170,7 +168,6 @@ function ChatBubble({
             contextLabel={contextLabel}
             chat={chat}
             disabled={disabled}
-            isMobile={isMobile}
             compact
             onClose={() => setBubbleOpen(false)}
           />
@@ -200,14 +197,12 @@ function ChatPanel({
   compact,
   chat,
   disabled,
-  isMobile,
   onClose,
 }: {
   contextLabel: string
   compact?: boolean
   chat: DocumentChatHandle
   disabled: boolean
-  isMobile: boolean
   onClose?: () => void
 }) {
   return (
@@ -245,7 +240,7 @@ function ChatPanel({
         </div>
       </div>
 
-      <ChatBody contextLabel={contextLabel} chat={chat} disabled={disabled} isMobile={isMobile} />
+      <ChatBody contextLabel={contextLabel} chat={chat} disabled={disabled} />
     </div>
   )
 }
@@ -254,12 +249,10 @@ function ChatBody({
   contextLabel,
   chat,
   disabled,
-  isMobile,
 }: {
   contextLabel: string
   chat: DocumentChatHandle
   disabled: boolean
-  isMobile: boolean
 }) {
   if (disabled || chat.isLoading || chat.newChat.isPending) {
     return (
@@ -295,7 +288,6 @@ function ChatBody({
     <div className="flex flex-1 min-h-0 flex-col" aria-label={`Chat about ${contextLabel}`}>
       <HarnessChatSession
         sessionId={chat.sessionId}
-        isMobile={isMobile}
         // Opening a task/note should land the caret in the document title/body,
         // not the AI composer. Don't autofocus the composer in this surface.
         autoFocusComposer={false}

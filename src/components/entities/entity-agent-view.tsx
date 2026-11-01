@@ -58,9 +58,9 @@ export function EntityAgentView({
     },
     [entityType, entityId, updateTask, updateNote],
   );
-  // Phones send with the button (Enter inserts a newline), same as the other
-  // chat surfaces.
-  const isMobile = useIsNarrow();
+  // A narrow screen gets the short placeholder. Enter follows the device in
+  // the editor itself (`useTouchFirst`), the same in every chat.
+  const narrow = useIsNarrow();
 
   const brief = useEntityBrief(entityType, entityId);
   const sendMessage = useSendMessage(chat.sessionId ?? '');
@@ -153,12 +153,11 @@ export function EntityAgentView({
         ) : (
           <HarnessChatSession
             sessionId={chat.sessionId}
-            isMobile={isMobile}
             // Existing document: the conversation is the front door, so the
             // caret lands here. New document: the title wins (see EntityTitle).
             autoFocusComposer={!isNew}
             composerPlaceholder={
-              isMobile
+              narrow
                 ? isNew
                   ? `Describe this ${entityType}`
                   : 'Ask or add anything. Or just talk.'

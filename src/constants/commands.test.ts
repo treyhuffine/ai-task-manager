@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HOTKEYS, matchesHotkey } from './commands';
+import { HOTKEYS, matchesHotkey, matchesSendKey } from './commands';
 
 function key(init: Partial<Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>>): KeyboardEvent {
   return { key: '', code: '', metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...init } as KeyboardEvent;
@@ -44,5 +44,33 @@ describe('matchesHotkey', () => {
     expect(matchesHotkey(key({ key: 'K', metaKey: true, shiftKey: true }), HOTKEYS.quickCapture)).toBe(true);
     expect(matchesHotkey(key({ key: 'k', metaKey: true, shiftKey: true }), HOTKEYS.search)).toBe(false);
     expect(matchesHotkey(key({ key: 'k', ctrlKey: true, altKey: true }), HOTKEYS.search)).toBe(false);
+  });
+});
+
+describe('matchesSendKey', () => {
+  const enter = (init: Partial<KeyboardEvent> = {}) => ({ ...key({ key: 'Enter', ...init }), isComposing: init.isComposing ?? false });
+
+  it('sends on Enter from a computer, and keeps Shift+Enter for a new line', () => {
+    expect(matchesSendKey(enter(), false)).toBe(true);
+    expect(matchesSendKey(enter({ shiftKey: true }), false)).toBe(false);
+  });
+
+  it('leaves Enter to add a line on a touch-first device', () => {
+    expect(matchesSendKey(enter(), true)).toBe(false);
+    expect(matchesSendKey(enter({ shiftKey: true }), true)).toBe(false);
+  });
+
+  it('sends on ⌘↩ or Ctrl+Enter on both, for a tablet with a keyboard', () => {
+    for (const touchFirst of [true, false]) {
+      expect(matchesSendKey(enter({ metaKey: true }), touchFirst)).toBe(true);
+      expect(matchesSendKey(enter({ ctrlKey: true }), touchFirst)).toBe(true);
+    }
+  });
+
+  it('never sends on the Enter that confirms an input method candidate, or on other keys', () => {
+    expect(matchesSendKey(enter({ isComposing: true }), false)).toBe(false);
+    expect(matchesSendKey(enter({ isComposing: true, metaKey: true }), true)).toBe(false);
+    expect(matchesSendKey(enter({ altKey: true }), false)).toBe(false);
+    expect(matchesSendKey(key({ key: 'a' }), false)).toBe(false);
   });
 });

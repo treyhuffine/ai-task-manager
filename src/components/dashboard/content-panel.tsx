@@ -95,7 +95,7 @@ function ChatHeaderBar({
   );
 }
 
-function ChatContent({ isMobile }: { isMobile: boolean }) {
+function ChatContent() {
   const newChat = useNewOrchestratorChat();
   const name = useOrchestratorName();
 
@@ -103,7 +103,6 @@ function ChatContent({ isMobile }: { isMobile: boolean }) {
     <div className="flex flex-col h-full min-h-0">
       <ChatHeaderBar name={name} onNewChat={() => newChat.mutate()} newChatPending={newChat.isPending} />
       <HarnessChat
-        isMobile={isMobile}
         intro={appMainChatIntro(name)}
         // Every empty main chat asks the onboarding what to show: the
         // first-run conversation, a step added since, or the usual intro.
@@ -291,7 +290,7 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
       <div className="relative flex-1 min-h-0 overflow-hidden">
         <div inert={fileShown} aria-hidden={fileShown || undefined} className="h-full">
           {activeTab === 'deck' && <DeckContainer />}
-          {activeTab === 'chat' && <ChatContent isMobile={!!mobileTab} />}
+          {activeTab === 'chat' && <ChatContent />}
           {activeTab === 'tasks' && <TaskSurface onOpenBoard={openTaskBoard} onOpenTask={openTask} privatePlanning={home.capabilities.privatePlanning} viewKey={`${TASK_VIEW_KEY}:${home.home.id}:${home.viewer.id}`} legacyViewKey={TASK_VIEW_KEY} />}
           {activeTab === 'stream' && <StreamList />}
           {activeTab === 'notes' && <NoteList onOpenNote={openNote} />}

@@ -4,7 +4,7 @@
  * Paperclip button + file picker for chat composers.
  *
  * - Desktop (mouse / fine pointer): single click → file picker dialog.
- * - Mobile (coarse pointer / no hover): popover with three actions —
+ * - Touch first (`useTouchFirst`): popover with three actions —
  *     · Take Photo (camera, accept=image/*, capture=environment)
  *     · Photo Library (accept=image/*)
  *     · Choose File (any)
@@ -17,11 +17,12 @@
  * typically routes them to `editor.uploadFile(...)`.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Camera, FileText, ImageIcon, Paperclip } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { Tip } from '@/components/ui/tip';
+import { useTouchFirst } from '@/hooks/use-touch-first';
 
 interface AttachButtonProps {
   onPick: (file: File) => void;
@@ -41,7 +42,7 @@ export function AttachButton({
   className,
 }: AttachButtonProps) {
   const [open, setOpen] = useState(false);
-  const isCoarse = useCoarsePointer();
+  const touchFirst = useTouchFirst();
 
   const fileAnyRef = useRef<HTMLInputElement>(null);
   const filePhotoRef = useRef<HTMLInputElement>(null);
@@ -58,7 +59,7 @@ export function AttachButton({
   // sub-tap.
   const handleClick = () => {
     if (disabled) return;
-    if (!isCoarse) {
+    if (!touchFirst) {
       fileAnyRef.current?.click();
       return;
     }
@@ -66,7 +67,7 @@ export function AttachButton({
   };
 
   return (
-    <Popover open={isCoarse && open} onOpenChange={setOpen}>
+    <Popover open={touchFirst && open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Tip label={title}>
           <button
@@ -86,7 +87,7 @@ export function AttachButton({
           </button>
         </Tip>
       </PopoverTrigger>
-      {isCoarse && (
+      {touchFirst && (
         <PopoverContent
           align="start"
           side="top"
@@ -176,22 +177,4 @@ function MenuItem({ icon, label, onClick }: {
       <span>{label}</span>
     </button>
   );
-}
-
-/**
- * `(pointer: coarse)` covers touch screens (phones, tablets). Combine
- * with `(hover: none)` to exclude touch laptops where a precise mouse
- * is also present and the user expects desktop ergonomics.
- */
-function useCoarsePointer(): boolean {
-  const [coarse, setCoarse] = useState(false);
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const mql = window.matchMedia('(pointer: coarse) and (hover: none)');
-    const update = () => setCoarse(mql.matches);
-    update();
-    mql.addEventListener('change', update);
-    return () => mql.removeEventListener('change', update);
-  }, []);
-  return coarse;
 }

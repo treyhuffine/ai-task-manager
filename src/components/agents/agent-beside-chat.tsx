@@ -158,7 +158,6 @@ function BesideExecutionChat({
         <ExecutionChatColumn
           chat={chat}
           composerRef={composerRef}
-          submitOnEnter
           // Opening it beside is for looking first: the main chat keeps the caret.
           autoFocus={false}
           // Short, for the narrower column, and about what you do from here.

@@ -18,6 +18,8 @@ import {
   MessageResponse,
 } from '@/components/ai-elements/message'
 import { McpToolDisplay } from '@/components/playground/mcp-tool-display'
+import { matchesSendKey } from '@/constants/commands'
+import { useTouchFirst } from '@/hooks/use-touch-first'
 
 const MODEL_OPTIONS = [
   { id: 'gpt-5.4-mini', label: 'OpenAI · gpt-5.4-mini' },
@@ -29,6 +31,7 @@ export default function PlaygroundPage() {
   const [model, setModel] = useState(MODEL_OPTIONS[0].id)
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const touchFirst = useTouchFirst()
 
   const transport = useMemo(
     () =>
@@ -183,11 +186,10 @@ export default function PlaygroundPage() {
                 target.style.height = Math.min(target.scrollHeight, 160) + 'px'
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  if (isStreaming) stop()
-                  else handleSubmit()
-                }
+                if (!matchesSendKey(e.nativeEvent, touchFirst)) return
+                e.preventDefault()
+                if (isStreaming) stop()
+                else handleSubmit()
               }}
             />
             <div className="flex items-center justify-end gap-1 px-2 pb-1.5">

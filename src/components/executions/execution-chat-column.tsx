@@ -187,7 +187,6 @@ export function useStartExecutionChat(sessionId: string, open: (chatId: string) 
 export function ExecutionChatColumn({
   chat,
   composerRef,
-  submitOnEnter,
   autoFocus,
   tabs,
   overlay,
@@ -200,8 +199,6 @@ export function ExecutionChatColumn({
 }: {
   chat: ExecutionChatState;
   composerRef: RefObject<ExecutionComposerHandle | null>;
-  /** Desktop submits on Enter. The phone inserts a newline, and the send button submits. */
-  submitOnEnter: boolean;
   autoFocus?: boolean;
   /** Above the conversation: the execution's sibling chats, in the workbench. */
   tabs?: ReactNode;
@@ -323,7 +320,6 @@ export function ExecutionChatColumn({
             leadingActions={<AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />}
             disabled={composerDisabled}
             disabledReason={disabledReason}
-            submitOnEnter={submitOnEnter}
             isRunning={isRunning}
             onSwitchProvider={onSwitchProvider}
             switchingProvider={switchingProvider}

@@ -25,6 +25,13 @@ export const HOTKEYS = {
   scratchpadClose: { key: 'Escape', label: 'Esc' },
   submitCapture: { key: 'Enter', label: 'Enter' },
   submitCaptureModified: { key: 'Enter', meta: true, label: '\u2318\u21A9' },
+  // Sending from a chat composer or any box that takes more than one line.
+  // On a computer Enter sends and Shift+Enter adds a line. On a touch-first
+  // device (`useTouchFirst`) Enter adds a line, as the on-screen keyboard's
+  // return key does, and the send button sends. \u2318\u21A9 sends on both, for a
+  // tablet with a keyboard. `matchesSendKey` reads them.
+  sendMessage: { key: 'Enter', label: 'Enter' },
+  sendMessageAnywhere: { key: 'Enter', meta: true, label: '\u2318\u21A9' },
   slideoutBack: { key: 'Escape', label: 'Esc' },
   slideoutCloseAll: { key: 'Escape', shift: true, label: '\u21E7Esc' },
   openFullPage: { key: 'Enter', meta: true, label: '\u2318\u21A9' },
@@ -81,6 +88,17 @@ export function matchesHotkey(e: HotkeyEvent, hotkey: Hotkey): boolean {
   if (e.altKey !== !!hotkey.alt) return false;
   if (hotkey.alt) return e.code === `Key${hotkey.key.toUpperCase()}`;
   return e.key.toLowerCase() === hotkey.key.toLowerCase();
+}
+
+/**
+ * Whether a key press in a box that takes more than one line sends it:
+ * `sendMessageAnywhere` always, `sendMessage` only off a touch-first device.
+ * The Enter that confirms an input method's candidate never sends. Pass the
+ * native event (`e.nativeEvent` in React), which carries `isComposing`.
+ */
+export function matchesSendKey(e: HotkeyEvent & { isComposing?: boolean }, touchFirst: boolean): boolean {
+  if (e.isComposing) return false;
+  return matchesHotkey(e, HOTKEYS.sendMessageAnywhere) || (!touchFirst && matchesHotkey(e, HOTKEYS.sendMessage));
 }
 
 // ── Command palette actions ──────────────────────────────────
