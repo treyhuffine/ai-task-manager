@@ -32,10 +32,8 @@ import { WorkspaceSelectionBoundary, useWorkspaceSelection } from './workspace-s
  * doesn't repeat it.
  *
  * The agents-only rail (`railStyle` `agentsOnly`, docs/rail-agents-first.md)
- * lists agents and nothing else: no switch, since Recent is a list of
- * chats, and no archive selection, since there are no chat rows to select.
- * Pins come first and the agents follow under their own label, so the list
- * needs no header row.
+ * keeps both lists. Its Agents list has no chat rows, so there's nothing to
+ * select for archiving there, and Recent is where its chats are listed.
  *
  * Both need `WorkspaceSelectionProvider` above them: the header owns the
  * archive-selection toggle and its toolbar, the tree's rows the checkboxes.
@@ -45,33 +43,19 @@ import { WorkspaceSelectionBoundary, useWorkspaceSelection } from './workspace-s
  * The list's header: which list, and the list's actions. Agents | Recent is
  * a segmented switch at the left (`ListSwitch`), so the header is still one
  * row and the switch reads as the list's title. On Agents, selecting
- * executions to archive and New agent sit at the right. While selecting,
- * the toolbar (count, Archive, Cancel) takes the row.
+ * executions to archive (not in agents only, which lists none) and New agent
+ * sit at the right. While selecting, the toolbar (count, Archive, Cancel)
+ * takes the row.
  */
 export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (next: RailTab) => void }) {
-  const agentsOnly = useRailStyle().style === 'agentsOnly';
-  const createOpen = useWorkspaceCreateOpen();
-  // New agent opens this dialog from the list's own label in agents only.
-  const createModal = <WorkspaceCreateModal open={createOpen} onOpenChange={setWorkspaceCreateOpen} />;
-  if (agentsOnly) return createModal;
-  return <ListHeaderRow tab={tab} onSelect={onSelect} createModal={createModal} />;
-}
-
-function ListHeaderRow({
-  tab,
-  onSelect,
-  createModal,
-}: {
-  tab: RailTab;
-  onSelect: (next: RailTab) => void;
-  createModal: ReactNode;
-}) {
   const selection = useWorkspaceSelection();
   const selecting = selection?.selecting ?? false;
   const count = selection?.count ?? 0;
   const bulkArchive = useBulkArchiveSessions();
   const confirm = useConfirm();
   const reviewChanges = useReviewChanges();
+  const createOpen = useWorkspaceCreateOpen();
+  const agentsOnly = useRailStyle().style === 'agentsOnly';
 
   const handleConfirmArchive = async () => {
     if (!selection) return;
@@ -131,16 +115,18 @@ function ListHeaderRow({
           <div className="flex-1" />
           {tab === 'workspace' && selection && (
             <div className="flex items-center gap-1">
-              <Tip label="Select chats to archive">
-                <button
-                  type="button"
-                  onClick={selection.enter}
-                  className="rounded p-1 text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground"
-                  aria-label="Select chats to archive"
-                >
-                  <Archive size={12} />
-                </button>
-              </Tip>
+              {!agentsOnly && (
+                <Tip label="Select chats to archive">
+                  <button
+                    type="button"
+                    onClick={selection.enter}
+                    className="rounded p-1 text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground"
+                    aria-label="Select chats to archive"
+                  >
+                    <Archive size={12} />
+                  </button>
+                </Tip>
+              )}
               <Tip label="New agent">
                 <button
                   type="button"
@@ -155,7 +141,7 @@ function ListHeaderRow({
           )}
         </>
       )}
-      {createModal}
+      <WorkspaceCreateModal open={createOpen} onOpenChange={setWorkspaceCreateOpen} />
     </div>
   );
 }
@@ -205,51 +191,20 @@ function SwitchTab({ active, onClick, children }: { active: boolean; onClick: ()
  * the work you keep close is one glance away whichever list is open.
  * Renders nothing for pins when there are none. Pins and the Recent feed
  * duplicate the tree's rows, so they sit outside selection.
- *
- * Agents only, the agents follow the pins under their own label, whatever
- * tab was last chosen.
  */
 export function RailListBody({ tab }: { tab: RailTab }) {
-  const agentsOnly = useRailStyle().style === 'agentsOnly';
   return (
     <div className="pt-1">
       <WorkspaceSelectionBoundary>
         <PinnedRail />
       </WorkspaceSelectionBoundary>
-      {agentsOnly ? (
-        <>
-          <AgentsLabel />
-          <WorkspaceNav />
-        </>
-      ) : tab === 'history' ? (
+      {tab === 'history' ? (
         <WorkspaceSelectionBoundary>
           <HistoryView />
         </WorkspaceSelectionBoundary>
       ) : (
         <WorkspaceNav />
       )}
-    </div>
-  );
-}
-
-/**
- * The agents-only list's label, in the group-label lettering Pinned uses,
- * with New agent at its right where the list header kept it.
- */
-function AgentsLabel() {
-  return (
-    <div className="flex items-center gap-1.5 pl-2.5 pr-3 pt-1.5 pb-1">
-      <span className="flex-1 text-[8.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground">Agents</span>
-      <Tip label="New agent">
-        <button
-          type="button"
-          onClick={openWorkspaceCreate}
-          className="rounded bg-primary p-1 text-primary-foreground transition-opacity hover:opacity-90"
-          aria-label="New agent"
-        >
-          <Plus size={12} />
-        </button>
-      </Tip>
     </div>
   );
 }

@@ -6,11 +6,13 @@
  * stubbed. The API answers nothing, so a mutation shows through its
  * optimistic patch, and the server records what was sent.
  *
- * Checks that agents only lists agents and nothing else, each with only its
- * own state, that an agent can be marked read or unread from the rail and
- * from its chat bar (and both agree), that resting on an agent peeks at its
- * chats, that hovering an agent opens no tooltip while its hover actions
- * keep theirs, and that Agents first is unchanged.
+ * Checks that agents only lists agents with no chat rows, each with its own
+ * state and counts of its chats that need you or are working, that Recent
+ * lists recent chats of any status with inactive ones folded, that an agent
+ * can be marked read or unread from the rail and from its chat bar (and both
+ * agree), that resting on an agent peeks at its chats, that hovering an
+ * agent opens no tooltip while its hover actions keep theirs, and that
+ * Agents first is unchanged.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -52,7 +54,8 @@ beforeAll(async () => {
   const css = await postcss([require('@tailwindcss/postcss')()]).process(fs.readFileSync('src/app/globals.css', 'utf8'), { from: path.resolve('src/app/globals.css') });
   const bundle = await build({
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
-      import React from 'react';
+      import React, {useState} from 'react';
+      import {trpc} from '@/lib/trpc/client';
       import {createRoot} from 'react-dom/client';
       import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
       import {TooltipProvider} from '@/components/ui/tooltip';
@@ -102,20 +105,31 @@ beforeAll(async () => {
         main('notes-main','notes','Filed the meeting notes.'),
       ]});
       client.setQueryData(['sessions','needs-review'],sessions.filter(s=>s.id==='fin-1'||s.id==='fin-2'));
+      // Chats go inactive after a week. Recent's feed adds archived work:
+      // one from yesterday, one from three weeks ago.
+      client.setQueryData(trpc.userState.list.queryKey({}),{executionInactiveAfterDays:7});
+      const archived=(id,workspaceId,label,minutesAgo)=>({...chat(id,workspaceId,label),status:'archived',
+        startedAt:at(minutesAgo+60),lastActivityAt:at(minutesAgo),lastOutcomeEventAt:at(minutesAgo),lastViewedAt:at(minutesAgo)});
+      client.setQueryData(['sessions','history'],{sessions:[...sessions,
+        archived('web-old','web','Ship the v1 pricing page',24*60),
+        archived('ri-old','ri','Old migration cleanup',21*24*60),
+      ]});
       // The chat the agent view's chat bar shows: Notes's main chat, read.
       client.setQueryData(['session','notes-main'],{...main('notes-main','notes','Filed the meeting notes.'),status:'active',label:null,executionId:null});
       const noop=()=>{};
       const navigation={openAgent:noop,openExecution:noop,openTask:noop,openNote:noop,goHome:noop};
       const activity={activeSessionId:null,streamingSessionIds:new Set(['ri-1','fin-3','res-main']),backgroundSessionIds:new Set(),pendingInputSessionIds:new Set(['web-1']),setActiveExecutionId:noop,setSessionStreaming:noop};
+      function Rail(){
+        const [tab,setTab]=useState('workspace');
+        return <WorkspaceSelectionProvider>
+          <RailListHeader tab={tab} onSelect={setTab}/>
+          <RailListBody tab={tab}/>
+        </WorkspaceSelectionProvider>;
+      }
       createRoot(document.getElementById('root')).render(
         <QueryClientProvider client={client}><TooltipProvider><ConfirmProvider>
           <WorkContext navigation={navigation} activity={activity}><SessionHoverProvider disabled>
-            <aside className="w-[256px] min-h-screen border-r border-border bg-background">
-              <WorkspaceSelectionProvider>
-                <RailListHeader tab="workspace" onSelect={noop}/>
-                <RailListBody tab="workspace"/>
-              </WorkspaceSelectionProvider>
-            </aside>
+            <aside className="w-[256px] min-h-screen border-r border-border bg-background"><Rail/></aside>
             <div data-chat-bar className="fixed left-[300px] top-4 flex items-center gap-1.5"><ReadStateButton sessionId="notes-main"/></div>
           </SessionHoverProvider></WorkContext>
         </ConfirmProvider></TooltipProvider></QueryClientProvider>);
@@ -195,6 +209,20 @@ const agentLines = (page: Page) =>
 const nameWeight = (page: Page, name: string) =>
   page.locator('button.flex-1 > span:first-child', { hasText: new RegExp(`^${name}$`) }).evaluate((el) => getComputedStyle(el).fontWeight);
 
+const agentRow = (page: Page, name: string) =>
+  page.locator('[aria-roledescription="sortable"]', { has: page.getByText(name, { exact: true }) });
+
+/** Each agent's visible chat counts, by kind. */
+const countsOf = (page: Page) =>
+  page.locator('[aria-roledescription="sortable"]').evaluateAll((rows) =>
+    Object.fromEntries(rows.map((row) => [
+      row.querySelector('button.flex-1 > span')!.textContent,
+      Object.fromEntries(Array.from(row.querySelectorAll<HTMLElement>('[data-count]'))
+        .filter((el) => el.checkVisibility())
+        .map((el) => [el.dataset.count, el.textContent])),
+    ])),
+  );
+
 const menu = async (page: Page, name: string) => {
   await page.getByText(name, { exact: true }).hover();
   await page.getByRole('button', { name: `${name} actions`, exact: true }).click();
@@ -202,17 +230,18 @@ const menu = async (page: Page, name: string) => {
 };
 
 for (const theme of ['dark', 'light'] as const) {
-  it(`lists agents and nothing else, each with only its own state (${theme})`, async () => {
+  it(`lists agents with no chat rows, each with its own state and its chats' counts (${theme})`, async () => {
     const { page, errors } = await open('agentsOnly', theme);
     try {
-      // No switch, no Needs you, no archive selection: Pinned, then Agents.
-      expect(await page.getByRole('tablist').count()).toBe(0);
-      expect(await page.getByText('Needs you').count()).toBe(0);
+      // The Agents | Recent switch, then Pinned. No Needs you, and no archive
+      // selection, since no chat rows are listed to select.
+      expect(await page.getByRole('tab').allInnerTexts()).toEqual(['Agents', 'Recent']);
+      expect(await page.getByText('Needs you', { exact: true }).count()).toBe(0);
       expect(await page.getByRole('button', { name: 'Select chats to archive' }).count()).toBe(0);
       expect(await page.getByRole('button', { name: 'New agent' }).count()).toBe(1);
+      const switchTop = (await page.getByRole('tablist').boundingBox())!.y;
       const pinnedTop = (await page.getByText('Pinned', { exact: true }).boundingBox())!.y;
-      const agentsTop = (await page.getByText('Agents', { exact: true }).boundingBox())!.y;
-      expect(pinnedTop).toBeLessThan(agentsTop);
+      expect(switchTop).toBeLessThan(pinnedTop);
 
       // The pin is the only chat row.
       const chatRows = await page.locator('[role="button"][tabindex="0"]:not([aria-roledescription])').allInnerTexts();
@@ -240,6 +269,20 @@ for (const theme of ['dark', 'light'] as const) {
           .evaluate((el) => getComputedStyle(el).backgroundColor);
       expect(await fill('Website')).not.toBe('rgba(0, 0, 0, 0)');
       expect(await fill('Notes')).toBe('rgba(0, 0, 0, 0)');
+
+      // Its chats count at the row's end: amber need you (pulsing while one
+      // is blocked), green working. The agent's own main chat doesn't count.
+      expect(await countsOf(page)).toEqual({
+        Ri: { working: '1' },
+        Website: { 'needs-you': '1' },
+        Finances: { 'needs-you': '2', working: '1' },
+        Research: {},
+        Notes: {},
+        Docs: {},
+      });
+      expect(await agentRow(page, 'Website').locator('[data-count="needs-you"]').getAttribute('class')).toContain('animate-pulse');
+      expect(await agentRow(page, 'Finances').locator('[data-count="needs-you"]').getAttribute('class')).not.toContain('animate-pulse');
+      expect(await agentRow(page, 'Finances').getByText('2 chats need you, 1 working').count()).toBe(1);
 
       await page.screenshot({ path: `/tmp/ri-rail-agents-only-${theme}.png`, clip: { x: 0, y: 0, width: 256, height: 520 } });
       expect(errors).toEqual([]);
@@ -300,6 +343,42 @@ it("marks the chat you're reading unread from its chat bar, and the rail agrees"
   }
 });
 
+it('gives the counts way to the actions on hover', async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    await page.getByText('Finances', { exact: true }).hover();
+    await agentRow(page, 'Finances').getByRole('button', { name: 'New chat', exact: true }).waitFor();
+    expect((await countsOf(page)).Finances).toEqual({});
+    await page.mouse.move(600, 700);
+    await expect.poll(async () => (await countsOf(page)).Finances).toEqual({ 'needs-you': '2', working: '1' });
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('lists recent chats of any status in Recent, and folds the inactive ones', async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    await page.getByRole('tab', { name: 'Recent' }).click();
+    const recent = page.locator('aside');
+    // Yesterday's archived chat is recent work. Three weeks ago is inactive.
+    await recent.getByText('Ship the v1 pricing page').waitFor();
+    expect(await recent.getByText('Fix login bug').count()).toBeGreaterThan(0);
+    expect(await recent.getByText('Old migration cleanup').count()).toBe(0);
+    await recent.getByText('1 inactive hidden').waitFor();
+    // New agent belongs to the Agents list.
+    expect(await page.getByRole('button', { name: 'New agent' }).count()).toBe(0);
+    await page.screenshot({ path: '/tmp/ri-rail-recent.png', clip: { x: 0, y: 0, width: 256, height: 760 } });
+
+    await recent.getByRole('button', { name: /Show/ }).last().click();
+    await recent.getByText('Old migration cleanup').waitFor();
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
 it("peeks at an agent's chats when you rest on it", async () => {
   const { page, errors } = await open('agentsOnly');
   try {
@@ -352,7 +431,7 @@ it('leaves agents first as it was', async () => {
   const { page, errors } = await open('agents');
   try {
     expect(await page.getByRole('tablist', { name: 'Rail list' }).count()).toBe(1);
-    expect(await page.getByText('Needs you').count()).toBe(1);
+    expect(await page.getByText('Needs you', { exact: true }).count()).toBe(1);
     // Each row shows only its own state: the agent's line is its own.
     const lines = await agentLines(page);
     expect(lines.find((l) => l.name === 'Website')?.line).toBe('Deployed the preview build.');

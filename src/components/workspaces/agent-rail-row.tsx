@@ -86,11 +86,15 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * executions fold into a line that still says what wants you, so hiding
  * never hides that. The whole row drags.
  *
- * In the agents-only rail (`agentsOnly`) the executions have no rows, and
- * the agent still shows only its own state: its chats' states are tracked as
- * ever and show where chats are listed (resting on the agent peeks at them,
- * the header's pills, Board), not on the agent. The agent stays lit while one
- * of its chats is open, so the rail still says where you are.
+ * In the agents-only rail (`agentsOnly`) the executions have no rows. The
+ * agent's dot, bold name and line stay its own (its main chat), and its
+ * chats get counts at the row's end instead: amber for the ones that need
+ * you (waiting on you or unread, pulsing while one is blocked), green for the
+ * ones working. The header counts every chat, these say which agent's. They
+ * give way to the actions on hover, and open no tooltip. Inactive chats don't
+ * count. Resting on the agent peeks at the chats themselves, and the agent
+ * stays lit while one of its chats is open, so the rail still says where you
+ * are.
  *
  * Its menu marks the agent read or unread, which is its main chat's read
  * state, so an agent you've opened can be put back to come back to.
@@ -128,7 +132,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     purpose: workspace.purpose,
   });
 
-  const { sessions, inactive, total, summary, hasOpen } = useMemo(() => {
+  const { sessions, inactive, total, summary, hasOpen, counts } = useMemo(() => {
     const all = sortSessionsHotnessDesc(
       (rail?.sessions ?? []).filter((s) => s.workspaceId === workspace.id && s.status === 'active'),
     );
@@ -140,11 +144,14 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     for (const s of all) (isInactive(s) && !isOpen(s) ? folded : kept).push(s);
     let working = 0;
     let needsYou = 0;
+    let blocked = 0;
     for (const s of kept) {
       if (isInactive(s)) continue;
       // The rail's buckets: pending wins over streaming, unread needs you too.
-      if (pendingInputSessionIds.has(s.id)) needsYou++;
-      else if (streamingSessionIds.has(s.id)) working++;
+      if (pendingInputSessionIds.has(s.id)) {
+        needsYou++;
+        blocked++;
+      } else if (streamingSessionIds.has(s.id)) working++;
       else if (isSessionUnread(s)) needsYou++;
     }
     return {
@@ -153,6 +160,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       total: all.length,
       summary: threadSummary({ total: all.length, needsYou, working }),
       hasOpen: all.some(isOpen),
+      counts: { needsYou, working, blocked },
     };
   }, [
     rail?.sessions,
@@ -267,6 +275,8 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
           {threads}
         </AgentChatsFlyout>
 
+        {agentsOnly && <ChatCounts {...counts} />}
+
         {/* Takes no room until you hover, so at rest the name and its line
             get the full width. Stays while its menu is open. */}
         <div className="hidden group-hover:flex group-focus-within:flex has-[[data-state=open]]:flex items-center gap-0.5 flex-shrink-0">
@@ -367,3 +377,38 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     </div>
   );
 }
+
+/**
+ * The agents-only row's end: how many of the agent's chats need you (amber,
+ * pulsing while one is blocked on you) and how many are working (green), in
+ * the header's colors. Nothing when neither. Gives way to the row's actions
+ * on hover, focus or an open menu, the way a chat row's time does.
+ */
+function ChatCounts({ needsYou, working, blocked }: { needsYou: number; working: number; blocked: number }) {
+  if (needsYou === 0 && working === 0) return null;
+  const said = [
+    needsYou > 0 && `${needsYou} chat${needsYou === 1 ? '' : 's'} need${needsYou === 1 ? 's' : ''} you`,
+    working > 0 && `${working} working`,
+  ].filter(Boolean).join(', ');
+  return (
+    <span className="flex flex-shrink-0 items-center gap-1 group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden">
+      <span className="sr-only">{said}</span>
+      {needsYou > 0 && (
+        <span
+          aria-hidden
+          data-count="needs-you"
+          className={cn(COUNT, 'bg-amber-500/15 text-amber-600 dark:text-amber-400', blocked > 0 && 'animate-pulse')}
+        >
+          {needsYou}
+        </span>
+      )}
+      {working > 0 && (
+        <span aria-hidden data-count="working" className={cn(COUNT, 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400')}>
+          {working}
+        </span>
+      )}
+    </span>
+  );
+}
+
+const COUNT = 'min-w-[18px] h-[16px] rounded-full px-1 text-center text-[10px] font-semibold leading-[16px] tabular-nums';

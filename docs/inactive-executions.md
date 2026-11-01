@@ -70,6 +70,7 @@ That cap is gone: everything with activity in the last week shows.
 | Rail: Pinned | `pinned` |
 | Rail, Agents tab: Needs you (executions) | `unread` |
 | Rail, Agents tab: each agent's threads (agents-first) or list (classic) | `agent:<workspaceId>` |
+| Rail, Recent tab (archived included) | `recent` |
 | Agent view Overview: Pinned, Needs you, Recent | `overview:<workspaceId>:pinned`, `:needs`, `:recent` |
 | Mobile Agents: Needs review, each agent | `unread`, `agent:<workspaceId>` |
 
@@ -85,11 +86,15 @@ right now stays among its agent's threads, marked, whatever its age.
 
 **Counts are active work only.**
 
-**History** doesn't fold. It is the look-back view, where old work is the
-point.
+**Recent folds too** (since 2026-10-31). It used to be the one list that
+didn't, as the look-back view. Coming back to Ri, a feed of every chat ever
+buried what was worked on lately, so it shows what was touched within the
+threshold, any status, archived included, and folds the rest behind the same
+toggle in their own date groups. Older work is one Show away, and Search chats
+finds anything.
 
 **Attention counts leave inactive work out**, so they keep matching the lists:
-the top bar's status pills, each agent's header dots in the rail, the agent
+the top bar's status pills, each agent's header dots and agents-only counts in the rail, the agent
 view header, the mobile Agents tab badge and each mobile agent's count, and the
 tablet rail's dots.
 

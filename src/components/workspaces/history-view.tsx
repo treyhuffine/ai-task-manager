@@ -11,6 +11,8 @@ import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import { normalizeTimestamp } from '@/lib/utils/timestamps';
 import type { RailSession } from '@/lib/api/sessions';
 import { HistoryRow } from './history-row';
+import { InactiveFold } from './inactive-fold';
+import { useInactivity } from '@/hooks/use-inactivity';
 import { Tip } from '@/components/ui/tip';
 
 const PILL_SCROLL_PRESETS = {
@@ -29,6 +31,11 @@ const PILL_SCROLL_PRESETS = {
  *     the sessions actually present in the history feed (not the
  *     workspaces table) so an empty workspace never gets a chip.
  *
+ * Inactive work folds away like every other list: what was touched within
+ * the inactive threshold shows, whatever its status (archived included), and
+ * the rest sits behind "N inactive" · Show at the foot, in its own date
+ * groups. The chat open right now always shows.
+ *
  * Full-text search over transcripts lives in the chat search modal (the
  * rail's Search button, `ChatSearchModal`), not here — it searches every chat's
  * content, not just this feed's labels.
@@ -44,7 +51,8 @@ export function HistoryView() {
     const live = new Map((rail?.sessions ?? []).map((s) => [s.id, s] as const));
     return (data?.sessions ?? []).map((s) => live.get(s.id) ?? s);
   }, [data?.sessions, rail?.sessions]);
-  const { setActiveView, openAgent } = useDashboard();
+  const { openAgent, activeSessionId } = useDashboard();
+  const { isInactive } = useInactivity();
   const [selectedWs, setSelectedWs] = useState<Set<string>>(new Set());
   // Session row menus open the agent's setup: its view, on the Setup tab.
   const openSetup = (id: string) => openAgent(id, 'setup');
@@ -80,10 +88,14 @@ export function HistoryView() {
   // verbatim, which meant it inherited every ordering quirk the SQL had.
   // Running the shared key here keeps Recent agreeing with the header's
   // status pills and the workspace tree.
-  const grouped = useMemo(
-    () => groupByDateBucket(sortSessionsHotnessDesc(filtered)),
-    [filtered],
-  );
+  const { grouped, older, olderCount } = useMemo(() => {
+    const recent: RailSession[] = [];
+    const folded: RailSession[] = [];
+    for (const s of sortSessionsHotnessDesc(filtered)) {
+      (isInactive(s) && s.id !== activeSessionId ? folded : recent).push(s);
+    }
+    return { grouped: groupByDateBucket(recent), older: groupByDateBucket(folded), olderCount: folded.length };
+  }, [filtered, isInactive, activeSessionId]);
 
   const togglePill = (id: string) => {
     setSelectedWs((prev) => {
@@ -133,28 +145,47 @@ export function HistoryView() {
         </div>
       ) : (
         <div className="flex flex-col pt-1">
-          {grouped.map((group) => (
-            <section key={group.id} className="flex flex-col">
-              <h3 className="px-3 pt-2 pb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
-                {group.label}
-                <span className="ml-1.5 text-muted-foreground/50 font-normal lowercase tracking-normal">
-                  {group.sessions.length}
-                </span>
-              </h3>
-              <div className="flex flex-col px-1">
-                {group.sessions.map((s) => (
-                  <HistoryRow
-                    key={s.id}
-                    session={s}
-                    onOpenWorkspaceSettings={openSetup}
-                    onOpenLauncher={openLauncher}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+          <DateGroups groups={grouped} onOpenWorkspaceSettings={openSetup} />
+          <InactiveFold sectionId="recent" count={olderCount} className="pl-3">
+            <div className="opacity-60 transition-opacity hover:opacity-100">
+              <DateGroups groups={older} onOpenWorkspaceSettings={openSetup} />
+            </div>
+          </InactiveFold>
         </div>
       )}
+    </>
+  );
+}
+
+function DateGroups({
+  groups,
+  onOpenWorkspaceSettings,
+}: {
+  groups: DateGroup[];
+  onOpenWorkspaceSettings: (id: string) => void;
+}) {
+  return (
+    <>
+      {groups.map((group) => (
+        <section key={group.id} className="flex flex-col">
+          <h3 className="px-3 pt-2 pb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
+            {group.label}
+            <span className="ml-1.5 text-muted-foreground/50 font-normal lowercase tracking-normal">
+              {group.sessions.length}
+            </span>
+          </h3>
+          <div className="flex flex-col px-1">
+            {group.sessions.map((s) => (
+              <HistoryRow
+                key={s.id}
+                session={s}
+                onOpenWorkspaceSettings={onOpenWorkspaceSettings}
+                onOpenLauncher={openLauncher}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
     </>
   );
 }

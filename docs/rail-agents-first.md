@@ -40,15 +40,17 @@ Opening an agent marks its main chat read (`HarnessChat` does on mount), and the
 
 **Status:** trial, added 2026-10-29 and the default the same day. Settings → General → Agents → "Agents in the rail" switches back to Agents first or Classic. A browser where someone already chose a style keeps that choice.
 
-The idea: the rail lists agents and nothing else, so the way into work is talking to an agent. It changes only what the rail shows. Every chat's state (working, waiting on you, unread) is tracked exactly as before and shows everywhere else it did.
+The idea: the Agents list has agents and no chats, so the way into work is talking to an agent. It changes only what the rail shows. Every chat's state (working, waiting on you, unread) is tracked exactly as before and shows everywhere else it did.
 
 What changes, all in the client (`railStyle` `agentsOnly`, no schema):
 
 - **No chats under the agents.** No thread rows, no Show chats toggle, no folded "N executions" line. Clicking an agent always opens it.
-- **Each agent shows only its own state**, as in agents first: the dot, the bold name and the line in its voice are its main chat's. Its chats' states aren't drawn on it. They show where chats are listed: resting on the agent, the agent's Overview, the header's pills and Board.
-- **No Needs you group.** The header's pills count every chat from every view.
-- **No Agents | Recent switch, no select-to-archive.** Recent is a list of chats, and there are no chat rows to select. Search chats finds any chat, archived ones included.
-- **Pins stay.** Pinned chats sit at the top, above an Agents label with New agent at its right. A pin is the escape hatch for the chats you're hands-on with. Pin one from its header or from the agent's peek.
+- **Each agent's dot, bold name and line are its own**, as in agents first: its main chat's state.
+- **Its chats count at the row's end** (added 2026-10-31): amber for the ones that need you (waiting on you or unread, pulsing while one is blocked on you), green for the ones working, in the header's colors. The header's pills count every chat. These say which agent's, which a glance at a row of agents couldn't. Inactive chats don't count. The counts give way to the row's actions on hover and open no tooltip (rows open none, 0afe117d). Screen readers get them as words ("2 chats need you, 1 working").
+- **No Needs you group.** The counts and the header's pills cover it.
+- **Agents | Recent stays** (back 2026-10-31, after a day without it showed coming back to Ri meant staring at the agents with no idea what was worked on lately). Recent lists every chat touched within the inactive threshold, whatever its status, archived included, newest first. Older ones fold behind "N inactive hidden" · Show, the one rule every list hides by. This applies in every rail style.
+- **No select-to-archive on Agents.** There are no chat rows to select.
+- **Pins stay**, under the switch as in the other styles. A pin is the escape hatch for the chats you're hands-on with. Pin one from its header or from the agent's peek.
 - **Resting on an agent peeks at its chats** beside the rail (the collapsed-agent chooser, `AgentChatsFlyout`), each with its own dot.
 - **An open chat lights its agent**, a shade lighter than the agent itself open, since the chat has no row of its own. That's where you are, not a state.
 
@@ -64,7 +66,7 @@ Both set the main chat's own `unread_marker_at`, the one a chat's Mark as unread
 What to watch:
 
 - Do you talk to the agent more, or go around it through the peek and Search chats?
-- With chats' states off the rail, are the header's pills enough to notice work that wants you?
+- Do the counts tell you which agent to open, and does Recent answer "what was going on" when you come back?
 - Does Mark unread get used to come back to an agent, and is the chat bar the place you reach for it?
 
 Not done on purpose: the phone (its own agents list), the desktop app's activity, and the New chat row at the top, which still starts a chat without picking an agent.
