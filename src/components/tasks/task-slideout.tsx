@@ -6,7 +6,7 @@ import { useDocumentAutosave, usePendingDocument } from '@/hooks/use-document-au
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { EntitySheet } from '@/components/entities/entity-sheet';
 import { X, Check, Pencil, ChevronLeft, Maximize2 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useTask, useUpdateTask, useDeleteTask } from '@/hooks/use-tasks';
 import { useTaskLifecycle } from '@/hooks/use-task-lifecycle';
 import { StartWithAgentButton } from '@/components/tasks/start-with-agent-button';
@@ -33,6 +33,16 @@ import { EntityAgentView } from '@/components/entities/entity-agent-view';
 import { useEntityViewMode, resolveEntityView, type EntityViewMode } from '@/lib/client/entity-view-mode';
 import { cn } from '@/lib/utils';
 
+import { useOptionalHomeContext, useHomeStorageScope } from '@/components/home/home-context';
+import { homeStorageIdentity } from '@/lib/home/document-scope';
+import { homeResourceHref } from '@/lib/home/resource-href';
+import { currentSpaceId } from '@/lib/spaces/document';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { useSharedBody, SaveStatus } from '@/components/team/shared-body-editor';
+import { TeamAudience, TeamEntityHistory } from '@/components/team/team-document-controls';
+import { TeamTaskDocument } from '@/components/team/team-task-document';
+import { MyWorkControl } from '@/components/spaces/my-work-control';
+import { TeamTaskAgentAction } from '@/components/team/team-task-agent-action';
 import type { Attachment } from '@/db/types';
 
 const DEFAULT_WIDTH = 1200;
@@ -48,6 +58,12 @@ interface TaskSlideoutProps {
 }
 
 export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSlideoutProps) {
+  const home = useOptionalHomeContext();
+  const team = home?.home.kind === 'team';
+  const storageScope = useHomeStorageScope();
+  const confirm = useConfirm();
+  const full = useSearchParams().get('full') === '1'
+  const fullPage = taskId ? homeResourceHref('task', taskId, team ? { kind: 'team', spaceId: currentSpaceId() } : undefined) + (team ? '&full=1' : '') : '#';
   const isOpen = taskId !== null;
   const { data: savedTask } = useTask(taskId);
   const task = usePendingDocument('tasks', taskId, savedTask);
@@ -58,7 +74,8 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   const autosave = useDocumentAutosave('tasks', taskId, savedTask, updateTask.mutateAsync);
   const deleteTask = useDeleteTask();
   const lifecycle = useTaskLifecycle();
-  const chat = useDocumentChat('task', task ?? null);
+  const chat = useDocumentChat('task', task ?? null, !team && !task?.sourceTeamId);
+  const sharedBody = useSharedBody('task', team ? savedTask : undefined);
   const aiBusy = chat.status === 'streaming' || chat.status === 'submitted';
 
   // Agent-first trial (Settings > General > Notes and tasks). Per open: the
@@ -69,7 +86,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
   // part and Only you. Its document chat stays off: its agent would be
   // writing the team's text.
   const shared = !!task?.sourceTeamId;
-  const view = shared ? 'editor' : resolveEntityView(agentFirst, viewOverride, taskId);
+  const view = shared || team ? 'editor' : resolveEntityView(agentFirst, viewOverride, taskId);
   const setView = useCallback(
     (next: EntityViewMode) => { if (taskId) setViewOverride({ id: taskId, view: next }); },
     [taskId],
@@ -80,7 +97,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     min: MIN_WIDTH,
     max: MAX_WIDTH,
     defaultSize: DEFAULT_WIDTH,
-    storageKey: 'ri.task-slideout.width',
+    storageKey: homeStorageIdentity('ri.task-slideout.width', storageScope),
   });
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingAttachmentsRef = useRef<Attachment[]>([]);
@@ -128,11 +145,13 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     onClose();
   }, [taskId, task, lifecycle, onClose]);
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
     if (!taskId) return;
-    deleteTask.mutate(taskId);
+    if (!team) { deleteTask.mutate(taskId); onClose(); return; }
+    if (!await confirm({ title: 'Delete this task for everyone?', description: 'It leaves the team for good. Archive keeps it findable.', confirmLabel: 'Delete', tone: 'destructive' })) return;
+    await deleteTask.mutateAsync(taskId);
     onClose();
-  }, [taskId, deleteTask, onClose]);
+  }, [taskId, team, confirm, deleteTask, onClose]);
 
   // Cleanup
 
@@ -142,12 +161,12 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
     const handleKeyDown = (e: KeyboardEvent) => {
       if (matchesHotkey(e, HOTKEYS.openFullPage)) {
         e.preventDefault();
-        router.push(`/task/${taskId}`);
+        router.push(fullPage);
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, taskId, router]);
+  }, [isOpen, taskId, router, fullPage]);
 
   const isDone = task?.status === 'done';
   // A brand-new task is seeded with a blank/whitespace title and no body. Render
@@ -159,7 +178,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
 
 
   return (
-    <EntitySheet open={isOpen} label="Task" width={width} contentRef={containerRef} resizing={isResizing} onClose={onClose} onCloseAll={onCloseAll} showCloseButton={false} onOpenAutoFocus={(event) => { event.preventDefault(); if (isNewTask) containerRef.current?.querySelector<HTMLElement>('[data-entity-title]')?.focus(); }}>
+    <EntitySheet open={isOpen} label="Task" width={width} fullWidth={Boolean(team && full)} contentRef={containerRef} resizing={isResizing} onClose={onClose} onCloseAll={onCloseAll} showCloseButton={false} onOpenAutoFocus={(event) => { event.preventDefault(); if (isNewTask) containerRef.current?.querySelector<HTMLElement>('[data-entity-title]')?.focus(); }}>
 
           {/* Resize handle — desktop only */}
           <div
@@ -204,15 +223,15 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
               </div>
 
               <div className="flex min-w-0 items-center gap-2">
-                {agentFirst && !shared && <EntityViewToggle value={view} onChange={setView} compact={width < 700} />}
-                {taskId && !shared && <EntityHistoryButton entityType="task" entityId={taskId} />}
+                {agentFirst && !shared && !team && <EntityViewToggle value={view} onChange={setView} compact={width < 700} />}
+                {taskId && !shared && (team && task ? <TeamEntityHistory kind="task" id={taskId} bodyRevision={task.bodyRevision} /> : <EntityHistoryButton entityType="task" entityId={taskId} />)}
                 {taskId && <ReferencingSessionsButton entityType="task" entityId={taskId} />}
                 <a
-                  href={taskId ? `/task/${taskId}` : '#'}
+                  href={fullPage}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey) return;
                     e.preventDefault();
-                    if (taskId) router.push(`/task/${taskId}`);
+                    if (taskId) router.push(fullPage);
                   }}
                   className="group/expand p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
                   aria-label="Open full page"
@@ -223,8 +242,9 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                   <Maximize2 size={14} />
                 </a>
 
+                {team && task && <><SaveStatus status={sharedBody.status} /><MyWorkControl taskId={task.id} /></>}
                 {task && task.status !== 'done' && task.status !== 'archived' && (
-                  <StartWithAgentButton task={task} />
+                  team ? <TeamTaskAgentAction task={task} /> : <StartWithAgentButton task={task} />
                 )}
                 {/* Complete/Reopen only where it is the real action (not for
                     Consider or Archived — change those with the status control). */}
@@ -244,10 +264,11 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
                   </button>
                 )}
 
-                <EntityActionsMenu onArchive={handleArchive} onDelete={shared ? undefined : handleDelete} archiveLabel={shared ? 'Archive for the team' : 'Archive'}>
+                <EntityActionsMenu onArchive={handleArchive} onDelete={shared || team && !home?.capabilities.deletePermanently ? undefined : handleDelete} deleteLabel={team ? "Delete for everyone" : "Delete"} archiveLabel={shared ? 'Archive for the team' : 'Archive'}>
                     {shared && task?.source?.addedAt && task.sourceTeamId && task.sourceTaskId && <DropdownMenuItem onSelect={() => void removeFromMyWork(task.sourceTeamId!, task.sourceTaskId!).then(onClose)}><X size={12} /> Remove from my work</DropdownMenuItem>}
                   </EntityActionsMenu>
               </div>
+              {team && <div className="basis-full"><TeamAudience /></div>}
             </EntityDetailHeader>
 
             {/* Body + Chat */}
@@ -265,7 +286,9 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
             <div className="flex-1 flex overflow-hidden relative">
               {/* Main content */}
               <div className="flex-1 overflow-y-auto min-w-0 relative">
-                {task && shared ? (
+                {task && team ? (
+                  <TeamTaskDocument task={task} parentTask={parentTask} openTask={openTask} save={patch => updateTask.mutate({ id: task.id, ...patch })} autosave={autosave} shared={sharedBody} />
+                ) : task && shared ? (
                   <SharedTaskBody task={task} onOpenTask={openTask} />
                 ) : task ? (
                   <div className="space-y-0">
@@ -290,7 +313,7 @@ export function TaskSlideout({ taskId, onClose, onCloseAll, hasHistory }: TaskSl
               </div>
 
               {/* AI Chat panel / bubble */}
-              {!shared && <SlideoutChat
+              {!shared && !team && <SlideoutChat
                 slideoutWidth={width}
                 collapseThreshold={740}
                 contextLabel="this task"

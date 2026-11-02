@@ -27,7 +27,7 @@ export type AnyPanelTab = PanelTab | MorePanelTab;
 export type PanelId = 'a' | 'b';
 
 /** Mobile bottom tab bar navigation */
-export type MobileTab = 'chat' | 'agents' | 'create' | 'deck' | 'more';
+export type MobileTab = 'chat' | 'agents' | 'create' | 'deck' | 'more' | 'tasks' | 'notes';
 
 export interface Task {
   id: number;

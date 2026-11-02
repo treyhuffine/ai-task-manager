@@ -2,9 +2,14 @@
 
 import { Search } from 'lucide-react';
 import { SpaceSelector } from '@/components/spaces/space-selector';
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { useSettingsLink } from '@/components/settings/settings-destination';
+import { Settings } from 'lucide-react';
 import { ScratchpadButton } from '@/components/scratchpad/scratchpad-host';
 
 export function MobileTopBar({ onSearch = () => document.dispatchEvent(new CustomEvent('open-search')), onOpenSettings }: { onSearch?: () => void; onOpenSettings?: () => void }) {
+  const team = useOptionalHomeContext()?.home.kind === 'team';
+  const settings = useSettingsLink();
   return (
     // pt: respect the safe-area on devices that report one (notch/island),
     // floor at 0.75rem so non-PWA browsers — which evaluate env() to 0 —
@@ -23,7 +28,7 @@ export function MobileTopBar({ onSearch = () => document.dispatchEvent(new Custo
         <Search size={15} className="flex-shrink-0" />
         <span className="truncate text-sm text-muted-foreground/70">Search tasks, notes, areas…</span>
       </button>
-      <ScratchpadButton variant="phone" />
+      {team ? <button type="button" aria-label="Settings" onClick={onOpenSettings ?? settings ?? undefined} className="flex size-10 items-center justify-center rounded-lg border border-border text-muted-foreground"><Settings size={16} /></button> : <ScratchpadButton variant="phone" />}
     </header>
   );
 }

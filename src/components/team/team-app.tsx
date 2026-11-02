@@ -19,7 +19,7 @@ function subscribe(listener: () => void) {
 /**
  * A team space's home (docs/homes-spec.md §3.2): its shared work for a
  * signed-in member, how to get in otherwise. Nothing personal mounts here,
- * so a member never meets a main chat, deck, agents or setup.
+ * so personal onboarding and background services never mount in a Team.
  */
 export function TeamApp() {
   // This browser's key for the team, followed as it signs in and out.

@@ -108,6 +108,9 @@ jobs:
           sudo apt-get install --no-install-recommends -y xvfb xauth openbox libgtk-3-0 libnss3 libasound2t64
       - run: pnpm install --frozen-lockfile
       - run: pnpm ts
+        # The full app type graph exceeds Node's 2 GiB default on macOS runners.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
       - run: pnpm test
       - run: pnpm desktop:test
       - run: pnpm --filter @integrations/engine test

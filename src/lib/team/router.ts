@@ -19,6 +19,7 @@
  */
 import { stopTeamAiWork } from './ai/chat';
 import { z } from 'zod/v4';
+import fs from 'node:fs';
 import { TRPCError } from '@trpc/server';
 import { setRunningPort } from '@/lib/auth/bootstrap';
 import { writeAuthConfig } from '@/lib/auth/config-file';
@@ -37,7 +38,9 @@ import { TEAM_TOOLS, runTeamTool, type TeamToolResult } from './mcp/tools';
 import { teamWriteSource } from './shared-work';
 import type { TRPCContext } from '@/lib/trpc/init';
 import { publishTaskResult } from './published-results';
-import { publishTaskResultSchema } from '@/lib/trpc/schemas';
+import { attachment, publishTaskResultSchema } from '@/lib/trpc/schemas';
+import { parseOrchestratorLook } from '@/lib/orchestrator/look';
+import { attachmentPath } from '@/lib/attachments/save';
 
 const nativeInput = z.object({ action: z.string().min(1).max(100), input: z.record(z.string(), z.unknown()) }).strict();
 
@@ -122,6 +125,15 @@ export const teamRouter = router({
   /** Everyone in the team, for assigning work and naming who changed it. */
   members: memberProcedure.query(() => q.listMembers({ includeRemoved: true }).map((m) => ({ ...memberView(m), active: m.status === 'active' }))),
   renameMe: memberProcedure.input(nameInput).mutation(({ ctx, input }) => memberView(q.renameMember(me(ctx).id, input.name))),
+  /** A Team's logo uses its existing home-wide identity image and attachment store. */
+  setLogo: ownerProcedure.input(z.object({ image: attachment.nullable() }).strict()).mutation(({ input }) => {
+    const parsed = parseOrchestratorLook({ orchestratorImage: input.image });
+    if ('error' in parsed) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Choose an uploaded image for the team logo.' });
+    const image = parsed.patch.orchestratorImage ?? null;
+    if (image && !fs.existsSync(/* turbopackIgnore: true */ attachmentPath(image.fileName))) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Upload the logo before saving it.' });
+    q.updateUserState({ orchestratorImage: image });
+    return { image };
+  }),
 
   /** This member's sign-ins, and a link to sign in on another device. */
   signIns: router({

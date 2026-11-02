@@ -92,6 +92,13 @@ export const spacesRouter = router({
     applyExisting: p.input(defaultScope.extend({ selected: z.array(z.object({ entityType: z.enum(['task', 'note']), id: z.string().min(1).max(100), areaId: z.string().min(1).max(100) }).strict()).max(500) })).mutation(async ({ input }) => q.applyPersonalAreaDefault(input.teamId, input.sourceAreaId, (await activeSourceAreas(input.teamId)).map((a) => a.id), input.selected)),
   }),
   list: p.query(() => q.listTeamConnections().map(teamConnectionView)),
+  /** Read a menu icon independently, so an offline Team never holds up the list. */
+  identity: p.input(idInput).query(async ({ input }): Promise<{ logoFileName: string | null }> => {
+    const team = await teamFor(input.id);
+    if (!team) throw new q.TeamError('not_found', 'This team is not connected.');
+    const { team: identity } = await team.client.team.me.query();
+    return { logoFileName: identity.logo?.fileName ?? null };
+  }),
   /** Where a pasted link leads, before anything is joined or saved. */
   inspectLink: p.input(linkInput).mutation(({ input }) => inspectTeamLink(input.link)),
   connect: p

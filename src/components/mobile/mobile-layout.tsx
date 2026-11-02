@@ -11,9 +11,13 @@ import { MobileMoreView } from './mobile-more-view';
 import { MobileTabBar } from './mobile-tab-bar';
 import { MobileTopBar } from './mobile-top-bar';
 import { MobileCreateSheet } from './mobile-create-sheet';
+import { useOptionalTeam, useTeamNav } from '@/components/team/team-context';
 
 export function MobileLayout() {
   const { mobileTab, activeSessionId, activeView, goHome } = useDashboard();
+  const team = useOptionalTeam();
+  const nav = useTeamNav();
+  const backToAgents = team ? () => nav.show('agents') : goHome;
 
   // When the user has tapped into a session (the execution view), the
   // agents tab takes over the whole content area with the chat surface —
@@ -37,7 +41,7 @@ export function MobileLayout() {
       return <ExecutionView sessionId={activeSessionId} />;
     }
     if (mobileTab === 'agents' && agentId) {
-      return <AgentView workspaceId={agentId} tab={agentTab} onBack={goHome} assumeNarrow />;
+      return <AgentView workspaceId={agentId} tab={agentTab} onBack={backToAgents} assumeNarrow />;
     }
     if (mobileTab === 'agents' && skillRef) {
       return <SkillView skillRef={skillRef} onBack={goHome} assumeNarrow />;
@@ -45,6 +49,10 @@ export function MobileLayout() {
     switch (mobileTab) {
       case 'chat':
         return <ContentPanel panelId="a" mobileTab="chat" />;
+      case 'tasks':
+        return <ContentPanel panelId="a" mobileTab="tasks" />;
+      case 'notes':
+        return <ContentPanel panelId="a" mobileTab="notes" />;
       case 'deck':
         return <ContentPanel panelId="a" mobileTab="deck" />;
       case 'agents':

@@ -6,15 +6,15 @@ beforeAll(async () => {
   if (!enabled) return;
   fixture = await browserFixture(`
     import React from'react';import{createRoot}from'react-dom/client';import{QueryClient,QueryClientProvider}from'@tanstack/react-query';import{TeamSearch}from'./src/components/team/team-search';
-    window.selected=[];createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><TeamSearch/></QueryClientProvider>);
+    window.selected=[];window.openPanels=[];window.chatReads=[];createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><TeamSearch/></QueryClientProvider>);
   `, [{ name:'team-search-data', setup(b) {
     const modules: Record<string,string> = {
-      'team-context': `export const useTeam=()=>({member:{id:'me'}});export const useTeamNav=()=>({panel:'search',openPanel:()=>{},openTask:id=>window.selected.push(['task',id]),openNote:id=>window.selected.push(['note',id]),openChat:id=>window.selected.push(['chat',id]),show:id=>window.selected.push(['view',id])});`,
+      'team-context': `export const useTeam=()=>({member:{id:'me'}});export const useTeamNav=()=>({panel:'search',openPanel:panel=>window.openPanels.push(panel),openTask:id=>window.selected.push(['task',id]),openNote:id=>window.selected.push(['note',id]),openChat:id=>window.selected.push(['chat',id]),show:id=>window.selected.push(['view',id])});`,
       'use-search': `export const useSearch=(query,mode,kind)=>({data:query?[{id:'task',entityType:'task',title:'Task result',createdAt:'2026-10-20'}, {id:'note',entityType:'note',title:kind==='decision'?'Decision result':'Note result',kind:kind||'note',createdAt:'2026-10-20'}]:[],isFetching:false});`,
-      'use-recents': `export const useRecents=()=>({data:[{id:'recent',entityType:'task',title:'Recent shared task',hasBody:false}]});`,
+      'use-recents': `export const useRecents=()=>({data:[{id:'recent',entityType:'task',title:'Recent shared task',hasBody:false},{id:'recent-note',entityType:'note',title:'Recent shared note',hasBody:true}]});`,
       'use-tasks': `export const useCreateTask=()=>({mutateAsync:async()=>({id:'new-task'})});`,
       'use-notes': `export const useCreateNote=()=>({mutateAsync:async()=>({id:'new-note'})});`,
-      'trpc/client': `export const trpc={team:{ai:{searchChats:{queryOptions:input=>({queryKey:['chat-search',input],queryFn:async()=>[]})}}}};`,
+      'trpc/client': `export const trpc={team:{ai:{searchChats:{queryOptions:input=>({queryKey:['chat-search',input],queryFn:async()=>{window.chatReads.push(input.query);return []}})}}}};`,
       'space-selector': `export const useConnectedTeams=()=>({data:[]});`,
     };
     for(const[name,contents]of Object.entries(modules)){b.onResolve({filter:new RegExp('/'+name+'$')},()=>({path:name,namespace:'search-data'}));b.onLoad({filter:new RegExp('^'+name+'$'),namespace:'search-data'},()=>({contents,loader:'tsx',resolveDir:process.cwd()}));}
@@ -39,5 +39,27 @@ it.skipIf(!enabled)('uses shared prefixes, recents, keyboard commands and Home d
     await expect.poll(() => page.evaluate('window.selected')).toContainEqual(['task','new-task']);
     await page.getByText('Recent shared task',{exact:true}).click();
     await expect.poll(() => page.evaluate('window.selected')).toContainEqual(['task','recent']);
+  } finally { await page.close(); }
+}, 30_000);
+
+
+it.skipIf(!enabled)('keeps the task entry prefix, filters recent notes and leaves general keyboard search unfiltered', async () => {
+  const page = await fixture.browser.newPage();page.setDefaultTimeout(8000);
+  try {
+    await page.goto(fixture.url);
+    const search = page.getByRole('combobox');
+    await page.getByText('Recent shared note', { exact: true }).waitFor();
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('open-search', { detail: { initialQuery: 'task: ' } })));
+    await expect.poll(() => search.inputValue()).toBe('task: ');
+    expect(await page.getByText('Recent shared note', { exact: true }).count()).toBe(0);
+    await page.getByText('Recent shared task', { exact: true }).waitFor();
+    await search.fill('task: result');
+    await page.getByText('Task result', { exact: true }).waitFor();
+    expect(await page.getByText('Note result', { exact: true }).count()).toBe(0);
+    expect(await page.evaluate('window.chatReads')).toEqual([]);
+    await page.keyboard.press('ControlOrMeta+k');
+    await expect.poll(() => search.inputValue()).toBe('');
+    await page.getByText('Recent shared note', { exact: true }).waitFor();
+    expect(await page.evaluate('window.openPanels')).toEqual(['search', 'search']);
   } finally { await page.close(); }
 }, 30_000);

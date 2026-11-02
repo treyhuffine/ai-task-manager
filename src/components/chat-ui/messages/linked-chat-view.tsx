@@ -5,6 +5,8 @@ import { useOptionalWorkNavigation } from '@/contexts/work-context';
 import { HarnessChatSession } from '@/components/chat/harness-chat';
 import { ExecutionTranscript } from '@/components/executions/execution-transcript';
 import { useWorkspace } from '@/hooks/use-workspaces';
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { LegacyTeamChatAgentChoice } from '@/components/team/team-chat';
 import { useOrchestratorName } from '@/hooks/use-user-state';
 import { useSessionStream } from '@/hooks/use-session-stream';
 import { agentView, executionView, HOME_VIEW, viewHref } from '@/lib/client/active-view';
@@ -12,6 +14,7 @@ import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 
 /** Exact non-execution chat navigation never replaces or resumes a scope's current main chat. */
 export function LinkedChatView({ session }: { session: ChatSessionWithExecution }) {
+  const team = useOptionalHomeContext()?.home.kind === 'team';
   const navigation = useOptionalWorkNavigation();
   const { data: workspace } = useWorkspace(session.workspaceId ?? null);
   const orchestratorName = useOrchestratorName();
@@ -32,6 +35,7 @@ export function LinkedChatView({ session }: { session: ChatSessionWithExecution 
         else navigation.openCurrentChat?.(session.workspaceId ?? null);
       }}>{session.executionId ? 'Continue this chat' : 'Open current chat'}</HomeLink>
     </header>
+    {team && !session.workspaceId && !archived && <LegacyTeamChatAgentChoice chatId={session.id} />}
     {archived
       ? <ExecutionTranscript session={session} workspace={workspace} isRunning={false} />
       : <HarnessChatSession sessionId={session.id} autoFocusComposer={false} />}

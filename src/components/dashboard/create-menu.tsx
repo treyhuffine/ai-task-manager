@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Plus, CheckSquare, FileText, Layers, Zap } from "lucide-react";
 import {
   Popover,
@@ -10,6 +10,7 @@ import {
 import { AreaCreateModal } from "./area-create-modal";
 import { useCreateNote } from "@/hooks/use-notes";
 import { useCreateTask } from "@/hooks/use-tasks";
+import { useOptionalTeam, useTeamNav } from '@/components/team/team-context';
 import { useDashboard } from "@/contexts/dashboard-context";
 import { HOTKEYS } from "@/constants/commands";
 import { Tip } from "@/components/ui/tip";
@@ -18,6 +19,10 @@ import { openSettings } from "@/components/settings/settings-store";
 import { PLUGIN_CREATE_ANCHORS } from "@/components/settings/sections/plugins/navigation";
 
 export function CreateMenu() {
+  const team = useOptionalTeam();
+  const nav = useTeamNav();
+  const defaults = useMemo(() => team ? { ...(nav.areaId ? { areaId: nav.areaId } : {}), ...(nav.mine ? { assigneeMemberId: team.member.id } : {}) } : {}, [team, nav.areaId, nav.mine]);
+  const noteDefaults = useMemo(() => team ? { ...(nav.areaId ? { areaId: nav.areaId } : {}), ...(nav.decisions ? { kind: 'decision' as const } : {}) } : {}, [team, nav.areaId, nav.decisions]);
   const [open, setOpen] = useState(false);
   const [areaOpen, setAreaOpen] = useState(false);
 
@@ -34,26 +39,26 @@ export function CreateMenu() {
   const handleNewTask = useCallback(() => {
     setOpen(false);
     createTask.mutate(
-      { title: " ", rawInput: " " },
+      { title: " ", rawInput: " ", ...defaults },
       {
         onSuccess: (task) => {
           openTask(task.id);
         },
       }
     );
-  }, [createTask, openTask]);
+  }, [createTask, openTask, defaults]);
 
   const handleNewNote = useCallback(() => {
     setOpen(false);
     createNote.mutate(
-      { body: " " },
+      { body: " ", ...noteDefaults },
       {
         onSuccess: (note) => {
           openNote(note.id);
         },
       }
     );
-  }, [createNote, openNote]);
+  }, [createNote, openNote, noteDefaults]);
 
   const handleNewArea = useCallback(() => {
     setOpen(false);
@@ -81,7 +86,8 @@ export function CreateMenu() {
           // steals the caret from the freshly opened new task's title.
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
-          {/* Quick Capture — hero action, spans full width */}
+          {/* Personal capture stays in its owning Home. */}
+          {!team && <>
           <button
             onClick={handleQuickCapture}
             className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent transition-colors group mb-1"
@@ -102,6 +108,7 @@ export function CreateMenu() {
 
           <div className="h-px bg-border my-1" />
 
+          </>}
           <div className="grid grid-cols-3 gap-1">
             <button
               onClick={handleNewTask}
@@ -140,7 +147,7 @@ export function CreateMenu() {
             </button>
 
           </div>
-          <div className="h-px bg-border my-1" />
+          {!team && <><div className="h-px bg-border my-1" />
           <button type="button" onClick={() => { setOpen(false); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.connectService }); }}
             className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[11px] hover:bg-accent">
             <Plus size={15} className="shrink-0 text-muted-foreground" /> Connect a service
@@ -152,7 +159,7 @@ export function CreateMenu() {
           <button type="button" onClick={() => { setOpen(false); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.mcpServer }); }}
             className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[11px] hover:bg-accent">
             <Plus size={15} className="shrink-0 text-muted-foreground" /> Add MCP server
-          </button>
+          </button></>}
         </PopoverContent>
       </Popover>
 

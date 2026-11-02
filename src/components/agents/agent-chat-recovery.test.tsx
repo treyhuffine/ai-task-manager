@@ -158,7 +158,7 @@ it('L4: confirmed-null member chat + failed refresh -> number of refresh notices
   h.main = async () => { if (fail) throw new ApiError(503, { error: 'Temporary' }, '/fixture'); return { session: null }; };
   h.url = new URL('http://team.test/?view=chat');
   await mount();
-  await until(() => text().includes('Start a conversation'));
+  await until(() => !!container.querySelector('[data-composer="main:new:agent"]'));
   fail = true;
   await act(async () => { void client.invalidateQueries({ queryKey: ['agent-chat', 'agent'] }); });
   await until(() => text().includes('Could not refresh'), 30_000);

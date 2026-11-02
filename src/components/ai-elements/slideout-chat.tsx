@@ -38,7 +38,7 @@ type DocumentData = TaskRecord | NoteRecord
  * agent is mid-change. When a turn finishes we refetch the entity so the
  * AI's edits land in the editor immediately.
  */
-export function useDocumentChat(documentType: DocumentType, document: DocumentData | null) {
+export function useDocumentChat(documentType: DocumentType, document: DocumentData | null, enabled = true) {
   const qc = useQueryClient()
   const entityId = document?.id ?? null
   const queryKey = ['document-chat', documentType, entityId] as const
@@ -47,7 +47,7 @@ export function useDocumentChat(documentType: DocumentType, document: DocumentDa
     queryKey,
     queryFn: () =>
       trpcClient.documentChat.list.query({query: rpcQuery({"entityType": documentType, "entityId": entityId})}),
-    enabled: !!entityId,
+    enabled: enabled && !!entityId,
     staleTime: 30_000,
   })
 
