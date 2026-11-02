@@ -13,7 +13,6 @@ import { RailStrip } from './rail-strip';
 import { SessionHoverProvider } from './session-hover-context';
 import { SessionHoverPreview } from './session-hover-preview';
 import { WorkspaceSelectionProvider } from './workspace-selection-context';
-import { AppsReviewRailSlot } from '@/components/local-apps/layout-review/rail-portal';
 
 /**
  * The left rail (docs/rail.md), wide or collapsed. Top to bottom:
@@ -64,12 +63,10 @@ function WideRail({ places, onToggle }: { places: readonly RailPlace[]; onToggle
 
 
             <RailPlaceRows places={places} />
-            <AppsReviewRailSlot>
-              <div className="sticky top-0 z-30 bg-background">
-                <RailListHeader tab={tab} onSelect={setTab} />
-              </div>
-              <RailListBody tab={tab} />
-            </AppsReviewRailSlot>
+            <div className="sticky top-0 z-30 bg-background">
+              <RailListHeader tab={tab} onSelect={setTab} />
+            </div>
+            <RailListBody tab={tab} />
         </RailLayout>
       </WorkspaceSelectionProvider>
       <SessionHoverPreview />

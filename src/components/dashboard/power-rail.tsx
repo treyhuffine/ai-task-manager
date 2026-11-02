@@ -22,13 +22,15 @@ interface PowerRailProps {
 }
 
 export function PowerRail({ compact = false, fixed = false }: PowerRailProps) {
-  const { railCollapsed, executionRailOpen, toggleRailCollapsed, toggleExecutionRailOpen } = useDashboard();
+  const { activeView, railCollapsed, executionRailOpen, appsRailOpen, toggleRailCollapsed, toggleExecutionRailOpen, toggleAppsRailOpen } = useDashboard();
+  const inApps = activeView.kind === 'apps';
 
   // Resolve the "is the rail expanded right now?" question.
   // - compact: driven by executionRailOpen (defaults false → collapsed)
+  // - Apps: a temporary override, reset on each visit
   // - otherwise: driven by railCollapsed (the global pref)
-  const expanded = !fixed && (compact ? executionRailOpen : !railCollapsed);
-  const onToggle = fixed ? undefined : compact ? toggleExecutionRailOpen : toggleRailCollapsed;
+  const expanded = !fixed && (inApps ? appsRailOpen : compact ? executionRailOpen : !railCollapsed);
+  const onToggle = fixed ? undefined : inApps ? toggleAppsRailOpen : compact ? toggleExecutionRailOpen : toggleRailCollapsed;
 
-  return <RailContainer expanded={expanded} compact={compact}><Rail expanded={expanded} onToggle={onToggle}/></RailContainer>;
+  return <RailContainer expanded={expanded} compact={compact || inApps}><Rail expanded={expanded} onToggle={onToggle}/></RailContainer>;
 }

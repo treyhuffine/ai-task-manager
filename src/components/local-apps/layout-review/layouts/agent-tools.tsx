@@ -35,7 +35,7 @@ export function AgentTools() {
       <section className={s.section}><SectionTitle count={skills.length}>Skills</SectionTitle>{review.library.filter(item => item.target.kind === 'skill' && skillRefs.has(item.target.ref)).map(item => <ItemRow key={item.key} item={item} />)}{!skills.length && <p className={s.muted}>Install a skill for Ri or this agent’s project to make it available here.</p>}</section>
       <section className={s.section}><SectionTitle>Standing instructions</SectionTitle><p className={`${s.muted} whitespace-pre-wrap`}>{agent.data.instructions || 'No standing instructions yet.'}</p></section>
     </>}
-  </section><section className={s.catalogPane}>{review.selected ? <ItemDetails item={review.selected} /> : <Discovery heading={agent.data ? `Discover for ${agent.data.name}` : 'Discover'} initial={8} />}</section></div>
+  </section><section className={s.catalogPane}>{review.selected ? <ItemDetails item={review.selected} /> : <Discovery heading={agent.data ? `Discover for ${agent.data.name}` : 'Discover'} />}</section></div>
     <Dialog open={!!accessId} onOpenChange={open => { if (!open) setAccessId(null); }}><DialogContent className="max-h-[85vh] overflow-auto"><DialogHeader><DialogTitle>App access for {agent.data?.name}</DialogTitle></DialogHeader>{accessId && selectedId && <AppGrantEditor key={`${accessId}:${selectedId}`} instanceId={accessId} principal={{ kind: 'workspace', id: selectedId }} onSaved={() => setAccessId(null)} />}</DialogContent></Dialog>
   </>;
 }

@@ -107,6 +107,8 @@ interface DashboardState {
   // the user temporarily open it via the ⌘\ hotkey. Persisted so a
   // page reload doesn't snap it closed mid-task.
   executionRailOpen: boolean;
+  // Apps has its own temporary rail state. Every visit starts collapsed.
+  appsRailOpen: boolean;
   // Most recently viewed execution session id. Updated every time
   // setActiveView is called with a session id; persisted to
   // localStorage so ⌘E from the dashboard can re-open the last
@@ -184,6 +186,7 @@ interface DashboardActions {
   setRailCollapsed: (collapsed: boolean) => void;
   toggleExecutionRailOpen: () => void;
   setExecutionRailOpen: (open: boolean) => void;
+  toggleAppsRailOpen: () => void;
 }
 
 type DashboardContextType = DashboardState & DashboardActions;
@@ -344,6 +347,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // SSR-safe: start expanded, then hydrate from localStorage so the
   // first client paint matches the persisted choice.
   const { collapsed: railCollapsed, set: setRailCollapsed, toggle: toggleRailCollapsed } = useRailCollapse();
+
+  // A local override leaves the persisted Home and execution choices intact.
+  // Reset during navigation, including Back/Forward, before the next paint.
+  const appsActive = activeView.kind === 'apps';
+  const [appsRail, setAppsRail] = useState({ active: appsActive, open: false });
+  if (appsRail.active !== appsActive) setAppsRail({ active: appsActive, open: false });
+  const appsRailOpen = appsActive && appsRail.active && appsRail.open;
+  const toggleAppsRailOpen = useCallback(() => setAppsRail(previous => ({ ...previous, open: !previous.open })), []);
 
   // ─── Last viewed execution id ───────────────────────────
   // Recorded on every setActiveView(sessionId) so ⌘E from the
@@ -621,6 +632,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       executionRailOpen,
       toggleExecutionRailOpen,
       setExecutionRailOpen,
+      appsRailOpen,
+      toggleAppsRailOpen,
       lastExecutionId,
     }}>
       <WorkContext navigation={workNavigation} activity={workActivity}>{children}</WorkContext>

@@ -63,12 +63,14 @@ export function reviewItems(sources: LibrarySources, catalog: CatalogEntry[] = [
 }
 
 export function itemType(item: ReviewItem) {
-  return item.target.kind === 'mcp' ? 'Custom MCP' : item.kind === 'skills' ? 'Skill' : item.kind === 'apps' ? 'App' : INTEGRATION_LABELS.singular;
+  return item.kind === 'skills' ? 'Skill' : item.kind === 'apps' ? 'App' : INTEGRATION_LABELS.singular;
 }
 export function primaryLabel(item: ReviewItem) {
   if (item.draft) return 'Continue setup';
   if (!item.added) return item.kind === 'connectors' ? 'Connect' : item.kind === 'skills' ? 'Preview skill' : 'Preview app';
   if (item.enabled === false || item.attention || item.usable === false) return 'Manage';
+  if (item.kind === 'skills') return 'Edit skill';
+  if (item.kind === 'connectors') return 'Manage connection';
   return item.view ? 'Open' : 'Try in chat';
 }
 const STOP_WORDS = new Set(['help', 'me', 'i', 'want', 'to', 'my', 'the', 'a', 'an', 'with', 'and', 'do', 'manage']);
@@ -101,7 +103,7 @@ export function collectionItems(items: ReviewItem[], collectionId: string) {
   const priorities = group.id === 'business' ? [/people|crm/i, /google|gmail/i, /proposal/i]
     : group.id === 'life' ? [/financ|budget/i, /calendar|google/i, /weekly.review/i, /travel/i]
     : [/research/i, /presentation/i, /linear|project/i];
-  const candidates = items.filter(discoverable);
+  const candidates = items.filter(discoverable).sort((a, b) => Number(a.kind === 'connectors') - Number(b.kind === 'connectors'));
   const curated = priorities.flatMap(pattern => {
     const item = candidates.find(item => pattern.test(`${item.name} ${item.keywords}`));
     return item ? [item] : [];

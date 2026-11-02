@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LibrarySources } from '../library-model';
-import { collectionItems, discoverable, matchesReview, primaryLabel, quickItems, reviewItems, type CatalogEntry, type ReviewItem } from './catalog';
+import { collectionItems, discoverable, itemType, matchesReview, primaryLabel, quickItems, reviewItems, type CatalogEntry, type ReviewItem } from './catalog';
 import { parsePreferences } from './preferences';
 import { isLayoutChoice, LAYOUT_OPTIONS } from './options';
 
@@ -21,6 +21,10 @@ describe('one library across the Apps layouts', () => {
     expect(items.filter(discoverable).some(item => item.target.kind === 'mcp' || item.key === 'skill:ri:private-workflow')).toBe(false);
     expect(items.find(item => item.key === 'skill:draft:work-in-progress')).toMatchObject({ draft: true });
     expect(items.filter(discoverable).some(item => item.kind === 'skills')).toBe(true);
+    expect(itemType(items.find(item => item.key === 'mcp:company')!)).toBe('Connector');
+    expect(itemType(items.find(item => item.key === 'skill:ri:private-workflow')!)).toBe('Skill');
+    expect(primaryLabel(items.find(item => item.key === 'skill:ri:private-workflow')!)).toBe('Edit skill');
+    expect(primaryLabel(items.find(item => item.key === 'provider:google')!)).toBe('Manage connection');
   });
   it('never pretends that a paused server is ready to use', () => {
     const item = reviewItems(sources).find(item => item.key === 'mcp:company')!;
@@ -40,15 +44,19 @@ describe('one library across the Apps layouts', () => {
     const finances = items.find(item => item.name === 'Finances')!;
     expect(finances.added).toBe(false);
     expect(primaryLabel(finances)).toBe('Preview app');
+    expect(itemType(finances)).toBe('App');
     expect(matchesReview(finances, 'help me manage money')).toBe(true);
     expect(matchesReview(finances, '', 'Added')).toBe(false);
     expect(matchesReview(items.find(item => item.key === 'mcp:company')!, 'company', 'Custom MCP')).toBe(true);
   });
   it('curates small goal collections instead of copying the entire provider catalog', () => {
-    const items = reviewItems(sources);
+    const items = reviewItems({ ...sources, providers: [...sources.providers!, { id: 'hubspot', displayName: 'HubSpot', method: 'oauth2', configured: true }] }, [{ packageId: 'ri-people', name: 'People', description: 'Your relationships in one place.' }] as CatalogEntry[]);
     const business = collectionItems(items, 'business');
     expect(business.map(item => item.name)).toContain('Google');
     expect(business.map(item => item.name)).toContain('Proposal writer');
+    expect(business.map(item => item.name)).toContain('People');
+    expect(business.map(item => item.name)).not.toContain('HubSpot');
+    expect(new Set(business.map(item => item.kind))).toEqual(new Set(['apps', 'connectors', 'skills']));
     expect(business.length).toBeLessThanOrEqual(4);
     expect(business.some(item => item.target.kind === 'mcp')).toBe(false);
   });

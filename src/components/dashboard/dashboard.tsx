@@ -48,13 +48,13 @@ function DashboardShell() {
     toggleQuickCapture,
     toggleRailCollapsed,
     toggleExecutionRailOpen,
+    toggleAppsRailOpen,
   } = useDashboard();
 
   // Home, an agent's view, or an execution (see `ActiveView`). A missing or
   // archived id renders "not found" inside its view and offers a way back.
-  // Only the execution view collapses the rail: Home and the agent view keep
-  // whatever the user set, which is part of what makes the execution view
-  // read as a separate workbench.
+  // Execution and Apps have their own compact rail state. Home and agent
+  // views retain the person's global preference.
   const isExecutionView = activeView.kind === 'execution';
   const isHome = activeView.kind === 'home';
 
@@ -67,10 +67,10 @@ function DashboardShell() {
   // Connected teams' work, read again when someone comes back (P7.2).
   useTeamRefresh();
 
-  // Keep a ref so the keyboard handler can read `isExecutionView`
+  // Keep a ref so the keyboard handler can read the current rail context
   // without re-binding on every navigation.
-  const isExecutionViewRef = useRef(isExecutionView);
-  useEffect(() => { isExecutionViewRef.current = isExecutionView; }, [isExecutionView]);
+  const railViewRef = useRef(activeView.kind);
+  useEffect(() => { railViewRef.current = activeView.kind; }, [activeView.kind]);
 
   // Latest validated execution id — drives ⌘E "reopen" from the
   // dashboard. Kept in a ref so the global keydown handler can read
@@ -80,9 +80,8 @@ function DashboardShell() {
   useEffect(() => { latestExecutionIdRef.current = latestExecutionId; }, [latestExecutionId]);
 
   // Global hotkeys: voice chat (⌘J), quick capture (⌘⇧K), rail toggle (⌘\)
-  // ⌘\ targets `executionRailOpen` when on an execution surface and
-  // `railCollapsed` elsewhere, so each context's rail state is
-  // independently persisted.
+  // ⌘\ toggles the current view's rail override, or the global preference
+  // on Home and agent views.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (matchesHotkey(e, HOTKEYS.voiceChat)) {
@@ -97,8 +96,10 @@ function DashboardShell() {
       }
       if (matchesHotkey(e, HOTKEYS.toggleRail)) {
         e.preventDefault();
-        if (isExecutionViewRef.current) {
+        if (railViewRef.current === 'execution') {
           toggleExecutionRailOpen();
+        } else if (railViewRef.current === 'apps') {
+          toggleAppsRailOpen();
         } else {
           toggleRailCollapsed();
         }
@@ -120,7 +121,7 @@ function DashboardShell() {
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [triggerVoiceChat, toggleQuickCapture, toggleRailCollapsed, toggleExecutionRailOpen, goHome, openExecution, isHome]);
+  }, [triggerVoiceChat, toggleQuickCapture, toggleRailCollapsed, toggleExecutionRailOpen, toggleAppsRailOpen, goHome, openExecution, isHome]);
 
   const hasHistory = slideoutStack.length > 1;
   const tier = useViewportTier();
