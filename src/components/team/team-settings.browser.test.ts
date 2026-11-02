@@ -32,6 +32,7 @@ beforeAll(async () => {
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     define: { 'process.env': '{"NODE_ENV":"development"}' },
     plugins: [{ name: 'team-settings-fixture', setup(b) {
+      b.onResolve({ filter: /contexts\/dashboard-context$/ }, () => ({ path: 'dashboard', namespace: 'fixture' }));
       b.onResolve({ filter: /settings\/(?:harness-settings-panel|default-model-section)$/ }, () => ({ path: 'models', namespace: 'fixture' }));
       b.onResolve({ filter: /home-context$/ }, () => ({ path: 'home', namespace: 'fixture' }));
       b.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: 'navigation', namespace: 'fixture' }));
@@ -43,6 +44,7 @@ beforeAll(async () => {
       b.onResolve({ filter: /spaces\/space-root$/ }, () => ({ path: 'space', namespace: 'fixture' }));
       b.onResolve({ filter: /ui\/confirm-dialog$/ }, () => ({ path: 'confirm', namespace: 'fixture' }));
       b.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ loader: 'tsx', resolveDir: process.cwd(), contents: {
+        dashboard: `export const useOptionalDashboard=()=>null;`,
         models: `export const HarnessSettingsPanel=()=>null;export const DefaultModelSection=()=>null;`,
         home: `export const useHomeContext=()=>({home:{id:'team',kind:'team'},viewer:{id:'owner'},capabilities:{manageSignIns:!location.search.includes('member'),configureAgents:!location.search.includes('member'),administerMembers:!location.search.includes('member'),deletePermanently:!location.search.includes('member'),privatePlanning:false}});export const useOptionalHomeContext=useHomeContext;export const useHomeStorageScope=()=>({homeId:'team',viewerId:'owner'});`,
         navigation: `import {useSyncExternalStore} from 'react';const subscribe=fn=>{addEventListener('popstate',fn);return()=>removeEventListener('popstate',fn);};const go=(url,replace=false)=>{history[replace?'replaceState':'pushState']({},'',url);dispatchEvent(new PopStateEvent('popstate'));};const router={push:url=>go(url),replace:url=>go(url,true)};export const useRouter=()=>router;export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(useSyncExternalStore(subscribe,()=>location.search));`,
@@ -62,7 +64,7 @@ beforeAll(async () => {
           export const trpc={userState:{list:query('user-state',()=>({})),update:{mutationKey:()=>['user-state','update']}},homeContext:query('home'),homeExecutionChoices:query('execution'),team:{
             me:query('me'),members:query('members'),invitations:{list:query('invitations')},signIns:{list:query('signIns')},
             address:{get:query('address',()=>({address:'https://team.example.test',tunnelName:'team-huffine',suggestedName:'team-huffine',autoTunnel:false,nameLocked:false}))},
-            aiClients:{list:query('clients',()=>clients),address:query('teamAddress',()=>({mcpUrl:'https://team.example.test/api/team/mcp',reachable:true}))},ai:{status:query('status',()=>status),configuration:query('configuration',()=>({enabled:status.enabled})),chats:{list:query('chats')}}
+            aiClients:{list:query('clients',()=>clients),address:query('teamAddress',()=>({mcpUrl:'https://team.example.test/api/team/mcp',reachable:true}))},ai:{orchestrator:query('orchestrator'),status:query('status',()=>status),configuration:query('configuration',()=>({enabled:status.enabled})),chats:{list:query('chats')}}
           }};
           for(const root of ['tasks','notes','areas']) trpc[root]={pathKey:()=>[root],list:query(root),get:query(root+'-detail')};
           trpc.results={capabilities:query('result-capabilities',()=>({handoffsEnabled:false,aiReviewEnabled:false}))};

@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useOptionalDashboard } from '@/contexts/dashboard-context';
 import type { AgentTab } from '@/types/dashboard';
 import type { TeamSettingsSectionId } from './team-settings-sections';
 
@@ -19,6 +20,8 @@ export function useTeam(): TeamIdentity {
   return value;
 }
 
+export function useOptionalTeam() { return useContext(TeamContext); }
+
 export type TeamView = 'board' | 'notes' | 'chat' | 'agents';
 
 /**
@@ -27,17 +30,18 @@ export type TeamView = 'board' | 'notes' | 'chat' | 'agents';
  * (docs/homes-spec.md §3.2).
  */
 export function useTeamNav() {
+  const dashboard = useOptionalDashboard();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const rawView = params.get('view');
-  const view: TeamView = rawView === 'notes' || rawView === 'chat' || rawView === 'agents' ? rawView : params.has('session') || params.has('chat') ? 'chat' : 'board';
+  const view: TeamView = dashboard?.activeView.kind === 'agent' ? 'agents' : dashboard?.activeView.kind === 'execution' ? 'chat' : rawView === 'notes' || rawView === 'chat' || rawView === 'agents' ? rawView : params.has('session') || params.has('chat') ? 'chat' : 'board';
   const taskId = params.get('task');
   const noteId = params.get('note');
   /** The shared chat open in the Chat view (docs/homes-spec.md §9.9). */
   const chatId = params.get('chat') ?? params.get('session');
   const agentId = params.get('agent');
-  const rawTab = params.get('agentTab');
+  const rawTab = params.get('tab') ?? params.get('agentTab');
   const agentTab = ['overview', 'files', 'terminal', 'preview', 'setup'].includes(rawTab ?? '') ? rawTab as AgentTab : undefined;
   const areaId = params.get('area');
   const mine = params.get('mine') === '1';
@@ -76,18 +80,18 @@ export function useTeamNav() {
       openSettings: (section: TeamSettingsSectionId) => set({ panel: 'settings', settings: section }),
       remoteSetup: params.get('setup') === 'remote',
       finishRemoteSetup: () => set({ setup: null, panel: null, settings: null }, 'replace'),
-      show: (next: TeamView) => set({ view: next === 'board' ? null : next, chat: null, session: null, ...(next === 'agents' ? { agent: null, agentTab: null } : {}) }),
-      openAgent: (id: string, tab?: AgentTab, pinnedChatId?: string) => set({ view: pinnedChatId ? 'chat' : 'agents', agent: id, agentTab: tab ?? null, chat: pinnedChatId ?? null, session: null, task: null, note: null, panel: null }),
-      openTask: (id: string) => set({ task: id, note: null }),
-      openNote: (id: string) => set({ note: id, task: null }),
+      show: (next: TeamView) => dashboard && next !== 'agents' ? dashboard.showPanelTab(next === 'board' ? 'tasks' : next) : set({ view: next === 'board' ? null : next, chat: null, session: null, agent: null, agentTab: null, tab: null }),
+      openAgent: (id: string, tab?: AgentTab, pinnedChatId?: string) => dashboard ? (pinnedChatId ? dashboard.openExecution(pinnedChatId) : dashboard.openAgent(id, tab)) : set({ view: pinnedChatId ? 'chat' : 'agents', agent: id, agentTab: tab ?? null, chat: pinnedChatId ?? null, session: null, task: null, note: null, panel: null }),
+      openTask: (id: string) => dashboard ? dashboard.openTask(id) : set({ task: id, note: null }),
+      openNote: (id: string) => dashboard ? dashboard.openNote(id) : set({ note: id, task: null }),
       pinChat: (id: string) => set({ view: 'chat', chat: id, session: null }, 'replace'),
-      openChat: (id: string | null) => set({ view: 'chat', chat: id, session: null, agent: null, agentTab: null, task: null, note: null, panel: null }),
-      closeDetail: () => set({ task: null, note: null }, 'replace'),
+      openChat: (id: string | null) => dashboard && id ? dashboard.openExecution(id) : set({ view: 'chat', chat: id, session: null, agent: null, agentTab: null, task: null, note: null, panel: null }),
+      closeDetail: () => dashboard ? dashboard.popSlideout() : set({ task: null, note: null }, 'replace'),
       filterArea: (id: string | null) => set({ area: id }, 'replace'),
       setMine: (on: boolean) => set({ mine: on ? '1' : null }, 'replace'),
       setDecisions: (on: boolean) => set({ kind: on ? 'decision' : null }, 'replace'),
       openPanel: (name: 'settings' | 'search' | null) => set({ panel: name, settings: null }, name ? 'push' : 'replace'),
     }),
-    [view, taskId, noteId, chatId, agentId, agentTab, areaId, mine, decisions, panel, set, params],
+    [view, taskId, noteId, chatId, agentId, agentTab, areaId, mine, decisions, panel, set, params, dashboard],
   );
 }

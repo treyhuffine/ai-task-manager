@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Layers, ChevronDown, Users, Loader2, Plus, SquareTerminal,
+  Layers, ChevronDown, Users, SquareTerminal,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -12,18 +12,11 @@ import { NoteList } from '@/components/notes/note-list';
 import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
 import { useNeedsYourCall } from '@/hooks/use-stream';
-import { useOrchestratorName } from '@/hooks/use-user-state';
-import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
-import { HarnessChat } from '@/components/chat/harness-chat';
-import { appMainChatIntro } from '@/components/chat/main-chat-intro';
-import { useNewOrchestratorChat } from '@/hooks/use-orchestrator-chat';
-import { ChatMenu } from '@/components/chat-ui/chat-menu';
-import { ScheduleChatButton } from '@/components/triggers/schedule-chat-button';
-import { useMainChat } from '@/hooks/use-main-chat';
-import { MainChatHistoryMenu } from '@/components/chat/main-chat-history-menu';
-import { MainChatOnboarding } from '@/components/chat/onboarding/main-chat-onboarding';
+import { PersonalMainChatContent } from '@/components/chat/main-chat-content';
+import { TeamOrchestratorChat } from '@/components/team/team-orchestrator-chat';
+import { TeamBoard } from '@/components/team/team-board';
+import { TeamNotes } from '@/components/team/team-notes';
 import { HomeTerminal } from '@/components/dashboard/home-terminal';
-import { Tip } from '@/components/ui/tip';
 import { useHomeContext } from '@/components/home/home-context';
 import { openTaskBoard } from '@/lib/client/task-board';
 import { TASK_VIEW_KEY } from '@/components/tasks/task-view';
@@ -58,59 +51,6 @@ const MORE_TAB_IDS = new Set<string>(MORE_TABS.map(t => t.id));
 //
 // Who you're talking to, past chats, and New. The main chat acts through
 // MCP only: the Skills / MCP switch that sat here was retired on 2026-10-05.
-
-function ChatHeaderBar({
-  name,
-  onNewChat,
-  newChatPending,
-}: {
-  name: string;
-  onNewChat: () => void;
-  newChatPending: boolean;
-}) {
-  const { data: currentChat } = useMainChat(null);
-  return (
-    <div className="shrink-0 flex items-center justify-end gap-1.5 px-2 py-1 border-b border-border/50">
-      {/* Who you're talking to, the same name the rail's home row shows. */}
-      <span className="mr-auto flex min-w-0 items-center gap-1.5 pl-0.5">
-        <OrchestratorAvatar size="xs" />
-        <span className="truncate text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
-          {name}
-        </span>
-      </span>
-      <ScheduleChatButton sessionId={currentChat?.session?.id ?? null} />
-      <ChatMenu sessionId={currentChat?.session?.id ?? null} />
-      <MainChatHistoryMenu scope={null} />
-      <Tip label="Start a new chat (archives the current one)">
-        <button
-          onClick={onNewChat}
-          disabled={newChatPending}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
-        >
-          {newChatPending ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
-          New
-        </button>
-      </Tip>
-    </div>
-  );
-}
-
-function ChatContent() {
-  const newChat = useNewOrchestratorChat();
-  const name = useOrchestratorName();
-
-  return (
-    <div className="flex flex-col h-full min-h-0">
-      <ChatHeaderBar name={name} onNewChat={() => newChat.mutate()} newChatPending={newChat.isPending} />
-      <HarnessChat
-        intro={appMainChatIntro(name)}
-        // Every empty main chat asks the onboarding what to show: the
-        // first-run conversation, a step added since, or the usual intro.
-        emptyState={<MainChatOnboarding />}
-      />
-    </div>
-  );
-}
 
 function MoreTabContent({ tab }: { tab: MorePanelTab }) {
   if (tab === 'terminal') return <HomeTerminal />;
@@ -150,6 +90,9 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
     filesInFront, setFileInFront,
   } = useDashboard();
   const isDark = theme === 'dark';
+  const team = home.home.kind === 'team';
+  const coreTabs = team ? CORE_TABS.filter(tab => ['chat', 'tasks', 'notes'].includes(tab.id)) : CORE_TABS;
+  const moreTabs = team ? MORE_TABS.filter(tab => tab.id === 'areas') : MORE_TABS;
 
   const activeTab = mobileTab ?? (panelId === 'a' ? panelATab : panelBTab);
 
@@ -174,7 +117,7 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
   const moreRef = useRef<HTMLDivElement>(null);
 
   const isMoreTab = MORE_TAB_IDS.has(activeTab);
-  const needsYourCall = useNeedsYourCall();
+  const needsYourCall = useNeedsYourCall(!team);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -201,7 +144,7 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
           'flex items-center border-b border-border shrink-0',
           isDark ? 'bg-card/30' : 'bg-muted/30'
         )}>
-          {CORE_TABS.map((tab) => (
+          {coreTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setPanelTab(panelId, tab.id)}
@@ -256,7 +199,7 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
                 'absolute right-0 top-full mt-1 w-52 rounded-lg border border-border shadow-xl z-50 py-1',
                 isDark ? 'bg-card' : 'bg-background'
               )}>
-                {MORE_TABS.map((tab) => (
+                {moreTabs.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => {
@@ -290,10 +233,10 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
       <div className="relative flex-1 min-h-0 overflow-hidden">
         <div inert={fileShown} aria-hidden={fileShown || undefined} className="h-full">
           {activeTab === 'deck' && <DeckContainer />}
-          {activeTab === 'chat' && <ChatContent />}
-          {activeTab === 'tasks' && <TaskSurface onOpenBoard={openTaskBoard} onOpenTask={openTask} privatePlanning={home.capabilities.privatePlanning} viewKey={`${TASK_VIEW_KEY}:${home.home.id}:${home.viewer.id}`} legacyViewKey={TASK_VIEW_KEY} />}
+          {activeTab === 'chat' && (team ? <TeamOrchestratorChat /> : <PersonalMainChatContent />)}
+          {activeTab === 'tasks' && (team ? <TeamBoard /> : <TaskSurface onOpenBoard={openTaskBoard} onOpenTask={openTask} privatePlanning={home.capabilities.privatePlanning} viewKey={`${TASK_VIEW_KEY}:${home.home.id}:${home.viewer.id}`} legacyViewKey={TASK_VIEW_KEY} />)}
           {activeTab === 'stream' && <StreamList />}
-          {activeTab === 'notes' && <NoteList onOpenNote={openNote} />}
+          {activeTab === 'notes' && (team ? <TeamNotes /> : <NoteList onOpenNote={openNote} />)}
           {isMoreTab && <MoreTabContent tab={activeTab as MorePanelTab} />}
         </div>
         {fileHere && fileHost && (

@@ -1,0 +1,85 @@
+# Team dashboard parity
+
+Branch: `refactor/team-dashboard-parity`, based on `origin/main` at `d0b8020c` (2026-11-02).
+
+Carry the personal application forward as the common application. Keep the team name, shared audience, assignment and member authority explicit. Personal-only workflows and defaults stay unchanged. No production restart or Home migration is part of review.
+
+## Work and acceptance
+
+- [x] Mount the same Dashboard, responsive layouts, power rail, agent tree, Recent list, history and chat selection for both Home kinds.
+- [x] Put the team orchestrator directly at Home, alongside shared tasks. Keep AI optional and history readable.
+- [x] Use the same resizable TaskSlideout and NoteSlideout with team audience, assignment, revision conflicts, attachments, history and publication controls.
+- [x] Preserve standalone and connected-team navigation, legacy URLs, Back/Forward and Home/member-scoped preferences and drafts.
+- [x] Keep private Deck, Stream, capture, calendar and personal service settings outside team authority. Preserve member and owner restrictions below the UI.
+- [x] Run focused behavior and browser checks, typecheck, lint and build. Provide a seeded isolated comparison instance and testing instructions.
+
+## Experience
+
+Team opens the usual split dashboard with the shared assistant and shared tasks. The familiar rail, agent tree, Recent list, chat workbench and responsive layouts come from the personal application. Board opens in the same full-screen frame. Task and note details use the same complete document sheets, including resizing, nested links, full-width expansion and history. Team supplies the shared audience, assignment, revision-aware autosave, shared-result controls and member authority.
+
+The individual experience keeps its layout, defaults, private Deck, Stream, capture, calendar, scratchpad, onboarding and document chats. Its main-chat header and responsive navigation now live in the common composition. Personal storage keys keep their existing names. Team storage is scoped to its Home and member.
+
+## Decisions
+
+The team assistant is an ordinary team-owned agent, with a managed folder and editable standing instructions. The existing Team AI main-chat reference identifies it, so no schema migration or second execution engine is needed. Enabling AI authorizes this built-in assistant. Reading an AI-off team never creates it. Each member keeps their existing independent current-chat pointer, while history and messages remain shared. Provisioning is one synchronous transaction and does not discover a model or start a harness.
+
+Task and note body writes continue through revision-aware shared autosave. Conflicting text stays local until the member chooses which version to keep. Private planning, subtasks and document chats stay in the personal Home. Contextual Team settings and search retain their authority and appear through the common application chrome. Permanent deletion requires owner authority and an explicit shared-audience confirmation.
+
+## Review instances
+
+The review uses fictional data and separate databases, credentials, attachment folders and ports. The production Home and normal dev Home are untouched.
+
+| Preview | Source | Local address | Disposable root |
+| --- | --- | --- | --- |
+| New Team | `refactor/team-dashboard-parity` | `http://localhost:42331` | `/Users/agent/ri-sandboxes/team-dashboard-new` |
+| Team before the change | `d0b8020c` | `http://localhost:42332` | `/Users/agent/ri-sandboxes/team-dashboard-baseline` |
+| Personal, with connected Team | implementation branch | `http://localhost:42333` | `/Users/agent/ri-sandboxes/team-dashboard-personal` |
+
+Each root's `preview.json` contains its owner sign-in link. Team roots also have a member link. These are synthetic credentials and are deliberately excluded from the repository. Use separate browser profiles to compare owner and member behavior in the same Team. Both Team previews contain Field Notes, Maya and Luis, matching tasks and notes, and three agents with synthetic transcripts. No model messages were sent during setup or automated browser testing.
+
+Suggested review:
+
+1. Compare the Team landing screens. Open Recent, a chat, the agent tree, Notes and Board. Click the Team name to return to the shared assistant.
+2. Open the onboarding task. Change its title and assignee, resize it, follow the linked working note, return with Back and open the document full width. Reload its deep link.
+3. Open the same working note in an owner and a member browser. Make overlapping body edits to see the conflict choices. A member can edit and archive but cannot permanently delete for everyone.
+4. Narrow the window to 390px and 900px. Switch Chat, Tasks, Notes and Agents. Open an agent, return to its list and try browser Back/Forward.
+5. In the personal preview, check Deck, Stream and Quick Capture. Switch to Field Notes, open a recent chat and reload. The URL stays under the connected Team's `/space/<id>` document.
+6. Turn Team AI off in Team settings. Tasks, notes and existing conversations remain readable. Turn it back on when done.
+
+## Recreate a disposable preview
+
+From this worktree, install with `pnpm install` and build with `pnpm build`. Choose a new empty root that is separate from production, dev and test. The seed script refuses an existing database or one of those standard Homes.
+
+```sh
+pnpm iso /tmp/ri-team-dashboard-review --init --port 42331 -- pnpm exec tsx scripts/seed-team-dashboard.ts
+pnpm iso /tmp/ri-team-dashboard-review --port 42331 -- pnpm exec tsx scripts/serve.ts --port 42331 --hostname 127.0.0.1
+```
+
+The server command uses this checkout's production build against disposable data. It does not start or restart production. To seed a personal preview connected to that Team, use another empty root and pass the Team's local `preview.json`:
+
+```sh
+pnpm iso /tmp/ri-personal-dashboard-review --init --port 42333 -- pnpm exec tsx scripts/seed-team-personal-preview.ts /tmp/ri-team-dashboard-review/preview.json
+pnpm iso /tmp/ri-personal-dashboard-review --port 42333 -- pnpm exec tsx scripts/serve.ts --port 42333 --hostname 127.0.0.1
+```
+
+## Verification
+
+Verified against the final implementation:
+
+- Production build and `pnpm ts` pass. Changed-file ESLint has no errors, with two existing unused-variable warnings in `queries.ts`.
+- 83 focused unit and integration tests pass across 16 files, with one skipped test.
+- 41 component browser tests pass across eight files, including shared-body draft ownership and attachments, legacy chat links, Team settings, search and the common agent rail.
+- Eight full-app browser scenarios pass, including desktop, 390px phone, 900px tablet, conflicting note edits, AI-off history, the personal dashboard and a connected-Team transcript after reload. No unhandled browser errors were recorded.
+- Screenshots of both versions and the personal preview were inspected. The final sample title, assignee and note body were restored after editing tests.
+
+The opt-in live browser suite uses the running synthetic previews and the real HTTP/tRPC server, common components and SQLite. It makes no harness sends. Screenshots and logs for the review are outside the repo in `/Users/agent/ri-sandboxes/team-dashboard-evidence`.
+
+```sh
+RI_TEAM_DASHBOARD_PREVIEW=/Users/agent/ri-sandboxes/team-dashboard-new \
+RI_TEAM_DASHBOARD_PERSONAL=/Users/agent/ri-sandboxes/team-dashboard-personal \
+RI_REVIEW_CHROMIUM='/Applications/Brave Browser.app/Contents/MacOS/Brave Browser' \
+RI_ARTIFACT_SCREENSHOTS=/Users/agent/ri-sandboxes/team-dashboard-evidence \
+pnpm exec vitest run src/components/team/team-dashboard.live.browser.test.ts
+```
+
+Provisioning tests cover AI-off content-only Teams, one assistant under concurrent requests, legacy transcript retention, independent member selection, existing configured agents and revoked credentials. Existing suites cover shared autosave, settings authority, connected-Team forwarding, source identity and personal chat recovery.

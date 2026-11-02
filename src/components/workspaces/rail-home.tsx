@@ -5,6 +5,7 @@ import { useDashboard } from '@/contexts/dashboard-context';
 import { useOrchestratorName } from '@/hooks/use-user-state';
 import { OrchestratorAvatar } from '@/components/shared/orchestrator-mark';
 import { cn } from '@/lib/utils';
+import { useOptionalTeam, useTeamNav } from '@/components/team/team-context';
 import { Tip } from '@/components/ui/tip';
 
 /**
@@ -20,6 +21,9 @@ import { Tip } from '@/components/ui/tip';
 export function RailHome({ collapsed, action }: { collapsed: boolean; action?: ReactNode }) {
   const { activeView, goHome } = useDashboard();
   const name = useOrchestratorName();
+  const team = useOptionalTeam();
+  const nav = useTeamNav();
+  const home = team ? () => nav.show('chat') : goHome;
   const isHome = activeView.kind === 'home';
 
   if (collapsed) {
@@ -28,7 +32,7 @@ export function RailHome({ collapsed, action }: { collapsed: boolean; action?: R
         <Tip label={`${name} (Home)`}>
           <button
             type="button"
-            onClick={goHome}
+            onClick={home}
             aria-label={`${name}, home`}
             aria-current={isHome ? 'page' : undefined}
             className={cn(
@@ -47,7 +51,8 @@ export function RailHome({ collapsed, action }: { collapsed: boolean; action?: R
     <div className="flex items-center gap-1 px-2 pt-2 pb-1">
       <button
         type="button"
-        onClick={goHome}
+        onClick={home}
+        aria-label={`${name}, home`}
         aria-current={isHome ? 'page' : undefined}
         className={cn(
           'flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors',
@@ -56,7 +61,8 @@ export function RailHome({ collapsed, action }: { collapsed: boolean; action?: R
         )}
       >
         <OrchestratorAvatar />
-        <span className="truncate text-[13px] font-semibold text-foreground">{name}</span>
+        <span className="min-w-0 truncate text-[13px] font-semibold text-foreground">{name}</span>
+        {team && <span className="ml-auto text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Team</span>}
       </button>
       {action}
     </div>

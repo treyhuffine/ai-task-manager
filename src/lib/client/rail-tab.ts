@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useSyncExternalStore } from 'react';
+import { readDocumentBinding } from '@/lib/home/document-binding';
+import { homeStorageIdentity } from '@/lib/home/document-scope';
 
 /**
  * Which list the rail shows under its tabs.
@@ -25,6 +27,10 @@ export const RAIL_TAB_KEY = 'ri.rail.tab';
 export const DEFAULT_RAIL_TAB: RailTab = 'workspace';
 
 const CHANGE_EVENT = 'ri:rail-tab-changed';
+function storageKey() {
+  const team = typeof document !== 'undefined' && ['team', 'space'].includes(document.documentElement.dataset.riAuthority ?? '');
+  return homeStorageIdentity(RAIL_TAB_KEY, team ? readDocumentBinding() : null);
+}
 
 /** Narrow an unknown stored value to a tab, defaulting anything else. */
 export function parseRailTab(raw: unknown): RailTab {
@@ -34,7 +40,7 @@ export function parseRailTab(raw: unknown): RailTab {
 function read(): RailTab {
   if (typeof window === 'undefined') return DEFAULT_RAIL_TAB;
   try {
-    return parseRailTab(window.localStorage.getItem(RAIL_TAB_KEY));
+    return parseRailTab(window.localStorage.getItem(storageKey()));
   } catch {
     return DEFAULT_RAIL_TAB;
   }
@@ -42,7 +48,7 @@ function read(): RailTab {
 
 function subscribe(onChange: () => void): () => void {
   const onStorage = (e: StorageEvent) => {
-    if (e.key === RAIL_TAB_KEY || e.key === null) onChange();
+    if (e.key === storageKey() || e.key === null) onChange();
   };
   window.addEventListener('storage', onStorage);
   window.addEventListener(CHANGE_EVENT, onChange);
@@ -59,7 +65,7 @@ function getServerSnapshot(): RailTab {
 export function setRailTab(next: RailTab): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(RAIL_TAB_KEY, next);
+    window.localStorage.setItem(storageKey(), next);
   } catch {
     /* localStorage can throw in private mode, non-fatal */
   }

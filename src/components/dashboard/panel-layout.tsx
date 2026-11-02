@@ -12,6 +12,8 @@ import { ContentPanel } from './content-panel';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useHomeStorageScope } from '@/components/home/home-context';
+import { homeStorageIdentity } from '@/lib/home/document-scope';
 import { Tip } from '@/components/ui/tip';
 
 // Split-panel sizing lives entirely inside react-resizable-panels — it owns
@@ -52,7 +54,7 @@ export function PanelLayout() {
     typeof window === 'undefined' ? NOOP_STORAGE : window.localStorage,
   );
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: STORAGE_ID,
+    id: homeStorageIdentity(STORAGE_ID, useHomeStorageScope()),
     storage,
   });
 

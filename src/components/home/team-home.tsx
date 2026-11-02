@@ -1,37 +1,17 @@
 'use client';
 
-import { TeamRail, useShowAgents, useShowChat } from '@/components/team/team-rail';
-import { LifecycleGuardProvider } from '@/components/tasks/lifecycle-guard';
-
-
-import { MobileTopBar } from '@/components/mobile/mobile-top-bar';
-import { TeamPhoneBar } from '@/components/team/team-phone-bar';
-import { useEffect } from 'react';
-import { HOTKEYS, matchesHotkey } from '@/constants/commands';
-import { DOCUMENT_AUTHOR_CHANGED } from '@/lib/home/document-binding';
-import { apiErrorCode, apiErrorStatus, apiErrorText } from '@/lib/api/client';
-import { TeamContext, useTeam, useTeamNav } from '@/components/team/team-context';
+import { TeamContext } from '@/components/team/team-context';
 import { useTeamMe } from '@/components/team/use-team';
-import { TeamBoard } from '@/components/team/team-board';
-import { NoteList } from '@/components/notes/note-list';
-import { TeamChatDestination } from '@/components/team/team-chat-destination';
-import { TeamRecordControls } from '@/components/team/team-record-controls';
-import { TeamSettings } from '@/components/team/team-settings';
-import { TeamSearch } from '@/components/team/team-search';
 import { GateButton, TeamGate } from '@/components/team/team-gate';
 import { useSpace } from '@/components/spaces/space-root';
-import { HomeShell } from '@/components/home/home-shell';
 import { HomeBoundary } from '@/components/home/home-context';
-import { TeamWorkBoundary } from './team-work-boundary';
-import { MobileAgentsView } from '@/components/mobile/mobile-agents-view';
-import { AgentView } from '@/components/agents/agent-view';
-import { LaunchModal } from '@/components/workspaces/launcher/launch-modal';
 import { HomeLoading } from './home-loading';
+import { DOCUMENT_AUTHOR_CHANGED } from '@/lib/home/document-binding';
+import { apiErrorCode, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { DashboardProvider } from '@/contexts/dashboard-context';
+import { DashboardShell } from '@/components/dashboard/dashboard';
+import { TeamDashboardBoundary } from './team-dashboard-boundary';
 
-/**
- * The shared Home shell with team destinations and live member authority.
- * Personal planning and connected account management stay in their owning Home.
- */
 export function TeamHome() {
   const me = useTeamMe();
   const space = useSpace();
@@ -66,7 +46,7 @@ export function TeamHome() {
   }
   return (
     <TeamContext.Provider value={me.data}>
-      <HomeBoundary expected={{ homeId: me.data.team.id, viewerId: me.data.member.id }}><TeamWorkBoundary><LifecycleGuardProvider><Shell /></LifecycleGuardProvider></TeamWorkBoundary></HomeBoundary>
+      <HomeBoundary expected={{ homeId: me.data.team.id, viewerId: me.data.member.id }}><DashboardProvider><TeamDashboardBoundary><DashboardShell /></TeamDashboardBoundary></DashboardProvider></HomeBoundary>
     </TeamContext.Provider>
   );
 }
@@ -75,57 +55,4 @@ export function TeamHome() {
 function BackToMyRi() {
   // eslint-disable-next-line @next/next/no-html-link-for-pages -- A space change needs a new root layout and API client, not client-side routing.
   return <a href="/" className="inline-flex h-9 w-full items-center justify-center rounded-md border border-border px-4 text-sm font-medium text-foreground hover:bg-muted/50">Back to My Ri</a>;
-}
-
-function Shell() {
-  const { team } = useTeam();
-  const nav = useTeamNav();
-
-  useEffect(() => {
-    document.title = team.name;
-  }, [team.name]);
-
-  // ⌘K searches the team.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (matchesHotkey(e, HOTKEYS.search)) {
-        e.preventDefault();
-        nav.openPanel('search');
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [nav]);
-
-  return (
-    <HomeShell
-      navigation={<TeamRail />}
-      phoneHeader={<PhoneTopBar />}
-      phoneNavigation={<PhoneTabBar />}
-      overlays={<><TeamRecordControls /><TeamSettings /><TeamSearch /><LaunchModal /></>}
-    >
-      <div className="flex min-h-0 flex-1 flex-col @container/lt"><TeamContent /></div>
-    </HomeShell>
-  );
-}
-
-/** Native routes reuse the normal agent and execution screens. Legacy URLs stay valid. */
-function TeamContent() {
-  const nav = useTeamNav();
-  if (nav.view === 'agents') return nav.agentId
-    ? <AgentView workspaceId={nav.agentId} tab={nav.agentTab} onBack={() => nav.show('agents')} />
-    : <MobileAgentsView />;
-  if (nav.view === 'chat') return <TeamChatDestination />;
-  if (nav.view === 'notes') return <NoteList decisionsOnly={nav.decisions} onDecisionsChange={nav.setDecisions} onOpenNote={nav.openNote} privatePlanning={false} areaFilter={nav.areaId ?? 'all'} onAreaFilterChange={value => nav.filterArea(value === 'all' ? null : value)} onSearch={() => nav.openPanel('search')} />;
-  return <TeamBoard />;
-}
-function PhoneTopBar() {
-  const nav = useTeamNav();
-  return <MobileTopBar onSearch={() => nav.openPanel('search')} onOpenSettings={() => nav.openPanel('settings')}/>;
-}
-
-function PhoneTabBar() {
-  const showChat = useShowChat();
-  const showAgents = useShowAgents();
-  return <TeamPhoneBar showChat={showChat} showAgents={showAgents}/>;
 }

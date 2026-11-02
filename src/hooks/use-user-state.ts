@@ -81,7 +81,9 @@ export interface OrchestratorIdentity {
 
 /** The orchestrator's name and look, as `OrchestratorMark` draws them. */
 export function useOrchestratorIdentity(): OrchestratorIdentity {
+  const home = useOptionalHomeContext();
   const { data } = useUserState();
+  if (home?.home.kind === 'team') return { name: home.home.name, emoji: null, imageUrl: null, color: null };
   return {
     name: resolveOrchestratorName(data?.orchestratorName),
     emoji: data?.orchestratorEmoji ?? null,

@@ -13,11 +13,14 @@ import { SegmentedTabs } from '@/components/shared/list-toolbar';
 import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { TaskKanban } from './task-kanban';
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { TeamBoard } from '@/components/team/team-board';
 import { Tip } from '@/components/ui/tip';
 
 /** One spacious Board over the current view. Task slideouts can stack above it.
  * The HUD stays above its desktop edge so window dragging cannot swallow controls. */
 export function TaskBoardModal() {
+  const team = useOptionalHomeContext()?.home.kind === 'team';
   const { open, view, focusBucket } = useBoardState();
   const params = useSearchParams();
   const { activeView, closeAllSlideouts, openExecution } = useDashboard();
@@ -100,8 +103,8 @@ export function TaskBoardModal() {
             </Tip>
           </div>
           {view === 'activity' ? <AgentActivityBoard focusBucket={focusBucket} /> : <div className="min-h-0 flex-1">
-            <TaskKanban leading={<span className="text-xs text-muted-foreground">Tasks by lifecycle</span>}
-              onOpenAgent={(sessionId) => { closeTaskBoard(); openExecution(sessionId); }} />
+            {team ? <TeamBoard /> : <TaskKanban leading={<span className="text-xs text-muted-foreground">Tasks by lifecycle</span>}
+              onOpenAgent={(sessionId) => { closeTaskBoard(); openExecution(sessionId); }} />}
           </div>}
         </DialogPrimitive.Content>
       </DialogPortal>

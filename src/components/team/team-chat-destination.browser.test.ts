@@ -17,6 +17,7 @@ beforeAll(async () => {
     createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><TeamChatDestination/></QueryClientProvider>);
   `, [{ name: 'destination-fixtures', setup(b) {
     const modules: Record<string, string> = {
+      '@/contexts/dashboard-context': `export const useOptionalDashboard=()=>null;`,
       'next/navigation': `import {useSyncExternalStore} from 'react';const sub=f=>{addEventListener('popstate',f);return()=>removeEventListener('popstate',f)};export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(useSyncExternalStore(sub,()=>location.search));export const useRouter=()=>({replace:url=>{window.replaces++;history.replaceState(null,'',url);dispatchEvent(new Event('popstate'));},push:url=>{history.pushState(null,'',url);dispatchEvent(new Event('popstate'));}});`,
       '@/hooks/use-workspaces': `export const useWorkspaces=()=>({data:[{id:'agent',name:'Shared agent'}]});`,
       '@/hooks/use-execution': `export const useSession=id=>({data:id?{id,workspaceId:'agent',executionId:'execution'}:null});`,
