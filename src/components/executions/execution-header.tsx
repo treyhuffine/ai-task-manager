@@ -80,7 +80,7 @@ export function ExecutionHeader({
   onOpenTools,
   toolsBadgeClass,
 }: ExecutionHeaderProps) {
-  const { openAgent, goHome } = useWorkNavigation();
+  const { openAgent } = useWorkNavigation();
   const { archive } = useArchiveExecution();
   const updateSession = useUpdateSession();
   const markRead = useMarkSessionRead();
@@ -156,7 +156,6 @@ export function ExecutionHeader({
     void archive({
       id: session.id,
       label: displayLabel,
-      onArchived: goHome,
     });
   };
 

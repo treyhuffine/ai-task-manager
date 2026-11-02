@@ -392,6 +392,8 @@ Archive happens on the click, with no "are you sure". It's undone from History, 
 
 For non-git workspaces, archive is just the DB update; nothing on disk to clean.
 
+After a successful archive, a viewer on that execution returns to its agent's screen, including when viewing a sibling chat or archiving from the rail. Archiving a different execution leaves the current screen in place. A refused, cancelled or failed archive keeps the execution open. If the execution has no agent, the viewer returns to Home.
+
 ### Workspace deletion / archive
 
 Archiving a workspace doesn't archive its sessions automatically. Sessions stay queryable by id; the workspace row sets `status='archived'`, `archived_at`. Active worktrees are not pruned (user might still want to look at them).

@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { archiveAnywayDialog } from '@/components/executions/uncommitted-files';
 import { requestWorkbenchView } from '@/components/executions/workbench/view-request';
-import { useWorkNavigation } from '@/contexts/work-context';
+import { useWorkActivity, useWorkNavigation } from '@/contexts/work-context';
 import { dirtyWorktreeOf, useArchiveSession } from '@/hooks/use-workspaces';
 
 function errorMessage(err: unknown): string {
@@ -16,8 +16,6 @@ export interface ArchiveExecutionArgs {
   id: string;
   /** Display label for the dialog, if one is needed. Falls back to the server's. */
   label: string | null | undefined;
-  /** Runs once the execution is actually archived (either pass). */
-  onArchived?: () => void;
 }
 
 /**
@@ -48,6 +46,8 @@ export function useReviewChanges() {
  *      Review changes (opens the execution on Changes), Cancel, or Archive
  *      anyway, which force-removes the worktree.
  *   3. Any other failure is a toast.
+ *   4. Archiving the execution on screen returns to its agent. Archiving
+ *      another execution leaves the current view in place.
  *
  * Returns `archive` (resolves `true` when the execution ended up archived,
  * `false` if the person kept it or it failed) plus the mutation's
@@ -57,13 +57,14 @@ export function useArchiveExecution() {
   const { mutateAsync, isPending } = useArchiveSession();
   const confirm = useConfirm();
   const review = useReviewChanges();
+  const { openAgent, goHome } = useWorkNavigation();
+  const { activeSessionId, activeExecutionId } = useWorkActivity();
 
   const archive = useCallback(
-    async ({ id, label, onArchived }: ArchiveExecutionArgs): Promise<boolean> => {
+    async ({ id, label }: ArchiveExecutionArgs): Promise<boolean> => {
+      let archived: Awaited<ReturnType<typeof mutateAsync>>;
       try {
-        await mutateAsync({ id, force: false });
-        onArchived?.();
-        return true;
+        archived = await mutateAsync({ id, force: false });
       } catch (err) {
         const dirty = dirtyWorktreeOf(err);
         if (!dirty) {
@@ -75,16 +76,19 @@ export function useArchiveExecution() {
         );
         if (!force) return false;
         try {
-          await mutateAsync({ id, force: true });
-          onArchived?.();
-          return true;
+          archived = await mutateAsync({ id, force: true });
         } catch (err2) {
           toast.error("Couldn't archive execution", { description: errorMessage(err2) });
           return false;
         }
       }
+      if (activeSessionId && (activeSessionId === id || (archived.executionId && archived.executionId === activeExecutionId))) {
+        if (archived.workspaceId) openAgent(archived.workspaceId);
+        else goHome();
+      }
+      return true;
     },
-    [mutateAsync, confirm, review],
+    [mutateAsync, confirm, review, activeSessionId, activeExecutionId, openAgent, goHome],
   );
 
   return { archive, isPending };
