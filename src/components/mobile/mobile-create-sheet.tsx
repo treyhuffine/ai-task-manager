@@ -14,6 +14,7 @@ import { useStartSkill } from '@/hooks/use-start-skill';
 import { openSettings } from '@/components/settings/settings-store';
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
 import { PLUGIN_CREATE_ANCHORS } from '@/components/settings/sections/plugins/navigation';
+import { useOptionalTeam, useTeamNav } from '@/components/team/team-context';
 import { useDashboard } from '@/contexts/dashboard-context';
 
 /**
@@ -24,6 +25,10 @@ import { useDashboard } from '@/contexts/dashboard-context';
  * Order carries priority instead: start work, capture, make a thing, set up.
  */
 export function MobileCreateSheet() {
+  const team = useOptionalTeam();
+  const nav = useTeamNav();
+  const defaults = team ? { ...(nav.areaId ? { areaId: nav.areaId } : {}), ...(nav.mine ? { assigneeMemberId: team.member.id } : {}) } : {};
+  const noteDefaults = team ? { ...(nav.areaId ? { areaId: nav.areaId } : {}), ...(nav.decisions ? { kind: 'decision' as const } : {}) } : {};
   const { mobileCreateOpen, setMobileCreateOpen, openNote, openTask, setQuickCaptureOpen } = useDashboard();
   const [areaOpen, setAreaOpen] = useState(false);
   const createNote = useCreateNote();
@@ -38,11 +43,11 @@ export function MobileCreateSheet() {
   const quickCapture = () => { close(); setQuickCaptureOpen(true); };
   const newTask = () => {
     close();
-    createTask.mutate({ title: ' ', rawInput: ' ' }, { onSuccess: (task) => openTask(task.id) });
+    createTask.mutate({ title: ' ', rawInput: ' ', ...defaults }, { onSuccess: (task) => openTask(task.id) });
   };
   const newNote = () => {
     close();
-    createNote.mutate({ body: ' ' }, { onSuccess: (note) => openNote(note.id) });
+    createNote.mutate({ body: ' ', ...noteDefaults }, { onSuccess: (note) => openNote(note.id) });
   };
   const newArea = () => { close(); setAreaOpen(true); };
 
@@ -55,7 +60,7 @@ export function MobileCreateSheet() {
 
           <div className="grid gap-1">
             <VerbRow icon={MessageSquarePlus} label="New chat" hint="Put an agent to work" onClick={newChat} />
-            <VerbRow icon={Zap} label="Quick capture" hint="Type or speak. Sort later" onClick={quickCapture} />
+            {!team && <VerbRow icon={Zap} label="Quick capture" hint="Type or speak. Sort later" onClick={quickCapture} />}
           </div>
 
           <div className="my-3 h-px bg-border" />
@@ -68,11 +73,11 @@ export function MobileCreateSheet() {
 
           <div className="my-3 h-px bg-border" />
 
-          <div className="grid">
+          {!team && <div className="grid">
             <SetupRow label="Connect a service" onClick={() => { close(); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.connectService }); }} />
             <SetupRow label="New skill" disabled={newSkill.isPending} onClick={() => { close(); newSkill.start(); }} />
             <SetupRow label="Add MCP server" onClick={() => { close(); openSettings('plugins', { anchor: PLUGIN_CREATE_ANCHORS.mcpServer }); }} />
-          </div>
+          </div>}
         </SheetContent>
       </Sheet>
 

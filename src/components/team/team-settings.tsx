@@ -28,6 +28,7 @@ import { TEAM_SETTINGS_SECTIONS, teamSettingsSection, type TeamSettingsSectionId
 import { SkillLibrary } from '@/components/skills/skill-library';
 const VoiceSection = lazy(async () => ({ default: (await import('@/components/settings/sections/voice-section')).VoiceSection }));
 import { ThemeSettings } from '@/components/settings/sections/theme-settings';
+import { TeamLogo } from './team-logo';
 
 /**
  * A team's Settings (docs/homes-spec.md §3.2): the team's name and where it's
@@ -163,6 +164,7 @@ function TeamSection() {
   const qc = useQueryClient();
   return (
     <Section title="Team" hint={team.hostedOn ? `Hosted on ${team.hostedOn}. When that computer is asleep or offline, the team can't be reached.` : undefined}>
+      <TeamLogo />
       <NameField
         label="Team name"
         value={team.name}
@@ -170,6 +172,7 @@ function TeamSection() {
         onSave={async (name) => {
           await trpcClient.team.rename.mutate({ name });
           await qc.invalidateQueries({ queryKey: trpc.team.me.queryKey() });
+          void qc.invalidateQueries({ queryKey: trpc.homeContext.queryKey() });
         }}
       />
     </Section>

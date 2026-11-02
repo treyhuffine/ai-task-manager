@@ -23,6 +23,10 @@ import {
 import type { AgentTab } from '@/types/dashboard';
 import { useClientTheme } from '@/lib/client/theme';
 import { WorkContext } from '@/contexts/work-context';
+import { useOptionalHomeContext, useHomeStorageScope } from '@/components/home/home-context';
+import { homeStorageIdentity } from '@/lib/home/document-scope';
+import { teamDashboardView, teamHomePanels } from '@/lib/client/team-dashboard';
+import { currentSpaceId, spacePath } from '@/lib/spaces/document';
 
 interface FocusTask {
   title: string;
@@ -61,6 +65,7 @@ interface DashboardState {
   activeExecutionId: string | null;
   panelATab: AnyPanelTab;
   panelBTab: AnyPanelTab;
+  expandedPanel: PanelId | null;
   /** Which Home panels show the file opened from the other one's chat in front of their own tab. */
   filesInFront: Readonly<Record<PanelId, boolean>>;
   focusedPanel: PanelId;
@@ -128,6 +133,7 @@ interface DashboardActions {
   goHome: () => void;
   setActiveExecutionId: (id: string | null) => void;
   setPanelTab: (panel: PanelId, tab: AnyPanelTab) => void;
+  setExpandedPanel: (panel: PanelId | null) => void;
   /** Bring a home tab on screen without covering the chat. A tab already showing only comes forward over a file. */
   showPanelTab: (tab: AnyPanelTab) => void;
   /** Bring the file beside the chat forward in `panel`, or put it behind the panel's own tab. */
@@ -212,6 +218,11 @@ const NO_FILES_IN_FRONT: Readonly<Record<PanelId, boolean>> = { a: false, b: fal
 const DEFAULT_PANEL_B_TAB: AnyPanelTab = DEFAULT_HOME_PANELS.b;
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
+  const team = useOptionalHomeContext()?.home.kind === 'team';
+  const storageScope = useHomeStorageScope();
+  const storageKey = (key: string) => homeStorageIdentity(key, storageScope);
+  const lastExecutionKey = storageKey('ri.execution.lastId');
+  const executionRailKey = storageKey('ri.rail.execution.open');
   const { theme, setTheme, toggleTheme } = useClientTheme();
   // ─── Active view (URL-canonical, local-mirror for snappy swaps) ──
   // Which primary surface fills the main area: Home (the deck and chat
@@ -231,24 +242,27 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // URL→mirror; in-app nav writes both together. They can't durably diverge.
   const searchParams = useSearchParams();
   const pathname = usePathname();
-  const urlView: ActiveView = viewFromSearchParams(searchParams, pathname);
+  const urlView: ActiveView = team ? teamDashboardView(searchParams) : viewFromSearchParams(searchParams, pathname);
   const urlViewKey = viewKey(urlView);
   const [activeView, setActiveViewLocal] = useState<ActiveView>(urlView);
   useEffect(() => {
     // Reconcile when the URL changes from outside (Back/Forward, deep link,
     // a <Link> elsewhere). No-op right after our own setActiveView, since the
     // mirror already holds this value.
-    const next = viewFromSearchParams(new URLSearchParams(window.location.search), window.location.pathname);
+    const params = new URLSearchParams(window.location.search);
+    const next = team ? teamDashboardView(params) : viewFromSearchParams(params, window.location.pathname);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile URL or device-local storage after hydration without changing the server render.
     setActiveViewLocal((prev) => (sameView(prev, next) ? prev : next));
-  }, [urlViewKey]);
+  }, [urlViewKey, team]);
   const activeSessionId = activeSessionIdOf(activeView);
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
-  const [panelATab, setPanelATab] = useState<AnyPanelTab>(DEFAULT_PANEL_A_TAB);
-  const [panelBTab, setPanelBTab] = useState<AnyPanelTab>(DEFAULT_PANEL_B_TAB);
+  const [panelATab, setPanelATab] = useState<AnyPanelTab>(() => team ? teamHomePanels(searchParams).a : DEFAULT_PANEL_A_TAB);
+  const [panelBTab, setPanelBTab] = useState<AnyPanelTab>(() => team ? teamHomePanels(searchParams).b : DEFAULT_PANEL_B_TAB);
+  const [expandedPanel, setExpandedPanel] = useState<PanelId | null>(null);
   const [filesInFront, setFilesInFront] = useState<Readonly<Record<PanelId, boolean>>>(NO_FILES_IN_FRONT);
   const setFileInFront = useCallback((panel: PanelId, inFront: boolean) => {
     setFilesInFront(current => (current[panel] === inFront ? current : { ...current, [panel]: inFront }));
+    if (inFront) setExpandedPanel(null);
   }, []);
   const [focusedPanel, setFocusedPanel] = useState<PanelId>('a');
   const panelLayoutResetRef = useRef<(() => void) | null>(null);
@@ -268,7 +282,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // tab follows the view: a deep link, Back/Forward, or a chip in the main
   // chat that opens one shows it, rather than leaving it behind another tab.
   // Synced during render (React's pattern for state that follows a value).
-  const [mobileTab, setMobileTab] = useState<MobileTab>(() => mobileTabForView(urlView) ?? 'chat');
+  const [mobileTab, setMobileTab] = useState<MobileTab>(() => mobileTabForView(urlView) ?? (team ? (searchParams.get('view') === 'notes' ? 'notes' : searchParams.get('view') === 'chat' ? 'chat' : 'tasks') : 'chat'));
   const activeViewKey = viewKey(activeView);
   const [tabFollowsView, setTabFollowsView] = useState(activeViewKey);
   if (tabFollowsView !== activeViewKey) {
@@ -276,6 +290,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const tab = mobileTabForView(activeView);
     if (tab) setMobileTab(tab);
   }
+  const teamDestination = team && activeView.kind === 'home' ? searchParams.get('view') ?? 'board' : null;
+  useEffect(() => {
+    if (teamDestination === null) return;
+    const tab = teamDestination === 'notes' ? 'notes' : teamDestination === 'chat' ? 'chat' : teamDestination === 'agents' ? 'agents' : 'tasks';
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Legacy Team destinations and browser history restore the shared panel and phone tab.
+    setPanelATab(teamDestination === 'notes' ? 'notes' : 'tasks');
+    setPanelBTab('chat');
+    setMobileTab(tab);
+    setExpandedPanel(null);
+  }, [teamDestination]);
   const [mobileCreateOpen, setMobileCreateOpen] = useState(false);
   // ─── Quick capture ────────────────────────────────────────
   const quickCaptureOpen = useQuickCaptureOpen();
@@ -352,10 +376,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [lastExecutionId, setLastExecutionIdState] = useState<string | null>(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem('ri.execution.lastId');
+    const stored = window.localStorage.getItem(lastExecutionKey);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile URL or device-local storage after hydration without changing the server render.
-    if (stored) setLastExecutionIdState(stored);
-  }, []);
+    setLastExecutionIdState(stored);
+  }, [lastExecutionKey]);
   // Record the last-viewed execution whenever the URL points at one.
   // Purely downstream of `activeView` (the URL) — never read to decide the
   // current view, only consulted by ⌘E "reopen last" when no `?session=` is
@@ -365,8 +389,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     if (!activeSessionId || typeof window === 'undefined') return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile URL or device-local storage after hydration without changing the server render.
     setLastExecutionIdState(activeSessionId);
-    window.localStorage.setItem('ri.execution.lastId', activeSessionId);
-  }, [activeSessionId]);
+    window.localStorage.setItem(lastExecutionKey, activeSessionId);
+  }, [activeSessionId, lastExecutionKey]);
 
   // ─── Execution-view rail open ───────────────────────────
   // Per-execution-view override: when on an execution surface the rail
@@ -376,40 +400,65 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [executionRailOpen, setExecutionRailOpenState] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem('ri.rail.execution.open');
+    const stored = window.localStorage.getItem(executionRailKey);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile URL or device-local storage after hydration without changing the server render.
-    if (stored === '1') setExecutionRailOpenState(true);
-  }, []);
+    setExecutionRailOpenState(stored === '1');
+  }, [executionRailKey]);
   const setExecutionRailOpen = useCallback((next: boolean) => {
     setExecutionRailOpenState(next);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('ri.rail.execution.open', next ? '1' : '0');
+      window.localStorage.setItem(executionRailKey, next ? '1' : '0');
     }
-  }, []);
+  }, [executionRailKey]);
   const toggleExecutionRailOpen = useCallback(() => {
     setExecutionRailOpenState((prev) => {
       const next = !prev;
       if (typeof window !== 'undefined') {
-        window.localStorage.setItem('ri.rail.execution.open', next ? '1' : '0');
+        window.localStorage.setItem(executionRailKey, next ? '1' : '0');
       }
       return next;
     });
-  }, []);
+  }, [executionRailKey]);
 
   // ─── Slideout stack ──────────────────────────────────────────
-  const [slideoutStack, setSlideoutStack] = useState<SlideoutEntry[]>([]);
+  const [slideoutStack, setSlideoutStack] = useState<SlideoutEntry[]>(() => {
+    if (!team) return [];
+    const task = searchParams.get('task'); const note = searchParams.get('note');
+    return task ? [{ type: 'task', id: task }] : note ? [{ type: 'note', id: note }] : [];
+  });
+  const teamDetail = team ? JSON.stringify([searchParams.get('task'), searchParams.get('note')]) : null;
+  useEffect(() => {
+    if (!teamDetail) return;
+    const [task, note] = JSON.parse(teamDetail) as [string | null, string | null];
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- URL navigation owns Team deep links and Back/Forward.
+    setSlideoutStack(previous => {
+      const top = previous.at(-1);
+      if (task && top?.type === 'task' && top.id === task || note && top?.type === 'note' && top.id === note) return previous;
+      return task ? [{ type: 'task', id: task }] : note ? [{ type: 'note', id: note }] : [];
+    });
+  }, [teamDetail]);
+  const writeTeamDetail = useCallback((entry?: SlideoutEntry) => {
+    if (!team) return;
+    const params = new URLSearchParams(window.location.search);
+    params.delete('task'); params.delete('note'); params.delete('full');
+    if (entry?.type === 'task' || entry?.type === 'note') params.set(entry.type, entry.id);
+    window.history.replaceState(null, '', `${window.location.pathname}${params.size ? '?' + params : ''}`);
+  }, [team]);
 
   const pushSlideout = useCallback((entry: SlideoutEntry) => {
     setSlideoutStack(prev => [...prev, entry]);
-  }, []);
+    writeTeamDetail(entry);
+  }, [writeTeamDetail]);
 
   const popSlideout = useCallback(() => {
     setSlideoutStack(prev => prev.slice(0, -1));
-  }, []);
+    writeTeamDetail(slideoutStack.at(-2));
+  }, [writeTeamDetail, slideoutStack]);
 
   const closeAllSlideouts = useCallback(() => {
     setSlideoutStack([]);
-  }, []);
+    writeTeamDetail();
+  }, [writeTeamDetail]);
 
   // Default close = back or dismiss, based on config
   const defaultClose = SLIDEOUT_CLOSE_BEHAVIOR === 'back' ? popSlideout : closeAllSlideouts;
@@ -456,19 +505,29 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // Bring a tab on screen without covering the chat (see panelForTab). A
   // tab already showing under a file comes forward.
   const showPanelTab = useCallback((tab: AnyPanelTab) => {
+    setExpandedPanel(null);
     const panel = panelForTab({ a: panelATab, b: panelBTab }, tab) ?? (panelATab === tab ? 'a' : 'b');
     if (panel === 'a') setPanelATab(tab);
     else setPanelBTab(tab);
     setFileInFront(panel, false);
-  }, [panelATab, panelBTab, setFileInFront]);
+    if (team && (tab === 'chat' || tab === 'tasks' || tab === 'notes')) {
+      setActiveViewLocal(HOME_VIEW);
+      setMobileTab(tab);
+      const params = applyViewToSearchParams(new URLSearchParams(window.location.search), HOME_VIEW);
+      params.delete('agentTab');
+      params.set('view', tab === 'tasks' ? 'board' : tab);
+      window.history.pushState(null, '', `${window.location.pathname}?${params}`);
+    }
+  }, [panelATab, panelBTab, setFileInFront, team]);
 
   const resetLayout = useCallback(() => {
-    setPanelATab(DEFAULT_PANEL_A_TAB);
-    setPanelBTab(DEFAULT_PANEL_B_TAB);
+    setPanelATab(team ? 'tasks' : DEFAULT_PANEL_A_TAB);
+    setPanelBTab(team ? 'chat' : DEFAULT_PANEL_B_TAB);
+    setExpandedPanel(null);
     setFilesInFront(NO_FILES_IN_FRONT);
     panelLayoutResetRef.current?.();
     setFocusedPanel('a');
-  }, []);
+  }, [team]);
 
   const triggerVoiceChat = useCallback(() => {
     const aHasChat = panelATab === 'chat';
@@ -522,14 +581,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setActiveViewLocal(view);
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    const current = viewFromSearchParams(params, window.location.pathname);
+    const current = team ? teamDashboardView(params) : viewFromSearchParams(params, window.location.pathname);
+    if (team) { params.delete('view'); params.delete('agentTab'); params.delete('panel'); params.delete('settings'); }
     const tabOnly = current.kind === 'agent' && view.kind === 'agent' && current.id === view.id;
     const qs = applyViewToSearchParams(params, view, current).toString();
-    const targetPath = view.kind === 'apps' ? `/apps${view.route ? '/' + view.route : ''}` : '/';
+    const space = currentSpaceId();
+    const targetPath = space ? spacePath(space) : view.kind === 'apps' ? `/apps${view.route ? '/' + view.route : ''}` : '/';
     const url = qs ? `${targetPath}?${qs}` : targetPath;
     if (tabOnly || opts.replace) window.history.replaceState(null, '', url);
     else window.history.pushState(null, '', url);
-  }, []);
+  }, [team]);
   const openExecution = useCallback((sessionId: string) => setActiveView(executionView(sessionId)), [setActiveView]);
   const openAgent = useCallback(
     (workspaceId: string, tab?: AgentTab) => setActiveView(agentView(workspaceId, tab)),
@@ -540,7 +601,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     [setActiveView],
   );
   const goHome = useCallback(() => setActiveView(HOME_VIEW), [setActiveView]);
-  const workNavigation = useMemo(() => ({ openExecution, openLinkedChat: (id: string, eventId?: string) => setActiveView(executionView(id, eventId, true)), openAgent, openTask, openNote, goHome }), [openExecution, setActiveView, openAgent, openTask, openNote, goHome]);
+  const workNavigation = useMemo(() => ({ openExecution, openLinkedChat: (id: string, eventId?: string) => setActiveView(executionView(id, eventId, true)), openAgent, openTask, openNote, goHome, ...(team ? { openCurrentChat: (id: string | null) => id ? openAgent(id) : goHome() } : {}) }), [openExecution, setActiveView, openAgent, openTask, openNote, goHome, team]);
   const workActivity = useMemo(() => ({ activeSessionId, activeExecutionId, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds, setActiveExecutionId, setSessionStreaming }), [activeSessionId, activeExecutionId, streamingSessionIds, backgroundSessionIds, pendingInputSessionIds, setActiveExecutionId, setSessionStreaming]);
 
   return (
@@ -551,6 +612,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       activeExecutionId,
       panelATab,
       panelBTab,
+      expandedPanel,
+      setExpandedPanel,
       filesInFront,
       focusedPanel,
       isFocusMode,

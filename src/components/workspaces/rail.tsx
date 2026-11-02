@@ -13,6 +13,9 @@ import { RailStrip } from './rail-strip';
 import { SessionHoverProvider } from './session-hover-context';
 import { SessionHoverPreview } from './session-hover-preview';
 import { WorkspaceSelectionProvider } from './workspace-selection-context';
+import { useOptionalHomeContext } from '@/components/home/home-context';
+import { useTeamNav } from '@/components/team/team-context';
+import { FileText, ListTodo, Search } from 'lucide-react';
 import { AppsReviewRailSlot } from '@/components/local-apps/layout-review/rail-portal';
 
 /**
@@ -36,8 +39,23 @@ import { AppsReviewRailSlot } from '@/components/local-apps/layout-review/rail-p
  * `onToggle` is absent where the rail can't widen (tablets).
  */
 export function Rail({ expanded, onToggle }: { expanded: boolean; onToggle?: () => void }) {
+  const team = useOptionalHomeContext()?.home.kind === 'team';
+  return team ? <TeamApplicationRail expanded={expanded} onToggle={onToggle} /> : <PersonalApplicationRail expanded={expanded} onToggle={onToggle} />;
+}
+
+function PersonalApplicationRail({ expanded, onToggle }: { expanded: boolean; onToggle?: () => void }) {
   const schedulesOpen = useSchedulesWindow().open;
   const places = useRailPlaces({ schedulesOpen, onOpenSchedules: () => openSchedulesWindow() });
+  return expanded ? <WideRail places={places} onToggle={onToggle} /> : <RailStrip places={places} onToggle={onToggle} />;
+}
+
+function TeamApplicationRail({ expanded, onToggle }: { expanded: boolean; onToggle?: () => void }) {
+  const nav = useTeamNav();
+  const places: RailPlace[] = [
+    { id: 'tasks', label: 'Tasks', title: 'Tasks', icon: ListTodo, active: nav.view === 'board', onClick: () => nav.show('board') },
+    { id: 'notes', label: 'Notes', title: 'Notes', icon: FileText, active: nav.view === 'notes', onClick: () => nav.show('notes') },
+    { id: 'search-team', label: 'Search', title: 'Search shared work', icon: Search, active: nav.panel === 'search', onClick: () => nav.openPanel('search') },
+  ];
   return expanded ? <WideRail places={places} onToggle={onToggle} /> : <RailStrip places={places} onToggle={onToggle} />;
 }
 

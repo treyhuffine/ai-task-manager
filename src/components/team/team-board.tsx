@@ -1,26 +1,30 @@
 'use client';
 
 
-import { FileText, Plus, UserPlus } from 'lucide-react';
+import { useMemo } from 'react';
+import { FileText, Plus, UserPlus, UserRoundCheck } from 'lucide-react';
 import { useTaskCounts } from '@/hooks/use-tasks';
 import { TaskSurface } from '@/components/tasks/task-surface';
 import { ToolbarToggle, toolbarButtonClass } from '@/components/shared/list-toolbar';
 import { Tip } from '@/components/ui/tip';
+import { DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
 import { useTeam, useTeamNav } from './team-context';
 import { useTeamMembers } from './use-team';
 import { MemberAvatar } from './member-avatar';
 import { useTeamCreateRecord } from './use-team-create-record';
 import { useHomeContext } from '@/components/home/home-context';
+import { openTaskBoard } from '@/lib/client/task-board';
 
 /**
  * Contextual task controls around the ordinary shared List and Board:
  * assignees, Team Area filters and membership, without private planning.
  */
-export function TeamBoard() {
+export function TeamBoard({ fullPage = false }: { fullPage?: boolean }) {
   const { member } = useTeam();
   const context = useHomeContext();
   const nav = useTeamNav();
   const { byId } = useTeamMembers();
+  const assigneeNames = useMemo(() => new Map([...byId].map(([id, member]) => [id, member.name])), [byId]);
   const create = useTeamCreateRecord();
   const counts = useTaskCounts(null);
   const total = counts.data ? Object.values(counts.data).reduce((sum, n) => sum + (typeof n === 'number' ? n : 0), 0) : null;
@@ -31,13 +35,15 @@ export function TeamBoard() {
     <div className="relative flex h-full flex-col">
       <TaskSurface
         privatePlanning={context.capabilities.privatePlanning}
-        viewKey={`ri.tasks.view:${context.home.id}:${context.viewer.id}`}
-        initialView="board"
+        viewKey={`ri.tasks.${fullPage ? 'board' : 'view'}:${context.home.id}:${context.viewer.id}`}
+        initialView={fullPage ? 'board' : 'list'}
+        onOpenBoard={fullPage ? undefined : openTaskBoard}
         onOpenTask={nav.openTask}
         assigneeMemberId={nav.mine ? member.id : null}
         createDefaults={create.taskDefaults}
         areaFilter={nav.areaId ?? 'all'}
         onAreaFilterChange={(mode) => nav.filterArea(mode === 'all' ? null : mode)}
+        assigneeNames={assigneeNames}
         rowMeta={(task) => {
           const assignee = task.assigneeMemberId ? byId.get(task.assigneeMemberId) : null;
           return assignee ? (
@@ -48,18 +54,24 @@ export function TeamBoard() {
             </Tip>
           ) : null;
         }}
-        contextControls={
+        filterControls={
+          <DropdownMenuCheckboxItem checked={nav.mine} onCheckedChange={checked => nav.setMine(checked)} className="gap-2 text-xs">
+            <UserRoundCheck className="size-3.5" aria-hidden />Assigned to me
+          </DropdownMenuCheckboxItem>
+        }
+        boardControls={
           <>
-            <ToolbarToggle active={nav.mine} onClick={() => nav.setMine(!nav.mine)}>
-              Assigned to me
+            <ToolbarToggle active={nav.mine} title="Only tasks assigned to you" onClick={() => nav.setMine(!nav.mine)}>
+              <UserRoundCheck className="size-3.5" aria-hidden />
+              <span className="hidden @2xl/lt:inline">Assigned to me</span><span className="sr-only @2xl/lt:hidden">Assigned to me</span>
             </ToolbarToggle>
           </>
         }
         trailing={
-          <button type="button" onClick={() => void newTask()} className={toolbarButtonClass()} aria-label="New task">
+          <Tip label="New task" onlyWhenTextHidden><button type="button" onClick={() => void newTask()} className={toolbarButtonClass({ className: 'w-8 px-0 @2xl/lt:w-auto @2xl/lt:px-3' })} aria-label="New task">
             <Plus className="size-3.5" />
-            <span className="hidden @sm/lt:inline">New task</span>
-          </button>
+            <span className="hidden @2xl/lt:inline">New task</span>
+          </button></Tip>
         }
       />
       {total === 0 && !nav.mine && <EmptyTeam onNewTask={() => void newTask()} />}

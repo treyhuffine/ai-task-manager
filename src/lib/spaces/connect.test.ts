@@ -306,3 +306,28 @@ describe('leaving', () => {
     expect(await teamFor(connection.id)).toBeNull();
   }, 60_000);
 });
+
+
+it('reads an unselected connected Team logo without exposing its credential and refuses disconnected Teams', async () => {
+  const { ensureHomeIdentity } = await import('@/lib/home/identity');
+  ensureHomeIdentity();
+  const { connectTeam, disconnectTeam } = await import('./connect');
+  const { teamRequest } = await import('./remote');
+  const { spacesRouter } = await import('./router');
+  const api = await owner();
+  const connection = await connectTeam({ link: await invitation(), name: 'Logo reader' });
+  const caller = spacesRouter.createCaller({ request: new Request('http://personal.test'), key: { scope: 'viewer', location: 'home', apiKeyId: 'fixture', workerDeviceId: null, sessionChatId: null } });
+  const form = new FormData();
+  form.append('file', new File(['<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="green"/></svg>'], 'company.svg', { type: 'image/svg+xml' }));
+  const upload = await teamRequest(`${team.url}/api/attachments`, { method: 'POST', token: team.ownerToken, body: form });
+  expect(upload.status).toBe(201);
+  const image = await upload.json() as import('@/db/types').Attachment;
+  try {
+    await api.team.setLogo.mutate({ image });
+    expect(await caller.identity({ id: connection.id })).toEqual({ logoFileName: image.fileName });
+    await api.team.setLogo.mutate({ image: null });
+    expect(await caller.identity({ id: connection.id })).toEqual({ logoFileName: null });
+    await disconnectTeam(connection.id);
+    await expect(caller.identity({ id: connection.id })).rejects.toThrow('This team is not connected.');
+  } finally { await api.team.setLogo.mutate({ image: null }); }
+}, 60_000);

@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Bot, Plus, Layers3, MoreHorizontal } from 'lucide-react';
+import { MessageSquare, Bot, Plus, Layers3, MoreHorizontal, ListTodo, FileText } from 'lucide-react';
 import { useMemo } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useNeedsReviewSessions, useRailSessions } from '@/hooks/use-workspaces';
@@ -8,6 +8,8 @@ import { useInactivity } from '@/hooks/use-inactivity';
 import { executionActivity } from '@/components/workspaces/bucket-config';
 import { cn } from '@/lib/utils';
 import type { MobileTab } from '@/types/dashboard';
+import { useTeamNav } from '@/components/team/team-context';
+import { useOptionalHomeContext } from '@/components/home/home-context';
 import { HOME_VIEW } from '@/lib/client/active-view';
 
 const TABS: { id: MobileTab; label: string; icon: typeof MessageSquare }[] = [
@@ -19,6 +21,15 @@ const TABS: { id: MobileTab; label: string; icon: typeof MessageSquare }[] = [
 ];
 
 export function MobileTabBar() {
+  const team = useOptionalHomeContext()?.home.kind === 'team';
+  const nav = useTeamNav();
+  const tabs = team ? [
+    { id: 'chat' as const, label: 'Chat', icon: MessageSquare },
+    { id: 'agents' as const, label: 'Agents', icon: Bot },
+    { id: 'create' as const, label: '', icon: Plus },
+    { id: 'tasks' as const, label: 'Tasks', icon: ListTodo },
+    { id: 'notes' as const, label: 'Notes', icon: FileText },
+  ] : TABS;
   const {
     mobileTab,
     setMobileTab,
@@ -61,8 +72,8 @@ export function MobileTabBar() {
   const badgeCount =
     badgeKind === 'pending' ? pendingCount + resultPending : badgeKind === 'working' ? workingCount + resultWorking : reviewCount + resultFailed;
 
-  return <HomePhoneBar tabs={TABS.map(tab => ({ ...tab, active: tab.id === mobileTab,
-    onClick: () => { if (tab.id === 'create') setMobileCreateOpen(true); else { setMobileTab(tab.id); if (tab.id === 'agents') setActiveView(HOME_VIEW); } },
+  return <HomePhoneBar tabs={tabs.map(tab => ({ ...tab, active: tab.id === mobileTab,
+    onClick: () => { if (tab.id === 'create') setMobileCreateOpen(true); else if (team) { nav.show(tab.id === 'tasks' ? 'board' : tab.id === 'notes' ? 'notes' : tab.id === 'agents' ? 'agents' : 'chat'); } else { setMobileTab(tab.id); if (tab.id === 'agents') setActiveView(HOME_VIEW); } },
     ...(tab.id === 'agents' && badgeKind ? { badge: { count: badgeCount, kind: badgeKind } } : {}),
   }))}/>;
 }

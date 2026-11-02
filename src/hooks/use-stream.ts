@@ -23,8 +23,9 @@ function useInvalidateTriage() {
   };
 }
 
-export function useStream(filter?: StreamFilter) {
+export function useStream(filter?: StreamFilter, enabled = true) {
   return useQuery({
+    enabled,
     queryKey: [...STREAM_KEY, filter],
     queryFn: () => streamApi.list(filter),
   });
@@ -40,8 +41,8 @@ export function usePendingStreamCount() {
  * call, or nothing does. Never surface a raw unprocessed count in
  * navigation.
  */
-export function useNeedsYourCall(): boolean {
-  const { data } = useStream({ status: 'proposed' });
+export function useNeedsYourCall(enabled = true): boolean {
+  const { data } = useStream({ status: 'proposed' }, enabled);
   return (data?.length ?? 0) > 0;
 }
 

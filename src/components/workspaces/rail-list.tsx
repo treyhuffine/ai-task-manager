@@ -5,6 +5,7 @@ import { Archive, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { RailTab } from '@/lib/client/rail-tab';
+import { useOptionalHomeContext } from '@/components/home/home-context';
 import { useRailStyle } from '@/lib/client/rail-style';
 import { cachedRailSession, useBulkArchiveSessions } from '@/hooks/use-workspaces';
 import { useLeaveArchivedChat, useReviewChanges } from '@/hooks/use-archive-execution';
@@ -58,6 +59,7 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
   const leaveArchivedChat = useLeaveArchivedChat();
   const qc = useQueryClient();
   const createOpen = useWorkspaceCreateOpen();
+  const canConfigure = useOptionalHomeContext()?.capabilities.configureAgents ?? true;
   const agentsOnly = useRailStyle().style === 'agentsOnly';
 
   const handleConfirmArchive = async () => {
@@ -139,7 +141,7 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
                   </button>
                 </Tip>
               )}
-              <Tip label="New agent">
+              {canConfigure && <Tip label="New agent">
                 <button
                   type="button"
                   onClick={openWorkspaceCreate}
@@ -148,7 +150,7 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
                 >
                   <Plus size={12} />
                 </button>
-              </Tip>
+              </Tip>}
             </div>
           )}
         </>

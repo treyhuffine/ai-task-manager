@@ -1,13 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TeamWorkBoundary } from '@/components/home/team-work-boundary';
+import { TeamDashboardBoundary as TeamWorkBoundary } from '@/components/home/team-dashboard-boundary';
 import { closeSettings, useSettingsStore } from './settings-store';
 import { useSettingsLink } from './settings-destination';
 
 vi.mock('@/components/home/home-context', () => ({ useHomeContext: () => ({ capabilities: { configureAgents: true } }) }));
 const fixture = vi.hoisted(() => ({ openSettings: vi.fn() }));
-vi.mock('@/components/team/team-context', () => ({ useTeamNav: () => ({ openSettings: fixture.openSettings }) }));
+vi.mock('@/components/team/team-context', () => ({ useTeam: () => ({team:{name:'Shared Team'}}), useTeamNav: () => ({ openSettings: fixture.openSettings }) }));
+vi.mock('@/components/tasks/lifecycle-guard', () => ({LifecycleGuardProvider: ({children}: {children: React.ReactNode}) => children}));
 vi.mock('@/hooks/use-workspaces', () => ({ useRailSessions: () => ({ data: {} }) }));
 vi.mock('@/hooks/use-global-session-stream', () => ({ useGlobalSessionStream: () => {} }));
 afterEach(() => { fixture.openSettings.mockReset(); closeSettings(); });
