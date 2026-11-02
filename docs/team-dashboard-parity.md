@@ -99,7 +99,7 @@ Field Notes is a fictional team name, which may represent a company or any other
 
 Refinement verification: 45 focused unit/integration tests pass (one skipped), 41 existing component browser tests pass, six Board browser tests pass and all ten full-app browser scenarios pass. The production build and typecheck pass. ESLint has no errors and retains existing warnings. Live expansion tests drag the divider, type an unsent draft, expand each panel, restore its exact prior width and confirm the draft remains. The logo browser check uploads through a connected Team, checks the displayed image, verifies member restrictions and removes it.
 
-The review is still at `https://ri-team-parity-trey.beamd.run`, with the owner sign-in link in the personal preview root's `preview.json` as `publicOwnerUrl`. Its My Ri selector opens the connected Field Notes Team. The current review servers run the `.next-team-board-action` production build. Use `NEXT_DIST_DIR=.next-team-board-action` with the serve commands above to restart those builds. Field Notes has a sample company mark and its General settings can upload a different one. Production and the normal dev Home remain untouched.
+The review is still at `https://ri-team-parity-trey.beamd.run`, with the owner sign-in link in the personal preview root's `preview.json` as `publicOwnerUrl`. Its My Ri selector opens the connected Field Notes Team. The current review servers run the `.next-team-toolbar` production build. Use `NEXT_DIST_DIR=.next-team-toolbar` with the serve commands above to restart those builds. Field Notes has a sample company mark and its General settings can upload a different one. Production and the normal dev Home remain untouched.
 
 
 ## List organization and personal expansion
@@ -125,4 +125,16 @@ Personal expansion uses the panel width, rather than the window width. The direc
 - [x] Verify the action, responsive fit and full Board navigation, then update the existing preview.
 
 
-Board entry verification: all eight List and Board component browser scenarios and all 12 full-app browser scenarios pass. The real public preview opens and closes the Board through the connected Team. The phone check finds the labeled action, opens the Board and returns to the list. The desktop screenshot confirms a filled button replaces the List/Board switcher. Build, typecheck and changed-file lint pass without errors or warnings. Main remains current at `94c86f43`. The preview runs `.next-team-board-action`, with existing preview data preserved and no migrations.
+Board entry verification: all eight List and Board component browser scenarios and all 12 full-app browser scenarios pass. The real public preview opens and closes the Board through the connected Team. The phone check finds the labeled action, opens the Board and returns to the list. The desktop screenshot confirms a filled button replaces the List/Board switcher. Build, typecheck and changed-file lint pass without errors or warnings. Main remains current at `94c86f43`. That review used `.next-team-board-action`, with existing preview data preserved and no migrations.
+
+
+## Compact Team list toolbar
+
+- [x] Consolidate status, assignment and area under Filter, and grouping and sorting under View.
+- [x] Keep Open board, search and task creation visible in one row at panel widths from 320px through desktop and full-width layouts.
+- [x] Verify the screenshot's width, both sides of label breakpoints, long active filters, all menu behavior and personal defaults, then update the existing preview.
+
+
+Toolbar verification: all nine List and Board component browser scenarios pass. The regression checks five visible actions on one row at 320, 360, 390, 447, 448, 511, 512, 671, 672, 765, 900, 1200 and 1600px, including selected assignment, In progress and a long area name. Status, assignment and area share Filter. Grouping and sorting share View. Active choices remain visible in the list summary. Labels collapse at the panel's width and icon controls use fixed square widths.
+
+All 12 full-app browser scenarios pass without unhandled browser errors. They verify the new Filter against real Team data, saved grouping and sorting, Board navigation, and personal status, sort and energy controls. The public connected-Team browser check verifies one-row geometry at a 764.5px panel width, matching the supplied screenshot, plus 1280, 1440, 1788 and 1920px windows. The crop is `team-toolbar-765.png` in the evidence folder. Build and typecheck pass. Changed-file lint has no errors and retains the existing TanStack Virtual compiler warning. The current preview build is `.next-team-toolbar`. Data, schema and migrations are unchanged.

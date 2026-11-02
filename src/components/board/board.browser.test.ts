@@ -58,7 +58,8 @@ beforeAll(async () => {
     export const useHomeDocumentScope=useHomeStorageScope;
     export const usePathname=()=>'/'; export const useRouter=()=>({push:()=>{},replace:()=>{}});
     export const useTeam=()=>({team:{name:'Team'},member:{id:teamIdentity().viewer,name:teamIdentity().viewer}});
-    export const useTeamNav=()=>({mine:false,areaId:null,openTask:id=>window.destinations.push({kind:'task',id}),setMine:()=>{},filterArea:()=>{}});
+    let mine=false,areaId=null;
+    export const useTeamNav=()=>({mine:useSyncExternalStore(subscribe,()=>mine),areaId:useSyncExternalStore(subscribe,()=>areaId),openTask:id=>window.destinations.push({kind:'task',id}),setMine:value=>{mine=value;listeners.forEach(fn=>fn())},filterArea:value=>{areaId=value;listeners.forEach(fn=>fn())}});
 
   `;
   const bundle = await build({
@@ -93,13 +94,13 @@ beforeAll(async () => {
       let data: unknown;
       if (procedure === 'transport.capabilities') data = { websocket: false };
       else if (procedure === 'tasks.list') {
-        data = tasks.filter(t => !input.status || (Array.isArray(input.status) ? input.status.includes(t.status) : t.status === input.status))
+        data = tasks.filter(t => (!input.status || (Array.isArray(input.status) ? input.status.includes(t.status) : t.status === input.status)) && (!input.areaId || t.areaId === input.areaId) && (!input.assigneeMemberId || t.assigneeMemberId === input.assigneeMemberId))
           .sort((a, b) => input.orderBy === 'hardDeadline'
             ? a.hardDeadline === b.hardDeadline ? 0 : !a.hardDeadline ? 1 : !b.hardDeadline ? -1 : a.hardDeadline.localeCompare(b.hardDeadline)
             : a.sortKey.localeCompare(b.sortKey));
       }
       else if (procedure === 'tasks.attention') data = { in_progress: { working: true, agentSessionId: 'work' } };
-      else if (procedure === 'areas.list') data = [{ id: 'design', name: 'Design' }, { id: 'launch', name: 'Launch' }];
+      else if (procedure === 'areas.list') data = [{ id: 'design', name: 'Design' }, { id: 'launch', name: 'Launch' }, { id: 'long-area', name: 'A long company department and launch planning area' }];
       else if (procedure === 'team.members') data = [{ id: 'maya', name: 'Maya', active: true }, { id: 'luis', name: 'Luis', active: true }];
       else if (procedure === 'tasks.update') { mutations.push({ procedure, input }); const task = tasks.find(t => t.id === input.id)!; Object.assign(task, input.patch); data = task; }
       else if (procedure === 'tasks.counts') data = { todo: 1, in_progress: 1, done: 1 };
@@ -275,7 +276,7 @@ it('groups Team list tasks, sorts deadlines within groups, collapses and remembe
   Object.assign(tasks.find(task => task.id === 'todo')!, { hardDeadline: '2026-11-10', assigneeMemberId: 'luis', areaId: 'launch' });
   const page = await open('?teamBoard=1&taskList=1');
   try {
-    await page.getByRole('button', { name: 'Group by Status', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Task view options', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Open board', exact: true }).waitFor();
     expect(await page.getByRole('group', { name: 'Task view', exact: true }).count()).toBe(0);
     await page.getByRole('button', { name: 'Todo, 2 tasks', exact: true }).waitFor();
@@ -284,26 +285,25 @@ it('groups Team list tasks, sorts deadlines within groups, collapses and remembe
     await page.getByRole('button', { name: 'Todo, 2 tasks', exact: true }).click();
     await expect.poll(rowTitles).toEqual(['in_progress task', 'consider task', 'done task', 'archived task']);
     await page.getByRole('button', { name: 'Todo, 2 tasks', exact: true }).click();
-    await page.getByRole('button', { name: 'Group by Status', exact: true }).click();
+    await page.getByRole('button', { name: 'Task view options', exact: true }).click();
     await page.getByRole('menuitemradio', { name: 'Assignee', exact: true }).click();
     await page.getByRole('button', { name: 'Luis, 1 task', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Maya, 1 task', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Unassigned, 4 tasks', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Sort by Deadline', exact: true }).click();
+    await page.getByRole('button', { name: 'Task view options', exact: true }).click();
     await page.getByRole('menuitemradio', { name: /^Priority Order/ }).click();
     await page.reload();
-    await page.getByRole('button', { name: 'Group by Assignee', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Sort by Priority Order', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Group by Assignee', exact: true }).click();
+    await page.getByRole('button', { name: 'Task view options', exact: true }).click();
+    expect(await page.getByRole('menuitemradio', { name: 'Assignee', exact: true }).getAttribute('aria-checked')).toBe('true');
+    expect(await page.getByRole('menuitemradio', { name: /^Priority Order/ }).getAttribute('aria-checked')).toBe('true');
     await page.getByRole('menuitemradio', { name: 'Area', exact: true }).click();
     await page.getByRole('button', { name: 'Design, 1 task', exact: true }).waitFor();
     await page.getByRole('button', { name: 'No area, 4 tasks', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Group by Area', exact: true }).click();
+    await page.getByRole('button', { name: 'Task view options', exact: true }).click();
     await page.getByRole('menuitemradio', { name: 'No grouping', exact: true }).click();
     expect(await page.getByRole('button', { name: /, [0-9]+ tasks$/ }).count()).toBe(0);
     await page.goto(base + '?teamBoard=1&taskList=1&viewer=member');
-    await page.getByRole('button', { name: 'Group by Status', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Sort by Deadline', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Task view options', exact: true }).waitFor();
     await page.setViewportSize({ width: 390, height: 844 });
     const openBoard = page.getByRole('button', { name: 'Open board', exact: true });
     expect(await openBoard.isVisible()).toBe(true);
@@ -329,7 +329,7 @@ it('reorders within a list group, rejects cross-group drops and persists order a
   }
   try {
     await page.getByRole('button', { name: 'Todo, 2 tasks', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Sort by Deadline', exact: true }).click();
+    await page.getByRole('button', { name: 'Task view options', exact: true }).click();
     await page.getByRole('menuitemradio', { name: /^Priority Order/ }).click();
     await drag('Second todo', 'todo task');
     await expect.poll(() => mutations.filter(m => m.procedure === 'tasks.update').length).toBe(1);
@@ -340,10 +340,42 @@ it('reorders within a list group, rejects cross-group drops and persists order a
     await page.waitForTimeout(150);
     expect(mutations.filter(m => m.procedure === 'tasks.update')).toHaveLength(1);
     expect(tasks.find(task => task.id === 'second-todo')!.status).toBe('todo');
-    await page.getByRole('button', { name: 'Group by Status', exact: true }).click();
+    await page.getByRole('button', { name: 'Task view options', exact: true }).click();
     await page.getByRole('menuitemradio', { name: 'No grouping', exact: true }).click();
     await drag('todo task', 'consider task');
     await expect.poll(() => mutations.filter(m => m.procedure === 'tasks.update').length).toBe(2);
+    expect(errors).toEqual([]);
+  } finally { await page.close(); }
+});
+
+
+it('keeps Team actions in one row through label breakpoints and the reported 765px width, including active long filters', async () => {
+  const page = await open('?teamBoard=1&taskList=1');
+  const board = page.getByRole('button', { name: 'Open board', exact: true });
+  const filter = page.getByRole('button', { name: /^Filter/ });
+  try {
+    await board.waitFor();
+    await filter.click();
+    await page.getByRole('menuitemcheckbox', { name: 'Assigned to me', exact: true }).click();
+    await filter.click();
+    await page.getByRole('menuitemradio', { name: /^In progress/ }).click();
+    await filter.click();
+    await page.getByRole('menuitemradio', { name: 'A long company department and launch planning area', exact: true }).click();
+    await expect.poll(() => filter.getAttribute('aria-label')).toContain('Assigned to me');
+    for (const width of [320, 360, 390, 447, 448, 511, 512, 671, 672, 765, 900, 1200, 1600]) {
+      await page.setViewportSize({ width, height: 900 });
+      const toolbar = board.locator('..');
+      await expect.poll(() => toolbar.evaluate(node => {
+        const outer=node.getBoundingClientRect();
+        const buttons=[...node.querySelectorAll('button')].filter(button=>button.getBoundingClientRect().width>0);
+        const boxes=buttons.map(button=>button.getBoundingClientRect());
+        return boxes.length===5 && boxes.every(box=>Math.abs(box.y-boxes[0].y)<1 && box.x>=outer.x && box.right<=outer.right+1) && node.scrollWidth<=node.clientWidth;
+      })).toBe(true);
+    }
+    await page.getByRole('button', { name: 'Task view options', exact: true }).click();
+    expect(await page.getByRole('menuitemradio', { name: 'Status', exact: true }).getAttribute('aria-checked')).toBe('true');
+    expect(await page.getByRole('menuitemradio', { name: /^Deadline/ }).getAttribute('aria-checked')).toBe('true');
+    await page.keyboard.press('Escape');
     expect(errors).toEqual([]);
   } finally { await page.close(); }
 });

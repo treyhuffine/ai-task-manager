@@ -7,6 +7,7 @@ import { useTaskCounts } from '@/hooks/use-tasks';
 import { TaskSurface } from '@/components/tasks/task-surface';
 import { ToolbarToggle, toolbarButtonClass } from '@/components/shared/list-toolbar';
 import { Tip } from '@/components/ui/tip';
+import { DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
 import { useTeam, useTeamNav } from './team-context';
 import { useTeamMembers } from './use-team';
 import { MemberAvatar } from './member-avatar';
@@ -53,7 +54,12 @@ export function TeamBoard({ fullPage = false }: { fullPage?: boolean }) {
             </Tip>
           ) : null;
         }}
-        contextControls={
+        filterControls={
+          <DropdownMenuCheckboxItem checked={nav.mine} onCheckedChange={checked => nav.setMine(checked)} className="gap-2 text-xs">
+            <UserRoundCheck className="size-3.5" aria-hidden />Assigned to me
+          </DropdownMenuCheckboxItem>
+        }
+        boardControls={
           <>
             <ToolbarToggle active={nav.mine} title="Only tasks assigned to you" onClick={() => nav.setMine(!nav.mine)}>
               <UserRoundCheck className="size-3.5" aria-hidden />
@@ -62,10 +68,10 @@ export function TeamBoard({ fullPage = false }: { fullPage?: boolean }) {
           </>
         }
         trailing={
-          <button type="button" onClick={() => void newTask()} className={toolbarButtonClass()} aria-label="New task">
+          <Tip label="New task" onlyWhenTextHidden><button type="button" onClick={() => void newTask()} className={toolbarButtonClass({ className: 'w-8 px-0 @2xl/lt:w-auto @2xl/lt:px-3' })} aria-label="New task">
             <Plus className="size-3.5" />
             <span className="hidden @2xl/lt:inline">New task</span>
-          </button>
+          </button></Tip>
         }
       />
       {total === 0 && !nav.mine && <EmptyTeam onNewTask={() => void newTask()} />}
