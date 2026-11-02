@@ -6,7 +6,6 @@ import { SettingsDestinationProvider, type SettingsDestination } from '@/compone
 import { LifecycleGuardProvider } from '@/components/tasks/lifecycle-guard';
 import { useTeam, useTeamNav } from '@/components/team/team-context';
 import { useHomeContext } from './home-context';
-import { HOTKEYS, matchesHotkey } from '@/constants/commands';
 
 const CHAT_CAPABILITIES = { deliveryReceipts: false, prepareResults: true, coordination: false };
 
@@ -23,12 +22,5 @@ export function TeamDashboardBoundary({ children }: { children: ReactNode }) {
     return null;
   }, [nav, canConfigure]);
   useEffect(() => { document.title = team.name; }, [team.name]);
-  useEffect(() => {
-    const search = (event: KeyboardEvent) => { if (matchesHotkey(event, HOTKEYS.search)) { event.preventDefault(); nav.openPanel('search'); } };
-    const open = () => nav.openPanel('search');
-    document.addEventListener('keydown', search);
-    document.addEventListener('open-search', open);
-    return () => { document.removeEventListener('keydown', search); document.removeEventListener('open-search', open); };
-  }, [nav]);
   return <SettingsDestinationProvider value={settings}><ChatCapabilities.Provider value={CHAT_CAPABILITIES}><LifecycleGuardProvider>{children}</LifecycleGuardProvider></ChatCapabilities.Provider></SettingsDestinationProvider>;
 }

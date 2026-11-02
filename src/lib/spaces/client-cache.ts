@@ -3,6 +3,7 @@ import { entityKeys } from '@/lib/query/entity-keys';
 import { trpc } from '@/lib/trpc/client';
 
 export const teamConnectionsKey = () => trpc.spaces.list.queryKey();
+export const teamIdentityKey = (id: string) => trpc.spaces.identity.queryKey({ id });
 
 /** Shared writes and membership changes affect references as well as tasks. */
 export function invalidateTeamContent(qc: QueryClient): void {

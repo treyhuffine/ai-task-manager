@@ -19,13 +19,16 @@ it('lets the owner set, replace and remove an uploaded logo while members read t
   const first = await image();
   expect(await owner.team.setLogo.mutate({ image: first })).toEqual({ image: first });
   expect((await reader.userState.list.query({}))?.orchestratorImage).toEqual(first);
+  expect((await reader.team.me.query()).team.logo).toEqual(first);
   const second = await image();
   await owner.team.setLogo.mutate({ image: second });
   expect(q.getUserState()?.orchestratorImage).toEqual(second);
+  expect((await reader.team.me.query()).team.logo).toEqual(second);
   expect(q.getHome()?.name).toBe('Acme');
   await owner.team.setLogo.mutate({ image: null });
   await owner.team.setLogo.mutate({ image: null });
   expect(q.getUserState()?.orchestratorImage).toBeNull();
+  expect((await reader.team.me.query()).team.logo).toBeNull();
 });
 
 it('refuses member and revoked credentials without changing the logo', async () => {

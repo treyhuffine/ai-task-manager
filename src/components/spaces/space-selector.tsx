@@ -10,11 +10,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tip } from '@/components/ui/tip';
-import { currentSpaceId, spacePath } from '@/lib/spaces/document';
+import { currentSpaceId, spacePath, spaceApiBase } from '@/lib/spaces/document';
 import { myRiClient } from '@/lib/spaces/my-ri-client';
 import { teamDisplayName } from '@/lib/home/team-display-name';
 import { cn } from '@/lib/utils';
-import { teamConnectionsKey } from '@/lib/spaces/client-cache';
+import { teamConnectionsKey, teamIdentityKey } from '@/lib/spaces/client-cache';
 import { useOptionalHomeContext } from '@/components/home/home-context';
 import { restoredHomeNavigation } from '@/lib/home/navigation';
 import { useOrchestratorIdentity } from '@/hooks/use-user-state';
@@ -90,6 +90,20 @@ function Mark({ name, imageUrl, size = 18 }: { name: string | null; imageUrl?: s
   );
 }
 
+/** Menu entries read only their own logo. The selected Team already has its
+ * live identity, and another Team's image is served through its own file store. */
+function ConnectedTeamMark({ id, name, selected, currentLogo }: { id: string; name: string; selected: boolean; currentLogo: string | null }) {
+  const identity = useQuery({
+    queryKey: teamIdentityKey(id),
+    queryFn: () => myRiClient.spaces.identity.query({ id }),
+    enabled: !selected,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const imageUrl = selected ? currentLogo : identity.data?.logoFileName ? `${spaceApiBase(id)}/attachments/${identity.data.logoFileName}` : null;
+  return <Mark name={name} imageUrl={imageUrl} />;
+}
+
 export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | 'collapsed' | 'phone'; onOpenSettings?: () => void }) {
   const home = useOptionalHomeContext();
   const identity = useOrchestratorIdentity();
@@ -143,7 +157,7 @@ export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | '
         </DropdownMenuItem>}
         {teams.map((team) => (
           <DropdownMenuItem key={team.id} onSelect={() => openSpace(team.id)} className="gap-2 text-[13px]">
-            <Mark name={teamDisplayName(team.id, connected.data)} imageUrl={here === team.id ? currentLogo : null} />
+            <ConnectedTeamMark id={team.id} name={teamDisplayName(team.id, connected.data)} selected={here === team.id} currentLogo={currentLogo} />
             <span className="min-w-0 flex-1 truncate">{teamDisplayName(team.id, connected.data)}</span>
             {here === team.id && <Check size={14} />}
           </DropdownMenuItem>
