@@ -2,7 +2,9 @@
  * The rail's list header, Agents | Recent, against an isolated fixture: the
  * switch reads as a control rather than one more group label (sentence case,
  * the open list raised on a visible track), in dark and light, and switching
- * lists swaps the header's actions.
+ * lists swaps the header's actions. Bulk archive runs for real against held
+ * archive requests, so a test sees what happens on the click and what
+ * happens when the requests return.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -12,6 +14,11 @@ import type { AddressInfo } from 'node:net';
 import { build } from 'esbuild';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { afterAll, beforeAll, expect, it } from 'vitest';
+
+interface FixtureWindow extends Window {
+  actions: { kind: string; value: unknown }[];
+  requests: { id: string; resolve: (value: unknown) => void; reject: (reason: unknown) => void }[];
+}
 
 let server: http.Server;
 let browser: Browser;
@@ -30,25 +37,47 @@ beforeAll(async () => {
       import {ConfirmProvider} from '@/components/ui/confirm-dialog';
       import {WorkContext} from '@/contexts/work-context';
       import {RailListHeader} from '@/components/workspaces/rail-list';
-      import {WorkspaceSelectionProvider} from '@/components/workspaces/workspace-selection-context';
+      import {WorkspaceSelectionProvider,useWorkspaceSelection} from '@/components/workspaces/workspace-selection-context';
+      import {Toaster} from 'sonner';
+      window.actions=[];
+      window.requests=[];
+      const record=(kind,value)=>window.actions.push({kind,value});
       const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+      // The rail's rows for the chats a test selects: the open one, and another.
+      const row=(id,executionId,label)=>({id,executionId,workspaceId:'agent',label:null,execution:{label}});
+      client.setQueryData(['sessions','rail'],{sessions:[row('open-chat','open-execution','Fix the login redirect'),row('other-chat','other-execution','Tidy the README')]});
       const noop=()=>{};
-      const navigation={openAgent:noop,openExecution:noop,openTask:noop,openNote:noop,goHome:noop};
-      const activity={activeSessionId:null,streamingSessionIds:new Set(),backgroundSessionIds:new Set(),pendingInputSessionIds:new Set(),setActiveExecutionId:noop,setSessionStreaming:noop};
+      const navigation={openAgent:id=>record('openAgent',id),openExecution:id=>record('openExecution',id),openTask:noop,openNote:noop,goHome:()=>record('goHome',null)};
+      const activity={activeSessionId:'open-chat',activeExecutionId:'open-execution',streamingSessionIds:new Set(),backgroundSessionIds:new Set(),pendingInputSessionIds:new Set(),setActiveExecutionId:noop,setSessionStreaming:noop};
+      // Ticks a chat for archiving, as its row's checkbox does.
+      function Pick(){
+        const selection=useWorkspaceSelection();
+        return <div hidden>{['open-chat','other-chat'].map(id=><button key={id} data-pick={id} onClick={()=>{selection.enter();selection.toggle(id)}}/>)}</div>;
+      }
       function Fixture(){
         const [tab,setTab]=useState('workspace');
         return <aside className="w-[256px] border-r border-border bg-background">
-          <WorkspaceSelectionProvider><RailListHeader tab={tab} onSelect={setTab}/></WorkspaceSelectionProvider>
+          <WorkspaceSelectionProvider><RailListHeader tab={tab} onSelect={setTab}/><Pick/></WorkspaceSelectionProvider>
           <span data-group-label className="text-[8.5px] font-bold uppercase tracking-[0.15em] text-muted-foreground">Pinned</span>
         </aside>;
       }
       createRoot(document.getElementById('root')).render(
         <QueryClientProvider client={client}><TooltipProvider><ConfirmProvider>
-          <WorkContext navigation={navigation} activity={activity}><Fixture/></WorkContext>
+          <WorkContext navigation={navigation} activity={activity}><Fixture/></WorkContext><Toaster/>
         </ConfirmProvider></TooltipProvider></QueryClientProvider>);
     ` },
     bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', logLevel: 'silent',
     define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}' },
+    // Archive requests are held until a test settles them.
+    plugins: [{ name: 'held-archive', setup(api) {
+      api.onResolve({ filter: /^@\/lib\/api\/sessions$/ }, () => ({ path: 'sessions', namespace: 'held-archive' }));
+      api.onLoad({ filter: /.*/, namespace: 'held-archive' }, () => ({ loader: 'ts', contents: `
+        export const sessionsApi = { archive: (id, opts) => {
+          window.actions.push({ kind: opts?.force ? 'archive anyway' : 'archive', value: id });
+          return new Promise((resolve, reject) => window.requests.push({ id, resolve, reject }));
+        } };
+      ` }));
+    } }],
   });
   server = http.createServer(async (req, res) => {
     const url = new URL(req.url!, 'http://fixture');
@@ -144,6 +173,49 @@ it('switches lists, and the agent actions show only on Agents', async () => {
     await page.getByRole('tab', { name: 'Agents' }).focus();
     await page.keyboard.press('Enter');
     expect(await page.getByRole('tab', { name: 'Agents' }).getAttribute('aria-selected')).toBe('true');
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+const actions = (page: Page) => page.evaluate(() => (window as unknown as FixtureWindow).actions);
+const pick = (page: Page, id: string) => page.evaluate((chat) => document.querySelector<HTMLButtonElement>(`[data-pick="${chat}"]`)!.click(), id);
+/** Settle every held archive request: archived, except the ones named to fail. */
+const settle = (page: Page, failing: string[] = []) => page.evaluate((fail) => {
+  for (const request of (window as unknown as FixtureWindow).requests.splice(0)) {
+    if (fail.includes(request.id)) request.reject(new Error('The device is away'));
+    else request.resolve({});
+  }
+}, failing);
+
+it('bulk archive leaves the open chat on the click, names what failed, and moves nobody when the requests return', async () => {
+  const { page, errors } = await open('dark');
+  try {
+    const archive = page.getByRole('button', { name: 'Archive', exact: true });
+    // Chats that aren't on screen: archived where the person is.
+    await pick(page, 'other-chat');
+    await archive.click();
+    expect(await actions(page)).toEqual([{ kind: 'archive', value: 'other-chat' }]);
+    await settle(page);
+    await archive.waitFor({ state: 'hidden' });
+    expect(await actions(page)).toEqual([{ kind: 'archive', value: 'other-chat' }]);
+
+    // With the open chat among them: its agent on the click, requests still out.
+    await page.evaluate(() => { (window as unknown as FixtureWindow).actions = []; });
+    await pick(page, 'open-chat');
+    await pick(page, 'other-chat');
+    await archive.click();
+    const leftOnClick = [
+      { kind: 'openAgent', value: 'agent' }, { kind: 'archive', value: 'open-chat' }, { kind: 'archive', value: 'other-chat' },
+    ];
+    expect(await actions(page)).toEqual(leftOnClick);
+    await settle(page, ['open-chat']);
+    const toast = page.locator('[data-sonner-toast]');
+    await toast.waitFor();
+    expect(await toast.innerText()).toContain("Couldn't archive 1 chat");
+    expect(await toast.innerText()).toContain('Fix the login redirect: The device is away');
+    expect(await actions(page)).toEqual(leftOnClick);
     expect(errors).toEqual([]);
   } finally {
     await page.close();

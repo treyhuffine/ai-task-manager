@@ -37,6 +37,37 @@ const NEEDS_REVIEW_KEY = ['sessions', 'needs-review'] as const;
 const RAIL_KEY = ['sessions', 'rail'] as const;
 const HISTORY_KEY = ['sessions', 'history'] as const;
 
+/**
+ * Chats with an archive request out, by how many. The server keeps an
+ * execution active until its worktree is removed, which can take a while (a
+ * big `node_modules`), so a refetch meanwhile (the view the person just
+ * went to mounting, the rail's poll, a live event) would list it again right
+ * after archiving took it away. The lists archiving takes it from (rail,
+ * needs review, an agent's sessions) leave these out until the request
+ * settles: archived, it stays gone, and refused or failed, it comes back.
+ * One per page, like the cache it guards.
+ */
+const archiving = new Map<string, number>();
+
+/** Keep `ids` out of the active lists until the returned release is called. */
+function holdArchiving(ids: readonly string[]): () => void {
+  for (const id of ids) archiving.set(id, (archiving.get(id) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    for (const id of ids) {
+      const left = (archiving.get(id) ?? 1) - 1;
+      if (left > 0) archiving.set(id, left);
+      else archiving.delete(id);
+    }
+  };
+}
+
+function withoutArchiving<T extends { id: string }>(sessions: T[]): T[] {
+  return archiving.size ? sessions.filter((s) => !archiving.has(s.id)) : sessions;
+}
+
 export function useWorkspaces(filter?: { status?: WorkspaceStatus }) {
   return useQuery({
     queryKey: [...WORKSPACES_KEY, filter],
@@ -93,7 +124,10 @@ export function useWorkspaceSessions(
   const includeArchived = !!opts.includeArchived;
   return useQuery({
     queryKey: [...WORKSPACES_KEY, id, 'sessions', ...(includeArchived ? ['with-archived'] : [])],
-    queryFn: () => workspacesApi.sessions(id!, { includeArchived }),
+    queryFn: async () => {
+      const sessions = await workspacesApi.sessions(id!, { includeArchived });
+      return includeArchived ? sessions : withoutArchiving(sessions);
+    },
     enabled: !!id,
   });
 }
@@ -193,7 +227,7 @@ export function useSetDefaultDevice(workspaceId: string | null) {
 export function useNeedsReviewSessions() {
   return useQuery({
     queryKey: NEEDS_REVIEW_KEY,
-    queryFn: ({ signal }) => sessionsApi.needsReview({ signal }),
+    queryFn: async ({ signal }) => withoutArchiving(await sessionsApi.needsReview({ signal })),
     refetchInterval: 5_000,
   });
 }
@@ -533,9 +567,17 @@ export function useUnpinSession() {
 export function useRailSessions() {
   return useQuery({
     queryKey: RAIL_KEY,
-    queryFn: ({ signal }) => sessionsApi.rail({ signal }),
+    queryFn: async ({ signal }) => {
+      const rail = await sessionsApi.rail({ signal });
+      return archiving.size ? { ...rail, sessions: withoutArchiving(rail.sessions) } : rail;
+    },
     refetchInterval: 15_000,
   });
+}
+
+/** A rail row as the cache has it now, for a handler that needs it once without re-rendering on every rail update. */
+export function cachedRailSession(qc: QueryClient, id: string) {
+  return qc.getQueryData<RailResponse>(RAIL_KEY)?.sessions.find((s) => s.id === id);
 }
 
 /**
@@ -610,8 +652,9 @@ function dropSessionFromCaches(
 
 /**
  * Archive a single execution. The row vanishes from the rail immediately
- * (optimistic remove across all session caches); a failed request rolls
- * the snapshots back so the row reappears exactly where it was. The
+ * (optimistic remove across all session caches) and stays gone while the
+ * request runs ({@link holdArchiving}); a failed request rolls the
+ * snapshots back so the row reappears exactly where it was. The
  * dirty-worktree 409 is an expected "failure" here — the caller catches
  * it, the optimistic remove rolls back, and the row is gone again if
  * the person archives anyway after seeing the files.
@@ -622,6 +665,8 @@ export function useArchiveSession() {
     mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
       sessionsApi.archive(id, { force }),
     onMutate: async ({ id }) => {
+      // First, so a refetch already on its way can't list it again either.
+      const release = holdArchiving([id]);
       // Halt in-flight refetches so they can't clobber the optimistic
       // edit with stale (pre-archive) data mid-request.
       await Promise.all([
@@ -629,14 +674,15 @@ export function useArchiveSession() {
         qc.cancelQueries({ queryKey: NEEDS_REVIEW_KEY }),
         qc.cancelQueries({ queryKey: RAIL_KEY }),
       ]);
-      return { snapshots: dropSessionFromCaches(qc, id) };
+      return { snapshots: dropSessionFromCaches(qc, id), release };
     },
     onError: (_err, _vars, context) => {
       for (const [key, data] of context?.snapshots ?? []) {
         qc.setQueryData(key, data);
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _err, _vars, context) => {
+      context?.release();
       // Reconcile with the server on both success and (post-rollback)
       // failure so the caches match the truth.
       invalidateWorkspaceViews(qc);
@@ -696,12 +742,14 @@ export interface BulkArchiveResult {
  * forced here — the caller re-invokes with `force: true` on just the
  * `dirty` ids after confirming the data loss.
  *
- * Mirrors `useArchiveSession`'s cache invalidation so both the single
- * and bulk paths refresh the same surfaces.
+ * Optimistic like `useArchiveSession`: the rows vanish at once and stay gone
+ * while the requests run. Settling refetches, which brings back the ones
+ * that were refused or failed. Mirrors its cache invalidation so both the
+ * single and bulk paths refresh the same surfaces.
  */
 export function useBulkArchiveSessions() {
   const qc = useQueryClient();
-  return useMutation<BulkArchiveResult, Error, { ids: string[]; force?: boolean }>({
+  return useMutation<BulkArchiveResult, Error, { ids: string[]; force?: boolean }, { release: () => void }>({
     mutationFn: async ({ ids, force }) => {
       const settled = await Promise.allSettled(
         ids.map((id) => sessionsApi.archive(id, { force }).then(() => id)),
@@ -726,7 +774,18 @@ export function useBulkArchiveSessions() {
       });
       return result;
     },
-    onSuccess: () => {
+    onMutate: async ({ ids }) => {
+      const release = holdArchiving(ids);
+      await Promise.all([
+        qc.cancelQueries({ queryKey: WORKSPACES_KEY }),
+        qc.cancelQueries({ queryKey: NEEDS_REVIEW_KEY }),
+        qc.cancelQueries({ queryKey: RAIL_KEY }),
+      ]);
+      for (const id of ids) dropSessionFromCaches(qc, id);
+      return { release };
+    },
+    onSettled: (_data, _err, _vars, context) => {
+      context?.release();
       invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
       qc.invalidateQueries({ queryKey: RAIL_KEY });

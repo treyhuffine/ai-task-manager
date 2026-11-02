@@ -9,6 +9,7 @@ import { SessionRowMenu } from './session-row-menu';
 
 interface SessionRowActionsProps {
   sessionId: string;
+  executionId: string | null;
   workspaceId: string | null;
   label: string;
   /** Read state for the menu's Mark read / Mark unread. */
@@ -42,6 +43,7 @@ interface SessionRowActionsProps {
  */
 export function SessionRowActions({
   sessionId,
+  executionId,
   workspaceId,
   label,
   isUnread,
@@ -59,10 +61,11 @@ export function SessionRowActions({
       onKeyDown={stop}
       className={cn('flex flex-shrink-0 items-center justify-end', ROW_ACTIONS_REVEAL, className)}
     >
-      {archivable && <ArchiveButton sessionId={sessionId} label={label} />}
+      {archivable && <ArchiveButton sessionId={sessionId} executionId={executionId} workspaceId={workspaceId} label={label} />}
       {isPinned !== undefined && <PinToggle sessionId={sessionId} isPinned={isPinned} />}
       <SessionRowMenu
         sessionId={sessionId}
+        executionId={executionId}
         workspaceId={workspaceId}
         isUnread={isUnread}
         label={label}
@@ -127,7 +130,12 @@ function PinToggle({ sessionId, isPinned }: { sessionId: string; isPinned: boole
   );
 }
 
-function ArchiveButton({ sessionId, label }: { sessionId: string; label: string }) {
+function ArchiveButton({ sessionId, executionId, workspaceId, label }: {
+  sessionId: string;
+  executionId: string | null;
+  workspaceId: string | null;
+  label: string;
+}) {
   const { archive } = useArchiveExecution();
   return (
     <Tip label="Archive">
@@ -135,7 +143,7 @@ function ArchiveButton({ sessionId, label }: { sessionId: string; label: string 
         type="button"
         aria-label="Archive"
         className={BUTTON}
-        onClick={() => void archive({ id: sessionId, label })}
+        onClick={() => void archive({ id: sessionId, executionId, workspaceId, label })}
       >
         <Archive size={12} aria-hidden />
       </button>

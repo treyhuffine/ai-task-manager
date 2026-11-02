@@ -3,11 +3,12 @@
 import type { ReactNode } from 'react';
 import { Archive, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import type { RailTab } from '@/lib/client/rail-tab';
 import { useOptionalHomeContext } from '@/components/home/home-context';
 import { useRailStyle } from '@/lib/client/rail-style';
-import { useBulkArchiveSessions } from '@/hooks/use-workspaces';
-import { useReviewChanges } from '@/hooks/use-archive-execution';
+import { cachedRailSession, useBulkArchiveSessions } from '@/hooks/use-workspaces';
+import { useLeaveArchivedChat, useReviewChanges } from '@/hooks/use-archive-execution';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { archiveAnywayDialog } from '@/components/executions/uncommitted-files';
 import { cn } from '@/lib/utils';
@@ -55,6 +56,8 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
   const bulkArchive = useBulkArchiveSessions();
   const confirm = useConfirm();
   const reviewChanges = useReviewChanges();
+  const leaveArchivedChat = useLeaveArchivedChat();
+  const qc = useQueryClient();
   const createOpen = useWorkspaceCreateOpen();
   const canConfigure = useOptionalHomeContext()?.capabilities.configureAgents ?? true;
   const agentsOnly = useRailStyle().style === 'agentsOnly';
@@ -63,6 +66,10 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
     if (!selection) return;
     const ids = Array.from(selection.selectedIds);
     if (ids.length === 0 || bulkArchive.isPending) return;
+    const rows = new Map(ids.map((id) => [id, cachedRailSession(qc, id)]));
+    // On the click, as one archive does: if the chat on screen is going,
+    // leave it now rather than when the requests return.
+    leaveArchivedChat(ids.map((id) => ({ id, executionId: rows.get(id)?.executionId, workspaceId: rows.get(id)?.workspaceId })));
 
     // First pass: archive everything that's clean. Worktrees with files
     // that aren't committed come back unforced, naming those files, so the
@@ -79,8 +86,13 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
 
     if (result.failed.length > 0) {
       const n = result.failed.length;
+      // Named, since the person may be looking at something else by now.
+      const name = (id: string) => {
+        const row = rows.get(id);
+        return row?.execution?.label ?? row?.label ?? 'Untitled';
+      };
       toast.error(`Couldn't archive ${n} chat${n === 1 ? '' : 's'}`, {
-        description: result.failed.map((f) => f.message).join('\n'),
+        description: result.failed.map((f) => `${name(f.id)}: ${f.message}`).join('\n'),
       });
     }
 

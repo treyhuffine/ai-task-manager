@@ -77,6 +77,8 @@ export function ExecutionActionBar({ session, workspace, fit = false }: Executio
   const handleArchive = () => {
     void archive({
       id: session.id,
+      executionId: session.executionId,
+      workspaceId: session.workspaceId,
       label: session.execution?.label ?? session.label,
     });
   };
