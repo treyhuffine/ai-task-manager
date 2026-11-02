@@ -99,7 +99,7 @@ Field Notes is a fictional team name, which may represent a company or any other
 
 Refinement verification: 45 focused unit/integration tests pass (one skipped), 41 existing component browser tests pass, six Board browser tests pass and all ten full-app browser scenarios pass. The production build and typecheck pass. ESLint has no errors and retains existing warnings. Live expansion tests drag the divider, type an unsent draft, expand each panel, restore its exact prior width and confirm the draft remains. The logo browser check uploads through a connected Team, checks the displayed image, verifies member restrictions and removes it.
 
-The review is still at `https://ri-team-parity-trey.beamd.run`, with the owner sign-in link in the personal preview root's `preview.json` as `publicOwnerUrl`. Its My Ri selector opens the connected Field Notes Team. The current review servers run the `.next-team-list-refinements` production build. Use `NEXT_DIST_DIR=.next-team-list-refinements` with the serve commands above to restart those builds. Field Notes has a sample company mark and its General settings can upload a different one. Production and the normal dev Home remain untouched.
+The review is still at `https://ri-team-parity-trey.beamd.run`, with the owner sign-in link in the personal preview root's `preview.json` as `publicOwnerUrl`. Its My Ri selector opens the connected Field Notes Team. The current review servers run the `.next-team-board-action` production build. Use `NEXT_DIST_DIR=.next-team-board-action` with the serve commands above to restart those builds. Field Notes has a sample company mark and its General settings can upload a different one. Production and the normal dev Home remain untouched.
 
 
 ## List organization and personal expansion
@@ -117,3 +117,12 @@ The prior flat list used manual Priority Order, with unranked tasks newest first
 List refinement verification: 50 focused checks pass across seven files, including eight List and Board browser scenarios. All 12 full-app browser scenarios pass with no unhandled browser errors. The production build and typecheck pass. Changed-file ESLint has no errors and retains the existing TanStack Virtual compiler warning. The public Beamd preview was opened through a real browser and verified after the server update. Screenshots cover status and assignee groups, the public Team split, expanded personal chat, and personal tabs with the expansion control tucked into More.
 
 Personal expansion uses the panel width, rather than the window width. The direct button appears at 640px, shows its label at 760px, and moves into More below that threshold. A file tab raises the direct-button threshold to 760px. Team's smaller set of tabs allows its button from 360px. Restore stays available while expanded. No personal task defaults, schema, migrations or production services changed. Existing preview records are preserved.
+
+## Board entry action
+
+- [x] Replace the Team home list's List/Board switcher with a primary Open board action using the standard button and a columns icon.
+- [x] Keep the label visible in narrow panels and open the existing full Board. Preserve inline view switching where it still changes views in place.
+- [x] Verify the action, responsive fit and full Board navigation, then update the existing preview.
+
+
+Board entry verification: all eight List and Board component browser scenarios and all 12 full-app browser scenarios pass. The real public preview opens and closes the Board through the connected Team. The phone check finds the labeled action, opens the Board and returns to the list. The desktop screenshot confirms a filled button replaces the List/Board switcher. Build, typecheck and changed-file lint pass without errors or warnings. Main remains current at `94c86f43`. The preview runs `.next-team-board-action`, with existing preview data preserved and no migrations.

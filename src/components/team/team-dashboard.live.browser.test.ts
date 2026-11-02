@@ -52,7 +52,8 @@ it.skipIf(!enabled)('uses the normal rail, direct main chat, Recent and full Boa
     expect(new URL(page.url()).searchParams.get('session')).toBeTruthy();
     await page.getByRole('button', { name: 'Close chat', exact: true }).click();
     expect(await rail.getByRole('button', { name: 'Board', exact: true }).count()).toBe(0);
-    await page.getByRole('button', { name: 'Board', exact: true }).click();
+    expect(await page.getByRole('group', { name: 'Task view', exact: true }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Open board', exact: true }).click();
     await page.getByRole('button', { name: 'Close Board', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Tasks', exact: true }).last().click();
     await page.getByText('Review the onboarding prototype', { exact: true }).last().waitFor();
@@ -250,6 +251,11 @@ it.skipIf(!enabled).each([390, 900])('keeps tasks, notes and selected agent navi
       await page.getByText('Launch working notes', { exact: true }).waitFor();
       await nav.getByRole('button', { name: 'Tasks', exact: true }).click();
       await page.getByText('Review the onboarding prototype', { exact: true }).first().waitFor();
+      await page.getByRole('button', { name: 'Open board', exact: true }).click();
+      await page.getByRole('button', { name: 'Close Board', exact: true }).waitFor();
+      await capture(page, 'team-board-phone');
+      await page.getByRole('button', { name: 'Close Board', exact: true }).click();
+      await page.getByRole('button', { name: 'Open board', exact: true }).waitFor();
       await nav.getByRole('button', { name: /Agents$/ }).click();
       await page.getByText('Product', { exact: true }).first().waitFor();
       await page.getByRole('button', { name: /Product.*execution/ }).click();

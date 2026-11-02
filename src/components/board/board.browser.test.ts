@@ -276,6 +276,8 @@ it('groups Team list tasks, sorts deadlines within groups, collapses and remembe
   const page = await open('?teamBoard=1&taskList=1');
   try {
     await page.getByRole('button', { name: 'Group by Status', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Open board', exact: true }).waitFor();
+    expect(await page.getByRole('group', { name: 'Task view', exact: true }).count()).toBe(0);
     await page.getByRole('button', { name: 'Todo, 2 tasks', exact: true }).waitFor();
     const rowTitles = () => page.locator('[data-index] p.line-clamp-2').allTextContents();
     await expect.poll(rowTitles).toEqual(['in_progress task', 'Earlier deadline', 'todo task', 'consider task', 'done task', 'archived task']);
@@ -303,6 +305,10 @@ it('groups Team list tasks, sorts deadlines within groups, collapses and remembe
     await page.getByRole('button', { name: 'Group by Status', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Sort by Deadline', exact: true }).waitFor();
     await page.setViewportSize({ width: 390, height: 844 });
+    const openBoard = page.getByRole('button', { name: 'Open board', exact: true });
+    expect(await openBoard.isVisible()).toBe(true);
+    await openBoard.click();
+    expect(new URL(page.url()).searchParams.get('board')).toBe('tasks');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);
   } finally { await page.close(); }
