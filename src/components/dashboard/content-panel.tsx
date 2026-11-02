@@ -115,6 +115,10 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
     showing: !!width && fileShown,
     show: () => setFileInFront(panelId, true),
   });
+  const expanded = expandedPanel === panelId;
+  // Measure the panel, since a wide window can still have a narrow split.
+  // File tabs need additional room. Restore always remains reachable.
+  const showExpand = expanded || (width ?? 0) >= (team ? 360 : fileHere ? 760 : 640);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
 
@@ -181,12 +185,12 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
 
           <div className="flex-1" />
 
-          {team && <Tip label={expandedPanel === panelId ? 'Show both panels' : 'Use the full content width'}>
+          {showExpand && <Tip label={expandedPanel === panelId ? 'Show both panels' : 'Use the full content width'}>
             <button type="button" aria-label={expandedPanel === panelId ? 'Restore split view' : `Expand ${activeTab}`} aria-pressed={expandedPanel === panelId}
               onClick={() => setExpandedPanel(expandedPanel === panelId ? null : panelId)}
               className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground">
               {expandedPanel === panelId ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-              <span>{expandedPanel === panelId ? 'Restore' : 'Expand'}</span>
+              {(expanded || (width ?? 0) >= (team ? 420 : 760)) && <span>{expandedPanel === panelId ? 'Restore' : 'Expand'}</span>}
             </button>
           </Tip>}
 
@@ -232,6 +236,11 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
                     <span className="font-medium">{tab.label}</span>
                   </button>
                 ))}
+                {!showExpand && <button type="button"
+                  onClick={() => { setExpandedPanel(panelId); setMoreOpen(false); }}
+                  className="flex w-full items-center gap-3 border-t border-border px-3 py-2 text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground">
+                  <Maximize2 size={14} /><span className="font-medium">Expand panel</span>
+                </button>}
               </div>
             )}
           </div>

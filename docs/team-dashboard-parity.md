@@ -99,4 +99,21 @@ Field Notes is a fictional team name, which may represent a company or any other
 
 Refinement verification: 45 focused unit/integration tests pass (one skipped), 41 existing component browser tests pass, six Board browser tests pass and all ten full-app browser scenarios pass. The production build and typecheck pass. ESLint has no errors and retains existing warnings. Live expansion tests drag the divider, type an unsent draft, expand each panel, restore its exact prior width and confirm the draft remains. The logo browser check uploads through a connected Team, checks the displayed image, verifies member restrictions and removes it.
 
-The review is still at `https://ri-team-parity-trey.beamd.run`, with the owner sign-in link in the personal preview root's `preview.json` as `publicOwnerUrl`. Its My Ri selector opens the connected Field Notes Team. The current review servers run the `.next-team-refinements-v2` production build. Use `NEXT_DIST_DIR=.next-team-refinements-v2` with the serve commands above to restart those builds. Field Notes has a sample company mark and its General settings can upload a different one. Production and the normal dev Home remain untouched.
+The review is still at `https://ri-team-parity-trey.beamd.run`, with the owner sign-in link in the personal preview root's `preview.json` as `publicOwnerUrl`. Its My Ri selector opens the connected Field Notes Team. The current review servers run the `.next-team-list-refinements` production build. Use `NEXT_DIST_DIR=.next-team-list-refinements` with the serve commands above to restart those builds. Field Notes has a sample company mark and its General settings can upload a different one. Production and the normal dev Home remain untouched.
+
+
+## List organization and personal expansion
+
+- [x] Default Team lists to lifecycle status groups with counts and collapse controls, ordered In progress, Todo, Consider, Done, Archived.
+- [x] Sort Team tasks by earliest deadline within groups by default, with undated tasks last. Offer manual priority, recent viewing, creation and update ordering.
+- [x] Allow status, assignee, area and no grouping. Remember each Home member's grouping and sort locally. Keep personal list defaults unchanged.
+- [x] Keep grouped reordering within its group, including priority bucket actions. Never change status, assignment or area as a side effect of list reordering.
+- [x] Add personal Expand/Restore with panel-width visibility and a More fallback, preserving all tabs, drafts and divider size.
+- [x] Verify grouping, sorting, persistence, drag behavior, responsive tab fit and personal expansion in browser, then update the Beamd preview.
+
+The prior flat list used manual Priority Order, with unranked tasks newest first. These controls change presentation only. They require no database migration.
+
+
+List refinement verification: 50 focused checks pass across seven files, including eight List and Board browser scenarios. All 12 full-app browser scenarios pass with no unhandled browser errors. The production build and typecheck pass. Changed-file ESLint has no errors and retains the existing TanStack Virtual compiler warning. The public Beamd preview was opened through a real browser and verified after the server update. Screenshots cover status and assignee groups, the public Team split, expanded personal chat, and personal tabs with the expansion control tucked into More.
+
+Personal expansion uses the panel width, rather than the window width. The direct button appears at 640px, shows its label at 760px, and moves into More below that threshold. A file tab raises the direct-button threshold to 760px. Team's smaller set of tabs allows its button from 360px. Restore stays available while expanded. No personal task defaults, schema, migrations or production services changed. Existing preview records are preserved.

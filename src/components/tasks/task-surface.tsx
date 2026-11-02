@@ -12,7 +12,7 @@ import { KANBAN_COLUMNS } from '@/lib/tasks/lanes';
  * rendered inside each view's own toolbar (see TaskViewToggle), so there is no
  * separate strip — the surface only owns the view state and swaps the body.
  */
-export function TaskSurface({ onOpenTask, privatePlanning = true, viewKey = TASK_VIEW_KEY, initialView = 'list', contextControls, rowMeta, legacyViewKey, onOpenBoard, ...board }: {
+export function TaskSurface({ onOpenTask, privatePlanning = true, viewKey = TASK_VIEW_KEY, initialView = 'list', contextControls, rowMeta, assigneeNames, legacyViewKey, onOpenBoard, ...board }: {
   onOpenTask: (id: string) => void;
   privatePlanning?: boolean;
   viewKey?: string;
@@ -22,6 +22,7 @@ export function TaskSurface({ onOpenTask, privatePlanning = true, viewKey = TASK
   onOpenBoard?: () => void;
   contextControls?: ReactNode;
   rowMeta?: ComponentProps<typeof TaskKanban>['cardMeta'];
+  assigneeNames?: ComponentProps<typeof TaskList>['assigneeNames'];
 } & Pick<ComponentProps<typeof TaskKanban>, 'trailing' | 'assigneeMemberId' | 'createDefaults' | 'areaFilter' | 'onAreaFilterChange'>) {
   // Read the persisted view once at init (no setState-in-effect). Guarded for
   // SSR; this surface renders client-side in the dashboard.
@@ -47,6 +48,6 @@ export function TaskSurface({ onOpenTask, privatePlanning = true, viewKey = TASK
   };
 
   return view === 'list'
-    ? <TaskList onOpenTask={onOpenTask} view={view} onViewChange={set} privatePlanning={privatePlanning} initialLane={privatePlanning ? 'current' : 'all'} contextControls={contextControls} trailing={board.trailing} rowMeta={rowMeta} assigneeMemberId={board.assigneeMemberId} createDefaults={board.createDefaults} areaFilter={board.areaFilter} onAreaFilterChange={board.onAreaFilterChange} />
+    ? <TaskList listPreferenceKey={privatePlanning ? undefined : `${viewKey}:list`} assigneeNames={assigneeNames} onOpenTask={onOpenTask} view={view} onViewChange={set} privatePlanning={privatePlanning} initialLane={privatePlanning ? 'current' : 'all'} contextControls={contextControls} trailing={board.trailing} rowMeta={rowMeta} assigneeMemberId={board.assigneeMemberId} createDefaults={board.createDefaults} areaFilter={board.areaFilter} onAreaFilterChange={board.onAreaFilterChange} />
     : <TaskKanban {...board} columnPreferenceKey={`${viewKey}:columns`} defaultColumns={privatePlanning ? undefined : KANBAN_COLUMNS} agents onOpenTask={onOpenTask} cardMeta={rowMeta} leading={<><TaskViewToggle value={view} onChange={set} />{contextControls}</>} />;
 }

@@ -7,11 +7,12 @@ import type { AddressInfo } from 'node:net';
 import { build } from 'esbuild';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { beforeAll, afterAll, beforeEach, expect, it } from 'vitest';
+import type { TaskListDTO } from '@/lib/api/dto/entity-list';
 
 let browser: Browser;
 let server: http.Server;
 let base: string;
-let tasks: { id: string; title: string; status: string; sortKey: string; bodyExcerpt: string; bodyLen: number }[];
+let tasks: ({ id: string; title: string; status: string; sortKey: string; bodyExcerpt: string; bodyLen: number } & Partial<Pick<TaskListDTO, 'assigneeMemberId' | 'areaId' | 'hardDeadline' | 'createdAt' | 'updatedAt'>>)[];
 const mutations: { procedure: string; input: Record<string, string> }[] = [];
 const errors: string[] = [];
 beforeEach(() => {
@@ -71,7 +72,7 @@ beforeAll(async () => {
       import {openBoard,openTaskBoard} from '@/lib/client/task-board';
       const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><TooltipProvider>
-        {new URLSearchParams(location.search).has('teamBoard') ? <TeamBoard fullPage/> : <><button onClick={()=>openBoard()}>Board</button><button onClick={()=>openTaskBoard()}>Tasks board</button>
+        {new URLSearchParams(location.search).has('teamBoard') ? <TeamBoard fullPage={!new URLSearchParams(location.search).has('taskList')}/> : <><button onClick={()=>openBoard()}>Board</button><button onClick={()=>openTaskBoard()}>Tasks board</button>
         <RailStatusPills/><TaskBoardModal/></>}
       </TooltipProvider></QueryClientProvider>);
     ` },
@@ -91,9 +92,16 @@ beforeAll(async () => {
       const input = JSON.parse(body || url.searchParams.get('input') || '{}');
       let data: unknown;
       if (procedure === 'transport.capabilities') data = { websocket: false };
-      else if (procedure === 'tasks.list') data = tasks.filter(t => t.status === input.status);
+      else if (procedure === 'tasks.list') {
+        data = tasks.filter(t => !input.status || (Array.isArray(input.status) ? input.status.includes(t.status) : t.status === input.status))
+          .sort((a, b) => input.orderBy === 'hardDeadline'
+            ? a.hardDeadline === b.hardDeadline ? 0 : !a.hardDeadline ? 1 : !b.hardDeadline ? -1 : a.hardDeadline.localeCompare(b.hardDeadline)
+            : a.sortKey.localeCompare(b.sortKey));
+      }
       else if (procedure === 'tasks.attention') data = { in_progress: { working: true, agentSessionId: 'work' } };
-      else if (procedure === 'areas.list' || procedure === 'team.members') data = [];
+      else if (procedure === 'areas.list') data = [{ id: 'design', name: 'Design' }, { id: 'launch', name: 'Launch' }];
+      else if (procedure === 'team.members') data = [{ id: 'maya', name: 'Maya', active: true }, { id: 'luis', name: 'Luis', active: true }];
+      else if (procedure === 'tasks.update') { mutations.push({ procedure, input }); const task = tasks.find(t => t.id === input.id)!; Object.assign(task, input.patch); data = task; }
       else if (procedure === 'tasks.counts') data = { todo: 1, in_progress: 1, done: 1 };
       else if (procedure === 'tasks.transition' || procedure === 'tasks.complete') {
         mutations.push({ procedure, input });
@@ -107,7 +115,7 @@ beforeAll(async () => {
     }
     if (url.pathname === '/fixture.js') { res.setHeader('content-type', 'text/javascript'); res.end(bundle.outputFiles[0].text);return; }
     if (url.pathname === '/fixture.css') { res.setHeader('content-type', 'text/css'); res.end(css.css);return; }
-    res.setHeader('content-type', 'text/html');res.end('<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>');
+    res.setHeader('content-type', 'text/html');res.end('<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body,#root{height:100%;margin:0}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>');
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -257,6 +265,79 @@ it('Team hosts keep Done and agent activity by default, with column choices scop
     await page.goto(base + '?board=1'); await picker(page).waitFor();
     expect(await picker(page).getAttribute('aria-label')).toBe('Columns, 3 of 5 visible');
     expect(await page.evaluate(() => localStorage.getItem('ri.tasks.board:team-a:owner:columns'))).toBe('["consider","todo","current"]');
+    expect(errors).toEqual([]);
+  } finally { await page.close(); }
+});
+
+
+it('groups Team list tasks, sorts deadlines within groups, collapses and remembers member preferences', async () => {
+  tasks.push({ id: 'second-todo', title: 'Earlier deadline', status: 'todo', sortKey: 'a5', hardDeadline: '2026-11-01', assigneeMemberId: 'maya', areaId: 'design', bodyExcerpt: '', bodyLen: 0 });
+  Object.assign(tasks.find(task => task.id === 'todo')!, { hardDeadline: '2026-11-10', assigneeMemberId: 'luis', areaId: 'launch' });
+  const page = await open('?teamBoard=1&taskList=1');
+  try {
+    await page.getByRole('button', { name: 'Group by Status', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Todo, 2 tasks', exact: true }).waitFor();
+    const rowTitles = () => page.locator('[data-index] p.line-clamp-2').allTextContents();
+    await expect.poll(rowTitles).toEqual(['in_progress task', 'Earlier deadline', 'todo task', 'consider task', 'done task', 'archived task']);
+    await page.getByRole('button', { name: 'Todo, 2 tasks', exact: true }).click();
+    await expect.poll(rowTitles).toEqual(['in_progress task', 'consider task', 'done task', 'archived task']);
+    await page.getByRole('button', { name: 'Todo, 2 tasks', exact: true }).click();
+    await page.getByRole('button', { name: 'Group by Status', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Assignee', exact: true }).click();
+    await page.getByRole('button', { name: 'Luis, 1 task', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Maya, 1 task', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Unassigned, 4 tasks', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Sort by Deadline', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: /^Priority Order/ }).click();
+    await page.reload();
+    await page.getByRole('button', { name: 'Group by Assignee', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Sort by Priority Order', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Group by Assignee', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Area', exact: true }).click();
+    await page.getByRole('button', { name: 'Design, 1 task', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'No area, 4 tasks', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Group by Area', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'No grouping', exact: true }).click();
+    expect(await page.getByRole('button', { name: /, [0-9]+ tasks$/ }).count()).toBe(0);
+    await page.goto(base + '?teamBoard=1&taskList=1&viewer=member');
+    await page.getByRole('button', { name: 'Group by Status', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Sort by Deadline', exact: true }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+  } finally { await page.close(); }
+});
+
+it('reorders within a list group, rejects cross-group drops and persists order after flattening', async () => {
+  tasks.push({ id: 'second-todo', title: 'Second todo', status: 'todo', sortKey: 'a5', bodyExcerpt: '', bodyLen: 0 });
+  const page = await open('?teamBoard=1&taskList=1');
+  const row = (title: string) => page.getByText(title, { exact: true }).locator('xpath=../..');
+  async function drag(from: string, to: string) {
+    const source = row(from); await source.hover();
+    const handle = await source.locator('button').first().boundingBox();
+    const target = (await row(to).boundingBox())!;
+    await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(target.x + 35, target.y + target.height / 2, { steps: 12 });
+    await page.mouse.up();
+  }
+  try {
+    await page.getByRole('button', { name: 'Todo, 2 tasks', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Sort by Deadline', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: /^Priority Order/ }).click();
+    await drag('Second todo', 'todo task');
+    await expect.poll(() => mutations.filter(m => m.procedure === 'tasks.update').length).toBe(1);
+    expect(mutations[0].input.id).toBe('second-todo');
+    await page.reload();
+    await expect.poll(() => page.locator('[data-index] p.line-clamp-2').allTextContents()).toEqual(['in_progress task', 'Second todo', 'todo task', 'consider task', 'done task', 'archived task']);
+    await drag('Second todo', 'in_progress task');
+    await page.waitForTimeout(150);
+    expect(mutations.filter(m => m.procedure === 'tasks.update')).toHaveLength(1);
+    expect(tasks.find(task => task.id === 'second-todo')!.status).toBe('todo');
+    await page.getByRole('button', { name: 'Group by Status', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'No grouping', exact: true }).click();
+    await drag('todo task', 'consider task');
+    await expect.poll(() => mutations.filter(m => m.procedure === 'tasks.update').length).toBe(2);
     expect(errors).toEqual([]);
   } finally { await page.close(); }
 });

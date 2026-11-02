@@ -104,6 +104,34 @@ it.skipIf(!enabled)('puts tasks on the left and expands either panel while keepi
   }
 }, 60_000);
 
+it.skipIf(!enabled)('shows status groups and real deadline order, with persisted grouping and sort choices', async () => {
+  const page = await pageFor(1440);
+  const panel = page.locator('[data-panel]#panel-a');
+  try {
+    const tasks = await client().tasks.list.query({ orderBy: 'hardDeadline' });
+    const expected = ['in_progress', 'todo', 'consider', 'done', 'archived'].flatMap(status => tasks.filter(task => task.status === status).map(task => task.title));
+    await panel.getByRole('button', { name: 'Group by Status', exact: true }).waitFor();
+    await panel.getByRole('button', { name: 'Sort by Deadline', exact: true }).waitFor();
+    await expect.poll(() => panel.locator('[data-index] p.line-clamp-2').allTextContents()).toEqual(expected);
+    await capture(page, 'team-grouped-list');
+    await panel.getByRole('button', { name: 'Group by Status', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Assignee', exact: true }).click();
+    await panel.getByRole('button', { name: /^Maya[^,]*, [0-9]+ tasks?$/ }).waitFor();
+    await capture(page, 'team-list-by-assignee');
+    await panel.getByRole('button', { name: 'Sort by Deadline', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: /^Updated/ }).click();
+    await page.reload();
+    await panel.getByRole('button', { name: 'Group by Assignee', exact: true }).waitFor();
+    await panel.getByRole('button', { name: 'Sort by Updated', exact: true }).waitFor();
+    await panel.getByRole('button', { name: 'Group by Assignee', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: 'Status', exact: true }).click();
+    await panel.getByRole('button', { name: 'Status: All', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: /^Active/ }).click();
+    expect(await panel.getByRole('button', { name: /^Done, [0-9]+ tasks?$/ }).count()).toBe(0);
+    expect(await panel.getByRole('button', { name: /^Archived, [0-9]+ tasks?$/ }).count()).toBe(0);
+  } finally { await page.close(); }
+}, 60_000);
+
 it.skipIf(!enabled || !personalRoot)('uploads and removes a company logo through a connected Team while members have read-only branding', async () => {
   const api = client();
   const original = (await api.userState.list.query({}))?.orchestratorImage ?? null;
@@ -287,6 +315,50 @@ it.skipIf(!enabled || !personalRoot)('preserves the personal dashboard and keeps
     expect(new URL(page.url()).pathname).toBe(prefix);
     await capture(page, 'connected-team-chat');
   } finally { await page.close(); }
+}, 60_000);
+
+it.skipIf(!enabled || !personalRoot)('expands personal panels, preserves drafts and tucks the control into More before tabs get cramped', async () => {
+  const personal = load(personalRoot!);
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1000 } });
+  page.setDefaultTimeout(15_000);
+  page.on('pageerror', error => errors.push(error.message));
+  const a = page.locator('[data-panel]#panel-a');
+  const b = page.locator('[data-panel]#panel-b');
+  const editor = a.locator('[contenteditable=true]').first();
+  try {
+    await page.goto(personal.ownerUrl);
+    await b.getByRole('button', { name: 'Deck', exact: true }).waitFor();
+    await b.getByRole('button', { name: 'Long run: 18 miles', exact: true }).waitFor();
+    await a.getByRole('button', { name: 'Expand chat', exact: true }).waitFor();
+    await editor.fill('A personal draft stays here');
+    await a.getByRole('button', { name: 'Expand chat', exact: true }).click();
+    expect(await b.isVisible()).toBe(false);
+    await expect.poll(async () => (await a.boundingBox())!.width).toBeGreaterThan(1500);
+    expect(await editor.innerText()).toContain('A personal draft stays here');
+    await capture(page, 'personal-expanded-chat');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await a.getByRole('button', { name: 'Restore split view', exact: true }).click();
+    await expect.poll(() => b.isVisible()).toBe(true);
+    const split = (await a.boundingBox())!.width;
+    expect(await a.getByRole('button', { name: 'Expand chat', exact: true }).count()).toBe(0);
+    for (const name of ['Chat', 'Deck', 'Tasks', 'Notes', 'More']) await a.getByRole('button', { name, exact: true }).waitFor();
+    await a.getByRole('button', { name: /^Stream\b/ }).waitFor();
+    const bar = a.getByRole('button', { name: 'Chat', exact: true }).locator('..');
+    expect(await bar.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await a.getByRole('button', { name: 'More', exact: true }).click();
+    await a.getByRole('button', { name: 'Expand panel', exact: true }).click();
+    await a.getByRole('button', { name: 'Restore split view', exact: true }).waitFor();
+    expect(await editor.innerText()).toContain('A personal draft stays here');
+    await a.getByRole('button', { name: 'Restore split view', exact: true }).click();
+    await expect.poll(async () => Math.abs((await a.boundingBox())!.width - split)).toBeLessThan(3);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    expect(await bar.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await capture(page, 'personal-panel-controls');
+  } finally {
+    if (await editor.isVisible()) await editor.fill('');
+    await page.close();
+  }
 }, 60_000);
 
 it.skipIf(!enabled)('renders without unhandled browser errors', () => { expect(errors).toEqual([]); });

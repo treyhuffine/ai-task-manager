@@ -1,6 +1,7 @@
 'use client';
 
 
+import { useMemo } from 'react';
 import { FileText, Plus, UserPlus, UserRoundCheck } from 'lucide-react';
 import { useTaskCounts } from '@/hooks/use-tasks';
 import { TaskSurface } from '@/components/tasks/task-surface';
@@ -22,6 +23,7 @@ export function TeamBoard({ fullPage = false }: { fullPage?: boolean }) {
   const context = useHomeContext();
   const nav = useTeamNav();
   const { byId } = useTeamMembers();
+  const assigneeNames = useMemo(() => new Map([...byId].map(([id, member]) => [id, member.name])), [byId]);
   const create = useTeamCreateRecord();
   const counts = useTaskCounts(null);
   const total = counts.data ? Object.values(counts.data).reduce((sum, n) => sum + (typeof n === 'number' ? n : 0), 0) : null;
@@ -40,6 +42,7 @@ export function TeamBoard({ fullPage = false }: { fullPage?: boolean }) {
         createDefaults={create.taskDefaults}
         areaFilter={nav.areaId ?? 'all'}
         onAreaFilterChange={(mode) => nav.filterArea(mode === 'all' ? null : mode)}
+        assigneeNames={assigneeNames}
         rowMeta={(task) => {
           const assignee = task.assigneeMemberId ? byId.get(task.assigneeMemberId) : null;
           return assignee ? (
