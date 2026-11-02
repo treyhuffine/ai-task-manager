@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { History, Loader2, Maximize2, MessageSquare } from 'lucide-react';
 import { apiErrorStatus } from '@/lib/api/client';
 import { ChatLookupState } from '@/components/chat/chat-lookup-state';
@@ -17,7 +17,7 @@ import {
 } from '@/components/executions/execution-chat-column';
 import type { ExecutionComposerHandle } from '@/components/executions/execution-composer';
 import { requestWorkbenchView } from '@/components/executions/workbench/view-request';
-import { WorkContext, useWorkActivity, useWorkNavigation } from '@/contexts/work-context';
+import { useWorkActivity } from '@/contexts/work-context';
 import { useContinueSession, useExecutionChats, useSession } from '@/hooks/use-execution';
 import { useMarkSessionRead, useWorkspace } from '@/hooks/use-workspaces';
 import { useOrchestratorName } from '@/hooks/use-user-state';
@@ -42,7 +42,8 @@ import { cn } from '@/lib/utils';
  * chip comes along, since it's where the work ends up.
  *
  * Put away with the × on its tab. Putting it away never closes or
- * archives the chat. Links inside it open here too, replacing it.
+ * archives the chat, but archiving it puts it away (the agent view's
+ * `leaveChat`). Links inside it open here too, replacing it.
  */
 export function AgentBesideChat({
   chatId,
@@ -64,11 +65,6 @@ export function AgentBesideChat({
   onClose: () => void;
 }) {
   const { data: session, error, fetchStatus, refetch } = useSession(chatId);
-  const navigation = useWorkNavigation();
-  const activity = useWorkActivity();
-  // Inside, leaving for Home (what archiving from the git chip does next)
-  // means this chat is done here: put it away instead.
-  const inner = useMemo(() => ({ ...navigation, goHome: onClose }), [navigation, onClose]);
 
   let body: ReactNode;
   if (!session) {
@@ -95,11 +91,9 @@ export function AgentBesideChat({
   }
 
   return (
-    <WorkContext navigation={inner} activity={activity}>
-      <section aria-label="Chat beside the agent's main chat" className="flex h-full min-h-0 min-w-0 flex-col bg-background">
-        {body}
-      </section>
-    </WorkContext>
+    <section aria-label="Chat beside the agent's main chat" className="flex h-full min-h-0 min-w-0 flex-col bg-background">
+      {body}
+    </section>
   );
 }
 

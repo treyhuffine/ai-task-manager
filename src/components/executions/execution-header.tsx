@@ -155,6 +155,8 @@ export function ExecutionHeader({
   const handleArchive = () => {
     void archive({
       id: session.id,
+      executionId: session.executionId,
+      workspaceId: session.workspaceId,
       label: displayLabel,
     });
   };
@@ -188,7 +190,7 @@ export function ExecutionHeader({
       className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-destructive hover:bg-destructive/10 transition-colors"
     >
       <Archive size={11} />
-      Archive execution
+      Archive chat
     </button>
   );
 

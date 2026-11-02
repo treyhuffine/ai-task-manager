@@ -146,6 +146,7 @@ export function SessionRow({
   const actions = !selectable && (
     <SessionRowActions
       sessionId={session.id}
+      executionId={session.executionId ?? null}
       workspaceId={session.workspaceId ?? null}
       isUnread={isUnread || isPending}
       isPinned={isPinned}

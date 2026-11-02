@@ -242,12 +242,15 @@ export function AgentSetup({ workspace }: { workspace: WorkspaceRecord }) {
     });
     if (!ok) return;
     const name = workspace.name;
-    archive.mutate(workspace.id, {
-      onSuccess: () => {
-        toast.success(`${name} archived`);
-        goHome();
-      },
-    });
+    // Home on the click, not when the request returns: by then the person
+    // may be somewhere else. A failure is a toast wherever they are. The
+    // toasts hang off the promise because leaving unmounts this view, and
+    // a mutate() callback doesn't run after its component unmounts.
+    goHome();
+    archive.mutateAsync(workspace.id).then(
+      () => toast.success(`${name} archived`),
+      (err: unknown) => toast.error(`Couldn't archive ${name}`, { description: apiErrorText(err) }),
+    );
   };
 
   return (

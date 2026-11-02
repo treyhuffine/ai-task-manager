@@ -23,16 +23,17 @@ const CHANGE_TITLE: Record<UncommittedFile['change'], string> = {
 /**
  * What to ask when an archive was refused because worktrees hold work that
  * isn't committed: the files each would lose, a way to review them first,
- * and Archive anyway. One execution reviews from the footer. Several each
- * get their own Review link above their files.
+ * and Archive anyway. It names the chats, since the person may be looking
+ * at something else by then. One reviews from the footer. Several each get
+ * their own Review link above their files.
  */
 export function archiveAnywayDialog(dirty: readonly DirtyArchive[], onReview: (id: string) => void): ConfirmOptions {
   const one = dirty.length === 1 ? dirty[0]! : null;
   return {
     title: 'Archive and delete uncommitted files?',
     description: one
-      ? `"${one.label?.trim() || 'This execution'}" has work that isn't committed. Archiving removes its worktree, and these files go with it. Everything committed stays on its branch.`
-      : `${dirty.length} of these executions have work that isn't committed. Archiving removes their worktrees, and these files go with them. Everything committed stays on each branch.`,
+      ? `${one.label?.trim() ? `"${one.label.trim()}"` : 'This chat'} has work that isn't committed. Archiving removes its worktree, and these files go with it. Everything committed stays on its branch.`
+      : `${dirty.length} of these chats have work that isn't committed. Archiving removes their worktrees, and these files go with them. Everything committed stays on each branch.`,
     content: one ? (
       <UncommittedFileList files={one.files} omitted={one.omitted} className="max-h-64" />
     ) : (

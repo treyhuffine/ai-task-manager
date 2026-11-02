@@ -392,11 +392,13 @@ Archive happens on the click, with no "are you sure". It's undone from History, 
 
 For non-git workspaces, archive is just the DB update; nothing on disk to clean.
 
-After a successful archive, a viewer on that execution returns to its agent's screen, including when viewing a sibling chat or archiving from the rail. Archiving a different execution leaves the current screen in place. A refused, cancelled or failed archive keeps the execution open. If the execution has no agent, the viewer returns to Home.
+A viewer on the execution being archived leaves it on the click, before the request starts (`useLeaveArchivedChat`): for its agent's screen, or Home if it has no agent. That includes viewing a sibling chat, and archiving from the rail or from a bulk selection. A chat open beside an agent's main chat is put away instead, staying on that agent (the agent view's `leaveChat`). Nothing navigates when the request returns. Removing a worktree can take a while, and by then the viewer may be somewhere else. So the uncommitted-files dialog and any error toast show wherever they are, naming the chat. Review changes reopens it on its Changes. Cancel, or a failure, leaves the viewer where they are, and the chat comes back in the rail. Archive anyway doesn't move them. Archiving a different execution leaves the current screen in place.
 
 ### Workspace deletion / archive
 
 Archiving a workspace doesn't archive its sessions automatically. Sessions stay queryable by id; the workspace row sets `status='archived'`, `archived_at`. Active worktrees are not pruned (user might still want to look at them).
+
+In the app, Archive agent (in its setup) goes Home on the confirming click, not when the request returns, and a failure is a toast naming the agent.
 
 Hard delete is not exposed in v1. If we need it later, add a confirm flow that walks every session and runs the worktree-archive flow above.
 

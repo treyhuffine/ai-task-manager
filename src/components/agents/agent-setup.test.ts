@@ -11,22 +11,26 @@ const fixtures = vi.hoisted(() => ({
   workspace: {} as WorkspaceRecord,
   write: vi.fn<(input: UpdateWorkspaceInput, callbacks: SaveCallbacks) => void>(),
   success: vi.fn(),
+  error: vi.fn(),
+  goHome: vi.fn(),
+  confirm: vi.fn<() => Promise<boolean>>(),
+  archive: vi.fn<(id: string) => Promise<unknown>>(),
   scope: { canConfigure: true, personalTools: true, executionChoices: [] },
 }));
 
 vi.mock('@/hooks/use-workspaces', () => ({
   useUpdateWorkspace: () => ({ mutate: fixtures.write, isPending: false }),
-  useArchiveWorkspace: () => ({ mutate: vi.fn() }),
+  useArchiveWorkspace: () => ({ mutateAsync: fixtures.archive }),
 }));
 vi.mock('@/components/workspaces/agent-placement-controls', () => ({ useAgentConfigurationScope: () => fixtures.scope, AgentPinnedFolder: () => createElement('p', null, 'Pinned approved worker') }));
-vi.mock('@/contexts/work-context', () => ({ useWorkNavigation: () => ({ goHome: vi.fn() }) }));
+vi.mock('@/contexts/work-context', () => ({ useWorkNavigation: () => ({ goHome: fixtures.goHome }) }));
 vi.mock('@/hooks/use-areas', () => ({ useAreas: () => ({ data: [] }) }));
 vi.mock('@/hooks/use-devices', () => ({ useDevices: () => ({ data: [] }) }));
 vi.mock('@/hooks/use-results', () => ({ useResultCapabilities: () => ({ data: { aiReviewEnabled: true } }) }));
 vi.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: null }) }));
 vi.mock('@/lib/trpc/client', () => ({ trpc: { gh: { statusGet: { queryKey: () => ['test-gh-status'] } } }, trpcClient: { gh: { statusGet: { query: vi.fn() } } } }));
 vi.mock('@/lib/attachments/client', () => ({ uploadAttachment: vi.fn() }));
-vi.mock('@/components/ui/confirm-dialog', () => ({ useConfirm: () => vi.fn() }));
+vi.mock('@/components/ui/confirm-dialog', () => ({ useConfirm: () => fixtures.confirm }));
 vi.mock('@/components/ui/switch', () => ({ Switch: () => null }));
 vi.mock('@/components/shared/emoji-picker', () => ({ EmojiPicker: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@/components/chat-ui/handoffs/reviewer-selection', () => ({ ReviewerSelection: () => null }));
@@ -35,7 +39,7 @@ vi.mock('./agent-folders', () => ({ AgentFoldersSection: () => null }));
 vi.mock('./agent-skills-section', () => ({ AgentSkillsSection: () => null }));
 vi.mock('@/components/workspaces/worktree-scripts-section', () => ({ WorktreeScriptsSection: () => null }));
 vi.mock('@/components/workspaces/files-to-copy-section', () => ({ FilesToCopySection: () => null }));
-vi.mock('sonner', () => ({ toast: { success: fixtures.success, error: vi.fn() } }));
+vi.mock('sonner', () => ({ toast: { success: fixtures.success, error: fixtures.error } }));
 
 let root: Root | undefined;
 let container: HTMLElement;
@@ -67,6 +71,10 @@ beforeEach(async () => {
   fixtures.scope = { canConfigure: true, personalTools: true, executionChoices: [] };
   fixtures.write.mockReset();
   fixtures.success.mockReset();
+  fixtures.error.mockReset();
+  fixtures.goHome.mockReset();
+  fixtures.confirm.mockReset().mockResolvedValue(true);
+  fixtures.archive.mockReset();
   container = document.createElement('div');
   root = createRoot(container);
   await render();
@@ -230,5 +238,48 @@ describe('Agent handoff and review preferences', () => {
     expect(saveButton()?.disabled).toBe(true);
     await save();
     expect(fixtures.write).not.toHaveBeenCalled();
+  });
+});
+
+describe('Archive agent', () => {
+  /** A request that resolves only when the test says so. */
+  function heldArchive() {
+    let finish!: () => void;
+    let fail!: (err: Error) => void;
+    fixtures.archive.mockReturnValueOnce(new Promise((resolve, reject) => { finish = () => resolve({}); fail = reject; }));
+    return { finish, fail };
+  }
+  const archiveButton = () => [...container.querySelectorAll('button')].find(b => b.textContent?.includes('Archive agent'))!;
+  const clickArchive = () => act(async () => { archiveButton().dispatchEvent(new window.Event('click', { bubbles: true })); });
+
+  it('goes Home on the confirming click, before the request returns, and only toasts when it does', async () => {
+    const request = heldArchive();
+    await clickArchive();
+    expect(fixtures.archive).toHaveBeenCalledExactlyOnceWith('test-agent');
+    expect(fixtures.goHome).toHaveBeenCalledOnce();
+    expect(fixtures.goHome.mock.invocationCallOrder[0]).toBeLessThan(fixtures.archive.mock.invocationCallOrder[0]!);
+    expect(fixtures.success).not.toHaveBeenCalled();
+    // Leaving unmounts the view. The toast still comes.
+    await act(async () => root!.unmount());
+    root = undefined;
+    await act(async () => request.finish());
+    expect(fixtures.success).toHaveBeenCalledExactlyOnceWith('Test agent archived');
+    expect(fixtures.goHome).toHaveBeenCalledOnce();
+  });
+
+  it('a failed archive is a toast naming the agent, wherever the person is', async () => {
+    const request = heldArchive();
+    await clickArchive();
+    await act(async () => request.fail(new Error('Offline')));
+    expect(fixtures.error).toHaveBeenCalledExactlyOnceWith("Couldn't archive Test agent", { description: 'Offline' });
+    expect(fixtures.success).not.toHaveBeenCalled();
+    expect(fixtures.goHome).toHaveBeenCalledOnce();
+  });
+
+  it('stays put when the confirm is cancelled', async () => {
+    fixtures.confirm.mockResolvedValue(false);
+    await clickArchive();
+    expect(fixtures.archive).not.toHaveBeenCalled();
+    expect(fixtures.goHome).not.toHaveBeenCalled();
   });
 });

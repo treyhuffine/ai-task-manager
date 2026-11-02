@@ -269,8 +269,12 @@ export function AgentView({
         if (id !== workspaceId || chatId) return navigation.openAgent(id, nextTab, chatId);
         if (nextTab) selectTab(nextTab);
       },
+      // The only chat on screen here is the one beside (`routedActivity`).
+      // Archiving it puts it away and stays on this agent, whichever agent
+      // the chat is in.
+      leaveChat: closeBeside,
     };
-  }, [navigation, onNavigate, mainChatId, place, narrow, openBeside, workspaceId, selectTab]);
+  }, [navigation, onNavigate, mainChatId, place, narrow, openBeside, workspaceId, selectTab, closeBeside]);
   // Overview marks the row of the chat beside, as the rail marks an open one.
   const routedActivity = useMemo(
     () => (besideId ? { ...activity, activeSessionId: besideId } : activity),

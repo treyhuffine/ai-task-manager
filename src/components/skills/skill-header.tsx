@@ -57,14 +57,19 @@ export function SkillHeader({
       tone: 'destructive',
     });
     if (!ok) return;
+    // Its edits are saved first, and a save that fails keeps the person on
+    // them. Then it leaves before the archive request, not when it returns:
+    // by then the person may be somewhere else. A failure is a toast
+    // wherever they are. The toasts hang off the promise because leaving
+    // unmounts this header, and a mutate() callback doesn't run after its
+    // component unmounts.
     try { await documentSaves.flushAll(); } catch (error) { toast.error(apiErrorText(error)); return; }
-    archive.mutate(skill.ref, {
-      onSuccess: () => {
-        toast.success(`${skill.name} archived`);
-        goHome();
-      },
-      onError: (err) => toast.error(apiErrorText(err)),
-    });
+    const name = skill.name;
+    goHome();
+    archive.mutateAsync(skill.ref).then(
+      () => toast.success(`${name} archived`),
+      (err: unknown) => toast.error(`Couldn't archive ${name}`, { description: apiErrorText(err) }),
+    );
   };
 
   return (

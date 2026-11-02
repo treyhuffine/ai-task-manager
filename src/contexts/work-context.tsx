@@ -13,6 +13,12 @@ export interface WorkNavigation {
   openNote: (id: string) => void;
   goHome: () => void;
   openCurrentChat?: (workspaceId: string | null) => void;
+  /**
+   * Leave the chat on screen because it's being archived. Without this, the
+   * chat's agent, or Home for a chat without one. A view that shows the chat
+   * inside itself (beside an agent's main chat) puts it away instead.
+   */
+  leaveChat?: (workspaceId: string | null) => void;
 }
 /** Viewer state for shared agent/chat surfaces. This grants no server authority. */
 export interface WorkActivity {

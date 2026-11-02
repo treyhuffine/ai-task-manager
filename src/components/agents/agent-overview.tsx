@@ -240,6 +240,7 @@ function ExecutionRow({ session, state, inactive = false }: { session: RailSessi
         </span>
         <SessionRowMenu
           sessionId={session.id}
+          executionId={session.executionId ?? null}
           workspaceId={session.workspaceId ?? null}
           isUnread={state === 'unread'}
           isPinned={isPinned}

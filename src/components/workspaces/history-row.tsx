@@ -140,6 +140,7 @@ export function HistoryRow({
         {/* Beside the title line, pulled up so it doesn't push the row taller. */}
         <SessionRowActions
           sessionId={session.id}
+          executionId={session.executionId ?? null}
           workspaceId={session.workspaceId ?? null}
           isUnread={status.isUnread || status.isPending}
           isPinned={isArchived ? undefined : isPinned}
