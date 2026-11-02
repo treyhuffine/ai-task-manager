@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Layers, ChevronDown, Users, SquareTerminal,
+  Layers, ChevronDown, Users, SquareTerminal, Maximize2, Minimize2,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -13,6 +13,7 @@ import { StreamList } from '@/components/stream/stream-list';
 import { DeckContainer } from '@/components/deck/deck-container';
 import { useNeedsYourCall } from '@/hooks/use-stream';
 import { PersonalMainChatContent } from '@/components/chat/main-chat-content';
+import { Tip } from '@/components/ui/tip';
 import { TeamOrchestratorChat } from '@/components/team/team-orchestrator-chat';
 import { TeamBoard } from '@/components/team/team-board';
 import { TeamNotes } from '@/components/team/team-notes';
@@ -88,6 +89,7 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
     setPanelTab, setFocusedPanel, theme,
     openAreasList, openTask, openNote,
     filesInFront, setFileInFront,
+    expandedPanel, setExpandedPanel,
   } = useDashboard();
   const isDark = theme === 'dark';
   const team = home.home.kind === 'team';
@@ -178,6 +180,15 @@ export function ContentPanel({ panelId, mobileTab, besideOf }: ContentPanelProps
           )}
 
           <div className="flex-1" />
+
+          {team && <Tip label={expandedPanel === panelId ? 'Show both panels' : 'Use the full content width'}>
+            <button type="button" aria-label={expandedPanel === panelId ? 'Restore split view' : `Expand ${activeTab}`} aria-pressed={expandedPanel === panelId}
+              onClick={() => setExpandedPanel(expandedPanel === panelId ? null : panelId)}
+              className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground">
+              {expandedPanel === panelId ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              <span>{expandedPanel === panelId ? 'Restore' : 'Expand'}</span>
+            </button>
+          </Tip>}
 
           {/* More button */}
           <div className="relative" ref={moreRef}>

@@ -51,7 +51,8 @@ it.skipIf(!enabled)('uses the normal rail, direct main chat, Recent and full Boa
     await page.getByRole('button', { name: 'Close chat', exact: true }).waitFor();
     expect(new URL(page.url()).searchParams.get('session')).toBeTruthy();
     await page.getByRole('button', { name: 'Close chat', exact: true }).click();
-    await rail.getByRole('button', { name: 'Board', exact: true }).click();
+    expect(await rail.getByRole('button', { name: 'Board', exact: true }).count()).toBe(0);
+    await page.getByRole('button', { name: 'Board', exact: true }).click();
     await page.getByRole('button', { name: 'Close Board', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Tasks', exact: true }).last().click();
     await page.getByText('Review the onboarding prototype', { exact: true }).last().waitFor();
@@ -63,6 +64,77 @@ it.skipIf(!enabled)('uses the normal rail, direct main chat, Recent and full Boa
     expect(new URL(page.url()).searchParams.get('view')).toBe('chat');
     await page.getByText('What should we focus on for the release?', { exact: true }).waitFor();
   } finally { await page.close(); }
+}, 60_000);
+
+it.skipIf(!enabled)('puts tasks on the left and expands either panel while keeping the divider and unsent chat draft', async () => {
+  const page = await pageFor(1440);
+  const a = page.locator('[data-panel]#panel-a');
+  const b = page.locator('[data-panel]#panel-b');
+  const editor = b.locator('[contenteditable=true]').first();
+  try {
+    await a.getByText('Review the onboarding prototype', { exact: true }).waitFor();
+    await b.getByText('What should we focus on for the release?', { exact: true }).waitFor();
+    expect((await a.boundingBox())!.x).toBeLessThan((await b.boundingBox())!.x);
+    const separator = page.locator('[data-separator]').first();
+    const box = (await separator.boundingBox())!;
+    const initial = (await a.boundingBox())!.width;
+    await page.mouse.move(box.x + box.width / 2, box.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(box.x - 80, box.y + 200, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(async () => (await a.boundingBox())!.width).toBeLessThan(initial - 40);
+    const split = (await b.boundingBox())!.width;
+    await editor.fill('An unsent team review draft');
+    await b.getByRole('button', { name: 'Expand chat', exact: true }).click();
+    await expect.poll(async () => (await b.boundingBox())!.width).toBeGreaterThan(1100);
+    expect(await a.isVisible()).toBe(false);
+    expect(await editor.innerText()).toContain('An unsent team review draft');
+    await capture(page, 'team-expanded-chat');
+    await b.getByRole('button', { name: 'Restore split view', exact: true }).click();
+    await expect.poll(async () => Math.abs((await b.boundingBox())!.width - split)).toBeLessThan(3);
+    await a.getByRole('button', { name: 'Expand tasks', exact: true }).click();
+    await expect.poll(async () => (await a.boundingBox())!.width).toBeGreaterThan(1100);
+    expect(await b.isVisible()).toBe(false);
+    await a.getByRole('button', { name: 'Restore split view', exact: true }).click();
+    expect(await editor.innerText()).toContain('An unsent team review draft');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  } finally {
+    if (await editor.isVisible()) await editor.fill('');
+    await page.close();
+  }
+}, 60_000);
+
+it.skipIf(!enabled || !personalRoot)('uploads and removes a company logo through a connected Team while members have read-only branding', async () => {
+  const api = client();
+  const original = (await api.userState.list.query({}))?.orchestratorImage ?? null;
+  const personal = load(personalRoot!);
+  const owner = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  owner.setDefaultTimeout(20_000);
+  owner.on('pageerror', error => errors.push(error.message));
+  let member: Page | undefined;
+  try {
+    await owner.goto(personal.ownerUrl);
+    await owner.goto(`${personal.spaceUrl}?panel=settings&settings=general`);
+    await owner.getByLabel('Team logo file', { exact: true }).setInputFiles({ name: 'Company logo.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="48"><rect width="96" height="48" fill="#167451"/><text x="8" y="34" font-size="30" fill="white">FN</text></svg>') });
+    await expect.poll(async () => (await api.userState.list.query({}))?.orchestratorImage?.fileName).not.toBe(original?.fileName);
+    const logo = owner.locator('aside button[aria-label="Field Notes, home"] img');
+    await logo.waitFor({ state: 'attached' });
+    await expect.poll(() => logo.evaluate(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0)).toBe(true);
+    expect(await logo.getAttribute('src')).toMatch(/\/api\/space\/[^/]+\/attachments\//);
+    await owner.getByRole('button', { name: 'Change logo', exact: true }).waitFor();
+    await capture(owner, 'team-logo-settings');
+    member = await pageFor(1280, true);
+    await member.goto(`${new URL(preview.ownerUrl).origin}/?panel=settings&settings=general`);
+    await member.getByText('Team logo', { exact: true }).waitFor();
+    expect(await member.getByRole('button', { name: /Upload logo|Change logo|Remove logo/ }).count()).toBe(0);
+    expect(await member.locator('aside button[aria-label="Field Notes, home"] img').getAttribute('src')).toContain('/api/attachments/');
+    await owner.getByRole('button', { name: 'Remove logo', exact: true }).click();
+    await expect.poll(async () => (await api.userState.list.query({}))?.orchestratorImage).toBeNull();
+    await owner.getByRole('button', { name: 'Upload logo', exact: true }).waitFor();
+  } finally {
+    await member?.close(); await owner.close();
+    await api.team.setLogo.mutate({ image: original });
+  }
 }, 60_000);
 
 it.skipIf(!enabled)('shares the full resizable task editor, nested navigation, autosave, assignment and full document expansion', async () => {

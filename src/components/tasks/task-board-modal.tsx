@@ -103,7 +103,7 @@ export function TaskBoardModal() {
             </Tip>
           </div>
           {view === 'activity' ? <AgentActivityBoard focusBucket={focusBucket} /> : <div className="min-h-0 flex-1">
-            {team ? <TeamBoard /> : <TaskKanban leading={<span className="text-xs text-muted-foreground">Tasks by lifecycle</span>}
+            {team ? <TeamBoard fullPage /> : <TaskKanban leading={<span className="text-xs text-muted-foreground">Tasks by lifecycle</span>}
               onOpenAgent={(sessionId) => { closeTaskBoard(); openExecution(sessionId); }} />}
           </div>}
         </DialogPrimitive.Content>

@@ -12,6 +12,6 @@ it.each([
 ])('preserves Team bookmarks %s', (search, expected) => expect(teamDashboardView(new URLSearchParams(search))).toEqual(expected));
 it('retains personal parsing and default composition', () => {
   expect(viewFromSearchParams(new URLSearchParams('chat=legacy'))).toEqual({ kind: 'home' });
-  expect(teamHomePanels(new URLSearchParams())).toEqual({ a: 'chat', b: 'tasks' });
-  expect(teamHomePanels(new URLSearchParams('view=notes'))).toEqual({ a: 'chat', b: 'notes' });
+  expect(teamHomePanels(new URLSearchParams())).toEqual({ a: 'tasks', b: 'chat' });
+  expect(teamHomePanels(new URLSearchParams('view=notes'))).toEqual({ a: 'notes', b: 'chat' });
 });

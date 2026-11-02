@@ -65,6 +65,7 @@ interface DashboardState {
   activeExecutionId: string | null;
   panelATab: AnyPanelTab;
   panelBTab: AnyPanelTab;
+  expandedPanel: PanelId | null;
   /** Which Home panels show the file opened from the other one's chat in front of their own tab. */
   filesInFront: Readonly<Record<PanelId, boolean>>;
   focusedPanel: PanelId;
@@ -132,6 +133,7 @@ interface DashboardActions {
   goHome: () => void;
   setActiveExecutionId: (id: string | null) => void;
   setPanelTab: (panel: PanelId, tab: AnyPanelTab) => void;
+  setExpandedPanel: (panel: PanelId | null) => void;
   /** Bring a home tab on screen without covering the chat. A tab already showing only comes forward over a file. */
   showPanelTab: (tab: AnyPanelTab) => void;
   /** Bring the file beside the chat forward in `panel`, or put it behind the panel's own tab. */
@@ -256,9 +258,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [activeExecutionId, setActiveExecutionId] = useState<string | null>(null);
   const [panelATab, setPanelATab] = useState<AnyPanelTab>(() => team ? teamHomePanels(searchParams).a : DEFAULT_PANEL_A_TAB);
   const [panelBTab, setPanelBTab] = useState<AnyPanelTab>(() => team ? teamHomePanels(searchParams).b : DEFAULT_PANEL_B_TAB);
+  const [expandedPanel, setExpandedPanel] = useState<PanelId | null>(null);
   const [filesInFront, setFilesInFront] = useState<Readonly<Record<PanelId, boolean>>>(NO_FILES_IN_FRONT);
   const setFileInFront = useCallback((panel: PanelId, inFront: boolean) => {
     setFilesInFront(current => (current[panel] === inFront ? current : { ...current, [panel]: inFront }));
+    if (inFront) setExpandedPanel(null);
   }, []);
   const [focusedPanel, setFocusedPanel] = useState<PanelId>('a');
   const panelLayoutResetRef = useRef<(() => void) | null>(null);
@@ -291,9 +295,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     if (teamDestination === null) return;
     const tab = teamDestination === 'notes' ? 'notes' : teamDestination === 'chat' ? 'chat' : teamDestination === 'agents' ? 'agents' : 'tasks';
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Legacy Team destinations and browser history restore the shared panel and phone tab.
-    setPanelATab('chat');
-    setPanelBTab(teamDestination === 'notes' ? 'notes' : 'tasks');
+    setPanelATab(teamDestination === 'notes' ? 'notes' : 'tasks');
+    setPanelBTab('chat');
     setMobileTab(tab);
+    setExpandedPanel(null);
   }, [teamDestination]);
   const [mobileCreateOpen, setMobileCreateOpen] = useState(false);
   // ─── Quick capture ────────────────────────────────────────
@@ -500,6 +505,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // Bring a tab on screen without covering the chat (see panelForTab). A
   // tab already showing under a file comes forward.
   const showPanelTab = useCallback((tab: AnyPanelTab) => {
+    setExpandedPanel(null);
     const panel = panelForTab({ a: panelATab, b: panelBTab }, tab) ?? (panelATab === tab ? 'a' : 'b');
     if (panel === 'a') setPanelATab(tab);
     else setPanelBTab(tab);
@@ -515,8 +521,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, [panelATab, panelBTab, setFileInFront, team]);
 
   const resetLayout = useCallback(() => {
-    setPanelATab(team ? 'chat' : DEFAULT_PANEL_A_TAB);
-    setPanelBTab(team ? 'tasks' : DEFAULT_PANEL_B_TAB);
+    setPanelATab(team ? 'tasks' : DEFAULT_PANEL_A_TAB);
+    setPanelBTab(team ? 'chat' : DEFAULT_PANEL_B_TAB);
+    setExpandedPanel(null);
     setFilesInFront(NO_FILES_IN_FRONT);
     panelLayoutResetRef.current?.();
     setFocusedPanel('a');
@@ -605,6 +612,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       activeExecutionId,
       panelATab,
       panelBTab,
+      expandedPanel,
+      setExpandedPanel,
       filesInFront,
       focusedPanel,
       isFocusMode,

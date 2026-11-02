@@ -14,9 +14,8 @@ import { SessionHoverProvider } from './session-hover-context';
 import { SessionHoverPreview } from './session-hover-preview';
 import { WorkspaceSelectionProvider } from './workspace-selection-context';
 import { useOptionalHomeContext } from '@/components/home/home-context';
-import { openTaskBoard, useTaskBoardOpen } from '@/lib/client/task-board';
 import { useTeamNav } from '@/components/team/team-context';
-import { FileText, ListTodo, Search, SquareKanban } from 'lucide-react';
+import { FileText, ListTodo, Search } from 'lucide-react';
 import { AppsReviewRailSlot } from '@/components/local-apps/layout-review/rail-portal';
 
 /**
@@ -52,10 +51,8 @@ function PersonalApplicationRail({ expanded, onToggle }: { expanded: boolean; on
 
 function TeamApplicationRail({ expanded, onToggle }: { expanded: boolean; onToggle?: () => void }) {
   const nav = useTeamNav();
-  const boardOpen = useTaskBoardOpen();
   const places: RailPlace[] = [
     { id: 'tasks', label: 'Tasks', title: 'Tasks', icon: ListTodo, active: nav.view === 'board', onClick: () => nav.show('board') },
-    { id: 'board', label: 'Board', title: 'Board', icon: SquareKanban, active: boardOpen, onClick: openTaskBoard },
     { id: 'notes', label: 'Notes', title: 'Notes', icon: FileText, active: nav.view === 'notes', onClick: () => nav.show('notes') },
     { id: 'search-team', label: 'Search', title: 'Search shared work', icon: Search, active: nav.panel === 'search', onClick: () => nav.openPanel('search') },
   ];

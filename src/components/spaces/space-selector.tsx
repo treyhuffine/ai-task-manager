@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { teamConnectionsKey } from '@/lib/spaces/client-cache';
 import { useOptionalHomeContext } from '@/components/home/home-context';
 import { restoredHomeNavigation } from '@/lib/home/navigation';
+import { useOrchestratorIdentity } from '@/hooks/use-user-state';
 
 /**
  * The compact space selector (docs/homes-spec.md §3.2, P7.1): My Ri and the
@@ -66,7 +67,11 @@ function createTeam() {
   else openTeamsSettings();
 }
 
-function Mark({ name, size = 18 }: { name: string | null; size?: number }) {
+function Mark({ name, imageUrl, size = 18 }: { name: string | null; imageUrl?: string | null; size?: number }) {
+  if (imageUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={imageUrl} alt="" aria-hidden className="shrink-0 rounded-md object-contain" style={{ width: size, height: size }} />;
+  }
   if (!name) {
     return (
       <span aria-hidden className="inline-flex flex-shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground" style={{ width: size, height: size }}>
@@ -87,6 +92,8 @@ function Mark({ name, size = 18 }: { name: string | null; size?: number }) {
 
 export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | 'collapsed' | 'phone'; onOpenSettings?: () => void }) {
   const home = useOptionalHomeContext();
+  const identity = useOrchestratorIdentity();
+  const currentLogo = home?.home.kind === 'team' ? identity.imageUrl : null;
   const here = currentSpaceId();
   const standalone = home?.home.kind === 'team' && !here ? home.home : null;
   const connected = useConnectedTeams(!standalone);
@@ -103,7 +110,7 @@ export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | '
           aria-label={`Space: ${label}. Switch space`}
           className="rounded-md p-1 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
-          <Mark name={currentName} />
+          <Mark name={currentName} imageUrl={currentLogo} />
         </button>
       </Tip>
     ) : (
@@ -115,7 +122,7 @@ export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | '
           variant === 'wide' ? 'w-full border border-border/60 px-2 py-1.5' : 'max-w-[11rem] px-1.5 py-1',
         )}
       >
-        <Mark name={currentName} />
+        <Mark name={currentName} imageUrl={currentLogo} />
         <span className="min-w-0 flex-1 truncate text-left">{label}</span>
         <ChevronsUpDown size={12} className="flex-shrink-0 text-muted-foreground" />
       </button>
@@ -126,7 +133,7 @@ export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | '
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       <DropdownMenuContent align="start" side={variant === 'phone' ? 'bottom' : 'top'} className="w-56">
         {standalone ? <DropdownMenuItem className="gap-2 text-[13px]">
-          <Mark name={standalone.name} />
+          <Mark name={standalone.name} imageUrl={currentLogo} />
           <span className="min-w-0 flex-1 truncate">{standalone.name}</span>
           <Check size={14} />
         </DropdownMenuItem> : <DropdownMenuItem onSelect={() => openSpace(null)} className="gap-2 text-[13px]">
@@ -136,7 +143,7 @@ export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | '
         </DropdownMenuItem>}
         {teams.map((team) => (
           <DropdownMenuItem key={team.id} onSelect={() => openSpace(team.id)} className="gap-2 text-[13px]">
-            <Mark name={teamDisplayName(team.id, connected.data)} />
+            <Mark name={teamDisplayName(team.id, connected.data)} imageUrl={here === team.id ? currentLogo : null} />
             <span className="min-w-0 flex-1 truncate">{teamDisplayName(team.id, connected.data)}</span>
             {here === team.id && <Check size={14} />}
           </DropdownMenuItem>

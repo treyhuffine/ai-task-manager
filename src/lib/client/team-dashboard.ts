@@ -14,5 +14,5 @@ export function teamDashboardView(params: Pick<URLSearchParams, 'get' | 'toStrin
   return HOME_VIEW;
 }
 export function teamHomePanels(params: Pick<URLSearchParams, 'get'>): Record<PanelId, AnyPanelTab> {
-  return params.get('view') === 'notes' ? { a: 'chat', b: 'notes' } : { a: 'chat', b: 'tasks' };
+  return params.get('view') === 'notes' ? { a: 'notes', b: 'chat' } : { a: 'tasks', b: 'chat' };
 }

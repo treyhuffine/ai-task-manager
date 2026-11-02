@@ -7,6 +7,7 @@ import { writeTeamIntent } from '@/lib/home/team-intent';
 import { ensureHomeIdentity } from '@/lib/home/identity';
 import { ensureLocalToken } from '@/lib/auth/bootstrap';
 import { flushMirror } from '@/lib/export/mirror';
+import { saveAttachment } from '@/lib/attachments/save';
 import * as q from '@/lib/db/queries';
 
 async function main() {
@@ -22,6 +23,8 @@ async function main() {
   const invitation = q.createTeamGrant({ kind: 'invite', role: 'member', createdByMemberId: owner.member.id });
   const member = q.redeemTeamInvite({ secret: invitation.secret, name: 'Luis Arroyo', device: { kind: 'computer', name: 'Member browser' } });
   q.updateUserState({ onboardedAt: new Date().toISOString(), name: 'Field Notes', defaultHarness: 'codex', defaultModel: 'gpt-6.1-sol' });
+  const logo = await saveAttachment({ originalName: 'Field Notes.svg', mimeType: 'image/svg+xml', data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="22" fill="#167451"/><path d="M26 28h23M26 28v40m0-20h18m13 20V28l18 40V28" fill="none" stroke="#f3f6e7" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>') });
+  q.updateUserState({ orchestratorImage: logo });
   const launch = q.createArea({ name: 'Launch', emoji: '🚀' });
   const research = q.createArea({ name: 'Research', emoji: '🔎' });
   const tasks = [

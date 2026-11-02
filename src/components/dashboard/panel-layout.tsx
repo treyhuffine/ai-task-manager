@@ -45,7 +45,7 @@ const NOOP_STORAGE: LayoutStorage = {
 };
 
 export function PanelLayout() {
-  const { registerPanelLayoutReset, resetLayout } = useDashboard();
+  const { registerPanelLayoutReset, resetLayout, expandedPanel } = useDashboard();
   const groupRef = useGroupRef();
   // Lazy init so SSR sees the noop shim; client picks up real localStorage
   // on mount. Accepts the documented slight layout shift for server-rendered
@@ -66,13 +66,15 @@ export function PanelLayout() {
   }, [registerPanelLayoutReset, groupRef]);
 
   return (
-    <div className="flex-1 flex min-h-0 overflow-hidden relative">
+    <div className="flex-1 flex min-h-0 overflow-hidden relative" data-expanded-panel={expandedPanel ?? undefined}>
       <ResizablePanelGroup
+        // Panel className styles its inner scroller. Hide the sizing wrapper
+        // here so its sibling fills the group and both contents stay mounted.
         orientation="horizontal"
         groupRef={groupRef}
         defaultLayout={defaultLayout ?? DEFAULT_LAYOUT}
-        onLayoutChanged={onLayoutChanged}
-        className="flex-1"
+        onLayoutChanged={(layout) => { if (!expandedPanel) onLayoutChanged(layout); }}
+        className={cn('flex-1', expandedPanel === 'a' && '[&>#panel-b]:hidden!', expandedPanel === 'b' && '[&>#panel-a]:hidden!')}
       >
         <ResizablePanel
           id={PANEL_A}
@@ -86,7 +88,7 @@ export function PanelLayout() {
 
         <ResizableHandle
           className={cn(
-            'w-[3px] bg-border hover:bg-primary/50 transition-colors',
+            'w-[3px] bg-border hover:bg-primary/50 transition-colors', expandedPanel && 'hidden',
             // Wider hit target via the ::after pseudo, without making the visible bar wider.
             'after:absolute after:inset-y-0 after:-left-1.5 after:-right-1.5 after:w-auto after:translate-x-0',
           )}
@@ -104,7 +106,7 @@ export function PanelLayout() {
       </ResizablePanelGroup>
 
       {/* Reset layout — context.resetLayout snaps tabs + focus + panel split */}
-      <Tip label="Reset layout to default">
+      {!expandedPanel && <Tip label="Reset layout to default">
         <button
           onClick={resetLayout}
           aria-label="Reset layout to default"
@@ -117,7 +119,7 @@ export function PanelLayout() {
         >
           <RotateCcw size={12} />
         </button>
-      </Tip>
+      </Tip>}
     </div>
   );
 }

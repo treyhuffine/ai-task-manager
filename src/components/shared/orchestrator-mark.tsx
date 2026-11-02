@@ -49,6 +49,7 @@ export function OrchestratorMark({
   name,
   emoji = null,
   imageUrl = null,
+  imageFit = 'cover',
   color = null,
   size = 'sm',
   className,
@@ -56,6 +57,7 @@ export function OrchestratorMark({
   name: string;
   emoji?: string | null;
   imageUrl?: string | null;
+  imageFit?: 'cover' | 'contain';
   color?: string | null;
   size?: OrchestratorMarkSize;
   className?: string;
@@ -64,7 +66,7 @@ export function OrchestratorMark({
   if (imageUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={imageUrl} alt="" aria-hidden className={cn('flex-shrink-0 object-cover', dims.box, className)} />
+      <img src={imageUrl} alt="" aria-hidden className={cn('flex-shrink-0', imageFit === 'contain' ? 'object-contain' : 'object-cover', dims.box, className)} />
     );
   }
   const colored = color ? { backgroundColor: color, color: textColorOn(color) } : undefined;

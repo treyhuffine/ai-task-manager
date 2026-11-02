@@ -71,7 +71,7 @@ beforeAll(async () => {
       import {openBoard,openTaskBoard} from '@/lib/client/task-board';
       const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});
       createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><TooltipProvider>
-        {new URLSearchParams(location.search).has('teamBoard') ? <TeamBoard/> : <><button onClick={()=>openBoard()}>Board</button><button onClick={()=>openTaskBoard()}>Tasks board</button>
+        {new URLSearchParams(location.search).has('teamBoard') ? <TeamBoard fullPage/> : <><button onClick={()=>openBoard()}>Board</button><button onClick={()=>openTaskBoard()}>Tasks board</button>
         <RailStatusPills/><TaskBoardModal/></>}
       </TooltipProvider></QueryClientProvider>);
     ` },
@@ -256,7 +256,7 @@ it('Team hosts keep Done and agent activity by default, with column choices scop
     expect(await page.getByText('done task', { exact: true }).count()).toBe(0);
     await page.goto(base + '?board=1'); await picker(page).waitFor();
     expect(await picker(page).getAttribute('aria-label')).toBe('Columns, 3 of 5 visible');
-    expect(await page.evaluate(() => localStorage.getItem('ri.tasks.view:team-a:owner:columns'))).toBe('["consider","todo","current"]');
+    expect(await page.evaluate(() => localStorage.getItem('ri.tasks.board:team-a:owner:columns'))).toBe('["consider","todo","current"]');
     expect(errors).toEqual([]);
   } finally { await page.close(); }
 });

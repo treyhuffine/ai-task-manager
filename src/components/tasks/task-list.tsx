@@ -1,6 +1,7 @@
 "use client";
 
 import { teamDisplayName } from '@/lib/home/team-display-name';
+import { cn } from '@/lib/utils';
 import { entityKeys } from '@/lib/query/entity-keys';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -325,9 +326,9 @@ export function TaskList({ view, onViewChange, onOpenTask: openTask, privatePlan
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <ListToolbar>
+      <ListToolbar className={privatePlanning ? undefined : 'flex-wrap'}>
         {/* List / Board switcher (desktop surface only; mobile is list-only) */}
-        {view && onViewChange && <TaskViewToggle value={view} onChange={onViewChange} />}
+        {view && onViewChange && <div className={privatePlanning ? 'contents' : 'shrink-0'}><TaskViewToggle value={view} onChange={onViewChange} /></div>}
         {contextControls}
 
         {/* Status — primary selector (active lane + count) */}
@@ -387,7 +388,7 @@ export function TaskList({ view, onViewChange, onOpenTask: openTask, privatePlan
             className={toolbarButtonClass({ active: filterActive })}
           >
             <Filter className="size-3.5 shrink-0" />
-            <span className="hidden @sm/lt:inline max-w-[120px] truncate">{filterSummary}</span>
+            <span className={cn('hidden max-w-[120px] truncate', privatePlanning ? '@sm/lt:inline' : '@2xl/lt:inline')}>{filterSummary}</span>
             {filterActive && <ToolbarActiveDot />}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-48">
@@ -437,7 +438,7 @@ export function TaskList({ view, onViewChange, onOpenTask: openTask, privatePlan
             className={toolbarButtonClass()}
           >
             <ArrowDownAz className="size-3.5 shrink-0" />
-            <span className="hidden @md/lt:inline">{SORT_LABELS[sortBy]}</span>
+            <span className={cn('hidden', privatePlanning ? '@md/lt:inline' : '@2xl/lt:inline')}>{SORT_LABELS[sortBy]}</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-40">
             <DropdownMenuLabel className="text-[9px] uppercase tracking-widest">Sort by</DropdownMenuLabel>

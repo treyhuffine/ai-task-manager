@@ -33,6 +33,7 @@ beforeAll(async () => {
     define: { 'process.env': '{"NODE_ENV":"development"}' },
     plugins: [{ name: 'team-settings-fixture', setup(b) {
       b.onResolve({ filter: /contexts\/dashboard-context$/ }, () => ({ path: 'dashboard', namespace: 'fixture' }));
+      b.onResolve({ filter: /team-logo$/ }, () => ({ path: 'logo', namespace: 'fixture' }));
       b.onResolve({ filter: /settings\/(?:harness-settings-panel|default-model-section)$/ }, () => ({ path: 'models', namespace: 'fixture' }));
       b.onResolve({ filter: /home-context$/ }, () => ({ path: 'home', namespace: 'fixture' }));
       b.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: 'navigation', namespace: 'fixture' }));
@@ -45,6 +46,7 @@ beforeAll(async () => {
       b.onResolve({ filter: /ui\/confirm-dialog$/ }, () => ({ path: 'confirm', namespace: 'fixture' }));
       b.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ loader: 'tsx', resolveDir: process.cwd(), contents: {
         dashboard: `export const useOptionalDashboard=()=>null;`,
+        logo: `export const TeamLogo=()=>null;`,
         models: `export const HarnessSettingsPanel=()=>null;export const DefaultModelSection=()=>null;`,
         home: `export const useHomeContext=()=>({home:{id:'team',kind:'team'},viewer:{id:'owner'},capabilities:{manageSignIns:!location.search.includes('member'),configureAgents:!location.search.includes('member'),administerMembers:!location.search.includes('member'),deletePermanently:!location.search.includes('member'),privatePlanning:false}});export const useOptionalHomeContext=useHomeContext;export const useHomeStorageScope=()=>({homeId:'team',viewerId:'owner'});`,
         navigation: `import {useSyncExternalStore} from 'react';const subscribe=fn=>{addEventListener('popstate',fn);return()=>removeEventListener('popstate',fn);};const go=(url,replace=false)=>{history[replace?'replaceState':'pushState']({},'',url);dispatchEvent(new PopStateEvent('popstate'));};const router={push:url=>go(url),replace:url=>go(url,true)};export const useRouter=()=>router;export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(useSyncExternalStore(subscribe,()=>location.search));`,

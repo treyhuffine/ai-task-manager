@@ -1,7 +1,7 @@
 'use client';
 
 
-import { FileText, Plus, UserPlus } from 'lucide-react';
+import { FileText, Plus, UserPlus, UserRoundCheck } from 'lucide-react';
 import { useTaskCounts } from '@/hooks/use-tasks';
 import { TaskSurface } from '@/components/tasks/task-surface';
 import { ToolbarToggle, toolbarButtonClass } from '@/components/shared/list-toolbar';
@@ -11,12 +11,13 @@ import { useTeamMembers } from './use-team';
 import { MemberAvatar } from './member-avatar';
 import { useTeamCreateRecord } from './use-team-create-record';
 import { useHomeContext } from '@/components/home/home-context';
+import { openTaskBoard } from '@/lib/client/task-board';
 
 /**
  * Contextual task controls around the ordinary shared List and Board:
  * assignees, Team Area filters and membership, without private planning.
  */
-export function TeamBoard() {
+export function TeamBoard({ fullPage = false }: { fullPage?: boolean }) {
   const { member } = useTeam();
   const context = useHomeContext();
   const nav = useTeamNav();
@@ -31,8 +32,9 @@ export function TeamBoard() {
     <div className="relative flex h-full flex-col">
       <TaskSurface
         privatePlanning={context.capabilities.privatePlanning}
-        viewKey={`ri.tasks.view:${context.home.id}:${context.viewer.id}`}
-        initialView="board"
+        viewKey={`ri.tasks.${fullPage ? 'board' : 'view'}:${context.home.id}:${context.viewer.id}`}
+        initialView={fullPage ? 'board' : 'list'}
+        onOpenBoard={fullPage ? undefined : openTaskBoard}
         onOpenTask={nav.openTask}
         assigneeMemberId={nav.mine ? member.id : null}
         createDefaults={create.taskDefaults}
@@ -50,15 +52,16 @@ export function TeamBoard() {
         }}
         contextControls={
           <>
-            <ToolbarToggle active={nav.mine} onClick={() => nav.setMine(!nav.mine)}>
-              Assigned to me
+            <ToolbarToggle active={nav.mine} title="Only tasks assigned to you" onClick={() => nav.setMine(!nav.mine)}>
+              <UserRoundCheck className="size-3.5" aria-hidden />
+              <span className="hidden @2xl/lt:inline">Assigned to me</span><span className="sr-only @2xl/lt:hidden">Assigned to me</span>
             </ToolbarToggle>
           </>
         }
         trailing={
           <button type="button" onClick={() => void newTask()} className={toolbarButtonClass()} aria-label="New task">
             <Plus className="size-3.5" />
-            <span className="hidden @sm/lt:inline">New task</span>
+            <span className="hidden @2xl/lt:inline">New task</span>
           </button>
         }
       />

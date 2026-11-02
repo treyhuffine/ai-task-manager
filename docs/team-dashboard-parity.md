@@ -64,7 +64,7 @@ pnpm iso /tmp/ri-personal-dashboard-review --port 42333 -- pnpm exec tsx scripts
 
 ## Verification
 
-Verified against the final implementation:
+Initial parity verification:
 
 - Production build and `pnpm ts` pass. Changed-file ESLint has no errors, with two existing unused-variable warnings in `queries.ts`.
 - 83 focused unit and integration tests pass across 16 files, with one skipped test.
@@ -83,3 +83,20 @@ pnpm exec vitest run src/components/team/team-dashboard.live.browser.test.ts
 ```
 
 Provisioning tests cover AI-off content-only Teams, one assistant under concurrent requests, legacy transcript retention, independent member selection, existing configured agents and revoked credentials. Existing suites cover shared autosave, settings authority, connected-Team forwarding, source identity and personal chat recovery.
+
+## Review refinements, 2 November
+
+Main advanced to `94c86f43` during review. That archive fix is merged into the implementation branch.
+
+- [x] Default Team tasks to the left and chat to the right. Keep personal Chat and Deck defaults unchanged.
+- [x] Add visible Expand and Restore controls to both Team panels without remounting the chat or losing its draft.
+- [x] Keep one Tasks destination in the rail. Start with a list and open the full Board from its toolbar.
+- [x] Make the Team badge prominent in the rail, including the collapsed rail.
+- [x] Add owner-managed Team logo upload, replacement and removal in General settings. Display it in the rail, shared assistant and current-Team selector.
+- [x] Verify desktop expansion, divider restoration, drafts, logo authority, connected-Team upload and responsive behavior. Update the same Beamd preview.
+
+Field Notes is a fictional team name, which may represent a company or any other group. A company is not a new entity or permission layer. The Team logo uses the existing home-wide identity image and generic attachment store. There are no schema changes or migrations. Shared connector administration and local Apps are still outside the Team UI in this change. Team skills and external-agent MCP connections remain available.
+
+Refinement verification: 45 focused unit/integration tests pass (one skipped), 41 existing component browser tests pass, six Board browser tests pass and all ten full-app browser scenarios pass. The production build and typecheck pass. ESLint has no errors and retains existing warnings. Live expansion tests drag the divider, type an unsent draft, expand each panel, restore its exact prior width and confirm the draft remains. The logo browser check uploads through a connected Team, checks the displayed image, verifies member restrictions and removes it.
+
+The review is still at `https://ri-team-parity-trey.beamd.run`, with the owner sign-in link in the personal preview root's `preview.json` as `publicOwnerUrl`. Its My Ri selector opens the connected Field Notes Team. The current review servers run the `.next-team-refinements-v2` production build. Use `NEXT_DIST_DIR=.next-team-refinements-v2` with the serve commands above to restart those builds. Field Notes has a sample company mark and its General settings can upload a different one. Production and the normal dev Home remain untouched.

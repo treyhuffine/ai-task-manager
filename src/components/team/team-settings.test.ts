@@ -23,6 +23,7 @@ vi.mock('./team-context', () => ({
 vi.mock('./team-address-setup', () => ({ TeamAddressSetup: ({ onDone }: { onDone?: () => void }) => createElement('button', { onClick: onDone }, 'Remote address setup') }));
 vi.mock('./connect-ai', () => ({ ConnectAiSection: () => createElement('div', null, 'Connect your AI') }));
 vi.mock('./team-ai-settings', () => ({ TeamAiSection: () => createElement('div', null, 'Team AI') }));
+vi.mock('./team-logo', () => ({ TeamLogo: () => createElement('div', null, 'Team logo') }));
 vi.mock('./team-areas', () => ({ NewAreaDialog: () => null }));
 vi.mock('./use-team', () => ({ useTeamMembers: () => ({ active: [] }) }));
 vi.mock('@/hooks/use-areas', () => ({ useAreas: () => ({ data: [] }), useUpdateArea: () => ({}) }));
