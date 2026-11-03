@@ -27,16 +27,20 @@ Buzz's ACP host supplies conversation context and enforces its author gate. The 
 - [x] Setup UI for named connections, destinations, identity linking and connection status.
 - [x] Integration tests for complete conversations, team access, duplicate delivery, failure/restart and ACP protocol.
 - [x] Typecheck, lint, relevant regressions and operator setup documentation.
+- [x] Guided Slack setup with token locations, an existing-app path, identity linking and desktop/mobile verification.
 
 ## Connect Slack
 
-1. Open **Settings > Conversations** in your personal Ri or the team's settings. Team AI must already be configured and enabled. A team administrator with sign-in management capability creates the connection.
-2. Choose **Slack**, a name such as **Ri Personal** or **Ri Team**, and its Ri destination. Personal Ri can target the orchestrator or one of its agents. A team connection targets a selected team agent.
-3. Enter the channel IDs Ri should accept. Invite the Slack app to each channel. Leave the list empty only for a personal connection that accepts DMs alone. Team channels must be appropriate for the whole Ri team to read.
-4. Click **Copy Slack app manifest**. At [Your Slack apps](https://api.slack.com/apps), create an app from that manifest in the intended Slack workspace. The manifest enables the native agent view and Socket Mode and requests the message and reply scopes this adapter uses.
-5. In the Slack app's Basic Information, generate an app-level token with `connections:write`. Copy the `xapp-` token. Install the app to the workspace and copy its `xoxb-` bot token from OAuth & Permissions. Paste both into Ri and click **Connect**. Socket Mode connects outward from Ri, so this setup needs no public Slack webhook.
-6. Each participant opens Ri using their own sign-in and clicks **Link my Slack identity**. Send the generated `link …` command to the Slack app, with an app mention in a connected channel. Personal connections also allow linking in a DM. Codes are single-use and expire after ten minutes.
-7. Send `@Ri Personal help me plan today`, or mention your chosen app in a connected channel. Ri replies in the same Slack thread. Follow up in that thread, answer its questions there, and use Slack's Stop control or send `stop` to interrupt work. The corresponding Ri chat remains available for inspecting and continuing the work.
+Open **Settings > Conversations** in your personal Ri or the team's settings and choose **Slack**. Team AI must already be configured and enabled. A team administrator with sign-in management capability creates the connection. The screen shows the following steps, with every step visible so you can continue directly with tokens if the Slack app already exists.
+
+1. **Choose your Ri destination.** Enter a name such as **Ri Personal** or **Ri Team** and choose its destination. Personal Ri can target the orchestrator or one of its agents. A team connection targets a selected team agent.
+2. **Create or open your Slack app.** Click **Copy Slack app manifest**, then **Open Slack apps**. In Slack, choose **Create New App > From a manifest**, select the workspace and paste it. The manifest configures the native agent view, Socket Mode, scopes and subscriptions. If you already finished this, open the app's settings and go straight to step 3.
+3. **Get your bot token.** In the Slack app settings, open **OAuth & Permissions**. If the app is not installed, click **Install to Workspace** and approve it. Copy **Bot User OAuth Token**, beginning with `xoxb-`, and paste it into Ri's **Bot token** field. An already installed app's token is on this same page.
+4. **Get your app-level token.** Open **Basic Information > App-Level Tokens > Generate Token and Scopes**. Name it, for example **Ri Socket Mode**, add `connections:write`, and click **Generate**. Copy the `xapp-` token into Ri's **App-level token** field. Confirm **Socket Mode > Enable Socket Mode** is on. Socket Mode connects outward from Ri, so this setup needs no public Slack webhook.
+5. **Choose conversations and connect.** In Slack's channel details, copy each **Channel ID**, add this app to the channel and enter the IDs in Ri. Leave the list empty only for personal DMs alone. Team channels must be appropriate for the whole Ri team to read. Click **Connect**. Ri clears the token fields and takes you to the saved connection's final setup step.
+6. **Link yourself and try a message.** Each participant opens Ri with their own sign-in and clicks **Link my Slack identity**. Send the generated `link …` command to the Slack app, with an app mention in a connected channel. Personal connections also allow linking in a DM. Codes are single-use and expire after ten minutes. Then send `@Ri Personal help me plan today`, or mention the selected app, and continue in the same thread. The corresponding chat appears in Ri and can be continued there. Use Slack's Stop control or send `stop` to interrupt work.
+
+**Update Slack tokens** includes the same token-location directions for an existing connection. It verifies the same Slack bot and workspace and keeps the saved chats and delivery progress.
 
 Slack's **Create AI agent** wizard is an alternative to importing the manifest. Select **Starter agent**, enter the name and workspace, and finish the review and installation flow. Use that app's bot and app-level tokens in Ri. Check its scopes and event subscriptions against Ri's generated manifest. Ri supplies the runtime, so there is no need to run Slack's sample model application.
 
@@ -135,6 +139,8 @@ The setup screen has desktop and mobile browser coverage, including named Buzz s
 Initial implementation verification: 615 tests passed across 84 regression test files, plus both setup browser tests. `pnpm ts` and `pnpm cli:build` passed. ESLint reported no errors and two existing unused-variable warnings in `queries.ts`.
 
 The subsequent manifest correction passed 35 focused tests, both setup browser tests, typecheck and lint. The new contract tests cover Slack's required `agent_description`, rejection of the unsupported `enabled` flag, app and bot name constraints and writable DMs. No live Slack API validation is claimed.
+
+The guided setup passed all five browser checks, typecheck and lint. Browser coverage includes copying a manifest, continuing from an existing app, entering both tokens, saving a DM-only connection, moving to identity linking, replacing tokens, required team destinations and channels, mobile layout and the existing Buzz setup.
 
 Run the focused conversation and migration checks with:
 
