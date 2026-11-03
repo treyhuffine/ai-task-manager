@@ -27,16 +27,17 @@ export function ChatStatusLine({ status, className }: { status: ChatTurnStatus |
 
 /**
  * The size of the person's part, at the end of a row's metadata line, apart
- * from the ask so the ask keeps the whole line. A chip in the amber of what
- * wants you, since as plain text it read as one more piece of metadata. The
- * agent's own estimate, nothing measures it.
+ * from the ask so the ask keeps the whole line. A chip, since as plain text it
+ * read as one more piece of metadata, and gray, since amber marks what wants
+ * you and the row's dot already says that: the size is only how big the ask
+ * is. The agent's own estimate, nothing measures it.
  */
 export function ChatAskSize({ status }: { status: ChatTurnStatus | null | undefined }) {
   if (!status?.needsYou || !status.effort) return null;
   return (
     <span
       data-chat-ask-size={status.effort}
-      className="ml-auto flex-shrink-0 whitespace-nowrap rounded bg-amber-500/15 px-1 py-[2px] text-[9px] font-medium leading-none text-amber-600 dark:text-amber-400"
+      className="ml-auto flex-shrink-0 whitespace-nowrap rounded bg-muted px-1 py-[2px] text-[9px] font-medium leading-none text-foreground/75"
     >
       {TURN_STATUS_EFFORT_LABEL[status.effort]}
     </span>

@@ -668,6 +668,8 @@ it('shows status lines under chat titles in Unread and Recent, and Mark as read 
     expect(await size.innerText()).toBe('Quick for you');
     // A chip, so it reads as an indicator and not one more piece of metadata.
     expect(await size.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+    // Gray: amber is for what wants you, and the row's dot says that.
+    expect(await size.getAttribute('class')).not.toContain('amber');
     await page.screenshot({ path: '/tmp/ri-rail-status-lines.png', clip: { x: 0, y: 0, width: 560, height: 520 } });
 
     // Mark as read dismisses it: the server is told so, and it leaves Unread.

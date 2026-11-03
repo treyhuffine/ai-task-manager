@@ -43,7 +43,7 @@ export function UnreadRow() {
       >
         <SessionHoverProvider>
           <div className="flex min-h-8 flex-shrink-0 items-center gap-2 border-b border-border/40 px-3">
-            <span className="flex-1 text-[9px] font-bold uppercase tracking-[0.15em] text-amber-500/80">Unread</span>
+            <span className="flex-1 text-[9px] font-bold uppercase tracking-[0.15em] text-muted-foreground">Unread</span>
             <span className="text-[9px] font-mono text-muted-foreground/70">{active.length}</span>
           </div>
           <nav aria-label="Unread chats" className="min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
