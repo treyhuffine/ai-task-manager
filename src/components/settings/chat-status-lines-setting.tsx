@@ -18,7 +18,7 @@ export function ChatStatusLinesSetting() {
       <div>
         <label htmlFor={id} className="text-sm text-foreground">Status lines (trial)</label>
         <p id={`${id}-description`} className="mt-0.5 text-[11px] text-muted-foreground/85">
-          Each chat ends its turn with one line on where it stands, shown under its title in Recent and Unread. When it needs you, the line says what to do and how long it takes, and the chat stays in Unread until you answer it or mark it read.
+          Each chat ends its turn with one line on where it stands, shown under its title in Recent and Unread. When it needs you, the line says what to do, its agent estimates how long that takes you, and the chat stays in Unread until you answer it or mark it read.
         </p>
       </div>
       <Switch

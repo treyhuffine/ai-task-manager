@@ -25,11 +25,14 @@ export interface ChatTurnStatus {
   at: string;
 }
 
-/** The size, in the words a row shows before the line. */
+/**
+ * The size, in the words a row shows. Each says it's the person's time: on its
+ * own, "Few min" beside a row's "5m" read as how long ago.
+ */
 export const TURN_STATUS_EFFORT_LABEL: Record<TurnStatusEffort, string> = {
-  quick: 'Quick',
-  minutes: 'Few min',
-  block: 'Needs time',
+  quick: 'Quick for you',
+  minutes: 'Few min for you',
+  block: 'Needs your time',
 };
 
 /**

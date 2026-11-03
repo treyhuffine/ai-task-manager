@@ -14,7 +14,7 @@ The agent itself, as part of its turn. It knows what it did and what it needs, s
 |---|---|
 | `line` | One line, under 100 characters is best. When it needs you, what to do, verb first ("Pick A or B for the pricing table"). Otherwise what it did or where things stand ("Merged the login fix, nothing needed"). |
 | `needs_you` | The agent waits on the person. |
-| `effort` | Their part, when it needs them: `quick` (a click or a short reply), `minutes` (a few minutes to read or try something), `block` (a real decision or a long test). Shown as Quick, Few min, Needs time. |
+| `effort` | Their part, when it needs them: `quick` (a click or a short reply), `minutes` (a few minutes to read or try something), `block` (a real decision or a long test). Shown as Quick for you, Few min for you, Needs your time. |
 | `unblocks` | What answering unblocks, briefly. |
 
 The rule also asks the agent to make the person's part small before it stops: recommend an option, and prepare any test (a link, a short checklist, the one command).
@@ -25,7 +25,7 @@ Only execution chats get the rule. Agents' main chats already show their last me
 
 - **Recent:** the line takes the second line's place (the agent's name and branch), since the avatar already names the agent.
 - **Unread (the agents-only rail's row and its flyout) and Pinned:** under the title, above the time and agent.
-- An ask leads with its size in the rail's amber ("Quick · Pick a category for the two Amex refunds"). A report reads muted.
+- An ask reads stronger than a report. Its size sits at the end of the metadata line in Unread and an agent's chats ("5m · Website, Few min for you"), apart from the ask so the ask keeps the whole line, and it names the person because "Few min" alone, beside a row's "5m", read as how long ago. Recent leaves the size out: it's the list of what happened, and Unread is where you choose what to do. It's the agent's own estimate: nothing measures or checks it.
 
 Recency stays the order. The size of your part and what it unblocks are on the row, so you weigh value yourself: agents can't know what matters most to you, and a score would guess.
 

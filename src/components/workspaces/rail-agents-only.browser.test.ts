@@ -654,11 +654,13 @@ it('peeks the Unread chats from its row, and a chat there shows its latest messa
 it('shows status lines under chat titles in Unread and Recent, and Mark as read dismisses one', async () => {
   const { page, errors } = await open('agentsOnly');
   try {
-    // In Unread, an ask leads with the size of your part.
+    // In Unread, the ask has its line, and the size of your part ends the
+    // metadata line, naming you so it can't pass for how long ago.
     await page.getByRole('button', { name: /^Unread/ }).click();
     const flyout = page.getByRole('dialog', { name: 'Unread' });
     const amex = flyout.locator('nav [role="button"][tabindex="0"]', { hasText: 'Reconcile Amex' }).first();
-    expect(await amex.locator('[data-chat-status="needs-you"]').innerText()).toBe('Quick · Pick a category for the two Amex refunds');
+    expect(await amex.locator('[data-chat-status="needs-you"]').innerText()).toBe('Pick a category for the two Amex refunds');
+    expect(await amex.locator('[data-chat-ask-size]').innerText()).toBe('Quick for you');
     await page.screenshot({ path: '/tmp/ri-rail-status-lines.png', clip: { x: 0, y: 0, width: 560, height: 520 } });
 
     // Mark as read dismisses it: the server is told so, and it leaves Unread.
@@ -673,6 +675,8 @@ it('shows status lines under chat titles in Unread and Recent, and Mark as read 
     await page.getByRole('tab', { name: 'Recent' }).click();
     const smoke = page.locator('aside [role="button"]', { hasText: 'Fix flaky gallery smoke' }).first();
     expect(await smoke.locator('[data-chat-status="fyi"]').innerText()).toBe('Fixed the flaky smoke, nothing needed');
+    // Recent is what happened, so it leaves the size to Unread.
+    expect(await page.locator('aside [data-chat-ask-size]').count()).toBe(0);
     await page.screenshot({ path: '/tmp/ri-rail-recent-status.png', clip: { x: 0, y: 0, width: 256, height: 520 } });
     expect(errors).toEqual([]);
   } finally {
@@ -699,7 +703,7 @@ it("opens nothing on rest, and its chats button slides its chats out with previe
     expect(await page.getByRole('tab', { name: 'Agents' }).getAttribute('aria-selected')).toBe('true');
     const rows = flyout.locator('nav [role="button"][tabindex="0"]');
     expect((await rows.allInnerTexts()).map((t) => t.split('\n')[0])).toEqual(['Reconcile Amex', 'Import Chase CSV', 'Tax estimate']);
-    expect(await rows.first().locator('[data-chat-status="needs-you"]').innerText()).toBe('Quick · Pick a category for the two Amex refunds');
+    expect(await rows.first().locator('[data-chat-status="needs-you"]').innerText()).toBe('Pick a category for the two Amex refunds');
 
     // Resting on a chat shows its latest messages beside the flyout.
     await rows.first().hover();

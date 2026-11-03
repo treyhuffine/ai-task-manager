@@ -13,7 +13,7 @@ import { ROW_ACTIONS_GIVE_WAY, SessionRowActions } from './session-row-actions';
 import { SelectionCheck, useRowSelection } from './workspace-selection-context';
 import { Tip } from '@/components/ui/tip';
 import { useDismissRailFlyout } from './rail-flyout';
-import { ChatStatusLine } from './chat-status-line';
+import { ChatAskSize, ChatStatusLine } from './chat-status-line';
 
 interface SessionRowProps {
   session: ChatSessionWithExecution;
@@ -271,11 +271,12 @@ export function SessionRow({
               {label}
             </span>
             {/* The status line its agent set (docs/chat-status-lines.md):
-                what it did, or what it needs from you and how long that
-                takes. Part of the row's data, so it never arrives late. */}
+                what it did, or what it needs from you. Part of the row's
+                data, so it never arrives late. */}
             <ChatStatusLine status={session.turnStatus} className="mt-0.5" />
             {/* Metadata line: the timestamp anchors it, then the workspace
-                tag (Pinned and Unread) and where it runs. */}
+                tag (Pinned and Unread), where it runs and, at its end, how
+                much of your time an ask takes. */}
             <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
               {isPinned && !hidePinMarker && (
                 <Pin
@@ -303,6 +304,7 @@ export function SessionRow({
                   <span className="text-muted-foreground/60 truncate">· {session.location.name}</span>
                 </Tip>
               )}
+              <ChatAskSize status={session.turnStatus} />
             </div>
           </div>
           {actions}
