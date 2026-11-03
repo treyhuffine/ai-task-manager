@@ -51,8 +51,8 @@ describe('ensureHeartbeatTrigger', () => {
       workspaceId: null,
       kind: 'every',
       intervalSeconds: 1800,
-      activeHoursStart: '09:00',
-      activeHoursEnd: '21:00',
+      activeHoursStart: null,
+      activeHoursEnd: null,
       concurrencyPolicy: 'skip_if_running',
       catchUpPolicy: 'skip_missed',
       timeoutSeconds: 1800,
@@ -101,7 +101,7 @@ describe('scheduling inside the active hours', () => {
     const { ensureHeartbeatTrigger, updateHeartbeat } = await import('./trigger');
     const queries = await import('@/lib/db/queries');
     await ensureHeartbeatTrigger();
-    queries.updateTrigger(HEARTBEAT_ID, { timezone: 'UTC' });
+    queries.updateTrigger(HEARTBEAT_ID, UTC_HOURS);
 
     await updateHeartbeat({ enabled: true }, new Date('2026-09-22T14:00:00Z'));
     expect(queries.getTrigger(HEARTBEAT_ID)!.nextRunAt).toBe('2026-09-22T14:30:00.000Z');
@@ -116,9 +116,17 @@ describe('scheduling inside the active hours', () => {
     const { ensureHeartbeatTrigger, updateHeartbeat } = await import('./trigger');
     const queries = await import('@/lib/db/queries');
     await ensureHeartbeatTrigger();
-    queries.updateTrigger(HEARTBEAT_ID, { timezone: 'UTC' });
+    queries.updateTrigger(HEARTBEAT_ID, UTC_HOURS);
     await updateHeartbeat({ enabled: true, intervalSeconds: 86400 }, new Date('2026-09-22T22:30:00Z'));
     expect(queries.getTrigger(HEARTBEAT_ID)!.nextRunAt).toBe('2026-09-23T09:00:00.000Z');
+  });
+
+  it('with no hours set, the first check-in is one interval out at any time of night', async () => {
+    const { ensureHeartbeatTrigger, updateHeartbeat } = await import('./trigger');
+    const queries = await import('@/lib/db/queries');
+    await ensureHeartbeatTrigger();
+    await updateHeartbeat({ enabled: true }, new Date('2026-09-22T03:00:00Z'));
+    expect(queries.getTrigger(HEARTBEAT_ID)!.nextRunAt).toBe('2026-09-22T03:30:00.000Z');
   });
 
   it('before the window opens, the first check-in is the opening, not a whole interval later', async () => {

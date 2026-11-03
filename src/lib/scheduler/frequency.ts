@@ -228,6 +228,22 @@ export function describeFrequency(row: {
   }
 }
 
+/** The units a person sets an interval in. */
+export const INTERVAL_UNITS = [
+  { label: 'minutes', seconds: 60 },
+  { label: 'hours', seconds: 3600 },
+  { label: 'days', seconds: 86_400 },
+] as const;
+
+/** Offered only for an interval that isn't whole minutes, which only the API makes. */
+export const INTERVAL_SECONDS_UNIT = { label: 'seconds', seconds: 1 } as const;
+
+/** The largest unit the interval is a whole number of, so 7200 reads as 2 hours. */
+export function intervalUnitFor(seconds: number): number {
+  const unit = [...INTERVAL_UNITS].reverse().find((u) => seconds > 0 && seconds % u.seconds === 0);
+  return unit?.seconds ?? INTERVAL_SECONDS_UNIT.seconds;
+}
+
 /** "Every 30 minutes", "Every hour", "Every 2 days", in the largest whole unit. */
 export function describeInterval(seconds: number | null): string {
   if (!seconds || seconds <= 0) return 'Every interval (not set)';

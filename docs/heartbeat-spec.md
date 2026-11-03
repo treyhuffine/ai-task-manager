@@ -54,8 +54,8 @@ It's seeded at boot, only if missing, by `ensureHeartbeatTrigger()` (new, in `sr
 | Setting | Field | Default | Editable |
 |---|---|---|---|
 | On or off | `enabled` | `false` | yes |
-| How often | `intervalSeconds` | `1800` | yes: 1800, 3600, 7200, 14400, 86400 |
-| Which hours | `activeHoursStart` / `activeHoursEnd` | `09:00` / `21:00` | yes, or cleared for any time |
+| How often | `intervalSeconds` | `1800` | yes: any whole number of seconds from 300 up |
+| Which hours | `activeHoursStart` / `activeHoursEnd` | both null (24/7) | yes |
 | Timezone | `timezone` | your timezone from Settings > General, else the host's | yes |
 | Provider | `harness` | `defaultTriggerHarness()` (your default provider) | yes, through the provider switch |
 | Model, effort | `model`, `effort` | `null` (the program's defaults) | yes |
@@ -174,7 +174,7 @@ interface HeartbeatConfig {
 }
 ```
 
-`update_heartbeat` writes through `updateTrigger`. It reuses the provider-switch logic, which resets model and effort when the program changes. Validation matches `update_trigger`: the interval must be one of the allowed values, hours use `HH:MM`, and the model has to fit the provider. It's safe to retry. "Check in now" uses the existing `run_trigger` with the heartbeat id, so there's no separate action for it.
+`update_heartbeat` writes through `updateTrigger`. It reuses the provider-switch logic, which resets model and effort when the program changes. Validation matches `update_trigger`: the interval must be at least 5 minutes, hours use `HH:MM`, and the model has to fit the provider. It's safe to retry. "Check in now" uses the existing `run_trigger` with the heartbeat id, so there's no separate action for it.
 
 REST: `GET` and `PUT /api/heartbeat`, both calling `runAction` with `remote: false`, like `/api/triggers`. Client hooks: `useHeartbeat()` and `useUpdateHeartbeat()` in `src/hooks/use-heartbeat.ts`, following `use-morning-deck.ts`.
 
@@ -190,8 +190,9 @@ A new `SectionId` `'heartbeat'` in `src/components/settings/settings-sections.ts
 Heartbeat
 Checks in on your work on a schedule and tells you what it did.
 
-  Check in regularly                                        [ on ]
-  Every  [ 30 minutes ▾ ]   from [ 09:00 ]  to [ 21:00 ]
+  Heartbeat                                                 [ on ]
+  Every  [ 30 ] [ minutes ▾ ]
+  Hours  [ 24/7 ▾ ]
   Runs on [ Claude Code ▾ ]  Model [ Default ▾ ]  Effort [ Default ▾ ]
 
   Instructions
@@ -204,7 +205,7 @@ Checks in on your work on a schedule and tells you what it did.
   Next check-in 3:00 PM                                  [ Check in now ]
 ```
 
-- The frequency options are 30 minutes, 1 hour, 2 hours, 4 hours, and once a day. The hours row can switch to "Any time".
+- How often is a number and a unit (minutes, hours, days), at least 5 minutes. The hours row is 24/7 unless it's switched to "Between", which starts at 09:00 to 21:00.
 - The program, model, and effort pickers reuse the controls from the existing trigger form.
 - ~~When it's off, only the switch and a one-line description show.~~ Built: every setting shows whether it's on or off, so you can write instructions and try "Check in now" before turning it on (§14).
 - The instructions save on blur, with the same save feedback as the other settings text fields.
@@ -248,7 +249,7 @@ To let it start work on its own, change "Offer to start them" to "Start them."
 
 ## 9. Cost
 
-Each check-in is one orchestrator session on the default subscription harness. Every 30 minutes from 09:00 to 21:00 is 24 sessions a day, and quiet ones are short. Runs record their cost like any trigger run, and the existing monthly budget applies.
+Each check-in is one orchestrator session on the default subscription harness. Every 30 minutes, 24/7, is 48 sessions a day, and quiet ones are short. Runs record their cost like any trigger run, and the existing monthly budget applies.
 
 ## 10. Tests
 
@@ -305,3 +306,4 @@ Steps 1 and 2 can land and be tested without any UI, through `ri agent get_heart
 13. **Run summaries drop entity references.** A summary is one plain line for run lists. The raw `[[task:…]]` ids were noise there, and the chat already renders them as chips. This applies to every run's summary, not just the heartbeat's (`summarizeText` in `src/lib/runs/event-hooks.ts`).
 14. **Area changes are now part of task and note history.** Setting an area is the one thing the default instructions have the heartbeat do on its own, and history snapshots didn't record `areaId`, so that change couldn't be seen or undone. Snapshots now include it, the history view shows it by area name, and undo restores it. Older snapshots lack the field, which means "not recorded", so the diff skips it and undo leaves the current area alone. Undo also leaves the area alone if the recorded area no longer exists. Verified in the app: an agent's area change appears as "Area: Ri Product → Work", and "Undo this change" puts it back.
 15. **The deck shows the heartbeat only when it needs you.** With the chip always on the day bar, the bar rendered as a near-empty row holding one status the user rarely needs, on a surface whose job is today's work. The heartbeat's home is Settings > Heartbeat, so the deck now follows its own rule that a healthy status is silent: the chip appears only when it is never set up, paused, failed, or holding an unread report, and it lives in the Today status row with the other "needs you" chips (2026-10-08). The day bar no longer carries it, so it no longer renders an empty row.
+16. **The schedule is free-form and 24/7 by default.** A fixed list of five cadences was one more choice than the number and unit people already think in, so "how often" is now a number and a unit, with a floor of 5 minutes because each check-in is a whole agent session. Hours are off unless someone limits them, since limiting hours is the exception (2026-11-03). Rows that already exist keep the hours they have, because seeding never rewrites a row.

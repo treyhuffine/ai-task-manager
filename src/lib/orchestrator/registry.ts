@@ -120,8 +120,7 @@ import {
 import { HARNESS_IDS, HARNESS_REGISTRY, resumeCommandForHarness, type HarnessId } from '@/lib/harness/registry';
 import {
 	DEFAULT_HEARTBEAT_INSTRUCTIONS,
-	HEARTBEAT_INTERVALS,
-	isHeartbeatInterval,
+	MIN_HEARTBEAT_INTERVAL_SECONDS,
 } from '@/lib/heartbeat/constants';
 import { ensureHeartbeatTrigger, getHeartbeatConfig, getHeartbeatTrigger, updateHeartbeat } from '@/lib/heartbeat/trigger';
 import type { HeartbeatPatch } from '@/lib/heartbeat/types';
@@ -2883,7 +2882,7 @@ const update_heartbeat_action = defineAction({
   name: 'update_heartbeat',
   description:
     'Change the heartbeat. All fields optional; unspecified fields keep their value. ' +
-    `intervalSeconds must be one of ${HEARTBEAT_INTERVALS.map((i) => i.seconds).join(', ')}. ` +
+    `intervalSeconds is the gap between check-ins, at least ${MIN_HEARTBEAT_INTERVAL_SECONDS}. ` +
     'activeHoursStart/activeHoursEnd are HH:MM in the heartbeat\'s timezone, set together, or both null for any time of day. ' +
     'instructions replace the user\'s instructions verbatim (the app\'s ground rules are added separately and cannot be edited). ' +
     'resetInstructions restores the default instructions. Changing provider resets model and effort unless the same call sets them. ' +
@@ -2911,10 +2910,10 @@ const update_heartbeat_action = defineAction({
     if (input.instructions !== undefined && input.resetInstructions) {
       throw new ActionError('invalid_params', 'Pass instructions or resetInstructions, not both.');
     }
-    if (input.intervalSeconds !== undefined && !isHeartbeatInterval(input.intervalSeconds)) {
+    if (input.intervalSeconds !== undefined && input.intervalSeconds < MIN_HEARTBEAT_INTERVAL_SECONDS) {
       throw new ActionError(
         'invalid_params',
-        `intervalSeconds must be one of ${HEARTBEAT_INTERVALS.map((i) => `${i.seconds} (${i.label})`).join(', ')}.`,
+        `intervalSeconds must be at least ${MIN_HEARTBEAT_INTERVAL_SECONDS}. Each check-in is a whole agent session.`,
       );
     }
 

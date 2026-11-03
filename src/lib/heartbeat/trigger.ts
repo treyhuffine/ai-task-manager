@@ -30,8 +30,6 @@ import { isWithinActiveHours } from '@/lib/scheduler/cron';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import type { RunRecord, TriggerRecord, UpdateTriggerInput } from '@/db/types';
 import {
-  DEFAULT_HEARTBEAT_ACTIVE_HOURS_END,
-  DEFAULT_HEARTBEAT_ACTIVE_HOURS_START,
   DEFAULT_HEARTBEAT_INSTRUCTIONS,
   DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
   HEARTBEAT_FALLBACK_TRIGGER_NAME,
@@ -97,8 +95,8 @@ export async function ensureHeartbeatTrigger(): Promise<TriggerRecord | null> {
     kind: 'every',
     intervalSeconds: DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     timezone: defaultTimezone(),
-    activeHoursStart: DEFAULT_HEARTBEAT_ACTIVE_HOURS_START,
-    activeHoursEnd: DEFAULT_HEARTBEAT_ACTIVE_HOURS_END,
+    activeHoursStart: null,
+    activeHoursEnd: null,
     concurrencyPolicy: 'skip_if_running',
     catchUpPolicy: 'skip_missed',
     timeoutSeconds: HEARTBEAT_TIMEOUT_SECONDS,

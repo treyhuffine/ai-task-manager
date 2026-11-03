@@ -18,28 +18,14 @@ export const HEARTBEAT_FALLBACK_TRIGGER_NAME = `${APP_NAME} heartbeat`;
 
 export const HEARTBEAT_TRIGGER_DESCRIPTION = 'Checks in on your work on a schedule.';
 
-/** The check-in cadences the settings offer, in seconds. */
-export const HEARTBEAT_INTERVALS = [
-  { seconds: 1800, label: '30 minutes' },
-  { seconds: 3600, label: '1 hour' },
-  { seconds: 7200, label: '2 hours' },
-  { seconds: 14400, label: '4 hours' },
-  { seconds: 86400, label: 'Once a day' },
-] as const;
+export const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 1800;
 
-export type HeartbeatIntervalSeconds = (typeof HEARTBEAT_INTERVALS)[number]['seconds'];
+/** The shortest gap between check-ins. Each one is a whole agent session. */
+export const MIN_HEARTBEAT_INTERVAL_SECONDS = 300;
 
-export const HEARTBEAT_INTERVAL_SECONDS: readonly number[] = HEARTBEAT_INTERVALS.map(
-  (i) => i.seconds,
-);
-
-export function isHeartbeatInterval(seconds: number): seconds is HeartbeatIntervalSeconds {
-  return HEARTBEAT_INTERVAL_SECONDS.includes(seconds);
-}
-
-export const DEFAULT_HEARTBEAT_INTERVAL_SECONDS: HeartbeatIntervalSeconds = 1800;
-export const DEFAULT_HEARTBEAT_ACTIVE_HOURS_START = '09:00';
-export const DEFAULT_HEARTBEAT_ACTIVE_HOURS_END = '21:00';
+/** Where "Between" starts when someone limits the hours. The default is no limit. */
+export const HEARTBEAT_LIMITED_HOURS_START = '09:00';
+export const HEARTBEAT_LIMITED_HOURS_END = '21:00';
 
 /**
  * A check-in that runs this long is stuck. Nothing else should wait on it, and

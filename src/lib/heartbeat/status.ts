@@ -48,7 +48,7 @@ export function describeHeartbeat(config: HeartbeatConfig, now: Date = new Date(
     const detail =
       config.disabledReason === 'budget_exceeded'
         ? 'Off. It was paused because the monthly budget ran out.'
-        : 'Off. Turn it on to check in on a schedule, or check in once now.';
+        : "Off. When it's on, an agent goes through your work on this schedule and follows your instructions.";
     return { chip: 'off', tone: 'off', detail };
   }
 

@@ -4,7 +4,14 @@ import type { ReactNode, Ref } from 'react';
 import { cn } from '@/lib/utils';
 import { DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
-/** Navigation and settings operations belong to the active Home's adapter. */
+/**
+ * Navigation and settings operations belong to the active Home's adapter.
+ *
+ * Centered with `inset-0 m-auto`, not the shared dialog's translate: a transform
+ * makes this box the frame for every `position: fixed` inside it, so its
+ * `overflow-hidden` cuts off an in-tree popover at the dialog's edge (see
+ * LauncherPopoverContent).
+ */
 export function SettingsPanel({ navigation, title, description, children, compact, bodyRef, bodyClassName, onOpenAutoFocus }: {
   navigation?: ReactNode;
   title: ReactNode;
@@ -16,7 +23,7 @@ export function SettingsPanel({ navigation, title, description, children, compac
   onOpenAutoFocus?: (event: Event) => void;
 }) {
   return <DialogContent
-    className={cn('flex max-h-[92dvh] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0', compact ? 'sm:max-w-xl' : 'h-[800px] sm:max-w-6xl sm:flex-row')}
+    className={cn('inset-0 m-auto flex max-h-[92dvh] w-full max-w-[calc(100%-1rem)] translate-none flex-col gap-0 overflow-hidden p-0', compact ? 'h-fit sm:max-w-xl' : 'h-[800px] sm:max-w-6xl sm:flex-row')}
     onOpenAutoFocus={onOpenAutoFocus}
   >
     {navigation}

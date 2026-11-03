@@ -93,15 +93,27 @@ describe('get_heartbeat / update_heartbeat', () => {
     expect(both).toMatchObject({ ok: false, error: { code: 'invalid_params' } });
   });
 
-  it('clears active hours together for any time of day', async () => {
+  it('takes any interval from the floor up, not just a fixed list', async () => {
+    for (const intervalSeconds of [300, 2700, 10_800, 259_200]) {
+      expect((await run('update_heartbeat', { intervalSeconds })).result).toMatchObject({ intervalSeconds });
+    }
+  });
+
+  it('clears active hours together for any time of day, and refuses to clear only one', async () => {
+    await run('update_heartbeat', { activeHoursStart: '09:00', activeHoursEnd: '21:00' });
+    const half = await run('update_heartbeat', { activeHoursStart: null });
+    expect(half.ok).toBe(false);
+    expect(half.error?.message).toMatch(/together/);
     const env = await run('update_heartbeat', { activeHoursStart: null, activeHoursEnd: null });
     expect(env.result).toMatchObject({ activeHoursStart: null, activeHoursEnd: null });
   });
 
   it.each([
-    [{ intervalSeconds: 600 }, /intervalSeconds must be one of/],
-    [{ activeHoursStart: null }, /together/],
-    [{ activeHoursStart: '25:00' }, /HH:MM/],
+    [{ intervalSeconds: 299 }, /intervalSeconds must be at least 300/],
+    // The heartbeat starts 24/7, so half a window is the mistake to catch.
+    [{ activeHoursStart: '09:00' }, /together/],
+    [{ activeHoursEnd: '21:00' }, /together/],
+    [{ activeHoursStart: '25:00', activeHoursEnd: '21:00' }, /HH:MM/],
     [{ activeHoursStart: '09:00', activeHoursEnd: '09:00' }, /must differ/],
     [{ timezone: 'Mars/Olympus_Mons' }, /Unknown timezone/],
     [{ instructions: '   ' }, /./],
