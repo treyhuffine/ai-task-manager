@@ -38,7 +38,6 @@ function SlackTokenField({ kind, id, label, value, onChange }: {
 }
 
 export function ConversationsSection() {
-  const query = useQuery(trpc.conversationIntegrations.list.queryOptions());
   const [provider, setProvider] = useState<'slack' | 'buzz'>('slack');
   const [name, setName] = useState('Ri Personal');
   const [workspaceId, setWorkspaceId] = useState('');
@@ -48,32 +47,40 @@ export function ConversationsSection() {
   const [relay, setRelay] = useState('ws://localhost:3000');
   const [notice, setNotice] = useState('');
   const [copiedManifestName, setCopiedManifestName] = useState<string | null>(null);
-  const [link, setLink] = useState<{ id: string; command: string; buzz: boolean } | null>(null);
+  const [link, setLink] = useState<{ id: string; command: string; buzz: boolean; expiresAt: number } | null>(null);
+  const [copiedLinkCommand, setCopiedLinkCommand] = useState<string | null>(null);
   const [buzzSetup, setBuzzSetup] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [newBotToken, setNewBotToken] = useState('');
   const [newAppToken, setNewAppToken] = useState('');
-  const newConnectionId = useRef<string | null>(null);
-  useEffect(() => {
-    const id = newConnectionId.current;
-    if (!id || !query.data?.connections.some(connection => connection.id === id)) return;
-    document.getElementById(`conversation-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    newConnectionId.current = null;
-  }, [query.data]);
+  const [newConnectionId, setNewConnectionId] = useState<string | null>(null);
+  const savedConnectionRef = useRef<HTMLElement | null>(null);
+  const query = useQuery({ ...trpc.conversationIntegrations.list.queryOptions(),
+    refetchInterval: query => link && Date.now() < link.expiresAt && !query.state.data?.connections.find(connection => connection.id === link.id)?.identities.some(identity => identity.mine) ? 2000 : false,
+  });
   const reconnect = useMutation({ mutationFn: (id: string) => trpcClient.conversationIntegrations.reconnectSlack.mutate({ id, botToken: newBotToken, appToken: newAppToken }), meta: { carriesInput: true },
     onSuccess: () => { setEditing(null); setNewBotToken(''); setNewAppToken(''); void query.refetch(); }, onError: error => setNotice(apiErrorText(error)) });
   const mutate = useMutation({ mutationFn: async (operation: () => Promise<unknown>) => operation(), onSuccess: () => { void query.refetch(); }, onError: error => setNotice(apiErrorText(error)) });
   const create = useMutation({ mutationFn: () => trpcClient.conversationIntegrations.create.mutate({ provider, name, workspaceId: workspaceId || null,
     channels: channels.split(/[\s,]+/).filter(Boolean), ...(provider === 'slack' ? { botToken, appToken } : { relay }) }), meta: { carriesInput: true },
     onSuccess: result => {
-      setBotToken(''); setAppToken(''); setNotice(result.connection.provider === 'slack' ? 'Connection saved. Finish step 6 on your new connection.' : 'Connection saved.');
-      if (result.connection.provider === 'slack') newConnectionId.current = result.connection.id;
+      setBotToken(''); setAppToken(''); setNotice(''); setNewConnectionId(result.connection.id);
       if (result.bridgeToken) {
         const url = result.bridgeUrl;
         setBuzzSetup(`RI_CONVERSATION_URL=${url}\nRI_CONVERSATION_TOKEN=${result.bridgeToken}\nBUZZ_ACP_AGENT_COMMAND=ri\nBUZZ_ACP_AGENT_ARGS=acp\nBUZZ_ACP_RESPOND_TO=owner-only\nBUZZ_RELAY_URL=${relay}`);
       }
       void query.refetch();
     }, onError: error => setNotice(apiErrorText(error)) });
+  // Render the confirmed save immediately, even while the list is refreshing.
+  const newConnection = query.data?.connections.find(connection => connection.id === newConnectionId)
+    ?? (create.data?.connection.id === newConnectionId ? { ...create.data.connection, identities: [] } : undefined);
+  const connections = [...(query.data?.connections.filter(connection => connection.id !== newConnectionId) ?? []), ...(newConnection ? [newConnection] : [])];
+  const savedConnectionId = newConnection?.id;
+  useEffect(() => {
+    if (!newConnectionId || savedConnectionId !== newConnectionId) return;
+    savedConnectionRef.current?.focus({ preventScroll: true });
+    savedConnectionRef.current?.scrollIntoView({ block: 'start' });
+  }, [newConnectionId, savedConnectionId]);
   const disabled = create.isPending || mutate.isPending || reconnect.isPending;
   const destinationFields = <>
     <div className="space-y-2"><Label htmlFor="conversation-name">Name</Label><Input id="conversation-name" value={name} onChange={event => setName(event.target.value)} required maxLength={provider === 'slack' ? 35 : 60} /><p className="text-xs text-muted-foreground">Use a name such as Ri Personal or Ri Team. Distinct Slack mentions require distinct Slack apps.</p></div>
@@ -94,14 +101,19 @@ export function ConversationsSection() {
     </div>
     {query.isPending && <p role="status">Loading connections…</p>}
     {query.error && <p role="alert">{apiErrorText(query.error)} <Button variant="outline" onClick={() => void query.refetch()}>Retry</Button></p>}
-    {query.data?.connections.map(connection => <section key={connection.id} id={`conversation-${connection.id}`} className="scroll-mt-4 space-y-3 rounded-lg border p-4" aria-label={connection.name}>
+    {connections.map(connection => <section key={connection.id} id={`conversation-${connection.id}`} ref={connection.id === newConnectionId ? savedConnectionRef : undefined} tabIndex={-1} className="scroll-mt-4 space-y-3 rounded-lg border p-4 focus:outline-none focus:ring-2 focus:ring-ring" aria-label={connection.name}>
+      {connection.id === newConnectionId && <div role="status" className="space-y-1 rounded-md bg-muted p-3">
+        <p className="font-medium">{connection.provider === 'slack' ? 'Slack app saved' : 'Buzz connection saved'}</p>
+        <p className="text-sm">{connection.name} will talk to {query.data?.agents.find(agent => agent.id === connection.workspaceId)?.name ?? 'your personal orchestrator'} in Ri.</p>
+        <p className="text-sm">{connection.provider === 'slack' ? connection.identities.some(identity => identity.mine) ? 'Your Slack identity is linked. Follow the conversation test below.' : 'Your tokens are saved. Next, link your Slack identity below, then send a test message.' : 'Next, save the bridge credentials below and use them to start buzz-acp.'}</p>
+      </div>}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div><h3 className="font-medium">{connection.name}</h3><p className="text-xs text-muted-foreground">{connection.provider === 'slack' ? 'Slack' : 'Buzz'} · {connection.enabled ? 'Enabled' : 'Paused'} · {query.data.agents.find(agent => agent.id === connection.workspaceId)?.name ?? 'Personal orchestrator'}</p></div>
-        {query.data.canManage && <div className="flex gap-2"><Button variant="outline" size="sm" disabled={disabled} onClick={() => mutate.mutate(() => trpcClient.conversationIntegrations.setEnabled.mutate({ id: connection.id, enabled: !connection.enabled }))}>{connection.enabled ? 'Pause' : 'Enable'}</Button>
-          <Button variant="outline" size="sm" disabled={disabled} onClick={() => mutate.mutate(() => trpcClient.conversationIntegrations.remove.mutate({ id: connection.id }))}>Disconnect</Button></div>}
+        <div><h3 className="font-medium">{connection.name}</h3><p className="text-xs text-muted-foreground">{connection.provider === 'slack' ? 'Slack' : 'Buzz'} · {connection.enabled ? 'Enabled' : 'Paused'} · {query.data?.agents.find(agent => agent.id === connection.workspaceId)?.name ?? 'Personal orchestrator'}</p></div>
+        {query.data?.canManage && <div className="flex gap-2"><Button variant="outline" size="sm" disabled={disabled} onClick={() => mutate.mutate(() => trpcClient.conversationIntegrations.setEnabled.mutate({ id: connection.id, enabled: !connection.enabled }))}>{connection.enabled ? 'Pause' : 'Enable'}</Button>
+          <Button variant="outline" size="sm" disabled={disabled} onClick={() => mutate.mutate(async () => { await trpcClient.conversationIntegrations.remove.mutate({ id: connection.id }); if (connection.id === newConnectionId) { setNewConnectionId(null); setBuzzSetup(null); } })}>Disconnect</Button></div>}
       </div>
       {connection.error && <p role="alert" className="text-sm text-destructive">{connection.error}</p>}
-      {query.data.canManage && connection.provider === 'slack' && <div className="flex flex-wrap gap-2">
+      {query.data?.canManage && connection.provider === 'slack' && <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" disabled={disabled} onClick={() => setEditing(editing === connection.id ? null : connection.id)}>Update Slack tokens</Button>
         <Button variant="outline" size="sm" disabled={disabled} onClick={() => mutate.mutate(() => trpcClient.conversationIntegrations.retryDelivery.mutate({ id: connection.id }))}>Retry delivery</Button>
       </div>}
@@ -112,16 +124,38 @@ export function ConversationsSection() {
         <p className="text-xs text-muted-foreground">Use tokens for this same app and workspace. Saved chats and pending replies are kept.</p><Button disabled={disabled}>Reconnect</Button>
       </form>}
       <p className="break-words text-xs text-muted-foreground">{connection.channels.length ? `Channels: ${connection.channels.join(', ')}` : 'Personal DMs only'}</p>
-      {connection.provider === 'slack' && !connection.identities.some(identity => identity.mine) && <div className="space-y-2 border-t pt-3 text-sm">
-        <h4 className="font-medium">6. Link yourself and try a message</h4>
-        <p>Click <strong>Link my Slack identity</strong>, then send its command to this Slack app. Each person links their own Ri sign-in.</p>
+      {connection.provider === 'slack' && <div className="space-y-3 border-t pt-3 text-sm">
+        <h4 className="font-medium">6. Link your Slack identity</h4>
+        {connection.identities.some(identity => identity.mine) ? <p role="status" className="font-medium">Slack identity linked. You can send a test message now.</p> : <p>Connect your Slack user to your current Ri sign-in. Each person completes this step for themselves.</p>}
       </div>}
-      <Button variant="outline" size="sm" disabled={disabled || !connection.enabled} onClick={() => mutate.mutate(async () => { const result = await trpcClient.conversationIntegrations.link.mutate({ id: connection.id }); setLink({ id: connection.id, command: result.bridgeCommand ?? result.command, buzz: connection.provider === 'buzz' }); })}>{connection.provider === 'slack' ? 'Link my Slack identity' : 'Authorize my Buzz bridge'}</Button>
-      {link?.id === connection.id && <div className="space-y-2 text-sm"><p>{link.buzz ? 'Run this on the bridge computer with RI_CONVERSATION_TOKEN loaded. It binds that bridge to your current Ri sign-in. Its Buzz identity must use you as its registered owner and the owner-only gate.' : 'Send this to the Slack app in a connected channel. For a personal connection you can use a DM.'} The code expires in 10 minutes.</p><code className="block break-all rounded bg-muted p-2">{link.command}</code><Button variant="outline" size="sm" onClick={() => void navigator.clipboard.writeText(link.command)}>Copy link command</Button></div>}
+      {(connection.provider === 'buzz' || !connection.identities.some(identity => identity.mine)) && <Button variant="outline" size="sm" disabled={disabled || !connection.enabled} onClick={() => mutate.mutate(async () => { const result = await trpcClient.conversationIntegrations.link.mutate({ id: connection.id }); setLink({ id: connection.id, command: result.bridgeCommand ?? result.command, buzz: connection.provider === 'buzz', expiresAt: Date.now() + result.expiresInMinutes * 60_000 }); })}>{connection.provider === 'buzz' ? 'Authorize my Buzz bridge' : link?.id === connection.id ? 'Generate new link code' : 'Link my Slack identity'}</Button>}
+      {link?.id === connection.id && (link.buzz || !connection.identities.some(identity => identity.mine)) && <div className="space-y-3 text-sm">
+        {link.buzz ? <p>Run this on the bridge computer with RI_CONVERSATION_TOKEN loaded. It binds that bridge to your current Ri sign-in. Its Buzz identity must use you as its registered owner and the owner-only gate.</p> : <>
+          <p><strong>In Slack:</strong> {query.data?.team || connection.channels.length ? <>Open one of the connected channels above. Type <strong>@</strong> and select this Slack app, then paste the command below after the mention. Send it as one message.</> : <>Open a DM with this Slack app and send the command below.</>}</p>
+          {!query.data?.team && connection.channels.length > 0 && <p>You can also send the command in a DM with this Slack app.</p>}
+        </>}
+        <code className="block break-all rounded bg-muted p-2">{link.command}</code>
+        <Button variant="outline" size="sm" onClick={() => void navigator.clipboard.writeText(link.command).then(() => setCopiedLinkCommand(link.command)).catch(error => setNotice(apiErrorText(error)))}>{copiedLinkCommand === link.command ? 'Link command copied' : 'Copy link command'}</Button>
+        <p className="text-muted-foreground">The code expires in 10 minutes. Generate a new link code if it expires.</p>
+        {!link.buzz && <>
+          <p>Slack should reply: “Your identity is linked. Send your message again to begin.” Ri checks for that link automatically until the code expires.</p>
+          <p role="status">Waiting for your Slack message…</p>
+          <Button variant="outline" size="sm" disabled={query.isFetching} onClick={() => void query.refetch()}>{query.isFetching ? 'Checking…' : 'Check link'}</Button>
+        </>}
+      </div>}
       {connection.identities.map(identity => <p key={identity.id} className="flex items-center gap-2 text-xs">{identity.externalUserId}{identity.mine ? ' (you)' : ''}{identity.mine && <button type="button" className="underline" disabled={disabled} onClick={() => mutate.mutate(() => trpcClient.conversationIntegrations.unlink.mutate({ id: identity.id }))}>Unlink</button>}</p>)}
-      {connection.provider === 'slack' && <p className="text-sm text-muted-foreground">After linking, mention this app in a connected channel and say hello. For personal connections, you can also send a DM. Reply in the same thread to continue. Your conversation appears in Ri too.</p>}
+      {connection.provider === 'slack' && connection.identities.some(identity => identity.mine) && <div className="space-y-2 border-t pt-3 text-sm">
+        <h4 className="font-medium">7. Test a two-way conversation</h4>
+        <ol className="list-decimal space-y-2 pl-5">
+          <li>Send a new message to this Slack app: <strong>Hello. Can you hear me?</strong> {query.data?.team || connection.channels.length ? 'In a connected channel, include the app’s @mention.' : 'Use the same DM.'}</li>
+          <li>Wait for Ri’s reply in Slack. Linking alone does not start a conversation.</li>
+          <li>Reply in that same thread: <strong>What did I just ask?</strong> Ri should answer with the conversation’s context.</li>
+        </ol>
+        <p className="text-muted-foreground">A reply confirms the conversation works in both directions. The same chat appears in Ri, where you can continue it too.</p>
+      </div>}
     </section>)}
-    {query.data?.canManage && <form aria-label="Add a conversation connection" className="space-y-4 rounded-lg border p-4" onSubmit={event => { event.preventDefault(); setNotice(''); create.mutate(); }}>
+    {query.data?.canManage && newConnectionId && <Button variant="outline" onClick={() => setNewConnectionId(null)}>Add another connection</Button>}
+    {query.data?.canManage && !newConnectionId && <form aria-label="Add a conversation connection" className="space-y-4 rounded-lg border p-4" onSubmit={event => { event.preventDefault(); setNotice(''); create.mutate(); }}>
       <h3 className="font-medium">Add a conversation connection</h3>
       <div className="space-y-2"><Label htmlFor="conversation-provider">Service</Label><select id="conversation-provider" className="w-full rounded-md border bg-background p-2" value={provider} onChange={event => setProvider(event.target.value as 'slack' | 'buzz')}><option value="slack">Slack</option><option value="buzz">Buzz by Block</option></select></div>
       {provider === 'slack' ? <ol className="space-y-5">
