@@ -2,9 +2,9 @@ import type { SharedTaskSource } from '@/db/types';
 
 export type Theme = 'dark' | 'light';
 export type WorkMode = 'light' | 'deep' | null;
-/** Tabs in the agent view's tools panel (docs/agents-view-spec.md Phase 7). */
-export type AgentTab = 'overview' | 'files' | 'terminal' | 'preview' | 'setup';
-export const AGENT_TABS: readonly AgentTab[] = ['overview', 'files', 'terminal', 'preview', 'setup'];
+/** Tabs in the agent view's tools panel (docs/agents-view-spec.md Phase 7). The terminal is a drawer, not a tab (§10). */
+export type AgentTab = 'overview' | 'files' | 'preview' | 'setup';
+export const AGENT_TABS: readonly AgentTab[] = ['overview', 'files', 'preview', 'setup'];
 
 /**
  * What fills the main area: Home (the deck and chat panels), an agent's

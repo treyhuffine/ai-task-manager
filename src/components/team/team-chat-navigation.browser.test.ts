@@ -40,7 +40,7 @@ beforeAll(async () => {
       './agent-header': `import React from 'react';export const AgentHeader=({workspace,pane})=><header><h2>{workspace.name}</h2>{pane&&<><button onClick={()=>pane.onChange('chat')}>Chat pane</button><button onClick={()=>pane.onChange('tools')}>Tools pane</button></>}</header>;`,
       './agent-overview': `import React from 'react';export const AgentOverview=()=> <div>Agent overview</div>;`,
       './agent-files': `import React from 'react';export const AgentFiles=()=> <div>Files body</div>;`,
-      './agent-terminal': `import React from 'react';export const AgentTerminal=()=> <div>Terminal body</div>;`,
+      '../execution-terminal-panel': `import React from 'react';export const ExecutionTerminalPanel=()=> <div>Terminal body</div>;`,
       './agent-preview': `import React from 'react';export const AgentPreview=()=> <div>Preview body</div>;`,
       './agent-setup': `import React from 'react';export const AgentSetup=()=> <div>Setup body</div>;`,
       '@/components/chat-ui/artifacts/artifact-preview-provider': `export const useBesidePreview=()=>null;export const useBesideRegion=()=>{};`,
@@ -53,13 +53,13 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => { await fixture?.close(); });
 
-it.skipIf(!enabled).each([390, 1280])('retains the linked conversation through Files, Terminal, Preview and reload at %ipx', async width => {
+it.skipIf(!enabled).each([390, 1280])('retains the linked conversation through Files, Preview, Setup and reload at %ipx', async width => {
   const page = await fixture.browser.newPage({ viewport: { width, height: 850 } });
   try {
     await page.goto(fixture.url + '?view=chat&chat=linked-X');
     await page.getByText('Conversation linked-X', { exact: true }).waitFor();
     if (width === 390) await page.getByRole('button', { name: 'Tools pane' }).click();
-    for (const name of ['Files', 'Terminal', 'Preview']) {
+    for (const name of ['Files', 'Preview', 'Setup']) {
       await page.getByRole('tab', { name, exact: true }).click();
       expect(new URL(page.url()).searchParams.get('chat')).toBe('linked-X');
       await expect.poll(() => page.getByRole('tab', { name, exact: true }).getAttribute('aria-selected')).toBe('true');

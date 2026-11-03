@@ -1,15 +1,15 @@
 'use client';
 
-import { ChevronLeft, GitBranch, PanelRightClose, PanelRightOpen, Plus } from 'lucide-react';
+import { ChevronLeft, GitBranch, Plus } from 'lucide-react';
 import { useAgentExecutions } from '@/hooks/use-agent';
 import { useRunOn } from '@/hooks/use-workspaces';
 import { openLauncher } from '@/components/workspaces/launcher/launcher-store';
 import type { WorkspaceRecord } from '@/db/types';
 import { cn } from '@/lib/utils';
-import { HOTKEYS } from '@/constants/commands';
 import { AgentIcon } from './agent-icon';
 import type { AgentPane } from './agent-view';
 import { Tip } from '@/components/ui/tip';
+import { WorkbenchToggles } from '@/components/executions/workbench/workbench-toggles';
 
 /** Home-relative display of an absolute path, the way a shell prompt shows it. */
 function displayPath(path: string): string {
@@ -19,21 +19,27 @@ function displayPath(path: string): string {
 
 /**
  * The agent view's header: who the agent is, where it lives, how much of
- * its work is running or waiting on you, and the way to start more.
+ * its work is running or waiting on you, and the way to start more. Then
+ * the execution view's labeled **Terminal** and **Tools** toggles
+ * (`WorkbenchToggles`), the same buttons and hotkeys in the same place, so
+ * the two pages work alike. The agent's icon, name and folder are what tell
+ * this page from a chat's, which leads with the agent › chat title.
  */
 export function AgentHeader({
   workspace,
-  toolsCollapsed,
-  onToggleTools,
+  terminal,
+  tools,
   onBack,
   pane,
 }: {
   workspace: WorkspaceRecord;
-  toolsCollapsed: boolean;
-  onToggleTools: () => void;
+  /** The terminal drawer's toggle. Left out where there's no terminal (a phone or tablet). */
+  terminal?: { open: boolean; onToggle: () => void };
+  /** The tools panel's toggle, with what it reopens. Left out in one-pane mode, which has the switch. */
+  tools?: { open: boolean; onToggle: () => void; showLabel: string };
   /** Phone layout: a back button to the agents list. */
   onBack?: () => void;
-  /** Narrow layout: the Chat / Tools switch, in place of the collapse button. */
+  /** Narrow layout: the Chat / Tools switch, in place of the Tools toggle. */
   pane?: { value: AgentPane; onChange: (pane: AgentPane) => void };
 }) {
   const { working, needsYou } = useAgentExecutions(workspace.id);
@@ -84,16 +90,12 @@ export function AgentHeader({
         <CountPill count={needsYou.length} label="need you" singular="needs you" tone="attention" />
       </div>
 
-      {!pane && (
-        <Tip label={toolsCollapsed ? 'Show tools' : 'Hide tools'} shortcut={HOTKEYS.toggleTools.label}>
-          <button
-            onClick={onToggleTools}
-            className="flex-shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-            aria-label={toolsCollapsed ? 'Show tools' : 'Hide tools'}
-          >
-            {toolsCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
-          </button>
-        </Tip>
+      {(terminal || tools) && (
+        // Badges fold below 900px of header, labels below 640px, as the
+        // execution header's do at its own widths.
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <WorkbenchToggles terminal={terminal} tools={tools} fold={{ label: '@max-[640px]:hidden', kbd: '@max-[900px]:hidden' }} />
+        </div>
       )}
       </div>
       {pane && (

@@ -1,8 +1,6 @@
 'use client';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { HOTKEYS } from '@/constants/commands';
-import { Kbd } from '@/components/ui/kbd';
 import { useWorkNavigation } from '@/contexts/work-context';
 import type { WorkspaceRecord } from '@/db/types';
 import { useArchiveExecution } from '@/hooks/use-archive-execution';
@@ -35,6 +33,7 @@ import { Tip } from '@/components/ui/tip';
 import { CoordinationSettings } from '@/components/chat-ui/coordination/controls';
 import { ExecutionResultsShortcut } from '@/components/results/execution-results-shortcut';
 import { ScheduleChatButton } from '@/components/triggers/schedule-chat-button';
+import { WorkbenchToggles } from './workbench/workbench-toggles';
 
 interface ExecutionHeaderProps {
   session: ChatSessionWithExecution;
@@ -469,24 +468,11 @@ export function ExecutionHeader({
         {session.executionId && <ExecutionResultsShortcut executionId={session.executionId} />}
 
         {workbench && (
-          <>
-            <ToggleButton
-              on={workbench.terminalOpen}
-              onClick={workbench.onToggleTerminal}
-              label="Terminal"
-              title={`${workbench.terminalOpen ? 'Hide' : 'Show'} the terminal. Shells keep running.`}
-              shortcut={HOTKEYS.toggleTerminal.label}
-              icon={<BottomPanelIcon filled={workbench.terminalOpen} />}
-            />
-            <ToggleButton
-              on={workbench.panelOpen}
-              onClick={workbench.onTogglePanel}
-              label="Tools"
-              title={workbench.panelOpen ? 'Hide the tools panel' : `Show ${workbench.panelLabel}`}
-              shortcut={HOTKEYS.toggleTools.label}
-              icon={<RightPanelIcon filled={workbench.panelOpen} />}
-            />
-          </>
+          <WorkbenchToggles
+            terminal={{ open: workbench.terminalOpen, onToggle: workbench.onToggleTerminal }}
+            tools={{ open: workbench.panelOpen, onToggle: workbench.onTogglePanel, showLabel: workbench.panelLabel }}
+            fold={{ label: '@max-[1040px]/exec:hidden', kbd: '@max-[1200px]/exec:hidden' }}
+          />
         )}
 
         {showGit && workspace && (
@@ -503,69 +489,6 @@ export function ExecutionHeader({
       {/* What this workstream is working — one task or several. */}
       {session.executionId && <ExecutionTaskChips executionId={session.executionId} />}
     </div>
-  );
-}
-
-/**
- * A labeled layout toggle. The words are on purpose: the two panel glyphs
- * are nearly identical, and a redundant label costs less than a wrong
- * click. Shortcut badges fold away first, then labels fold to icons when
- * the header runs out of room. The tooltip keeps the shortcut available.
- */
-function ToggleButton({
-  on,
-  onClick,
-  label,
-  title,
-  shortcut,
-  icon,
-}: {
-  on: boolean;
-  onClick: () => void;
-  label: string;
-  title: string;
-  shortcut: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <Tip label={title} shortcut={shortcut}>
-      <button
-        type="button"
-        onClick={onClick}
-        aria-label={label}
-        aria-pressed={on}
-        className={cn(
-          'flex h-7 flex-shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium transition-colors',
-          on ? 'bg-muted/70 text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-        )}
-      >
-        {icon}
-        <span className="@max-[1040px]/exec:hidden">{label}</span>
-        <Kbd aria-hidden className="@max-[1200px]/exec:hidden">
-          {shortcut}
-        </Kbd>
-      </button>
-    </Tip>
-  );
-}
-
-function BottomPanelIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M3 15h18" />
-      {filled && <path d="M3 15h18v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor" />}
-    </svg>
-  );
-}
-
-function RightPanelIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect width="18" height="18" x="3" y="3" rx="2" />
-      <path d="M15 3v18" />
-      {filled && <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4z" fill="currentColor" />}
-    </svg>
   );
 }
 

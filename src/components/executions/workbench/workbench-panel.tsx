@@ -9,12 +9,9 @@ import {
   FileText,
   GitCompareArrows,
   ListTodo,
-  Maximize2,
-  Minimize2,
   MoreHorizontal,
   NotebookPen,
   Play,
-  X,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -29,6 +26,7 @@ import { WorkbenchViewBody, type WorkbenchViewContext } from './workbench-views'
 import { MORE_VIEWS, PANEL_VIEW_LABELS, PRIMARY_VIEWS, type PanelView } from './workbench-state';
 import { Tip } from '@/components/ui/tip';
 import { BesideFileTab } from '@/components/chat-ui/artifacts/artifact-beside';
+import { PanelWindowControls, panelTabClass } from './panel-strip';
 
 export const VIEW_ICONS: Record<PanelView, React.ComponentType<{ size?: number; className?: string }>> = {
   run: Play,
@@ -88,10 +86,7 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
                 onClick={() => show(v)}
                 onDoubleClick={() => dispatch({ type: 'toggleMaximize' })}
                 aria-pressed={on}
-                className={cn(
-                  '-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 text-[12.5px] font-medium transition-colors',
-                  on ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
-                )}
+                className={cn('flex items-center gap-1.5', panelTabClass(on))}
               >
                 <Icon size={13} />
                 <span className="@max-[560px]/panel:hidden">{PANEL_VIEW_LABELS[v]}</span>
@@ -109,10 +104,7 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
           <DropdownMenuTrigger asChild>
             <Tip label="Notes & tasks, Scratchpad">
               <button
-                className={cn(
-                  '-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 text-[12.5px] font-medium outline-none transition-colors',
-                  moreActive ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
-                )}
+                className={cn('flex items-center gap-1.5 outline-none', panelTabClass(moreActive))}
               >
                 <MoreIcon size={13} />
                 <span className="@max-[560px]/panel:hidden">{moreActive ? PANEL_VIEW_LABELS[view] : 'More'}</span>
@@ -143,36 +135,15 @@ export function WorkbenchPanel({ workbench, ctx, changedFiles, linkedCount, scra
           host={ctx.besideHost}
           active={view === 'file'}
           onSelect={() => jump('file')}
-          className={cn(
-            '-mb-px gap-0.5 border-b-2 px-2.5 text-[12.5px] font-medium transition-colors',
-            view === 'file' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
-          )}
+          className={cn('gap-0.5', panelTabClass(view === 'file'))}
         />
 
         <span className="flex-1" />
-        <Tip
-          label={state.maximized ? 'Bring the chat back' : 'Expand to the whole view (or double-click a tab)'}
-          shortcut={state.maximized ? 'Esc' : undefined}
-        >
-          <button
-            type="button"
-            onClick={() => dispatch({ type: 'toggleMaximize' })}
-            aria-label={state.maximized ? 'Restore the chat' : 'Expand the panel'}
-            className="my-1 inline-flex w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-          >
-            {state.maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-          </button>
-        </Tip>
-        <Tip label="Close the panel" shortcut="Esc">
-          <button
-            type="button"
-            onClick={() => dispatch({ type: 'close' })}
-            aria-label="Close the panel"
-            className="my-1 inline-flex w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-          >
-            <X size={14} />
-          </button>
-        </Tip>
+        <PanelWindowControls
+          maximized={state.maximized}
+          onToggleMaximize={() => dispatch({ type: 'toggleMaximize' })}
+          onClose={() => dispatch({ type: 'close' })}
+        />
       </div>
 
       {state.from && (

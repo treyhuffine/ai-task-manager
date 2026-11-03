@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useMemo } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useOptionalDashboard } from '@/contexts/dashboard-context';
 import type { AgentTab } from '@/types/dashboard';
+import { isAgentTab } from '@/lib/client/active-view';
 import type { TeamSettingsSectionId } from './team-settings-sections';
 
 export interface TeamIdentity {
@@ -42,7 +43,7 @@ export function useTeamNav() {
   const chatId = params.get('chat') ?? params.get('session');
   const agentId = params.get('agent');
   const rawTab = params.get('tab') ?? params.get('agentTab');
-  const agentTab = ['overview', 'files', 'terminal', 'preview', 'setup'].includes(rawTab ?? '') ? rawTab as AgentTab : undefined;
+  const agentTab = isAgentTab(rawTab) ? rawTab : undefined;
   const areaId = params.get('area');
   const mine = params.get('mine') === '1';
   /** Notes marked as decisions only (docs/homes-spec.md §9.7). */

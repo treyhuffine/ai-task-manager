@@ -7,7 +7,9 @@ it.each([
   ['view=chat&chat=legacy', { kind: 'execution', id: 'legacy' }],
   ['chat=legacy', { kind: 'execution', id: 'legacy' }],
   ['view=agents&agent=one&agentTab=files', { kind: 'agent', id: 'one', tab: 'files' }],
-  ['agent=one&tab=terminal&chat=two', { kind: 'agent', id: 'one', tab: 'terminal', chat: 'two' }],
+  ['agent=one&tab=files&chat=two', { kind: 'agent', id: 'one', tab: 'files', chat: 'two' }],
+  // The terminal is a drawer now, not a tab: an old bookmark still opens the agent and its chat.
+  ['agent=one&tab=terminal&chat=two', { kind: 'agent', id: 'one', chat: 'two' }],
   ['session=execution&agent=one', { kind: 'execution', id: 'execution' }],
 ])('preserves Team bookmarks %s', (search, expected) => expect(teamDashboardView(new URLSearchParams(search))).toEqual(expected));
 it('retains personal parsing and default composition', () => {

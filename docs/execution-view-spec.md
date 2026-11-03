@@ -71,7 +71,9 @@ The header, Close chat, tools list and tooltip shortcuts use the shared
 `Kbd` component, with the same compact monospace text and corner radius.
 The badges hide below 1200px of chat-view width, before the labels fold to
 icons below 1040px. Both controls keep accessible names and their tooltip
-shortcuts at every width.
+shortcuts at every width. The toggles are `WorkbenchToggles`
+(`workbench/workbench-toggles.tsx`), shared with the agent view's header,
+which folds them at its own widths (docs/agents-view-spec.md §10).
 
 **Status is precise and scoped.** The header describes the selected chat:
 Working, Needs input, Finished 5m ago (never "Ready", since a finished
@@ -184,7 +186,10 @@ open large.
 
 **Terminal.** A drawer across the whole bottom (under the chat and the
 panel), resizable and expandable. Mounted only while open. Hiding it never
-kills a shell: PTYs live on the server and reattach with their output.
+kills a shell: PTYs live on the server and reattach with their output. The
+drawer and the chat and panel split are `TerminalSplit` and `PanelSplit`
+(`workbench/workbench-layout.tsx`), shared with the agent view, whose
+drawer runs in the agent's own folder (docs/agents-view-spec.md §10).
 
 **Navigation rules** (`workbench/workbench-state.ts`, tested):
 1. A tab, box row or More item is a peer switch and builds no history.
@@ -195,7 +200,8 @@ kills a shell: PTYs live on the server and reattach with their output.
 4. Escape restores an expanded panel first, then closes it. It never
    touches the terminal, text fields, menus or dialogs.
 5. The panel view and terminal persist per execution. Panel width and
-   terminal height are global.
+   terminal height are global, and the terminal height is one preference
+   with the agent view's drawer.
 6. Chat tabs hold conversations only, never files. Switching chats keeps
    the workbench, the preview, the files and the terminal.
 7. A file opened from the chat is a jump to the `file` view. Closing it
@@ -271,8 +277,9 @@ Files selector (⋯ for the rest). If the chat needs an answer meanwhile, a
 
 **Hotkeys** (`src/constants/commands.ts`): ⌃` toggles the terminal
 (captured so a focused terminal can't swallow it), ⌃. shows or hides the
-tools panel the way the Tools toggle does (the agent view uses it for its
-tools too). Both toggles use the literal Ctrl key on macOS, Windows and
+tools panel the way the Tools toggle does. The agent view has the same
+keys, through the same hook (`workbench/use-workbench-hotkeys.ts`,
+docs/agents-view-spec.md §10). Both toggles use the literal Ctrl key on macOS, Windows and
 Linux, declared with `ctrl: true` rather than the shared Cmd/Ctrl modifier.
 ⌘P opens Files and focuses the tree search, Esc as above.
 

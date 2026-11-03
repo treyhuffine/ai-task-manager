@@ -20,7 +20,8 @@ const TERMINAL_HEIGHT_KEY = 'ri.execution.workbench.terminalPct';
 export const DEFAULT_PANEL_PCT = 52;
 export const DEFAULT_TERMINAL_PCT = 34;
 
-function readJson(key: string): unknown {
+/** A stored JSON value, or null when there's none, it's unreadable, or there's no window. */
+export function readJson(key: string): unknown {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(key);
@@ -30,7 +31,7 @@ function readJson(key: string): unknown {
   }
 }
 
-function writeJson(key: string, value: unknown) {
+export function writeJson(key: string, value: unknown) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
@@ -41,6 +42,27 @@ function writeJson(key: string, value: unknown) {
 function readPct(key: string, fallback: number, min: number, max: number): number {
   const n = readJson(key);
   return typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max ? n : fallback;
+}
+
+/**
+ * A size in % of its container, kept as a global preference under `key`:
+ * read once on mount, written on each commit (a drag's release).
+ */
+export function usePersistedPct(key: string, fallback: number, min: number, max: number): [number, (pct: number) => void] {
+  const [pct, setPctState] = useState(() => readPct(key, fallback, min, max));
+  const setPct = useCallback((next: number) => {
+    setPctState(next);
+    writeJson(key, next);
+  }, [key]);
+  return [pct, setPct];
+}
+
+/**
+ * The terminal drawer's height. One preference for every drawer, the
+ * execution view's and the agent view's, since it's the same drawer.
+ */
+export function useTerminalHeight(): [number, (pct: number) => void] {
+  return usePersistedPct(TERMINAL_HEIGHT_KEY, DEFAULT_TERMINAL_PCT, 12, 80);
 }
 
 export interface Workbench {
@@ -63,7 +85,8 @@ export interface Workbench {
  * Workbench state for one execution: which panel view is open, the back
  * pill, expand, and the terminal drawer. The durable parts persist per
  * execution, so coming back to an execution restores the panel as it was
- * left. The panel width and terminal height are global preferences.
+ * left. The panel width and terminal height are global preferences, and
+ * the terminal height is shared with the agent view's drawer.
  *
  * `worktreeId` is the execution id (or the chat's own id without one), so
  * hopping between chats on one execution keeps the same workbench.
@@ -97,16 +120,8 @@ export function useWorkbench(resourceId: string): Workbench {
   const jump = useCallback((view: PanelView) => dispatch({ type: 'jump', view }), [dispatch]);
   const openedThisVisit = useCallback((view: PanelView) => openedRef.current.has(view), []);
 
-  const [panelPct, setPanelPctState] = useState(() => readPct(PANEL_WIDTH_KEY, DEFAULT_PANEL_PCT, 25, 80));
-  const [terminalPct, setTerminalPctState] = useState(() => readPct(TERMINAL_HEIGHT_KEY, DEFAULT_TERMINAL_PCT, 12, 80));
-  const setPanelPct = useCallback((pct: number) => {
-    setPanelPctState(pct);
-    writeJson(PANEL_WIDTH_KEY, pct);
-  }, []);
-  const setTerminalPct = useCallback((pct: number) => {
-    setTerminalPctState(pct);
-    writeJson(TERMINAL_HEIGHT_KEY, pct);
-  }, []);
+  const [panelPct, setPanelPct] = usePersistedPct(PANEL_WIDTH_KEY, DEFAULT_PANEL_PCT, 25, 80);
+  const [terminalPct, setTerminalPct] = useTerminalHeight();
 
   return { state, dispatch, show, jump, openedThisVisit, panelPct, setPanelPct, terminalPct, setTerminalPct };
 }
