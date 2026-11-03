@@ -129,7 +129,7 @@ export function ConversationsSection() {
         {connection.identities.some(identity => identity.mine) ? <p role="status" className="font-medium">Slack identity linked. You can send a test message now.</p> : <p>Connect your Slack user to your current Ri sign-in. Each person completes this step for themselves.</p>}
         {!query.data?.team && <details className="space-y-2 text-muted-foreground">
           <summary className="cursor-pointer">Can’t send a DM to this app?</summary>
-          <p>If Slack says “Sending messages to this app has been turned off,” open your Slack app’s <strong>App Home → Show Tabs → Messages Tab</strong>. Enable the Messages tab and <strong>Allow users to send Slash commands and messages from the messages tab</strong>.</p>
+          <p>If Slack says “Sending messages to this app has been turned off,” open <strong>App Manifest</strong> in your Slack app settings. Under <code>features.app_home</code>, set <code>messages_tab_enabled</code> to <code>true</code> and <code>messages_tab_read_only_enabled</code> to <code>false</code>.</p>
           <p>Save any changes, reload Slack, then try sending your link command again. Ri’s current manifest enables this setting, but your installed app may have different settings.</p>
           <a className="inline-block underline" href="https://api.slack.com/apps" target="_blank" rel="noreferrer">Open Slack app settings</a>
         </details>}

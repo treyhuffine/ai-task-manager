@@ -54,6 +54,7 @@ it('runs a Slack request as the linked team member through the native team agent
     const chat = q.listTeamChats().find(chat => q.runningTeamChatTurn(chat.id));
     requestingMember = chat ? q.runningTeamChatTurn(chat.id)?.memberId : undefined;
     expect(turn.message).toContain('Maya');
+    expect(turn.message).toContain('Response format for this Slack conversation');
     await turn.say('The team release plan is ready.');
   });
   const accepted = message(connection, '100.000001')!;

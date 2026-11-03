@@ -55,6 +55,8 @@ export interface SessionSpec {
   standingInstructions?: string;
   /** Role and scope fallback delivered on every submitted turn when native instructions are unavailable. */
   messagePreamble?: string | null;
+  /** External conversation audience and reply format, delivered on every turn on all harnesses. */
+  conversationInstructions?: string | null;
   /** Immutable home-assigned reviewer request. Runners may submit only this run and text. */
   readOnlyReview?: { runId: string; message: string } | null;
   /** A brief to put before the first message of a fresh session, for harnesses that drop session instructions. */

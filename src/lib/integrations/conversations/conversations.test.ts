@@ -59,7 +59,13 @@ function savedThread(channelId = 'C001', threadId = '123.000001') {
 }
 
 it('runs a real Ri conversation from a Slack mention, deduplicates it, and returns the reply to its thread', async () => {
-  harness.onTurn(async turn => { expect(turn.message).toContain('Review the release'); await turn.say('The release checklist is ready.'); });
+  harness.onTurn(async turn => {
+    expect(turn.message).toContain('Review the release');
+    expect(turn.message).toContain('Response format for this Slack conversation');
+    expect(turn.message).toContain("replace Ri's UI-only entity-reference");
+    expect(turn.message).toContain('actual task, note, area and agent names');
+    await turn.say('The release checklist is ready.');
+  });
   const accepted = event('<@UBOT> Review the release');
   expect(accepted).toMatchObject({ accepted: true });
   expect(event('<@UBOT> Review the release')).toMatchObject({ inputId: accepted?.inputId });
@@ -191,6 +197,27 @@ it('retries a failed Slack reply without repeating the model and resumes long re
   expect(harness.sessions).toHaveLength(0);
 });
 
+it('resolves Ri cards and Markdown once before Slack delivery and keeps retries stable', async () => {
+  const task = q.createTask({ title: 'Ship the release' });
+  const area = q.createArea({ name: 'Product & engineering' });
+  const thread = savedThread();
+  q.queueConversationOutput(thread.id, 'card-reply', `**Due Thursday**\n\n[[task:${task.id}]]\n\n[[area:${area.id}]]`);
+  const output = q.conversationOutputsForConnection(connection.id)[0];
+  expect(output.content).toBe('*Due Thursday*\n\nShip the release\n\nProduct &amp; engineering');
+  let posts = 0;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+    sent.push({ method: String(url).split('/').at(-1)!, body: JSON.parse(String(init.body)) });
+    return Response.json(++posts === 1 ? { ok: false, error: 'ratelimited' } : { ok: true });
+  }));
+  await slack.deliverSlackOutputs();
+  expect(q.getConversationOutput(output.id)?.status).toBe('pending');
+  q.updateTask(task.id, { title: 'Changed after the reply was queued' }, { source: 'human' });
+  q.updateConversationOutput(output.id, { nextAttemptAt: new Date(0).toISOString() });
+  await slack.deliverSlackOutputs();
+  expect(sent.filter(row => row.method === 'chat.postMessage').map(row => row.body.text)).toEqual([output.content, output.content]);
+  expect(q.getConversationOutput(output.id)?.status).toBe('sent');
+});
+
 it('rotates Slack credentials while preserving the linked conversation and unsent reply parts', async () => {
   const thread = savedThread();
   q.queueConversationOutput(thread.id, 'saved-reply', 'x'.repeat(6500));
@@ -240,7 +267,10 @@ it('returns a restarted run failure even when the model emitted no assistant tex
 });
 
 it('relays human continuation and the resulting reply from Ri without echoing Slack input', async () => {
-  harness.onTurn(async turn => { await turn.say(turn.message.includes('Check again') ? 'Checked again.' : 'First answer.'); });
+  harness.onTurn(async turn => {
+    expect(turn.message).toContain('Response format for this Slack conversation');
+    await turn.say(turn.message.includes('Check again') ? 'Checked again.' : 'First answer.');
+  });
   const accepted = event('<@UBOT> Hello')!;
   await drainConversations();
   await vi.waitFor(() => expect(sent.some(row => row.body.text === 'First answer.')).toBe(true), { timeout: 15_000 });

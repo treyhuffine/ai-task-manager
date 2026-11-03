@@ -85,6 +85,29 @@ describe('scoped handoff guidance and general agent instructions at the dispatch
     return { workspace, session };
   }
 
+  it.each(['claude', 'codex', 'cursor', 'opencode', 'antigravity'] as const)(
+    'delivers Slack presentation and audience on fresh, resumed and cached %s turns', async harness => {
+      for (const resumed of [false, true]) {
+        const { session } = seed(harness, 'app', resumed);
+        const connection = q.createConversationConnection({ id: session.id, provider: 'slack', name: 'Ri Personal',
+          enabled: true, workspaceId: null, externalWorkspaceId: 'T001', externalAgentId: resumed ? 'UBOT_RESUMED' : 'UBOT_FRESH', channels: ['C001'] });
+        const thread = q.ensureConversationThread(connection.id, 'C001', '123.000001');
+        q.bindConversationThread(thread.id, session.id);
+        await executor.dispatch(session.id, 'List my tasks.', { internalCall: true });
+        const handle = await mock.createSession.mock.results.at(-1)!.value;
+        await executor.dispatch(session.id, 'And the overdue ones?', { internalCall: true });
+        for (const [message] of handle.send.mock.calls as [string][]) {
+          expect(message).toContain('Response format for this Slack conversation');
+          expect(message).toContain('actual task, note, area and agent names');
+          expect(message).toContain('delivered to its originating conversation automatically');
+          expect(message).toContain("replace Ri's UI-only entity-reference");
+        }
+        expect(handle.send).toHaveBeenCalledTimes(2);
+        await executor.close(session.id);
+      }
+    },
+  );
+
   it("carries the status line rule on an execution's messages while status lines are on, and on no other chat", async () => {
     const sent = async (surface: string) => {
       const { session } = seed('claude', surface, false);

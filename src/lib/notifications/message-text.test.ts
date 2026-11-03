@@ -58,6 +58,21 @@ describe('messageText', () => {
   it('drops control characters and trailing space', () => {
     expect(messageText('a\u0007b  \n\n\n\nc\td')).toBe('ab\n\nc  d');
   });
+
+  it('renders readable names and Markdown with Slack syntax', () => {
+    const reply = '## Due this week\n\n**Open tasks**\n\n- [[task:aaaaaaaa]]\n- Read [the release plan](https://example.com/plan?a=1&b=2)\n\nUse `pnpm test`.\n\n```ts\na < b && c > d\n```';
+    expect(messageText(reply, () => 'Ship <release> & review', 'slack')).toBe([
+      '*Due this week*', '', '*Open tasks*', '',
+      '• Ship &lt;release&gt; &amp; review',
+      '• Read <https://example.com/plan?a=1&amp;b=2|the release plan>', '',
+      'Use `pnpm test`.', '', '```\na &lt; b &amp;&amp; c &gt; d\n```',
+    ].join('\n'));
+  });
+
+  it('keeps local paths as readable labels without creating inaccessible Slack links', () => {
+    expect(messageText('See [the report](/Users/agent/report.md) and *this note*.', undefined, 'slack'))
+      .toBe('See the report and _this note_.');
+  });
 });
 
 describe('oneLine', () => {

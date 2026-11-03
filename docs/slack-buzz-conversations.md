@@ -29,6 +29,7 @@ Buzz's ACP host supplies conversation context and enforces its author gate. The 
 - [x] Typecheck, lint, relevant regressions and operator setup documentation.
 - [x] Guided Slack setup with token locations, an existing-app path, identity linking and desktop/mobile verification.
 - [x] Persistent save confirmation at the setup location, detected identity links and a guided two-way test.
+- [x] External conversation reply instructions and Slack delivery formatting with readable entity names.
 
 ## Connect Slack
 
@@ -64,7 +65,9 @@ If a token expires or rotates, use **Update Slack tokens** on the existing conne
 
 ### Slack says sending messages is turned off
 
-For a personal connection, open [your Slack app settings](https://api.slack.com/apps), choose the app, then open **App Home > Show Tabs > Messages Tab**. Enable the Messages tab and **Allow users to send Slash commands and messages from the messages tab**. Save any changes and reload Slack, then send the link command again. This is Slack's control for allowing users to type to the app. See [Slack's Socket Mode setup](https://docs.slack.dev/tools/python-slack-sdk/socket-mode/).
+For a personal connection, open [your Slack app settings](https://api.slack.com/apps), choose the app, then open **App Manifest**. Under `features.app_home`, set `messages_tab_enabled` to `true` and `messages_tab_read_only_enabled` to `false`. Save the manifest and reload Slack, then send the link command again. The surrounding `features` settings should stay in place. See [Slack's manifest reference](https://docs.slack.dev/reference/app-manifest/).
+
+Some Slack settings screens also expose this under **App Home > Show Tabs > Messages Tab**, with an **Allow users to send Slash commands and messages from the messages tab** checkbox. The manifest path does not depend on that checkbox being visible.
 
 Ri's generated manifest already contains `features.app_home.messages_tab_enabled: true` and `features.app_home.messages_tab_read_only_enabled: false`. Generating another manifest in Ri does not update an app already installed in Slack. Check the installed app's settings. If the message remains after enabling them and reloading, verify that you changed the same app in the same Slack workspace.
 
@@ -120,6 +123,12 @@ Team chats are shared team records. Team connections refuse private DMs rather t
 
 Current transport support is text, final responses and runtime questions. It does not stream every model token, synchronize message edits or transfer attachments. Existing account tools remain available for broader Slack operations when authorized.
 
+### Response presentation
+
+Each externally connected chat receives a presentation brief on every submitted turn, including resumed turns and work continued from Ri. It overrides Ri's interactive-card reply instructions with readable titles and relevant details, simple lists and ordinary Markdown. The agent keeps its existing tools, instructions and authority. Markers inside saved task and note bodies still create links normally. Slack and Buzz cannot render Ri's interactive cards, tables or custom widgets, so the reply explains when an action needs Ri's UI.
+
+Slack additionally converts reply Markdown to Slack `mrkdwn` before saving it to the delivery outbox. Entity markers become their current titles, so an older chat still emitting `[[task:…]]` sends a readable name. Bold, headings, lists, code and web links use Slack's formatting, while local-file links do not become Slack links. The rendered text is saved once, so retries keep the same text and part boundaries even if a referenced task's title changes. The original Ri transcript is preserved. Buzz keeps its Markdown delivery.
+
 ## Migration and implementation map
 
 `0030_external_conversations.sql` adds five tables: `conversation_connections`, `conversation_identities`, `conversation_threads`, `conversation_inputs` and `conversation_outputs`. `0031_conversation_delivery_indexes.sql` adds indexed lookups for connection threads and input events. These are forward migrations and do not rebuild existing chat tables or change chat rowids.
@@ -153,6 +162,8 @@ The subsequent manifest correction passed 35 focused tests, both setup browser t
 The guided setup passed all five browser checks, typecheck and lint. Browser coverage includes copying a manifest, continuing from an existing app, entering both tokens, saving a DM-only connection, moving to identity linking, replacing tokens, required team destinations and channels, mobile layout and the existing Buzz setup.
 
 The save and linking follow-up passed seven browser checks, typecheck and lint. These verify focus and scrolling inside a settings scroll container on desktop and mobile, a persistent named confirmation, immediate rendering before the connection list catches up, disconnecting that confirmed save, automatic link detection, manual link checking, hiding the consumed code and revealing the two-way test. Credentials are still cleared after saving and Buzz's shown-once credentials remain available.
+
+The response presentation follow-up passed 78 focused conversation, formatting and runner checks, all 29 instruction-delivery checks, the notification regressions and seven setup browser checks, plus typecheck and lint. Instruction tests cover fresh, resumed and cached turns across Claude, Codex, Cursor, OpenCode and Antigravity. A failed delivery followed by a task rename verifies that the retry still sends the originally rendered title. The native instruction path is covered, since conversation presentation must be delivered even when the harness already receives other instructions natively.
 
 Run the focused conversation and migration checks with:
 

@@ -5,6 +5,8 @@ import { conversationConnections as connections, conversationIdentities as ident
 import type { ConversationInput, ConversationOutput, CreateConversationConnection } from '@/db/types';
 import { getAgentHistoryEvent, getChatEventById, getRun } from './queries';
 import { stableCoordinationId } from '@/lib/coordination/ids';
+import { messageText } from '@/lib/notifications/message-text';
+import { nameEntity } from '@/lib/notifications/turn-reply';
 
 export function listConversationConnections() { return getDb().select().from(connections).all(); }
 export function getConversationConnection(id: string) { return getDb().select().from(connections).where(eq(connections.id, id)).get() ?? null; }
@@ -67,6 +69,11 @@ export function cancelQueuedConversationInputs(stop: ConversationInput) {
     or(lt(inputs.createdAt, stop.createdAt), and(eq(inputs.createdAt, stop.createdAt), lt(inputs.id, stop.id))))).run();
 }
 export function queueConversationOutput(threadId: string, key: string, content: string, kind: ConversationOutput['kind'] = 'reply') {
+  const thread = getConversationThread(threadId);
+  if (thread && getConversationConnection(thread.connectionId)?.provider === 'slack') {
+    // Snapshot transport text before the first send, so retries keep the same parts even if a title changes.
+    content = messageText(content, nameEntity, 'slack');
+  }
   getDb().insert(outputs).values({ id: uuidv7(), createdAt: new Date().toISOString(), threadId, key, content, kind, status: 'pending' }).onConflictDoNothing().run();
 }
 export function dueConversationOutputs(threadId?: string) { return getDb().select().from(outputs).where(and(eq(outputs.status, 'pending'), threadId ? eq(outputs.threadId, threadId) : undefined, or(isNull(outputs.nextAttemptAt), lte(outputs.nextAttemptAt, new Date().toISOString())))).orderBy(asc(outputs.createdAt), asc(outputs.id)).limit(50).all(); }

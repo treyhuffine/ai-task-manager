@@ -31,14 +31,14 @@ export type EntityMarkerKind = 'task' | 'note' | 'area' | 'deck' | 'execution' |
 export type NameEntity = (kind: EntityMarkerKind, id: string) => string | null | undefined;
 
 /**
- * A Markdown reply as plain text that still reads like the reply: blocks stay apart, lists keep
+ * A Markdown reply as readable plain text or Slack mrkdwn. Blocks stay apart, lists keep
  * their bullets, code keeps its lines, and links keep a web address a reader can tap.
  */
-export function messageText(markdown: string, nameEntity: NameEntity = () => null): string {
+export function messageText(markdown: string, nameEntity: NameEntity = () => null, format: 'plain' | 'slack' = 'plain'): string {
   const named = markdown.replace(ENTITY_MARKER, (_, kind: EntityMarkerKind, id: string) =>
     escapeMarkdown(nameEntity(kind, id.trim())?.trim() ?? ''),
   );
-  const text = blocks(fromMarkdown(named).children, '\n\n');
+  const text = blocks(fromMarkdown(named).children, '\n\n', format);
   return text
     // Keep line structure; drop control characters a message can't show.
     .replace(/\r\n?/g, '\n')
@@ -129,65 +129,79 @@ function escapeMarkdown(text: string): string {
   return text.replace(/[\\`*_{}[\]()#+\-.!|<>~]/g, '\\$&');
 }
 
-function blocks(nodes: readonly Nodes[], separator: string): string {
-  return nodes.map(block).filter((b) => b.trim() !== '').join(separator);
+type Format = 'plain' | 'slack';
+
+function escapeSlack(text: string): string {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
-function block(node: Nodes): string {
+function blocks(nodes: readonly Nodes[], separator: string, format: Format): string {
+  return nodes.map(node => block(node, format)).filter((b) => b.trim() !== '').join(separator);
+}
+
+function block(node: Nodes, format: Format): string {
   switch (node.type) {
     case 'paragraph':
+      return inline(node.children, format);
     case 'heading':
-      return inline(node.children);
+      return format === 'slack' ? `*${inline(node.children, format)}*` : inline(node.children, format);
     case 'code':
+      return format === 'slack' ? `\`\`\`\n${escapeSlack(node.value)}\n\`\`\`` : node.value;
     case 'html':
-      return node.value;
+      return format === 'slack' ? escapeSlack(node.value) : node.value;
     case 'blockquote':
-      return blocks(node.children, '\n\n').replace(/^/gm, '> ');
+      return blocks(node.children, '\n\n', format).replace(/^/gm, '> ');
     case 'list':
-      return list(node);
+      return list(node, format);
     case 'thematicBreak':
     case 'definition':
       return '';
     default:
-      return 'children' in node ? blocks(node.children as Nodes[], '\n\n') : 'value' in node ? String(node.value) : '';
+      return 'children' in node ? blocks(node.children as Nodes[], '\n\n', format) : 'value' in node ? String(node.value) : '';
   }
 }
 
-function list(node: List): string {
+function list(node: List, format: Format): string {
   const start = node.start ?? 1;
   return node.children
     .map((item, i) => {
       const bullet = node.ordered ? `${start + i}. ` : '• ';
-      const body = blocks(item.children, item.spread ? '\n\n' : '\n');
+      const body = blocks(item.children, item.spread ? '\n\n' : '\n', format);
       return bullet + body.replace(/\n(?=.)/g, `\n${' '.repeat(bullet.length)}`);
     })
     .join(node.spread ? '\n\n' : '\n');
 }
 
-function inline(nodes: readonly PhrasingContent[]): string {
+function inline(nodes: readonly PhrasingContent[], format: Format): string {
   return nodes
     .map((node) => {
       switch (node.type) {
         case 'text':
+          return format === 'slack' ? escapeSlack(node.value) : node.value;
         case 'inlineCode':
+          return format === 'slack' ? `\`${escapeSlack(node.value)}\`` : node.value;
         case 'html':
-          return node.value;
+          return format === 'slack' ? escapeSlack(node.value) : node.value;
         case 'break':
           return '\n';
         case 'emphasis':
+          return format === 'slack' ? `_${inline(node.children, format)}_` : inline(node.children, format);
         case 'strong':
+          return format === 'slack' ? `*${inline(node.children, format)}*` : inline(node.children, format);
         case 'delete':
+          return format === 'slack' ? `~${inline(node.children, format)}~` : inline(node.children, format);
         case 'linkReference':
-          return inline(node.children);
+          return inline(node.children, format);
         case 'link': {
-          const label = inline(node.children);
+          const label = inline(node.children, format);
           // A web address is worth keeping where a reader can tap it. App paths and local files aren't.
           if (!/^https?:\/\//i.test(node.url) || label.includes(node.url)) return label;
+          if (format === 'slack') return `<${escapeSlack(node.url)}|${label.replaceAll('|', '¦')}>`;
           return label.trim() ? `${label} (${node.url})` : node.url;
         }
         case 'image':
         case 'imageReference':
-          return node.alt ?? '';
+          return format === 'slack' ? escapeSlack(node.alt ?? '') : node.alt ?? '';
         default:
           return '';
       }
