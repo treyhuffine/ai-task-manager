@@ -21,7 +21,13 @@ export async function slackApi<T extends object = Record<string, unknown>>(token
 }
 
 export function slackConversationManifest(name: string) {
-  return { display_information: { name }, features: { bot_user: { display_name: name }, agent_view: { enabled: true } },
+  const appName = z.string().trim().min(1).max(35).parse(name);
+  const botName = appName.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'ri';
+  return { display_information: { name: appName }, features: {
+    app_home: { messages_tab_enabled: true, messages_tab_read_only_enabled: false },
+    bot_user: { display_name: botName },
+    agent_view: { agent_description: 'Talk to your Ri orchestrator or team agent.' },
+  },
     oauth_config: { scopes: { bot: ['app_mentions:read', 'chat:write', 'im:history', 'channels:history', 'groups:history', 'assistant:write'] } },
     settings: { socket_mode_enabled: true, event_subscriptions: { bot_events: ['app_mention', 'message.im', 'message.channels', 'message.groups', 'agent_session_stopped'] } } };
 }

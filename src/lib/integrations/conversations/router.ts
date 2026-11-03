@@ -36,7 +36,7 @@ export const conversationIntegrationsRouter = router({
       identities: q.listConversationIdentities(connection.id).filter(identity => canManage || identity.apiKeyId === key.apiKeyId).map(identity => ({ id: identity.id, externalUserId: identity.externalUserId, memberId: identity.memberId, mine: identity.apiKeyId === key.apiKeyId })) })),
       agents: q.listWorkspaces({ status: 'active' }).map(agent => ({ id: agent.id, name: agent.name })) };
   }),
-  manifest: p.input(z.object({ name: z.string().trim().min(1).max(60) }).strict()).query(({ input }) => slackConversationManifest(input.name)),
+  manifest: p.input(z.object({ name: z.string().trim().min(1).max(35) }).strict()).query(({ input }) => slackConversationManifest(input.name)),
   create: p.input(z.object({ provider: z.enum(['slack', 'buzz']), name: z.string().trim().min(1).max(60), workspaceId: z.string().nullable(),
     channels: z.array(z.string().trim().min(1).max(100)).max(100), botToken: z.string().optional(), appToken: z.string().optional(), relay: z.string().optional() }).strict())
     .mutation(async ({ ctx, input }) => {

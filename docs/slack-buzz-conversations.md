@@ -38,6 +38,18 @@ Buzz's ACP host supplies conversation context and enforces its author gate. The 
 6. Each participant opens Ri using their own sign-in and clicks **Link my Slack identity**. Send the generated `link …` command to the Slack app, with an app mention in a connected channel. Personal connections also allow linking in a DM. Codes are single-use and expire after ten minutes.
 7. Send `@Ri Personal help me plan today`, or mention your chosen app in a connected channel. Ri replies in the same Slack thread. Follow up in that thread, answer its questions there, and use Slack's Stop control or send `stop` to interrupt work. The corresponding Ri chat remains available for inspecting and continuing the work.
 
+Slack's **Create AI agent** wizard is an alternative to importing the manifest. Select **Starter agent**, enter the name and workspace, and finish the review and installation flow. Use that app's bot and app-level tokens in Ri. Check its scopes and event subscriptions against Ri's generated manifest. Ri supplies the runtime, so there is no need to run Slack's sample model application.
+
+The manifest is a way to preconfigure the app, not another integration. Slack requires an `agent_description` inside `features.agent_view`, not an `enabled` flag:
+
+```json
+"agent_view": {
+  "agent_description": "Talk to your Ri orchestrator or team agent."
+}
+```
+
+If an earlier copied manifest reports **Invalid property 'enabled'**, replace that `agent_view` block with the one above. The corrected generator also enables writable DMs, limits Slack app names to 35 characters and converts the bot username to Slack's allowed characters. The app's display name remains the name you chose.
+
 Create separate Slack apps and Ri connections for separately mentionable identities. A Ri connection's name alone cannot create another Slack user. For example, **Ri Personal** can point to your personal orchestrator while **Ri Team** points to the team's product agent. Each connection has a fixed destination.
 
 If a token expires or rotates, use **Update Slack tokens** on the existing connection. Ri verifies that the new credentials belong to the same bot and Slack workspace. Saved chats and unsent reply parts are preserved. **Retry delivery** retries failed replies after a channel or credential issue is fixed. **Pause** keeps history and pending delivery. **Disconnect** removes the transport binding and credentials while leaving the Ri chat history.
@@ -118,7 +130,9 @@ The tests exercise the real Ri message dispatcher and native team AI pipeline wi
 
 The setup screen has desktop and mobile browser coverage, including named Buzz setup, shown-once credentials and member-only Slack linking. TypeScript, targeted lint and the compiled CLI boot smoke check are part of verification. Live Slack installation, Buzz relay delivery and real model inference require an operator's credentials and are not claimed by these tests.
 
-Final verification: 615 tests passed across 84 regression test files, plus both setup browser tests. `pnpm ts` and `pnpm cli:build` passed. ESLint reported no errors and two existing unused-variable warnings in `queries.ts`.
+Initial implementation verification: 615 tests passed across 84 regression test files, plus both setup browser tests. `pnpm ts` and `pnpm cli:build` passed. ESLint reported no errors and two existing unused-variable warnings in `queries.ts`.
+
+The subsequent manifest correction passed 35 focused tests, both setup browser tests, typecheck and lint. The new contract tests cover Slack's required `agent_description`, rejection of the unsupported `enabled` flag, app and bot name constraints and writable DMs. No live Slack API validation is claimed.
 
 Run the focused conversation and migration checks with:
 
