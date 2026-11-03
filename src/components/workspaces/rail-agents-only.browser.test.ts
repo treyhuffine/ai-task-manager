@@ -11,8 +11,9 @@
  * lists recent chats of any status with inactive ones folded, that an agent
  * can be marked read or unread from the rail and from its chat bar (and both
  * agree), that resting on an agent peeks at its chats, that hovering an
- * agent opens no tooltip while its hover actions keep theirs, and that
- * Agents first is unchanged.
+ * agent opens no tooltip while its hover actions keep theirs, that Agents
+ * first is unchanged, and that chats are selected to archive on Recent from
+ * every rail style, the collapsed rail's flyout included.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -26,8 +27,17 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 let server: http.Server;
 let browser: Browser;
 let base: string;
-/** Session mutations the page sent, as `readPost:<id>` / `unreadPost:<id>`. */
+/** Session mutations the page sent, as `readPost:<id>` / `unreadPost:<id>` / `archivePost:<id>`. */
 let sent: string[] = [];
+/**
+ * Archive requests wait here until a test answers them: archived, or refused
+ * with uncommitted files for the ids in `dirty`. Unforced only, so Archive
+ * anyway archives.
+ */
+let heldArchives: { id: string; force: boolean; answer: (dirty?: string[]) => void }[] = [];
+const answerArchives = (dirty: string[] = []) => {
+  for (const held of heldArchives.splice(0)) held.answer(dirty);
+};
 
 /**
  * The view on screen is Website's "Update pricing copy" chat, unless a test
@@ -81,6 +91,7 @@ beforeAll(async () => {
       import {SessionHoverProvider} from '@/components/workspaces/session-hover-context';
       import {ReadStateButton} from '@/components/chat-ui/read-state-button';
       import {AgentsFlyout} from '@/components/workspaces/rail-strip';
+      import {useDashboard} from '@/contexts/dashboard-context';
       window.actions=[];
       const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity},mutations:{retry:false}}});
       window.queryClient=client;
@@ -95,10 +106,11 @@ beforeAll(async () => {
         agent('docs','Docs','📚','Keeps the product docs current with every release, changelog included'),
       ];
       // read: viewed after its last outcome. unread: an outcome since.
-      const chat=(id,workspaceId,label,{unread=false,pinnedAt=null}={})=>({
+      const chat=(id,workspaceId,label,{unread=false,pinnedAt=null,minutesAgo=5}={})=>({
         id,label,status:'active',workspaceId,workspaceName:workspaces.find(w=>w.id===workspaceId).name,
         workspaceAttachments:[],workspaceEmoji:null,workspaceIsGit:true,branchName:null,location:null,
-        startedAt:at(60),lastActivityAt:at(5),lastOutcomeEventAt:at(5),lastViewedAt:unread?at(10):at(1),unreadMarkerAt:null,
+        startedAt:at(minutesAgo+55),lastActivityAt:at(minutesAgo),lastOutcomeEventAt:at(minutesAgo),
+        lastViewedAt:unread?at(minutesAgo+5):at(minutesAgo-4),unreadMarkerAt:null,
         executionId:id,execution:{label,pinnedAt},
       });
       const main=(id,workspaceId,preview,{unread=false}={})=>({
@@ -112,6 +124,9 @@ beforeAll(async () => {
         chat('fin-1','fin','Reconcile Amex',{unread:true}),
         chat('fin-2','fin','Import Chase CSV',{unread:true}),
         chat('fin-3','fin','Tax estimate',{pinnedAt:at(30)}),
+        // Untouched past the week: inactive.
+        chat('web-3','web','Audit old landing pages',{minutesAgo:12*24*60}),
+        chat('ri-3','ri','Prune stale worktrees',{minutesAgo:30*24*60}),
       ];
       client.setQueryData(['workspaces',{status:'active'}],workspaces);
       client.setQueryData(['sessions','rail'],{sessions,mainChats:[
@@ -138,8 +153,14 @@ beforeAll(async () => {
       client.setQueryData(['session','ri-old'],archived('ri-old','ri','Old migration cleanup',21*24*60));
       client.setQueryData(['session','docs-old'],archived('docs-old','docs','Release notes for 2.3',30*24*60));
       const noop=()=>{};
-      const navigation={openAgent:noop,openExecution:noop,openTask:noop,openNote:noop,goHome:noop};
-      const activity={activeSessionId:null,streamingSessionIds:new Set(['ri-1','fin-3','res-main']),backgroundSessionIds:new Set(),pendingInputSessionIds:new Set(['web-1']),setActiveExecutionId:noop,setSessionStreaming:noop};
+      // Where archiving the chat on screen leaves to.
+      const navigation={openAgent:(id)=>window.actions.push({kind:'leave',value:id}),openExecution:noop,openTask:noop,openNote:noop,goHome:()=>window.actions.push({kind:'leave',value:'home'})};
+      const activity={streamingSessionIds:new Set(['ri-1','fin-3','res-main']),backgroundSessionIds:new Set(),pendingInputSessionIds:new Set(['web-1']),setActiveExecutionId:noop,setSessionStreaming:noop};
+      // The chat on screen, as the dashboard has it.
+      function Work({children}){
+        const {activeSessionId,activeExecutionId}=useDashboard();
+        return <WorkContext navigation={navigation} activity={{...activity,activeSessionId,activeExecutionId}}>{children}</WorkContext>;
+      }
       function Rail(){
         const [tab,setTab]=useState('workspace');
         return <WorkspaceSelectionProvider>
@@ -151,12 +172,12 @@ beforeAll(async () => {
       const strip=new URLSearchParams(location.search).get('rail')==='strip';
       createRoot(document.getElementById('root')).render(
         <QueryClientProvider client={client}><TooltipProvider><ConfirmProvider>
-          <WorkContext navigation={navigation} activity={activity}><SessionHoverProvider disabled>
+          <Work><SessionHoverProvider disabled>
             {strip
               ? <aside className="flex h-screen w-[44px] flex-col items-center pt-2 border-r border-border bg-background"><AgentsFlyout/></aside>
               : <aside className="w-[256px] min-h-screen border-r border-border bg-background"><Rail/></aside>}
             <div data-chat-bar className="fixed left-[300px] top-4 flex items-center gap-1.5"><ReadStateButton sessionId="notes-main"/></div>
-          </SessionHoverProvider></WorkContext>
+          </SessionHoverProvider></Work>
         </ConfirmProvider></TooltipProvider></QueryClientProvider>);
     ` },
     bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', logLevel: 'silent',
@@ -188,6 +209,22 @@ beforeAll(async () => {
           if (!url.pathname.includes(`sessions.${kind}`)) continue;
           for (const id of body.match(/"id":"([^"]+)"/g) ?? []) sent.push(`${kind}:${id.slice(6, -1)}`);
         }
+        if (url.pathname.includes('sessions.archivePost')) {
+          const id = /"id":"([^"]+)"/.exec(body)![1]!;
+          const force = body.includes('"force":true');
+          sent.push(`archivePost:${id}${force ? ':force' : ''}`);
+          res.setHeader('content-type', 'application/json');
+          heldArchives.push({ id, force, answer: (dirty = []) => {
+            if (force || !dirty.includes(id)) { res.end(JSON.stringify({ result: { data: {} } })); return; }
+            // The archive route's refusal, as the tRPC adapter carries it.
+            res.statusCode = 409;
+            res.end(JSON.stringify({ error: { message: 'Uncommitted files', code: -32603, data: { httpStatus: 409, body: {
+              error: 'DirtyWorktreeError', code: 'dirty_worktree', message: 'Uncommitted files', label: id === 'web-1' ? 'Fix login bug' : id,
+              files: [{ path: 'src/login.ts', change: 'changed' }], omitted: 0,
+            } } } }));
+          } });
+          return;
+        }
         res.statusCode = 404;
         res.end();
       });
@@ -215,10 +252,12 @@ type View = { kind: 'execution'; id: string; executionId?: string } | { kind: 'a
 async function open(
   style: 'agentsOnly' | 'agents' | 'classic',
   theme: 'dark' | 'light' = 'dark',
-  { rail = 'wide', view, height = 760 }: { rail?: 'wide' | 'strip'; view?: View; height?: number } = {},
+  { rail = 'wide', view, height = 760, touch = false }: { rail?: 'wide' | 'strip'; view?: View; height?: number; touch?: boolean } = {},
 ): Promise<{ page: Page; errors: string[] }> {
   sent = [];
-  const page = await browser.newPage({ viewport: { width: 640, height }, deviceScaleFactor: 2 });
+  heldArchives = [];
+  // Touch is a tablet's: the collapsed rail, fingers on the flyout's rows.
+  const page = await browser.newPage({ viewport: { width: 640, height }, deviceScaleFactor: 2, hasTouch: touch });
   page.setDefaultTimeout(5_000);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -299,11 +338,11 @@ for (const theme of ['dark', 'light'] as const) {
   it(`lists agents with no chat rows, each with its own state and its chats' counts (${theme})`, async () => {
     const { page, errors } = await open('agentsOnly', theme);
     try {
-      // The Agents | Recent switch, then Pinned. No Needs you, and no archive
-      // selection, since no chat rows are listed to select.
+      // The Agents | Recent switch, then Pinned. No Needs you. Selecting
+      // chats to archive is here too, though it selects them on Recent.
       expect(await page.getByRole('tab').allInnerTexts()).toEqual(['Agents', 'Recent']);
       expect(await page.getByText('Needs you', { exact: true }).count()).toBe(0);
-      expect(await page.getByRole('button', { name: 'Select chats to archive' }).count()).toBe(0);
+      expect(await page.getByRole('button', { name: 'Select chats to archive' }).count()).toBe(1);
       expect(await page.getByRole('button', { name: 'New agent' }).count()).toBe(1);
       const switchTop = (await page.getByRole('tablist').boundingBox())!.y;
       const pinnedTop = (await page.getByText('Pinned', { exact: true }).boundingBox())!.y;
@@ -541,11 +580,12 @@ it('lists recent chats of any status in Recent, and folds the inactive ones', as
   try {
     await page.getByRole('tab', { name: 'Recent' }).click();
     const recent = page.locator('aside');
-    // Yesterday's archived chat is recent work. Three weeks ago is inactive.
+    // Yesterday's archived chat is recent work. Three weeks ago is inactive,
+    // with two active chats untouched past the week.
     await recent.getByText('Ship the v1 pricing page').waitFor();
     expect(await recent.getByText('Fix login bug').count()).toBeGreaterThan(0);
     expect(await recent.getByText('Old migration cleanup').count()).toBe(0);
-    await recent.getByText('1 inactive hidden').waitFor();
+    await recent.getByText('3 inactive hidden').waitFor();
     // New agent belongs to the Agents list.
     expect(await page.getByRole('button', { name: 'New agent' }).count()).toBe(0);
     await page.screenshot({ path: '/tmp/ri-rail-recent.png', clip: { x: 0, y: 0, width: 256, height: 760 } });
@@ -620,6 +660,241 @@ it('leaves agents first as it was', async () => {
     expect(await (await menu(page, 'Notes')).getByRole('menuitem', { name: 'Mark as unread' }).count()).toBe(1);
     await page.keyboard.press('Escape');
     await page.screenshot({ path: '/tmp/ri-rail-agents-first.png', clip: { x: 0, y: 0, width: 256, height: 760 } });
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+// ─── Selecting chats to archive ──────────────────────────────────────────
+
+/** The chats active right now and touched within the week, by name. */
+const RECENT_ACTIVE = [
+  'Fix flaky gallery smoke', 'Fix login bug', 'Import Chase CSV', 'Rail agents-only trial',
+  'Reconcile Amex', 'Tax estimate', 'Update pricing copy',
+];
+const INACTIVE_ACTIVE = ['Audit old landing pages', 'Prune stale worktrees'];
+
+/** The selectable rows, top to bottom: each chat's name and whether it's ticked. */
+const ticks = (page: Page, within = 'body') =>
+  page.locator(within).locator('[role="button"][aria-pressed]').evaluateAll((rows) =>
+    rows.map((row) => ({ name: row.querySelector('.truncate')!.textContent!, ticked: row.getAttribute('aria-pressed') === 'true' })));
+const ticked = async (page: Page, within = 'body') => (await ticks(page, within)).filter((r) => r.ticked).map((r) => r.name);
+const tickRow = (page: Page, name: string, within = 'body') =>
+  page.locator(within).locator('[role="button"][aria-pressed]', { hasText: name });
+const selectedCount = (page: Page) => page.getByText(/^\d+ selected$/).innerText();
+const archivePosts = () => sent.filter((s) => s.startsWith('archivePost:')).sort();
+
+for (const style of ['agentsOnly', 'agents', 'classic'] as const) {
+  it(`selects chats to archive on Recent from either list in ${style}, and Cancel goes back to the list you were on`, async () => {
+    const { page, errors } = await open(style);
+    try {
+      const select = page.getByRole('button', { name: 'Select chats to archive' });
+      // From Agents: the list turns into Recent's active chats, ticks and all.
+      await select.click();
+      await page.getByText('0 selected', { exact: true }).waitFor();
+      expect(await page.getByRole('tablist').count()).toBe(0);
+      expect(await page.locator('[aria-roledescription="sortable"]').count()).toBe(0);
+      // Pins and archived work step aside. Inactive chats wait in the fold.
+      expect(await page.getByText('Pinned', { exact: true }).count()).toBe(0);
+      expect(await page.getByText('Ship the v1 pricing page').count()).toBe(0);
+      expect((await ticks(page)).map((r) => r.name).sort()).toEqual(RECENT_ACTIVE);
+      expect(await ticked(page)).toEqual([]);
+      await page.getByText('2 inactive hidden').waitFor();
+      expect(await page.getByRole('button', { name: 'Archive', exact: true }).isDisabled()).toBe(true);
+
+      await page.getByRole('button', { name: 'Cancel' }).click();
+      await page.getByRole('tab', { name: 'Agents', selected: true }).waitFor();
+      expect(await page.locator('[aria-roledescription="sortable"]').count()).toBe(6);
+      expect(await page.locator('[role="button"][aria-pressed]').count()).toBe(0);
+
+      // From Recent, back to Recent, archived work and all.
+      await page.getByRole('tab', { name: 'Recent' }).click();
+      await page.getByText('Ship the v1 pricing page').waitFor();
+      await select.click();
+      await page.getByText('0 selected', { exact: true }).waitFor();
+      expect(await page.getByText('Ship the v1 pricing page').count()).toBe(0);
+      await page.getByRole('button', { name: 'Cancel' }).click();
+      await page.getByRole('tab', { name: 'Recent', selected: true }).waitFor();
+      await page.getByText('Ship the v1 pricing page').waitFor();
+      expect(errors).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  });
+}
+
+it('ticks a row per click, a range with Shift, and every inactive chat from the fold', async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    await page.getByRole('button', { name: 'Select chats to archive' }).click();
+    // A click ticks rather than opens, and a second unticks.
+    await tickRow(page, 'Fix login bug').click();
+    expect(await ticked(page)).toEqual(['Fix login bug']);
+    expect(await selectedCount(page)).toBe('1 selected');
+    await tickRow(page, 'Fix login bug').click();
+    expect(await ticked(page)).toEqual([]);
+    expect(sent).toEqual([]);
+    expect(await page.evaluate(() => (window as unknown as { actions: { kind: string }[] }).actions.filter((a) => a.kind === 'navigate'))).toEqual([]);
+
+    // Shift-click ticks every row from the last one ticked, and unticks a
+    // range the same way.
+    const order = (await ticks(page)).map((r) => r.name);
+    await tickRow(page, order[0]!).click();
+    await tickRow(page, order[3]!).click({ modifiers: ['Shift'] });
+    expect(await ticked(page)).toEqual(order.slice(0, 4));
+    expect(await selectedCount(page)).toBe('4 selected');
+    await tickRow(page, order[1]!).click({ modifiers: ['Shift'] });
+    expect(await ticked(page)).toEqual(order.slice(0, 1));
+    // Shift selects no text on the way.
+    expect(await page.evaluate(() => getSelection()?.toString())).toBe('');
+
+    // Select all ticks the inactive ones and opens the fold to show them.
+    await page.getByRole('button', { name: 'Select all 2 inactive chats' }).click();
+    await page.getByText('2 inactive shown').waitFor();
+    expect(await ticked(page)).toEqual([order[0], ...INACTIVE_ACTIVE]);
+    expect(await selectedCount(page)).toBe('3 selected');
+    // Archived work stays out with the fold open.
+    expect(await page.getByText('Old migration cleanup').count()).toBe(0);
+    await page.mouse.move(600, 700);
+    await page.screenshot({ path: '/tmp/ri-rail-select-to-archive.png', clip: { x: 0, y: 0, width: 256, height: 520 } });
+
+    // All ticked, it unticks them all. One unticked, it offers them all again.
+    await page.getByRole('button', { name: 'Deselect all 2 inactive chats' }).click();
+    expect(await ticked(page)).toEqual([order[0]]);
+    await page.getByRole('button', { name: 'Select all 2 inactive chats' }).click();
+    await tickRow(page, 'Prune stale worktrees').click();
+    expect(await ticked(page)).toEqual([order[0], 'Audit old landing pages']);
+    await page.getByRole('button', { name: 'Select all 2 inactive chats' }).waitFor();
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('archives exactly the selection, leaving the open chat and the rows on the click, then goes back to the list you were on', async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    await page.getByRole('button', { name: 'Select chats to archive' }).click();
+    // Website's "Update pricing copy" is the chat on screen.
+    await tickRow(page, 'Update pricing copy').click();
+    await tickRow(page, 'Fix login bug').click();
+    await page.getByRole('button', { name: 'Select all 2 inactive chats' }).click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
+
+    // On the click, with the requests still out: the open chat is left for
+    // its agent, and the rows are gone.
+    await expect.poll(archivePosts).toEqual(['archivePost:ri-3', 'archivePost:web-1', 'archivePost:web-2', 'archivePost:web-3']);
+    expect(await page.evaluate(() => (window as unknown as { actions: { kind: string; value: unknown }[] }).actions.filter((a) => a.kind === 'leave')))
+      .toEqual([{ kind: 'leave', value: 'web' }]);
+    await expect.poll(async () => (await ticks(page)).map((r) => r.name).sort())
+      .toEqual(RECENT_ACTIVE.filter((n) => n !== 'Update pricing copy' && n !== 'Fix login bug'));
+    await page.getByText('inactive hidden').or(page.getByText('inactive shown')).waitFor({ state: 'detached' });
+    expect(heldArchives).toHaveLength(4);
+
+    // Archived: back on Agents, and nothing more was sent.
+    answerArchives();
+    await page.getByRole('tab', { name: 'Agents', selected: true }).waitFor();
+    expect(archivePosts()).toHaveLength(4);
+    expect(await page.locator('[role="button"][aria-pressed]').count()).toBe(0);
+
+    // Recent has them, as archived.
+    await page.getByRole('tab', { name: 'Recent' }).click();
+    const row = page.locator('[role="button"]', { hasText: 'Fix login bug' });
+    await row.waitFor();
+    expect(await row.evaluate((el) => getComputedStyle(el).opacity)).toBe('0.6');
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('names the chats with uncommitted files, and Archive anyway archives only those', async () => {
+  const { page, errors } = await open('agentsOnly', 'dark', { view: { kind: 'home' } });
+  try {
+    await page.getByRole('button', { name: 'Select chats to archive' }).click();
+    await tickRow(page, 'Fix login bug').click();
+    await tickRow(page, 'Reconcile Amex').click();
+    await page.getByRole('button', { name: 'Archive', exact: true }).click();
+    await expect.poll(archivePosts).toEqual(['archivePost:fin-1', 'archivePost:web-1']);
+    answerArchives(['web-1']);
+
+    const dialog = page.getByRole('alertdialog');
+    await dialog.waitFor();
+    expect(await dialog.innerText()).toContain('"Fix login bug" has work that isn\'t committed');
+    expect(await dialog.innerText()).toContain('login.ts');
+    await page.screenshot({ path: '/tmp/ri-rail-select-to-archive-dirty.png' });
+    await dialog.getByRole('button', { name: 'Archive anyway' }).click();
+    await expect.poll(() => sent.filter((s) => s.endsWith(':force'))).toEqual(['archivePost:web-1:force']);
+    answerArchives();
+    await page.getByRole('tab', { name: 'Agents', selected: true }).waitFor();
+    expect(archivePosts()).toEqual(['archivePost:fin-1', 'archivePost:web-1', 'archivePost:web-1:force']);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('leaves selection on Esc in the rail, and leaves Esc elsewhere alone', async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    const select = page.getByRole('button', { name: 'Select chats to archive' });
+    // Straight after pressing Select, before anything has focus.
+    await select.click();
+    await page.getByText('0 selected', { exact: true }).waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('tab', { name: 'Agents', selected: true }).waitFor();
+
+    // With a row ticked, focus on it.
+    await select.click();
+    await tickRow(page, 'Fix login bug').click();
+    await page.keyboard.press('Escape');
+    await page.getByRole('tab', { name: 'Agents', selected: true }).waitFor();
+
+    // Focus outside the rail (the chat bar): its Esc isn't the rail's.
+    await select.click();
+    await tickRow(page, 'Fix login bug').click();
+    await page.locator('[data-chat-bar] button').first().focus();
+    await page.keyboard.press('Escape');
+    expect(await selectedCount(page)).toBe('1 selected');
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it("selects chats to archive in the collapsed rail's flyout by touch, where Esc leaves selection before the flyout", async () => {
+  const { page, errors } = await open('agentsOnly', 'dark', { rail: 'strip', touch: true, view: { kind: 'home' } });
+  try {
+    await page.getByRole('button', { name: /^Agents/ }).tap();
+    const flyout = page.getByRole('dialog', { name: 'Agents' });
+    await flyout.getByRole('button', { name: 'Select chats to archive' }).tap();
+    await flyout.getByText('0 selected', { exact: true }).waitFor();
+    expect((await ticks(page, '[data-rail-flyout]')).map((r) => r.name).sort()).toEqual(RECENT_ACTIVE);
+
+    // A tap ticks, and the fold's Select all needs no hover.
+    await tickRow(page, 'Fix login bug', '[data-rail-flyout]').tap();
+    await flyout.getByRole('button', { name: 'Select all 2 inactive chats' }).tap();
+    expect(await ticked(page, '[data-rail-flyout]')).toEqual(['Fix login bug', ...INACTIVE_ACTIVE]);
+    await page.screenshot({ path: '/tmp/ri-rail-flyout-select-to-archive.png', clip: { x: 0, y: 0, width: 320, height: 760 } });
+
+    // The first Esc leaves selection, and the flyout stays. The next closes it.
+    await page.keyboard.press('Escape');
+    await flyout.getByRole('tab', { name: 'Agents', selected: true }).waitFor();
+    expect(await flyout.isVisible()).toBe(true);
+    await page.keyboard.press('Escape');
+    await flyout.waitFor({ state: 'hidden' });
+
+    // Archive from it: the rows go on the tap, and the list comes back to Agents.
+    await page.getByRole('button', { name: /^Agents/ }).tap();
+    await flyout.getByRole('button', { name: 'Select chats to archive' }).tap();
+    await tickRow(page, 'Reconcile Amex', '[data-rail-flyout]').tap();
+    await flyout.getByRole('button', { name: 'Archive', exact: true }).tap();
+    await expect.poll(archivePosts).toEqual(['archivePost:fin-1']);
+    await tickRow(page, 'Reconcile Amex', '[data-rail-flyout]').waitFor({ state: 'detached' });
+    expect(heldArchives).toHaveLength(1);
+    answerArchives();
+    await flyout.getByRole('tab', { name: 'Agents', selected: true }).waitFor();
     expect(errors).toEqual([]);
   } finally {
     await page.close();

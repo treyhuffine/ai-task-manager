@@ -105,7 +105,7 @@ async function open(theme: 'dark' | 'light'): Promise<{ page: Page; errors: stri
   page.setDefaultTimeout(5_000);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  // The switch is the agents-first and classic rails'. Agents only has none.
+  // Every rail style has the switch. This is agents first.
   await page.addInitScript(() => localStorage.setItem('ri.client.railStyle', 'agents'));
   await page.goto(`${base}/?theme=${theme}`);
   await page.getByRole('tablist', { name: 'Rail list' }).waitFor();
@@ -161,10 +161,13 @@ it('switches lists, and the agent actions show only on Agents', async () => {
   const { page, errors } = await open('dark');
   try {
     expect(await page.getByRole('button', { name: 'New agent' }).count()).toBe(1);
+    expect(await page.getByRole('button', { name: 'Select chats to archive' }).count()).toBe(1);
     await page.getByRole('tab', { name: 'Recent' }).click();
     expect(await page.getByRole('tab', { name: 'Recent' }).getAttribute('aria-selected')).toBe('true');
     expect(await page.getByRole('tab', { name: 'Agents' }).getAttribute('aria-selected')).toBe('false');
     expect(await page.getByRole('button', { name: 'New agent' }).count()).toBe(0);
+    // Selecting chats to archive is on both lists.
+    expect(await page.getByRole('button', { name: 'Select chats to archive' }).count()).toBe(1);
     // The fills ease over, so wait for the switch to settle.
     await expect.poll(async () => (await looks(page)).agents.fill).toBe(CLEAR);
     expect((await looks(page)).recent.fill).not.toBe(CLEAR);

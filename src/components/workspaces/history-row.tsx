@@ -10,6 +10,7 @@ import type { RailSession } from '@/lib/api/sessions';
 import { hasChatStatus, StatusPip, useChatStatus } from './chat-status';
 import { ROW_ACTIONS_GIVE_WAY, SessionRowActions } from './session-row-actions';
 import { useSessionRowHover } from './session-hover-context';
+import { SelectionCheck, useRowSelection } from './workspace-selection-context';
 import { executionView } from '@/lib/client/active-view';
 import { agentInitials } from '@/lib/client/agent-initials';
 
@@ -21,6 +22,8 @@ interface HistoryRowProps {
   snippet?: string | null;
   onOpenWorkspaceSettings?: (workspaceId: string) => void;
   onOpenLauncher?: (workspaceId: string) => void;
+  /** The list's selectable rows as they show, top to bottom, for Shift-click ranges. */
+  selectionOrder?: readonly string[];
 }
 
 /**
@@ -42,12 +45,18 @@ interface HistoryRowProps {
  * On hover the date gives way to the pin toggle and the kebab
  * (`SessionRowActions`). Archived rows can't be pinned, so they get the
  * kebab alone.
+ *
+ * While the rail selects chats to archive, a click (or Enter) ticks the row
+ * instead of opening it, Shift-click ticks every row from the last one
+ * ticked, and a checkbox takes the avatar's place so nothing shifts. The
+ * actions and the hover preview step aside. Archived rows can't be ticked.
  */
 export function HistoryRow({
   session,
   snippet,
   onOpenWorkspaceSettings,
   onOpenLauncher,
+  selectionOrder,
 }: HistoryRowProps) {
   const { activeSessionId, setActiveView } = useDashboard();
   const status = useChatStatus(session);
@@ -58,8 +67,13 @@ export function HistoryRow({
   // Only active executions live in the rail, so only they can be pinned.
   // Archived rows carry a cleared pin and drop the pin toggle entirely.
   const isPinned = !isArchived && !!session.execution?.pinnedAt;
+  const { selectable, selected, toggle } = useRowSelection(session.id, { enabled: !isArchived, order: selectionOrder });
 
-  const handleOpen = () => {
+  const handleOpen = (e?: { shiftKey?: boolean }) => {
+    if (selectable) {
+      toggle(e);
+      return;
+    }
     closeNow();
     setActiveView(executionView(session.id));
   };
@@ -78,25 +92,35 @@ export function HistoryRow({
     <div
       ref={rowRef}
       onClick={handleOpen}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={selectable ? undefined : onMouseEnter}
+      onMouseLeave={selectable ? undefined : onMouseLeave}
       role="button"
+      aria-pressed={selectable ? selected : undefined}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          handleOpen();
+          handleOpen(e);
         }
       }}
       className={cn(
         'relative group flex items-start gap-1.5 px-2 py-1.5 rounded-md transition-colors text-left cursor-pointer',
-        isActive ? 'bg-secondary' : 'hover:bg-muted/40',
+        selectable
+          // Shift-click ranges, so it mustn't select the text between.
+          ? cn('select-none', selected ? 'bg-primary/10' : 'hover:bg-muted/40')
+          : isActive ? 'bg-secondary' : 'hover:bg-muted/40',
         isArchived && !isActive && 'opacity-60',
       )}
     >
       <span className="relative flex-shrink-0">
-        <WorkspaceAvatar wsImage={wsImage} wsEmoji={wsEmoji} wsName={wsName} />
-        {hasChatStatus(status) && (
+        {selectable ? (
+          <span className="mt-px flex h-5 w-5 items-center justify-center">
+            <SelectionCheck checked={selected} />
+          </span>
+        ) : (
+          <WorkspaceAvatar wsImage={wsImage} wsEmoji={wsEmoji} wsName={wsName} />
+        )}
+        {!selectable && hasChatStatus(status) && (
           // A disc of the row's background keeps the dot legible on any avatar.
           <span className="absolute -top-1 -right-1 flex rounded-full bg-background p-[2px]">
             <StatusPip {...status} />
@@ -118,7 +142,7 @@ export function HistoryRow({
             >
               {label}
             </span>
-            <span className={cn('text-[9px] text-muted-foreground/60 flex-shrink-0', ROW_ACTIONS_GIVE_WAY)}>
+            <span className={cn('text-[9px] text-muted-foreground/60 flex-shrink-0', !selectable && ROW_ACTIONS_GIVE_WAY)}>
               {formatCompactRelative(timestamp)}
             </span>
           </div>
@@ -138,7 +162,7 @@ export function HistoryRow({
         </div>
 
         {/* Beside the title line, pulled up so it doesn't push the row taller. */}
-        <SessionRowActions
+        {!selectable && <SessionRowActions
           sessionId={session.id}
           executionId={session.executionId ?? null}
           workspaceId={session.workspaceId ?? null}
@@ -148,7 +172,7 @@ export function HistoryRow({
           onOpenWorkspaceSettings={onOpenWorkspaceSettings}
           onOpenLauncher={onOpenLauncher}
           className="-my-1"
-        />
+        />}
       </div>
     </div>
   );

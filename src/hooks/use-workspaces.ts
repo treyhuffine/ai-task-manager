@@ -45,6 +45,7 @@ const HISTORY_KEY = ['sessions', 'history'] as const;
  * after archiving took it away. The lists archiving takes it from (rail,
  * needs review, an agent's sessions) leave these out until the request
  * settles: archived, it stays gone, and refused or failed, it comes back.
+ * Recent's feed keeps archived work, so there they read as archived instead.
  * One per page, like the cache it guards.
  */
 const archiving = new Map<string, number>();
@@ -66,6 +67,13 @@ function holdArchiving(ids: readonly string[]): () => void {
 
 function withoutArchiving<T extends { id: string }>(sessions: T[]): T[] {
   return archiving.size ? sessions.filter((s) => !archiving.has(s.id)) : sessions;
+}
+
+type HistorySession = HistoryResponse['sessions'][number];
+
+/** `sessions` with the chats `isArchived` picks read as archived, as Recent shows them once archived. */
+function asArchived(sessions: HistorySession[], isArchived: (s: HistorySession) => boolean): HistorySession[] {
+  return sessions.map((s) => (isArchived(s) ? { ...s, status: 'archived' as const } : s));
 }
 
 export function useWorkspaces(filter?: { status?: WorkspaceStatus }) {
@@ -595,7 +603,10 @@ export function cachedRailSession(qc: QueryClient, id: string) {
 export function useHistorySessions(enabled: boolean = true, workspaceId: string | null = null) {
   return useQuery({
     queryKey: workspaceId ? [...HISTORY_KEY, workspaceId] : HISTORY_KEY,
-    queryFn: () => sessionsApi.history({ workspaceId: workspaceId ?? undefined }),
+    queryFn: async () => {
+      const feed = await sessionsApi.history({ workspaceId: workspaceId ?? undefined });
+      return archiving.size ? { ...feed, sessions: asArchived(feed.sessions, (s) => archiving.has(s.id)) } : feed;
+    },
     enabled,
     refetchInterval: 60_000,
   });
@@ -607,14 +618,27 @@ type CacheSnapshot = [QueryKey, unknown];
 /**
  * Drop a session id from every rail-facing cache (workspace trees,
  * needs-review, the rail GET) and return the prior values so a failed
- * mutation can restore them. Deliberately leaves the History cache alone
- * — archived executions still belong there, just flipped in status.
+ * mutation can restore them. History keeps it: archived executions still
+ * belong there, so it reads as archived, with its execution's other chats,
+ * which archiving takes too.
  */
 function dropSessionFromCaches(
   qc: ReturnType<typeof useQueryClient>,
   id: string,
 ): CacheSnapshot[] {
   const snapshots: CacheSnapshot[] = [];
+  const rail = qc.getQueryData<RailResponse>(RAIL_KEY);
+
+  for (const [key, data] of qc.getQueriesData<HistoryResponse>({ queryKey: HISTORY_KEY })) {
+    if (!data) continue;
+    const executionId = rail?.sessions.find((s) => s.id === id)?.executionId
+      ?? data.sessions.find((s) => s.id === id)?.executionId;
+    snapshots.push([key, data]);
+    qc.setQueryData<HistoryResponse>(key, {
+      ...data,
+      sessions: asArchived(data.sessions, (s) => s.id === id || (!!executionId && s.executionId === executionId)),
+    });
+  }
 
   // Per-workspace session lists live at ['workspaces', <id>, 'sessions'].
   for (const [key, data] of qc.getQueriesData<ChatSessionWithExecution[]>({
@@ -638,7 +662,6 @@ function dropSessionFromCaches(
     );
   }
 
-  const rail = qc.getQueryData<RailResponse>(RAIL_KEY);
   if (rail) {
     snapshots.push([RAIL_KEY, rail]);
     qc.setQueryData<RailResponse>(RAIL_KEY, {
@@ -673,6 +696,7 @@ export function useArchiveSession() {
         qc.cancelQueries({ queryKey: WORKSPACES_KEY }),
         qc.cancelQueries({ queryKey: NEEDS_REVIEW_KEY }),
         qc.cancelQueries({ queryKey: RAIL_KEY }),
+        qc.cancelQueries({ queryKey: HISTORY_KEY }),
       ]);
       return { snapshots: dropSessionFromCaches(qc, id), release };
     },
@@ -688,6 +712,7 @@ export function useArchiveSession() {
       invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
       qc.invalidateQueries({ queryKey: RAIL_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
     },
   });
 }
@@ -780,6 +805,7 @@ export function useBulkArchiveSessions() {
         qc.cancelQueries({ queryKey: WORKSPACES_KEY }),
         qc.cancelQueries({ queryKey: NEEDS_REVIEW_KEY }),
         qc.cancelQueries({ queryKey: RAIL_KEY }),
+        qc.cancelQueries({ queryKey: HISTORY_KEY }),
       ]);
       for (const id of ids) dropSessionFromCaches(qc, id);
       return { release };
@@ -789,6 +815,7 @@ export function useBulkArchiveSessions() {
       invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
       qc.invalidateQueries({ queryKey: RAIL_KEY });
+      qc.invalidateQueries({ queryKey: HISTORY_KEY });
     },
   });
 }

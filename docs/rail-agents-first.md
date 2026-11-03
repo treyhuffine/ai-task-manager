@@ -49,7 +49,7 @@ What changes, all in the client (`railStyle` `agentsOnly`, no schema):
 - **Its chats count at the row's end** (added 2026-10-31): amber for the ones that need you (waiting on you or unread, pulsing while one is blocked on you), green for the ones working, in the header's colors. The header's pills count every chat. These say which agent's, which a glance at a row of agents couldn't. Inactive chats don't count. The counts give way to the row's actions on hover and open no tooltip (rows open none, 0afe117d). Screen readers get them as words ("2 chats need you, 1 working").
 - **No Needs you group.** The counts and the header's pills cover it.
 - **Agents | Recent stays** (back 2026-10-31, after a day without it showed coming back to Ri meant staring at the agents with no idea what was worked on lately). Recent lists every chat touched within the inactive threshold, whatever its status, archived included, newest first. Older ones fold behind "N inactive hidden" · Show, the one rule every list hides by. This applies in every rail style.
-- **No select-to-archive on Agents.** There are no chat rows to select.
+- **Selecting chats to archive happens on Recent** (back 2026-11-02, after the rail lost bulk archive along with its chat rows). The list header's Select chats to archive shows in every rail style, on both lists, and turns the list into Recent's active chats with checkboxes. See [rail.md](rail.md#selecting-chats-to-archive).
 - **Pins stay**, under the switch as in the other styles. A pin is the escape hatch for the chats you're hands-on with. Pin one from its header or from the agent's peek.
 - **Resting on an agent peeks at its chats** beside the rail (the collapsed-agent chooser, `AgentChatsFlyout`), each with its own dot.
 - **An open chat marks its agent**, since the chat has no row of its own. See [Which agent you're in](#which-agent-youre-in).
@@ -102,7 +102,7 @@ Not done: the collapsed strip itself. Its Agents button shows as active on any a
 
 ## Retiring the switch
 
-If agents only wins: drop the thread rows, the fold line and the chevrons from `AgentRailRow`, and retire `NeedsReviewSection`, `HistoryView` in the rail and the list header's switch and selection. If it loses: delete the `agentsOnly` branches. Mark as read and Mark as unread on the agent stay either way.
+If agents only wins: drop the thread rows, the fold line and the chevrons from `AgentRailRow`, and retire `NeedsReviewSection` and the tree's part of the archive selection (`SessionRow`'s checkbox, the agent rows' `selecting` guards). Recent, the switch and selecting chats to archive on Recent stay. If it loses: delete the `agentsOnly` branches. Mark as read and Mark as unread on the agent stay either way.
 
 If agents first wins: make `AgentRailRow` the only agents row, delete `WorkspaceRow` and `rail-style.ts`, and move the Pinned group to the compact row. If it loses: delete `agent-rail-row.tsx`, `rail-style.ts` and the compact density. Keep `useAgentAttention` either way, since agents counting where attention is counted doesn't depend on the style.
 

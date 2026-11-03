@@ -63,6 +63,8 @@ beforeAll(async () => {
     export const useUpdateWorkspace=()=>({mutate:useFixture().update});
     export const useAgentViewMode=()=>({opensView:true});
     export const useWorkspaceSelection=()=>({selecting:useFixture().state.selecting,isSelected:()=>false,toggle:()=>{}});
+    export const useRowSelection=(id,{enabled=true}={})=>{const {selecting}=useFixture().state;return {selectable:enabled&&selecting,selected:false,toggle:()=>{}};};
+    export const SelectionCheck=()=>null;
     export const useAreas=()=>({data:[]});
     export const useInactivity=()=>({stored:null,isInactive,partition:ss=>({active:ss.filter(s=>!isInactive(s)),inactive:ss.filter(isInactive)})});
     export const useSetInactiveAfterDays=()=>({mutate:days=>record('inactive-after',days)});

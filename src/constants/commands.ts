@@ -66,6 +66,8 @@ export const HOTKEYS = {
   previewNext: { key: 'ArrowRight', label: '\u2192' },
   // Closes the file beside the chat while focus is in it.
   previewClose: { key: 'Escape', label: 'Esc' },
+  // Leaves the rail's select-to-archive while focus is in the rail's list.
+  cancelSelection: { key: 'Escape', label: 'Esc' },
   // The `@` menu's kind chips (All, Tasks, Notes...), while nothing is
   // searched yet. Once a search is typed they move the caret again, so a
   // typo in it can still be fixed.

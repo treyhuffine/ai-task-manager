@@ -1,6 +1,5 @@
 'use client';
 
-import { Checkbox } from '@/components/ui/checkbox';
 import { useDashboard } from '@/contexts/dashboard-context';
 import type { ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { cn } from '@/lib/utils';
@@ -11,7 +10,7 @@ import { executionView } from '@/lib/client/active-view';
 import { StatusPip, useChatStatus } from './chat-status';
 import { useSessionRowHover } from './session-hover-context';
 import { ROW_ACTIONS_GIVE_WAY, SessionRowActions } from './session-row-actions';
-import { useWorkspaceSelection } from './workspace-selection-context';
+import { SelectionCheck, useRowSelection } from './workspace-selection-context';
 import { Tip } from '@/components/ui/tip';
 import { useDismissRailFlyout } from './rail-flyout';
 
@@ -93,11 +92,9 @@ export function SessionRow({
 
   // Multi-select for bulk archive lives only on the canonical tree row;
   // the needs-review duplicate stays plain navigation so a session can't
-  // present two checkboxes. `selection` is null outside the workspace
-  // nav (e.g. Pinned), which keeps the row inert there.
-  const selection = useWorkspaceSelection();
-  const selectable = variant === 'tree' && !!selection?.selecting;
-  const selected = selectable && !!selection?.isSelected(session.id);
+  // present two checkboxes. Selection is off outside the rail's list (e.g.
+  // Pinned), which keeps the row inert there.
+  const { selectable, selected, toggle } = useRowSelection(session.id, { enabled: variant === 'tree' });
 
   // Working, needs input, unread, background: one reading for every rail row.
   const status = useChatStatus(session);
@@ -124,7 +121,7 @@ export function SessionRow({
   // the whole row is the hit target.
   const handleOpen = () => {
     if (selectable) {
-      selection!.toggle(session.id);
+      toggle();
       return;
     }
     closeNow();
@@ -212,18 +209,10 @@ export function SessionRow({
       {/* Pip centers against line 1 (the title), not the whole row —
           it reads with the label, and the metadata line below stays
           visually subordinate. In selection mode the pip is swapped for
-          a checkbox in the same slot so nothing shifts. The checkbox is
-          pointer-events-none — the row's onClick is the single source of
-          toggle truth, so a click anywhere on the row (box included)
-          flips selection exactly once. */}
+          a checkbox in the same slot so nothing shifts. */}
       <span className="flex h-4 items-center flex-shrink-0">
         {selectable ? (
-          <Checkbox
-            checked={selected}
-            tabIndex={-1}
-            aria-hidden
-            className="pointer-events-none size-3.5"
-          />
+          <SelectionCheck checked={selected} />
         ) : (
           // Idle rows keep the branch glyph, so the row still parses as an
           // execution at rest.

@@ -13,7 +13,9 @@ import type { RailSession } from '@/lib/api/sessions';
 import { HistoryRow } from './history-row';
 import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
+import { useFoldShown } from '@/lib/client/rail-fold';
 import { Tip } from '@/components/ui/tip';
+import { useWorkspaceSelection } from './workspace-selection-context';
 
 const PILL_SCROLL_PRESETS = {
   bar: 'flex gap-1 overflow-x-auto -mx-2 px-2 py-1 scrollbar-thin',
@@ -39,6 +41,14 @@ const PILL_SCROLL_PRESETS = {
  * Full-text search over transcripts lives in the chat search modal (the
  * rail's Search button, `ChatSearchModal`), not here — it searches every chat's
  * content, not just this feed's labels.
+ *
+ * It's also where the rail selects chats to archive (the list header's
+ * Select chats to archive, from either tab). Then the list is every active
+ * execution, from the rail's live record rather than the feed: archived work
+ * has nothing to archive, so it's left out, and the feed's cap of 200 can't
+ * hide old work, the work you'd most want to clear. An execution's chats are
+ * one row, as archiving takes them all. The fold's Select all ticks every
+ * inactive chat.
  */
 export function HistoryView() {
   const { data, isLoading } = useHistorySessions();
@@ -47,12 +57,16 @@ export function HistoryView() {
   // it wherever there is one, so Recent shows the same status and order as
   // the agent tree. Archived work only lives in the feed.
   const { data: rail } = useRailSessions();
+  const selecting = useWorkspaceSelection()?.selecting ?? false;
   const sessions = useMemo(() => {
+    if (selecting) return rail?.sessions ?? [];
     const live = new Map((rail?.sessions ?? []).map((s) => [s.id, s] as const));
     return (data?.sessions ?? []).map((s) => live.get(s.id) ?? s);
-  }, [data?.sessions, rail?.sessions]);
+  }, [selecting, data?.sessions, rail?.sessions]);
+  const loading = selecting ? !rail : isLoading && !data;
   const { openAgent, activeSessionId } = useDashboard();
   const { isInactive } = useInactivity();
+  const [foldShown] = useFoldShown('inactive:recent');
   const [selectedWs, setSelectedWs] = useState<Set<string>>(new Set());
   // Session row menus open the agent's setup: its view, on the Setup tab.
   const openSetup = (id: string) => openAgent(id, 'setup');
@@ -88,14 +102,24 @@ export function HistoryView() {
   // verbatim, which meant it inherited every ordering quirk the SQL had.
   // Running the shared key here keeps Recent agreeing with the header's
   // status pills and the workspace tree.
-  const { grouped, older, olderCount } = useMemo(() => {
+  const { grouped, older, olderIds, order } = useMemo(() => {
     const recent: RailSession[] = [];
     const folded: RailSession[] = [];
     for (const s of sortSessionsHotnessDesc(filtered)) {
       (isInactive(s) && s.id !== activeSessionId ? folded : recent).push(s);
     }
-    return { grouped: groupByDateBucket(recent), older: groupByDateBucket(folded), olderCount: folded.length };
-  }, [filtered, isInactive, activeSessionId]);
+    const recentGroups = groupByDateBucket(recent);
+    const olderGroups = groupByDateBucket(folded);
+    // The rows as they show, top to bottom, for Shift-click ranges.
+    const ids = (groups: DateGroup[]) => groups.flatMap((g) => g.sessions.map((s) => s.id));
+    const foldedIds = ids(olderGroups);
+    return {
+      grouped: recentGroups,
+      older: olderGroups,
+      olderIds: foldedIds,
+      order: foldShown ? [...ids(recentGroups), ...foldedIds] : ids(recentGroups),
+    };
+  }, [filtered, isInactive, activeSessionId, foldShown]);
 
   const togglePill = (id: string) => {
     setSelectedWs((prev) => {
@@ -133,7 +157,7 @@ export function HistoryView() {
         </div>
       )}
 
-      {isLoading && !data ? (
+      {loading ? (
         <div className="flex flex-col gap-1 px-1 pt-1">
           <HistoryRowSkeleton />
           <HistoryRowSkeleton />
@@ -141,14 +165,16 @@ export function HistoryView() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="px-3 py-4 text-center text-[10px] text-muted-foreground/70 leading-relaxed">
-          {sessions.length === 0 ? 'No chats yet.' : 'Nothing matches your filter.'}
+          {sessions.length > 0 ? 'Nothing matches your filter.' : selecting ? 'No chats to archive.' : 'No chats yet.'}
         </div>
       ) : (
         <div className="flex flex-col pt-1">
-          <DateGroups groups={grouped} onOpenWorkspaceSettings={openSetup} />
-          <InactiveFold sectionId="recent" count={olderCount} className="pl-3">
-            <div className="opacity-60 transition-opacity hover:opacity-100">
-              <DateGroups groups={older} onOpenWorkspaceSettings={openSetup} />
+          <DateGroups groups={grouped} onOpenWorkspaceSettings={openSetup} selectionOrder={order} />
+          <InactiveFold sectionId="recent" count={olderIds.length} className="pl-3" selectIds={olderIds}>
+            {/* Dimmed so the list reads as its recent work first. Not while
+                ticking them, when a dimmed tick would read as half there. */}
+            <div className={cn(!selecting && 'opacity-60 transition-opacity hover:opacity-100')}>
+              <DateGroups groups={older} onOpenWorkspaceSettings={openSetup} selectionOrder={order} />
             </div>
           </InactiveFold>
         </div>
@@ -160,9 +186,11 @@ export function HistoryView() {
 function DateGroups({
   groups,
   onOpenWorkspaceSettings,
+  selectionOrder,
 }: {
   groups: DateGroup[];
   onOpenWorkspaceSettings: (id: string) => void;
+  selectionOrder: readonly string[];
 }) {
   return (
     <>
@@ -181,6 +209,7 @@ function DateGroups({
                 session={s}
                 onOpenWorkspaceSettings={onOpenWorkspaceSettings}
                 onOpenLauncher={openLauncher}
+                selectionOrder={selectionOrder}
               />
             ))}
           </div>

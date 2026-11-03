@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { RailTab } from '@/lib/client/rail-tab';
 import { useOptionalHomeContext } from '@/components/home/home-context';
-import { useRailStyle } from '@/lib/client/rail-style';
+import { HOTKEYS } from '@/constants/commands';
 import { cachedRailSession, useBulkArchiveSessions } from '@/hooks/use-workspaces';
 import { useLeaveArchivedChat, useReviewChanges } from '@/hooks/use-archive-execution';
 import { useConfirm } from '@/components/ui/confirm-dialog';
@@ -33,21 +33,23 @@ import { WorkspaceSelectionBoundary, useWorkspaceSelection } from './workspace-s
  * Work by status lives in the header's pills, from every view, so the rail
  * doesn't repeat it.
  *
- * The agents-only rail (`railStyle` `agentsOnly`, docs/rail-agents-first.md)
- * keeps both lists. Its Agents list has no chat rows, so there's nothing to
- * select for archiving there, and Recent is where its chats are listed.
+ * Selecting chats to archive happens on Recent, from either tab and in every
+ * rail style: it lists every chat, and the agents-only rail
+ * (docs/rail-agents-first.md) has no chat rows under its agents to tick.
+ * While selecting, the list is Recent's whatever tab is open, so archiving or
+ * Cancel lands you back on the list you were on without the tab changing.
  *
  * Both need `WorkspaceSelectionProvider` above them: the header owns the
- * archive-selection toggle and its toolbar, the tree's rows the checkboxes.
+ * archive-selection toggle and its toolbar, Recent's rows the checkboxes.
+ * Both carry `data-rail-list`, where Esc leaves selection.
  */
 
 /**
  * The list's header: which list, and the list's actions. Agents | Recent is
  * a segmented switch at the left (`ListSwitch`), so the header is still one
- * row and the switch reads as the list's title. On Agents, selecting
- * executions to archive (not in agents only, which lists none) and New agent
- * sit at the right. While selecting, the toolbar (count, Archive, Cancel)
- * takes the row.
+ * row and the switch reads as the list's title. Select chats to archive sits
+ * at the right on both lists, then New agent on Agents. While selecting, the
+ * toolbar (count, Archive, Cancel) takes the row.
  */
 export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (next: RailTab) => void }) {
   const selection = useWorkspaceSelection();
@@ -60,7 +62,6 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
   const qc = useQueryClient();
   const createOpen = useWorkspaceCreateOpen();
   const canConfigure = useOptionalHomeContext()?.capabilities.configureAgents ?? true;
-  const agentsOnly = useRailStyle().style === 'agentsOnly';
 
   const handleConfirmArchive = async () => {
     if (!selection) return;
@@ -100,7 +101,7 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
   };
 
   return (
-    <div className="flex min-h-[32px] items-center gap-2 border-y border-border/40 px-3">
+    <div data-rail-list="" className="flex min-h-[32px] items-center gap-2 border-y border-border/40 px-3">
       {selecting ? (
         <>
           <span className="text-[10px] font-medium tabular-nums text-muted-foreground">{count} selected</span>
@@ -114,34 +115,34 @@ export function RailListHeader({ tab, onSelect }: { tab: RailTab; onSelect: (nex
             <Archive size={11} />
             Archive
           </button>
-          <button
-            type="button"
-            onClick={() => selection?.exit()}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-          >
-            <X size={11} />
-            Cancel
-          </button>
+          <Tip label="Stop selecting" shortcut={HOTKEYS.cancelSelection.label}>
+            <button
+              type="button"
+              onClick={() => selection?.exit()}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            >
+              <X size={11} />
+              Cancel
+            </button>
+          </Tip>
         </>
       ) : (
         <>
           <ListSwitch tab={tab} onSelect={onSelect} />
           <div className="flex-1" />
-          {tab === 'workspace' && selection && (
+          {selection && (
             <div className="flex items-center gap-1">
-              {!agentsOnly && (
-                <Tip label="Select chats to archive">
-                  <button
-                    type="button"
-                    onClick={selection.enter}
-                    className="rounded p-1 text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground"
-                    aria-label="Select chats to archive"
-                  >
-                    <Archive size={12} />
-                  </button>
-                </Tip>
-              )}
-              {canConfigure && <Tip label="New agent">
+              <Tip label="Select chats to archive">
+                <button
+                  type="button"
+                  onClick={selection.enter}
+                  className="rounded p-1 text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground"
+                  aria-label="Select chats to archive"
+                >
+                  <Archive size={12} />
+                </button>
+              </Tip>
+              {tab === 'workspace' && canConfigure && <Tip label="New agent">
                 <button
                   type="button"
                   onClick={openWorkspaceCreate}
@@ -203,22 +204,22 @@ function SwitchTab({ active, onClick, children }: { active: boolean; onClick: ()
 /**
  * Pinned executions, then the chosen list. Pins sit above both lists, so
  * the work you keep close is one glance away whichever list is open.
- * Renders nothing for pins when there are none. Pins and the Recent feed
- * duplicate the tree's rows, so they sit outside selection.
+ * Renders nothing for pins when there are none.
+ *
+ * While selecting chats to archive, Recent alone, whichever tab is open.
+ * Pins duplicate its rows, so they step aside rather than offer a plain row
+ * above a checkbox for the same chat.
  */
 export function RailListBody({ tab }: { tab: RailTab }) {
+  const selecting = useWorkspaceSelection()?.selecting ?? false;
   return (
-    <div className="pt-1">
-      <WorkspaceSelectionBoundary>
-        <PinnedRail />
-      </WorkspaceSelectionBoundary>
-      {tab === 'history' ? (
+    <div data-rail-list="" className="pt-1">
+      {!selecting && (
         <WorkspaceSelectionBoundary>
-          <HistoryView />
+          <PinnedRail />
         </WorkspaceSelectionBoundary>
-      ) : (
-        <WorkspaceNav />
       )}
+      {selecting || tab === 'history' ? <HistoryView /> : <WorkspaceNav />}
     </div>
   );
 }

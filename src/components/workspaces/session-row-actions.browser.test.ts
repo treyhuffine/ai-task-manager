@@ -57,6 +57,8 @@ beforeAll(async () => {
     export function useDashboard(){const f=useFixture();return {...f,activeSessionId:null,activeExecutionId:null,
       streamingSessionIds:new Set(),pendingInputSessionIds:new Set(),backgroundSessionIds:new Set()};}
     export const useWorkspaceSelection=()=>null;
+    export const useRowSelection=()=>({selectable:false,selected:false,toggle:()=>{}});
+    export const SelectionCheck=()=>null;
     const setPin=(kind,at)=>()=>{const {setPins}=useFixture();
       return {mutate:id=>{record(kind,id);setPins(prev=>({...prev,[id]:at}))}};};
     export const usePinSession=setPin('pin','2026-10-26T12:00:00Z'), useUnpinSession=setPin('unpin',null);
