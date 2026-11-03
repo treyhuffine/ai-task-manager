@@ -9,6 +9,7 @@ import { ExecutionTranscript } from '@/components/executions/execution-transcrip
 import { ExecutionActionBar } from '@/components/executions/action-bar/execution-action-bar';
 import { ExecutionChatsMenu } from '@/components/executions/execution-chat-tabs';
 import { ChatStatusText, CHAT_STATUS_DOT, useChatStatus } from '@/components/executions/chat-status';
+import { ChatTitleInput, useChatRename } from '@/components/executions/chat-title-rename';
 import {
   ExecutionChatColumn,
   useExecutionChat,
@@ -183,7 +184,8 @@ function BesideExecutionChat({
 
 /**
  * Who it is and where it stands, and the ways out: the execution's other
- * chats when it has more than one, the git chip, and Full view.
+ * chats when it has more than one, the git chip, and Full view. The title
+ * renames in place, as in the full view's header.
  */
 function BesideHeader({
   session,
@@ -206,7 +208,8 @@ function BesideHeader({
   });
   const { data: chats } = useExecutionChats(session.executionId ?? null, session.id, { refetchInterval: 30_000 });
   const entries = (chats?.sessions ?? []).map((s) => ({ ...s, isCurrent: s.id === session.id }));
-  const title = session.execution?.label ?? session.label ?? 'Untitled chat';
+  const rename = useChatRename(session);
+  const title = rename.label ?? 'Untitled chat';
   const elsewhere = session.workspaceId && session.workspaceId !== agent.id ? chat.workspace?.name : null;
 
   return (
@@ -219,13 +222,31 @@ function BesideHeader({
             unreadElsewhere={entries.some((s) => !s.isCurrent && isSessionUnread(s))}
           />
         )}
-        <div className="min-w-0">
-          <Tip label={elsewhere ? `${elsewhere} › ${title}` : title} onlyWhenTextHidden>
-            <h2 className="truncate text-[12.5px] font-semibold text-foreground">
-              {elsewhere && <span className="font-medium text-muted-foreground">{elsewhere} › </span>}
-              {title}
-            </h2>
-          </Tip>
+        <div className="min-w-0 flex-1">
+          <h2 className="flex min-w-0 items-center text-[12.5px] font-semibold text-foreground">
+            {elsewhere && (
+              <Tip label={elsewhere} onlyWhenTextHidden>
+                <span className="max-w-[45%] flex-shrink-0 truncate font-medium text-muted-foreground">{elsewhere} ›{'\u00a0'}</span>
+              </Tip>
+            )}
+            {rename.editing ? (
+              // Sized and placed so the text stays where the title's was.
+              <ChatTitleInput rename={rename} className="-mx-[5px] -my-px h-[calc(1lh+2px)] flex-1 px-1" />
+            ) : (
+              <Tip label={title} onlyWhenTextHidden>
+                <button
+                  type="button"
+                  onClick={rename.begin}
+                  className={cn(
+                    '-mx-0.5 min-w-0 cursor-text truncate rounded px-0.5 text-left transition-colors hover:bg-muted/50',
+                    !rename.label && 'font-normal italic text-muted-foreground',
+                  )}
+                >
+                  {title}
+                </button>
+              </Tip>
+            )}
+          </h2>
           <ChatStatusText status={status} className="text-[11px]" />
         </div>
       </div>

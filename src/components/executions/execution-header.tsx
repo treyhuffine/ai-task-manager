@@ -21,10 +21,11 @@ import { cn } from '@/lib/utils';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { Archive, ArrowUpRight, Check, ChevronLeft, Copy, Eye, EyeOff, FolderOpen, Loader2, MoreHorizontal, Pin, PinOff, Rows3, SquareArrowOutUpRight, Zap } from 'lucide-react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { ExecutionActionBar } from './action-bar/execution-action-bar';
 import { ChatStatusText, useChatStatus } from './chat-status';
+import { ChatTitleInput, useChatRename } from './chat-title-rename';
 import { ExecutionTaskChips } from './execution-task-chips';
 import { RestartMenuItem } from './restart-menu-item';
 import { ResyncMenuItem } from './resync-menu-item';
@@ -81,62 +82,14 @@ export function ExecutionHeader({
 }: ExecutionHeaderProps) {
   const { openAgent } = useWorkNavigation();
   const { archive } = useArchiveExecution();
-  const updateSession = useUpdateSession();
   const markRead = useMarkSessionRead();
   const markUnread = useMarkSessionUnread();
   const pin = usePinSession();
   const unpin = useUnpinSession();
 
-  // Inline rename: click the label → swap to input. Enter / blur saves
-  // via PATCH /api/sessions/:id; Escape cancels. The local draft holds
-  // the in-progress text so React Query repaints from server data don't
-  // clobber the user's edit while they're typing.
-  //
-  // `editingSessionId` also resets on session change without an effect.
-  // ExecutionView doesn't remount on navigation, so a boolean alone
-  // would let an in-flight rename carry into the next execution.
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [draft, setDraft] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-  const editing = editingSessionId === session.id;
-
-  // The header title is the EXECUTION's label — stable across chats. Starting
-  // a new chat on the same execution gives that chat its own `session.label`
-  // (the per-conversation title shown in the history dropdown) but leaves this
-  // header title untouched. Fall back to the chat label only for the rare
-  // non-execution case (an orphaned chat whose execution was hard-deleted).
-  const displayLabel = session.execution?.label ?? session.label ?? null;
-
-  useEffect(() => {
-    if (!editing) return;
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
-  }, [editing]);
-
-  const beginRename = () => {
-    setDraft(displayLabel ?? '');
-    setEditingSessionId(session.id);
-  };
-
-  const commitRename = () => {
-    const next = draft.trim();
-    setEditingSessionId(null);
-    if (next === (displayLabel ?? '')) return; // no-op
-    // Rename the execution (the durable artifact) so the title survives a
-    // "new chat". Orphaned chats with no execution fall back to their own label.
-    if (session.executionId) {
-      updateSession.mutate({ id: session.id, executionLabel: next || null });
-    } else {
-      updateSession.mutate({ id: session.id, label: next || null });
-    }
-  };
-
-  const cancelRename = () => {
-    setEditingSessionId(null);
-    setDraft(displayLabel ?? '');
-  };
+  // Click the title to rename it in place (chat-title-rename.tsx).
+  const rename = useChatRename(session);
+  const displayLabel = rename.label;
 
   const isArchived = session.status === 'archived';
   // Which device it runs on, by name (P3.1): the exception only. Work on
@@ -160,27 +113,8 @@ export function ExecutionHeader({
     });
   };
 
-  const labelElement = editing ? (
-    <input
-      ref={inputRef}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commitRename}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          commitRename();
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          cancelRename();
-        }
-      }}
-      placeholder="Untitled"
-      maxLength={120}
-      className="flex-1 min-w-0 bg-background border border-primary/40 rounded px-1.5 py-0.5 text-[13px] lg:text-[12.5px] font-semibold text-foreground focus:outline-none"
-      spellCheck={false}
-    />
+  const labelElement = rename.editing ? (
+    <ChatTitleInput rename={rename} className="flex-1 px-1.5 py-0.5 text-[13px] lg:text-[12.5px]" />
   ) : null;
 
   const archiveMenuItem = !isArchived && (
@@ -285,7 +219,7 @@ export function ExecutionHeader({
           <div className="p-1">
             <button
               type="button"
-              onClick={beginRename}
+              onClick={rename.begin}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors"
             >
               <Pencil12 />
@@ -384,7 +318,7 @@ export function ExecutionHeader({
               <Tip label="Rename">
                 <button
                   type="button"
-                  onClick={beginRename}
+                  onClick={rename.begin}
                   className={cn(
                     'truncate text-left rounded px-1 -mx-1 py-0.5',
                     'active:bg-muted/40 transition-colors cursor-text',
@@ -444,7 +378,7 @@ export function ExecutionHeader({
             <Tip label="Rename">
               <button
                 type="button"
-                onClick={beginRename}
+                onClick={rename.begin}
                 className={cn(
                   'truncate text-left rounded px-0.5 -mx-0.5 min-w-0 text-[13px]',
                   'hover:bg-muted/50 transition-colors cursor-text',
