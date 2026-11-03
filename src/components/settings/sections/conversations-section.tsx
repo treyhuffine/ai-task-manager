@@ -127,6 +127,12 @@ export function ConversationsSection() {
       {connection.provider === 'slack' && <div className="space-y-3 border-t pt-3 text-sm">
         <h4 className="font-medium">6. Link your Slack identity</h4>
         {connection.identities.some(identity => identity.mine) ? <p role="status" className="font-medium">Slack identity linked. You can send a test message now.</p> : <p>Connect your Slack user to your current Ri sign-in. Each person completes this step for themselves.</p>}
+        {!query.data?.team && <details className="space-y-2 text-muted-foreground">
+          <summary className="cursor-pointer">Can’t send a DM to this app?</summary>
+          <p>If Slack says “Sending messages to this app has been turned off,” open your Slack app’s <strong>App Home → Show Tabs → Messages Tab</strong>. Enable the Messages tab and <strong>Allow users to send Slash commands and messages from the messages tab</strong>.</p>
+          <p>Save any changes, reload Slack, then try sending your link command again. Ri’s current manifest enables this setting, but your installed app may have different settings.</p>
+          <a className="inline-block underline" href="https://api.slack.com/apps" target="_blank" rel="noreferrer">Open Slack app settings</a>
+        </details>}
       </div>}
       {(connection.provider === 'buzz' || !connection.identities.some(identity => identity.mine)) && <Button variant="outline" size="sm" disabled={disabled || !connection.enabled} onClick={() => mutate.mutate(async () => { const result = await trpcClient.conversationIntegrations.link.mutate({ id: connection.id }); setLink({ id: connection.id, command: result.bridgeCommand ?? result.command, buzz: connection.provider === 'buzz', expiresAt: Date.now() + result.expiresInMinutes * 60_000 }); })}>{connection.provider === 'buzz' ? 'Authorize my Buzz bridge' : link?.id === connection.id ? 'Generate new link code' : 'Link my Slack identity'}</Button>}
       {link?.id === connection.id && (link.buzz || !connection.identities.some(identity => identity.mine)) && <div className="space-y-3 text-sm">

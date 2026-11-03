@@ -62,6 +62,14 @@ Create separate Slack apps and Ri connections for separately mentionable identit
 
 If a token expires or rotates, use **Update Slack tokens** on the existing connection. Ri verifies that the new credentials belong to the same bot and Slack workspace. Saved chats and unsent reply parts are preserved. **Retry delivery** retries failed replies after a channel or credential issue is fixed. **Pause** keeps history and pending delivery. **Disconnect** removes the transport binding and credentials while leaving the Ri chat history.
 
+### Slack says sending messages is turned off
+
+For a personal connection, open [your Slack app settings](https://api.slack.com/apps), choose the app, then open **App Home > Show Tabs > Messages Tab**. Enable the Messages tab and **Allow users to send Slash commands and messages from the messages tab**. Save any changes and reload Slack, then send the link command again. This is Slack's control for allowing users to type to the app. See [Slack's Socket Mode setup](https://docs.slack.dev/tools/python-slack-sdk/socket-mode/).
+
+Ri's generated manifest already contains `features.app_home.messages_tab_enabled: true` and `features.app_home.messages_tab_read_only_enabled: false`. Generating another manifest in Ri does not update an app already installed in Slack. Check the installed app's settings. If the message remains after enabling them and reloading, verify that you changed the same app in the same Slack workspace.
+
+Team connections accept messages in explicitly connected channels. Their private DMs are refused by Ri because team chat history is shared, independently of Slack's message-composer setting.
+
 ### Review Slack messages
 
 The existing Slack account Connector is the path for searching and reviewing messages outside the current bot conversation. Use **Connect Slack account tools** in Conversations, authorize the account, and make its tools available to the destination Ri agent through the normal Connector settings. Then ask Ri to review the messages you care about. That request can come from Ri or from a linked Slack conversation.

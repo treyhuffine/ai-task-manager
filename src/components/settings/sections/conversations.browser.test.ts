@@ -56,6 +56,10 @@ it.skipIf(!enabled)('guides Slack setup from an existing app through tokens, sav
     expect(await page.getByRole('form', { name: 'Add a conversation connection' }).count()).toBe(0);
     expect(await page.evaluate('document.activeElement.id')).toBe('conversation-23456789-1234-4234-8234-123456789abc');
     expect(await saved.evaluate(element => { const box = element.getBoundingClientRect(); const scroll = element.closest('[data-settings-scroll]')!.getBoundingClientRect(); return box.top >= scroll.top && box.top < scroll.bottom; })).toBe(true);
+    await saved.getByText('Can’t send a DM to this app?', { exact: true }).click();
+    expect(await saved.getByText('Allow users to send Slash commands and messages from the messages tab', { exact: true }).isVisible()).toBe(true);
+    expect(await saved.getByRole('link', { name: 'Open Slack app settings', exact: true }).getAttribute('href')).toBe('https://api.slack.com/apps');
+    await saved.getByText('Can’t send a DM to this app?', { exact: true }).click();
     expect(await page.evaluate('window.calls[0]')).toMatchObject({ provider: 'slack', workspaceId: null, channels: [], botToken: 'xoxb-fixture', appToken: 'xapp-fixture' });
     await saved.getByRole('button', { name: 'Link my Slack identity' }).click();
     await saved.getByText('link fixture-link-code', { exact: true }).waitFor();
