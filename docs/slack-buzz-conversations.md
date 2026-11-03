@@ -50,6 +50,8 @@ The manifest is a way to preconfigure the app, not another integration. Slack re
 
 If an earlier copied manifest reports **Invalid property 'enabled'**, replace that `agent_view` block with the one above. The corrected generator also enables writable DMs, limits Slack app names to 35 characters and converts the bot username to Slack's allowed characters. The app's display name remains the name you chose.
 
+Agent View also expects `app_home_opened` in `settings.event_subscriptions.bot_events`. The generator includes it alongside mention, message and Stop events. If Slack warns about that subscription on a previously copied manifest, add `"app_home_opened"` to the bot events array. Opening the agent view does not itself start model work.
+
 Create separate Slack apps and Ri connections for separately mentionable identities. A Ri connection's name alone cannot create another Slack user. For example, **Ri Personal** can point to your personal orchestrator while **Ri Team** points to the team's product agent. Each connection has a fixed destination.
 
 If a token expires or rotates, use **Update Slack tokens** on the existing connection. Ri verifies that the new credentials belong to the same bot and Slack workspace. Saved chats and unsent reply parts are preserved. **Retry delivery** retries failed replies after a channel or credential issue is fixed. **Pause** keeps history and pending delivery. **Disconnect** removes the transport binding and credentials while leaving the Ri chat history.

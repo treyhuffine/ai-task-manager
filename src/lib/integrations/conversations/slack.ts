@@ -29,7 +29,7 @@ export function slackConversationManifest(name: string) {
     agent_view: { agent_description: 'Talk to your Ri orchestrator or team agent.' },
   },
     oauth_config: { scopes: { bot: ['app_mentions:read', 'chat:write', 'im:history', 'channels:history', 'groups:history', 'assistant:write'] } },
-    settings: { socket_mode_enabled: true, event_subscriptions: { bot_events: ['app_mention', 'message.im', 'message.channels', 'message.groups', 'agent_session_stopped'] } } };
+    settings: { socket_mode_enabled: true, event_subscriptions: { bot_events: ['app_home_opened', 'app_mention', 'message.im', 'message.channels', 'message.groups', 'agent_session_stopped'] } } };
 }
 
 const slackEvent = z.object({ type: z.string(), user: z.string().optional(), bot_id: z.string().optional(), subtype: z.string().optional(),

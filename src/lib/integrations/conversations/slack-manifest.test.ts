@@ -19,7 +19,7 @@ it.each(['Ri Personal', 'Ri Team (Product)', '日本語', 'a'.repeat(35)])('gene
   expect(manifest.display_information.name).toBe(name);
   expect(manifest.settings.socket_mode_enabled).toBe(true);
   expect(manifest.oauth_config.scopes.bot).toEqual(expect.arrayContaining(['assistant:write', 'app_mentions:read', 'chat:write', 'im:history']));
-  expect(manifest.settings.event_subscriptions.bot_events).toEqual(expect.arrayContaining(['app_mention', 'message.im', 'agent_session_stopped']));
+  expect(manifest.settings.event_subscriptions.bot_events).toEqual(expect.arrayContaining(['app_home_opened', 'app_mention', 'message.im', 'agent_session_stopped']));
 });
 
 it('rejects the unsupported agent_view.enabled field that Slack reported', () => {
