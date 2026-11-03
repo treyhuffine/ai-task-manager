@@ -107,8 +107,8 @@ export function ConversationsSection() {
       </div>}
       {editing === connection.id && <form aria-label={`${connection.name} Slack tokens`} className="space-y-2 rounded border p-3" onSubmit={event => { event.preventDefault(); reconnect.mutate(connection.id); }}>
         <a className="inline-block text-sm underline" href="https://api.slack.com/apps" target="_blank" rel="noreferrer">Open Slack app settings</a>
-        <SlackTokenField kind="bot" id={`bot-${connection.id}`} label="New bot token" value={newBotToken} onChange={setNewBotToken} />
         <SlackTokenField kind="app" id={`app-${connection.id}`} label="New app-level token" value={newAppToken} onChange={setNewAppToken} />
+        <SlackTokenField kind="bot" id={`bot-${connection.id}`} label="New bot token" value={newBotToken} onChange={setNewBotToken} />
         <p className="text-xs text-muted-foreground">Use tokens for this same app and workspace. Saved chats and pending replies are kept.</p><Button disabled={disabled}>Reconnect</Button>
       </form>}
       <p className="break-words text-xs text-muted-foreground">{connection.channels.length ? `Channels: ${connection.channels.join(', ')}` : 'Personal DMs only'}</p>
@@ -134,11 +134,11 @@ export function ConversationsSection() {
           </div>
           <p className="text-sm text-muted-foreground">To create an app, choose <strong>Create New App → From a manifest</strong> in Slack, select your Slack workspace, and paste the copied manifest. If you use Slack’s AI agent wizard instead, choose <strong>Starter agent</strong>.</p>
         </SetupStep>
-        <SetupStep number={3} label="Get your bot token">
-          <SlackTokenField kind="bot" id="conversation-bot-token" label="Bot token" value={botToken} onChange={setBotToken} />
-        </SetupStep>
-        <SetupStep number={4} label="Get your app-level token">
+        <SetupStep number={3} label="Get your app-level token">
           <SlackTokenField kind="app" id="conversation-app-token" label="App-level token" value={appToken} onChange={setAppToken} />
+        </SetupStep>
+        <SetupStep number={4} label="Get your bot token">
+          <SlackTokenField kind="bot" id="conversation-bot-token" label="Bot token" value={botToken} onChange={setBotToken} />
         </SetupStep>
         <SetupStep number={5} label="Choose conversations and connect">
           <p className="text-sm text-muted-foreground">For channels, open each channel’s details in Slack, copy its <strong>Channel ID</strong>, and add this app to the channel.</p>

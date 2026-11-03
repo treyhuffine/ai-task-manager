@@ -34,7 +34,8 @@ it.skipIf(!enabled)('guides Slack setup from an existing app through tokens, sav
   try {
     await page.addInitScript("Object.defineProperty(navigator, 'clipboard', { value: { writeText: async value => { window.copiedManifest = value; } } });");
     await page.goto(fixture.url + '?empty');
-    await page.getByRole('heading', { name: '3. Get your bot token', exact: true }).waitFor();
+    await page.getByRole('heading', { name: '3. Get your app-level token', exact: true }).waitFor();
+    expect(await page.locator('input[type="password"]').evaluateAll(elements => elements.map(element => element.id))).toEqual(['conversation-app-token', 'conversation-bot-token']);
     expect(await page.getByText('Already created the app from a manifest?', { exact: false }).count()).toBe(1);
     expect(await page.getByRole('link', { name: 'Open Slack apps', exact: true }).getAttribute('target')).toBe('_blank');
     expect(await page.getByText('OAuth & Permissions', { exact: true }).count()).toBe(1);
@@ -45,8 +46,8 @@ it.skipIf(!enabled)('guides Slack setup from an existing app through tokens, sav
     await page.getByRole('button', { name: 'Manifest copied', exact: true }).waitFor();
     expect(JSON.parse(await page.evaluate('window.copiedManifest'))).toMatchObject({ display_information: { name: 'Ri Personal' } });
     await page.screenshot({ path: '.work/conversations-slack-setup-desktop.png', fullPage: true });
-    await page.getByLabel('Bot token', { exact: true }).fill('xoxb-fixture');
     await page.getByLabel('App-level token', { exact: true }).fill('xapp-fixture');
+    await page.getByLabel('Bot token', { exact: true }).fill('xoxb-fixture');
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
     const saved = page.getByRole('region', { name: 'Ri Personal', exact: true });
     await saved.getByRole('heading', { name: '6. Link yourself and try a message' }).waitFor();
@@ -62,7 +63,7 @@ it.skipIf(!enabled)('keeps the numbered Slack setup readable on mobile and requi
   const page = await fixture.browser.newPage({ viewport: { width: 390, height: 844 } });
   try {
     await page.goto(fixture.url + '?empty&team');
-    await page.getByRole('heading', { name: '4. Get your app-level token', exact: true }).waitFor();
+    await page.getByRole('heading', { name: '4. Get your bot token', exact: true }).waitFor();
     expect(await page.getByLabel('Ri destination', { exact: true }).evaluate(element => (element as HTMLSelectElement).required)).toBe(true);
     expect(await page.getByLabel('Connected channel IDs').evaluate(element => (element as HTMLInputElement).required)).toBe(true);
     expect(await page.evaluate('document.documentElement.scrollWidth <= innerWidth')).toBe(true);
@@ -78,8 +79,8 @@ it.skipIf(!enabled)('explains token locations when reconnecting an existing Slac
     const form = page.getByRole('form', { name: 'Ri Personal Slack tokens' });
     expect(await form.getByText('OAuth & Permissions', { exact: true }).count()).toBe(1);
     expect(await form.getByText('connections:write', { exact: true }).count()).toBe(1);
-    await form.getByLabel('New bot token').fill('xoxb-replacement');
     await form.getByLabel('New app-level token').fill('xapp-replacement');
+    await form.getByLabel('New bot token').fill('xoxb-replacement');
     await form.getByRole('button', { name: 'Reconnect', exact: true }).click();
     await page.waitForFunction('window.calls.some(call => call.operation === "reconnectSlack")');
     expect(await page.evaluate('window.calls[0]')).toMatchObject({ operation: 'reconnectSlack', botToken: 'xoxb-replacement', appToken: 'xapp-replacement' });
