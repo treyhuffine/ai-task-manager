@@ -51,6 +51,7 @@ import { replyNamesTextFile } from '@/lib/sessions/reply-text';
 import { replyNamesFile } from '@/lib/sessions/reply-artifacts';
 import { activityReasonForEventSource, isActivity, shouldThrottledBump, type ActivityReason } from '@/lib/sessions/activity';
 import type { ReferencePage, ReferenceRow, ReferenceSection } from '@/lib/sessions/contracts';
+import type { ChatTurnStatus } from '@/lib/sessions/turn-status';
 import { generateToken, hashToken, teamAdmissionToken, type GeneratedToken } from '@/lib/auth/tokens';
 import { DEFAULT_PERMISSION_MODE } from '@/lib/permissions/modes';
 import { assertSupportedPermissionMode, conservativePlanReturn } from '@/lib/executor/permission-map';
@@ -4384,6 +4385,7 @@ export function updateUserState(input: UpdateUserStateInput): UserStateRecord | 
     .where(eq(userState.id, 1))
     .returning()
     .get();
+  if (input.chatStatusLines === false) clearAllChatTurnStatuses();
   return row ? hydrateUserState(row) : undefined;
 }
 
@@ -10233,6 +10235,34 @@ export function markSessionUnread(id: string): ChatSessionRecord | null {
   return updateChatSession(id, { unreadMarkerAt: at });
 }
 
+// ─── Status lines (docs/chat-status-lines.md) ─────────────────
+
+/** Whether chats end each turn with a status line. A trial, on unless turned off. */
+export function chatStatusLinesEnabled(): boolean {
+  return getUserState()?.chatStatusLines ?? true;
+}
+
+/** Record the status line a chat's agent set at the end of its turn. */
+export function setChatTurnStatus(id: string, status: ChatTurnStatus): ChatSessionRecord | null {
+  return getDb().update(chatSessions).set({ turnStatus: status }).where(eq(chatSessions.id, id)).returning().get() ?? null;
+}
+
+/**
+ * Clear a chat's status line: a new message reached it (a new turn starts,
+ * so the old line no longer says where it stands), or the person marked it
+ * read, which dismisses a status that waited on them. Writes nothing when
+ * there is none.
+ */
+export function clearChatTurnStatus(id: string): void {
+  getDb().update(chatSessions).set({ turnStatus: null })
+    .where(and(eq(chatSessions.id, id), isNotNull(chatSessions.turnStatus))).run();
+}
+
+/** Turning status lines off clears them all, so nothing stale waits on anyone. */
+export function clearAllChatTurnStatuses(): void {
+  getDb().update(chatSessions).set({ turnStatus: null }).where(isNotNull(chatSessions.turnStatus)).run();
+}
+
 /** Advance the outcome timestamp. Called when an `agent`/`result` event lands. */
 export function bumpSessionOutcome(id: string, at: string = new Date().toISOString()): void {
   const db = getDb();
@@ -10317,7 +10347,9 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
  * "Unread" derivation: the most recent of (lastOutcomeEventAt,
  * unreadMarkerAt) is newer than the user's last interaction
  * (lastViewedAt). unreadMarkerAt lets the user force a session into
- * Unread without an outcome event (the "Mark as unread" affordance).
+ * Unread without an outcome event (the "Mark as unread" affordance). A
+ * status line that waits on the person keeps the chat listed after it's been
+ * looked at, until it's answered or dismissed (docs/chat-status-lines.md).
  */
 export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
   const db = getDb();
@@ -10352,14 +10384,19 @@ export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
         // unread row is pure noise. See TRIGGERS_WITH_OWN_REVIEW_SURFACE.
         sql`NOT (${chatSessions.type} = 'orchestration' AND ${chatSessions.createdByRunId} IS NULL)`,
         notExists(createdBySelfReviewedRun),
-        sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.unreadMarkerAt}) IS NOT NULL`,
-        sql`COALESCE(
-          MAX(
-            COALESCE(${chatSessions.lastOutcomeEventAt}, '1970-01-01'),
-            COALESCE(${chatSessions.unreadMarkerAt}, '1970-01-01')
+        or(
+          and(
+            sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.unreadMarkerAt}) IS NOT NULL`,
+            sql`COALESCE(
+              MAX(
+                COALESCE(${chatSessions.lastOutcomeEventAt}, '1970-01-01'),
+                COALESCE(${chatSessions.unreadMarkerAt}, '1970-01-01')
+              ),
+              '1970-01-01'
+            ) > COALESCE(${chatSessions.lastViewedAt}, '1970-01-01')`,
           ),
-          '1970-01-01'
-        ) > COALESCE(${chatSessions.lastViewedAt}, '1970-01-01')`,
+          sql`json_extract(${chatSessions.turnStatus}, '$.needsYou') = 1`,
+        ),
       ),
     )
     // Membership is an unread question (above), but ORDER is an activity
@@ -10917,6 +10954,9 @@ function insertChatEventRow(input: CreateChatEventInput, broadcasts?: ChatEventR
   if (isOutcomeEvent(input)) {
     bumpSessionOutcome(input.sessionId, at);
   }
+  // A message reaching the chat (the person's, another chat's, a schedule's)
+  // starts a new turn, so the last turn's status line no longer holds.
+  if (input.source === 'user' || input.source === 'cron') clearChatTurnStatus(input.sessionId);
   // Separate from the outcome bump on purpose: outcome drives "unread" and
   // must stay agent-only, activity drives sort order and takes everything
   // policy allows. See src/lib/sessions/activity.ts.

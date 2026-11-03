@@ -15,6 +15,7 @@ import { TASK_STATUSES } from '@/lib/tasks/lifecycle';
 import { PERMISSION_MODES } from '@/lib/permissions/modes';
 import { KNOWN_HARNESS_IDS } from '@/lib/harness/registry';
 import type { OnboardingRecord } from '@/lib/onboarding/progress';
+import type { ChatTurnStatus } from '@/lib/sessions/turn-status';
 import type { HarnessId } from '@/lib/harness/registry';
 import type { ExplicitHarnessSelection } from '@/lib/harness/options';
 
@@ -180,6 +181,10 @@ export const userState = sqliteTable('user_state', {
   onboarding: text({ mode: 'json' }).$type<OnboardingRecord>(),
   // NULL follows the product default (on). A preference, never a DB default.
   usageWarnings: integer({ mode: 'boolean' }),
+  // Chats end each turn with a status line (docs/chat-status-lines.md). A
+  // trial: NULL follows the product default (on), read through
+  // `chatStatusLinesEnabled`. Turning it off clears every status.
+  chatStatusLines: integer({ mode: 'boolean' }),
 });
 
 // ─── Scratchpad ───────────────────────────────────────────────
@@ -2166,6 +2171,13 @@ export const chatSessions = sqliteTable(
     lastOutcomeEventAt: text(),
     lastViewedAt: text(),
     unreadMarkerAt: text(),
+    // The status line the chat's agent set at the end of its last turn
+    // (`set_chat_status`, docs/chat-status-lines.md): one line, whether it
+    // waits on the person, their part's size and what it unblocks. Null
+    // until set, cleared when a new message reaches the chat or the person
+    // marks it read. A status that waits on the person keeps the chat unread
+    // after it's been looked at.
+    turnStatus: text({ mode: 'json' }).$type<ChatTurnStatus>(),
 
     // Rail sort key: "when did anything last happen here", human OR agent.
     //

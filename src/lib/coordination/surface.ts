@@ -11,6 +11,8 @@ export const COORDINATION_TOOLS = [
   // with typed tools instead of shelling out to the signed CLI, which
   // reaches the same actions.
   'create_trigger', 'list_triggers', 'get_trigger', 'update_trigger', 'delete_trigger',
+  // The chat's status line, set at the end of a turn (docs/chat-status-lines.md).
+  'set_chat_status',
 ] as const;
 
 export function coordinationMcpServer(sessionId: string): McpServerConfig | null {

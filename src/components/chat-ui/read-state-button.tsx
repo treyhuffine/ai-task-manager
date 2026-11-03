@@ -28,7 +28,7 @@ export function ReadStateButton({ sessionId, className }: { sessionId: string | 
       <Tip label="Mark read">
         <button
           type="button"
-          onClick={() => markRead.mutate(chat.id)}
+          onClick={() => markRead.mutate({ id: chat.id, dismiss: true })}
           aria-label="Unread, mark read"
           className={cn(
             'flex flex-shrink-0 items-center gap-1 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400',

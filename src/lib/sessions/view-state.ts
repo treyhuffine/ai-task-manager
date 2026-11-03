@@ -8,9 +8,17 @@ export function conversationViews<T extends { id: string; executionId?: string |
   return authority ? q.projectMemberWorkViews(rows, authority.member.id) : [...rows];
 }
 
-export function markConversationRead(key: RequestKey | null, chatId: string, read: boolean) {
+/**
+ * Read or unread, for whoever is looking. `dismiss` also clears the chat's
+ * status line (an explicit Mark as read, docs/chat-status-lines.md). Status
+ * lines belong to personal chats, so a team member's read leaves it alone.
+ */
+export function markConversationRead(key: RequestKey | null, chatId: string, read: boolean, options: { dismiss?: boolean } = {}) {
   const authority = sessionAuthority(key, chatId, 'read');
-  return authority ? q.setMemberChatRead(chatId, authority.member.id, read) : read ? q.markSessionRead(chatId) : q.markSessionUnread(chatId);
+  if (authority) return q.setMemberChatRead(chatId, authority.member.id, read);
+  if (!read) return q.markSessionUnread(chatId);
+  if (options.dismiss) q.clearChatTurnStatus(chatId);
+  return q.markSessionRead(chatId);
 }
 export function pinConversation(key: RequestKey | null, chatId: string, pinned: boolean) {
   const authority = sessionAuthority(key, chatId, 'read');

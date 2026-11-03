@@ -85,6 +85,24 @@ describe('scoped handoff guidance and general agent instructions at the dispatch
     return { workspace, session };
   }
 
+  it("carries the status line rule on an execution's messages while status lines are on, and on no other chat", async () => {
+    const sent = async (surface: string) => {
+      const { session } = seed('claude', surface, false);
+      await executor.dispatch(session.id, 'Fix the login bug.', { internalCall: true });
+      const handle = await mock.createSession.mock.results.at(-1)!.value;
+      const message: string = handle.send.mock.calls.at(-1)![0];
+      await executor.close(session.id);
+      return message;
+    };
+    const execution = await sent('execution');
+    expect(execution).toContain('# Status line');
+    expect(execution).toContain('set_chat_status');
+    expect(execution.endsWith('Fix the login bug.')).toBe(true);
+    for (const surface of ['app', 'agent', 'task']) expect(await sent(surface)).not.toContain('# Status line');
+    q.updateUserState({ chatStatusLines: false });
+    expect(await sent('execution')).toBe('Fix the login bug.');
+  });
+
   it('attaches the signed email draft surface to an ordinary execution', async () => {
     (await import('@/lib/auth/config-file')).writeAuthConfig({ localToken: 'instruction-test-token' });
     const { session } = seed('claude', 'execution', false);
@@ -97,6 +115,9 @@ describe('scoped handoff guidance and general agent instructions at the dispatch
 
   it.each(['claude', 'codex', 'cursor', 'opencode', 'antigravity'] as const)(
     'keeps handoff preferences out of fresh, resumed and cached %s ordinary chats', async (harness) => {
+      // Status lines add their own rule to an execution's messages (checked
+      // below). This is about handoff preferences alone.
+      q.updateUserState({ chatStatusLines: false });
       for (const surface of ['app', 'task', 'note', 'agent', 'execution']) {
         for (const resumed of [false, true]) {
           const { workspace, session } = seed(harness, surface, resumed);

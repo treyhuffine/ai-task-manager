@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { optimisticPatch } from '@/lib/query/optimistic-entity';
 import type { WorkResultDetailResponse } from '@/lib/api/results';
 import { useExecutionRuntimeScope } from '@/components/home/execution-runtime-context';
+import { turnStatusNeedsYou } from '@/lib/sessions/turn-status';
 
 const WORKSPACES_KEY = ['workspaces'] as const;
 const UPDATE_WORKSPACE_KEY = ['workspaces', 'update'] as const;
@@ -405,23 +406,39 @@ export function useMarkSessionViewed() {
   return useMarkSessionRead();
 }
 
+/**
+ * A chat id, or `{ id, dismiss: true }` for an explicit Mark as read, which
+ * also clears its status line (docs/chat-status-lines.md). Read receipts from
+ * looking pass the bare id, and leave a status that waits on the person.
+ */
+export type MarkReadInput = string | { id: string; dismiss?: boolean };
+
+function markReadInput(input: MarkReadInput): { id: string; dismiss: boolean } {
+  return typeof input === 'string' ? { id: input, dismiss: false } : { id: input.id, dismiss: input.dismiss === true };
+}
+
 export function useMarkSessionRead() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => sessionsApi.markRead(id),
+    mutationFn: (input: MarkReadInput) => {
+      const { id, dismiss } = markReadInput(input);
+      return sessionsApi.markRead(id, { dismiss });
+    },
     // Optimistic update: flip the read state in every rail-feeding
     // cache before the server round-trip. Otherwise the user can
     // navigate away from a chat and still see the unread pip on the
     // row for the brief window between mutation send and refetch
     // settle — which feels broken because the click-out gesture
     // didn't seem to "do" anything.
-    onMutate: async (id) => {
+    onMutate: async (input) => {
+      const { id, dismiss } = markReadInput(input);
       const now = new Date().toISOString();
+      const read = { lastViewedAt: now, unreadMarkerAt: null, ...(dismiss ? { turnStatus: null } : {}) };
       qc.setQueryData<RailResponse>(RAIL_KEY, (prev) => prev && {
         ...prev,
         sessions: prev.sessions.map((s) =>
           s.id === id
-            ? { ...s, lastViewedAt: now, unreadMarkerAt: null }
+            ? { ...s, ...read }
             : s,
         ),
         // An agent's main chat: reading it clears the agent's "New reply"
@@ -430,8 +447,10 @@ export function useMarkSessionRead() {
           c.id === id ? { ...c, lastViewedAt: now, unreadMarkerAt: null } : c,
         ),
       });
+      // A look leaves a chat whose status waits on the person listed: only
+      // dismissing (or answering) takes it off.
       qc.setQueryData<ChatSessionRecord[]>(NEEDS_REVIEW_KEY, (prev) =>
-        prev ? prev.filter((s) => s.id !== id) : prev,
+        prev ? prev.filter((s) => s.id !== id || (!dismiss && turnStatusNeedsYou(s))) : prev,
       );
       // Every workspace's sessions cache that contains this row gets
       // the same field bump — there are many such caches (one per
@@ -442,7 +461,7 @@ export function useMarkSessionRead() {
           && q.queryKey[2] === 'sessions' },
         (prev) => prev?.map((s) =>
           s.id === id
-            ? { ...s, lastViewedAt: now, unreadMarkerAt: null }
+            ? { ...s, ...read }
             : s,
         ),
       );
@@ -450,7 +469,7 @@ export function useMarkSessionRead() {
       // fed by useSession) so the in-view header's read affordance flips
       // instantly — that cache isn't rail-derived, so the maps above miss it.
       qc.setQueryData<ChatSessionWithExecution>(['session', id], (prev) =>
-        prev ? { ...prev, lastViewedAt: now, unreadMarkerAt: null } : prev,
+        prev ? { ...prev, ...read } : prev,
       );
     },
     onSettled: () => {

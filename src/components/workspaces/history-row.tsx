@@ -13,6 +13,7 @@ import { useSessionRowHover } from './session-hover-context';
 import { SelectionCheck, useRowSelection } from './workspace-selection-context';
 import { executionView } from '@/lib/client/active-view';
 import { agentInitials } from '@/lib/client/agent-initials';
+import { ChatStatusLine } from './chat-status-line';
 
 interface HistoryRowProps {
   session: RailSession;
@@ -30,7 +31,9 @@ interface HistoryRowProps {
  * One row in the rail's Recent tab. Two-line layout:
  *
  *   Line 1 — execution label (bold when unread), with the right-edge date.
- *   Line 2 — workspace name · branch.
+ *   Line 2 — workspace name · branch, or the chat's status line when its
+ *            agent set one (docs/chat-status-lines.md): what it did or
+ *            what it needs from you. The avatar still names the agent.
  *
  * The avatar carries the workspace identity so a vertical scan parses
  * "which project did this work happen in" before reading the label, and its
@@ -150,12 +153,18 @@ export function HistoryRow({
             {isPinned && (
               <Pin size={9} className="fill-current text-muted-foreground/50 flex-shrink-0 -rotate-45" aria-label="Pinned" />
             )}
-            <span className="truncate">{wsName}</span>
-            {branch && (
-              <span className="flex items-center gap-0.5 truncate min-w-0">
-                <GitBranch size={8} className="opacity-60 flex-shrink-0" />
-                <span className="truncate">{branch}</span>
-              </span>
+            {session.turnStatus ? (
+              <ChatStatusLine status={session.turnStatus} />
+            ) : (
+              <>
+                <span className="truncate">{wsName}</span>
+                {branch && (
+                  <span className="flex items-center gap-0.5 truncate min-w-0">
+                    <GitBranch size={8} className="opacity-60 flex-shrink-0" />
+                    <span className="truncate">{branch}</span>
+                  </span>
+                )}
+              </>
             )}
           </div>
           {snippet && <SearchSnippet snippet={snippet} />}

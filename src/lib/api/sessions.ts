@@ -365,8 +365,9 @@ export const sessionsApi = {
     return trpcClient.sessions.viewPost.mutate({params: {id: id}});
   },
 
-  markRead(id: string) {
-    return trpcClient.sessions.readPost.mutate({params: {id: id}});
+  /** `dismiss` also clears the chat's status line: an explicit Mark as read. */
+  markRead(id: string, options: { dismiss?: boolean } = {}) {
+    return trpcClient.sessions.readPost.mutate({params: {id: id}, body: options.dismiss ? { dismiss: true } : {}});
   },
 
   markUnread(id: string) {

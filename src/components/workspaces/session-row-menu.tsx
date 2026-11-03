@@ -126,7 +126,7 @@ export function SessionRowMenu({
         onClick={(e) => e.stopPropagation()}
       >
         {isUnread ? (
-          <DropdownMenuItem onSelect={() => markRead.mutate(sessionId)}>
+          <DropdownMenuItem onSelect={() => markRead.mutate({ id: sessionId, dismiss: true })}>
             <Eye size={12} /> Mark as read
           </DropdownMenuItem>
         ) : (

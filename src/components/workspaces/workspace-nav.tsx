@@ -93,9 +93,12 @@ export function WorkspaceNav() {
     <div className="flex flex-col">
       {/* The needs-review triage surface duplicates tree rows; hide it
           while selecting so a session never shows two checkboxes (or a
-          checkbox up top and a plain row below). Agents only, each agent
-          says what wants you on its own row, so there's nothing to gather. */}
-      {!selecting && railStyle !== 'agentsOnly' && <NeedsReviewSection />}
+          checkbox up top and a plain row below). Agents only, it's Unread,
+          chats only: the agents say what they want on their own rows, and
+          this is where their chats that wait on you are one click away. */}
+      {!selecting && (railStyle === 'agentsOnly'
+        ? <NeedsReviewSection title="Unread" includeAgents={false} />
+        : <NeedsReviewSection />)}
 
       <div className={cn('px-1', railStyle === 'classic' ? 'space-y-0.5' : 'space-y-1')}>
         {isLoading && (

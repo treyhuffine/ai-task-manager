@@ -28,7 +28,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 let server: http.Server;
 let browser: Browser;
 let base: string;
-/** Session mutations the page sent, as `readPost:<id>` / `unreadPost:<id>` / `archivePost:<id>`. */
+/** Session mutations the page sent, as `readPost:<id>` (`:dismiss` for an explicit Mark as read) / `unreadPost:<id>` / `archivePost:<id>`. */
 let sent: string[] = [];
 /**
  * Archive requests wait here until a test answers them: archived, or refused
@@ -108,22 +108,25 @@ beforeAll(async () => {
         agent('docs','Docs','📚','Keeps the product docs current with every release, changelog included'),
       ];
       // read: viewed after its last outcome. unread: an outcome since.
-      const chat=(id,workspaceId,label,{unread=false,pinnedAt=null,minutesAgo=5}={})=>({
+      const chat=(id,workspaceId,label,{unread=false,pinnedAt=null,minutesAgo=5,turnStatus=null}={})=>({
         id,label,status:'active',workspaceId,workspaceName:workspaces.find(w=>w.id===workspaceId).name,
         workspaceAttachments:[],workspaceEmoji:null,workspaceIsGit:true,branchName:null,location:null,
         startedAt:at(minutesAgo+55),lastActivityAt:at(minutesAgo),lastOutcomeEventAt:at(minutesAgo),
         lastViewedAt:unread?at(minutesAgo+5):at(minutesAgo-4),unreadMarkerAt:null,
-        executionId:id,execution:{label,pinnedAt},
+        executionId:id,execution:{label,pinnedAt},turnStatus,
       });
+      // Status lines its agents set at the end of their turns (docs/chat-status-lines.md).
+      const ask=(line,effort,unblocks=null)=>({line,needsYou:true,effort,unblocks,at:at(5)});
+      const report=(line)=>({line,needsYou:false,effort:null,unblocks:null,at:at(5)});
       const main=(id,workspaceId,preview,{unread=false}={})=>({
         id,workspaceId,preview,waitingOn:null,lastOutcomeEventAt:at(5),unreadMarkerAt:null,lastViewedAt:unread?at(10):at(1),
       });
       const sessions=[
         chat('ri-1','ri','Rail agents-only trial'),
-        chat('ri-2','ri','Fix flaky gallery smoke'),
+        chat('ri-2','ri','Fix flaky gallery smoke',{turnStatus:report('Fixed the flaky smoke, nothing needed')}),
         chat('web-1','web','Fix login bug'),
         chat('web-2','web','Update pricing copy'),
-        chat('fin-1','fin','Reconcile Amex',{unread:true}),
+        chat('fin-1','fin','Reconcile Amex',{unread:true,turnStatus:ask('Pick a category for the two Amex refunds','quick',"October's close")}),
         chat('fin-2','fin','Import Chase CSV',{unread:true}),
         chat('fin-3','fin','Tax estimate',{pinnedAt:at(30)}),
         // Untouched past the week: inactive.
@@ -210,7 +213,9 @@ beforeAll(async () => {
       req.on('end', () => {
         for (const kind of ['readPost', 'unreadPost'] as const) {
           if (!url.pathname.includes(`sessions.${kind}`)) continue;
-          for (const id of body.match(/"id":"([^"]+)"/g) ?? []) sent.push(`${kind}:${id.slice(6, -1)}`);
+          // An explicit Mark as read dismisses the chat's status line too.
+          const dismiss = body.includes('"dismiss":true') ? ':dismiss' : '';
+          for (const id of body.match(/"id":"([^"]+)"/g) ?? []) sent.push(`${kind}:${id.slice(6, -1)}${dismiss}`);
         }
         if (url.pathname.includes('sessions.archivePost')) {
           const id = /"id":"([^"]+)"/.exec(body)![1]!;
@@ -351,10 +356,17 @@ for (const theme of ['dark', 'light'] as const) {
       const pinnedTop = (await page.getByText('Pinned', { exact: true }).boundingBox())!.y;
       expect(switchTop).toBeLessThan(pinnedTop);
 
-      // The pin is the only chat row.
+      // No chat sits under an agent. The chats listed are the pin, then
+      // Unread under it: the chats waiting on you, one click away.
       const chatRows = await page.locator('[role="button"][tabindex="0"]:not([aria-roledescription])').allInnerTexts();
-      expect(chatRows).toHaveLength(1);
+      expect(chatRows).toHaveLength(3);
       expect(chatRows[0]).toContain('Tax estimate');
+      expect(chatRows[1]).toContain('Reconcile Amex');
+      expect(chatRows[2]).toContain('Import Chase CSV');
+      const unreadTop = (await page.getByText('Unread', { exact: true }).boundingBox())!.y;
+      const firstAgentTop = (await page.getByText('Ri', { exact: true }).first().boundingBox())!.y;
+      expect(pinnedTop).toBeLessThan(unreadTop);
+      expect(unreadTop).toBeLessThan(firstAgentTop);
 
       // Each agent says what it said. Its chats' states stay off the rail,
       // though Website has one waiting and Finances two unread.
@@ -519,7 +531,7 @@ it('marks an agent read or unread from its rail menu, its main chat only', async
     // Ri has a new reply. Read clears it, and nothing under it.
     await (await menu(page, 'Ri')).getByRole('menuitem', { name: 'Mark as read' }).click();
     await expect.poll(async () => Number(await nameWeight(page, 'Ri'))).toBeLessThan(600);
-    await expect.poll(() => sent).toEqual(['readPost:ri-main']);
+    await expect.poll(() => sent).toEqual(['readPost:ri-main:dismiss']);
 
     // Notes is quiet. Unread marks its main chat: bold, with its line.
     sent = [];
@@ -557,7 +569,7 @@ it("marks the chat you're reading unread from its chat bar, and the rail agrees"
     await bar.getByRole('button', { name: 'Unread, mark read' }).click();
     await bar.getByRole('button', { name: 'Mark unread' }).waitFor();
     await expect.poll(async () => Number(await nameWeight(page, 'Notes'))).toBeLessThan(600);
-    await expect.poll(() => sent).toEqual(['readPost:notes-main']);
+    await expect.poll(() => sent).toEqual(['readPost:notes-main:dismiss']);
     expect(errors).toEqual([]);
   } finally {
     await page.close();
@@ -595,6 +607,32 @@ it('lists recent chats of any status in Recent, and folds the inactive ones', as
 
     await recent.getByRole('button', { name: /Show/ }).last().click();
     await recent.getByText('Old migration cleanup').waitFor();
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('shows status lines under chat titles in Unread and Recent, and Mark as read dismisses one', async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    // In Unread, an ask leads with the size of your part.
+    const amex = page.locator('[role="button"][tabindex="0"]:not([aria-roledescription])', { hasText: 'Reconcile Amex' }).first();
+    expect(await amex.locator('[data-chat-status="needs-you"]').innerText()).toBe('Quick · Pick a category for the two Amex refunds');
+    await page.screenshot({ path: '/tmp/ri-rail-status-lines.png', clip: { x: 0, y: 0, width: 256, height: 520 } });
+
+    // Mark as read dismisses it: the server is told so, and it leaves Unread.
+    await amex.hover();
+    await amex.getByRole('button', { name: 'Session actions' }).click();
+    await page.getByRole('menuitem', { name: 'Mark as read' }).click();
+    await expect.poll(() => sent).toContain('readPost:fin-1:dismiss');
+    await expect.poll(async () => (await page.locator('[role="button"][tabindex="0"]:not([aria-roledescription])').allInnerTexts()).join('|')).not.toContain('Reconcile Amex');
+
+    // In Recent, a report takes the agent's place on the second line.
+    await page.getByRole('tab', { name: 'Recent' }).click();
+    const smoke = page.locator('aside [role="button"]', { hasText: 'Fix flaky gallery smoke' }).first();
+    expect(await smoke.locator('[data-chat-status="fyi"]').innerText()).toBe('Fixed the flaky smoke, nothing needed');
+    await page.screenshot({ path: '/tmp/ri-rail-recent-status.png', clip: { x: 0, y: 0, width: 256, height: 520 } });
     expect(errors).toEqual([]);
   } finally {
     await page.close();

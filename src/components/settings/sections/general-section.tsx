@@ -27,6 +27,7 @@ import { useEntityViewMode, type EntityViewMode } from '@/lib/client/entity-view
 import { useAgentViewMode, type AgentViewMode } from '@/lib/client/agent-view-mode';
 import { useAgentChatPlace, type AgentChatPlace } from '@/lib/client/agent-chat-place';
 import { useRailStyle, type RailStyle } from '@/lib/client/rail-style';
+import { ChatStatusLinesSetting } from '../chat-status-lines-setting';
 import { useInactivity, useSetInactiveAfterDays } from '@/hooks/use-inactivity';
 import { DEFAULT_INACTIVE_AFTER_DAYS, formatInactiveAfter, INACTIVE_AFTER_PRESETS } from '@/lib/sessions/inactive';
 
@@ -358,11 +359,12 @@ export function GeneralSection() {
           </div>
           <p className="text-[11px] text-muted-foreground/85">
             {railStyle === 'agentsOnly'
-              ? "Your agents with no chats under them. Each shows its own state, and counts at its end say how many of its chats need you (amber) or are working (green). Resting on an agent shows its chats beside the rail, and Recent lists every chat from the last week. Pinned chats stay at the top. Mark an agent unread from its menu or its chat to come back to it."
+              ? "Your agents with no chats under them. Each shows its own state, and counts at its end say how many of its chats need you (amber) or are working (green). Unread under the pins lists the chats waiting on you, Show chats on an agent opens Recent on its chats, and Recent lists every chat from the last week. Mark an agent unread from its menu or its chat to come back to it."
               : railStyle === 'agents'
                 ? 'Each agent shows what it last said, bold with a dot when it wants you. Its chats hang under it on one line each, all of them, with the inactive ones behind a Show toggle.'
                 : 'One line per agent, with every active chat listed under it on two lines.'}
           </p>
+          <ChatStatusLinesSetting />
         </div>
       </section>
 

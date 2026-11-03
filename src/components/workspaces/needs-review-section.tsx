@@ -16,11 +16,18 @@ import { useInactivity } from '@/hooks/use-inactivity';
  * order as the tree below. Hidden when nothing wants you, never an empty
  * header. Executions that have gone inactive fold behind "N inactive hidden"
  * at the foot, so a week-old unread stops crowding today's.
+ *
+ * The agents-only rail shows it as **Unread**, chats only: its agent rows
+ * already say what each agent itself wants, and this is the one place its
+ * chats that wait on you are listed (docs/rail-agents-first.md). A chat whose
+ * status line waits on you stays here after a look, until it's answered or
+ * marked read (docs/chat-status-lines.md).
  */
-export function NeedsReviewSection() {
+export function NeedsReviewSection({ title = 'Needs you', includeAgents = true }: { title?: string; includeAgents?: boolean } = {}) {
   const { streamingSessionIds, pendingInputSessionIds, openAgent } = useDashboard();
   const { data: candidates } = useNeedsReviewSessions();
-  const agents = useAgentAttention();
+  const attention = useAgentAttention();
+  const agents = includeAgents ? attention : [];
   const { data: workspaces } = useWorkspaces({ status: 'active' });
   const { partition } = useInactivity();
   // Session row menus open the agent's setup: its view, on the Setup tab.
@@ -51,7 +58,7 @@ export function NeedsReviewSection() {
       <div className="px-1 py-2 border-b border-border/60">
         <div className="px-1.5 pb-1.5 flex items-center justify-between">
           <span className="text-[8.5px] font-bold uppercase tracking-[0.15em] text-amber-500/80">
-            Needs you
+            {title}
           </span>
           <span className="text-[9px] text-muted-foreground/70 font-mono">{agents.length + active.length}</span>
         </div>

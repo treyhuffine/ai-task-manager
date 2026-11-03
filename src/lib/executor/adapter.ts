@@ -74,6 +74,7 @@ import { localEventWriter } from './event-writer';
 import { installHomeSink } from './home-sink';
 import { renderStandingAgentInstructionsPrompt } from './prompts/standing-instructions';
 import { withWorkResultSessionInstructions } from '@/lib/work-results/instructions';
+import { turnStatusInstructions } from '@/lib/sessions/turn-status-instructions';
 import { workResultOperationMetadata } from '@/lib/db/queries';
 import { isRunning, hasBackgroundTasks } from './live-state';
 import { activeSendCount } from './live-state';
@@ -831,7 +832,7 @@ async function sendAdmitted(
     const request: SendRequest = {
       chatSessionId,
       message: policy.personalContext
-        ? withWorkResultSessionInstructions(remote ? userMessage : placeFilesAtHome(userMessage, attachments), session.surfaceKind)
+        ? withWorkResultSessionInstructions(remote ? userMessage : placeFilesAtHome(userMessage, attachments), session.surfaceKind, [turnStatusInstructions(session)])
         : remote ? userMessage : placeFilesAtHome(userMessage, attachments),
       standingInstructions: renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),
       currentStandingInstructions: () => renderStandingAgentInstructionsPrompt(session.workspaceId ? getWorkspace(session.workspaceId) ?? null : null),
