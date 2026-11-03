@@ -29,6 +29,7 @@ import type { WorkspaceWithCounts } from '@/db/types';
 import { SessionRow } from './session-row';
 import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
+import { useOpenChatAgentId } from '@/hooks/use-open-chat-agent';
 import { Tip } from '@/components/ui/tip';
 import { AgentChatsFlyout } from './agent-chats-flyout';
 import { useWorkspaceSelection } from './workspace-selection-context';
@@ -92,9 +93,14 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * you (waiting on you or unread, pulsing while one is blocked), green for the
  * ones working. The header counts every chat, these say which agent's. They
  * give way to the actions on hover, and open no tooltip. Inactive chats don't
- * count. Resting on the agent peeks at the chats themselves, and the agent
- * stays lit while one of its chats is open, so the rail still says where you
- * are.
+ * count. Resting on the agent peeks at the chats themselves.
+ *
+ * The agent you're in is marked: selected, as when its own page is open,
+ * while one of its chats is on screen and that chat's row isn't showing (it
+ * never does in agents only, nor while its chats are hidden or the chat is
+ * archived). Its open buttons say so with `aria-current`, `page` for its own
+ * page and `true` for one of its chats. Where the chat's row shows, that row
+ * is the selection, so two rows never look selected at once.
  *
  * Its menu marks the agent read or unread, which is its main chat's read
  * state, so an agent you've opened can be put back to come back to.
@@ -132,7 +138,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
     purpose: workspace.purpose,
   });
 
-  const { sessions, inactive, total, summary, hasOpen, counts } = useMemo(() => {
+  const { sessions, inactive, total, summary, listsOpen, counts } = useMemo(() => {
     const all = sortSessionsHotnessDesc(
       (rail?.sessions ?? []).filter((s) => s.workspaceId === workspace.id && s.status === 'active'),
     );
@@ -159,7 +165,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       inactive: folded,
       total: all.length,
       summary: threadSummary({ total: all.length, needsYou, working }),
-      hasOpen: all.some(isOpen),
+      listsOpen: all.some(isOpen),
       counts: { needsYou, working, blocked },
     };
   }, [
@@ -173,6 +179,10 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   ]);
 
   const hasThreads = total > 0;
+  // Which agent you're in: its own page, or one of its chats with no row
+  // showing (always so in agents only, and while its chats are hidden).
+  const holdsOpenChat = useOpenChatAgentId() === workspace.id;
+  const current = isActive ? 'page' : holdsOpenChat && !(expanded && listsOpen) ? 'true' : undefined;
   const toggleThreads = () => updateWs.mutate({ id: workspace.id, collapsed: expanded });
   // With no list to fold, the agent always opens.
   const open = () => (opensView || agentsOnly ? openAgent(workspace.id) : toggleThreads());
@@ -215,6 +225,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   return (
     <div
       ref={setNodeRef}
+      data-agent-id={workspace.id}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(isDragging && 'opacity-60')}
     >
@@ -224,14 +235,15 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         {...listeners}
         className={cn(
           'group relative flex items-center gap-2 px-1.5 py-1.5 rounded-lg transition-colors cursor-grab active:cursor-grabbing select-none touch-none',
-          // Agents only: an open chat has no row of its own, so it lights its agent.
-          isActive ? 'bg-secondary' : agentsOnly && hasOpen ? 'bg-secondary/60' : 'hover:bg-muted/40',
+          // One look for both: the page says whether it's the agent or its chat.
+          current ? 'bg-secondary' : 'hover:bg-muted/40',
         )}
       >
         <button
           onClick={open}
           className="relative flex-shrink-0 rounded-md"
           aria-label={activity ? `${workspace.name}: ${PRESENCE[activity].label}` : `Open ${workspace.name}`}
+          aria-current={current}
         >
           <AgentIcon workspace={workspace} size="md" />
           {activity && (
@@ -255,6 +267,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
               ref={ref}
               onClick={onClick}
               className="flex-1 min-w-0 text-left"
+              aria-current={current}
             >
               <span
                 className={cn(

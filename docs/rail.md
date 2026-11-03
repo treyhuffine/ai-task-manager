@@ -58,6 +58,7 @@ Executions aren't listed in the strip. The Agents button carries an amber count 
 - **Hold:** click Agents, or press anything inside a peek (a row's menu, a drag, New agent). It stays until Esc, a click outside, a second click on Agents, or navigating anywhere.
 - Keyboard: Enter or Space on Agents opens it with focus inside, and Esc returns focus to the button.
 - Rows show names and status only. The chat preview the wide rail shows on hover is off in the flyout (`SessionHoverProvider disabled`).
+- The agent you're in is marked as in the wide rail, and a list too long for the flyout opens scrolled to it ([Which agent you're in](rail-agents-first.md#which-agent-youre-in)).
 
 The rules are a pure function, `nextFlyoutState` in `src/lib/client/rail-flyout.ts`, with tests. The flyout is a Radix Popover anchored to the rail, so a menu or dialog opened from inside it is a nested layer: Esc and clicks there close that first and leave the flyout open.
 

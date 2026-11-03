@@ -2,7 +2,7 @@
 
 **Status:** trial, on by default from 2026-09-30 (reworked the same day) until 2026-10-29, when [Agents only](#agents-only-trial) became the default. Choose it in Settings → General → Agents → "Agents in the rail". The switch only changes how the Agents list is drawn: agents count wherever attention is counted in either style.
 
-Code: `src/components/workspaces/agent-rail-row.tsx` (the agent row), `src/components/workspaces/agent-attention-row.tsx` (an agent in a list of things that want you), `src/hooks/use-agent-attention.ts` (which agents want you), `src/lib/utils/agent-rail.ts` (the rules), `src/lib/client/rail-style.ts` (the switch). The rail feed's `mainChats` comes from `listAgentMainChats` plus `waitingOn` in `GET /api/sessions/rail`.
+Code: `src/components/workspaces/agent-rail-row.tsx` (the agent row), `src/components/workspaces/agent-attention-row.tsx` (an agent in a list of things that want you), `src/hooks/use-agent-attention.ts` (which agents want you), `src/lib/utils/agent-rail.ts` (the rules), `src/lib/client/rail-style.ts` (the switch), `src/hooks/use-open-chat-agent.ts` (which agent you're in). The rail feed's `mainChats` comes from `listAgentMainChats` plus `waitingOn` in `GET /api/sessions/rail`.
 
 ## The question the rail answers
 
@@ -52,7 +52,7 @@ What changes, all in the client (`railStyle` `agentsOnly`, no schema):
 - **No select-to-archive on Agents.** There are no chat rows to select.
 - **Pins stay**, under the switch as in the other styles. A pin is the escape hatch for the chats you're hands-on with. Pin one from its header or from the agent's peek.
 - **Resting on an agent peeks at its chats** beside the rail (the collapsed-agent chooser, `AgentChatsFlyout`), each with its own dot.
-- **An open chat lights its agent**, a shade lighter than the agent itself open, since the chat has no row of its own. That's where you are, not a state.
+- **An open chat marks its agent**, since the chat has no row of its own. See [Which agent you're in](#which-agent-youre-in).
 
 ### Coming back to an agent
 
@@ -70,6 +70,22 @@ What to watch:
 - Does Mark unread get used to come back to an agent, and is the chat bar the place you reach for it?
 
 Not done on purpose: the phone (its own agents list), the desktop app's activity, and the New chat row at the top, which still starts a chat without picking an agent.
+
+## Which agent you're in
+
+**Status:** added 2026-11-02, in every rail style.
+
+With an agent or one of its chats on screen, the rail marks that agent, so a glance says which agent you're in. It used to light an open chat's agent a shade lighter than the agent itself open (`bg-secondary/60`), which was too faint to notice.
+
+- **One look for both.** The agent looks selected, the same fill as when its own page is open. The page already says whether you're on the agent or one of its chats, so the rail only answers "which agent". The agent's dot, bold name and line stay its own, since they're its main chat's state, not where you are.
+- **Only where the chat has no row showing.** In agents only that's always. In Agents first and Classic the open chat's row is the selection while it shows, so the agent is marked only when its chats are hidden, the chat is folded with the inactive ones (Classic), or the chat is archived and never listed. Two rows never look selected at once.
+- **Every chat counts.** A chat the rail lists marks its agent, a later chat of the same execution included (through `activeExecutionId`). One it doesn't list, like an archived chat opened from Recent or search, marks its agent from the chat's own row, which the chat view loads anyway (`useOpenChatAgentId`, `src/hooks/use-open-chat-agent.ts`).
+- **Screen readers hear it.** The agent's open buttons carry `aria-current`: `page` when its own page is open, `true` ("current") when one of its chats is.
+- **The collapsed rail's Agents flyout** draws the same rows, so it shows the same mark. A list too long for the flyout opens scrolled to the marked agent, centered. The flyout gets its height from Radix a moment after it opens, so the scroll waits for that, and it stops for good once it has scrolled or you scroll the list yourself.
+
+Not done: the collapsed strip itself. Its Agents button shows as active on any agent or chat page but doesn't say which agent. The smallest signal would be that button drawing the agent's own icon in place of `Bot` while you're in one (the strip's buttons already take a `mark`), with its label saying "Agents, in Website". No new section and no per-agent icons.
+
+`rail-agents-only.browser.test.ts` checks the mark in each style, that it matches the selected look, that it moves as you go, and the flyout's scroll.
 
 ## Findings along the way
 
