@@ -2779,6 +2779,67 @@ export const agentCoordinationDeliveries = sqliteTable('agent_coordination_deliv
   uniqueIndex('uniq_agent_coordination_terminal').on(table.requestId).where(sql`kind IN ('answer', 'failed', 'cancelled')`),
 ]);
 
+// ─── External conversations ───────────────────────────────────
+
+/** A named external agent identity with a fixed Ri destination. Secrets stay in .config. */
+export const conversationConnections = sqliteTable('conversation_connections', {
+  id: text().primaryKey(), ...timestamps,
+  provider: text({ enum: ['slack', 'buzz'] }).notNull(),
+  name: text().notNull(),
+  workspaceId: text().references(() => workspaces.id, { onDelete: 'restrict' }),
+  enabled: integer({ mode: 'boolean' }).notNull(),
+  externalWorkspaceId: text().notNull(),
+  externalAgentId: text().notNull(),
+  channels: text({ mode: 'json' }).$type<string[]>().notNull(),
+  error: text(),
+}, t => [uniqueIndex('uniq_conversation_identity').on(t.provider, t.externalWorkspaceId, t.externalAgentId)]);
+
+/** A self-linked external user, bound to the sign-in that authorized it. */
+export const conversationIdentities = sqliteTable('conversation_identities', {
+  id: text().primaryKey(), ...timestamps,
+  connectionId: text().notNull().references(() => conversationConnections.id, { onDelete: 'cascade' }),
+  apiKeyId: text().notNull().references(() => apiKeys.id, { onDelete: 'cascade' }),
+  memberId: text().references(() => members.id, { onDelete: 'cascade' }),
+  externalUserId: text(),
+  codeHash: text(),
+  expiresAt: text(),
+}, t => [uniqueIndex('uniq_conversation_user').on(t.connectionId, t.externalUserId), uniqueIndex('uniq_conversation_code').on(t.codeHash)]);
+
+export const conversationThreads = sqliteTable('conversation_threads', {
+  id: text().primaryKey(), ...timestamps,
+  connectionId: text().notNull().references(() => conversationConnections.id, { onDelete: 'cascade' }),
+  channelId: text().notNull(),
+  threadId: text().notNull(),
+  sessionId: text().references(() => chatSessions.id, { onDelete: 'set null' }),
+  lastRunId: text(),
+  responseEventId: text(),
+}, t => [uniqueIndex('uniq_conversation_thread').on(t.connectionId, t.channelId, t.threadId), uniqueIndex('uniq_conversation_session').on(t.sessionId), index('idx_conversation_thread_connection').on(t.connectionId)]);
+
+export const conversationInputs = sqliteTable('conversation_inputs', {
+  id: text().primaryKey(), ...timestamps,
+  threadId: text().notNull().references(() => conversationThreads.id, { onDelete: 'cascade' }),
+  identityId: text().notNull().references(() => conversationIdentities.id, { onDelete: 'cascade' }),
+  externalEventId: text().notNull(),
+  content: text().notNull(),
+  kind: text({ enum: ['message', 'stop'] }).notNull(),
+  status: text({ enum: ['queued', 'accepted', 'failed'] }).notNull(),
+  eventId: text().notNull(),
+  error: text(),
+}, t => [uniqueIndex('uniq_conversation_input').on(t.threadId, t.externalEventId), uniqueIndex('uniq_conversation_input_event').on(t.eventId), index('idx_conversation_input_queue').on(t.status, t.createdAt)]);
+
+export const conversationOutputs = sqliteTable('conversation_outputs', {
+  id: text().primaryKey(), ...timestamps,
+  threadId: text().notNull().references(() => conversationThreads.id, { onDelete: 'cascade' }),
+  key: text().notNull(),
+  content: text().notNull(),
+  kind: text({ enum: ['reply', 'question', 'error', 'human'] }).notNull(),
+  status: text({ enum: ['pending', 'sent', 'failed'] }).notNull(),
+  part: integer().notNull().default(0),
+  attempts: integer().notNull().default(0),
+  nextAttemptAt: text(),
+  error: text(),
+}, t => [uniqueIndex('uniq_conversation_output').on(t.threadId, t.key), index('idx_conversation_output_queue').on(t.status, t.nextAttemptAt)]);
+
 // ─── Chat Refs ────────────────────────────────────────────────
 // M:N references from chat sessions (and individual events) to other
 // entities. Two layers in one table:

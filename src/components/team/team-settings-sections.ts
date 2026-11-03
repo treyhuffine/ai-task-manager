@@ -2,6 +2,7 @@ import { Cable, Cpu, Mic, Globe, LayoutGrid, ScrollText, Settings, User, Users }
 
 export const TEAM_SETTINGS_SECTIONS = [
   { id: 'general', label: 'General', title: 'General', icon: Settings, description: 'The team name, logo and the computer hosting it.', ownerOnly: false },
+  { id: 'conversations', label: 'Conversations', title: 'Slack and Buzz conversations', icon: Cable, description: 'Talk with team agents from named Slack and Buzz connections.', ownerOnly: false },
   { id: 'people', label: 'People', title: 'People', icon: Users, description: 'Team members and invitations.', ownerOnly: false },
   { id: 'ai', label: 'AI & Models', title: 'AI & Models', icon: Cpu, description: 'Shared AI chats inside Ri, sign-in and model preferences.', ownerOnly: false },
   { id: 'voice', label: 'Voice', title: 'Voice', icon: Mic, description: 'Your voice model and auto-send preference for this team.', ownerOnly: false },

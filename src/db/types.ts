@@ -8,11 +8,18 @@ import type {
   teamActivity, memberPreferences, memberChatViews, memberExecutionViews, workspaces, referenceFolders, executions, executionTasks, executionReviews, chatSessions, externalSessionImports, chatEvents, chatRefs, agentCoordinationRequests, agentCoordinationDeliveries,
   triggers, runs, previewTargets, entityVersions, workResults, workResultTasks, workResultDecisions, workResultAiReviews,
   notificationChannels, webPushSubscriptions, notificationDeliveries,
+  conversationConnections, conversationIdentities, conversationThreads, conversationInputs, conversationOutputs,
   triagePasses, triageDecisions, streamLinks, skillUsage,
   Attachment,
 } from '@/lib/db/schema';
 export type { SetupReferenceReport, WorkerHarnessReport, WorkerCommandActor } from '@/lib/db/schema';
 export type TeamActivityRecord = InferSelectModel<typeof teamActivity>;
+export type ConversationConnection = InferSelectModel<typeof conversationConnections>;
+export type CreateConversationConnection = Omit<InferInsertModel<typeof conversationConnections>, 'createdAt' | 'updatedAt'>;
+export type ConversationIdentity = InferSelectModel<typeof conversationIdentities>;
+export type ConversationThread = InferSelectModel<typeof conversationThreads>;
+export type ConversationInput = InferSelectModel<typeof conversationInputs>;
+export type ConversationOutput = InferSelectModel<typeof conversationOutputs>;
 export type CreateTeamActivityInput = InferInsertModel<typeof teamActivity>;
 export type MemberPreferencesRecord = InferSelectModel<typeof memberPreferences>;
 export type UpdateMemberPreferencesInput = Pick<InferInsertModel<typeof memberPreferences>, 'voiceAutoSend' | 'voiceModel'>;

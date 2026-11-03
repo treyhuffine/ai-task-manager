@@ -136,6 +136,7 @@ export async function register() {
   try {
     const { startAgentCoordination } = await import('@/lib/coordination/service');
     startAgentCoordination();
+    (await import('@/lib/integrations/conversations/service')).startConversations();
   } catch (err) {
     console.warn('[coordination] startup failed', err);
   }

@@ -69,10 +69,12 @@ import type { LifecycleCommandResult } from '@/lib/db/schema';
 import { camelizeKeys, snakeizeKeys } from '@/lib/case/keys';
 import type { StoredAttachment } from '@/lib/db/schema';
 import { messagePreview } from '@/lib/utils/message-preview';
+import { queueConversationHumanMessage, failConversationMessage } from './conversation-queries';
 export * from '@/lib/work-results/queries';
 export * from '@/lib/work-results/completion-queries';
 export * from './work-result-runtime-queries';
 export * from './coordination-queries';
+export * from './conversation-queries';
 import {
   bundledModelIds,
   curatedDefaultModelIds,
@@ -6541,6 +6543,7 @@ export function acceptTeamChatSend(input: { chatId: string; memberId: string; re
       seq: (last?.seq ?? 0) + 1,
       status: 'queued',
     }).returning().get();
+    queueConversationHumanMessage(input.chatId, message.id);
     return { turn, message, created: true };
   }, { behavior: 'immediate' });
 }
@@ -6572,7 +6575,10 @@ export function finishTeamChatTurn(turnId: string, status: 'done' | 'failed' | '
       .set({ status, error, finishedAt: now, updatedAt: now })
       .where(and(eq(teamChatTurns.id, turnId), inArray(teamChatTurns.status, ['queued', 'running'])))
       .returning().get() ?? null;
-    if (turn && status !== 'done') recordChatSendRefusal(turn.chatSessionId, turn.messageEventId, error ?? `This turn was ${status}. Send again if it is still needed.`);
+    if (turn && status !== 'done') {
+      recordChatSendRefusal(turn.chatSessionId, turn.messageEventId, error ?? `This turn was ${status}. Send again if it is still needed.`);
+      failConversationMessage(turn.messageEventId, error ?? `This turn was ${status}.`);
+    }
     return turn;
   }, { behavior: 'immediate' });
 }

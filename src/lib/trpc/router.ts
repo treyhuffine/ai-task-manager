@@ -1,6 +1,7 @@
 import { coordinationRouter } from '@/lib/coordination/router';
 import { externalAiRouter } from '@/lib/external-ai/router';
 import { emailRouter } from '@/lib/email/router';
+import { conversationIntegrationsRouter } from '@/lib/integrations/conversations/router';
 import { chatSourcesRouter } from '@/lib/chat-sources/router';
 import { connectedAppsRouter } from '@/lib/mcp-apps/router';
 import { mcpSettingsRouter } from '@/lib/mcp-apps/settings-router';
@@ -77,6 +78,7 @@ function sharedTaskIn(id: string) {
 
 const editContent = sharedActionProcedure('editContent');
 export const appRouter = router({
+  conversationIntegrations: conversationIntegrationsRouter,
   homeContext: sp.query(({ ctx }) => resolveHomeContext(ctx.key)),
   homeExecutionChoices: sp.query(({ ctx }) => resolveHomeExecutionChoices(ctx.key)),
   coordination: coordinationRouter,

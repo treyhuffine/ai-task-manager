@@ -33,4 +33,5 @@ export async function startTeamSpace(): Promise<void> {
   void perfScope('startup:team-reconcile', async () => (await import('@/lib/executor/reconcile')).reconcileAllSessions({ redispatchOrphans: false, teamOnly: true }))
     .catch(error => console.warn('[team] transcript recovery failed', error));
   (await import('@/lib/team/ai/chat')).startTeamChatMaintenance();
+  (await import('@/lib/integrations/conversations/service')).startConversations();
 }

@@ -25,6 +25,7 @@ import { PluginsSection } from './sections/plugins-section';
 import { NotificationsSection } from './sections/notifications-section';
 import { DevicesSettingsSection } from './sections/devices-section';
 import { ExternalAiSection } from './sections/external-ai-section';
+import { ConversationsSection } from './sections/conversations-section';
 import { TeamsSection } from './sections/teams-section';
 import { RemotePreviewSection } from './sections/remote-preview-section';
 import { UpdatesSection } from './sections/updates-section';
@@ -60,6 +61,8 @@ function SectionBody({ id, checklist }: { id: SectionId; checklist: SetupCheckli
       return <DevicesSettingsSection />;
     case 'external-ai':
       return <ExternalAiSection />;
+    case 'conversations':
+      return <ConversationsSection />;
     case 'teams':
       return <TeamsSection />;
     case 'remote-preview':

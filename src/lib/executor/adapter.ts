@@ -51,6 +51,7 @@ import type { Attachment, PermissionMode, WorkerCommandActor, WorkerCommandRecor
 import { budgetGate } from '@/lib/runs/budget';
 import { beginRun } from '@/lib/runs/artifact-bucket';
 import { finishRun } from '@/lib/runs/finish';
+import { bindConversationRun } from '@/lib/db/queries';
 import { claimPreparingInputs } from '@/lib/coordination/input-reservations';
 import { isUnacceptedCoordinationRun, humanCoordinationContext, noteCoordinationHumanDirection, agentRequestMessageRefusal, agentMessageAdmission } from '@/lib/db/queries';
 import { explicitHarnessSelection, type ProviderId } from '@/lib/harness/options';
@@ -808,6 +809,7 @@ async function sendAdmitted(
     runId = created.id;
   }
 
+  if (runId) bindConversationRun(chatSessionId, runId);
   const turnId = policy.teamTurnId ?? uuidv7();
   let closing: Promise<unknown> | undefined;
   const turn = awaitTurn(turnId, policy.teamTurnId ? options.signal : undefined).finally(async () => { await closing; });

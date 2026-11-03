@@ -211,6 +211,20 @@
       "when": 1793729235238,
       "tag": "0029_misty_ben_urich",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1793739102255,
+      "tag": "0030_external_conversations",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1793739701607,
+      "tag": "0031_conversation_delivery_indexes",
+      "breakpoints": true
     }
   ]
 }

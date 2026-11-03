@@ -17,6 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LiveWaveform } from '@/components/ui/live-waveform';
 import { useVoiceInput } from '@/hooks/use-voice-input';
+import { useConversationAudience } from '@/hooks/use-conversation-audience';
 import { useTouchFirst } from '@/hooks/use-touch-first';
 import { useUserState, useUpdateUserState } from '@/hooks/use-user-state';
 import {
@@ -220,6 +221,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
     },
     externalRef,
   ) {
+    const { data: externalConversation } = useConversationAudience(sessionId || null);
     const [hasContent, setHasContent] = useState(false);
     const [hasPendingUploads, setHasPendingUploads] = useState(false);
     const [sending, setSending] = useState(false);
@@ -683,6 +685,10 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
         {/* No top padding: a band of solid background above the card would
             cut scrolling transcript text off short of the card's edge. */}
         <ChatComposer disabled={disabled && !showStopButton} hint="⇧⇥ to cycle modes" status={statusLine} statusIsError={statusIsError}>
+            {externalConversation && <p className="break-words px-3 pt-2 text-xs text-muted-foreground" role="status">
+              {externalConversation.provider === 'slack' ? 'Slack' : 'Buzz'} · {externalConversation.name} · {externalConversation.enabled ? `Shared with ${externalConversation.channelId}. Messages and replies return there.` : 'External delivery is paused.'}
+              {externalConversation.team && ' Visible to the Ri team.'}
+            </p>}
             <CoordinationControls sessionId={sessionId} />
             {/* Top: rich editor — or live waveform while recording. The
               editor preserves typed text + inline paste chips across

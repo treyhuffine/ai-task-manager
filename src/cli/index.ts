@@ -2,6 +2,7 @@
 import { applyServiceEnvironment } from '@/lib/service/environment';
 import { beginActivity } from '@/lib/service/maintenance';
 import { Command } from 'commander';
+import { registerAcpCommand } from './commands/acp';
 import { APP_NAME, APP_SHORT_ID } from '@/constants/app';
 import { startCommand } from './commands/start';
 import { stopCommand } from './commands/stop';
@@ -43,6 +44,7 @@ program
 
 let releaseCommand: (() => void) | undefined;
 program.hook('preAction', (_program, action) => {
+  if (action.name() === 'acp') return;
   if (action.name() === 'create' && action.parent?.name() === 'team') selectTeamRoot(action.opts().root);
   // These commands only read local inputs and call the running server. The
   // server owns persistence, including reports from a read-only reviewer.
@@ -113,6 +115,7 @@ program
   .action(doctorCommand);
 
 registerVoiceCommand(program);
+registerAcpCommand(program);
 registerSnapshotCommand(program);
 registerCommitCommand(program);
 registerExportCommand(program);

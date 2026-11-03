@@ -205,6 +205,8 @@ function teamAiTurnProxy(request: NextRequest, token: string) {
 }
 
 export function proxy(request: NextRequest) {
+  // A Buzz bridge authenticates its own connection-scoped bearer in its protocol route.
+  if (/^\/api\/integrations\/conversations\/acp\/[a-f0-9-]{36}$/.test(request.nextUrl.pathname)) return nextWithoutKeyHeaders(request);
   // A team's space in My Ri (docs/homes-spec.md §3.2, P7.1) is a page of its
   // own. Pages aren't authenticated here: its API calls are, through
   // `/api/space/<team>`. The layout learns which team from this header,

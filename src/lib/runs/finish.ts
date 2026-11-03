@@ -20,6 +20,7 @@ import { settleHeartbeatRun } from '@/lib/heartbeat/quiet';
 import { runnerFor } from '@/lib/executor/placement';
 import { inTransaction, type AfterCommit } from '@/lib/effects/after-commit';
 import { endRun } from './artifact-bucket';
+import { settleConversationRun } from '@/lib/db/queries';
 
 /** `stopped`: a person stopped the run's turn. The run completes, while a
  * coordination request riding on it learns the work is unfinished. */
@@ -78,6 +79,9 @@ export function finishRunInTransaction(runId: string, outcome: RunOutcome, after
   }
   if (settleAgentRequestsForRun(runId, outcome)) {
     after.tasks.push(() => { void import('@/lib/coordination/service').then(({ drainAgentCoordination }) => drainAgentCoordination()); });
+  }
+  if (settleConversationRun(runId, outcome)) {
+    after.tasks.push(() => { void import('@/lib/integrations/conversations/service').then(({ drainConversations }) => drainConversations()); });
   }
   return record ?? null;
 }

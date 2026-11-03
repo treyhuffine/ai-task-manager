@@ -19,6 +19,7 @@ import { MemberAvatar } from './member-avatar';
 import { NewAreaDialog } from './team-areas';
 import { ConnectAiSection } from './connect-ai';
 import { TeamAiSection } from './team-ai-settings';
+import { ConversationsSection } from '@/components/settings/sections/conversations-section';
 import { useSpace } from '@/components/spaces/space-root';
 import { useAreas, useUpdateArea } from '@/hooks/use-areas';
 import { TeamAddressSetup } from './team-address-setup';
@@ -63,6 +64,7 @@ export function TeamSettings() {
 
   const content = (id: TeamSettingsSectionId) => {
     switch (id) {
+      case 'conversations': return <ConversationsSection />;
       case 'general': return <div className="space-y-6"><TeamSection /><ThemeSettings /></div>;
       case 'people': return <PeopleSection onNeedAddress={needAddress} />;
       case 'areas': return <AreasSection />;

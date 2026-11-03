@@ -79,6 +79,8 @@ function topLevelName(command: Command): string {
 const TEAM_COMMANDS = new Set(['team', 'start', 'stop', 'status', 'service', 'update', 'doctor', 'tls', 'perf', 'help']);
 
 export function refusalFor(commandName: string, subcommand?: string): string | null {
+  // ACP is a remote protocol client. Its connection credential, not this folder, authorizes it.
+  if (commandName === 'acp') return null;
   // This only admits the signed-session transport. Dispatch sends it to the
   // Home, which verifies the credential and active turn on every operation.
   // Neither an unsigned CLI nor any other personal command gains local access.

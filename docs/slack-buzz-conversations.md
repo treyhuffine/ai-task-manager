@@ -1,0 +1,140 @@
+# Slack and Buzz conversations
+
+Status: implemented, developed in `feature/slack-conversations` against main at `879da5eb`, including native team AI. No production server was restarted and no live Slack or Buzz account was connected during implementation.
+
+Ri owns the conversation, identity checks, tools and work. Slack and Buzz provide another place to talk to the same agent. This keeps the orchestrator powerful without creating a second agent runtime or a second permission system.
+
+## Scope and decisions
+
+Slack account tools already search, read and write through the existing Connector. This change adds an agent people can mention or message. The account Connector and agent appear together in setup, but keep their distinct credentials and permissions. A bot identity does not grant access to a person's private messages.
+
+Each connection has a name and a fixed destination: the personal orchestrator, a personal agent, or a selected team agent. Distinct Slack mentions require distinct Slack apps, for example Ri Personal and Ri Team. A message's sender cannot change the connection's destination. Buzz uses its own named identity and runs `ri acp` through `buzz-acp` or a custom desktop harness.
+
+Each external thread has one ordinary Ri chat. Inputs are saved before dispatch and delivery acknowledgments. Replies and pending questions are saved to an outbox independently of the model turn. Ri keeps its existing harness, tools, permissions, team capabilities and member attribution. Reply delivery retries never repeat the model's work. Replies written from the Ri chat also reach its external thread.
+
+Slack DMs address Ri directly. A channel mention starts a conversation, and messages from linked participants in that thread continue it without another mention. Ordinary channel messages do not start work. Edits, deletions, bot messages and echoes do not execute instructions. Slack conversations use their thread root, including native agent sessions in DMs. Reply in the thread to continue. A new top-level DM starts a separate chat.
+
+Personal access is explicitly linked to the owner. Team users link their own Slack identity from their signed-in Ri session. Membership and the sign-in are checked again at dispatch and delivery. Team channels must be explicitly designated team-visible. Private team DMs are refused because team chat history is shared. Both Slack Stop and a text `stop` stop the corresponding work. Runtime permission approvals stay in Ri's existing human controls.
+
+Buzz's ACP host supplies conversation context and enforces its author gate. The adapter runs with an explicitly configured Ri connection, accepts only configured Buzz channels, and never treats quoted author names as authenticated Ri members. Team Buzz connections are tied to the member who authorizes that bridge and must use Buzz's owner-only gate. ACP does not expose arbitrary local file, terminal or MCP server execution to the client. The configured Ri agent retains its own tools. Buzz replies are posted through its CLI, since Buzz does not publish ACP text chunks as channel messages.
+
+## Checklist
+
+- [x] Shared persistent connection, identity, thread, inbox and outbox queries and forward migrations.
+- [x] Personal and native team dispatch, member attribution, replay safety and restart outcomes.
+- [x] Slack Socket Mode, mentions, DMs, threaded follow-ups, native agent status, Stop and returned questions/results.
+- [x] Buzz ACP adapter, stable routing, actual Buzz reply delivery and cancellation.
+- [x] Setup UI for named connections, destinations, identity linking and connection status.
+- [x] Integration tests for complete conversations, team access, duplicate delivery, failure/restart and ACP protocol.
+- [x] Typecheck, lint, relevant regressions and operator setup documentation.
+
+## Connect Slack
+
+1. Open **Settings > Conversations** in your personal Ri or the team's settings. Team AI must already be configured and enabled. A team administrator with sign-in management capability creates the connection.
+2. Choose **Slack**, a name such as **Ri Personal** or **Ri Team**, and its Ri destination. Personal Ri can target the orchestrator or one of its agents. A team connection targets a selected team agent.
+3. Enter the channel IDs Ri should accept. Invite the Slack app to each channel. Leave the list empty only for a personal connection that accepts DMs alone. Team channels must be appropriate for the whole Ri team to read.
+4. Click **Copy Slack app manifest**. At [Your Slack apps](https://api.slack.com/apps), create an app from that manifest in the intended Slack workspace. The manifest enables the native agent view and Socket Mode and requests the message and reply scopes this adapter uses.
+5. In the Slack app's Basic Information, generate an app-level token with `connections:write`. Copy the `xapp-` token. Install the app to the workspace and copy its `xoxb-` bot token from OAuth & Permissions. Paste both into Ri and click **Connect**. Socket Mode connects outward from Ri, so this setup needs no public Slack webhook.
+6. Each participant opens Ri using their own sign-in and clicks **Link my Slack identity**. Send the generated `link …` command to the Slack app, with an app mention in a connected channel. Personal connections also allow linking in a DM. Codes are single-use and expire after ten minutes.
+7. Send `@Ri Personal help me plan today`, or mention your chosen app in a connected channel. Ri replies in the same Slack thread. Follow up in that thread, answer its questions there, and use Slack's Stop control or send `stop` to interrupt work. The corresponding Ri chat remains available for inspecting and continuing the work.
+
+Create separate Slack apps and Ri connections for separately mentionable identities. A Ri connection's name alone cannot create another Slack user. For example, **Ri Personal** can point to your personal orchestrator while **Ri Team** points to the team's product agent. Each connection has a fixed destination.
+
+If a token expires or rotates, use **Update Slack tokens** on the existing connection. Ri verifies that the new credentials belong to the same bot and Slack workspace. Saved chats and unsent reply parts are preserved. **Retry delivery** retries failed replies after a channel or credential issue is fixed. **Pause** keeps history and pending delivery. **Disconnect** removes the transport binding and credentials while leaving the Ri chat history.
+
+### Review Slack messages
+
+The existing Slack account Connector is the path for searching and reviewing messages outside the current bot conversation. Use **Connect Slack account tools** in Conversations, authorize the account, and make its tools available to the destination Ri agent through the normal Connector settings. Then ask Ri to review the messages you care about. That request can come from Ri or from a linked Slack conversation.
+
+The agent connection supplies mention and DM delivery and permission to post its replies. It does not grant the agent your account's private conversations, automatically import your Slack inbox, or create a background review schedule. Those remain separate, explicit choices using the account Connector and Ri's existing automation tools.
+
+## Connect Buzz by Block
+
+1. Install the Ri CLI, Buzz CLI and `buzz-acp` on the computer that will run the bridge. Register a named Buzz agent identity on the intended relay, including its registered owner and membership in the channels you select. Keep that identity's existing `BUZZ_PRIVATE_KEY` and any relay authentication configured for Buzz.
+2. In **Conversations**, choose **Buzz by Block**, a connection name, the Ri destination, the relay URL and allowed channel UUIDs. Click **Connect**.
+3. Save the environment variables Ri displays. The bridge token is shown once and authorizes only this connection. Keep it with the bridge process's secrets. A remote Ri URL must use HTTPS. Localhost HTTP is supported. If the bridge should act as another team member, that person clicks **Authorize my Buzz bridge** from their own Ri sign-in and runs the prepared command on the bridge computer with its token loaded. This consumes a single-use code and changes the bridge's authorizing sign-in without granting connection management rights.
+4. With those variables and Buzz's own credentials loaded, run `buzz-acp`. It launches `ri acp`, which forwards work to Ri and posts saved replies through `buzz messages send`.
+5. Mention the named Buzz identity in an allowed channel. Its channel thread maps to a saved Ri chat. Buzz direct conversations use a stable DM binding. Follow-ups, questions, cancellation and later results use that binding.
+
+The generated configuration has this shape. Use the actual values returned by your Ri, including its reachable server URL:
+
+```dotenv
+RI_CONVERSATION_URL=https://your-ri.example/api/integrations/conversations/acp/<connection-id>
+RI_CONVERSATION_TOKEN=<shown-once-token>
+BUZZ_ACP_AGENT_COMMAND=ri
+BUZZ_ACP_AGENT_ARGS=acp
+BUZZ_ACP_RESPOND_TO=owner-only
+BUZZ_RELAY_URL=wss://your-buzz-relay.example
+```
+
+Ri does not need another model API key for this bridge. It uses the destination agent's existing harness and tools. Buzz still needs its own identity and relay credentials. The configured relay must match the Ri connection. If you lose the bridge token, disconnect and create a new Buzz connection.
+
+For a Buzz Desktop custom ACP harness, use command `ri`, arguments `["acp"]`, and the generated environment. Name the Buzz identity itself as desired. Do not point Buzz at a separate model adapter when you want Ri to own the work.
+
+### Team identity boundary
+
+Slack authenticates each sender through its event transport and an explicit Ri link. Team dispatch uses that member's native team AI authority and records the member on the message.
+
+Buzz's current ACP prompt does not carry an authenticated Ri member identity. The bridge therefore acts as its authorizing Ri member, initially the person who created the connection. A member can self-link through **Authorize my Buzz bridge**, which requires both their signed-in Ri session and possession of that bridge's token. Team bridges require `BUZZ_ACP_RESPOND_TO=owner-only`, and Buzz must register that member as the identity's owner. Other team members need separately authorized bridges. A shared Buzz bot that attributes arbitrary senders to distinct Ri members is not implemented. Quoted `From` names in a prompt cannot authorize that feature.
+
+Team chats are shared team records. Team connections refuse private DMs rather than making private-looking conversations visible in shared history. Participants use explicitly connected channels. The Ri composer displays the external audience before messages are sent.
+
+## Persistence, cancellation and recovery
+
+- Connections store the provider identity, fixed destination and allowed channels. Credentials are encrypted under the home's config directory and never returned in connection lists.
+- Identity links bind an external sender to the Ri sign-in that authorized it. Dispatch checks revocation and current team membership. Delivery also requires an active linked participant in that thread. Unlinking a private thread's sole participant prevents further delivery even if another identity remains linked elsewhere.
+- Threads bind the provider's channel and thread root to one ordinary Ri chat. The configured agent retains its normal instructions, delegations, tools and execution limits.
+- The inbox durably deduplicates provider events before Slack acknowledgment. Ordinary messages wait while their chat is busy. Stop overtakes queued work, cancels earlier queued messages in that thread and aborts the active turn.
+- Pending runtime questions are relayed and answers return through Ri's existing question resolver. Permission requests direct the person to Ri's approval controls. External messages do not approve tools.
+- The outbox saves final replies, questions, errors and messages written by a person from Ri. Delivery progresses by part and retries separately from model execution. Buzz keeps polling for later results after the initial prompt ends.
+- Interrupted work is reported instead of automatically replayed. This avoids repeating side effects when a process restarts after a send was persisted.
+- Delivery is at least once across a lost provider acknowledgment. Slack receives stable message IDs and both adapters save part progress, but a crash between remote acceptance and local acknowledgment can duplicate a reply. It does not repeat the model turn.
+
+Current transport support is text, final responses and runtime questions. It does not stream every model token, synchronize message edits or transfer attachments. Existing account tools remain available for broader Slack operations when authorized.
+
+## Migration and implementation map
+
+`0030_external_conversations.sql` adds five tables: `conversation_connections`, `conversation_identities`, `conversation_threads`, `conversation_inputs` and `conversation_outputs`. `0031_conversation_delivery_indexes.sql` adds indexed lookups for connection threads and input events. These are forward migrations and do not rebuild existing chat tables or change chat rowids.
+
+Migrations run through Ri's safe migration runner when the relevant home next starts. CLI agent calls do not apply them. Test on a dev or temporary home. This work did not restart or migrate the production home.
+
+| Area | Code |
+| --- | --- |
+| Schema and persistent operations | `src/lib/db/schema.ts`, `src/lib/db/conversation-queries.ts`, exports in `queries.ts` |
+| Identity, input dispatch and recovery | `src/lib/integrations/conversations/service.ts` |
+| Slack manifest, Socket Mode and delivery | `src/lib/integrations/conversations/slack.ts` |
+| Buzz stdio protocol and CLI delivery | `src/lib/integrations/conversations/acp.ts`, `src/cli/commands/acp.ts` |
+| Connection-scoped Buzz HTTP protocol | `src/app/api/integrations/conversations/acp/[connectionId]/route.ts` |
+| Setup API and credential storage | `src/lib/integrations/conversations/router.ts`, `secrets.ts` |
+| Personal and team settings | `src/components/settings/sections/conversations-section.tsx` |
+| Runtime output and pending questions | `src/lib/executor/apply.ts`, `src/lib/runs/finish.ts` |
+| Destination instructions and audience | `src/lib/executor/session-spec.ts`, `src/components/executions/execution-composer.tsx` |
+
+Review alongside `docs/orchestrator-harness.md`, `docs/homes-spec.md`, `docs/team-isolation.md`, `docs/integrations-current.md`, `docs/environments.md` and the current team authority implementation. The earlier Slack proposal is background, not an implementation contract.
+
+## Verification
+
+The tests exercise the real Ri message dispatcher and native team AI pipeline with a scripted harness and mocked provider transport. They cover member attribution and removal, self-linking, channel boundaries, duplicate events, changed retries, native Slack sessions and Stop, pending questions, reply part retries, credential rotation, uncertain restarts, human continuation from Ri, ACP initialization and bridge isolation. The migration test preserves existing chat rowids and full-text search results.
+
+The setup screen has desktop and mobile browser coverage, including named Buzz setup, shown-once credentials and member-only Slack linking. TypeScript, targeted lint and the compiled CLI boot smoke check are part of verification. Live Slack installation, Buzz relay delivery and real model inference require an operator's credentials and are not claimed by these tests.
+
+Final verification: 615 tests passed across 84 regression test files, plus both setup browser tests. `pnpm ts` and `pnpm cli:build` passed. ESLint reported no errors and two existing unused-variable warnings in `queries.ts`.
+
+Run the focused conversation and migration checks with:
+
+```sh
+pnpm exec vitest run src/lib/integrations/conversations src/lib/db/conversations-migration.test.ts 'src/app/api/integrations/conversations/acp/[connectionId]/route.test.ts'
+pnpm ts
+pnpm cli:build
+```
+
+For an operator's first live check, link an identity and send one harmless message, answer one returned question, then stop a running request. Confirm the same conversation is visible in Ri and in its originating external thread. Repeat for the selected team agent with a non-owner member to verify attribution. For Buzz teams, perform that check using the member's owner-gated bridge.
+
+## Primary references
+
+- [Slack agent development](https://docs.slack.dev/ai/developing-agents/)
+- [Slack Socket Mode](https://docs.slack.dev/apis/events-api/using-socket-mode/)
+- [Slack agent session status](https://docs.slack.dev/reference/methods/agents.sessions.setStatus/)
+- [Buzz ACP harness and custom harness configuration](https://github.com/block/buzz/tree/main/crates/buzz-acp)
+- [ACP session setup](https://agentclientprotocol.com/protocol/session-setup)
+
