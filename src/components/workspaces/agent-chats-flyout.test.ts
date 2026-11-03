@@ -57,6 +57,8 @@ beforeAll(async () => {
       activeExecutionId:f.activeView.kind==='execution'?f.activeView.id:null,
       streamingSessionIds:new Set(['latest']),pendingInputSessionIds:new Set(),backgroundSessionIds:new Set()};}
     export const useRailSessions=()=>({data:{sessions:useFixture().sessions,mainChats:[]}});
+    // Every chat here is in the rail's feed, so no chat's own row is read.
+    export const useSession=()=>({data:undefined});
     export const useWorkspaceSessions=()=>({data:null});
     export const useUpdateWorkspace=()=>({mutate:useFixture().update});
     export const useAgentViewMode=()=>({opensView:true});
@@ -115,7 +117,7 @@ beforeAll(async () => {
     }) {
       api.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: 'navigation', namespace: 'navigation' }));
       api.onLoad({ filter: /.*/, namespace: 'navigation' }, () => ({ loader: 'tsx', resolveDir: process.cwd(), contents: `import {useSyncExternalStore} from 'react';const subscribe=fn=>{addEventListener('popstate',fn);return()=>removeEventListener('popstate',fn)};export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(useSyncExternalStore(subscribe,()=>location.search));` }));
-      api.onResolve({ filter: /^(?:fixture-hooks|@\/contexts\/dashboard-context|@\/hooks\/use-(?:workspaces|inactivity|areas|archive-execution)|@\/lib\/client\/agent-view-mode|\.\/workspace-selection-context)$/ },
+      api.onResolve({ filter: /^(?:fixture-hooks|@\/contexts\/dashboard-context|@\/hooks\/use-(?:workspaces|inactivity|areas|archive-execution|execution)|@\/lib\/client\/agent-view-mode|\.\/workspace-selection-context)$/ },
         () => ({ path: 'fixture-hooks', namespace: 'fixture' }));
       api.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: fixture, loader: 'tsx', resolveDir: process.cwd() }));
     } }],

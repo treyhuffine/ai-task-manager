@@ -29,19 +29,34 @@ let base: string;
 /** Session mutations the page sent, as `readPost:<id>` / `unreadPost:<id>`. */
 let sent: string[] = [];
 
+/**
+ * The view on screen is Website's "Update pricing copy" chat, unless a test
+ * starts on another (`initialView`) or opens one (`window.openView`). An
+ * execution view carries the execution its chat belongs to, as ExecutionView
+ * reports it.
+ */
 const dashboard = `
-  import {createContext, useContext} from 'react';
+  import {useSyncExternalStore} from 'react';
   const record=(kind,value)=>window.actions.push({kind,value});
+  const listeners=new Set();
+  let view=window.initialView??{kind:'execution',id:'web-2',executionId:'web-2'};
+  window.openView=(next)=>{view=next;listeners.forEach((listener)=>listener());};
+  const subscribe=(listener)=>{listeners.add(listener);return()=>listeners.delete(listener);};
+  const activity={
+    streamingSessionIds:new Set(['ri-1','fin-3','res-main']),
+    pendingInputSessionIds:new Set(['web-1']),
+    backgroundSessionIds:new Set(),
+  };
   export const DashboardProvider=({children})=>children;
   export function useDashboard(){
+    const v=useSyncExternalStore(subscribe,()=>view);
+    const chat=v.kind==='execution';
     return {
-      activeView:{kind:'execution',id:'web-2'},
-      activeSessionId:'web-2',
-      activeExecutionId:'web-2',
-      streamingSessionIds:new Set(['ri-1','fin-3','res-main']),
-      pendingInputSessionIds:new Set(['web-1']),
-      backgroundSessionIds:new Set(),
-      setActiveView:(view)=>record('navigate',view),
+      ...activity,
+      activeView:chat?{kind:'execution',id:v.id}:v,
+      activeSessionId:chat?v.id:null,
+      activeExecutionId:chat?(v.executionId??null):null,
+      setActiveView:(next)=>record('navigate',next),
       openAgent:(id)=>record('openAgent',id),
     };
   }
@@ -65,8 +80,10 @@ beforeAll(async () => {
       import {WorkspaceSelectionProvider} from '@/components/workspaces/workspace-selection-context';
       import {SessionHoverProvider} from '@/components/workspaces/session-hover-context';
       import {ReadStateButton} from '@/components/chat-ui/read-state-button';
+      import {AgentsFlyout} from '@/components/workspaces/rail-strip';
       window.actions=[];
       const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity},mutations:{retry:false}}});
+      window.queryClient=client;
       const at=(minutesAgo)=>new Date(Date.now()-minutesAgo*60_000).toISOString();
       const agent=(id,name,emoji,purpose)=>({id,name,emoji,purpose,attachments:[],areaId:null,collapsed:false,isGit:true,status:'active'});
       const workspaces=[
@@ -116,6 +133,10 @@ beforeAll(async () => {
       ]});
       // The chat the agent view's chat bar shows: Notes's main chat, read.
       client.setQueryData(['session','notes-main'],{...main('notes-main','notes','Filed the meeting notes.'),status:'active',label:null,executionId:null});
+      // Chats the rail doesn't list, as the chat view loads them: Ri's
+      // archived one from Recent, and one of Docs's opened from search.
+      client.setQueryData(['session','ri-old'],archived('ri-old','ri','Old migration cleanup',21*24*60));
+      client.setQueryData(['session','docs-old'],archived('docs-old','docs','Release notes for 2.3',30*24*60));
       const noop=()=>{};
       const navigation={openAgent:noop,openExecution:noop,openTask:noop,openNote:noop,goHome:noop};
       const activity={activeSessionId:null,streamingSessionIds:new Set(['ri-1','fin-3','res-main']),backgroundSessionIds:new Set(),pendingInputSessionIds:new Set(['web-1']),setActiveExecutionId:noop,setSessionStreaming:noop};
@@ -126,10 +147,14 @@ beforeAll(async () => {
           <RailListBody tab={tab}/>
         </WorkspaceSelectionProvider>;
       }
+      // The wide rail's list, or the collapsed strip's Agents button.
+      const strip=new URLSearchParams(location.search).get('rail')==='strip';
       createRoot(document.getElementById('root')).render(
         <QueryClientProvider client={client}><TooltipProvider><ConfirmProvider>
           <WorkContext navigation={navigation} activity={activity}><SessionHoverProvider disabled>
-            <aside className="w-[256px] min-h-screen border-r border-border bg-background"><Rail/></aside>
+            {strip
+              ? <aside className="flex h-screen w-[44px] flex-col items-center pt-2 border-r border-border bg-background"><AgentsFlyout/></aside>
+              : <aside className="w-[256px] min-h-screen border-r border-border bg-background"><Rail/></aside>}
             <div data-chat-bar className="fixed left-[300px] top-4 flex items-center gap-1.5"><ReadStateButton sessionId="notes-main"/></div>
           </SessionHoverProvider></WorkContext>
         </ConfirmProvider></TooltipProvider></QueryClientProvider>);
@@ -185,17 +210,31 @@ afterAll(async () => {
   if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-async function open(style: 'agentsOnly' | 'agents', theme: 'dark' | 'light' = 'dark'): Promise<{ page: Page; errors: string[] }> {
+type View = { kind: 'execution'; id: string; executionId?: string } | { kind: 'agent'; id: string } | { kind: 'home' };
+
+async function open(
+  style: 'agentsOnly' | 'agents' | 'classic',
+  theme: 'dark' | 'light' = 'dark',
+  { rail = 'wide', view, height = 760 }: { rail?: 'wide' | 'strip'; view?: View; height?: number } = {},
+): Promise<{ page: Page; errors: string[] }> {
   sent = [];
-  const page = await browser.newPage({ viewport: { width: 640, height: 760 }, deviceScaleFactor: 2 });
+  const page = await browser.newPage({ viewport: { width: 640, height }, deviceScaleFactor: 2 });
   page.setDefaultTimeout(5_000);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.addInitScript((value) => localStorage.setItem('ri.client.railStyle', value), style);
-  await page.goto(`${base}/?theme=${theme}`);
-  await page.getByRole('button', { name: 'Open Docs', exact: true }).waitFor();
+  await page.addInitScript(({ style, view }) => {
+    localStorage.setItem('ri.client.railStyle', style);
+    if (view) Object.assign(window, { initialView: view });
+  }, { style, view });
+  await page.goto(`${base}/?theme=${theme}&rail=${rail}`);
+  if (rail === 'wide') await page.getByRole('button', { name: 'Open Docs', exact: true }).waitFor();
+  else await page.getByRole('button', { name: /^Agents/ }).waitFor();
   return { page, errors };
 }
+
+/** Open another view, as navigating does. */
+const openView = (page: Page, view: View) =>
+  page.evaluate((next) => (window as unknown as { openView: (v: View) => void }).openView(next), view);
 
 /** Each agent's name and second line, top to bottom. */
 const agentLines = (page: Page) =>
@@ -222,6 +261,33 @@ const countsOf = (page: Page) =>
         .map((el) => [el.dataset.count, el.textContent])),
     ])),
   );
+
+/**
+ * The agents that look selected, by name, with what their buttons say to a
+ * screen reader (`aria-current`), and the fill they share. `within` narrows
+ * to one list, such as the Agents flyout.
+ */
+const marked = async (page: Page, within = 'body') => {
+  const rows = await page.locator(within).locator('[aria-roledescription="sortable"]').evaluateAll((els) =>
+    els.map((row) => ({
+      name: (row.querySelector('button.flex-1 > span') ?? row.querySelector('button.flex-1'))!.textContent,
+      fill: getComputedStyle(row).backgroundColor,
+      current: Array.from(row.querySelectorAll('button[aria-current]')).map((b) => b.getAttribute('aria-current')),
+    })),
+  );
+  // Nothing unmarked is announced as current.
+  for (const row of rows) if (row.fill === 'rgba(0, 0, 0, 0)') expect(row.current, row.name ?? '').toEqual([]);
+  const lit = rows.filter((row) => row.fill !== 'rgba(0, 0, 0, 0)');
+  return { agents: lit.map(({ name, current }) => ({ name, current })), fills: [...new Set(lit.map((row) => row.fill))] };
+};
+
+/** The rail's selected fill, read off an agent whose own page is open. */
+const selectedFill = async (page: Page) => {
+  await openView(page, { kind: 'agent', id: 'notes' });
+  await expect.poll(async () => (await marked(page)).agents).toEqual([{ name: 'Notes', current: expect.any(Array) }]);
+  const [fill] = (await marked(page)).fills;
+  return fill;
+};
 
 const menu = async (page: Page, name: string) => {
   await page.getByText(name, { exact: true }).hover();
@@ -263,12 +329,8 @@ for (const theme of ['dark', 'light'] as const) {
       expect(Number(await nameWeight(page, 'Website'))).toBeLessThan(600);
       expect(Number(await nameWeight(page, 'Finances'))).toBeLessThan(600);
       expect(Number(await nameWeight(page, 'Research'))).toBeLessThan(600);
-      // The open chat has no row, so its agent is lit.
-      const fill = (name: string) =>
-        page.locator('[aria-roledescription="sortable"]', { has: page.getByText(name, { exact: true }) })
-          .evaluate((el) => getComputedStyle(el).backgroundColor);
-      expect(await fill('Website')).not.toBe('rgba(0, 0, 0, 0)');
-      expect(await fill('Notes')).toBe('rgba(0, 0, 0, 0)');
+      // The open chat has no row, so its agent is marked, and only it.
+      expect((await marked(page)).agents).toEqual([{ name: 'Website', current: ['true', 'true'] }]);
 
       // Its chats count at the row's end: amber need you (pulsing while one
       // is blocked), green working. The agent's own main chat doesn't count.
@@ -291,6 +353,123 @@ for (const theme of ['dark', 'light'] as const) {
     }
   });
 }
+
+for (const theme of ['dark', 'light'] as const) {
+  it(`marks the agent you're in like its own page, and moves the mark as you go (${theme})`, async () => {
+    const { page, errors } = await open('agentsOnly', theme);
+    try {
+      // Off the rows, so no hover fill.
+      await page.mouse.move(600, 700);
+      // Website's chat is open: Website looks selected, said as current.
+      expect((await marked(page)).agents).toEqual([{ name: 'Website', current: ['true', 'true'] }]);
+      const chatFill = (await marked(page)).fills[0];
+      await page.screenshot({ path: `/tmp/ri-rail-open-chat-${theme}.png`, clip: { x: 0, y: 0, width: 256, height: 420 } });
+
+      // Its own page has the same look, said as the page.
+      await openView(page, { kind: 'agent', id: 'web' });
+      await expect.poll(async () => (await marked(page)).agents).toEqual([{ name: 'Website', current: ['page', 'page'] }]);
+      expect((await marked(page)).fills).toEqual([chatFill]);
+      expect(await selectedFill(page)).toBe(chatFill);
+
+      // Another agent's chat moves the mark there.
+      await openView(page, { kind: 'execution', id: 'fin-2', executionId: 'fin-2' });
+      await expect.poll(async () => (await marked(page)).agents).toEqual([{ name: 'Finances', current: ['true', 'true'] }]);
+
+      // A later chat of Ri's execution, which the rail knows by its first chat.
+      await openView(page, { kind: 'execution', id: 'ri-1-later', executionId: 'ri-1' });
+      await expect.poll(async () => (await marked(page)).agents).toEqual([{ name: 'Ri', current: ['true', 'true'] }]);
+
+      // An archived chat the rail doesn't list: the chat's own row says whose.
+      await openView(page, { kind: 'execution', id: 'docs-old' });
+      await expect.poll(async () => (await marked(page)).agents).toEqual([{ name: 'Docs', current: ['true', 'true'] }]);
+
+      // Home is in no agent.
+      await openView(page, { kind: 'home' });
+      await expect.poll(async () => (await marked(page)).agents).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  });
+}
+
+for (const style of ['agents', 'classic'] as const) {
+  it(`marks the agent in ${style} only while its open chat has no row showing`, async () => {
+    const { page, errors } = await open(style);
+    try {
+      await page.mouse.move(600, 700);
+      // The chat's own row is the selection, so the agent isn't marked too.
+      const chatRow = page.locator('[role="button"][tabindex="0"]:not([aria-roledescription])', { hasText: 'Update pricing copy' }).first();
+      expect(await chatRow.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+      expect((await marked(page)).agents).toEqual([]);
+      const current = style === 'agents' ? ['true', 'true'] : ['true'];
+
+      // With Website's chats hidden, the agent carries the mark.
+      await page.evaluate(() => {
+        const client = (window as unknown as { queryClient: import('@tanstack/react-query').QueryClient }).queryClient;
+        client.setQueryData<{ id: string; collapsed: boolean }[]>(['workspaces', { status: 'active' }], (all) =>
+          all?.map((w) => (w.id === 'web' ? { ...w, collapsed: true } : w)));
+      });
+      await expect.poll(async () => (await marked(page)).agents).toEqual([{ name: 'Website', current }]);
+
+      // An archived chat has no row under its agent, though its agent's list shows.
+      await openView(page, { kind: 'execution', id: 'ri-old' });
+      await expect.poll(async () => (await marked(page)).agents).toEqual([{ name: 'Ri', current }]);
+      await page.screenshot({ path: `/tmp/ri-rail-open-chat-${style}.png`, clip: { x: 0, y: 0, width: 256, height: 520 } });
+      expect(errors).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  });
+}
+
+it("marks the agent you're in in the collapsed rail's Agents flyout, and scrolls to it", async () => {
+  // Short enough that Docs, the last agent, opens below the fold.
+  const { page, errors } = await open('agentsOnly', 'dark', { rail: 'strip', height: 300, view: { kind: 'execution', id: 'docs-old' } });
+  try {
+    await page.getByRole('button', { name: /^Agents/ }).click();
+    const flyout = page.getByRole('dialog', { name: 'Agents' });
+    await flyout.getByText('Docs', { exact: true }).waitFor();
+    await page.mouse.move(600, 290);
+    await expect.poll(async () => (await marked(page, '[data-rail-flyout]')).agents).toEqual([{ name: 'Docs', current: ['true', 'true'] }]);
+
+    // The list opened scrolled, with Docs whole inside it.
+    const list = flyout.locator('.overflow-y-auto').first();
+    await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    const box = (await list.boundingBox())!;
+    const docs = (await flyout.locator('[data-agent-id="docs"]').boundingBox())!;
+    expect(docs.y).toBeGreaterThanOrEqual(box.y);
+    expect(docs.y + docs.height).toBeLessThanOrEqual(box.y + box.height);
+    await page.screenshot({ path: '/tmp/ri-rail-flyout-scrolled.png', clip: { x: 0, y: 0, width: 320, height: 300 } });
+
+    // Scrolling it yourself sticks: nothing pulls it back.
+    await list.hover();
+    await page.mouse.wheel(0, -1000);
+    await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(0);
+    await page.setViewportSize({ width: 640, height: 320 });
+    await page.waitForTimeout(200);
+    expect(await list.evaluate((el) => el.scrollTop)).toBe(0);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it("leaves a list that fits where it is in the flyout, its agent marked", async () => {
+  const { page, errors } = await open('agentsOnly', 'dark', { rail: 'strip' });
+  try {
+    await page.getByRole('button', { name: /^Agents/ }).click();
+    const flyout = page.getByRole('dialog', { name: 'Agents' });
+    await flyout.getByText('Website', { exact: true }).waitFor();
+    await page.mouse.move(600, 700);
+    await expect.poll(async () => (await marked(page, '[data-rail-flyout]')).agents).toEqual([{ name: 'Website', current: ['true', 'true'] }]);
+    expect(await flyout.locator('.overflow-y-auto').first().evaluate((el) => el.scrollTop)).toBe(0);
+    await page.screenshot({ path: '/tmp/ri-rail-flyout-open-chat.png', clip: { x: 0, y: 0, width: 320, height: 520 } });
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
 
 it('marks an agent read or unread from its rail menu, its main chat only', async () => {
   const { page, errors } = await open('agentsOnly');

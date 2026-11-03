@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Search, Zap, X } from 'lucide-react';
+import { MessageSquare, Search, X } from 'lucide-react';
 import { useDashboard } from '@/contexts/dashboard-context';
 import { useLatestExecutionId } from '@/hooks/use-latest-execution';
 import { HOTKEYS } from '@/constants/commands';
@@ -25,7 +25,7 @@ import { Kbd } from '@/components/ui/kbd';
 
 export function TopHud() {
   const team = useOptionalHomeContext()?.home.kind === 'team';
-  const { activeView, goHome, openExecution, setQuickCaptureOpen } = useDashboard();
+  const { activeView, goHome, openExecution } = useDashboard();
   // The agent, execution, skill and app views all close back to Home.
   const closeLabel =
     activeView.kind === 'execution'
@@ -107,16 +107,6 @@ export function TopHud() {
               </button>
             </Tip>
             {!team && <ScratchpadButton />}
-            {!team && <Tip label="Quick capture">
-              <button
-                type="button"
-                onClick={() => setQuickCaptureOpen(true)}
-                className="hud-quick-capture p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="Quick capture"
-              >
-                <Zap size={14} />
-              </button>
-            </Tip>}
             <CreateMenu />
           </div>
         </div>
