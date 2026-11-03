@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { useHistorySessions, useRailSessions } from '@/hooks/use-workspaces';
 import { openLauncher } from './launcher/launcher-store';
@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 import { sortSessionsHotnessDesc } from '@/lib/utils/session-sort';
 import { normalizeTimestamp } from '@/lib/utils/timestamps';
 import type { RailSession } from '@/lib/api/sessions';
-import { setRecentAgents, useRecentAgents } from './recent-filter-store';
 import { HistoryRow } from './history-row';
 import { InactiveFold } from './inactive-fold';
 import { useInactivity } from '@/hooks/use-inactivity';
@@ -68,8 +67,7 @@ export function HistoryView() {
   const { openAgent, activeSessionId } = useDashboard();
   const { isInactive } = useInactivity();
   const [foldShown] = useFoldShown('inactive:recent');
-  // Shared with the agent rows, whose Show chats opens Recent on one agent.
-  const selectedWs = useRecentAgents();
+  const [selectedWs, setSelectedWs] = useState<ReadonlySet<string>>(new Set());
   // Session row menus open the agent's setup: its view, on the Setup tab.
   const openSetup = (id: string) => openAgent(id, 'setup');
 
@@ -127,7 +125,7 @@ export function HistoryView() {
     const next = new Set(selectedWs);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    setRecentAgents(next);
+    setSelectedWs(next);
   };
 
   return (
@@ -147,7 +145,7 @@ export function HistoryView() {
             ))}
             {selectedWs.size > 0 && (
               <button
-                onClick={() => setRecentAgents(new Set())}
+                onClick={() => setSelectedWs(new Set())}
                 className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors flex-shrink-0"
               >
                 <X size={9} /> Clear

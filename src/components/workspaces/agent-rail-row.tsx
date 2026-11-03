@@ -32,7 +32,6 @@ import { useInactivity } from '@/hooks/use-inactivity';
 import { useOpenChatAgentId } from '@/hooks/use-open-chat-agent';
 import { Tip } from '@/components/ui/tip';
 import { AgentChatsFlyout } from './agent-chats-flyout';
-import { showAgentInRecent } from './recent-filter-store';
 import { useWorkspaceSelection } from './workspace-selection-context';
 
 interface AgentRailRowProps {
@@ -94,9 +93,9 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * you (waiting on you or unread, pulsing while one is blocked), green for the
  * ones working. The header counts every chat, these say which agent's. They
  * give way to the actions on hover, and open no tooltip. Inactive chats don't
- * count. Resting on the agent opens nothing: Show chats, among its hover
- * actions, opens Recent on the agent's own chats, where a chat shows its
- * recent messages on hover.
+ * count. Resting on the agent opens nothing: the chats button among its
+ * hover actions opens its chats beside the rail on a click, each with its
+ * status line, and resting on a chat there shows its latest messages.
  *
  * The agent you're in is marked: selected, as when its own page is open,
  * while one of its chats is on screen and that chat's row isn't showing (it
@@ -197,7 +196,9 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         <SessionRow
           key={s.id}
           session={s}
-          density="compact"
+          // Agents only, they're only ever in the flyout: two lines, with
+          // each chat's status line.
+          density={agentsOnly ? 'regular' : 'compact'}
           workspaceIsGit={workspace.isGit}
           onOpenWorkspaceSettings={onOpenSettings}
           onOpenLauncher={onOpenLauncher}
@@ -207,14 +208,14 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       <InactiveFold
         sectionId={`agent:${workspace.id}`}
         count={inactive.length}
-        className="pl-[28px]"
-        rowClassName={THREAD_FOLD_ROW}
+        className={agentsOnly ? 'pl-8' : 'pl-[28px]'}
+        rowClassName={agentsOnly ? undefined : THREAD_FOLD_ROW}
       >
         {inactive.map((s) => (
           <SessionRow
             key={s.id}
             session={s}
-            density="compact"
+            density={agentsOnly ? 'regular' : 'compact'}
             workspaceIsGit={workspace.isGit}
             onOpenWorkspaceSettings={onOpenSettings}
             onOpenLauncher={onOpenLauncher}
@@ -312,19 +313,31 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
             </Tip>
           )}
           {hasThreads && agentsOnly && (
-            <Tip label="Show its chats in Recent">
-              <button
-                onPointerDown={stop}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  showAgentInRecent(workspace.id);
-                }}
-                className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/50"
-                aria-label={`Show ${workspace.name}'s chats`}
-              >
-                <MessagesSquare size={13} />
-              </button>
-            </Tip>
+            // A click, never a rest, slides its chats out beside the rail.
+            <AgentChatsFlyout
+              name={workspace.name}
+              enabled={!isDragging && !selecting}
+              hoverOpens={false}
+              previews
+              onNewChat={() => onOpenLauncher(workspace.id)}
+              trigger={({ ref, open: chatsOpen }) => (
+                <Tip label={chatsOpen ? undefined : 'Its chats'}>
+                  <button
+                    ref={ref}
+                    onPointerDown={stop}
+                    className={cn(
+                      'p-1 rounded hover:text-foreground hover:bg-muted/50',
+                      chatsOpen ? 'bg-muted/60 text-foreground' : 'text-muted-foreground/60',
+                    )}
+                    aria-label={`${workspace.name} chats`}
+                  >
+                    <MessagesSquare size={13} />
+                  </button>
+                </Tip>
+              )}
+            >
+              {threads}
+            </AgentChatsFlyout>
           )}
           <Tip label="New chat (shift-click to start one right away on the last settings)">
             <button

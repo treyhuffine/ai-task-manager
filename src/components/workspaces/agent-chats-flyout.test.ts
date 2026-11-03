@@ -59,6 +59,9 @@ beforeAll(async () => {
     export const useRailSessions=()=>({data:{sessions:useFixture().sessions,mainChats:[]}});
     // Every chat here is in the rail's feed, so no chat's own row is read.
     export const useSession=()=>({data:undefined});
+    // The chats flyout carries the chat preview, which reads these.
+    export const useSessionEvents=()=>({data:[]});
+    export const useWorkspaces=()=>({data:[]});
     export const useWorkspaceSessions=()=>({data:null});
     export const useUpdateWorkspace=()=>({mutate:useFixture().update});
     export const useAgentViewMode=()=>({opensView:true});

@@ -38,16 +38,22 @@ export function useDismissRailFlyout() {
  * With `onClick`, a click goes there instead of holding the flyout (the Apps
  * row opens the library), and the flyout is a hover peek only: it shows while
  * the pointer is on the trigger or inside it, and hides when it leaves.
+ *
+ * `hoverOpens={false}` makes it click-only: resting on the trigger peeks
+ * nothing (an agent's chats button in the agents-only rail).
  */
 export function RailFlyout({
   contentLabel,
   trigger,
   onClick,
   hoverTarget,
+  hoverOpens = true,
   children,
 }: {
   /** The flyout's accessible name. */
   contentLabel: string;
+  /** Resting on the trigger peeks the flyout. Off, only a click opens it. */
+  hoverOpens?: boolean;
   trigger: (props: { ref: Ref<HTMLButtonElement>; open: boolean }) => ReactElement;
   /** Where a click goes, when it doesn't hold the flyout. */
   onClick?: () => void;
@@ -167,13 +173,13 @@ export function RailFlyout({
           dispatch({ type: 'click', keyboard: e.detail === 0 });
         }}
         onPointerEnter={(e) => {
-          if (hoverTarget) return;
+          if (hoverTarget || !hoverOpens) return;
           if (e.pointerType !== 'mouse') return;
           if (open) cancel();
           else after({ type: 'hover' }, OPEN_DELAY_MS);
         }}
         onPointerLeave={(e) => {
-          if (hoverTarget) return;
+          if (hoverTarget || !hoverOpens) return;
           if (e.pointerType === 'mouse') after({ type: 'leave' }, CLOSE_DELAY_MS);
         }}
         onKeyDown={(e) => {

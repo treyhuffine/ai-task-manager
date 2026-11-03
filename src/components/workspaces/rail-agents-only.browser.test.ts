@@ -680,25 +680,41 @@ it('shows status lines under chat titles in Unread and Recent, and Mark as read 
   }
 });
 
-it("opens nothing on rest, and Show chats opens Recent on that agent's chats", async () => {
+it("opens nothing on rest, and its chats button slides its chats out with previews", async () => {
   const { page, errors } = await open('agentsOnly');
   try {
-    // Resting on an agent with chats used to slide its chats out. Not here.
+    // Resting on an agent with chats used to slide them out. Not here.
     await page.getByText('Finances', { exact: true }).hover();
     await page.waitForTimeout(600);
-    expect(await page.getByRole('navigation', { name: 'Finances chats' }).count()).toBe(0);
+    const flyout = page.getByRole('dialog', { name: 'Finances chats' });
+    expect(await flyout.count()).toBe(0);
 
-    // Its hover actions carry Show chats instead, right on the row.
-    await agentRow(page, 'Finances').getByRole('button', { name: "Show Finances's chats" }).click();
-    expect(await page.getByRole('tab', { name: 'Recent' }).getAttribute('aria-selected')).toBe('true');
-    const recent = page.locator('aside');
-    await recent.getByText('Reconcile Amex').waitFor();
-    for (const label of ['Import Chase CSV', 'Tax estimate']) expect(await recent.getByText(label).count()).toBeGreaterThan(0);
-    // Narrowed to Finances: another agent's chat isn't listed, and Clear widens it.
-    expect(await recent.getByText('Fix login bug').count()).toBe(0);
-    await page.screenshot({ path: '/tmp/ri-rail-show-chats.png', clip: { x: 0, y: 0, width: 256, height: 520 } });
-    await recent.getByRole('button', { name: 'Clear' }).click();
-    await recent.getByText('Fix login bug').waitFor();
+    // Resting on its chats button doesn't either. A click does, right there.
+    const button = agentRow(page, 'Finances').getByRole('button', { name: 'Finances chats', exact: true });
+    await button.hover();
+    await page.waitForTimeout(400);
+    expect(await flyout.count()).toBe(0);
+    await button.click();
+    await flyout.waitFor();
+    expect(await page.getByRole('tab', { name: 'Agents' }).getAttribute('aria-selected')).toBe('true');
+    const rows = flyout.locator('nav [role="button"][tabindex="0"]');
+    expect((await rows.allInnerTexts()).map((t) => t.split('\n')[0])).toEqual(['Reconcile Amex', 'Import Chase CSV', 'Tax estimate']);
+    expect(await rows.first().locator('[data-chat-status="needs-you"]').innerText()).toBe('Quick · Pick a category for the two Amex refunds');
+
+    // Resting on a chat shows its latest messages beside the flyout.
+    await rows.first().hover();
+    const preview = page.getByRole('dialog', { name: 'Session preview' });
+    await preview.waitFor();
+    const flyoutBox = (await flyout.boundingBox())!;
+    expect((await preview.boundingBox())!.x).toBeGreaterThanOrEqual(flyoutBox.x + flyoutBox.width - 1);
+    await page.screenshot({ path: '/tmp/ri-rail-agent-chats.png', clip: { x: 0, y: 0, width: 900, height: 560 } });
+
+    // A click opened it, so the pointer leaving doesn't close it. Esc does.
+    await page.mouse.move(880, 700);
+    await page.waitForTimeout(500);
+    expect(await flyout.isVisible()).toBe(true);
+    await page.keyboard.press('Escape');
+    await flyout.waitFor({ state: 'hidden' });
     expect(errors).toEqual([]);
   } finally {
     await page.close();
