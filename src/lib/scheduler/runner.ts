@@ -143,48 +143,59 @@ export function stopScheduler(): void {
  */
 export async function runTick(now: Date = new Date()): Promise<number> {
   try { return await withActivity(() => runAdmittedTick(now)); }
-  catch (error) { if (error instanceof MaintenanceError) return 0; throw error; }
+  catch (error) {
+    if (error instanceof MaintenanceError) return 0;
+    // The timer discards this promise, so this is the only place a failed tick
+    // can be seen. What was due stays due, and the next tick picks it up.
+    console.error('[scheduler] tick failed:', error);
+    return 0;
+  }
 }
 
 async function runAdmittedTick(now: Date): Promise<number> {
   if (state.ticking) return 0;
   state.ticking = true;
-  const lock = acquireSchedulerLock();
-  if (!lock) {
-    // Another process / a slow previous tick still holds the file lock.
-    // Log who once per minute so a stuck or duplicate scheduler is
-    // visible in the log instead of silently dropping every fire.
-    const holder = peekLockHolderPid();
-    if (holder !== state.lastReportedLockHolder) {
-      console.warn(
-        `[scheduler] tick skipped, lock held by pid ${holder ?? 'unknown'}`,
-      );
-      state.lastReportedLockHolder = holder;
-    }
-    state.ticking = false;
-    return 0;
-  }
-  // Reset the holder memo so a subsequent contention gets its own log.
-  state.lastReportedLockHolder = null;
-  let dispatched = 0;
+  // Everything after the flag runs inside this try. On 2026-11-02 a full disk
+  // made the lock file fail to open outside it, the flag stayed set, and every
+  // tick returned here for 18 hours, until the server restarted.
   try {
-    state.tickCount++;
-    if (localAppsEnabled()) await (await import('@/lib/local-apps/service')).localApps().tick(now);
-    const due = listDueTriggers(now);
-    for (const trigger of due) {
-      try {
-        const fired = await processTrigger(trigger, now);
-        if (fired) dispatched++;
-      } catch (err) {
-        // One bad row can't break the tick — log and move on.
-        console.error(`[scheduler] tick failed for trigger ${trigger.id}:`, err);
+    const lock = acquireSchedulerLock();
+    if (!lock) {
+      // Another process / a slow previous tick still holds the file lock.
+      // Log who once per minute so a stuck or duplicate scheduler is
+      // visible in the log instead of silently dropping every fire.
+      const holder = peekLockHolderPid();
+      if (holder !== state.lastReportedLockHolder) {
+        console.warn(
+          `[scheduler] tick skipped, lock held by pid ${holder ?? 'unknown'}`,
+        );
+        state.lastReportedLockHolder = holder;
       }
+      return 0;
     }
+    // Reset the holder memo so a subsequent contention gets its own log.
+    state.lastReportedLockHolder = null;
+    let dispatched = 0;
+    try {
+      state.tickCount++;
+      if (localAppsEnabled()) await (await import('@/lib/local-apps/service')).localApps().tick(now);
+      const due = listDueTriggers(now);
+      for (const trigger of due) {
+        try {
+          const fired = await processTrigger(trigger, now);
+          if (fired) dispatched++;
+        } catch (err) {
+          // One bad row can't break the tick — log and move on.
+          console.error(`[scheduler] tick failed for trigger ${trigger.id}:`, err);
+        }
+      }
+    } finally {
+      releaseSchedulerLock(lock);
+    }
+    return dispatched;
   } finally {
-    releaseSchedulerLock(lock);
     state.ticking = false;
   }
-  return dispatched;
 }
 
 /**

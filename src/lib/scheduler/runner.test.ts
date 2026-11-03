@@ -8,6 +8,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { WORK_DIR_ENV } from '@/lib/config/paths';
 
 vi.mock('@agentex/agent', () => ({
   getProvider: () => ({ capabilities: { concurrentSend: true } }),
@@ -135,5 +136,43 @@ describe('runTick — at-most-once for one-off triggers', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(queries.listRuns({}).filter((r) => r.triggerId === trigger.id)).toHaveLength(1);
     expect(new Date(queries.getTrigger(trigger.id)!.nextRunAt!).getTime()).toBeGreaterThan(Date.now());
+  });
+});
+
+describe('runTick — a failed tick never stops the scheduler', () => {
+  it('logs the failure and fires on the next tick after the lock file could not be created', async () => {
+    await seed();
+    const queries = await import('@/lib/db/queries');
+    const { runTick } = await import('./runner');
+    const trigger = queries.createTrigger({
+      name: 'nightly',
+      targetKind: 'orchestrator',
+      harness: 'claude',
+      prompt: 'X',
+      kind: 'every',
+      intervalSeconds: 60,
+      nextRunAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    // A full disk refuses the lock file the same way: any open error but
+    // EEXIST throws. A work "folder" that is a file gives ENOTDIR, and works
+    // for any user, where a read-only folder wouldn't stop root.
+    const blockedWorkDir = path.join(TEST_BRAIN, 'not-a-folder');
+    fs.writeFileSync(blockedWorkDir, '');
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env[WORK_DIR_ENV] = blockedWorkDir;
+    try {
+      expect(await runTick(new Date())).toBe(0);
+    } finally {
+      delete process.env[WORK_DIR_ENV];
+    }
+    expect(logged).toHaveBeenCalledWith('[scheduler] tick failed:', expect.objectContaining({ code: 'ENOTDIR' }));
+    logged.mockRestore();
+    expect(queries.listRuns({}).filter((r) => r.triggerId === trigger.id)).toHaveLength(0);
+
+    // Space came back: the very next tick works and fires what was due.
+    expect(await runTick(new Date())).toBe(1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(queries.listRuns({}).filter((r) => r.triggerId === trigger.id)).toHaveLength(1);
   });
 });
