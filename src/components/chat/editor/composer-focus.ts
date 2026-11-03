@@ -62,6 +62,12 @@ export function composerTarget(): ComposerEntry | null {
   return null;
 }
 
+/** The composer showing inside `root` (a chat surface), or null. */
+export function composerWithin(root: Element): ComposerEntry | null {
+  for (const entry of entries) if (root.contains(entry.el) && showing(entry)) return entry;
+  return null;
+}
+
 /** Called when the composers or the last focused one change. */
 export function subscribeComposers(listener: () => void): () => void {
   listeners.add(listener);

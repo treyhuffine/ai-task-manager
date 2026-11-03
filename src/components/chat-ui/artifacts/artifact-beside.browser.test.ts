@@ -48,6 +48,7 @@ beforeAll(async () => {
       import { HtmlPreviewLink } from './src/components/chat-ui/artifacts/html-preview-link';
       import { MessageFileChip } from './src/components/chat-ui/artifacts/message-file-chip';
       import { sessionPdfUrl } from './src/lib/sessions/reply-pdf';
+      import { registerComposer } from './src/components/chat/editor/composer-focus';
       const client = new QueryClient();
       const host = 'home:a';
       // A panel beside the chat with a tab of its own, as Home's Deck panel.
@@ -69,14 +70,28 @@ beforeAll(async () => {
           </div>
         </aside>;
       }
+      // The chat's composer, registered as the real one is (⌘I, and where focus goes with no card to go back to).
+      function Composer() {
+        const ref = React.useRef(null);
+        useEffect(() => registerComposer({ el: ref.current, focus: () => ref.current.focus(), insert: () => {} }), []);
+        return <textarea ref={ref} aria-label="Message" className="m-3 border border-border" />;
+      }
+      // A hidden copy of the layout, as the dashboard keeps one per screen size: focus never goes to its view.
+      function HiddenLayout() {
+        const file = useBesidePreview(host);
+        return <div className="hidden">{file && <BesideFileView host={host} />}</div>;
+      }
       function App() {
+        const [earlier, setEarlier] = useState(true);
+        useEffect(() => { window.setEarlierShown = setEarlier; }, []);
         return <QueryClientProvider client={client}><TipProvider><ArtifactPreviewProvider>
+          <HiddenLayout />
           <div className="flex h-dvh">
             <div data-preview-host={host} className="flex min-w-0 flex-1 flex-col">
               {/* An earlier conversation in the same surface: its own Previous and Next. */}
-              <section role="log" aria-label="Earlier chat" className="px-6 pt-3">
+              {earlier && <section role="log" aria-label="Earlier chat" className="px-6 pt-3">
                 <MessageFileChip attachment={{ fileName: 'diagram.svg', originalName: 'Team diagram.svg', mimeType: 'image/svg+xml', size: 160, uploadedAt: '2026-10-19T10:00:00Z' }} variant="block" />
-              </section>
+              </section>}
               <section role="log" aria-label="Chat" className="min-h-0 flex-1 overflow-y-auto p-6 space-y-3">
                 <p>Here is the report:</p>
                 <PdfPreviewCard src={sessionPdfUrl('fixture', '/tmp/exports/member-offers.pdf')} name="member-offers.pdf" source="/tmp/exports/member-offers.pdf" />
@@ -84,7 +99,7 @@ beforeAll(async () => {
                 <HtmlPreviewLink sessionId="fixture" path="/tmp/gallery.html">gallery.html</HtmlPreviewLink>
                 <MessageFileChip attachment={{ fileName: 'agenda.pdf', originalName: 'Friday agenda.pdf', mimeType: 'application/pdf', size: ${AGENDA.byteLength}, uploadedAt: '2026-10-19T10:00:00Z' }} variant="block" />
               </section>
-              <textarea aria-label="Message" className="m-3 border border-border" />
+              <Composer />
             </div>
             <Panel />
           </div>
@@ -165,11 +180,16 @@ async function openPage() {
 
 const card = (page: Page, name: string) => page.getByRole('button', { name });
 const view = (page: Page, name: string) => page.getByRole('region', { name: `${name}, beside the chat` });
-const tab = (page: Page, name: string) => page.getByRole('complementary', { name: 'Beside the chat' }).getByRole('button', { name, exact: true });
+const panel = (page: Page) => page.getByRole('complementary', { name: 'Beside the chat' });
+const tab = (page: Page, name: string) => panel(page).getByRole('button', { name, exact: true });
 const focused = (locator: ReturnType<Page['locator']>) => locator.evaluate(element => element === document.activeElement);
+/** Focus is somewhere in the element (the file's view, say), not only on it. */
+const focusIn = (locator: ReturnType<Page['locator']>) => locator.evaluate(element => element.contains(document.activeElement));
+const composer = (page: Page) => page.getByRole('textbox', { name: 'Message' });
+const caret = (page: Page) => composer(page).evaluate(element => (element as HTMLTextAreaElement).selectionStart);
 const storedPlace = (page: Page) => page.evaluate(key => localStorage.getItem(key), PREVIEW_PLACE_KEY);
 /** The file's view is mounted and in front (not behind the panel's own tab). */
-const inFront = (page: Page, name: string) => page.locator(`section[aria-label="${name}, beside the chat"]`).evaluate(element => !element.closest('[inert]'));
+const inFront = (page: Page, name: string) => panel(page).locator(`section[aria-label="${name}, beside the chat"]`).evaluate(element => !element.closest('[inert]'));
 
 async function shot(page: Page, name: string) {
   if (process.env.RI_ARTIFACT_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, name) });
@@ -264,7 +284,8 @@ it.skipIf(!enabled)('moves a file between beside and large, and opens the next o
     await large.waitFor({ state: 'hidden' });
     await view(page, 'member-offers.pdf').locator('iframe[title="PDF: member-offers.pdf"]').waitFor();
     expect(await storedPlace(page)).toBe('beside');
-    expect(await focused(pdf)).toBe(true);
+    // Focus follows the file beside the chat, so its keys go on working there.
+    await expect.poll(() => focusIn(view(page, 'member-offers.pdf'))).toBe(true);
 
     // The choice outlasts the page.
     await view(page, 'member-offers.pdf').getByRole('button', { name: 'Show large' }).click();
@@ -280,32 +301,82 @@ it.skipIf(!enabled)('moves a file between beside and large, and opens the next o
   } finally { await page.context().close(); }
 }, 60_000);
 
-it.skipIf(!enabled)('steps with the arrow keys while focus is in the file, closes on Escape, and leaves the chat its keys', async () => {
+it.skipIf(!enabled)('takes focus when a file opens, so the arrow keys and Escape work straight away', async () => {
   const page = await openPage();
   try {
+    // From a click on its card, with no click in the file first.
     const image = card(page, 'Open image: shot.svg');
     await image.click();
-    const beside = view(page, 'shot.svg');
-    await beside.getByText('2 of 4', { exact: true }).waitFor();
-    // Focus is still on the card in the chat: the arrows aren't the file's.
-    await page.keyboard.press('ArrowRight');
-    await page.waitForTimeout(300);
-    expect(await beside.count()).toBe(1);
-
-    await beside.getByRole('img', { name: 'A screenshot' }).click();
-    await page.keyboard.press('ArrowLeft');
-    const pdf = view(page, 'member-offers.pdf');
-    await pdf.getByText('1 of 4', { exact: true }).waitFor();
-    expect(await card(page, 'Open PDF: member-offers.pdf').getAttribute('aria-current')).toBe('true');
-    expect(await image.getAttribute('aria-current')).toBeNull();
-    await pdf.getByRole('button', { name: 'Next preview' }).click();
-    await beside.waitFor();
     await page.keyboard.press('ArrowRight');
     const html = view(page, 'gallery.html');
-    const frame = page.frameLocator('iframe[title="HTML preview: gallery.html"]');
-    await frame.getByRole('heading', { name: 'Gallery' }).waitFor();
+    await html.getByText('3 of 4', { exact: true }).waitFor();
+    expect(await card(page, 'Open HTML: gallery.html').getAttribute('aria-current')).toBe('true');
+    await page.keyboard.press('ArrowLeft');
+    const beside = view(page, 'shot.svg');
+    await beside.getByText('2 of 4', { exact: true }).waitFor();
+    expect(await image.getAttribute('aria-current')).toBe('true');
+    await page.keyboard.press('Escape');
+    await beside.waitFor({ state: 'detached' });
+    expect(await focused(image)).toBe(true);
 
-    // Keys typed in the artifact stay its own, and Escape it didn't use closes the file.
+    // From the keyboard, on the card focus went back to.
+    await page.keyboard.press('Enter');
+    await beside.waitFor();
+    await page.keyboard.press('ArrowLeft');
+    await view(page, 'member-offers.pdf').getByText('1 of 4', { exact: true }).waitFor();
+
+    // Another card while a file is open takes the tab, and the keys with it.
+    await card(page, 'Open PDF: Friday agenda.pdf').click();
+    await view(page, 'Friday agenda.pdf').getByText('4 of 4', { exact: true }).waitFor();
+    await page.keyboard.press('ArrowLeft');
+    await html.getByText('3 of 4', { exact: true }).waitFor();
+
+    // So does the file's own tab, brought forward after another.
+    await page.getByRole('button', { name: 'Deck', exact: true }).click();
+    await expect.poll(() => inFront(page, 'gallery.html')).toBe(false);
+    await tab(page, 'gallery.html').click();
+    await expect.poll(() => inFront(page, 'gallery.html')).toBe(true);
+    await page.keyboard.press('ArrowLeft');
+    await beside.getByText('2 of 4', { exact: true }).waitFor();
+
+    // × hands focus back to the card as Escape does.
+    await page.getByRole('button', { name: 'Close shot.svg' }).click();
+    await beside.waitFor({ state: 'detached' });
+    expect(await focused(image)).toBe(true);
+  } finally { await page.context().close(); }
+}, 60_000);
+
+it.skipIf(!enabled)('leaves the chat its keys, and never takes focus from the composer', async () => {
+  const page = await openPage();
+  try {
+    await card(page, 'Open image: shot.svg').click();
+    const beside = view(page, 'shot.svg');
+    await beside.getByText('2 of 4', { exact: true }).waitFor();
+
+    // With the file open, the arrows typed in the composer move its caret, not the file.
+    await composer(page).click();
+    await page.keyboard.type('Compare them');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+    expect(await caret(page)).toBe('Compare them'.length - 2);
+    await page.keyboard.press('ArrowRight');
+    expect(await caret(page)).toBe('Compare them'.length - 1);
+    await page.waitForTimeout(300);
+    expect(await beside.getByText('2 of 4', { exact: true }).count()).toBe(1);
+
+    // A file that opens while you type (not from your click) leaves focus where it is.
+    await card(page, 'Open PDF: member-offers.pdf').evaluate(element => (element as HTMLElement).click());
+    await view(page, 'member-offers.pdf').getByText('1 of 4', { exact: true }).waitFor();
+    await page.waitForTimeout(300);
+    expect(await focused(composer(page))).toBe(true);
+    await page.keyboard.press('ArrowLeft');
+    expect(await caret(page)).toBe('Compare them'.length - 2);
+    expect(await view(page, 'member-offers.pdf').count()).toBe(1);
+
+    // Keys typed in an HTML artifact stay its own, and the Escape it didn't use closes the file.
+    await card(page, 'Open HTML: gallery.html').click();
+    const html = view(page, 'gallery.html');
+    const frame = panel(page).frameLocator('iframe[title="HTML preview: gallery.html"]');
     const filter = frame.getByRole('textbox', { name: 'Filter shots' });
     await filter.click();
     await page.keyboard.type('dusk');
@@ -315,13 +386,71 @@ it.skipIf(!enabled)('steps with the arrow keys while focus is in the file, close
     await page.keyboard.press('Escape');
     await html.waitFor({ state: 'detached' });
     expect(await focused(card(page, 'Open HTML: gallery.html'))).toBe(true);
+  } finally { await page.context().close(); }
+}, 60_000);
 
-    // Escape on Ri's own part of the view closes it too.
+it.skipIf(!enabled)('works the same way in the large view, and focus follows a file between the two', async () => {
+  const page = await openPage();
+  try {
+    await page.evaluate(key => localStorage.setItem(key, 'large'), PREVIEW_PLACE_KEY);
+    await page.reload();
+    const image = card(page, 'Open image: shot.svg');
     await image.click();
-    await beside.getByRole('img', { name: 'A screenshot' }).click();
+    await page.getByRole('dialog', { name: 'shot.svg' }).getByText('2 of 4', { exact: true }).waitFor();
+    await page.keyboard.press('ArrowRight');
+    await page.getByRole('dialog', { name: 'gallery.html' }).getByText('3 of 4', { exact: true }).waitFor();
+    await page.keyboard.press('ArrowLeft');
+    const large = page.getByRole('dialog', { name: 'shot.svg' });
+    await large.getByText('2 of 4', { exact: true }).waitFor();
+    await page.keyboard.press('Escape');
+    await large.waitFor({ state: 'hidden' });
+    // Once the dialog's exit animation is over.
+    await expect.poll(() => focused(image)).toBe(true);
+
+    // Moved beside the chat, then large again, the keys work wherever it is.
+    await page.keyboard.press('Enter');
+    await large.getByRole('button', { name: 'Show beside the chat' }).click();
+    const beside = view(page, 'shot.svg');
+    await expect.poll(() => focusIn(beside)).toBe(true);
+    await page.keyboard.press('ArrowRight');
+    const html = view(page, 'gallery.html');
+    await html.getByText('3 of 4', { exact: true }).waitFor();
+    await html.getByRole('button', { name: 'Show large' }).click();
+    await page.getByRole('dialog', { name: 'gallery.html' }).waitFor();
+    await page.keyboard.press('ArrowLeft');
+    await large.getByText('2 of 4', { exact: true }).waitFor();
+    await page.keyboard.press('Escape');
+    await large.waitFor({ state: 'hidden' });
+    await expect.poll(() => focused(image)).toBe(true);
+  } finally { await page.context().close(); }
+}, 60_000);
+
+it.skipIf(!enabled)('puts focus in the chat\'s composer, not the page, when the card a closing file came from is gone', async () => {
+  const page = await openPage();
+  try {
+    const setEarlierShown = (shown: boolean) => page.evaluate(value => (window as unknown as { setEarlierShown: (value: boolean) => void }).setEarlierShown(value), shown);
+    const diagram = card(page, 'Open image: Team diagram.svg');
+    await diagram.click();
+    const beside = view(page, 'Team diagram.svg');
+    await beside.getByRole('img').waitFor();
+    // The transcript it came from goes (another chat in the surface), and the file stays open.
+    await setEarlierShown(false);
+    await diagram.waitFor({ state: 'detached' });
     await page.keyboard.press('Escape');
     await beside.waitFor({ state: 'detached' });
-    expect(await focused(image)).toBe(true);
+    expect(await focused(composer(page))).toBe(true);
+
+    // The same from the large view.
+    await setEarlierShown(true);
+    await diagram.click();
+    await view(page, 'Team diagram.svg').getByRole('button', { name: 'Show large' }).click();
+    const large = page.getByRole('dialog', { name: 'Team diagram.svg' });
+    await large.getByRole('img').waitFor();
+    await setEarlierShown(false);
+    await diagram.waitFor({ state: 'detached' });
+    await page.keyboard.press('Escape');
+    await large.waitFor({ state: 'hidden' });
+    await expect.poll(() => focused(composer(page))).toBe(true);
   } finally { await page.context().close(); }
 }, 60_000);
 
@@ -332,8 +461,8 @@ it.skipIf(!enabled)('keeps the arrow keys working after Next disables at the las
     const first = view(page, 'member-offers.pdf');
     await first.getByText('1 of 4', { exact: true }).waitFor();
     for (const position of ['2 of 4', '3 of 4', '4 of 4']) {
-      await page.locator('section[aria-label$=", beside the chat"]').getByRole('button', { name: 'Next preview' }).click();
-      await page.locator('section[aria-label$=", beside the chat"]').getByText(position, { exact: true }).waitFor();
+      await panel(page).locator('section[aria-label$=", beside the chat"]').getByRole('button', { name: 'Next preview' }).click();
+      await panel(page).locator('section[aria-label$=", beside the chat"]').getByText(position, { exact: true }).waitFor();
     }
     const last = view(page, 'Friday agenda.pdf');
     expect(await last.getByRole('button', { name: 'Next preview' }).isDisabled()).toBe(true);

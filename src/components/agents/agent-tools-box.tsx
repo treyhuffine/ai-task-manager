@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment } from 'react';
+import { flushSync } from 'react-dom';
 import { MessageSquare } from 'lucide-react';
 import type { WorkspaceRecord } from '@/db/types';
 import type { AgentTab } from '@/types/dashboard';
@@ -17,7 +18,7 @@ import {
 } from '@/components/executions/workbench/tools-box';
 import { HOTKEYS } from '@/constants/commands';
 import { Kbd } from '@/components/ui/kbd';
-import { useBesidePreview } from '@/components/chat-ui/artifacts/artifact-preview-provider';
+import { useArtifactPreviewStore, useBesidePreview } from '@/components/chat-ui/artifacts/artifact-preview-provider';
 import { PreviewIcon, previewName } from '@/components/chat-ui/artifacts/artifact-preview-parts';
 import { AGENT_TOOL_TABS } from './agent-tools';
 import { useBesideChatSummary } from './agent-beside-chat';
@@ -111,16 +112,27 @@ export function AgentToolsBox({
   );
 }
 
+/** Brings the file forward with focus in it, as its card and its tab do, so its keys work at once (the box goes as the panel opens). */
+function useShowFile(host: string, onShow: () => void) {
+  const store = useArtifactPreviewStore();
+  return () => {
+    flushSync(onShow);
+    store.focusBeside(host);
+  };
+}
+
 function BesideFileRow({ host, onShow }: { host: string; onShow: () => void }) {
   const open = useBesidePreview(host);
+  const show = useShowFile(host, onShow);
   if (!open) return null;
-  return <ToolsRow icon={<PreviewIcon preview={open.preview} size={15} />} label={previewName(open.preview)} onClick={onShow} />;
+  return <ToolsRow icon={<PreviewIcon preview={open.preview} size={15} />} label={previewName(open.preview)} onClick={show} />;
 }
 
 function BesideFileMini({ host, onShow }: { host: string; onShow: () => void }) {
   const open = useBesidePreview(host);
+  const show = useShowFile(host, onShow);
   if (!open) return null;
-  return <ToolsMini icon={<PreviewIcon preview={open.preview} size={16} />} label={previewName(open.preview)} onClick={onShow} />;
+  return <ToolsMini icon={<PreviewIcon preview={open.preview} size={16} />} label={previewName(open.preview)} onClick={show} />;
 }
 
 function BesideChatRow({ chatId, onShow }: { chatId: string; onShow: () => void }) {
