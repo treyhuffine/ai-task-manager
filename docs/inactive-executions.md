@@ -71,7 +71,7 @@ That cap is gone: everything with activity in the last week shows.
 | Rail, Agents tab: Needs you (executions) | `unread` |
 | Rail, Agents tab: each agent's threads (agents-first) or list (classic) | `agent:<workspaceId>` |
 | Rail, Recent tab (archived included) | `recent` |
-| Agent view Overview: Pinned, Needs you, Recent | `overview:<workspaceId>:pinned`, `:needs`, `:recent` |
+| Agent view Chats tab: Pinned, Needs you, Recent | `overview:<workspaceId>:pinned`, `:needs`, `:recent` |
 | Mobile Agents: Needs review, each agent | `unread`, `agent:<workspaceId>` |
 
 A section holding only inactive rows still shows, with just its fold. The

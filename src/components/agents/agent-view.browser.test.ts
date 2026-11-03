@@ -160,7 +160,7 @@ it('toggles the tools with ⌃. and the header button, with the box and its Term
   try {
     expect(await pressed(page, 'Tools')).toBe(true);
     await toolTabs(page).waitFor();
-    expect(await toolTabs(page).getByRole('tab').allTextContents()).toEqual(['Overview', 'Files', 'Preview', 'Setup']);
+    expect(await toolTabs(page).getByRole('tab').allTextContents()).toEqual(['Chats', 'Files', 'Preview', 'Setup']);
     expect(await box(page).count()).toBe(0);
 
     await page.getByLabel('Message Field Notes').focus();
@@ -170,7 +170,7 @@ it('toggles the tools with ⌃. and the header button, with the box and its Term
     await box(page).waitFor();
     // The execution box's rows, with the terminal after Files.
     expect(await box(page).getByRole('button').allTextContents()).toEqual([
-      'Overview', `Files${'⌘P'}`, `Terminal${'⌃`'}`, 'Preview', 'Setup',
+      'Chats', `Files${'⌘P'}`, `Terminal${'⌃`'}`, 'Preview', 'Setup',
     ]);
 
     // Its Terminal row opens the drawer below and says so, without opening the tools.
@@ -211,7 +211,7 @@ it('expands the tools over the chat, and Escape restores, then closes them', asy
 
     // Double-clicking a tab expands, as in an execution. The panel's × closes.
     await button(page, 'Tools').click();
-    await toolTabs(page).getByRole('tab', { name: 'Overview' }).dblclick();
+    await toolTabs(page).getByRole('tab', { name: 'Chats' }).dblclick();
     await page.locator('[data-main-chat]').waitFor({ state: 'hidden' });
     await page.getByRole('button', { name: 'Close the panel' }).click();
     await toolTabs(page).waitFor({ state: 'hidden' });
@@ -268,7 +268,7 @@ it('keeps the terminal and tools open or closed per agent, across a reload', asy
 it('has no terminal on a phone, as an execution has none', async () => {
   const page = await open(390);
   try {
-    await page.getByRole('tab', { name: 'Chat' }).waitFor();
+    await page.getByRole('tab', { name: 'Chat', exact: true }).waitFor();
     expect(await button(page, 'Terminal').count()).toBe(0);
     await page.keyboard.press('Control+Backquote');
     await page.waitForTimeout(200);
@@ -284,7 +284,7 @@ it('has no terminal on a phone, as an execution has none', async () => {
 it('keeps the drawer in one-pane mode on the desktop layout, under the Chat / Tools switch', async () => {
   const page = await open(1280, 'agent-1', undefined, 760);
   try {
-    await page.getByRole('tab', { name: 'Chat' }).waitFor();
+    await page.getByRole('tab', { name: 'Chat', exact: true }).waitFor();
     // The switch stands in for the Tools toggle. The Terminal toggle stays.
     expect(await button(page, 'Tools').count()).toBe(0);
     expect(await pressed(page, 'Terminal')).toBe(false);

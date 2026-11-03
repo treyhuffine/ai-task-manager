@@ -321,7 +321,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
               previews
               onNewChat={() => onOpenLauncher(workspace.id)}
               trigger={({ ref, open: chatsOpen }) => (
-                <Tip label={chatsOpen ? undefined : 'Its chats'}>
+                <Tip label={chatsOpen ? undefined : "View agent's chats"}>
                   <button
                     ref={ref}
                     onPointerDown={stop}

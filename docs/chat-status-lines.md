@@ -24,8 +24,8 @@ Only execution chats get the rule. Agents' main chats already show their last me
 ## Where it shows
 
 - **Recent:** the line takes the second line's place (the agent's name and branch), since the avatar already names the agent.
-- **Unread (the agents-only rail's row and its flyout) and Pinned:** under the title, above the time and agent.
-- An ask reads stronger than a report. Its size sits at the end of the metadata line in Unread and an agent's chats ("5m · Website, Few min for you"), apart from the ask so the ask keeps the whole line, and it names the person because "Few min" alone, beside a row's "5m", read as how long ago. Recent leaves the size out: it's the list of what happened, and Unread is where you choose what to do. It's the agent's own estimate: nothing measures or checks it.
+- **Unread (the agents-only rail's row and its flyout), Pinned, an agent's chats and its Chats tab:** under the title, above the time and agent.
+- An ask reads stronger than a report. Its size is a small amber chip at the end of the metadata line in Unread, an agent's chats and its Chats tab ("5m · Website, [Few min for you]"), apart from the ask so the ask keeps the whole line. It names the person because "Few min" alone, beside a row's "5m", read as how long ago, and it's a chip because as plain text it read as one more piece of metadata. Recent leaves the size out: it's the list of what happened, and Unread is where you choose what to do. It's the agent's own estimate: nothing measures or checks it.
 
 Recency stays the order. The size of your part and what it unblocks are on the row, so you weigh value yourself: agents can't know what matters most to you, and a score would guess.
 
@@ -44,6 +44,6 @@ Turn it off in Settings, or remove the code: the rule, the action, the column's 
 
 ## Not done yet
 
-- The header pills' lists, Board and the agent's Overview don't show the line yet.
+- The header pills' lists and Board don't show the line yet.
 - A "Quick ones" filter, and turning a block-sized ask into a Deck task in one click, wait on seeing real lines.
 - Chats on other harnesses follow the rule as well as they follow instructions. A chat that skips it shows what it showed before.

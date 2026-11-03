@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { AppWindow, FolderTree, LayoutGrid, Settings2, X, type LucideIcon } from 'lucide-react';
+import { AppWindow, FolderTree, MessagesSquare, Settings2, X, type LucideIcon } from 'lucide-react';
 import type { WorkspaceRecord } from '@/db/types';
 import type { AgentTab } from '@/types/dashboard';
 import { cn } from '@/lib/utils';
@@ -20,7 +20,8 @@ import { AgentBesideChat, BesideChatTabLabel } from './agent-beside-chat';
  * as in an execution (docs/agents-view-spec.md §10).
  */
 export const AGENT_TOOL_TABS: ReadonlyArray<{ id: AgentTab; label: string; Icon: LucideIcon }> = [
-  { id: 'overview', label: 'Overview', Icon: LayoutGrid },
+  // Mostly the agent's chats, so it says so. The id stays: URLs and saved tabs use it.
+  { id: 'overview', label: 'Chats', Icon: MessagesSquare },
   { id: 'files', label: 'Files', Icon: FolderTree },
   { id: 'preview', label: 'Preview', Icon: AppWindow },
   { id: 'setup', label: 'Setup', Icon: Settings2 },

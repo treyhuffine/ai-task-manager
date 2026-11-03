@@ -342,7 +342,7 @@ export function GeneralSection() {
           </div>
           <p className="text-[11px] text-muted-foreground/85">
             {agentChatPlace === 'beside'
-              ? "A chat you open from an agent's view (a link in its main chat, a row in Overview) opens on the right as one more tab, so you can read and answer it next to the main chat. Full view is one click away for its files, preview and terminal."
+              ? "A chat you open from an agent's view (a link in its main chat, a row in its Chats tab) opens on the right as one more tab, so you can read and answer it next to the main chat. Full view is one click away for its files, preview and terminal."
               : "A chat you open from an agent's view leaves the agent for that chat's full view, with its files, preview and terminal."}
           </p>
           <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">

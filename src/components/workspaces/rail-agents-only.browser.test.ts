@@ -92,6 +92,7 @@ beforeAll(async () => {
       import {WorkspaceSelectionProvider} from '@/components/workspaces/workspace-selection-context';
       import {SessionHoverProvider} from '@/components/workspaces/session-hover-context';
       import {ReadStateButton} from '@/components/chat-ui/read-state-button';
+      import {AgentOverview} from '@/components/agents/agent-overview';
       import {AgentsFlyout} from '@/components/workspaces/rail-strip';
       import {useDashboard} from '@/contexts/dashboard-context';
       window.actions=[];
@@ -109,7 +110,7 @@ beforeAll(async () => {
       ];
       // read: viewed after its last outcome. unread: an outcome since.
       const chat=(id,workspaceId,label,{unread=false,pinnedAt=null,minutesAgo=5,turnStatus=null}={})=>({
-        id,label,status:'active',workspaceId,workspaceName:workspaces.find(w=>w.id===workspaceId).name,
+        id,label,status:'active',harness:'claude',workspaceId,workspaceName:workspaces.find(w=>w.id===workspaceId).name,
         workspaceAttachments:[],workspaceEmoji:null,workspaceIsGit:true,branchName:null,location:null,
         startedAt:at(minutesAgo+55),lastActivityAt:at(minutesAgo),lastOutcomeEventAt:at(minutesAgo),
         lastViewedAt:unread?at(minutesAgo+5):at(minutesAgo-4),unreadMarkerAt:null,
@@ -176,6 +177,8 @@ beforeAll(async () => {
       }
       // The wide rail's list, or the collapsed strip's Agents button.
       const strip=new URLSearchParams(location.search).get('rail')==='strip';
+      // The agent view's Chats tab, for one agent, beside the rail.
+      const chatsTab=new URLSearchParams(location.search).get('panel')==='chats';
       createRoot(document.getElementById('root')).render(
         <QueryClientProvider client={client}><TooltipProvider><ConfirmProvider>
           <Work><SessionHoverProvider disabled>
@@ -183,6 +186,7 @@ beforeAll(async () => {
               ? <aside className="flex h-screen w-[44px] flex-col items-center pt-2 border-r border-border bg-background"><AgentsFlyout/></aside>
               : <aside className="w-[256px] min-h-screen border-r border-border bg-background"><Rail/></aside>}
             <div data-chat-bar className="fixed left-[300px] top-4 flex items-center gap-1.5"><ReadStateButton sessionId="notes-main"/></div>
+            {chatsTab && <div data-chats-tab className="fixed left-[300px] top-12 w-[320px] bg-background"><AgentOverview workspace={workspaces.find(w=>w.id==='fin')} onSelectTab={noop}/></div>}
           </SessionHoverProvider></Work>
         </ConfirmProvider></TooltipProvider></QueryClientProvider>);
     ` },
@@ -660,7 +664,10 @@ it('shows status lines under chat titles in Unread and Recent, and Mark as read 
     const flyout = page.getByRole('dialog', { name: 'Unread' });
     const amex = flyout.locator('nav [role="button"][tabindex="0"]', { hasText: 'Reconcile Amex' }).first();
     expect(await amex.locator('[data-chat-status="needs-you"]').innerText()).toBe('Pick a category for the two Amex refunds');
-    expect(await amex.locator('[data-chat-ask-size]').innerText()).toBe('Quick for you');
+    const size = amex.locator('[data-chat-ask-size]');
+    expect(await size.innerText()).toBe('Quick for you');
+    // A chip, so it reads as an indicator and not one more piece of metadata.
+    expect(await size.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
     await page.screenshot({ path: '/tmp/ri-rail-status-lines.png', clip: { x: 0, y: 0, width: 560, height: 520 } });
 
     // Mark as read dismisses it: the server is told so, and it leaves Unread.
@@ -696,7 +703,7 @@ it("opens nothing on rest, and its chats button slides its chats out with previe
     // Resting on its chats button doesn't either. A click does, right there.
     const button = agentRow(page, 'Finances').getByRole('button', { name: 'Finances chats', exact: true });
     await button.hover();
-    await page.waitForTimeout(400);
+    await page.getByRole('tooltip').filter({ hasText: "View agent's chats" }).first().waitFor();
     expect(await flyout.count()).toBe(0);
     await button.click();
     await flyout.waitFor();
@@ -719,6 +726,26 @@ it("opens nothing on rest, and its chats button slides its chats out with previe
     expect(await flyout.isVisible()).toBe(true);
     await page.keyboard.press('Escape');
     await flyout.waitFor({ state: 'hidden' });
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it("shows the status line and the size chip in the agent's Chats tab", async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    await page.goto(`${base}/?theme=dark&panel=chats`);
+    const tab = page.locator('[data-chats-tab]');
+    const amex = tab.locator('[role="button"]', { hasText: 'Reconcile Amex' }).first();
+    await amex.waitFor();
+    expect(await amex.locator('[data-chat-status="needs-you"]').innerText()).toBe('Pick a category for the two Amex refunds');
+    expect(await amex.locator('[data-chat-ask-size]').innerText()).toBe('Quick for you');
+    // A chat with no status keeps the row it had.
+    const chase = tab.locator('[role="button"]', { hasText: 'Import Chase CSV' }).first();
+    expect(await chase.locator('[data-chat-status]').count()).toBe(0);
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: '/tmp/ri-agent-chats-tab.png', clip: { x: 290, y: 40, width: 350, height: 300 } });
     expect(errors).toEqual([]);
   } finally {
     await page.close();

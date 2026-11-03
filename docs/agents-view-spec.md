@@ -1,5 +1,7 @@
 # Agents view: spec and task list
 
+> The tab this spec calls Overview reads **Chats** in the UI since 2026-11-03: that's mostly what it holds, and "chat" is the UI's word for an execution. Its id in code, URLs and saved tabs stays `overview`.
+
 **Status:** done 2026-09-22 (Phases 0 to 10). Written 2026-09-22. Follow-ups are in §7.
 **Current follow-up:** shared and agent-specific handoff preferences are implemented through [Handoff and review preferences](work-result-guidance.md). Chats opened from the agent view open beside its main chat (§9, 2026-10-27). The dated phase evidence below remains historical.
 **How to use this doc:** it is the task list. Check a box (`- [x]`) when the work lands on `main`, and append the short commit hash when useful. Keep the "Done when" lines honest: a phase is done when every line under it is true, not when the code compiles. Record surprises inline under the task they affect.
