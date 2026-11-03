@@ -170,7 +170,9 @@ export function useSessionRowHover(sessionId: string) {
     const row = rowRef.current;
     if (!row) return;
     const rect = row.getBoundingClientRect();
-    const rail = row.closest('aside');
+    // Beside the panel the row is in: the rail, or a flyout floating beside
+    // it (agents only's Unread), so the preview never covers the list.
+    const rail = row.closest('[data-rail-flyout], aside');
     const railRight = rail?.getBoundingClientRect().right ?? rect.right;
     onRowEnter(
       sessionId,

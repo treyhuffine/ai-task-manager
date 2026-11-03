@@ -144,6 +144,8 @@ function PreviewPortal({
       ref={panelRef}
       role="dialog"
       aria-label="Session preview"
+      // A rail flyout the preview opened from holds while the pointer is here.
+      data-session-preview=""
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       style={{

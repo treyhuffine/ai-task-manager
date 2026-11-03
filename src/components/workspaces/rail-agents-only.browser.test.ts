@@ -356,14 +356,14 @@ for (const theme of ['dark', 'light'] as const) {
       const pinnedTop = (await page.getByText('Pinned', { exact: true }).boundingBox())!.y;
       expect(switchTop).toBeLessThan(pinnedTop);
 
-      // No chat sits under an agent. The chats listed are the pin, then
-      // Unread under it: the chats waiting on you, one click away.
+      // No chat sits under an agent, and the chats waiting on you are one
+      // Unread row with their count under the pin, not a list.
       const chatRows = await page.locator('[role="button"][tabindex="0"]:not([aria-roledescription])').allInnerTexts();
-      expect(chatRows).toHaveLength(3);
+      expect(chatRows).toHaveLength(1);
       expect(chatRows[0]).toContain('Tax estimate');
-      expect(chatRows[1]).toContain('Reconcile Amex');
-      expect(chatRows[2]).toContain('Import Chase CSV');
-      const unreadTop = (await page.getByText('Unread', { exact: true }).boundingBox())!.y;
+      const unread = page.getByRole('button', { name: /^Unread/ });
+      expect((await unread.innerText()).replace(/\s+/g, ' ').trim()).toBe('Unread 2');
+      const unreadTop = (await unread.boundingBox())!.y;
       const firstAgentTop = (await page.getByText('Ri', { exact: true }).first().boundingBox())!.y;
       expect(pinnedTop).toBeLessThan(unreadTop);
       expect(unreadTop).toBeLessThan(firstAgentTop);
@@ -613,20 +613,61 @@ it('lists recent chats of any status in Recent, and folds the inactive ones', as
   }
 });
 
+it('peeks the Unread chats from its row, and a chat there shows its latest messages beside it', async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    // Resting on the row peeks the chats beside the rail.
+    await page.getByRole('button', { name: /^Unread/ }).hover();
+    const flyout = page.getByRole('dialog', { name: 'Unread' });
+    await flyout.waitFor();
+    const rows = flyout.locator('nav [role="button"][tabindex="0"]');
+    expect((await rows.allInnerTexts()).map((t) => t.split('\n')[0])).toEqual(['Reconcile Amex', 'Import Chase CSV']);
+
+    // Resting on a chat there shows its latest messages beside the flyout.
+    await rows.first().hover();
+    const preview = page.getByRole('dialog', { name: 'Session preview' });
+    await preview.waitFor();
+    const flyoutBox = (await flyout.boundingBox())!;
+    expect((await preview.boundingBox())!.x).toBeGreaterThanOrEqual(flyoutBox.x + flyoutBox.width - 1);
+    await page.screenshot({ path: '/tmp/ri-rail-unread-flyout.png', clip: { x: 0, y: 0, width: 900, height: 560 } });
+
+    // Moving onto the preview holds the flyout, and a click in it is no
+    // click outside.
+    const box = (await preview.boundingBox())!;
+    await page.mouse.move(flyoutBox.x + flyoutBox.width - 4, box.y + 20, { steps: 2 });
+    await page.mouse.move(box.x + 40, box.y + 20, { steps: 4 });
+    await page.waitForTimeout(500);
+    expect(await flyout.isVisible()).toBe(true);
+    await page.mouse.click(box.x + 40, box.y + 20);
+    await page.waitForTimeout(300);
+    expect(await flyout.isVisible()).toBe(true);
+
+    // Esc puts it away.
+    await page.keyboard.press('Escape');
+    await flyout.waitFor({ state: 'hidden' });
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
 it('shows status lines under chat titles in Unread and Recent, and Mark as read dismisses one', async () => {
   const { page, errors } = await open('agentsOnly');
   try {
     // In Unread, an ask leads with the size of your part.
-    const amex = page.locator('[role="button"][tabindex="0"]:not([aria-roledescription])', { hasText: 'Reconcile Amex' }).first();
+    await page.getByRole('button', { name: /^Unread/ }).click();
+    const flyout = page.getByRole('dialog', { name: 'Unread' });
+    const amex = flyout.locator('nav [role="button"][tabindex="0"]', { hasText: 'Reconcile Amex' }).first();
     expect(await amex.locator('[data-chat-status="needs-you"]').innerText()).toBe('Quick · Pick a category for the two Amex refunds');
-    await page.screenshot({ path: '/tmp/ri-rail-status-lines.png', clip: { x: 0, y: 0, width: 256, height: 520 } });
+    await page.screenshot({ path: '/tmp/ri-rail-status-lines.png', clip: { x: 0, y: 0, width: 560, height: 520 } });
 
     // Mark as read dismisses it: the server is told so, and it leaves Unread.
     await amex.hover();
     await amex.getByRole('button', { name: 'Session actions' }).click();
     await page.getByRole('menuitem', { name: 'Mark as read' }).click();
     await expect.poll(() => sent).toContain('readPost:fin-1:dismiss');
-    await expect.poll(async () => (await page.locator('[role="button"][tabindex="0"]:not([aria-roledescription])').allInnerTexts()).join('|')).not.toContain('Reconcile Amex');
+    await expect.poll(async () => (await flyout.locator('nav').innerText())).not.toContain('Reconcile Amex');
+    await page.keyboard.press('Escape');
 
     // In Recent, a report takes the agent's place on the second line.
     await page.getByRole('tab', { name: 'Recent' }).click();

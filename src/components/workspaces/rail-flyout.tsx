@@ -216,7 +216,20 @@ export function RailFlyout({
             if (e.pointerType === 'mouse') cancel();
           }}
           onPointerLeave={(e) => {
-            if (e.pointerType === 'mouse') after({ type: 'leave' }, CLOSE_DELAY_MS);
+            if (e.pointerType !== 'mouse') return;
+            // Onto a row's chat preview beside it: reading it is using the
+            // flyout, so it holds, as pressing inside it does.
+            if (e.relatedTarget instanceof Element && e.relatedTarget.closest('[data-session-preview]')) {
+              cancel();
+              dispatch({ type: 'press' });
+              return;
+            }
+            after({ type: 'leave' }, CLOSE_DELAY_MS);
+          }}
+          // The preview is portaled beside the flyout, not inside it, so a
+          // click there isn't a click outside.
+          onPointerDownOutside={(e) => {
+            if (e.target instanceof Element && e.target.closest('[data-session-preview]')) e.preventDefault();
           }}
           onPointerDownCapture={() => {
             cancel();

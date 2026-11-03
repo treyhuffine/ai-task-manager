@@ -24,7 +24,7 @@ Only execution chats get the rule. Agents' main chats already show their last me
 ## Where it shows
 
 - **Recent:** the line takes the second line's place (the agent's name and branch), since the avatar already names the agent.
-- **Unread and Pinned:** under the title, above the time and agent.
+- **Unread (the agents-only rail's row and its flyout) and Pinned:** under the title, above the time and agent.
 - An ask leads with its size in the rail's amber ("Quick · Pick a category for the two Amex refunds"). A report reads muted.
 
 Recency stays the order. The size of your part and what it unblocks are on the row, so you weigh value yourself: agents can't know what matters most to you, and a score would guess.

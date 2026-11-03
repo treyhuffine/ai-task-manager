@@ -359,7 +359,7 @@ export function GeneralSection() {
           </div>
           <p className="text-[11px] text-muted-foreground/85">
             {railStyle === 'agentsOnly'
-              ? "Your agents with no chats under them. Each shows its own state, and counts at its end say how many of its chats need you (amber) or are working (green). Unread under the pins lists the chats waiting on you, Show chats on an agent opens Recent on its chats, and Recent lists every chat from the last week. Mark an agent unread from its menu or its chat to come back to it."
+              ? "Your agents with no chats under them. Each shows its own state, and counts at its end say how many of its chats need you (amber) or are working (green). Unread under the pins counts the chats waiting on you and shows them when you rest on it, Show chats on an agent opens Recent on its chats, and Recent lists every chat from the last week. Mark an agent unread from its menu or its chat to come back to it."
               : railStyle === 'agents'
                 ? 'Each agent shows what it last said, bold with a dot when it wants you. Its chats hang under it on one line each, all of them, with the inactive ones behind a Show toggle.'
                 : 'One line per agent, with every active chat listed under it on two lines.'}
