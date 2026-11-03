@@ -36,8 +36,23 @@ export const HEARTBEAT_TIMEOUT_SECONDS = 1800;
 /** The exact reply that means "nothing needed attention and I changed nothing". */
 export const HEARTBEAT_QUIET_REPLY = 'HEARTBEAT_OK';
 
-/** `runs.statusReason` on a completed check-in that had nothing to report. */
+/** The main agent's reply when a check-in's note doesn't need to reach the user. Never shown or pushed. */
+export const NO_MESSAGE_REPLY = 'NO_REPLY';
+
+/** `runs.statusReason` on a completed check-in that had nothing to pass along. */
 export const HEARTBEAT_QUIET_REASON = 'heartbeat_quiet';
+
+/** `runs.statusReason` on a completed check-in that told the main agent something right away. */
+export const HEARTBEAT_TOLD_REASON = 'heartbeat_told';
+
+/** `runs.statusReason` on a completed check-in that saved something for the daily message. */
+export const HEARTBEAT_HELD_REASON = 'heartbeat_held';
+
+/** The first check-in at or after this hour, in the heartbeat's timezone, carries the daily message. */
+export const HEARTBEAT_DAILY_HOUR = 9;
+
+/** How long a check-in is told what earlier check-ins raised, so it doesn't raise them again. */
+export const HEARTBEAT_MEMORY_DAYS = 3;
 
 /** `runs.summary` on a quiet check-in, in place of the raw reply token. */
 export const HEARTBEAT_QUIET_SUMMARY = 'Nothing needed';

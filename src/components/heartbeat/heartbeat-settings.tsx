@@ -9,14 +9,13 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { Loader2, Play } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { RunsOnPicker } from '@/components/triggers/runs-on-picker';
 import { closeSettings } from '@/components/settings/settings-store';
 import { useCheckInNow, useHeartbeat, useUpdateHeartbeat, type HeartbeatUpdate } from '@/hooks/use-heartbeat';
-import { useUserState } from '@/hooks/use-user-state';
+import { useOrchestratorName, useUserState } from '@/hooks/use-user-state';
 import {
   DEFAULT_HEARTBEAT_INSTRUCTIONS,
   HEARTBEAT_LIMITED_HOURS_END,
@@ -24,8 +23,8 @@ import {
   MIN_HEARTBEAT_INTERVAL_SECONDS,
 } from '@/lib/heartbeat/constants';
 import { INTERVAL_SECONDS_UNIT, INTERVAL_UNITS, intervalUnitFor } from '@/lib/scheduler/frequency';
-import { describeHeartbeat } from '@/lib/heartbeat/status';
-import type { HeartbeatConfig } from '@/lib/heartbeat/types';
+import { describeHeartbeat, formatCheckInTime } from '@/lib/heartbeat/status';
+import type { HeartbeatCheckIn, HeartbeatConfig } from '@/lib/heartbeat/types';
 import { cn } from '@/lib/utils';
 import { APP_NAME } from '@/constants/app';
 import { AwakeNote } from '@/components/triggers/awake-note';
@@ -86,11 +85,10 @@ function HeartbeatSettingsBody({
 }) {
   const update = useUpdateHeartbeat();
   const checkIn = useCheckInNow();
-  const router = useRouter();
   const { data: userState } = useUserState();
+  const assistant = useOrchestratorName();
   const userTz = userState?.timezone || browserTimezone();
-  const status = describeHeartbeat(config);
-  const last = config.lastCheckIn;
+  const status = describeHeartbeat(config, new Date(), assistant);
 
   // Hours are shown and edited in the user's own timezone. Whenever the user
   // touches the schedule, bring the heartbeat's timezone along with them.
@@ -104,12 +102,6 @@ function HeartbeatSettingsBody({
     update.mutate(patch);
   };
 
-  const openReport = () => {
-    if (!last?.chatSessionId) return;
-    onNavigate();
-    router.push(`/?session=${last.chatSessionId}`);
-  };
-  const reportAvailable = !!last && !last.quiet && !!last.chatSessionId && last.status !== 'failed';
   const anyTime = config.activeHoursStart === null || config.activeHoursEnd === null;
 
   return (
@@ -129,17 +121,6 @@ function HeartbeatSettingsBody({
           />
         </label>
 
-        {/* In the deck sheet, an unread report is the reason you opened it. */}
-        {compact && reportAvailable && last?.unread && (
-          <button
-            type="button"
-            onClick={openReport}
-            className="w-full rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-left text-sm text-primary hover:bg-primary/10"
-          >
-            Read the latest report
-          </button>
-        )}
-
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -154,33 +135,10 @@ function HeartbeatSettingsBody({
             )}
             {config.running || checkIn.isPending ? 'Checking in…' : 'Check in now'}
           </button>
-          {reportAvailable && !(compact && last?.unread) && (
-            <button
-              type="button"
-              onClick={openReport}
-              className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              Report
-            </button>
-          )}
-          {last && last.changedCount > 0 && (
-            <Link
-              href={`/runs/${last.runId}`}
-              onClick={onNavigate}
-              className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              Changes ({last.changedCount})
-            </Link>
-          )}
-          <Link
-            href={`/triggers/${config.triggerId}`}
-            onClick={onNavigate}
-            className="rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            History
-          </Link>
         </div>
       </section>
+
+      <RecentCheckIns config={config} onNavigate={onNavigate} />
 
       {/* Schedule */}
       <section className="space-y-2">
@@ -264,6 +222,71 @@ function HeartbeatSettingsBody({
         </p>
       </details>
     </div>
+  );
+}
+
+/**
+ * What the check-ins have been doing. They run in the background and only
+ * important findings become messages, so this is where to look for the rest.
+ */
+function RecentCheckIns({ config, onNavigate }: { config: HeartbeatConfig; onNavigate: () => void }) {
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[12px] font-medium text-foreground">Recent check-ins</h3>
+        <Link
+          href={`/triggers/${config.triggerId}`}
+          onClick={onNavigate}
+          className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+        >
+          History
+        </Link>
+      </div>
+      {config.recentCheckIns.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground/85">None yet.</p>
+      ) : (
+        <ul className="divide-y divide-border/60 rounded-lg border border-border bg-background">
+          {config.recentCheckIns.map((checkIn) => (
+            <CheckInRow key={checkIn.runId} checkIn={checkIn} onNavigate={onNavigate} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function CheckInRow({ checkIn, onNavigate }: { checkIn: HeartbeatCheckIn; onNavigate: () => void }) {
+  const text = checkIn.status === 'failed' ? (checkIn.errorMessage ?? 'Failed') : checkIn.status === 'cancelled' ? 'Stopped' : (checkIn.summary ?? 'Finished');
+  const body = (
+    <>
+      <span className="w-[4.5rem] shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatCheckInTime(checkIn.at)}</span>
+      <span className={cn('min-w-0 flex-1 truncate text-[12px]', checkIn.status === 'failed' ? 'text-destructive' : 'text-foreground')}>{text}</span>
+    </>
+  );
+  return (
+    <li className="flex items-center gap-2 pr-2">
+      {checkIn.chatSessionId ? (
+        <Link
+          href={`/?session=${checkIn.chatSessionId}`}
+          onClick={onNavigate}
+          aria-label={`Open the check-in from ${formatCheckInTime(checkIn.at)}: ${text}`}
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 hover:bg-muted/50"
+        >
+          {body}
+        </Link>
+      ) : (
+        <span className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5">{body}</span>
+      )}
+      {checkIn.changedCount > 0 && (
+        <Link
+          href={`/runs/${checkIn.runId}`}
+          onClick={onNavigate}
+          className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          Changes ({checkIn.changedCount})
+        </Link>
+      )}
+    </li>
   );
 }
 

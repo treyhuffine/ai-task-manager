@@ -16,6 +16,7 @@ import { CoordinationApproval, CoordinationText } from '@/components/chat-ui/coo
 import { CopyMessageButton } from '@/components/chat-ui/messages/copy-message-button';
 import { MessageEntityChip, type EntityLookup } from '@/components/chat-ui/references/message-entity-chip';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
+import { isNoMessageReply } from '@/lib/heartbeat/prompt';
 import { SenderChip } from '@/components/chat-ui/messages/sender-chip';
 import { ChatMessageLink } from '@/components/chat-ui/messages/chat-message-link';
 import { agentMessagePresentation, decodeChatMessageReceipt, returnedChatOf } from '@/lib/sessions/chat-message';
@@ -139,6 +140,16 @@ interface ExecutionEventProps {
   handoffActions?: boolean;
 }
 
+/** The small line above a message the main agent sent from a check-in's note. */
+function CheckInOrigin({ sessionId, kind, at }: { sessionId: string; kind?: string; at: string }) {
+  const time = new Date(at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return (
+    <div className="flex text-muted-foreground">
+      <ChatMessageLink sessionId={sessionId} label="From" title={kind === 'daily' ? "today's check-in" : `a check-in at ${time}`} direction="incoming" compact />
+    </div>
+  );
+}
+
 /**
  * Render a single chat_events row by its `source`. Source enum values
  * (defined in chat-sessions.md) discriminate styling:
@@ -154,7 +165,7 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
   const [expanded, setExpanded] = useState(false);
   const capabilities = useChatCapabilities();
   const canPrepareResult = handoffActions ?? capabilities.prepareResults;
-  const coordinationMessage = (event.raw as {agentCoordination?: {deliveryId?: string; content?: string; senderKind?: string; sourceSessionId?: string; sourceEventId?: string; kind?: string; directions?: string; originalRequest?: string; relatedRequestId?: string; lateFollowup?: boolean}} | null)?.agentCoordination;
+  const coordinationMessage = (event.raw as {agentCoordination?: {checkIn?: {kind?: string; at?: string}; deliveryId?: string; content?: string; senderKind?: string; sourceSessionId?: string; sourceEventId?: string; kind?: string; directions?: string; originalRequest?: string; relatedRequestId?: string; lateFollowup?: boolean}} | null)?.agentCoordination;
   // A system-authored outcome retains its saved role and error source, with
   // the same provenance and full-message presentation as other received sends.
   const presentationSource = event.source === 'error' && coordinationMessage ? 'user' : event.source;
@@ -171,6 +182,9 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
     case 'user': {
       const metadata = coordinationMessage;
       const sourceId = metadata?.sourceSessionId ?? event.senderSessionId;
+      // A check-in's note is for the main agent. What the person reads is its
+      // reply, and this says why it spoke and opens what prompted it.
+      if (metadata?.checkIn && sourceId) return <CheckInOrigin sessionId={sourceId} kind={metadata.checkIn.kind} at={metadata.checkIn.at ?? event.createdAt} />;
       const origin = metadata ? { body: metadata.content ?? event.content ?? '', originalRequest: metadata.originalRequest ?? null, label: metadata.senderKind === 'human' ? 'Shared by you' : metadata.senderKind === 'system' ? 'Ri coordination update' : metadata.kind === 'request' ? 'Request from' : metadata.kind === 'answer' ? 'Answer from' : 'Message from' }
         : event.senderSessionId ? agentMessagePresentation(event.content ?? '', event.senderSessionId) : null;
       const content = origin?.body ?? event.content ?? '';
@@ -230,6 +244,8 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
     }
 
     case 'agent':
+      // The main agent chose not to pass a check-in's note on.
+      if (isNoMessageReply(event.content)) return null;
       return (
         <div className="group flex flex-col">
           <Message from="assistant">

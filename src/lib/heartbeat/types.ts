@@ -13,12 +13,16 @@ export interface HeartbeatCheckIn {
   at: string;
   completedAt: string | null;
   status: RunStatus;
-  /** Nothing needed attention and nothing changed. Its chat was archived. */
-  quiet: boolean;
-  /** Where its report lives. Null only for runs that failed before a chat existed. */
+  /**
+   * What it did with what it found: nothing to pass along, told the main agent
+   * right away, or saved it for the daily message. Null when it didn't finish,
+   * and for check-ins from before notes.
+   */
+  outcome: 'quiet' | 'told' | 'held' | null;
+  /** A note it sent to the main agent couldn't be delivered. */
+  handOffFailed: boolean;
+  /** Its transcript. Null only for runs that failed before a chat existed. */
   chatSessionId: string | null;
-  /** The report chat is still unread. */
-  unread: boolean;
   /** How many tasks, notes, or agents it changed (`runs.artifactRefs`). */
   changedCount: number;
   summary: string | null;
@@ -44,13 +48,13 @@ export interface HeartbeatConfig {
   /** Null means the model's default effort. */
   effort: EffortLevel | null;
   serviceTier?: string | null;
-  /** Notification channel ids that also receive each report. */
-  deliverResultTo: string[];
   /** The next check-in that will actually run (inside the active hours), or null when off. */
   nextCheckInAt: string | null;
   /** A check-in is running right now. */
   running: boolean;
   lastCheckIn: HeartbeatCheckIn | null;
+  /** The last few check-ins, newest first. `lastCheckIn` is the first of them. */
+  recentCheckIns: HeartbeatCheckIn[];
   /** Why the app turned it off (e.g. the monthly budget), or null. */
   disabledReason: string | null;
   consecutiveFailures: number;
@@ -69,5 +73,4 @@ export interface HeartbeatPatch {
   model?: string | null;
   effort?: EffortLevel | null;
   serviceTier?: string | null;
-  deliverResultTo?: string[];
 }

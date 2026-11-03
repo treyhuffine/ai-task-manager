@@ -1,5 +1,5 @@
 import { conversationViews } from '@/lib/sessions/view-state';
-import { listAgentMainChats, listRailSessions, listWorkResultReviewAttentionSessions, runningTeamChatTurn, isTeamError } from '@/lib/db/queries';
+import { currentPrivateMainChat, listAgentMainChats, listRailSessions, listWorkResultReviewAttentionSessions, runningTeamChatTurn, isTeamError } from '@/lib/db/queries';
 import { reply, type OperationContext } from '@/lib/server/operation';
 import { z as rpcZ } from 'zod/v4';
 // Read running/pending state via a leaf snapshot module (globalThis-backed)
@@ -29,7 +29,8 @@ import { executionCatalogAuthority, sessionAuthority, executionOperationFailure 
  * lives client-side so re-buckets are reactive to the in-memory
  * pending/streaming sets without a server round trip.
  *
- * `mainChats` carries each agent's current main chat, so an agent's row can
+ * `homeChat` is the app's own main chat, for the mark on the main agent's row
+ * when it has told you something. `mainChats` carries each agent's current main chat, so an agent's row can
  * say what it last told you, that it replied, and (through the same
  * pending/running sets) that it is thinking or waiting on you, with
  * `waitingOn` saying what for. Riding the rail's refresh keeps it as fresh
@@ -69,7 +70,9 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, request: Opera
     const resultReviewAttention = listWorkResultReviewAttentionSessions().filter((review) => visible(review.sessionId) && (
       pendingSessionIds.includes(review.sessionId) || review.status === 'queued' || review.status === 'running'
       || (review.status === 'failed' && (review.lastOutcomeEventAt ?? '') > (review.lastViewedAt ?? ''))));
-    return reply({ sessions, pendingSessionIds, runningSessionIds, backgroundSessionIds, mainChats, resultReviewAttention });
+    const home = authority ? null : currentPrivateMainChat();
+    const homeChat = home && { id: home.id, lastOutcomeEventAt: home.lastOutcomeEventAt, unreadMarkerAt: home.unreadMarkerAt, lastViewedAt: home.lastViewedAt, turnStatus: home.turnStatus };
+    return reply({ sessions, pendingSessionIds, runningSessionIds, backgroundSessionIds, mainChats, homeChat, resultReviewAttention });
   } catch (err) {
     const denied = executionOperationFailure(err);
     if (denied) return denied;

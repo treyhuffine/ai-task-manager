@@ -2,8 +2,8 @@ import { and, asc, desc, eq, isNotNull, lte, lt, gte, ne, or, isNull, inArray } 
 import { uuidv7 } from 'uuidv7';
 import { getDb } from '@/lib/db';
 import { conversationConnections as connections, conversationIdentities as identities, conversationThreads as threads, conversationInputs as inputs, conversationOutputs as outputs } from './schema';
-import type { ConversationInput, ConversationOutput, CreateConversationConnection } from '@/db/types';
-import { getAgentHistoryEvent, getChatEventById, getRun } from './queries';
+import type { ChatSessionRecord, ConversationInput, ConversationOutput, CreateConversationConnection } from '@/db/types';
+import { getAgentHistoryEvent, getChatEventById, getRun, listMainChats } from './queries';
 import { stableCoordinationId } from '@/lib/coordination/ids';
 import { messageText } from '@/lib/notifications/message-text';
 import { nameEntity } from '@/lib/notifications/turn-reply';
@@ -50,6 +50,16 @@ export function ensureConversationThread(connectionId: string, channelId: string
 }
 export function getConversationThread(id: string) { return getDb().select().from(threads).where(eq(threads.id, id)).get() ?? null; }
 export function conversationThreadForSession(id: string) { return getDb().select().from(threads).where(eq(threads.sessionId, id)).get() ?? null; }
+
+/**
+ * The main chat that's the person's own. Slack and Buzz threads are main chats
+ * too, each bound to its thread, and what's said in one is posted there, so
+ * anything meant for the person alone goes here instead.
+ */
+export function currentPrivateMainChat(): ChatSessionRecord | null {
+  return listMainChats(null, { status: 'active' }).find((chat) => !conversationThreadForSession(chat.id)) ?? null;
+}
+
 export function bindConversationThread(id: string, sessionId: string) { getDb().update(threads).set({ sessionId }).where(eq(threads.id, id)).run(); }
 export function acceptConversationInput(input: Pick<ConversationInput, 'threadId' | 'identityId' | 'externalEventId' | 'content' | 'kind'>) {
   getDb().insert(inputs).values({ ...input, id: uuidv7(), createdAt: new Date().toISOString(), eventId: stableCoordinationId('conversation-event', input.threadId, input.externalEventId), status: 'queued' }).onConflictDoNothing().run();

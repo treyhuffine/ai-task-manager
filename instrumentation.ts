@@ -264,6 +264,14 @@ export async function register() {
     console.warn('[heartbeat] trigger seed failed', err);
   }
 
+  // Channels made before the main agent could message you first.
+  try {
+    const { backfillAgentMessageEvent } = await import('@/lib/notifications/backfill');
+    backfillAgentMessageEvent();
+  } catch (err) {
+    console.warn('[notifications] agent message backfill failed', err);
+  }
+
   // Scheduler tick — fires every 60s, reads enabled `schedules` whose
   // `next_run_at` has matured, and dispatches runs. Includes its own
   // boot recovery (reaping stuck `running` runs from a prior process)

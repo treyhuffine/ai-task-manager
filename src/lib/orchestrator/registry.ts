@@ -2899,7 +2899,6 @@ const update_heartbeat_action = defineAction({
     model: z.string().nullable().optional(),
     effort: effortLevel.nullable().optional(),
     serviceTier: z.string().regex(/^[a-z][a-z0-9_-]*$/).nullable().optional(),
-    deliverResultTo: z.array(z.string().min(1)).optional(),
   },
   mutating: true,
   handler: async (_ctx, input) => {
@@ -2968,9 +2967,6 @@ const update_heartbeat_action = defineAction({
     if (model !== undefined) patch.model = model;
     if (effort !== undefined) patch.effort = effort;
     if (serviceTier !== undefined) patch.serviceTier = serviceTier;
-    if (input.deliverResultTo !== undefined) {
-      patch.deliverResultTo = validateDeliverResultTo(input.deliverResultTo, current.targetKind);
-    }
 
     return updateHeartbeat(patch);
   },

@@ -20,10 +20,10 @@ function config(overrides: Partial<HeartbeatConfig> = {}): HeartbeatConfig {
     provider: 'claude',
     model: null,
     effort: null,
-    deliverResultTo: [],
     nextCheckInAt: at(22, 16),
     running: false,
     lastCheckIn: null,
+    recentCheckIns: [],
     disabledReason: null,
     consecutiveFailures: 0,
     ...overrides,
@@ -36,9 +36,9 @@ function checkIn(overrides: Partial<HeartbeatCheckIn> = {}): HeartbeatCheckIn {
     at: at(22, 14),
     completedAt: at(22, 14, 2),
     status: 'completed',
-    quiet: false,
+    outcome: null,
+    handOffFailed: false,
     chatSessionId: 'chat-1',
-    unread: false,
     changedCount: 0,
     summary: null,
     errorMessage: null,
@@ -80,15 +80,23 @@ describe('describeHeartbeat', () => {
   });
 
   it('shows the time of a quiet check-in and says nothing was needed', () => {
-    const status = describeHeartbeat(config({ lastCheckIn: checkIn({ quiet: true, chatSessionId: null }) }), NOW);
+    const status = describeHeartbeat(config({ lastCheckIn: checkIn({ outcome: 'quiet', chatSessionId: null }) }), NOW);
     expect(status).toMatchObject({ chip: time(at(22, 14)), tone: 'idle' });
     expect(status.detail).toMatch(/Nothing needed/);
   });
 
-  it('flags an unread report, with what it changed', () => {
-    const status = describeHeartbeat(config({ lastCheckIn: checkIn({ unread: true, changedCount: 2 }) }), NOW);
-    expect(status).toMatchObject({ chip: '1 for you', tone: 'attention' });
-    expect(status.detail).toMatch(/left a report\. Changed 2 items\./);
+  it('says what a check-in did with what it found, with what it changed', () => {
+    const told = describeHeartbeat(config({ lastCheckIn: checkIn({ outcome: 'told', changedCount: 2 }) }), NOW, 'Rye');
+    expect(told).toMatchObject({ chip: time(at(22, 14)), tone: 'idle' });
+    expect(told.detail).toMatch(/told Rye something\. Changed 2 items\./);
+    const held = describeHeartbeat(config({ lastCheckIn: checkIn({ outcome: 'held' }) }), NOW);
+    expect(held.detail).toMatch(/saved something for the daily message/);
+  });
+
+  it('flags a note that could not reach the main agent', () => {
+    const status = describeHeartbeat(config({ lastCheckIn: checkIn({ outcome: 'told', handOffFailed: true }) }), NOW, 'Rye');
+    expect(status).toMatchObject({ chip: 'failed', tone: 'error' });
+    expect(status.detail).toContain("couldn't reach Rye");
   });
 
   it('flags a failed check-in with its error', () => {
@@ -106,8 +114,10 @@ describe('describeHeartbeat', () => {
       config({ enabled: false }),
       config({ enabled: false, disabledReason: 'budget_exceeded' }),
       config(),
-      config({ lastCheckIn: checkIn({ quiet: true }) }),
-      config({ lastCheckIn: checkIn({ unread: true, changedCount: 1 }) }),
+      config({ lastCheckIn: checkIn({ outcome: 'quiet', changedCount: 1 }) }),
+      config({ lastCheckIn: checkIn({ outcome: 'told', changedCount: 1 }) }),
+      config({ lastCheckIn: checkIn({ outcome: 'held' }) }),
+      config({ lastCheckIn: checkIn({ handOffFailed: true }) }),
       config({ lastCheckIn: checkIn({ status: 'failed' }) }),
       config({ lastCheckIn: checkIn({ status: 'cancelled' }) }),
     ];
@@ -123,7 +133,9 @@ describe('heartbeatDeckSignal', () => {
     expect(heartbeatDeckSignal(config({ running: true }))).toBeNull();
     expect(heartbeatDeckSignal(config({ lastCheckIn: null }))).toBeNull();
     expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn() }))).toBeNull();
-    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ quiet: true }) }))).toBeNull();
+    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ outcome: 'quiet' }) }))).toBeNull();
+    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ outcome: 'told' }) }))).toBeNull();
+    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ outcome: 'held' }) }))).toBeNull();
     expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ status: 'cancelled' }) }))).toBeNull();
   });
 
@@ -148,8 +160,7 @@ describe('heartbeatDeckSignal', () => {
     expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ status: 'failed' }) }))?.kind).toBe('failed');
   });
 
-  it('flags an unread report, but not an unread quiet check-in', () => {
-    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ unread: true }) }))?.kind).toBe('report');
-    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ unread: true, quiet: true }) }))).toBeNull();
+  it('flags a note that could not reach the main agent', () => {
+    expect(heartbeatDeckSignal(config({ lastCheckIn: checkIn({ outcome: 'told', handOffFailed: true }) }))?.kind).toBe('failed');
   });
 });

@@ -4,27 +4,32 @@
  * `notify()`. All best-effort — callers `void` them; nothing here throws into the lifecycle path.
  */
 import type { RunRecord } from '@/db/types';
-import { getRun, getExecution, getTrigger, getChatSession } from '@/lib/db/queries';
+import { getRun, getExecution, getTrigger, getChatSession, getUserState } from '@/lib/db/queries';
 import { notify, queueNotification, type NotifyOptions, type QueuedNotification } from './notify';
 import type { NotificationEvent } from './types';
-import { FULL_BODY_MAX, LINE_BODY_MAX, fitText, oneLine } from './message-text';
-import { turnReplyText } from './turn-reply';
-import { isQuietHeartbeatRun } from '@/lib/heartbeat/quiet';
+import { FULL_BODY_MAX, LINE_BODY_MAX, fitText, messageText, oneLine } from './message-text';
+import { turnReply, turnReplyText, nameEntity } from './turn-reply';
+import { checkInNoteForRun } from '@/lib/heartbeat/handoff';
+import { isNoMessageReply } from '@/lib/heartbeat/prompt';
+import { resolveOrchestratorName } from '@/lib/orchestrator/name';
+import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 
 /**
  * A run reached a terminal status. Picks the event by target:
  *   - orchestrator-target scheduled run (no execution) → `trigger.run_completed` (binding routing,
  *     delivered to the trigger's `deliverResultTo[]`);
- *   - any execution run (manual or scheduled) → `execution.finished` (matrix routing).
+ *   - any execution run (manual or scheduled) → `execution.finished` (matrix routing);
+ *   - the main agent's turn on a heartbeat check-in's note → `agent.message` (matrix routing).
+ * A check-in itself never notifies: what it found reaches the user as the main agent's message.
  * dedupeKey is the runId, so calling this from multiple terminal call-sites never double-sends.
  */
 export function runTerminalNotification(runId: string): { event: NotificationEvent; options?: NotifyOptions } | null {
   const run = getRun(runId);
   if (!run || (run.status !== 'completed' && run.status !== 'failed')) return null;
-  // A quiet heartbeat check-in had nothing to report. Delivering its reply
-  // would ping the user every interval with "nothing needed".
-  if (isQuietHeartbeatRun(run)) return null;
+  if (run.triggerId === RESERVED_TRIGGER_IDS.heartbeat) return null;
   const ok = run.status === 'completed';
+  const note = !run.executionId && !run.triggerId ? checkInNoteForRun(runId) : null;
+  if (note) return agentMessageNotification(run, note);
   const trigger = run.triggerId ? getTrigger(run.triggerId) : undefined;
 
   if (!run.executionId && trigger?.targetKind === 'orchestrator') {
@@ -58,6 +63,34 @@ export function runTerminalNotification(runId: string): { event: NotificationEve
       // there is no `/executions/<id>` page. `runs.chatSessionId` is the exact
       // chat that ran (null for orchestration/content chats → fall back to home).
       url: run.chatSessionId ? `/?session=${run.chatSessionId}` : '/',
+    },
+  };
+}
+
+/**
+ * The main agent told the user something from a check-in: its own message,
+ * whole. It stays silent if the agent declined. If its turn failed, the
+ * check-in's note goes out instead, so something urgent still arrives.
+ */
+function agentMessageNotification(run: RunRecord, note: NonNullable<ReturnType<typeof checkInNoteForRun>>): { event: NotificationEvent } | null {
+  const chat = run.chatSessionId ? getChatSession(run.chatSessionId) : undefined;
+  if (!chat) return null;
+  const name = resolveOrchestratorName(getUserState()?.orchestratorName);
+  const failed = run.status !== 'completed';
+  if (!failed && isNoMessageReply(turnReply(chat.id))) return null;
+  const text = failed ? messageText(note.payload.content, nameEntity) : turnReplyText(chat.id);
+  if (!text) return null;
+  const body = fitText(oneLine(text), LINE_BODY_MAX);
+  const fullBody = fitText(text, FULL_BODY_MAX);
+  return {
+    event: {
+      type: 'agent.message',
+      userId: chat.userId,
+      dedupeKey: `agent.message:${run.id}`,
+      title: failed ? 'Heartbeat' : name,
+      ...(fullBody === body ? { body } : { body, fullBody }),
+      // Home is where the main agent lives.
+      url: failed && note.sourceSessionId ? `/?session=${note.sourceSessionId}` : '/',
     },
   };
 }

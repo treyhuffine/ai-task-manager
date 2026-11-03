@@ -177,7 +177,8 @@ async function persistDelivery(delivery: AgentDeliveryRecord): Promise<void> {
   try {
     if (delivery.senderKind === 'agent' && ['request','message'].includes(delivery.kind)) {
       const source = delivery.sourceSessionId ? q.getChatSession(delivery.sourceSessionId) : null;
-      if (!source || source.status === 'archived' && addressOf(source).startsWith('session:')) {
+      // A finished check-in archives its own chat, and its note still has to arrive.
+      if (!source || source.status === 'archived' && addressOf(source).startsWith('session:') && !delivery.payload.checkIn) {
         q.updateAgentDelivery(delivery.id, {status:'cancelled',error:'The requesting chat closed before delivery.',nextAttemptAt:null});
         if (delivery.kind === 'request' && delivery.requestId) q.finishAgentRequest(delivery.requestId,'cancelled','The requesting chat closed before this work started.');
         return;
@@ -193,7 +194,7 @@ async function persistDelivery(delivery: AgentDeliveryRecord): Promise<void> {
       target = await createForwardDestination(delivery);
     } else if (!target) {
       const source = delivery.sourceSessionId ? personalChat(delivery.sourceSessionId) : null;
-      target = await resolveAddress(delivery.targetAddress, source?.userId ?? 'local');
+      target = delivery.payload.checkIn ? await checkInDestination() : await resolveAddress(delivery.targetAddress, source?.userId ?? 'local');
     }
     if (target.status !== 'active') throw new ActionError('not_found', 'The receiving chat is archived.');
     if (isImportMirror(target)) throw new ActionError('conflict', IMPORT_MIRROR_REFUSAL);
@@ -209,6 +210,14 @@ async function persistDelivery(delivery: AgentDeliveryRecord): Promise<void> {
     }
   }
 }
+/** A check-in's note is private, so it never goes to a chat bound to a Slack or Buzz thread. */
+async function checkInDestination(): Promise<ChatSessionRecord> {
+  const current = q.currentPrivateMainChat();
+  if (current) return current;
+  const { addMainChat } = await import('@/lib/sessions/main-chat');
+  return addMainChat(null);
+}
+
 async function createForwardDestination(delivery: AgentDeliveryRecord): Promise<ChatSessionRecord> {
   const launch = delivery.payload.launch!;
   const { dispatchExecutionSession } = await import('@/lib/sessions/dispatch');
@@ -288,7 +297,8 @@ async function activateChat(sessionId: string): Promise<void> {
     const producer = await verifiedCoordinationRun(target).catch(() => null);
     const assigned = producer ? q.agentRequestForRun(producer) : null;
     if (!producer && owned.some(request => request.runId)) return;
-    const steering = pending.filter(delivery => !inputIsPreparing(delivery.id) && delivery.kind === 'message' && (!assigned || delivery.payload.relatedRequestId === assigned.id));
+    // A check-in's note waits for the turn to end: it gets a reply of its own.
+    const steering = pending.filter(delivery => !inputIsPreparing(delivery.id) && delivery.kind === 'message' && !delivery.payload.checkIn && (!assigned || delivery.payload.relatedRequestId === assigned.id));
     if (!steering.length) return;
     if (!await concurrentInput(target)) return;
     await activateOrdinary(target, steering);
@@ -309,7 +319,11 @@ async function activateChat(sessionId: string): Promise<void> {
     return;
   }
   const ordinary = pending.filter(delivery => !inputIsPreparing(delivery.id) && delivery.kind !== 'request' && !q.deliveryNeedsAssignmentContinuation(delivery));
-  if (ordinary.length) await activateOrdinary(target, ordinary);
+  // What the main agent tells the person from a check-in isn't mixed in with
+  // agent traffic. The rest follows on the next pass.
+  const checkInNote = ordinary.find(delivery => delivery.payload.checkIn);
+  if (checkInNote) await activateOrdinary(target, [checkInNote]);
+  else if (ordinary.length) await activateOrdinary(target, ordinary);
 }
 async function concurrentInput(target: ChatSessionRecord): Promise<boolean> {
   const { harnessCapabilitiesOn } = await import('@/lib/executor/devices');

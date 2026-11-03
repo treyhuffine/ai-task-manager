@@ -26,10 +26,15 @@ beforeAll(async () => {
   const fixture = `
     import React, {useState} from 'react';
     const query=new URLSearchParams(location.search);
+    const CHECK_INS=query.has('history')?[
+      {runId:'r1',at:new Date().toISOString(),completedAt:null,status:'completed',outcome:'told',handOffFailed:false,chatSessionId:'c1',changedCount:2,summary:'Told Rye: The contract expires today.',errorMessage:null},
+      {runId:'r2',at:new Date().toISOString(),completedAt:null,status:'completed',outcome:'quiet',handOffFailed:false,chatSessionId:'c2',changedCount:0,summary:'Nothing needed',errorMessage:null},
+      {runId:'r3',at:new Date().toISOString(),completedAt:null,status:'failed',outcome:null,handOffFailed:false,chatSessionId:null,changedCount:0,summary:null,errorMessage:'Run exceeded 1800s timeout'},
+    ]:[];
     const saved={triggerId:'heartbeat',enabled:query.has('on'),instructions:'Look at my tasks.',instructionsAreDefault:false,
       intervalSeconds:Number(query.get('seconds')||1800),activeHoursStart:query.get('start'),activeHoursEnd:query.get('end'),
       timezone:'America/Denver',provider:'claude',model:'opus',effort:null,serviceTier:null,deliverResultTo:[],
-      nextCheckInAt:null,running:false,lastCheckIn:null,disabledReason:null,consecutiveFailures:0};
+      nextCheckInAt:null,running:false,lastCheckIn:null,recentCheckIns:CHECK_INS,disabledReason:null,consecutiveFailures:0};
     let listener=null;
     let config=saved;
     window.patches=[];
@@ -42,6 +47,7 @@ beforeAll(async () => {
     export const useUpdateHeartbeat=()=>({isPending:false,mutate:(patch)=>{window.patches.push(patch);window.setSaved(patch);}});
     export const useCheckInNow=()=>({isPending:false,mutate:()=>{}});
     export const useUserState=()=>({data:{timezone:'America/Denver'}});
+    export const useOrchestratorName=()=>'Rye';
     export const useHarnessModels=()=>({models:[{id:'opus',label:'Opus'}]});
     export const useDefaultSelection=()=>null;
     export const useSettingsLink=()=>null;
@@ -198,6 +204,38 @@ describe('the on and off switch', () => {
       await page.getByText(/^Off\. When it's on, an agent goes through your work/).waitFor();
       await page.getByRole('switch', { name: 'Heartbeat' }).click();
       expect(await patches(page)).toEqual([{ enabled: true }]);
+    } finally { await page.close(); }
+  });
+});
+
+describe('recent check-ins', () => {
+  it('says so when there are none', async () => {
+    const page = await open();
+    try {
+      await page.getByText('Recent check-ins').waitFor();
+      await page.getByText('None yet.').waitFor();
+      expect(await page.getByRole('link', { name: 'History' }).getAttribute('href')).toBe('/triggers/heartbeat');
+    } finally { await page.close(); }
+  });
+
+  it('lists what each one did, opens its chat, and links to what it changed', async () => {
+    const page = await open('?history');
+    try {
+      const told = page.getByRole('link', { name: /The contract expires today/ });
+      expect(await told.getAttribute('href')).toBe('/?session=c1');
+      expect(await page.getByRole('link', { name: 'Changes (2)' }).getAttribute('href')).toBe('/runs/r1');
+      await page.getByText('Nothing needed').waitFor();
+      expect(await page.getByRole('link', { name: /^Changes/ }).count()).toBe(1);
+      // A failed one that never got a chat still says why, with nothing to open.
+      await page.getByText('Run exceeded 1800s timeout').waitFor();
+      expect(await page.getByRole('link', { name: /1800s/ }).count()).toBe(0);
+    } finally { await page.close(); }
+  });
+
+  it('no longer offers a report to read', async () => {
+    const page = await open('?history');
+    try {
+      expect(await page.getByRole('button', { name: 'Report' }).count()).toBe(0);
     } finally { await page.close(); }
   });
 });

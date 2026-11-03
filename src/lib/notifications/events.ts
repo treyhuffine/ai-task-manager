@@ -47,6 +47,13 @@ export const EVENT_CATALOG = [
     defaultOn: true,
   },
   {
+    type: 'agent.message',
+    label: 'Message from your main agent',
+    description: 'Your main agent has something worth telling you, from a background check-in.',
+    routing: 'matrix',
+    defaultOn: true,
+  },
+  {
     type: 'trigger.run_completed',
     label: 'Scheduled run result',
     description: "A scheduled job's result, delivered to the channels you bound it to.",

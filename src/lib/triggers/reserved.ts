@@ -49,9 +49,9 @@ export type ReservedTriggerId =
  * real surface of its own first; silence in Unread is only earned by being
  * reviewable somewhere else.
  *
- * The heartbeat is deliberately absent: Unread IS where its report lands. It
- * earns silence per run instead, by archiving a check-in that had nothing to
- * report (src/lib/heartbeat/quiet.ts).
+ * The heartbeat is deliberately absent: it earns silence per run instead. A
+ * finished check-in archives its own chat, so only a failed one stays in
+ * Unread (src/lib/heartbeat/settle.ts).
  */
 export const TRIGGERS_WITH_OWN_REVIEW_SURFACE: readonly ReservedTriggerId[] = [
   RESERVED_TRIGGER_IDS.morningDeck,
