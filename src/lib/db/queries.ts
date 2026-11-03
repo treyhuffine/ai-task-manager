@@ -58,7 +58,7 @@ import { DEFAULT_FILES_TO_COPY } from '@/lib/workspaces/defaults';
 import { normalizeWorkResultGuidance } from '@/lib/instructions/preferences';
 import { deriveAttachments } from '@/lib/attachments/derive';
 import { AttachmentMetadataRepairError, planNoteAttachmentMetadataRepair } from '@/lib/attachments/repair-metadata';
-import { publishChatEvent } from '@/lib/realtime/bus';
+import { publishChatEvent, publishSessionLifecycle } from '@/lib/realtime/bus';
 import { stableCoordinationId } from '@/lib/coordination/ids';
 import { CHAT_MESSAGE_SENT, chatMessagePreview } from '@/lib/sessions/chat-message';
 import { hydrateRow, dehydrateAttachments, withoutAttachments } from '@/lib/db/hydrate';
@@ -9265,7 +9265,8 @@ export function listStuckBootstrapExecutions(maxAgeMinutes = 5): ExecutionRecord
 export function archiveExecution(executionId: string): ExecutionRecord | null {
   const db = getDb();
   const now = new Date().toISOString();
-  return db.transaction((tx) => {
+  let chats: { id: string }[] = [];
+  const archived = db.transaction((tx) => {
     const row = tx
       .update(executions)
       // Archiving clears any rail pin in the same write: a pin is a
@@ -9277,12 +9278,15 @@ export function archiveExecution(executionId: string): ExecutionRecord | null {
       .get();
     if (!row) return null;
     clearMemberExecutionPins(executionId);
-    tx.update(chatSessions)
+    chats = tx.update(chatSessions)
       .set({ status: 'archived', archivedAt: now })
       .where(and(eq(chatSessions.executionId, executionId), eq(chatSessions.status, 'active')))
-      .run();
+      .returning({ id: chatSessions.id })
+      .all();
     return row;
   });
+  for (const chat of chats) publishSessionLifecycle(chat.id, executionId);
+  return archived;
 }
 
 /**
@@ -9295,7 +9299,8 @@ export function archiveExecution(executionId: string): ExecutionRecord | null {
 export function unarchiveExecution(executionId: string): ExecutionRecord | null {
   const db = getDb();
   const now = new Date().toISOString();
-  return db.transaction((tx) => {
+  let chats: { id: string }[] = [];
+  const reopened = db.transaction((tx) => {
     const row = tx
       .update(executions)
       .set({ status: 'active', archivedAt: null, updatedAt: now })
@@ -9303,12 +9308,15 @@ export function unarchiveExecution(executionId: string): ExecutionRecord | null 
       .returning()
       .get();
     if (!row) return null;
-    tx.update(chatSessions)
+    chats = tx.update(chatSessions)
       .set({ status: 'active', archivedAt: null })
       .where(and(eq(chatSessions.executionId, executionId), eq(chatSessions.status, 'archived')))
-      .run();
+      .returning({ id: chatSessions.id })
+      .all();
     return row;
   });
+  for (const chat of chats) publishSessionLifecycle(chat.id, executionId);
+  return reopened;
 }
 
 // ── Read bridge (chat_session flattened with execution state) ──
@@ -9914,7 +9922,9 @@ export function updateExternalSessionImport(
 }
 
 export function archiveChatSession(id: string): ChatSessionRecord | null {
-  return updateChatSession(id, { status: 'archived', archivedAt: new Date().toISOString() });
+  const row = updateChatSession(id, { status: 'archived', archivedAt: new Date().toISOString() });
+  if (row) publishSessionLifecycle(id);
+  return row;
 }
 
 /**
@@ -9926,7 +9936,9 @@ export function archiveChatSession(id: string): ChatSessionRecord | null {
  * was archived.
  */
 export function unarchiveChatSession(id: string): ChatSessionRecord | null {
-  return updateChatSession(id, { status: 'active', archivedAt: null });
+  const row = updateChatSession(id, { status: 'active', archivedAt: null });
+  if (row) publishSessionLifecycle(id);
+  return row;
 }
 
 /**

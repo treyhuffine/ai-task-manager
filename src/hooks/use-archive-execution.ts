@@ -66,7 +66,8 @@ export function useReviewChanges() {
 
 /**
  * The one archive-an-execution flow, shared by every surface that offers
- * it (rail kebab, rail quick action, execution header, action bar):
+ * it (rail kebab, rail quick action, execution header, action bar, a
+ * returned result's Archive chat):
  *
  *   1. Archive right away. Archiving is undone from History, and a clean
  *      worktree (committed work, pushed or not) loses nothing, so there's

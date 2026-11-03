@@ -1,4 +1,5 @@
 import { invalidateWorkspaceViews } from '@/lib/query/work-view-invalidation';
+import { invalidateChatRows, sessionKey } from '@/lib/query/session-keys';
 import type { CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceStatus } from '@/db/types';
 import { worktreeScopeFor } from '@/hooks/use-execution';
 import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
@@ -673,6 +674,9 @@ function dropSessionFromCaches(
   return snapshots;
 }
 
+/** Archives in flight, by chat id in their variables: every place a chat shows can say it's archiving. */
+export const ARCHIVE_SESSION_MUTATION_KEY = ['session', 'archive'] as const;
+
 /**
  * Archive a single execution. The row vanishes from the rail immediately
  * (optimistic remove across all session caches) and stays gone while the
@@ -685,6 +689,7 @@ function dropSessionFromCaches(
 export function useArchiveSession() {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: ARCHIVE_SESSION_MUTATION_KEY,
     mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
       sessionsApi.archive(id, { force }),
     onMutate: async ({ id }) => {
@@ -705,7 +710,12 @@ export function useArchiveSession() {
         qc.setQueryData(key, data);
       }
     },
-    onSettled: (_data, _err, _vars, context) => {
+    // Archived, as the server said: every card showing this chat says so at
+    // once, before the refetch below confirms the rest of its row.
+    onSuccess: (_row, { id }) => {
+      qc.setQueryData<ChatSessionWithExecution>(sessionKey(id), (row) => row && { ...row, status: 'archived' });
+    },
+    onSettled: (_data, _err, { id }, context) => {
       context?.release();
       // Reconcile with the server on both success and (post-rollback)
       // failure so the caches match the truth.
@@ -713,6 +723,9 @@ export function useArchiveSession() {
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
       qc.invalidateQueries({ queryKey: RAIL_KEY });
       qc.invalidateQueries({ queryKey: HISTORY_KEY });
+      // What the chat itself says, wherever its state shows (a returned
+      // result's card). The chat on screen was left on the click.
+      invalidateChatRows(qc, id, qc.getQueryData<ChatSessionWithExecution>(sessionKey(id))?.executionId);
     },
   });
 }
@@ -810,12 +823,13 @@ export function useBulkArchiveSessions() {
       for (const id of ids) dropSessionFromCaches(qc, id);
       return { release };
     },
-    onSettled: (_data, _err, _vars, context) => {
+    onSettled: (_data, _err, { ids }, context) => {
       context?.release();
       invalidateWorkspaceViews(qc);
       qc.invalidateQueries({ queryKey: NEEDS_REVIEW_KEY });
       qc.invalidateQueries({ queryKey: RAIL_KEY });
       qc.invalidateQueries({ queryKey: HISTORY_KEY });
+      for (const id of ids) invalidateChatRows(qc, id, qc.getQueryData<ChatSessionWithExecution>(sessionKey(id))?.executionId);
     },
   });
 }

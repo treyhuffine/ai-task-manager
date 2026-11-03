@@ -28,6 +28,8 @@ import { ExecutionEvent } from '@/components/chat-ui/activity/execution-event';
 import { ChatTranscript } from '@/components/chat-ui/chat-transcript';
 import { ChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { ChatComposer } from '@/components/chat-ui/chat-composer';
+import { ConfirmProvider } from '@/components/ui/confirm-dialog';
+import { WorkContext, type WorkActivity, type WorkNavigation } from '@/contexts/work-context';
 import { ModelMenuContent, ModelMenuLabel } from '@/components/chat-ui/model-menu/model-menu';
 import { ModelMenuProvider } from '@/components/chat-ui/model-menu/model-menu-provider';
 import { ChatInputEditor, type ChatInputEditorHandle } from '@/components/chat/editor/chat-input-editor';
@@ -41,7 +43,7 @@ import { ModelMenuPreview } from './model-menu-preview';
 import { galleryExample, type ChatUiExampleId } from './catalog';
 
 declare const __GALLERY_EXAMPLE__: ChatUiExampleId;
-import { CHAT_ID, DRAFT_ID, event, IMAGE_URL, mentionExample, NOW, PDF_PAGES, RECORD_ID, chatMessageExample } from './fixtures';
+import { CHAT_ID, DRAFT_ID, event, IMAGE_URL, mentionExample, NOW, PDF_PAGES, RECORD_ID, chatMessageExample, isReturnedAnswerState } from './fixtures';
 import { fixtureConfig as config, fixtureQueryClient as client, fixtureRuntime as runtime } from './fixture-client';
 
 document.documentElement.classList.toggle('dark', config.theme === 'dark');
@@ -192,20 +194,24 @@ function FilesBeside({ children }: { children?: ReactNode } = {}) {
   </div>;
 }
 
+/** Where a chat link or Archive chat would go in the app. The example stays on the receiving chat. */
+const GALLERY_NAVIGATION: WorkNavigation = { openAgent() {}, openExecution() {}, openTask() {}, openNote() {}, goHome() {} };
+
 function ChatMessages() {
   const { received, sent } = chatMessageExample(config.state);
-  return <div className="space-y-7">
+  const activity: WorkActivity = { activeSessionId: received.sessionId, activeExecutionId: null, streamingSessionIds: new Set(), backgroundSessionIds: new Set(), pendingInputSessionIds: new Set(), setActiveExecutionId() {}, setSessionStreaming() {} };
+  return <WorkContext navigation={GALLERY_NAVIGATION} activity={activity}><div className="space-y-7">
     <section aria-label="Receiving chat" className="space-y-3">
       <p className="text-xs text-muted-foreground">In the receiving chat</p>
       <ExecutionEvent event={received} handoffActions={false} />
-      <p className="text-[12.5px] leading-relaxed">{config.state === 'reply' ? 'I’ll include these findings in the handoff.' : 'I’ll check the boundary cases and report back with the results.'}</p>
+      <p className="text-[12.5px] leading-relaxed">{isReturnedAnswerState(config.state) ? 'I’ll include these findings in the handoff.' : 'I’ll check the boundary cases and report back with the results.'}</p>
     </section>
     <section aria-label="Sending chat" className="space-y-3">
       <p className="text-xs text-muted-foreground">In the sending chat</p>
-      <p className="text-[12.5px] leading-relaxed">{config.state === 'reply' ? 'The review is complete. I’m sending the findings back.' : 'I’m asking the date handling chat to review this before the handoff.'}</p>
+      <p className="text-[12.5px] leading-relaxed">{isReturnedAnswerState(config.state) ? 'The review is complete. I’m sending the findings back.' : 'I’m asking the date handling chat to review this before the handoff.'}</p>
       <ExecutionEvent event={sent} handoffActions={false} />
     </section>
-  </div>;
+  </div></WorkContext>;
 }
 
 function TextFiles() {
@@ -277,4 +283,4 @@ function Example() {
 }
 
 const root = document.getElementById('root')!;
-createRoot(root).render(<QueryClientProvider client={client}><ThemeProvider attribute="class" forcedTheme={config.theme} enableSystem={false}><TipProvider><ArtifactPreviewProvider><ChatCapabilities.Provider value={{ deliveryReceipts: false, prepareResults: false }}><Example /></ChatCapabilities.Provider></ArtifactPreviewProvider></TipProvider></ThemeProvider></QueryClientProvider>);
+createRoot(root).render(<QueryClientProvider client={client}><ThemeProvider attribute="class" forcedTheme={config.theme} enableSystem={false}><TipProvider><ConfirmProvider><ArtifactPreviewProvider><ChatCapabilities.Provider value={{ deliveryReceipts: false, prepareResults: false }}><Example /></ChatCapabilities.Provider></ArtifactPreviewProvider></ConfirmProvider></TipProvider></ThemeProvider></QueryClientProvider>);

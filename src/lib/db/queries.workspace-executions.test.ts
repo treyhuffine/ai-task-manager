@@ -118,3 +118,55 @@ describe('listWorkspaceExecutions', () => {
     expect(all[0].status).toBe('active');
   });
 });
+
+/**
+ * A returned result's card and the rail show a chat's live state. Every way a
+ * chat is archived or reopened (a button, an agent's archive_execution, a
+ * quiet heartbeat chat, a send that resumes it) ends in these four writes, so
+ * each one tells open screens which chats changed.
+ */
+describe('archive and reopen announce the chats they changed', () => {
+  it('names each chat an execution archive or reopen moved, with the execution, and only those', async () => {
+    const q = await setup();
+    const { getDb } = await import('@/lib/db');
+    const { workspaces } = await import('@/lib/db/schema');
+    const { globalSessionChannel, subscribe } = await import('@/lib/realtime/bus');
+    const { uuidv7 } = await import('uuidv7');
+    const wsId = uuidv7();
+    getDb().insert(workspaces).values({
+      id: wsId, name: 'Ws', slug: `ws-${Date.now()}`, cwd: '/tmp/ws-lifecycle', isGit: false, status: 'active', filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: true,
+    }).run();
+    const work = q.createExecutionWithChat({ workspaceId: wsId, harness: 'claude', label: 'Delegated work' });
+    const sibling = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: work.execution.id, label: 'Second chat' });
+    const closed = q.createChatSession({ type: 'execution', harness: 'claude', workspaceId: wsId, executionId: work.execution.id, label: 'Closed chat' });
+
+    const heard: unknown[] = [];
+    const stop = subscribe(globalSessionChannel, message => { if (message.kind === 'session_updated') heard.push(message); });
+    try {
+      q.archiveChatSession(closed.id);
+      expect(heard).toEqual([{ kind: 'session_updated', sessionId: closed.id, reason: 'lifecycle' }]);
+
+      heard.length = 0;
+      q.archiveExecution(work.execution.id);
+      // The chat closed earlier didn't change, so it isn't named again.
+      expect(heard).toEqual([work.session.id, sibling.id].map(sessionId => ({ kind: 'session_updated', sessionId, reason: 'lifecycle', executionId: work.execution.id })));
+
+      heard.length = 0;
+      q.unarchiveExecution(work.execution.id);
+      expect(heard).toEqual([work.session.id, sibling.id, closed.id].map(sessionId => ({ kind: 'session_updated', sessionId, reason: 'lifecycle', executionId: work.execution.id })));
+
+      heard.length = 0;
+      q.archiveChatSession(sibling.id);
+      q.unarchiveChatSession(sibling.id);
+      expect(heard).toEqual([
+        { kind: 'session_updated', sessionId: sibling.id, reason: 'lifecycle' },
+        { kind: 'session_updated', sessionId: sibling.id, reason: 'lifecycle' },
+      ]);
+
+      // Nothing to change is nothing to announce.
+      heard.length = 0;
+      q.archiveChatSession('missing-chat');
+      expect(heard).toEqual([]);
+    } finally { stop(); }
+  });
+});

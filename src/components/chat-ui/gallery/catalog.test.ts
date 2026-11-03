@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { CHAT_UI_EXAMPLES, filterGalleryExamples, galleryExample, galleryPreviewUrl, GALLERY_ORIGINS } from './catalog';
 import { GalleryRuntime } from './runtime';
-import { DRAFT_ID, mentionExample } from './fixtures';
+import { DRAFT_ID, mentionExample, RECEIVER_CHAT_ID } from './fixtures';
 
 describe('central chat UI catalog', () => {
   it('has unique links and states, real source references and no onboarding entries', () => {
@@ -48,6 +48,22 @@ describe('isolated gallery operations', () => {
     expect(two.email.status).toBe('draft');
     expect(two.email.body).not.toBe('A local edit');
     expect(one.logs).toContain('Simulated send complete. No email was sent');
+  });
+
+  it('archives and reopens the example work chat in memory, refusing first where it has uncommitted files', async () => {
+    const reply = new GalleryRuntime('chat-messages', 'reply');
+    const params = { params: { id: RECEIVER_CHAT_ID } };
+    expect(await reply.invoke('sessions.get', params)).toMatchObject({ type: 'execution', status: 'active' });
+    expect(await reply.invoke('sessions.archivePost', { ...params, body: { force: false } })).toMatchObject({ status: 'archived' });
+    expect(await reply.invoke('sessions.continuePost', { ...params, body: {} })).toMatchObject({ status: 'active' });
+    expect(reply.logs).toEqual(['Example chat archived. No worktree was removed', 'Example chat reopened. No worktree was created']);
+    expect(await new GalleryRuntime('chat-messages', 'reply-archived').invoke('sessions.get', params)).toMatchObject({ status: 'archived' });
+
+    const dirty = new GalleryRuntime('chat-messages', 'reply-uncommitted');
+    await expect(dirty.invoke('sessions.archivePost', { ...params, body: { force: false } })).rejects.toMatchObject({ status: 409, body: { code: 'dirty_worktree', files: [{ path: 'notes/date-boundaries.md' }, { path: 'src/runner/dates.ts' }] } });
+    expect(await dirty.invoke('sessions.get', params)).toMatchObject({ status: 'active' });
+    expect(await dirty.invoke('sessions.archivePost', { ...params, body: { force: true } })).toMatchObject({ status: 'archived' });
+    expect(dirty.logs).toEqual(['Example chat archived anyway. No files were deleted']);
   });
 
   it('has no fallback for an unknown operation', async () => {

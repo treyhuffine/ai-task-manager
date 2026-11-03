@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateRailSoon } from '@/lib/query/invalidate-rail';
 import { invalidateTaskListsSoon } from '@/lib/query/invalidate-tasks';
+import { invalidateChatRows } from '@/lib/query/session-keys';
 import { pageStream } from '@/lib/realtime/page-stream';
 
 /**
@@ -23,14 +24,12 @@ export function useGlobalSessionStream(): void {
       // A turn starting or ending, or a reconnect that may have missed some:
       // tasks the agent moved and its Working badge (invalidate-tasks.ts).
       const reason = (data as { reason?: string } | null)?.reason;
-      if (event === 'session_updated' && reason === 'title') {
+      // A chat renamed, or archived or reopened from anywhere (a returned
+      // result's card shows which). Sibling chats share the execution's
+      // header and its archive, even when their own names differ.
+      if (event === 'session_updated' && (reason === 'title' || reason === 'lifecycle')) {
         const changed = data as { sessionId: string; executionId?: string | null };
-        // Sibling chats share the execution header, even when their own names differ.
-        void queryClient.invalidateQueries({ predicate: (query) => {
-          if (query.queryKey[0] !== 'session' || query.queryKey.length !== 2) return false;
-          return query.queryKey[1] === changed.sessionId || (!!changed.executionId
-            && (query.state.data as { executionId?: string | null } | undefined)?.executionId === changed.executionId);
-        } });
+        invalidateChatRows(queryClient, changed.sessionId, changed.executionId);
       }
       if (event === 'ready' || (event === 'session_updated' && (reason === 'runtime' || reason === 'outcome'))) {
         invalidateTaskListsSoon(queryClient);

@@ -111,9 +111,11 @@ choices, and `update_workspace` sets `defaultDeviceId` when the user asks.
 Completion, failure, and blocked updates return automatically. An acceptance
 receipt is not the outcome. Continue independent work or finish your turn
 when waiting. Use `get_agent_request` for inspection instead of transcript polling.
-Close out finished work with
-`archive_execution`. It refuses when the worktree holds uncommitted or unpushed
-work and says so. Only pass `force` when the user has said that work can go.
+Close out a chat with
+`archive_execution` only when the user asks. Each returned result has an
+Archive button for the user, so don't offer to archive or remind them. It
+refuses when the worktree holds uncommitted or unpushed work and says so. Only
+pass `force` when the user has said that work can go.
 `update_workspace` edits an agent's name, emoji, area, `purpose` and
 `instructions`. Connector access and the browser change only in the app.
 

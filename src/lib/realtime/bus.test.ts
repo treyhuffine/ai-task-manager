@@ -6,6 +6,7 @@ import {
   publishChatEvent,
   publishReconcileDone,
   publishRuntime,
+  publishSessionLifecycle,
   publishSessionTitle,
   sessionChannel,
   subscribe,
@@ -88,6 +89,25 @@ describe('title metadata refresh', () => {
       publishSessionTitle('title-session');
       expect(local).toEqual(['title_changed']);
       expect(global).toEqual([{ kind: 'session_updated', sessionId: 'title-session', reason: 'title' }]);
+    } finally { stopLocal(); stopGlobal(); }
+  });
+});
+
+describe('chat lifecycle refresh', () => {
+  it('names the chat, and its execution when siblings moved with it, on the global channel only', () => {
+    const local: string[] = []; const global: GlobalSessionStreamMessage[] = [];
+    const stopLocal = subscribe(sessionChannel('lifecycle-session'), (message) => local.push(message.kind));
+    const stopGlobal = subscribe(globalSessionChannel, (message) => {
+      if (message.kind === 'session_updated') global.push(message);
+    });
+    try {
+      publishSessionLifecycle('lifecycle-session');
+      publishSessionLifecycle('lifecycle-session', 'execution-1');
+      expect(local).toEqual([]);
+      expect(global).toEqual([
+        { kind: 'session_updated', sessionId: 'lifecycle-session', reason: 'lifecycle' },
+        { kind: 'session_updated', sessionId: 'lifecycle-session', reason: 'lifecycle', executionId: 'execution-1' },
+      ]);
     } finally { stopLocal(); stopGlobal(); }
   });
 });

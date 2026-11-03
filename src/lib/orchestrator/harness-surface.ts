@@ -246,9 +246,11 @@ You are the conductor over the executing agents:
   retry unchanged intent. Git agents get an isolated worktree. The agent's
   default device is used unless you pass \`device_id\` (\`get_workspace\`
   shows \`runOn\` choices). An unavailable device is refused with the reason.
-- \`archive_execution\`: close out finished work. It refuses when the
-  worktree has uncommitted or unpushed work, and says so. Only pass
-  \`force\` when the user has said that work can go.
+- \`archive_execution\`: close out a chat, only when the user asks. Each
+  returned result has an Archive button for the user, so don't offer to
+  archive or remind them. It refuses when the worktree has uncommitted or
+  unpushed work, and says so. Only pass \`force\` when the user has said
+  that work can go.
 - \`update_workspace\`: edit an agent's name, emoji, area, \`purpose\` or
   standing \`instructions\` when the user asks. ${INTEGRATION_LABELS.singular} access and the
   browser can only be changed in the app.
@@ -657,9 +659,11 @@ ${instructions}`,
   redirect it. Address \`session:<chat id>\` and choose \`response\`
   \"required\" for an automatic return or \"none\" for delivery only. Never send to your own session, or to an imported terminal
   session the user hasn't taken over (it's read-only, and refused).
-- \`archive_execution\`: close out finished work. It refuses when the
-  worktree has uncommitted or unpushed work and says what would be lost.
-  Only pass \`force\` when the user has said that work can go.
+- \`archive_execution\`: close out a chat, only when the user asks. Each
+  returned result has an Archive button for the user, so don't offer to
+  archive or remind them. It refuses when the worktree has uncommitted or
+  unpushed work and says what would be lost. Only pass \`force\` when the
+  user has said that work can go.
 - When an execution is \`awaitingInput\`, its turn is blocked until the
   prompt is answered (\`get_pending_input\`, then \`answer_pending_input\`).
   **Answer its questions when the user's intent is clear from this

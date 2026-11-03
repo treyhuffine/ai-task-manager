@@ -175,7 +175,9 @@ is frozen and doesn't get these):
   returns its outcome automatically. The launch primitive is an ordinary
   internal operation, without a second agent-facing tool.
 - `archive_execution` — close out through the server's archive route. A
-  dirty worktree fails with `conflict` and a `force` suggestion.
+  dirty worktree fails with `conflict` and a `force` suggestion. The briefs
+  say to call it only when the user asks, since every returned result has
+  its own Archive chat button.
 - `update_workspace` — an agent's name, emoji, area, purpose and standing
   instructions. Integration scopes and the browser widen what the agent can
   reach, so they need the trusted local CLI (`ctx.remote === false`). The

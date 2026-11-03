@@ -120,7 +120,7 @@ Schedule creation and enabling retain their existing authorizing operations. Age
 
 Send to chat appears beside message actions. The picker orders chats by recent activity, searches their metadata and filters by agent. It shows title, agent and activity time. Existing destinations keep their settings. A new chat uses normal defaults with optional model and supported effort controls, and retrying creates one destination.
 
-The receiving card says Shared by you, separates directions from quoted material and links to the exact source message. Agent traffic uses protocol labels such as Request from, Message from and Answer from. System failures retain truthful Ri authorship. Long cards have a bounded preview and explicit expansion.
+The receiving card says Shared by you, separates directions from quoted material and links to the exact source message. Agent traffic uses protocol labels such as Request from, Message from and Answer from. System failures retain truthful Ri authorship. An answer or failure that an execution chat returned carries Archive chat beside that chat's link, showing its live state (Archived with Reopen once archived from anywhere). Blocked updates and cancellations don't, and the requesting chat never archives on its own. Long cards have a bounded preview and explicit expansion.
 
 The sending chat receives a compact linked receipt. A human forward that fails before acceptance creates a durable failure card there with its destination and reason. Receipts, approval history and Hold audits are system events that start zero agent turns. Instructions discourage acknowledgment-only chatter without a runtime prose classifier. Hold remains the dependable way to get the human back in control.
 

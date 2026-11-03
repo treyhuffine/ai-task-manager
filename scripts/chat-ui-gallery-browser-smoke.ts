@@ -120,9 +120,21 @@ async function main() {
       assert.equal(await sentLink.getAttribute('href'), '/?session=019a0000-0000-7000-8000-000000000005&message=gallery-received&history=1');
       assert.equal(await frame.getByText('Request ID:', { exact: false }).count(), 0, 'Transport wrapper stays out of the visible message');
       frame = await select('chat-messages', 'reply');
-      await frame.getByRole('link', { name: 'Reply from Review date handling in Research agent. Open chat', exact: true }).waitFor();
+      await frame.getByRole('link', { name: 'Answer from Review date handling in Research agent. Open chat', exact: true }).waitFor();
       await frame.getByText('Original request', { exact: true }).click();
       await frame.getByText('Please review the date handling', { exact: false }).first().waitFor();
+      // The work chat that answered is archived right here, then reopened, without leaving the chat.
+      await frame.getByRole('button', { name: 'Archive chat Review date handling', exact: true }).click();
+      await frame.getByRole('button', { name: 'Reopen Review date handling', exact: true }).click();
+      await frame.getByRole('button', { name: 'Archive chat Review date handling', exact: true }).waitFor();
+      frame = await select('chat-messages', 'reply-archived');
+      await waitForText(frame, 'Archived');
+      await frame.getByRole('button', { name: 'Reopen Review date handling', exact: true }).waitFor();
+      frame = await select('chat-messages', 'reply-uncommitted');
+      await frame.getByRole('button', { name: 'Archive chat Review date handling', exact: true }).click();
+      await waitForText(frame, 'date-boundaries.md');
+      await frame.getByRole('button', { name: 'Archive anyway', exact: true }).click();
+      await frame.getByRole('button', { name: 'Reopen Review date handling', exact: true }).waitFor();
       frame = await select('chat-messages', 'deleted');
       await frame.getByText('Deleted chat', { exact: true }).waitFor();
       assert.equal(await frame.getByRole('link', { name: /^Request from/ }).count(), 0, 'Deleted sender is not a broken link');

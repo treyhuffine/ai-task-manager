@@ -171,6 +171,14 @@ describe('the brief', () => {
     expect(brief).toContain('None yet.');
   });
 
+  it('archives a chat only when the user asks, since every returned result has its own Archive button', async () => {
+    const { renderAgentMainChatBrief } = await import('@/lib/orchestrator/harness-surface');
+    const brief = renderAgentMainChatBrief({ id: 'ws-1', name: 'ri', cwd: FOLDER, isGit: true, purpose: null, instructions: null }).replace(/\s+/g, ' ');
+    expect(brief).toContain('`archive_execution`: close out a chat, only when the user asks. Each returned result has an Archive button for the user, so don\'t offer to archive or remind them.');
+    expect(brief).toContain('Only pass `force` when the user has said that work can go.');
+    expect(brief).not.toContain('close out finished work');
+  });
+
   it('mentions integrations and the browser only when they are attached', async () => {
     const { renderAgentMainChatBrief } = await import('@/lib/orchestrator/harness-surface');
     const ws = { id: 'ws-1', name: 'ri', cwd: FOLDER, isGit: true, purpose: null, instructions: null };

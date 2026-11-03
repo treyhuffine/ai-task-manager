@@ -1,7 +1,8 @@
-import { coordinationDeliveryExample, SENDER_CHAT_ID, GALLERY_FORM_SCHEMA, approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS } from './fixtures';
+import { coordinationDeliveryExample, SENDER_CHAT_ID, RECEIVER_CHAT_ID, GALLERY_UNCOMMITTED_FILES, GALLERY_FORM_SCHEMA, approvals, CHAT_ID, connectionResponse, CONNECTION_VIEW, DRAFT_ID, emailDraft, event, HANDOFF, HTML_DOCUMENT, mentionExample, NOW, pendingInput, RECORD_ID, VERSIONS } from './fixtures';
 import type { ChatEventRecord, EmailDraft, WorkResultDecisionRecord } from '@/db/types';
 import type { ChatUiExampleId } from './catalog';
 import { DEMO_AUDIO, DEMO_VIDEO } from '@/test/fixtures/media';
+import { ApiError } from '@/lib/api/client';
 
 /** An independent in-memory Home for a single sandboxed example. Never calls a real API. */
 export class GalleryRuntime {
@@ -19,8 +20,11 @@ export class GalleryRuntime {
   private versionRows = VERSIONS;
   private formStatus: 'open' | 'accepted' | 'declined' | 'expired' = 'open';
   private formAgain: Record<string, unknown> | null = null;
+  /** Chats archived in this example. Archive chat and Reopen change only this. */
+  private archived = new Set<string>();
   constructor(readonly example: ChatUiExampleId, readonly state: string, readonly resource?: unknown) {
     this.coordination = coordinationDeliveryExample(state);
+    if (example === 'chat-messages' && state === 'reply-archived') this.archived.add(RECEIVER_CHAT_ID);
     this.held = state === 'held';
     this.email = emailDraft(state);
     if (example === 'server-form' && ['accepted', 'declined', 'expired'].includes(state)) this.formStatus = state as typeof this.formStatus;
@@ -113,7 +117,21 @@ export class GalleryRuntime {
       const label = id === SENDER_CHAT_ID
         ? this.state === 'long' ? 'Finish bounded full-date GEX runner and dated RUT input verification before the production handoff' : 'Prepare the runner handoff'
         : 'Review date handling';
-      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: ['chat-messages', 'html'].includes(this.example) ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : this.example === 'coordination' && id === SENDER_CHAT_ID ? 'Review date handling across every market calendar before the next scheduled run and confirm all source dates against the bounded historical runner' : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
+      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: this.archived.has(id) ? 'archived' : 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: ['chat-messages', 'html'].includes(this.example) ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : this.example === 'coordination' && id === SENDER_CHAT_ID ? 'Review date handling across every market calendar before the next scheduled run and confirm all source dates against the bounded historical runner' : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
+    }
+    if (path === 'sessions.archivePost') {
+      const id = String((input.params as { id?: string })?.id);
+      // This example's work chat has files that aren't committed, so the first try is refused, as a real archive would be.
+      if (this.state === 'reply-uncommitted' && body.force !== true) throw new ApiError(409, { error: 'DirtyWorktreeError', code: 'dirty_worktree', message: 'The worktree has files that are not committed.', label: 'Review date handling', files: GALLERY_UNCOMMITTED_FILES, omitted: 0 }, `/api/sessions/${id}/archive`);
+      this.archived.add(id);
+      this.changed(body.force === true ? 'Example chat archived anyway. No files were deleted' : 'Example chat archived. No worktree was removed');
+      return this.invoke('sessions.get', { params: { id } });
+    }
+    if (path === 'sessions.continuePost') {
+      const id = String((input.params as { id?: string })?.id);
+      this.archived.delete(id);
+      this.changed('Example chat reopened. No worktree was created');
+      return this.invoke('sessions.get', { params: { id } });
     }
     // A missing reference's agent is gone too, so its chip says so.
     if (path === 'workspaces.get') { if (this.example === 'references' && this.state === 'missing') throw new Error('That agent was not found.'); return { id: RECORD_ID, name: 'Research', status: 'active' }; }

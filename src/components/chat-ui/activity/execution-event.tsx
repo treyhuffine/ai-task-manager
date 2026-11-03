@@ -11,13 +11,14 @@ import { ConnectedFormOutcome } from '@/components/mcp-apps/form/form-outcome';
 import { Message, MessageContent } from '@/components/ai-elements/message';
 import { AgentResponse } from '@/components/chat-ui/messages/agent-response';
 import { IncomingDeliveryStatus } from '@/components/chat-ui/coordination/controls';
+import { ReturnedChatArchive } from '@/components/chat-ui/coordination/returned-chat-archive';
 import { CoordinationApproval, CoordinationText } from '@/components/chat-ui/coordination/approval-card';
 import { CopyMessageButton } from '@/components/chat-ui/messages/copy-message-button';
 import { MessageEntityChip, type EntityLookup } from '@/components/chat-ui/references/message-entity-chip';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
 import { SenderChip } from '@/components/chat-ui/messages/sender-chip';
 import { ChatMessageLink } from '@/components/chat-ui/messages/chat-message-link';
-import { agentMessagePresentation, decodeChatMessageReceipt } from '@/lib/sessions/chat-message';
+import { agentMessagePresentation, decodeChatMessageReceipt, returnedChatOf } from '@/lib/sessions/chat-message';
 import { VoiceSentBadge } from '@/components/chat-ui/messages/voice-sent-badge';
 import { EntityEditChip, parseEntityEditTool } from '@/components/chat-ui/edits/entity-edit-chip';
 import type { Attachment } from '@/db/types';
@@ -173,13 +174,15 @@ export function ExecutionEvent({ event, sessionId, isLatestUnresolved, voiceSent
       const origin = metadata ? { body: metadata.content ?? event.content ?? '', originalRequest: metadata.originalRequest ?? null, label: metadata.senderKind === 'human' ? 'Shared by you' : metadata.senderKind === 'system' ? 'Ri coordination update' : metadata.kind === 'request' ? 'Request from' : metadata.kind === 'answer' ? 'Answer from' : 'Message from' }
         : event.senderSessionId ? agentMessagePresentation(event.content ?? '', event.senderSessionId) : null;
       const content = origin?.body ?? event.content ?? '';
+      // A result another chat returned: archive that chat right here, once read.
+      const returned = origin ? returnedChatOf(event) : null;
       const segments = parseEntitySegments(content);
       const hasMarkers = segments.some((s) => s.kind === 'marker') || content.includes('[[source:');
       const isFailed = clientStatus?.status === 'failed';
       const isSending = clientStatus?.status === 'sending';
       return (
         <div className={cn('group flex flex-col', origin && 'max-w-[95%] rounded-xl border border-border bg-muted/20')}>
-          {sourceId ? <SenderChip senderSessionId={sourceId} eventId={metadata?.sourceEventId} label={origin?.label ?? 'Message from'} /> : origin && <p className="px-3 py-2 text-xs text-muted-foreground">{origin.label}{metadata?.senderKind !== 'system' && ' · Source chat unavailable'}</p>}
+          {sourceId ? <SenderChip senderSessionId={sourceId} eventId={metadata?.sourceEventId} label={origin?.label ?? 'Message from'} action={returned && <ReturnedChatArchive sessionId={returned.sessionId} />} /> : origin && <p className="px-3 py-2 text-xs text-muted-foreground">{origin.label}{metadata?.senderKind !== 'system' && ' · Source chat unavailable'}</p>}
           {metadata?.directions && <div className="border-t px-3 py-2 text-xs"><p className="mb-1 font-medium">Your directions</p><CoordinationText text={metadata.directions} /></div>}
           {metadata?.senderKind === 'human' && <p className="px-3 pt-2 text-[11px] font-medium text-muted-foreground">Quoted source material</p>}
           {metadata?.lateFollowup && <p className="px-3 pt-2 text-[11px] text-muted-foreground">Follow-up received after completion</p>}
