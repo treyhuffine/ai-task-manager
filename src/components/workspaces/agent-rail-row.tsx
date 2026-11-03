@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef } from 'react';
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Eye, EyeOff, MoreHorizontal, Plus, SlidersHorizontal } from 'lucide-react';
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Eye, EyeOff, MessagesSquare, MoreHorizontal, Plus, SlidersHorizontal } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDashboard } from '@/contexts/dashboard-context';
@@ -32,6 +32,7 @@ import { useInactivity } from '@/hooks/use-inactivity';
 import { useOpenChatAgentId } from '@/hooks/use-open-chat-agent';
 import { Tip } from '@/components/ui/tip';
 import { AgentChatsFlyout } from './agent-chats-flyout';
+import { showAgentInRecent } from './recent-filter-store';
 import { useWorkspaceSelection } from './workspace-selection-context';
 
 interface AgentRailRowProps {
@@ -93,7 +94,9 @@ const PRESENCE: Record<Exclude<AgentActivity, null>, { dot: string; label: strin
  * you (waiting on you or unread, pulsing while one is blocked), green for the
  * ones working. The header counts every chat, these say which agent's. They
  * give way to the actions on hover, and open no tooltip. Inactive chats don't
- * count. Resting on the agent peeks at the chats themselves.
+ * count. Resting on the agent opens nothing: Show chats, among its hover
+ * actions, opens Recent on the agent's own chats, where a chat shows its
+ * recent messages on hover.
  *
  * The agent you're in is marked: selected, as when its own page is open,
  * while one of its chats is on screen and that chat's row isn't showing (it
@@ -258,7 +261,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         </button>
         <AgentChatsFlyout
           name={workspace.name}
-          enabled={hasThreads && !expanded && !isDragging && !selecting}
+          enabled={hasThreads && !expanded && !agentsOnly && !isDragging && !selecting}
           hoverTarget={header}
           onClick={open}
           onNewChat={() => onOpenLauncher(workspace.id)}
@@ -305,6 +308,21 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
                 aria-label={expanded ? 'Hide chats' : 'Show chats'}
               >
                 {expanded ? <ChevronsDownUp size={13} /> : <ChevronsUpDown size={13} />}
+              </button>
+            </Tip>
+          )}
+          {hasThreads && agentsOnly && (
+            <Tip label="Show its chats in Recent">
+              <button
+                onPointerDown={stop}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  showAgentInRecent(workspace.id);
+                }}
+                className="p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted/50"
+                aria-label={`Show ${workspace.name}'s chats`}
+              >
+                <MessagesSquare size={13} />
               </button>
             </Tip>
           )}

@@ -10,7 +10,8 @@
  * state and counts of its chats that need you or are working, that Recent
  * lists recent chats of any status with inactive ones folded, that an agent
  * can be marked read or unread from the rail and from its chat bar (and both
- * agree), that resting on an agent peeks at its chats, that hovering an
+ * agree), that resting on an agent opens nothing while its Show chats opens
+ * Recent on that agent's chats, that hovering an
  * agent opens no tooltip while its hover actions keep theirs, that Agents
  * first is unchanged, and that chats are selected to archive on Recent from
  * every rail style, the collapsed rail's flyout included.
@@ -80,6 +81,7 @@ beforeAll(async () => {
   const bundle = await build({
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
       import React, {useState} from 'react';
+      import {useRailTab} from '@/lib/client/rail-tab';
       import {trpc} from '@/lib/trpc/client';
       import {createRoot} from 'react-dom/client';
       import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
@@ -161,8 +163,9 @@ beforeAll(async () => {
         const {activeSessionId,activeExecutionId}=useDashboard();
         return <WorkContext navigation={navigation} activity={{...activity,activeSessionId,activeExecutionId}}>{children}</WorkContext>;
       }
+      // The tab lives where the real rail keeps it, so an agent's Show chats can switch it.
       function Rail(){
-        const [tab,setTab]=useState('workspace');
+        const {tab,setTab}=useRailTab();
         return <WorkspaceSelectionProvider>
           <RailListHeader tab={tab} onSelect={setTab}/>
           <RailListBody tab={tab}/>
@@ -598,17 +601,25 @@ it('lists recent chats of any status in Recent, and folds the inactive ones', as
   }
 });
 
-it("peeks at an agent's chats when you rest on it", async () => {
+it("opens nothing on rest, and Show chats opens Recent on that agent's chats", async () => {
   const { page, errors } = await open('agentsOnly');
   try {
+    // Resting on an agent with chats used to slide its chats out. Not here.
     await page.getByText('Finances', { exact: true }).hover();
-    const peek = page.getByRole('navigation', { name: 'Finances chats' });
-    await peek.waitFor();
-    const rows = await peek.locator('[role="button"]').allInnerTexts();
-    expect(rows.join('\n')).toContain('Reconcile Amex');
-    expect(rows.join('\n')).toContain('Import Chase CSV');
-    expect(rows.join('\n')).toContain('Tax estimate');
-    await page.screenshot({ path: '/tmp/ri-rail-agents-only-peek.png', clip: { x: 0, y: 0, width: 600, height: 520 } });
+    await page.waitForTimeout(600);
+    expect(await page.getByRole('navigation', { name: 'Finances chats' }).count()).toBe(0);
+
+    // Its hover actions carry Show chats instead, right on the row.
+    await agentRow(page, 'Finances').getByRole('button', { name: "Show Finances's chats" }).click();
+    expect(await page.getByRole('tab', { name: 'Recent' }).getAttribute('aria-selected')).toBe('true');
+    const recent = page.locator('aside');
+    await recent.getByText('Reconcile Amex').waitFor();
+    for (const label of ['Import Chase CSV', 'Tax estimate']) expect(await recent.getByText(label).count()).toBeGreaterThan(0);
+    // Narrowed to Finances: another agent's chat isn't listed, and Clear widens it.
+    expect(await recent.getByText('Fix login bug').count()).toBe(0);
+    await page.screenshot({ path: '/tmp/ri-rail-show-chats.png', clip: { x: 0, y: 0, width: 256, height: 520 } });
+    await recent.getByRole('button', { name: 'Clear' }).click();
+    await recent.getByText('Fix login bug').waitFor();
     expect(errors).toEqual([]);
   } finally {
     await page.close();

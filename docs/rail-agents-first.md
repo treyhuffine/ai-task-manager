@@ -50,8 +50,8 @@ What changes, all in the client (`railStyle` `agentsOnly`, no schema):
 - **No Needs you group.** The counts and the header's pills cover it.
 - **Agents | Recent stays** (back 2026-10-31, after a day without it showed coming back to Ri meant staring at the agents with no idea what was worked on lately). Recent lists every chat touched within the inactive threshold, whatever its status, archived included, newest first. Older ones fold behind "N inactive hidden" · Show, the one rule every list hides by. This applies in every rail style.
 - **Selecting chats to archive happens on Recent** (back 2026-11-02, after the rail lost bulk archive along with its chat rows). The list header's Select chats to archive shows in every rail style, on both lists, and turns the list into Recent's active chats with checkboxes. See [rail.md](rail.md#selecting-chats-to-archive).
-- **Pins stay**, under the switch as in the other styles. A pin is the escape hatch for the chats you're hands-on with. Pin one from its header or from the agent's peek.
-- **Resting on an agent peeks at its chats** beside the rail (the collapsed-agent chooser, `AgentChatsFlyout`), each with its own dot.
+- **Pins stay**, under the switch as in the other styles. A pin is the escape hatch for the chats you're hands-on with. Pin one from its header or from its row in Recent.
+- **Resting on an agent opens nothing** (since 2026-11-03, a trial). The chooser that slid its chats out beside the rail (`AgentChatsFlyout`) opened whenever the pointer rested on an agent, put the chats and its New chat a long way from the pointer, and couldn't show a chat's recent messages without a third layer. In its place, the row's hover actions carry **Show chats**, which opens Recent narrowed to that agent (`recent-filter-store.ts`, the same filter as Recent's agent pills, with Clear to widen it). There a chat shows its recent messages on hover, as every wide-rail row does. New chat stays among the row's hover actions. Agents first and Classic keep the chooser for collapsed agents.
 - **An open chat marks its agent**, since the chat has no row of its own. See [Which agent you're in](#which-agent-youre-in).
 
 ### Coming back to an agent
@@ -65,7 +65,8 @@ Both set the main chat's own `unread_marker_at`, the one a chat's Mark as unread
 
 What to watch:
 
-- Do you talk to the agent more, or go around it through the peek and Search chats?
+- Do you talk to the agent more, or go around it through Show chats, Recent and Search chats?
+- Without the chooser, is a chat still quick enough to reach, and is a glance at what it holds still easy?
 - Do the counts tell you which agent to open, and does Recent answer "what was going on" when you come back?
 - Does Mark unread get used to come back to an agent, and is the chat bar the place you reach for it?
 
