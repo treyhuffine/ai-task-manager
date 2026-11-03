@@ -105,6 +105,7 @@ async function main() {
       assert.equal(await page.locator('[data-desktop-titlebar] button[aria-label^="Today so far"]').count(), 1);
       for (const width of [1440, 1280, 1200, 1184, 1152, 1024, 960, 928, 900, 896, 832, 800, 768]) {
         await page.setViewportSize({ width, height: 900 });
+        assert.equal(await page.locator('[data-desktop-titlebar]').getByRole('button', { name: 'Quick capture', exact: true }).count(), 0);
         await checkLayout(page, `${desktop ? 'Mac renderer' : 'browser'} at ${width}px`);
       }
       // Stress layout with larger counts without creating any sessions.
@@ -116,7 +117,6 @@ async function main() {
       await page.setViewportSize({ width: 800, height: 900 });
       assert.equal(await page.locator('.hud-shortcut').isVisible(), false);
       assert.equal(await page.locator('.hud-view-label').isVisible(), false);
-      assert.equal(await page.locator('.hud-quick-capture').isVisible(), false);
       await page.locator('.hud-create').click();
       await page.getByRole('button', { name: 'Quick Capture', exact: false }).waitFor();
       await page.keyboard.press('Escape');
