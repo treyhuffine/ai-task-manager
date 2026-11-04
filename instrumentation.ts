@@ -278,12 +278,12 @@ export async function register() {
     console.warn('[heartbeat] trigger seed failed', err);
   }
 
-  // Channels made before the main agent could message you first.
+  // Channels made before their newest events existed.
   try {
-    const { backfillAgentMessageEvent } = await import('@/lib/notifications/backfill');
-    backfillAgentMessageEvent();
+    const { backfillNewEvents } = await import('@/lib/notifications/backfill');
+    backfillNewEvents();
   } catch (err) {
-    console.warn('[notifications] agent message backfill failed', err);
+    console.warn('[notifications] event backfill failed', err);
   }
 
   // Scheduler tick — fires every 60s, reads enabled `schedules` whose

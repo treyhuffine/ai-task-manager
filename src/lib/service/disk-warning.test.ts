@@ -51,29 +51,29 @@ const NOV_3 = new Date('2026-11-03T18:00:00Z');
 describe('warnIfDiskLow', () => {
   it('says nothing with 10 GiB or more free', async () => {
     const { queries, sent, deps } = await setup();
-    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: [] });
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['system.disk_low'] });
     freeSpace(10 * GIB);
     await warnIfDiskLow(NOV_3, deps);
     expect(sent).toHaveLength(0);
   });
 
-  it('warns every enabled channel below 10 GiB, even one set up before the warning existed', async () => {
+  it('warns the channels that want it below 10 GiB', async () => {
     const { queries, sent, deps } = await setup();
-    // The events a channel saved when it was made, with no mention of this one.
-    const channel = queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['execution.finished'] });
-    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: [], enabled: false });
+    const channel = queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['system.disk_low'] });
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['execution.finished'] });
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['system.disk_low'], enabled: false });
     freeSpace(8.25 * GIB);
     await warnIfDiskLow(NOV_3, deps);
     expect(sent).toEqual([{
       channelId: channel.id,
       title: 'Disk almost full',
-      body: '8.3 GiB left on this computer. Schedules, chats and saves can start failing when it runs out, so free up some space.',
+      body: '8.3 GiB left on this computer. Schedules, chats and saves can start failing when it runs out. Archiving finished chats removes their worktrees.',
     }]);
   });
 
   it('warns once a day however often it checks, and again the next day', async () => {
     const { queries, sent, deps } = await setup();
-    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: [] });
+    queries.createNotificationChannel({ userId: 'local', kind: 'integration', providerId: 'test', config: {}, events: ['system.disk_low'] });
     freeSpace(GIB);
     await warnIfDiskLow(NOV_3, deps);
     await warnIfDiskLow(new Date(NOV_3.getTime() + 5 * 60_000), deps);

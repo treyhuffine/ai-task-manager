@@ -67,7 +67,7 @@ import { composeHeartbeatPrompt } from '@/lib/heartbeat/prompt';
 import { alreadyRaised } from '@/lib/heartbeat/notes';
 import { homeCantRun } from '@/lib/setups/run-on';
 import { resolveTriggerSelection } from '@/lib/triggers/model-speed';
-import { formatSpanSeconds } from '@/lib/executions/duration';
+import { lateBy } from '@/lib/triggers/lateness';
 
 export interface DispatchRunArgs {
   trigger: TriggerRecord;
@@ -576,25 +576,21 @@ function composeCoalescedContent(
   return `${header}\n\n${withLateNote(promptForTrigger(trigger, triggerPayload), trigger, scheduledFor)}`;
 }
 
-/** A fire normally starts within a tick or two of its slot. Past this, it says so. */
-const LATE_NOTE_AFTER_MS = 5 * 60_000;
-
 /**
  * The sentence a late fire starts with. A prompt can assume the time it was
  * written for ("verify the open", "restart in the 10 AM window"), and a fresh
  * chat has no other way to know that time has passed: the computer was asleep,
- * the scheduler was down, or a one-time job waited for its chat. Whether the
- * job still applies is the agent's call.
+ * the scheduler was down, or a one-time job waited for its chat. Nobody may be
+ * watching, so doing the work is the default: a late nightly job should still
+ * run, and a production step past its window shouldn't.
  */
 export function lateFireNote(
   scheduledFor: string | null,
   timezone: string | null,
   now: Date = new Date(),
 ): string | null {
-  if (!scheduledFor) return null;
-  const due = new Date(scheduledFor);
-  const lateMs = now.getTime() - due.getTime();
-  if (!(lateMs >= LATE_NOTE_AFTER_MS)) return null;
+  const late = lateBy(scheduledFor, now);
+  if (!scheduledFor || !late) return null;
   const dueAt = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone ?? 'UTC',
     weekday: 'short',
@@ -603,9 +599,8 @@ export function lateFireNote(
     hour: 'numeric',
     minute: '2-digit',
     timeZoneName: 'short',
-  }).format(due);
-  const late = formatSpanSeconds(Math.floor(lateMs / 60_000) * 60);
-  return `This scheduled run was due at ${dueAt} and is starting ${late} late. Check it still applies before acting on it.`;
+  }).format(new Date(scheduledFor));
+  return `This scheduled run was due at ${dueAt} and is starting ${late} late. Do the work unless being this late makes it pointless or unsafe. If you skip it, say why.`;
 }
 
 function withLateNote(

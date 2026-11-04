@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils';
 import type { TriggerWithLastRun } from '@/db/types';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
 import { isTriggerInactive } from '@/lib/triggers/inactive';
+import { overdueLabel } from '@/lib/triggers/lateness';
 import { useFoldShown } from '@/lib/client/rail-fold';
 import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { FoldRow } from '@/components/workspaces/fold-row';
@@ -350,6 +351,7 @@ function Row({
     runAt: trigger.runAt,
     timezone: trigger.timezone,
   });
+  const overdue = overdueLabel(trigger);
   return (
     <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-card hover:bg-muted/40 transition-colors">
       <Tip label={trigger.enabled ? 'Pause trigger' : 'Resume trigger'}>
@@ -407,6 +409,7 @@ function Row({
             : trigger.provider && ` · ${findProvider(trigger.provider)?.name ?? trigger.provider}`}
           {trigger.lastFiredAt && ` · ran ${ranAgo(trigger.lastFiredAt)}`}
         </p>
+        {overdue && <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5 truncate">{overdue}</p>}
       </button>
 
     </div>

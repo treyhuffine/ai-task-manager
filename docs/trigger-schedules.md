@@ -130,25 +130,30 @@ due, and nothing needs a person to bring it back.
   one time, however many of its slots it missed.
 - **A late run says so.** A run starting 5 or more minutes after its slot begins
   with "This scheduled run was due at Tue, Nov 3, 10:00 AM MST and is starting
-  3h 39m late. Check it still applies before acting on it." It's a time
-  comparison in `lateFireNote`, with no model involved. `runs.scheduled_for`
-  holds the slot, not the moment the tick reached it.
+  3h 39m late. Do the work unless being this late makes it pointless or unsafe.
+  If you skip it, say why." Nobody may be watching, so doing the work is the
+  default. It's a time comparison (`lateBy`), with no model involved.
+  `runs.scheduled_for` holds the slot, not the moment the tick reached it, and
+  **Recent runs** shows "3h 39m late" beside the run.
 - **A one-time job waits for its chat.** It has no later slot, so a chat that's
-  busy or on Hold doesn't lose it. The row stays due (`oneTimeFireMustWait`),
-  and the chat's schedule chip says "waiting". It goes when the chat is free or
-  the Hold is released. **Run now** still skips and shows why.
+  busy or on Hold doesn't lose it. The row stays due (`oneTimeFireMustWait`). It
+  goes when the chat is free or the Hold is released. **Run now** still skips and
+  shows why.
 - **A failed tick doesn't stop the next one.** The error goes to the server log
   and the next tick starts clean. A full disk is the usual cause: on 2026-11-02
   a failed lock file stopped every schedule for 18 hours, until a restart.
-- **A stuck tick gets replaced.** A tick takes milliseconds, since a run outlives
-  it. After 10 minutes one is treated as stuck: a new tick takes over and the old
-  one stops at its next job, so no job fires twice. The job it was stuck on has
-  used its slot, and the log says a tick was replaced.
 
-A warning comes before the disk gets there. `warnIfDiskLow` checks every 5
-minutes and sends "Disk almost full" to every enabled notification channel below
-10 GiB free, at most once a day. It has no toggle (`routing: 'always'`), and
-nothing is deleted for you.
+Two things tell you. Neither needs to know the cause in advance.
+
+- **An overdue job says so.** In the Schedules list and on the open schedule, a
+  job 5 or more minutes past its time reads "Hasn't started, 3h 39m late", or
+  "Waiting for its chat" for a one-time job sent to a chat (`overdueLabel`). This
+  reads the row, not the scheduler, so it holds whatever went wrong. The chat's
+  schedule chip says "waiting" too.
+- **A warning comes before the disk fills.** `warnIfDiskLow` checks every 5 minutes
+  and sends "Disk almost full" below 10 GiB free, at most once a day. It's an
+  ordinary notification with a toggle per channel in Settings, on by default.
+  Nothing is deleted for you.
 
 Verification:
 

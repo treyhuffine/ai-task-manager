@@ -17,6 +17,7 @@ import type { TriggerWithLastRun } from '@/db/types';
 import { describeFrequency } from '@/lib/scheduler/frequency';
 import { findProvider } from '@/lib/harness/options';
 import { isReservedTrigger } from '@/lib/triggers/reserved';
+import { overdueLabel } from '@/lib/triggers/lateness';
 import { AwakeNote } from '@/components/triggers/awake-note';
 import { Tip } from '@/components/ui/tip';
 
@@ -92,6 +93,7 @@ function TriggerRow({
   onToggle: (enabled: boolean) => void;
 }) {
   const failing = trigger.consecutiveFailures >= 3;
+  const overdue = overdueLabel(trigger);
   return (
     <Link
       href={`/triggers/${trigger.id}`}
@@ -144,9 +146,10 @@ function TriggerRow({
           {trigger.targetKind === 'session'
             ? ' · sends to a chat'
             : trigger.provider && ` · ${findProvider(trigger.provider)?.name ?? trigger.provider}`}
-          {trigger.nextRunAt && ` · next ${humanize(trigger.nextRunAt)}`}
+          {trigger.nextRunAt && !overdue && ` · next ${humanize(trigger.nextRunAt)}`}
           {trigger.lastRunStatus && ` · last ${trigger.lastRunStatus}`}
         </p>
+        {overdue && <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5 truncate">{overdue}</p>}
       </div>
 
       <ChevronRight size={14} className="text-muted-foreground flex-shrink-0" />

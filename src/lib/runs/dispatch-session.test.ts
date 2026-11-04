@@ -283,7 +283,7 @@ describe('lateFireNote', () => {
   it('names the slot in the schedule\'s timezone and how late it is', async () => {
     const { lateFireNote } = await import('./dispatch');
     expect(lateFireNote('2026-11-03T15:00:00Z', 'America/Denver', new Date('2026-11-03T18:39:32Z')))
-      .toBe('This scheduled run was due at Tue, Nov 3, 8:00 AM MST and is starting 3h 39m late. Check it still applies before acting on it.');
+      .toBe('This scheduled run was due at Tue, Nov 3, 8:00 AM MST and is starting 3h 39m late. Do the work unless being this late makes it pointless or unsafe. If you skip it, say why.');
     expect(lateFireNote('2026-11-01T15:00:00Z', 'UTC', new Date('2026-11-03T17:30:00Z')))
       .toContain('and is starting 2d 2h late.');
   });
