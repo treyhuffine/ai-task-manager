@@ -27,11 +27,11 @@ Every check-in:
 - Look for email that can't wait until the next check-in.
 - Look for chats that failed or stopped without finishing.
 
-Once overnight, on the first check-in after 4:30 AM:
+Once overnight, on the first check-in after 3:00 AM:
 - File tasks that have no area.
 - Find tasks nobody has touched in 14 days.
 
-Once each morning, on the first check-in after 9:00 AM:
+Once each morning, on the first check-in after 7:00 AM:
 - Tell me what's waiting on me, what you tidied, and which stale tasks you'd archive.
 
 Up to twice a day, when I have nothing waiting to review:
@@ -40,7 +40,7 @@ Up to twice a day, when I have nothing waiting to review:
 
 All of the heartbeat's rhythm is in this text, so tuning it means editing it. There's still one timer. Each check-in is told the time and what earlier ones did, so "once each morning" or "up to twice a day" works however you phrase it. To let it start agent work on its own, change "Offer" to "Start". **Reset to default** restores this text.
 
-Timing follows your schedule: "4:30 AM" means the next check-in after 4:30, and a time outside your hours won't run until they open. "Once" and "up to twice" are instructions to the agent, not limits the app enforces, so it could occasionally repeat or miss one.
+Timing follows your schedule: "3:00 AM" means the next check-in after 3:00, and a time outside your hours won't run until they open. "Once" and "up to twice" are instructions to the agent, not limits the app enforces, so it could occasionally repeat or miss one.
 
 ## What it always follows
 

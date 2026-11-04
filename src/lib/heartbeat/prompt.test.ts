@@ -40,8 +40,8 @@ describe('composeHeartbeatPrompt', () => {
 
   it('seeds a default whose whole rhythm is in the text', () => {
     expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Every check-in:');
-    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Once overnight, on the first check-in after 4:30 AM:');
-    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Once each morning, on the first check-in after 9:00 AM:');
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Once overnight, on the first check-in after 3:00 AM:');
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Once each morning, on the first check-in after 7:00 AM:');
     expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Up to twice a day, when I have nothing waiting to review:');
   });
 

@@ -64,11 +64,11 @@ export const DEFAULT_HEARTBEAT_INSTRUCTIONS = `Every check-in:
 - Look for email that can't wait until the next check-in.
 - Look for chats that failed or stopped without finishing.
 
-Once overnight, on the first check-in after 4:30 AM:
+Once overnight, on the first check-in after 3:00 AM:
 - File tasks that have no area.
 - Find tasks nobody has touched in 14 days.
 
-Once each morning, on the first check-in after 9:00 AM:
+Once each morning, on the first check-in after 7:00 AM:
 - Tell me what's waiting on me, what you tidied, and which stale tasks you'd archive.
 
 Up to twice a day, when I have nothing waiting to review:
