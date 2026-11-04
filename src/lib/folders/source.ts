@@ -59,6 +59,9 @@ export function folderStateId(source: FolderSource, executionId?: string | null)
   return source.kind === 'session' ? (executionId ?? source.sessionId) : `workspace-${source.workspaceId}`;
 }
 
+/** An agent's own folder as the folder hooks cache it: its tree and files. */
+export const workspaceFolderScope = (workspaceId: string) => ['workspace-folder', workspaceId] as const;
+
 /** Scope of the viewer's folder controls. Never accepts an arbitrary endpoint. */
 export function folderSourceFromBase(base: FolderApiBase): FolderSource {
   return base.startsWith('/sessions/') ? { kind: 'session', sessionId: base.slice('/sessions/'.length) } : { kind: 'workspace', workspaceId: base.slice('/workspaces/'.length) };

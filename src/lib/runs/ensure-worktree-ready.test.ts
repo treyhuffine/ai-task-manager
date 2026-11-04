@@ -122,6 +122,23 @@ describe('ensureWorktreeReady', () => {
     expect(provisionWorktreeForSession).not.toHaveBeenCalled();
   });
 
+  it("git workspace, a chat from before its folder was a repository → ok, stays in the folder", async () => {
+    const { execution, session } = q.createExecutionWithChat({ workspaceId: gitWsId, harness: 'claude', label: null });
+    const { ensureWorktreeReady } = await import('./dispatch');
+    expect(await ensureWorktreeReady(session.id, execution)).toEqual({ ok: true });
+    expect(provisionWorktreeForSession).not.toHaveBeenCalled();
+  });
+
+  it('git workspace, a chat that has yet to get its worktree → provisions', async () => {
+    const { execution, session } = q.createExecutionWithChat({ workspaceId: gitWsId, harness: 'claude', label: null, setupStartedAt: new Date().toISOString() });
+    provisionWorktreeForSession.mockImplementation(async () => {
+      q.updateExecution(execution.id, { worktreePath: freshWorktree });
+    });
+    const { ensureWorktreeReady } = await import('./dispatch');
+    expect(await ensureWorktreeReady(session.id, execution)).toEqual({ ok: true });
+    expect(provisionWorktreeForSession).toHaveBeenCalledTimes(1);
+  });
+
   it('git workspace, worktree dir MISSING → reprovisions, then ok', async () => {
     const execution = makeExecution(gitWsId, missingWorktree);
     // Simulate a successful provision: stamp a real worktree dir onto the row.

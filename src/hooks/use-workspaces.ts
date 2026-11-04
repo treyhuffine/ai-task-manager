@@ -3,6 +3,7 @@ import { invalidateChatRows, sessionKey } from '@/lib/query/session-keys';
 import type { CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceStatus } from '@/db/types';
 import { worktreeScopeFor } from '@/hooks/use-execution';
 import { apiErrorBody, apiErrorStatus, apiErrorText } from '@/lib/api/client';
+import { workspaceFolderScope } from '@/lib/folders/source';
 import type { ChatSessionRecord, ChatSessionWithExecution } from '@/lib/api/dto/records';
 import { sessionsApi, type HistoryResponse, type RailResponse } from '@/lib/api/sessions';
 import { workspacesApi, type StackSuggestion } from '@/lib/api/workspaces';
@@ -173,7 +174,13 @@ export function useChangeAgentFolders(workspaceId: string) {
   return {
     project: useMutation({
       mutationFn: (v: { deviceId: string; folder: string }) => workspacesApi.setProjectFolder(workspaceId, v.deviceId, v.folder),
-      onSuccess: settle,
+      // The agent's record has a new folder and git state, and any list on
+      // screen (or still being read) is the old folder's.
+      onSuccess: (data) => {
+        settle(data);
+        void qc.invalidateQueries({ queryKey: WORKSPACES_KEY });
+        void qc.invalidateQueries({ queryKey: workspaceFolderScope(workspaceId) });
+      },
     }),
     linked: useMutation({
       mutationFn: (v: { deviceId: string; referenceFolderId: string; folder: string | null }) =>

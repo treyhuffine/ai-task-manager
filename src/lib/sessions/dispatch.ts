@@ -787,11 +787,12 @@ async function archiveAdmitted(
  * non-git agent's chats in its folder. Those are the person's, and agentex
  * removes a plain folder recursively, so a path that used to be the agent's
  * folder (an import's, kept after the agent's folder moved) must not reach
- * it either. An agent that can't be found removes nothing: what isn't known
- * to be Ri's is left on disk.
+ * it either, including once that agent's folder has become a git repository.
+ * An agent that can't be found removes nothing: what isn't known to be Ri's
+ * is left on disk.
  */
 function removesWorktreeOnArchive(session: ChatSessionWithExecution, ws: WorkspaceRecord | null | undefined): boolean {
-  return !!session.worktreePath && !!ws?.isGit && session.worktreePath !== ws.cwd;
+  return !!session.worktreePath && !!ws?.isGit && session.worktreePath !== ws.cwd && session.surfaceKind !== 'imported_agent';
 }
 
 /** A worktree with work that isn't committed, on another device (P4.5): archiving it would lose that. */

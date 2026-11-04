@@ -58,3 +58,26 @@ it("keeps the folder an imported chat ran in after the agent's folder moved", as
   expect((await archiveExecutionSession({ sessionId: session.id }))?.status).toBe('archived');
   expect(fs.readdirSync(before).sort()).toEqual(['README.md', 'src']);
 });
+
+it("keeps that folder too once the agent's new folder is a repository", async () => {
+  const before = plainFolder('imports-before');
+  const after = plainFolder('imports-after');
+  const ws = q.createWorkspace({ name: 'Imports', cwd: before, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+  const { session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Imported', worktreePath: before, surfaceKind: 'imported_agent' });
+  q.updateWorkspace(ws.id, { cwd: after, isGit: true, baseBranch: 'main' });
+
+  const { archiveExecutionSession } = await import('@/lib/sessions/dispatch');
+  expect((await archiveExecutionSession({ sessionId: session.id }))?.status).toBe('archived');
+  expect(fs.readdirSync(before).sort()).toEqual(['README.md', 'src']);
+});
+
+it("keeps the agent's folder when archiving a chat from before it was a repository", async () => {
+  const folder = plainFolder('became-git');
+  const ws = q.createWorkspace({ name: 'Became git', cwd: folder, isGit: false, filesToCopy: [], collapsed: false, skipLiveConfirm: false, browserEnabled: false });
+  const { session } = q.createExecutionWithChat({ workspaceId: ws.id, harness: 'claude', label: 'Plain work' });
+  q.updateWorkspace(ws.id, { isGit: true, baseBranch: 'main' });
+
+  const { archiveExecutionSession } = await import('@/lib/sessions/dispatch');
+  expect((await archiveExecutionSession({ sessionId: session.id }))?.status).toBe('archived');
+  expect(fs.readdirSync(folder).sort()).toEqual(['README.md', 'src']);
+});

@@ -251,6 +251,8 @@ What the home keeps:
 
 The device checks that its folders exist, and reports what it finds: when they change, when it connects, and when work starts there. A folder that's gone blocks work there, with the way to fix it: choose where it is now.
 
+Whether an agent is a git agent comes from its project folder on the home. It's read again every time that folder is chosen, even the same one, so pointing an agent at a repository or away from one corrects the record, and saving the folder again corrects an old one. Chats that started before the folder was a repository stay in the folder, and new ones get worktrees.
+
 The example layout from before, now as the home keeps it:
 
 | Device | Ri's project folder | agentex (for every agent) |

@@ -44,6 +44,7 @@ import {
   findActiveRunForTrigger,
   findActiveRunForChatSession,
   getChatSession,
+  getChatSessionWithExecution,
   hasPendingCoordinationSend,
   bumpSessionOutcome,
   getWorkspace,
@@ -772,6 +773,10 @@ export async function ensureWorktreeReady(
   const ws = getWorkspace(execution.workspaceId);
   if (!ws) return { ok: false, error: `Workspace ${execution.workspaceId} not found` };
   if (!ws.isGit) return { ok: true };
+
+  // A chat from before the agent's folder was a git repository works in that
+  // folder (`agentFolderHere`). Its next message doesn't move it to a worktree.
+  if (!execution.worktreePath && getChatSessionWithExecution(chatSessionId)?.worktreePath) return { ok: true };
 
   // Trust the recorded path only if the directory still exists on
   // disk. A worktree can be torn down out-of-band (archive sweep,

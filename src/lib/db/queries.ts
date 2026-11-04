@@ -9349,7 +9349,7 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
   return {
     ...row,
     execution: e,
-    worktreePath: e ? e.worktreePath ?? agentFolderHere(e, location) : null,
+    worktreePath: e ? e.worktreePath ?? agentFolderHere(e, location, row.surfaceKind) : null,
     branchName: e?.branchName ?? null,
     baseSha: e?.baseSha ?? null,
     prNumber: e?.prNumber ?? null,
@@ -9375,15 +9375,23 @@ function flattenSessionExecution<T extends ChatSessionRecord>(
  * worktree that isn't the agent's current folder, which for a plain folder
  * means deleting it. Elsewhere the device prepared a folder of its own
  * (`location.folder`).
+ *
+ * An agent's folder can become a git repository after a chat started there
+ * (`gitFactsAt`). A git agent's chats set up a worktree from the moment they
+ * start, so one that never did is from before, and it stays in the agent's
+ * folder rather than reading as setting up forever. An import never sets one
+ * up either, and has its own summary instead (`SetupCard`).
  */
-function agentFolderHere(e: ExecutionRecord, location: ExecutionLocation | null): string | null {
+function agentFolderHere(e: ExecutionRecord, location: ExecutionLocation | null, surfaceKind: string | null): string | null {
   if (location && !location.isHome) return null;
   const ws = getDb()
     .select({ cwd: workspaces.cwd, isGit: workspaces.isGit })
     .from(workspaces)
     .where(eq(workspaces.id, e.workspaceId))
     .get();
-  return ws && !ws.isGit ? ws.cwd : null;
+  if (!ws) return null;
+  if (!ws.isGit) return ws.cwd;
+  return !e.setupStartedAt && !e.branchName && surfaceKind !== 'imported_agent' ? ws.cwd : null;
 }
 
 /** Where an execution runs, by its device's name (P3.1). Null before the home has an identity. */
