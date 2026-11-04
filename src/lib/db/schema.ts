@@ -2719,7 +2719,7 @@ export interface AgentCoordinationPayload {
   /** Saved app decision, supplied only beside a later human message. */
   contextOnly?: boolean;
   /** A heartbeat check-in's note for the main agent: it gets its own turn, and the reply is pushed. */
-  checkIn?: { kind: 'now' | 'daily'; runId: string; at: string };
+  checkIn?: { runId: string; at: string };
   launch?: { workspaceId: string; provider?: HarnessId; model?: string; modelVariant?: string | null; effort?: typeof chatSessions.$inferSelect.effort; serviceTier?: string | null; permissionMode?: (typeof PERMISSION_MODES)[number]; taskId?: string; deviceId?: string; label?: string };
 }
 

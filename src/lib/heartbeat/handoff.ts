@@ -24,8 +24,6 @@ import { OUTCOME_SOURCES, type AgentDeliveryRecord, type ChatEventSource, type C
 import { NO_MESSAGE_REPLY } from './constants';
 import { isNoMessageReply } from './prompt';
 
-export type CheckInNoteKind = 'now' | 'daily';
-
 /** Far enough back to cross a declining turn, which does little before it replies. */
 const OUTCOME_LOOKBACK = 200;
 
@@ -34,18 +32,13 @@ const DECLINE = `If they already know this, or it no longer matters, reply with 
 const VOICE = "Write as yourself, the way you'd text someone you work with. Don't mention the check-in, the heartbeat, or this note.";
 
 /** What the main agent reads. The user only sees a link to the check-in, then the reply. */
-export function composeMainAgentNote(kind: CheckInNoteKind, note: string): string {
-  return kind === 'now'
-    ? `A background check-in found something while the user wasn't here. It can't reach them, so you decide whether and how to tell them. Your reply is sent to them as a message right away.\n\n${note}\n\nLead with what matters and what they should do, in a few lines. Check with your tools if you need to. ${VOICE} ${DECLINE}`
-    : `Once a day you get what background check-ins found that could wait, and what they changed for the user. Your reply is sent to them as one message.\n\n${note}\n\nCover only what still matters, briefly and most important first. If it's a lot, pick what's worth their attention today. ${VOICE} ${DECLINE}`;
+export function composeMainAgentNote(note: string, options: { first?: boolean } = {}): string {
+  const first = options.first ? " This is the first message they've had from a check-in, so add one line saying you check in on a schedule and they can change or stop it in Settings > Heartbeat." : '';
+  return `A background check-in has something for the user while they're away. It can't reach them, so you decide whether and how to tell them. Your reply is sent to them as a message right away.\n\n${note}\n\nLead with what matters and what they should do, as briefly as the content allows. Check with your tools if you need to. ${VOICE}${first} ${DECLINE}`;
 }
 
-function requestKey(runId: string, kind: CheckInNoteKind): string {
-  return `heartbeat:${runId}:${kind}`;
-}
-
-function deliveryId(sourceSessionId: string, runId: string, kind: CheckInNoteKind): string {
-  return stableCoordinationId('request', sourceSessionId, requestKey(runId, kind));
+function deliveryId(sourceSessionId: string, runId: string): string {
+  return stableCoordinationId('request', sourceSessionId, `heartbeat:${runId}:now`);
 }
 
 /**
@@ -54,39 +47,34 @@ function deliveryId(sourceSessionId: string, runId: string, kind: CheckInNoteKin
  * is idle. App-owned, so it needs no agent coordination approval: turning the
  * heartbeat on is what authorized it.
  */
-export function handOffToMainAgent(run: RunRecord, source: ChatSessionRecord, kind: CheckInNoteKind, note: string): AgentDeliveryRecord {
-  const id = deliveryId(source.id, run.id, kind);
+export function handOffToMainAgent(run: RunRecord, source: ChatSessionRecord, note: string, options: { first?: boolean } = {}): AgentDeliveryRecord {
+  const id = deliveryId(source.id, run.id);
   return createInitiatingAgentDelivery({
     id,
     source,
     sourceRunId: null,
     address: 'orchestrator',
     targetSessionId: null,
-    requestKey: requestKey(run.id, kind),
+    requestKey: `heartbeat:${run.id}:now`,
     parentRequestId: null,
     kind: 'message',
     content: note,
     options: null,
     eventId: stableCoordinationId('input', id),
-    prompt: `[Ri agent message. Request ID: ${id}. Requesting chat: ${source.id}.]\n${composeMainAgentNote(kind, note)}`,
+    prompt: `[Ri agent message. Request ID: ${id}. Requesting chat: ${source.id}.]\n${composeMainAgentNote(note, options)}`,
     status: 'queued',
-    checkIn: { kind, runId: run.id, at: run.startedAt ?? run.queuedAt },
+    checkIn: { runId: run.id, at: run.startedAt ?? run.queuedAt },
   });
 }
 
-/** Whether this note never got as far as the main agent answering it. */
-export function checkInNoteFailed(run: Pick<RunRecord, 'id' | 'chatSessionId'>, kind: CheckInNoteKind): boolean {
+/** Whether this check-in's note never got as far as the main agent answering it. */
+export function checkInNoteFailed(run: Pick<RunRecord, 'id' | 'chatSessionId'>): boolean {
   if (!run.chatSessionId) return false;
-  const delivery = getAgentDelivery(deliveryId(run.chatSessionId, run.id, kind));
+  const delivery = getAgentDelivery(deliveryId(run.chatSessionId, run.id));
   if (!delivery) return false;
   if (['failed', 'cancelled', 'denied'].includes(delivery.status)) return true;
   const turn = getRunForSourceEvent(delivery.eventId);
   return turn?.status === 'failed' || turn?.status === 'cancelled';
-}
-
-/** Whether a note this check-in sent couldn't be delivered, so Settings can say so. */
-export function checkInHandOffFailed(run: Pick<RunRecord, 'id' | 'chatSessionId'>): boolean {
-  return checkInNoteFailed(run, 'now') || checkInNoteFailed(run, 'daily');
 }
 
 /** The check-in note a main-chat run answered, if that's what this run was. */

@@ -1,6 +1,6 @@
 # Heartbeat
 
-> Status: Built, 2026-09-22. User-facing doc: `docs/heartbeat.md`. Where the build differs from the original text below, the section says so and §14 lists why. Reports in Unread were replaced on 2026-11-03: see §15.
+> Status: Built, 2026-09-22. User-facing doc: `docs/heartbeat.md`. Where the build differs from the original text below, the section says so and §14 lists why. Reports in Unread were replaced on 2026-11-03 (§15), and the default instructions and daily message on 2026-11-04 (§16).
 > Related: `docs/paperclip-work-model.md` (reference study), `docs/async-agents-v1.md` §10 and `docs/scheduled-async-agents-spec.md` §3.4 (the earlier heartbeat plans this replaces), `docs/deck-morning-trigger-spec.md` (the app-managed trigger pattern this reuses).
 
 ## 1. In plain English
@@ -311,7 +311,7 @@ Added 2026-11-03, replacing reports in Unread. Pushing a report to Telegram woul
 
 **Working.** A check-in runs in its own background chat and archives it when it finishes, whatever it found. Only a failed one stays in Unread. We don't run check-ins inside the main chat, as OpenClaw does by default: at 30 minutes, 24/7, that's up to 48 turns a day in the user's own conversation, and they'd collide with it. OpenClaw needs machinery for that (hiding prompts and acknowledgments, deferring while busy) and offers isolated sessions to cut the cost.
 
-**Speaking.** A check-in's final reply is `HEARTBEAT_OK` or a note with **Now** and **Later** sections (`parseCheckInNote`). Now goes to the main agent straight away. Later waits for the day's first check-in at or after 09:00 in the heartbeat's timezone, which also carries what check-ins changed. No state records that the daily message went out: the first check-in of each day is the one that sends it (`dailyNote`). A reply with no headings counts as Later, so a note in the wrong shape never buzzes a phone.
+**Speaking.** A check-in's final reply is `HEARTBEAT_OK` or a note with **Did**, **Now**, and **Later** sections (`parseCheckInNote`). Now goes to the main agent straight away. Did and Later stay in the reply for later check-ins to read. A reply with no headings counts as Later, so a note in the wrong shape never buzzes a phone.
 
 The note reaches the main chat as an ordinary coordination message (`handOffToMainAgent`), created in the transaction that finishes the check-in so a crash can't lose it. It always goes to the person's own main chat (`currentPrivateMainChat`), never one bound to a Slack or Buzz thread, where the reply would be posted. The main agent takes a real turn, so the message is in its own voice, with its context, and in its harness history, and replies continue with no injected context. It can reply `NO_REPLY` to stay silent, and the turn then leaves the chat's unread state as it found it (`settleDeclinedNote`). Other exceptions to normal coordination, all keyed on `payload.checkIn`: a note isn't cancelled because its source chat is archived, and it isn't steered into a running turn, batched with other messages, or supplied as context beside what a person types, because it needs a reply of its own and it tells the agent it may stay silent.
 
@@ -319,6 +319,25 @@ The note reaches the main chat as an ordinary coordination message (`handOffToMa
 
 **Seeing it.** A small "From a check-in at 2:48 PM" line stands in for the note in the transcript and opens the check-in. The note is for the main agent, and showing it would say everything twice. Hiding it entirely would leave no way to tell why the agent spoke. The main chat is left out of Unread on purpose, so `homeChat` on the rail payload drives an amber dot on the main agent's row, the same dot an agent's row shows for a new reply.
 
-**Not repeating itself.** A fresh chat has no memory, so each check-in's prompt lists what check-ins raised in the last 3 days (`alreadyRaised`), read back from their replies. A note that never reached the main agent doesn't count, so the next check-in tries again. That's the recovery for a restart mid-turn or a failure before the turn starts. Nothing is stored twice: `runs.statusReason` (`heartbeat_told`, `heartbeat_held`, `heartbeat_quiet`) says whether a run has a note, and the note is its reply.
+**Not repeating itself.** A fresh chat has no memory, so each prompt starts with what the app knows (`checkInContext`, §16). What check-ins did and raised in the last 3 days is read back from their replies. A note that never reached the main agent doesn't count, so the next check-in tries again. That's the recovery for a restart mid-turn or a failure before the turn starts. Nothing is stored twice: `runs.statusReason` (`heartbeat_told`, `heartbeat_held`, `heartbeat_quiet`) says whether a run has a note, and the note is its reply.
 
-**Trade-off.** A check-in that only changes things no longer tells the user at the time. That's up to a day later, in the daily message, and on the run page straight away. Trust is learned by watching what it does, so if the daily message proves too late for that, send changes sooner rather than bring reports back.
+**Trade-off.** A check-in that only changes things no longer tells the user at the time. They hear about it in the morning summary, and the run page lists it straight away. Trust is learned by watching what it does, so if that proves too late, send changes sooner rather than bring reports back.
+
+## 16. One heartbeat, with its rhythm in the prompt
+
+Added 2026-11-04, after reading what the first 12 check-ins did. Email and stuck work are worth checking often. Filing tasks and asking about old ones aren't, and the check-ins spent most of their time crawling chats ($1.88 each, against $0.26 for a deck refresh). Separate schedules for each job would be the wrong thing to give someone getting started: people want to feel something is keeping an eye on things, and what costs them is decisions and interruptions, not timers. Every home already runs several managed schedules that nobody thinks of as crons.
+
+So there's one switch, one timer, and one instruction box, and the instructions say what's due when (§8 is superseded by `DEFAULT_HEARTBEAT_INSTRUCTIONS`). This replaces the app-decided daily message from §15, which is deleted. The morning summary is a Now note the instructions ask for.
+
+What has to stay in code:
+
+- **The hard limits.**
+- **What a check-in can't work out for itself** (`checkInContext`): the time, when earlier check-ins ran today, what they did and raised, how many chats are running or waiting to be read, and chats that finished since the last check-in with their status lines. That's what makes "once each morning" work, and handing over the chats is meant to spare it crawling them.
+- **Filing isn't touching** (`isCheckInFiling`): an area-only `update_task` from a check-in keeps `updatedAt`, so "nobody has touched this in 14 days" still finds the task. It's still recorded in the task's history.
+
+What this gives up:
+
+- Timing is the next check-in after the stated time, and "once" and "up to twice" are soft. A rare duplicate or miss is cheap, and easy to see and fix by editing text.
+- Skipping check-ins when nothing is new is left out. The app can't read the schedule out of the prompt, so it could skip a tidy or a morning note. Add it only if usage on the narrower prompt calls for it.
+
+Not built: asking people to turn this on at the moment it can first help, such as when they connect email. For now it stays off until they find it.

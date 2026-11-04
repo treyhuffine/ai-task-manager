@@ -45,11 +45,8 @@ export const HEARTBEAT_QUIET_REASON = 'heartbeat_quiet';
 /** `runs.statusReason` on a completed check-in that told the main agent something right away. */
 export const HEARTBEAT_TOLD_REASON = 'heartbeat_told';
 
-/** `runs.statusReason` on a completed check-in that saved something for the daily message. */
+/** `runs.statusReason` on a completed check-in that saved something for later. */
 export const HEARTBEAT_HELD_REASON = 'heartbeat_held';
-
-/** The first check-in at or after this hour, in the heartbeat's timezone, carries the daily message. */
-export const HEARTBEAT_DAILY_HOUR = 9;
 
 /** How long a check-in is told what earlier check-ins raised, so it doesn't raise them again. */
 export const HEARTBEAT_MEMORY_DAYS = 3;
@@ -59,15 +56,20 @@ export const HEARTBEAT_QUIET_SUMMARY = 'Nothing needed';
 
 /**
  * Seeded into the trigger's prompt on first boot and restored by "Reset to
- * default". The user owns it after that. Written as things to look for, so a
- * check-in with nothing to find ends quietly.
+ * default". The user owns it after that. All of the heartbeat's rhythm lives
+ * here, so tuning it is editing text: each check-in is told the time and what
+ * earlier ones did, which is what lets "once" and "up to twice" work.
  */
-export const DEFAULT_HEARTBEAT_INSTRUCTIONS = `Each check-in, look for:
+export const DEFAULT_HEARTBEAT_INSTRUCTIONS = `Every check-in:
+- Look for email that can't wait until the next check-in.
+- Look for chats that failed or stopped without finishing.
 
-- Todo or In progress tasks nobody has touched in 14 days. Ask me whether to do, snooze, or archive each one.
-- Tasks with no area. Set the most likely area.
-- Executions that failed or stopped without finishing that I haven't looked at.
-- Tasks too vague for anyone to start. Ask me the one question that would make each one clear.
-- Tasks an agent could finish end to end without my judgment. Offer to start them.
+Once overnight, on the first check-in after 4:30 AM:
+- File tasks that have no area.
+- Find tasks nobody has touched in 14 days.
 
-Keep each check-in to the five most important items.`;
+Once each morning, on the first check-in after 9:00 AM:
+- Tell me what's waiting on me, what you tidied, and which stale tasks you'd archive.
+
+Up to twice a day, when I have nothing waiting to review:
+- Offer one task an agent could finish on its own.`;

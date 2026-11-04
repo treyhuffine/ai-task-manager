@@ -15,8 +15,8 @@ export interface HeartbeatCheckIn {
   status: RunStatus;
   /**
    * What it did with what it found: nothing to pass along, told the main agent
-   * right away, or saved it for the daily message. Null when it didn't finish,
-   * and for check-ins from before notes.
+   * right away, or saved it for later. Null when it didn't finish, and for
+   * check-ins from before notes.
    */
   outcome: 'quiet' | 'told' | 'held' | null;
   /** A note it sent to the main agent couldn't be delivered. */

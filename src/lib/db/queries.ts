@@ -899,7 +899,7 @@ export function updateTask(id: string, input: UpdateTaskInput, meta: EntityVersi
         ...rest,
         ...(attachments !== undefined ? { attachments: dehydrateAttachments(attachments) ?? [] } : {}),
         ...(bodyMoves ? { bodyRevision: sql`${tasks.bodyRevision} + 1` } : {}),
-        updatedAt: new Date().toISOString(),
+        updatedAt: meta.keepUpdatedAt ? existing.updatedAt : new Date().toISOString(),
       })
       .where(checked ? and(eq(tasks.id, id), eq(tasks.bodyRevision, guard.expectedBodyRevision!)) : eq(tasks.id, id))
       .returning()
@@ -2464,6 +2464,8 @@ export interface EntityVersionMeta {
   actorMemberId?: string | null;
   /** The content chat session whose turn made the edit, when known. */
   actorSessionId?: string | null;
+  /** The write doesn't count as someone touching the row (`update_task` from a check-in filing it). */
+  keepUpdatedAt?: boolean;
   /** Short human label for the change. */
   summary?: string | null;
   /** For reverts: the version whose snapshot this restored. */

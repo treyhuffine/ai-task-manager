@@ -16,25 +16,31 @@ Open **Settings > Heartbeat**. When it needs you (never set up, paused, or faile
 | Every | A number and a unit: minutes, hours, or days. At least 5 minutes | 30 minutes |
 | Hours | 24/7, or only between two times in your timezone | 24/7 |
 | Runs on | Provider, model, and effort | Your default provider, its default model |
-| Instructions | What to look at and what to do each check-in | See below |
+| Instructions | What to do, and when | See below |
 
 **Check in now** runs one check-in right away, whether it's on or off. Use it to try new instructions.
 
 Default instructions:
 
 ```
-Each check-in, look for:
+Every check-in:
+- Look for email that can't wait until the next check-in.
+- Look for chats that failed or stopped without finishing.
 
-- Todo or In progress tasks nobody has touched in 14 days. Ask me whether to do, snooze, or archive each one.
-- Tasks with no area. Set the most likely area.
-- Executions that failed or stopped without finishing that I haven't looked at.
-- Tasks too vague for anyone to start. Ask me the one question that would make each one clear.
-- Tasks an agent could finish end to end without my judgment. Offer to start them.
+Once overnight, on the first check-in after 4:30 AM:
+- File tasks that have no area.
+- Find tasks nobody has touched in 14 days.
 
-Keep each check-in to the five most important items.
+Once each morning, on the first check-in after 9:00 AM:
+- Tell me what's waiting on me, what you tidied, and which stale tasks you'd archive.
+
+Up to twice a day, when I have nothing waiting to review:
+- Offer one task an agent could finish on its own.
 ```
 
-To let it start agent work on its own, change "Offer to start them" to "Start them." **Reset to default** restores this text.
+All of the heartbeat's rhythm is in this text, so tuning it means editing it. There's still one timer. Each check-in is told the time and what earlier ones did, so "once each morning" or "up to twice a day" works however you phrase it. To let it start agent work on its own, change "Offer" to "Start". **Reset to default** restores this text.
+
+Timing follows your schedule: "4:30 AM" means the next check-in after 4:30, and a time outside your hours won't run until they open. "Once" and "up to twice" are instructions to the agent, not limits the app enforces, so it could occasionally repeat or miss one.
 
 ## What it always follows
 
@@ -46,7 +52,7 @@ The app puts these rules in front of your instructions on every check-in. Editin
 - Start or message agent executions only when the instructions say to.
 - Don't message the user or their main agent directly. The check-in's final reply is how anything reaches them.
 - If nothing needs to reach them, reply `HEARTBEAT_OK` and nothing else. That should be the usual outcome.
-- Otherwise, reply with a private note for the main agent, in up to two sections: **Now** (what can't wait until the next check-in) and **Later** (what needs them but can wait), each line followed by its task, note, or execution chip on its own line, with ids copied exactly from tool results.
+- Otherwise, reply with a private note for the main agent, using any of three sections: **Did** (what it changed, for the record), **Now** (what can't wait until the next check-in, and what the instructions say to tell you at this time), and **Later** (what needs you but can wait). Each line is followed by its task, note, or execution chip on its own line, with ids copied exactly from tool results.
 
 These rules are prompt-level. The agent is told to follow them, but the app doesn't block the underlying actions. What protects you is that every change is listed and can be undone (below). Outward actions on integrations (sending email, posting to Slack) still ask for approval under the integration write policy, whoever calls them.
 
@@ -54,16 +60,18 @@ These rules are prompt-level. The agent is told to follow them, but the app does
 
 Every finished check-in archives its own chat, so none of them wait for you in Unread.
 
-- **Something can't wait.** The check-in passes a note to your main agent. It takes a normal turn and writes to you in its own words, in your main chat, and the message is pushed to your notification channels. A small "From a check-in at 2:48 PM" line above the message opens the check-in that prompted it. Replying just continues the conversation, because the message is in your main agent's own history.
-- **Something can wait.** Questions, offers, and decisions are saved. The first check-in after 09:00 each day hands your main agent what built up, along with what check-ins changed, and it sends you one message. If nothing built up, there's no message.
-- **Nothing needed.** Nothing happens, apart from a line in the history.
+- **Something to tell you now.** The check-in passes a note to your main agent. It takes a normal turn and writes to you in its own words, in your main chat, and the message is pushed to your notification channels. A small "From a check-in at 2:48 PM" line above the message opens the check-in that prompted it. Replying just continues the conversation, because the message is in your main agent's own history. The morning summary in the default instructions is one of these.
+- **Something can wait.** Questions, offers, and decisions are saved in the check-in's reply. Later check-ins can see them, and tell you when your instructions say to.
+- **Nothing needed.** Nothing happens, apart from a line in the history. What it changed is listed there too.
 - **Failed.** A failed check-in stays in Unread, the deck chip says **failed**, and Settings shows the error.
 
 Your main agent can decide a note isn't worth sending, for example if you already talked about it. It then replies `NO_REPLY`, nothing is pushed, and you only see the "From a check-in" line. If its turn fails, the note itself is pushed instead, so something urgent still arrives. A note waits while your main agent is busy, including while you're talking to it.
 
 The new message puts an amber dot on your main agent in the rail until you've read it. Pushing it is on by default for every channel, and **Message from your main agent** in Settings > Notifications turns it off per channel.
 
-Check-ins don't repeat themselves. Each one is told what check-ins raised in the last 3 days and not to raise it again unless something changed. After that, something still unresolved can come up again.
+Check-ins start fresh, so the app tells each one what it needs: the time, when earlier check-ins ran today, what check-ins did and raised in the last 3 days, how many chats are running or waiting for you to read, and which chats finished since the last check-in, with their status lines. It's told not to raise something again unless it changed. After 3 days, something still unresolved can come up again.
+
+Filing a task doesn't count as touching it, so a check-in that sets a task's area leaves it in "nobody has touched this in 14 days".
 
 To check its work, **Recent check-ins** in Settings > Heartbeat lists the last few:
 

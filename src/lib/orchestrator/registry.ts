@@ -122,7 +122,8 @@ import {
 	DEFAULT_HEARTBEAT_INSTRUCTIONS,
 	MIN_HEARTBEAT_INTERVAL_SECONDS,
 } from '@/lib/heartbeat/constants';
-import { ensureHeartbeatTrigger, getHeartbeatConfig, getHeartbeatTrigger, updateHeartbeat } from '@/lib/heartbeat/trigger';
+import { ensureHeartbeatTrigger,
+	isCheckInFiling, getHeartbeatConfig, getHeartbeatTrigger, updateHeartbeat } from '@/lib/heartbeat/trigger';
 import type { HeartbeatPatch } from '@/lib/heartbeat/types';
 import { isImportMirror } from '@/lib/import/mirror';
 import { getNotifierUserId } from '@/lib/notifications/user';
@@ -420,7 +421,7 @@ const update_task_action = defineAction({
     const { id, expected_body_revision, ...rest } = input as { id: string; expected_body_revision?: number } & Partial<z.infer<z.ZodObject<typeof taskCreateShape>>>;
     // Edits through the agent surface (CLI/MCP) are attributed to the agent
     // so the in-document chat can surface a reviewable diff + one-tap undo.
-    const meta = { source: ctx.actor?.source ?? 'ai' } as const;
+    const meta = { source: ctx.actor?.source ?? 'ai', keepUpdatedAt: isCheckInFiling(ctx.actor?.sessionId, rest) } as const;
     const existing = getTask(id);
     if (existing?.sourceTeamId) {
       try {

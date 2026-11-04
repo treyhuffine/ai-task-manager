@@ -465,7 +465,7 @@ function InstructionsEditor({
         </span>
       </div>
       <p className="text-[11px] text-muted-foreground/85">
-        What to look at and what to do each check-in. Written like a note to a teammate.
+        What to do, and when. Each check-in knows the time and what earlier ones did, so you can write things like &ldquo;once each morning&rdquo;.
       </p>
       <Textarea
         value={draft}

@@ -19,6 +19,8 @@ import {
   defaultTriggerHarness,
   findActiveRunForTrigger,
   findTriggerByName,
+  getChatSession,
+  getRun,
   getTrigger,
   getUserState,
   listRuns,
@@ -38,7 +40,7 @@ import {
   HEARTBEAT_TRIGGER_DESCRIPTION,
   HEARTBEAT_TRIGGER_NAME,
 } from './constants';
-import { checkInHandOffFailed } from './handoff';
+import { checkInNoteFailed } from './handoff';
 import type { HeartbeatCheckIn, HeartbeatConfig, HeartbeatPatch } from './types';
 import { speedForTriggerModel } from '@/lib/triggers/model-speed';
 
@@ -167,6 +169,17 @@ export function nextCheckInAt(trigger: TriggerRecord): string | null {
   return null;
 }
 
+/**
+ * A check-in filing a task isn't anyone touching it, so it keeps its place in
+ * "nobody has touched this in 14 days".
+ */
+export function isCheckInFiling(sessionId: string | null | undefined, patch: Record<string, unknown>): boolean {
+  const fields = Object.keys(patch);
+  if (!sessionId || fields.length !== 1 || fields[0] !== 'areaId') return false;
+  const runId = getChatSession(sessionId)?.createdByRunId;
+  return !!runId && getRun(runId)?.triggerId === HEARTBEAT_TRIGGER_ID;
+}
+
 function outcomeOf(run: RunRecord): HeartbeatCheckIn['outcome'] {
   if (run.statusReason === HEARTBEAT_QUIET_REASON) return 'quiet';
   if (run.statusReason === HEARTBEAT_TOLD_REASON) return 'told';
@@ -181,7 +194,7 @@ function toCheckIn(run: RunRecord): HeartbeatCheckIn {
     completedAt: run.completedAt ?? null,
     status: run.status,
     outcome: outcomeOf(run),
-    handOffFailed: checkInHandOffFailed(run),
+    handOffFailed: checkInNoteFailed(run),
     chatSessionId: run.chatSessionId ?? null,
     changedCount: (run.artifactRefs ?? []).length,
     summary: run.summary ?? null,

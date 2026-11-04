@@ -80,7 +80,7 @@ export function describeHeartbeat(config: HeartbeatConfig, now: Date = new Date(
     return { chip: when, tone: 'idle', detail: `The last check-in (${when}) told ${assistant} something.${changed}${next}` };
   }
   if (last.outcome === 'held') {
-    return { chip: when, tone: 'idle', detail: `The last check-in (${when}) saved something for the daily message.${changed}${next}` };
+    return { chip: when, tone: 'idle', detail: `The last check-in (${when}) saved something for later.${changed}${next}` };
   }
   if (last.outcome === 'quiet') {
     return { chip: when, tone: 'idle', detail: `Last check-in ${when}. Nothing needed.${changed}${next}` };

@@ -21,22 +21,28 @@ describe('composeHeartbeatPrompt', () => {
     expect(prompt).toContain('Copy every id exactly');
   });
 
-  it('makes the reply a note to the main agent, with Now for what cannot wait and Later for the rest', () => {
+  it('makes the reply a private note with Did, Now and Later, and lets the instructions set the timing', () => {
     expect(HEARTBEAT_GROUND_RULES).toContain("The user is not watching and won't read this chat.");
     expect(HEARTBEAT_GROUND_RULES).toContain("private note to the user's main agent");
-    expect(HEARTBEAT_GROUND_RULES).toContain('**Now**');
-    expect(HEARTBEAT_GROUND_RULES).toContain('**Later**');
+    for (const heading of ['**Did**', '**Now**', '**Later**']) expect(HEARTBEAT_GROUND_RULES).toContain(heading);
+    expect(HEARTBEAT_GROUND_RULES).toContain('such as once each morning');
+    expect(HEARTBEAT_GROUND_RULES).toContain('everything the instructions say to tell them or offer them at this time, in full');
     expect(HEARTBEAT_GROUND_RULES).toContain("Don't use message_agent to reach the user");
   });
 
-  it('puts what was already raised between the rules and the instructions, only when there is some', () => {
-    const prompt = composeHeartbeatPrompt('Look at email.', 'Nov 3, 2:48 PM, told right away:\nGmail permission is missing.');
-    expect(prompt.indexOf('## Already raised')).toBeGreaterThan(prompt.indexOf('Copy every id exactly'));
-    expect(prompt.indexOf('## Already raised')).toBeLessThan(prompt.indexOf('## Your instructions'));
-    expect(prompt).toContain("Don't raise them again unless something changed.");
-    expect(prompt).toContain('Gmail permission is missing.');
-    expect(composeHeartbeatPrompt('Look at email.', null)).not.toContain('## Already raised');
-    expect(composeHeartbeatPrompt('Look at email.', '  ')).not.toContain('## Already raised');
+  it('puts what the app knows between the rules and the instructions, only when there is some', () => {
+    const prompt = composeHeartbeatPrompt('Look at email.', '## Right now\n\nIt is morning.');
+    expect(prompt.indexOf('## Right now')).toBeGreaterThan(prompt.indexOf('Copy every id exactly'));
+    expect(prompt.indexOf('## Right now')).toBeLessThan(prompt.indexOf('## Your instructions'));
+    expect(composeHeartbeatPrompt('Look at email.', null)).toBe(`${HEARTBEAT_GROUND_RULES}\n\n## Your instructions\n\nLook at email.`);
+    expect(composeHeartbeatPrompt('Look at email.', '  ')).toBe(composeHeartbeatPrompt('Look at email.'));
+  });
+
+  it('seeds a default whose whole rhythm is in the text', () => {
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Every check-in:');
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Once overnight, on the first check-in after 4:30 AM:');
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Once each morning, on the first check-in after 9:00 AM:');
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Up to twice a day, when I have nothing waiting to review:');
   });
 
   it('keeps the product copy free of em dashes and semicolons', () => {
@@ -87,14 +93,15 @@ describe('isNoMessageReply', () => {
 describe('parseCheckInNote', () => {
   it('splits Now from Later, keeping each item and its reference', () => {
     expect(parseCheckInNote('**Now**\n\nThe contract expires today.\n[[task:abc]]\n\n**Later**\n\nThis task looks stale.\n[[task:def]]')).toEqual({
+      did: null,
       now: 'The contract expires today.\n[[task:abc]]',
       later: 'This task looks stale.\n[[task:def]]',
     });
   });
 
   it('takes either section alone', () => {
-    expect(parseCheckInNote('**Now**\nCall them back.')).toEqual({ now: 'Call them back.', later: null });
-    expect(parseCheckInNote('**Later**\nPick a name.')).toEqual({ now: null, later: 'Pick a name.' });
+    expect(parseCheckInNote('**Now**\nCall them back.')).toEqual({ did: null, now: 'Call them back.', later: null });
+    expect(parseCheckInNote('**Later**\nPick a name.')).toEqual({ did: null, now: null, later: 'Pick a name.' });
   });
 
   it('accepts the heading shapes models reach for', () => {
@@ -105,6 +112,7 @@ describe('parseCheckInNote', () => {
 
   it('never treats a sentence as a heading', () => {
     expect(parseCheckInNote('**Later**\nNow is a good time to archive this.\nLater today is fine.')).toEqual({
+      did: null,
       now: null,
       later: 'Now is a good time to archive this.\nLater today is fine.',
     });
@@ -115,11 +123,17 @@ describe('parseCheckInNote', () => {
     expect(parseCheckInNote('Checked email and tasks.\n\n**Now**\nCall them back.').later).toBeNull();
   });
 
+  it('keeps what it did apart from what reaches the user', () => {
+    expect(parseCheckInNote('**Did**\nFiled the tax task under Taxes.\n\n**Later**\nPick a name.')).toEqual({
+      did: 'Filed the tax task under Taxes.', now: null, later: 'Pick a name.',
+    });
+  });
+
   it('counts a note with no headings as Later, so the wrong shape never buzzes a phone', () => {
-    expect(parseCheckInNote('Something about a task.')).toEqual({ now: null, later: 'Something about a task.' });
+    expect(parseCheckInNote('Something about a task.')).toEqual({ did: null, now: null, later: 'Something about a task.' });
   });
 
   it('treats empty sections as nothing', () => {
-    expect(parseCheckInNote('**Now**\n\n**Later**\n')).toEqual({ now: null, later: null });
+    expect(parseCheckInNote('**Now**\n\n**Later**\n')).toEqual({ did: null, now: null, later: null });
   });
 });

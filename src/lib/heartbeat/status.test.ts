@@ -90,7 +90,7 @@ describe('describeHeartbeat', () => {
     expect(told).toMatchObject({ chip: time(at(22, 14)), tone: 'idle' });
     expect(told.detail).toMatch(/told Rye something\. Changed 2 items\./);
     const held = describeHeartbeat(config({ lastCheckIn: checkIn({ outcome: 'held' }) }), NOW);
-    expect(held.detail).toMatch(/saved something for the daily message/);
+    expect(held.detail).toMatch(/saved something for later/);
   });
 
   it('flags a note that could not reach the main agent', () => {

@@ -64,7 +64,7 @@ import { runArtifactBucket } from './artifact-bucket';
 import { budgetGate, BUDGET_DISABLED_REASON } from './budget';
 import { RESERVED_TRIGGER_IDS } from '@/lib/triggers/reserved';
 import { composeHeartbeatPrompt } from '@/lib/heartbeat/prompt';
-import { alreadyRaised } from '@/lib/heartbeat/notes';
+import { checkInContext } from '@/lib/heartbeat/notes';
 import { homeCantRun } from '@/lib/setups/run-on';
 import { resolveTriggerSelection } from '@/lib/triggers/model-speed';
 import { lateBy } from '@/lib/triggers/lateness';
@@ -998,11 +998,11 @@ async function runWithTimeout<T>(
  * exactly what the agent received.
  */
 export function promptForTrigger(
-  trigger: Pick<TriggerRecord, 'id' | 'prompt' | 'timezone'>,
+  trigger: Pick<TriggerRecord, 'id' | 'prompt' | 'timezone' | 'intervalSeconds'>,
   payload: Record<string, unknown> | string | null,
 ): string {
   const base =
-    trigger.id === RESERVED_TRIGGER_IDS.heartbeat ? composeHeartbeatPrompt(trigger.prompt, alreadyRaised(trigger)) : trigger.prompt;
+    trigger.id === RESERVED_TRIGGER_IDS.heartbeat ? composeHeartbeatPrompt(trigger.prompt, checkInContext(trigger)) : trigger.prompt;
   return composePromptWithPayload(base, payload);
 }
 
