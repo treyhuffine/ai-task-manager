@@ -1,6 +1,6 @@
 'use client';
 
-import { Link2, SquareCheckBig, StickyNote, Unlink } from 'lucide-react';
+import { Link2, Lock, SquareCheckBig, StickyNote, Unlink } from 'lucide-react';
 import { useWorkNavigation } from '@/contexts/work-context';
 import { useBacklinks, type LinkEntityType } from '@/hooks/use-backlinks';
 
@@ -14,9 +14,12 @@ import { useBacklinks, type LinkEntityType } from '@/hooks/use-backlinks';
 export function LinkedReferences({
   entityType,
   entityId,
+  onlyYou = false,
 }: {
   entityType: LinkEntityType;
   entityId: string;
+  /** On a team's shared record: these are this person's own, and its team never sees them. */
+  onlyYou?: boolean;
 }) {
   const { openTask, openNote } = useWorkNavigation();
   const { data, isError } = useBacklinks(entityType, entityId);
@@ -48,6 +51,11 @@ export function LinkedReferences({
         Linked references
         {backlinks.length > 0 && (
           <span className="text-muted-foreground/60">{backlinks.length}</span>
+        )}
+        {onlyYou && (
+          <span className="ml-auto inline-flex items-center gap-1 font-normal">
+            <Lock className="w-3 h-3" /> Only you
+          </span>
         )}
       </div>
 

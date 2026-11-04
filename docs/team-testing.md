@@ -30,6 +30,10 @@ Use the Home selector to open the team. Tasks opens the common task surface with
 
 In personal Tasks, choose **Source → the team** and **All** or **Todo**. This is imported personal work, with a direct Browse all team tasks action. Assigned tasks enter automatically. Add an unassigned task to personal work without changing its assignee, and save a note reference. Repeated add, reconnect and sync must retain one reference. Check freshness, offline/error state and Retry rather than treating a failed refresh as an authoritative empty list.
 
+## Links to team records
+
+From a personal chat, ask an agent to name a team task it found with `target_home_id`. The chip shows the title and team, and clicking opens the team's view in this tab, or a shared copy in place. Repeat for a note and an Area. With the team stopped, the chip says it can't be reached and the screen it opens offers Retry. After disconnecting, a task with no shared copy shows only the team's name and doesn't open. In a shared body, `@` offers only the team's records. Ask the agent to link a private task from a team body: it's refused and nothing reaches the team. `docs/team-links.md` has every state.
+
 ## 3. Private rank and Area organization
 
 Reorder an imported task among personal tasks, and separately reorder the canonical team task. Sync again. Personal and team order must stay independent. A new import is unranked and cannot modify a saved Deck.

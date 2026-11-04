@@ -4,7 +4,7 @@ import { teamDisplayName } from '@/lib/home/team-display-name';
 import { Lock, PencilLine, Users } from 'lucide-react';
 import type { NoteRecord } from '@/db/types';
 import { useUpdateNote } from '@/hooks/use-notes';
-import { spacePath } from '@/lib/spaces/document';
+import { spaceRecordPath } from '@/lib/spaces/document';
 import { EntityLinkScope } from '@/components/editor/entity-link-scope';
 import { RichEditor } from '@/components/editor/rich-editor';
 import { AreaSelect } from '@/components/shared/area-select';
@@ -17,7 +17,7 @@ import { spaceAttachmentStore } from '@/lib/spaces/attachment-store';
 /** Where a saved team note is edited: its team's own space, opened on it. */
 export function teamNoteHref(note: Pick<NoteRecord, 'sourceTeamId' | 'sourceNoteId'>): string | null {
   if (!note.sourceTeamId || !note.sourceNoteId) return null;
-  return `${spacePath(note.sourceTeamId)}?note=${encodeURIComponent(note.sourceNoteId)}`;
+  return spaceRecordPath(note.sourceTeamId, 'note', note.sourceNoteId);
 }
 
 /**
@@ -81,7 +81,7 @@ export function SharedNoteBody({ note }: { note: NoteRecord }) {
         </div>
       </section>
 
-      <LinkedReferences entityType="note" entityId={note.id} />
+      <LinkedReferences entityType="note" entityId={note.id} onlyYou />
     </div>
   );
 }
