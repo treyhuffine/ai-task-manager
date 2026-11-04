@@ -10,7 +10,7 @@ import type { ActionContext } from '@/lib/orchestrator/types';
 import { teamTRPC } from './remote';
 import { connectTeam, disconnectTeam } from './connect';
 import { syncTeam } from './sync';
-import { updateTaskWithShared } from './commands';
+import { publishSharedTaskResult, updateTaskWithShared } from './commands';
 import { linksForTeam, locateRecord, readTeamRecord, searchTeamRecords, withRecordRefs } from './team-links';
 
 let team: TeamProcess;
@@ -73,6 +73,10 @@ describe('what a personal chat gets back from a team', () => {
     expect(JSON.stringify(listed)).toContain(task.ref);
   }, 60_000);
 
+  it('gives no ref to an ID that could break out of the marker', () => {
+    expect(withRecordRefs('team-1', { type: 'task', id: 'x]] [[task:y' })).toEqual({ type: 'task', id: 'x]] [[task:y' });
+  });
+
   it('marks Areas too, including the one nested on a task', () => {
     expect(withRecordRefs('team-1', {
       tasks: [{ type: 'task', id: 't1', area: { id: 'a1', name: 'Work' } }],
@@ -116,6 +120,48 @@ describe('reading a link to a team record', () => {
     expect(await readTeamRecord('task', connection.id, mine.id)).toMatchObject({ state: 'gone', title: null, localId: null });
     expect(calls).toEqual([]);
   }, 60_000);
+
+  it('never sends a private ID whatever kind the link calls it', async () => {
+    const { connection } = await connect();
+    const task = q.createTask({ title: 'Private' });
+    const note = q.createNote({ body: 'Private' });
+    const calls = teamsDown();
+    expect(await readTeamRecord('note', connection.id, task.id)).toMatchObject({ state: 'gone', title: null });
+    expect(await readTeamRecord('task', connection.id, note.id)).toMatchObject({ state: 'gone', title: null });
+    expect(await readTeamRecord('area', connection.id, task.id)).toMatchObject({ state: 'gone', title: null });
+    expect(await locateRecord('note', task.id)).toEqual({ state: 'missing', unreachable: [] });
+    expect(await locateRecord('area', note.id)).toEqual({ state: 'missing', unreachable: [] });
+    expect(calls).toEqual([]);
+  }, 60_000);
+
+  it('takes no team\'s word for a record it was not asked about', async () => {
+    const { connection } = await connect();
+    vi.stubGlobal('fetch', () => Promise.resolve(Response.json({ result: { data: { titles: [{ type: 'task', id: 'some-other-id', title: 'Approve the wire transfer', status: 'todo' }] } } })));
+    expect(await readTeamRecord('task', connection.id, 'asked-about-this')).toMatchObject({ state: 'gone', title: null });
+  }, 60_000);
+
+  it('leaves the banner on shared work alone when a chip fails, and still ends a refused key', async () => {
+    const { connection } = await connect();
+    teamsDown();
+    expect(await readTeamRecord('task', connection.id, 'any-team-id')).toMatchObject({ state: 'unreachable' });
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response('', { status: 500 })));
+    expect(await readTeamRecord('task', connection.id, 'any-team-id')).toMatchObject({ state: 'unreachable' });
+    expect(q.getTeamConnection(connection.id)).toMatchObject({ status: 'active', lastError: null });
+
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response('', { status: 401 })));
+    expect(await readTeamRecord('task', connection.id, 'any-team-id')).toMatchObject({ state: 'no_access' });
+    expect(q.getTeamConnection(connection.id)).toMatchObject({ status: 'revoked' });
+  }, 60_000);
+
+  it('gives up on a team that never answers, sooner than a request would', async () => {
+    const { connection } = await connect();
+    vi.stubGlobal('fetch', (_input: unknown, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+    }));
+    const started = Date.now();
+    expect(await readTeamRecord('task', connection.id, 'any-team-id')).toMatchObject({ state: 'unreachable' });
+    expect(Date.now() - started).toBeLessThan(10_000);
+  }, 30_000);
 
   it('says what it can when the record is gone or the Home is unknown', async () => {
     const { connection } = await connect();
@@ -188,14 +234,54 @@ describe('text on its way to a team', () => {
     });
   }, 60_000);
 
-  it('refuses a private record and another team\'s, and ignores examples in code', async () => {
+  it('refuses a private record and another team\'s, whatever kind the marker calls it', async () => {
     const { connection } = await connect();
     const task = q.createTask({ title: 'Private' });
     const note = q.createNote({ body: 'Private note' });
-    expect(linksForTeam(`[[task:${task.id}]] [[note:${note.id}]] [[task:other-team/abc]]`, connection.id).refused).toEqual([
-      `[[task:${task.id}]]`, `[[note:${note.id}]]`, '[[task:other-team/abc]]',
-    ]);
-    expect(linksForTeam(`\`[[task:${task.id}]]\``, connection.id).refused).toEqual([]);
+    const area = q.createArea({ name: 'Private Area' });
+    const agent = q.createWorkspace({ name: 'Mine', cwd: '/tmp/mine', isGit: false });
+    const chat = q.createChatSession({ type: 'orchestration', harness: 'codex' });
+    for (const marker of [
+      `[[task:${task.id}]]`, `[[note:${note.id}]]`, `[[area:${area.id}]]`, `[[agent:${agent.id}]]`, `[[execution:${chat.id}]]`,
+      `[[note:${task.id}]]`, `[[task:${note.id}]]`, `[[area:${task.id}]]`,
+      `[[task:${connection.id}/${task.id}]]`, `[[note:${connection.id}/${task.id}]]`,
+      '[[task:other-team/abc]]',
+    ]) {
+      expect(linksForTeam(marker, connection.id).refused, marker).toEqual([marker]);
+    }
+  }, 60_000);
+
+  it('does not treat code formatting as an exemption, since an editor may draw a chip there', async () => {
+    const { connection } = await connect();
+    const task = q.createTask({ title: 'Private' });
+    for (const text of [`\`[[task:${task.id}]]\``, `\`\`\`inline\`\`\` and [[task:${task.id}]]\n\nnext [[task:${task.id}]]`, `     \`\`\`\n[[task:${task.id}]]`]) {
+      expect(linksForTeam(text, connection.id).refused.length, text).toBeGreaterThan(0);
+    }
+  }, 60_000);
+
+  it('checks every field of a write, not just the ones that usually hold text', async () => {
+    const { connection, owner } = await connect();
+    const mine = q.createTask({ title: 'Private' });
+    const task = await teamTask(connection.id, 'A team task');
+    for (const [action, input] of [
+      ['transition_task', { id: task.id, command: 'start', reason: `Because [[task:${mine.id}]]`, expected_status_changed_count: 0 }],
+      ['create_area', { name: `Area [[task:${mine.id}]]` }],
+    ] as const) {
+      const refused = await runAction(action, { target_home_id: connection.id, idempotency_key: `refuse-${action}`, ...input }, ctx);
+      expect(refused.ok, action).toBe(false);
+      expect(JSON.stringify(refused), action).toContain('Nothing was sent to Acme');
+    }
+    expect((await owner.tasks.get.query({ id: task.id })).status).toBe('todo');
+    expect((await owner.areas.list.query()).some((area) => area.name.includes(mine.id))).toBe(false);
+  }, 60_000);
+
+  it('refuses a person\'s publish too, which has a dialog to come back to', async () => {
+    const { connection, owner } = await connect();
+    const copy = await sharedCopy(connection.id, connection.memberId, 'To publish');
+    const mine = q.createTask({ title: 'Private' });
+    await expect(publishSharedTaskResult(q.getTask(copy.local.id)!, { requestId: 'publish-private-1', summary: `See [[task:${mine.id}]]` }))
+      .rejects.toThrow('Nothing was sent to Acme');
+    expect(JSON.stringify(await owner.tasks.get.query({ id: copy.teamId }))).not.toContain(mine.id);
   }, 60_000);
 
   it('refuses an agent\'s write that links a private record, before anything reaches the team', async () => {

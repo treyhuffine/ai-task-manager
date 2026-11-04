@@ -255,5 +255,4 @@ export function settleEntity(qc: QueryClient, root: OptimisticEntityRoot) {
   // where actually mounted. See docs/entity-links-spec.md §9.3.
   qc.invalidateQueries({ queryKey: trpc.entities.backlinksTypeGet.pathKey() });
   qc.invalidateQueries({ queryKey: trpc.entities.titlesGet.pathKey() });
-  qc.invalidateQueries({ queryKey: trpc.spaces.record.pathKey() });
 }

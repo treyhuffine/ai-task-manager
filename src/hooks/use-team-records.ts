@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useOptionalHomeContext } from '@/components/home/home-context';
 import { useOptionalWorkNavigation } from '@/contexts/work-context';
 import type { RemoteRecordKind } from '@/lib/entity-refs/parse-markers';
-import { currentSpaceId, spacePlaceKey, spaceRecordPath } from '@/lib/spaces/document';
+import { currentSpaceId, rememberSpacePlace, spaceRecordPath } from '@/lib/spaces/document';
 import type { TeamRecordView } from '@/lib/spaces/team-links';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 
@@ -55,11 +55,7 @@ export function useOpenTeamRecord() {
       else navigation.openNote(view.localId);
       return;
     }
-    try {
-      sessionStorage.setItem(spacePlaceKey(currentSpaceId()), window.location.pathname + window.location.search);
-    } catch {
-      // Without session storage the selector opens My Ri at its start.
-    }
+    rememberSpacePlace();
     window.location.assign(spaceRecordPath(view.homeId, kind, id));
   }, [navigation]);
 }

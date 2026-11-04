@@ -346,9 +346,10 @@ Formatting rules, these are load-bearing for the UI:
 
 \`[[task:UUID]]\` means a record in this Home. A record in a connected team has
 a different address: copy the \`ref\` from its tool result, such as
-\`[[task:HOME_ID/UUID]]\`, into chat or any body, the team's own included. A link
-in team text to a private record, or to another team's, is refused. Its
-\`link\` is a web address for sharing outside Ri.
+\`[[task:HOME_ID/UUID]]\`. A task's or note's works in chat or any body, the
+team's own included, and an Area's only in chat. A link in team text to a private
+record, or to another team's, is refused. Its \`link\` is a web address for
+sharing outside Ri.
 
 User messages may reference uploaded files as \`[[file:<name>]]\`. The file
 lives at ${attachmentsAt}. Read it when you need the

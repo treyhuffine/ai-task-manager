@@ -9,7 +9,7 @@ import { workResultAttachmentSchema } from '@/lib/work-results/validation';
 import { copyToTeam } from './commands';
 import { replaceAttachmentReferences } from '@/lib/attachments/derive';
 import { TEAM_TOOLS } from '@/lib/team/mcp/tools';
-import { linksForTeam, privateLinkMessage, teamTextFields, withRecordRefs } from './team-links';
+import { privateLinkMessage, teamTextFields, withRecordRefs } from './team-links';
 
 function authorize(ctx: ActionContext) {
   if (isTeamAuthority()) throw new ActionError('unsupported', 'Connected team access belongs to a personal Ri.');
@@ -73,7 +73,7 @@ export function withConnectedHome(action: Action): Action {
     ...action,
     localContract: { params: action.params, description: action.description },
     params: { ...action.params, ...additions },
-    description: `${action.description} To work in a connected team, call list_homes then pass target_home_id. Connected writes require idempotency_key and use canonical team IDs. Each record in a connected result has a ref: copy it to link that record in chat or any body, since a bare [[task:ID]] means this Home's record.`,
+    description: `${action.description} To work in a connected team, call list_homes then pass target_home_id. Connected writes require idempotency_key and use canonical team IDs. Each record in a connected result has a ref. Copy it to link that record, since a bare [[task:ID]] means this Home's record: a task's or note's works in chat or any body, an Area's only in chat.`,
     handler: (ctx, input) => {
       const { target_home_id, ...rest } = input;
       if (target_home_id !== undefined && target_home_id !== q.getHome()?.id) return callConnectedHome(ctx, String(target_home_id), action.name, rest);
@@ -116,8 +116,8 @@ export const connectedHomeActions = [
       const team = await teamFor(target_home_id);
       if (!team) throw new ActionError('not_found', 'The selected team is not connected.');
       try {
-        const summary = input.summary === undefined ? null : linksForTeam(input.summary, target_home_id);
-        if (summary?.refused.length) throw new ActionError('invalid_params', privateLinkMessage(team.connection.name, summary.refused));
+        const outgoing = teamTextFields({ summary: input.summary, links: input.links }, target_home_id);
+        if (outgoing.refused.length) throw new ActionError('invalid_params', privateLinkMessage(team.connection.name, outgoing.refused));
         const copies = [];
         const names = new Map<string, string>();
         for (const file of input.attachments ?? []) {
@@ -127,7 +127,7 @@ export const connectedHomeActions = [
           names.set(file.fileName, copy.fileName);
         }
         assertCurrentTeam(team);
-        const response = await team.client.team.nativePublish.mutate({ taskId: task_id, requestId: idempotency_key, ...input, summary: summary?.text ? replaceAttachmentReferences(summary.text, names) : input.summary, attachments: copies });
+        const response = await team.client.team.nativePublish.mutate({ taskId: task_id, requestId: idempotency_key, ...input, ...outgoing.fields, summary: outgoing.fields.summary ? replaceAttachmentReferences(outgoing.fields.summary, names) : outgoing.fields.summary, attachments: copies });
         assertCurrentTeam(team);
         return { target_home: { id: team.connection.id, name: team.connection.name }, ...response };
       } catch (error) {

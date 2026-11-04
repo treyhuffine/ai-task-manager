@@ -41,6 +41,15 @@ export function spacePlaceKey(space: string | null): string {
   return `ri:space-nav:${space ?? 'my-ri'}`;
 }
 
+/** Save this place, for the selector to come back to. Without session storage it opens at the start. */
+export function rememberSpacePlace(): void {
+  try {
+    sessionStorage.setItem(spacePlaceKey(currentSpaceId()), window.location.pathname + window.location.search);
+  } catch {
+    // Nothing to do.
+  }
+}
+
 /** Where a space document reaches its team's API through this home. */
 export function spaceApiBase(teamId: string): string {
   return `/api/space/${encodeURIComponent(teamId)}`;

@@ -115,10 +115,13 @@ function wikiLink(
 function rewriteBodyEntityLinks(text: string, resolver: LinkResolver | undefined, sourceTeamId?: string | null): string {
   if (!text || !resolver) return text;
   return rewriteEntityMarkers(text, (marker) => {
-    if (marker.kind === 'remote') return resolver.teamRecordText(marker.recordKind, marker.homeId, marker.id);
+    if (marker.kind === 'remote') {
+      return sourceTeamId && marker.homeId !== sourceTeamId ? null : resolver.teamRecordText(marker.recordKind, marker.homeId, marker.id);
+    }
+    // A team's text only looks in that team, never at this Home's records.
+    if (sourceTeamId) return resolver.teamRecordText(marker.kind, sourceTeamId, marker.id);
     const target = resolver.linkFor(marker.kind, marker.id);
-    if (target) return `[[${target}]]`;
-    return sourceTeamId ? resolver.teamRecordText(marker.kind, sourceTeamId, marker.id) : null;
+    return target ? `[[${target}]]` : null;
   });
 }
 

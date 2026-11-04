@@ -21,6 +21,7 @@ import { useEntityLinkHome } from './entity-link-scope';
  * for in connected teams.
  */
 import { useOptionalWorkNavigation } from '@/contexts/work-context';
+import { useOptionalHomeContext } from '@/components/home/home-context';
 import {
   Node,
   mergeAttributes,
@@ -139,6 +140,7 @@ function EntityLinkView({ node, selected }: NodeViewProps) {
   const { kind, id, homeId } = node.attrs as EntityLinkAttrs;
   const sourceHome = useEntityLinkHome();
   const inMyRi = useInMyRi();
+  const thisHome = useOptionalHomeContext()?.home.id;
   if (sourceHome) {
     // A team's text can't reach beyond that team, whatever a marker in it names.
     return homeId && homeId !== sourceHome
@@ -146,15 +148,16 @@ function EntityLinkView({ node, selected }: NodeViewProps) {
       : <TeamLink kind={kind} id={id} homeId={sourceHome} inTeamText selected={selected} />;
   }
   if (homeId && inMyRi) return <TeamLink kind={kind} id={id} homeId={homeId} selected={selected} />;
-  if (homeId) return <LinkChip kind={kind} label={unavailable(kind)} muted selected={selected} />;
+  if (homeId && homeId !== thisHome) return <LinkChip kind={kind} label={unavailable(kind)} muted selected={selected} />;
   return <HomeLink kind={kind} id={id} inMyRi={inMyRi} selected={selected} />;
 }
 
 const unavailable = (kind: EntityLinkKind) => (kind === 'task' ? 'Task unavailable' : 'Note unavailable');
 
 function TeamLink({ kind, id, homeId, inTeamText = false, selected }: { kind: EntityLinkKind; id: string; homeId: string; inTeamText?: boolean; selected: boolean }) {
-  const { data } = useTeamRecord(kind, homeId, id);
-  return <TeamRecordLink kind={kind} id={id} view={data ?? null} inTeamText={inTeamText} selected={selected} />;
+  const { data, isError } = useTeamRecord(kind, homeId, id);
+  const unread: TeamRecordView = { state: 'unreachable', homeId, teamName: null, title: null, status: null, localId: null };
+  return <TeamRecordLink kind={kind} id={id} view={isError ? unread : data ?? null} inTeamText={inTeamText} selected={selected} />;
 }
 
 function TeamRecordLink({ kind, id, view, inTeamText = false, selected }: { kind: EntityLinkKind; id: string; view: TeamRecordView | null; inTeamText?: boolean; selected: boolean }) {

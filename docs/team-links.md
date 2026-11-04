@@ -21,13 +21,17 @@ Text on its way to a team passes through `linksForTeam` (`src/lib/spaces/team-li
 
 - A shared copy's local ID becomes the team's ID.
 - The team's own `ref` becomes a bare link.
-- A link to a private record, or to another team's, is refused for an agent, naming the link and sending nothing. A person's editor autosaves and can't act on a refusal, so it sends what they typed. The `@` menu in a shared body only offers that team's records.
+- A link to a private record, or to another team's, is refused for an agent, naming the link and sending nothing. A person's editor autosaves and can't act on a refusal, so it sends what they typed, and the `@` menu in a shared body only offers that team's records. Publishing and completing are deliberate, so a person is refused there too.
+
+This reads every string in the write and every record kind, whatever the kind in the marker says, and code formatting doesn't exempt anything, since an editor may draw a chip where a parser saw code. The ID a tool call names is the caller's explicit choice, so `get_task` with `target_home_id` means the team's record even if this Home has that ID too. The editor keeps what the person typed while it's open, because a saver treats what it sent as saved. Otherwise a translated echo reads as an unsaved edit and writes forever.
 
 A team's direct MCP clients only ever have team IDs, so their tools are unchanged.
 
 ## Reading a link
 
-`spaces.record` asks the team with the title lookup, which never counts as a view. A bare ID that isn't in this Home goes to `spaces.locateRecord`: this Home first, then shared copies, then every connected team at once. It stops at this Home, so a private ID is never sent to a team. With no teams it makes no request. It only runs in My Ri's chats and personal bodies, because a team's text only ever looks in that team.
+`spaces.record` asks the team with the title lookup, which never counts as a view. A bare ID that isn't in this Home goes to `spaces.locateRecord`: this Home first, then shared copies, then every connected team at once. An ID in this Home of any kind stops it, so a private record's ID is never sent to a team. A deleted record's can be, since nothing here says it was ever private. With no teams it makes no request. It only runs in My Ri's chats and personal bodies, because a team's text only ever looks in that team, and that includes the link index and mirror for a shared copy.
+
+A chip waits 5 seconds for an answer, and only a refused key changes the connection. A slow team affects its own chips, not the banner on shared work.
 
 The mirror, link index and message expansion run with no network, which is why the Home has to be in the link itself. The lookup is only a net for old chats and agents that skip `ref`.
 
@@ -59,11 +63,17 @@ The desktop app has no tabs, so this happens in its one window. Its shell (`will
 - **Team to personal:** a team holds no credential for My Ri, so a private ID in team text can't resolve. Agents are stopped from writing one. Its only content is an ID, whose first characters say when the record was made.
 - **Personal to team:** a link in a private note stays in My Ri's link index. It shows on a shared copy's Linked references, marked Only you. The team's `list_links` never sees it.
 - **After access ends:** a link with no shared copy has no title to show, and nothing was saved to purge. A shared copy keeps its title and private planning, as `releaseTeamContent` always has, so a person can still tell what it was. Prose someone wrote stays, like any export.
-- **Between teams:** the lookup can send one team's ID to another team's server. It holds nothing but the ID.
+- **Between teams:** the lookup can send one team's ID to another team's server, or a deleted private record's. It holds nothing but the ID.
 
 ## Existing data
 
 Nothing is migrated and no chat is rewritten. `[[task:<id>]]` stays valid forever. A dead chip in an old chat starts working if the lookup finds its record, and otherwise stays not found.
+
+## Known limits
+
+- The mirror rewrites a note when the note changes, so a link written before a shared copy arrived says "Ball Coach task <id>" until then, and one pointing at a copy that's renamed goes stale until then.
+- A chat makes one request per team chip, with no batching.
+- A team record whose ID also exists in this Home, which only a copied Home could have, reads as gone and can't be linked from My Ri. Keeping private IDs from leaving comes first.
 
 ## Not built
 

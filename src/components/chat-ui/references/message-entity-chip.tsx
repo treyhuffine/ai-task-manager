@@ -133,8 +133,9 @@ function RemoteChip({ marker, tone }: { marker: RemoteMarker; tone: SourceChipTo
   const inMyRi = useInMyRi();
   const record = useTeamRecord(marker.recordKind, marker.homeId, marker.id, inMyRi);
   // Outside My Ri a link to another Home can't be read: a team only knows its own records.
-  const outside: TeamRecordView = { state: 'unknown_home', homeId: marker.homeId, teamName: null, title: null, status: null, localId: null };
-  return <TeamRecordChip kind={marker.recordKind} id={marker.id} view={inMyRi ? record.data ?? null : outside} tone={tone} />;
+  const unread: TeamRecordView = { state: inMyRi ? 'unreachable' : 'unknown_home', homeId: marker.homeId, teamName: null, title: null, status: null, localId: null };
+  const view = !inMyRi || record.isError ? unread : record.data ?? null;
+  return <TeamRecordChip kind={marker.recordKind} id={marker.id} view={view} tone={tone} />;
 }
 
 /** A bare ID this chat doesn't know. It may be a team's: old chats and agents that skipped `ref` write them bare. */

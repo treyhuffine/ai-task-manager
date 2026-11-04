@@ -360,6 +360,14 @@ describe('links to a record in another Home', () => {
     ]);
   });
 
+  it('never reads this Home\'s records through a team\'s text', async () => {
+    const { q, copy } = await withTeam();
+    const secret = q.createTask({ title: 'Secret plan' });
+    const shared = copy('team-task-1', 'Shared', `See [[task:${secret.id}]]`);
+    expect(q.listOutgoingLinks('task', shared.id)).toEqual([{ targetType: 'task', targetId: secret.id, title: null, resolved: true }]);
+    expect(q.listBacklinks('task', secret.id)).toEqual([]);
+  });
+
   it('still calls a missing ID in a person\'s own text unresolved', async () => {
     const { q } = await withTeam();
     const note = q.createNote({ body: 'See [[task:nothing-here]]' });

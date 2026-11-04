@@ -198,13 +198,15 @@ export async function transitionSharedTask(
   const team = await connectedTeam(local);
   try {
     await assertSeenStatus(team, local, opts.expectedStatusChangedCount, command, opts.idempotencyKey);
+    const reason = opts.reason ? linksForTeam(opts.reason, team.connection.id) : null;
+    if (reason?.refused.length) throw new q.TeamError('invalid', privateLinkMessage(team.connection.name, reason.refused));
     const result = await team.client.tasks.transition.mutate({
       id: local.sourceTaskId!,
       command,
       ...(opts.source && opts.source !== 'human' ? { actorSource: opts.source } : {}),
       idempotencyKey: opts.idempotencyKey ?? uuidv7(),
       expectedStatusChangedCount: local.source?.statusChangedCount,
-      ...(opts.reason ? { reason: opts.reason } : {}),
+      ...(reason ? { reason: reason.text } : {}),
     });
     const task = (result as { task: TeamTask; replayed?: boolean }).task;
     return outcome(await refresh(local, task, team), result);
@@ -223,7 +225,7 @@ export async function completeSharedTask(
 ): Promise<q.LifecycleOutcome> {
   const team = await connectedTeam(local);
   const note = opts.note === undefined ? null : linksForTeam(opts.note, team.connection.id);
-  if (opts.source && opts.source !== 'human' && note?.refused.length) throw new q.TeamError('invalid', privateLinkMessage(team.connection.name, note.refused));
+  if (note?.refused.length) throw new q.TeamError('invalid', privateLinkMessage(team.connection.name, note.refused));
   try {
     await assertSeenStatus(team, local, opts.expectedStatusChangedCount, 'complete', opts.idempotencyKey);
     const result = await team.client.tasks.complete.mutate({
@@ -283,6 +285,9 @@ export async function copyToTeam(team: NonNullable<Awaited<ReturnType<typeof tea
  */
 export async function publishSharedTaskResult(local: TaskRecord, input: PublishSharedResultInput): Promise<PublishedResult> {
   const team = await connectedTeam(local);
+  // Publishing is a choice with a dialog to come back to, so a person is told as well.
+  const summary = input.summary != null ? linksForTeam(input.summary, team.connection.id) : null;
+  if (summary?.refused.length) throw new q.TeamError('invalid', privateLinkMessage(team.connection.name, summary.refused));
   try {
     validateWorkResultAttachments('', input.personalAttachments ?? [], 'local');
     const copied: Attachment[] = [];
@@ -297,7 +302,7 @@ export async function publishSharedTaskResult(local: TaskRecord, input: PublishS
     const { result } = await team.client.tasks.publishResult.mutate({
       taskId: local.sourceTaskId!,
       requestId: input.requestId,
-      summary: input.summary != null ? replaceAttachmentReferences(linksForTeam(input.summary, team.connection.id).text, names) : null,
+      summary: summary ? replaceAttachmentReferences(summary.text, names) : null,
       links: input.link ? [input.link] : [],
       attachments: [...copied, ...(input.teamAttachments ?? [])],
     });

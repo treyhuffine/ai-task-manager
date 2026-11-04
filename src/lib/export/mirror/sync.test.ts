@@ -70,9 +70,10 @@ it('exports a link to a team record as its shared copy, or plain text with no ti
   const team = '01a1a3b3-1463-7fdc-a747-bc4860dc8e1d';
   getDb().insert(teamConnections).values({ id: team, name: 'Ball Coach', url: 'https://team.test', memberId: 'm1', memberName: 'Ada', role: 'member', status: 'active' }).run();
   const now = new Date().toISOString();
+  const secret = q.createTask({ title: 'Secret plan' });
   const copy = q.saveTaskProjection({
     teamId: team, sourceTaskId: 'team-copied',
-    fields: { title: 'Has a copy', description: null, body: 'Bare in team text [[task:team-copied]] and [[task:team-other]]', outcome: null, hardDeadline: null, status: 'todo' },
+    fields: { title: 'Has a copy', description: null, body: `Bare in team text [[task:team-copied]] and [[task:team-other]] and [[task:${secret.id}]]`, outcome: null, hardDeadline: null, status: 'todo' },
     source: { assigned: true, addedAt: null, bodyRevision: 1, statusChangedCount: 0, updatedAt: now, syncedAt: now, area: null, assignee: null },
     state: 'active',
   });
@@ -85,5 +86,7 @@ it('exports a link to a team record as its shared copy, or plain text with no ti
   };
   const copyLink = `[[tasks/has-a-copy--${copy.id}]]`;
   expect(read('note', note.id)).toContain(`One ${copyLink} two Ball Coach task team-other three Ball Coach Area team-area four Team task abc`);
-  expect(read('task', copy.id)).toContain(`Bare in team text ${copyLink} and Ball Coach task team-other`);
+  // A team's text only looks in that team, so a private ID in it names nothing here.
+  expect(read('task', copy.id)).toContain(`Bare in team text ${copyLink} and Ball Coach task team-other and Ball Coach task ${secret.id}`);
+  expect(read('task', copy.id)).not.toContain('secret-plan');
 });

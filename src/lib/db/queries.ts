@@ -604,13 +604,19 @@ function readBacklinks(targetType: LinkSourceType, targetId: string): BacklinkIt
   const source = teamSourceOf(targetType, targetId);
   const targetIds = source ? [targetId, source.sourceId, remoteLinkTarget(source.teamId, source.sourceId)] : [targetId];
   const rows = db
-    .selectDistinct({ sourceType: entityLinks.sourceType, sourceId: entityLinks.sourceId })
+    .selectDistinct({ sourceType: entityLinks.sourceType, sourceId: entityLinks.sourceId, targetId: entityLinks.targetId })
     .from(entityLinks)
     .where(and(eq(entityLinks.targetType, targetType), inArray(entityLinks.targetId, targetIds)))
     .all();
   const items: BacklinkItem[] = [];
+  const seen = new Set<string>();
   for (const r of rows) {
     if (r.sourceType === targetType && r.sourceId === targetId) continue; // filter self
+    // A team's text only looks in that team, so this Home's ID in it links nothing here.
+    if (r.targetId === targetId && teamSourceOf(r.sourceType, r.sourceId)) continue;
+    const key = `${r.sourceType}:${r.sourceId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     const title = resolveEntityTitle(r.sourceType, r.sourceId);
     if (title === undefined) continue; // source vanished; skip defensively
     items.push({ sourceType: r.sourceType, sourceId: r.sourceId, title });
@@ -631,11 +637,10 @@ function readOutgoing(sourceType: LinkSourceType, sourceId: string): OutgoingLin
       // to one isn't unresolved: a named Home, or a bare ID in that team's own text.
       const remote = splitRemoteId(r.targetId);
       const teamId = remote?.homeId ?? sourceTeam;
-      const teamRecordId = remote?.id ?? r.targetId;
-      const title = remote ? undefined : resolveEntityTitle(r.targetType, r.targetId);
-      if (title === undefined && teamId) {
-        return { targetType: r.targetType, targetId: r.targetId, title: sharedCopyTitle(r.targetType, teamId, teamRecordId) ?? null, resolved: true };
+      if (teamId) {
+        return { targetType: r.targetType, targetId: r.targetId, title: sharedCopyTitle(r.targetType, teamId, remote?.id ?? r.targetId) ?? null, resolved: true };
       }
+      const title = resolveEntityTitle(r.targetType, r.targetId);
       return {
         targetType: r.targetType,
         targetId: r.targetId,

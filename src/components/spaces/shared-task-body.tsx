@@ -146,7 +146,7 @@ function SharedBody({ task, memberId }: { task: TaskRecord; memberId: string | n
         qc.setQueryData(entityKeys.tasks.detail(task.id), (current: TaskRecord | undefined) =>
           current?.source ? { ...current, source: { ...current.source, bodyRevision } } : current,
         );
-        return { body: row.body ?? body, bodyRevision };
+        return { body, bodyRevision };
       },
     };
   }, [task.id, teamId, sourceTaskId, memberId, qc]);
