@@ -598,7 +598,7 @@ function ChooseFolderBody({
  * one is. Another agent needs no place: it's that agent's folder on each
  * device.
  */
-function LinkedFolderDefiner({
+export function LinkedFolderDefiner({
   workspace,
   on,
   editing,

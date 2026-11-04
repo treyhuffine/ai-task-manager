@@ -117,7 +117,7 @@ export class GalleryRuntime {
       const label = id === SENDER_CHAT_ID
         ? this.state === 'long' ? 'Finish bounded full-date GEX runner and dated RUT input verification before the production handoff' : 'Prepare the runner handoff'
         : 'Review date handling';
-      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: this.archived.has(id) ? 'archived' : 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: ['chat-messages', 'html'].includes(this.example) ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : this.example === 'coordination' && id === SENDER_CHAT_ID ? 'Review date handling across every market calendar before the next scheduled run and confirm all source dates against the bounded historical runner' : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
+      return { id, type: this.example === 'chat-messages' ? 'execution' : 'orchestration', status: this.archived.has(id) ? 'archived' : 'active', harness: 'claude', execution: null, surfaceKind: null, workspaceId: ['chat-messages', 'html', 'add-menu'].includes(this.example) ? RECORD_ID : null, scratchPad: '', userId: 'local', label: this.example === 'chat-messages' ? label : this.example === 'coordination' && id === SENDER_CHAT_ID ? 'Review date handling across every market calendar before the next scheduled run and confirm all source dates against the bounded historical runner' : 'Gallery conversation', createdAt: NOW, updatedAt: NOW };
     }
     if (path === 'sessions.archivePost') {
       const id = String((input.params as { id?: string })?.id);
@@ -209,6 +209,13 @@ export class GalleryRuntime {
     }
     if (path === 'connectedApps.context') { this.changed('The example app shared its selection with the example chat'); return this.revision; }
     if (path === 'connectedApps.cancel') return { cancelled: true };
+    if (path === 'localApps.enabled') return { enabled: true };
+    if (path === 'localApps.list') return { instances: ['Field notes', 'Travel'].map(displayName => ({ id: displayName, displayName, icon: null, enabled: true, archived: false, hasView: true, activation: { phase: 'active' } })), panels: [] };
+    if (path === 'localApps.panel') { this.changed('Example app chosen. Nothing opened'); return { ok: true }; }
+    if (path === 'workspaces.get') return { id: RECORD_ID, name: 'Example agent' };
+    if (path === 'workspaces.foldersGet') return { devices: [{ deviceId: 'gallery-device', name: 'Example computer', isHome: true, connected: true, setup: null, linked: [] }] };
+    if (path === 'workspaces.list') return [];
+    if (path === 'triggers.list') return [];
     throw new Error(`The gallery has no fixture for ${path}`);
   }
 }

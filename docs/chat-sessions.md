@@ -388,7 +388,7 @@ Chat reuses the **same generic attachment system** that tasks, notes, and areas 
 
 **Where attachments live:**
 
-- On `chat_events.attachments` — a JSON column of `Attachment[]`. Each user message can carry N attachments (pastes, drops, paperclip-picked files).
+- On `chat_events.attachments` — a JSON column of `Attachment[]`. Each user message can carry N attachments (pastes, drops, files picked from the composer's + menu).
 - On disk — `<brain>/attachments/<uuidv7>.<ext>`. Filename is content-stable; original_name is preserved in the JSON record.
 
 **The `Attachment` shape** (defined in `src/lib/db/schema.ts`):
@@ -405,7 +405,7 @@ interface Attachment {
 
 **The upload flow:**
 
-1. Editor's paste/drop/paperclip handler → `POST /api/attachments` (multipart) → server writes bytes, returns `Attachment` record.
+1. Editor's paste/drop handler or the + menu's picker → `POST /api/attachments` (multipart) → server writes bytes, returns `Attachment` record.
 2. Editor inserts a `FileChip` Tiptap node at the cursor with the returned attrs. Body text gets a `[[file:<file_name>]]` marker at that position (compact, position-preserving, doesn't bloat events polls).
 3. On send → `POST /api/sessions/:id/messages` with `{ content, attachments: Attachment[] }`. Server persists the event row with `content` carrying markers and `attachments` carrying the JSON array.
 4. Transcript renderer parses markers via `parseFileMarkers`, resolves each to its `Attachment`, and renders it via `MessageFileChip`: image and PDF cards, or bordered filename and size chips opening the shared viewer. Chip colors follow the sent message bubble in both themes. Shared/custom attachment URLs retain inline text expansion and download chips.

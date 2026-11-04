@@ -6,12 +6,14 @@
  * once the chat has a schedule, becomes a chip that says when it next runs.
  * The form and the chip both cover schedules that send into this chat. One
  * that starts a new chat each time lives in the Schedules window like any
- * other.
+ * other. The composer's + menu opens the same form, in a dialog, since not
+ * every chat has a header (`ScheduleChatDialog`).
  */
 
 import { useState } from 'react';
 import { Clock, Loader2, Pause, Pencil, Play } from 'lucide-react';
 import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import { Tip } from '@/components/ui/tip';
@@ -83,15 +85,54 @@ export function ScheduleChatButton({
       </PopoverTrigger>
       {/* Built only while open: every chat header carries this button. */}
       {open && <PopoverContent align="end" className="w-[22rem] max-w-[calc(100vw-2rem)] max-h-[min(80vh,40rem)] overflow-y-auto p-0">
-        {mine.length > 0 && (
-          <div className="border-b border-border p-3 space-y-2">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Scheduled for this chat</p>
-            {mine.map((t) => <ScheduledRow key={t.id} trigger={t} onEdit={() => { setOpen(false); openSchedulesWindow({ triggerId: t.id }); }} />)}
-          </div>
-        )}
-        <NewChatSchedule chat={chat} startOpen={mine.length === 0} onDone={() => setOpen(false)} />
+        <ChatSchedules chat={chat} mine={mine} onDone={() => setOpen(false)} />
       </PopoverContent>}
     </Popover>
+  );
+}
+
+/** The same form from the composer's + menu, built only while open. */
+export function ScheduleChatDialog({ sessionId, open, onOpenChange }: {
+  sessionId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-sm">
+        <DialogTitle className="sr-only">Schedule this chat</DialogTitle>
+        {open && <ScheduleDialogBody sessionId={sessionId} onDone={() => onOpenChange(false)} />}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ScheduleDialogBody({ sessionId, onDone }: { sessionId: string; onDone: () => void }) {
+  const { data: chat } = useSession(sessionId);
+  const { data: triggers } = useTriggers({ targetKind: 'session' });
+  if (!chat) return null;
+  return (
+    <div className="max-h-[min(80vh,40rem)] overflow-y-auto">
+      <ChatSchedules chat={chat} mine={(triggers ?? []).filter((t) => t.targetSessionId === chat.id)} onDone={onDone} />
+    </div>
+  );
+}
+
+function ChatSchedules({ chat, mine, onDone }: {
+  chat: Parameters<typeof chatScheduleInput>[0];
+  mine: TriggerWithLastRun[];
+  onDone: () => void;
+}) {
+  return (
+    <>
+      {mine.length > 0 && (
+        <div className="border-b border-border p-3 space-y-2">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Scheduled for this chat</p>
+          {mine.map((t) => <ScheduledRow key={t.id} trigger={t} onEdit={() => { onDone(); openSchedulesWindow({ triggerId: t.id }); }} />)}
+        </div>
+      )}
+      <NewChatSchedule chat={chat} startOpen={mine.length === 0} onDone={onDone} />
+    </>
   );
 }
 

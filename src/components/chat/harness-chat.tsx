@@ -2,7 +2,6 @@
 
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { AppCompanion } from '@/components/local-apps/app-companion';
-import { AppCompanionButton } from '@/components/local-apps/app-companion-button';
 import {
 	EmptyChatActionsContext,
 	MainChatIntroPanel,
@@ -282,7 +281,7 @@ function ChatSession({
           effort={session.effort}
           serviceTier={session.serviceTier}
           harness={session.harness}
-          leadingActions={<><AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />{!chatMenuInHeader && <ChatMenu sessionId={session.id} />}</>}
+          leadingActions={!chatMenuInHeader && <ChatMenu sessionId={session.id} />}
           isRunning={isRunning}
           onSwitchProvider={onSwitchProvider}
           switchingProvider={switchingProvider}

@@ -28,6 +28,8 @@ import { ExecutionEvent } from '@/components/chat-ui/activity/execution-event';
 import { ChatTranscript } from '@/components/chat-ui/chat-transcript';
 import { ChatCapabilities } from '@/components/chat-ui/chat-capabilities';
 import { ChatComposer } from '@/components/chat-ui/chat-composer';
+import { ChatAddMenu } from '@/components/chat-ui/add-menu/chat-add-menu';
+import { ComposerAddMenu } from '@/components/chat-ui/add-menu/composer-add-menu';
 import { ConfirmProvider } from '@/components/ui/confirm-dialog';
 import { WorkContext, type WorkActivity, type WorkNavigation } from '@/contexts/work-context';
 import { ModelMenuContent, ModelMenuLabel } from '@/components/chat-ui/model-menu/model-menu';
@@ -248,6 +250,28 @@ function CoordinationComposer() {
   </ChatComposer>;
 }
 
+/** The real + beside the real editor, so Mention and Skills open their real menus. */
+function AddMenuExample() {
+  const editor = useRef<ChatInputEditorHandle | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [plan, setPlan] = useState(false);
+  const inChat = config.state === 'chat';
+  const onPick = (file: File) => setPicked(names => [...names, file.name]);
+  // Room above the composer, where the menu opens, as a chat has its transcript.
+  return <div className="pt-96"><ChatComposer status={picked.length > 0 ? `Picked ${picked.join(', ')}. Nothing was uploaded.` : 'This example saves nothing.'}>
+    <ChatInputEditor
+      ref={editor} ariaLabel="Example message" placeholder="Ask for anything. @ to mention, / for skills" attachmentsEnabled={false}
+      mentionFiles={[{ kind: 'file', path: 'README.md', name: 'README.md' }]}
+      slashCommands={inChat ? [{ id: 'review', name: 'review', description: 'Review the diff', source: 'installed-user', userInvocable: true, available: true, execution: { kind: 'provider-slash', provider: 'claude', commandText: '/review' } }] : undefined}
+    />
+    <div className="flex items-center gap-1 px-1.5 pb-1.5">
+      {inChat
+        ? <ChatAddMenu sessionId={CHAT_ID} editor={editor} onPick={onPick} skills planMode={{ on: plan, available: true, disabled: false, set: mode => setPlan(mode === 'plan') }} />
+        : <ComposerAddMenu editor={editor} onPick={onPick} />}
+    </div>
+  </ChatComposer></div>;
+}
+
 function Example() {
   const revision = useSyncExternalStore(runtime.subscribe, runtime.snapshot, runtime.snapshot);
   const example = galleryExample(__GALLERY_EXAMPLE__);
@@ -271,6 +295,7 @@ function Example() {
     {__GALLERY_EXAMPLE__ === 'coordination' && <div className="space-y-5"><div className="flex justify-end"><ChatMenu sessionId={CHAT_ID} /></div>{config.state === 'forward-failed' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('system', {role:'system',content:'coordination_send_failed',raw:{agentCoordination:{deliveryId:'gallery-coordination-send'}}})} /> : config.state === 'shared' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('user', {id:'gallery-shared',role:'user',content:'Full original review content.',raw:{agentCoordination:{senderKind:'human',kind:'message',sourceSessionId:CHAT_ID,sourceEventId:'gallery-original',content:'Full original review content.',directions:'Compare this with your implementation.'}}})} /> : config.state === 'unavailable' ? <ExecutionEvent sessionId={CHAT_ID} handoffActions={false} event={event('error', {role:'system',content:'[Ri routing text remains saved]',raw:{agentCoordination:{senderKind:'system',kind:'failed',content:'The destination agent is unavailable. The assigned work did not start.',originalRequest:'Review the date boundary handling before we ship.'}}})} /> : ['idle', 'manager', 'active', 'finished', 'held'].includes(config.state) ? <p className="text-sm text-muted-foreground">{config.state === 'manager' ? 'This main chat manages work across other chats.' : config.state === 'idle' ? 'An ordinary chat, ready for your next message.' : config.state === 'finished' ? 'The review is complete. Its linked messages remain in the transcript.' : config.state === 'held' ? 'Incoming messages are queued until you resume.' : 'The other chat is reviewing the date handling.'}</p> : <CoordinationApproval deliveryId="gallery-coordination-send" sessionId={CHAT_ID} />}<CoordinationComposer /></div>}
     {__GALLERY_EXAMPLE__ === 'app-context' && <AppContext />}
     {__GALLERY_EXAMPLE__ === 'model-menu' && <ModelMenuPreview state={config.state} />}
+    {__GALLERY_EXAMPLE__ === 'add-menu' && <AddMenuExample />}
     {__GALLERY_EXAMPLE__ === 'edits' && <div className="space-y-4 text-sm"><p>I clarified the agenda and made the next steps easier to scan.</p><EntityEditChip entityType="note" entityId={RECORD_ID} /></div>}
     {__GALLERY_EXAMPLE__ === 'files' && (config.state === 'beside' ? <FilesBeside /> : <FileChips />)}
     {__GALLERY_EXAMPLE__ === 'html' && <HtmlPreviewLink sessionId={CHAT_ID} path="review-plan.html">An interactive plan for the Friday review</HtmlPreviewLink>}

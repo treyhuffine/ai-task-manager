@@ -54,7 +54,7 @@ import {
   type ChatInputEditorHandle,
   type EditorSnapshot,
 } from '@/components/chat/editor/chat-input-editor';
-import { AttachButton } from '@/components/chat/editor/attach-button';
+import { ChatAddMenu } from '@/components/chat-ui/add-menu/chat-add-menu';
 import { HOTKEYS } from '@/constants/commands';
 import { useSlashCommands, slashCommandsKey } from '@/hooks/use-slash-commands';
 import { parseSlashInvocation } from '@/lib/agent-skills/parse-invocation';
@@ -116,7 +116,7 @@ export interface ExecutionComposerHandle {
   /**
    * Upload a file (or blob) and insert a chip at the cursor. Exposed so
    * a parent drop zone wrapping the whole chat column can route dropped
-   * files to the same attachment pipeline as paste / paperclip.
+   * files to the same attachment pipeline as paste / the + menu.
    */
   uploadFile: (file: File | Blob, name?: string) => Promise<void>;
 }
@@ -135,7 +135,7 @@ interface ExecutionComposerProps {
   serviceTier?: string | null;
   /** The session's harness: picks the model catalog and supported controls. */
   harness: HarnessId | null;
-  /** Rendered after Attach, in the left cluster: something else to bring into the chat (an app). */
+  /** Rendered after the + menu, in the left cluster. */
   leadingActions?: ReactNode;
   disabled?: boolean;
   disabledReason?: string;
@@ -770,7 +770,7 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
 
             {/* Bottom toolbar. Two layouts behind the same flex row so
               vertical height stays steady:
-                · idle  : [📎][mode]  ………  [model][effort][context][mic][send]
+                · idle  : [+][mode]  ………  [model][effort][context][mic][send]
                 · record: [auto-send labeled toggle]  …  [X cancel][stop]
               While recording the pre-send controls are out of context
               (you can't change model mid-record meaningfully), so we
@@ -785,13 +785,21 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                 <div className="flex-1" />
               ) : (
                 <>
-                  {/* ─── Left: attach · mode ─────────────────── */}
-                  <AttachButton
+                  {/* ─── Left: add · mode ─────────────────── */}
+                  <ChatAddMenu
+                    sessionId={sessionId}
+                    editor={editorRef}
                     onPick={(file) => {
                       void editorRef.current?.uploadFile(file);
                     }}
                     disabled={disabled}
-                    title="Attach file"
+                    skills={(slashCommandsQuery.data?.commands.length ?? 0) > 0}
+                    planMode={{
+                      on: permissionMode === 'plan',
+                      available: supportedPermissionModes.includes('plan'),
+                      disabled: selectionControlsDisabled,
+                      set: setPermissionMode,
+                    }}
                   />
                   {leadingActions}
 

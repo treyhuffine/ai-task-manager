@@ -10,7 +10,7 @@ import { useDefaultSelection } from '@/hooks/use-default-selection';
 import { useTouchFirst } from '@/hooks/use-touch-first';
 import { useVisualViewportBottom } from '@/hooks/use-visual-viewport-bottom';
 
-import { AttachButton } from '@/components/chat/editor/attach-button';
+import { ComposerAddMenu } from '@/components/chat-ui/add-menu/composer-add-menu';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import {
 	ChatInputEditor,
@@ -867,10 +867,10 @@ function LaunchModalInner({
 
             {/* Footer — controls + Start */}
             <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 border-t border-border bg-muted/25 px-3 py-2">
-              <AttachButton
+              <ComposerAddMenu
+                editor={editorRef}
                 onPick={attachFile}
                 disabled={launching}
-                title="Attach file"
                 className="-ml-1"
               />
               {continuation ? (

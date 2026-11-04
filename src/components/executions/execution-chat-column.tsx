@@ -7,7 +7,6 @@ import { DRAFT_STORAGE_PREFIX, encodeChatDraft, scopedDraftKey } from '@/compone
 import type { EditorSnapshot } from '@/components/chat/editor/chat-input-editor';
 import { ChatDropZone } from '@/components/chat/editor/chat-drop-zone';
 import { AppCompanion } from '@/components/local-apps/app-companion';
-import { AppCompanionButton } from '@/components/local-apps/app-companion-button';
 import { ChatRecovery } from '@/components/chat-ui/chat-recovery';
 import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 import { BackgroundTasksBar } from '@/components/chat-ui/activity/background-tasks-bar';
@@ -317,7 +316,6 @@ export function ExecutionChatColumn({
             effort={session.effort}
             serviceTier={session.serviceTier}
             harness={session.harness}
-            leadingActions={<AppCompanionButton chatId={session.id} surfaceKind={session.surfaceKind} />}
             disabled={composerDisabled}
             disabledReason={disabledReason}
             isRunning={isRunning}

@@ -29,7 +29,7 @@ const SIDE_WIDTH = 820;
  * An app beside a chat (docs/local-apps.md): the chat keeps its whole
  * surface and the app takes a pane at its right, under it when the chat is
  * narrow. Nothing shows until an app is opened here, from the composer's
- * app button (`AppCompanionButton`), an agent's Open app control, or a
+ * + menu (`AppCompanionRows`), an agent's Open app control, or a
  * mention. The pane carries its own header, approval and access controls so
  * the chat's chrome stays the chat's.
  */

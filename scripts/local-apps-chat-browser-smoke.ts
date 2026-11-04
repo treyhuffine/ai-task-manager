@@ -213,7 +213,7 @@ async function main() {
       .click();
     await page
       .getByRole("button", {
-        name: "Open an app beside this chat",
+        name: "Add to this chat",
         exact: true,
       })
       .click();
