@@ -84,7 +84,7 @@ function WideRail({ places, onToggle }: { places: readonly RailPlace[]; onToggle
             <div className="sticky top-0 z-30 bg-background">
               <RailListHeader tab={tab} onSelect={setTab} />
             </div>
-            <RailListBody tab={tab} />
+            <RailListBody tab={tab} stickyHeaderHeight={32} />
         </RailLayout>
       </WorkspaceSelectionProvider>
       <SessionHoverPreview />

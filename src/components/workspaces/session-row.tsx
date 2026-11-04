@@ -7,7 +7,7 @@ import { formatCompactRelative } from '@/lib/utils/relative-time';
 import { GitBranch, Moon, Pin } from 'lucide-react';
 
 import { executionView } from '@/lib/client/active-view';
-import { StatusPip, useChatStatus } from './chat-status';
+import { hasChatStatus, StatusPip, useChatStatus } from './chat-status';
 import { useSessionRowHover } from './session-hover-context';
 import { ROW_ACTIONS_GIVE_WAY, SessionRowActions } from './session-row-actions';
 import { SelectionCheck, useRowSelection } from './workspace-selection-context';
@@ -120,9 +120,9 @@ export function SessionRow({
   // rail's buckets don't reshuffle out from under the user. In selection
   // mode the same click toggles the checkbox instead of navigating, so
   // the whole row is the hit target.
-  const handleOpen = () => {
+  const handleOpen = (e: { shiftKey: boolean; currentTarget: Element }) => {
     if (selectable) {
-      toggle();
+      toggle(e);
       return;
     }
     closeNow();
@@ -166,11 +166,12 @@ export function SessionRow({
       onMouseLeave={selectable ? undefined : onMouseLeave}
       role="button"
       aria-pressed={selectable ? selected : undefined}
+      data-select-row={selectable ? session.id : undefined}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          handleOpen();
+          handleOpen(e);
         }
       }}
       className={cn(
@@ -179,9 +180,10 @@ export function SessionRow({
         density === 'compact' ? 'items-center pl-4 h-8' : 'items-start pl-5 py-1',
         inactive && !isActive && !selected && 'opacity-60 hover:opacity-100',
         selectable
+          // Shift-click ranges, so it mustn't select the text between.
           ? selected
-            ? 'bg-primary/10 text-foreground'
-            : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+            ? 'select-none bg-primary/10 text-foreground'
+            : 'select-none text-muted-foreground hover:bg-muted/40 hover:text-foreground'
           : isActive
             ? variant === 'needs-review'
               // Needs-review variant defers the background fill to the
@@ -278,6 +280,9 @@ export function SessionRow({
                 tag (Pinned and Unread), where it runs and, at its end, how
                 much of your time an ask takes. */}
             <div className="flex items-center gap-1.5 mt-0.5 text-[9px] leading-none">
+              {/* The checkbox has the dot's slot. A chat still working or
+                  waiting on you is worth seeing before archiving it. */}
+              {selectable && hasChatStatus(status) && <StatusPip {...status} />}
               {isPinned && !hidePinMarker && (
                 <Pin
                   size={9}

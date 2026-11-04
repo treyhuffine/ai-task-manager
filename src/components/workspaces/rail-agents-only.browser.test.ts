@@ -13,8 +13,9 @@
  * agree), that resting on an agent opens nothing while its Show chats opens
  * Recent on that agent's chats, that hovering an
  * agent opens no tooltip while its hover actions keep theirs, that Agents
- * first is unchanged, and that chats are selected to archive on Recent from
- * every rail style, the collapsed rail's flyout included.
+ * first is unchanged, and that chats are selected to archive in the list
+ * you're on, under each agent on Agents, in every rail style and the collapsed
+ * rail's flyout.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -175,8 +176,19 @@ beforeAll(async () => {
           <RailListBody tab={tab}/>
         </WorkspaceSelectionProvider>;
       }
+      // The wide rail's scroller as the rail lays it out: the header sticks in
+      // the same scroller as the list.
+      function ScrollingRail(){
+        const [tab,setTab]=useState('workspace');
+        return <WorkspaceSelectionProvider>
+          <div className="h-32">Places</div>
+          <div className="sticky top-0 z-30 bg-background"><RailListHeader tab={tab} onSelect={setTab}/></div>
+          <RailListBody tab={tab} stickyHeaderHeight={32}/>
+        </WorkspaceSelectionProvider>;
+      }
       // The wide rail's list, or the collapsed strip's Agents button.
-      const strip=new URLSearchParams(location.search).get('rail')==='strip';
+      const railKind=new URLSearchParams(location.search).get('rail');
+      const strip=railKind==='strip';
       // The agent view's Chats tab, for one agent, beside the rail.
       const chatsTab=new URLSearchParams(location.search).get('panel')==='chats';
       createRoot(document.getElementById('root')).render(
@@ -184,7 +196,9 @@ beforeAll(async () => {
           <Work><SessionHoverProvider disabled>
             {strip
               ? <aside className="flex h-screen w-[44px] flex-col items-center pt-2 border-r border-border bg-background"><AgentsFlyout/></aside>
-              : <aside className="w-[256px] min-h-screen border-r border-border bg-background"><Rail/></aside>}
+              : railKind==='scroller'
+                ? <aside data-rail-scroller className="h-screen w-[256px] overflow-y-auto border-r border-border bg-background"><ScrollingRail/></aside>
+                : <aside className="w-[256px] min-h-screen border-r border-border bg-background"><Rail/></aside>}
             <div data-chat-bar className="fixed left-[300px] top-4 flex items-center gap-1.5"><ReadStateButton sessionId="notes-main"/></div>
             {chatsTab && <div data-chats-tab className="fixed left-[300px] top-12 w-[320px] bg-background"><AgentOverview workspace={workspaces.find(w=>w.id==='fin')} onSelectTab={noop}/></div>}
           </SessionHoverProvider></Work>
@@ -264,7 +278,7 @@ type View = { kind: 'execution'; id: string; executionId?: string } | { kind: 'a
 async function open(
   style: 'agentsOnly' | 'agents' | 'classic',
   theme: 'dark' | 'light' = 'dark',
-  { rail = 'wide', view, height = 760, touch = false }: { rail?: 'wide' | 'strip'; view?: View; height?: number; touch?: boolean } = {},
+  { rail = 'wide', view, height = 760, touch = false }: { rail?: 'wide' | 'strip' | 'scroller'; view?: View; height?: number; touch?: boolean } = {},
 ): Promise<{ page: Page; errors: string[] }> {
   sent = [];
   heldArchives = [];
@@ -278,7 +292,7 @@ async function open(
     if (view) Object.assign(window, { initialView: view });
   }, { style, view });
   await page.goto(`${base}/?theme=${theme}&rail=${rail}`);
-  if (rail === 'wide') await page.getByRole('button', { name: 'Open Docs', exact: true }).waitFor();
+  if (rail !== 'strip') await page.getByRole('button', { name: 'Open Docs', exact: true }).waitFor();
   else await page.getByRole('button', { name: /^Agents/ }).waitFor();
   return { page, errors };
 }
@@ -814,45 +828,71 @@ const RECENT_ACTIVE = [
 ];
 const INACTIVE_ACTIVE = ['Audit old landing pages', 'Prune stale worktrees'];
 
+const ROW = '[data-select-row]';
 /** The selectable rows, top to bottom: each chat's name and whether it's ticked. */
 const ticks = (page: Page, within = 'body') =>
-  page.locator(within).locator('[role="button"][aria-pressed]').evaluateAll((rows) =>
+  page.locator(within).locator(ROW).evaluateAll((rows) =>
     rows.map((row) => ({ name: row.querySelector('.truncate')!.textContent!, ticked: row.getAttribute('aria-pressed') === 'true' })));
 const ticked = async (page: Page, within = 'body') => (await ticks(page, within)).filter((r) => r.ticked).map((r) => r.name);
-const tickRow = (page: Page, name: string, within = 'body') =>
-  page.locator(within).locator('[role="button"][aria-pressed]', { hasText: name });
+const tickRow = (page: Page, name: string, within = 'body') => page.locator(within).locator(ROW, { hasText: name });
 const selectedCount = (page: Page) => page.getByText(/^\d+ selected$/).innerText();
 const archivePosts = () => sent.filter((s) => s.startsWith('archivePost:')).sort();
+/** Each agent showing while selecting, with its chats' names sorted. */
+const agentSections = (page: Page, within = 'body') =>
+  page.locator(within).locator('section[data-agent-id]').evaluateAll((sections) =>
+    sections.map((section) => [
+      (section as HTMLElement).dataset.agentId,
+      Array.from(section.querySelectorAll('[data-select-row]'), (row) => row.querySelector('.truncate')!.textContent!).sort(),
+    ]));
+const agentCheck = (page: Page, name: string) => page.getByRole('checkbox', { name: `All ${name} chats` });
+
+const UNFOLDED = [
+  ['ri', ['Fix flaky gallery smoke', 'Rail agents-only trial']],
+  ['web', ['Fix login bug', 'Update pricing copy']],
+  ['fin', ['Import Chase CSV', 'Reconcile Amex', 'Tax estimate']],
+];
 
 for (const style of ['agentsOnly', 'agents', 'classic'] as const) {
-  it(`selects chats to archive on Recent from either list in ${style}, and Cancel goes back to the list you were on`, async () => {
+  it(`selects chats to archive under each agent in ${style}, and stays on the list you're on`, async () => {
     const { page, errors } = await open(style);
     try {
+      // A folded agent unfolds for this too.
+      await page.evaluate(() => {
+        const client = (window as unknown as { queryClient: import('@tanstack/react-query').QueryClient }).queryClient;
+        client.setQueryData<{ id: string; collapsed: boolean }[]>(['workspaces', { status: 'active' }], (all) =>
+          all?.map((w) => (w.id === 'web' ? { ...w, collapsed: true } : w)));
+      });
       const select = page.getByRole('button', { name: 'Select chats to archive' });
-      // From Agents: the list turns into Recent's active chats, ticks and all.
       await select.click();
       await page.getByText('0 selected', { exact: true }).waitFor();
       expect(await page.getByRole('tablist').count()).toBe(0);
+      // The agents, in their order, each with its chats under it. Ones with
+      // no chats (Research, Notes, Docs) have nothing to tick.
+      expect(await agentSections(page)).toEqual(UNFOLDED);
       expect(await page.locator('[aria-roledescription="sortable"]').count()).toBe(0);
-      // Pins and archived work step aside. Inactive chats wait in the fold.
+      // Pins, Unread and archived work step aside. Inactive chats wait in folds.
       expect(await page.getByText('Pinned', { exact: true }).count()).toBe(0);
+      expect(await page.getByRole('button', { name: /^Unread/ }).count()).toBe(0);
+      expect(await page.getByText('Needs you', { exact: true }).count()).toBe(0);
       expect(await page.getByText('Ship the v1 pricing page').count()).toBe(0);
-      expect((await ticks(page)).map((r) => r.name).sort()).toEqual(RECENT_ACTIVE);
+      expect(await page.getByText('1 inactive hidden').count()).toBe(2);
       expect(await ticked(page)).toEqual([]);
-      await page.getByText('2 inactive hidden').waitFor();
       expect(await page.getByRole('button', { name: 'Archive', exact: true }).isDisabled()).toBe(true);
 
       await page.getByRole('button', { name: 'Cancel' }).click();
       await page.getByRole('tab', { name: 'Agents', selected: true }).waitFor();
       expect(await page.locator('[aria-roledescription="sortable"]').count()).toBe(6);
-      expect(await page.locator('[role="button"][aria-pressed]').count()).toBe(0);
+      expect(await page.locator(ROW).count()).toBe(0);
 
-      // From Recent, back to Recent, archived work and all.
+      // From Recent it stays on Recent, each row still showing its agent.
       await page.getByRole('tab', { name: 'Recent' }).click();
       await page.getByText('Ship the v1 pricing page').waitFor();
       await select.click();
       await page.getByText('0 selected', { exact: true }).waitFor();
+      expect(await page.locator('section[data-agent-id]').count()).toBe(0);
       expect(await page.getByText('Ship the v1 pricing page').count()).toBe(0);
+      expect((await ticks(page)).map((r) => r.name).sort()).toEqual(RECENT_ACTIVE);
+      expect(await tickRow(page, 'Fix login bug').innerText()).toMatch(/^W/);
       await page.getByRole('button', { name: 'Cancel' }).click();
       await page.getByRole('tab', { name: 'Recent', selected: true }).waitFor();
       await page.getByText('Ship the v1 pricing page').waitFor();
@@ -863,7 +903,7 @@ for (const style of ['agentsOnly', 'agents', 'classic'] as const) {
   });
 }
 
-it('ticks a row per click, a range with Shift, and every inactive chat from the fold', async () => {
+it('ticks a row per click and a range with Shift across agents', async () => {
   const { page, errors } = await open('agentsOnly');
   try {
     await page.getByRole('button', { name: 'Select chats to archive' }).click();
@@ -873,11 +913,10 @@ it('ticks a row per click, a range with Shift, and every inactive chat from the 
     expect(await selectedCount(page)).toBe('1 selected');
     await tickRow(page, 'Fix login bug').click();
     expect(await ticked(page)).toEqual([]);
-    expect(sent).toEqual([]);
     expect(await page.evaluate(() => (window as unknown as { actions: { kind: string }[] }).actions.filter((a) => a.kind === 'navigate'))).toEqual([]);
 
-    // Shift-click ticks every row from the last one ticked, and unticks a
-    // range the same way.
+    // Shift-click ticks every row from the last one ticked, past the agent
+    // between them, and unticks a range the same way.
     const order = (await ticks(page)).map((r) => r.name);
     await tickRow(page, order[0]!).click();
     await tickRow(page, order[3]!).click({ modifiers: ['Shift'] });
@@ -887,31 +926,86 @@ it('ticks a row per click, a range with Shift, and every inactive chat from the 
     expect(await ticked(page)).toEqual(order.slice(0, 1));
     // Shift selects no text on the way.
     expect(await page.evaluate(() => getSelection()?.toString())).toBe('');
-
-    // Select all ticks the inactive ones and opens the fold to show them.
-    await page.getByRole('button', { name: 'Select all 2 inactive chats' }).click();
-    await page.getByText('2 inactive shown').waitFor();
-    expect(await ticked(page)).toEqual([order[0], ...INACTIVE_ACTIVE]);
-    expect(await selectedCount(page)).toBe('3 selected');
-    // Archived work stays out with the fold open.
-    expect(await page.getByText('Old migration cleanup').count()).toBe(0);
-    await page.mouse.move(600, 700);
-    await page.screenshot({ path: '/tmp/ri-rail-select-to-archive.png', clip: { x: 0, y: 0, width: 256, height: 520 } });
-
-    // All ticked, it unticks them all. One unticked, it offers them all again.
-    await page.getByRole('button', { name: 'Deselect all 2 inactive chats' }).click();
-    expect(await ticked(page)).toEqual([order[0]]);
-    await page.getByRole('button', { name: 'Select all 2 inactive chats' }).click();
-    await tickRow(page, 'Prune stale worktrees').click();
-    expect(await ticked(page)).toEqual([order[0], 'Audit old landing pages']);
-    await page.getByRole('button', { name: 'Select all 2 inactive chats' }).waitFor();
     expect(errors).toEqual([]);
   } finally {
     await page.close();
   }
 });
 
-it('archives exactly the selection, leaving the open chat and the rows on the click, then goes back to the list you were on', async () => {
+it("ticks all of an agent's chats from its check, leaving what's working", async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    await page.getByRole('button', { name: 'Select chats to archive' }).click();
+    const finances = agentCheck(page, 'Finances');
+    expect(await finances.getAttribute('aria-checked')).toBe('false');
+    await page.getByText('3 chats', { exact: true }).first().waitFor();
+
+    // Tax estimate is working, so one click leaves it running.
+    await finances.click();
+    expect((await ticked(page)).sort()).toEqual(['Import Chase CSV', 'Reconcile Amex']);
+    expect(await finances.getAttribute('aria-checked')).toBe('true');
+    await page.getByText('2 of 3 selected').waitFor();
+    // Ticking it yourself still archives it.
+    await tickRow(page, 'Tax estimate').click();
+    await page.getByText('3 of 3 selected').waitFor();
+    // One unticked: part of the agent.
+    await tickRow(page, 'Reconcile Amex').click();
+    expect(await finances.getAttribute('aria-checked')).toBe('mixed');
+    await finances.click();
+    expect(await finances.getAttribute('aria-checked')).toBe('true');
+    await finances.click();
+    expect(await ticked(page)).toEqual([]);
+
+    // An agent's inactive chats count, and its fold opens to show them.
+    await agentCheck(page, 'Website').click();
+    await page.getByText('1 inactive shown').waitFor();
+    expect((await ticked(page)).sort()).toEqual(['Audit old landing pages', 'Fix login bug', 'Update pricing copy']);
+    await page.keyboard.press('Enter');
+    expect(await ticked(page)).toEqual([]);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('ticks every inactive chat in one click, and selecting leaves the folds as they were remembered', async () => {
+  const { page, errors } = await open('agentsOnly');
+  try {
+    const select = page.getByRole('button', { name: 'Select chats to archive' });
+    await select.click();
+    // Across the agents, opening each fold to show what's ticked.
+    await page.getByRole('button', { name: 'Select all 2 inactive chats' }).click();
+    expect(await page.getByText('1 inactive shown').count()).toBe(2);
+    expect((await ticked(page)).sort()).toEqual(INACTIVE_ACTIVE);
+    expect(await selectedCount(page)).toBe('2 selected');
+    expect(await page.getByText('Old migration cleanup').count()).toBe(0);
+    await page.mouse.move(600, 700);
+    await page.screenshot({ path: '/tmp/ri-rail-select-under-agents.png', clip: { x: 0, y: 0, width: 256, height: 760 } });
+
+    // All ticked, it unticks them. One unticked, it offers them all again.
+    await page.getByRole('button', { name: 'Deselect all 2 inactive chats' }).click();
+    expect(await ticked(page)).toEqual([]);
+    await page.getByRole('button', { name: 'Select all 2 inactive chats' }).click();
+    await tickRow(page, 'Prune stale worktrees').click();
+    await page.getByRole('button', { name: 'Select all 2 inactive chats' }).waitFor();
+
+    // One agent's fold has its own, for only its chat.
+    await tickRow(page, 'Audit old landing pages').click();
+    await page.getByRole('button', { name: 'Select all 1 inactive chat', exact: true }).first().click();
+    expect((await ticked(page)).length).toBe(1);
+
+    // Folds opened while selecting are forgotten on leaving.
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await select.click();
+    expect(await page.getByText('1 inactive hidden').count()).toBe(2);
+    expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.includes('inactive:')))).toEqual([]);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('archives exactly the selection, leaving the open chat and the rows on the click, then folds back', async () => {
   const { page, errors } = await open('agentsOnly');
   try {
     await page.getByRole('button', { name: 'Select chats to archive' }).click();
@@ -922,20 +1016,19 @@ it('archives exactly the selection, leaving the open chat and the rows on the cl
     await page.getByRole('button', { name: 'Archive', exact: true }).click();
 
     // On the click, with the requests still out: the open chat is left for
-    // its agent, and the rows are gone.
+    // its agent, and the rows are gone, taking Website with its last chat.
     await expect.poll(archivePosts).toEqual(['archivePost:ri-3', 'archivePost:web-1', 'archivePost:web-2', 'archivePost:web-3']);
     expect(await page.evaluate(() => (window as unknown as { actions: { kind: string; value: unknown }[] }).actions.filter((a) => a.kind === 'leave')))
       .toEqual([{ kind: 'leave', value: 'web' }]);
-    await expect.poll(async () => (await ticks(page)).map((r) => r.name).sort())
-      .toEqual(RECENT_ACTIVE.filter((n) => n !== 'Update pricing copy' && n !== 'Fix login bug'));
-    await page.getByText('inactive hidden').or(page.getByText('inactive shown')).waitFor({ state: 'detached' });
+    await expect.poll(() => agentSections(page)).toEqual([UNFOLDED[0], UNFOLDED[2]]);
     expect(heldArchives).toHaveLength(4);
 
-    // Archived: back on Agents, and nothing more was sent.
+    // Archived: the agents fold back, and nothing more was sent.
     answerArchives();
     await page.getByRole('tab', { name: 'Agents', selected: true }).waitFor();
     expect(archivePosts()).toHaveLength(4);
-    expect(await page.locator('[role="button"][aria-pressed]').count()).toBe(0);
+    expect(await page.locator(ROW).count()).toBe(0);
+    expect(await page.locator('[aria-roledescription="sortable"]').count()).toBe(6);
 
     // Recent has them, as archived.
     await page.getByRole('tab', { name: 'Recent' }).click();
@@ -962,7 +1055,6 @@ it('names the chats with uncommitted files, and Archive anyway archives only tho
     await dialog.waitFor();
     expect(await dialog.innerText()).toContain('"Fix login bug" has work that isn\'t committed');
     expect(await dialog.innerText()).toContain('login.ts');
-    await page.screenshot({ path: '/tmp/ri-rail-select-to-archive-dirty.png' });
     await dialog.getByRole('button', { name: 'Archive anyway' }).click();
     await expect.poll(() => sent.filter((s) => s.endsWith(':force'))).toEqual(['archivePost:web-1:force']);
     answerArchives();
@@ -1002,20 +1094,22 @@ it('leaves selection on Esc in the rail, and leaves Esc elsewhere alone', async 
   }
 });
 
-it("selects chats to archive in the collapsed rail's flyout by touch, where Esc leaves selection before the flyout", async () => {
+it("selects under the agents in the collapsed rail's flyout by touch, where Esc leaves selection before the flyout", async () => {
   const { page, errors } = await open('agentsOnly', 'dark', { rail: 'strip', touch: true, view: { kind: 'home' } });
   try {
     await page.getByRole('button', { name: /^Agents/ }).tap();
     const flyout = page.getByRole('dialog', { name: 'Agents' });
     await flyout.getByRole('button', { name: 'Select chats to archive' }).tap();
     await flyout.getByText('0 selected', { exact: true }).waitFor();
-    expect((await ticks(page, '[data-rail-flyout]')).map((r) => r.name).sort()).toEqual(RECENT_ACTIVE);
+    expect(await agentSections(page, '[data-rail-flyout]')).toEqual(UNFOLDED);
 
-    // A tap ticks, and the fold's Select all needs no hover.
+    // A tap ticks, and Select all needs no hover.
     await tickRow(page, 'Fix login bug', '[data-rail-flyout]').tap();
     await flyout.getByRole('button', { name: 'Select all 2 inactive chats' }).tap();
-    expect(await ticked(page, '[data-rail-flyout]')).toEqual(['Fix login bug', ...INACTIVE_ACTIVE]);
-    await page.screenshot({ path: '/tmp/ri-rail-flyout-select-to-archive.png', clip: { x: 0, y: 0, width: 320, height: 760 } });
+    expect((await ticked(page, '[data-rail-flyout]')).sort()).toEqual(['Audit old landing pages', 'Fix login bug', 'Prune stale worktrees']);
+    await agentCheck(page, 'Finances').tap();
+    expect((await ticked(page, '[data-rail-flyout]')).length).toBe(5);
+    await page.screenshot({ path: '/tmp/ri-rail-flyout-select-under-agents.png', clip: { x: 0, y: 0, width: 320, height: 760 } });
 
     // The first Esc leaves selection, and the flyout stays. The next closes it.
     await page.keyboard.press('Escape');
@@ -1024,7 +1118,7 @@ it("selects chats to archive in the collapsed rail's flyout by touch, where Esc 
     await page.keyboard.press('Escape');
     await flyout.waitFor({ state: 'hidden' });
 
-    // Archive from it: the rows go on the tap, and the list comes back to Agents.
+    // Archive from it: the rows go on the tap, and the agents fold back.
     await page.getByRole('button', { name: /^Agents/ }).tap();
     await flyout.getByRole('button', { name: 'Select chats to archive' }).tap();
     await tickRow(page, 'Reconcile Amex', '[data-rail-flyout]').tap();
@@ -1034,6 +1128,43 @@ it("selects chats to archive in the collapsed rail's flyout by touch, where Esc 
     expect(heldArchives).toHaveLength(1);
     answerArchives();
     await flyout.getByRole('tab', { name: 'Agents', selected: true }).waitFor();
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('keeps the agent in view while its chats scroll', async () => {
+  const { page, errors } = await open('agentsOnly', 'dark', { rail: 'strip', height: 240, view: { kind: 'home' } });
+  try {
+    await page.getByRole('button', { name: /^Agents/ }).click();
+    const flyout = page.getByRole('dialog', { name: 'Agents' });
+    await flyout.getByRole('button', { name: 'Select chats to archive' }).click();
+    await agentCheck(page, 'Ri').waitFor();
+    const list = flyout.locator('.overflow-y-auto').first();
+    await list.evaluate((el) => { el.scrollTop = 70; });
+    await expect.poll(async () => (await agentCheck(page, 'Ri').boundingBox())!.y).toBe((await list.boundingBox())!.y);
+    // Solid, so its chats pass under it unseen.
+    const fill = await agentCheck(page, 'Ri').evaluate((el) => getComputedStyle(el.parentElement!).backgroundColor);
+    expect(fill).not.toBe('rgba(0, 0, 0, 0)');
+    await page.screenshot({ path: '/tmp/ri-rail-select-sticky-agent.png', clip: { x: 0, y: 0, width: 320, height: 240 } });
+    expect(errors).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
+it('keeps the agent under the toolbar in the wide rail, where the header sticks in the same scroller', async () => {
+  const { page, errors } = await open('agentsOnly', 'dark', { rail: 'scroller', height: 300, view: { kind: 'home' } });
+  try {
+    await page.getByRole('button', { name: 'Select chats to archive' }).click();
+    await agentCheck(page, 'Ri').waitFor();
+    await page.locator('[data-rail-scroller]').evaluate((el) => { el.scrollTop = 220; });
+    // Touching the toolbar's foot, whatever height the toolbar comes to.
+    const toolbar = (await page.locator('div[data-rail-list]').first().boundingBox())!;
+    expect(toolbar.y).toBe(0);
+    await expect.poll(async () => (await agentCheck(page, 'Ri').boundingBox())!.y).toBe(toolbar.y + toolbar.height);
+    await page.screenshot({ path: '/tmp/ri-rail-select-sticky-wide.png', clip: { x: 0, y: 0, width: 256, height: 300 } });
     expect(errors).toEqual([]);
   } finally {
     await page.close();

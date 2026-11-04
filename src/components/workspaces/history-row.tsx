@@ -23,8 +23,6 @@ interface HistoryRowProps {
   snippet?: string | null;
   onOpenWorkspaceSettings?: (workspaceId: string) => void;
   onOpenLauncher?: (workspaceId: string) => void;
-  /** The list's selectable rows as they show, top to bottom, for Shift-click ranges. */
-  selectionOrder?: readonly string[];
 }
 
 /**
@@ -50,16 +48,16 @@ interface HistoryRowProps {
  * kebab alone.
  *
  * While the rail selects chats to archive, a click (or Enter) ticks the row
- * instead of opening it, Shift-click ticks every row from the last one
- * ticked, and a checkbox takes the avatar's place so nothing shifts. The
- * actions and the hover preview step aside. Archived rows can't be ticked.
+ * instead of opening it, and Shift-click ticks every row from the last one
+ * ticked. A checkbox sits before the avatar, which stays so each row still
+ * says whose it is. The actions and the hover preview step aside. Archived
+ * rows can't be ticked.
  */
 export function HistoryRow({
   session,
   snippet,
   onOpenWorkspaceSettings,
   onOpenLauncher,
-  selectionOrder,
 }: HistoryRowProps) {
   const { activeSessionId, setActiveView } = useDashboard();
   const status = useChatStatus(session);
@@ -70,9 +68,9 @@ export function HistoryRow({
   // Only active executions live in the rail, so only they can be pinned.
   // Archived rows carry a cleared pin and drop the pin toggle entirely.
   const isPinned = !isArchived && !!session.execution?.pinnedAt;
-  const { selectable, selected, toggle } = useRowSelection(session.id, { enabled: !isArchived, order: selectionOrder });
+  const { selectable, selected, toggle } = useRowSelection(session.id, { enabled: !isArchived });
 
-  const handleOpen = (e?: { shiftKey?: boolean }) => {
+  const handleOpen = (e: { shiftKey: boolean; currentTarget: Element }) => {
     if (selectable) {
       toggle(e);
       return;
@@ -99,6 +97,7 @@ export function HistoryRow({
       onMouseLeave={selectable ? undefined : onMouseLeave}
       role="button"
       aria-pressed={selectable ? selected : undefined}
+      data-select-row={selectable ? session.id : undefined}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -115,15 +114,14 @@ export function HistoryRow({
         isArchived && !isActive && 'opacity-60',
       )}
     >
+      {selectable && (
+        <span className="mt-px flex h-5 flex-shrink-0 items-center">
+          <SelectionCheck checked={selected} />
+        </span>
+      )}
       <span className="relative flex-shrink-0">
-        {selectable ? (
-          <span className="mt-px flex h-5 w-5 items-center justify-center">
-            <SelectionCheck checked={selected} />
-          </span>
-        ) : (
-          <WorkspaceAvatar wsImage={wsImage} wsEmoji={wsEmoji} wsName={wsName} />
-        )}
-        {!selectable && hasChatStatus(status) && (
+        <WorkspaceAvatar wsImage={wsImage} wsEmoji={wsEmoji} wsName={wsName} />
+        {hasChatStatus(status) && (
           // A disc of the row's background keeps the dot legible on any avatar.
           <span className="absolute -top-1 -right-1 flex rounded-full bg-background p-[2px]">
             <StatusPip {...status} />
@@ -158,7 +156,8 @@ export function HistoryRow({
             ) : (
               <>
                 <span className="truncate">{wsName}</span>
-                {branch && (
+                {/* Ticking, the agent's name matters more than the branch. */}
+                {branch && !selectable && (
                   <span className="flex items-center gap-0.5 truncate min-w-0">
                     <GitBranch size={8} className="opacity-60 flex-shrink-0" />
                     <span className="truncate">{branch}</span>

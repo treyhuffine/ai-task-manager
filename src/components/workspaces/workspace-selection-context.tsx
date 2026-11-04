@@ -34,9 +34,13 @@ interface SelectionContextValue {
    * With no earlier row in `order`, the same as `toggle`.
    */
   toggleRange: (id: string, order: readonly string[]) => void;
-  /** Check or uncheck many at once (a fold's Select all). */
+  /** Check or uncheck many at once (a fold's Select all, an agent's check). */
   setMany: (ids: readonly string[], checked: boolean) => void;
   isSelected: (id: string) => boolean;
+  /** Whether a section's inactive fold was opened or closed while selecting, if it was. */
+  foldOpen: (sectionId: string) => boolean | undefined;
+  /** Open or close inactive folds for this selection only. */
+  setFoldsOpen: (sectionIds: readonly string[], open: boolean) => void;
 }
 
 const SelectionContext = createContext<SelectionContextValue | null>(null);
@@ -46,10 +50,14 @@ const SelectionContext = createContext<SelectionContextValue | null>(null);
  * (which owns the toggle + the Archive/Cancel toolbar) and the rows (which
  * render the checkboxes) share one source of truth without prop-drilling.
  *
- * The rail provides it around the list header and the list. While selecting,
- * the list is Recent's, whatever tab is open (`RailListBody`). Rows that would
+ * The rail provides it around the list header and the list, and you select
+ * in the list you're on: Agents unfolds each agent's chats under it
+ * (`AgentSelectionSection`), and Recent ticks its own rows. Rows that would
  * duplicate a selectable row (Pinned) sit inside a
  * `WorkspaceSelectionBoundary`, so a session never shows two checkboxes.
+ *
+ * Inactive folds opened while selecting are held here and forgotten on
+ * leaving, so selecting never changes what a list remembers.
  *
  * Esc leaves selection while focus is in the rail's list (`data-rail-list`)
  * or nowhere in particular, before a flyout around the list would take it to
@@ -58,6 +66,7 @@ const SelectionContext = createContext<SelectionContextValue | null>(null);
 export function WorkspaceSelectionProvider({ children }: { children: ReactNode }) {
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [folds, setFolds] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   // The row a Shift-click ranges from: the one last flipped.
   const anchor = useRef<string | null>(null);
 
@@ -66,6 +75,7 @@ export function WorkspaceSelectionProvider({ children }: { children: ReactNode }
   const exit = useCallback(() => {
     setSelecting(false);
     setSelectedIds(new Set());
+    setFolds(new Map());
     anchor.current = null;
   }, []);
 
@@ -110,6 +120,16 @@ export function WorkspaceSelectionProvider({ children }: { children: ReactNode }
 
   const isSelected = useCallback((id: string) => selectedIds.has(id), [selectedIds]);
 
+  const foldOpen = useCallback((sectionId: string) => folds.get(sectionId), [folds]);
+
+  const setFoldsOpen = useCallback((sectionIds: readonly string[], open: boolean) => {
+    setFolds((prev) => {
+      const next = new Map(prev);
+      for (const id of sectionIds) next.set(id, open);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (!selecting) return;
     const onKey = (e: KeyboardEvent) => {
@@ -136,8 +156,10 @@ export function WorkspaceSelectionProvider({ children }: { children: ReactNode }
       toggleRange,
       setMany,
       isSelected,
+      foldOpen,
+      setFoldsOpen,
     }),
-    [selecting, selectedIds, enter, exit, toggle, toggleRange, setMany, isSelected],
+    [selecting, selectedIds, enter, exit, toggle, toggleRange, setMany, isSelected, foldOpen, setFoldsOpen],
   );
 
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;
@@ -157,19 +179,25 @@ export function WorkspaceSelectionBoundary({ children }: { children: ReactNode }
   return <SelectionContext.Provider value={null}>{children}</SelectionContext.Provider>;
 }
 
+/** The selectable rows in `row`'s list as they show now, top to bottom, folds and agents included. */
+function rowsAsShown(row: Element): string[] {
+  const list = row.closest('[data-rail-list]') ?? row.ownerDocument;
+  return Array.from(list.querySelectorAll<HTMLElement>('[data-select-row]'), (el) => el.dataset.selectRow!);
+}
+
 /**
  * One row's part in the selection, shared by the rail's rows. `selectable`
  * while selecting (and `enabled`), when the row's click should `toggle`
- * rather than open. A Shift-click ranges over `order`, the list's rows as
- * they show, when the list passes it.
+ * rather than open, passing its event so Shift ranges over the rows showing.
+ * The row carries `data-select-row` with its id while `selectable`.
  */
-export function useRowSelection(id: string, { enabled = true, order }: { enabled?: boolean; order?: readonly string[] } = {}) {
+export function useRowSelection(id: string, { enabled = true }: { enabled?: boolean } = {}) {
   const selection = useWorkspaceSelection();
   const selectable = enabled && !!selection?.selecting;
   const selected = selectable && !!selection?.isSelected(id);
-  const toggle = (e?: { shiftKey?: boolean }) => {
+  const toggle = (e: { shiftKey: boolean; currentTarget: Element }) => {
     if (!selection) return;
-    if (e?.shiftKey && order) selection.toggleRange(id, order);
+    if (e.shiftKey) selection.toggleRange(id, rowsAsShown(e.currentTarget));
     else selection.toggle(id);
   };
   return { selectable, selected, toggle };
@@ -180,6 +208,6 @@ export function useRowSelection(id: string, { enabled = true, order }: { enabled
  * none: the row's click is the one source of toggle truth, so a click
  * anywhere on the row (box included) flips selection exactly once.
  */
-export function SelectionCheck({ checked }: { checked: boolean }) {
+export function SelectionCheck({ checked }: { checked: boolean | 'indeterminate' }) {
   return <Checkbox checked={checked} tabIndex={-1} aria-hidden className="pointer-events-none size-3.5" />;
 }

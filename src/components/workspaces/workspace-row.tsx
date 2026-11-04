@@ -19,6 +19,7 @@ import { useFoldShown } from '@/lib/client/rail-fold';
 import { Tip } from '@/components/ui/tip';
 import { AgentIcon } from '@/components/agents/agent-icon';
 import { AgentChatsFlyout } from './agent-chats-flyout';
+import { AgentSelectionSection } from './agent-selection-section';
 import { useWorkspaceSelection } from './workspace-selection-context';
 
 interface WorkspaceRowProps {
@@ -173,7 +174,12 @@ export function WorkspaceRow({
           onOpenLauncher={onOpenLauncher}
         />
       ))}
-      <InactiveFold sectionId={`agent:${workspace.id}`} count={inactiveChildren.length} className="pl-8">
+      <InactiveFold
+        sectionId={`agent:${workspace.id}`}
+        count={inactiveChildren.length}
+        className="pl-8"
+        selectIds={inactiveChildren.map((s) => s.id)}
+      >
         {inactiveChildren.map((s) => (
           <SessionRow
             key={s.id}
@@ -187,6 +193,14 @@ export function WorkspaceRow({
       </InactiveFold>
     </div>
   );
+
+  if (selecting) {
+    return (
+      <AgentSelectionSection workspace={workspace} sessions={childSessions}>
+        {chats}
+      </AgentSelectionSection>
+    );
+  }
 
   return (
     <div ref={setNodeRef} data-agent-id={workspace.id} style={style} className={cn(isDragging && 'opacity-60')}>
@@ -222,7 +236,7 @@ export function WorkspaceRow({
           </button>
           <AgentChatsFlyout
             name={workspace.name}
-            enabled={!expanded && childSessions.length > 0 && !isDragging && !selecting}
+            enabled={!expanded && childSessions.length > 0 && !isDragging}
             hoverTarget={header}
             onClick={open}
             onNewChat={() => onOpenLauncher(workspace.id)}

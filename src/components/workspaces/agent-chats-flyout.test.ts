@@ -65,7 +65,7 @@ beforeAll(async () => {
     export const useWorkspaceSessions=()=>({data:null});
     export const useUpdateWorkspace=()=>({mutate:useFixture().update});
     export const useAgentViewMode=()=>({opensView:true});
-    export const useWorkspaceSelection=()=>({selecting:useFixture().state.selecting,isSelected:()=>false,toggle:()=>{}});
+    export const useWorkspaceSelection=()=>({selecting:useFixture().state.selecting,isSelected:()=>false,toggle:()=>{},setMany:()=>{},foldOpen:()=>undefined,setFoldsOpen:()=>{}});
     export const useRowSelection=(id,{enabled=true}={})=>{const {selecting}=useFixture().state;return {selectable:enabled&&selecting,selected:false,toggle:()=>{}};};
     export const SelectionCheck=()=>null;
     export const useAreas=()=>({data:[]});
@@ -223,8 +223,13 @@ it.each(['agents', 'classic'])('%s: chooses a collapsed chat without unfolding, 
     await page.keyboard.press('Escape');
     await flyout(page).waitFor({ state: 'hidden' });
     expect(await nameButton(page).evaluate(el => el === document.activeElement)).toBe(true);
-    // Selecting, expanding and empty agents never expose duplicate rows.
-    for (const patch of [{ selecting: true }, { selecting: false, collapsed: false }, { collapsed: true, empty: true }]) {
+    // Selecting shows the chats under the agent, with nothing opening beside it.
+    await page.evaluate(() => (window as unknown as FixtureWindow).fixture.patch({ selecting: true }));
+    await page.locator('#agent-row [role="checkbox"]').hover();
+    await page.waitForTimeout(250);
+    expect(await flyout(page).count()).toBe(0);
+    // Expanding and empty agents never expose duplicate rows.
+    for (const patch of [{ selecting: false, collapsed: false }, { collapsed: true, empty: true }]) {
       await page.evaluate(p => (window as unknown as FixtureWindow).fixture.patch(p), patch);
       await header.hover();
       await page.waitForTimeout(250);

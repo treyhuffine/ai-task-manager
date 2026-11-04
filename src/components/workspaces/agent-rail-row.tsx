@@ -32,6 +32,7 @@ import { useInactivity } from '@/hooks/use-inactivity';
 import { useOpenChatAgentId } from '@/hooks/use-open-chat-agent';
 import { Tip } from '@/components/ui/tip';
 import { AgentChatsFlyout } from './agent-chats-flyout';
+import { AgentSelectionSection } from './agent-selection-section';
 import { useWorkspaceSelection } from './workspace-selection-context';
 
 interface AgentRailRowProps {
@@ -190,15 +191,17 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
   const open = () => (opensView || agentsOnly ? openAgent(workspace.id) : toggleThreads());
   const stop = (e: React.PointerEvent | React.MouseEvent) => e.stopPropagation();
 
+  // Two lines, with each chat's status line, in agents only (they're only
+  // ever in the flyout) and while selecting chats to archive, when that line
+  // says whether a chat is done.
+  const density = agentsOnly || selecting ? 'regular' : 'compact';
   const threads = (
     <div className="space-y-px">
       {sessions.map((s) => (
         <SessionRow
           key={s.id}
           session={s}
-          // Agents only, they're only ever in the flyout: two lines, with
-          // each chat's status line.
-          density={agentsOnly ? 'regular' : 'compact'}
+          density={density}
           workspaceIsGit={workspace.isGit}
           onOpenWorkspaceSettings={onOpenSettings}
           onOpenLauncher={onOpenLauncher}
@@ -208,14 +211,15 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       <InactiveFold
         sectionId={`agent:${workspace.id}`}
         count={inactive.length}
-        className={agentsOnly ? 'pl-8' : 'pl-[28px]'}
-        rowClassName={agentsOnly ? undefined : THREAD_FOLD_ROW}
+        className={density === 'regular' ? 'pl-8' : 'pl-[28px]'}
+        rowClassName={density === 'regular' ? undefined : THREAD_FOLD_ROW}
+        selectIds={inactive.map((s) => s.id)}
       >
         {inactive.map((s) => (
           <SessionRow
             key={s.id}
             session={s}
-            density={agentsOnly ? 'regular' : 'compact'}
+            density={density}
             workspaceIsGit={workspace.isGit}
             onOpenWorkspaceSettings={onOpenSettings}
             onOpenLauncher={onOpenLauncher}
@@ -225,6 +229,14 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
       </InactiveFold>
     </div>
   );
+
+  if (selecting) {
+    return (
+      <AgentSelectionSection workspace={workspace} sessions={[...sessions, ...inactive]}>
+        {threads}
+      </AgentSelectionSection>
+    );
+  }
 
   return (
     <div
@@ -262,7 +274,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
         </button>
         <AgentChatsFlyout
           name={workspace.name}
-          enabled={hasThreads && !expanded && !agentsOnly && !isDragging && !selecting}
+          enabled={hasThreads && !expanded && !agentsOnly && !isDragging}
           hoverTarget={header}
           onClick={open}
           onNewChat={() => onOpenLauncher(workspace.id)}
@@ -316,7 +328,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
             // A click, never a rest, slides its chats out beside the rail.
             <AgentChatsFlyout
               name={workspace.name}
-              enabled={!isDragging && !selecting}
+              enabled={!isDragging}
               hoverOpens={false}
               previews
               onNewChat={() => onOpenLauncher(workspace.id)}

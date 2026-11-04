@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Archive, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -33,15 +33,15 @@ import { WorkspaceSelectionBoundary, useWorkspaceSelection } from './workspace-s
  * Work by status lives in the header's pills, from every view, so the rail
  * doesn't repeat it.
  *
- * Selecting chats to archive happens on Recent, from either tab and in every
- * rail style: it lists every chat, and the agents-only rail
- * (docs/rail-agents-first.md) has no chat rows under its agents to tick.
- * While selecting, the list is Recent's whatever tab is open, so archiving or
- * Cancel lands you back on the list you were on without the tab changing.
+ * Selecting chats to archive happens in the list you're on, in every rail
+ * style. Agents unfolds each agent's chats under it, including in the
+ * agents-only rail (docs/rail-agents-first.md), which shows none at rest, and
+ * Recent ticks its own rows. Nothing switches lists, so archiving or Cancel
+ * just folds them back.
  *
  * Both need `WorkspaceSelectionProvider` above them: the header owns the
- * archive-selection toggle and its toolbar, Recent's rows the checkboxes.
- * Both carry `data-rail-list`, where Esc leaves selection.
+ * archive-selection toggle and its toolbar, the rows the checkboxes. Both
+ * carry `data-rail-list`, where Esc leaves selection.
  */
 
 /**
@@ -206,20 +206,24 @@ function SwitchTab({ active, onClick, children }: { active: boolean; onClick: ()
  * the work you keep close is one glance away whichever list is open.
  * Renders nothing for pins when there are none.
  *
- * While selecting chats to archive, Recent alone, whichever tab is open.
- * Pins duplicate its rows, so they step aside rather than offer a plain row
- * above a checkbox for the same chat.
+ * While selecting chats to archive, pins duplicate the list's rows, so they
+ * step aside rather than offer a plain row above a checkbox for the same chat.
+ *
+ * `stickyHeaderHeight` is the room the list header takes when it sticks in
+ * this list's own scroller, so an agent held in view while selecting sits
+ * under it.
  */
-export function RailListBody({ tab }: { tab: RailTab }) {
+export function RailListBody({ tab, stickyHeaderHeight }: { tab: RailTab; stickyHeaderHeight?: number }) {
   const selecting = useWorkspaceSelection()?.selecting ?? false;
+  const style = stickyHeaderHeight ? ({ '--rail-sticky-top': `${stickyHeaderHeight}px` } as CSSProperties) : undefined;
   return (
-    <div data-rail-list="" className="pt-1">
+    <div data-rail-list="" className="pt-1" style={style}>
       {!selecting && (
         <WorkspaceSelectionBoundary>
           <PinnedRail />
         </WorkspaceSelectionBoundary>
       )}
-      {selecting || tab === 'history' ? <HistoryView /> : <WorkspaceNav />}
+      {tab === 'history' ? <HistoryView /> : <WorkspaceNav />}
     </div>
   );
 }

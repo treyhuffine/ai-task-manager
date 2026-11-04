@@ -30,9 +30,9 @@ import { Tip } from '@/components/ui/tip';
  * active work first.
  *
  * With `selectIds` (the folded rows' ids), while the rail selects chats to
- * archive, the timer gives way to Select all: it ticks every inactive chat
- * and opens the fold, so you see what's ticked and can untick some. With
- * all of them ticked it reads Deselect all.
+ * archive, the timer gives way to Select all (`SelectAllChats`). Opening or
+ * closing a fold while selecting lasts only for that selection, so selecting
+ * never changes what the list remembers.
  */
 export function InactiveFold({
   sectionId,
@@ -55,11 +55,12 @@ export function InactiveFold({
   /** The folded rows' ids, for Select all while selecting chats to archive. */
   selectIds?: readonly string[];
 }) {
-  const [shown, setShown] = useFoldShown(`inactive:${sectionId}`);
+  const [remembered, remember] = useFoldShown(`inactive:${sectionId}`);
   const selection = useWorkspaceSelection();
   if (count === 0) return null;
-  const selecting = !!selection?.selecting && !!selectIds?.length;
-  const allSelected = selecting && selectIds!.every((id) => selection!.isSelected(id));
+  const selecting = !!selection?.selecting;
+  const shown = selecting ? (selection.foldOpen(sectionId) ?? remembered) : remembered;
+  const setShown = (next: boolean) => (selecting ? selection.setFoldsOpen([sectionId], next) : remember(next));
   return (
     <div>
       {shown && <div className={cn('mb-0.5', touch ? 'space-y-1' : 'space-y-0.5')}>{children}</div>}
@@ -71,22 +72,8 @@ export function InactiveFold({
         className={className}
         rowClassName={rowClassName}
         accessory={
-          selecting ? (
-            <button
-              type="button"
-              onClick={() => {
-                selection!.setMany(selectIds!, !allSelected);
-                if (!allSelected) setShown(true);
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              aria-label={`${allSelected ? 'Deselect' : 'Select'} all ${selectIds!.length} inactive chats`}
-              className={cn(
-                'flex-shrink-0 rounded-md font-medium text-primary transition-colors hover:bg-primary/10',
-                touch ? 'px-2 py-2 text-[12px]' : 'px-1.5 py-1 text-[10px]',
-              )}
-            >
-              {allSelected ? 'Deselect all' : 'Select all'}
-            </button>
+          selecting && selectIds?.length ? (
+            <SelectAllChats ids={selectIds} folds={[sectionId]} touch={touch} />
           ) : (
             <InactiveAfterPopover
               className={
@@ -100,6 +87,42 @@ export function InactiveFold({
         }
       />
     </div>
+  );
+}
+
+/**
+ * Select all for a set of inactive chats, while the rail selects chats to
+ * archive: it ticks them and opens the `folds` they sit in, so you see what's
+ * ticked and can untick some. With all of them ticked it reads Deselect all.
+ */
+export function SelectAllChats({
+  ids,
+  folds,
+  touch = false,
+}: {
+  ids: readonly string[];
+  folds: readonly string[];
+  touch?: boolean;
+}) {
+  const selection = useWorkspaceSelection();
+  if (!selection) return null;
+  const allSelected = ids.every((id) => selection.isSelected(id));
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        selection.setMany(ids, !allSelected);
+        if (!allSelected) selection.setFoldsOpen(folds, true);
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+      aria-label={`${allSelected ? 'Deselect' : 'Select'} all ${ids.length} inactive chat${ids.length === 1 ? '' : 's'}`}
+      className={cn(
+        'flex-shrink-0 rounded-md font-medium text-primary transition-colors hover:bg-primary/10',
+        touch ? 'px-2 py-2 text-[12px]' : 'px-1.5 py-1 text-[10px]',
+      )}
+    >
+      {allSelected ? 'Deselect all' : 'Select all'}
+    </button>
   );
 }
 
