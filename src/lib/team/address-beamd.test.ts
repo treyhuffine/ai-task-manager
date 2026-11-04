@@ -9,7 +9,7 @@ import { appBeamdTunnelName } from '@/lib/auth/beamd-base-url';
 const mocks = vi.hoisted(() => ({ check: vi.fn(), open: vi.fn() }));
 vi.mock('@/lib/preview/beamd/cli', () => ({ beamdCheck: mocks.check }));
 vi.mock('@/lib/preview/beamd/ownership', () => ({ openOwnedTunnel: mocks.open }));
-import { openTeamBeamdAddress, saveTeamAddressPrefix, teamAddressSettings } from './address';
+import { checkTeamAddress, openTeamBeamdAddress, saveTeamAddressPrefix, teamAddressSettings } from './address';
 import { getAutoTunnel } from '@/lib/auth/bootstrap';
 
 let home: TestHome;
@@ -37,6 +37,32 @@ afterEach(async () => {
 it('suggests the name chosen in browser setup without moving an existing fallback address', () => {
   expect(teamAddressSettings()).toMatchObject({ suggestedName: 'team-huffine', tunnelName: 'ri-team-1234', address: null });
   expect(appBeamdTunnelName()).toBe('ri-team-1234');
+});
+
+it('reports an unconfigured address without contacting a provider or network', async () => {
+  await expect(checkTeamAddress()).resolves.toMatchObject({ address: null, status: 'not_configured', checkedAt: expect.any(String) });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(mocks.check).not.toHaveBeenCalled();
+  expect(mocks.open).not.toHaveBeenCalled();
+});
+
+it('reports online only after verifying that the address reaches this Team', async () => {
+  writeAuthConfig({ tunnelName: 'team-huffine', tunnelUrl: 'https://team-huffine-trey.beamd.run', autoTunnel: true });
+  const before = readAuthConfig();
+  await expect(checkTeamAddress()).resolves.toMatchObject({ address: 'https://team-huffine-trey.beamd.run', method: 'beamd', status: 'online' });
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(readAuthConfig()).toEqual(before);
+  expect(mocks.open).not.toHaveBeenCalled();
+});
+
+it.each(['offline', 'wrong-team'])('reports %s without clearing or changing the saved address', async failure => {
+  writeAuthConfig({ tunnelName: 'existing', tunnelUrl: 'https://custom-team.example.test', autoTunnel: false });
+  const before = readAuthConfig();
+  if (failure === 'offline') vi.mocked(fetch).mockRejectedValueOnce(new Error('Offline'));
+  else vi.mocked(fetch).mockResolvedValueOnce(Response.json({ grantId: 'wrong', team: { id: 'another-team' }, state: 'revoked' }));
+  await expect(checkTeamAddress()).resolves.toMatchObject({ address: 'https://custom-team.example.test', method: 'custom', status: 'offline', message: expect.any(String) });
+  expect(readAuthConfig()).toEqual(before);
+  expect(mocks.open).not.toHaveBeenCalled();
 });
 
 it('saves a prefix for later without enabling remote access or contacting a provider', () => {

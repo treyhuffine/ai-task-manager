@@ -28,7 +28,7 @@ import * as q from '@/lib/db/queries';
 import { memberProcedure, ownerProcedure, teamCapabilityProcedure, router } from '@/lib/trpc/init';
 import { teamLink } from './links';
 import { teamSummary } from './summary';
-import { teamAddressSettings, teamLinkAddress, teamWebBase, verifyTeamAddress, openTeamBeamdAddress, saveTeamAddressPrefix, isLoopbackTeamAddress, normalizeTeamAddress } from './address';
+import { teamAddressSettings, checkTeamAddress, teamLinkAddress, teamWebBase, verifyTeamAddress, openTeamBeamdAddress, saveTeamAddressPrefix, isLoopbackTeamAddress, normalizeTeamAddress } from './address';
 import { TEAM_MCP_PATH } from './credential';
 import { aiClient } from '@/lib/external-ai/client-config';
 import { aiClientKeyInput } from '@/lib/external-ai/key-input';
@@ -222,6 +222,7 @@ export const teamRouter = router({
    */
   address: router({
     get: ownerProcedure.query(() => teamAddressSettings()),
+    status: ownerProcedure.query(() => checkTeamAddress()),
     savePrefix: ownerProcedure.input(z.object({ name: z.string().min(1).max(63) }).strict()).mutation(({ input }) => {
       try {
         return saveTeamAddressPrefix(input.name);

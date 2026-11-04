@@ -7,7 +7,7 @@ import { useSettingsLink } from '@/components/settings/settings-destination';
 import { Settings } from 'lucide-react';
 import { ScratchpadButton } from '@/components/scratchpad/scratchpad-host';
 
-export function MobileTopBar({ onSearch = () => document.dispatchEvent(new CustomEvent('open-search')), onOpenSettings }: { onSearch?: () => void; onOpenSettings?: () => void }) {
+export function MobileTopBar({ onSearch = () => document.dispatchEvent(new CustomEvent('open-search')), onOpenSettings, onOpenAccount }: { onSearch?: () => void; onOpenSettings?: () => void; onOpenAccount?: () => void }) {
   const team = useOptionalHomeContext()?.home.kind === 'team';
   const settings = useSettingsLink();
   return (
@@ -19,7 +19,7 @@ export function MobileTopBar({ onSearch = () => document.dispatchEvent(new Custo
       style={{ paddingTop: 'max(env(safe-area-inset-top), 0.75rem)' }}
     >
       {/* My Ri and its teams, once one is connected (docs/homes-spec.md §3.2). */}
-      <SpaceSelector variant="phone" onOpenSettings={onOpenSettings} />
+      <SpaceSelector variant="phone" onOpenSettings={onOpenSettings} onOpenAccount={team ? onOpenAccount : undefined} />
       <button
         onClick={onSearch}
         className="min-w-0 flex-1 h-10 flex items-center gap-2.5 px-3.5 rounded-lg border border-border text-muted-foreground active:bg-muted/60 transition-colors"

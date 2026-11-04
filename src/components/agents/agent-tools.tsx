@@ -102,6 +102,7 @@ export function AgentTools({
                 <button
                   type="button"
                   role="tab"
+                  aria-label={t.label}
                   data-tab={t.id}
                   aria-selected={on}
                   onClick={() => onSelectTab(t.id)}

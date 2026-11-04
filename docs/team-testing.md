@@ -24,7 +24,11 @@ At 390px and on desktop, verify action bars, menus, close controls and settings 
 
 ## 2. Connect once and browse all work
 
-Sign into the team as the existing member. Choose **Settings → Your access → Connect to My Ri**, then paste the short-lived link into personal **Settings → Teams**. Reconnecting yourself uses this flow, not a new invitation. Verify the member count does not change.
+Sign into the team as the existing member. Choose **Settings → Your account → Connect to My Ri**, or use the sidebar's Connect to My Ri action, then paste the short-lived link into personal **Settings → Teams**. Reconnecting yourself uses this flow, not a new invitation. Verify the member count does not change.
+
+Your account is the first settings section. The sidebar name and avatar open it directly, including the collapsed rail. On a phone, the Team menu includes Your account. A Team shown through personal Ri displays Connected to My Ri and does not offer to connect or sign that Home out again.
+
+For an owner with no reachable address, Connect to My Ri, Sign in on another device and Invite people keep address setup beside the original action. Test a failed Beamd prefix, retry, and a custom HTTPS address. Successful setup or reconnection automatically creates the requested link without switching settings sections. Members see an explanation to ask an owner and receive no host controls or localhost link. In **Team address**, verify Online only after a check reaches the correct Team, Not reachable for an offline or different Team, Check connection and Reconnect Beamd. Failed checks retain the saved address and never change the configured method.
 
 Use the Home selector to open the team. Tasks opens the common task surface with List and Board. Clear Assigned to me and Area filters to see unassigned tasks and work assigned to other members. Assignment determines personal automatic inclusion, not permission to browse.
 

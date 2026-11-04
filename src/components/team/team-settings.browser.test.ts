@@ -19,7 +19,9 @@ beforeAll(async () => {
       import {createRoot} from 'react-dom/client';
       import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
       import {TeamSettings} from './src/components/team/team-settings';
-      import {TeamContext} from './src/components/team/team-context';
+      import {TeamContext,useTeamNav} from './src/components/team/team-context';
+      import {TeamRailFooter} from './src/components/team/team-rail-footer';
+      import {MobileTopBar} from './src/components/mobile/mobile-top-bar';
       import {ExternalAiSection} from './src/components/settings/sections/external-ai-section';
       import {useSettingsStore,setSettingsSection} from './src/components/settings/settings-store';
       import {SettingsNav} from './src/components/settings/settings-nav';
@@ -27,7 +29,8 @@ beforeAll(async () => {
       function Personal() {const {section}=useSettingsStore();return <div className='mx-auto my-6 flex w-full max-w-[900px] min-w-0 flex-col gap-6 p-4 sm:flex-row'><SettingsNav active={section} onSelect={setSettingsSection} getStarted={{done:2,total:5}}/><main style={{minWidth:0,flex:1}}>{section==='external-ai'&&<ExternalAiSection/>}</main></div>; }
       if(params.has('personal'))setSettingsSection(params.has('external')?'external-ai':'get-started');
       const identity={team:{id:'team',name:'Team Huffine',members:2,hostedOn:'Mac Mini'},member:{id:'owner',name:'Trey',role:params.get('role')==='member'?'member':'owner'}};
-      createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})}>{params.has('personal')?<Personal/>:<TeamContext.Provider value={identity}><TeamSettings/></TeamContext.Provider>}</QueryClientProvider>);
+      function TeamFixture(){const nav=useTeamNav();return <>{params.has('rail')&&<aside className={'fixed bottom-0 left-0 '+(params.has('collapsed')?'w-14':'w-64')}><TeamRailFooter collapsed={params.has('collapsed')}/></aside>}{params.has('phone-bar')&&<MobileTopBar onOpenSettings={()=>nav.openPanel('settings')} onOpenAccount={()=>nav.openSettings('access')}/>}<TeamSettings/></>;}
+      createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})}>{params.has('personal')?<Personal/>:<TeamContext.Provider value={identity}><TeamFixture/></TeamContext.Provider>}</QueryClientProvider>);
     ` },
     bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
     define: { 'process.env': '{"NODE_ENV":"development"}' },
@@ -43,21 +46,24 @@ beforeAll(async () => {
       b.onResolve({ filter: /team-areas$/ }, () => ({ path: 'areas-dialog', namespace: 'fixture' }));
       b.onResolve({ filter: /hooks\/use-areas$/ }, () => ({ path: 'areas', namespace: 'fixture' }));
       b.onResolve({ filter: /spaces\/space-root$/ }, () => ({ path: 'space', namespace: 'fixture' }));
+      b.onResolve({ filter: /spaces\/my-ri-client$/ }, () => ({ path: 'my-ri', namespace: 'fixture' }));
       b.onResolve({ filter: /ui\/confirm-dialog$/ }, () => ({ path: 'confirm', namespace: 'fixture' }));
       b.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({ loader: 'tsx', resolveDir: process.cwd(), contents: {
         dashboard: `export const useOptionalDashboard=()=>null;`,
         logo: `export const TeamLogo=()=>null;`,
         models: `export const HarnessSettingsPanel=()=>null;export const DefaultModelSection=()=>null;`,
-        home: `export const useHomeContext=()=>({home:{id:'team',kind:'team'},viewer:{id:'owner'},capabilities:{manageSignIns:!location.search.includes('member'),configureAgents:!location.search.includes('member'),administerMembers:!location.search.includes('member'),deletePermanently:!location.search.includes('member'),privatePlanning:false}});export const useOptionalHomeContext=useHomeContext;export const useHomeStorageScope=()=>({homeId:'team',viewerId:'owner'});`,
+        home: `export const useHomeContext=()=>({home:{id:'team',kind:'team',name:'Team Huffine'},viewer:{id:'owner'},capabilities:{manageSignIns:!location.search.includes('member'),configureAgents:!location.search.includes('member'),administerMembers:!location.search.includes('member'),deletePermanently:!location.search.includes('member'),privatePlanning:false}});export const useOptionalHomeContext=useHomeContext;export const useHomeStorageScope=()=>({homeId:'team',viewerId:'owner'});`,
         navigation: `import {useSyncExternalStore} from 'react';const subscribe=fn=>{addEventListener('popstate',fn);return()=>removeEventListener('popstate',fn);};const go=(url,replace=false)=>{history[replace?'replaceState':'pushState']({},'',url);dispatchEvent(new PopStateEvent('popstate'));};const router={push:url=>go(url),replace:url=>go(url,true)};export const useRouter=()=>router;export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(useSyncExternalStore(subscribe,()=>location.search));`,
         chat: `import {useQuery} from '@tanstack/react-query';import {trpc} from '@/lib/trpc/client';export const useTeamAiStatus=()=>useQuery(trpc.team.ai.status.queryOptions());`,
         members: `export const initials=name=>name.slice(0,1);export const useTeamMembers=()=>({active:[{id:'owner',name:'Trey',role:'owner'},{id:'member',name:'Sam',role:'member'}]});`,
         'areas-dialog': `export const NewAreaDialog=()=>null;`,
         areas: `export const useAreas=()=>({data:[]});export const useUpdateArea=()=>({});`,
-        space: `export const useSpace=()=>null;`,
+        space: `export const useSpace=()=>new URLSearchParams(location.search).has('connected')?{id:'connected-team'}:null;`,
+        'my-ri': `export const myRiClient={spaces:{list:{query:async()=>[]},identity:{query:async()=>null}}};`,
         confirm: `export const useConfirm=()=>async()=>true;`,
         api: `
-          window.connectionCalls=[];window.setUpCalls=[];let clients=[];const local=new URLSearchParams(location.search).has('local');
+          window.connectionCalls=[];window.setUpCalls=[];window.linkCalls=[];window.addressCalls=[];let clients=[];const params=new URLSearchParams(location.search);const local=params.has('local');
+          let teamAddress=params.has('unconfigured')?null:'https://team.example.test';let autoTunnel=params.get('method')==='beamd';let tunnelName='team-huffine';window.addressOnline=params.has('online');let failBeamd=params.has('beamd-failure');
           const labels={claude_code:'Claude Code',codex:'Codex',cursor:'Cursor',ri:'Another Ri',other:'MCP client'};
           const makeKey=input=>({keyId:String(clients.length),name:input.name??labels[input.client]??input.client,client:input.client,createdAt:'2026-10-14',lastUsedAt:null});
           let agents=[{kind:'claude_code',installed:true,connection:null,stale:null,config:'~/.claude.json'},{kind:'codex',installed:true,connection:null,stale:null,config:'~/.codex/config.toml'},{kind:'cursor',installed:false,connection:null,stale:null,config:'~/.cursor/mcp.json'}];
@@ -65,19 +71,22 @@ beforeAll(async () => {
           const query=(name,fn=()=>[])=>({queryKey:()=>[name],queryOptions:()=>({queryKey:[name],queryFn:async()=>fn()})});
           export const trpc={userState:{list:query('user-state',()=>({})),update:{mutationKey:()=>['user-state','update']}},homeContext:query('home'),homeExecutionChoices:query('execution'),team:{
             me:query('me'),members:query('members'),invitations:{list:query('invitations')},signIns:{list:query('signIns')},
-            address:{get:query('address',()=>({address:'https://team.example.test',tunnelName:'team-huffine',suggestedName:'team-huffine',autoTunnel:false,nameLocked:false}))},
+            address:{get:query('address',()=>({address:teamAddress,tunnelName,suggestedName:'team-huffine',autoTunnel,nameLocked:false})),status:query('address-status',()=>{window.addressCalls.push('check');return {address:teamAddress,method:autoTunnel?'beamd':'custom',status:teamAddress?(window.addressOnline?'online':'offline'):'not_configured',checkedAt:new Date().toISOString(),message:window.addressOnline?null:'Could not verify this team at that address.'};})},
             aiClients:{list:query('clients',()=>clients),address:query('teamAddress',()=>({mcpUrl:'https://team.example.test/api/team/mcp',reachable:true}))},ai:{orchestrator:query('orchestrator'),status:query('status',()=>status),configuration:query('configuration',()=>({enabled:status.enabled})),chats:{list:query('chats')}}
           }};
           for(const root of ['tasks','notes','areas']) trpc[root]={pathKey:()=>[root],list:query(root),get:query(root+'-detail')};
+          trpc.spaces={list:query('connected-teams'),identity:query('team-identity',()=>null)};
           trpc.results={capabilities:query('result-capabilities',()=>({handoffsEnabled:false,aiReviewEnabled:false}))};
           trpc.externalAi={list:query('personalClients',()=>clients),address:query('personalAddress',()=>({mcpUrl:(local?'http://localhost:4224':'https://home.example.test')+'/api/orchestrator/mcp',reachable:!local,server:'ri',tokenVar:'RI_MCP_TOKEN'})),local:query('localAgents',()=>({device:'Mac Mini',agents}))};
           trpc.harness={skillsGlobalGet:query('skill',()=>({appOnly:false,enabled:true,configured:true,installed:true,conflicts:[],folders:['~/.agents/skills','~/.claude/skills','~/.gemini/config/skills']}))};
-          const unreachable={mutate:async()=>({reachable:false})};
+          const link=kind=>({mutate:async()=>{window.linkCalls.push(kind);return window.addressOnline?{reachable:true,link:teamAddress+'/join#'+(kind==='invite'?'invite':'sign-in')+'=fictional-link',expiresAt:'2030-01-01'}:{reachable:false};}});
           export const trpcClient={team:{
-            invitations:{createRemote:unreachable},signIns:{createRemote:unreachable},
+            invitations:{createRemote:link('invite')},signIns:{createRemote:link('sign-in')},
+            address:{configureBeamd:{mutate:async({name})=>{window.addressCalls.push('beamd:'+name);if(failBeamd){failBeamd=false;throw Error('That name is already taken.');}tunnelName=name;autoTunnel=true;teamAddress='https://'+name+'-trey.beamd.run';window.addressOnline=true;return {address:teamAddress};}},set:{mutate:async({address})=>{window.addressCalls.push('custom:'+address);teamAddress=address;autoTunnel=false;window.addressOnline=true;return {address};}},savePrefix:{mutate:async({name})=>{tunnelName=name;return {};}}},
             aiClients:{create:{mutate:async input=>{window.connectionCalls.push(input);const client=makeKey(input);clients=[...clients,client];return {client,token:'fictional-test-token',mcpUrl:'https://team.example.test/api/team/mcp',reachable:true};}},revoke:{mutate:async()=>{clients=[];}}},
             ai:{configure:{mutate:async input=>{status={...status,...input};}},setEnabled:{mutate:async({enabled})=>{status={...status,enabled,state:enabled?'ready':'off'};}}}
           }};
+          trpcClient.userState={list:{query:async()=>({})},update:{mutate:async input=>input}};
           const skillParams=new URLSearchParams(location.search);const skillOwner=skillParams.get('role')!=='member';
           const makeSkill=(ref,body={})=>({ref,name:ref.split(':')[1],location:{kind:ref.split(':')[0]},description:'Review shared team work.',body:'Read the shared review checklist.',content:'Original skill file',hash:'initial',updatedAt:'2026-10-20',editable:skillOwner,linkedFrom:null,hasErrors:false,uncommitted:false,dir:'<team-home>/skills/'+ref.split(':')[1],otherKeys:[],frontmatterError:null,problems:[],files:[],git:null,canWriteGlobal:false,...body});
           let skills=[makeSkill('ri:weekly-review')];window.skillWrites=[];
@@ -110,7 +119,7 @@ beforeAll(async () => {
   address = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   browser = await chromium.launch({ headless: true, executablePath: process.env.RI_REVIEW_CHROMIUM });
   const newPage = browser.newPage.bind(browser);
-  browser.newPage = async options => { const page = await newPage(options); page.on('pageerror', error => console.error('Settings fixture browser error:', error.message)); return page; };
+  browser.newPage = async options => { const page = await newPage(options); page.on('pageerror', error => console.error('Settings fixture browser error:', error.stack)); return page; };
   browser.on('context', context => context.on('page', page => page.setDefaultTimeout(5_000)));
 }, 90_000);
 
@@ -142,6 +151,90 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ path: path.join(process.env.RI_ARTIFACT_SCREENSHOTS, name), animations: 'disabled' });
 }
 
+it.skipIf(!enabled).each([1280, 390])('finishes Connect to My Ri after Beamd setup, preserving a failed attempt at %ipx', async width => {
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  try {
+    await page.goto(`${address}/?panel=settings&unconfigured=1&beamd-failure=1`);
+    const nav = page.getByRole('navigation', { name: 'Team settings' });
+    expect(await nav.getByRole('button').first().innerText()).toBe('Your account');
+    await page.getByRole('button', { name: 'Connect to My Ri', exact: true }).click();
+    const recovery = page.getByRole('region', { name: 'Connect to My Ri: Team address' });
+    await recovery.getByRole('button', { name: 'Use Beamd', exact: true }).click();
+    await recovery.getByRole('textbox', { name: 'Team prefix', exact: true }).fill('family-review');
+    await recovery.getByRole('button', { name: 'Use Beamd address', exact: true }).click();
+    await recovery.getByRole('alert').getByText('That name is already taken.').waitFor();
+    expect(await recovery.getByRole('textbox', { name: 'Team prefix', exact: true }).inputValue()).toBe('family-review');
+    expect(new URL(page.url()).searchParams.get('settings')).toBeNull();
+    expect(await page.locator('code').count()).toBe(0);
+    await screenshot(page, `team-account-setup-retry-${width}.png`);
+    await recovery.getByRole('button', { name: 'Use Beamd address', exact: true }).click();
+    await page.locator('code', { hasText: 'https://family-review-trey.beamd.run/join#sign-in=fictional-link' }).waitFor();
+    await page.getByText('paste it in your own Ri', { exact: false }).waitFor();
+    expect(await page.evaluate('window.linkCalls')).toEqual(['sign-in', 'sign-in']);
+    expect(await recovery.count()).toBe(0);
+    expect(await page.evaluate('document.documentElement.scrollWidth <= innerWidth')).toBe(true);
+    await screenshot(page, `team-account-connected-link-${width}.png`);
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('shows checked address status and reconnects Beamd without changing its name', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(`${address}/?panel=settings&settings=remote&method=beamd`);
+    await page.getByText('Not reachable', { exact: true }).waitFor();
+    await screenshot(page, 'team-address-offline.png');
+    await page.getByRole('button', { name: 'Reconnect Beamd', exact: true }).click();
+    await page.getByText('Online', { exact: true }).waitFor();
+    await page.getByText('https://team-huffine-trey.beamd.run', { exact: true }).waitFor();
+    expect(await page.evaluate('window.addressCalls')).toContain('beamd:team-huffine');
+    await page.getByRole('button', { name: 'Check connection', exact: true }).click();
+    await page.getByText('Verified that this address reaches your team.', { exact: false }).waitFor();
+    expect(await page.evaluate('window.linkCalls')).toEqual([]);
+    expect(await page.locator('form').count()).toBe(0);
+    await screenshot(page, 'team-address-online.png');
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled).each([false, true])('opens Your account directly from the sidebar avatar, collapsed=%s', async collapsed => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(`${address}/?rail=1${collapsed ? '&collapsed=1' : ''}`);
+    const footer = page.locator('footer');
+    await footer.getByRole('button', { name: 'Your account', exact: true }).click();
+    await page.getByRole('heading', { name: 'Your account', exact: true }).waitFor();
+    expect(new URL(page.url()).searchParams.get('settings')).toBe('access');
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await footer.getByRole('button', { name: 'Connect to My Ri', exact: true }).click();
+    await page.getByRole('heading', { name: 'Your account', exact: true }).waitFor();
+    await screenshot(page, `team-account-sidebar-${collapsed ? 'collapsed' : 'wide'}.png`);
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('offers Your account from the phone Team menu', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  try {
+    await page.goto(`${address}/?phone-bar=1`);
+    await page.getByRole('button', { name: 'Space: Team Huffine. Switch space', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Your account', exact: true }).click();
+    await page.getByRole('heading', { name: 'Your account', exact: true }).waitFor();
+    expect(new URL(page.url()).searchParams.get('settings')).toBe('access');
+    expect(await page.evaluate('document.documentElement.scrollWidth <= innerWidth')).toBe(true);
+    await screenshot(page, 'team-account-phone.png');
+  } finally { await page.close(); }
+}, 30_000);
+
+it.skipIf(!enabled)('shows the existing My Ri connection in the account and sidebar', async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(`${address}/?rail=1&connected=1&panel=settings&settings=access`);
+    await page.getByText('Connected to My Ri.', { exact: false }).first().waitFor();
+    expect(await page.getByRole('button', { name: 'Connect to My Ri', exact: true, includeHidden: true }).count()).toBe(0);
+    expect(await page.locator('footer').getByRole('status', { includeHidden: true }).innerText()).toBe('Connected to My Ri');
+    expect(await page.evaluate('window.linkCalls')).toEqual([]);
+    await screenshot(page, 'team-account-personal-connection.png');
+  } finally { await page.close(); }
+}, 30_000);
+
 it.skipIf(!enabled)('keeps fresh phone setup useful with AI off and without host credential forms', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   try {
@@ -155,10 +248,10 @@ it.skipIf(!enabled)('keeps fresh phone setup useful with AI off and without host
   } finally { await page.close(); }
 }, 30_000);
 
-it.skipIf(!enabled)('uses linked sections, preserves drafts while navigating and directs an invitation to remote access', async () => {
+it.skipIf(!enabled)('uses linked sections, preserves drafts and finishes an invitation with inline address setup', async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
-    await page.goto(`${address}/?panel=settings`);
+    await page.goto(`${address}/?panel=settings&settings=general`);
     const nav = page.getByRole('navigation', { name: 'Team settings' });
     await page.getByRole('textbox', { name: 'Team name', exact: true }).fill('Unsaved team name');
     await nav.getByRole('button', { name: 'AI & Models', exact: true }).click();
@@ -171,9 +264,15 @@ it.skipIf(!enabled)('uses linked sections, preserves drafts while navigating and
     expect(await page.getByRole('textbox', { name: 'Team name', exact: true }).inputValue()).toBe('Unsaved team name');
     await nav.getByRole('button', { name: 'People', exact: true }).click();
     await page.getByRole('button', { name: 'Invite people', exact: true }).click();
-    await page.getByText('Set up or reconnect a remote address here, then try making your link again.').waitFor();
-    expect(new URL(page.url()).searchParams.get('settings')).toBe('remote');
-    await page.goBack();
+    const recovery = page.getByRole('region', { name: 'Invite people: Team address' });
+    await recovery.getByText('finish making your link automatically', { exact: false }).waitFor();
+    expect(new URL(page.url()).searchParams.get('settings')).toBe('people');
+    await recovery.getByRole('button', { name: 'Change address', exact: true }).click();
+    await recovery.getByRole('button', { name: 'Use an HTTPS address', exact: true }).click();
+    await recovery.getByRole('textbox', { name: 'Team address', exact: true }).fill('https://updated-team.example.test');
+    await recovery.getByRole('button', { name: 'Use this address', exact: true }).click();
+    await page.locator('code', { hasText: 'https://updated-team.example.test/join#invite=fictional-link' }).waitFor();
+    expect(await page.evaluate('window.linkCalls')).toEqual(['invite', 'invite']);
     await page.getByRole('heading', { name: 'People', exact: true }).first().waitFor();
   } finally { await page.close(); }
 }, 30_000);
@@ -234,9 +333,9 @@ it.skipIf(!enabled)('keeps all phone sections reachable and hides owner-only set
   try {
     await page.goto(`${address}/?panel=settings&settings=remote&role=member`);
     const nav = page.getByRole('navigation', { name: 'Team settings' });
-    await page.getByRole('textbox', { name: 'Team name', exact: true }).waitFor();
-    expect(await nav.getByRole('button', { name: 'Remote access', exact: true }).count()).toBe(0);
-    await nav.getByRole('button', { name: 'Your access', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Your name', exact: true }).waitFor();
+    expect(await nav.getByRole('button', { name: 'Team address', exact: true }).count()).toBe(0);
+    await nav.getByRole('button', { name: 'Your account', exact: true }).click();
     await page.getByRole('button', { name: 'Sign in on another device', exact: true }).click();
     await page.getByText('Ask a team owner', { exact: false }).waitFor();
     await nav.getByRole('button', { name: 'Connect your agent', exact: true }).click();
@@ -279,7 +378,7 @@ it.skipIf(!enabled)('sets up an agent on this computer in one click, and disconn
     await codex.getByRole('button', { name: /Codex/ }).click();
     await codex.getByText('On Mac Mini', { exact: true }).waitFor();
     await codex.getByRole('button', { name: 'Set up', exact: true }).click();
-    await codex.getByText('Start a new Codex session', { exact: false }).waitFor();
+    await codex.getByRole('status').filter({ hasText: 'Start a new Codex session' }).waitFor();
     await codex.getByText('Ri’s skill is installed for it.', { exact: false }).waitFor();
     await codex.getByText('Connected', { exact: true }).first().waitFor();
     expect(await page.evaluate('window.setUpCalls')).toEqual(['codex']);

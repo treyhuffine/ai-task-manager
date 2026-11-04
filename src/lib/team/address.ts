@@ -31,6 +31,19 @@ export function teamAddressSettings() {
   };
 }
 
+/** Check the saved address against this Team, without changing its configuration. */
+export async function checkTeamAddress() {
+  const { address, autoTunnel } = teamAddressSettings();
+  const method = autoTunnel ? 'beamd' as const : 'custom' as const;
+  if (!address) return { address, method, status: 'not_configured' as const, checkedAt: new Date().toISOString(), message: null };
+  try {
+    await verifyTeamAddress(address);
+    return { address, method, status: 'online' as const, checkedAt: new Date().toISOString(), message: null };
+  } catch (error) {
+    return { address, method, status: 'offline' as const, checkedAt: new Date().toISOString(), message: error instanceof Error ? error.message : 'Could not reach this team at its saved address.' };
+  }
+}
+
 function validatedTeamPrefix(requestedName: string) {
   const name = normalizeTunnelName(requestedName);
   if (!isValidPreviewLabel(name)) throw new Error(`Use letters, numbers and hyphens, up to ${MAX_LABEL_LENGTH} characters. Start and end with a letter or number.`);

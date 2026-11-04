@@ -20,7 +20,7 @@ vi.mock('./team-context', () => ({
     return { panel: 'settings', settingsSection, openSettings, remoteSetup: mocks.remoteSetup, finishRemoteSetup: mocks.done };
   },
 }));
-vi.mock('./team-address-setup', () => ({ TeamAddressSetup: ({ onDone }: { onDone?: () => void }) => createElement('button', { onClick: onDone }, 'Remote address setup') }));
+vi.mock('./team-address-setup', () => ({ TeamAddressSetup: ({ onDone, onSaved }: { onDone?: () => void; onSaved?: () => void }) => createElement('button', { onClick: onDone ?? onSaved }, 'Team address setup') }));
 vi.mock('./connect-ai', () => ({ ConnectAiSection: () => createElement('div', null, 'Connect your AI') }));
 vi.mock('./team-ai-settings', () => ({ TeamAiSection: () => createElement('div', null, 'Team AI') }));
 vi.mock('./team-logo', () => ({ TeamLogo: () => createElement('div', null, 'Team logo') }));
@@ -85,14 +85,14 @@ it('offers provider-neutral prefix setup after owner creation', async () => {
   expect(container.textContent).not.toContain('Connect to My Ri');
   expect(container.textContent).not.toContain('Connect your AI');
   expect(container.textContent).not.toContain('Team AI');
-  await click('Remote address setup');
+  await click('Team address setup');
   expect(mocks.done).toHaveBeenCalledOnce();
 });
 
 it('separates built-in AI, external assistants and remote access into named sections', async () => {
   await render();
   expect(container.textContent).not.toContain('Connect your AI');
-  expect(container.textContent).not.toContain('Remote address setup');
+  expect(container.textContent).not.toContain('Team address setup');
   expect(container.querySelector('nav [aria-current=page]')?.textContent).toBe('General');
   await click('AI & Models');
   expect(container.querySelector<HTMLElement>('[data-team-settings-section=ai]')?.hidden).toBe(false);
@@ -101,17 +101,17 @@ it('separates built-in AI, external assistants and remote access into named sect
   await click('Connect your agent');
   expect(container.querySelector<HTMLElement>('[data-team-settings-section=ai]')?.hidden).toBe(true);
   expect(container.querySelector<HTMLElement>('[data-team-settings-section=external-ai]')?.textContent).toBe('Connect your AI');
-  await click('Remote access');
-  expect(container.querySelector<HTMLElement>('[data-team-settings-section=remote]')?.textContent).toBe('Remote address setup');
+  await click('Team address');
+  expect(container.querySelector<HTMLElement>('[data-team-settings-section=remote]')?.textContent).toBe('Team address setup');
 });
 
 it.each(['unknown', 'remote'])('falls back safely for a member opening the %s section', async section => {
   mocks.role = 'member';
   mocks.initialSection = section;
   await render();
-  expect(container.querySelector('nav [aria-current=page]')?.textContent).toBe('General');
-  expect(container.textContent).not.toContain('Remote address setup');
-  expect(container.querySelector('nav')?.textContent).not.toContain('Remote access');
+  expect(container.querySelector('nav [aria-current=page]')?.textContent).toBe('Your account');
+  expect(container.textContent).not.toContain('Team address setup');
+  expect(container.querySelector('nav')?.textContent).not.toContain('Team address');
 });
 
 it('opens a linked settings section directly', async () => {
@@ -123,10 +123,11 @@ it('opens a linked settings section directly', async () => {
 
 it.each(['Invite people', 'Sign in on another device', 'Connect to My Ri'])('asks for remote setup instead of copying a localhost link for %s', async (label) => {
   await render();
-  await click(label === 'Invite people' ? 'People' : 'Your access');
+  await click(label === 'Invite people' ? 'People' : 'Your account');
   await click(label);
   expect(mocks.createLink).toHaveBeenCalledOnce();
-  expect(container.textContent).toContain('Set up or reconnect a remote address here');
+  expect(container.textContent).toContain('finish making your link automatically');
+  expect(container.querySelector('nav [aria-current=page]')?.textContent).toBe(label === 'Invite people' ? 'People' : 'Your account');
   expect(container.textContent).not.toContain('localhost:42242/join');
   expect(container.querySelector('code')).toBeNull();
 });
@@ -134,17 +135,17 @@ it.each(['Invite people', 'Sign in on another device', 'Connect to My Ri'])('ask
 it.each(['Invite people', 'Sign in on another device', 'Connect to My Ri'])('handles the remote-address precondition before creating a link for %s', async (label) => {
   mocks.createLink.mockRejectedValueOnce(Object.assign(new Error('Set up a reachable address'), { status: 412 }));
   await render();
-  await click(label === 'Invite people' ? 'People' : 'Your access');
+  await click(label === 'Invite people' ? 'People' : 'Your account');
   await click(label);
   expect(mocks.createLink).toHaveBeenCalledOnce();
-  expect(container.textContent).toContain('Set up or reconnect a remote address here');
+  expect(container.textContent).toContain('finish making your link automatically');
   expect(container.querySelector('code')).toBeNull();
 });
 
 it('shows a reachable link with the instructions for the chosen destination', async () => {
   mocks.createLink.mockResolvedValue({ link: 'https://team-huffine-trey.beamd.run/join#sign-in=secret', reachable: true });
   await render();
-  await click('Your access');
+  await click('Your account');
   await click('Connect to My Ri');
   expect(container.querySelector('code')?.textContent).toBe('https://team-huffine-trey.beamd.run/join#sign-in=secret');
   expect(container.textContent).toContain('paste it in your own Ri');
@@ -153,9 +154,32 @@ it('shows a reachable link with the instructions for the chosen destination', as
 it('asks a regular member to contact an owner instead of exposing host settings', async () => {
   mocks.role = 'member';
   await render();
-  await click('Your access');
+  await click('Your account');
   await click('Sign in on another device');
   expect(container.textContent).toContain('Ask a team owner');
-  expect(container.textContent).not.toContain('Remote address setup');
+  expect(container.textContent).not.toContain('Team address setup');
   expect(container.querySelector('code')).toBeNull();
+});
+
+it('puts Your account first and preserves the existing linked section ID', async () => {
+  mocks.initialSection = '';
+  await render();
+  expect(container.querySelector('nav button')?.textContent).toBe('Your account');
+  expect(container.querySelector('nav [aria-current=page]')?.textContent).toBe('Your account');
+  expect(container.querySelector<HTMLElement>('[data-team-settings-section=access]')?.hidden).toBe(false);
+});
+
+it.each(['Invite people', 'Sign in on another device', 'Connect to My Ri'])('automatically finishes %s after inline address setup', async label => {
+  mocks.createLink.mockRejectedValueOnce(Object.assign(new Error('Set up a reachable address'), { status: 412 }));
+  mocks.createLink.mockResolvedValue({ link: 'https://team.example.test/join#sign-in=after-setup', reachable: true, expiresAt: '2030-01-01' });
+  await render();
+  await click(label === 'Invite people' ? 'People' : 'Your account');
+  await click(label);
+  expect(container.querySelector('code')).toBeNull();
+  await click('Team address setup');
+  expect(mocks.createLink).toHaveBeenCalledTimes(2);
+  expect(container.querySelector('code')?.textContent).toBe('https://team.example.test/join#sign-in=after-setup');
+  expect(container.textContent).not.toContain('Team address setup');
+  if (label === 'Connect to My Ri') expect(container.textContent).toContain('paste it in your own Ri');
+  if (label === 'Sign in on another device') expect(container.textContent).toContain('Open it on the other device');
 });

@@ -70,7 +70,7 @@ export function MobileLayout() {
 
   return (
     <>
-      {showTopBar && <MobileTopBar />}
+      {showTopBar && <MobileTopBar onOpenAccount={team ? () => nav.openSettings('access') : undefined} />}
       {/* flex-col so children (each content view + ExecutionView) get
           full width via cross-axis stretch and grow vertically through
           flex-1. Without this, ExecutionView's outer `flex flex-1`

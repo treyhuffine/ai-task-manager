@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { CircleAlert, CircleCheck, LoaderCircle } from 'lucide-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiErrorText } from '@/lib/api/client';
 import { tunnelHostPreview } from '@/lib/auth/tunnel-host';
@@ -8,19 +9,24 @@ import { isValidPreviewLabel, MAX_LABEL_LENGTH } from '@/lib/preview/preview-nam
 import { trpc, trpcClient } from '@/lib/trpc/client';
 import { GateButton, GateField, GateNotice } from './team-gate';
 
-/** First setup saves a prefix. Remote access is an explicit choice in Settings. */
+/** First setup saves a prefix. A Team address is enabled by an explicit choice. */
 export function TeamAddressSetup({ onSaved, onDone }: { onSaved?: () => void; onDone?: () => void }) {
   const address = useQuery(trpc.team.address.get.queryOptions());
+  const connection = useQuery({ ...trpc.team.address.status.queryOptions(), enabled: !onDone, staleTime: 30_000, retry: false });
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [customUrl, setCustomUrl] = useState('');
   const [method, setMethod] = useState<'custom' | 'beamd' | null>(null);
+  const [editing, setEditing] = useState(false);
   const data = address.data;
   const name = nameDraft ?? (data?.address || data?.nameLocked ? data?.tunnelName : data?.suggestedName) ?? '';
   const normalizedName = name.trim().toLowerCase();
   const preview = data?.autoTunnel ? tunnelHostPreview(data.address, data.tunnelName, normalizedName) : null;
   const saved = async () => {
     await address.refetch();
+    if (!onDone) await connection.refetch();
     setNameDraft(null);
+    setEditing(false);
+    setMethod(null);
     onSaved?.();
   };
   const prefix = useMutation({
@@ -29,7 +35,7 @@ export function TeamAddressSetup({ onSaved, onDone }: { onSaved?: () => void; on
     onSuccess: async () => { await saved(); onDone?.(); },
   });
   const beamd = useMutation({
-    mutationFn: () => trpcClient.team.address.configureBeamd.mutate({ name: normalizedName }),
+    mutationFn: (name: string) => trpcClient.team.address.configureBeamd.mutate({ name }),
     onSuccess: saved,
   });
   const custom = useMutation({
@@ -63,7 +69,7 @@ export function TeamAddressSetup({ onSaved, onDone }: { onSaved?: () => void; on
       <div className="space-y-4 text-sm">
         {data.address || data.autoTunnel ? (
           <>
-            <p className="text-muted-foreground">Remote access is already configured. You can change the team address in Settings.</p>
+            <p className="text-muted-foreground">A Team address is already saved. You can check or change it in Settings, Team address.</p>
             <GateButton onClick={onDone}>Continue to team</GateButton>
           </>
         ) : (
@@ -71,7 +77,7 @@ export function TeamAddressSetup({ onSaved, onDone }: { onSaved?: () => void; on
             <p className="text-muted-foreground">Choose a short name to use when you set up a remote address. You can change it later.</p>
             <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (!busy && isValidPreviewLabel(normalizedName)) prefix.mutate(); }}>
               {prefixField}
-              <p className="text-xs text-muted-foreground">To invite people or connect from another device, choose how to make the team reachable in Settings → Remote access.</p>
+              <p className="text-xs text-muted-foreground">To invite people or connect from another device, set up Team address in Settings. You can also do this when connecting to My Ri.</p>
               {prefix.error && <GateNotice tone="error">{apiErrorText(prefix.error)}</GateNotice>}
               <GateButton type="submit" busy={prefix.isPending} disabled={busy || !isValidPreviewLabel(normalizedName)}>Save and continue</GateButton>
             </form>
@@ -82,13 +88,40 @@ export function TeamAddressSetup({ onSaved, onDone }: { onSaved?: () => void; on
     );
   }
 
+  const checked = connection.data?.address === data.address ? connection.data : null;
+  const checking = connection.isFetching || (!checked && !connection.isError);
+  const online = !connection.isError && checked?.status === 'online';
+  const StatusIcon = checking ? LoaderCircle : online ? CircleCheck : CircleAlert;
+  const showMethods = !data.address || editing;
+  const check = async () => {
+    const result = await connection.refetch();
+    if (!result.isError && result.data?.status === 'online') onSaved?.();
+  };
+
   return (
     <div className="space-y-4 text-sm">
-      <p className="text-muted-foreground">
-        {data.address ? 'Use this address to reach your team from another device.' : 'Set up a remote address before inviting people, signing in on another device or connecting your personal Ri. A localhost link only works on the computer hosting the team.'}
-      </p>
-      {data.address && <p className="break-words font-medium" role="status">{data.address}</p>}
-      <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Remote access method">
+      {(data.address || !onSaved) && <div className="space-y-3 rounded-lg border border-border p-3">
+        <div role="status" className="space-y-1">
+          <p className="flex items-center gap-2 font-medium">
+            {data.address && <StatusIcon size={15} className={checking ? 'animate-spin text-muted-foreground' : online ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'} />}
+            {!data.address ? 'Not set up' : checking ? 'Checking connection…' : online ? 'Online' : connection.isError ? 'Could not check connection' : 'Not reachable'}
+          </p>
+          {data.address ? <>
+            <a href={data.address} target="_blank" rel="noopener noreferrer" className="block break-all text-primary underline underline-offset-2">{data.address}</a>
+            <p className="text-xs text-muted-foreground">{data.autoTunnel ? 'Beamd address' : 'HTTPS address'}{online && ' · Verified that this address reaches your team.'}</p>
+            {!checking && checked?.status === 'offline' && <p className="text-xs text-muted-foreground">{checked.message} The team is still available on its hosting computer.</p>}
+            {checked && !checking && <p className="text-[11px] text-muted-foreground">Checked at {new Date(checked.checkedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>}
+          </> : <p className="text-xs text-muted-foreground">Choose an address to invite people, sign in on another device or connect to My Ri. A localhost address only works on the hosting computer.</p>}
+        </div>
+        {data.address && <div className="flex flex-wrap gap-2">
+          <button type="button" className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted/50 disabled:opacity-50" disabled={busy || checking} onClick={() => void check()}>Check connection</button>
+          {data.autoTunnel && <button type="button" className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted/50 disabled:opacity-50" disabled={busy} onClick={() => beamd.mutate(data.tunnelName)}>{beamd.isPending ? 'Reconnecting…' : 'Reconnect Beamd'}</button>}
+          <button type="button" className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted/50 disabled:opacity-50" disabled={busy} onClick={() => { setEditing(!editing); setMethod(null); }}>{editing ? 'Cancel change' : 'Change address'}</button>
+        </div>}
+        {beamd.error && !showMethods && <GateNotice tone="error">{apiErrorText(beamd.error)}</GateNotice>}
+      </div>}
+      {showMethods && <>
+      <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label="Team address method">
         <button type="button" aria-pressed={method === 'custom'} disabled={busy} className="rounded-md border border-border px-3 py-2 text-sm aria-pressed:bg-muted" onClick={() => setMethod('custom')}>Use an HTTPS address</button>
         <button type="button" aria-pressed={method === 'beamd'} disabled={busy} className="rounded-md border border-border px-3 py-2 text-sm aria-pressed:bg-muted" onClick={() => setMethod('beamd')}>Use Beamd</button>
       </div>
@@ -101,10 +134,10 @@ export function TeamAddressSetup({ onSaved, onDone }: { onSaved?: () => void; on
         </form>
       )}
       {method === 'beamd' && (
-        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (!busy && isValidPreviewLabel(normalizedName)) beamd.mutate(); }}>
+        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (!busy && isValidPreviewLabel(normalizedName)) beamd.mutate(normalizedName); }}>
           {prefixField}
           <p className="break-words text-xs text-muted-foreground">
-            {preview ? `Expected address: ${preview}` : 'Uses the Beamd account connected on the hosting computer. Beamd adds its account and domain suffix to the prefix.'}
+            {preview ? `Expected address: ${preview}` : onSaved ? 'Beamd uses the account signed in on the hosting computer.' : 'Uses the Beamd account connected on the hosting computer. Beamd adds its account and domain suffix to the prefix.'}
           </p>
           {data.address && normalizedName !== data.tunnelName && <p className="text-xs text-muted-foreground">After changing the address, use new sign-in and invitation links. A personal Ri already connected to the team may need to reconnect at the new address.</p>}
           <p className="text-xs text-muted-foreground">Ri keeps this address connected while the hosting computer is running. People still need an invitation or sign-in link to access the team.</p>
@@ -112,6 +145,7 @@ export function TeamAddressSetup({ onSaved, onDone }: { onSaved?: () => void; on
           <GateButton type="submit" busy={beamd.isPending} disabled={busy || !isValidPreviewLabel(normalizedName)}>Use Beamd address</GateButton>
         </form>
       )}
+      </>}
     </div>
   );
 }

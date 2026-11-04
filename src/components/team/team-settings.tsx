@@ -41,9 +41,7 @@ import { TeamLogo } from './team-logo';
  */
 export function TeamSettings() {
   const nav = useTeamNav();
-  const addressRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const [needsAddress, setNeedsAddress] = useState(false);
   const capabilities = useHomeContext().capabilities;
   const owner = capabilities.administerMembers;
   const settingUp = nav.remoteSetup && owner;
@@ -53,33 +51,20 @@ export function TeamSettings() {
   const [visited, setVisited] = useState<TeamSettingsSectionId[]>([section.id]);
   if (!visited.includes(section.id)) setVisited([...visited, section.id]);
   const sections = TEAM_SETTINGS_SECTIONS.filter(item => owner || !item.ownerOnly);
-  const needAddress = () => {
-    setNeedsAddress(true);
-    if (owner) nav.openSettings('remote');
-  };
-  useEffect(() => {
-    if (bodyRef.current) bodyRef.current.scrollTop = 0;
-    if (section.id === 'remote' && needsAddress) addressRef.current?.focus({ preventScroll: true });
-  }, [section.id, needsAddress]);
+  useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = 0; }, [section.id]);
 
   const content = (id: TeamSettingsSectionId) => {
     switch (id) {
       case 'conversations': return <ConversationsSection />;
       case 'general': return <div className="space-y-6"><TeamSection /><ThemeSettings /></div>;
-      case 'people': return <PeopleSection onNeedAddress={needAddress} />;
+      case 'people': return <PeopleSection />;
       case 'areas': return <AreasSection />;
-      case 'access': return <>
-        {needsAddress && !owner && <p role="status" className="mb-4 text-sm text-muted-foreground">Ask a team owner to set up a reachable address before signing in elsewhere or connecting your personal Ri.</p>}
-        <YouSection onNeedAddress={needAddress} />
-      </>;
+      case 'access': return <YouSection />;
       case 'skills': return <SkillLibrary canManage={capabilities.configureAgents} />;
       case 'voice': return <Suspense fallback={<p role="status">Loading voice preferences…</p>}><VoiceSection manageHost={false} /></Suspense>;
       case 'ai': return <TeamAiSection />;
       case 'external-ai': return <ConnectAiSection />;
-      case 'remote': return <div ref={addressRef} tabIndex={-1} className="outline-none">
-        {needsAddress && <p role="status" className="mb-4 text-sm text-muted-foreground">Set up or reconnect a remote address here, then try making your link again.</p>}
-        <TeamAddressSetup onSaved={() => setNeedsAddress(false)} />
-      </div>;
+      case 'remote': return <TeamAddressSetup />;
     }
   };
 
@@ -243,7 +228,19 @@ function CopyLink({ link, note }: { link: string; note?: string }) {
   );
 }
 
-function PeopleSection({ onNeedAddress }: { onNeedAddress: () => void }) {
+/** Keep the original link action in place while its address prerequisite is fixed. */
+function LinkAddressSetup({ action, onReady }: { action: string; onReady: () => void }) {
+  const owner = useHomeContext().capabilities.administerMembers;
+  return <section aria-label={`${action}: Team address`} className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+    <h4 className="text-sm font-medium">{action}</h4>
+    {owner ? <>
+      <p className="text-xs text-muted-foreground">Set up or reconnect the Team address below. We will finish making your link automatically.</p>
+      <TeamAddressSetup onSaved={onReady} />
+    </> : <p role="status" className="text-sm text-muted-foreground">Ask a team owner to set up or reconnect the Team address. Then try this action again. Your membership stays the same.</p>}
+  </section>;
+}
+
+function PeopleSection() {
   const { member } = useTeam();
   const capabilities = useHomeContext().capabilities;
   const owner = capabilities.administerMembers;
@@ -252,15 +249,16 @@ function PeopleSection({ onNeedAddress }: { onNeedAddress: () => void }) {
   const { active } = useTeamMembers();
   const invitations = useQuery({ ...trpc.team.invitations.list.queryOptions(), enabled: owner });
   const [latest, setLatest] = useState<{ link: string; reachable: boolean; expiresAt: string } | null>(null);
+  const [needsAddress, setNeedsAddress] = useState(false);
   const invite = useMutation({
     mutationFn: () => trpcClient.team.invitations.createRemote.mutate(),
     onSuccess: (made) => {
-      if (made.reachable) setLatest(made);
-      else { setLatest(null); onNeedAddress(); }
+      if (made.reachable) { setLatest(made); setNeedsAddress(false); }
+      else { setLatest(null); setNeedsAddress(true); }
       void invitations.refetch();
     },
     onError: (err) => {
-      if (apiErrorStatus(err) === 412) { setLatest(null); onNeedAddress(); }
+      if (apiErrorStatus(err) === 412) { setLatest(null); setNeedsAddress(true); }
       else toast.error(apiErrorText(err));
     },
   });
@@ -302,13 +300,14 @@ function PeopleSection({ onNeedAddress }: { onNeedAddress: () => void }) {
           <button type="button" className={rowButton()} onClick={() => invite.mutate()} disabled={invite.isPending}>
             <UserPlus size={13} /> Invite people
           </button>
+          {needsAddress && <LinkAddressSetup action="Invite people" onReady={() => invite.mutate()} />}
           {latest && (
             <CopyLink
               link={latest.link}
               note={
                 latest.reachable
                   ? `One person can join with this link until ${new Date(latest.expiresAt).toLocaleDateString()}. Make another for each person.`
-                  : 'This link works only on this computer until the team has an address people can reach. Set one in Remote access.'
+                  : 'This link works only on this computer until the team has an address people can reach.'
               }
             />
           )}
@@ -338,7 +337,7 @@ function PeopleSection({ onNeedAddress }: { onNeedAddress: () => void }) {
 }
 
 
-function YouSection({ onNeedAddress }: { onNeedAddress: () => void }) {
+function YouSection() {
   const { member } = useTeam();
   const qc = useQueryClient();
   const signIns = useQuery(trpc.team.signIns.list.queryOptions());
@@ -347,22 +346,39 @@ function YouSection({ onNeedAddress }: { onNeedAddress: () => void }) {
   const space = useSpace();
   // A sign-in link, for another device or for the person's own Ri.
   const [link, setLink] = useState<{ value: string; forHome: boolean } | null>(null);
-  const makeLink = async (forHome: boolean) => {
-    try {
-      const made = await trpcClient.team.signIns.createRemote.mutate();
+  const [needsAddress, setNeedsAddress] = useState<boolean | null>(null);
+  const makeLink = useMutation({
+    mutationFn: async (forHome: boolean) => ({ ...await trpcClient.team.signIns.createRemote.mutate(), forHome }),
+    onSuccess: (made) => {
+      const { forHome } = made;
       if (!made.reachable) {
         setLink(null);
-        onNeedAddress();
+        setNeedsAddress(forHome);
         return;
       }
       setLink({ value: made.link, forHome });
-    } catch (err) {
-      if (apiErrorStatus(err) === 412) { setLink(null); onNeedAddress(); }
+      setNeedsAddress(null);
+    },
+    onError: (err, forHome) => {
+      if (apiErrorStatus(err) === 412) { setLink(null); setNeedsAddress(forHome); }
       else toast.error(apiErrorText(err));
-    }
-  };
+    },
+  });
   return (
-    <Section title="You">
+    <div className="space-y-6">
+      <Section title="My Ri" hint={space ? undefined : 'Use this Team from your personal Ri with your existing membership.'}>
+        {space ? <p className="text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Connected to My Ri.</span> To disconnect it, use My Ri&apos;s{' '}
+          <button type="button" className="underline" onClick={() => window.location.assign('/?settings=teams')}>Settings, Teams</button>.
+        </p> : <>
+          <button type="button" className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50" disabled={makeLink.isPending} aria-busy={makeLink.isPending} onClick={() => makeLink.mutate(true)}>
+            <House size={15} /> Connect to My Ri
+          </button>
+          {needsAddress === true && <LinkAddressSetup action="Connect to My Ri" onReady={() => makeLink.mutate(true)} />}
+          {link?.forHome && <CopyLink link={link.value} note="To finish, paste it in your own Ri under Settings, Teams, within 15 minutes. Work assigned to you then appears there too, and nothing personal comes to the team." />}
+        </>}
+      </Section>
+      <Section title="Profile">
       <NameField
         label="Your name"
         value={member.name}
@@ -372,7 +388,9 @@ function YouSection({ onNeedAddress }: { onNeedAddress: () => void }) {
           await qc.invalidateQueries({ queryKey: trpc.team.members.queryKey() });
         }}
       />
-      <ul className="divide-y divide-border/60 rounded-md border border-border">
+      </Section>
+      <Section title="Sign-ins">
+      {(signIns.data?.length ?? 0) > 0 && <ul className="divide-y divide-border/60 rounded-md border border-border">
         {(signIns.data ?? []).map((s) => (
           <li key={s.keyId} className="flex items-center gap-2 px-3 py-2 text-xs">
             {s.deviceKind === 'service' ? <House size={13} className="text-muted-foreground" /> : <Smartphone size={13} className="text-muted-foreground" />}
@@ -394,49 +412,18 @@ function YouSection({ onNeedAddress }: { onNeedAddress: () => void }) {
             )}
           </li>
         ))}
-      </ul>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className={rowButton()} onClick={() => void makeLink(false)}>
+      </ul>}
+        <button type="button" className={rowButton()} disabled={makeLink.isPending} aria-busy={makeLink.isPending} onClick={() => makeLink.mutate(false)}>
           <Smartphone size={13} /> Sign in on another device
         </button>
-        {!space && (
-          <>
-            <button type="button" className={rowButton()} onClick={() => void makeLink(true)}>
-              <House size={13} /> Connect to My Ri
-            </button>
-            <button
-              type="button"
-              className={rowButton('danger')}
-              onClick={async () => {
-                await trpcClient.team.signIns.signOut.mutate().catch(() => {});
-                forgetTeamSignIn();
-                window.location.assign('/');
-              }}
-            >
-              <LogOut size={13} /> Sign out here
-            </button>
-          </>
-        )}
-      </div>
-      {space && (
-        <p className="text-xs text-muted-foreground">
-          Connected to My Ri. To disconnect it, use My Ri&apos;s{' '}
-          <button type="button" className="underline" onClick={() => window.location.assign('/?settings=teams')}>
-            Settings, Teams
-          </button>
-          .
-        </p>
-      )}
-      {link && (
-        <CopyLink
-          link={link.value}
-          note={
-            link.forHome
-              ? 'If you use Ri yourself, paste it in your own Ri under Settings, Teams, within 15 minutes. Work assigned to you then appears there too, and nothing personal comes to the team.'
-              : 'Open it on the other device within 15 minutes. It signs you in there once.'
-          }
-        />
-      )}
-    </Section>
+        {needsAddress === false && <LinkAddressSetup action="Sign in on another device" onReady={() => makeLink.mutate(false)} />}
+        {link && !link.forHome && <CopyLink link={link.value} note="Open it on the other device within 15 minutes. It signs you in there once." />}
+      </Section>
+      {!space && <button type="button" className={rowButton('danger')} onClick={async () => {
+        await trpcClient.team.signIns.signOut.mutate().catch(() => {});
+        forgetTeamSignIn();
+        window.location.assign('/');
+      }}><LogOut size={13} />Sign out here</button>}
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChevronsUpDown, House, Plus, Settings, UserPlus } from 'lucide-react';
+import { Check, ChevronsUpDown, House, Plus, Settings, User, UserPlus } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -102,7 +102,7 @@ function ConnectedTeamMark({ id, name, selected, currentLogo }: { id: string; na
   return <Mark name={name} imageUrl={imageUrl} />;
 }
 
-export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | 'collapsed' | 'phone'; onOpenSettings?: () => void }) {
+export function SpaceSelector({ variant, onOpenSettings, onOpenAccount }: { variant: 'wide' | 'collapsed' | 'phone'; onOpenSettings?: () => void; onOpenAccount?: () => void }) {
   const home = useOptionalHomeContext();
   const identity = useOrchestratorIdentity();
   const currentLogo = home?.home.kind === 'team' ? identity.imageUrl : null;
@@ -160,6 +160,8 @@ export function SpaceSelector({ variant, onOpenSettings }: { variant: 'wide' | '
             {here === team.id && <Check size={14} />}
           </DropdownMenuItem>
         ))}
+        {onOpenAccount && <><DropdownMenuSeparator /><DropdownMenuItem onSelect={onOpenAccount} className="gap-2 text-[13px]"><User size={14} className="text-muted-foreground" />Your account</DropdownMenuItem>
+          {standalone && <DropdownMenuItem onSelect={onOpenAccount} className="gap-2 text-[13px]"><House size={14} className="text-muted-foreground" />Connect to My Ri</DropdownMenuItem>}</>}
         <DropdownMenuSeparator />
         {standalone ? <DropdownMenuItem onSelect={onOpenSettings} className="gap-2 text-[13px]">
           <Settings size={14} className="text-muted-foreground" /> Team settings
