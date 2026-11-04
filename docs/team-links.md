@@ -36,7 +36,7 @@ The mirror, link index and message expansion run with no network, which is why t
 | State | Shows | Click |
 | --- | --- | --- |
 | Found, with a shared copy | Title and team | Opens the copy in place |
-| Found, no shared copy | Title and team | This tab: the team's view, on `/space/<team>`, with no second sign-in |
+| Found, no shared copy | Title and team | This tab, or the desktop app's window: the team's view, on `/space/<team>`, with no second sign-in |
 | Archived | Title, marked archived | As above |
 | Team offline | "Ball Coach task", can't reach it | The team's view, which explains and retries |
 | Different version | "Ball Coach task", update the older one | Nothing, since no request to that team can work |
@@ -47,6 +47,12 @@ The mirror, link index and message expansion run with no network, which is why t
 In every state but the last two, a shared copy supplies the title and opens in place. Inside a team's text, teammates get the same "Task unavailable" for a private ID, a typo and a missing record, so nothing can be learned by probing.
 
 A task opens in a slide-over on the team's board. A note opens over the team's Notes. An Area has no page, so it opens the team's board filtered to it. Team chats, published results and files have no link form yet. A team chat's `link` works as a plain link, and publishing already copies a chosen file to the team.
+
+## The way back
+
+Opening a team's view is a whole page, because a team is a document of its own. Running work carries on. Back returns to where the click came from. The click also saves that place for the space selector, which is how choosing a space works there too.
+
+The desktop app has no tabs, so this happens in its one window. Its shell (`will-navigate` in `desktop/main.ts`) saves drafts and pending edits first, asks if it can't, then loads the page. Back is the arrows in the title bar, ⌘[ and a mouse's side buttons. A task or note opens in a slide-over with a Back of its own, which closes the slide-over and leaves you on the team's board. The next Back returns to the chat. ⌘[ goes straight there. A plain web address, such as a team chat's `link`, leaves the app for the default browser, which may ask for a team sign-in.
 
 ## Privacy
 

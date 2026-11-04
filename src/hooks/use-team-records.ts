@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useOptionalHomeContext } from '@/components/home/home-context';
 import { useOptionalWorkNavigation } from '@/contexts/work-context';
 import type { RemoteRecordKind } from '@/lib/entity-refs/parse-markers';
-import { currentSpaceId, spaceRecordPath } from '@/lib/spaces/document';
+import { currentSpaceId, spacePlaceKey, spaceRecordPath } from '@/lib/spaces/document';
 import type { TeamRecordView } from '@/lib/spaces/team-links';
 import { trpc, trpcClient } from '@/lib/trpc/client';
 
@@ -41,8 +41,10 @@ export function useLocatedRecord(kind: RemoteRecordKind, id: string, enabled = t
 
 /**
  * Open a team's record: a shared copy in place, otherwise the team's own view.
- * That's a whole page in this tab, since a team is a document of its own
- * (src/lib/spaces/document.ts). Back returns here, and running work carries on.
+ * That's a whole page in this tab, or in the desktop app's one window, since a
+ * team is a document of its own (src/lib/spaces/document.ts). Running work
+ * carries on, and the way back is Back or the space selector, so this place is
+ * saved for the selector as it is when choosing a space there.
  */
 export function useOpenTeamRecord() {
   const navigation = useOptionalWorkNavigation();
@@ -52,6 +54,11 @@ export function useOpenTeamRecord() {
       else if (kind === 'task') navigation.openTask(view.localId);
       else navigation.openNote(view.localId);
       return;
+    }
+    try {
+      sessionStorage.setItem(spacePlaceKey(currentSpaceId()), window.location.pathname + window.location.search);
+    } catch {
+      // Without session storage the selector opens My Ri at its start.
     }
     window.location.assign(spaceRecordPath(view.homeId, kind, id));
   }, [navigation]);

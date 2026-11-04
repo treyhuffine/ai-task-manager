@@ -36,6 +36,11 @@ export function spaceRecordPath(teamId: string, kind: 'task' | 'note' | 'area', 
   return `${spacePath(teamId)}?${query}`;
 }
 
+/** Where a screen remembers its place in a space, to come back to it from the selector. */
+export function spacePlaceKey(space: string | null): string {
+  return `ri:space-nav:${space ?? 'my-ri'}`;
+}
+
 /** Where a space document reaches its team's API through this home. */
 export function spaceApiBase(teamId: string): string {
   return `/api/space/${encodeURIComponent(teamId)}`;

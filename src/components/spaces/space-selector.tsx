@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tip } from '@/components/ui/tip';
-import { currentSpaceId, spacePath, spaceApiBase } from '@/lib/spaces/document';
+import { currentSpaceId, spacePath, spaceApiBase, spacePlaceKey } from '@/lib/spaces/document';
 import { myRiClient } from '@/lib/spaces/my-ri-client';
 import { teamDisplayName } from '@/lib/home/team-display-name';
 import { cn } from '@/lib/utils';
@@ -28,8 +28,6 @@ import { useOrchestratorIdentity } from '@/hooks/use-user-state';
  * place.
  */
 
-const navKey = (space: string | null) => `ri:space-nav:${space ?? 'my-ri'}`;
-
 export function useConnectedTeams(enabled = true) {
   return useQuery({
     enabled,
@@ -44,8 +42,8 @@ function openSpace(target: string | null) {
   if (target === here) return;
   let url = target ? spacePath(target) : '/';
   try {
-    sessionStorage.setItem(navKey(here), window.location.pathname + window.location.search);
-    const saved = sessionStorage.getItem(navKey(target));
+    sessionStorage.setItem(spacePlaceKey(here), window.location.pathname + window.location.search);
+    const saved = sessionStorage.getItem(spacePlaceKey(target));
     url = restoredHomeNavigation(target, saved) ?? url;
   } catch {
     // Without session storage a space opens at its start.
