@@ -159,6 +159,20 @@ export async function register() {
     console.warn('[notifier] drain init failed', err);
   }
 
+  // Warn before the disk fills, since a full disk stops schedules, chats and
+  // saves. At startup, then every 5 minutes.
+  try {
+    const { warnIfDiskLow } = await import('@/lib/service/disk-warning');
+    const check = () =>
+      perfScope('timer:disk-warning', () => warnIfDiskLow())
+        .catch((err) => console.warn('[disk-warning] check failed', err));
+    void check();
+    const interval = setInterval(check, 5 * 60_000);
+    interval.unref?.();
+  } catch (err) {
+    console.warn('[disk-warning] init failed', err);
+  }
+
   // Shared work from connected teams (docs/homes-spec.md §9.3, P7.2): the
   // tasks assigned to this person, and the ones they added, read now and
   // every two minutes. A viewer coming back to the window asks again.

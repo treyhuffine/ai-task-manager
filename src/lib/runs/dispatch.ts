@@ -67,13 +67,14 @@ import { composeHeartbeatPrompt } from '@/lib/heartbeat/prompt';
 import { alreadyRaised } from '@/lib/heartbeat/notes';
 import { homeCantRun } from '@/lib/setups/run-on';
 import { resolveTriggerSelection } from '@/lib/triggers/model-speed';
+import { formatSpanSeconds } from '@/lib/executions/duration';
 
 export interface DispatchRunArgs {
   trigger: TriggerRecord;
   triggerKind: RunTrigger;
   /** Raw webhook payload (kind='webhook' only). */
   triggerPayload?: Record<string, unknown> | string | null;
-  /** When the scheduler tick decided this slot should fire. */
+  /** The slot this fire was due. A late one says so in its message. */
   scheduledFor?: string | null;
 }
 
@@ -183,6 +184,7 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
           blockerChatSessionId: blocker.chatSessionId!,
           trigger,
           triggerPayload,
+          scheduledFor,
         });
       }
       // For workspace targets that have a blocker from a different
@@ -250,9 +252,30 @@ export async function dispatchRun(args: DispatchRunArgs): Promise<DispatchedRunR
   //    land on the run row via the result-event handler (cost +
   //    summary + artifact capture) wired in src/lib/executor/adapter.ts.
   markRunStarted(run.id);
-  void runUnderLease(run.id, chat.id, trigger, resolved.execution, triggerPayload);
+  void runUnderLease(run.id, chat.id, trigger, resolved.execution, triggerPayload, scheduledFor);
 
   return { run, chatSession: chat };
+}
+
+function chatIsBusy(chatId: string): boolean {
+  return isRunning(chatId) || hasBackgroundTasks(chatId) || hasPendingCoordinationSend(chatId)
+    || !!findActiveRunForChatSession(chatId);
+}
+
+/**
+ * Whether a due one-time job should wait instead of firing. It has no later
+ * slot, so the skip a repeating schedule can shrug off would lose it for good.
+ * The scheduler leaves it due and asks again next tick, until the chat is free
+ * or its Hold is released. A chat that's gone isn't waited for: the fire fails
+ * and pauses the trigger, saying why. Run now never comes through here, and
+ * still skips and shows the reason.
+ */
+export function oneTimeFireMustWait(trigger: TriggerRecord): boolean {
+  if (trigger.kind !== 'at' || trigger.targetKind !== 'session' || !trigger.targetSessionId) return false;
+  const chat = getChatSession(trigger.targetSessionId);
+  if (!chat || chat.status !== 'active') return false;
+  if (chat.coordinationHeldAt) return true;
+  return trigger.concurrencyPolicy !== 'coalesce_if_active' && chatIsBusy(chat.id);
 }
 
 /** Why a chat target can't take a fire at all. Pauses the trigger. */
@@ -302,11 +325,9 @@ async function dispatchToChat(args: DispatchRunArgs): Promise<DispatchedRunResul
     return { run: skipped, chatSession: null };
   };
   if (chat.coordinationHeldAt) return skip('chat_paused');
-  const busy = isRunning(chat.id) || hasBackgroundTasks(chat.id) || hasPendingCoordinationSend(chat.id)
-    || !!findActiveRunForChatSession(chat.id);
-  if (busy) {
+  if (chatIsBusy(chat.id)) {
     if (trigger.concurrencyPolicy !== 'coalesce_if_active') return skip('chat_busy');
-    appendCoalescedMessage({ blockerChatSessionId: chat.id, trigger, triggerPayload });
+    appendCoalescedMessage({ blockerChatSessionId: chat.id, trigger, triggerPayload, scheduledFor });
     return skip(triggerConcurrencyReason('coalesce_if_active')!);
   }
 
@@ -327,7 +348,7 @@ async function dispatchToChat(args: DispatchRunArgs): Promise<DispatchedRunResul
   // The chat already existed, so this run did not create it:
   // `createdByRunId` stays as it was.
   markRunStarted(run.id);
-  void runUnderLease(run.id, chat.id, trigger, execution, triggerPayload);
+  void runUnderLease(run.id, chat.id, trigger, execution, triggerPayload, scheduledFor);
   return { run, chatSession: chat };
 }
 
@@ -514,8 +535,9 @@ function appendCoalescedMessage(args: {
   blockerChatSessionId: string;
   trigger: TriggerRecord;
   triggerPayload: Record<string, unknown> | string | null;
+  scheduledFor: string | null;
 }): void {
-  const content = composeCoalescedContent(args.trigger, args.triggerPayload);
+  const content = composeCoalescedContent(args.trigger, args.triggerPayload, args.scheduledFor);
   let sourceEventId: string | null = null;
   try {
     sourceEventId = insertChatEvent({
@@ -548,9 +570,51 @@ function appendCoalescedMessage(args: {
 function composeCoalescedContent(
   trigger: TriggerRecord,
   triggerPayload: Record<string, unknown> | string | null,
+  scheduledFor: string | null,
 ): string {
   const header = `[from trigger ${trigger.name} (${trigger.id})]`;
-  return `${header}\n\n${promptForTrigger(trigger, triggerPayload)}`;
+  return `${header}\n\n${withLateNote(promptForTrigger(trigger, triggerPayload), trigger, scheduledFor)}`;
+}
+
+/** A fire normally starts within a tick or two of its slot. Past this, it says so. */
+const LATE_NOTE_AFTER_MS = 5 * 60_000;
+
+/**
+ * The sentence a late fire starts with. A prompt can assume the time it was
+ * written for ("verify the open", "restart in the 10 AM window"), and a fresh
+ * chat has no other way to know that time has passed: the computer was asleep,
+ * the scheduler was down, or a one-time job waited for its chat. Whether the
+ * job still applies is the agent's call.
+ */
+export function lateFireNote(
+  scheduledFor: string | null,
+  timezone: string | null,
+  now: Date = new Date(),
+): string | null {
+  if (!scheduledFor) return null;
+  const due = new Date(scheduledFor);
+  const lateMs = now.getTime() - due.getTime();
+  if (!(lateMs >= LATE_NOTE_AFTER_MS)) return null;
+  const dueAt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone ?? 'UTC',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(due);
+  const late = formatSpanSeconds(Math.floor(lateMs / 60_000) * 60);
+  return `This scheduled run was due at ${dueAt} and is starting ${late} late. Check it still applies before acting on it.`;
+}
+
+function withLateNote(
+  prompt: string,
+  trigger: Pick<TriggerRecord, 'timezone'>,
+  scheduledFor: string | null,
+): string {
+  const note = lateFireNote(scheduledFor, trigger.timezone);
+  return note ? `${note}\n\n${prompt}` : prompt;
 }
 
 function recordTargetFailure(args: DispatchRunArgs, errorCode: string, errorMessage: string): DispatchedRunResult {
@@ -611,6 +675,7 @@ async function runUnderLease(
   trigger: TriggerRecord,
   execution: ExecutionRecord | null,
   triggerPayload: Record<string, unknown> | string | null,
+  scheduledFor: string | null,
 ): Promise<void> {
   try {
     const ready = await ensureWorktreeReady(chatSessionId, execution);
@@ -630,8 +695,8 @@ async function runUnderLease(
       return;
     }
     const prompt = trigger.targetKind === 'session'
-      ? composeCoalescedContent(trigger, triggerPayload)
-      : promptForTrigger(trigger, triggerPayload);
+      ? composeCoalescedContent(trigger, triggerPayload, scheduledFor)
+      : withLateNote(promptForTrigger(trigger, triggerPayload), trigger, scheduledFor);
     // Persist a user chat_event mirroring the route layer's pattern
     // for normal sends. Without this, scheduled chats show only the
     // agent's responses with no record of what triggered them — and

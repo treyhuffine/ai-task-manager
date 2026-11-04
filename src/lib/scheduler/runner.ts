@@ -38,14 +38,17 @@ import {
   reapStaleRunningRuns,
 } from '@/lib/db/queries';
 import type { TriggerRecord } from '@/db/types';
-import { dispatchRun } from '@/lib/runs/dispatch';
+import { dispatchRun, oneTimeFireMustWait } from '@/lib/runs/dispatch';
 
 const TICK_INTERVAL_MS = 60_000;
 const STARTUP_DELAY_MS = 5_000;
+/** A tick takes milliseconds, since a run outlives it. This old means it's stuck. */
+const STUCK_TICK_MS = 10 * 60_000;
 
 interface RunnerState {
   interval: NodeJS.Timeout | null;
-  ticking: boolean;
+  /** When the tick in progress started, and whose turn it is. Null between ticks. */
+  tickStartedAt: number | null;
   /** How many ticks have run since boot — useful for tests + telemetry. */
   tickCount: number;
   /** Last logged lock-holder pid; suppresses repeated identical warnings. */
@@ -57,13 +60,14 @@ const globalRef = globalThis as unknown as { [STATE_KEY]?: RunnerState };
 if (!globalRef[STATE_KEY]) {
   globalRef[STATE_KEY] = {
     interval: null,
-    ticking: false,
+    tickStartedAt: null,
     tickCount: 0,
     lastReportedLockHolder: null,
   };
-} else if (globalRef[STATE_KEY].lastReportedLockHolder === undefined) {
+} else {
   // HMR migration from an older shape.
-  globalRef[STATE_KEY].lastReportedLockHolder = null;
+  globalRef[STATE_KEY].lastReportedLockHolder ??= null;
+  globalRef[STATE_KEY].tickStartedAt ??= null;
 }
 const state = globalRef[STATE_KEY]!;
 
@@ -153,8 +157,16 @@ export async function runTick(now: Date = new Date()): Promise<number> {
 }
 
 async function runAdmittedTick(now: Date): Promise<number> {
-  if (state.ticking) return 0;
-  state.ticking = true;
+  const startedAt = now.getTime();
+  if (state.tickStartedAt !== null) {
+    if (startedAt - state.tickStartedAt < STUCK_TICK_MS) return 0;
+    // Something this tick awaits never came back. Waiting on it would stop
+    // every schedule until a restart, so a new tick takes over.
+    console.error(`[scheduler] a tick has been stuck for ${Math.round((startedAt - state.tickStartedAt) / 60_000)} minutes, starting a new one`);
+    releaseLockIfOwnedSync();
+  }
+  state.tickStartedAt = startedAt;
+  const current = () => state.tickStartedAt === startedAt;
   // Everything after the flag runs inside this try. On 2026-11-02 a full disk
   // made the lock file fail to open outside it, the flag stayed set, and every
   // tick returned here for 18 hours, until the server restarted.
@@ -181,6 +193,9 @@ async function runAdmittedTick(now: Date): Promise<number> {
       if (localAppsEnabled()) await (await import('@/lib/local-apps/service')).localApps().tick(now);
       const due = listDueTriggers(now);
       for (const trigger of due) {
+        // A newer tick took over while this one was stuck. It read what's due
+        // for itself, so going on from this older list could fire a row twice.
+        if (!current()) break;
         try {
           const fired = await processTrigger(trigger, now);
           if (fired) dispatched++;
@@ -190,11 +205,11 @@ async function runAdmittedTick(now: Date): Promise<number> {
         }
       }
     } finally {
-      releaseSchedulerLock(lock);
+      if (current()) releaseSchedulerLock(lock);
     }
     return dispatched;
   } finally {
-    state.ticking = false;
+    if (current()) state.tickStartedAt = null;
   }
 }
 
@@ -212,6 +227,9 @@ async function runAdmittedTick(now: Date): Promise<number> {
  * query.
  */
 async function processTrigger(trigger: TriggerRecord, now: Date): Promise<boolean> {
+  // Left due and untouched, so the next tick asks again.
+  if (oneTimeFireMustWait(trigger)) return false;
+
   // Compute the next fire POST-dispatch so an already-fired `at` slot
   // doesn't loop on its own past `runAt`. Passing `lastFiredAt: now`
   // models the world after we fire: for `at` that returns null (one-
@@ -234,7 +252,9 @@ async function processTrigger(trigger: TriggerRecord, now: Date): Promise<boolea
     trigger,
     triggerKind: trigger.kind === 'webhook' ? 'webhook' : trigger.kind,
     triggerPayload: null,
-    scheduledFor: now.toISOString(),
+    // The slot this fire was due, read before it advanced, not when the tick
+    // got to it: how late a run started is what this column is for.
+    scheduledFor: trigger.nextRunAt ?? now.toISOString(),
   });
   return true;
 }
@@ -243,7 +263,7 @@ async function processTrigger(trigger: TriggerRecord, now: Date): Promise<boolea
 export function getSchedulerStats(): { tickCount: number; ticking: boolean; running: boolean } {
   return {
     tickCount: state.tickCount,
-    ticking: state.ticking,
+    ticking: state.tickStartedAt !== null,
     running: state.interval != null,
   };
 }

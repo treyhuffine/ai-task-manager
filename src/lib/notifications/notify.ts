@@ -22,6 +22,7 @@ import {
   listStrandedDeliveries,
 } from '@/lib/db/queries';
 import type { NotificationChannelRecord, NotificationDeliveryRecord } from '@/db/types';
+import { eventCatalogEntry } from './events';
 import { render } from './render';
 import { resolveAdapter as defaultResolveAdapter } from './adapters/registry';
 import type { NotificationChannelAdapter, NotificationEvent } from './types';
@@ -148,14 +149,14 @@ export async function drainPendingNotifications(
   return stranded.length;
 }
 
-/** Matrix routing (default) or binding routing (opts.deliverTo) → the enabled target channels. */
+/** Matrix routing (default), binding routing (opts.deliverTo) or always → the enabled target channels. */
 function resolveChannels(event: NotificationEvent, options: NotifyOptions): NotificationChannelRecord[] {
   if (options.deliverTo) {
     return options.deliverTo
       .map((id) => getNotificationChannel(id))
       .filter((c): c is NotificationChannelRecord => !!c && c.enabled && c.userId === event.userId);
   }
-  return listNotificationChannels({ userId: event.userId, enabled: true }).filter((c) =>
-    (c.events ?? []).includes(event.type),
-  );
+  const channels = listNotificationChannels({ userId: event.userId, enabled: true });
+  if (eventCatalogEntry(event.type)?.routing === 'always') return channels;
+  return channels.filter((c) => (c.events ?? []).includes(event.type));
 }

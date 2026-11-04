@@ -85,7 +85,8 @@ time, schedules another run. This clears its previous fire marker but keeps
 its run history. Saving the same instant again, including an equivalent
 timestamp with a different UTC offset, does not re-arm it. Paused jobs stay
 paused until resumed. The scheduler checks due jobs on its normal tick, so a
-run can start after the selected minute if the home is asleep or busy.
+run can start after the selected minute if the home is asleep or busy. See
+[When a run can't start on time](#when-a-run-cant-start-on-time).
 
 ## Scheduling a chat
 
@@ -112,12 +113,42 @@ schedule is `src/lib/triggers/chat-schedule.ts`.
 
 A schedule that sends to one chat (`target_kind: "session"`) shows **Sends to**
 with a link to that chat in place of the agent and model, since the chat keeps
-its own provider and model. Lists say "sends to a chat". A run while the chat
-is busy is skipped by default. If the chat is archived or deleted, the next
-run pauses the schedule and says why. Agents and the CLI create these too
+its own provider and model. Lists say "sends to a chat". A repeating run while
+the chat is busy is skipped by default, since the next one is coming. A one-time
+run waits instead. If the chat is archived or deleted, the next run pauses the
+schedule and says why. Agents and the CLI create these too
 (`ri trigger create --target session --session <chat id>`).
 
 All saves use the existing tRPC procedures and orchestrator actions.
+
+## When a run can't start on time
+
+The computer sleeps, the server restarts, the disk fills. What was due stays
+due, and nothing needs a person to bring it back.
+
+- **Overdue jobs fire once.** The next tick that works fires each overdue job
+  one time, however many of its slots it missed.
+- **A late run says so.** A run starting 5 or more minutes after its slot begins
+  with "This scheduled run was due at Tue, Nov 3, 10:00 AM MST and is starting
+  3h 39m late. Check it still applies before acting on it." It's a time
+  comparison in `lateFireNote`, with no model involved. `runs.scheduled_for`
+  holds the slot, not the moment the tick reached it.
+- **A one-time job waits for its chat.** It has no later slot, so a chat that's
+  busy or on Hold doesn't lose it. The row stays due (`oneTimeFireMustWait`),
+  and the chat's schedule chip says "waiting". It goes when the chat is free or
+  the Hold is released. **Run now** still skips and shows why.
+- **A failed tick doesn't stop the next one.** The error goes to the server log
+  and the next tick starts clean. A full disk is the usual cause: on 2026-11-02
+  a failed lock file stopped every schedule for 18 hours, until a restart.
+- **A stuck tick gets replaced.** A tick takes milliseconds, since a run outlives
+  it. After 10 minutes one is treated as stuck: a new tick takes over and the old
+  one stops at its next job, so no job fires twice. The job it was stuck on has
+  used its slot, and the log says a tick was replaced.
+
+A warning comes before the disk gets there. `warnIfDiskLow` checks every 5
+minutes and sends "Disk almost full" to every enabled notification channel below
+10 GiB free, at most once a day. It has no toggle (`routing: 'always'`), and
+nothing is deleted for you.
 
 Verification:
 

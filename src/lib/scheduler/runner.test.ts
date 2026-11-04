@@ -20,6 +20,21 @@ vi.mock('@/lib/executor/adapter', () => ({
   ExecutorError: class extends Error {},
 }));
 
+// Lets a test hold one fire open, as a lookup that never comes back would.
+const firing = vi.hoisted(() => ({ holdNext: null as Promise<void> | null }));
+vi.mock('@/lib/runs/dispatch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/runs/dispatch')>();
+  return {
+    ...actual,
+    dispatchRun: async (args: Parameters<typeof actual.dispatchRun>[0]) => {
+      const hold = firing.holdNext;
+      firing.holdNext = null;
+      if (hold) await hold;
+      return actual.dispatchRun(args);
+    },
+  };
+});
+
 const TEST_DB = path.join(os.tmpdir(), `ri-runner-test-${process.pid}.db`);
 const TEST_BRAIN = path.join(os.tmpdir(), `ri-runner-brain-${process.pid}`);
 
@@ -174,5 +189,96 @@ describe('runTick — a failed tick never stops the scheduler', () => {
     expect(await runTick(new Date())).toBe(1);
     await new Promise((r) => setTimeout(r, 50));
     expect(queries.listRuns({}).filter((r) => r.triggerId === trigger.id)).toHaveLength(1);
+  });
+});
+
+describe('runTick — a stuck tick never stops the scheduler', () => {
+  it('lets a new tick take over after 10 minutes, and fires no job twice', async () => {
+    await seed();
+    const queries = await import('@/lib/db/queries');
+    const { runTick, getSchedulerStats } = await import('./runner');
+    const t0 = Date.now();
+    const daily = (name: string) => queries.createTrigger({
+      name,
+      targetKind: 'orchestrator',
+      harness: 'claude',
+      prompt: 'X',
+      kind: 'every',
+      intervalSeconds: 86_400,
+      nextRunAt: new Date(t0 - 60_000).toISOString(),
+    });
+    const jobs = [daily('first'), daily('second')];
+
+    let release!: () => void;
+    firing.holdNext = new Promise((resolve) => { release = resolve; });
+    const stuck = runTick(new Date(t0));
+    await vi.waitFor(() => expect(firing.holdNext).toBeNull());
+
+    // A slow tick isn't a stuck one: the next minute leaves it alone.
+    expect(await runTick(new Date(t0 + 60_000))).toBe(0);
+
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await runTick(new Date(t0 + 11 * 60_000))).toBe(1);
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining('stuck for 11 minutes'));
+    logged.mockRestore();
+
+    // The lookup comes back at last. The old tick ends what it was doing and
+    // doesn't go on through its older list, which still has the job just fired.
+    release();
+    expect(await stuck).toBe(1);
+    await new Promise((r) => setTimeout(r, 50));
+    for (const job of jobs) expect(queries.listRuns({}).filter((r) => r.triggerId === job.id)).toHaveLength(1);
+
+    expect(getSchedulerStats().ticking).toBe(false);
+    expect(await runTick(new Date(t0 + 12 * 60_000))).toBe(0);
+    expect(getSchedulerStats().ticking).toBe(false);
+  });
+});
+
+describe('runTick — how late a fire was', () => {
+  it('records the slot it was due and says so in the message of a late run', async () => {
+    await seed();
+    const queries = await import('@/lib/db/queries');
+    const { runTick } = await import('./runner');
+    const due = new Date(Date.now() - 3 * 60 * 60_000 - 39 * 60_000 - 5_000).toISOString();
+    const trigger = queries.createTrigger({
+      name: 'morning',
+      targetKind: 'orchestrator',
+      harness: 'claude',
+      prompt: 'Refresh the deck.',
+      kind: 'cron',
+      cronExpression: '0 5 * * *',
+      timezone: 'America/Denver',
+      nextRunAt: due,
+    });
+
+    expect(await runTick(new Date())).toBe(1);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const run = queries.listRuns({}).find((r) => r.triggerId === trigger.id)!;
+    expect(run.scheduledFor).toBe(due);
+    const sent = queries.listChatEvents(run.chatSessionId!).find((e) => e.role === 'user')!;
+    expect(sent.content).toMatch(/^This scheduled run was due at .+ and is starting 3h 39m late\. Check it still applies before acting on it\.\n\nRefresh the deck\.$/);
+  });
+
+  it('leaves the message of an on-time run alone', async () => {
+    await seed();
+    const queries = await import('@/lib/db/queries');
+    const { runTick } = await import('./runner');
+    const trigger = queries.createTrigger({
+      name: 'morning',
+      targetKind: 'orchestrator',
+      harness: 'claude',
+      prompt: 'Refresh the deck.',
+      kind: 'every',
+      intervalSeconds: 86_400,
+      nextRunAt: new Date(Date.now() - 30_000).toISOString(),
+    });
+
+    await runTick(new Date());
+    await new Promise((r) => setTimeout(r, 50));
+
+    const run = queries.listRuns({}).find((r) => r.triggerId === trigger.id)!;
+    expect(queries.listChatEvents(run.chatSessionId!).find((e) => e.role === 'user')?.content).toBe('Refresh the deck.');
   });
 });

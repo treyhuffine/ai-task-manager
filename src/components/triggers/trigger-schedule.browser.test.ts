@@ -29,8 +29,9 @@ beforeAll(async () => {
     const Context=createContext(null);
     export function FixtureProvider({children}) {
       const kind=new URLSearchParams(location.search).get('kind') || 'cron';
+      const targetKind=new URLSearchParams(location.search).get('target') || 'workspace';
       const [trigger,setTrigger]=useState({id:'fixture-job',name:'Daily briefing',kind,description:null,
-        prompt:'Keep my instructions',enabled:false,timezone:'America/Denver',targetKind:'workspace',workspaceId:'agent-id',
+        prompt:'Keep my instructions',enabled:false,timezone:'America/Denver',targetKind,workspaceId:'agent-id',
         provider:'codex',harness:'codex',model:'gpt-5.5',effort:null,serviceTier:null,timeoutSeconds:null,
         concurrencyPolicy:'coalesce_if_active',activeHoursStart:null,activeHoursEnd:null,
         cronExpression:kind==='cron'?'0 9 * * *':null,intervalSeconds:kind==='every'?90:null,
@@ -60,13 +61,14 @@ beforeAll(async () => {
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
       import React from 'react';
       import {createRoot} from 'react-dom/client';
+      import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
       import {FixtureProvider,useFixture} from 'fixture-hooks';
       import {TriggerForm} from '@/components/triggers/trigger-form';
       window.changes=[];
       function App(){const {trigger}=useFixture();return <main className="mx-auto max-w-xl p-6">
         {location.search.includes('create')?<TriggerForm onCreated={()=>{}} onCancel={()=>{}}/>:<TriggerForm trigger={trigger}/>}
       </main>;}
-      createRoot(document.getElementById('root')).render(<FixtureProvider><App/></FixtureProvider>);
+      createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient()}><FixtureProvider><App/></FixtureProvider></QueryClientProvider>);
     ` },
     bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"development"', 'process.env': '{}' },
@@ -214,5 +216,16 @@ it('creates a one-time job using the calendar and time picker, and fits a narrow
       name: 'One-time briefing', description: null, kind: 'at', runAt: '2030-10-20T15:30:00.000Z',
       cronExpression: null, intervalSeconds: null, timezone: 'America/Denver', workspaceId: 'agent-id',
     })]);
+  } finally { await page.close(); }
+});
+
+it('says a one-time message to a chat waits for it, where a repeating one skips', async () => {
+  const page = await open('?kind=at&target=session');
+  try {
+    await page.getByRole('button', { name: 'Advanced' }).click();
+    const skip = page.getByLabel('If the last run is still going').locator('option[value="skip_if_running"]');
+    expect(await skip.textContent()).toBe('Wait until the chat is free');
+    await page.getByLabel('Frequency').selectOption('daily');
+    expect(await skip.textContent()).toBe('Skip this run');
   } finally { await page.close(); }
 });

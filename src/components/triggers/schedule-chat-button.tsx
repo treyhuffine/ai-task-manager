@@ -31,9 +31,11 @@ import { TriggerScheduleFields, scheduleChoiceResult, type ScheduleChoice } from
 /** What a chat can be scheduled on: no manual or webhook runs, it's about time. */
 const CHAT_KINDS = ['every', 'cron', 'at'] as const;
 
-function nextRunLabel(trigger: Pick<TriggerWithLastRun, 'nextRunAt' | 'timezone'>): string | null {
+function nextRunLabel(trigger: Pick<TriggerWithLastRun, 'kind' | 'nextRunAt' | 'timezone'>): string | null {
   if (!trigger.nextRunAt) return null;
   const at = new Date(trigger.nextRunAt);
+  // A one-time run past its time goes as soon as it can, usually when the chat is free.
+  if (trigger.kind === 'at' && at <= new Date()) return 'waiting';
   const sameDay = at.toDateString() === new Date().toDateString();
   return at.toLocaleString(undefined, sameDay
     ? { hour: 'numeric', minute: '2-digit' }

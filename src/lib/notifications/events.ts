@@ -6,13 +6,14 @@ import { INTEGRATION_LABELS } from '@/constants/integrations';
  *
  * `routing` is how an event reaches channels:
  *   - 'matrix'  → the per-channel `events[]` toggles (ambient lifecycle events);
- *   - 'binding' → the trigger's `deliverResultTo[]` (digests — `notify(event, { deliverTo })`).
+ *   - 'binding' → the trigger's `deliverResultTo[]` (digests — `notify(event, { deliverTo })`);
+ *   - 'always'  → every enabled channel, with no toggle (a warning about the computer itself).
  */
 export interface EventCatalogEntry {
   type: string;
   label: string;
   description: string;
-  routing: 'matrix' | 'binding';
+  routing: 'matrix' | 'binding' | 'always';
   /** Default state for a NEW channel's toggle (matrix events only). */
   defaultOn: boolean;
 }
@@ -59,6 +60,13 @@ export const EVENT_CATALOG = [
     description: "A scheduled job's result, delivered to the channels you bound it to.",
     routing: 'binding',
     defaultOn: false,
+  },
+  {
+    type: 'system.disk_low',
+    label: 'Disk almost full',
+    description: 'The disk Ri runs on has under 10 GiB free.',
+    routing: 'always',
+    defaultOn: true,
   },
 ] as const satisfies readonly EventCatalogEntry[];
 
