@@ -254,19 +254,19 @@ function CoordinationComposer() {
 function AddMenuExample() {
   const editor = useRef<ChatInputEditorHandle | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
-  const [plan, setPlan] = useState(false);
   const inChat = config.state === 'chat';
   const onPick = (file: File) => setPicked(names => [...names, file.name]);
   // Room above the composer, where the menu opens, as a chat has its transcript.
   return <div className="pt-96"><ChatComposer status={picked.length > 0 ? `Picked ${picked.join(', ')}. Nothing was uploaded.` : 'This example saves nothing.'}>
     <ChatInputEditor
-      ref={editor} ariaLabel="Example message" placeholder="Ask for anything. @ to mention, / for skills" attachmentsEnabled={false}
+      ref={editor} ariaLabel="Example message" placeholder="Ask for anything. @ to mention, / for skills" attachmentsEnabled={false} sourceChatId={inChat ? CHAT_ID : undefined}
+      searchMentionEntities={inChat ? async () => ({ tasks: [{ kind: 'task', id: 'gallery-task', title: 'Plan the launch', status: 'todo' }], notes: [{ kind: 'note', id: 'gallery-note', title: 'Launch checklist' }], totals: { tasks: 1, notes: 1 } }) : undefined}
       mentionFiles={[{ kind: 'file', path: 'README.md', name: 'README.md' }]}
       slashCommands={inChat ? [{ id: 'review', name: 'review', description: 'Review the diff', source: 'installed-user', userInvocable: true, available: true, execution: { kind: 'provider-slash', provider: 'claude', commandText: '/review' } }] : undefined}
     />
     <div className="flex items-center gap-1 px-1.5 pb-1.5">
       {inChat
-        ? <ChatAddMenu sessionId={CHAT_ID} editor={editor} onPick={onPick} skills planMode={{ on: plan, available: true, disabled: false, set: mode => setPlan(mode === 'plan') }} />
+        ? <ChatAddMenu sessionId={CHAT_ID} editor={editor} onPick={onPick} skills />
         : <ComposerAddMenu editor={editor} onPick={onPick} />}
     </div>
   </ChatComposer></div>;

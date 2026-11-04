@@ -61,7 +61,7 @@ describe.each(engines)('the + menu in %s', (_name, engine) => {
     page.on('filechooser', () => { choosers++; });
 
     await plus(page).tap();
-    await expect.poll(() => page.getByRole('menuitem').allTextContents()).toEqual(['Files and photos', 'Mention@', 'Skills/', 'Extra row']);
+    await expect.poll(() => page.getByRole('menuitem').allTextContents()).toEqual(['Files and photos', 'Tasks', 'Mention anything@', 'Skills/', 'Extra row']);
     for (const asked of ['Take Photo', 'Photo Library', 'Choose File']) expect(await page.getByText(asked).count()).toBe(0);
     const box = await page.getByRole('menu').boundingBox();
     expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -88,13 +88,39 @@ describe.each(engines)('the + menu in %s', (_name, engine) => {
   it('opens the @ menu on a phone, with focus in the editor for its keyboard', async () => {
     const { page, errors, close } = await open(browser, phone);
     await plus(page).tap();
-    await row(page, 'Mention').tap();
+    await row(page, 'Mention anything').tap();
     await expect.poll(() => text(page)).toBe('@');
     expect(await editorHasFocus(page)).toBe(true);
     await page.getByText('README.md').locator('visible=true').first().waitFor();
     await expect.poll(() => row(page, 'Mention').count()).toBe(0);
     expect(await editorHasFocus(page)).toBe(true);
     expect(errors).toEqual([]);
+    await close();
+  }, 30_000);
+
+  it('narrows the @ menu to one kind from its row, on a phone, and inserts the same chip', async () => {
+    const { page, errors, close } = await open(browser, phone);
+    await plus(page).tap();
+    await row(page, 'Tasks').tap();
+    await expect.poll(() => text(page)).toBe('@task:');
+    expect(await editorHasFocus(page)).toBe(true);
+    const task = page.getByText('Plan trip').locator('visible=true').first();
+    await task.waitFor();
+    // Narrowed: the note beside it in the full list isn't offered.
+    expect(await page.getByText('Trip ideas').locator('visible=true').count()).toBe(0);
+    await task.tap();
+    await expect.poll(() => text(page)).toBe('[[task:task-plan]]');
+    expect(errors).toEqual([]);
+    await close();
+  }, 30_000);
+
+  it('offers every kind together from the row that opens all of @', async () => {
+    const { page, close } = await open(browser, computer);
+    await plus(page).click();
+    await row(page, 'Mention anything').click();
+    await expect.poll(() => text(page)).toBe('@');
+    await page.getByText('Plan trip').locator('visible=true').first().waitFor();
+    await page.getByText('Trip ideas').locator('visible=true').first().waitFor();
     await close();
   }, 30_000);
 
@@ -129,7 +155,7 @@ describe.each(engines)('the + menu in %s', (_name, engine) => {
     await editor(page).click();
     await page.keyboard.type('hello');
     await plus(page).click();
-    await row(page, 'Mention').click();
+    await row(page, 'Mention anything').click();
     await expect.poll(() => text(page)).toBe('hello @');
     await page.getByText('README.md').locator('visible=true').first().waitFor();
     await close();

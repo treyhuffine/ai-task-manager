@@ -794,12 +794,6 @@ export const ExecutionComposer = forwardRef<ExecutionComposerHandle, ExecutionCo
                     }}
                     disabled={disabled}
                     skills={(slashCommandsQuery.data?.commands.length ?? 0) > 0}
-                    planMode={{
-                      on: permissionMode === 'plan',
-                      available: supportedPermissionModes.includes('plan'),
-                      disabled: selectionControlsDisabled,
-                      set: setPermissionMode,
-                    }}
                   />
                   {leadingActions}
 

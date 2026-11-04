@@ -8,8 +8,10 @@
  * There is one row for files on every device. A phone's own sheet asks whether
  * to take a photo, pick one or browse files, so Ri never asks that first.
  *
- * `children` adds what a surface has beyond the message. An existing chat has
- * more (`ChatAddMenu`) than a chat that hasn't started yet.
+ * `mentions` names what a surface can mention, so someone browsing sees nouns
+ * rather than having to know what `@` reaches. `children` adds what it has
+ * beyond the message. An existing chat has more of both (`ChatAddMenu`) than a
+ * chat that hasn't started yet.
  */
 
 import { useRef, type ComponentProps, type ReactNode, type RefObject } from 'react';
@@ -39,13 +41,15 @@ export function AddMenuRow({ icon: Icon, typed, children, ...props }: ComponentP
   );
 }
 
-export function ComposerAddMenu({ editor, onPick, disabled, skills, className, children }: {
+export function ComposerAddMenu({ editor, onPick, disabled, skills, mentions, className, children }: {
   editor: RefObject<ChatInputEditorHandle | null>;
   /** Each picked file, one at a time. */
   onPick: (file: File) => void;
   disabled?: boolean;
   /** This composer has a `/` menu with something in it. */
   skills?: boolean;
+  /** Rows that open the `@` menu narrowed to one kind, above the row that opens all of it. */
+  mentions?: ReactNode;
   className?: string;
   children?: ReactNode;
 }) {
@@ -87,7 +91,8 @@ export function ComposerAddMenu({ editor, onPick, disabled, skills, className, c
           }}
         >
           <AddMenuRow icon={Paperclip} onSelect={() => fileInput.current?.click()}>Files and photos</AddMenuRow>
-          <AddMenuRow icon={AtSign} typed="@" onSelect={() => editor.current?.openMentionMenu()}>Mention</AddMenuRow>
+          {mentions}
+          <AddMenuRow icon={AtSign} typed="@" onSelect={() => editor.current?.openMentionMenu()}>{mentions ? 'Mention anything' : 'Mention'}</AddMenuRow>
           {skills && <AddMenuRow icon={ScrollText} typed="/" onSelect={() => editor.current?.openSkillMenu()}>Skills</AddMenuRow>}
           {children}
         </DropdownMenuContent>

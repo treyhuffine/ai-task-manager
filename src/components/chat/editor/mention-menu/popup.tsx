@@ -26,6 +26,7 @@ import {
   ListFilter,
   FileText,
 } from 'lucide-react'
+import { INTEGRATION_LABELS } from '@/constants/integrations'
 import { FileIcon } from '@/components/file-icon'
 import { SourceMark } from '@/components/chat-ui/references/source-mark'
 import { McpIconImage } from '@/components/mcp-apps/mcp-icon'
@@ -258,7 +259,7 @@ export const MentionMenuList = forwardRef<SuggestionPopupRef, MentionMenuListPro
       if (section !== prevSection) {
         if (section !== 'filter') {
           rows.push(
-            <SectionHeader key={`hdr-${section}-${index}`} kind={section} label={item.kind === 'appMention' ? item.group : undefined} />,
+            <SectionHeader key={`hdr-${section}-${index}`} kind={section} label={item.kind === 'appMention' ? item.group : section === 'app' && parsed.filter === 'connector' ? INTEGRATION_LABELS.plural : undefined} />,
           )
         }
         prevSection = section

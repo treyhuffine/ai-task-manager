@@ -14,7 +14,7 @@ import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 | --- | --- |
 | `chat-transcript.tsx` | Common event grouping, paging, scroll anchoring and subagent navigation. Personal and team adapters provide data and attribution slots. |
 | `chat-composer.tsx` | Common composer layout around `ChatInputEditor` and contextual actions. Transport, receipts and allowed tools stay in their adapters. |
-| `add-menu/` | The composer's +: files and photos, mentions and skills everywhere, and apps, schedules, plan mode, linked folders and plugins in an existing chat. A row shows only where it can do something |
+| `add-menu/` | The composer's +: files and photos, mentions and skills everywhere, and in an existing chat rows for tasks, notes, agents and connectors, then schedules, linked folders, apps and plugins. A row shows only where it can do something |
 | `chat-capabilities.tsx` | Explicit delivery and result interactions, without enabling personal endpoints in a team transcript. |
 | `chat-menu.tsx` | A chat's ⋯ menu: coordination preferences (personal chats) and Restart chat for whoever may stop it, personal or shared |
 | `chat-recovery.tsx` | The inline reason and Restart chat, shown only while a chat is blocked on a harness that hasn't confirmed it stopped |
@@ -36,10 +36,12 @@ permission card from the current pending requests. The cards own their separate
 UI state and use the existing pending-input hooks.
 
 The + has one row for files on every device. A phone's own sheet asks whether
-to take a photo, pick one or browse files, so Ri never asks that first. Mention
-and Skills open the same menus as typing `@` and `/`. A skill has to open the
-message, so Skills works at the start of the first line and what is already
-written becomes the skill's input.
+to take a photo, pick one or browse files, so Ri never asks that first. Tasks,
+Notes, Agents and Connectors open the `@` menu narrowed to that kind, by typing
+its prefix (`@task:`) for you, so there is no second picker. Connectors stay one
+row rather than one per account, since a Home can hold dozens of accounts.
+Skills opens the `/` menu. A skill has to open the message, so it works at the
+start of the first line and what is already written becomes the skill's input.
 
 Message copy buttons stay visible on touch devices and devices without hover.
 Coarse pointers get a 44 px tap target. With a mouse, user-message copy buttons

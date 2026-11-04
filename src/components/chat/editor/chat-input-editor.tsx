@@ -152,10 +152,11 @@ export interface ChatInputEditorHandle {
    */
   uploadFile(file: File | Blob, name?: string): Promise<void>;
   /**
-   * Open the `@` menu at the caret, as typing it would. Focus moves within
-   * the caller's tap, the only time a phone will raise its keyboard for it.
+   * Open the `@` menu at the caret, as typing it would, narrowed to one kind
+   * by its `MENTION_KINDS` prefix (`task:`). Focus moves within the caller's
+   * tap, the only time a phone will raise its keyboard for it.
    */
-  openMentionMenu(): void;
+  openMentionMenu(prefix?: string): void;
   /**
    * Open the `/` menu. A skill has to open the message
    * (`parseSlashInvocation`), so this works at the start of the first line,
@@ -1110,14 +1111,14 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           if (editor && submitOnEnterRef.current) editor.commands.focus();
           return uploadAndInsert(file, name ?? (file as File).name ?? 'upload');
         },
-        openMentionMenu: () => {
+        openMentionMenu: (prefix = '') => {
           if (!editor) return;
           // Tiptap's focus command waits a frame, too late for a phone's keyboard.
           editor.view.focus();
           const before = editor.state.selection.$from.nodeBefore;
           // The `@` menu opens only after a space, or at the start of a line.
           const space = before?.isText && !/\s$/.test(before.text ?? '') ? ' ' : '';
-          editor.chain().insertContent(`${space}@`).run();
+          editor.chain().insertContent(`${space}@${prefix}`).run();
         },
         openSkillMenu: () => {
           if (!editor) return;

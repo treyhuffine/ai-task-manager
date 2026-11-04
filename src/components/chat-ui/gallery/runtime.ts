@@ -214,7 +214,9 @@ export class GalleryRuntime {
     if (path === 'localApps.panel') { this.changed('Example app chosen. Nothing opened'); return { ok: true }; }
     if (path === 'workspaces.get') return { id: RECORD_ID, name: 'Example agent' };
     if (path === 'workspaces.foldersGet') return { devices: [{ deviceId: 'gallery-device', name: 'Example computer', isHome: true, connected: true, setup: null, linked: [] }] };
-    if (path === 'workspaces.list') return [];
+    if (path === 'workspaces.list') return [{ id: RECORD_ID, name: 'Research', slug: 'research', status: 'active', purpose: 'Example agent' }];
+    if (path === 'chatSources.search') return { items: [{ kind: 'source', source: { sourceRef: 'gallery-source', label: 'Example service', chipLabel: 'Example service', service: 'Example service', groupId: 'gallery', keywords: [], status: 'ready', chat: true, view: 'none' } }], total: 1 };
+    if (path === 'appMentions.search') return [];
     if (path === 'triggers.list') return [];
     throw new Error(`The gallery has no fixture for ${path}`);
   }
