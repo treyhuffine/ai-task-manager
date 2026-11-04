@@ -1387,6 +1387,7 @@ function RenderMessageSegments({
     notesById: new Map((entitiesQuery.data?.notes ?? []).map((n) => [n.id, n])),
     agentsById: new Map((agentsQuery.data ?? []).map((w) => [w.id, w])),
     scratchpad: scratchpadQuery.data?.scratchPad ?? null,
+    loaded: entitiesQuery.isSuccess,
   };
 
   return (

@@ -14,7 +14,7 @@ import { EmailComposer } from '@/components/chat-ui/email/email-composer';
 import { PendingInputArea } from '@/components/chat-ui/pending-input-area';
 import { IntegrationApprovalCard } from '@/components/chat-ui/approvals/integration-approval-card';
 import { ConnectionRequestCard } from '@/components/chat-ui/approvals/connection-request-card';
-import { MessageEntityChip } from '@/components/chat-ui/references/message-entity-chip';
+import { MessageEntityChip, TeamRecordChip } from '@/components/chat-ui/references/message-entity-chip';
 import { SourceChip, SourceMetadataProvider } from '@/components/chat-ui/references/source-chip';
 import { parseSourceMarkers } from '@/lib/chat-sources/reference';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
@@ -76,6 +76,17 @@ document.addEventListener('click', event => {
 
 runtime.subscribe(() => { void client.invalidateQueries({ refetchType: 'active' }); });
 
+const TEAM_RECORD_STATES = [
+  { state: 'found', teamName: 'Acme', title: 'Fix the login loop', status: 'todo' },
+  { state: 'found', teamName: 'Acme', title: 'Ship the invite page', status: 'done' },
+  { state: 'found', teamName: 'Acme', title: 'Old pricing work', status: 'archived' },
+  { state: 'unreachable', teamName: 'Acme', title: null, status: null },
+  { state: 'outdated', teamName: 'Acme', title: null, status: null },
+  { state: 'no_access', teamName: 'Acme', title: null, status: null },
+  { state: 'gone', teamName: 'Acme', title: null, status: null },
+  { state: 'unknown_home', teamName: null, title: null, status: null },
+] as const;
+
 function References() {
   const [opened, setOpened] = useState<string | null>(null);
   const lookup = { tasksById: new Map(config.state === 'missing' ? [] : [[RECORD_ID, { id: RECORD_ID, title: 'Prepare the Friday review', status: 'todo' }]]), notesById: new Map([[RECORD_ID, { id: RECORD_ID, title: 'Project review notes' }]]), agentsById: new Map(config.state === 'missing' ? [] : [[RECORD_ID, { id: RECORD_ID, name: 'Research', emoji: '🔎', attachments: [], areaId: null, purpose: 'Finds and summarizes sources for the review.', status: 'active' as const }]]), scratchpad: 'Alex prefers a short video call.\n\nKeep the agenda focused on decisions.' };
@@ -84,6 +95,9 @@ function References() {
     <p>I kept the context in <MessageEntityChip marker={{ kind: 'note', id: RECORD_ID }} lookup={lookup} onOpen={() => setOpened('Project review notes')} />.</p>
     <p>I asked <MessageEntityChip marker={{ kind: 'agent', id: RECORD_ID }} lookup={lookup} /> for the sources.</p>
     <p><MessageEntityChip marker={{ kind: 'scratchpad' }} lookup={lookup} onOpen={() => setOpened('Scratchpad')} /></p>
+    <section aria-label="Records in a connected team" className="border-t border-border pt-4"><p className="text-xs text-muted-foreground">In a connected team</p>
+      <p>{TEAM_RECORD_STATES.map(view => <TeamRecordChip key={view.state + (view.status ?? '')} kind="task" id={RECORD_ID} view={{ homeId: 'example-team', localId: null, ...view }} />)}</p>
+    </section>
     <Dialog open={!!opened} onOpenChange={open => { if (!open) setOpened(null); }}><DialogContent><DialogHeader><DialogTitle>{opened}</DialogTitle></DialogHeader><p className="whitespace-pre-wrap text-sm text-muted-foreground">{opened === 'Scratchpad' ? lookup.scratchpad : 'This is a fictional record. In your chat, this reference opens the corresponding task or note.'}</p></DialogContent></Dialog>
   </div>;
 }

@@ -1,7 +1,6 @@
 'use client';
 
 import { useEntityLinkHome } from './entity-link-scope';
-import { spacePath } from '@/lib/spaces/document';
 /**
  * Obsidian-style inline entity link for the note/task editor. Serializes to
  * the shared `[[task:<id>]]` / `[[note:<id>]]` marker
@@ -15,6 +14,11 @@ import { spacePath } from '@/lib/spaces/document';
  *
  * The chip resolves the target's current title (so renames never rot the
  * link) and opens it on click.
+ *
+ * Where it looks depends on who owns the text (docs/team-links.md). A team's
+ * text only ever looks in that team, so nothing in it can reach another Home.
+ * In My Ri a marker can name a team, and an ID found nowhere here is looked
+ * for in connected teams.
  */
 import { useOptionalWorkNavigation } from '@/contexts/work-context';
 import {
@@ -26,9 +30,12 @@ import {
 } from '@tiptap/core';
 import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import { useRouter } from 'next/navigation';
-import { Square, StickyNote } from 'lucide-react';
+import { CheckSquare, Square, StickyNote } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useEntityTitle } from '@/hooks/use-backlinks';
+import { useInMyRi, useLocatedRecord, useOpenTeamRecord, useTeamRecord } from '@/hooks/use-team-records';
+import { describeTeamRecord } from '@/components/chat-ui/references/team-record';
+import type { TeamRecordView } from '@/lib/spaces/team-links';
 
 import { handleChipBackspace } from '@/components/chat/editor/suggestion/chip-backspace';
 import {
@@ -45,6 +52,8 @@ export type { EntityLinkKind };
 export interface EntityLinkAttrs {
   kind: EntityLinkKind;
   id: string;
+  /** The Home that holds the record, when it isn't the one that owns this text. */
+  homeId?: string | null;
 }
 
 declare module '@tiptap/core' {
@@ -67,6 +76,7 @@ export const EntityLinkNode = Node.create({
     return {
       kind: { default: 'note' },
       id: { default: '' },
+      homeId: { default: null },
     };
   },
 
@@ -92,16 +102,17 @@ export const EntityLinkNode = Node.create({
         type: ENTITY_LINK_NAME,
         raw: m[0],
         kind: m[1] as EntityLinkKind,
-        id: m[2],
+        homeId: m[2] ?? null,
+        id: m[3],
       } as unknown as MarkdownToken;
     },
   },
   parseMarkdown: (token: MarkdownToken): JSONContent => {
-    const t = token as MarkdownToken & { kind: EntityLinkKind; id: string };
-    return { type: ENTITY_LINK_NAME, attrs: { kind: t.kind, id: t.id } };
+    const t = token as MarkdownToken & { kind: EntityLinkKind; id: string; homeId: string | null };
+    return { type: ENTITY_LINK_NAME, attrs: { kind: t.kind, id: t.id, homeId: t.homeId } };
   },
   renderMarkdown: (node: JSONContent): string =>
-    renderEntityLinkMarkdown((node.attrs?.kind as EntityLinkKind) ?? 'note', node.attrs?.id ?? ''),
+    renderEntityLinkMarkdown((node.attrs?.kind as EntityLinkKind) ?? 'note', node.attrs?.id ?? '', node.attrs?.homeId),
 
   addCommands() {
     return {
@@ -125,33 +136,97 @@ export const EntityLinkNode = Node.create({
 });
 
 function EntityLinkView({ node, selected }: NodeViewProps) {
-  const attrs = node.attrs as EntityLinkAttrs;
-  const isTask = attrs.kind === 'task';
+  const { kind, id, homeId } = node.attrs as EntityLinkAttrs;
   const sourceHome = useEntityLinkHome();
+  const inMyRi = useInMyRi();
+  if (sourceHome) {
+    // A team's text can't reach beyond that team, whatever a marker in it names.
+    return homeId && homeId !== sourceHome
+      ? <LinkChip kind={kind} label={unavailable(kind)} muted selected={selected} />
+      : <TeamLink kind={kind} id={id} homeId={sourceHome} inTeamText selected={selected} />;
+  }
+  if (homeId && inMyRi) return <TeamLink kind={kind} id={id} homeId={homeId} selected={selected} />;
+  if (homeId) return <LinkChip kind={kind} label={unavailable(kind)} muted selected={selected} />;
+  return <HomeLink kind={kind} id={id} inMyRi={inMyRi} selected={selected} />;
+}
+
+const unavailable = (kind: EntityLinkKind) => (kind === 'task' ? 'Task unavailable' : 'Note unavailable');
+
+function TeamLink({ kind, id, homeId, inTeamText = false, selected }: { kind: EntityLinkKind; id: string; homeId: string; inTeamText?: boolean; selected: boolean }) {
+  const { data } = useTeamRecord(kind, homeId, id);
+  return <TeamRecordLink kind={kind} id={id} view={data ?? null} inTeamText={inTeamText} selected={selected} />;
+}
+
+function TeamRecordLink({ kind, id, view, inTeamText = false, selected }: { kind: EntityLinkKind; id: string; view: TeamRecordView | null; inTeamText?: boolean; selected: boolean }) {
+  const open = useOpenTeamRecord();
+  const record = view ? describeTeamRecord(kind, view) : null;
+  // Teammates see the same chip for a typo, a private ID and a missing record.
+  const gone = inTeamText && view?.state === 'gone' && !view.localId;
+  return (
+    <LinkChip
+      kind={kind}
+      done={record?.done}
+      label={gone ? unavailable(kind) : record?.label ?? (kind === 'task' ? 'Task' : 'Note')}
+      team={!inTeamText && !record?.reason ? record?.team : null}
+      tip={gone ? undefined : record?.reason ?? undefined}
+      muted={!record || record.muted}
+      selected={selected}
+      onOpen={view && record?.opens ? () => open(kind, id, view) : undefined}
+    />
+  );
+}
+
+/** A marker with no Home: a record in the Home whose document this is. */
+function HomeLink({ kind, id, inMyRi, selected }: { kind: EntityLinkKind; id: string; inMyRi: boolean; selected: boolean }) {
   const navigation = useOptionalWorkNavigation();
   const router = useRouter();
-
   // Read-only, title-only resolution — must not bump last_viewed_at or fetch
   // the full body (a document can hold many chips). See use-backlinks.ts.
-  const { data } = useEntityTitle(attrs.kind, attrs.id);
-  const title = data?.title?.trim() || (isTask ? 'Untitled task' : 'Untitled note');
-  const Icon = isTask ? Square : StickyNote;
+  const { data, isSuccess } = useEntityTitle(kind, id);
+  const missing = isSuccess && !data;
+  const located = useLocatedRecord(kind, id, missing && inMyRi).data;
+  if (located?.state === 'team') return <TeamRecordLink kind={kind} id={id} view={located.record} selected={selected} />;
+  if (missing) {
+    const unreachable = located?.state === 'missing' ? located.unreachable : [];
+    return (
+      <LinkChip
+        kind={kind}
+        label={inMyRi ? `${kind === 'task' ? 'Task' : 'Note'} not found` : unavailable(kind)}
+        tip={unreachable.length ? `${unreachable.join(' and ')} can't be reached right now, so it may be there.` : undefined}
+        muted
+        selected={selected}
+      />
+    );
+  }
+  const open = () => {
+    if (navigation) {
+      if (kind === 'task') navigation.openTask(id);
+      else navigation.openNote(id);
+    } else {
+      router.push(kind === 'task' ? `/task/${id}` : `/note/${id}`);
+    }
+  };
+  return <LinkChip kind={kind} label={data?.title?.trim() || (kind === 'task' ? 'Untitled task' : 'Untitled note')} selected={selected} onOpen={open} />;
+}
 
+function LinkChip({ kind, label, team, tip, done = false, muted = false, selected, onOpen }: {
+  kind: EntityLinkKind;
+  label: string;
+  team?: string | null;
+  tip?: string;
+  done?: boolean;
+  muted?: boolean;
+  selected: boolean;
+  onOpen?: () => void;
+}) {
+  const Icon = kind === 'note' ? StickyNote : done ? CheckSquare : Square;
   const open = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (sourceHome) {
-      window.location.assign(`${spacePath(sourceHome)}?${attrs.kind}=${encodeURIComponent(attrs.id)}`);
-    } else if (navigation) {
-      if (isTask) navigation.openTask(attrs.id);
-      else navigation.openNote(attrs.id);
-    } else {
-      router.push(isTask ? `/task/${attrs.id}` : `/note/${attrs.id}`);
-    }
+    onOpen?.();
   };
-
   return (
-    <Tip label={title} onlyWhenTextHidden>
+    <Tip label={tip ?? (team ? `${label}, in ${team}` : label)} onlyWhenTextHidden={!tip}>
       <NodeViewWrapper
         as="span"
         contentEditable={false}
@@ -160,13 +235,15 @@ function EntityLinkView({ node, selected }: NodeViewProps) {
         className={cn(
           'inline-flex items-center align-baseline gap-1 px-1.5 py-0.5 mx-0.5',
           'rounded-md border bg-primary/5 text-foreground text-[12px] font-medium',
-          'border-primary/20 hover:border-primary/50 hover:bg-primary/10 transition-colors',
-          'cursor-pointer select-none',
+          'border-primary/20 transition-colors select-none',
+          onOpen ? 'hover:border-primary/50 hover:bg-primary/10 cursor-pointer' : 'cursor-default',
+          muted && 'opacity-70',
           selected && 'ring-2 ring-primary/40 border-primary/40',
         )}
       >
         <Icon size={11} className="text-primary/70 shrink-0" />
-        <span className="text-[11px] truncate max-w-[240px]">{title}</span>
+        <span className="text-[11px] truncate max-w-[240px]">{label}</span>
+        {team && <span className="text-[10px] font-normal opacity-60 truncate max-w-[100px]">{team}</span>}
       </NodeViewWrapper>
     </Tip>
   );

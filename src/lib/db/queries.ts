@@ -41,7 +41,7 @@ import { placeAtRank } from '@/lib/tasks/priority-rank';
 import type { AgentMainChatState, TaskRecord, TaskListRecord, CreateTaskInput, UpdateTaskInput, TaskFilter, TaskAttentionSignals, DeadlineTask, NoteRecord, CreateNoteInput, UpdateNoteInput, NoteFilter, NoteKind, AreaRecord, CreateAreaInput, UpdateAreaInput, AreaFilter, StreamRecord, CreateStreamInput, UpdateStreamInput, DeckRecord, CreateDeckInput, UpdateDeckInput, UpdateUserStateInput, UserStateRecord, ScratchpadRecord, ApiKeyRecord, CreateApiKeyInput, UpdateApiKeyInput, TeamAiSettingsRecord, TeamChatTurnRecord, HomeRecord, HomeKind, DeviceRecord, CreateDeviceInput, UpdateDeviceInput, DeviceGrantRecord, DeviceGrantKind, DeviceKind, WorkerReportedState, WorkerHarnessReport, MemberRecord, MemberRole, TeamGrantRecord, TeamGrantKind, TeamConnectionRecord, TeamConnectionStatus, SharedTaskSource, SharedNoteSource, SharedSourceState, WorkerCommandRecord, WorkerCommandKind, WorkerCommandState, WorkerCommandActor, ExecutionPlacementRecord, ExecutionTransferRecord, NativeSessionRecord, ReviewCheckoutRecord, WorkspaceSetupRecord, SetupReferenceReport, FolderLinkRecord, Attachment, WorkspaceRecord, CreateWorkspaceInput, UpdateWorkspaceInput, WorkspaceWithCounts, WorkspaceStatus, WorkspaceIntegrationScope, ReferenceFolderRecord, CreateReferenceFolderInput, UpdateReferenceFolderInput, ExecutionRecord, ExecutionReviewRecord, ExecutionReviewContext, ExecutionTaskRecord, CreateExecutionInput, UpdateExecutionInput, ChatSessionWithExecution, ExecutionLocation, PreviewTargetRecord, CreatePreviewTargetInput, UpdatePreviewTargetInput, PreviewUrl, ChatSessionRecord, CreateChatSessionInput, UpdateChatSessionInput, ExternalSessionImportRecord, CreateExternalSessionImportInput, UpdateExternalSessionImportInput, ChatEventRecord, CreateChatEventInput, ChatEventSource, ChatRefRecord, CreateChatRefInput, ChatRefEntityType, TriggerRecord, CreateTriggerInput, UpdateTriggerInput, RunRecord, CreateRunInput, UpdateRunInput, RunStatus, RunTrigger, TriggerWithLastRun, RunArtifactRef, EntityVersionRecord, EntityVersionSnapshot, EntityVersionSource, EntityVersionEntityType, TaskStatus, Energy, Effort, NotificationChannelRecord, CreateNotificationChannelInput, UpdateNotificationChannelInput, WebPushSubscriptionRecord, CreateWebPushSubscriptionInput, NotificationDeliveryRecord, CreateNotificationDeliveryInput, StoredRenderedNotification, SkillUsageRecord, HarnessSettingsRecord, UpsertHarnessSettingsInput, HarnessOperationRecord, StreamStatus, TriagePassRecord, TriagePassTrigger, TriageDecisionRecord, TriageDecisionState, TriageActor, StreamLinkRecord, CreateStreamLinkInput, StreamOutcome, StreamRecordWithOutcomes, TriageDisposition, TriageDraft, StreamAutonomyConfig, StreamAutonomyLevel } from '@/db/types';
 import { DEFAULT_HARNESS, isKnownHarnessId, type HarnessId } from '@/lib/harness/registry';
 import { workspaceReviewPreferencesSchema } from '@/lib/workspaces/review-preferences';
-import { listEntityMarkers } from '@/lib/entity-refs/parse-markers';
+import { listEntityMarkers, remoteLinkTarget, splitRemoteId } from '@/lib/entity-refs/parse-markers';
 import { linksFromTexts } from '@/lib/entity-refs/derive-links';
 import { CHAT_PAGE_SIZE } from '@/constants/chat';
 import { OUTCOME_SOURCES } from '@/db/types';
@@ -579,12 +579,34 @@ export function resolveEntityTitles(refs: EntityTitleRef[]): EntityTitleResult[]
 // Read helpers below assume read-repair has already run in the caller's
 // transaction. They never open their own transaction.
 
+/** The team's ID for a shared copy in this Home, if this row is one. */
+function teamSourceOf(type: LinkSourceType, id: string): { teamId: string; sourceId: string } | null {
+  const db = getDb();
+  const row = type === 'task'
+    ? db.select({ teamId: tasks.sourceTeamId, sourceId: tasks.sourceTaskId }).from(tasks).where(eq(tasks.id, id)).get()
+    : db.select({ teamId: notes.sourceTeamId, sourceId: notes.sourceNoteId }).from(notes).where(eq(notes.id, id)).get();
+  return row?.teamId && row.sourceId ? { teamId: row.teamId, sourceId: row.sourceId } : null;
+}
+
+/** A shared copy's title, from the ID a team knows the record by. */
+function sharedCopyTitle(type: LinkSourceType, teamId: string, sourceId: string): string | null | undefined {
+  const db = getDb();
+  const row = type === 'task'
+    ? db.select({ title: tasks.title }).from(tasks).where(and(eq(tasks.sourceTeamId, teamId), eq(tasks.sourceTaskId, sourceId))).get()
+    : db.select({ title: notes.title }).from(notes).where(and(eq(notes.sourceTeamId, teamId), eq(notes.sourceNoteId, sourceId))).get();
+  return row ? row.title : undefined;
+}
+
 function readBacklinks(targetType: LinkSourceType, targetId: string): BacklinkItem[] {
   const db = getDb();
+  // A shared copy is also linked by its team's ID: from the team's text cached
+  // on other copies, and by name from this person's own records.
+  const source = teamSourceOf(targetType, targetId);
+  const targetIds = source ? [targetId, source.sourceId, remoteLinkTarget(source.teamId, source.sourceId)] : [targetId];
   const rows = db
-    .select({ sourceType: entityLinks.sourceType, sourceId: entityLinks.sourceId })
+    .selectDistinct({ sourceType: entityLinks.sourceType, sourceId: entityLinks.sourceId })
     .from(entityLinks)
-    .where(and(eq(entityLinks.targetType, targetType), eq(entityLinks.targetId, targetId)))
+    .where(and(eq(entityLinks.targetType, targetType), inArray(entityLinks.targetId, targetIds)))
     .all();
   const items: BacklinkItem[] = [];
   for (const r of rows) {
@@ -598,13 +620,22 @@ function readBacklinks(targetType: LinkSourceType, targetId: string): BacklinkIt
 
 function readOutgoing(sourceType: LinkSourceType, sourceId: string): OutgoingLinkItem[] {
   const db = getDb();
+  const sourceTeam = teamSourceOf(sourceType, sourceId)?.teamId;
   return db
     .select({ targetType: entityLinks.targetType, targetId: entityLinks.targetId })
     .from(entityLinks)
     .where(and(eq(entityLinks.sourceType, sourceType), eq(entityLinks.sourceId, sourceId)))
     .all()
     .map((r) => {
-      const title = resolveEntityTitle(r.targetType, r.targetId);
+      // A team's record can't be checked from here without asking it, so a link
+      // to one isn't unresolved: a named Home, or a bare ID in that team's own text.
+      const remote = splitRemoteId(r.targetId);
+      const teamId = remote?.homeId ?? sourceTeam;
+      const teamRecordId = remote?.id ?? r.targetId;
+      const title = remote ? undefined : resolveEntityTitle(r.targetType, r.targetId);
+      if (title === undefined && teamId) {
+        return { targetType: r.targetType, targetId: r.targetId, title: sharedCopyTitle(r.targetType, teamId, teamRecordId) ?? null, resolved: true };
+      }
       return {
         targetType: r.targetType,
         targetId: r.targetId,
@@ -11720,7 +11751,8 @@ export function materializeEventRefs(
   const createdBy = opts.createdBy;
   let position = 0;
   for (const m of markers) {
-    if (m.kind === 'file' || m.kind === 'agent') continue;
+    // A record in another Home has no row here for a chat_refs row to name.
+    if (m.kind === 'file' || m.kind === 'agent' || m.kind === 'remote') continue;
     const entityId = m.kind === 'scratchpad' ? sessionId : m.id;
     if (!entityId) continue;
     const row = createChatRef({

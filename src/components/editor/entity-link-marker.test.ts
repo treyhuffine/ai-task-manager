@@ -11,8 +11,17 @@ describe('entity link marker round-trip', () => {
     const m = ENTITY_LINK_RE.exec('[[note:019abc]] and more');
     expect(m).not.toBeNull();
     expect(m![1]).toBe('note');
-    expect(m![2]).toBe('019abc');
+    expect(m![2]).toBeUndefined();
+    expect(m![3]).toBe('019abc');
     expect(m![0]).toBe('[[note:019abc]]');
+  });
+
+  it('round-trips a link to a record in another Home', () => {
+    const text = renderEntityLinkMarkdown('task', '019abc', 'team-1');
+    expect(text).toBe('[[task:team-1/019abc]]');
+    const m = ENTITY_LINK_RE.exec(`${text} and more`);
+    expect(m!.slice(1, 4)).toEqual(['task', 'team-1', '019abc']);
+    expect(renderEntityLinkMarkdown('task', '019abc', null)).toBe('[[task:019abc]]');
   });
 
   it('only matches at the start (the tokenizer scans from a hint index)', () => {
@@ -30,6 +39,6 @@ describe('entity link marker round-trip', () => {
     const md = renderEntityLinkMarkdown('task', id);
     const m = ENTITY_LINK_RE.exec(md);
     expect(m![1]).toBe('task');
-    expect(m![2]).toBe(id);
+    expect(m![3]).toBe(id);
   });
 });

@@ -15,7 +15,7 @@ import { riMcpHandler } from '@/lib/mcp/http-server';
 import { z } from 'zod';
 import { APP_NAME } from '@/constants/app';
 import { getRequestKey } from '@/lib/auth/request-key';
-import { baseUrlSnapshot } from '@/lib/auth/base-url-snapshot';
+import { teamWebBase } from '@/lib/team/address';
 import { activeTeamChatTurnById, aiClientForApiKey, getHome } from '@/lib/db/queries';
 import { isTeamAuthority } from '@/lib/home/authority';
 import { notATeam } from '@/lib/team/http';
@@ -32,16 +32,6 @@ function jsonRpcError(status: number, message: string): Response {
     status,
     headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
-}
-
-/** Where people reach the team: its address if it has one, else where this client reached it. */
-export function teamWebBase(request: Request): string {
-  const tunnel = baseUrlSnapshot().tunnel;
-  if (tunnel) return tunnel.replace(/\/+$/, '');
-  const url = new URL(request.url);
-  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
-  const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || url.protocol.replace(':', '');
-  return host ? `${proto}://${host}` : url.origin;
 }
 
 function instructions(teamName: string, memberName: string, teamAi: boolean): string {

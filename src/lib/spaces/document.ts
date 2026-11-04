@@ -30,6 +30,12 @@ export function spacePath(teamId: string): string {
   return `${SPACE_PATH_PREFIX}${encodeURIComponent(teamId)}`;
 }
 
+/** Where a team's task, note or Area opens inside My Ri, with no second sign-in. */
+export function spaceRecordPath(teamId: string, kind: 'task' | 'note' | 'area', id: string): string {
+  const query = kind === 'note' ? `view=notes&note=${encodeURIComponent(id)}` : `${kind}=${encodeURIComponent(id)}`;
+  return `${spacePath(teamId)}?${query}`;
+}
+
 /** Where a space document reaches its team's API through this home. */
 export function spaceApiBase(teamId: string): string {
   return `/api/space/${encodeURIComponent(teamId)}`;

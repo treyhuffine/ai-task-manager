@@ -9,6 +9,7 @@ import { workResultAttachmentSchema } from '@/lib/work-results/validation';
 import { copyToTeam } from './commands';
 import { replaceAttachmentReferences } from '@/lib/attachments/derive';
 import { TEAM_TOOLS } from '@/lib/team/mcp/tools';
+import { linksForTeam, privateLinkMessage, teamTextFields, withRecordRefs } from './team-links';
 
 function authorize(ctx: ActionContext) {
   if (isTeamAuthority()) throw new ActionError('unsupported', 'Connected team access belongs to a personal Ri.');
@@ -29,16 +30,18 @@ export async function callConnectedHome(ctx: ActionContext, homeId: string, name
   const { wire, areaStatus } = teamContentInput(name, input);
   const parsed = z.object(tool.shape).strict().safeParse(wire);
   if (!parsed.success) throw new ActionError('invalid_params', 'These fields are not valid for the selected team.', undefined, parsed.error.issues);
+  const outgoing = tool.kind === 'write' ? teamTextFields(parsed.data, homeId) : { fields: parsed.data, refused: [] };
+  if (outgoing.refused.length) throw new ActionError('invalid_params', privateLinkMessage(team.connection.name, outgoing.refused));
   try {
     const response = tool.kind === 'read'
-      ? await team.client.team.nativeRead.query({ action: name, input: parsed.data })
-      : await team.client.team.nativeWrite.mutate({ action: name, input: parsed.data });
+      ? await team.client.team.nativeRead.query({ action: name, input: outgoing.fields })
+      : await team.client.team.nativeWrite.mutate({ action: name, input: outgoing.fields });
     assertCurrentTeam(team);
     if (!response.ok) {
       const code = response.error.code;
       throw new ActionError(code === 'not_found' ? 'not_found' : code === 'conflict' || code === 'body_conflict' || code === 'idempotency_conflict' ? 'conflict' : code === 'not_allowed' ? 'unsupported' : code === 'failed' ? 'conflict' : 'invalid_params', response.error.message, undefined, { ...response.error, retryable: code === 'failed' });
     }
-    const result = teamContentResult(response.result, areaStatus);
+    const result = withRecordRefs(team.connection.id, teamContentResult(response.result, areaStatus));
     return { target_home: { id: team.connection.id, name: team.connection.name }, result, replayed: !!response.replayed };
   } catch (error) {
     if (error instanceof ActionError) throw error;
@@ -70,7 +73,7 @@ export function withConnectedHome(action: Action): Action {
     ...action,
     localContract: { params: action.params, description: action.description },
     params: { ...action.params, ...additions },
-    description: `${action.description} To work in a connected team, call list_homes then pass target_home_id. Connected writes require idempotency_key and use canonical team IDs.`,
+    description: `${action.description} To work in a connected team, call list_homes then pass target_home_id. Connected writes require idempotency_key and use canonical team IDs. Each record in a connected result has a ref: copy it to link that record in chat or any body, since a bare [[task:ID]] means this Home's record.`,
     handler: (ctx, input) => {
       const { target_home_id, ...rest } = input;
       if (target_home_id !== undefined && target_home_id !== q.getHome()?.id) return callConnectedHome(ctx, String(target_home_id), action.name, rest);
@@ -113,6 +116,8 @@ export const connectedHomeActions = [
       const team = await teamFor(target_home_id);
       if (!team) throw new ActionError('not_found', 'The selected team is not connected.');
       try {
+        const summary = input.summary === undefined ? null : linksForTeam(input.summary, target_home_id);
+        if (summary?.refused.length) throw new ActionError('invalid_params', privateLinkMessage(team.connection.name, summary.refused));
         const copies = [];
         const names = new Map<string, string>();
         for (const file of input.attachments ?? []) {
@@ -122,7 +127,7 @@ export const connectedHomeActions = [
           names.set(file.fileName, copy.fileName);
         }
         assertCurrentTeam(team);
-        const response = await team.client.team.nativePublish.mutate({ taskId: task_id, requestId: idempotency_key, ...input, summary: input.summary ? replaceAttachmentReferences(input.summary, names) : input.summary, attachments: copies });
+        const response = await team.client.team.nativePublish.mutate({ taskId: task_id, requestId: idempotency_key, ...input, summary: summary?.text ? replaceAttachmentReferences(summary.text, names) : input.summary, attachments: copies });
         assertCurrentTeam(team);
         return { target_home: { id: team.connection.id, name: team.connection.name }, ...response };
       } catch (error) {

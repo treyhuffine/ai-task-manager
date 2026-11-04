@@ -14,12 +14,16 @@ import type { AreaRecord, ChatSessionWithExecution, NoteRecord, TaskRecord } fro
 import { coverAttachmentUrl } from '@/lib/attachments/view';
 import { resolveMime } from '@/lib/attachments/mime';
 import { MessageFileChip } from '@/components/chat-ui/artifacts/message-file-chip';
+import { describeTeamRecord } from '@/components/chat-ui/references/team-record';
+import { useInMyRi, useLocatedRecord, useOpenTeamRecord, useTeamRecord } from '@/hooks/use-team-records';
+import { splitRemoteId, type RemoteRecordKind } from '@/lib/entity-refs/parse-markers';
+import type { TeamRecordView } from '@/lib/spaces/team-links';
 
 import { calendarDaysUntil, formatLocalDate, isPastDate } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import { isSessionUnread } from '@/lib/utils/session-sort';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, Clock, FileText, Flame, Layers, LayoutList, Loader2, SquareTerminal, Target, Zap } from 'lucide-react';
+import { AlertCircle, Clock, FileText, Flame, Layers, LayoutList, Loader2, SquareTerminal, Target, Users, Zap } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type ReactNode } from 'react';
 
@@ -32,6 +36,8 @@ interface EntitySegment {
   content: string
   entityType?: EntityType
   entityId?: string
+  /** The Home of a `[[task:<home>/<id>]]` marker, a record in a connected team. */
+  homeId?: string
   /** A `[[file:<name>]]` marker: a file in the home's attachments folder. */
   fileName?: string
 }
@@ -49,10 +55,13 @@ export function parseEntityReferences(text: string): EntitySegment[] {
     if (matchStart > lastIndex) {
       segments.push({ type: 'text', content: text.slice(lastIndex, matchStart) })
     }
+    const remote = match[1] === 'task' || match[1] === 'note' || match[1] === 'area' ? splitRemoteId(match[2]) : null
     segments.push(
       match[3]
         ? { type: 'file', content: match[0], fileName: match[3] }
-        : { type: 'entity', content: match[0], entityType: match[1] as EntityType, entityId: match[2] },
+        : remote
+          ? { type: 'entity', content: match[0], entityType: match[1] as EntityType, entityId: remote.id, homeId: remote.homeId }
+          : { type: 'entity', content: match[0], entityType: match[1] as EntityType, entityId: match[2] },
     )
     lastIndex = matchStart + match[0].length
   }
@@ -369,6 +378,80 @@ function ExecutionCard({ data, onClick }: { data: ChatSessionWithExecution; onCl
   )
 }
 
+// ─── Team record ────────────────────────────────────────────
+
+/** A record in a connected team. Says what's wrong instead of "not found" when it can't be read. */
+function TeamRecordCard({ kind, id, view }: { kind: RemoteRecordKind; id: string; view: TeamRecordView }) {
+  const look = describeTeamRecord(kind, view)
+  const open = useOpenTeamRecord()
+  const config = ENTITY_CONFIG[kind]
+  const Icon = config.icon
+  const inner = (
+    <>
+      <Icon size={14} className={cn('flex-shrink-0 mt-0.5', config.iconColor)} />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-medium text-foreground truncate">{look.label}</div>
+        {look.reason && <div className="text-[11px] text-muted-foreground mt-0.5">{look.reason}</div>}
+        {look.team && !look.reason && (
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap text-[10px] font-medium text-muted-foreground">
+            <span className="flex items-center gap-1"><Users size={9} />{look.team}</span>
+            {look.done && <span className="text-emerald-500">Done</span>}
+            {look.archived && <span>Archived</span>}
+          </div>
+        )}
+      </div>
+    </>
+  )
+  const frame = cn('flex items-start gap-2.5 w-full rounded-lg border border-border border-l-2 bg-card px-3 py-2.5 text-left', config.borderColor, look.muted && 'opacity-70')
+  return (
+    <div className="my-1">
+      {look.opens
+        ? <button type="button" onClick={() => open(kind, id, view)} className={cn(frame, 'transition-colors hover:bg-accent/50')}>{inner}</button>
+        : <div className={frame}>{inner}</div>}
+    </div>
+  )
+}
+
+function EntityLoading({ entityType }: { entityType: EntityType }) {
+  const config = ENTITY_CONFIG[entityType]
+  return (
+    <div className={cn(
+      'flex items-center gap-2 rounded-lg border border-border border-l-2 bg-card px-3 py-2.5 my-1',
+      config.borderColor,
+    )}>
+      <Loader2 size={12} className="animate-spin text-muted-foreground" />
+      <span className="text-[11px] text-muted-foreground">Loading {config.label.toLowerCase()}...</span>
+    </div>
+  )
+}
+
+function EntityNotFound({ entityType, detail }: { entityType: EntityType; detail?: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border border-l-2 border-l-destructive bg-card px-3 py-2 my-1">
+      <AlertCircle size={12} className="text-destructive" />
+      <span className="text-[11px] text-muted-foreground">{detail ?? `${ENTITY_CONFIG[entityType].label} not found`}</span>
+    </div>
+  )
+}
+
+function RemoteEntity({ kind, homeId, id }: { kind: RemoteRecordKind; homeId: string; id: string }) {
+  const inMyRi = useInMyRi()
+  const record = useTeamRecord(kind, homeId, id, inMyRi)
+  if (inMyRi && record.isLoading) return <EntityLoading entityType={kind} />
+  const view: TeamRecordView = inMyRi && record.data ? record.data : { state: inMyRi ? 'unreachable' : 'unknown_home', homeId, teamName: null, title: null, status: null, localId: null }
+  return <TeamRecordCard kind={kind} id={id} view={view} />
+}
+
+/** An ID that isn't in this Home may be in a team: old chats and agents that skipped `ref` write them bare. */
+function MissingEntity({ kind, id }: { kind: RemoteRecordKind; id: string }) {
+  const inMyRi = useInMyRi()
+  const located = useLocatedRecord(kind, id, inMyRi)
+  if (inMyRi && located.isLoading) return <EntityLoading entityType={kind} />
+  if (located.data?.state === 'team') return <TeamRecordCard kind={kind} id={id} view={located.data.record} />
+  const unreachable = located.data?.state === 'missing' ? located.data.unreachable : []
+  return <EntityNotFound entityType={kind} detail={unreachable.length ? `${ENTITY_CONFIG[kind].label} not found in My Ri. ${unreachable.join(' and ')} can't be reached right now, so it may be there.` : undefined} />
+}
+
 // ─── EntityChip (orchestrator) ──────────────────────────────
 
 // Cheap sanity gate so LLM hallucinations like `[[area:null]]` don't hit the
@@ -396,34 +479,14 @@ function EntityChip({ entityType, entityId }: { entityType: EntityType; entityId
     staleTime: 30_000,
   })
 
-  if (!validId) {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border border-border border-l-2 border-l-destructive bg-card px-3 py-2 my-1">
-        <AlertCircle size={12} className="text-destructive" />
-        <span className="text-[11px] text-muted-foreground">{config.label} not found</span>
-      </div>
-    )
-  }
+  if (!validId) return <EntityNotFound entityType={entityType} />
 
-  if (isLoading) {
-    return (
-      <div className={cn(
-        'flex items-center gap-2 rounded-lg border border-border border-l-2 bg-card px-3 py-2.5 my-1',
-        config.borderColor,
-      )}>
-        <Loader2 size={12} className="animate-spin text-muted-foreground" />
-        <span className="text-[11px] text-muted-foreground">Loading {config.label.toLowerCase()}...</span>
-      </div>
-    )
-  }
+  if (isLoading) return <EntityLoading entityType={entityType} />
 
   if (isError || !data) {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border border-border border-l-2 border-l-destructive bg-card px-3 py-2 my-1">
-        <AlertCircle size={12} className="text-destructive" />
-        <span className="text-[11px] text-muted-foreground">{config.label} not found</span>
-      </div>
-    )
+    return entityType === 'task' || entityType === 'note' || entityType === 'area'
+      ? <MissingEntity kind={entityType} id={entityId} />
+      : <EntityNotFound entityType={entityType} />
   }
 
   if (entityType === 'task') {
@@ -504,6 +567,9 @@ export function EntityAwareText({ text, renderMarkdown }: EntityAwareTextProps) 
               attachment={{ fileName, originalName: fileName, mimeType: resolveMime(null, fileName), size: 0, uploadedAt: '' }}
             />
           )
+        }
+        if (segment.type === 'entity' && segment.homeId) {
+          return <RemoteEntity key={i} kind={segment.entityType as RemoteRecordKind} homeId={segment.homeId} id={segment.entityId!} />
         }
         if (segment.type === 'entity') {
           return (

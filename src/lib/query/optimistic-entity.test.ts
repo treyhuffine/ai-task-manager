@@ -187,7 +187,7 @@ it.each(['tasks', 'notes', 'areas', 'workspaces'] as const)('settling %s refresh
   const qc = new QueryClient();
   const keys = [trpc.entities.titlesGet.queryKey({ query: { refs: 'task:t1' } }),
     trpc.entities.backlinksTypeGet.queryKey({ params: { type: 'task', id: 't1' } }),
-    trpc.spaces.entityTitles.queryKey({ teamId: 'team', refs: 'task:t1' })];
+    trpc.spaces.record.queryKey({ kind: 'task', homeId: 'team', id: 't1' })];
   for (const key of keys) qc.setQueryData<unknown>(key as QueryKey, { title: 'Before' });
   qc.setQueryData<unknown>(entityKeys.tasks.detail('t1') as QueryKey, { body: 'Current focused editor input' });
   settleEntity(qc, root);

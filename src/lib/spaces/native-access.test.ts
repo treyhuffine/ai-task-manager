@@ -260,7 +260,7 @@ describe('a connected team\'s Areas', () => {
     expect((await o.areas.list.query()).filter(area => area.name === dev)).toHaveLength(1);
 
     const task = result(await runAction('create_task', { title: 'Filed under the new Area', area_id: id, target_home_id: c.id, idempotency_key: 'native-area-task' }, ctx));
-    expect(task.result.area).toEqual({ id, name: dev });
+    expect(task.result.area).toEqual({ id, name: dev, ref: `[[area:${c.id}/${id}]]` });
 
     const renamed = `${dev} renamed`;
     const update = { id, name: renamed, description: null, target_home_id: c.id, idempotency_key: 'native-area-rename' };

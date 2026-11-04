@@ -28,7 +28,7 @@ import * as q from '@/lib/db/queries';
 import { memberProcedure, ownerProcedure, teamCapabilityProcedure, router } from '@/lib/trpc/init';
 import { teamLink } from './links';
 import { teamSummary } from './summary';
-import { teamAddressSettings, teamLinkAddress, verifyTeamAddress, openTeamBeamdAddress, saveTeamAddressPrefix, isLoopbackTeamAddress, normalizeTeamAddress } from './address';
+import { teamAddressSettings, teamLinkAddress, teamWebBase, verifyTeamAddress, openTeamBeamdAddress, saveTeamAddressPrefix, isLoopbackTeamAddress, normalizeTeamAddress } from './address';
 import { TEAM_MCP_PATH } from './credential';
 import { aiClient } from '@/lib/external-ai/client-config';
 import { aiClientKeyInput } from '@/lib/external-ai/key-input';
@@ -53,7 +53,7 @@ async function nativeContent(ctx: TRPCContext, input: z.infer<typeof nativeInput
   if (!tool) throw new TRPCError({ code: 'BAD_REQUEST', message: UNKNOWN_CONTENT_OPERATION });
   const parsed = toolSchema.object(tool.shape).strict().safeParse(input.input);
   if (!parsed.success) throw new TRPCError({ code: 'BAD_REQUEST', message: parsed.error.message });
-  return runTeamTool(tool, { member, apiKeyId: ctx.key!.apiKeyId, base: new URL(ctx.request.url).origin }, parsed.data);
+  return runTeamTool(tool, { member, apiKeyId: ctx.key!.apiKeyId, base: teamWebBase(ctx.request) }, parsed.data);
 }
 
 const nameInput = z.object({ name: z.string().min(1).max(q.MEMBER_NAME_MAX) }).strict();

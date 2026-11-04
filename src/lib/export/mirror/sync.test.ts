@@ -59,3 +59,31 @@ it('keeps the newest content when syncs of one entity overlap', async () => {
   expect(fs.readdirSync(path.join(dir, '.tmp'))).toEqual([]);
   expect(warn.mock.calls.filter(([message]) => String(message).startsWith('[mirror]'))).toEqual([]);
 });
+
+it('exports a link to a team record as its shared copy, or plain text with no title', async () => {
+  home = await createTestHome({ prefix: 'ri-mirror-team-links-' });
+  const q = await import('@/lib/db/queries');
+  const { flushMirror } = await import('./sync');
+  const { typeDir } = await import('./config');
+  const { getDb } = await import('@/lib/db');
+  const { teamConnections } = await import('@/lib/db/schema');
+  const team = '01a1a3b3-1463-7fdc-a747-bc4860dc8e1d';
+  getDb().insert(teamConnections).values({ id: team, name: 'Ball Coach', url: 'https://team.test', memberId: 'm1', memberName: 'Ada', role: 'member', status: 'active' }).run();
+  const now = new Date().toISOString();
+  const copy = q.saveTaskProjection({
+    teamId: team, sourceTaskId: 'team-copied',
+    fields: { title: 'Has a copy', description: null, body: 'Bare in team text [[task:team-copied]] and [[task:team-other]]', outcome: null, hardDeadline: null, status: 'todo' },
+    source: { assigned: true, addedAt: null, bodyRevision: 1, statusChangedCount: 0, updatedAt: now, syncedAt: now, area: null, assignee: null },
+    state: 'active',
+  });
+  const note = q.createNote({ title: 'Mine', body: `One [[task:${team}/team-copied]] two [[task:${team}/team-other]] three [[area:${team}/team-area]] four [[task:unknown-home/abc]]` });
+  await flushMirror();
+
+  const read = (type: 'task' | 'note', id: string) => {
+    const file = fs.readdirSync(typeDir(type)).find(name => name.includes(id))!;
+    return fs.readFileSync(path.join(typeDir(type), file), 'utf8');
+  };
+  const copyLink = `[[tasks/has-a-copy--${copy.id}]]`;
+  expect(read('note', note.id)).toContain(`One ${copyLink} two Ball Coach task team-other three Ball Coach Area team-area four Team task abc`);
+  expect(read('task', copy.id)).toContain(`Bare in team text ${copyLink} and Ball Coach task team-other`);
+});

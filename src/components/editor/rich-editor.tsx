@@ -29,6 +29,7 @@ import { SlashCommands } from './slash-commands'
 import { EntityLinkNode } from './entity-link-node'
 import { FileLinkNode } from './file-link-node'
 import { EntityLinkMenuExtension } from './entity-link-menu/extension'
+import { useEntityLinkHome } from './entity-link-scope'
 import { useCallback, useEffect, useRef } from 'react'
 import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea'
 import type { Editor } from '@tiptap/core'
@@ -121,6 +122,7 @@ export function RichEditor({
   const isSyncingRef = useRef(false)
   const prevContentRef = useRef(content)
 
+  const linkHome = useEntityLinkHome()
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -140,7 +142,7 @@ export function RichEditor({
       Markdown,
       EntityLinkNode,
       FileLinkNode.configure({ getAttachmentUrl: (name) => attachmentStoreRef.current?.url(name) }),
-      EntityLinkMenuExtension,
+      EntityLinkMenuExtension.configure({ teamId: linkHome }),
       Placeholder.configure({
         placeholder: ({ node, pos, editor }) => {
           if (node.type.name === 'collapsibleHeading') {

@@ -6,6 +6,9 @@ vi.mock('@/lib/db/queries', () => ({
   getNote: () => undefined,
   getChatSession: () => undefined,
   getWorkspace: (id: string) => workspaces.get(id),
+  getTeamConnection: (id: string) => (id === 'team-1' ? { id, name: 'Ball "Coach"' } : undefined),
+  getTaskProjection: (teamId: string, id: string) => (teamId === 'team-1' && id === 'copied' ? { id: 't1' } : null),
+  getNoteProjection: () => null,
 }));
 
 const { expandEntityMarkers } = await import('./expand-markers');
@@ -44,5 +47,25 @@ describe('expandEntityMarkers for agents', () => {
     expect(expandEntityMarkers('[[agent:ws-gone]] and [[task:t1]]', 'chat-1')).toBe(
       '[[agent:ws-gone]] and <task id="t1" title="Fix deploy" status="todo" />',
     );
+  });
+});
+
+/** A send never waits on a team, so a team's record arrives as how to read it. */
+describe('expandEntityMarkers for a record in a connected team', () => {
+  it('says how to read it, by the Home that holds it', () => {
+    expect(expandEntityMarkers('Look at [[task:team-1/abc]]', 'chat-1')).toBe(
+      'Look at <task id="abc" target_home_id="team-1" team="Ball &quot;Coach&quot;" read_with="get_task" />',
+    );
+    expect(expandEntityMarkers('[[area:team-1/abc]]', 'chat-1')).toBe(
+      '<area id="abc" target_home_id="team-1" team="Ball &quot;Coach&quot;" read_with="get_area" />',
+    );
+  });
+
+  it('inlines a shared copy, which is already here', () => {
+    expect(expandEntityMarkers('[[task:team-1/copied]]', 'chat-1')).toBe('<task id="t1" title="Fix deploy" status="todo" />');
+  });
+
+  it('leaves a link to an unknown Home as written', () => {
+    expect(expandEntityMarkers('[[task:team-9/abc]]', 'chat-1')).toBe('[[task:team-9/abc]]');
   });
 });

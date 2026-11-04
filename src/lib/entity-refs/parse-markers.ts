@@ -10,25 +10,54 @@
  *   - `[[scratchpad]]`               — the owning session's scratchpad.
  *   - `[[agent:<workspaceId>]]`      — an agent (a workspace), by its id.
  *     Same id as its coordination address `agent:<workspace id>`.
+ *   - `[[task:<homeId>/<id>]]`       — a record in another Home, such as a
+ *     connected team (also `note` and `area`). See docs/team-links.md.
+ *
+ * Without a Home, a marker means a record in the Home that owns the text.
  *
  * The parser is pure: no DB access, no React. The composer uses it to
  * tokenize on send, the transcript uses it to swap chips in for raw
  * markers on render, and the server uses it to materialize `chat_refs`
  * rows and hydrate referenced bodies into the agent prompt.
  */
+export type RemoteRecordKind = 'task' | 'note' | 'area';
+
+export type RemoteMarker = { kind: 'remote'; recordKind: RemoteRecordKind; homeId: string; id: string };
+
 export type EntityMarker =
   | { kind: 'file'; fileName: string }
   | { kind: 'task'; id: string }
   | { kind: 'note'; id: string }
   | { kind: 'agent'; id: string }
-  | { kind: 'scratchpad' };
+  | { kind: 'scratchpad' }
+  | RemoteMarker;
 
 export type EntitySegment =
   | { kind: 'text'; text: string }
   | { kind: 'marker'; marker: EntityMarker; raw: string };
 
-/** Strict id charset matches what UUIDv7 + fileName conventions emit. */
-const MARKER_RE = /\[\[(file|task|note|agent|scratchpad)(?::([A-Za-z0-9_.-]+))?\]\]/g;
+/**
+ * Strict id charset matches what UUIDv7 + fileName conventions emit. The `/`
+ * in a remote marker is outside it on purpose: a build that doesn't know the
+ * form shows plain text instead of looking up the wrong record.
+ */
+const MARKER_RE = /\[\[(?:(task|note|area):([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]+)|(file|task|note|agent|scratchpad)(?::([A-Za-z0-9_.-]+))?)\]\]/g;
+
+/** What an agent or person writes to link a record in another Home. */
+export function remoteMarkerText(recordKind: RemoteRecordKind, homeId: string, id: string): string {
+  return `[[${recordKind}:${homeId}/${id}]]`;
+}
+
+/** How the link index names a record in another Home. */
+export function remoteLinkTarget(homeId: string, id: string): string {
+  return `${homeId}/${id}`;
+}
+
+/** The two halves of a remote marker's `<homeId>/<id>`, or null for any other id. */
+export function splitRemoteId(value: string): { homeId: string; id: string } | null {
+  const match = /^([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]+)$/.exec(value);
+  return match ? { homeId: match[1], id: match[2] } : null;
+}
 
 /**
  * Split a chat message into text + marker segments in document order.
@@ -44,10 +73,12 @@ export function parseEntitySegments(text: string): EntitySegment[] {
     if (start > lastIndex) {
       segments.push({ kind: 'text', text: text.slice(lastIndex, start) });
     }
-    const kind = match[1] as 'file' | 'task' | 'note' | 'agent' | 'scratchpad';
-    const id = match[2];
+    const kind = match[4] as 'file' | 'task' | 'note' | 'agent' | 'scratchpad';
+    const id = match[5];
     let marker: EntityMarker | null = null;
-    if (kind === 'scratchpad') {
+    if (match[1]) {
+      marker = { kind: 'remote', recordKind: match[1] as RemoteRecordKind, homeId: match[2], id: match[3] };
+    } else if (kind === 'scratchpad') {
       marker = { kind: 'scratchpad' };
     } else if (kind === 'file' && id) {
       marker = { kind: 'file', fileName: id };

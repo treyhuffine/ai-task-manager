@@ -30,6 +30,7 @@ import { assertCurrentTeam, recordTeamFailure, teamFor, type ConnectedTeam } fro
 import { teamRequest } from './remote';
 import { bodyForDocument, bodyForTeam } from './document';
 import { sharedFields, type TeamTask } from './sync';
+import { linksForTeam, privateLinkMessage, teamTextFields } from './team-links';
 
 /** What My Ri can change of a shared task's own content. */
 export const SHARED_EDITABLE_FIELDS = ['title', 'description', 'body', 'outcome', 'hardDeadline', 'attachments'] as const;
@@ -118,9 +119,12 @@ export async function updateSharedTask(local: TaskRecord, patch: SharedTaskPatch
   const team = await connectedTeam(local);
   if (guard.expectedSourceMemberId && guard.expectedSourceMemberId !== team.connection.memberId) throw new q.TeamError('not_allowed', 'The team sign-in changed. This draft is kept for its original author.');
   const teamId = local.sourceTeamId!;
-  const toTeam: SharedTaskPatch = { ...patch };
   const writesBody = patch.body !== undefined;
-  if (writesBody && patch.body != null) toTeam.body = bodyForTeam(patch.body, teamId);
+  const outgoing = teamTextFields({ ...patch, ...(patch.body != null ? { body: bodyForTeam(patch.body, teamId) } : {}) }, teamId);
+  // An agent can fix what it wrote. A person's editor autosaves, and offers only
+  // the team's records, so what they typed or pasted goes as written.
+  if (source !== 'human' && outgoing.refused.length) throw new q.TeamError('invalid', privateLinkMessage(team.connection.name, outgoing.refused));
+  const toTeam: SharedTaskPatch = outgoing.fields;
   const expected = writesBody ? (guard.expectedBodyRevision ?? local.source?.bodyRevision ?? 0) : undefined;
   let updated: TeamTask;
   try {
@@ -218,6 +222,8 @@ export async function completeSharedTask(
   opts: { idempotencyKey?: string; note?: string; expectedStatusChangedCount?: number; source?: EntityVersionSource } = {},
 ): Promise<q.LifecycleOutcome> {
   const team = await connectedTeam(local);
+  const note = opts.note === undefined ? null : linksForTeam(opts.note, team.connection.id);
+  if (opts.source && opts.source !== 'human' && note?.refused.length) throw new q.TeamError('invalid', privateLinkMessage(team.connection.name, note.refused));
   try {
     await assertSeenStatus(team, local, opts.expectedStatusChangedCount, 'complete', opts.idempotencyKey);
     const result = await team.client.tasks.complete.mutate({
@@ -225,7 +231,7 @@ export async function completeSharedTask(
       ...(opts.source && opts.source !== 'human' ? { actorSource: opts.source } : {}),
       idempotencyKey: opts.idempotencyKey ?? uuidv7(),
       expectedStatusChangedCount: local.source?.statusChangedCount,
-      ...(opts.note ? { note: opts.note } : {}),
+      ...(note?.text ? { note: note.text } : {}),
     });
     const task = (result as { task: TeamTask; replayed?: boolean }).task;
     return outcome(await refresh(local, task, team), result);
@@ -291,7 +297,7 @@ export async function publishSharedTaskResult(local: TaskRecord, input: PublishS
     const { result } = await team.client.tasks.publishResult.mutate({
       taskId: local.sourceTaskId!,
       requestId: input.requestId,
-      summary: input.summary != null ? replaceAttachmentReferences(input.summary, names) : null,
+      summary: input.summary != null ? replaceAttachmentReferences(linksForTeam(input.summary, team.connection.id).text, names) : null,
       links: input.link ? [input.link] : [],
       attachments: [...copied, ...(input.teamAttachments ?? [])],
     });

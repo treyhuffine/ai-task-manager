@@ -14,6 +14,7 @@ import { router, viewerProcedure as p } from '@/lib/trpc/init';
 import { attachment } from '@/lib/trpc/schemas';
 import { publishSharedTaskResult, sharedTaskPublishedResults } from './commands';
 import { connectTeam, disconnectTeam, inspectTeamLink, teamFor } from './connect';
+import { locateRecord, readTeamRecord, searchTeamRecords } from './team-links';
 import {
   addTeamTaskToMyWork,
   removeTeamNoteFromMyNotes,
@@ -32,6 +33,7 @@ async function activeSourceAreas(teamId: string): Promise<AreaRecord[]> {
   if (!team) throw new q.TeamError('not_found', 'Connect this team to review its Area defaults.');
   return (await team.client.areas.list.query({ status: 'all' })).filter((a) => a.status !== 'archived');
 }
+const recordKind = z.enum(['task', 'note', 'area']);
 const teamTaskInput = z.object({ teamId: z.string().min(1).max(100), taskId: z.string().min(1).max(100) }).strict();
 const localTaskInput = z.object({ taskId: z.string().min(1).max(100) }).strict();
 const publishInput = z.object({
@@ -76,11 +78,12 @@ export function teamConnectionView(row: TeamConnectionRecord): TeamConnectionVie
 export const spacesRouter = router({
   personalContext: p.query(({ ctx }): Promise<HomeContext> => resolveHomeContext(ctx.key)),
   personalExecutionChoices: p.query(({ ctx }) => resolveHomeExecutionChoices(ctx.key)),
-  entityTitles: p.input(z.object({ teamId: z.string().min(1), refs: z.string().max(500) }).strict()).query(async ({ input }): Promise<{ titles: ReturnType<typeof q.resolveEntityTitles> }> => {
-    const team = await teamFor(input.teamId);
-    if (!team) throw new q.TeamError('not_found', 'This team is not connected.');
-    return team.client.entities.titlesGet.query({ query: { refs: input.refs } });
-  }),
+  /** A link to a record in a team (docs/team-links.md): what it is, or why it can't be read. */
+  record: p.input(z.object({ kind: recordKind, homeId: z.string().min(1).max(100), id: z.string().min(1).max(100) }).strict()).query(({ input }) => readTeamRecord(input.kind, input.homeId, input.id)),
+  /** Where a bare ID that isn't in this Home really is. */
+  locateRecord: p.input(z.object({ kind: recordKind, id: z.string().min(1).max(100) }).strict()).query(({ input }) => locateRecord(input.kind, input.id)),
+  /** The `@` menu in a shared body. */
+  searchRecords: p.input(z.object({ teamId: z.string().min(1).max(100), q: z.string().min(1).max(200) }).strict()).query(({ input }) => searchTeamRecords(input.teamId, input.q)),
   areaDefaults: router({
     list: p.input(idInput).query(({ input }) => q.listPersonalAreaDefaults(input.id)),
     sourceAreas: p.input(idInput).query(({ input }) => activeSourceAreas(input.id)),

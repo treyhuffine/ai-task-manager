@@ -87,6 +87,12 @@ export function parseMirrorFilename(filename: string): { slug: string | null; id
  */
 export interface LinkResolver {
   linkFor(type: EntityType, id: string): string | null;
+  /**
+   * What a link to a record in a team becomes: its shared copy's wikilink, else
+   * plain text naming the team and the ID. Never a title, since a vault file
+   * outlives access to the team.
+   */
+  teamRecordText(kind: 'task' | 'note' | 'area', homeId: string, id: string): string;
 }
 
 function wikiLink(
@@ -104,13 +110,15 @@ function wikiLink(
  * wikilink the frontmatter uses (e.g. `[[tasks/<slug>--<id>]]`), so the
  * exported vault resolves them in Obsidian. Markers inside code are skipped
  * (shared extraction layer); unresolved targets are left verbatim. See
- * docs/entity-links-spec.md §8.
+ * docs/entity-links-spec.md §8. A bare ID in a shared copy's text is its team's.
  */
-function rewriteBodyEntityLinks(text: string, resolver: LinkResolver | undefined): string {
+function rewriteBodyEntityLinks(text: string, resolver: LinkResolver | undefined, sourceTeamId?: string | null): string {
   if (!text || !resolver) return text;
-  return rewriteEntityMarkers(text, ({ kind, id }) => {
-    const target = resolver.linkFor(kind, id);
-    return target ? `[[${target}]]` : null;
+  return rewriteEntityMarkers(text, (marker) => {
+    if (marker.kind === 'remote') return resolver.teamRecordText(marker.recordKind, marker.homeId, marker.id);
+    const target = resolver.linkFor(marker.kind, marker.id);
+    if (target) return `[[${target}]]`;
+    return sourceTeamId ? resolver.teamRecordText(marker.kind, sourceTeamId, marker.id) : null;
   });
 }
 
@@ -229,8 +237,9 @@ export function renderTask(task: TaskRecord, opts: RenderTaskOpts = {}): { filen
   const description = rewriteBodyEntityLinks(
     rewriteAttachmentsForMirror(task.description ?? '', relativeAttachments),
     opts.links,
+    task.sourceTeamId,
   ).trim();
-  const body = rewriteBodyEntityLinks(rewriteAttachmentsForMirror(task.body ?? '', relativeAttachments), opts.links).trim();
+  const body = rewriteBodyEntityLinks(rewriteAttachmentsForMirror(task.body ?? '', relativeAttachments), opts.links, task.sourceTeamId).trim();
   const userContext = rewriteAttachmentsForMirror(task.userContext ?? '', relativeAttachments).trim();
 
   const parts: string[] = [frontmatter, '', HEADER_COMMENTS, '', `# ${task.title}`];
@@ -301,7 +310,7 @@ export function renderNote(note: NoteRecord, opts: RenderNoteOpts = {}): { filen
 
   const parts: string[] = [frontmatter, '', HEADER_COMMENTS];
   if (note.title) parts.push('', `# ${note.title}`);
-  const body = rewriteBodyEntityLinks(rewriteAttachmentsForMirror(note.body ?? '', relativeAttachments), opts.links).trim();
+  const body = rewriteBodyEntityLinks(rewriteAttachmentsForMirror(note.body ?? '', relativeAttachments), opts.links, note.sourceTeamId).trim();
   if (body) parts.push('', body);
   parts.push(...renderSourcesSection(sources, opts.links, relativeAttachments));
 

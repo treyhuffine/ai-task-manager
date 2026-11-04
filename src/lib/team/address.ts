@@ -8,6 +8,16 @@ import { beamdCheck } from '@/lib/preview/beamd/cli';
 import { openOwnedTunnel } from '@/lib/preview/beamd/ownership';
 import { isValidPreviewLabel, MAX_LABEL_LENGTH, previewName } from '@/lib/preview/preview-name';
 
+/** Where people reach the team: its address if it has one, else where this client reached it. */
+export function teamWebBase(request: Request): string {
+  const tunnel = baseUrlSnapshot().tunnel;
+  if (tunnel) return tunnel.replace(/\/+$/, '');
+  const url = new URL(request.url);
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
+  const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || url.protocol.replace(':', '');
+  return host ? `${proto}://${host}` : url.origin;
+}
+
 /** Suggest from the name the owner chose, without changing existing addresses. */
 export function teamAddressSettings() {
   const snapshot = baseUrlSnapshot();
