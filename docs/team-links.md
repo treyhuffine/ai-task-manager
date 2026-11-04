@@ -17,13 +17,15 @@ A link holds a Home and an ID, never a title or an address. So it can't carry a 
 
 Team tools called through My Ri put a `ref` on every record in their result, added in `callConnectedHome` so it works with a team on any version. An agent copies it. Its `link` is a web address for sharing outside Ri.
 
-Text on its way to a team passes through `linksForTeam` (`src/lib/spaces/team-links.ts`), the only place that can see both sides:
+An agent's text on its way to a team, and anything a person publishes, passes through `linksForTeam` (`src/lib/spaces/team-links.ts`), the only place that can see both sides:
 
 - A shared copy's local ID becomes the team's ID.
 - The team's own `ref` becomes a bare link.
-- A link to a private record, or to another team's, is refused for an agent, naming the link and sending nothing. A person's editor autosaves and can't act on a refusal, so it sends what they typed, and the `@` menu in a shared body only offers that team's records. Publishing and completing are deliberate, so a person is refused there too.
+- A link to a private record, or to another team's, is refused, naming the link and sending nothing.
 
-This reads every string in the write and every record kind, whatever the kind in the marker says, and code formatting doesn't exempt anything, since an editor may draw a chip where a parser saw code. The ID a tool call names is the caller's explicit choice, so `get_task` with `target_home_id` means the team's record even if this Home has that ID too. The editor keeps what the person typed while it's open, because a saver treats what it sent as saved. Otherwise a translated echo reads as an unsaved edit and writes forever.
+This reads every string in the write and every record kind, whatever the kind in the marker says, and code formatting doesn't exempt anything, since an editor may draw a chip where a parser saw code. The ID a tool call names is the caller's explicit choice, so `get_task` with `target_home_id` means the team's record even if this Home has that ID too.
+
+A person's editor saves exactly what they typed, because it autosaves and a body that comes back changed reads as a new edit. Its `@` menu in a shared body only offers that team's records, and a pasted `ref` works as written.
 
 A team's direct MCP clients only ever have team IDs, so their tools are unchanged.
 
@@ -31,7 +33,7 @@ A team's direct MCP clients only ever have team IDs, so their tools are unchange
 
 `spaces.record` asks the team with the title lookup, which never counts as a view. A bare ID that isn't in this Home goes to `spaces.locateRecord`: this Home first, then shared copies, then every connected team at once. An ID in this Home of any kind stops it, so a private record's ID is never sent to a team. A deleted record's can be, since nothing here says it was ever private. With no teams it makes no request. It only runs in My Ri's chats and personal bodies, because a team's text only ever looks in that team, and that includes the link index and mirror for a shared copy.
 
-A chip waits 5 seconds for an answer, and only a refused key changes the connection. A slow team affects its own chips, not the banner on shared work.
+Only a refused key changes the connection. A slow team affects its own chips, not the banner on shared work.
 
 The mirror, link index and message expansion run with no network, which is why the Home has to be in the link itself. The lookup is only a net for old chats and agents that skip `ref`.
 
@@ -73,6 +75,8 @@ Nothing is migrated and no chat is rewritten. `[[task:<id>]]` stays valid foreve
 
 - The mirror rewrites a note when the note changes, so a link written before a shared copy arrived says "Ball Coach task <id>" until then, and one pointing at a copy that's renamed goes stale until then.
 - A chat makes one request per team chip, with no batching.
+- A pasted `ref` in a team's body shows as a chip there, but isn't counted as a backlink at the team.
+- A chip trusts what its team says about a record. Team members are trusted with the team's server.
 - A team record whose ID also exists in this Home, which only a copied Home could have, reads as gone and can't be linked from My Ri. Keeping private IDs from leaving comes first.
 
 ## Not built

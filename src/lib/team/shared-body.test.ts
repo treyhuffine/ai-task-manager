@@ -229,7 +229,7 @@ describe('shared body autosave', () => {
 
 describe('a server that stores different text than it was sent', () => {
   it('writes once: an echo must not read as an unsaved edit', async () => {
-    // A link translated for the team comes back changed. This wrote forever.
+    // This wrote forever when an echo came back changed.
     const write = vi.fn(async (input: { body: string; expectedBodyRevision: number }) => ({
       body: input.body.replace('local-id', 'team-id'),
       bodyRevision: input.expectedBodyRevision + 1,

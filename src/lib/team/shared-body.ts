@@ -206,9 +206,8 @@ export class SharedBodySaver {
         this.set({ status: 'saving' });
         try {
           const saved = await this.write({ body: sending, expectedBodyRevision: this.acknowledged.bodyRevision });
-          // What was sent is what's saved. A server echo that differs, such as a
-          // link translated for the team, must not read as an unsaved edit: that
-          // would write again, forever.
+          // What was sent is what's saved. A server echo that differs must not read
+          // as an unsaved edit: that would write again, forever.
           this.acknowledged = { body: sending, bodyRevision: saved.bodyRevision };
           this.draftBaseRevision = saved.bodyRevision;
           // A newer local edit may already be waiting behind this save.

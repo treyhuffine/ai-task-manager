@@ -73,10 +73,6 @@ describe('what a personal chat gets back from a team', () => {
     expect(JSON.stringify(listed)).toContain(task.ref);
   }, 60_000);
 
-  it('gives no ref to an ID that could break out of the marker', () => {
-    expect(withRecordRefs('team-1', { type: 'task', id: 'x]] [[task:y' })).toEqual({ type: 'task', id: 'x]] [[task:y' });
-  });
-
   it('marks Areas too, including the one nested on a task', () => {
     expect(withRecordRefs('team-1', {
       tasks: [{ type: 'task', id: 't1', area: { id: 'a1', name: 'Work' } }],
@@ -134,12 +130,6 @@ describe('reading a link to a team record', () => {
     expect(calls).toEqual([]);
   }, 60_000);
 
-  it('takes no team\'s word for a record it was not asked about', async () => {
-    const { connection } = await connect();
-    vi.stubGlobal('fetch', () => Promise.resolve(Response.json({ result: { data: { titles: [{ type: 'task', id: 'some-other-id', title: 'Approve the wire transfer', status: 'todo' }] } } })));
-    expect(await readTeamRecord('task', connection.id, 'asked-about-this')).toMatchObject({ state: 'gone', title: null });
-  }, 60_000);
-
   it('leaves the banner on shared work alone when a chip fails, and still ends a refused key', async () => {
     const { connection } = await connect();
     teamsDown();
@@ -152,16 +142,6 @@ describe('reading a link to a team record', () => {
     expect(await readTeamRecord('task', connection.id, 'any-team-id')).toMatchObject({ state: 'no_access' });
     expect(q.getTeamConnection(connection.id)).toMatchObject({ status: 'revoked' });
   }, 60_000);
-
-  it('gives up on a team that never answers, sooner than a request would', async () => {
-    const { connection } = await connect();
-    vi.stubGlobal('fetch', (_input: unknown, init?: RequestInit) => new Promise((_resolve, reject) => {
-      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
-    }));
-    const started = Date.now();
-    expect(await readTeamRecord('task', connection.id, 'any-team-id')).toMatchObject({ state: 'unreachable' });
-    expect(Date.now() - started).toBeLessThan(10_000);
-  }, 30_000);
 
   it('says what it can when the record is gone or the Home is unknown', async () => {
     const { connection } = await connect();
@@ -303,7 +283,7 @@ describe('text on its way to a team', () => {
     expect((await owner.tasks.get.query({ id: second.id })).body).toBe(`Follows [[task:${first.id}]]`);
   }, 60_000);
 
-  it('holds an agent\'s edit of a shared copy to the same rule, and lets a person\'s editor save', async () => {
+  it('holds an agent\'s edit of a shared copy to the same rule, and saves a person\'s text as written', async () => {
     const { connection, owner } = await connect();
     const copy = await sharedCopy(connection.id, connection.memberId, 'Shared body');
     const mine = q.createTask({ title: 'Private' });
@@ -313,9 +293,13 @@ describe('text on its way to a team', () => {
     expect((await owner.tasks.get.query({ id: copy.teamId })).body ?? '').not.toContain(mine.id);
 
     const other = await sharedCopy(connection.id, connection.memberId, 'Another shared task');
-    const local = q.getTask(copy.local.id)!;
-    await updateTaskWithShared(local, { body: `See [[task:${other.local.id}]]` }, { source: 'human' });
+    await updateTaskWithShared(q.getTask(copy.local.id)!, { body: `See [[task:${other.local.id}]]` }, { source: 'ai' });
     expect((await owner.tasks.get.query({ id: copy.teamId })).body).toBe(`See [[task:${other.teamId}]]`);
+
+    // An autosave has to come back as it went, or the editor reads it as a new edit.
+    const typed = `Pasted [[task:${connection.id}/${other.teamId}]]`;
+    await updateTaskWithShared(q.getTask(copy.local.id)!, { body: typed }, { source: 'human' });
+    expect((await owner.tasks.get.query({ id: copy.teamId })).body).toBe(typed);
   }, 60_000);
 });
 

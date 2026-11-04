@@ -604,19 +604,13 @@ function readBacklinks(targetType: LinkSourceType, targetId: string): BacklinkIt
   const source = teamSourceOf(targetType, targetId);
   const targetIds = source ? [targetId, source.sourceId, remoteLinkTarget(source.teamId, source.sourceId)] : [targetId];
   const rows = db
-    .selectDistinct({ sourceType: entityLinks.sourceType, sourceId: entityLinks.sourceId, targetId: entityLinks.targetId })
+    .selectDistinct({ sourceType: entityLinks.sourceType, sourceId: entityLinks.sourceId })
     .from(entityLinks)
     .where(and(eq(entityLinks.targetType, targetType), inArray(entityLinks.targetId, targetIds)))
     .all();
   const items: BacklinkItem[] = [];
-  const seen = new Set<string>();
   for (const r of rows) {
     if (r.sourceType === targetType && r.sourceId === targetId) continue; // filter self
-    // A team's text only looks in that team, so this Home's ID in it links nothing here.
-    if (r.targetId === targetId && teamSourceOf(r.sourceType, r.sourceId)) continue;
-    const key = `${r.sourceType}:${r.sourceId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
     const title = resolveEntityTitle(r.sourceType, r.sourceId);
     if (title === undefined) continue; // source vanished; skip defensively
     items.push({ sourceType: r.sourceType, sourceId: r.sourceId, title });

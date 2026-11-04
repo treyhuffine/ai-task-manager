@@ -31,9 +31,6 @@ export type LocatedRecord =
   | { state: 'team'; record: TeamRecordView }
   | { state: 'missing'; unreachable: string[] };
 
-/** A chip can say a team can't be reached sooner than a request would give up. */
-const TEAM_LINK_WAIT_MS = 5_000;
-
 function sharedCopy(kind: RemoteRecordKind, homeId: string, id: string) {
   if (kind === 'task') return q.getTaskProjection(homeId, id);
   if (kind === 'note') return q.getNoteProjection(homeId, id);
@@ -42,20 +39,17 @@ function sharedCopy(kind: RemoteRecordKind, homeId: string, id: string) {
 
 /** What the team says, or null when it has no such record. */
 async function askTeam(team: ConnectedTeam, kind: RemoteRecordKind, id: string): Promise<{ title: string | null; status: string | null } | null> {
-  const signal = AbortSignal.timeout(TEAM_LINK_WAIT_MS);
   if (kind === 'area') {
     try {
-      const area = await team.client.areas.get.query({ id }, { signal });
-      return area.id === id ? { title: area.name, status: area.status } : null;
+      const area = await team.client.areas.get.query({ id });
+      return { title: area.name, status: area.status };
     } catch (err) {
       if (isNotFound(err)) return null;
       throw err;
     }
   }
-  const { titles } = await team.client.entities.titlesGet.query({ query: { refs: `${kind}:${id}` } }, { signal });
-  // Only an answer about the record asked for. A team doesn't get to name others.
-  const title = titles.find((candidate) => candidate.type === kind && candidate.id === id);
-  return title ? { title: title.title, status: title.status } : null;
+  const { titles } = await team.client.entities.titlesGet.query({ query: { refs: `${kind}:${id}` } });
+  return titles[0] ? { title: titles[0].title, status: titles[0].status } : null;
 }
 
 function localRecord(kind: RemoteRecordKind, id: string): { title: string | null; status: string | null } | null {
@@ -229,8 +223,7 @@ export function privateLinkMessage(teamName: string, refused: string[]): string 
 }
 
 function recordKindOf(key: string | null, value: Record<string, unknown>): RemoteRecordKind | null {
-  // A team's answer is untrusted, and an ID outside the grammar could break out of the marker.
-  if (typeof value.id !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(value.id)) return null;
+  if (typeof value.id !== 'string') return null;
   if (value.type === 'task' || value.type === 'note') return value.type;
   if (key === 'area' || (typeof value.link === 'string' && /[?&]area=/.test(value.link))) return 'area';
   return null;

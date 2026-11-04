@@ -120,11 +120,14 @@ export async function updateSharedTask(local: TaskRecord, patch: SharedTaskPatch
   if (guard.expectedSourceMemberId && guard.expectedSourceMemberId !== team.connection.memberId) throw new q.TeamError('not_allowed', 'The team sign-in changed. This draft is kept for its original author.');
   const teamId = local.sourceTeamId!;
   const writesBody = patch.body !== undefined;
-  const outgoing = teamTextFields({ ...patch, ...(patch.body != null ? { body: bodyForTeam(patch.body, teamId) } : {}) }, teamId);
-  // An agent can fix what it wrote. A person's editor autosaves, and offers only
-  // the team's records, so what they typed or pasted goes as written.
-  if (source !== 'human' && outgoing.refused.length) throw new q.TeamError('invalid', privateLinkMessage(team.connection.name, outgoing.refused));
-  const toTeam: SharedTaskPatch = outgoing.fields;
+  let toTeam: SharedTaskPatch = { ...patch, ...(patch.body != null ? { body: bodyForTeam(patch.body, teamId) } : {}) };
+  // An agent's links are checked, since it can fix what it wrote. A person's
+  // editor autosaves what they typed, and its `@` only offers the team's records.
+  if (source !== 'human') {
+    const outgoing = teamTextFields(toTeam, teamId);
+    if (outgoing.refused.length) throw new q.TeamError('invalid', privateLinkMessage(team.connection.name, outgoing.refused));
+    toTeam = outgoing.fields;
+  }
   const expected = writesBody ? (guard.expectedBodyRevision ?? local.source?.bodyRevision ?? 0) : undefined;
   let updated: TeamTask;
   try {

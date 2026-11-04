@@ -103,7 +103,7 @@ One generic attachment system across the whole app:
 
 ## Links between Homes
 
-`[[task:<id>]]` means a record in the Home that owns the text. `[[task:<home id>/<id>]]` names another Home, for My Ri's chats and personal bodies. A team's text only ever looks in that team, and a link holds no title. Agents copy the `ref` on a connected tool's result, and text on its way to a team goes through `linksForTeam` (`src/lib/spaces/team-links.ts`), which refuses an agent's link to a private record. A link lookup never sends an ID found in this Home to a team. Full model: `docs/team-links.md`.
+`[[task:<id>]]` means a record in the Home that owns the text. `[[task:<home id>/<id>]]` names another Home, for My Ri's chats and personal bodies. A team's text only ever looks in that team, and a link holds no title. Agents copy the `ref` on a connected tool's result, and an agent's text on its way to a team goes through `linksForTeam` (`src/lib/spaces/team-links.ts`), which refuses a link to a private record. A person's autosaved body goes as written. A link lookup never sends an ID found in this Home to a team. Full model: `docs/team-links.md`.
 
 ## Client data layer (TanStack Query)
 
