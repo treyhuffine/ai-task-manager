@@ -8,7 +8,8 @@
  *     gives us every tracked + untracked file while respecting `.gitignore`.
  *     We then layer `ws.git.status()` over that to attach M/A/D-style flags
  *     and stat the changed files for mtime + size.
- *   - Bare workspaces: walk `ws.tree()` recursively. No status flags.
+ *   - Bare workspaces: a bounded walk (`walkFolder`), since one can be any
+ *     folder at all. `truncated` says when it stopped early. No status flags.
  *
  * Deliberately keeps the response shape small — we don't return `mtime`
  * or `size` for *every* file (a 10k-file repo would be wasted bytes).
@@ -17,13 +18,20 @@
  */
 
 import type { TreeEntry, TreeEntryStatus } from '@/lib/workspaces/file-contracts';
-import type { GitWorkspace, TreeNode, Workspace } from '@agentex/workspace';
+import type { GitWorkspace, Workspace } from '@agentex/workspace';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import picomatch from 'picomatch';
 import { expandFilesToCopyPatterns } from './files-to-copy';
+import { HEAVY_DIRS, walkFolder } from './walk-folder';
 
 export type { TreeEntry, TreeEntryStatus };
+
+export interface TreeListing {
+  entries: TreeEntry[];
+  /** The folder has more files than these, so the tree says so. */
+  truncated: boolean;
+}
 
 /**
  * @param surfaceIgnored - workspace `filesToCopy` patterns. Files matching
@@ -31,8 +39,8 @@ export type { TreeEntry, TreeEntryStatus };
  *   workspace copies them in on purpose (e.g. `.env*`) and the user wants to
  *   see/edit them. node_modules and other bulk-ignored dirs stay hidden.
  */
-export async function listTree(ws: Workspace, surfaceIgnored: readonly string[] = []): Promise<TreeEntry[]> {
-  if (ws.kind === 'git') return listTreeGit(ws, surfaceIgnored);
+export async function listTree(ws: Workspace, surfaceIgnored: readonly string[] = []): Promise<TreeListing> {
+  if (ws.kind === 'git') return { entries: await listTreeGit(ws, surfaceIgnored), truncated: false };
   return listTreeBare(ws);
 }
 
@@ -230,39 +238,11 @@ async function listTreeGit(ws: GitWorkspace, surfaceIgnored: readonly string[]):
   return entries;
 }
 
-async function listTreeBare(ws: Workspace): Promise<TreeEntry[]> {
-  // Bare workspaces have no git status — we just enumerate files. The
-  // library's `ws.tree()` already skips `.git/`. We additionally skip
-  // common heavyweight directories that would dominate the tree.
-  const tree = await ws.tree();
-  const entries: TreeEntry[] = [];
-  collect(tree, '', entries);
-  return entries;
-}
-
-const HEAVY_DIRS = new Set([
-  'node_modules',
-  '.next',
-  'dist',
-  'build',
-  '.cache',
-  '.turbo',
-  'coverage',
-]);
-
-function collect(node: TreeNode, relPath: string, out: TreeEntry[]): void {
-  if (node.kind === 'file') {
-    out.push({
-      path: relPath,
-      name: node.name,
-      kind: 'file',
-    });
-    return;
-  }
-  if (!node.children) return;
-  for (const child of node.children) {
-    if (child.kind === 'dir' && HEAVY_DIRS.has(child.name)) continue;
-    const next = relPath ? `${relPath}/${child.name}` : child.name;
-    collect(child, next, out);
-  }
+async function listTreeBare(ws: Workspace): Promise<TreeListing> {
+  // Bare workspaces have no git status, we just enumerate files. Not with the
+  // library's `ws.tree()`, which reads everything under the folder before
+  // anything can be left out: see `walkFolder`.
+  const { paths, truncated } = await walkFolder(ws.path, { symlinks: true });
+  const entries = paths.map((rel): TreeEntry => ({ path: rel, name: path.posix.basename(rel), kind: 'file' }));
+  return { entries, truncated };
 }

@@ -7,8 +7,9 @@ import { z as rpcZ } from 'zod/v4';
  * Flat file list of the agent's own folder, for the agent view's Files tab,
  * from the device the agent lives on (P3.5). Same shape as
  * `/api/sessions/:id/tree`: git folders list tracked and untracked files
- * with status flags, bare folders walk the tree with the heavyweight
- * directories trimmed. Files the agent copies into worktrees (`filesToCopy`,
+ * with status flags, bare folders take a bounded walk that skips the
+ * heavyweight directories and says when it stopped early (`truncated`, see
+ * `walkFolder`). Files the agent copies into worktrees (`filesToCopy`,
  * e.g. `.env*`) are surfaced even though git ignores them. A detached HEAD
  * lists without status flags (see `agent-folder-reads.ts`).
  */

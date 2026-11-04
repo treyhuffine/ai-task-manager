@@ -25,8 +25,7 @@ export async function readAgentFolder(folder: string, filesToCopy: string[], rea
   if (read.kind === 'linked_pr') return { status: 200, body: { linked: Number.isSafeInteger(read.number) && read.number > 0 ? await linkedPullUrl(folder, read.number).then(url => url ? { number: read.number, url } : null) : null } };
   const handle = await openFolderHandle(folder);
   if (read.kind === 'tree') {
-    const entries = handle ? await listTree(handle, filesToCopy) : (await listReferenceTree(folder)).entries;
-    return { status: 200, body: { entries } };
+    return { status: 200, body: handle ? await listTree(handle, filesToCopy) : await listReferenceTree(folder) };
   }
   try {
     if (read.base) {

@@ -3,7 +3,7 @@ import { readAnswerOnOwner } from '@/lib/executor/owner-files';
 import { answerResult, reply, type OperationContext } from '@/lib/server/operation';
 import { treeResponseSchema } from '@/lib/server/remote-contracts';
 import { openWorktreeHandle } from '@/lib/workspaces';
-import { listTree, type TreeEntry } from '@/lib/workspaces/list-tree';
+import { listTree, type TreeListing } from '@/lib/workspaces/list-tree';
 import { z as rpcZ } from 'zod/v4';
 
 /**
@@ -11,15 +11,18 @@ import { z as rpcZ } from 'zod/v4';
  * tree in the execution workbench's Files view. Status flags are layered in for
  * changed files; everything else is bare path + name.
  *
- * Non-git workspaces fall back to a `ws.tree()` walk with the common
- * heavyweight directories (`node_modules`, `.next`, …) trimmed out.
+ * Non-git workspaces fall back to a bounded walk (`walkFolder`) that skips the
+ * common heavyweight directories (`node_modules`, `.next`, …) and says when it
+ * stopped early (`truncated`).
  *
- * Returns `{ entries: [] }` when there's no worktree (settings-up or
+ * Returns no entries when there's no worktree (settings-up or
  * non-git workspace without a path) so the client can render an empty
  * state instead of error.
  */
 // Compressed when the body is JSON and over ~1KiB; a streamed or
 // non-JSON response passes through untouched. See lib/api/compression.ts.
+
+const NO_TREE: TreeListing = { entries: [], truncated: false };
 
 export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: OperationContext) {
   try {
@@ -29,21 +32,20 @@ export async function GET(rpcInput: rpcZ.infer<typeof GETInput>, _request: Opera
     // An execution on a connected device: its worker reads its worktree.
     const remote = await readAnswerOnOwner(id, { kind: 'tree' });
     if (remote) return answerResult(remote, treeResponseSchema);
-    if (!session.workspaceId) return reply({ entries: [] satisfies TreeEntry[] });
+    if (!session.workspaceId) return reply(NO_TREE);
 
     const ws = getWorkspace(session.workspaceId);
-    if (!ws) return reply({ entries: [] satisfies TreeEntry[] });
+    if (!ws) return reply(NO_TREE);
 
     // No worktree yet (worktree provisioning in flight) — return empty.
-    if (!session.worktreePath) return reply({ entries: [] satisfies TreeEntry[] });
+    if (!session.worktreePath) return reply(NO_TREE);
 
     const handle = await openWorktreeHandle(session, ws);
-    if (!handle) return reply({ entries: [] satisfies TreeEntry[] });
+    if (!handle) return reply(NO_TREE);
 
     // Surface the workspace's copied-in ignored files (e.g. `.env*`) alongside
     // the tracked tree — they're hidden by `.gitignore` but put there on purpose.
-    const entries = await listTree(handle, ws.filesToCopy ?? []);
-    return reply({ entries });
+    return reply(await listTree(handle, ws.filesToCopy ?? []));
   } catch (err) {
     console.error('[GET /api/sessions/:id/tree]', err);
     return reply({ error: String(err) }, { status: 500 });

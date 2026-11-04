@@ -41,7 +41,7 @@ describe('openFolderHandle', () => {
     expect(handle.git.baseSha).toBe(head);
     expect(handle.git.base).toBe('main');
     expect(await readBaseFile(handle, 'a.txt')).toBe('one\n');
-    expect((await listTree(handle)).find((e) => e.path === 'a.txt')?.status).toBeTruthy();
+    expect((await listTree(handle)).entries.find((e) => e.path === 'a.txt')?.status).toBeTruthy();
   });
 
   it('opens a repo with no commits yet, every file reading as new', async () => {
@@ -50,7 +50,7 @@ describe('openFolderHandle', () => {
     const handle = await openFolderHandle(dir);
     expect(handle?.kind).toBe('git');
     if (handle?.kind !== 'git') return;
-    expect((await listTree(handle)).map((e) => e.path)).toContain('draft.md');
+    expect((await listTree(handle)).entries.map((e) => e.path)).toContain('draft.md');
     expect(await readBaseFile(handle, 'draft.md')).toBe('');
   });
 

@@ -10,6 +10,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -180,7 +181,7 @@ export function FileTree({
   searchShortcut,
 }: FileTreeProps) {
   const writable = folderIsWritable(source);
-  const { data: tree, isFetching } = useFolderTree(source);
+  const { data: tree, isFetching, error, refetch } = useFolderTree(source);
   const entries = useMemo(() => tree?.entries ?? [], [tree?.entries]);
 
   const [mode, setModeState] = useState<TreeViewMode>(() => readPersistedMode(worktreeId));
@@ -634,9 +635,26 @@ export function FileTree({
         />
       </div>
 
+      {tree?.truncated && (
+        <p className="border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+          Showing the first {entries.length.toLocaleString()} files, and search only covers these. This folder has more.
+        </p>
+      )}
+
       {/* Body */}
       <div className="flex-1 min-h-0">
-        {entries.length === 0 && (isFetching || !worktreePath) ? (
+        {entries.length === 0 && error && !isFetching ? (
+          // The read failed with nothing cached to show. Loading rows here
+          // would never end, so say what happened. With a list on screen, the
+          // list stays and the next read can replace it.
+          <div className="flex flex-col items-start gap-2 p-3 text-[12px] min-w-0">
+            <p className="font-medium text-foreground">Couldn&apos;t list these files</p>
+            <p className="break-words text-muted-foreground min-w-0 max-w-full">{errorMessage(error)}</p>
+            <Button variant="outline" size="sm" className="h-7 text-[12px]" onClick={() => void refetch()}>
+              Try again
+            </Button>
+          </div>
+        ) : entries.length === 0 && (isFetching || !worktreePath) ? (
           // Worktree still provisioning, or a (re)fetch in flight with nothing
           // cached yet → skeleton rows, never a misleading "No files". Rows
           // rather than a spinner because the tree read is the slow one
