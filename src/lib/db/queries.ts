@@ -6765,7 +6765,7 @@ export function getSharedOperationReceipt(scope: SharedOperationScope) {
 
 export function withSharedOperationReceipt<T>(
   scope: SharedOperationScope,
-  run: () => { entityType: 'task' | 'note'; entityId: string; outcome: T },
+  run: () => { entityType: 'task' | 'note' | 'area'; entityId: string; outcome: T },
 ): { outcome: T; replayed: boolean } {
   const db = getDb();
   return db.transaction((tx) => {

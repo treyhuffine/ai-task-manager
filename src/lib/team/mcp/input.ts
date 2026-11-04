@@ -1,6 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import { ActionError } from '@/lib/orchestrator/types';
 import { z } from 'zod';
+/** How a team server refuses an operation it doesn't have. Older servers already say this, so it can't change. */
+export const UNKNOWN_CONTENT_OPERATION = 'Unknown content operation.';
 /** The ordinary action spelling and native Team tools adapt through one contract. */
 export const CONTENT_ALIASES: Record<string, string> = {
   workspaceId: 'workspace_id', requestId: 'request_id', permissionMode: 'permission_mode', taskId: 'task_id', deviceId: 'device_id', provider: 'harness',

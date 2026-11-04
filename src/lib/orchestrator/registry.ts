@@ -1279,7 +1279,7 @@ const create_area_action = defineAction({
 const update_area_action = defineAction({
   name: 'update_area',
   description:
-    'Update an area by id. All fields optional. Archive via status=archived. There is no delete.',
+    'Update an area by id. All fields optional. Archive via status=archived, except in a connected team, where people archive Areas in its settings. There is no delete.',
   params: {
     id: z.string().min(1),
     ...Object.fromEntries(

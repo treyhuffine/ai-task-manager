@@ -35,6 +35,7 @@ import { aiClientKeyInput } from '@/lib/external-ai/key-input';
 import { teamAiRouter } from './ai/router';
 import { z as toolSchema } from 'zod';
 import { TEAM_TOOLS, runTeamTool, type TeamToolResult } from './mcp/tools';
+import { UNKNOWN_CONTENT_OPERATION } from './mcp/input';
 import { teamWriteSource } from './shared-work';
 import type { TRPCContext } from '@/lib/trpc/init';
 import { publishTaskResult } from './published-results';
@@ -49,7 +50,7 @@ async function nativeContent(ctx: TRPCContext, input: z.infer<typeof nativeInput
   teamWriteSource(ctx.key, 'ai');
   const member = me(ctx);
   const tool = TEAM_TOOLS.find((t) => t.name === input.action && t.kind === kind);
-  if (!tool) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Unknown content operation.' });
+  if (!tool) throw new TRPCError({ code: 'BAD_REQUEST', message: UNKNOWN_CONTENT_OPERATION });
   const parsed = toolSchema.object(tool.shape).strict().safeParse(input.input);
   if (!parsed.success) throw new TRPCError({ code: 'BAD_REQUEST', message: parsed.error.message });
   return runTeamTool(tool, { member, apiKeyId: ctx.key!.apiKeyId, base: new URL(ctx.request.url).origin }, parsed.data);
@@ -117,6 +118,8 @@ export const teamRouter = router({
   }),
   nativeRead: memberProcedure.input(nativeInput).query(({ ctx, input }) => nativeContent(ctx, input, 'read')),
   nativeWrite: memberProcedure.input(nativeInput).mutation(({ ctx, input }) => nativeContent(ctx, input, 'write')),
+  /** What this server serves, so a newer personal Ri doesn't advertise what it lacks. */
+  nativeOperations: memberProcedure.query(() => TEAM_TOOLS.map((tool) => tool.name)),
   /** The team and who's signed in. */
   me: memberProcedure.query(({ ctx }) => {
     const member = me(ctx);

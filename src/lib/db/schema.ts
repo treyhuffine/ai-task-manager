@@ -1307,7 +1307,7 @@ export const sharedOperationReceipts = sqliteTable(
     idempotencyKey: text().notNull(),
     // A hash of the request, normalized, without its idempotency key.
     intentHash: text().notNull(),
-    entityType: text({ enum: ['task', 'note'] }).notNull(),
+    entityType: text({ enum: ['task', 'note', 'area'] }).notNull(),
     entityId: text().notNull(),
     // What the tool returned the first time.
     outcome: text({ mode: 'json' }).$type<unknown>().notNull(),

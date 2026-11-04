@@ -1,5 +1,5 @@
 import { apiErrorStatus } from '@/lib/api/error-status';
-import { teamContentInput, teamContentResult } from '@/lib/team/mcp/input';
+import { teamContentInput, teamContentResult, UNKNOWN_CONTENT_OPERATION } from '@/lib/team/mcp/input';
 import { z } from 'zod';
 import * as q from '@/lib/db/queries';
 import { ActionError, defineAction, type Action, type ActionContext } from '@/lib/orchestrator/types';
@@ -44,6 +44,9 @@ export async function callConnectedHome(ctx: ActionContext, homeId: string, name
     if (error instanceof ActionError) throw error;
     const status = apiErrorStatus(error);
     if (status === 401) recordTeamFailure(homeId, error, team);
+    if (status === 400 && error instanceof Error && error.message === UNKNOWN_CONTENT_OPERATION) {
+      throw new ActionError('unsupported', `${team.connection.name} runs an older Ri without ${name}. Update Ri on the computer that hosts it. No personal write was attempted.`, undefined, { retryable: false });
+    }
     if (status && status >= 400 && status < 500) throw new ActionError(status === 401 || status === 403 ? 'unsupported' : status === 404 ? 'not_found' : 'invalid_params', error instanceof Error ? error.message : 'The team refused this request.', undefined, { retryable: false });
     recordTeamFailure(homeId, error, team);
     throw new ActionError('conflict', error instanceof Error ? error.message : 'The selected team could not be reached.', 'Retry against the same team and reuse the idempotency_key. No personal fallback was attempted.');
@@ -90,7 +93,9 @@ function homeRead<const Name extends string>(name: Name) {
   });
 }
 
-const qNativeNames = new Set(['list_tasks', 'get_task', 'create_task', 'update_task', 'complete_task', 'transition_task', 'list_notes', 'get_note', 'create_note', 'update_note', 'list_areas', 'get_area', 'search', 'get_session_messages', 'search_sessions']);
+const qNativeNames = new Set(['list_tasks', 'get_task', 'create_task', 'update_task', 'complete_task', 'transition_task', 'list_notes', 'get_note', 'create_note', 'update_note', 'list_areas', 'get_area', 'create_area', 'update_area', 'search', 'get_session_messages', 'search_sessions']);
+/** A team server without team.nativeOperations predates these. */
+const REQUIRES_NATIVE_OPERATIONS = new Set(['create_area', 'update_area']);
 
 export const connectedHomeActions = [
   defineAction({
@@ -141,7 +146,7 @@ export const connectedHomeActions = [
       const home = q.getHome();
       return {
         bound_home: home ? { id: home.id, name: home.name, kind: home.kind } : null,
-        connected_homes: await Promise.all(q.listTeamConnections().map(async (c) => ({ id: c.id, name: c.name, kind: 'team', state: c.status, role: c.role, last_error: q.getTeamConnection(c.id)?.lastError, operations: await supportsNativeHome(c.id) ? [...TEAM_TOOLS.filter((t) => ['list_members', 'list_history', 'list_links', 'list_published_results'].includes(t.name) || qNativeNames.has(t.name)).map((t) => t.name), 'publish_result'] : [] }))),
+        connected_homes: await Promise.all(q.listTeamConnections().map(async (c) => ({ id: c.id, name: c.name, kind: 'team', state: c.status, role: c.role, last_error: q.getTeamConnection(c.id)?.lastError, operations: await connectedOperations(c.id) }))),
       };
     },
   }),
@@ -152,12 +157,19 @@ export const connectedHomeActions = [
 ];
 
 /** Never advertise new native operations merely because credentials exist. */
-async function supportsNativeHome(id: string): Promise<boolean> {
+async function connectedOperations(id: string): Promise<string[]> {
   const team = await teamFor(id);
-  if (!team) return false;
+  if (!team) return [];
   try {
     const result = await team.client.team.nativeRead.query({ action: 'list_members', input: {} });
     assertCurrentTeam(team);
-    return result.ok;
-  } catch (error) { recordTeamFailure(id, error, team); return false; }
+    if (!result.ok) return [];
+    const served = await team.client.team.nativeOperations.query().catch((error: unknown) => {
+      if (apiErrorStatus(error) === 404) return null; // An older server, working as it should.
+      throw error;
+    });
+    assertCurrentTeam(team);
+    const operations = TEAM_TOOLS.map((t) => t.name).filter((name) => ['list_members', 'list_history', 'list_links', 'list_published_results'].includes(name) || qNativeNames.has(name));
+    return [...operations.filter((name) => served ? served.includes(name) : !REQUIRES_NATIVE_OPERATIONS.has(name)), 'publish_result'];
+  } catch (error) { recordTeamFailure(id, error, team); return []; }
 }

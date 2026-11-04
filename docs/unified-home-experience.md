@@ -178,7 +178,7 @@ Preserve existing action names and personal behavior. Add an optional `target_ho
 
 - Local calls retain existing IDs and result shapes. Explicit team targeting uses the team's canonical IDs and returns enough provenance to prevent confusing them with cached local IDs.
 - Resolve connected-team credentials on the server. A session must be authorized to use that connection through its existing agent/tool access policy.
-- Initial coverage: list/get/search/create/update tasks and notes, list members and Areas, assign tasks, lifecycle transitions, history and published results. Permanent deletion retains owner checks and existing external-tool scope restrictions.
+- Initial coverage: list/get/search/create/update tasks and notes, list members and Areas, assign tasks, lifecycle transitions, history and published results. Added 2026-11-03: create and update Areas, without archiving them. Permanent deletion retains owner checks and existing external-tool scope restrictions.
 - Route operations through shared domain operations and the existing member-authenticated team transport. Preserve body revision checks, idempotency keys and AI actor attribution.
 - Read-only calls do not import records. Writes to the whole team do not require a personal reference. Creating a team record leaves it unassigned unless requested.
 - Search and pagination are bounded and explicitly scoped. Do not silently search every connected team by default or write after a partial/disconnected lookup.

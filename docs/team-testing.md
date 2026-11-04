@@ -42,7 +42,7 @@ In personal **Settings → Teams → the team**, set an optional whole-team Area
 
 Start a fresh ordinary personal chat. Ask it to discover connected Homes, select the team's stable ID, list members and read five canonical tasks. This uses the existing Teams connection, not a second MCP key. Reads must not import those records.
 
-Using only disposable records, ask it to create an unassigned task and note, read them by canonical ID, edit with the current body revision, assign the task and complete/archive it. Verify AI/member authorship and one result per idempotency key. Retry an acknowledged request and an unknown outcome without making duplicates.
+Using only disposable records, ask it to create an unassigned task and note, read them by canonical ID, edit with the current body revision, assign the task and complete/archive it. Ask it to create a disposable Area, rename it and file the task under it, and to archive the Area, which it must refuse: people do that in the team's settings. Verify AI/member authorship and one result per idempotency key. Retry an acknowledged request and an unknown outcome without making duplicates.
 
 Create the same title in another Home and reuse an ID in an isolated fixture. The explicit destination must control the write. Ambiguous Home names require clarification. Disconnect or revoke the membership, then retry. A failed team operation must never fall back to writing personal data.
 
@@ -72,7 +72,7 @@ Existing restricted chats keep IDs, authors, cursors, links and history. At upgr
 
 An invited person joins once, then opens **Settings → Connect your agent**, expands their agent and uses **Create key** in its steps, its install link or **Copy setup prompt** (docs/external-ai.md). Each key is a separately revocable client of that agent, not another member, and is listed in the agent's item. Store the one-time token where the steps say. Existing `external-ai` settings links continue to resolve.
 
-Read/create/edit/assign/complete/archive disposable shared records through `/api/team/mcp`, using canonical IDs, body revisions and idempotency keys. This works with the team's built-in AI off. Permanent deletion and native team execution are outside the external content allowlist, including for an owner's client.
+Read/create/edit/assign/complete/archive disposable shared records and create/rename a disposable Area through `/api/team/mcp`, using canonical IDs, body revisions and idempotency keys. This works with the team's built-in AI off. Permanent deletion and native team execution are outside the external content allowlist, including for an owner's client.
 
 Revoke one MCP client and verify its next operation fails, while another client and the native Teams connection still work. Removing the membership revokes all its future access. Never put reusable tokens in chat messages.
 
