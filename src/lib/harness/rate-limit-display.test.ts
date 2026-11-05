@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageLabel, rateLimitRows, rateLimitTone, resetLabel, rateLimitWarning, rateLimitStatus } from './rate-limit-display';
+import { ageLabel, enabledUsageWarnings, rateLimitRows, rateLimitTone, resetLabel, rateLimitWarning, rateLimitStatus, USAGE_WARNING_THRESHOLDS } from './rate-limit-display';
 import type { StoredRateLimitBucket } from './rate-limits';
 
 const NOW = new Date(2026, 9, 9, 14, 0, 0);
@@ -8,23 +8,64 @@ const bucket = (id: string, extra: Partial<StoredRateLimitBucket> = {}): StoredR
   id, owner: { kind: 'account' }, applicability: { kind: 'all_models' }, observedAt: at(-0.1), ...extra,
 });
 
+const DEFAULTS = enabledUsageWarnings();
+const only = (...percents: number[]) => USAGE_WARNING_THRESHOLDS.filter(({ percent }) => percents.includes(percent));
+
 describe('header usage warnings', () => {
   it('chooses the fullest independent window, and names its actual scope', () => {
     const warning = rateLimitWarning([
       bucket('five_hour', { usedPercent: 84 }),
       bucket('seven_day_opus', { usedPercent: 94, applicability: { kind: 'model_family', family: 'opus' } }),
-    ], NOW);
+    ], DEFAULTS, NOW);
     expect(warning).toMatchObject({ label: 'Weekly Opus', percent: 94, tone: 'critical' });
     expect(rateLimitStatus(warning!)).toBe('Almost used up');
-    expect(rateLimitWarning([bucket('five_hour', { usedPercent: 79.9 })], NOW)).toBeUndefined();
-    expect(rateLimitStatus(rateLimitWarning([bucket('five_hour', { usedPercent: 80 })], NOW)!)).toBe('Near limit');
+    expect(rateLimitWarning([bucket('five_hour', { usedPercent: 49.9 })], DEFAULTS, NOW)).toBeUndefined();
+    expect(rateLimitStatus(rateLimitWarning([bucket('five_hour', { usedPercent: 79.9 })], DEFAULTS, NOW)!)).toBeUndefined();
+    expect(rateLimitStatus(rateLimitWarning([bucket('five_hour', { usedPercent: 80 })], DEFAULTS, NOW)!)).toBe('Near limit');
+  });
+
+  it('warns at all three until a choice is saved, and follows each saved choice alone', () => {
+    expect(DEFAULTS.map(({ percent }) => percent)).toEqual([50, 80, 90]);
+    expect(enabledUsageWarnings({ usageWarning50: null, usageWarning80: null, usageWarning90: null })).toEqual(DEFAULTS);
+    expect(enabledUsageWarnings({ usageWarning80: false }).map(({ percent }) => percent)).toEqual([50, 90]);
+    expect(enabledUsageWarnings({ usageWarning50: false, usageWarning80: false, usageWarning90: false })).toEqual([]);
+  });
+
+  // Every combination at 60, 85 and 95 percent. Undefined is no badge.
+  it.each([
+    [[], undefined, undefined, undefined],
+    [[50], 'normal', 'normal', 'normal'],
+    [[80], undefined, 'warn', 'warn'],
+    [[90], undefined, undefined, 'critical'],
+    [[50, 80], 'normal', 'warn', 'warn'],
+    [[50, 90], 'normal', 'normal', 'critical'],
+    [[80, 90], undefined, 'warn', 'critical'],
+    [[50, 80, 90], 'normal', 'warn', 'critical'],
+  ] as const)('with %j on, shows the highest threshold reached', (percents, at60, at85, at95) => {
+    const tone = (usedPercent: number) => rateLimitWarning([bucket('five_hour', { usedPercent })], only(...percents), NOW)?.tone;
+    expect([tone(60), tone(85), tone(95)]).toEqual([at60, at85, at95]);
+  });
+
+  it('names no status below the near limit level, and leaves the card rows on their real tone', () => {
+    const buckets = [bucket('five_hour', { usedPercent: 60 })];
+    const warning = rateLimitWarning(buckets, only(50), NOW)!;
+    expect(rateLimitStatus(warning)).toBeUndefined();
+    expect(rateLimitWarning([bucket('five_hour', { usedPercent: 95 })], only(50), NOW)?.percent).toBe(95);
+    expect(rateLimitRows([bucket('five_hour', { usedPercent: 95 })], NOW)[0].tone).toBe('critical');
+  });
+
+  it('shows confirmed enforcement at any threshold, and nothing with all of them off', () => {
+    const blocked = [bucket('enforcement', { enforcement: { allowed: false } })];
+    expect(rateLimitWarning(blocked, only(90), NOW)).toMatchObject({ blocked: true, tone: 'critical' });
+    expect(rateLimitWarning(blocked, only(50), NOW)).toMatchObject({ blocked: true, tone: 'critical' });
+    expect(rateLimitWarning(blocked, [], NOW)).toBeUndefined();
   });
 
   it('prioritizes confirmed enforcement without inventing a percentage', () => {
     const warning = rateLimitWarning([
       bucket('five_hour', { usedPercent: 92 }),
       bucket('enforcement', { enforcement: { allowed: false } }),
-    ], NOW);
+    ], DEFAULTS, NOW);
     expect(warning).toMatchObject({ key: 'enforcement', blocked: true });
     expect(warning?.percent).toBeUndefined();
     expect(rateLimitStatus(warning!)).toBe('Limit reached');
@@ -36,7 +77,7 @@ describe('header usage warnings', () => {
       bucket('five_hour', { usedPercent: 100, resetAt: at(-0.01) }),
       bucket('enforcement', { enforcement: { allowed: false }, resetAt: at(-0.01) }),
     ];
-    expect(rateLimitWarning(buckets, NOW)).toBeUndefined();
+    expect(rateLimitWarning(buckets, DEFAULTS, NOW)).toBeUndefined();
   });
 
   it('does not let a fresh bucket keep another bucket’s old warning alive', () => {
@@ -44,8 +85,8 @@ describe('header usage warnings', () => {
       bucket('five_hour', { usedPercent: 98, observedAt: at(-1) }),
       bucket('seven_day', { usedPercent: 10 }),
       bucket('extra_usage', { overage: { enabled: false, reason: 'out_of_credits' } }),
-    ], NOW)).toBeUndefined();
-    expect(rateLimitWarning([bucket('five_hour', { usedPercent: 98, observedAt: 'invalid' })], NOW)).toBeUndefined();
+    ], DEFAULTS, NOW)).toBeUndefined();
+    expect(rateLimitWarning([bucket('five_hour', { usedPercent: 98, observedAt: 'invalid' })], DEFAULTS, NOW)).toBeUndefined();
   });
 });
 

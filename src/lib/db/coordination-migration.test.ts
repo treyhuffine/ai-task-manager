@@ -6,14 +6,14 @@ import { migrationTags, migrationsFolderUpTo } from '@/test/fixtures/migrations'
 import { initDatabase } from './index';
 import { runMigrations } from './migrate';
 
-it('upgrades current main while retaining applied migration history, provider speed and usage preferences',()=>{
+it('upgrades current main while retaining applied migration history and provider speed',()=>{
   const previous=migrationsFolderUpTo('0021_polite_spyke');
   const db=new Database(':memory:');
   try {
     sqliteVec.load(db);
     initDatabase(db,previous.folder);
     db.exec(`
-      UPDATE user_state SET default_service_tier='fast',usage_warnings=0 WHERE id=1;
+      UPDATE user_state SET default_service_tier='fast' WHERE id=1;
       INSERT INTO chat_sessions(rowid,id,harness,type,status,permission_mode,service_tier) VALUES (41,'main-chat','claude','content','active','ask','fast');
       INSERT INTO chat_events(rowid,id,session_id,source,role,content) VALUES (83,'main-event','main-chat','agent','assistant','Preserve model speed and quartz results');
       INSERT INTO agent_requests(id,source_session_id,source_address,target_address,target_session_id,request_key,kind,content,options,status,message_event_id) VALUES ('existing','main-chat','session:main-chat','agent:destination',NULL,'existing-key','delegation','Existing assignment','{"workspaceId":"destination","serviceTier":"fast"}','queued','future-event');
@@ -21,7 +21,7 @@ it('upgrades current main while retaining applied migration history, provider sp
     const history=db.prepare('SELECT * FROM __drizzle_migrations ORDER BY id').all();
     expect(runMigrations(db,path.resolve(__dirname,'../../../drizzle')).applied).toBe(migrationTags().length-history.length);
     expect(db.prepare('SELECT * FROM __drizzle_migrations ORDER BY id').all().slice(0,history.length)).toEqual(history);
-    expect(db.prepare('SELECT default_service_tier,usage_warnings FROM user_state WHERE id=1').get()).toEqual({default_service_tier:'fast',usage_warnings:0});
+    expect(db.prepare('SELECT default_service_tier FROM user_state WHERE id=1').get()).toEqual({default_service_tier:'fast'});
     expect(db.prepare("SELECT rowid,service_tier FROM chat_sessions WHERE id='main-chat'").get()).toEqual({rowid:41,service_tier:'fast'});
     expect(db.prepare("SELECT rowid,content FROM chat_events WHERE id='main-event'").get()).toEqual({rowid:83,content:'Preserve model speed and quartz results'});
     expect(db.prepare("SELECT rowid FROM chat_events_fts WHERE chat_events_fts MATCH 'quartz'").pluck().all()).toEqual([83]);

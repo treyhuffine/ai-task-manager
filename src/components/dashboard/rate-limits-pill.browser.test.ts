@@ -34,7 +34,7 @@ beforeAll(async () => {
       builder.onLoad({ filter: /.*/, namespace: 'usage-fixture' }, () => ({ loader: 'js', contents: `
         const f = window.usageFixture ??= {
           get:0, read:0, lastRead:0, listeners:new Set(),
-          preference:JSON.parse(localStorage.getItem('usage-preference') ?? '{"usageWarnings":null}'),
+          preference:JSON.parse(localStorage.getItem('usage-preference') ?? '{}'),
           harnesses:['claude','codex'].map((harness,index)=>({harness,name:index?'Codex':'Claude Code',observedAt:new Date().toISOString(),buckets:[{id:index?'primary':'seven_day',durationMs:index?18000000:604800000,owner:{kind:'account'},applicability:{kind:'all_models'},observedAt:new Date().toISOString(),usedPercent:index?94:84,resetAt:new Date(Date.now()+3600000).toISOString()}]}))
         };
         const key = ['usage-fixture'];
@@ -72,6 +72,11 @@ async function openPage(dark = false, width = 736) {
   return page;
 }
 
+/** One of the card's connected [50%][80%][90%] buttons. */
+function threshold(page: Page, percent: number) {
+  return page.getByRole('group', { name: 'Warn at' }).getByRole('button', { name: `${percent}%`, exact: true });
+}
+
 async function counts(page: Page) {
   return page.evaluate('({get:usageFixture.get,read:usageFixture.read})') as Promise<{ get: number; read: number }>;
 }
@@ -97,9 +102,11 @@ it.skipIf(!enabled)('renders compact stacked marks in both themes, with keyboard
     await page.screenshot({ path: path.join(output, `usage-implemented-${dark ? 'dark' : 'light'}.png`) });
     await button.focus();
     await page.keyboard.press('Enter');
-    const toggle = page.getByRole('switch', { name: 'Show usage warnings' });
+    // The keyboard lands on the first threshold. All three start on.
+    const toggle = threshold(page, 50);
     await toggle.waitFor();
-    expect(await toggle.getAttribute('aria-checked')).toBe('true');
+    await expect.poll(() => toggle.evaluate(node => node === document.activeElement)).toBe(true);
+    for (const percent of [50, 80, 90]) expect(await threshold(page, percent).getAttribute('aria-pressed')).toBe('true');
     await page.keyboard.press('Escape');
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     await expect.poll(() => button.evaluate(node => node === document.activeElement)).toBe(true);
@@ -135,10 +142,15 @@ it.skipIf(!enabled)('polls every two minutes while visible, resumes immediately,
   await page.close();
 });
 
-it.skipIf(!enabled)('persists the warning toggle while keeping usage accessible and pausing closed-card polling', async () => {
+it.skipIf(!enabled)('persists each threshold while keeping usage accessible and pausing closed-card polling once all are off', async () => {
   const page = await openPage();
   await page.getByRole('button', { name: /^Usage\./ }).click();
-  await page.getByRole('switch', { name: 'Show usage warnings' }).click();
+  await threshold(page, 50).click();
+  await threshold(page, 80).click();
+  // Claude Code at 84 drops out. Codex at 94 still reaches 90.
+  const remaining = page.getByRole('button', { name: /^Usage\. Codex, 5-hour, 94 percent/ });
+  await remaining.waitFor();
+  await threshold(page, 90).click();
   await page.getByRole('button', { name: 'Usage', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   const disabled = await counts(page);
@@ -149,7 +161,41 @@ it.skipIf(!enabled)('persists the warning toggle while keeping usage accessible 
   expect((await counts(page)).get).toBe(0);
   await page.getByRole('button', { name: 'Usage', exact: true }).click();
   await page.getByRole('dialog').waitFor();
-  expect(await page.getByRole('switch', { name: 'Show usage warnings' }).getAttribute('aria-checked')).toBe('false');
+  for (const percent of [50, 80, 90]) expect(await threshold(page, percent).getAttribute('aria-pressed')).toBe('false');
+  await page.close();
+});
+
+it.skipIf(!enabled)('shows a quiet badge from 50%, and changes color only at the thresholds that are on', async () => {
+  await fs.mkdir(output, { recursive: true });
+  const page = await openPage();
+  const setClaude = async (usedPercent: number) => {
+    await page.evaluate(`usageFixture.harnesses[0].buckets[0].usedPercent=${usedPercent};usageFixture.harnesses[1].buckets[0].usedPercent=10;for(const listener of usageFixture.listeners)listener('rate_limits_updated',{});`);
+    await page.clock.runFor(200);
+  };
+  const badge = (usedPercent: number) => page.getByRole('button', { name: new RegExp(`^Usage\\. Claude Code, Weekly, ${usedPercent} percent`) });
+  const percentClass = (usedPercent: number) => badge(usedPercent).locator('.font-mono').getAttribute('class');
+
+  await setClaude(60);
+  await badge(60).waitFor();
+  expect(await percentClass(60)).not.toMatch(/text-(amber|red)/);
+  await badge(60).click();
+  await threshold(page, 50).click();
+  await page.getByRole('button', { name: 'Usage', exact: true }).waitFor();
+  expect(await threshold(page, 50).getAttribute('aria-pressed')).toBe('false');
+  await threshold(page, 50).click();
+  await badge(60).waitFor();
+  expect(await page.getByRole('button', { name: /undefined/ }).count()).toBe(0);
+  await page.screenshot({ path: path.join(output, 'usage-thresholds-card.png'), animations: 'disabled' });
+
+  await setClaude(85);
+  await badge(85).waitFor();
+  expect(await percentClass(85)).toMatch(/text-amber/);
+  await threshold(page, 80).click();
+  await expect.poll(() => percentClass(85)).not.toMatch(/text-(amber|red)/);
+
+  await setClaude(95);
+  await badge(95).waitFor();
+  expect(await percentClass(95)).toMatch(/text-red/);
   await page.close();
 });
 
