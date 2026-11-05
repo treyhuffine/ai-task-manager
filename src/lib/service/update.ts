@@ -100,10 +100,15 @@ export function snapshotsInUse(record: Pick<UpdateRecord, 'phase' | 'checkpoint'
 
 /** One instance in the service owner. Every GUI/CLI action uses its private
  * control socket, so there is no second updater or independent DB migrator. */
+const DRAIN_RETRY_MS = 5 * 60_000;
+
 export class UpdateCoordinator {
   private busy = false;
   /** The release already fully checked: once per update, not once per try. */
   private verified?: string;
+  /** A drain closes the Home to new work, so after one that couldn't finish the
+   * next waits. The 30-second tick would otherwise keep it closed half the time. */
+  private drainAfter = 0;
   private record: UpdateRecord;
   private readonly file: string;
   constructor(private backend: UpdateBackend, private directory = getRuntimeInstallDir(), private timing = { drain: 15_000, poll: 500, grace: 2000 }) {
@@ -195,6 +200,7 @@ export class UpdateCoordinator {
   approve(window?: UpdateRecord['window'], force = false) {
     if (this.busy || !['ready', 'waiting'].includes(this.record.phase)) throw new Error('Download an update before scheduling activation');
     if (window) window = MaintenanceWindowSchema.parse(window);
+    this.drainAfter = 0;
     this.save({ approved: true, phase: 'waiting', window, force, reason: 'Waiting for the service to be idle' });
     return this.status();
   }
@@ -205,6 +211,7 @@ export class UpdateCoordinator {
   }
   async tick() {
     if (this.busy || !this.record.approved || this.record.phase !== 'waiting') return;
+    if (!this.record.force && Date.now() < this.drainAfter) return;
     const window = this.record.window;
     if (window) {
       const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: window.timeZone }).format());
@@ -215,9 +222,10 @@ export class UpdateCoordinator {
 
   /** Close admission and wait for in-flight requests and, unless forced, for
    * running work. Returns the exclusive activity lease, or the reasons to wait. */
-  private async drain(gate: MaintenanceGate, waitFor: () => Promise<string[]>): Promise<{ lease: () => void } | { reasons: string[] }> {
+  private async drain(gate: MaintenanceGate, waitFor: () => Promise<string[]>, force: boolean): Promise<{ lease?: () => void } | { reasons: string[] }> {
     writeMaintenance(gate);
-    await this.backend.prepareIdle?.();
+    try { await this.backend.prepareIdle?.(); }
+    catch (error) { if (!force) return { reasons: [message(error)] }; }
     const reasons = await waitFor();
     if (reasons.length) return { reasons };
     // Give every viewer a chance to flush. New foreground/background work
@@ -231,7 +239,19 @@ export class UpdateCoordinator {
       if (Date.now() - started < this.timing.grace) continue;
       try { return { lease: exclusiveActivity() }; } catch { /* admitted request/CLI is still draining */ }
     }
-    return { reasons: ['Waiting for active requests, CLI commands or background work'] };
+    // Running turns hold the lease until the server stops, and Update now is
+    // asking for exactly that, so it goes ahead without it.
+    return force ? {} : { reasons: ['Waiting for active requests, CLI commands or background work'] };
+  }
+
+  /** With the server gone, its turns have let go, and any `ri` command an agent
+   * left running gets a moment to finish. */
+  private async leaseAfterStop() {
+    const deadline = Date.now() + this.timing.drain;
+    while (Date.now() < deadline) {
+      try { return exclusiveActivity(); } catch { await new Promise(resolve => setTimeout(resolve, this.timing.poll)); }
+    }
+    return exclusiveActivity();
   }
 
   async apply() {
@@ -252,7 +272,13 @@ export class UpdateCoordinator {
       }
       // The one full check of the release, while the Home still serves.
       const id = this.record.release.runtime.id;
-      const target = await this.target(id, this.verified !== id);
+      let target: RuntimeTarget;
+      try { target = await this.target(id, this.verified !== id); }
+      catch (error) {
+        // Asks again only when someone does: this would rehash on every tick.
+        this.save({ phase: 'failed', approved: false, force: false, error: message(error) });
+        throw error;
+      }
       this.verified = id;
       if (!this.record.local) {
         try {
@@ -275,12 +301,16 @@ export class UpdateCoordinator {
       let access: (() => void) | undefined;
       let stopped = false;
       try {
-        const drained = await this.drain(gate, async () => [...(force ? [] : await this.backend.activity()), ...await compatibility()]);
-        if ('reasons' in drained) { clearMaintenance(); this.save({ phase: 'waiting', reason: drained.reasons.join(', ') }); return this.status(); }
+        const drained = await this.drain(gate, async () => [...(force ? [] : await this.backend.activity()), ...await compatibility()], force);
+        if ('reasons' in drained) {
+          this.drainAfter = Date.now() + DRAIN_RETRY_MS;
+          clearMaintenance(); this.save({ phase: 'waiting', reason: drained.reasons.join(', ') }); return this.status();
+        }
         activity = drained.lease;
         writeMaintenance({ ...gate, phase: 'offline' });
         stopped = true;
         await this.backend.stop();
+        activity ??= await this.leaseAfterStop();
         access = this.backend.storage === 'worker' ? await this.backend.exclusiveStorage!() : exclusiveDatabaseAccess();
         await this.backend.assertNoLegacyWriters();
         this.save({ phase: 'checkpointing' });
@@ -390,11 +420,12 @@ export class UpdateCoordinator {
       let access: (() => void) | undefined;
       try {
         // Rolling back is a deliberate request: it waits for requests, not for chats.
-        const drained = await this.drain(gate, async () => []);
+        const drained = await this.drain(gate, async () => [], true);
         if ('reasons' in drained) { clearMaintenance(); throw new Error(drained.reasons.join(', ')); }
         activity = drained.lease;
         writeMaintenance({ ...gate, phase: 'offline' });
         await this.backend.stop();
+        activity ??= await this.leaseAfterStop();
         access = exclusiveDatabaseAccess();
         await this.backend.assertNoLegacyWriters();
         // From here a crash finishes the rollback: recovery reads this record.
@@ -438,6 +469,9 @@ export class UpdateCoordinator {
     return this.exclusive(() => this.recoverExclusive(retry));
   }
   private async recoverExclusive(retry: boolean) {
+    // Update now is a choice about the chats running when it was asked. A later
+    // start of this controller mustn't end the ones running by then.
+    if (this.record.force && this.record.phase === 'waiting') this.save({ force: false });
     if (this.record.rollback) {
       const release = exclusiveDatabaseAccess();
       try {

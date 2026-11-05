@@ -8,7 +8,7 @@ import { readActivation } from './activation';
 import { listSnapshots, restoreSnapshot } from './snapshot';
 import { writeRuntimeFixture } from './runtime-fixture';
 import { snapshotsInUse, UpdateCoordinator, type UpdateBackend } from './update';
-import { readMaintenance } from './maintenance';
+import { beginActivity, readMaintenance } from './maintenance';
 
 const mocked = vi.hoisted(() => ({ check: vi.fn(), policy: vi.fn() }));
 vi.mock('./release', () => ({ checkRelease: mocked.check, releasePolicy: mocked.policy, downloadRelease: vi.fn() }));
@@ -321,16 +321,101 @@ it('still drains a Home with only idle agent processes, because draining is what
   expect(installedRuntime(directory)!.id).toBe(candidate);
 });
 
-it('reopens a Home when a process outlives the drain, and waits without hashing again', async () => {
+it('reopens a Home when it can\'t drain, tries again after a while, and hashes once', async () => {
+  // A lease nothing reports as work: a message queued for a device that's away.
+  const held = beginActivity();
   backend.work = vi.fn(async () => []);
-  backend.activity = vi.fn(async () => ['1 running process (sleep)']);
+  backend.prepareIdle = vi.fn(async () => {});
   backend.verify = vi.fn(async (folder: string) => (await import('./runtime-manifest')).verifyRuntime(folder));
   const updater = coordinator();
   await updater.offer(candidate);
   updater.approve();
-  await updater.tick(); await updater.tick();
-  expect(updater.status()).toMatchObject({ phase: 'waiting', reason: '1 running process (sleep)', busy: false });
-  expect(backend.verify).toHaveBeenCalledOnce();
+  await updater.tick();
+  expect(updater.status()).toMatchObject({ phase: 'waiting', reason: expect.stringContaining('active requests'), busy: false });
   expect(readMaintenance()).toBeNull();
+  // The next ticks leave the Home open, rather than closing it half the time.
+  await updater.tick(); await updater.tick();
+  expect(backend.prepareIdle).toHaveBeenCalledOnce();
   expect(backend.stop).not.toHaveBeenCalled();
+  // Asking again tries again, and the release isn't hashed a second time.
+  held();
+  await updater.offer(candidate);
+  updater.approve();
+  await updater.tick();
+  expect(backend.verify).toHaveBeenCalledOnce();
+  expect(installedRuntime(directory)!.id).toBe(candidate);
+});
+
+it('--now goes through while a chat turn holds its lease, because stopping the server ends the turn', async () => {
+  const turn = beginActivity();
+  backend.stop = vi.fn(async () => { turn(); });
+  const updater = coordinator();
+  await updater.offer(candidate);
+  updater.approve(undefined, true);
+  await updater.tick();
+  expect(backend.stop).toHaveBeenCalledOnce();
+  expect(backend.activate).toHaveBeenCalledOnce();
+  expect(updater.status()).toMatchObject({ phase: 'committed', force: false });
+  expect(installedRuntime(directory)!.id).toBe(candidate);
+  expect(readMaintenance()).toBeNull();
+});
+
+it('--now gives up honestly if something outside the server won\'t let go, and restarts what ran', async () => {
+  const stuck = beginActivity();
+  const updater = coordinator();
+  await updater.offer(candidate);
+  updater.approve(undefined, true);
+  await updater.tick();
+  expect(backend.stop).toHaveBeenCalled();
+  expect(backend.restart).toHaveBeenCalledOnce();
+  expect(updater.status()).toMatchObject({ phase: 'failed', approved: false, force: false });
+  expect(installedRuntime(directory)!.id).toBe(prior);
+  expect(readMaintenance()).toBeNull();
+  stuck();
+});
+
+it('rolling back goes through while a chat turn holds its lease', async () => {
+  const updater = coordinator();
+  await updater.offer(candidate);
+  await updater.apply();
+  const turn = beginActivity();
+  backend.stop = vi.fn(async () => { turn(); });
+  await coordinator().rollback();
+  expect(installedRuntime(directory)!.id).toBe(prior);
+});
+
+it('stops asking after a release fails its check, until someone asks again', async () => {
+  backend.verify = vi.fn(async () => { throw new Error('The release is damaged'); });
+  const updater = coordinator();
+  await updater.offer(candidate);
+  updater.approve();
+  await updater.tick(); await updater.tick();
+  expect(backend.verify).toHaveBeenCalledOnce();
+  expect(updater.status()).toMatchObject({ phase: 'failed', approved: false, error: 'The release is damaged' });
+});
+
+it('waits when an idle agent won\'t close, and --now goes on without it', async () => {
+  backend.prepareIdle = vi.fn(async () => { throw new Error('An idle harness did not close. The update will wait.'); });
+  const waiting = coordinator();
+  await waiting.offer(candidate);
+  waiting.approve();
+  await waiting.tick();
+  expect(waiting.status()).toMatchObject({ phase: 'waiting', approved: true, reason: expect.stringContaining('did not close') });
+  expect(readMaintenance()).toBeNull();
+  await waiting.offer(candidate);
+  waiting.approve(undefined, true);
+  await waiting.tick();
+  expect(installedRuntime(directory)!.id).toBe(candidate);
+});
+
+it('forgets --now when the controller restarts, so it can\'t end a chat started later', async () => {
+  backend.compatibility = vi.fn(async () => ['A connected device runs an older version']);
+  const before = coordinator();
+  await before.offer(candidate);
+  before.approve(undefined, true);
+  await before.tick();
+  expect(before.status()).toMatchObject({ phase: 'waiting', force: true });
+  const after = coordinator();
+  await after.recover();
+  expect(after.status()).toMatchObject({ phase: 'waiting', approved: true, force: false });
 });

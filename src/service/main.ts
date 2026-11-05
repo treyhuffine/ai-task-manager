@@ -19,7 +19,7 @@ import { startNextServer } from '@/cli/lib/server';
 import { startHttp2Gateway, type Http2GatewayHandle } from '@/cli/http2-gateway';
 import { readLiveServerRuntime, publishServerRuntime, clearServerRuntimeIfOwned, newRunId, PUBLIC_BASE_URL_ENV, isProcessAlive } from '@/lib/server-runtime/record';
 import { pendingMigrations, snapshotsInUse, UpdateCoordinator, type RuntimeTarget } from '@/lib/service/update';
-import { assertNoLegacyWriters, ownedProcesses, ownedProcessIds } from '@/lib/service/processes';
+import { assertNoLegacyWriters, ownedProcessIds } from '@/lib/service/processes';
 import { HANG_LIMIT_MS, HangDetector, memoryAction, PROBE_INTERVAL_MS, PROBE_TIMEOUT_MS, RestartTracker, serverMissing, type Memory } from '@/lib/service/supervisor';
 import { readStopped } from '@/lib/service/stopped';
 import { hasLoginSupervision } from '@/lib/service/install';
@@ -315,18 +315,16 @@ async function probeBackend() {
     await killBackendTree('The server stopped answering, so it was restarted');
   } finally { probing = false; }
 }
-const count = (total: number, one: string, many = `${one}s`) => total ? `${total} ${total === 1 ? one : many}` : '';
-/** What a Home is really doing. Idle agent processes aren't work: draining closes them. */
-async function homeWork() {
-  if (!next?.pid) return ['Backend is unavailable'];
-  const state = await backendRequest<{ executions: number; background: number; permissions: number }>('/__ri_activity');
-  return [count(state.executions, 'chat'), count(state.background, 'background task'), count(state.permissions, 'pending permission')].filter(Boolean);
-}
+/** What a restart would cut off (docs/always-on-spec.md 7.2). Not every process
+ * under the server: an idle agent resumes when its chat continues, and the agent
+ * browser is meant to outlive the server. */
 async function activity() {
   if (!servesHome(role)) return worker ? worker.activity() : [];
-  if (!next?.pid) return ['Backend is unavailable'];
-  const [work, children] = await Promise.all([homeWork(), ownedProcesses(next.pid)]);
-  return children.length ? [...work, `${count(children.length, 'running process', 'running processes')} (${[...new Set(children)].join(', ')})`] : work;
+  if (!next?.pid) return ['the server to come back'];
+  const state = await backendRequest<{ executions: number; apps: number; background: number; permissions: number; terminals: number }>('/__ri_activity');
+  const count = (total: number, one: string) => total ? `${total} ${one}${total === 1 ? '' : 's'}` : '';
+  return [count(state.executions, 'chat'), count(state.apps, 'app task'), count(state.background, 'background task'),
+    count(state.permissions, 'pending permission'), count(state.terminals, 'open terminal')].filter(Boolean);
 }
 
 const control = http.createServer(async (request, response) => {
@@ -493,7 +491,7 @@ async function start() {
     if (isProcessAlive(child.pid)) throw new Error('The previous backend process is still alive. Inspect it before restarting.');
   }
   updater = new UpdateCoordinator({ activity,
-    work: async () => servesHome(role) ? homeWork() : [],
+    work: async () => servesHome(role) ? activity() : await worker?.work() ?? [],
     get storage() { return homeStorage() ? 'home' as const : 'worker' as const; },
     exclusiveStorage: async () => (await acquireWorkerLock()).release,
     assertNoLegacyWriters: () => homeStorage() ? assertNoLegacyWriters() : Promise.resolve(assertWorkerStorage()),

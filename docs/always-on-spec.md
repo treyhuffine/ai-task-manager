@@ -264,7 +264,7 @@ Every Home follows one rule, whether it was set up from the desktop app or the C
    - Open windows then show the refresh notice (section 4.3).
    - An agent whose MCP call lands in those seconds gets an error and retries, as it would after any dropped connection.
 
-**Idle processes don't count as work.** Today's activity check (`activity()` in `src/service/main.ts`) counts every process the server owns. That includes agent processes left open for up to 30 minutes after a chat goes quiet (`IDLE_CLOSE_MS` in `src/lib/runner/local-runner.ts`), which resume from their session id when the chat continues. Counting them would stretch 10 quiet minutes to about 40, and a helper process that never exits would block updates for good. So the quiet check counts only the work listed in step 1, and the drain closes idle agent processes the way it does today (`closeIdleHarnessesForMaintenance`, called through `prepareIdle` in `src/lib/service/validation-boot.ts`).
+**Idle processes don't count as work.** The activity check (`activity()` in `src/service/main.ts`) asks what a restart would cut off, not which processes the server owns. Agent processes stay open for up to 30 minutes after a chat goes quiet (`IDLE_CLOSE_MS` in `src/lib/runner/local-runner.ts`) and resume from their session id when the chat continues, and the agent browser is meant to outlive the server. Counting them would stretch 10 quiet minutes to about 40, and a helper process that never exits would block updates for good. So the check counts only the work listed in step 1, and the drain closes idle agent processes the way it always has (`closeIdleHarnessesForMaintenance`, called through `prepareIdle` in `src/lib/service/validation-boot.ts`). A terminal counts while a window shows it, since nothing closes a forgotten one. A preview doesn't count yet: `ri update` is a person asking, and phase C's quiet check adds it.
 
 Around that rule:
 
@@ -298,7 +298,7 @@ The existing preference allows `stable` and `beta` (`src/lib/service/update-sett
 
 The steps build on `UpdateCoordinator.apply` today. Each Home's own controller runs them for that Home, with its own journal.
 
-1. **Wait and drain.** Wait for the quiet stretch and the heads-up (section 7.2), which Update now and `ri update` skip. While chats, background tasks or questions to a person are running, it only waits: the Home stays open and nothing is hashed, so `ri update --now` can act at any moment. Then drain new work and in-flight requests, and close idle agent processes (existing).
+1. **Wait and drain.** Wait for the quiet stretch and the heads-up (section 7.2), which Update now and `ri update` skip. While chats, background tasks or questions to a person are running, it only waits: the Home stays open and nothing is hashed, so `ri update --now` can act at any moment. Then drain new work and in-flight requests, and close idle agent processes (existing). A running turn holds its lease until it ends, so Update now stops waiting after 15 seconds and stops the server, which ends the turn. A drain that can't finish for any other reason reopens the Home and waits 5 minutes before the next, unless someone asks again.
 2. **Stop the server** (existing).
 3. **Snapshot the config folder and the database, every time.**
    - **Why every time.** A release changes stored data at startup even without migrations: `initDatabase` rebuilds search tables and triggers and runs backfills (`src/lib/db/index.ts`), and `migrateIntegrationStorage` converts the connector settings folder (`src/lib/integrations/storage.ts`). So "no new migrations" doesn't mean the old release can read what the new one leaves behind, and only a snapshot makes going back exact.
@@ -738,6 +738,16 @@ Rehearsing the order the owner might really take, a restart on the merged code w
 | Step 1 asked a Home with no release to switch, which it can never do. It waited forever, rehashing the release, and `ri start` refused to move it | `ri update` leaves such a Home alone and says how to move it, and its controller refuses the offer |
 | An update waiting on a running chat rehashed the release every 30 seconds and closed the Home to new work each time, and `ri update --now` usually failed with "Another update action is in progress" | While real work runs it only waits. A release is hashed once per update |
 | One Home refusing stopped `ri update` for the rest, and an idle Home acting on its update was reported as waiting | Each Home reports its own result, and busy doesn't count as waiting |
+
+A seventh pass reviewed that repair, and found what it had left:
+
+| Finding | Change |
+| --- | --- |
+| `--now` could never switch during a chat turn, because a turn holds its lease until it ends. It closed the Home for 15 seconds of every 30 instead. A rollback had the same problem | Both stop waiting at the deadline and stop the server, which ends the turn, then take the lease |
+| Any process under the server, such as the agent browser, held up an update or planned restart for good, closing the Home and every idle agent each time it tried | Only work counts, not processes (section 7.2). A drain that can't finish reopens the Home and waits 5 minutes |
+| A smaller set: a release that failed its check was rehashed forever, `--now` survived a controller restart, and a `ri start` that didn't finish left `ri update` failing | Each is fixed where it happens |
+
+A real turn from a stand-in harness now runs in the qualification, on a real server under the real launcher.
 
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
 

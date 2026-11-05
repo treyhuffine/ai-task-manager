@@ -106,7 +106,7 @@ it('leaves a Home with no release alone and says how to move it, since it could 
   const outcomes = await runUpdate({}, run.value);
   expect(outcomes.map(outcome => outcome.result)).toEqual(['not-moved', 'updated']);
   expect(team.requests).toEqual([]);
-  expect(run.said.join('\n')).toContain(`keeps running as it is. To move it to this version and keep it running: ri start --root ${unmoved.identity!.root}`);
+  expect(run.said.join('\n')).toContain(`hasn't moved to a release yet. To move it to this version and keep it running: ri start --root ${unmoved.identity!.root}`);
   expect(run.said.join('\n')).not.toContain('create your Home');
 });
 
@@ -145,4 +145,38 @@ it('says what it waits for once, whatever the Home calls it', async () => {
   const run = deps([personal], { [personal.identity!.root]: waiting });
   await runUpdate({}, run.value);
   expect(run.said.at(-1)).toContain(': waiting for the maintenance window (UTC). It switches');
+});
+
+it('tells a Home whose ri start did not finish to run it again, instead of failing', async () => {
+  const halfway = { ...home('team'), active: NEW };
+  const running = controller('switches');
+  const run = deps([halfway], { [halfway.identity!.root]: running.client });
+  expect((await runUpdate({}, run.value))[0]).toMatchObject({ result: 'not-moved' });
+  expect(running.requests).toEqual([]);
+  expect(run.said.join('\n')).toContain('ri start --root');
+});
+
+it('on published releases, one Home failing its download does not stop the others', async () => {
+  const stuck = home('stuck'); const next = home('next'); const unmoved = { ...home('unmoved'), active: null };
+  let phase = 'available';
+  const client = (fails: boolean): HomeClient => ({
+    status: async () => ({ protocol: 1, runId: 'run-1', phase: 'running', release: { release: { build: phase === 'done' ? NEW : OLD, version: '0.1.0', source: 'packaged' } },
+      update: { format: 1, phase: fails ? 'failed' : 'ready', error: 'The download failed', configured: true, busy: false, changedAt: '', release: { version: '0.2.0', runtime: { id: NEW } } } }) as unknown as HomeStatus,
+    request: async () => ({}) as never,
+  });
+  const run = deps([stuck, next, unmoved], { [stuck.identity!.root]: client(true), [next.identity!.root]: client(false), [unmoved.identity!.root]: client(false) }, { source: 'published', checkout: undefined });
+  run.value.now = (() => { let t = 0; return () => (t += 400_000); })();
+  const outcomes = await runUpdate({}, run.value);
+  expect(outcomes.map(outcome => outcome.result)).toEqual(['not-moved', 'failed', 'pending']);
+  expect(run.said.join('\n')).toContain('update failed. The download failed');
+  expect(run.said.join('\n')).toContain("hasn't moved to a release yet");
+  phase = 'done';
+});
+
+it('still tells an unmoved Home how to move when no published releases are set up', async () => {
+  const unmoved = { ...home('team'), active: null };
+  const run = deps([unmoved], { [unmoved.identity!.root]: controller('switches').client }, { source: 'published', checkout: undefined });
+  expect((await runUpdate({}, run.value))[0]).toMatchObject({ result: 'not-moved' });
+  expect(run.said.join('\n')).toContain('ri update --from <folder>');
+  expect(run.said.join('\n')).toContain("hasn't moved to a release yet");
 });

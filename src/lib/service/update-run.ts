@@ -102,6 +102,8 @@ async function switchHome(home: InstalledHome & { identity: Identity }, target: 
     const status = await client.status();
     if (!status) return { root, result: 'not-running' };
     if (status.release?.release.build === target.id) return { root, result: 'current' };
+    // Selected but not what's running: a `ri start` that didn't finish. Only `ri start` can.
+    if (home.active === target.id) return { root, result: 'not-moved' };
     if (target.local) await client.request('/update', 'POST', 60_000, { action: 'offer', release: target.id, local: target.local });
     await client.request('/update', 'POST', 3000, { action: options.now ? 'apply-now' : 'apply' });
     const outcome = await waitForSwitch(client, status, target.id, deps, options.waitMs ?? 10 * 60_000);
@@ -155,15 +157,14 @@ export async function runUpdate(options: UpdateRunOptions, deps: UpdateRunDeps):
   } else {
     let configured = false;
     for (const home of homes) {
-      const target = await publishedTarget(home, deps);
+      let target: Target | null;
+      try { target = await publishedTarget(home, deps); }
+      catch (error) { configured = true; outcomes.push({ root: home.identity.root, result: 'failed', reason: error instanceof Error ? error.message : String(error) }); continue; }
       if (!target) continue;
       configured = true;
       outcomes.push(await switchHome(home, target, options, deps));
     }
-    if (!configured) {
-      deps.say('No published releases are set up for this computer yet. To build from a checkout of Ri: ri update --from <folder>');
-      return outcomes;
-    }
+    if (!configured) deps.say('No published releases are set up for this computer yet. To build from a checkout of Ri: ri update --from <folder>');
   }
   for (const outcome of outcomes) {
     const root = displayRoot(outcome.root);
@@ -171,8 +172,8 @@ export async function runUpdate(options: UpdateRunOptions, deps: UpdateRunDeps):
     else if (outcome.result === 'current') deps.say(`${root}: already up to date.`);
     else if (outcome.result === 'not-running') deps.say(`${root}: not running. It moves to the new release the next time you run \`ri update\` after it starts.`);
     else if (outcome.result === 'pending') deps.say(`${root}: still switching. Check with \`ri status\`.`);
-    else if (outcome.result === 'not-moved') deps.say(`${root}: keeps running as it is. To move it to this version and keep it running: ri start --root ${root}`);
-    else if (outcome.result === 'waiting') deps.say(`${root}: waiting for ${outcome.reason.replace(/^waiting for /i, '')}. It switches when that finishes. To switch now and end them: ri update --now`);
+    else if (outcome.result === 'not-moved') deps.say(`${root}: hasn't moved to a release yet. To move it to this version and keep it running: ri start --root ${root}`);
+    else if (outcome.result === 'waiting') deps.say(`${root}: waiting for ${outcome.reason.replace(/^waiting for /i, '').replace(/\.$/, '')}. It switches when that finishes. To switch now and end them: ri update --now`);
     else if (outcome.result === 'reverted') deps.say(`${root}: ${outcome.reason}`);
     else if (outcome.result === 'failed') deps.say(`${root}: update failed. ${outcome.reason}`);
   }

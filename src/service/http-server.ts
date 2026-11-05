@@ -9,6 +9,7 @@ import './watchdog';
 import { isTrpcDrainSave } from '@/lib/trpc/admission';
 import { listRunningSessions, listBackgroundTaskSessions, listSessionsWithPending } from '@/lib/executor/status-snapshot';
 import { isWebSocketPath } from '@/lib/trpc/ws-runtime';
+import { watchedTerminals } from '@/lib/terminal/watched';
 import { DEFAULT_PORT } from '@/lib/auth/port';
 import { beginPerfScope, stopPerfRecorder } from '@/lib/perf/recorder';
 import { startServerPerfLog } from '@/lib/perf/server';
@@ -74,7 +75,7 @@ async function start() {
       }
       if (pathname === '/__ri_activity') {
         response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify({ executions: listRunningSessions().length + (localAppsEnabled() ? localApps().activeCount() : 0), background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length }));
+        response.end(JSON.stringify({ executions: listRunningSessions().length, apps: localAppsEnabled() ? localApps().activeCount() : 0, background: listBackgroundTaskSessions().length, permissions: listSessionsWithPending().length, terminals: watchedTerminals() }));
         return;
       }
       response.setHeader('content-type', 'application/json');
