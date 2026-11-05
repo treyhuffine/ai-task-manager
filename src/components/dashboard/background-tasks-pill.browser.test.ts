@@ -23,7 +23,13 @@ beforeAll(async () => {
     const modules: Record<string, string> = {
       'contexts/dashboard-context': `export const useDashboard=()=>({activeView:{kind:'execution',id:'open'},activeSessionId:'open',setActiveView:view=>window.picked.push(view),goHome:()=>{},openExecution:()=>{}});`,
       'hooks/use-latest-execution': `export const useLatestExecutionId=()=>null;`,
-      'hooks/use-activity-buckets': `export const useActivityBuckets=()=>({needsApproval:[],unread:[],working:[],waiting:[]});`,
+      'hooks/use-activity-buckets': `
+        import {useSyncExternalStore} from 'react';
+        let buckets={needsApproval:[],unread:[],working:[],waiting:[]};
+        const listeners=new Set();
+        window.setActivityBuckets=value=>{buckets=value;listeners.forEach(fn=>fn());};
+        export const useActivityBuckets=()=>useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>buckets);
+      `,
       'hooks/use-areas': `export const useAreas=()=>({data:[]});`,
       'hooks/use-workspaces': `
         import {useSyncExternalStore} from 'react';
@@ -33,7 +39,7 @@ beforeAll(async () => {
         window.setBackgroundChats=chats=>{data={backgroundChats:chats};listeners.forEach(fn=>fn());};
         export const useRailSessions=()=>({data:useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>data)});
       `,
-      'lib/client/task-board': `export const openBoard=()=>{};`,
+      'lib/client/task-board': `export const openBoard=value=>window.board=value;`,
       'components/workspaces/agent-attention-row': `export const AgentAttentionRow=()=>null;`,
       'components/home/home-context': `export const useOptionalHomeContext=()=>null;`,
       'components/calendar/work/work-hud-pill': `import React from 'react';import{Users}from'lucide-react';export const WorkHudPill=()=> <button className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border px-2 text-[11px]"><Users size={12}/><span>32h</span><span className="hud-work-label"><span className="hud-work-detail">of </span>human work<span className="hud-work-detail"> today</span></span></button>;`,
@@ -90,19 +96,52 @@ it.skipIf(!enabled).each(['dark', 'light'])('shows just an icon and task count, 
   } finally { await page.close(); }
 });
 
-it.skipIf(!enabled)('updates live and hides on completion without reopening the popover for the next task', async () => {
+it.skipIf(!enabled).each(['dark', 'light'])('uses the same stable, dim zero as the other status pills after completion (%s)', async theme => {
   const page = await fixture!.browser.newPage();
   page.setDefaultTimeout(5_000);
   try {
-    await page.goto(fixture!.url);
-    await page.getByRole('button', { name: 'Background tasks: 4' }).click();
+    await page.goto(`${fixture!.url}/?theme=${theme}`);
+    const active = page.getByRole('button', { name: 'Background tasks: 4' });
+    await active.waitFor();
+    const position = await active.boundingBox();
+    await active.click();
     await page.evaluate('window.setBackgroundChats([])');
     await page.getByRole('button', { name: /^Background tasks:/ }).waitFor({ state: 'hidden' });
     await page.locator('[data-slot="popover-content"]').waitFor({ state: 'hidden' });
+    const empty = page.locator('[aria-label="Background tasks: 0"]');
+    await empty.waitFor();
+    expect(await empty.innerText()).toBe('0');
+    expect(await empty.evaluate(node => node.tagName)).toBe('SPAN');
+    expect(await empty.getAttribute('class')).toBe(await page.locator('[aria-label="Working: 0"]').getAttribute('class'));
+    expect((await empty.boundingBox())?.x).toBe(position?.x);
+    expect(await empty.evaluate(node => getComputedStyle(node).opacity)).toBe('0.3');
+    const output = process.env.RI_ARTIFACT_SCREENSHOTS ?? path.join(os.tmpdir(), 'ri-background-tasks');
+    await fs.mkdir(output, { recursive: true });
+    await page.locator('[data-desktop-titlebar]').screenshot({ path: path.join(output, `background-tasks-zero-${theme}.png`), animations: 'disabled' });
     await page.evaluate(`window.setBackgroundChats([{id:'next',label:'Next test',taskCount:1,workspaceName:'Build Ri',workspaceEmoji:null,workspaceAttachments:[],workspaceAreaId:null,location:null}])`);
     const trigger = page.getByRole('button', { name: 'Background tasks: 1' });
     await trigger.waitFor();
     expect(await trigger.getAttribute('aria-expanded')).toBe('false');
+  } finally { await page.close(); }
+});
+
+it.skipIf(!enabled)('keeps the existing Working popover, chat navigation and Board action on the shared status pattern', async () => {
+  const page = await fixture!.browser.newPage();
+  page.setDefaultTimeout(5_000);
+  try {
+    await page.goto(fixture!.url);
+    await page.getByRole('button', { name: 'Background tasks: 4' }).waitFor();
+    await page.evaluate(`window.setActivityBuckets({needsApproval:[],unread:[],waiting:[],working:[{kind:'execution',id:'working',session:{id:'working',execution:{label:'Review the build'},workspaceName:'Build Ri',workspaceAttachments:[],workspaceEmoji:null,workspaceAreaId:null}}]})`);
+    const trigger = page.getByRole('button', { name: 'Working: 1' });
+    await trigger.click();
+    const card = page.locator('[data-slot="popover-content"]');
+    await card.getByRole('button', { name: /Review the build/ }).click();
+    expect(await page.evaluate('window.picked')).toEqual([{ kind: 'execution', id: 'working' }]);
+    await card.waitFor({ state: 'hidden' });
+    await trigger.click();
+    await card.getByRole('button', { name: 'Expand Working in Board' }).click();
+    await card.waitFor({ state: 'hidden' });
+    await expect.poll(() => page.evaluate('window.board')).toEqual({ focusBucket: 'working' });
   } finally { await page.close(); }
 });
 
