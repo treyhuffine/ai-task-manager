@@ -12,7 +12,7 @@ import { APP_NAME } from '@/constants/app';
 import { aiClient } from '@/lib/external-ai/client-config';
 import { isTeamAuthority } from '@/lib/home/authority';
 import { clientLabel } from '@/lib/oauth/clients';
-import { AUTHORIZE_FIELDS, consentCopy, signedIn } from '@/lib/oauth/consent';
+import { AUTHORIZE_FIELDS, consentCopy, consentFields, signedIn } from '@/lib/oauth/consent';
 import { checkAuthorizeRequest } from '@/lib/oauth/flow';
 import { issuerFor, OAUTH_PATHS } from '@/lib/oauth/issuer';
 import { AiClientLogo } from '@/components/settings/ai-client-logo';
@@ -84,10 +84,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
   return (
     <Shell>
       <form method="post" action={OAUTH_PATHS.decide} className="space-y-5">
-        {AUTHORIZE_FIELDS.map(field => {
-          const value = params.get(field);
-          return value === null ? null : <input key={field} type="hidden" name={field} value={value} />;
-        })}
+        {consentFields(params, check.request).map(([field, value]) => <input key={field} type="hidden" name={field} value={value} />)}
         <div className="flex items-center gap-2">
           <AiClientLogo id={aiClient(check.request.kind).logo} size={16} />
           <span aria-hidden className="h-px w-5 bg-border" />

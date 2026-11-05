@@ -4,6 +4,28 @@ Status: implemented, developed in `feature/slack-conversations` against main at 
 
 Ri owns the conversation, identity checks, tools and work. Slack and Buzz provide another place to talk to the same agent. This keeps the orchestrator powerful without creating a second agent runtime or a second permission system.
 
+## One Slack app, two capabilities
+
+One internal Slack app can support both capabilities. Configure and authorize each one separately, using the same app in the same Slack workspace. You can enable either on its own. See [Slack's app identity and MCP setup](https://docs.slack.dev/ai/slack-mcp-server/).
+
+| Capability | What it does | Identity and credentials | Where to start |
+| --- | --- | --- | --- |
+| Talk to your Ri agent | Mentions, DMs and threaded follow-ups start or continue the same saved Ri chat. Ri replies as the bot. | Bot token and app-level token, followed by each participant linking their Ri sign-in | **Settings > Slack & Buzz**, or **Plugins > Slack > Add your agent to Slack** |
+| Let Ri act on your behalf | Search and read Slack, send a DM or channel post, or reply in a thread when your Ri agent calls a tool | Client ID and Client Secret for the app, followed by OAuth consent for your Slack account | **Plugins > Slack**, or **Connect Slack account tools** from **Slack & Buzz** in personal settings |
+
+For example, you can mention Ri in Slack and ask it to DM your partner through your authorized account. The bot receives the request and replies in its linked conversation. The account Connector sends the separate message as you, subject to its available tools, Slack permissions and Ri's tool approval settings. Account access alone does not listen for mentions or start Ri work automatically. The bot does not gain your account's private conversations from being installed. Its current Ri tool surface delivers replies to linked conversations, rather than exposing arbitrary proactive posts as the bot.
+
+### Reuse an app without replacing its settings
+
+- **Agent first:** In **Plugins > Slack**, expand **Use an app I already created**. Add Ri's displayed callback to **OAuth & Permissions > Redirect URLs** and add any missing permissions under `oauth_config.scopes.user`. Preserve the app's existing bot scopes, features and event subscriptions. Use that same app's Client ID and Client Secret, then authorize your account.
+- **Account first:** In **Settings > Slack & Buzz**, expand **Reuse an app connected to my Slack account**. Open that app's **App Manifest** in Slack. Merge the generated agent manifest's `features`, `oauth_config.scopes.bot` and `settings` entries into it, retaining existing values and subscriptions. Keep `oauth_config.redirect_urls` and `oauth_config.scopes.user`. Save, reinstall if Slack requests it, then supply the app-level and bot tokens in Ri, link your identity and test a conversation.
+
+Do not replace a shared app's entire manifest with either setup's new-app manifest. Each describes its own capability, and replacing the other one's settings can break it. Slack's [manifest guide](https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests/) explains updates and reinstall requirements. Separately mentionable bot identities such as **Ri Personal** and **Ri Team** still require separate Slack apps. Reusing one app for account tools does not create another bot identity.
+
+### How users discover it
+
+Personal and team settings label this section **Slack & Buzz**. The stable settings ID remains `conversations`, so existing links still work. In **Plugins**, Slack's catalog description mentions both account tools and talking to an agent. Its detail page always shows **Add your agent to Slack**, including when an account is already connected. That action opens the existing guided conversation setup without requiring account authorization first. Personal conversation settings link back to the Slack account setup inside Plugins.
+
 ## Scope and decisions
 
 Slack account tools already search, read and write through the existing Connector. This change adds an agent people can mention or message. The account Connector and agent appear together in setup, but keep their distinct credentials and permissions. A bot identity does not grant access to a person's private messages.
@@ -30,10 +52,11 @@ Buzz's ACP host supplies conversation context and enforces its author gate. The 
 - [x] Guided Slack setup with token locations, an existing-app path, identity linking and desktop/mobile verification.
 - [x] Persistent save confirmation at the setup location, detected identity links and a guided two-way test.
 - [x] External conversation reply instructions and Slack delivery formatting with readable entity names.
+- [x] Discoverable Slack agent setup from Plugins, explicit personal/team settings labels and shared-app guidance in both directions.
 
 ## Connect Slack
 
-Open **Settings > Conversations** in your personal Ri or the team's settings and choose **Slack**. Team AI must already be configured and enabled. A team administrator with sign-in management capability creates the connection. The screen shows the following steps, with every step visible so you can continue directly with tokens if the Slack app already exists.
+Open **Settings > Slack & Buzz** in your personal Ri or the team's settings and choose **Slack**. From **Plugins > Slack**, **Add your agent to Slack** opens the same personal setup. Team AI must already be configured and enabled. A team administrator with sign-in management capability creates the connection. The screen shows the following steps, with every step visible so you can continue directly with tokens if the Slack app already has Ri's agent configuration.
 
 1. **Choose your Ri destination.** Enter a name such as **Ri Personal** or **Ri Team** and choose its destination. Personal Ri can target the orchestrator or one of its agents. A team connection targets a selected team agent.
 2. **Create or open your Slack app.** Click **Copy Slack app manifest**, then **Open Slack apps**. In Slack, choose **Create New App > From a manifest**, select the workspace and paste it. The manifest configures the native agent view, Socket Mode, scopes and subscriptions. If you already finished this, open the app's settings and go straight to step 3.
@@ -75,7 +98,7 @@ Team connections accept messages in explicitly connected channels. Their private
 
 ### Review Slack messages
 
-The existing Slack account Connector is the path for searching and reviewing messages outside the current bot conversation. Use **Connect Slack account tools** in Conversations, authorize the account, and make its tools available to the destination Ri agent through the normal Connector settings. Then ask Ri to review the messages you care about. That request can come from Ri or from a linked Slack conversation.
+The existing Slack account Connector is the path for searching and reviewing messages outside the current bot conversation. Use **Connect Slack account tools** in personal **Slack & Buzz** settings, authorize the account, and make its tools available to the destination Ri agent through the normal Connector settings. Then ask Ri to review the messages you care about. That request can come from Ri or from a linked Slack conversation.
 
 **Plugins > Slack** guides the account setup inline:
 
@@ -92,7 +115,7 @@ The agent connection supplies mention and DM delivery and permission to post its
 ## Connect Buzz by Block
 
 1. Install the Ri CLI, Buzz CLI and `buzz-acp` on the computer that will run the bridge. Register a named Buzz agent identity on the intended relay, including its registered owner and membership in the channels you select. Keep that identity's existing `BUZZ_PRIVATE_KEY` and any relay authentication configured for Buzz.
-2. In **Conversations**, choose **Buzz by Block**, a connection name, the Ri destination, the relay URL and allowed channel UUIDs. Click **Connect**.
+2. In **Slack & Buzz**, choose **Buzz by Block**, a connection name, the Ri destination, the relay URL and allowed channel UUIDs. Click **Connect**.
 3. Save the environment variables Ri displays. The bridge token is shown once and authorizes only this connection. Keep it with the bridge process's secrets. A remote Ri URL must use HTTPS. Localhost HTTP is supported. If the bridge should act as another team member, that person clicks **Authorize my Buzz bridge** from their own Ri sign-in and runs the prepared command on the bridge computer with its token loaded. This consumes a single-use code and changes the bridge's authorizing sign-in without granting connection management rights.
 4. With those variables and Buzz's own credentials loaded, run `buzz-acp`. It launches `ri acp`, which forwards work to Ri and posts saved replies through `buzz messages send`.
 5. Mention the named Buzz identity in an allowed channel. Its channel thread maps to a saved Ri chat. Buzz direct conversations use a stable DM binding. Follow-ups, questions, cancellation and later results use that binding.

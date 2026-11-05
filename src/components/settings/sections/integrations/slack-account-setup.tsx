@@ -19,7 +19,7 @@ export function SlackAccountSetup({ redirectUri, callbackFields, credentials, sa
   const scopesJson = JSON.stringify(SLACK_ACCOUNT_USER_SCOPES, null, 2);
 
   return <section aria-label="Slack account setup" className="space-y-4 text-sm">
-    <p>Give Ri access to your Slack account for searching messages and reading conversations. Follow these three steps, then approve access in Slack.</p>
+    <p>Give Ri access to search, read and send messages as your Slack account. Follow these three steps, then approve access in Slack.</p>
     <ol className="space-y-5">
       <li className="space-y-3">
         <h4 className="font-medium">1. Create or open your Slack app</h4>

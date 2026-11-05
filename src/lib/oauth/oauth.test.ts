@@ -300,6 +300,29 @@ describe('refusals', () => {
     expect(await personalClients()).toEqual([]);
   });
 
+  it('always names where Allow sends the code, and submits that same place', async () => {
+    const { checkAuthorizeRequest } = await import('./flow');
+    const { consentCopy, consentFields } = await import('./consent');
+    const { setMetadataFetchForTests } = await import('./clients');
+    const request = async (params: Record<string, string>) => {
+      const search = new URLSearchParams({ response_type: 'code', code_challenge: pkce().challenge, code_challenge_method: 'S256', ...params });
+      const check = await checkAuthorizeRequest(search, BASE);
+      if (check.kind !== 'ok') throw new Error(`expected ok, got ${check.kind}`);
+      return { copy: consentCopy(check.request), fields: Object.fromEntries(consentFields(search, check.request)) };
+    };
+    // Details on one host, the code going to another: the page says both, and the form carries the real one.
+    const elsewhere = 'https://files.example/app/client.json';
+    setMetadataFetchForTests(async url => ({ status: 200, body: JSON.stringify({ client_id: url, client_name: 'Helper', redirect_uris: ['https://receiver.example/callback'], token_endpoint_auth_method: 'none' }) }));
+    const split = await request({ client_id: elsewhere });
+    expect(split.copy.origin).toBe('From files.example. Returns you to receiver.example');
+    expect(split.fields.redirect_uri).toBe('https://receiver.example/callback');
+    // One host for both, as ChatGPT has, stays one line.
+    setMetadataFetchForTests(async url => ({ status: 200, body: JSON.stringify({ client_id: url, client_name: 'ChatGPT', redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect'], token_endpoint_auth_method: 'none' }) }));
+    expect((await request({ client_id: 'https://chatgpt.com/oauth/client.json' })).copy.origin).toBe('From chatgpt.com');
+    const { client_id } = await registered();
+    expect((await request({ client_id, redirect_uri: CALLBACK })).copy.origin).toBe('Returns you to client.example');
+  });
+
   it('never sends the browser to a redirect the client didn’t register', async () => {
     const { client_id } = await registered();
     const { challenge } = pkce();

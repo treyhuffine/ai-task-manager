@@ -22,6 +22,7 @@ import { HostedEndpointFields } from '@/components/integrations/hosted-endpoint-
 import { integrationEndpointReady, type HostedEndpointSelection } from '@/lib/client/integration-endpoint';
 import { ByoPanel } from './byo-panel';
 import { SlackAccountSignInHelp } from './slack-account-setup';
+import { SlackConnectionOptions } from './slack-connection-options';
 import { HostedProviderDetail } from './hosted-provider-detail';
 import { BackLink, Chip, ConnectFormSection, DetailHeader, GroupHeading } from './parts';
 import {
@@ -168,6 +169,8 @@ function SingleProviderDetail(props: ProviderDetailProps) {
       </div>
 
       {props.alternative}
+
+      {p.id === 'slack' && !p.orphan && <SlackConnectionOptions disabled={busy} />}
 
       {!showConnect && <PluginSetupHelpButton target={{ kind: 'integration', provider: p, redirectUri: props.redirectUri }} disabled={busy} />}
 

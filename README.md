@@ -47,6 +47,12 @@ Agent features run through a coding CLI you already use and are signed in to (Cl
 
 > **Native modules:** pnpm blocks postinstall scripts by default. `better-sqlite3` and `sqlite-vec` need them to build their `.node` bindings — `pnpm approve-builds` enables them. If you skip it and see "Could not locate the bindings file" later, run `pnpm rebuild better-sqlite3` to recover. macOS needs Xcode Command Line Tools (`xcode-select --install`).
 
+## Use Ri from Slack or Buzz
+
+Open **Settings > Slack & Buzz** to add your orchestrator or an agent for two-way conversations through mentions, DMs and threads. You can also find **Add your agent to Slack** under **Plugins > Slack**. Team settings have the same **Slack & Buzz** entry for shared agents and connected channels.
+
+The Slack account Connector in **Plugins** lets Ri search, read and send messages as you. One Slack app can support both account tools and a conversational bot, with separate permissions. The [Slack and Buzz guide](docs/slack-buzz-conversations.md) covers setup, reusing an app and which identity sends each message.
+
 ## Electron desktop and background service
 
 Run `pnpm desktop:demo` to build and open Ri in Electron, or `pnpm desktop:dev` for hot reload. The demo uses its own data home and serves the existing Next app over HTTP/2, with certificate trust confined to Electron. No OS certificate installation is needed. After the first production build, `node desktop/launch.mjs --skip-build` opens it again without rebuilding.

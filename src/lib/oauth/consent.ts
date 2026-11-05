@@ -21,7 +21,11 @@ const COMPANIES: Partial<Record<AiClientKind, string>> = { chatgpt: 'OpenAI', cl
 export interface ConsentCopy {
   /** Who is asking, as the page names it. */
   name: string;
-  /** "From chatgpt.com" for a client whose ID its host serves, else where it returns you. */
+  /**
+   * Where it's from and where Allow sends the code, always the real
+   * destination: "From chatgpt.com", or "From docs.example. Returns you to
+   * receiver.example." when a document's host isn't where the code goes.
+   */
   origin: string;
   /** Where what it reads goes. */
   destination: string;
@@ -39,7 +43,17 @@ export function consentCopy(request: AuthorizeRequest): ConsentCopy {
   const company = COMPANIES[request.kind];
   return {
     name: client.name,
-    origin: client.host ? `From ${client.host}` : returnsTo(request.redirectUri),
+    origin: !client.host ? returnsTo(request.redirectUri)
+      : new URL(request.redirectUri).hostname === client.host ? `From ${client.host}`
+      : `From ${client.host}. ${returnsTo(request.redirectUri)}`,
     destination: company ? `What ${client.name} reads is sent to ${company}.` : `What ${client.name} reads leaves your Ri.`,
   };
+}
+
+/** The form's hidden fields. The redirect is the one the page named, even when the request left it out. */
+export function consentFields(params: URLSearchParams, request: Pick<AuthorizeRequest, 'redirectUri'>): Array<[string, string]> {
+  return AUTHORIZE_FIELDS.flatMap((field): Array<[string, string]> => {
+    const value = field === 'redirect_uri' ? request.redirectUri : params.get(field);
+    return value === null ? [] : [[field, value]];
+  });
 }
