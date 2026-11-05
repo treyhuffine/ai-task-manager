@@ -92,7 +92,7 @@ export const INTEGRATION_META: Record<string, IntegrationMeta> = {
 
   slack: {
     category: 'Communication',
-    description: 'Send messages and read channels.',
+    description: 'Search and send as yourself, or talk to your Ri agent in Slack.',
     brandHex: '4A154B',
     appUrl: 'https://api.slack.com/apps?new_app=1',
     docsUrl: 'https://docs.slack.dev/ai/slack-mcp-server/',

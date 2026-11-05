@@ -13,9 +13,14 @@ beforeAll(async () => {
     import React, {useState} from 'react'; import {createRoot} from 'react-dom/client';
     import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
     import {ProviderDetail} from './src/components/settings/sections/integrations/provider-detail';
+    import {useSettingsStore} from './src/components/settings/settings-store';
     window.calls = [];
     const noop = () => {};
     const empty = {label:'',clientId:'',clientSecret:''};
+    function SettingsDestination() {
+      const settings=useSettingsStore();
+      return <output hidden data-settings-destination={settings.section} data-settings-anchor={settings.anchor ?? ''} />;
+    }
     function Fixture() {
       const [configured,setConfigured] = useState(false), [connected,setConnected] = useState(false);
       const [form,setForm] = useState(empty), [copied,setCopied] = useState(false), [advanced,setAdvanced] = useState(false), [results,setResults] = useState({});
@@ -34,7 +39,7 @@ beforeAll(async () => {
         onByoSetDefault={noop} onByoDelete={noop} />;
     }
     createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>
-      <main className="@container mx-auto max-w-2xl bg-background p-4 text-foreground"><Fixture /></main>
+      <main className="@container mx-auto max-w-2xl bg-background p-4 text-foreground"><Fixture /><SettingsDestination /></main>
     </QueryClientProvider>);
   `, [], { css: true });
 }, 60_000);
@@ -93,6 +98,9 @@ it.skipIf(!enabled).each([{width:1000,height:1000}, {width:390,height:844}])('gu
     await page.getByText('Connected', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Test', exact: true }).click();
     await page.getByText('Healthy', { exact: true }).waitFor();
+    // Account authorization does not hide the agent entry point.
+    await page.getByRole('button', { name: 'Add your agent to Slack', exact: true }).click();
+    await expect.poll(() => page.locator('[data-settings-destination]').getAttribute('data-settings-destination')).toBe('conversations');
     expect(await page.evaluate('window.calls')).toEqual([
       {operation:'save',form:{label:'My Slack app',clientId:'fixture-client-id',clientSecret:'fixture-client-secret'}},
       {operation:'authorize',intent:{addAccount:true,setupId:expect.any(String),label:'Work',fields:{}}},
@@ -101,3 +109,13 @@ it.skipIf(!enabled).each([{width:1000,height:1000}, {width:390,height:844}])('gu
     expect(errors).toEqual([]);
   } finally { await page.close(); }
 }, 30_000);
+
+it.skipIf(!enabled)('opens Slack agent setup without requiring an account connection', async () => {
+  const page = await fixture.browser.newPage({viewport:{width:390,height:844}});
+  try {
+    await page.goto(fixture.url);
+    await page.getByRole('button', {name:'Add your agent to Slack',exact:true}).click();
+    await expect.poll(() => page.locator('[data-settings-destination]').getAttribute('data-settings-destination')).toBe('conversations');
+    expect(await page.evaluate('window.calls')).toEqual([]);
+  } finally { await page.close(); }
+}, 20_000);

@@ -16,6 +16,7 @@ import { McpServerSettings } from './mcp-settings';
 import { Byo, ConnectPanel, ToolList, type ProviderDetailProps } from './provider-detail';
 import { CapabilityReview } from './capability-review';
 import { providerForHostedAccount, providerForHostedDeployment } from './hosted-account-request';
+import { SlackConnectionOptions } from './slack-connection-options';
 import { connectionIdentity, isRegisteredMcp, type Connection, type HostedMcpAccount, type HostedConnectIntent } from './types';
 
 // What the server's screens may reach on the network, which the page asks the Home once it shows in the browser.
@@ -54,6 +55,8 @@ export function HostedProviderDetail(props: ProviderDetailProps) {
         title={provider.displayName} subtitle={integrationMeta(provider.id).description}
         meta={<><Chip tone={healthy ? 'ok' : accounts.length ? 'warn' : undefined}>{accounts.length ? healthy ? local ? 'Connected' : `${accounts.length} account${accounts.length === 1 ? '' : 's'} connected` : 'Needs attention' : 'Not connected'}</Chip><Chip>{integrationMeta(provider.id).category}</Chip>{toolCount > 0 && <Chip>{toolCount} tools</Chip>}</>} />
     </div>
+
+    {provider.id === 'slack' && <SlackConnectionOptions disabled={busy} />}
 
     {!showForm && <PluginSetupHelpButton target={{ kind: 'integration', provider }} disabled={busy} />}
 

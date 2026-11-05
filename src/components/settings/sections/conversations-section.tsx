@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { apiErrorText } from '@/lib/api/client';
 import { INTEGRATION_LABELS } from '@/constants/integrations';
+import { openSettings } from '@/components/settings/settings-store';
 
 function SetupStep({ number, label, children }: { number: number; label: string; children: ReactNode }) {
   return <li className="space-y-3 border-t pt-5 first:border-0 first:pt-0">
@@ -95,8 +96,8 @@ export function ConversationsSection() {
   return <div className="space-y-6">
     <div className="space-y-2 text-sm">
       <p>Talk to your Ri agent from Slack or Buzz. Each connection has its own name and a fixed Ri destination. Conversations are saved in Ri and replies return to their originating thread.</p>
-      <p className="text-muted-foreground">{`Your existing Slack ${INTEGRATION_LABELS.singular} provides search, reading and sending tools for the account you authorize. Add an agent connection here to receive mentions and DMs.`}</p>
-      {!query.data?.team && <a className="inline-block underline" href="/connect?provider=slack">Connect Slack account tools</a>}
+      <p className="text-muted-foreground">{`This connection lets people talk to Ri in Slack. The Slack account ${INTEGRATION_LABELS.singular} lets Ri search, read and send messages as you. One Slack app can support both, with separate permissions. Connect either capability on its own, or enable both.`}</p>
+      {query.data && !query.data.team && <Button variant="outline" size="sm" onClick={() => openSettings('plugins', { anchor: 'integrations:slack' })}>Connect Slack account tools</Button>}
       {query.data?.team && <p>Connected channel conversations are visible to this Ri team. Private DMs are not accepted. Each Slack participant must link their own Ri sign-in.</p>}
     </div>
     {query.isPending && <p role="status">Loading connections…</p>}
@@ -167,12 +168,18 @@ export function ConversationsSection() {
       {provider === 'slack' ? <ol className="space-y-5">
         <SetupStep number={1} label="Choose your Ri destination">{destinationFields}</SetupStep>
         <SetupStep number={2} label="Create or open your Slack app">
-          <p className="text-sm text-muted-foreground">Already created the app from a manifest? Open its settings and continue with step 3.</p>
+          <p className="text-sm text-muted-foreground">Already created the app from Ri’s agent manifest? Open its settings and continue with step 3.</p>
           <div className="flex flex-wrap items-center gap-3">
             <Button type="button" variant="outline" disabled={disabled} onClick={() => mutate.mutate(async () => { const manifest = await trpcClient.conversationIntegrations.manifest.query({ name }); await navigator.clipboard.writeText(JSON.stringify(manifest, null, 2)); setCopiedManifestName(name); })}>{copiedManifestName === name ? 'Manifest copied' : 'Copy Slack app manifest'}</Button>
             <a className="text-sm underline" href="https://api.slack.com/apps" target="_blank" rel="noreferrer">Open Slack apps</a>
           </div>
           <p className="text-sm text-muted-foreground">To create an app, choose <strong>Create New App → From a manifest</strong> in Slack, select your Slack workspace, and paste the copied manifest. If you use Slack’s AI agent wizard instead, choose <strong>Starter agent</strong>.</p>
+          <details className="space-y-2 rounded-md border p-3 text-sm">
+            <summary className="cursor-pointer font-medium">Reuse an app connected to my Slack account</summary>
+            <p>Open the same app in Slack and select <strong>App Manifest</strong>. Merge Ri’s agent manifest into the existing configuration. Keep your existing <code>oauth_config.redirect_urls</code> and <code>oauth_config.scopes.user</code>.</p>
+            <p>Add the manifest’s <code>features</code>, <code>oauth_config.scopes.bot</code> and <code>settings</code> entries, keeping any existing features, scopes and event subscriptions. Save the changes and reinstall the app if Slack requests it, then continue with step 3.</p>
+            <p className="text-muted-foreground">Replacing the whole manifest can remove your account setup. Adding the agent does not authorize account access, and connecting your account does not enable the agent.</p>
+          </details>
         </SetupStep>
         <SetupStep number={3} label="Get your app-level token">
           <SlackTokenField kind="app" id="conversation-app-token" label="App-level token" value={appToken} onChange={setAppToken} />

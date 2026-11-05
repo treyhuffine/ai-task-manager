@@ -9,8 +9,10 @@ beforeAll(async () => {
     import React from 'react'; import { createRoot } from 'react-dom/client';
     import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
     import { ConversationsSection } from './src/components/settings/sections/conversations-section';
+    import { useSettingsStore } from './src/components/settings/settings-store';
     window.calls = [];
-    createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><div data-settings-scroll className="h-[90dvh] max-h-[720px] overflow-y-auto"><main className="mx-auto max-w-2xl p-4"><ConversationsSection /></main></div></QueryClientProvider>);
+    function SettingsDestination() { const settings=useSettingsStore(); return <output hidden data-settings-destination={settings.section} data-settings-anchor={settings.anchor ?? ''} />; }
+    createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><div data-settings-scroll className="h-[90dvh] max-h-[720px] overflow-y-auto"><main className="mx-auto max-w-2xl p-4"><ConversationsSection /><SettingsDestination /></main></div></QueryClientProvider>);
   `, [{ name: 'conversation-fixture-data', setup(build) {
     build.onResolve({ filter: /lib\/trpc\/client$/ }, () => ({ path: 'conversation-client', namespace: 'fixture' }));
     build.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ loader: 'ts', contents: `
@@ -37,12 +39,16 @@ it.skipIf(!enabled)('guides Slack setup from an existing app through tokens, sav
     await page.goto(fixture.url + '?empty');
     await page.getByRole('heading', { name: '3. Get your app-level token', exact: true }).waitFor();
     expect(await page.locator('input[type="password"]').evaluateAll(elements => elements.map(element => element.id))).toEqual(['conversation-app-token', 'conversation-bot-token']);
-    expect(await page.getByText('Already created the app from a manifest?', { exact: false }).count()).toBe(1);
+    expect(await page.getByText('Already created the app from Ri’s agent manifest?', { exact: false }).count()).toBe(1);
     expect(await page.getByRole('link', { name: 'Open Slack apps', exact: true }).getAttribute('target')).toBe('_blank');
     expect(await page.getByText('OAuth & Permissions', { exact: true }).count()).toBe(1);
     expect(await page.getByText('Bot User OAuth Token', { exact: true }).count()).toBe(1);
     expect(await page.getByText('Basic Information → App-Level Tokens → Generate Token and Scopes', { exact: true }).count()).toBe(1);
     expect(await page.getByText('connections:write', { exact: true }).count()).toBe(1);
+    await page.getByText('Reuse an app connected to my Slack account', {exact:true}).click();
+    expect(await page.getByText('oauth_config.redirect_urls', {exact:true}).isVisible()).toBe(true);
+    expect(await page.getByText('oauth_config.scopes.user', {exact:true}).isVisible()).toBe(true);
+    await page.getByText('Reuse an app connected to my Slack account', {exact:true}).click();
     await page.getByRole('button', { name: 'Copy Slack app manifest' }).click();
     await page.getByRole('button', { name: 'Manifest copied', exact: true }).waitFor();
     expect(JSON.parse(await page.evaluate('window.copiedManifest'))).toMatchObject({ display_information: { name: 'Ri Personal' } });
@@ -80,6 +86,21 @@ it.skipIf(!enabled)('guides Slack setup from an existing app through tokens, sav
     await page.getByRole('button', { name: 'Add another connection', exact: true }).click();
     expect(await page.getByLabel('Bot token', { exact: true }).inputValue()).toBe('');
     expect(await page.getByLabel('App-level token', { exact: true }).inputValue()).toBe('');
+  } finally { await page.close(); }
+}, 20_000);
+
+it.skipIf(!enabled)('opens the account setup from personal Slack settings without leaving Ri', async () => {
+  const page = await fixture.browser.newPage({viewport:{width:390,height:844}});
+  try {
+    await page.goto(fixture.url);
+    await page.getByRole('button', {name:'Connect Slack account tools',exact:true}).click();
+    const destination = page.locator('[data-settings-destination]');
+    await expect.poll(() => destination.getAttribute('data-settings-destination')).toBe('plugins');
+    expect(await destination.getAttribute('data-settings-anchor')).toBe('integrations:slack');
+    expect(await page.evaluate('window.calls')).toEqual([]);
+    await page.goto(fixture.url + '?team');
+    await page.getByText('Connected channel conversations are visible to this Ri team.', {exact:false}).waitFor();
+    expect(await page.getByRole('button', {name:'Connect Slack account tools',exact:true}).count()).toBe(0);
   } finally { await page.close(); }
 }, 20_000);
 

@@ -91,7 +91,7 @@ export const SECTIONS: readonly SettingsSectionDef[] = [
     title: 'Teams',
     description: 'Shared work with other people. Your personal work stays private.',
   },
-  { id: 'conversations', label: 'Conversations', icon: Cable, title: 'Slack and Buzz conversations', description: 'Talk to your Ri agents from named Slack and Buzz connections.' },
+  { id: 'conversations', label: 'Slack & Buzz', icon: Cable, title: 'Slack and Buzz conversations', description: 'Add your Ri agents to Slack or Buzz for two-way conversations.' },
   {
     id: 'general',
     label: 'General',

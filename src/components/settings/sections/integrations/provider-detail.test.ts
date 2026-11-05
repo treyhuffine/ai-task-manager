@@ -74,6 +74,15 @@ function catalogProvider(id: string, configured = true): ProviderStatus & { mcp:
 }
 
 describe('hosted provider connection flow', () => {
+  it.each([false, true])('offers Slack agent setup independently of account readiness (%s)', configured => {
+    const slack = catalogProvider('slack', configured);
+    for (const provider of [slack, { ...slack, mcp: { ...slack.mcp, accounts: [] } }]) {
+      const html = render({ provider });
+      expect(html).toContain('Add your agent to Slack');
+      expect(html).toContain('One Slack app can support both, with separate permissions.');
+    }
+  });
+
   it('takes a configured Slack app straight to account sign-in and verification', () => {
     const html = render({ provider: catalogProvider('slack') });
     expect(html).toContain('3. Sign in to Slack');
