@@ -10,6 +10,9 @@ import type { Connections, NewConnection } from "../schemas.js";
 import { MainTabs } from "./app.js";
 import { copyText, errorMessage, savedLabel } from "./util.js";
 
+/** Saying no to Ri's download prompt is a choice, not a failure. */
+const CANCELLED = /cancelled/i;
+
 function CopyField({ label, value, rows = 1 }: { label: string; value: string; rows?: number }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const area = useRef<HTMLTextAreaElement>(null);
@@ -74,7 +77,7 @@ export function ConnectScreen() {
       const file = await app.call<{ fileName: string; base64: string }>("get_extension_package", {});
       await app.download({ name: file.fileName, mimeType: "application/zip", base64: file.base64 });
     } catch (error) {
-      setProblem(errorMessage(error));
+      if (!CANCELLED.test(errorMessage(error))) setProblem(errorMessage(error));
     } finally {
       setDownloading(false);
     }
@@ -87,7 +90,7 @@ export function ConnectScreen() {
       await app.download({ name: file.fileName, mimeType: "text/html", text: file.text });
       if (file.truncated) setProblem("The library is too large for one file, so this export holds the newest links.");
     } catch (error) {
-      setProblem(errorMessage(error));
+      if (!CANCELLED.test(errorMessage(error))) setProblem(errorMessage(error));
     } finally {
       setExporting(false);
     }

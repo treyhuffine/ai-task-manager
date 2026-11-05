@@ -63,9 +63,10 @@ export function ListScreen() {
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [list.reload, tags.reload]);
-  const base = `${route.query}\u0000${route.tag}\u0000${list.data?.revision ?? ""}`;
+  // Keyed by what was asked, not the data revision: a page read in the background shouldn't collapse the list.
+  const base = `${route.query}\u0000${route.tag}`;
   const more = extra?.base === base ? extra : null;
-  const items = [...(list.data?.items ?? []), ...(more?.items ?? [])];
+  const items = [...new Map([...(list.data?.items ?? []), ...(more?.items ?? [])].map((item) => [item.id, item])).values()];
   const cursor = more ? more.cursor : list.data?.nextCursor ?? null;
   const [loadingMore, setLoadingMore] = useState(false);
   const loadMore = async () => {
@@ -119,7 +120,11 @@ export function ListScreen() {
             detailOpen={Boolean(route.bookmarkId)}
             onBack={() => update({ bookmarkId: null })}
             backLabel="All bookmarks"
-            detail={route.bookmarkId ? <BookmarkInspector key={route.bookmarkId} id={route.bookmarkId} onClose={() => update({ bookmarkId: null })} onChanged={() => { void list.reload(); void tags.reload(); }} /> : null}
+            detail={route.bookmarkId ? <BookmarkInspector key={route.bookmarkId} id={route.bookmarkId} onClose={() => update({ bookmarkId: null })} onChanged={(change) => {
+              void list.reload();
+              void tags.reload();
+              setExtra((current) => current && { ...current, items: change.deleted ? current.items.filter((item) => item.id !== change.deleted) : current.items.map((item) => (item.id === change.record?.id ? change.record : item)) });
+            }} /> : null}
             list={
               <div className="ri-stack">
                 <div className="bm-tools">

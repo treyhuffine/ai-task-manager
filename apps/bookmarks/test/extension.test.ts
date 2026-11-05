@@ -92,8 +92,24 @@ describe("bookmarks tree", () => {
     ]);
   });
   it("splits a large library into batches the Home accepts", () => {
-    const parts = lib.batches(Array.from({ length: 250 }, (_, index) => index));
-    expect(parts.map((part: number[]) => part.length)).toEqual([100, 100, 50]);
+    const parts = lib.batches(Array.from({ length: 250 }, (_, index) => ({ url: `https://example.test/${index}` })));
+    expect(parts.map((part: unknown[]) => part.length)).toEqual([100, 100, 50]);
+  });
+  it("keeps each request under the Home's size limit, in any script", () => {
+    const big = (text: string) => ({ url: "https://example.test/", pageText: text.repeat(lib.QUEUED_PAGE_CHARS) });
+    for (const character of ["x", "\u6f22"]) {
+      const parts = lib.batches(Array.from({ length: 30 }, () => big(character)));
+      expect(parts.flat()).toHaveLength(30);
+      for (const part of parts) expect(new TextEncoder().encode(JSON.stringify({ via: "extension", items: part })).length).toBeLessThan(1024 * 1024);
+    }
+    expect(lib.batches([{ url: "https://example.test/", pageText: "\u6f22".repeat(lib.MAX_PAGE_CHARS) }])).toHaveLength(1);
+  });
+  it("fits an item to what the Home accepts, and leaves out a link it can't keep", () => {
+    expect(lib.fitItem({ url: `https://example.test/${"a".repeat(5000)}` })).toBeNull();
+    expect(lib.fitItem({ url: "javascript:alert(1)" })).toBeNull();
+    const fitted = lib.fitItem({ url: "https://example.test/", title: "t".repeat(3000), excerpt: "e".repeat(3000), note: "n".repeat(9000), tags: Array.from({ length: 60 }, () => "f".repeat(300)), pageText: "p".repeat(300_000) });
+    expect([fitted.title.length, fitted.excerpt.length, fitted.note.length, fitted.tags.length, fitted.tags[0].length, fitted.pageText.length]).toEqual([2000, 2000, 8000, 50, 200, lib.MAX_PAGE_CHARS]);
+    expect(lib.flattenTree([{ url: `https://example.test/${"a".repeat(5000)}`, title: "Too long" }, { url: "https://example.test/ok", title: "Fine" }]).map((link: { title: string }) => link.title)).toEqual(["Fine"]);
   });
 });
 
@@ -115,6 +131,20 @@ describe("calling the Home", () => {
     expect((await lib.callHome(replying(503, { error: "busy" }), connection, "x", {})).outcome).toBe("retry");
     expect((await lib.callHome(async () => { throw new Error("offline"); }, connection, "x", {})).outcome).toBe("retry");
     expect((await lib.callHome(async () => new Response("<html>", { status: 502 }), connection, "x", {})).outcome).toBe("retry");
+  });
+  it("drops only the item the Home refuses, and stops without losing anything when it goes away", async () => {
+    const items = ["a", "bad", "c"].map((name) => ({ url: `https://example.test/${name}` }));
+    const sent: number[] = [];
+    const refusing = async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      sent.push(body.items.length);
+      return new Response(JSON.stringify({ error: "bad" }), { status: body.items.some((item: { url: string }) => item.url.endsWith("bad")) ? 400 : 200 });
+    };
+    expect(await lib.sendItems(refusing, connection, "bookmark", items)).toEqual({ outcome: "ok", done: 3, dropped: 1, message: "bad" });
+    expect(sent).toEqual([3, 1, 1, 1]);
+    let calls = 0;
+    const leaving = async () => new Response('{"error":"nope"}', { status: ++calls === 1 ? 413 : calls === 2 ? 200 : 503 });
+    expect(await lib.sendItems(leaving, connection, "bookmark", items)).toMatchObject({ outcome: "retry", done: 1, dropped: 0 });
   });
   it("keeps queued items small", () => {
     expect(lib.forQueue({ url: "u", pageText: "x".repeat(100_000) }).pageText).toHaveLength(lib.QUEUED_PAGE_CHARS);

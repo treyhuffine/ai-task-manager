@@ -14,7 +14,7 @@ export function SaveScreen() {
   const { data, navigate } = useNav();
   const announce = useAnnounce();
   const save = useMutation<Record<string, unknown>, { created: boolean; record: BookmarkRecord }>("save_bookmark");
-  const update = useMutation<Record<string, unknown>, { status: string }>("update_bookmark");
+  const update = useMutation<Record<string, unknown>, { status: "saved" } | { status: "conflict"; current: BookmarkRecord }>("update_bookmark");
   const [record, setRecord] = useState<BookmarkRecord | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [tags, setTags] = useState("");
@@ -36,8 +36,18 @@ export function SaveScreen() {
   const finish = async () => {
     if (!record) return;
     if (tags.trim() || note.trim()) {
-      await update.run({ id: record.id, expectedRevision: record.revision, tags: parseTags(tags), note: note.trim() || null }).catch((error) => setProblem(errorMessage(error)));
-      update.reset();
+      const send = async (expectedRevision: number) => {
+        const result = await update.run({ id: record.id, expectedRevision, tags: parseTags(tags), note: note.trim() || null });
+        update.reset();
+        return result;
+      };
+      try {
+        // Only moments have passed, so what was just typed wins over a change made meanwhile.
+        const first = await send(record.revision);
+        if (first.status === "conflict" && (await send(first.current.revision)).status === "conflict") return setProblem("This link keeps changing. Add your tags from Bookmarks.");
+      } catch (error) {
+        return setProblem(errorMessage(error));
+      }
     }
     setDone(true);
   };

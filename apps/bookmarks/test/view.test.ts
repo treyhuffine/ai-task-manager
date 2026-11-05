@@ -276,6 +276,30 @@ describe("packaged Bookmarks view", () => {
     await page.close();
   });
 
+  it("never overwrites what someone is typing, and keeps it through a conflict", async () => {
+    const world = await createWorld("typing");
+    const { record } = (await world.engine.invoke(world.instance, "save_bookmark", { url: "https://example.test/typing", title: "Original" }, PRINCIPALS.owner, 0)) as { record: { id: string; revision: number } };
+    const { page, frame } = await open(world, "typing", "owner", `/bookmarks/${record.id}`, { width: 1280, height: 900 });
+    const inspector = frame.locator(".ri-inspector");
+    const note = inspector.getByRole("textbox", { name: "Note" });
+    await note.click();
+    await note.fill("Half typed");
+    // The record changes elsewhere, and the host refreshes the view.
+    await world.engine.invoke(world.instance, "update_bookmark", { id: record.id, expectedRevision: record.revision, title: "Changed elsewhere" }, PRINCIPALS.owner, 0);
+    const opened = (await world.engine.invoke(world.instance, "open_view", { path: `/bookmarks/${record.id}`, query: {} }, PRINCIPALS.owner, 0)) as { data: unknown };
+    await page.evaluate((data) => (window as unknown as { controller: { refresh(value: unknown): void } }).controller.refresh(data), opened.data);
+    await expect.poll(() => frame.locator(".ri-inspector__title").textContent()).toBe("Changed elsewhere");
+    expect(await note.inputValue()).toBe("Half typed");
+    await inspector.getByRole("button", { name: "Save changes" }).click();
+    await expect.poll(() => visible(frame, /changed while you were editing/).count()).toBeGreaterThan(0);
+    expect(await note.inputValue()).toBe("Half typed");
+    await inspector.getByRole("button", { name: "Save changes" }).click();
+    await expect.poll(() => inspector.getByRole("button", { name: "Save changes" }).count()).toBe(0);
+    const saved = (await world.engine.invoke(world.instance, "get_bookmark", { id: record.id }, PRINCIPALS.owner, 0)) as { bookmark: { note: string } };
+    expect(saved.bookmark.note).toBe("Half typed");
+    await page.close();
+  });
+
   it("imports a large browser export in parts, with a preview first", async () => {
     const world = await createWorld("import");
     const { page, frame } = await open(world, "import", "owner", "/", { width: 1280, height: 900 });
@@ -297,6 +321,12 @@ describe("packaged Bookmarks view", () => {
     await frame.getByRole("button", { name: "Show more" }).click();
     await expect.poll(() => frame.locator(".bm-row").count()).toBe(100);
     await expect.poll(() => visible(frame, /^sailing/).count()).toBeGreaterThan(0);
+    // A link arriving from outside doesn't collapse what has been opened.
+    await world.engine.invoke(world.instance, "save_bookmark", { url: "https://example.test/arrived", title: "Arrived" }, PRINCIPALS.owner, 0);
+    const opened = (await world.engine.invoke(world.instance, "open_view", { path: "/", query: {} }, PRINCIPALS.owner, 0)) as { data: unknown };
+    await page.evaluate((data) => (window as unknown as { controller: { refresh(value: unknown): void } }).controller.refresh(data), opened.data);
+    await expect.poll(() => visible(frame, "Arrived").count()).toBeGreaterThan(0);
+    expect(await frame.locator(".bm-row").count()).toBeGreaterThanOrEqual(100);
     await page.close();
   }, 120_000);
 

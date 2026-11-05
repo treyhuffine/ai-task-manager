@@ -25,9 +25,20 @@ export function uuid(): string {
 /** Decode a selected file. Browser exports hold favicons inline, which can be most of the file and are never used. */
 export function readSelectedFile(base64: string): string {
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes).replace(/\s+ICON(?:_URI)?="[^"]*"/gi, "");
+  return decodeFile(bytes).replace(/\s+ICON(?:_URI)?="[^"]*"/gi, "");
 }
-export const PART_CHARS = 500_000;
+/** UTF-8 when it is valid. Spreadsheets on Windows also save UTF-16 and Windows-1252. */
+export function decodeFile(bytes: Uint8Array): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder("utf-16le").decode(bytes);
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder("utf-16be").decode(bytes);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
+}
+/** One action's input is capped at 1 MiB, and a character can take three bytes. */
+export const PART_CHARS = 300_000;
 export function splitParts(text: string, size = PART_CHARS): string[] {
   const parts: string[] = [];
   for (let index = 0; index < text.length; index += size) parts.push(text.slice(index, index + size));
