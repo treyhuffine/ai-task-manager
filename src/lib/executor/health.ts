@@ -386,8 +386,7 @@ const time = (value: string | null | undefined) => (value ? Date.parse(value) : 
  * show as needing the person (docs/always-on-spec.md 6.3). Its newest turn
  * event, read newest first, is the agent at work (a reply, thinking, a tool,
  * a permission question whose prompt died with the server) or the person's
- * message, not a turn's end. It is this app's own, not mirrored from a
- * session in someone's terminal. It happened in the last day, after the
+ * own message sent from this app, not a turn's end. It happened in the last day, after the
  * person last looked. And the chat doesn't already show as unread, so a
  * restart never adds noise or moves a chat that already asks for them.
  * The caller rules out chats the startup sent again, chats on another
@@ -398,7 +397,11 @@ export function cutOffByRestart(recentDesc: ChatEventRecord[], session: CutOffFa
     if (isSendRefusal(e)) return false;
     const fromPerson = e.role === 'user' || e.source === 'permission_response';
     if (!fromPerson && !AGENT_ACTIVITY_SOURCES.has(e.source as ChatEventSource) && e.source !== 'result') continue;
-    if (e.source === 'result' || e.externalEventId) return false;
+    if (e.source === 'result') return false;
+    // Only a person's row says where it came from: this app's sends carry no
+    // ID, and one mirrored from a terminal does. Every agent row has an ID,
+    // since the live parser gives each one (`parseStreamEvent`).
+    if (fromPerson && e.externalEventId) return false;
     const at = time(e.createdAt);
     if (now - at > CUT_OFF_WINDOW_MS) return false;
     const seen = Math.max(time(session.lastViewedAt), time(session.unreadMarkerAt));

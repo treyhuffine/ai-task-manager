@@ -119,3 +119,15 @@ it('runs the CLI of the release the Home points at', async () => {
   expect(await new Promise(resolve => child.once('exit', resolve))).toBe(0);
   expect(fs.readFileSync(log, 'utf8').trim()).toBe('cli dist/cli/index.mjs status --json');
 });
+
+it('force-stops a new release that ignores its stop, instead of waiting on it forever', async () => {
+  const previous = controller('previous', `${startWork}; exit 0`);
+  const frozen = controller('frozen', 'trap "" TERM; while :; do sleep 0.1; done');
+  first(previous);
+  beginActivation(frozen, previous, install);
+  select(frozen);
+  const { exit } = launch({ RI_ACTIVATION_DEADLINE_SECONDS: '1', RI_ACTIVATION_KILL_SECONDS: '1' });
+  expect(await exit).toBe(0);
+  expect(runs()).toEqual(['frozen', 'frozen', 'previous']);
+  expect(installedRuntime()?.id).toBe(previous);
+}, 20_000);

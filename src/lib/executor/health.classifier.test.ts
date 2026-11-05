@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { _internals, cutOffByRestart, SEND_REFUSED_SUBTYPE } from './health';
 import type { ChatEventRecord } from '@/db/types';
+import { parseStreamEvent } from '@/lib/runner/parse';
 
 /**
  * Targets the pure activity-probe logic — orphan detection and
@@ -149,9 +150,22 @@ describe('cutOffByRestart', () => {
     expect(cutOffByRestart([row({ role: 'user', source: 'user', createdAt: at(1) })], read, now)).toBe(true);
   });
 
+  it('reads what the live parser really writes: an ID on every agent event', () => {
+    const live = (event: Record<string, unknown>) => {
+      const input = parseStreamEvent('s', { timestamp: at(1), ...event } as unknown as Parameters<typeof parseStreamEvent>[1])!;
+      expect(input.externalEventId).toBeTruthy();
+      return row({ ...input, role: input.role as ChatEventRecord['role'], source: input.source as ChatEventRecord['source'], createdAt: at(1) });
+    };
+    for (const event of [{ type: 'assistant', text: 'halfway through' }, { type: 'thinking', text: 'hm' }, { type: 'tool_call', name: 'Bash', input: {} }]) {
+      expect(cutOffByRestart([live(event)], read, now)).toBe(true);
+    }
+    expect(cutOffByRestart([live({ type: 'result' })], read, now)).toBe(false);
+  });
+
   it('leaves alone a finished turn, a terminal session, old work, and anything already seen or unread', () => {
     expect(cutOffByRestart([row({ role: 'assistant', source: 'result', createdAt: at(1) }), row({ role: 'assistant', source: 'tool_call', createdAt: at(2) })], read, now)).toBe(false);
-    expect(cutOffByRestart([row({ role: 'assistant', source: 'agent', createdAt: at(1), externalEventId: 'from-a-terminal' })], read, now)).toBe(false);
+    // A person's message mirrored from a session in their terminal, not sent from here.
+    expect(cutOffByRestart([row({ role: 'user', source: 'user', createdAt: at(1), externalEventId: 'from-a-terminal' })], read, now)).toBe(false);
     expect(cutOffByRestart([row({ role: 'assistant', source: 'thinking', createdAt: at(25 * 60) })], read, now)).toBe(false);
     expect(cutOffByRestart([row({ role: 'assistant', source: 'thinking', createdAt: at(40) })], read, now)).toBe(false);
     expect(cutOffByRestart([row({ role: 'assistant', source: 'thinking', createdAt: at(1) })], { ...read, lastOutcomeEventAt: at(5) }, now)).toBe(false);

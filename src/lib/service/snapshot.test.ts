@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { serviceIdentity } from './paths';
-import { createSnapshot, listSnapshots, pruneSnapshots, readSnapshot, restoreSnapshot, snapshotChanges, snapshotRoot, SnapshotSpaceError, SNAPSHOT_RETENTION_MS } from './snapshot';
+import { createSnapshot, isHomeSnapshot, listSnapshots, pruneSnapshots, readSnapshot, restoreSnapshot, snapshotChanges, snapshotRoot, SnapshotSpaceError, SNAPSHOT_RETENTION_MS } from './snapshot';
 
 const FROM = 'a'.repeat(64);
 const TO = 'b'.repeat(64);
@@ -81,6 +81,33 @@ it('finishes a restore that was interrupted between its renames', async () => {
   // Running it again once it is complete changes nothing.
   await restoreSnapshot(directory);
   expect(rows()).toEqual(['first']);
+});
+
+it('moves config the newer release added beside the failed database, and leaves live files alone', async () => {
+  const config = serviceIdentity().config;
+  fs.mkdirSync(path.join(config, 'old-store'), { recursive: true });
+  fs.writeFileSync(path.join(config, 'old-store/key'), 'old store');
+  fs.writeFileSync(path.join(config, 'config.json'), '{"before":true}');
+  const directory = await createSnapshot({ from: FROM, to: TO });
+  // The newer release converts a folder, as migrateIntegrationStorage does.
+  fs.renameSync(path.join(config, 'old-store'), path.join(config, 'new-store'));
+  fs.writeFileSync(path.join(config, 'config.json'), '{"after":true}');
+  // Created since the snapshot, and not the release's to undo.
+  fs.writeFileSync(path.join(config, 'service-supervision.json'), '{}');
+  fs.mkdirSync(path.join(config, 'browser'), { recursive: true });
+  fs.writeFileSync(path.join(config, 'browser/profile'), 'kept');
+  fs.writeFileSync(path.join(config, 'data.owner.sqlite'), '');
+  await restoreSnapshot(directory);
+  expect(fs.readFileSync(path.join(config, 'old-store/key'), 'utf8')).toBe('old store');
+  expect(fs.readFileSync(path.join(config, 'config.json'), 'utf8')).toBe('{"before":true}');
+  // An old and a new store never both exist, and nothing is deleted.
+  expect(fs.existsSync(path.join(config, 'new-store'))).toBe(false);
+  expect(fs.readFileSync(path.join(directory, 'failed/config/new-store/key'), 'utf8')).toBe('old store');
+  for (const live of ['service-supervision.json', 'browser/profile', 'data.owner.sqlite']) expect(fs.existsSync(path.join(config, live))).toBe(true);
+  // A repeat, after a crash, changes nothing.
+  await restoreSnapshot(directory);
+  expect(fs.readFileSync(path.join(directory, 'failed/config/new-store/key'), 'utf8')).toBe('old store');
+  expect(isHomeSnapshot(directory)).toBe(true);
 });
 
 it('waits for disk space instead of starting an update it might not finish', async () => {

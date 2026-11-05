@@ -131,7 +131,7 @@ it('reports a Home that fails to start, with its error', async () => {
   stageRuntime(release('first'));
   const crashing = { runId: 'new', phase: 'restarting', error: 'The server exited (exit 1)', restarts: { count: 5, crashLoop: true, last: { at: '', reason: '' } } } as ServiceStatus;
   const service = fakeService({ install: async () => service.set(crashing) });
-  await expect(keepRunning({}, service.deps)).resolves.toEqual({ result: 'failed', reason: 'The server exited (exit 1)' });
+  await expect(keepRunning({}, service.deps)).resolves.toEqual({ result: 'failed', reason: 'The server exited (exit 1) Ri keeps trying in the background.' });
 });
 
 it('needs a release, and runs nothing without one', async () => {
@@ -149,4 +149,20 @@ it("leaves a new team's address to the service, which picks its own as it always
   expect(calls).toEqual(['install']);
   expect(readHomeAddress()).toBeNull();
   expect(holder).not.toHaveBeenCalled();
+});
+
+it('has nothing to do for a Home the OS already keeps running', async () => {
+  stageRuntime(release('first'));
+  const { deps, calls, set } = fakeService({ supervised: () => true });
+  set({ runId: 'same', phase: 'running', origin: 'https://localhost:42242' } as ServiceStatus);
+  // Retrying `ri team create` returns at once, instead of waiting for a new run that never comes.
+  await expect(keepRunning({ address: 'service' }, deps)).resolves.toMatchObject({ result: 'running', origin: 'https://localhost:42242' });
+  expect(calls).toEqual([]);
+});
+
+it('says why after a few failed starts, while the Home keeps retrying', async () => {
+  stageRuntime(release('first'));
+  const failing = { runId: 'new', phase: 'restarting', error: 'Port in use.', restarts: { count: 3, crashLoop: false, last: { at: '', reason: '' } } } as ServiceStatus;
+  const service = fakeService({ install: async () => service.set(failing) });
+  await expect(keepRunning({}, service.deps)).resolves.toEqual({ result: 'failed', reason: 'Port in use. Ri keeps trying in the background.' });
 });

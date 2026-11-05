@@ -19,11 +19,36 @@ import { describeNeedsClaim, resolveHomeIdentity } from '@/lib/home/identity';
 import { serviceStatus } from '@/lib/service/client';
 import { hasLoginSupervision } from '@/lib/service/supervision-state';
 import { readStopped } from '@/lib/service/stopped';
-import { latestRelease, storeDirectory } from '@/lib/service/store';
+import { latestRelease, listHomes, storeDirectory, type InstalledHome } from '@/lib/service/store';
+import { canonical } from '@/lib/service/paths';
+import { displayRoot, withHomeIdentity } from '@/lib/service/update-run';
+import { readLiveServerRuntime } from '@/lib/server-runtime/record';
 import { releaseCommit } from '@/lib/service/source-build';
-import { describeHomeStatus } from '@/lib/service/home-status';
+import { describeHomeStatus, homeIsDown, summarizeHome } from '@/lib/service/home-status';
 import fs from 'node:fs';
 import path from 'node:path';
+
+/** What `ri status` reports about the Home the environment names. */
+async function homeFacts() {
+  const status = await serviceStatus().catch(() => null);
+  return { status, supervised: hasLoginSupervision(), stopped: readStopped(), computer: computerRelease(),
+    homeCommit: status?.repo ? releaseCommit(status.repo) : null, terminal: readLiveServerRuntime()?.publicBaseUrl ?? null, now: Date.now() };
+}
+
+/** Every other Home the installation runs, one line each, so a team that's
+ * down can't hide behind a healthy personal Home. */
+async function printOtherHomes() {
+  const here = canonical(getAppRoot());
+  const others = listHomes().filter((home): home is InstalledHome & { identity: NonNullable<InstalledHome['identity']> } => !!home.identity && home.identity.root !== here);
+  if (!others.length) return;
+  console.log(`\n${pc.dim('other Homes on this computer')}`);
+  for (const home of others) {
+    const facts = await withHomeIdentity(home.identity, homeFacts);
+    const line = `${displayRoot(home.identity.root)}  ${summarizeHome(facts)}`;
+    console.log(homeIsDown(facts) ? pc.red(line) : line);
+    if (homeIsDown(facts)) process.exitCode = 1;
+  }
+}
 
 /** The newest release on this computer, what `ri` itself runs. */
 function computerRelease() {
@@ -39,8 +64,9 @@ function computerRelease() {
 export function registerStatusCommand(program: Command) {
   program
     .command('status')
-    .description('Show what this folder is: a home, a device connected to one, or not set up')
-    .action(async () => {
+    .description('Show what this folder is and whether every Home on this computer is running')
+    .option('--root <dir>', 'only this Home')
+    .action(async (opts: { root?: string }) => {
       console.log(`${pc.dim('folder')}  ${getAppRoot()}`);
       let role;
       try {
@@ -66,16 +92,13 @@ export function registerStatusCommand(program: Command) {
           console.log(pc.yellow(`${pc.dim('state')}   not active here. ${describeNeedsClaim(status.reason)}`));
           return;
         }
-        const service = await serviceStatus().catch(() => null);
-        const lines = describeHomeStatus({
-          status: service, supervised: hasLoginSupervision(), stopped: readStopped(), computer: computerRelease(),
-          homeCommit: service?.repo ? releaseCommit(service.repo) : null, now: Date.now(),
-        });
-        for (const [label, value] of lines) {
+        const facts = await homeFacts();
+        for (const [label, value] of describeHomeStatus(facts)) {
           const text = `${pc.dim(label.padEnd(7))} ${value}`;
           console.log(label === 'error' ? pc.red(text) : text);
         }
-        if (service && service.phase !== 'running') process.exitCode = 1;
+        if (homeIsDown(facts)) process.exitCode = 1;
+        if (!opts.root) await printOtherHomes();
         return;
       }
 

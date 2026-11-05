@@ -24,6 +24,13 @@ export function isInstallationCommand(command: string, subcommand?: string) {
 
 type Env = Record<string, string | undefined>;
 
+/** A command told its Home's folder uses it, before anything picks a Home or a
+ * release. `team create` and `update --root` read theirs themselves. */
+export function selectExplicitRoot(command: string, commandRoot: unknown, actionRoot: unknown, env: Env = process.env) {
+  const root = command === 'service' ? commandRoot : ['team', 'update'].includes(command) ? undefined : actionRoot;
+  if (typeof root === 'string' && root) env[APP_ROOT_ENV] = path.resolve(/* turbopackIgnore: true */ root);
+}
+
 /** Point a command at the installation's default Home unless it was told one. */
 export function selectDefaultHome(command: string, subcommand?: string, env: Env = process.env) {
   if (isInstallationCommand(command, subcommand)) return null;

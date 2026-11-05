@@ -11,6 +11,7 @@ import type { MaintenanceGate } from './maintenance-state';
 import { validateDatabase } from './checkpoint';
 import { createSnapshot, listSnapshots, restoreSnapshot, snapshotChanges, SNAPSHOT_RETENTION_MS, type SnapshotChanges } from './snapshot';
 import { beginActivation, clearActivation, readActivation, type Activation } from './activation';
+import { withStoreLock } from './store';
 import { checkRelease, downloadRelease, releasePolicy, type Release } from './release';
 import { MaintenanceWindowSchema, type MaintenanceWindow } from './update-settings';
 
@@ -25,6 +26,9 @@ export interface UpdateRecord {
   local?: LocalRelease;
   /** Update now: switch even though chats are running, which ends them. */
   force?: boolean;
+  /** A rollback under way, written before it changes anything, so a crash at
+   * any step finishes it instead of guessing from what's on disk (7.6). */
+  rollback?: { to: string; leaving: string; snapshot: string };
 }
 export interface RuntimeTarget { id: string; repo: string; node: string }
 export interface UpdateBackend {
@@ -69,7 +73,7 @@ const transient = new Set<UpdatePhase>(['draining', 'checkpointing', 'validating
 const RELEASE_ID = /^[a-f0-9]{64}$/;
 
 /** What the target's migrations would change, read without writing anything. */
-async function pendingMigrations(target: RuntimeTarget): Promise<number> {
+export async function pendingMigrations(target: RuntimeTarget): Promise<number> {
   const folder = path.join(/* turbopackIgnore: true */ target.repo, 'drizzle');
   if (!fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ folder, 'meta/_journal.json'))) return 0;
   const database = serviceIdentity().database;
@@ -77,6 +81,18 @@ async function pendingMigrations(target: RuntimeTarget): Promise<number> {
   const [{ inspectMigrationHistory }, { default: Database }] = await Promise.all([import('@/lib/db/migrate'), import('better-sqlite3')]);
   const db = new Database(database, { readonly: true, fileMustExist: true });
   try { return inspectMigrationHistory(db, folder).pending.length; } finally { db.close(); }
+}
+
+/**
+ * The snapshots recovery still needs, which retention must leave alone. Once a
+ * new release has started work, its snapshot only serves a rollback on request
+ * and follows the 7-day rule, or it would hold old database blocks on the disk
+ * until the next update.
+ */
+export function snapshotsInUse(record: Pick<UpdateRecord, 'phase' | 'checkpoint' | 'rollback'>, activation: Pick<Activation, 'candidate' | 'restore'>): string[] {
+  if (record.rollback) return [record.rollback.snapshot];
+  if (!record.checkpoint) return [];
+  return ['validating', 'recovery-required'].includes(record.phase) || activation.candidate || activation.restore ? [record.checkpoint] : [];
 }
 
 /** One instance in the service owner. Every GUI/CLI action uses its private
@@ -96,9 +112,6 @@ export class UpdateCoordinator {
       channel: policy.channel, automaticDownload: policy.automaticDownload, metered: policy.metered,
     } : null };
   }
-  startupFailed(error: unknown) {
-    if (this.record.committedAt) this.save({ phase: 'recovery-required', approved: false, error: `The new database is retained. Startup failed: ${message(error)}` });
-  }
   private save(change: Partial<UpdateRecord>) {
     this.record = { ...this.record, ...change, changedAt: new Date().toISOString() };
     atomicWriteFile(this.file, JSON.stringify(this.record));
@@ -112,7 +125,15 @@ export class UpdateCoordinator {
     if (manifest.id !== id) throw new Error('Staged runtime identity mismatch');
     return { id, repo: path.join(/* turbopackIgnore: true */ directory, 'server'), node: path.join(/* turbopackIgnore: true */ directory, 'node/bin/node') };
   }
-  private async select(id: string) { await this.target(id); atomicWriteFile(path.join(/* turbopackIgnore: true */ this.directory, 'active-release'), `${id}\n`); }
+  /** Move this Home's pointers under the store's lock, so another Home's
+   * cleanup never sees a release both of them have just stopped naming. */
+  private async select(id: string, previous?: string) {
+    await this.target(id);
+    withStoreLock(() => {
+      if (previous) atomicWriteFile(path.join(/* turbopackIgnore: true */ this.directory, 'previous-release'), `${previous}\n`);
+      atomicWriteFile(path.join(/* turbopackIgnore: true */ this.directory, 'active-release'), `${id}\n`);
+    });
+  }
   private async exclusive<T>(action: () => Promise<T>) {
     if (this.busy) throw new Error('Another update action is in progress');
     this.busy = true;
@@ -260,8 +281,7 @@ export class UpdateCoordinator {
         // the upgraded DB, even if activation or the controller then crashes.
         this.save({ phase: 'committed', committedAt: new Date().toISOString(), approved: false, force: false, reason: undefined });
         beginActivation(target.id, prior.id, this.directory);
-        atomicWriteFile(path.join(/* turbopackIgnore: true */ this.directory, 'previous-release'), `${prior.id}\n`);
-        await this.select(target.id);
+        await this.select(target.id, prior.id);
         access?.(); access = undefined;
         activity(); activity = undefined;
         clearMaintenance();
@@ -316,6 +336,8 @@ export class UpdateCoordinator {
     if (!latest) return { available: false, reason: "There's no snapshot from an update to go back to. Snapshots are kept for 7 days." };
     const { directory, manifest } = latest;
     if (manifest.to !== current) return { available: false, reason: "The last snapshot doesn't belong to the version this Home runs, so there's nothing to roll back." };
+    // A Home's first move to a release: no older release here to go back to.
+    if (manifest.from === manifest.to) return { available: false, reason: `This Home has run only this version on this computer, so there's nothing older to go back to. A copy of its database from before its migrations is in ${directory}.` };
     const expiresAt = new Date(Date.parse(manifest.createdAt) + 7 * 24 * 60 * 60_000).toISOString();
     if (now - Date.parse(manifest.createdAt) > SNAPSHOT_RETENTION_MS) return { available: false, reason: `Rollback expired on ${expiresAt}.`, expiresAt };
     if (!fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ releaseDirectory(manifest.from, this.directory), 'runtime-manifest.json'))) {
@@ -351,13 +373,9 @@ export class UpdateCoordinator {
         await this.backend.stop();
         access = exclusiveDatabaseAccess();
         await this.backend.assertNoLegacyWriters();
-        await (this.backend.restore ?? restoreSnapshot)(state.snapshot!);
-        atomicWriteFile(path.join(/* turbopackIgnore: true */ this.directory, 'previous-release'), `${state.to}\n`);
-        await this.select(target.id);
-        clearActivation(this.directory);
-        const left = this.record.release?.version;
-        this.save({ phase: 'idle', approved: false, force: false, committedAt: undefined, checkpoint: undefined, priorId: undefined, release: undefined, local: undefined, error: undefined,
-          reason: `Rolled back${left ? ` from ${left}` : ''} at ${new Date().toISOString()}.` });
+        // From here a crash finishes the rollback: recovery reads this record.
+        this.save({ rollback: { to: target.id, leaving: state.to!, snapshot: state.snapshot! } });
+        await this.finishRollback();
         access(); access = undefined;
         activity(); activity = undefined;
         clearMaintenance();
@@ -366,9 +384,26 @@ export class UpdateCoordinator {
       } catch (error) {
         clearMaintenance();
         access?.(); activity?.();
+        // Stopped before anything changed: the controller starts the server
+        // again on its next probe. Past that point, a person has to look.
+        if (this.record.rollback) {
+          this.save({ phase: 'recovery-required', error: `The rollback didn't finish. ${message(error)}` });
+          this.backend.unavailable?.(this.record.error!);
+        }
         throw error;
       }
     });
+  }
+
+  /** Safe to repeat: a restore already done changes nothing the second time. */
+  private async finishRollback() {
+    const { to, leaving, snapshot } = this.record.rollback!;
+    await (this.backend.restore ?? restoreSnapshot)(snapshot);
+    await this.select(to, leaving);
+    clearActivation(this.directory);
+    const left = this.record.release?.version;
+    this.save({ phase: 'idle', approved: false, force: false, committedAt: undefined, checkpoint: undefined, priorId: undefined, release: undefined, local: undefined, error: undefined, rollback: undefined,
+      reason: `Rolled back${left ? ` from ${left}` : ''} at ${new Date().toISOString()}.` });
   }
 
   /** Runs before any token bootstrap, DB opener, scheduler or public socket. */
@@ -379,6 +414,16 @@ export class UpdateCoordinator {
     return this.exclusive(() => this.recoverExclusive(retry));
   }
   private async recoverExclusive(retry: boolean) {
+    if (this.record.rollback) {
+      const release = exclusiveDatabaseAccess();
+      try {
+        await this.backend.assertNoLegacyWriters();
+        await this.finishRollback();
+        clearMaintenance();
+      } catch (error) { this.save({ phase: 'recovery-required', error: `The rollback didn't finish. ${message(error)}` }); throw error; }
+      finally { release(); }
+      return;
+    }
     const activation = readActivation(this.directory);
     if (activation.restore) return this.recoverFailedActivation(activation);
     if (retry && this.record.phase === 'recovery-required') {
@@ -417,11 +462,13 @@ export class UpdateCoordinator {
       if (this.record.checkpoint) await (this.backend.restore ?? restoreSnapshot)(this.record.checkpoint);
       const back = activation.previous ?? this.record.priorId;
       if (back && installedRuntime(this.directory)?.id !== back) await this.select(back);
-      clearActivation(this.directory);
-      clearMaintenance();
       const version = this.record.release?.version;
+      // The record first, the evidence last: a crash between them repeats this
+      // recovery, which is safe, instead of selecting the rejected release.
       this.save({ phase: 'failed', approved: false, force: false, committedAt: undefined,
         error: `The update${version ? ` to ${version}` : ''} didn't start, so Ri went back to the version it ran before. Nothing it did needed undoing, because it never started work.` });
+      clearActivation(this.directory);
+      clearMaintenance();
     } catch (error) { this.save({ phase: 'recovery-required', error: message(error) }); throw error; }
     finally { release?.(); }
   }

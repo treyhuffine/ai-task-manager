@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { writeRuntimeFixture } from '@/lib/service/runtime-fixture';
 import { stageRelease, storeDirectory } from '@/lib/service/store';
 import { stageRuntime } from '@/lib/service/runtime';
-import { delegationTarget, selectDefaultHome } from './release-delegation';
+import { delegationTarget, selectDefaultHome, selectExplicitRoot } from './release-delegation';
 
 let root: string;
 const realRoot = () => fs.realpathSync(root);
@@ -68,4 +68,35 @@ it('never delegates from a checkout', () => {
   fs.mkdirSync(process.env.RI_RUNTIME_REPO, { recursive: true });
   selectDefaultHome('agent', 'list_tasks');
   expect(delegationTarget('agent', 'list_tasks')).toBeNull();
+});
+
+it('keeps meaning the personal Home while a team moves to the installation first', () => {
+  homeOn('team-home', '0.1.0');
+  const env: Record<string, string | undefined> = {};
+  expect(selectDefaultHome('agent', 'list_tasks', env)).toBe(`${realRoot()}/team-home`);
+  // ~/ri holds a Home still running in a terminal: not recorded yet, and still what a command means.
+  fs.mkdirSync(path.join(root, 'user/ri'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'user/ri/data.db'), '');
+  const during: Record<string, string | undefined> = {};
+  expect(selectDefaultHome('agent', 'list_tasks', during)).toBeNull();
+  expect(during.RI_ROOT).toBeUndefined();
+});
+
+it('keeps meaning the Home a connected device reaches, too', () => {
+  homeOn('team-home', '0.1.0');
+  fs.mkdirSync(path.join(root, 'user/ri/.config'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'user/ri/.config/connection.json'), '{}');
+  expect(selectDefaultHome('status', undefined, {})).toBeNull();
+});
+
+it('takes a command\'s own --root before anything picks a Home or a release', () => {
+  const env: Record<string, string | undefined> = {};
+  selectExplicitRoot('service', '/homes/team', undefined, env);
+  expect(env.RI_ROOT).toBe('/homes/team');
+  selectExplicitRoot('restart', undefined, '/homes/other', env);
+  expect(env.RI_ROOT).toBe('/homes/other');
+  const untouched: Record<string, string | undefined> = {};
+  selectExplicitRoot('update', undefined, '/homes/rollback-target', untouched);
+  selectExplicitRoot('team', undefined, '/homes/new-team', untouched);
+  expect(untouched.RI_ROOT).toBeUndefined();
 });

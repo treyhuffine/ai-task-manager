@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import readline from 'node:readline/promises';
 import { Option, type Command } from 'commander';
 import { serviceRequest, serviceStatus } from '@/lib/service/client';
@@ -5,7 +6,8 @@ import type { ReleasePreferences, UpdatePreferences } from '@/lib/service/update
 import { listHomes } from '@/lib/service/store';
 import { parseFrom, readOrigin, writeOrigin, type Origin } from '@/lib/service/origin';
 import { buildRelease, selectCommit } from '@/lib/service/source-build';
-import { installCommandLauncher } from '@/lib/service/runtime';
+import { commandLauncherPath, installCommandLauncher } from '@/lib/service/runtime';
+import { commandCheck, resolveCommand } from '@/lib/service/os-checks';
 import { defaultHome, homeAtRoot } from '@/lib/service/home-lookup';
 import { describeRollback, displayRoot, runUpdate, withHomeIdentity, type HomeClient, type HomeStatus } from '@/lib/service/update-run';
 import type { RollbackStatus } from '@/lib/service/update';
@@ -26,7 +28,7 @@ function describeOrigin(origin: Origin) {
 
 async function rollback(options: UpdateOptions) {
   const home = options.root ? homeAtRoot(options.root) : defaultHome();
-  if (!home) throw new Error(options.root ? `This computer doesn't run a Home in ${options.root}.` : "This computer doesn't run a Home yet.");
+  if (!home) throw new Error(options.root ? `This computer doesn't run a Home in ${options.root}.` : 'No Home on this computer has moved to the installation yet. To name one: --root <folder>');
   const homeClient = client(home.identity);
   if (!(await homeClient.status())) throw new Error(`${displayRoot(home.identity.root)} isn't running. Start it with \`ri start\`, then roll back.`);
   const { rollback: state } = await homeClient.request<{ rollback: RollbackStatus }>('/update/rollback');
@@ -75,6 +77,10 @@ export function registerUpdateCommand(program: Command) {
         say: line => console.info(line), sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: Date.now,
       });
       if (outcomes.some(outcome => outcome.result === 'failed' || outcome.result === 'reverted')) process.exitCode = 1;
+      // An installed launcher does nothing if another `ri` comes first.
+      const launcherPath = commandLauncherPath();
+      const command = commandCheck(resolveCommand('ri'), launcherPath, fs.existsSync(launcherPath));
+      if (command.warn) console.info(`The ri command: ${command.detail}`);
     });
   update.command('recover').description('Retry the recorded recovery after correcting its reported problem. Then start the service again.').action(async () => {
     console.info(JSON.stringify(await serviceRequest('/recover', 'POST', 180_000), null, 2));

@@ -18,15 +18,15 @@ import { ensureGeneratedTls } from '@/lib/config/tls';
 import { startNextServer } from '@/cli/lib/server';
 import { startHttp2Gateway, type Http2GatewayHandle } from '@/cli/http2-gateway';
 import { readLiveServerRuntime, publishServerRuntime, clearServerRuntimeIfOwned, newRunId, PUBLIC_BASE_URL_ENV, isProcessAlive } from '@/lib/server-runtime/record';
-import { UpdateCoordinator, type RuntimeTarget } from '@/lib/service/update';
+import { pendingMigrations, snapshotsInUse, UpdateCoordinator, type RuntimeTarget } from '@/lib/service/update';
 import { assertNoLegacyWriters, ownedProcesses, ownedProcessIds } from '@/lib/service/processes';
-import { HANG_LIMIT_MS, HangDetector, memoryAction, PROBE_INTERVAL_MS, PROBE_TIMEOUT_MS, RestartTracker, type Memory } from '@/lib/service/supervisor';
+import { HANG_LIMIT_MS, HangDetector, memoryAction, PROBE_INTERVAL_MS, PROBE_TIMEOUT_MS, RestartTracker, serverMissing, type Memory } from '@/lib/service/supervisor';
 import { readStopped } from '@/lib/service/stopped';
 import { hasLoginSupervision } from '@/lib/service/install';
 import { installedRuntime } from '@/lib/service/runtime';
 import { emptyTrash, pruneReleases, writeHomeRecord } from '@/lib/service/store';
-import { activationPending, clearActivation } from '@/lib/service/activation';
-import { pruneSnapshots } from '@/lib/service/snapshot';
+import { activationPending, clearActivation, readActivation } from '@/lib/service/activation';
+import { isHomeSnapshot, pruneSnapshots } from '@/lib/service/snapshot';
 import { writeMaintenance, clearMaintenance, exclusiveActivity } from '@/lib/service/maintenance';
 import { releasePolicy } from '@/lib/service/release';
 import { updateReleasePreferences } from '@/lib/service/release-trust';
@@ -63,7 +63,7 @@ let releaseOwner: (() => void) | undefined;
 let stopping: Promise<void> | undefined;
 let updater: UpdateCoordinator;
 const coordination = new ServiceControlCoordination(() => updater.status().busy);
-const updateTick = () => roleChange ? Promise.resolve() : coordination.tick(() => updater.tick());
+const updateTick = () => roleChange || starting ? Promise.resolve() : coordination.tick(() => updater.tick());
 const childRecord = path.join(paths.identity.work, 'service-child.json');
 const awake = new ServiceAwake();
 let worker: ServiceWorker | undefined;
@@ -81,6 +81,13 @@ let exitReason: string | undefined;
 let plannedRestart: Promise<void> | undefined;
 let urgentRestart = false;
 let probing = false;
+/** A start is in flight: the first one, or a retry. */
+let starting = false;
+/** startHome finished, so the address and gateway are up and a retry only
+ * needs a server. Until then, a retry repeats all of it. */
+let homeServing = false;
+let timersStarted = false;
+let housekeepingStarted = false;
 
 async function backendRequest<T>(route: string, timeout = 3000, body?: unknown): Promise<T> {
   const response = await fetch(`http://127.0.0.1:${privatePort}${route}`, {
@@ -180,21 +187,48 @@ function backendExited(failure: string) {
   restartTimer = setTimeout(() => void restartBackend(), delayMs);
 }
 
+/** Leave nothing half started, so the next try begins clean. A Home that was
+ * serving keeps its gateway, which holds the address while the server is back. */
+async function stopFailedStart() {
+  await stopBackend().catch(() => {});
+  if (homeServing) return;
+  await awake.stop();
+  await gateway?.close(1000).catch(() => {});
+  gateway = undefined;
+}
+
 async function restartBackend() {
-  if (stopping || next) return;
+  restartTimer = undefined;
+  if (stopping || next || starting) return;
   // An update attempt holds the backend for a moment. Try again after it, or
   // the Home would stay down until something else restarted it.
-  if (updater.status().busy || coordination.handingOff) { restartTimer = setTimeout(() => void restartBackend(), 5000); return; }
+  if (updater.status().busy || coordination.handingOff || roleChange) { restartTimer = setTimeout(() => void restartBackend(), 5000); return; }
+  starting = true;
   try {
-    await startBackend();
-    hang.reset();
-    publish();
+    if (homeServing) {
+      await startBackend();
+      hang.reset();
+      publish();
+    } else await refreshRole(true);
     status.error = undefined;
     if (status.restarts) delete status.restarts.nextAttemptAt;
     console.info('[service] The server is back.');
   } catch (error) {
-    await stopBackend().catch(() => {});
-    backendExited(error instanceof Error ? error.message : 'The server failed to start');
+    await stopFailedStart();
+    if (!stopping) backendExited(error instanceof Error ? error.message : 'The server failed to start');
+  } finally { starting = false; }
+}
+
+/**
+ * Every probe: should this Home have a server, and does it? This is what makes
+ * "never gives up" true for every way a server can go away, including ones
+ * nobody wrote a restart for. Only a recovery that needs a person holds it back.
+ */
+function superviseServer() {
+  const update = updater.status();
+  if (serverMissing({ serves: servesHome(role), running: !!next, stopping: !!stopping, unsafe: update.phase === 'recovery-required',
+    busy: update.busy || coordination.handingOff || !!roleChange || !!plannedRestart, retrying: starting || restartTimer !== undefined })) {
+    backendExited(status.error ?? 'The server was not running, so it was started');
   }
 }
 
@@ -243,7 +277,7 @@ function planRestart(reason: string, now: boolean) {
       publish();
     } catch (error) {
       // The new server didn't come up: retry by the same schedule as a crash.
-      await stopBackend().catch(() => {});
+      await stopFailedStart();
       if (!stopping) backendExited(error instanceof Error ? error.message : 'The server failed to restart');
     } finally {
       plannedRestart = undefined;
@@ -353,7 +387,8 @@ const control = http.createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/recover') {
       if (status.phase !== 'failed' || next || updater.status().busy || coordination.handingOff) throw new Error('Recovery is only available while the backend is stopped');
       await updater.recover(true);
-      reply({ phase: 'stopping' }); setImmediate(() => void shutdown()); return;
+      // Under the launcher, 75 brings the Home straight back on the right release.
+      reply({ phase: 'stopping' }); setImmediate(() => void shutdown(process.env.RI_SERVICE_LAUNCHER === '2' ? 75 : 0)); return;
     }
     if (request.method === 'POST' && request.url === '/handoff') {
       await coordination.handoff(async () => {
@@ -377,10 +412,12 @@ const control = http.createServer(async (request, response) => {
       return;
     }
     if (request.method === 'POST' && request.url === '/restart') {
-      if (!servesHome(role) || !next) throw new Error('This Home has no running server to restart.');
+      if (!servesHome(role)) throw new Error('This computer runs no Home to restart.');
       let bytes = 0; const chunks: Buffer[] = [];
       for await (const chunk of request) { bytes += chunk.length; if (bytes > 1024) throw new Error('Control request too large'); chunks.push(chunk); }
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) as { now?: boolean } : {};
+      // A Home waiting for its next retry tries now instead.
+      if (!next) { clearTimeout(restartTimer); void restartBackend(); return reply({}); }
       void planRestart('restarted on request', body.now === true);
       return reply({});
     }
@@ -409,6 +446,16 @@ async function shutdown(code = 0) {
   return stopping;
 }
 
+/**
+ * Whether this controller's storage is a Home's. Recovery asks the record it
+ * is working from, not the folder: a restore moves the database aside for a
+ * moment, and a crash right then makes a Home look like a new installation.
+ */
+function homeStorage() {
+  const record = updater?.status();
+  return servesHome(role) || !!record?.rollback || (!!record?.checkpoint && isHomeSnapshot(record.checkpoint));
+}
+
 async function start() {
   // Stopped by its owner: the OS started it at login or boot. Stay down (6.4).
   const stopped = readStopped();
@@ -424,9 +471,9 @@ async function start() {
     if (isProcessAlive(child.pid)) throw new Error('The previous backend process is still alive. Inspect it before restarting.');
   }
   updater = new UpdateCoordinator({ activity,
-    get storage() { return servesHome(role) ? 'home' as const : 'worker' as const; },
+    get storage() { return homeStorage() ? 'home' as const : 'worker' as const; },
     exclusiveStorage: async () => (await acquireWorkerLock()).release,
-    assertNoLegacyWriters: () => servesHome(role) ? assertNoLegacyWriters() : Promise.resolve(assertWorkerStorage()),
+    assertNoLegacyWriters: () => homeStorage() ? assertNoLegacyWriters() : Promise.resolve(assertWorkerStorage()),
     compatibility: async target => servesHome(role)
       ? (await backendRequest<{ reasons: string[] }>('/__ri_compatibility', 30_000, { repo: target.repo })).reasons
       : workerUpdateCompatibility(target.repo),
@@ -435,7 +482,7 @@ async function start() {
     checkpoint: request => servesHome(role)
       ? runtimeJob(controllerRepo, 'checkpoint', { from: request.from, to: request.to })
       : runtimeJob(controllerRepo, 'worker-checkpoint', request.recovery),
-    restore: directory => runtimeJob(controllerRepo, servesHome(role) ? 'restore' : 'worker-checkpoint-verify', directory),
+    restore: directory => runtimeJob(controllerRepo, homeStorage() ? 'restore' : 'worker-checkpoint-verify', directory),
     verifyDatabase: target => servesHome(role) ? runtimeJob(target.repo, 'validate-database', paths.identity.database, undefined, target.node) : Promise.resolve(assertWorkerStorage()),
     prepareIdle: async () => { if (servesHome(role)) await backendRequest('/__ri_prepare', 30_000); else await worker?.prepareIdle(); },
     resumeAdmission: async () => { if (!stopping) { if (servesHome(role)) await backendRequest('/__ri_resume', 30_000); else await worker?.resumeAdmission(); } },
@@ -480,6 +527,9 @@ async function start() {
   try { await updater.recover(); }
   catch (error) { status.phase = 'failed'; status.error = error instanceof Error ? error.message : 'Recovery required'; return; }
   const installed = installedRuntime();
+  // Recovery can select another release. The launcher starts that release's
+  // own controller, instead of this one running its server.
+  if (installed && process.env.RI_SERVICE_LAUNCHER === '2' && canonical(installed.repo) !== controllerRepo) { setImmediate(() => void shutdown(75)); return; }
   if (installed) { repo = installed.repo; node = installed.node; process.env.RI_RUNTIME_REPO = repo; process.env.NEXT_DIST_DIR = '.next-desktop'; process.chdir(repo); }
   await refreshRole();
   startTimers();
@@ -523,6 +573,7 @@ async function refreshRole(force = false) {
 }
 
 async function startHome() {
+  homeServing = false;
   let saved: { version: number; port: number; privatePort?: number; scheme?: 'http' | 'https'; host?: string };
   if (fs.existsSync(paths.settings)) saved = JSON.parse(fs.readFileSync(paths.settings, 'utf8'));
   else saved = { version: 1, port: await getPort({ host: '127.0.0.1', port: 42242 }) };
@@ -550,6 +601,15 @@ async function startHome() {
   // Consume the first-install permit before any database opener. A later lost
   // database must never be mistaken for an installation that has not begun.
   consumeDesktopInitialization();
+  // Opening the database below applies its migrations. An update has already
+  // taken its snapshot, so there are none left by now. This is an existing
+  // Home moving to a release for the first time: copy it before it changes.
+  const installed = installedRuntime();
+  const pending = installed ? await pendingMigrations(installed) : 0;
+  if (installed && pending > 0) {
+    const copy = await runtimeJob(controllerRepo, 'checkpoint', { from: installed.id, to: installed.id });
+    console.info(`[service] This Home's database has ${pending} migration${pending === 1 ? '' : 's'} to apply. A copy from before them is in ${copy}.`);
+  }
   const { allowMigrations } = await import('@/lib/db/migrate');
   const { ensureLocalToken } = await import('@/lib/auth/bootstrap');
   const { resetDb } = await import('@/lib/db');
@@ -573,18 +633,20 @@ async function startHome() {
     if (!probe.ok) throw startupDiagnostics.readinessFailure(probe);
   }
   publish(); console.info(`[service] Ready at ${status.origin}`);
+  homeServing = true;
   await awake.start();
   scheduleHousekeeping();
 }
 
 /** A minute after the Home is up: delete releases and snapshots nothing uses. */
 function scheduleHousekeeping() {
+  if (housekeepingStarted) return;
+  housekeepingStarted = true;
   const run = () => {
     try { pruneReleases(); } catch (error) { console.warn('[service] Release cleanup skipped:', error instanceof Error ? error.message : 'Failed'); }
     void emptyTrash().catch(error => console.warn('[service] Removing old releases failed:', error instanceof Error ? error.message : 'Failed'));
     try {
-      const update = updater.status();
-      const keep = update.checkpoint && ['validating', 'recovery-required', 'committed'].includes(update.phase) ? [update.checkpoint] : [];
+      const keep = snapshotsInUse(updater.status(), readActivation());
       const database = paths.identity.database;
       const size = fs.existsSync(database) ? fs.statSync(database).size : 0;
       pruneSnapshots({ keep, lowDiskBytes: Math.max(20 * 1024 ** 3, size) });
@@ -595,6 +657,8 @@ function scheduleHousekeeping() {
 }
 
 function startTimers() {
+  if (timersStarted) return;
+  timersStarted = true;
   const renewal = setInterval(() => {
     if (!servesHome(role) || scheme !== 'https' || updater.status().busy || coordination.handingOff) return;
     void ensureGeneratedTls().then(tls => {
@@ -608,7 +672,7 @@ function startTimers() {
   }, 30_000);
   logRotation.unref();
   const tick = setInterval(() => void updateTick(), 30_000); tick.unref();
-  const probe = setInterval(() => void probeBackend(), Number(process.env.RI_SERVICE_PROBE_MS) || PROBE_INTERVAL_MS); probe.unref();
+  const probe = setInterval(() => { superviseServer(); void probeBackend(); }, Number(process.env.RI_SERVICE_PROBE_MS) || PROBE_INTERVAL_MS); probe.unref();
   // Checking/downloading never approves activation. Metered mode suppresses
   // automatic downloads, while an explicit Download remains available.
   const check = async () => {
@@ -635,10 +699,11 @@ void start().catch(async error => {
     await gateway?.close(1000).catch(() => {});
     control.close(); control.closeAllConnections(); releaseOwner?.(); process.exit(1);
   }
-  // Keep diagnostics/recovery available. Repeated startup failures must not
-  // create a launchd restart loop or restore data written after an upgrade.
-  await stopBackend();
-  await awake.stop();
-  await gateway?.close(1000).catch(() => {});
-  updater?.startupFailed(error);
+  // Anything else is retried by the same schedule as a crash, with the control
+  // socket up to say why. A restart loop through the OS would hide the reason,
+  // and restoring data written after an upgrade is never the answer.
+  await stopFailedStart();
+  if (stopping) return;
+  backendExited(status.error);
+  startTimers();
 });

@@ -206,7 +206,7 @@ async function superviseHome(opts: StartOptions, service: NonNullable<Awaited<Re
   let result: Awaited<ReturnType<typeof keepRunning>>;
   try {
     result = await keepRunning({ port: opts.port === undefined ? undefined : Number(opts.port) }, {
-      status: serviceStatus, install: () => installService(), holder: portHolder,
+      status: serviceStatus, supervised: hasLoginSupervision, install: () => installService(), holder: portHolder,
       sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: Date.now, progress: line => s.start(line),
     });
   } catch (error) {

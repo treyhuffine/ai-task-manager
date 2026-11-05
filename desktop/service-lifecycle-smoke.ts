@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import https from 'node:https';
+import net from 'node:net';
 import { execFileSync, spawn } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -197,6 +198,27 @@ async function main() {
     await stopService();
     session = await start();
     passed('a server past 75% of its heap restarts when idle, with the reason recorded');
+
+    // A first start that fails stays alive and keeps trying. Its port is held,
+    // then comes free, with nobody touching it.
+    await stopService();
+    const port = Number(new URL(initial.origin).port);
+    const holder = net.createServer();
+    await new Promise<void>((resolve, reject) => { holder.once('error', reject); holder.listen(port, resolve); });
+    assert(runtime);
+    const retrying = spawn(runtime.node, [path.join(runtime.repo, 'dist/service/main.cjs')], { cwd: runtime.repo, env: { ...environment, RI_RUNTIME_REPO: runtime.repo }, stdio: 'ignore', detached: true });
+    retrying.unref();
+    if (retrying.pid) observed.add(retrying.pid);
+    const failing = await waitFor(serviceStatus, value => value?.phase === 'restarting', 'first start failing and retrying', 60_000);
+    assert(failing!.restarts!.nextAttemptAt, 'A failed first start schedules its next try');
+    assert.match(failing!.error ?? '', /EADDRINUSE|address already in use|in use/i);
+    await new Promise<void>(resolve => holder.close(() => resolve()));
+    await waitFor(serviceStatus, value => value?.phase === 'running', 'first start succeeding once the port is free', 180_000);
+    session = await serviceRequest<ServiceSession>('/session');
+    assert.equal((await api(session, noteRoute)).body.body, note.body.body);
+    await stopService();
+    session = await start();
+    passed('a failed first start keeps retrying and comes up by itself');
 
     // `ri stop` under supervision: the OS starting the controller at login
     // finds the record and exits successfully, so it stays down.

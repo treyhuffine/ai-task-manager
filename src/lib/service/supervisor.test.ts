@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { HangDetector, memoryAction, RestartTracker } from './supervisor';
+import { HangDetector, memoryAction, RestartTracker, serverMissing } from './supervisor';
 
 function clock() {
   let now = 0;
@@ -58,4 +58,14 @@ it('leaves a server alone for memory in its first 10 minutes', () => {
   const memory = { heapUsed: 0.95 * 4096, heapLimit: 4096, rss: 0 };
   expect(memoryAction(memory, 9 * 60_000)).toBe('none');
   expect(memoryAction(memory, 10 * 60_000)).toBe('now');
+});
+
+it('owes a Home a server whenever it has none and nothing else owns the moment', () => {
+  const missing = { serves: true, running: false, stopping: false, busy: false, unsafe: false, retrying: false };
+  expect(serverMissing(missing)).toBe(true);
+  // A device with no Home, a running server, a stop, an update, a recovery that
+  // needs a person, and a retry already on its way all leave it alone.
+  for (const change of [{ serves: false }, { running: true }, { stopping: true }, { busy: true }, { unsafe: true }, { retrying: true }]) {
+    expect(serverMissing({ ...missing, ...change })).toBe(false);
+  }
 });

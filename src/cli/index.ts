@@ -30,10 +30,8 @@ import { registerPerfCommand } from './commands/perf';
 import { registerAttachmentCommand } from './commands/attachment';
 import { registerTeamCommand, selectTeamRoot } from './commands/team';
 import { spawnSync } from 'node:child_process';
-import { delegationTarget, selectDefaultHome } from './lib/release-delegation';
+import { delegationTarget, selectDefaultHome, selectExplicitRoot } from './lib/release-delegation';
 import { registerHomeControlCommands } from './commands/home-control';
-import path from 'node:path';
-import { APP_ROOT_ENV } from '@/lib/config/paths';
 
 // Layout migration is NOT automatic — existing installs run `pnpm migrate:layout`
 // (scripts/migrate-layout.ts) once to move into the home + .config + .work shape.
@@ -52,12 +50,9 @@ program.hook('preAction', (_program, action) => {
   let top = action;
   while (top.parent && top.parent !== program) top = top.parent;
   const sub = top === action ? undefined : action.name();
-  // A Home command told its folder (`ri restart --root ~/team`) uses it (3.4).
-  // `ri service --root`, `team create --root` and `update --root` read their own.
-  const root = ['service', 'team', 'update'].includes(top.name()) ? undefined : action.opts().root as string | undefined;
-  if (root) process.env[APP_ROOT_ENV] = path.resolve(root);
-  // `ri service --root` and `--dev` name their Home themselves.
-  if (!(top.name() === 'service' && top.opts().root) && !action.opts().dev) selectDefaultHome(top.name(), sub);
+  selectExplicitRoot(top.name(), top.opts().root, action.opts().root);
+  // `--dev` names its Home itself.
+  if (!action.opts().dev) selectDefaultHome(top.name(), sub);
   const target = delegationTarget(top.name(), sub);
   if (target) {
     const result = spawnSync(target.node, [target.cli, ...process.argv.slice(2)], { stdio: 'inherit',

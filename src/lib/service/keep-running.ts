@@ -99,6 +99,8 @@ export function ensureHomeRelease(): HomeRelease | null {
 
 export interface KeepRunningDeps {
   status(): Promise<ServiceStatus | null>;
+  /** The OS job exists already. */
+  supervised?(): boolean;
   install(): Promise<unknown>;
   holder(port: number): Promise<string | null>;
   sleep(ms: number): Promise<void>;
@@ -124,6 +126,9 @@ export async function keepRunning(options: { port?: number; address?: 'terminal'
   const release = ensureHomeRelease();
   if (!release) return { result: 'no-release' };
   const before = await deps.status();
+  // Already kept running and serving: installing again changes nothing, and
+  // this controller keeps its run, so waiting for a new one would never end.
+  if (before?.phase === 'running' && before.origin && deps.supervised?.()) return { result: 'running', origin: before.origin, status: before, release, recorded: false };
   const { address, recorded } = options.address === 'service'
     ? { address: readHomeAddress(), recorded: false }
     : recordHomeAddress({ port: options.port });
@@ -143,7 +148,11 @@ export async function keepRunning(options: { port?: number; address?: 'terminal'
     try { last = await deps.status(); } catch { last = null; }
     if (last && last.runId !== before?.runId) {
       if (last.phase === 'running' && last.origin) return { result: 'running', origin: last.origin, status: last, release, recorded };
-      if (last.phase === 'failed' || (last.phase === 'restarting' && last.restarts?.crashLoop)) return { result: 'failed', reason: last.error ?? 'The Home failed to start.' };
+      if (last.phase === 'failed') return { result: 'failed', reason: last.error ?? 'The Home failed to start.' };
+      // It keeps retrying by itself. After a few tries, say why instead of waiting on.
+      if (last.phase === 'restarting' && (last.restarts?.crashLoop || (last.restarts?.count ?? 0) >= 3)) {
+        return { result: 'failed', reason: `${last.error ?? 'The Home failed to start.'} Ri keeps trying in the background.` };
+      }
     }
     await deps.sleep(500);
   }

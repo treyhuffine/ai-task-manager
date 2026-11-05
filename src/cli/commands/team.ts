@@ -25,6 +25,7 @@ import { getAppRoot, getDbPath } from '@/lib/config/paths';
 import { readTeamIntent, writeTeamIntent, TeamIntentError } from '@/lib/home/team-intent';
 import { startBackgroundService } from './service';
 import { serviceStatus } from '@/lib/service/client';
+import { hasLoginSupervision } from '@/lib/service/supervision-state';
 import { installService } from '@/lib/service/install';
 import { keepRunning, portHolder, releaseAvailable } from '@/lib/service/keep-running';
 import { openBrowser } from '../lib/browser';
@@ -129,7 +130,7 @@ export function registerTeamCommand(program: Command) {
 
   async function superviseTeam() {
     const result = await keepRunning({ address: 'service' }, {
-      status: serviceStatus, install: () => installService(), holder: portHolder,
+      status: serviceStatus, supervised: hasLoginSupervision, install: () => installService(), holder: portHolder,
       sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: Date.now,
     });
     if (result.result !== 'running') throw new Error(result.result === 'failed' ? result.reason : 'No Ri release is installed on this computer.');

@@ -50,6 +50,30 @@ export class RestartTracker {
   }
 }
 
+/** What a controller knows about its server on each probe. */
+export interface ServerFacts {
+  /** This folder is a Home, so it should have a server. */
+  serves: boolean;
+  running: boolean;
+  stopping: boolean;
+  /** An update, a handover or a planned restart owns the server right now. */
+  busy: boolean;
+  /** A recovery only a person can finish. Starting a server could lose data. */
+  unsafe: boolean;
+  /** A start is already in flight or scheduled. */
+  retrying: boolean;
+}
+
+/**
+ * Whether this Home should have a server and nothing is bringing one back.
+ * Checked on every probe, instead of at each place a server can go away, so a
+ * failed first start, a failed rollback or a failed update all end the same
+ * way: the Home comes back on the retry schedule.
+ */
+export function serverMissing(facts: ServerFacts) {
+  return facts.serves && !facts.running && !facts.stopping && !facts.busy && !facts.unsafe && !facts.retrying;
+}
+
 /** A server that hasn't answered its readiness probe for this long is hung. Its
  * event loop is frozen, since an ordinary 2 s stall still answers in time. */
 export const HANG_LIMIT_MS = 3 * 60_000;

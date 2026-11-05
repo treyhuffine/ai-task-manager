@@ -21,7 +21,7 @@ import { hasLoginSupervision } from '@/lib/service/supervision-state';
 import { readStopped } from '@/lib/service/stopped';
 import { freeBytes } from '@/lib/service/snapshot';
 import { commandLauncherPath } from '@/lib/service/runtime';
-import { commandCheck, diskCheck, linuxChecks, macChecks, type OsCheck } from '@/lib/service/os-checks';
+import { commandCheck, diskCheck, linuxChecks, macChecks, resolveCommand, type OsCheck } from '@/lib/service/os-checks';
 import { readLiveServerRuntime } from '@/lib/server-runtime/record';
 import { untraced } from '@/lib/utils/untraced';
 
@@ -135,16 +135,6 @@ export async function runDoctorChecks(): Promise<NamedCheckResult[]> {
 function runQuietly(command: string, args: string[]): string | null {
   try { return execFileSync(untraced(command), args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }); }
   catch { return null; }
-}
-
-/** The first `ri` on this terminal's PATH. */
-function resolveCommand(name: string) {
-  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-    if (!dir) continue;
-    const file = path.join(/* turbopackIgnore: true */ dir, name);
-    try { fs.accessSync(/* turbopackIgnore: true */ file, fs.constants.X_OK); return file; } catch { /* not here */ }
-  }
-  return null;
 }
 
 /**

@@ -29,6 +29,7 @@ const updateRecord = z.object({
   committedAt: z.string().datetime().optional(), window: MaintenanceWindowSchema.optional(),
   local: z.object({ commit: z.string().regex(/^[a-f0-9]{40}$/).optional(), checkout: z.string().max(4096).optional() }).strict().optional(),
   force: z.boolean().optional(),
+  rollback: z.object({ to: digest, leaving: digest, snapshot: z.string().max(4096) }).strict().optional(),
 }).strict();
 
 function readPrivateJson(file: string, maximumBytes: number): unknown {

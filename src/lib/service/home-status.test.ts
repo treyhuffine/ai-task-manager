@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { ServiceStatus } from './client';
-import { describeHomeStatus, type HomeStatusFacts } from './home-status';
+import { describeHomeStatus, homeIsDown, summarizeHome, type HomeStatusFacts } from './home-status';
 
 const now = Date.parse('2026-10-29T18:00:00Z');
 const MIB = 1024 * 1024;
@@ -44,4 +44,24 @@ it('says what a downloaded update and a planned restart wait for', () => {
   const lines = describeHomeStatus(facts({ status: busy }));
   expect(lines).toContainEqual(['restart', "waiting for 2 executions, then: its memory reached 80% of Node's limit"]);
   expect(lines).toContainEqual(['update', 'waiting: Waiting for 2 chats to finish']);
+});
+
+it('knows a Home running in a terminal is up, and how to move it', () => {
+  const lines = describeHomeStatus(facts({ status: null, supervised: false, terminal: 'http://localhost:4224' }));
+  expect(lines[0]).toEqual(['state', 'running in a terminal at http://localhost:4224']);
+  expect(lines).toContainEqual(['kept up', 'no. Stop it with Ctrl-C, then `ri start` keeps it running']);
+  expect(homeIsDown({ status: null, stopped: null, terminal: 'http://localhost:4224' })).toBe(false);
+});
+
+it('calls a Home down unless it serves, or its owner stopped it', () => {
+  expect(homeIsDown({ status: running, stopped: null })).toBe(false);
+  expect(homeIsDown({ status: null, stopped: { at: '2026-10-27T18:00:00Z' } })).toBe(false);
+  expect(homeIsDown({ status: null, stopped: null })).toBe(true);
+  expect(homeIsDown({ status: { ...running, phase: 'restarting' }, stopped: null })).toBe(true);
+});
+
+it('fits a Home on one line for the list of everything on this computer', () => {
+  expect(summarizeHome(facts({ homeCommit: 'a8eb63982446'.padEnd(40, '0') }))).toBe('running since 3 h ago at http://localhost:4224, main a8eb6398, kept up by the OS');
+  const crashing = { ...running, phase: 'restarting', error: 'Port in use', restarts: { ...running.restarts!, nextAttemptAt: undefined } } as unknown as ServiceStatus;
+  expect(summarizeHome(facts({ status: crashing, supervised: false }))).toBe('restarting, Port in use, 0.1.0, not kept up');
 });

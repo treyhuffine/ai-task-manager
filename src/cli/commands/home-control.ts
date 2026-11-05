@@ -22,7 +22,8 @@ export async function restartHome(options: { now?: boolean }, deps = { status: s
     let status: ServiceStatus | null;
     try { status = await deps.status(); } catch { continue; }
     if (!status) continue;
-    if ((status.restarts?.count ?? 0) > count && status.phase === 'running') { deps.say(`Restarted. Ri is running at ${status.origin}.`); return; }
+    // A Home that was down has nothing to count: being up again is the answer.
+    if (status.phase === 'running' && ((status.restarts?.count ?? 0) > count || before.phase !== 'running')) { deps.say(`Restarted. Ri is running at ${status.origin}.`); return; }
     if (status.restartPending && !options.now) {
       deps.say(`Ri restarts when ${status.restartPending.waitingFor} finish. To restart now and end them: ${APP_SHORT_ID} restart --now`);
       return;

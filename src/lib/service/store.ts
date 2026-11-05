@@ -179,22 +179,28 @@ export function stageRelease(resources: string, base = getRuntimeBaseDir(), opti
   const manifest = verifyRuntime(resources);
   const store = storeDirectory(base);
   fs.mkdirSync(/* turbopackIgnore: true */ store, { recursive: true, mode: 0o700 });
-  return withStoreLock(() => {
-    const destination = path.join(/* turbopackIgnore: true */ store, manifest.id);
+  const destination = path.join(/* turbopackIgnore: true */ store, manifest.id);
+  // Hashing and copying take minutes, and a Home switching its pointers waits
+  // only 5 s for this lock, so the lock covers publishing the release alone.
+  // A file another Home's cleanup removes meanwhile is copied instead of linked.
+  const temporary = path.join(/* turbopackIgnore: true */ store, `.stage-${randomUUID()}`);
+  try {
     if (fs.existsSync(/* turbopackIgnore: true */ destination)) verifyRuntime(destination);
     else {
-      const temporary = path.join(/* turbopackIgnore: true */ store, `.stage-${randomUUID()}`);
       fs.mkdirSync(/* turbopackIgnore: true */ temporary, { mode: 0o700 });
-      try {
-        copyRelease(resources, temporary, manifest, storedFiles(store, manifest.id), !!options.move);
-        verifyRuntime(temporary);
-        fs.renameSync(/* turbopackIgnore: true */ temporary, destination);
-      } finally { fs.rmSync(/* turbopackIgnore: true */ temporary, { recursive: true, force: true }); }
+      copyRelease(resources, temporary, manifest, storedFiles(store, manifest.id), !!options.move);
+      verifyRuntime(temporary);
     }
-    linkReleaseCache(base, manifest.id, destination);
-    atomicWriteFile(path.join(/* turbopackIgnore: true */ store, 'latest'), `${manifest.id}\n`);
-    return manifest;
-  }, base);
+    return withStoreLock(() => {
+      if (!fs.existsSync(/* turbopackIgnore: true */ destination)) {
+        if (!fs.existsSync(/* turbopackIgnore: true */ temporary)) throw new Error('This release was removed while it was being staged. Try again.');
+        fs.renameSync(/* turbopackIgnore: true */ temporary, destination);
+      }
+      linkReleaseCache(base, manifest.id, destination);
+      atomicWriteFile(path.join(/* turbopackIgnore: true */ store, 'latest'), `${manifest.id}\n`);
+      return manifest;
+    }, base);
+  } finally { fs.rmSync(/* turbopackIgnore: true */ temporary, { recursive: true, force: true }); }
 }
 
 export interface HomeRecord { version: 1; identity: ReturnType<typeof serviceIdentity> }

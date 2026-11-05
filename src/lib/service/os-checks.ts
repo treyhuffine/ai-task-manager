@@ -3,6 +3,7 @@
  * about it (docs/always-on-spec.md section 6.5). Each check reads one OS
  * setting through `run`, so tests give the output each OS prints.
  */
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -54,6 +55,16 @@ export function diskCheck(free: number, database: number): OsCheck {
   return free >= needed
     ? { name: 'Free disk space', ok: true, detail: `${shown(free)} free` }
     : { name: 'Free disk space', ok: free >= 2 * GiB, warn: free >= 2 * GiB, detail: `${shown(free)} free, under ${shown(needed)}. A full disk takes Ri down, and an update's snapshot needs room` };
+}
+
+/** The first program with this name on a PATH. */
+export function resolveCommand(name: string, searchPath = process.env.PATH ?? '') {
+  for (const dir of searchPath.split(path.delimiter)) {
+    if (!dir) continue;
+    const file = path.join(/* turbopackIgnore: true */ dir, name);
+    try { fs.accessSync(/* turbopackIgnore: true */ file, fs.constants.X_OK); return file; } catch { /* not here */ }
+  }
+  return null;
 }
 
 /** Which `ri` a terminal runs: the launcher, or something that hides it. */

@@ -34,6 +34,9 @@ const CHANGE_TABLES = ['chat_events', 'chat_sessions', 'tasks', 'notes'] as cons
  * the Home runs, never migrated), the desktop app's profile, live locks. */
 const CONFIG_SKIP = new Set(['browser', 'electron-demo']);
 const VOLATILE = /\.(?:lock|owner|activity|access)\.sqlite(?:-journal|-wal|-shm)?$/;
+/** How the service runs this Home, not state a release changes. A restore
+ * leaves these alone even when the snapshot predates them. */
+const CONFIG_LIVE = new Set(['service-supervision.json', 'local-service.json']);
 /** statfs f_type for APFS. */
 const APFS = 26;
 
@@ -180,6 +183,11 @@ export async function createSnapshot(options: SnapshotOptions): Promise<string> 
   return directory;
 }
 
+/** A Home's snapshot, as opposed to a connected device's journal checkpoint. */
+export function isHomeSnapshot(directory: string) {
+  return fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ directory, 'snapshot.json'));
+}
+
 export function readSnapshot(directory: string, identity: Identity = serviceIdentity()): SnapshotManifest {
   const manifest = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ directory, 'snapshot.json'), 'utf8')) as SnapshotManifest;
   if (manifest.format !== 2 || JSON.stringify(manifest.identity) !== JSON.stringify(identity)) throw new Error('This snapshot belongs to a different Home');
@@ -234,7 +242,38 @@ export async function restoreSnapshot(directory: string, identity: Identity = se
     fs.copyFileSync(/* turbopackIgnore: true */ source, staged);
     fs.renameSync(/* turbopackIgnore: true */ staged, target);
   }
+  setAsideNewConfig(identity.config, new Set(manifest.config), path.join(/* turbopackIgnore: true */ directory, 'failed/config'));
   return manifest;
+}
+
+/**
+ * Files the newer release added don't belong to the restored state, and can
+ * break it: `migrateIntegrationStorage` refuses to start when an old and a new
+ * store both exist. They are moved beside the failed database, never deleted,
+ * since this runs when something has already gone wrong.
+ */
+function setAsideNewConfig(config: string, saved: Set<string>, aside: string) {
+  if (!fs.existsSync(/* turbopackIgnore: true */ config)) return;
+  const walk = (relative: string) => {
+    const folder = path.join(/* turbopackIgnore: true */ config, relative);
+    for (const entry of fs.readdirSync(/* turbopackIgnore: true */ folder, { withFileTypes: true })) {
+      const name = relative ? path.join(/* turbopackIgnore: true */ relative, entry.name) : entry.name;
+      if (!relative && (CONFIG_SKIP.has(entry.name) || CONFIG_LIVE.has(entry.name))) continue;
+      if (VOLATILE.test(entry.name)) continue;
+      if (entry.isDirectory()) {
+        walk(name);
+        // A folder this emptied goes too, so an old and a new store never both exist.
+        const inside = path.join(/* turbopackIgnore: true */ config, name);
+        if (fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ aside, name)) && !fs.readdirSync(/* turbopackIgnore: true */ inside).length) fs.rmdirSync(/* turbopackIgnore: true */ inside);
+        continue;
+      }
+      if (!entry.isFile() || saved.has(name)) continue;
+      const target = path.join(/* turbopackIgnore: true */ aside, name);
+      fs.mkdirSync(/* turbopackIgnore: true */ path.dirname(target), { recursive: true, mode: 0o700 });
+      move(path.join(/* turbopackIgnore: true */ config, name), target);
+    }
+  };
+  walk('');
 }
 
 export interface SnapshotEntry { directory: string; manifest: SnapshotManifest }

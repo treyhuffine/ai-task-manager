@@ -24,9 +24,17 @@ function isTeam(home: RecordedHome) {
 /** The Home a command about one Home acts on when it isn't told. */
 export function defaultHome(homes: InstalledHome[] = listHomes()): RecordedHome | null {
   const known = present(homes);
-  if (known.length <= 1) return known[0] ?? null;
   const production = canonical(getProductionAppRoot());
-  return known.find(home => home.identity.root === production) ?? known.find(home => !isTeam(home)) ?? known[0];
+  const personal = known.find(home => home.identity.root === production);
+  if (personal) return personal;
+  // `~/ri` in use but not recorded yet: a person's Home still running in a
+  // terminal, or a device connected to one. Commands keep meaning that, even
+  // when a team on this computer moved to the installation first. Otherwise
+  // their tasks would land in the team.
+  if (fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ production, 'data.db'))
+    || fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ production, '.config/connection.json'))) return null;
+  if (known.length <= 1) return known[0] ?? null;
+  return known.find(home => !isTeam(home)) ?? known[0];
 }
 
 /** The recorded Home in `root`, or null if this installation doesn't run one there. */

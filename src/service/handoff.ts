@@ -32,7 +32,10 @@ async function startedWork(child: ChildProcess, candidate: string) {
     if (done) return readActivation().candidate !== candidate;
   }
   child.kill('SIGTERM');
-  await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 15_000))]);
+  // A frozen controller can't run its handler. It must be gone before the next
+  // one starts, since it still holds the Home's owner lock.
+  const gone = await Promise.race([exited.then(() => true), new Promise<false>(resolve => setTimeout(() => resolve(false), 15_000))]);
+  if (!gone) { child.kill('SIGKILL'); await exited; }
   return false;
 }
 

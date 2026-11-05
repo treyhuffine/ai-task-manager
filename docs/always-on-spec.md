@@ -1,6 +1,6 @@
 # Always on, always current: installing, running and updating Ri
 
-**Status:** decided 2026-10-27, revised after three passes of an independent review (section 13.3 lists what changed). Phases A and B are built on the `always-on` branch, 2026-10-29, not yet merged. Phases C to E are not built. Every choice phases A and B need is settled, and what stays open belongs to later phases or future work. Section 11 lists what changes in the current code, and section 12 the order to build it in.
+**Status:** decided 2026-10-27, revised after three passes of an independent review (section 13.3 lists what changed). Phases A and B are built on the `always-on` branch, reviewed and repaired 2026-11-05, not yet merged. Phases C to E are not built. Every choice phases A and B need is settled, and what stays open belongs to later phases or future work. Section 11 lists what changes in the current code, and section 12 the order to build it in.
 
 **Promise:** once Ri is installed and a Home is created, it is running whenever its computer is on. It updates itself, along with everything it installs (its skills included), and a person never has to restart, babysit or rebuild it. An update that won't start puts the old version back by itself, exactly as it was. Once a new version has started working, going back is the owner's call, because undoing it could lose what it wrote. This holds for the desktop app and the CLI, on a laptop, a Mac Mini in a closet, or a Linux server reached only over SSH. The standard case takes no flags.
 
@@ -73,7 +73,8 @@ When a Home starts, it already decides from the folder alone whether it is a Hom
 
 - **`ri start` and `ri team create` act on a folder:** `~/ri` unless `--root` names another, as today. `ri start` creates a Home there or takes over the one there, so it never picks a different Home than the folder it names.
 - **Every other command about one Home** (`ri status`, `ri logs`, `ri stop`, `ri restart`, `ri agent`) finds it from the installation's records. With one Home, it acts on that Home wherever its folder is. With several, it acts on the personal Home, and `--root` picks another.
-- **`ri status` and `ri update`** cover every Home the installation runs.
+- **`~/ri` in use always wins.** If `~/ri` holds a Home that hasn't moved to the installation yet, or a connection to a Home elsewhere, commands keep meaning that, even if a team on this computer moved first. A person's tasks must never land in a team because of the order things were installed in.
+- **`ri status` and `ri update`** cover every Home the installation runs. `ri status` reports the Home it means in full and every other one on a line, and fails if any of them should be serving and isn't. `--root` limits it to one.
 
 `--root` is therefore needed only to create or take over a Home somewhere other than `~/ri`, or to point a command at a second Home. Today every command assumes `~/ri` unless `RI_ROOT` or `--root` says otherwise (`getAppRoot` in `src/lib/config/paths.ts`).
 
@@ -174,6 +175,8 @@ The OS supervises the launcher, the launcher starts the controller, and the cont
 | Either memory rule, in a server's first 10 minutes | Nothing. A new server hasn't had time to leak, so restarting can't lower it, and one that starts above the line would otherwise restart every time it's idle. |
 | 5 unexpected exits within 15 minutes | Slow down to one attempt every 15 minutes, and keep trying indefinitely. The controller stays up, so `ri status` and Settings show that the Home is crash-looping and the last error. If the loop began right after an update, section 7.6 applies first. |
 
+**The controller checks state, not events.** On every probe it asks: should this Home have a server, and does it? If it should and doesn't, and no update, handover or planned restart owns the moment, it starts one on the schedule above. That covers a failed first start, a failed rollback, a failed update whose old version won't restart, and anything nobody wrote a restart for. Only a recovery a person has to finish holds it back (`recovery-required`), because starting a server then could lose data. Exiting is left for a new release that hasn't started work, so its launcher can put the previous one back.
+
 Every restart of the server runs the existing startup cleanup of harness processes whose server is gone (`stopOrphanedHarnesses` in `src/lib/runner/harness-processes.ts`), because killing the server doesn't prove every harness stopped.
 
 The ready probe reports the heap in use, the heap limit and the resident memory. The perf log's minute rollups record the same three numbers, so `ri perf` shows memory over days and the heap limit seen in section 1 can be told apart from a leak.
@@ -190,7 +193,7 @@ The "at most once every 3 minutes per chat" limit on re-sending lives in memory 
 
 Phase B adds one requirement: every chat that was interrupted and not sent again shows as needing the person (unread), so nothing is dropped silently. Phase B's acceptance checks this against a real interrupted chat, because the unread state hasn't been confirmed for every case.
 
-Checking it found that most interrupted chats were dropped silently. Startup re-sent only the person's unanswered message, and not even that within a minute of the agent's last event, which every quick restart is. A chat cut off mid-reply, or waiting on a permission question whose prompt lived only in the server's memory, stayed as it was. So the startup sweep now marks such a chat unread (`cutOffByRestart` in `src/lib/executor/health.ts`). It applies when the chat's newest turn event is the agent at work or the person's message, not a turn's end, and that event is this app's own, not mirrored from a terminal session. It must also be from the last day, after the person last looked, in a chat that isn't already unread and that the startup didn't send again. That makes it idempotent, so a chat is marked once, not at every restart. Opening a chat and the minute sweep never mark it. Two gaps remain. A chat whose harness never reported its session isn't in the sweep at all. Re-sending more than today is left as it is, since a duplicate send is worse than an unread chat. Moving agent work out of the server, so restarts never interrupt it, is future work (section 13.2).
+Checking it found that most interrupted chats were dropped silently. Startup re-sent only the person's unanswered message, and not even that within a minute of the agent's last event, which every quick restart is. A chat cut off mid-reply, or waiting on a permission question whose prompt lived only in the server's memory, stayed as it was. So the startup sweep now marks such a chat unread (`cutOffByRestart` in `src/lib/executor/health.ts`). It applies when the chat's newest turn event is the agent at work or the person's own message, not a turn's end. A person's row that was mirrored from a terminal session doesn't count: it carries an ID, and this app's own sends don't. Agent rows can't be told apart that way, since the live parser gives every one an ID (`parseStreamEvent`). It must also be from the last day, after the person last looked, in a chat that isn't already unread and that the startup didn't send again. That makes it idempotent, so a chat is marked once, not at every restart. Opening a chat and the minute sweep never mark it. Measured on the owner's Home with nothing interrupted, it marks none of 571 active chats: 559 end in a finished turn, 10 are older than a day, and 2 are already unread. Two gaps remain. A chat whose harness never reported its session isn't in the sweep at all. Re-sending more than today is left as it is, since a duplicate send is worse than an unread chat. Moving agent work out of the server, so restarts never interrupt it, is future work (section 13.2).
 
 ### 6.4 Stopping
 
@@ -303,7 +306,7 @@ The steps build on `UpdateCoordinator.apply` today. Each Home's own controller r
    - **How it clones on macOS.** Through `cp -c`, after checking that the snapshot folder is on the same APFS volume (`statfs` type 26). Measured while building: Node's `COPYFILE_FICLONE` flag makes a full copy on macOS (a 300 MB file took 300 MB) and `COPYFILE_FICLONE_FORCE` fails with `ENOSYS`, while `cp -c` took no space. Linux uses `COPYFILE_FICLONE_FORCE`, which works on btrfs and xfs.
    - **Where it goes.** The snapshot is kept in the Home's work folder (`.work/update-snapshots`), on the same disk as the database, so a clone works and a restore can rename instead of copy. The nightly backup leaves the work folder out.
    - **Space: a small margin, and a safe failure.** With a clone, an update needs 2 GiB free. Without one, it needs the database's size plus 2 GiB, because the backup API copies it all at once. An update that doesn't fit waits and says how much it needs. A true worst case can't be budgeted ahead of time, since a clone grows as a migration rewrites pages and SQLite needs room for its log. It doesn't have to be: migrations run in one transaction during the check-only start, before anything is committed, so running out of space there cancels the transaction, the update fails, and the old version keeps running on an untouched database. Requiring the database's size free would block every update on the owner's Mini (20.1 GiB database, 15 GiB free).
-   - **Restoring needs no extra space.** A restore renames, never copies. The failed database, with its `-wal` and `-shm` files, is moved aside, and the snapshot is renamed into its place. Today's restore makes two full copies, one of the failed database and one staging copy of the snapshot (`restoreCheckpointDatabase` in `src/lib/service/checkpoint.ts`). With the owner's 19.6 GiB database and 24 GiB free, it could run out of space at exactly the moment recovery is needed.
+   - **Restoring needs no extra space.** A restore renames, never copies. The failed database, with its `-wal` and `-shm` files, is moved aside, and the snapshot is renamed into its place. Config files the newer release added are moved beside it, never deleted, because they can break the restored state: `migrateIntegrationStorage` refuses to start when an old and a new store both exist. The files that say how the service runs the Home stay (`service-supervision.json`, `local-service.json`). Today's restore makes two full copies, one of the failed database and one staging copy of the snapshot (`restoreCheckpointDatabase` in `src/lib/service/checkpoint.ts`). With the owner's 19.6 GiB database and 24 GiB free, it could run out of space at exactly the moment recovery is needed.
    - **Keeping snapshots.** Each Home keeps one snapshot, replaced by its next update and deleted after 7 days. A failed database moved aside by a restore is kept 7 days for diagnosis, or deleted sooner if free space falls below the warning level in section 6.5.
    - **Not copied:** attachments and the work folder, because no release changes them.
    - **Today** the checkpoint copies every file under the root, config and work folders, plus the database, on every update. For the owner's Home that is a 19.6 GiB database plus everything else, on a disk with 24 GiB free.
@@ -325,7 +328,7 @@ A typical update is a drain, a stop, a WAL checkpoint and clone, the check-only 
 
 ### 7.5 Keeping releases
 
-**One lock for the whole installation** (a lock file in the store) covers staging a release, switching any Home's pointer and deleting a release. Today's staging lock is per Home's runtime folder (`stageRuntime` in `src/lib/service/runtime.ts`) and the updater's busy flag lives in one controller's memory (`src/lib/service/update.ts`), so neither covers two Homes sharing a store.
+**One lock for the whole installation** (a lock file in the store) covers publishing a staged release, switching any Home's pointers and deleting a release. Hashing and copying a release take minutes and run outside it, because a Home switching its pointers while it's offline waits only 5 seconds for the lock. Today's staging lock is per Home's runtime folder (`stageRuntime` in `src/lib/service/runtime.ts`) and the updater's busy flag lives in one controller's memory (`src/lib/service/update.ts`), so neither covers two Homes sharing a store.
 
 **A release is kept while anything uses it:**
 - any Home's record names it (running, previous, or waiting to activate)
@@ -344,7 +347,8 @@ Deleting a release removes over 150,000 files, which takes seconds. The controll
 - **A release that never started work is rolled back automatically.** Its check-only start failed (section 7.4 step 4), or its controller exited before marking that it was starting work (step 5). Up to then only the check-only start has run, which changes the database and config and nothing outside them, and the snapshot from step 3 undoes that. The Home returns to exactly its state before the update, nothing it did is repeated, and status says the update failed and why.
 - **A release that has started work is rolled back only on request.** Once its server runs, it may have sent messages, resumed agent work and written chats, tasks and notes in its format. Restoring the snapshot would lose those records without undoing the work. If such a release crash-loops, it slows to retries (section 6.2) and status says rollback is available. `ri update --rollback` (or Settings, with this computer's own key) restores the snapshot after listing what would be lost: chats, tasks and notes changed since the switch. It also warns that work the new release already did, such as a message it sent, may be done again by the old one, because the restored records no longer show it happened.
 - `ri update --rollback` on a healthy Home works the same way.
-- **Rollback is possible for 7 days,** as long as the snapshot from the switch is kept (section 7.4 step 3). `ri update --rollback`, `ri status` and Settings show until when, and after that say it has expired. A snapshot a recovery still needs is never deleted, whatever its age.
+- **Rollback is possible for 7 days,** as long as the snapshot from the switch is kept (section 7.4 step 3). `ri update --rollback`, `ri status` and Settings show until when, and after that say it has expired. A snapshot a recovery still needs is never deleted, whatever its age. Once a new release has started work, its snapshot only serves a rollback on request and follows the 7-day rule.
+- **Recovery reads a record, never the disk.** Every step that destroys something first records what it is about to do, and a step's evidence goes only after the record saying it finished. A rollback writes its intent to the update journal before it restores anything, so a crash at any point finishes the rollback when the controller next starts. What recovery restores comes from that record too, because a restore moves the database aside for a moment and a folder without one looks like a new installation.
 
 ### 7.7 Keeping versions aligned
 
@@ -410,20 +414,23 @@ No such folders exist on the owner's Mini. A packaged desktop app on another com
 
 ### 10.2 The owner's Mac Mini
 
-Both Homes move once phases A and B (section 12) are on main. Every step names its folder, so nothing depends on which Home the installation already knows:
+All three Homes move once phases A and B (section 12) are on main. Every step names its folder and the launcher's full path, because bare `ri` isn't the launcher until step 5: a login shell finds Ruby's `/usr/bin/ri` first, and an interactive one finds the checkout's copy in `~/Library/pnpm/bin`.
 
-1. **Install from the checkout.** Run `pnpm cli:dev update --from ~/ai-task-manager`. This builds `main` into a release and installs `ri`. Both Homes keep running as they are.
-2. **Move the team Home first, as a rehearsal.** Run `ri start --root ~/ri-team-huffine`. Its unsupervised controller hands off to a supervised one on the new release, using the handoff `installService` already performs, and keeps `https://localhost:42242`.
-3. **Move the personal Home.** Stop it in its terminal window with Ctrl-C, then run `ri start --root ~/ri`. It keeps `http://localhost:4224` (section 10.3). This ends every chat running under that server, including any agent chat, so it's for the owner to run, not an agent. No migrations are pending, since the release is built from the same `main`.
-4. **Clean up.** Remove the checkout's own `ri` link in `~/Library/pnpm/bin`, so `ri` is the launcher.
-5. **Check, then restart once.**
-   - `ri status` shows both Homes supervised.
+1. **Install from the checkout.** Run `pnpm cli:dev update --from ~/ai-task-manager`. This builds `main` into a release and installs `~/.local/bin/ri`. A build needs 8 GiB free. All three Homes keep running as they are.
+2. **Move the team Homes first, as a rehearsal.** Run `$HOME/.local/bin/ri start --root ~/ri-team-huffine`. Its unsupervised controller hands off to a supervised one on the new release, using the handoff `installService` already performs, and keeps `https://localhost:42242`. It refuses while work is running there.
+3. **Move the other team.** Run `$HOME/.local/bin/ri start --root ~/ri-ballcoach`, which keeps `https://localhost:62982` the same way.
+4. **Move the personal Home.** Stop it in its terminal window with Ctrl-C, then run `$HOME/.local/bin/ri start --root ~/ri`. It keeps `http://localhost:4224` (section 10.3). This ends every chat running under that server, including any agent chat, so it's for the owner to run, not an agent.
+5. **Clean up.** Remove the checkout's own `ri` link in `~/Library/pnpm/bin`, and make sure `~/.local/bin` comes before `/usr/bin` in the shell's PATH, so `ri` is the launcher. `ri doctor` says which `ri` a terminal runs.
+6. **Check, then restart once.**
+   - `ri status` shows all three Homes running and kept up by the OS.
    - A browser tab opened before the move still works after refreshing.
    - A Claude Code and a Codex MCP call to the personal Home succeed.
    - The Beamd address answers.
-   - Restart the Mini and confirm both Homes come back through automatic login, with nobody touching it. This is the qualification test for section 2.1.
+   - Restart the Mini and confirm all three Homes come back through automatic login, with nobody touching it. This is the qualification test for section 2.1.
 
-After that, picking up `main` is `ri update`, which builds once and switches both Homes. [environments.md](environments.md) "Production on the Mac Mini" is rewritten when this ships.
+**Migrations at the move.** A Home moving to its first release has no update snapshot behind it. So when its controller finds migrations to apply, it copies the database first and logs where (`startHome` in `src/service/main.ts`). `ri update --rollback` then says that copy exists and that there is nothing older on this computer to go back to. On 2026-11-05 all three Homes had applied all 32 migrations on `main`, so a move then changes nothing in the database. A migration that fails undoes itself, since it runs in one transaction.
+
+After that, picking up `main` is `ri update`, which builds once and switches every Home. [environments.md](environments.md) "Production on the Mac Mini" is rewritten when this ships.
 
 ### 10.3 Keeping a Home's address
 
@@ -658,6 +665,26 @@ Running phase A and B on a real release (built from `main` in 620 seconds, using
 | A restart's recorded reason carried the multi-line startup report | One line: what happened and the last error the server printed, such as a heap limit crash |
 | Tests could reach this computer's real installation folder | Every test gets its own (`src/test/setup-env.ts`) |
 | The doctor counted the Home's own port as "in use" | It says the Home uses it |
+
+A fourth pass, 2026-11-05, reviewed the built code against the Mini as it runs today. Its verdict was to keep the design and repair the lifecycle before merging. Every finding held up when checked against the code:
+
+| Finding | Change |
+| --- | --- |
+| A failed first server start left the controller alive with nothing retrying, so the OS saw nothing wrong | The controller checks on every probe whether this Home should have a server and doesn't (section 6.2). That also closes a failed rollback and a failed update whose old version won't restart, which the review didn't list |
+| Moving a team first made it the default Home, so commands aimed at `~/ri` could write into the team | `~/ri` in use always wins (section 3.4) |
+| The interrupted-chat check skipped every agent event, because the live parser gives each one an ID and the tests used made-up rows | The ID only counts on a person's row, and the tests use rows from the real parser (section 6.3) |
+| `ri status` showed one Home, with no `--root` | It covers every Home, and a Home in a terminal shows as running (section 3.4) |
+| Crash windows in rollback and in failed-update recovery could select the rejected release | Recovery reads a record written first (section 7.6) |
+| A restore's missing database made recovery treat a personal Home as a connected device | Recovery asks its own record, not the folder (section 7.6) |
+| The launcher could wait forever on a frozen controller, and the relay could start a second one beside it | A bounded stop, then SIGKILL |
+| A first move could migrate with no copy to go back to | A safety copy first (section 10.2). The full update path was more than a once-per-Home step needs |
+| Release pointers moved outside the store lock | They move under it. Staging holds the lock only to publish, or a pointer switch could fail while a release is hashed (section 7.5) |
+| A successful update's snapshot stayed past 7 days | Recovery pins a snapshot only while it needs one (section 7.6) |
+| Config restore left files the newer release added | They are moved aside, not deleted (section 7.4) |
+| `ri service --root` chose its release before its Home, and repeating `ri team create` waited six minutes | Fixed |
+| The cutover used bare `ri` and left out a Home | Rewritten for all three, with the launcher's full path (section 10.2) |
+
+One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
 
 ## 14. Prior art
 

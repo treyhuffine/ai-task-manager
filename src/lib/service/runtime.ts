@@ -70,7 +70,14 @@ while :; do
   if [ -n "$candidate" ] && [ "$candidate" = "$release" ]; then
     deadline=$(( $(date +%s) + \${RI_ACTIVATION_DEADLINE_SECONDS:-300} ))
     while kill -0 "$child" 2>/dev/null && [ -f "$home/activation/candidate" ] && [ "$(date +%s)" -lt "$deadline" ]; do sleep 1; done
-    if [ -f "$home/activation/candidate" ]; then kill -TERM "$child" 2>/dev/null; fi
+    if [ -f "$home/activation/candidate" ]; then
+      kill -TERM "$child" 2>/dev/null
+      # A frozen controller can't run its handler, and waiting on it would leave
+      # the Home down for good, so it gets a bounded time to stop.
+      waited=0
+      while kill -0 "$child" 2>/dev/null && [ "$waited" -lt "\${RI_ACTIVATION_KILL_SECONDS:-30}" ]; do sleep 1; waited=$((waited + 1)); done
+      kill -KILL "$child" 2>/dev/null
+    fi
   fi
   code=0
   wait "$child" || code=$?
