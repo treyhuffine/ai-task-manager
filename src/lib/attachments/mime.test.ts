@@ -4,7 +4,8 @@ import {
   extFromName,
   extForFile,
   resolveMime,
-  isAllowedMime,
+  isKnownMime,
+  uploadMime,
 } from './mime';
 
 describe('normalizeMime', () => {
@@ -150,29 +151,29 @@ describe('resolveMime', () => {
   });
 });
 
-describe('isAllowedMime', () => {
+describe('isKnownMime', () => {
   it('accepts browser video, OpenDocument sheets and TAR archives', () => {
     for (const [name, mime] of [['clip.mp4', 'video/mp4'], ['clip.mov', 'video/quicktime'], ['clip.ogv', 'video/ogg'], ['budget.ods', 'application/vnd.oasis.opendocument.spreadsheet'], ['files.tar', 'application/x-tar'], ['files.tgz', 'application/gzip']] as const) {
-      expect(resolveMime('', name)).toBe(mime); expect(isAllowedMime(mime)).toBe(true);
+      expect(resolveMime('', name)).toBe(mime); expect(isKnownMime(mime)).toBe(true);
     }
     expect(resolveMime('', 'memo.webm')).toBe('audio/webm');
     expect(resolveMime('video/webm', 'demo.webm')).toBe('video/webm');
   });
   it('accepts common images, audio, documents', () => {
-    expect(isAllowedMime('image/png')).toBe(true);
-    expect(isAllowedMime('audio/webm')).toBe(true);
-    expect(isAllowedMime('application/pdf')).toBe(true);
+    expect(isKnownMime('image/png')).toBe(true);
+    expect(isKnownMime('audio/webm')).toBe(true);
+    expect(isKnownMime('application/pdf')).toBe(true);
   });
 
   it('accepts office formats', () => {
-    expect(isAllowedMime('application/vnd.openxmlformats-officedocument.wordprocessingml.document')).toBe(true);
-    expect(isAllowedMime('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')).toBe(true);
-    expect(isAllowedMime('application/vnd.openxmlformats-officedocument.presentationml.presentation')).toBe(true);
+    expect(isKnownMime('application/vnd.openxmlformats-officedocument.wordprocessingml.document')).toBe(true);
+    expect(isKnownMime('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')).toBe(true);
+    expect(isKnownMime('application/vnd.openxmlformats-officedocument.presentationml.presentation')).toBe(true);
   });
 
   it('accepts zip archives, under the one name they are stored as', () => {
-    expect(isAllowedMime('application/zip')).toBe(true);
-    expect(isAllowedMime(resolveMime('application/x-zip-compressed', 'backup.zip'))).toBe(true);
+    expect(isKnownMime('application/zip')).toBe(true);
+    expect(isKnownMime(resolveMime('application/x-zip-compressed', 'backup.zip'))).toBe(true);
   });
 
   it('accepts 3D models, under whatever name a browser reports, and keeps their extension', () => {
@@ -185,13 +186,40 @@ describe('isAllowedMime', () => {
     ] as const) {
       const resolved = resolveMime(mime, name);
       expect(resolved).toBe(type);
-      expect(isAllowedMime(resolved)).toBe(true);
+      expect(isKnownMime(resolved)).toBe(true);
       expect(extForFile(resolved, name)).toBe(ext);
     }
   });
 
-  it('rejects unknown / disallowed types', () => {
-    expect(isAllowedMime('application/x-executable')).toBe(false);
-    expect(isAllowedMime('text/html')).toBe(false);
+  it('does not know other types', () => {
+    expect(isKnownMime('application/x-executable')).toBe(false);
+    expect(isKnownMime('text/html')).toBe(false);
+  });
+});
+
+describe('uploadMime', () => {
+  it('keeps a label on the known list, as resolved', () => {
+    expect(uploadMime('image/png', 'photo.png')).toBe('image/png');
+    expect(uploadMime('application/x-zip-compressed', 'backup.zip')).toBe('application/zip');
+    expect(uploadMime('application/zip', 'budget.xlsx')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  });
+
+  it('ends as octet-stream for a type Ri has no name for, whatever the label', () => {
+    for (const [label, name] of [['model/gltf-binary', 'scene.glb'], ['', 'scene.glb'], ['application/octet-stream', 'scene.glb'], ['application/x-msdownload', 'tool.exe'], ['text/html', 'page.xyz'], ['image/x-made-up', 'noext']] as const) {
+      expect(uploadMime(label, name), name).toBe('application/octet-stream');
+    }
+  });
+
+  it('reads an unknown label as whatever the name says', () => {
+    expect(uploadMime('text/html', 'page.html')).toBe('text/plain');
+    expect(uploadMime('application/json', 'data.json')).toBe('text/plain');
+    expect(uploadMime('audio/x-m4a', 'memo.m4a')).toBe('audio/mp4');
+  });
+
+  it('gives back what it stored, so a record can be checked against it', () => {
+    for (const [label, name] of [['model/gltf-binary', 'scene.glb'], ['image/png', 'photo.png'], ['text/html', 'page.html']] as const) {
+      const stored = uploadMime(label, name);
+      expect(uploadMime(stored, name)).toBe(stored);
+    }
   });
 });

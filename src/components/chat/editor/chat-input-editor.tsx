@@ -57,6 +57,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { hot } from '@/lib/_debug/hot-path';
 import { useTouchFirst } from '@/hooks/use-touch-first';
+import { apiErrorText } from '@/lib/api/client';
 import { uploadAttachment } from '@/lib/attachments/client';
 import { attachmentUrl } from '@/lib/attachments/view';
 import { HOTKEYS, matchesHotkey } from '@/constants/commands';
@@ -146,9 +147,10 @@ export interface ChatInputEditorHandle {
   /**
    * Upload a file (or blob) and insert a chip at the cursor. Same path
    * used by paste/drop handlers — exposed so toolbars can drive it
-   * from the composer's + menu. Resolves once the chip is
-   * inserted, or rejects with the upload error. Where Enter sends, it
-   * also moves focus into the editor, so the next Enter sends the message.
+   * from the composer's + menu. Resolves once the chip is inserted, or
+   * once a failed upload has been reported (`onUploadError`, or a toast).
+   * Where Enter sends, it also moves focus into the editor, so the next
+   * Enter sends the message.
    */
   uploadFile(file: File | Blob, name?: string): Promise<void>;
   /**
@@ -725,11 +727,9 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
      * spinner immediately so the user sees the file land where they
      * dropped/pasted. When the upload resolves, we walk the doc to
      * find the placeholder by `pendingId` and swap in the real
-     * Attachment attrs. On failure, we remove the placeholder.
-     *
-     * Throws on failure so the imperative `uploadFile` handle can
-     * surface errors; the paste/drop wrappers use
-     * `uploadAndInsertSafe` below which toasts and swallows.
+     * Attachment attrs. On failure, we remove the placeholder and throw.
+     * Every way in goes through `uploadAndInsertSafe` below, which says
+     * what went wrong.
      */
     const uploadAndInsert = useMemo(
       () => async (file: File | Blob, name: string) => {
@@ -774,7 +774,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
             // anywhere. Truncate name in case it's a long pasted text
             // filename like `pasted_text_2026-05-11-...`.
             const shortName = name.length > 40 ? `${name.slice(0, 37)}…` : name;
-            toast.error(`Couldn't attach ${shortName}`, { description: e.message });
+            toast.error(`Couldn't attach ${shortName}`, { description: apiErrorText(e) });
           }
         }
       },
@@ -1109,7 +1109,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
           // Bring it back wherever Enter sends. A touch composer keeps its
           // focus, so attaching a photo doesn't raise the keyboard.
           if (editor && submitOnEnterRef.current) editor.commands.focus();
-          return uploadAndInsert(file, name ?? (file as File).name ?? 'upload');
+          return uploadAndInsertSafe(file, name ?? (file as File).name ?? 'upload');
         },
         openMentionMenu: (prefix = '') => {
           if (!editor) return;
@@ -1131,7 +1131,7 @@ export const ChatInputEditor = forwardRef<ChatInputEditorHandle, ChatInputEditor
         getMarkerOutput: () => buildMarkerOutput(editor),
         getUiMessageParts: () => buildUiMessageParts(editor),
       }),
-      [editor, uploadAndInsert, editorHasPendingChip, resetHistoryNav],
+      [editor, uploadAndInsertSafe, editorHasPendingChip, resetHistoryNav],
     );
 
     return (

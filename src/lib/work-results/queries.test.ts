@@ -331,6 +331,14 @@ describe('retention and evidence authority', () => {
     expect(() => createWorkResultDecision(human, { ...input, context: {} })).toThrow(/different intent/);
   });
 
+  it('takes the record an upload of any type makes, and no other', async () => {
+    const glb = await saveAttachment({ data: Buffer.from('glTF'), originalName: 'scene.glb', mimeType: 'application/octet-stream' });
+    expect(glb.mimeType).toBe('application/octet-stream');
+    expect(validateWorkResultAttachments('', [glb], 'local')).toEqual([glb]);
+    expect(() => validateWorkResultAttachments('', [{ ...glb, mimeType: 'model/gltf-binary' }], 'local')).toThrow(/metadata/);
+    expect(() => validateWorkResultAttachments('', [{ ...glb, originalName: 'scene.png' }], 'local')).toThrow(/metadata/);
+  });
+
   it('rejects paths, symlinks, mismatched sizes, missing inline files and dangerous links', async () => {
     const file = await saveAttachment({ data: Buffer.from('x'), originalName: 'source.txt', mimeType: 'text/plain' });
     expect(() => validateWorkResultAttachments('', [{ ...file, fileName: '../escape.txt' }], 'local')).toThrow(/metadata/);

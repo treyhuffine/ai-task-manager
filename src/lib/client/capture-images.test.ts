@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ALLOWED_MIMES } from '@/lib/attachments/mime';
+import { KNOWN_MIMES } from '@/lib/attachments/mime';
 import {
   CAPTURE_MAX_IMAGE_BYTES,
   CAPTURE_MAX_IMAGES,
@@ -19,7 +19,7 @@ function item(file: File | null) {
 describe('chooseCaptureImages', () => {
   it('adds all server-allowed image formats and preserves existing files', () => {
     const prior = image();
-    for (const type of ALLOWED_MIMES) {
+    for (const type of KNOWN_MIMES) {
       if (!type.startsWith('image/')) continue;
       const incoming = image('image', 1, type);
       expect(chooseCaptureImages([prior], [incoming])).toEqual({

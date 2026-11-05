@@ -405,18 +405,17 @@ interface Attachment {
 
 **The upload flow:**
 
-1. Editor's paste/drop handler or the + menu's picker → `POST /api/attachments` (multipart) → server writes bytes, returns `Attachment` record.
+1. Editor's paste/drop handler or the + menu's picker → `POST /api/attachments` (multipart, any type up to 50 MiB) → server writes bytes, returns `Attachment` record. A failed upload removes its pending chip and says why in a toast, however the file arrived. A type Ri has no name for is stored as `application/octet-stream` under its own extension (`uploadMime`), and a browser's label can't change that.
 2. Editor inserts a `FileChip` Tiptap node at the cursor with the returned attrs. Body text gets a `[[file:<file_name>]]` marker at that position (compact, position-preserving, doesn't bloat events polls).
 3. On send → `POST /api/sessions/:id/messages` with `{ content, attachments: Attachment[] }`. Server persists the event row with `content` carrying markers and `attachments` carrying the JSON array.
-4. Transcript renderer parses markers via `parseFileMarkers`, resolves each to its `Attachment`, and renders it via `MessageFileChip`: image and PDF cards, or bordered filename and size chips opening the shared viewer. Chip colors follow the sent message bubble in both themes. Shared/custom attachment URLs retain inline text expansion and download chips.
+4. Transcript renderer parses markers via `parseFileMarkers`, resolves each to its `Attachment`, and renders it via `MessageFileChip`: image and PDF cards, bordered filename and size chips opening the shared viewer, or a plain download chip for a type Ri has no name for. Chip colors follow the sent message bubble in both themes. Shared/custom attachment URLs retain inline text expansion and download chips.
 
 **Sending to the model.**
 
 For execution chat (Claude Code subprocess via agentex), each `[[file:<file_name>]]` reaches the agent as:
 
-- The file's path on the computer the chat runs on, if the harness reads the mime natively (text, code, images, PDF, JSON, XML). `expandMarkers` leaves these markers, and `executor.dispatch` places them with the message's attachments: the home's attachments directory for a chat at home, or the worker's own checked copy for a chat on a connected computer (see `docs/homes-build.md`, P2.5).
-- An inline `<attachment filename="...">…</attachment>` block carrying extracted text otherwise, done by `expandMarkers` at home wherever the chat runs (docx, xlsx, pptx via mammoth/`xlsx`/officeparser; audio via STT through `pickProvider`).
-- The file's path too for a zip archive. There is no text to extract, so the agent gets the archive whole and unpacks it with its own tools. Upload stores every name a browser gives a zip (`application/x-zip-compressed` on Windows) as `application/zip`. A docx, xlsx or pptx that arrives labeled as its zip container is stored as the document it is (`resolveMime`), so it is extracted, never handed over as an archive.
+- An inline `<attachment filename="...">…</attachment>` block carrying extracted text, if the file has text Ri can extract, done by `expandMarkers` at home wherever the chat runs (docx, xlsx, pptx via mammoth/`xlsx`/officeparser; audio via STT through `pickProvider`). A docx, xlsx or pptx that arrives labeled as its zip container is stored as the document it is (`resolveMime`), so it is extracted, never handed over as an archive.
+- The file's path on the computer the chat runs on, for everything else: text, code, images, PDF, JSON, XML, archives, models, and any type Ri has no name for. `expandMarkers` leaves these markers, and `executor.dispatch` places them with the message's attachments: the home's attachments directory for a chat at home, or the worker's own checked copy for a chat on a connected computer (see `docs/homes-build.md`, P2.5). The agent opens the file with its own tools.
 
 Orchestrator and content chats are harness sessions too, so the same substitution covers them — there is no separate ai-sdk inlining path anymore. (The old `inlineTextAttachments` rewrite for direct-API Anthropic/OpenAI chat, including `sharp` image normalization and `unpdf` PDF extraction, was deleted along with the legacy `/api/chat` route.)
 

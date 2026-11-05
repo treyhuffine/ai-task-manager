@@ -1,12 +1,14 @@
 /**
  * MIME utilities for the attachments system.
  *
- * Two concerns:
+ * Three concerns:
  *   1. Normalizing incoming Blob/File mime types into a canonical form
  *      (trimmed, lowercased, no parameters like `; charset=utf-8`).
  *   2. Deriving a stable filesystem extension from a mime type or filename so
  *      that stored files are introspectable by `file`, `open`, and mime-aware
  *      tools without a DB lookup.
+ *   3. Deciding the type an upload is stored under (`uploadMime`). Any file
+ *      may be uploaded, so this never refuses one.
  *
  * Kept separate from `save.ts` so the rules can be unit-tested without pulling
  * in the filesystem.
@@ -45,8 +47,8 @@ const TEXT_LIKE_EXTS: ReadonlySet<string> = new Set([
   'patch', 'diff',
 ]);
 
-/** Normalized MIME strings we'll accept for upload. Extend deliberately. */
-export const ALLOWED_MIMES: ReadonlySet<string> = new Set([
+/** Types Ri has a name for. An upload labeled with one keeps it (`uploadMime`). Extend deliberately. */
+export const KNOWN_MIMES: ReadonlySet<string> = new Set([
   // Images
   'image/png',
   'image/jpeg',
@@ -230,8 +232,8 @@ export function extForFile(mime: string, originalName: string): string {
  *
  * For unrecognized mimes, an extension in `TEXT_LIKE_EXTS` maps to
  * `text/plain` so common code/data files (`.ts`, `.json`, `.yaml`,
- * etc.) flow through the upload allowlist — Claude reads them fine
- * regardless of the technical mime type.
+ * etc.) are stored as text. Claude reads them fine regardless of the
+ * technical mime type.
  *
  * A zip mime is trusted for a real archive only. A `.docx`, `.xlsx` or
  * `.pptx` that arrives labeled as its zip container resolves to its own
@@ -250,6 +252,17 @@ export function resolveMime(rawMime: string | null | undefined, name: string): s
   return normalized || 'application/octet-stream';
 }
 
-export function isAllowedMime(mime: string): boolean {
-  return ALLOWED_MIMES.has(mime);
+export function isKnownMime(mime: string): boolean {
+  return KNOWN_MIMES.has(mime);
+}
+
+/**
+ * The type an upload is stored under. A label on the known list is kept. Any
+ * other label is ignored and the type comes from the name alone, so a browser's
+ * label can't get an unknown type served inline. A name Ri doesn't know either
+ * ends as `application/octet-stream`, which is served as a download.
+ */
+export function uploadMime(label: string | null | undefined, name: string): string {
+  const mime = resolveMime(label, name);
+  return isKnownMime(mime) ? mime : resolveMime(null, name);
 }

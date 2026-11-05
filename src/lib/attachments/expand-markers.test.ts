@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import type { Attachment } from '@/db/types';
 import { placeFilesAtHome } from '@/lib/executor/input-files';
 import { expandMarkers } from './expand-markers';
+import { uploadMime } from './mime';
 import { attachmentPath, saveAttachment } from './save';
 
 /** A real zip archive holding one stored file, `hello.txt`. */
@@ -109,6 +110,22 @@ describe('expandMarkers', () => {
     const expanded = await expandMarkers(`see [[file:${mislabeled.fileName}]]`, [mislabeled]);
     expect(expanded).toContain('<attachment filename="budget.xlsx">');
     expect(expanded).toContain('widget,5');
+  });
+
+  it('hands a file of a type Ri has no name for to the agent as its path', async () => {
+    const glb = await saveAttachment({ data: Buffer.from('glTF\u0002'), originalName: 'scene.glb', mimeType: uploadMime('model/gltf-binary', 'scene.glb') });
+    expect(glb).toMatchObject({ mimeType: 'application/octet-stream', originalName: 'scene.glb' });
+    expect(glb.fileName).toMatch(/\.glb$/);
+    const content = `open [[file:${glb.fileName}]]`;
+    const expanded = await expandMarkers(content, [glb]);
+    expect(expanded).toBe(content);
+    expect(placeFilesAtHome(expanded, [glb])).toBe(`open ${attachmentPath(glb.fileName)}`);
+  });
+
+  it('hands over the path of a type it knows but has no text for, never a stub', async () => {
+    const rtf = await saveAttachment({ data: Buffer.from('{\\rtf1 hello}'), originalName: 'letter.rtf', mimeType: 'application/rtf' });
+    const content = `[[file:${rtf.fileName}]]`;
+    expect(await expandMarkers(content, [rtf])).toBe(content);
   });
 
   it('hands video to the harness as a path for its tools', async () => {

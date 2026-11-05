@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Attachment, NoteRecord } from '@/db/types';
 import { getAttachmentsDir } from '@/lib/config/paths';
 import { extractReferencedFileNames } from './derive';
-import { ALLOWED_MIMES, extForFile, extFromName } from './mime';
+import { extForFile, extFromName, uploadMime } from './mime';
 
 export class AttachmentMetadataRepairError extends Error {
   constructor(public code: 'not_found' | 'invalid_params' | 'conflict', message: string) {
@@ -48,7 +48,7 @@ export function planNoteAttachmentMetadataRepair(input: {
     const authoritative = sourceRows[0];
     const prior = targetRows[0];
     if (typeof authoritative.originalName !== 'string' || !authoritative.originalName.trim() ||
-        !ALLOWED_MIMES.has(authoritative.mimeType) ||
+        uploadMime(authoritative.mimeType, authoritative.originalName) !== authoritative.mimeType ||
         !Number.isSafeInteger(authoritative.size) || authoritative.size <= 0 ||
         typeof authoritative.uploadedAt !== 'string' ||
         !/^\d{4}-\d{2}-\d{2}T/.test(authoritative.uploadedAt) ||

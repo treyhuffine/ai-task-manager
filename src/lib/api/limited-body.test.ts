@@ -24,6 +24,12 @@ describe('bounded request ingestion', () => {
     expect(await (form.get('file') as Blob).text()).toBe('image');
     expect(form.get('text')).toBe('caption');
   });
+  it('says a body is too large from its stated size, as the proxy passes on only the start of it', async () => {
+    const body = new FormData();
+    body.set('file', new Blob(['start of something larger']), 'scene.glb');
+    const request = new Request('http://localhost', { method: 'POST', body, headers: { 'content-length': String(MAX_MULTIPART_BYTES + 1) } });
+    await expect(readLimitedFormData(request)).rejects.toThrow('exceeds');
+  });
   it('rejects oversized multipart bytes before the parser sees them', async () => {
     const request = new Request('http://localhost', { method: 'POST', body: new Uint8Array(MAX_MULTIPART_BYTES + 1), headers: { 'content-type': 'multipart/form-data; boundary=x' } });
     await expect(readLimitedFormData(request)).rejects.toThrow('exceeds');
