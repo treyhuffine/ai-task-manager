@@ -22,6 +22,8 @@ Travel, Job Search and Relationships now have separate implementation proposals 
 | People | Individuals, founders and independent professionals | A lightweight CRM starts with relationship context and follow-through, then expands to company workspaces, saved lists and optional opportunity pipelines. | Selected email/calendar records, manual people/companies, dated affiliations and sourced commitments, using Ri's own SQLite and bounded AI work. | Keep the default experience simple. Optional CRM views must preserve the same records, scoped evidence and correction history. No gbrain runtime dependency. |
 | Home Projects | Homeowners and people undertaking renovations | Compare quotes by scope, track decisions and costs, and keep photos, manuals and warranties associated with the finished work. | Uploaded quotes and documents, comparison tables and a project timeline linked to Ri tasks. | Missing exclusions and mismatched quote scopes must stay visible. Avoid adding broad contractor or smart-home integrations to the first version. |
 
+[Bookmarks](bookmarks-app-spec.md) came after this list. It is built and included, and could become the capture layer for Research.
+
 ## Strongest next candidates
 
 Purchases is the strongest candidate for broad everyday appeal. It can turn information already arriving in an inbox into a useful record with little setup. Its core product is ownership and follow-through on a purchase. Finances retains its responsibility for accounts, transactions and budgets. If they later exchange references, each app should use explicit public actions and grants.

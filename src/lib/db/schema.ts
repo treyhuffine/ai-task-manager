@@ -822,7 +822,7 @@ export interface CalendarBlock {
 // tools on the orchestrator MCP. In a team it reaches the team's MCP and
 // its files, acting as that member's agent. It is never a sign-in.
 // Callers always say which: there is no default.
-export const API_KEY_ROLES = ['sign_in', 'worker', 'ai_client'] as const;
+export const API_KEY_ROLES = ['sign_in', 'worker', 'ai_client', 'app_client'] as const;
 
 export const apiKeys = sqliteTable(
   'api_keys',
@@ -855,7 +855,8 @@ export const apiKeys = sqliteTable(
     // For an `ai_client` key, the outside agent it was made for (an
     // `AiClientKind` in src/lib/external-ai/clients.ts: `codex`, `cursor`, ...),
     // so Settings lists and revokes keys per client. Null for every other key,
-    // and for AI client keys made before clients were recorded.
+    // and for AI client keys made before clients were recorded. For an
+    // `app_client` key, the local app instance it was made for.
     client: text(),
   },
   (table) => [

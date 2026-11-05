@@ -535,6 +535,8 @@ const ROLE_LABEL: Record<DeviceKeyView['role'], string | null> = {
   sign_in: null,
   // Only a team issues these (docs/homes-spec.md §9.8).
   ai_client: 'AI client',
+  // Made by an app for its outside clients, and managed there.
+  app_client: 'App client',
 };
 
 function KeyRow({ keyView, onRevoke, revoking }: { keyView: DeviceKeyView; onRevoke: () => void; revoking: boolean }) {

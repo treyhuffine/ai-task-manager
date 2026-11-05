@@ -12,6 +12,10 @@ Managed MCP services expose a bounded private `status` summary: readiness, worke
 
 An optional `ui.access` declaration names an account-selection path and a human callback with `actorId` input and `scopeRef` output. Ri opens that path as the human owner with the chosen host actor in `query.hostActor`. The app binds that actor in its opener scope, renders its own account/permission choices, and returns an opaque reference. Native Ri controls hold the reference and save it only when the human confirms the host grant. No copying of actor IDs or sign-in credentials is required. A guest cannot replace the opener's bound actor.
 
+An optional `requests.clientActions` names the actions an outside client may call, such as a browser extension saving a link. Each must be a declared user action that changes nothing outside the app. The owner's view makes a key for one client with the `create_client_key` capability, and `list_client_keys` and `revoke_client_key` manage them. Such a key reaches `POST /api/local-apps/client/<action>` for those actions and nothing else in Ri. They run as the owner, so they must not return anything the client should not read.
+
+The `read_web_page` Ri capability reads one public page: no cookies or sign-ins, no private networks, bounded in time and bytes. Failures come back as an `outcome`. Apps use it rather than `fetch` so the private-network floor can't be bypassed. A selected file can be up to 32 MiB by policy, while each action input is still capped at 1 MiB, so a large file travels in parts.
+
 ## Data, sources and time
 
 Node-side helpers for apps that keep records in the host data directory. They start no timers and run inside the caller's transactions.

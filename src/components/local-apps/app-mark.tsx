@@ -1,6 +1,6 @@
 'use client';
 
-import { BriefcaseBusiness, Contact, Plane, Wallet, type LucideIcon } from 'lucide-react';
+import { Bookmark, BriefcaseBusiness, Contact, Plane, Wallet, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const SIZES = {
@@ -20,6 +20,7 @@ const ICONS: Record<string, LucideIcon> = {
   briefcase: BriefcaseBusiness,
   contact: Contact,
   wallet: Wallet,
+  bookmark: Bookmark,
 };
 
 /**
@@ -32,6 +33,7 @@ export const INCLUDED_APP_ICONS: Readonly<Record<string, string>> = {
   'ri-travel': 'plane',
   'ri-job-search': 'briefcase',
   'ri-people': 'contact',
+  'ri-bookmarks': 'bookmark',
 };
 
 /**

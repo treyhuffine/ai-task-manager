@@ -16,6 +16,8 @@ import { KEY } from './app-hooks';
 type Choice = { granted: boolean; automatic: boolean };
 
 /** What each requested Ri capability lets an app do, in the owner's words. */
+/** The capabilities an app can also use in its automatic step. */
+const BACKGROUND_CAPABILITIES = new Set(['ai_text', 'read_web_page']);
 const CAPABILITY_COPY: Record<string, { label: string; hint: string }> = {
   create_task: { label: 'Create Ri tasks you choose', hint: 'Only after you confirm a follow-up. It never completes or edits other tasks.' },
   get_task: { label: 'See the status of tasks it created', hint: 'Shows whether a linked task is still open.' },
@@ -24,6 +26,7 @@ const CAPABILITY_COPY: Record<string, { label: string; hint: string }> = {
   get_note: { label: 'Read Ri notes it links to', hint: 'Reads a note you linked.' },
   list_notes: { label: 'List your Ri notes', hint: 'Reads note titles.' },
   extract_text: { label: 'Read text from files you choose', hint: 'PDF and Word files you select are read on this computer. Nothing is uploaded.' },
+  read_web_page: { label: 'Read the pages you save', hint: 'Ri requests each saved link without your sign-ins, so search can find what the page says.' },
   ai_text: { label: 'Use bounded AI to read your sources', hint: 'Sends short, relevant passages to your Claude subscription with no tools. Results stay suggestions until you review them.' },
 };
 
@@ -102,7 +105,9 @@ export function AppSourcesDialog({ instanceId, open, onOpenChange }: { instanceI
         <DialogHeader>
           <DialogTitle>{data?.displayName ?? 'App'} sources</DialogTitle>
           <DialogDescription>
-            Choose which accounts connected to Ri this app may read, and which update automatically. The app can only read. It never sends, changes or deletes anything in these accounts.
+            {data && !data.bindings.length
+              ? `Choose what ${data.displayName} may do in Ri.`
+              : 'Choose which accounts connected to Ri this app may read, and which update automatically. The app can only read. It never sends, changes or deletes anything in these accounts.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -182,13 +187,17 @@ export function AppSourcesDialog({ instanceId, open, onOpenChange }: { instanceI
                     return (
                       <li key={name} className="space-y-1">
                         <label className="flex items-start gap-2 text-[12px] text-foreground/90">
-                          <Checkbox className="mt-0.5" checked={allowed} onCheckedChange={(value) => setRiActions((current) => (value === true ? [...new Set([...current, name])] : current.filter((item) => item !== name)))} />
+                          <Checkbox className="mt-0.5" checked={allowed} onCheckedChange={(value) => {
+                            setRiActions((current) => (value === true ? [...new Set([...current, name])] : current.filter((item) => item !== name)));
+                            // Reading saved pages only helps if it keeps happening, so allowing it turns on both.
+                            if (value === true && name === 'read_web_page') setBackground((current) => [...new Set([...current, name])]);
+                          }} />
                           <span>
                             <span className="font-medium text-foreground">{copy.label}</span>
                             {copy.hint && <span className="block text-muted-foreground">{copy.hint}</span>}
                           </span>
                         </label>
-                        {name === 'ai_text' && data.background.supported && (
+                        {BACKGROUND_CAPABILITIES.has(name) && data.background.supported && (
                           <label className="ml-6 flex items-center gap-2 text-[12px] text-foreground/90">
                             <Checkbox checked={background.includes(name)} onCheckedChange={(value) => setBackground((current) => (value === true ? [...new Set([...current, name])] : current.filter((item) => item !== name)))} />
                             Also during automatic updates

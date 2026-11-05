@@ -15,6 +15,10 @@ export function previewRiCapability(dataDir:string,context:InvocationContext,cal
     const text=Buffer.from(input.base64,'base64').toString('utf8');return {text:text.slice(0,200_000),truncated:text.length>200_000,characters:text.length};
   }
   if(call.name==='ai_text'){const {prompt}=z.object({prompt:z.string().min(1).max(16000)}).strict().parse(call.input);return {text:'Fictional preview analysis of supplied text: '+prompt.slice(0,1000)};}
+  if(call.name==='read_web_page'){
+    const {url}=z.object({url:z.string().max(4096)}).strict().parse(call.input);
+    return {outcome:'read',status:200,finalUrl:url,contentType:'text/html',text:'<html><head><title>Fictional page</title></head><body><p>Fictional page text. Previews never reach the network.</p></body></html>',truncated:false};
+  }
   const file=path.join(dataDir,'ri-fixtures.json'),stamp='2026-10-07T12:00:00.000Z';
   let state:z.infer<typeof registry>;
   try{if(fs.statSync(file).size>2*1024*1024)throw new Error('Oversized fixtures');state=registry.parse(JSON.parse(fs.readFileSync(file,'utf8')));}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw new AppError('app_failed','Preview fixtures need repair');state={formatVersion:1,tasks:[{id:'00000000-0000-4000-8000-000000000001',title:'Fictional follow-up',body:'Synthetic preview task',status:'todo',createdAt:stamp,updatedAt:stamp}],notes:[{id:'00000000-0000-4000-8000-000000000002',title:'Fictional note',body:'Synthetic preview note',status:'todo',createdAt:stamp,updatedAt:stamp}]};}

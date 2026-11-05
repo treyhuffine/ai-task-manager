@@ -1,11 +1,11 @@
 /**
- * Native qualification for Travel, Job Search and People on a disposable Home.
+ * Native qualification for Travel, Job Search, People and Bookmarks on a disposable Home.
  * Synthetic data only. It never connects an account.
  *
  * Prepare a private catalog so the checkout's live catalog stays untouched:
  *
  *   mkdir -p /tmp/ri-included/catalog
- *   cp release/local-apps/catalog/ri-{finance,tracker}.* release/local-apps/dev-catalog/ri-{travel,job-search,people}.* /tmp/ri-included/catalog/
+ *   cp release/local-apps/catalog/ri-{finance,tracker}.* release/local-apps/dev-catalog/ri-{travel,job-search,people,bookmarks}.* /tmp/ri-included/catalog/
  *   pnpm iso /tmp/ri-included/home --init --port 42273 -- env RI_LOCAL_APPS=1 \
  *     RI_LOCAL_APPS_CATALOG_DIR=/tmp/ri-included/catalog NEXT_DIST_DIR=.next-included-42273 pnpm dev --port 42273
  *   RI_ROOT=/tmp/ri-included/home RI_LOCAL_APPS_BROWSER_URL=http://127.0.0.1:42273 pnpm exec tsx scripts/local-apps-included-browser-smoke.ts
@@ -27,6 +27,10 @@ interface Case {
   empty: string;
   /** One synthetic record created through the app's own action, and text that shows it. */
   seed: { action: string; input: Record<string, unknown>; shows: string };
+  /** The empty screen's button to Ri's Sources dialog, when it has one. The dialog also opens from the app's More menu. */
+  connect?: RegExp;
+  /** What the Sources dialog shows on a Home with no accounts. */
+  sources: RegExp;
   /** A section the app remembers in the URL. */
   section: string;
   /** The app's list route, where every record of the seeded kind appears. */
@@ -34,11 +38,13 @@ interface Case {
 }
 const CASES: Case[] = [
   { name: 'Travel', packageId: 'ri-travel', slug: 'travel', preview: 'Lisbon', empty: 'Bring your next trip together',
-    seed: { action: 'save_trip', input: { title: 'Fictional Porto weekend', startDate: '2026-12-04', endDate: '2026-12-06', homeZone: 'America/Denver' }, shows: 'Fictional Porto weekend' }, section: 'Sources', list: '/trips' },
+    seed: { action: 'save_trip', input: { title: 'Fictional Porto weekend', startDate: '2026-12-04', endDate: '2026-12-06', homeZone: 'America/Denver' }, shows: 'Fictional Porto weekend' }, connect: /Connect email/, sources: /No account for Gmail is connected to Ri yet/, section: 'Sources', list: '/trips' },
   { name: 'Job Search', packageId: 'ri-job-search', slug: 'job-search', preview: 'Northstar', empty: 'Keep your next opportunity together',
-    seed: { action: 'save_opportunity', input: { company: 'Fictional Harbor Labs', role: 'Design systems lead' }, shows: 'Fictional Harbor Labs' }, section: 'Materials', list: '/opportunities' },
+    seed: { action: 'save_opportunity', input: { company: 'Fictional Harbor Labs', role: 'Design systems lead' }, shows: 'Fictional Harbor Labs' }, connect: /Connect email/, sources: /No account for Gmail is connected to Ri yet/, section: 'Materials', list: '/opportunities' },
   { name: 'People', packageId: 'ri-people', slug: 'people', preview: 'Maya Chen', empty: 'Pick up where you left off',
-    seed: { action: 'save_person', input: { name: 'Fictional Ines Duarte' }, shows: 'Fictional Ines Duarte' }, section: 'Sources', list: '/people' },
+    seed: { action: 'save_person', input: { name: 'Fictional Ines Duarte' }, shows: 'Fictional Ines Duarte' }, connect: /Connect email/, sources: /No account for Gmail is connected to Ri yet/, section: 'Sources', list: '/people' },
+  { name: 'Bookmarks', packageId: 'ri-bookmarks', slug: 'bookmarks', preview: 'Tide tables', empty: 'Save your first link',
+    seed: { action: 'save_bookmark', input: { url: 'https://example.test/fictional-harbor', title: 'Fictional harbor guide' }, shows: 'Fictional harbor guide' }, sources: /Read the pages you save/, section: 'Connect', list: '/' },
 ];
 
 async function main() {
@@ -106,14 +112,14 @@ async function main() {
 
       // Connect email opens Ri's own Sources dialog, which shows connected, granted and automatic separately.
       // On a rerun the app has records, so the same dialog opens from the app's More menu.
-      if (fresh) await frame.getByRole('button', { name: /Connect email/ }).first().click();
+      if (fresh && app.connect) await frame.getByRole('button', { name: app.connect }).first().click();
       else {
         await page.getByRole('button', { name: 'More', exact: true }).click();
         await page.getByRole('menuitem', { name: 'Sources and access' }).click();
       }
       const dialog = page.getByRole('dialog');
       await dialog.getByRole('heading', { name: `${app.name} sources` }).waitFor();
-      await dialog.getByText(/No account for Gmail is connected to Ri yet/).waitFor();
+      await dialog.getByText(app.sources).waitFor();
       await page.screenshot({ path: path.join(out, `${app.slug}-sources-dialog.png`) });
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       await dialog.waitFor({ state: 'detached' });
@@ -156,6 +162,8 @@ async function main() {
       // A phone-width page shows one column with no sideways scroll.
       await page.setViewportSize({ width: 390, height: 860 });
       const appTab = page.getByRole('tab', { name: 'App', exact: true });
+      // The narrow layout's tabs appear a moment after the resize.
+      await appTab.waitFor({ timeout: 5000 }).catch(() => {});
       if (await appTab.count()) await appTab.click();
       frame = guest();
       // Wait until the app pane, not the chat pane, fills the phone width.

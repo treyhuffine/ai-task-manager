@@ -22,7 +22,7 @@ const protocolRoutes = new Set([
   // Signed email-draft forwarding and the narrow harness MCP. UI uses emailRouter.
   '/email/action', '/orchestrator/email/[transport]',
   // Signed CLI forwarding and the versioned app-process capability broker.
-  '/chat-sources/action', '/local-apps/action', '/local-apps/broker/v1/[operation]',
+  '/chat-sources/action', '/local-apps/action', '/local-apps/client/[action]', '/local-apps/broker/v1/[operation]',
   // OAuth for outside MCP apps (docs/mcp-oauth.md): RFC-defined form and JSON endpoints, and the consent form's POST.
   '/oauth/authorize', '/oauth/register', '/oauth/revoke', '/oauth/token',
   // Package bytes and the backup CLI's cross-process pause/resume lease.

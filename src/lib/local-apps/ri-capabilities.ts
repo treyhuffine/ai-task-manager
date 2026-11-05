@@ -8,7 +8,7 @@ import {createTaskSchema,createNoteSchema,entityIdSchema,taskFilterSchema,noteFi
 import * as q from '@/lib/db/queries';
 import type {CapabilityCall} from '@ri/app-kit/runtime';
 
-export const RI_APP_ACTIONS = ['get_task','get_note','list_tasks','list_notes','create_task','create_note','ai_text','extract_text'] as const;
+export const RI_APP_ACTIONS = ['get_task','get_note','list_tasks','list_notes','create_task','create_note','ai_text','extract_text','read_web_page'] as const;
 /** A calendar date, or an instant with its offset. Ri stores it as the task's deadline. */
 const dueAt=z.union([
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value=>!Number.isNaN(Date.parse(`${value}T00:00:00Z`))&&new Date(`${value}T00:00:00Z`).toISOString().startsWith(value),'Use a real calendar date'),
@@ -67,6 +67,10 @@ export async function callRiCapability(instanceId:string,context:InvocationConte
     return q.createAppTaskOnce(id,{...input,title:input.title,rawInput:input.title,...(deadline?{hardDeadline:deadline}:{})});
   }
   if(call.name==='extract_text') return extractText(instanceId,extractInput.parse(call.input),signal);
+  if(call.name==='read_web_page') {
+    const {readWebPage,webPageInput}=await import('./web-page');
+    return readWebPage(webPageInput.parse(call.input).url,signal);
+  }
   if(call.name==='create_note') {const input=noteInput.parse(call.input);return q.createAppNoteOnce(stableId(instanceId,context,call),input);}
   if(call.name==='ai_text') {
     const input=z.object({prompt:z.string().min(1).max(16000)}).strict().parse(call.input);

@@ -136,10 +136,12 @@ export const FILE_MIME_TYPES = [
   'text/csv', 'text/plain', 'application/json', 'application/pdf', 'image/png', 'image/jpeg',
   'text/markdown', 'text/html', 'text/vcard', 'message/rfc822',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/zip',
 ] as const;
 export const filePolicySchema = z.object({
   mimeTypes: z.array(z.enum(FILE_MIME_TYPES)).min(1).max(FILE_MIME_TYPES.length),
-  maxBytes: z.number().int().min(1).max(512 * 1024),
+  // The host's own ceiling. Each package declares its limit, and every action input is still bound by LIMITS.inputBytes.
+  maxBytes: z.number().int().min(1).max(32 * 1024 * 1024),
 }).strict();
 export const fileCapabilitiesSchema = z.object({select: filePolicySchema.optional(), download: filePolicySchema.optional()}).strict();
 export type FileCapabilities = z.infer<typeof fileCapabilitiesSchema>;
@@ -161,6 +163,11 @@ const requestsSchema = z
       .max(20),
     riActions: z.array(localNameSchema).max(20),
     files: fileCapabilitiesSchema.optional(),
+    /**
+     * Actions a key the owner makes may call from outside Ri, such as a browser
+     * extension saving a link. Nothing else in Ri answers to that key.
+     */
+    clientActions: z.array(localNameSchema).min(1).max(10).optional(),
   })
   .strict();
 export const riExtensionSchema = z
@@ -544,6 +551,11 @@ export class ContractValidator {
           "invalid_input",
           "View openers and context resolvers must name declared read-only actions",
         );
+    }
+    for (const name of extension.requests.clientActions ?? []) {
+      const action = contract.actions.find((item) => item.name === name);
+      if (!action?.audience.includes("user") || action.effect === "external_write")
+        throw new AppError("invalid_input", "A client action must be a declared user action that changes nothing outside the app");
     }
     if (extension.ui?.access) {
       const action = contract.actions.find(item => item.name === extension.ui?.access!.action);

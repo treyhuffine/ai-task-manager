@@ -19,7 +19,7 @@ export function pageViewerKey(headers: Pick<Headers, 'get'>): RequestKey | null 
   const token = authorization?.startsWith('Bearer ') ? authorization.slice(7).trim() : cookieToken;
   if (!token || isSessionToken(token)) return null;
   const found = lookupApiToken(token);
-  if (!found || found.key.role === 'ai_client' || isWorkerApiKey(found.key.id)) return null;
+  if (!found || found.key.role === 'ai_client' || found.key.role === 'app_client' || isWorkerApiKey(found.key.id)) return null;
   const base = { apiKeyId: found.key.id, workerDeviceId: null, sessionChatId: null };
   if (home.kind === 'team') {
     const caller = teamCallerFor(found.key, found.tokenHash);

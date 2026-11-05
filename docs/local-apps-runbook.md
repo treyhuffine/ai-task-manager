@@ -61,6 +61,14 @@ To qualify them natively, copy the dev-catalog artifacts with the Finances and t
 
 Connect email in any of the three opens the app's Sources dialog. It shows which Ri accounts are connected, which are granted to the app and which update automatically (one five-minute schedule per app), plus the Ri capabilities the app may use. Connect and Reconnect go to Ri's own account settings. Gmail and Calendar sync are fixture-qualified only.
 
+## Bookmarks
+
+Source lives in `apps/bookmarks`, with the same `pnpm --filter ri-bookmarks test`, `typecheck` and `package`. The design is in [its spec](bookmarks-app-spec.md). `pnpm --filter ri-bookmarks extension:package` rebuilds the browser extension's zip and the copy embedded in the app. Native qualification is the same as above, with `RI_INCLUDED_APP=ri-bookmarks` to run only this app.
+
+Two host pieces are new with it and open to any app. A package can name `requests.clientActions`, and its view can then make keys (`create_client_key`, `list_client_keys`, `revoke_client_key`) that reach only those actions, through `POST /api/local-apps/client/<action>`. These `app_client` keys are not sign-ins, so they appear in the app rather than under Devices. `read_web_page` reads one public page with no sign-ins and refuses private networks.
+
+Page reading is off until the owner allows it in the app's Sources dialog, which also creates the five-minute schedule.
+
 ## Lifecycle and records
 
 App records live in `<app-root>/apps/<instance-id>/data`. Editable previews live separately under `app-drafts`. IDs survive package changes and slug changes. Metadata, grants, schedules and panel bindings are stored in a strict versioned file under the Home's config directory. No core task/note schema migration is added.
