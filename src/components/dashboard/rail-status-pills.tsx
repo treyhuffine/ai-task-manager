@@ -21,6 +21,7 @@ import { Tip } from '@/components/ui/tip';
 import Link from 'next/link';
 import { ClipboardCheck, ShieldAlert, Maximize2 } from 'lucide-react';
 import type { RailResponse } from '@/lib/api/sessions';
+import { BackgroundTasksPill } from './background-tasks-pill';
 
 // The HUD's compact status overview stays visible regardless of rail collapse.
 // Its popovers and Agent Activity share the same rows. A row opens the chat,
@@ -41,6 +42,7 @@ export function RailStatusPills() {
           items={buckets[bucketId]}
         />
       ))}
+      {!!data?.backgroundChats?.length && <BackgroundTasksPill chats={data.backgroundChats} />}
       <ReviewAttentionPill reviews={data?.resultReviewAttention ?? []} pendingSessionIds={data?.pendingSessionIds ?? []} />
     </div>
   );
