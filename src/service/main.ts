@@ -199,7 +199,7 @@ async function stopFailedStart() {
 
 async function restartBackend() {
   restartTimer = undefined;
-  if (stopping || next || starting) return;
+  if (stopping || next || starting || updater.status().phase === 'recovery-required') return;
   // An update attempt holds the backend for a moment. Try again after it, or
   // the Home would stay down until something else restarted it.
   if (updater.status().busy || coordination.handingOff || roleChange) { restartTimer = setTimeout(() => void restartBackend(), 5000); return; }
@@ -416,6 +416,7 @@ const control = http.createServer(async (request, response) => {
       let bytes = 0; const chunks: Buffer[] = [];
       for await (const chunk of request) { bytes += chunk.length; if (bytes > 1024) throw new Error('Control request too large'); chunks.push(chunk); }
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) as { now?: boolean } : {};
+      if (updater.status().phase === 'recovery-required') throw new Error('This Home needs its recovery finished first. See `ri update recover`.');
       // A Home waiting for its next retry tries now instead.
       if (!next) { clearTimeout(restartTimer); void restartBackend(); return reply({}); }
       void planRestart('restarted on request', body.now === true);
@@ -672,7 +673,11 @@ function startTimers() {
   }, 30_000);
   logRotation.unref();
   const tick = setInterval(() => void updateTick(), 30_000); tick.unref();
-  const probe = setInterval(() => { superviseServer(); void probeBackend(); }, Number(process.env.RI_SERVICE_PROBE_MS) || PROBE_INTERVAL_MS); probe.unref();
+  // A timer that throws would take the controller down, the one thing that must stay up.
+  const probe = setInterval(() => {
+    try { superviseServer(); } catch (error) { console.warn('[service] Supervision check failed:', error instanceof Error ? error.message : 'Failed'); }
+    void probeBackend().catch(error => console.warn('[service] Probe failed:', error instanceof Error ? error.message : 'Failed'));
+  }, Number(process.env.RI_SERVICE_PROBE_MS) || PROBE_INTERVAL_MS); probe.unref();
   // Checking/downloading never approves activation. Metered mode suppresses
   // automatic downloads, while an explicit Download remains available.
   const check = async () => {

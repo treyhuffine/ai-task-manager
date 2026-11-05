@@ -204,7 +204,7 @@ async function main() {
     await stopService();
     const port = Number(new URL(initial.origin).port);
     const holder = net.createServer();
-    await new Promise<void>((resolve, reject) => { holder.once('error', reject); holder.listen(port, resolve); });
+    await new Promise<void>((resolve, reject) => { holder.once('error', reject); holder.listen(port, '127.0.0.1', resolve); });
     assert(runtime);
     const retrying = spawn(runtime.node, [path.join(runtime.repo, 'dist/service/main.cjs')], { cwd: runtime.repo, env: { ...environment, RI_RUNTIME_REPO: runtime.repo }, stdio: 'ignore', detached: true });
     retrying.unref();

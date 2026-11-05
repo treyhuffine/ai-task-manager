@@ -114,5 +114,6 @@ export function registerStatusCommand(program: Command) {
         console.log(`${pc.dim('state')}   ${pc.red(err.message)}`);
         process.exitCode = 1;
       }
+      if (!opts.root) await printOtherHomes();
     });
 }
