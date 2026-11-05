@@ -234,6 +234,26 @@ async function main() {
     track(session);
     passed('restarts asked for during a first start leave one server');
 
+    // A controller started from anywhere else, a checkout say, gives the Home
+    // to the selected release. Under the OS, `ri start` never takes this path.
+    if (!native) {
+      await stopService();
+      const elsewhere = path.join(temporary, 'elsewhere');
+      fs.mkdirSync(elsewhere);
+      fs.symlinkSync(path.join(runtime.repo, 'dist'), path.join(elsewhere, 'dist'));
+      fs.copyFileSync(path.join(runtime.repo, 'package.json'), path.join(elsewhere, 'package.json'));
+      const stray = spawn(runtime.node, [path.join(elsewhere, 'dist/service/main.cjs')], { cwd: elsewhere, env: { ...environment, RI_RUNTIME_REPO: elsewhere }, stdio: 'ignore', detached: true });
+      stray.unref();
+      if (stray.pid) observed.add(stray.pid);
+      const handedOver = await waitFor(serviceStatus, value => value?.phase === 'running', 'the selected release running under its own controller', 180_000);
+      assert.notEqual(handedOver!.pid, stray.pid, 'The stray controller must not keep the Home');
+      assert.equal(fs.realpathSync(handedOver!.repo), fs.realpathSync(runtime.repo));
+      session = await serviceRequest<ServiceSession>('/session');
+      track(session);
+      assert.equal((await api(session, noteRoute)).body.body, note.body.body);
+      passed('a controller started from elsewhere hands the Home to the selected release');
+    }
+
     // `ri stop` under supervision: the OS starting the controller at login
     // finds the record and exits successfully, so it stays down.
     await stopService();

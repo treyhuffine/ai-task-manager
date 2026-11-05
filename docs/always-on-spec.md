@@ -725,6 +725,12 @@ Rehearsing the takeovers on throwaway Homes, started exactly as the owner's scri
 | Every start after a finished update rewrote its pointers under the store lock, where Homes booting together could time out | A start with nothing to change takes no lock |
 | `ri start` on a team with no saved address gave it `http://localhost:4224`, a personal Home's address | The service picks one for it |
 
+A sixth pass, focused on the last three commits, confirmed those repairs and found one thing left:
+
+| Finding | Change |
+| --- | --- |
+| A controller started from elsewhere, on a Home whose selection hadn't moved, ran the selected release's server under its own code | Every start compares the selected release with the one the controller was loaded from, whatever moved it, and hands over if they differ |
+
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
 
 ## 14. Prior art

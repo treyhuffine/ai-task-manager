@@ -533,8 +533,6 @@ async function start() {
   await new Promise<void>((resolve, reject) => { control.once('error', reject); control.listen(paths.socket, resolve); });
   fs.chmodSync(paths.socket, 0o600);
   // Keep the private recovery/status surface alive without a crash loop.
-  let selectedBefore: string | undefined;
-  try { selectedBefore = installedRuntime()?.id; } catch { /* an unreadable selection is recovery's to repair */ }
   try { await updater.recover(); }
   catch (error) {
     starting = false;
@@ -543,8 +541,13 @@ async function start() {
     return;
   }
   const installed = installedRuntime();
-  // Recovery selected another release: its own controller runs it, not this one.
-  if (installed && installed.id !== selectedBefore) { await handOver(); return; }
+  // A release runs under its own controller, whether recovery just selected it
+  // or this one was started from somewhere else.
+  if (installed && canonical(installed.repo) !== controllerRepo) {
+    console.info(`[service] This Home runs release ${installed.id.slice(0, 12)}. Handing over to its controller.`);
+    await handOver();
+    return;
+  }
   if (installed) { repo = installed.repo; node = installed.node; process.env.RI_RUNTIME_REPO = repo; process.env.NEXT_DIST_DIR = '.next-desktop'; process.chdir(repo); }
   await refreshRole();
   starting = false;
