@@ -1,12 +1,15 @@
 'use client';
 
 import { Check, Copy, ExternalLink, Plus } from 'lucide-react';
+import { useId } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { integrationMeta } from '@/components/integrations/integration-meta';
 import { APP_NAME } from '@/constants/app';
 import { isRegisteredMcp, oauthAppRedirectUri, type AuthConfigSummary, type ByoForm, type ProviderStatus } from './types';
 import { Tip } from '@/components/ui/tip';
+import { SlackAccountSetup } from './slack-account-setup';
 
 /**
  * Bring-your-own OAuth app for an OAuth provider: the redirect URI to register,
@@ -46,36 +49,12 @@ export function ByoPanel({
   connectDisabled?: boolean;
   usedAuthConfigIds?: string[];
 }) {
-  const { docsUrl, setup } = integrationMeta(provider.id);
+  const { docsUrl, appUrl, setup } = integrationMeta(provider.id);
   const registered = isRegisteredMcp(provider);
   const boundClientId = registered ? provider.mcp?.authConfigId : undefined;
   const callback = oauthAppRedirectUri(provider, redirectUri);
-  return (
-    <div className="space-y-3">
-      <p className="text-[11px] leading-normal text-muted-foreground">
-        {!registered && provider.desktopCallback?.kind === 'loopback'
-          ? `Create a desktop or native OAuth app with ${provider.displayName} that accepts loopback redirects on a temporary port. Paste its client ID below.`
-          : `Register an app with ${provider.displayName}, add the callback address below, then paste the client below.`}
-        {' '}Credentials are stored encrypted in your Ri.
-      </p>
-      {setup && setup.length > 0 && (
-        <ol className="list-decimal space-y-1 pl-4 text-[11px] leading-normal text-muted-foreground">
-          {setup.map((step) => <li key={step}>{step}</li>)}
-        </ol>
-      )}
-      {docsUrl && (
-        <a
-          href={docsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
-        >
-          Create an app on {provider.displayName}
-          <ExternalLink size={11} />
-        </a>
-      )}
-
-      {/* Redirect URI to register */}
+  const formId = useId();
+  const callbackFields = <>
       <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 p-2">
         <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-foreground">{registered ? callback || 'Callback address unavailable' : provider.desktopCallback ? provider.desktopCallback.kind === 'loopback' ? 'http://127.0.0.1:<temporary-port>/oauth/callback' : provider.desktopCallback.redirectUri || 'Configure a hosted callback service first' : redirectUri}</code>
         <Tip label="Copy redirect URI">
@@ -84,7 +63,6 @@ export function ByoPanel({
           </Button>
         </Tip>
       </div>
-      {/* Web callbacks follow Ri's address (src/lib/integrations/live-callback.ts). */}
       {(registered || !provider.desktopCallback) && (
         <p className="text-[11px] leading-normal text-muted-foreground">
           This follows {APP_NAME}&apos;s address in Devices, and every sign-in uses it. If that address changes, add the new
@@ -93,8 +71,8 @@ export function ByoPanel({
       )}
 
       {boundClientId && <p className="text-[11px] text-muted-foreground">This connection uses {configs.find(config => config.id === boundClientId)?.label ?? boundClientId}. Disconnect before changing or removing its OAuth app.</p>}
-
-      {/* Existing BYO clients */}
+  </>;
+  const savedApps = <>
       {configs.length > 0 && (
         <div className="space-y-1.5">
           {configs.map((cfg) => (
@@ -138,32 +116,40 @@ export function ByoPanel({
           ))}
         </div>
       )}
-
-      {/* Add a client */}
-      <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
-        <Input
+  </>;
+  const credentials = <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
+      <div className="space-y-1">
+        <Label className="text-xs" htmlFor={`${formId}-label`}>App label in Ri</Label>
+        <Input id={`${formId}-label`}
           value={form.label}
           onChange={(e) => onField('label', e.target.value)}
           placeholder="Label (e.g. Work)"
           className="h-8 rounded-lg text-xs"
         />
-        <Input
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs" htmlFor={`${formId}-client-id`}>Client ID</Label>
+        <Input id={`${formId}-client-id`}
           value={form.clientId}
           onChange={(e) => onField('clientId', e.target.value)}
           placeholder="Client ID"
           className="h-8 rounded-lg font-mono text-xs"
         />
-        <Input
+      </div>
+      <div className="space-y-1 @lg:col-span-2">
+        <Label className="text-xs" htmlFor={`${formId}-client-secret`}>{registered ? 'Client secret' : 'Client secret (if required)'}</Label>
+        <Input id={`${formId}-client-secret`}
           type="password"
           autoComplete="off"
           value={form.clientSecret}
           onChange={(e) => onField('clientSecret', e.target.value)}
           placeholder={registered ? 'Client secret' : 'Client secret (if required)'}
           required={registered}
-          className="h-8 rounded-lg font-mono text-xs @lg:col-span-2"
+          className="h-8 rounded-lg font-mono text-xs"
         />
       </div>
-      <Button
+    </div>;
+  const saveAction = <Button
         size="sm"
         variant="outline"
         onClick={onAdd}
@@ -171,7 +157,37 @@ export function ByoPanel({
         className="text-xs font-semibold"
       >
         <Plus size={14} /> Add app
-      </Button>
+      </Button>;
+
+  if (provider.id === 'slack' && registered) {
+    return <SlackAccountSetup redirectUri={callback} callbackFields={callbackFields} credentials={credentials} saveAction={saveAction} savedApps={savedApps} />;
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] leading-normal text-muted-foreground">
+        {!registered && provider.desktopCallback?.kind === 'loopback'
+          ? `Create a desktop or native OAuth app with ${provider.displayName} that accepts loopback redirects on a temporary port. Paste its client ID below.`
+          : `Register an app with ${provider.displayName}, add the callback address below, then paste the client below.`}
+        {' '}Credentials are stored encrypted in your Ri.
+      </p>
+      {setup && setup.length > 0 && (
+        <ol className="list-decimal space-y-1 pl-4 text-[11px] leading-normal text-muted-foreground">
+          {setup.map((step) => <li key={step}>{step}</li>)}
+        </ol>
+      )}
+      {(appUrl || docsUrl) && (
+        <div className="flex flex-wrap gap-3 text-[11px]">
+          <a href={appUrl ?? docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">
+            {appUrl ? `Create an app on ${provider.displayName}` : 'Setup guide'} <ExternalLink size={11} />
+          </a>
+          {appUrl && docsUrl && <a href={docsUrl} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:underline">Reference docs</a>}
+        </div>
+      )}
+      {callbackFields}
+      {savedApps}
+      {credentials}
+      {saveAction}
     </div>
   );
 }

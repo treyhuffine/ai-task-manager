@@ -21,6 +21,7 @@ import { integrationMeta } from '@/components/integrations/integration-meta';
 import { HostedEndpointFields } from '@/components/integrations/hosted-endpoint-fields';
 import { integrationEndpointReady, type HostedEndpointSelection } from '@/lib/client/integration-endpoint';
 import { ByoPanel } from './byo-panel';
+import { SlackAccountSignInHelp } from './slack-account-setup';
 import { HostedProviderDetail } from './hosted-provider-detail';
 import { BackLink, Chip, ConnectFormSection, DetailHeader, GroupHeading } from './parts';
 import {
@@ -296,10 +297,10 @@ function ConnectPanelContent(props: ProviderDetailProps) {
   if ((p.method === 'oauth2' || isRegisteredMcp(p)) && !p.configured) {
     return (
       <div className="space-y-3">
-        <p className="text-xs leading-normal text-foreground/90">
+        {p.id !== 'slack' && <p className="text-xs leading-normal text-foreground/90">
           {p.displayName} connects through an OAuth app you register yourself. It takes a few minutes and the app
           stays yours.
-        </p>
+        </p>}
         <Byo {...props} />
       </div>
     );
@@ -310,7 +311,7 @@ function ConnectPanelContent(props: ProviderDetailProps) {
     const selected = props.selectedServices;
     return (
       <div className="space-y-4">
-        {hosted && (meta.setup?.length || meta.docsUrl) && <div className="space-y-2 text-xs text-muted-foreground">
+        {hosted && p.id === 'slack' ? <SlackAccountSignInHelp /> : hosted && (meta.setup?.length || meta.docsUrl) && <div className="space-y-2 text-xs text-muted-foreground">
           {meta.setup && <ol className="list-decimal space-y-1 pl-4">{meta.setup.map(step => <li key={step}>{step}</li>)}</ol>}
           {meta.docsUrl && <a href={meta.docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Setup guide <ExternalLink size={11} /></a>}
         </div>}
