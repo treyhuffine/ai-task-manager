@@ -68,14 +68,15 @@ export function isAllowedRedirectUri(raw: unknown): raw is string {
 
 /**
  * Whether a redirect the client asked for is one it registered. Exact,
- * except that a loopback IP listener may pick its port at run time
- * (RFC 8252 §7.3).
+ * except that a listener on this computer picks its port at run time
+ * (RFC 8252 §7.3). That includes `localhost`, which is what Claude Code
+ * registers and uses. The host, path and query still have to match.
  */
 export function redirectMatches(registered: readonly string[], asked: string): boolean {
   if (registered.includes(asked)) return true;
   let url: URL;
   try { url = new URL(asked); } catch { return false; }
-  if (url.protocol !== 'http:' || (url.hostname !== '127.0.0.1' && url.hostname !== '[::1]')) return false;
+  if (url.protocol !== 'http:' || !isLoopbackHost(url.hostname)) return false;
   const portless = (value: URL) => `${value.protocol}//${value.hostname}${value.pathname}${value.search}`;
   return registered.some(entry => {
     try { return portless(new URL(entry)) === portless(url); } catch { return false; }

@@ -20,6 +20,12 @@ export interface ViewTask {
   daysUntil: number | null;
   blocked: boolean;
   recurring: boolean;
+  /**
+   * A repeating task finished for now: when it next comes due. Finishing one
+   * returns it to `todo` with this date, and Ri treats it as not ready until
+   * then (`src/lib/deck/client-ready.ts`), so the view draws it as done.
+   */
+  nextOccurrence: string | null;
   /** Why the deck put it here, one line. Deck items only. */
   reason: string | null;
   /** Sent back with a change, so a view that's out of date can't undo newer work. */
@@ -61,7 +67,7 @@ function areaNames(): Map<string, string> {
   return new Map(listAreas({ status: 'all' }).map(area => [area.id, area.name]));
 }
 
-type TaskLike = Pick<TaskRecord, 'id' | 'title' | 'status' | 'areaId' | 'hardDeadline' | 'blockedOn' | 'recurrence' | 'statusChangedCount'>;
+type TaskLike = Pick<TaskRecord, 'id' | 'title' | 'status' | 'areaId' | 'hardDeadline' | 'blockedOn' | 'recurrence' | 'nextRecurrenceAt' | 'statusChangedCount'>;
 
 function viewTask(task: TaskLike, areas: Map<string, string>, base: string | null, reason: string | null = null, now = new Date()): ViewTask {
   return {
@@ -73,6 +79,7 @@ function viewTask(task: TaskLike, areas: Map<string, string>, base: string | nul
     daysUntil: calendarDaysUntil(task.hardDeadline, now),
     blocked: Boolean(task.blockedOn),
     recurring: Boolean(task.recurrence),
+    nextOccurrence: task.recurrence && task.nextRecurrenceAt && new Date(task.nextRecurrenceAt).getTime() > now.getTime() ? task.nextRecurrenceAt : null,
     reason,
     statusChangedCount: task.statusChangedCount,
     url: base ? `${base}/task/${encodeURIComponent(task.id)}` : null,
@@ -146,8 +153,9 @@ export function tasksView(input: TasksViewInput, now = new Date()): TasksView {
 }
 
 function line(task: ViewTask): string {
-  const meta = [task.status === 'in_progress' ? 'in progress' : task.status === 'todo' ? null : task.status, task.area,
-    task.daysUntil === null || task.status === 'done' ? null : task.daysUntil < 0 ? `overdue ${-task.daysUntil}d` : task.daysUntil === 0 ? 'due today' : `due ${task.deadline}`,
+  const finished = task.status === 'done' || task.nextOccurrence;
+  const meta = [task.nextOccurrence ? `done for now, next ${todayLocalDate(new Date(task.nextOccurrence))}` : task.status === 'in_progress' ? 'in progress' : task.status === 'todo' ? null : task.status, task.area,
+    task.daysUntil === null || finished ? null : task.daysUntil < 0 ? `overdue ${-task.daysUntil}d` : task.daysUntil === 0 ? 'due today' : `due ${task.deadline}`,
     task.blocked ? 'blocked' : null].filter(Boolean);
   return `${task.title}${meta.length ? ` (${meta.join(', ')})` : ''} [${task.id}]`;
 }

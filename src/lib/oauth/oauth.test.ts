@@ -245,6 +245,20 @@ describe('signing in', () => {
     expect(after.status).toBe(401);
   });
 
+  it('connects Claude Code as its published document describes it, on the port it chose, and binds the code to that port', async () => {
+    const claudeCode = 'https://claude.ai/oauth/claude-code-client-metadata';
+    (await import('./clients')).setMetadataFetchForTests(async () => ({ status: 200, body: JSON.stringify({
+      client_id: claudeCode, client_name: 'Claude Code', client_uri: 'https://claude.ai', redirect_uris: ['http://localhost/callback', 'http://127.0.0.1/callback'],
+      grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none',
+    }) }));
+    const redirect = 'http://localhost:3118/callback';
+    const first = await authorizeByHand(claudeCode, redirect);
+    expect(await token({ grant_type: 'authorization_code', code: first.code, redirect_uri: 'http://localhost:4000/callback', client_id: claudeCode, code_verifier: first.verifier })).toMatchObject({ status: 400, body: { error: 'invalid_grant' } });
+    const second = await authorizeByHand(claudeCode, redirect);
+    expect((await token({ grant_type: 'authorization_code', code: second.code, redirect_uri: redirect, client_id: claudeCode, code_verifier: second.verifier })).status).toBe(200);
+    expect(await personalClients()).toMatchObject([{ name: 'Claude Code' }]);
+  });
+
   it('authenticates a confidential client with the secret it was registered with', async () => {
     const registered = await (await serve(`${BASE}/api/oauth/register`, { method: 'POST', body: JSON.stringify({ client_name: 'Server Agent', redirect_uris: [CALLBACK], token_endpoint_auth_method: 'client_secret_basic' }) })).json();
     expect(registered.client_secret).toBeTruthy();

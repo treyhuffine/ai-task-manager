@@ -20,6 +20,8 @@ const pending = new Set<string>();
 /** A row's last error, shown under it until the next change. */
 const rowErrors = new Map<string, string>();
 let notice: string | null = null;
+/** The last redraw from Ri failed, so what's on screen may be behind. */
+let stale = false;
 
 // ─── Small DOM helpers ────────────────────────────────────────
 
@@ -99,8 +101,13 @@ function idempotencyKey(): string {
 /** Draw what Ri says now. Reuses the call that drew the view, so a filtered list stays filtered. */
 async function refresh(): Promise<void> {
   if (!bridge || !view) return;
-  const result = await bridge.callTool(view.view === 'deck' ? 'show_deck' : 'show_tasks', view.view === 'deck' ? {} : toolArgs);
-  if (!result.isError && result.structuredContent) show(result.structuredContent as unknown as View);
+  try {
+    const result = await bridge.callTool(view.view === 'deck' ? 'show_deck' : 'show_tasks', view.view === 'deck' ? {} : toolArgs);
+    stale = Boolean(result.isError || !result.structuredContent);
+    if (!stale) show(result.structuredContent as unknown as View);
+  } catch {
+    stale = true;
+  }
 }
 
 async function change(task: ViewTask, command: 'complete' | 'start' | 'reopen'): Promise<void> {
@@ -108,7 +115,7 @@ async function change(task: ViewTask, command: 'complete' | 'start' | 'reopen'):
   pending.add(task.id);
   rowErrors.delete(task.id);
   const before = task.status;
-  // Show it at once. The refresh after puts in what Ri decided, such as a repeating task's next date.
+  // Show it at once, then what Ri answered, then the redraw from Ri.
   task.status = command === 'complete' ? 'done' : command === 'start' ? 'in_progress' : 'todo';
   render();
   const base = { id: task.id, idempotency_key: idempotencyKey(), expected_status_changed_count: task.statusChangedCount };
@@ -120,9 +127,14 @@ async function change(task: ViewTask, command: 'complete' | 'start' | 'reopen'):
     if (result.isError || !envelope.ok) {
       task.status = before;
       rowErrors.set(task.id, envelope.error?.code === 'conflict'
-        ? 'This task changed in Ri, so here is what it is now.'
+        ? 'This task changed in Ri, so that didn’t go through.'
         : envelope.error?.message?.slice(0, 200) || 'Ri couldn’t make that change.');
     } else {
+      // Good even if the redraw below fails: a repeating task's next date, and the count the next change needs.
+      const outcome = (envelope.result ?? {}) as { toStatus?: ViewTask['status']; statusChangedCount?: number; nextRecurrenceAt?: string | null };
+      if (outcome.toStatus) task.status = outcome.toStatus;
+      if (typeof outcome.statusChangedCount === 'number') task.statusChangedCount = outcome.statusChangedCount;
+      if (outcome.nextRecurrenceAt) task.nextOccurrence = outcome.nextRecurrenceAt;
       const done = command === 'complete' ? 'marked done' : command === 'start' ? 'started' : 'reopened';
       void bridge.updateModelContext(`In the Ri view, the person ${done} the task "${task.title}" (${task.id}).`).catch(() => {});
     }
@@ -133,7 +145,7 @@ async function change(task: ViewTask, command: 'complete' | 'start' | 'reopen'):
   render();
   // The row stays busy until Ri's own answer is drawn, so a quick second tap
   // never sends the count from before this change.
-  await refresh().catch(() => {});
+  await refresh();
   pending.delete(task.id);
   render();
 }
@@ -145,7 +157,9 @@ function open(url: string | null): void {
 // ─── Drawing ──────────────────────────────────────────────────
 
 function row(task: ViewTask, options: { reason?: boolean } = {}): HTMLLIElement {
-  const done = task.status === 'done';
+  // A repeating task finished for now looks done, and has nothing to press until its next date.
+  const next = task.nextOccurrence ? new Date(task.nextOccurrence).toLocaleDateString(locale(), { weekday: 'short', month: 'short', day: 'numeric' }) : null;
+  const done = task.status === 'done' || next !== null;
   const busy = pending.has(task.id);
   const deadline = deadlineLabel(task);
   const meta: Child[] = [];
@@ -155,7 +169,8 @@ function row(task: ViewTask, options: { reason?: boolean } = {}): HTMLLIElement 
   if (task.blocked && !done) push(h('span', { className: 'chip' }, 'Blocked'));
   if (task.area) push(h('span', {}, task.area));
   if (deadline && !done) push(h('span', { className: `tone-${deadline.tone}` }, deadline.text));
-  if (task.recurring) push(h('span', {}, 'Repeats'));
+  if (next) push(h('span', {}, `Next ${next}`));
+  else if (task.recurring) push(h('span', {}, 'Repeats'));
 
   const titleText = h('span', { className: 'title-text' }, task.title);
   const title = task.url
@@ -169,15 +184,15 @@ function row(task: ViewTask, options: { reason?: boolean } = {}): HTMLLIElement 
     } }, task.reason)
     : null;
 
-  const start = (task.status === 'todo' || task.status === 'consider')
+  const start = !done && (task.status === 'todo' || task.status === 'consider')
     ? h('button', { type: 'button', className: 'start', disabled: busy, 'aria-label': `Start ${task.title}`, onClick: () => void change(task, 'start') }, 'Start')
     : null;
 
   const error = rowErrors.get(task.id);
   return h('li', { className: `row${done ? ' done' : ''}${busy ? ' busy' : ''}`, 'data-task': task.id },
     h('button', {
-      type: 'button', className: 'check', disabled: busy || task.status === 'archived',
-      'aria-pressed': String(done), 'aria-label': done ? `Reopen ${task.title}` : `Mark ${task.title} done`,
+      type: 'button', className: 'check', disabled: busy || next !== null || task.status === 'archived',
+      'aria-pressed': String(done), 'aria-label': next ? `${task.title} is done until ${next}` : done ? `Reopen ${task.title}` : `Mark ${task.title} done`,
       onClick: () => void change(task, done ? 'reopen' : 'complete'),
     }, done ? icon(CHECK, 12) : null),
     h('div', { className: 'body' },
@@ -235,6 +250,7 @@ function tasks(data: TasksView): Node[] {
 function render(): void {
   const nodes: Node[] = [];
   if (notice) nodes.push(h('p', { className: 'notice', role: 'status' }, notice));
+  if (stale) nodes.push(h('p', { className: 'notice', role: 'status' }, 'This view may be out of date. ', h('button', { type: 'button', className: 'retry', onClick: () => void refresh().then(render) }, 'Try again')));
   if (view) nodes.push(...(view.view === 'deck' ? deck(view) : tasks(view)));
   else if (!notice) nodes.push(h('p', { className: 'loading', role: 'status' }, 'Loading from Ri'));
   root.replaceChildren(...nodes);

@@ -143,6 +143,25 @@ describe('over MCP', () => {
     expect(JSON.parse((stale.content as Array<{ text: string }>)[0].text)).toMatchObject({ ok: false, error: { code: 'conflict' } });
   });
 
+  it('shows a repeating task as done until its next date, from Ri’s own answer', async () => {
+    const q = await import('@/lib/db/queries');
+    const plants = q.createTask({ title: 'Water the plants', recurrence: 'weekly' });
+    const client = await assistant();
+    const show = async () => client.callTool({ name: 'show_tasks', arguments: { ids: [plants.id] } });
+    const before = ((await show()).structuredContent as unknown as import('./data').TasksView).items[0];
+    expect(before).toMatchObject({ recurring: true, nextOccurrence: null });
+    const finished = await client.callTool({ name: 'complete_task', arguments: { id: plants.id, idempotency_key: 'view-plants', expected_status_changed_count: before.statusChangedCount } });
+    const outcome = JSON.parse((finished.content as Array<{ text: string }>)[0].text).result;
+    expect(outcome).toMatchObject({ toStatus: 'todo', statusChangedCount: before.statusChangedCount + 1, nextRecurrenceAt: expect.any(String) });
+    const after = await show();
+    expect((after.structuredContent as unknown as import('./data').TasksView).items[0]).toMatchObject({ status: 'todo', nextOccurrence: outcome.nextRecurrenceAt });
+    expect((after.content as Array<{ text: string }>)[0].text).toMatch(/Water the plants \(done for now, next \d{4}-\d{2}-\d{2}\)/);
+    // Once its date has passed, it's due again and looks it.
+    const { tasksView } = await import('./data');
+    const later = new Date(new Date(outcome.nextRecurrenceAt).getTime() + 86_400_000);
+    expect(tasksView({ ids: [plants.id] }, later).items[0].nextOccurrence).toBeNull();
+  });
+
   it('shows every named task, and says when a filter finds more than it shows', async () => {
     const q = await import('@/lib/db/queries');
     const made = Array.from({ length: 30 }, (_, index) => q.createTask({ title: `Task ${index + 1}` }));
