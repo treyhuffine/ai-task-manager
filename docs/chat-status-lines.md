@@ -2,9 +2,9 @@
 
 **Status:** trial, added 2026-11-03, on by default. Settings → General → Agents → Status lines turns it off.
 
-Coming back to Ri, the question is which chats need you and what for. "Unread" only says new text arrived since you looked. On a real home, of 23 unread chats about 5 asked for a decision, 3 waited on a deploy only the person could do, 1 had stalled, and about 14 were reports that asked nothing. The asks were the oldest, so newest-first buried them. And opening a chat to glance at it marked it read, so a question you hadn't answered dropped out of Unread.
+Coming back to Ri, the question is which chats need you and what for. "Unread" only says new text arrived since you looked. On a real home, of 23 unread chats about 5 asked for a decision, 3 waited on a deploy only the person could do, 1 had stalled, and about 14 were reports that asked nothing. The asks were the oldest, so newest-first buried them.
 
-A status line fixes both. At the end of each turn, a chat's agent writes one line saying where the chat stands: what it did, or what it needs from you, how long your part takes and what it unblocks. Ri shows the line under the chat's title, and a line that waits on you keeps the chat in Unread until you answer it or mark it read.
+A status line answers that. At the end of each turn, a chat's agent writes one line saying where the chat stands: what it did, or what it needs from you, how long your part takes and what it unblocks. Ri shows the line under the chat's title.
 
 ## Who writes it
 
@@ -13,7 +13,7 @@ The agent itself, as part of its turn. It knows what it did and what it needs, s
 | Field | Meaning |
 |---|---|
 | `line` | One line, under 100 characters is best. When it needs you, what to do, verb first ("Pick A or B for the pricing table"). Otherwise what it did or where things stand ("Merged the login fix, nothing needed"). |
-| `needs_you` | The agent waits on the person. |
+| `needs_you` | The agent waits on the person. The line reads stronger and can carry its size. It doesn't change whether the chat is read. |
 | `effort` | Their part, when it needs them: `quick` (a click or a short reply), `minutes` (a few minutes to read or try something), `block` (a real decision or a long test). Shown as Quick for you, Few min for you, Needs your time. |
 | `unblocks` | What answering unblocks, briefly. |
 
@@ -34,9 +34,12 @@ Recency stays the order. The size of your part and what it unblocks are on the r
 Stored on the chat as `chat_sessions.turn_status` (JSON, null until set, migration 0029).
 
 - **A new message to the chat clears it** (`insertChatEvent`, a `user` or `cron` event): a new turn starts, so the last line no longer says where things stand.
-- **A status that waits on you keeps the chat unread** after you've looked (`isSessionUnread`, `listNeedsReviewSessionCandidates`), in the rail's Unread, the header's Unread count, Board and `list_executions`. Looking doesn't answer a question.
-- **Mark as read dismisses it.** Every explicit Mark as read (a chat row's menu, a chat's header, the chat bar's Unread button, an agent's menu) sends `dismiss`, which clears the status. Read receipts from looking never do.
+- **Reading a chat leaves its line.** Opening a chat or marking it read works the same with or without a status, and the line stays on the row until a new message clears it.
 - **Turning status lines off** clears every status and drops the rule, so the app is as it was. Agents that call the tool anyway are refused.
+
+## Tried and removed
+
+From 2026-11-03 to 2026-11-05, a status that waited on you kept the chat in Unread after you looked at it, until you answered or marked it read, so a glance couldn't drop a question out of Unread. In use it read as marking read being broken: a chat you had just opened still said Unread, nothing in the chat said why, and an ask you finish outside the chat (restarting prod) cleared only through Mark as read. So a status no longer has any say in read or unread, and opening a chat reads it.
 
 ## Reverting
 

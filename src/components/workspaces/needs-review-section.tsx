@@ -49,8 +49,7 @@ type WaitingChat = NonNullable<ReturnType<typeof useNeedsReviewSessions>['data']
 /**
  * Everything that wants you: agents whose own chat does (when asked for), and
  * chats with output you haven't read or a prompt waiting, newest first, the
- * inactive ones apart. A chat whose status line waits on you stays after a
- * look, until it's answered or marked read (docs/chat-status-lines.md).
+ * inactive ones apart.
  */
 export function useWaitingChats({ includeAgents }: { includeAgents: boolean }) {
   const { streamingSessionIds, pendingInputSessionIds, openAgent } = useDashboard();

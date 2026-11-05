@@ -2178,9 +2178,8 @@ export const chatSessions = sqliteTable(
     // The status line the chat's agent set at the end of its last turn
     // (`set_chat_status`, docs/chat-status-lines.md): one line, whether it
     // waits on the person, their part's size and what it unblocks. Null
-    // until set, cleared when a new message reaches the chat or the person
-    // marks it read. A status that waits on the person keeps the chat unread
-    // after it's been looked at.
+    // until set, cleared when a new message reaches the chat. It never
+    // changes whether the chat is read.
     turnStatus: text({ mode: 'json' }).$type<ChatTurnStatus>(),
 
     // Rail sort key: "when did anything last happen here", human OR agent.

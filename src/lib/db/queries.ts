@@ -10267,10 +10267,8 @@ export function createExecutionChat(args: {
 }
 
 /**
- * Set lastViewedAt = now() and clear unreadMarkerAt. Used to be fired
- * on session open ("opening = read receipt"); now triggered on actual
- * interaction (textarea focus, send, explicit Mark read). Kept as a named
- * alias so older callers compile until they migrate.
+ * Set lastViewedAt = now() and clear unreadMarkerAt. Kept as a named alias
+ * so older callers compile until they migrate.
  */
 export function markSessionViewed(id: string): ChatSessionRecord | null {
   return markSessionRead(id);
@@ -10318,9 +10316,8 @@ export function setChatTurnStatus(id: string, status: ChatTurnStatus): ChatSessi
 
 /**
  * Clear a chat's status line: a new message reached it (a new turn starts,
- * so the old line no longer says where it stands), or the person marked it
- * read, which dismisses a status that waited on them. Writes nothing when
- * there is none.
+ * so the old line no longer says where it stands). Writes nothing when there
+ * is none.
  */
 export function clearChatTurnStatus(id: string): void {
   getDb().update(chatSessions).set({ turnStatus: null })
@@ -10416,9 +10413,7 @@ export function listReconcilableSessions(): ChatSessionRecord[] {
  * "Unread" derivation: the most recent of (lastOutcomeEventAt,
  * unreadMarkerAt) is newer than the user's last interaction
  * (lastViewedAt). unreadMarkerAt lets the user force a session into
- * Unread without an outcome event (the "Mark as unread" affordance). A
- * status line that waits on the person keeps the chat listed after it's been
- * looked at, until it's answered or dismissed (docs/chat-status-lines.md).
+ * Unread without an outcome event (the "Mark as unread" affordance).
  */
 export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
   const db = getDb();
@@ -10453,19 +10448,14 @@ export function listNeedsReviewSessionCandidates(): ChatSessionWithExecution[] {
         // unread row is pure noise. See TRIGGERS_WITH_OWN_REVIEW_SURFACE.
         sql`NOT (${chatSessions.type} = 'orchestration' AND ${chatSessions.createdByRunId} IS NULL)`,
         notExists(createdBySelfReviewedRun),
-        or(
-          and(
-            sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.unreadMarkerAt}) IS NOT NULL`,
-            sql`COALESCE(
-              MAX(
-                COALESCE(${chatSessions.lastOutcomeEventAt}, '1970-01-01'),
-                COALESCE(${chatSessions.unreadMarkerAt}, '1970-01-01')
-              ),
-              '1970-01-01'
-            ) > COALESCE(${chatSessions.lastViewedAt}, '1970-01-01')`,
+        sql`COALESCE(${chatSessions.lastOutcomeEventAt}, ${chatSessions.unreadMarkerAt}) IS NOT NULL`,
+        sql`COALESCE(
+          MAX(
+            COALESCE(${chatSessions.lastOutcomeEventAt}, '1970-01-01'),
+            COALESCE(${chatSessions.unreadMarkerAt}, '1970-01-01')
           ),
-          sql`json_extract(${chatSessions.turnStatus}, '$.needsYou') = 1`,
-        ),
+          '1970-01-01'
+        ) > COALESCE(${chatSessions.lastViewedAt}, '1970-01-01')`,
       ),
     )
     // Membership is an unread question (above), but ORDER is an activity

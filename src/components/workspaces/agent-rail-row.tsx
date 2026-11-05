@@ -380,7 +380,7 @@ export function AgentRailRow({ workspace, onOpenSettings, onCreateExecution, onO
               {chat && (
                 <>
                   {unread ? (
-                    <DropdownMenuItem onSelect={() => markRead.mutate({ id: chat.id, dismiss: true })}>
+                    <DropdownMenuItem onSelect={() => markRead.mutate(chat.id)}>
                       <Eye size={12} /> Mark as read
                     </DropdownMenuItem>
                   ) : (

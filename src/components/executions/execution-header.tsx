@@ -137,7 +137,7 @@ export function ExecutionHeader({
 
   const readStateMenuItem = isUnread ? (
     <button
-      onClick={() => markRead.mutate({ id: session.id, dismiss: true })}
+      onClick={() => markRead.mutate(session.id)}
       className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[12px] text-foreground hover:bg-muted/60 transition-colors"
     >
       <Eye size={12} />

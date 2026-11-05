@@ -12,10 +12,8 @@ import {
   useSessionReferences,
   useScratchpad,
 } from '@/hooks/use-execution';
-import { useMarkSessionRead, useDiffStats } from '@/hooks/use-workspaces';
+import { useDiffStats, useReadOnOpen } from '@/hooks/use-workspaces';
 import { useElementWidth } from '@/hooks/use-element-width';
-import type { RailResponse } from '@/lib/api/sessions';
-import { isSessionUnread, latestActivityAt } from '@/lib/utils/session-sort';
 import { cn } from '@/lib/utils';
 import { ExecutionHeader } from './execution-header';
 import { ExecutionChatTabs } from './execution-chat-tabs';
@@ -339,34 +337,7 @@ function ExecutionWorkbenchView({ sessionId }: ExecutionViewProps) {
     },
   });
 
-  // Navigate-away read receipt. The composer fires markRead eagerly on
-  // focus and send, so all engaged-then-leave cases are covered already.
-  // This cleanup handles "user entered an unread chat, looked at it, left
-  // without engaging": mark read only if the unread state at leave is the
-  // same one that was there at entry (no new activity landed meanwhile).
-  const markRead = useMarkSessionRead();
-  const markReadRef = useRef(markRead);
-  markReadRef.current = markRead;
-  const entryActivityRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!sessionId) return;
-    entryActivityRef.current = null;
-    const rail = qc.getQueryData<RailResponse>(['sessions', 'rail']);
-    const entry = rail?.sessions.find((s) => s.id === sessionId);
-    if (entry && isSessionUnread(entry)) {
-      entryActivityRef.current = latestActivityAt(entry);
-    }
-    return () => {
-      const snapshot = entryActivityRef.current;
-      if (!snapshot) return;
-      const railNow = qc.getQueryData<RailResponse>(['sessions', 'rail']);
-      const entryNow = railNow?.sessions.find((s) => s.id === sessionId);
-      if (!entryNow) return;
-      if (!isSessionUnread(entryNow)) return;
-      if (latestActivityAt(entryNow) !== snapshot) return;
-      markReadRef.current.mutate(sessionId);
-    };
-  }, [sessionId, qc]);
+  useReadOnOpen(sessionId);
 
   const handleClose = goHome;
 
