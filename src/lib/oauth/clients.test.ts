@@ -19,13 +19,19 @@ describe('redirects', () => {
     }
   });
 
-  it('matches exactly, except that a loopback IP listener may choose its port', () => {
+  it('matches exactly, except that a listener on this computer may choose its port', () => {
     expect(redirectMatches(['https://a.example/cb'], 'https://a.example/cb')).toBe(true);
     expect(redirectMatches(['https://a.example/cb'], 'https://a.example/cb2')).toBe(false);
     expect(redirectMatches(['http://127.0.0.1:1000/cb'], 'http://127.0.0.1:52011/cb')).toBe(true);
     expect(redirectMatches(['http://127.0.0.1:1000/cb'], 'http://127.0.0.1:52011/other')).toBe(false);
-    // A name isn't an IP literal (RFC 8252 §8.3), so it keeps its port.
-    expect(redirectMatches(['http://localhost:1000/cb'], 'http://localhost:2000/cb')).toBe(false);
+    // Claude Code's published document, and the redirect it really sends.
+    const claudeCode = ['http://localhost/callback', 'http://127.0.0.1/callback'];
+    expect(redirectMatches(claudeCode, 'http://localhost:3118/callback')).toBe(true);
+    expect(redirectMatches(claudeCode, 'http://127.0.0.1:3118/callback')).toBe(true);
+    // Only the port varies: the host and path must match, and HTTPS stays exact.
+    expect(redirectMatches(['http://127.0.0.1/callback'], 'http://localhost:3118/callback')).toBe(false);
+    expect(redirectMatches(claudeCode, 'http://localhost:3118/other')).toBe(false);
+    expect(redirectMatches(['https://a.example/cb'], 'https://a.example:8443/cb')).toBe(false);
   });
 });
 
