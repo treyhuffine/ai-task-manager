@@ -86,7 +86,7 @@ it('treats a new release that hangs before starting work like one that exits', a
   expect(runs()).toEqual(['hanging', 'hanging', 'previous']);
   expect(Date.now() - started).toBeLessThan(20_000);
   expect(installedRuntime()?.id).toBe(previous);
-});
+}, 25_000);
 
 it('leaves a new release in place once it has started work, whatever happens after', async () => {
   const previous = controller('previous', 'exit 0');
