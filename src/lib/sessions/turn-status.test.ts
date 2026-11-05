@@ -1,8 +1,7 @@
 /**
  * Status lines (docs/chat-status-lines.md): a chat's agent sets one at the end
- * of its turn, a status that waits on the person keeps the chat unread after a
- * look, and a new message, an explicit Mark as read or turning the trial off
- * clears it.
+ * of its turn, it never changes whether the chat is read, and a new message or
+ * turning the trial off clears it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
@@ -77,27 +76,25 @@ describe('set_chat_status', () => {
 describe('a status that waits on the person', () => {
   const ask = { line: 'Test the preview on your phone', needsYou: true, effort: 'minutes' as const, unblocks: null, at: new Date().toISOString() };
 
-  it('keeps the chat unread after a look, until marked read', async () => {
+  it("doesn't make a chat unread on its own", async () => {
     const { q, chat } = await executionChat();
-    const { markConversationRead } = await import('./view-state');
     const { isSessionUnread } = await import('@/lib/utils/session-sort');
     q.setChatTurnStatus(chat.id, ask);
-    markConversationRead(null, chat.id, true);
-    expect(isSessionUnread(q.getChatSession(chat.id)!)).toBe(true);
-    expect(listed(q, chat.id)).toBe(true);
-
-    // Mark as read is the person saying they've dealt with it.
-    markConversationRead(null, chat.id, true, { dismiss: true });
-    expect(q.getChatSession(chat.id)?.turnStatus).toBeNull();
     expect(isSessionUnread(q.getChatSession(chat.id)!)).toBe(false);
     expect(listed(q, chat.id)).toBe(false);
   });
 
-  it("doesn't keep a report unread", async () => {
+  it('goes read on a look like any chat, and keeps its line', async () => {
     const { q, chat } = await executionChat();
     const { markConversationRead } = await import('./view-state');
-    q.setChatTurnStatus(chat.id, { ...ask, needsYou: false, effort: null });
+    const { isSessionUnread } = await import('@/lib/utils/session-sort');
+    q.bumpSessionOutcome(chat.id);
+    q.setChatTurnStatus(chat.id, ask);
+    expect(isSessionUnread(q.getChatSession(chat.id)!)).toBe(true);
+    expect(listed(q, chat.id)).toBe(true);
+
     markConversationRead(null, chat.id, true);
+    expect(isSessionUnread(q.getChatSession(chat.id)!)).toBe(false);
     expect(listed(q, chat.id)).toBe(false);
     expect(q.getChatSession(chat.id)?.turnStatus?.line).toBe('Test the preview on your phone');
   });

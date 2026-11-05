@@ -26,6 +26,7 @@ import { isSessionToken, sessionMayReach, verifySessionToken } from '@/lib/auth/
 import { isHostKeyHash } from '@/lib/auth/host-key';
 import { permitsCookieMutation } from '@/lib/auth/request-origin';
 import { localAppsEnabled } from '@/lib/config/features';
+import { appClientMayReach } from '@/lib/local-apps/client-policy';
 import { issuerFor, mcpChallenge, OAUTH_PUBLIC_PATHS } from '@/lib/oauth/issuer';
 
 export const config = {
@@ -342,6 +343,19 @@ export function proxy(request: NextRequest) {
     headers.set(API_KEY_ID_HEADER, key.id);
     headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
     headers.set(API_KEY_SCOPE_HEADER, 'ai_client');
+    return NextResponse.next({ request: { headers } });
+  }
+
+  // A local app's outside client reaches only that route, which checks the
+  // key's app and action. Its own surface, so no view protocol is asked of it.
+  if (key.role === 'app_client') {
+    if (!localAppsEnabled() || !appClientMayReach(request.nextUrl.pathname, request.method)) return forbidden('app_client', 'This key can only save to the app it was made for.');
+    touchApiKey(key.id, { ip: request.headers.get('x-forwarded-for'), userAgent: request.headers.get('user-agent') });
+    const headers = new Headers(request.headers);
+    for (const h of FORWARDED_KEY_HEADERS) headers.delete(h);
+    headers.set(API_KEY_ID_HEADER, key.id);
+    headers.set(CALLER_LOCATION_HEADER, 'elsewhere');
+    headers.set(API_KEY_SCOPE_HEADER, 'app_client');
     return NextResponse.next({ request: { headers } });
   }
 

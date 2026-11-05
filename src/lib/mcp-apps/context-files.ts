@@ -1,6 +1,6 @@
 import { saveAttachment } from '@/lib/attachments/save';
 import { ATTACHMENT_FILE_NAME } from '@/lib/attachments/markers';
-import { isAllowedMime, normalizeMime } from '@/lib/attachments/mime';
+import { isKnownMime, normalizeMime } from '@/lib/attachments/mime';
 import type { Attachment } from '@/db/types';
 import type { ModelContext, View } from './store';
 
@@ -41,7 +41,7 @@ async function materializeBlock(block: Record<string, unknown>, files: Attachmen
   if (block.type === 'image' && typeof block.data === 'string') {
     const mimeType = normalizeMime(typeof block.mimeType === 'string' ? block.mimeType : '');
     const data = bytes(block.data);
-    if (!data || !mimeType.startsWith('image/') || !isAllowedMime(mimeType)) {
+    if (!data || !mimeType.startsWith('image/') || !isKnownMime(mimeType)) {
       return { type: 'text', text: '[An image from the app could not be attached]', ...(block.annotations ? { annotations: block.annotations } : {}) };
     }
     const attachment = await saveAttachment({ data, originalName: nameOf(block, 'image'), mimeType });
@@ -56,7 +56,7 @@ async function materializeBlock(block: Record<string, unknown>, files: Attachmen
     const data = bytes(resource.blob);
     const kept = { ...resource };
     delete kept.blob;
-    if (!data || !mimeType || !isAllowedMime(mimeType)) return { ...block, resource: { ...kept, note: 'Binary content from the app was not attached' } };
+    if (!data || !mimeType || !isKnownMime(mimeType)) return { ...block, resource: { ...kept, note: 'Binary content from the app was not attached' } };
     const attachment = await saveAttachment({ data, originalName: nameOf(block, 'resource'), mimeType });
     files.push(attachment);
     return { ...block, resource: { ...kept, mimeType, file: marker(attachment) } };

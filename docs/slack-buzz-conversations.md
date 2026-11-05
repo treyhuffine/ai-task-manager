@@ -77,6 +77,16 @@ Team connections accept messages in explicitly connected channels. Their private
 
 The existing Slack account Connector is the path for searching and reviewing messages outside the current bot conversation. Use **Connect Slack account tools** in Conversations, authorize the account, and make its tools available to the destination Ri agent through the normal Connector settings. Then ask Ri to review the messages you care about. That request can come from Ri or from a linked Slack conversation.
 
+**Plugins > Slack** guides the account setup inline:
+
+1. **Create Slack app** opens Slack's actual app-creation flow with Ri's current callback and the MCP user scopes already filled in. Choose the workspace, review the configuration and create the app. **Open existing Slack apps** is a separate link. Its optional **Use an app I already created** section explains how to add the callback and missing user scopes while preserving existing user scopes, bot scopes and other settings. **Slack reference docs** remains available separately.
+2. Under Slack's **Basic Information > App Credentials**, copy **Client ID** and reveal **Client Secret**. Paste both into the labelled Ri fields, choose an app label and click **Add app**. These are OAuth app credentials, distinct from the conversation connection's bot and app-level tokens.
+3. Ri replaces the creation guide with **Sign in to Slack**. Enter an **Account label** such as Work or Personal when requested, then click **Connect Slack** and approve access. Back in Ri, confirm **Connected**, click **Test**, and ask **Find recent Slack messages that mention me.** Saving app credentials alone does not authorize an account.
+
+Slack's documented [prefilled app-creation link](https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests/) contains configuration only. Ri builds it from the current callback and published user scopes in `src/lib/integrations/slack-account-setup.ts`. No client secret or account token goes in the URL. The actual OAuth request still uses Slack's discovery metadata. The manifest does not enable Slack's public-client PKCE setting: this registered app uses the displayed web callback and a client secret, including when Ri is viewed on Desktop. Slack currently requests read and write user permissions, which its consent screen presents for approval.
+
+Verification: `slack-account-setup.test.ts` checks the creation URL, current callback and permissions against the checked-in Slack discovery capture. `byo-panel.test.ts` and `provider-detail.test.ts` cover unavailable callbacks, credentials and sign-in guidance. The opt-in `slack-account-setup.browser.test.tsx` exercises the real setup UI at desktop and mobile sizes through synthetic save, authorization and connection-test boundaries. Run it with `RI_SLACK_ACCOUNT_BROWSER_TEST=1 RI_REVIEW_CHROMIUM=<chromium executable> pnpm exec vitest run src/components/settings/sections/integrations/slack-account-setup.browser.test.tsx`.
+
 The agent connection supplies mention and DM delivery and permission to post its replies. It does not grant the agent your account's private conversations, automatically import your Slack inbox, or create a background review schedule. Those remain separate, explicit choices using the account Connector and Ri's existing automation tools.
 
 ## Connect Buzz by Block

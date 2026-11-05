@@ -74,6 +74,27 @@ function catalogProvider(id: string, configured = true): ProviderStatus & { mcp:
 }
 
 describe('hosted provider connection flow', () => {
+  it('takes a configured Slack app straight to account sign-in and verification', () => {
+    const html = render({ provider: catalogProvider('slack') });
+    expect(html).toContain('3. Sign in to Slack');
+    expect(html).toContain('Your Slack app is saved in Ri.');
+    expect(html).toContain('Connect Slack');
+    expect(html).toContain('Find recent Slack messages that mention me.');
+    expect(html).toContain('Slack reference docs');
+    expect(html).not.toContain('Create Slack app opens');
+  });
+
+  it('asks for a Slack account name after the OAuth app is saved', () => {
+    const slack = catalogProvider('slack', false);
+    const unconfigured = render({ provider: { ...slack, mcp: { ...slack.mcp, accounts: [] } } });
+    expect(unconfigured).toContain('1. Create or open your Slack app');
+    expect(unconfigured).not.toContain('Account label');
+    const configured = render({ provider: { ...slack, configured: true, mcp: { ...slack.mcp, accounts: [] } } });
+    expect(configured).toContain('3. Sign in to Slack');
+    expect(configured).toContain('Account label');
+    expect(configured).not.toContain('1. Create or open your Slack app');
+  });
+
   it('explains local 1Password setup without offering tokens, account labels or browser sign-in', () => {
     const html = render({ provider: { ...catalogProvider('onepassword'), mcp: { local: true, authKind: 'none', requiresAuth: false, accounts: [] } } });
     for (const text of ['1Password Desktop on the computer running Ri', 'Settings &gt; Labs &gt; MCP Server', 'Integrate with MCP clients', 'Setup guide', 'Authorization screenshot (Cursor)', 'Connect 1Password']) expect(html).toContain(text);

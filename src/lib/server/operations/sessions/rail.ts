@@ -75,7 +75,7 @@ export async function GET(_rpcInput: rpcZ.infer<typeof GETInput>, request: Opera
       pendingSessionIds.includes(review.sessionId) || review.status === 'queued' || review.status === 'running'
       || (review.status === 'failed' && (review.lastOutcomeEventAt ?? '') > (review.lastViewedAt ?? ''))));
     const home = authority ? null : currentPrivateMainChat();
-    const homeChat = home && { id: home.id, lastOutcomeEventAt: home.lastOutcomeEventAt, unreadMarkerAt: home.unreadMarkerAt, lastViewedAt: home.lastViewedAt, turnStatus: home.turnStatus };
+    const homeChat = home && { id: home.id, lastOutcomeEventAt: home.lastOutcomeEventAt, unreadMarkerAt: home.unreadMarkerAt, lastViewedAt: home.lastViewedAt };
     return reply({ sessions, pendingSessionIds, runningSessionIds, backgroundSessionIds, backgroundChats, mainChats, homeChat, resultReviewAttention });
   } catch (err) {
     const denied = executionOperationFailure(err);

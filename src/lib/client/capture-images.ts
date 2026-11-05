@@ -1,4 +1,4 @@
-import { isAllowedMime, resolveMime } from '@/lib/attachments/mime';
+import { isKnownMime, resolveMime } from '@/lib/attachments/mime';
 
 export const CAPTURE_MAX_IMAGES = 10;
 export const CAPTURE_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -20,7 +20,7 @@ export function chooseCaptureImages(
     seen.add(file);
 
     const type = resolveMime(file.type, file.name);
-    if (!type.startsWith('image/') || !isAllowedMime(type)) {
+    if (!type.startsWith('image/') || !isKnownMime(type)) {
       errors.add('Only supported image files can be added.');
       continue;
     }

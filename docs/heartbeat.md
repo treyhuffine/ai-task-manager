@@ -24,21 +24,27 @@ Default instructions:
 
 ```
 Every check-in:
-- Look for email that can't wait until the next check-in.
-- Look for chats that failed or stopped without finishing.
+- Review my emails since the last check-in, plus a few minutes of overlap so none are missed. The goal isn't to find things, it's to find the right things, so restraint is important, and so is sizing the impact of an email. A good heuristic: if it can't wait until the next check-in, surface it for me.
+- Look for chats that stopped without finishing and aren't waiting on me. If the next step is clear and safe, tell the chat to continue. If not, tell me what's stuck.
 
-Once overnight, on the first check-in after 3:00 AM:
-- File tasks that have no area.
-- Find tasks nobody has touched in 14 days.
+Once overnight, on the first check-in after 3:00 AM, tidy up, at most 10 changes a night:
+- Archive tasks that are clearly dead: blank, gibberish, or an exact duplicate.
+- Move Todo tasks last updated more than 6 months ago to Consider, unless they have a deadline or repeat.
+- File tasks with no area when the right area is obvious.
+- Leave everything else alone. Never change an area, rank or date I've set.
 
 Once each morning, on the first check-in after 7:00 AM:
-- Tell me what's waiting on me, what you tidied, and which stale tasks you'd archive.
+- Tell me the few decisions that would unblock the most work, with what you recommend for each, so I can answer in a word.
+- Tell me about anything due in the next 2 days that isn't moving.
+- Say in one line what you tidied. Don't ask me about it.
 
 Up to twice a day, when I have nothing waiting to review:
-- Offer one task an agent could finish on its own.
+- Offer one task an agent could finish on its own. Prefer ones with a deadline or on today's deck.
 ```
 
-All of the heartbeat's rhythm is in this text, so tuning it means editing it. There's still one timer. Each check-in is told the time and what earlier ones did, so "once each morning" or "up to twice a day" works however you phrase it. To let it start agent work on its own, change "Offer" to "Start". **Reset to default** restores this text.
+All of the heartbeat's rhythm is in this text, so tuning it means editing it. There's still one timer. Each check-in is told the time, when the last one ran, and what earlier ones did, so "since the last check-in", "once each morning" or "up to twice a day" work however you phrase them. To let it start agent work on its own, change "Offer" to "Start". **Reset to default** restores this text.
+
+The overnight tidy fills gaps and clears clutter so you don't have to maintain anything. It doesn't ask, and it never overrules something you set. Nothing is lost: to bring a task back from Consider or the archive, tell your main agent or open the task. Remove any line you don't want it doing.
 
 Timing follows your schedule: "3:00 AM" means the next check-in after 3:00, and a time outside your hours won't run until they open. "Once" and "up to twice" are instructions to the agent, not limits the app enforces, so it could occasionally repeat or miss one.
 
@@ -49,7 +55,7 @@ The app puts these rules in front of your instructions on every check-in. Editin
 - Never delete anything.
 - Never send, post, or share anything outside the app.
 - Never complete a task. Completing a task is your call.
-- Start or message agent executions only when the instructions say to.
+- Start or message agent executions only when the instructions say to. The default instructions ask it to tell a stalled chat to continue when the next step is clear and safe.
 - Don't message the user or their main agent directly. The check-in's final reply is how anything reaches them.
 - If nothing needs to reach them, reply `HEARTBEAT_OK` and nothing else. That should be the usual outcome.
 - Otherwise, reply with a private note for the main agent, using any of three sections: **Did** (what it changed, for the record), **Now** (what can't wait until the next check-in, and what the instructions say to tell you at this time), and **Later** (what needs you but can wait). Each line is followed by its task, note, or execution chip on its own line, with ids copied exactly from tool results.
@@ -69,9 +75,9 @@ Your main agent can decide a note isn't worth sending, for example if you alread
 
 The new message puts an amber dot on your main agent in the rail until you've read it. Pushing it is on by default for every channel, and **Message from your main agent** in Settings > Notifications turns it off per channel.
 
-Check-ins start fresh, so the app tells each one what it needs: the time, when earlier check-ins ran today, what check-ins did and raised in the last 3 days, how many chats are running or waiting for you to read, and which chats finished since the last check-in, with their status lines. It's told not to raise something again unless it changed. After 3 days, something still unresolved can come up again.
+Check-ins start fresh, so the app tells each one what it needs: the time, when the last check-in finished, when earlier ones ran today, what check-ins did and raised in the last 3 days, how many chats are running or waiting for you to read, and which chats finished since the last check-in, with their status lines. It's told not to raise something again unless it changed. After 3 days, something still unresolved can come up again.
 
-Filing a task doesn't count as touching it, so a check-in that sets a task's area leaves it in "nobody has touched this in 14 days".
+Filing a task doesn't count as touching it, so a check-in that sets a task's area leaves its last-touched date alone.
 
 To check its work, **Recent check-ins** in Settings > Heartbeat lists the last few:
 

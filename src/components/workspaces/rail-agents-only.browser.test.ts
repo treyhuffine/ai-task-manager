@@ -29,7 +29,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 let server: http.Server;
 let browser: Browser;
 let base: string;
-/** Session mutations the page sent, as `readPost:<id>` (`:dismiss` for an explicit Mark as read) / `unreadPost:<id>` / `archivePost:<id>`. */
+/** Session mutations the page sent, as `readPost:<id>` / `unreadPost:<id>` / `archivePost:<id>`. */
 let sent: string[] = [];
 /**
  * Archive requests wait here until a test answers them: archived, or refused
@@ -231,9 +231,7 @@ beforeAll(async () => {
       req.on('end', () => {
         for (const kind of ['readPost', 'unreadPost'] as const) {
           if (!url.pathname.includes(`sessions.${kind}`)) continue;
-          // An explicit Mark as read dismisses the chat's status line too.
-          const dismiss = body.includes('"dismiss":true') ? ':dismiss' : '';
-          for (const id of body.match(/"id":"([^"]+)"/g) ?? []) sent.push(`${kind}:${id.slice(6, -1)}${dismiss}`);
+          for (const id of body.match(/"id":"([^"]+)"/g) ?? []) sent.push(`${kind}:${id.slice(6, -1)}`);
         }
         if (url.pathname.includes('sessions.archivePost')) {
           const id = /"id":"([^"]+)"/.exec(body)![1]!;
@@ -549,7 +547,7 @@ it('marks an agent read or unread from its rail menu, its main chat only', async
     // Ri has a new reply. Read clears it, and nothing under it.
     await (await menu(page, 'Ri')).getByRole('menuitem', { name: 'Mark as read' }).click();
     await expect.poll(async () => Number(await nameWeight(page, 'Ri'))).toBeLessThan(600);
-    await expect.poll(() => sent).toEqual(['readPost:ri-main:dismiss']);
+    await expect.poll(() => sent).toEqual(['readPost:ri-main']);
 
     // Notes is quiet. Unread marks its main chat: bold, with its line.
     sent = [];
@@ -587,7 +585,7 @@ it("marks the chat you're reading unread from its chat bar, and the rail agrees"
     await bar.getByRole('button', { name: 'Unread, mark read' }).click();
     await bar.getByRole('button', { name: 'Mark unread' }).waitFor();
     await expect.poll(async () => Number(await nameWeight(page, 'Notes'))).toBeLessThan(600);
-    await expect.poll(() => sent).toEqual(['readPost:notes-main:dismiss']);
+    await expect.poll(() => sent).toEqual(['readPost:notes-main']);
     expect(errors).toEqual([]);
   } finally {
     await page.close();
@@ -818,7 +816,7 @@ it("narrows Unread from the collapsed rail's Agents flyout, and stays narrowed w
   }
 });
 
-it('shows status lines under chat titles in Unread and Recent, and Mark as read dismisses one', async () => {
+it('shows status lines under chat titles in Unread and Recent, and reading an ask takes it off Unread', async () => {
   const { page, errors } = await open('agentsOnly');
   try {
     // In Unread, the ask has its line, and the size of your part ends the
@@ -835,11 +833,11 @@ it('shows status lines under chat titles in Unread and Recent, and Mark as read 
     expect(await size.getAttribute('class')).not.toContain('amber');
     await page.screenshot({ path: '/tmp/ri-rail-status-lines.png', clip: { x: 0, y: 0, width: 560, height: 520 } });
 
-    // Mark as read dismisses it: the server is told so, and it leaves Unread.
+    // Reading it takes it off Unread, the same receipt a look sends.
     await amex.hover();
     await amex.getByRole('button', { name: 'Session actions' }).click();
     await page.getByRole('menuitem', { name: 'Mark as read' }).click();
-    await expect.poll(() => sent).toContain('readPost:fin-1:dismiss');
+    await expect.poll(() => sent).toContain('readPost:fin-1');
     await expect.poll(async () => (await flyout.locator('nav').innerText())).not.toContain('Reconcile Amex');
     await page.keyboard.press('Escape');
 

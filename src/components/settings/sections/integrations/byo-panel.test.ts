@@ -1,5 +1,6 @@
 import { createElement, type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { parseHTML } from 'linkedom';
 import { describe, expect, it, vi } from 'vitest';
 import { ByoPanel } from './byo-panel';
 import { oauthAppRedirectUri, type ProviderStatus } from './types';
@@ -17,6 +18,29 @@ function render(overrides: Partial<ComponentProps<typeof ByoPanel>> = {}) {
 }
 
 describe('registered hosted OAuth app setup', () => {
+  it('takes Slack users to app creation and keeps reference documentation separate from the guided setup', () => {
+    const html = render({ provider: { ...registered, id: 'slack', displayName: 'Slack' } });
+    const document = parseHTML(html).document;
+    const links = [...document.querySelectorAll('a')];
+    const create = links.find(link => link.textContent?.includes('Create Slack app'))!;
+    const url = new URL(create.getAttribute('href')!);
+    expect(url.origin + url.pathname).toBe('https://api.slack.com/apps');
+    expect(JSON.parse(url.searchParams.get('manifest_json')!).oauth_config.redirect_urls).toEqual([registered.mcp!.redirectUri]);
+    expect(links.find(link => link.textContent === 'Slack reference docs')?.href).toBe('https://docs.slack.dev/ai/slack-mcp-server/');
+    expect(links.find(link => link.textContent === 'Open existing Slack apps')?.href).toBe('https://api.slack.com/apps');
+    for (const text of ['1. Create or open your Slack app', '2. Copy your app credentials into Ri', '3. Sign in to Slack', 'App Credentials', 'Client Secret', 'sending messages', 'App Manifest', 'public-client PKCE setting unchanged', 'Keep your existing user scopes']) expect(html).toContain(text);
+    expect(html).not.toContain('enable PKCE for local or desktop redirects');
+    expect(html).not.toContain('wrong.example');
+  });
+
+  it('keeps Slack app creation and saving disabled when its callback is unavailable', () => {
+    const html = render({ provider: { ...registered, id: 'slack', displayName: 'Slack', mcp: { ...registered.mcp!, redirectUri: undefined } } });
+    expect(html).toContain('Callback address unavailable');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Create Slack app/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*?Add app/);
+    expect(html).not.toContain('manifest_json=');
+  });
+
   it('uses the stable hosted callback even in a desktop context', () => {
     const provider: ProviderStatus = { ...registered, desktopCallback: { kind: 'loopback' } };
     expect(oauthAppRedirectUri(provider, 'https://wrong.example/callback')).toBe(registered.mcp!.redirectUri);

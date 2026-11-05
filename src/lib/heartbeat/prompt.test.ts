@@ -26,6 +26,7 @@ describe('composeHeartbeatPrompt', () => {
     expect(HEARTBEAT_GROUND_RULES).toContain("private note to the user's main agent");
     for (const heading of ['**Did**', '**Now**', '**Later**']) expect(HEARTBEAT_GROUND_RULES).toContain(heading);
     expect(HEARTBEAT_GROUND_RULES).toContain('such as once each morning');
+    expect(HEARTBEAT_GROUND_RULES).toContain("do every item that's due, checking with the tools before you conclude there's nothing to do");
     expect(HEARTBEAT_GROUND_RULES).toContain('everything the instructions say to tell them or offer them at this time, in full');
     expect(HEARTBEAT_GROUND_RULES).toContain("Don't use message_agent to reach the user");
   });
@@ -40,9 +41,19 @@ describe('composeHeartbeatPrompt', () => {
 
   it('seeds a default whose whole rhythm is in the text', () => {
     expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Every check-in:');
-    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Once overnight, on the first check-in after 3:00 AM:');
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Once overnight, on the first check-in after 3:00 AM, tidy up, at most 10 changes a night:');
     expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Once each morning, on the first check-in after 7:00 AM:');
     expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('Up to twice a day, when I have nothing waiting to review:');
+  });
+
+  it('looks at email since the last check-in, whatever the schedule is', () => {
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain('since the last check-in, plus a few minutes of overlap');
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).not.toContain('30 minutes');
+  });
+
+  it('tidies without asking, and never overrules what the person set', () => {
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain("Never change an area, rank or date I've set.");
+    expect(DEFAULT_HEARTBEAT_INSTRUCTIONS).toContain("Say in one line what you tidied. Don't ask me about it.");
   });
 
   it('keeps the product copy free of em dashes and semicolons', () => {

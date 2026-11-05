@@ -124,6 +124,8 @@ function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAcc
     ? { ...deployedProvider, mcp: { ...deployedProvider.mcp!, authKind: 'bearer' as const, credentialLabel: tokenAuth.label, helpUrl: tokenAuth.helpUrl } }
     : deployedProvider;
   const needsLabel = !account && !previousConnection && (provider.mcp?.authKind !== 'none' || provider.mcp?.endpointConfig?.kind === 'deployment');
+  // Slack's app credentials come first. Ask for an account name when sign-in is available.
+  const showLabel = needsLabel && (provider.id !== 'slack' || provider.configured);
   const ready = !needsLabel || !!label.trim();
   const intent = (): HostedConnectIntent => ({ ...baseIntent, label: label.trim() || undefined, fields: creds, ...integrationEndpointSelection(provider.mcp?.endpointConfig, endpoint) });
   const formProps: ProviderDetailProps = {
@@ -138,7 +140,7 @@ function HostedAccountForm(props: ProviderDetailProps & { account?: HostedMcpAcc
       <Button type="button" size="xs" variant={method === 'oauth' ? 'secondary' : 'ghost'} disabled={props.busy} onClick={() => { setMethod('oauth'); setCreds({}); }}>Sign in</Button>
       <Button type="button" size="xs" variant={method === 'bearer' ? 'secondary' : 'ghost'} disabled={props.busy} onClick={() => { setMethod('bearer'); setCreds({}); }}>Use API key</Button>
     </div>}
-    {needsLabel && <div className="space-y-1"><label htmlFor="hosted-account-label" className="text-xs font-medium">Account label</label><Input id="hosted-account-label" value={label} onChange={event => setLabel(event.target.value)} placeholder="Work or Personal" disabled={props.busy} required /></div>}
+    {showLabel && <div className="space-y-1"><label htmlFor="hosted-account-label" className="text-xs font-medium">Account label</label><Input id="hosted-account-label" value={label} onChange={event => setLabel(event.target.value)} placeholder="Work or Personal" disabled={props.busy} required /></div>}
     {provider.mcp?.endpointConfig && <HostedEndpointFields setup={provider.mcp.endpointConfig} value={endpoint} onChange={selection => { setEndpoint(selection); setMethod('oauth'); setCreds({}); }} disabled={props.busy} />}
     <ConnectPanel {...formProps} />
     {isRegisteredMcp(provider) && provider.configured && <div className="space-y-2">

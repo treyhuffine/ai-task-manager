@@ -45,7 +45,17 @@ it('uploads connected-device bytes to its home and never falls back to a local s
   expect(upload).not.toHaveBeenCalled();
 });
 
-it('rejects empty, oversized, unsupported and nonregular inputs before upload', async () => {
+it('uploads a file of a type Ri has no name for, for the server to store', async () => {
+  const file = path.join(root, 'scene.glb');
+  await fs.writeFile(file, 'glTF');
+  upload.mockResolvedValue({ fileName: 'durable.glb' });
+  expect(await uploadLocalAttachment(file)).toEqual({ fileName: 'durable.glb' });
+  const submitted = upload.mock.calls[0][1].body.get('file') as File;
+  expect(submitted.name).toBe('scene.glb');
+  expect(submitted.type).toBe('application/octet-stream');
+});
+
+it('rejects empty, oversized and nonregular inputs before upload', async () => {
   const file = path.join(root, 'empty.png');
   await fs.writeFile(file, '');
   await expect(uploadLocalAttachment(file)).rejects.toThrow(/nonempty/);
@@ -53,8 +63,6 @@ it('rejects empty, oversized, unsupported and nonregular inputs before upload', 
   await fs.writeFile(large, 'x');
   await fs.truncate(large, 50 * 1024 * 1024 + 1);
   await expect(uploadLocalAttachment(large)).rejects.toThrow(/50 MiB/);
-  await fs.writeFile(path.join(root, 'danger.exe'), 'content');
-  await expect(uploadLocalAttachment(path.join(root, 'danger.exe'))).rejects.toThrow(/Unsupported/);
   await expect(uploadLocalAttachment(root)).rejects.toThrow(/regular/);
   const link = path.join(root, 'linked.png');
   await fs.symlink(file, link);

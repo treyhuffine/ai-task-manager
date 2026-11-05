@@ -1,5 +1,5 @@
 import { CAPTURE_MAX_IMAGES, CAPTURE_MAX_IMAGE_BYTES, CAPTURE_MAX_TEXT_LENGTH } from './capture-images';
-import { isAllowedMime } from '@/lib/attachments/mime';
+import { isKnownMime } from '@/lib/attachments/mime';
 
 export const CAPTURE_DRAFT_PREFIX = 'ri:capture-draft:';
 const JOURNAL_PREFIX = CAPTURE_DRAFT_PREFIX;
@@ -86,7 +86,7 @@ function parseJournal(raw: string, id: string): Journal {
       || !validId(file.key.slice(id.length + 1)) || keys.has(file.key)
       || typeof file.name !== 'string' || file.name.length > 1024
       || typeof file.type !== 'string' || file.type.length > 256
-      || !file.type.startsWith('image/') || !isAllowedMime(file.type) || !Number.isSafeInteger(file.size) || file.size <= 0
+      || !file.type.startsWith('image/') || !isKnownMime(file.type) || !Number.isSafeInteger(file.size) || file.size <= 0
       || !finiteTime(file.lastModified)) {
       throw new Error('A saved capture has invalid image metadata. Its saved data has been kept.');
     }

@@ -58,18 +58,24 @@ export const HEARTBEAT_QUIET_SUMMARY = 'Nothing needed';
  * Seeded into the trigger's prompt on first boot and restored by "Reset to
  * default". The user owns it after that. All of the heartbeat's rhythm lives
  * here, so tuning it is editing text: each check-in is told the time and what
- * earlier ones did, which is what lets "once" and "up to twice" work.
+ * earlier ones did, which is what lets "once" and "up to twice" work. The tidy
+ * fills gaps and clears clutter on its own, never overrules something the
+ * person chose, and doesn't ask: the person shouldn't have to maintain a system.
  */
 export const DEFAULT_HEARTBEAT_INSTRUCTIONS = `Every check-in:
-- Look for email that can't wait until the next check-in.
-- Look for chats that failed or stopped without finishing.
+- Review my emails since the last check-in, plus a few minutes of overlap so none are missed. The goal isn't to find things, it's to find the right things, so restraint is important, and so is sizing the impact of an email. A good heuristic: if it can't wait until the next check-in, surface it for me.
+- Look for chats that stopped without finishing and aren't waiting on me. If the next step is clear and safe, tell the chat to continue. If not, tell me what's stuck.
 
-Once overnight, on the first check-in after 3:00 AM:
-- File tasks that have no area.
-- Find tasks nobody has touched in 14 days.
+Once overnight, on the first check-in after 3:00 AM, tidy up, at most 10 changes a night:
+- Archive tasks that are clearly dead: blank, gibberish, or an exact duplicate.
+- Move Todo tasks last updated more than 6 months ago to Consider, unless they have a deadline or repeat.
+- File tasks with no area when the right area is obvious.
+- Leave everything else alone. Never change an area, rank or date I've set.
 
 Once each morning, on the first check-in after 7:00 AM:
-- Tell me what's waiting on me, what you tidied, and which stale tasks you'd archive.
+- Tell me the few decisions that would unblock the most work, with what you recommend for each, so I can answer in a word.
+- Tell me about anything due in the next 2 days that isn't moving.
+- Say in one line what you tidied. Don't ask me about it.
 
 Up to twice a day, when I have nothing waiting to review:
-- Offer one task an agent could finish on its own.`;
+- Offer one task an agent could finish on its own. Prefer ones with a deadline or on today's deck.`;

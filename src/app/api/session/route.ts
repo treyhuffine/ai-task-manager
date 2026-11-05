@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
   if (key.expiresAt && new Date(key.expiresAt) < new Date()) {
     return NextResponse.json({ error: 'expired token' }, { status: 401 });
   }
-  // An AI client's key is never a browser's sign-in.
-  if (key.role === 'ai_client') {
+  // An AI client's or an app client's key is never a browser's sign-in.
+  if (key.role === 'ai_client' || key.role === 'app_client') {
     return NextResponse.json({ error: 'invalid token' }, { status: 401 });
   }
 

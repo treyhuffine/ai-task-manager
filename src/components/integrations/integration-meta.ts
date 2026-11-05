@@ -40,10 +40,12 @@ export interface IntegrationMeta {
   /** Brand color (6-digit hex, no #) for the monogram fallback tile. */
   brandHex?: string;
   /**
-   * Where to get credentials (paste-key providers) or register an OAuth app
-   * (OAuth providers). Rendered as a link in the connect panel.
+   * Provider reference documentation or credential setup instructions.
+   * Rendered separately from a direct app-creation link when one is available.
    */
   docsUrl?: string;
+  /** Direct app-creation or management page, separate from reference documentation. */
+  appUrl?: string;
   /** Additional provider-owned setup examples, rendered beside the setup guide. */
   helpLinks?: { label: string; url: string }[];
   /**
@@ -92,12 +94,13 @@ export const INTEGRATION_META: Record<string, IntegrationMeta> = {
     category: 'Communication',
     description: 'Send messages and read channels.',
     brandHex: '4A154B',
+    appUrl: 'https://api.slack.com/apps?new_app=1',
     docsUrl: 'https://docs.slack.dev/ai/slack-mcp-server/',
     setup: [
-      'Create an internal Slack app or use an app published in the Slack Marketplace.',
-      'Register the callback address below and enable PKCE for local or desktop redirects.',
-      'Add the user scopes listed in the setup guide and obtain any required workspace approval.',
-      'Paste the client ID and client secret, then sign in with your Slack account.',
+      'Create Slack app opens the app creation page with Ri’s callback and user permissions filled in. Choose your Slack workspace and create the app.',
+      'In Basic Information > App Credentials, copy Client ID and reveal Client Secret. Paste them into Ri and click Add app.',
+      'Choose Connect Slack, select your Slack account and workspace, and approve access. When you return, the account should show Connected.',
+      'Click Test, then ask Ri to find recent Slack messages that mention you.',
     ],
   },
   discord: {

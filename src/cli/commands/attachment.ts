@@ -8,7 +8,7 @@ import { getInstallationRole } from '@/lib/config/role';
 import { readConnection } from '@/lib/connection/config';
 import { homeFetch } from '@/lib/connection/home-client';
 import { SESSION_CREDENTIAL_ENV, SESSION_CREDENTIAL_HEADER } from '@/lib/orchestrator/session-credential';
-import { resolveMime, isAllowedMime } from '@/lib/attachments/mime';
+import { resolveMime } from '@/lib/attachments/mime';
 
 /** Upload explicitly selected local bytes through the existing attachment API.
  * The server never accepts a filesystem path or imports a remote caller's file. */
@@ -22,7 +22,6 @@ export async function uploadLocalAttachment(filePath: string): Promise<Attachmen
     if (stat.size <= 0 || stat.size > 50 * 1024 * 1024) throw new Error('Select a nonempty file of at most 50 MiB.');
     const originalName = path.basename(resolved);
     const mimeType = resolveMime(null, originalName);
-    if (!isAllowedMime(mimeType)) throw new Error(`Unsupported attachment type: ${mimeType}`);
     const bytes = await handle.readFile();
     if (bytes.length > 50 * 1024 * 1024) throw new Error('The file exceeds 50 MiB.');
     const form = new FormData();

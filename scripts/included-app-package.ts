@@ -23,6 +23,7 @@ export const INCLUDED_NODE_APPS: Record<string, string> = {
   'ri-people': 'apps/people',
   'ri-travel': 'apps/travel',
   'ri-job-search': 'apps/job-search',
+  'ri-bookmarks': 'apps/bookmarks',
 };
 
 /**

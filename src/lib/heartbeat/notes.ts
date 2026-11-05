@@ -1,9 +1,9 @@
 /**
  * What a check-in wakes up knowing. Each one is a fresh chat with no memory, so
- * the app hands it the time, what earlier check-ins did, and what happened to
- * chats since the last one. That's what lets instructions say "once each
- * morning", keeps it from raising the same thing again, and spares it crawling
- * every chat to find out what changed.
+ * the app hands it the time, when the last one ran, what earlier check-ins did,
+ * and what happened to chats since then. That's what lets instructions say
+ * "once each morning" or "since the last check-in", keeps it from raising the
+ * same thing again, and spares it crawling every chat to find out what changed.
  *
  * Earlier check-ins' notes are read back from their final replies, so nothing
  * is stored twice. Reads are by `session_id`, one chat at a time, and bounded.
@@ -68,6 +68,7 @@ function rightNow(checkIns: RunRecord[], timezone: string, now: Date): string {
     '## Right now',
     '',
     `It's ${when} in ${timezone}.`,
+    checkIns[0] ? `The last check-in finished ${formatWhen(finishedAt(checkIns[0]), timezone)}.` : `There was no check-in in the last ${HEARTBEAT_MEMORY_DAYS} days.`,
     earlier.length > 0 ? `Check-ins so far today: ${earlier.join(', ')}.` : 'This is the first check-in today.',
     `Chats running: ${running}. Chats waiting for the user to read: ${waiting}.`,
   ].join('\n');

@@ -49,9 +49,10 @@ export type CallerLocation = 'home' | 'elsewhere';
  * the team's MCP, a `team_ai` credential is one turn of the team's own AI
  * acting for the member who asked, and the `host` key (the host's own)
  * administers the installation and is never a member. On a personal Home,
- * `ai_client` has no member and reaches only the content-scoped MCP.
+ * `ai_client` has no member and reaches only the content-scoped MCP. An
+ * `app_client` key reaches only its local app's declared client actions.
  */
-export type KeyScope = 'viewer' | 'worker' | 'session' | 'member' | 'ai_client' | 'team_ai' | 'host';
+export type KeyScope = 'viewer' | 'worker' | 'session' | 'member' | 'ai_client' | 'app_client' | 'team_ai' | 'host';
 export type MemberRoleScope = 'owner' | 'member';
 
 export interface RequestKey {
@@ -75,7 +76,7 @@ export function getRequestKey(headers: Headers): RequestKey | null {
   if (!apiKeyId) return null;
   const declared = headers.get(API_KEY_SCOPE_HEADER);
   const scope: KeyScope =
-    declared === 'worker' || declared === 'session' || declared === 'member' || declared === 'ai_client' || declared === 'team_ai' || declared === 'host' ? declared : 'viewer';
+    declared === 'worker' || declared === 'session' || declared === 'member' || declared === 'ai_client' || declared === 'app_client' || declared === 'team_ai' || declared === 'host' ? declared : 'viewer';
   const declaredRole = headers.get(MEMBER_ROLE_HEADER);
   const ofMember = scope === 'member' || scope === 'ai_client' || scope === 'team_ai';
   return {

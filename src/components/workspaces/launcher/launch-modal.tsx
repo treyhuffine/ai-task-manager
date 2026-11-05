@@ -631,9 +631,7 @@ function LaunchModalInner({
 
   const attachFile = (file: File) => {
     setError(null);
-    const upload = editorRef.current?.uploadFile(file);
-    if (!upload) return;
-    void upload.catch((err) => setError(apiErrorText(err)));
+    void editorRef.current?.uploadFile(file);
   };
 
   return (
@@ -786,7 +784,7 @@ function LaunchModalInner({
                   onPendingUploadsChange={setPendingUploads}
                   onSubmit={() => void launch()}
                   onBackspaceOnEmpty={() => setChips((prev) => prev.slice(0, -1))}
-                  onUploadError={(err: Error) => setError(err.message)}
+                  onUploadError={(err: Error) => setError(apiErrorText(err))}
                 />
               </div>
 

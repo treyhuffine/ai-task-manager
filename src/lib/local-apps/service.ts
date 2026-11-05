@@ -448,6 +448,16 @@ export class LocalAppsService {
       signal,
     );
   }
+  /**
+   * An outside client's call, on a key made for this instance. It runs as the
+   * owner, and only the actions the package declared for clients are reachable.
+   */
+  async clientCall(id: string, action: string, input: unknown, signal?: AbortSignal) {
+    const artifact = await this.artifact(id);
+    if (!artifact.manifest.extensions["com.ri"].requests.clientActions?.includes(action))
+      throw new AppError("forbidden", "This key cannot call that action");
+    return this.call(id, action, input, OWNER, randomUUID(), signal);
+  }
   async saveGrant(
     input: Omit<
       AppGrant,
@@ -1394,6 +1404,7 @@ export class LocalAppsService {
       );
     this.invalidate(id);
     await this.engine.stop(id);
+    (await import("@/lib/db/queries")).revokeAppClientKeys(id);
     await this.store.edit(revision, (state) => {
       state.instances = state.instances.filter((item) => item.id !== id);
       state.grants = state.grants.filter((item) => item.instanceId !== id);
@@ -1565,6 +1576,15 @@ export class LocalAppsService {
         throw new AppError("revoked", "This app invocation authority expired");
     };
     check();
+    const clientKeys = await import("./client-keys");
+    if (clientKeys.isClientKeyCapability(call.name)) {
+      // Declared in the manifest and pressed by a person, so it needs no separate grant.
+      if (context.principal.kind !== "owner-ui" || !artifact.manifest.extensions["com.ri"].requests.clientActions?.length)
+        throw new AppError("forbidden", "Only the owner's view of an app with client actions can manage its keys");
+      const result = await clientKeys.callClientKeyCapability(this.instance(artifact.instanceId), call);
+      check();
+      return result;
+    }
     if (grant.riActions.includes(call.name)) {
       const result = await (await import('./ri-capabilities')).callRiCapability(artifact.instanceId,context,call,signal);
       check();

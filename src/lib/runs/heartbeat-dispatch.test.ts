@@ -133,6 +133,7 @@ describe('heartbeat dispatch', () => {
     expect(sent.startsWith(HEARTBEAT_GROUND_RULES)).toBe(true);
     expect(sent).toContain('## Right now');
     expect(sent).toContain('This is the first check-in today.');
+    expect(sent).toContain('There was no check-in in the last 3 days.');
     expect(sent.endsWith(`## Your instructions\n\n${DEFAULT_HEARTBEAT_INSTRUCTIONS}`)).toBe(true);
     const events = queries.listRecentChatEvents(chat.id, 50);
     const firstUser = events.filter((e) => e.role === 'user').at(-1);
@@ -249,6 +250,7 @@ describe('heartbeat dispatch', () => {
     expect(turn.prompts[1]).toContain('Filed the tax task under Taxes.');
     expect(turn.prompts[1]).toContain('Check-ins so far today:');
     expect(turn.prompts[1]).not.toContain('This is the first check-in today.');
+    expect(turn.prompts[1]).toContain('The last check-in finished');
   });
 
   it('a morning summary is just a Now note the instructions asked for, and it says what was done', async () => {
@@ -263,6 +265,42 @@ describe('heartbeat dispatch', () => {
     await settleCoordination();
     expect(notifySpy).toHaveBeenCalledTimes(1);
     expect(notifySpy.mock.calls[0]![0]).toMatchObject({ type: 'agent.message' });
+  });
+
+  it('summarizes a note by its first real item, not a line that introduces it', async () => {
+    const { ensureMainChat } = await import('@/lib/sessions/main-chat');
+    await ensureMainChat(null);
+    turn.reply = '**Now**\n\nWaiting on you:\n- The contract expires today.\n[[task:abc]]';
+    const { run } = await fireHeartbeat();
+    expect(run.summary).toMatch(/^Told .*: The contract expires today\.$/);
+  });
+
+  it('tells the main agent to send only the message, with no narration', async () => {
+    const { composeMainAgentNote } = await import('@/lib/heartbeat/handoff');
+    expect(composeMainAgentNote('The contract expires today.')).toContain('no narration before or after your checks');
+  });
+
+  it('tells the main agent what the check-in did, so it can mention it in a line', async () => {
+    const { ensureMainChat } = await import('@/lib/sessions/main-chat');
+    await ensureMainChat(null);
+    turn.reply = '**Did**\nFiled 3 tasks.\n\n**Now**\nThe contract expires today.';
+    await fireHeartbeat();
+    await settleCoordination();
+    expect(turn.prompts[1]).toContain('It also did this');
+    expect(turn.prompts[1]).toContain('Filed 3 tasks.');
+  });
+
+  it('can list only tasks last updated before a date, to find stale ones cheaply', async () => {
+    const queries = await import('@/lib/db/queries');
+    const { runAction } = await import('@/lib/orchestrator/dispatch');
+    const { getDb } = await import('@/lib/db');
+    const { tasks } = await import('@/lib/db/schema');
+    const { eq } = await import('drizzle-orm');
+    const stale = queries.createTask({ title: 'Old idea' });
+    queries.createTask({ title: 'Recent idea' });
+    getDb().update(tasks).set({ updatedAt: '2026-01-01T00:00:00.000Z' }).where(eq(tasks.id, stale.id)).run();
+    const env = await runAction('list_tasks', { updatedBefore: '2026-06-01T00:00:00.000Z' }, { remote: false });
+    expect((env.result as { id: string }[]).map((task) => task.id)).toEqual([stale.id]);
   });
 
   it('the first message from a check-in says what it is, and later ones do not', async () => {

@@ -40,11 +40,59 @@ it('takes a zip upload under either mime a browser sends, and serves it back as 
   }
 });
 
-it('still refuses a type that is not on the list', async () => {
+const upload = async (name: string, type: string, bytes = new Uint8Array([1, 2, 3])) => {
   const form = new FormData();
-  form.append('file', new File([new Uint8Array([1, 2, 3])], 'tool.exe', { type: 'application/x-msdownload' }));
-  const refused = await POST(new NextRequest('http://localhost/api/attachments', { method: 'POST', body: form }));
-  expect(refused.status).toBe(415);
+  form.append('file', new File([bytes], name, { type }));
+  return POST(new NextRequest('http://localhost/api/attachments', { method: 'POST', body: form }));
+};
+const stored = async (name: string, type: string) => {
+  const uploaded = await upload(name, type);
+  expect(uploaded.status, name).toBe(201);
+  const attachment = await uploaded.json();
+  files.push(path.join(ensureAttachmentsDir(), attachment.fileName));
+  return attachment;
+};
+const serve = (fileName: string, query = '') =>
+  GET(new NextRequest(`http://localhost/api/attachments/${fileName}${query}`), { params: Promise.resolve({ fileName }) });
+
+it('takes a file of any type, keeps its name, and serves it back only as a download', async () => {
+  for (const [name, type, ext] of [
+    ['scene.glb', 'model/gltf-binary', 'glb'], ['scene.glb', '', 'glb'], ['scene.blend', 'application/octet-stream', 'blend'],
+    ['bracket.obj', 'model/obj', 'obj'], ['parts.7z', 'application/x-7z-compressed', '7z'], ['tool.exe', 'application/x-msdownload', 'exe'],
+    ['no-extension', '', 'bin'],
+  ]) {
+    const attachment = await stored(name, type);
+    expect(attachment).toMatchObject({ originalName: name, mimeType: 'application/octet-stream' });
+    expect(attachment.fileName.endsWith(`.${ext}`), name).toBe(true);
+    const served = await serve(attachment.fileName);
+    expect(served.headers.get('content-type')).toBe('application/octet-stream');
+    expect(served.headers.get('content-security-policy')).toMatch(/^sandbox;/);
+    expect(served.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(Buffer.from(await served.arrayBuffer()).equals(Buffer.from([1, 2, 3]))).toBe(true);
+    const named = await serve(attachment.fileName, `?download=1&name=${encodeURIComponent(name)}`);
+    expect(named.headers.get('content-disposition')).toMatch(new RegExp(`^attachment; filename="${name}"`));
+  }
+});
+
+it('never lets a label get an unknown type served inline', async () => {
+  const unknown = await stored('page.xyz', 'text/html');
+  expect(unknown.mimeType).toBe('application/octet-stream');
+  expect((await serve(unknown.fileName)).headers.get('content-type')).toBe('application/octet-stream');
+  // A name Ri knows is read as text, whatever the label says it is.
+  const html = await stored('page.html', 'text/html');
+  expect(html.mimeType).toBe('text/plain');
+  expect((await serve(html.fileName)).headers.get('content-type')).toBe('text/plain');
+});
+
+it('keeps a label on the known list', async () => {
+  expect(await stored('photo.png', 'image/png')).toMatchObject({ mimeType: 'image/png' });
+  expect(await stored('data.json', 'application/json')).toMatchObject({ mimeType: 'text/plain' });
+});
+
+it('refuses a file over the cap, in words', async () => {
+  const refused = await upload('scene.glb', 'model/gltf-binary', new Uint8Array(50 * 1024 * 1024 + 1));
+  expect(refused.status).toBe(413);
+  expect((await refused.json()).error).toBe('This file is larger than the 50 MiB limit.');
 });
 
 it('serves an uploaded PDF for the browser viewer, as a download under its name, and as a thumbnail', async () => {

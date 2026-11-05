@@ -15,7 +15,7 @@ export type TurnStatusEffort = (typeof TURN_STATUS_EFFORTS)[number];
 export interface ChatTurnStatus {
   /** One line: where things stand, or what the person needs to do, verb first. */
   line: string;
-  /** The chat waits on the person until they answer or dismiss it. */
+  /** The agent is waiting on the person. The row's line reads stronger, and read or unread doesn't change. */
   needsYou: boolean;
   /** Their part's size, when it waits on them. */
   effort: TurnStatusEffort | null;
@@ -34,13 +34,3 @@ export const TURN_STATUS_EFFORT_LABEL: Record<TurnStatusEffort, string> = {
   minutes: 'Few min for you',
   block: 'Needs your time',
 };
-
-/**
- * Whether the chat's own agent says it waits on the person. This keeps a
- * chat unread after it's been looked at: glancing at a question doesn't
- * answer it. Answering (any new message to the chat) or Mark as read clears
- * it, server-side.
- */
-export function turnStatusNeedsYou(s: { turnStatus?: ChatTurnStatus | null }): boolean {
-  return s.turnStatus?.needsYou === true;
-}

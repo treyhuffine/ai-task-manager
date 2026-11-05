@@ -34,7 +34,9 @@ Configure an OAuth 2.0 developer app and register the exact callback shown by th
 
 The [Slack MCP guide](https://docs.slack.dev/ai/slack-mcp-server/) explicitly supports custom clients backed by a registered internal or published Marketplace app. Unlisted distributed apps are excluded. It uses user authorization at `https://slack.com/oauth/v2_user/authorize`, followed by `https://slack.com/api/oauth.v2.user.access`. The issuer is `https://mcp.slack.com`, with secret-post authentication.
 
-Enable PKCE in the Slack app for local or desktop redirects, register the displayed callback and configure the required user scopes. Workspace app approvals and IP allowlists can restrict access. The [PKCE guide](https://docs.slack.dev/authentication/using-pkce/) documents localhost desktop redirects. Existing native bot tokens do not become MCP user authorization automatically.
+Register the exact callback displayed by Ri and configure the required user scopes. Ri uses a stable web callback and confidential client-secret authentication for this registered provider, including when viewed on Desktop. Leave Slack's public-client PKCE toggle unchanged for this path. The [PKCE guide](https://docs.slack.dev/authentication/using-pkce/) documents a distinct native/public-client mode, including localhost redirects and an irreversible app setting. The SDK's S256 challenge does not require changing this app to a public client. Workspace app approvals and IP allowlists can restrict access. Existing native bot tokens do not become MCP user authorization automatically.
+
+Plugins provides a direct **Create Slack app** link using Slack's documented `https://api.slack.com/apps?new_app=1&manifest_json=…` flow, with the current callback and published user scopes prefilled. See [sharing manifests](https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests/). Reference docs and existing-app settings remain separate links. An internal Ri conversation app can also be reused by adding the callback and missing user scopes while retaining its bot configuration, then saving its Client ID and Client Secret in Ri and authorizing the user's Slack account.
 
 ## Asana
 

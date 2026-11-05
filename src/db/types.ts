@@ -577,6 +577,8 @@ export interface AreaFilter {
 
 export interface TaskFilter {
   status?: TaskStatusFilter | TaskStatusFilter[];
+  /** Only tasks last updated before this ISO date. */
+  updatedBefore?: string;
   areaId?: string | null;
   workspaceId?: string | null;
   parentId?: string | null;

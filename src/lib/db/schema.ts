@@ -822,7 +822,7 @@ export interface CalendarBlock {
 // tools on the orchestrator MCP. In a team it reaches the team's MCP and
 // its files, acting as that member's agent. It is never a sign-in.
 // Callers always say which: there is no default.
-export const API_KEY_ROLES = ['sign_in', 'worker', 'ai_client'] as const;
+export const API_KEY_ROLES = ['sign_in', 'worker', 'ai_client', 'app_client'] as const;
 
 export const apiKeys = sqliteTable(
   'api_keys',
@@ -855,7 +855,8 @@ export const apiKeys = sqliteTable(
     // For an `ai_client` key, the outside agent it was made for (an
     // `AiClientKind` in src/lib/external-ai/clients.ts: `codex`, `cursor`, ...),
     // so Settings lists and revokes keys per client. Null for every other key,
-    // and for AI client keys made before clients were recorded.
+    // and for AI client keys made before clients were recorded. For an
+    // `app_client` key, the local app instance it was made for.
     client: text(),
   },
   (table) => [
@@ -2177,9 +2178,8 @@ export const chatSessions = sqliteTable(
     // The status line the chat's agent set at the end of its last turn
     // (`set_chat_status`, docs/chat-status-lines.md): one line, whether it
     // waits on the person, their part's size and what it unblocks. Null
-    // until set, cleared when a new message reaches the chat or the person
-    // marks it read. A status that waits on the person keeps the chat unread
-    // after it's been looked at.
+    // until set, cleared when a new message reaches the chat. It never
+    // changes whether the chat is read.
     turnStatus: text({ mode: 'json' }).$type<ChatTurnStatus>(),
 
     // Rail sort key: "when did anything last happen here", human OR agent.

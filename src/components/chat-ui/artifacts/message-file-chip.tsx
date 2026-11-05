@@ -31,6 +31,7 @@ interface MessageFileChipProps {
  *   - image/* → small thumbnail; click to view full size in a lightbox.
  *   - PDF     → first-page thumbnail; click to read it in the lightbox,
  *               which also downloads it.
+ *   - a type Ri has no name for → download chip. There is nothing to preview.
  *   - other local attachments → bordered chip opening the shared preview.
  *   - shared/custom URLs → expandable text or a download chip.
  *
@@ -59,7 +60,7 @@ function FileChip({ attachment, variant = 'inline', tone = 'surface', fileUrl = 
   if (mimeType === 'application/pdf') {
     return <span className={cn(variant === 'block' && 'block my-1')}><PdfPreviewCard src={attachmentPdfUrl(url, display)} name={display} source={display} /></span>;
   }
-  if (url === `/api/attachments/${fileName}`) {
+  if (mimeType !== 'application/octet-stream' && url === `/api/attachments/${fileName}`) {
     return <span className={cn(variant === 'block' && 'block my-1')}><FilePreviewLink source={{ kind: 'attachment', fileName, ...(/^(audio|video)\//.test(mimeType) ? { media: mimeType.startsWith('audio/') ? 'audio' as const : 'video' as const } : {}) }} name={display} appearance="chip" tone={tone} size={size} /></span>;
   }
   if (isText) {

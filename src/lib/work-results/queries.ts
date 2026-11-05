@@ -16,7 +16,7 @@ import type {
 import { hydrateRow, dehydrateAttachments } from '@/lib/db/hydrate';
 import { camelizeKeys } from '@/lib/case/keys';
 import { getAttachmentsDir } from '@/lib/config/paths';
-import { isAllowedMime, resolveMime, extForFile } from '@/lib/attachments/mime';
+import { uploadMime, extForFile } from '@/lib/attachments/mime';
 import { extractReferencedFileNames } from '@/lib/attachments/derive';
 import { validateWorkResultActor } from './home-policy';
 import { ActionError } from '@/lib/orchestrator/types';
@@ -105,8 +105,8 @@ export function validateWorkResultAttachments(body: string, attachments: Attachm
   for (const file of attachments) {
     if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(file.fileName) || !file.originalName.trim()
       || !Number.isSafeInteger(file.size) || file.size <= 0 || file.size > 50 * 1024 * 1024
-      || !Number.isFinite(Date.parse(file.uploadedAt)) || !isAllowedMime(file.mimeType)
-      || resolveMime(file.mimeType, file.originalName) !== file.mimeType
+      || !Number.isFinite(Date.parse(file.uploadedAt))
+      || uploadMime(file.mimeType, file.originalName) !== file.mimeType
       || path.extname(file.fileName).slice(1).toLowerCase() !== extForFile(file.mimeType, file.originalName)) {
       throw new ActionError('invalid_params', 'Invalid attachment metadata. Use an existing Ri upload record.');
     }
