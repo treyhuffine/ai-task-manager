@@ -81,8 +81,9 @@ let exitReason: string | undefined;
 let plannedRestart: Promise<void> | undefined;
 let urgentRestart = false;
 let probing = false;
-/** A start is in flight: the first one, or a retry. */
-let starting = false;
+/** A start is in flight: the first one, from the moment this process begins,
+ * or a retry. Nothing else may start, stop or restart the server meanwhile. */
+let starting = true;
 /** startHome finished, so the address and gateway are up and a retry only
  * needs a server. Until then, a retry repeats all of it. */
 let homeServing = false;
@@ -329,7 +330,7 @@ const control = http.createServer(async (request, response) => {
   const reply = (body: object, code = 200) => { response.statusCode = code; response.end(JSON.stringify({ ...status, worker: worker?.status(), ...body })); };
   try {
     if (request.method === 'POST' && request.url === '/role/refresh') {
-      if (updater.status().busy || coordination.handingOff || roleChange) throw new Error('Wait for the current service action before refreshing this device.');
+      if (starting || updater.status().busy || coordination.handingOff || roleChange) throw new Error('Wait for the current service action before refreshing this device.');
       if (['recovery-required', 'validating', 'checkpointing', 'draining'].includes(updater.status().phase)) throw new Error('Complete runtime recovery before changing this device connection.');
       if (next || gateway) throw new Error('Stop the local Ri before changing this device connection.');
       roleChange = refreshRole();
@@ -337,7 +338,7 @@ const control = http.createServer(async (request, response) => {
       return reply({});
     }
     if (request.method === 'POST' && ['/worker/stop', '/worker/resume'].includes(request.url ?? '')) {
-      if (updater.status().busy || coordination.handingOff || roleChange) throw new Error('Wait for the current service action before changing local execution.');
+      if (starting || updater.status().busy || coordination.handingOff || roleChange) throw new Error('Wait for the current service action before changing local execution.');
       if (!worker || role.role !== 'worker') throw new Error('This device does not run a connected worker.');
       if (request.url === '/worker/resume' && status.phase !== 'running') throw new Error('Complete runtime recovery before resuming local execution.');
       roleChange = request.url === '/worker/stop' ? worker.stop(true) : worker.resume();
@@ -394,7 +395,7 @@ const control = http.createServer(async (request, response) => {
       await coordination.handoff(async () => {
         let release: (() => void) | undefined;
         try {
-          if (roleChange) throw new Error('Wait for device setup to finish before installing login supervision.');
+          if (roleChange || starting) throw new Error('Wait for device setup to finish before installing login supervision.');
           await worker?.prepareIdle();
           const reasons = await activity();
           if (reasons.length) throw new Error(`Finish or close active work before installing login supervision: ${reasons.join(', ')}`);
@@ -417,6 +418,8 @@ const control = http.createServer(async (request, response) => {
       for await (const chunk of request) { bytes += chunk.length; if (bytes > 1024) throw new Error('Control request too large'); chunks.push(chunk); }
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) as { now?: boolean } : {};
       if (updater.status().phase === 'recovery-required') throw new Error('This Home needs its recovery finished first. See `ri update recover`.');
+      // A start already under way is the restart asked for.
+      if (starting) return reply({});
       // A Home waiting for its next retry tries now instead.
       if (!next) { clearTimeout(restartTimer); void restartBackend(); return reply({}); }
       void planRestart('restarted on request', body.now === true);
@@ -445,6 +448,20 @@ async function shutdown(code = 0) {
     control.close(); control.closeAllConnections(); releaseOwner?.(); process.exit(code);
   })();
   return stopping;
+}
+
+/** Let the selected release's own controller take over. */
+async function handOver() {
+  // The stable launcher starts the selected release on exit 75 itself, OS job or not.
+  if (process.env.RI_SERVICE_LAUNCHER === '2' || hasLoginSupervision()) { setImmediate(() => void shutdown(75)); return; }
+  // Unsupervised: the relay starts the release just selected, which a
+  // rollback never validated, so `repo` can still be this controller's.
+  const selected = installedRuntime() ?? { node, repo };
+  const relay = spawn(process.execPath, [path.join(process.env.RI_RUNTIME_REPO!, 'dist/service/handoff.cjs'), String(process.pid), selected.node, selected.repo], {
+    cwd: repo, detached: true, stdio: 'ignore', env: { ...process.env, RI_SERVICE_VALIDATING: '', RI_MAINTENANCE_TOKEN: '' },
+  });
+  await new Promise<void>((resolve, reject) => { relay.once('spawn', resolve); relay.once('error', reject); });
+  relay.unref(); setImmediate(() => void shutdown());
 }
 
 /**
@@ -498,16 +515,7 @@ async function start() {
       // A new controller must load its own Node ABI and implementation before
       // the service accepts work. Validation boot has not started effects.
       await stopBackend();
-      // The stable launcher starts the selected release on exit 75 itself, OS job or not.
-      if (process.env.RI_SERVICE_LAUNCHER === '2' || hasLoginSupervision()) { setImmediate(() => void shutdown(75)); return; }
-      // Unsupervised: the relay starts the release just selected, which a
-      // rollback never validated, so `repo` can still be this controller's.
-      const selected = installedRuntime() ?? { node, repo };
-      const relay = spawn(process.execPath, [path.join(process.env.RI_RUNTIME_REPO!, 'dist/service/handoff.cjs'), String(process.pid), selected.node, selected.repo], {
-        cwd: repo, detached: true, stdio: 'ignore', env: { ...process.env, RI_SERVICE_VALIDATING: '', RI_MAINTENANCE_TOKEN: '' },
-      });
-      await new Promise<void>((resolve, reject) => { relay.once('spawn', resolve); relay.once('error', reject); });
-      relay.unref(); setImmediate(() => void shutdown());
+      await handOver();
     },
     restart: async target => {
       try {
@@ -525,18 +533,20 @@ async function start() {
   await new Promise<void>((resolve, reject) => { control.once('error', reject); control.listen(paths.socket, resolve); });
   fs.chmodSync(paths.socket, 0o600);
   // Keep the private recovery/status surface alive without a crash loop.
+  const selectedBefore = installedRuntime()?.id;
   try { await updater.recover(); }
   catch (error) {
+    starting = false;
     status.phase = 'failed'; status.error = error instanceof Error ? error.message : 'Recovery required';
     console.error(`[service] Recovery needs attention: ${status.error}`);
     return;
   }
   const installed = installedRuntime();
-  // Recovery can select another release. The launcher starts that release's
-  // own controller, instead of this one running its server.
-  if (installed && process.env.RI_SERVICE_LAUNCHER === '2' && canonical(installed.repo) !== controllerRepo) { setImmediate(() => void shutdown(75)); return; }
+  // Recovery selected another release: its own controller runs it, not this one.
+  if (installed && installed.id !== selectedBefore) { await handOver(); return; }
   if (installed) { repo = installed.repo; node = installed.node; process.env.RI_RUNTIME_REPO = repo; process.env.NEXT_DIST_DIR = '.next-desktop'; process.chdir(repo); }
   await refreshRole();
+  starting = false;
   startTimers();
 }
 
@@ -712,6 +722,7 @@ void start().catch(async error => {
   // socket up to say why. A restart loop through the OS would hide the reason,
   // and restoring data written after an upgrade is never the answer.
   await stopFailedStart();
+  starting = false;
   if (stopping) return;
   backendExited(status.error);
   startTimers();

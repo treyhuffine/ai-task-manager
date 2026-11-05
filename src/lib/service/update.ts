@@ -279,8 +279,10 @@ export class UpdateCoordinator {
         }
         // Durable point of no rollback. From here every recovery preserves
         // the upgraded DB, even if activation or the controller then crashes.
-        this.save({ phase: 'committed', committedAt: new Date().toISOString(), approved: false, force: false, reason: undefined });
+        // The fallback first: committed with no activation record would leave
+        // the launcher unable to put the previous release back.
         beginActivation(target.id, prior.id, this.directory);
+        this.save({ phase: 'committed', committedAt: new Date().toISOString(), approved: false, force: false, reason: undefined });
         await this.select(target.id, prior.id);
         access?.(); access = undefined;
         activity(); activity = undefined;
@@ -308,6 +310,7 @@ export class UpdateCoordinator {
             }
           }
           await this.select(prior.id);
+          clearActivation(this.directory);
         }
         clearMaintenance();
         access?.(); access = undefined;
@@ -432,7 +435,7 @@ export class UpdateCoordinator {
     }
     if (this.record.phase === 'recovery-required') throw new Error(this.record.error ?? 'Manual recovery required');
     if (this.record.committedAt && this.record.release) {
-      await this.select(this.record.release.runtime.id); clearMaintenance(); return;
+      await this.select(this.record.release.runtime.id, this.record.priorId); clearMaintenance(); return;
     }
     if (this.record.phase === 'validating') {
       if (this.backend.storage === 'worker' && !this.backend.exclusiveStorage) throw new Error('Connected-device recovery requires its journal writer lock.');
@@ -444,6 +447,7 @@ export class UpdateCoordinator {
         await this.select(this.record.priorId);
         clearMaintenance();
         this.save({ phase: 'failed', approved: false, error: 'Interrupted update recovered. The prior version and data were restored.' });
+        clearActivation(this.directory);
       } catch (error) { this.save({ phase: 'recovery-required', error: message(error) }); throw error; }
       finally { release(); }
     } else if (transient.has(this.record.phase) || this.record.phase === 'downloading') {

@@ -162,6 +162,11 @@ describe('cutOffByRestart', () => {
     expect(cutOffByRestart([live({ type: 'result' })], read, now)).toBe(false);
   });
 
+  it('counts an answer to a permission prompt, whose row carries this app\'s own ID', () => {
+    const answer = row({ role: 'system', source: 'permission_response', createdAt: at(1), externalEventId: 'pending-response:request-1' });
+    expect(cutOffByRestart([answer], read, now)).toBe(true);
+  });
+
   it('leaves alone a finished turn, a terminal session, old work, and anything already seen or unread', () => {
     expect(cutOffByRestart([row({ role: 'assistant', source: 'result', createdAt: at(1) }), row({ role: 'assistant', source: 'tool_call', createdAt: at(2) })], read, now)).toBe(false);
     // A person's message mirrored from a session in their terminal, not sent from here.

@@ -268,7 +268,7 @@ describe('ri start keeps the Home running', () => {
       mode: 'http', http2: false, publicBaseUrl: 'http://localhost:4224', publicPort: 4224, privateUpstreams: { next: 'http://127.0.0.1:4224' } });
     await startCommand({ open: false, pair: false });
     expect(mocks.install).not.toHaveBeenCalled();
-    expect(mocks.log.info).toHaveBeenCalledWith(expect.stringContaining('Stop it there with Ctrl-C, then run `ri start` again'));
+    expect(mocks.log.info).toHaveBeenCalledWith(expect.stringContaining('Stop it with `ri stop`, or Ctrl-C in its terminal, then run `ri start` again'));
   });
 
   it("refuses to start in the terminal while Ri keeps the Home running", async () => {

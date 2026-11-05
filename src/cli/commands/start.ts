@@ -148,7 +148,7 @@ export async function startCommand(opts: StartOptions) {
   if (live) {
     log.info(foreground
       ? `A foreground Ri launcher is already running at ${live.publicBaseUrl}. Use it or stop it before changing launch mode.`
-      : `Ri is running in a terminal at ${live.publicBaseUrl}. Stop it there with Ctrl-C, then run \`${APP_SHORT_ID} start\` again to keep it running in the background.`);
+      : `Ri is running at ${live.publicBaseUrl}, started by hand. Stop it with \`${APP_SHORT_ID} stop\`, or Ctrl-C in its terminal, then run \`${APP_SHORT_ID} start\` again to keep it running in the background.`);
     return;
   }
   if (!foreground) {

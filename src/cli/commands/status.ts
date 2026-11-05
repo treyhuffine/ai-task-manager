@@ -33,8 +33,8 @@ async function homeFacts() {
   const status = await serviceStatus().catch(() => null);
   return { status, supervised: hasLoginSupervision(), stopped: readStopped(), computer: computerRelease(),
     homeCommit: status?.repo ? releaseCommit(status.repo) : null,
-    // The service publishes the same record, so only without one is this a terminal's.
-    terminal: status ? null : readLiveServerRuntime()?.publicBaseUrl ?? null, now: Date.now() };
+    // The service publishes the same record, so only without one was this started by hand.
+    manual: status ? null : readLiveServerRuntime()?.publicBaseUrl ?? null, now: Date.now() };
 }
 
 /** Every other Home the installation runs, one line each, so a team that's

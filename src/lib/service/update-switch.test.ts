@@ -101,6 +101,36 @@ it('restores the snapshot exactly when the launcher put the previous release bac
   expect(installedRuntime()?.id).toBe(prior);
 });
 
+it('keeps the launcher\'s fallback whichever side of the commit a crash lands on', async () => {
+  const updater = coordinator(); await updater.offer(candidate);
+  const seen: string[] = [];
+  backend.activate = vi.fn(async () => { seen.push('activate'); });
+  await updater.apply();
+  const record = path.join(directory, 'update.json');
+  const committed = JSON.parse(fs.readFileSync(record, 'utf8'));
+  // The fallback was written first, so a committed update always has one.
+  expect(readActivation(directory)).toMatchObject({ candidate, previous: prior });
+
+  // Crash just after the commit, before the pointer moved.
+  fs.writeFileSync(path.join(directory, 'active-release'), `${prior}\n`);
+  await coordinator().recover();
+  expect(installedRuntime()?.id).toBe(candidate);
+  expect(readActivation(directory)).toMatchObject({ candidate, previous: prior });
+  expect(fs.readFileSync(path.join(directory, 'previous-release'), 'utf8').trim()).toBe(prior);
+
+  // Crash just before the commit: the fallback exists, the journal says validating.
+  // Nothing was committed, so the update is undone and the record goes with it.
+  fs.writeFileSync(path.join(directory, 'active-release'), `${prior}\n`);
+  fs.writeFileSync(record, JSON.stringify({ ...committed, phase: 'validating', committedAt: undefined }));
+  write('changed by the check-only start');
+  const restarted = coordinator();
+  await restarted.recover();
+  expect(read()).toBe('before');
+  expect(installedRuntime()?.id).toBe(prior);
+  expect(restarted.status().phase).toBe('failed');
+  expect(readActivation(directory)).toEqual({ candidate: null, previous: null, restore: false });
+});
+
 it('finishes a rollback whose restore failed, instead of selecting the release it was leaving', async () => {
   const before = coordinator(); await before.offer(candidate); await before.apply();
   write('written after the update');

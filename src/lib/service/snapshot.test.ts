@@ -88,12 +88,23 @@ it('moves config the newer release added beside the failed database, and leaves 
   fs.mkdirSync(path.join(config, 'old-store'), { recursive: true });
   fs.writeFileSync(path.join(config, 'old-store/key'), 'old store');
   fs.writeFileSync(path.join(config, 'config.json'), '{"before":true}');
+  // How the service runs this Home at the snapshot, which must not come back.
+  fs.writeFileSync(path.join(config, 'service-supervision.json'), '{"supervised":"then"}');
+  fs.writeFileSync(path.join(config, 'local-service.json'), '{"port":1111}');
   const directory = await createSnapshot({ from: FROM, to: TO });
+  expect(readSnapshot(directory).config).not.toContain('service-supervision.json');
+  expect(readSnapshot(directory).config).not.toContain('local-service.json');
   // The newer release converts a folder, as migrateIntegrationStorage does.
   fs.renameSync(path.join(config, 'old-store'), path.join(config, 'new-store'));
+  // A new folder holding only a lock file, as a store's writes leave behind.
+  fs.writeFileSync(path.join(config, 'new-store/key.lock.sqlite'), '');
+  fs.mkdirSync(path.join(config, 'lock-only'), { recursive: true });
+  fs.writeFileSync(path.join(config, 'lock-only/data.lock.sqlite'), '');
   fs.writeFileSync(path.join(config, 'config.json'), '{"after":true}');
-  // Created since the snapshot, and not the release's to undo.
-  fs.writeFileSync(path.join(config, 'service-supervision.json'), '{}');
+  // Changed since the snapshot, and not the release's to undo: supervision was
+  // uninstalled, and the Home moved to another address.
+  fs.rmSync(path.join(config, 'service-supervision.json'));
+  fs.writeFileSync(path.join(config, 'local-service.json'), '{"port":2222}');
   fs.mkdirSync(path.join(config, 'browser'), { recursive: true });
   fs.writeFileSync(path.join(config, 'browser/profile'), 'kept');
   fs.writeFileSync(path.join(config, 'data.owner.sqlite'), '');
@@ -102,8 +113,13 @@ it('moves config the newer release added beside the failed database, and leaves 
   expect(fs.readFileSync(path.join(config, 'config.json'), 'utf8')).toBe('{"before":true}');
   // An old and a new store never both exist, and nothing is deleted.
   expect(fs.existsSync(path.join(config, 'new-store'))).toBe(false);
+  expect(fs.existsSync(path.join(config, 'lock-only'))).toBe(false);
   expect(fs.readFileSync(path.join(directory, 'failed/config/new-store/key'), 'utf8')).toBe('old store');
-  for (const live of ['service-supervision.json', 'browser/profile', 'data.owner.sqlite']) expect(fs.existsSync(path.join(config, live))).toBe(true);
+  expect(fs.existsSync(path.join(directory, 'failed/config/new-store/key.lock.sqlite'))).toBe(true);
+  // A supervision that was uninstalled stays uninstalled, and the address stays.
+  expect(fs.existsSync(path.join(config, 'service-supervision.json'))).toBe(false);
+  expect(fs.readFileSync(path.join(config, 'local-service.json'), 'utf8')).toBe('{"port":2222}');
+  for (const live of ['browser/profile', 'data.owner.sqlite']) expect(fs.existsSync(path.join(config, live))).toBe(true);
   // A repeat, after a crash, changes nothing.
   await restoreSnapshot(directory);
   expect(fs.readFileSync(path.join(directory, 'failed/config/new-store/key'), 'utf8')).toBe('old store');

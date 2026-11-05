@@ -46,11 +46,11 @@ it('says what a downloaded update and a planned restart wait for', () => {
   expect(lines).toContainEqual(['update', 'waiting: Waiting for 2 chats to finish']);
 });
 
-it('knows a Home running in a terminal is up, and how to move it', () => {
-  const lines = describeHomeStatus(facts({ status: null, supervised: false, terminal: 'http://localhost:4224' }));
-  expect(lines[0]).toEqual(['state', 'running in a terminal at http://localhost:4224']);
-  expect(lines).toContainEqual(['kept up', 'no. Stop it with Ctrl-C, then `ri start` keeps it running']);
-  expect(homeIsDown({ status: null, stopped: null, terminal: 'http://localhost:4224' })).toBe(false);
+it('knows a Home started by hand is up, and how to move it', () => {
+  const lines = describeHomeStatus(facts({ status: null, supervised: false, manual: 'http://localhost:4224' }));
+  expect(lines[0]).toEqual(['state', 'running at http://localhost:4224, started by hand']);
+  expect(lines).toContainEqual(['kept up', 'no. `ri stop`, then `ri start` keeps it running']);
+  expect(homeIsDown({ status: null, stopped: null, manual: 'http://localhost:4224' })).toBe(false);
 });
 
 it('calls a Home down unless it serves, or its owner stopped it', () => {

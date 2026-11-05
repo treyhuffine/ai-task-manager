@@ -119,7 +119,7 @@ function copyConfig(source: string, destination: string) {
     const from = path.join(/* turbopackIgnore: true */ source, relative);
     for (const entry of fs.readdirSync(/* turbopackIgnore: true */ from, { withFileTypes: true })) {
       const name = relative ? path.join(/* turbopackIgnore: true */ relative, entry.name) : entry.name;
-      if (!relative && CONFIG_SKIP.has(entry.name)) continue;
+      if (!relative && (CONFIG_SKIP.has(entry.name) || CONFIG_LIVE.has(entry.name))) continue;
       if (VOLATILE.test(entry.name)) continue;
       if (entry.isDirectory()) { walk(name); continue; }
       if (!entry.isFile()) continue; // sockets and links are live endpoints, not recovery data
@@ -191,9 +191,9 @@ function move(from: string, to: string) {
   try { fs.renameSync(/* turbopackIgnore: true */ from, to); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
-    fs.copyFileSync(/* turbopackIgnore: true */ from, to);
-    fsyncPath(to);
-    fs.unlinkSync(/* turbopackIgnore: true */ from);
+    fs.cpSync(/* turbopackIgnore: true */ from, to, { recursive: true, verbatimSymlinks: true });
+    if (fs.statSync(/* turbopackIgnore: true */ to).isFile()) fsyncPath(to);
+    fs.rmSync(/* turbopackIgnore: true */ from, { recursive: true });
   }
 }
 
@@ -226,6 +226,9 @@ export async function restoreSnapshot(directory: string, identity: Identity = se
     fsyncPath(path.dirname(live));
   }
   for (const name of manifest.config) {
+    // How the service runs this Home now: an older copy could bring back a
+    // supervision that was uninstalled, or an old address.
+    if (CONFIG_LIVE.has(name)) continue;
     const source = path.join(/* turbopackIgnore: true */ directory, 'config', name);
     if (!fs.existsSync(/* turbopackIgnore: true */ source)) continue;
     const target = path.join(/* turbopackIgnore: true */ identity.config, name);
@@ -246,23 +249,27 @@ export async function restoreSnapshot(directory: string, identity: Identity = se
  */
 function setAsideNewConfig(config: string, saved: Set<string>, aside: string) {
   if (!fs.existsSync(/* turbopackIgnore: true */ config)) return;
+  const setAside = (name: string) => {
+    let target = path.join(/* turbopackIgnore: true */ aside, name);
+    if (fs.existsSync(/* turbopackIgnore: true */ target)) target = `${target}-${randomUUID()}`;
+    fs.mkdirSync(/* turbopackIgnore: true */ path.dirname(target), { recursive: true, mode: 0o700 });
+    move(path.join(/* turbopackIgnore: true */ config, name), target);
+  };
   const walk = (relative: string) => {
     const folder = path.join(/* turbopackIgnore: true */ config, relative);
     for (const entry of fs.readdirSync(/* turbopackIgnore: true */ folder, { withFileTypes: true })) {
       const name = relative ? path.join(/* turbopackIgnore: true */ relative, entry.name) : entry.name;
       if (!relative && (CONFIG_SKIP.has(entry.name) || CONFIG_LIVE.has(entry.name))) continue;
-      if (VOLATILE.test(entry.name)) continue;
       if (entry.isDirectory()) {
-        walk(name);
-        // A folder this emptied goes too, so an old and a new store never both exist.
-        const inside = path.join(/* turbopackIgnore: true */ config, name);
-        if (fs.existsSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ aside, name)) && !fs.readdirSync(/* turbopackIgnore: true */ inside).length) fs.rmdirSync(/* turbopackIgnore: true */ inside);
+        // A folder none of the restored files live in goes whole, its lock files
+        // too, so an old and a new store never both exist. Nothing holds them:
+        // the server is stopped and recovery has the storage to itself.
+        if ([...saved].some(file => file.startsWith(`${name}${path.sep}`))) walk(name);
+        else setAside(name);
         continue;
       }
-      if (!entry.isFile() || saved.has(name)) continue;
-      const target = path.join(/* turbopackIgnore: true */ aside, name);
-      fs.mkdirSync(/* turbopackIgnore: true */ path.dirname(target), { recursive: true, mode: 0o700 });
-      move(path.join(/* turbopackIgnore: true */ config, name), target);
+      if (VOLATILE.test(entry.name) || !entry.isFile() || saved.has(name)) continue;
+      setAside(name);
     }
   };
   walk('');

@@ -398,10 +398,11 @@ export function cutOffByRestart(recentDesc: ChatEventRecord[], session: CutOffFa
     const fromPerson = e.role === 'user' || e.source === 'permission_response';
     if (!fromPerson && !AGENT_ACTIVITY_SOURCES.has(e.source as ChatEventSource) && e.source !== 'result') continue;
     if (e.source === 'result') return false;
-    // Only a person's row says where it came from: this app's sends carry no
-    // ID, and one mirrored from a terminal does. Every agent row has an ID,
-    // since the live parser gives each one (`parseStreamEvent`).
-    if (fromPerson && e.externalEventId) return false;
+    // Only a person's message says where it came from: this app's sends carry
+    // no ID, and one mirrored from a terminal does. Every other row has an ID
+    // of this app's own: `parseStreamEvent` on agent events, and
+    // `pending-response:` on an answer to a permission prompt.
+    if (e.role === 'user' && e.externalEventId) return false;
     const at = time(e.createdAt);
     if (now - at > CUT_OFF_WINDOW_MS) return false;
     const seen = Math.max(time(session.lastViewedAt), time(session.unreadMarkerAt));

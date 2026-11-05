@@ -220,6 +220,20 @@ async function main() {
     session = await start();
     passed('a failed first start keeps retrying and comes up by itself');
 
+    // A restart asked for during a first start is that start: one server, tracked.
+    await stopService();
+    const firstStart = spawn(runtime.node, [path.join(runtime.repo, 'dist/service/main.cjs')], { cwd: runtime.repo, env: { ...environment, RI_RUNTIME_REPO: runtime.repo }, stdio: 'ignore', detached: true });
+    firstStart.unref();
+    if (firstStart.pid) observed.add(firstStart.pid);
+    await waitFor(serviceStatus, value => value !== null, 'control socket during a first start', 60_000);
+    await Promise.allSettled([1, 2, 3].map(() => serviceRequest('/restart', 'POST', 5000, { now: true })));
+    await waitFor(serviceStatus, value => value?.phase === 'running', 'first start finishing', 180_000);
+    const servers = execFileSync('/bin/ps', ['-axo', 'ppid=,command='], { encoding: 'utf8' }).split('\n').filter(line => line.trim().startsWith(`${firstStart.pid} `) && line.includes('http-server'));
+    assert.equal(servers.length, 1, 'Restarts during a first start must not launch a second server');
+    session = await serviceRequest<ServiceSession>('/session');
+    track(session);
+    passed('restarts asked for during a first start leave one server');
+
     // `ri stop` under supervision: the OS starting the controller at login
     // finds the record and exits successfully, so it stays down.
     await stopService();

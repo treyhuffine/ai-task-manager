@@ -15,8 +15,8 @@ export interface HomeStatusFacts {
   computer: { version: string; commit: string | null } | null;
   /** The commit of the release the Home runs, when it was built from a checkout. */
   homeCommit: string | null;
-  /** Its address, when it runs in a terminal instead of under the service. */
-  terminal?: string | null;
+  /** Its address, when it was started by hand instead of under the service. */
+  manual?: string | null;
   now: number;
 }
 
@@ -36,9 +36,9 @@ function version(release: { version: string; commit: string | null }) {
 const MIB = 1024 * 1024;
 
 /** A Home that should be serving and isn't. One its owner stopped is fine. */
-export function homeIsDown(facts: Pick<HomeStatusFacts, 'status' | 'stopped' | 'terminal'>) {
+export function homeIsDown(facts: Pick<HomeStatusFacts, 'status' | 'stopped' | 'manual'>) {
   if (facts.status) return facts.status.phase !== 'running';
-  return !facts.stopped && !facts.terminal;
+  return !facts.stopped && !facts.manual;
 }
 
 /** One line for a Home in the list of everything on this computer. */
@@ -54,8 +54,8 @@ export function summarizeHome(facts: HomeStatusFacts) {
 export function describeHomeStatus(facts: HomeStatusFacts): [string, string][] {
   const { status, now } = facts;
   const lines: [string, string][] = [];
-  if (!status && facts.terminal) {
-    lines.push(['state', `running in a terminal at ${facts.terminal}`]);
+  if (!status && facts.manual) {
+    lines.push(['state', `running at ${facts.manual}, started by hand`]);
   } else if (!status) {
     lines.push(['state', facts.stopped
       ? `stopped by you ${ago(facts.stopped.at, now)}. It stays stopped until \`ri start\`.`
@@ -75,7 +75,7 @@ export function describeHomeStatus(facts: HomeStatusFacts): [string, string][] {
   const home = status?.release ? version({ version: status.release.release.version, commit: facts.homeCommit }) : null;
   const computer = facts.computer ? version(facts.computer) : null;
   if (home || computer) lines.push(['version', home && computer && home !== computer ? `${home}, and ${computer} on this computer` : (home ?? computer)!]);
-  lines.push(['kept up', facts.supervised ? 'yes, by the OS, after crashes and restarts' : facts.terminal ? 'no. Stop it with Ctrl-C, then `ri start` keeps it running' : 'no. `ri start` keeps it running']);
+  lines.push(['kept up', facts.supervised ? 'yes, by the OS, after crashes and restarts' : facts.manual ? 'no. `ri stop`, then `ri start` keeps it running' : 'no. `ri start` keeps it running']);
   if (status?.memory) {
     const share = Math.round(status.memory.heapUsed / status.memory.heapLimit * 100);
     lines.push(['memory', `${Math.round(status.memory.heapUsed / MIB)} of ${Math.round(status.memory.heapLimit / MIB)} MiB heap (${share}%), ${Math.round(status.memory.rss / MIB)} MiB in all`]);

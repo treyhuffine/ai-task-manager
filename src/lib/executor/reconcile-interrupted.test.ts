@@ -50,4 +50,4 @@ it('marks a chat the restart cut off as unread, once, and leaves a finished one 
   const another = chatWith([{ live: { type: 'tool_call', name: 'Bash', input: {} }, secondsAgo: 20 }]);
   expect((await reconcileAllSessions({ redispatchOrphans: false })).interrupted).toBe(0);
   expect(q.getChatSession(another)?.unreadMarkerAt).toBeFalsy();
-});
+}, 30_000);

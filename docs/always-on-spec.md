@@ -416,10 +416,10 @@ No such folders exist on the owner's Mini. A packaged desktop app on another com
 
 All three Homes move once phases A and B (section 12) are on main. Every step names its folder and the launcher's full path, because bare `ri` isn't the launcher until step 5: a login shell finds Ruby's `/usr/bin/ri` first, and an interactive one finds the checkout's copy in `~/Library/pnpm/bin`.
 
-1. **Install from the checkout.** Run `pnpm cli:dev update --from ~/ai-task-manager`. This builds `main` into a release and installs `~/.local/bin/ri`. A build needs 8 GiB free. All three Homes keep running as they are.
+1. **Install from the checkout.** Run `pnpm cli:dev update --from ~/ai-task-manager`. This builds `main` into a release and installs `~/.local/bin/ri`. A build needs 8 GiB free. All three Homes keep running as they are. From here, stop using `personal/ri-homes.sh`: its `pnpm cli:dev start` would now move `~/ri` under the OS by itself, since plain `ri start` keeps a Home running once a release is installed.
 2. **Move the team Homes first, as a rehearsal.** Run `$HOME/.local/bin/ri start --root ~/ri-team-huffine`. Its unsupervised controller hands off to a supervised one on the new release, using the handoff `installService` already performs, and keeps `https://localhost:42242`. It refuses while work is running there.
 3. **Move the other team.** Run `$HOME/.local/bin/ri start --root ~/ri-ballcoach`, which keeps `https://localhost:62982` the same way.
-4. **Move the personal Home.** Stop it in its terminal window with Ctrl-C, then run `$HOME/.local/bin/ri start --root ~/ri`. It keeps `http://localhost:4224` (section 10.3). This ends every chat running under that server, including any agent chat, so it's for the owner to run, not an agent.
+4. **Move the personal Home.** It runs detached, started by `personal/ri-homes.sh`. Run `$HOME/.local/bin/ri stop --root ~/ri`, then `$HOME/.local/bin/ri start --root ~/ri`. It keeps `http://localhost:4224` (section 10.3). This ends every chat running under that server, including any agent chat, so it's for the owner to run, not an agent.
 5. **Clean up.** Remove the checkout's own `ri` link in `~/Library/pnpm/bin`, and make sure `~/.local/bin` comes before `/usr/bin` in the shell's PATH, so `ri` is the launcher. `ri doctor` says which `ri` a terminal runs.
 6. **Check, then restart once.**
    - `ri status` shows all three Homes running and kept up by the OS.
@@ -705,6 +705,17 @@ A throwaway job on a temporary Home then ran under real launchd, created through
 | `ri service uninstall` | The job and its file are gone, and the data is kept |
 
 A real reboot is still the owner's check in section 10.2.
+
+A fifth pass reviewed those repairs. Its checks confirmed that the probe, staging outside the lock and the merged startup hold up, and that an old controller hands off cleanly. It found:
+
+| Finding | Change |
+| --- | --- |
+| `ri restart` during a first start launched a second server, a regression from the repairs | A first start counts as a start in flight, and other control requests wait for it |
+| A crash between recording the commit and writing the fallback left the launcher unable to go back | The fallback is written first, and a crash on either side recovers |
+| A restore brought back a supervision record or address that had since changed, and a Home with no OS job then exited 75 and stayed down | Those files are no longer part of a snapshot |
+| Recovery that moved the selection, in a controller outside the launcher, kept running the old controller | Any controller whose selection recovery moved hands over, by exit 75 or the relay |
+| Lock files kept a wholly new config folder alive, so the next conversion refused to start | A folder none of the restored files live in moves aside whole, locks included |
+| An answer to a permission prompt carries this app's own ID, so that chat wasn't marked as cut off | Only a person's message can count as mirrored from a terminal |
 
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
 
