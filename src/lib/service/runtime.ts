@@ -84,7 +84,11 @@ while :; do
   while kill -0 "$child" 2>/dev/null; do code=0; wait "$child" || code=$?; done
   child=
   [ -n "$stopping" ] && exit "$code"
-  if [ -n "$candidate" ] && [ "$candidate" = "$release" ] && [ -f "$home/activation/candidate" ]; then
+  # Still waiting on this release, so that was a failed try. A controller handing
+  # over has already named the next one here, and it ran fine.
+  waiting=
+  if [ -f "$home/activation/candidate" ]; then IFS= read -r waiting < "$home/activation/candidate" || waiting=; fi
+  if [ -n "$waiting" ] && [ "$waiting" = "$release" ]; then
     tries=$((tries + 1))
     if [ "$tries" -ge 2 ]; then
       previous=

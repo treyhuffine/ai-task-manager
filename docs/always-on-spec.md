@@ -264,7 +264,7 @@ Every Home follows one rule, whether it was set up from the desktop app or the C
    - Open windows then show the refresh notice (section 4.3).
    - An agent whose MCP call lands in those seconds gets an error and retries, as it would after any dropped connection.
 
-**Idle processes don't count as work.** The activity check (`activity()` in `src/service/main.ts`) asks what a restart would cut off, not which processes the server owns. Agent processes stay open for up to 30 minutes after a chat goes quiet (`IDLE_CLOSE_MS` in `src/lib/runner/local-runner.ts`) and resume from their session id when the chat continues, and the agent browser is meant to outlive the server. Counting them would stretch 10 quiet minutes to about 40, and a helper process that never exits would block updates for good. So the check counts only the work listed in step 1, and the drain closes idle agent processes the way it always has (`closeIdleHarnessesForMaintenance`, called through `prepareIdle` in `src/lib/service/validation-boot.ts`). A terminal counts while a window shows it, since nothing closes a forgotten one. A preview doesn't count yet: `ri update` is a person asking, and phase C's quiet check adds it.
+**Idle processes don't count as work.** The activity check (`activity()` in `src/service/main.ts`) asks what a restart would cut off, not which processes the server owns. Agent processes stay open for up to 30 minutes after a chat goes quiet (`IDLE_CLOSE_MS` in `src/lib/runner/local-runner.ts`) and resume from their session id when the chat continues, and the agent browser is meant to outlive the server. Counting them would stretch 10 quiet minutes to about 40, and a helper process that never exits would block updates for good. So the check counts only the work listed in step 1, and the drain closes idle agent processes the way it always has (`closeIdleHarnessesForMaintenance`, called through `prepareIdle` in `src/lib/service/validation-boot.ts`). A terminal counts while a window shows it or a command runs in it, since nothing closes a forgotten one and walking away from a long job is normal. A preview doesn't count yet: `ri update` is a person asking, and phase C's quiet check adds it.
 
 Around that rule:
 
@@ -747,7 +747,15 @@ A seventh pass reviewed that repair, and found what it had left:
 | Any process under the server, such as the agent browser, held up an update or planned restart for good, closing the Home and every idle agent each time it tried | Only work counts, not processes (section 7.2). A drain that can't finish reopens the Home and waits 5 minutes |
 | A smaller set: a release that failed its check was rehashed forever, `--now` survived a controller restart, and a `ri start` that didn't finish left `ri update` failing | Each is fixed where it happens |
 
-A real turn from a stand-in harness now runs in the qualification, on a real server under the real launcher.
+A real turn from a stand-in harness now runs in the qualification, on a real server under the real launcher. An eighth pass and that run found what was still left:
+
+| Finding | Change |
+| --- | --- |
+| The launcher kept the name of the release it started as a candidate. A later handover looked like that release failing, so the third switch in one launcher session was reverted, with nothing wrong | It reads the record again after each exit: a controller that handed over has already named the next release |
+| Opening a lease closed a descriptor to its file, and that drops every POSIX lock the process holds there. On a busy Home, nothing held the activity lease across processes, so drains never waited for work the check doesn't list | The file is only created when it's missing. Tested across two real processes. Handoff now waits for requests in flight too |
+| A crash while offline left the gate on disk, and a server can't open the database under it, so the Home stayed down until someone removed the file | Recovery clears it |
+| A job in a terminal nobody was watching was cut off by an update or planned restart | A terminal counts while a command runs in it |
+
 
 One finding was left alone: two source builds at once can collide. The result is a loud failed build and no damage, and one person runs builds by hand. The review's call for one authoritative account of each transition is met by a rule rather than a restructure (section 7.6), because the launcher is shell and needs plain files.
 

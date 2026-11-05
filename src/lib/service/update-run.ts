@@ -194,6 +194,7 @@ export function describeRollback(root: string, state: RollbackStatus) {
     `Roll ${displayRoot(root)} back to the version it ran before the update at ${new Date(state.createdAt!).toLocaleString()}?`,
     lost.length ? `Everything written since then would be lost: ${lost.join(', ')}.` : 'Nothing has been written since then.',
     'Work the newer version already did, such as a message it sent, may happen again, because the restored records no longer show it.',
+    'Any chat still running ends when it restarts.',
     `Rollback is possible until ${new Date(state.expiresAt!).toLocaleString()}.`,
   ].join('\n');
 }

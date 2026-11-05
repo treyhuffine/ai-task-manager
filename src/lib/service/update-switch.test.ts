@@ -8,7 +8,7 @@ import { readActivation } from './activation';
 import { listSnapshots, restoreSnapshot } from './snapshot';
 import { writeRuntimeFixture } from './runtime-fixture';
 import { snapshotsInUse, UpdateCoordinator, type UpdateBackend } from './update';
-import { beginActivity, readMaintenance } from './maintenance';
+import { beginActivity, readMaintenance, writeMaintenance } from './maintenance';
 
 const mocked = vi.hoisted(() => ({ check: vi.fn(), policy: vi.fn() }));
 vi.mock('./release', () => ({ checkRelease: mocked.check, releasePolicy: mocked.policy, downloadRelease: vi.fn() }));
@@ -418,4 +418,34 @@ it('forgets --now when the controller restarts, so it can\'t end a chat started 
   const after = coordinator();
   await after.recover();
   expect(after.status()).toMatchObject({ phase: 'waiting', approved: true, force: false });
+});
+
+it('keeps waiting when the server stalls during a drain, rather than failing the update', async () => {
+  backend.work = vi.fn(async () => []);
+  let stalled = true;
+  backend.activity = vi.fn(async () => { if (stalled) throw new Error('Backend readiness is unavailable'); return []; });
+  const updater = coordinator();
+  await updater.offer(candidate);
+  updater.approve();
+  await updater.tick();
+  expect(updater.status()).toMatchObject({ phase: 'waiting', approved: true, reason: 'the server to answer' });
+  expect(readMaintenance()).toBeNull();
+  stalled = false;
+  await updater.offer(candidate);
+  updater.approve();
+  await updater.tick();
+  expect(installedRuntime(directory)!.id).toBe(candidate);
+});
+
+it('clears a gate a crash left behind, so the server can open the database again', async () => {
+  writeMaintenance({ phase: 'offline', token: 'left-by-a-crash', startedAt: new Date().toISOString() });
+  await coordinator().recover();
+  expect(readMaintenance()).toBeNull();
+});
+
+it('keeps the gate when recovery needs a person', async () => {
+  writeMaintenance({ phase: 'offline', token: 'left-by-a-crash', startedAt: new Date().toISOString() });
+  fs.writeFileSync(path.join(directory, 'update.json'), JSON.stringify({ format: 1, phase: 'recovery-required', changedAt: new Date().toISOString() }));
+  await expect(coordinator().recover()).rejects.toThrow();
+  expect(readMaintenance()).not.toBeNull();
 });

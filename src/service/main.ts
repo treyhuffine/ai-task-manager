@@ -243,6 +243,15 @@ async function killBackendTree(reason: string) {
   child.kill('SIGKILL');
 }
 
+/** The exclusive lease, once the requests in flight have finished. */
+async function activityLease() {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    try { return exclusiveActivity(); } catch { await new Promise(resolve => setTimeout(resolve, 250)); }
+  }
+  return undefined;
+}
+
 /** Restart on purpose: for memory, or because someone asked. Unless urgent,
  * it waits for the Home to be idle, then drains requests like an update does. */
 function planRestart(reason: string, now: boolean) {
@@ -263,10 +272,7 @@ function planRestart(reason: string, now: boolean) {
       let lease: (() => void) | undefined;
       try {
         await backendRequest('/__ri_prepare', 30_000).catch(() => {});
-        const deadline = Date.now() + 15_000;
-        while (!lease && Date.now() < deadline) {
-          try { lease = exclusiveActivity(); } catch { await new Promise(resolve => setTimeout(resolve, 250)); }
-        }
+        lease = await activityLease();
         writeMaintenance({ ...gate, phase: 'offline' });
         status.phase = 'restarting';
         status.restarts = { count: (status.restarts?.count ?? 0) + 1, last: { at: new Date().toISOString(), reason }, crashLoop: restarts.crashLooping };
@@ -405,7 +411,8 @@ const control = http.createServer(async (request, response) => {
           await new Promise(resolve => setTimeout(resolve, 2000));
           const pending = await activity();
           if (pending.length) throw new Error(`Active work is still running: ${pending.join(', ')}`);
-          release = exclusiveActivity();
+          release = await activityLease();
+          if (!release) throw new Error('Requests are still running. Try again in a moment.');
           await stopBackend();
           clearMaintenance();
           reply({ phase: 'stopping' });

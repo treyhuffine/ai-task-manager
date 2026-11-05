@@ -226,7 +226,9 @@ export class UpdateCoordinator {
     writeMaintenance(gate);
     try { await this.backend.prepareIdle?.(); }
     catch (error) { if (!force) return { reasons: [message(error)] }; }
-    const reasons = await waitFor();
+    // A server that doesn't answer for a moment is a reason to wait, not to give up.
+    const check = () => waitFor().catch(() => ['the server to answer']);
+    const reasons = await check();
     if (reasons.length) return { reasons };
     // Give every viewer a chance to flush. New foreground/background work
     // is refused, document PATCH completions still get acknowledged.
@@ -234,7 +236,7 @@ export class UpdateCoordinator {
     const deadline = started + this.timing.drain;
     while (Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, this.timing.poll));
-      const current = await waitFor();
+      const current = await check();
       if (current.length) { this.save({ reason: current.join(', ') }); continue; }
       if (Date.now() - started < this.timing.grace) continue;
       try { return { lease: exclusiveActivity() }; } catch { /* admitted request/CLI is still draining */ }
@@ -251,7 +253,8 @@ export class UpdateCoordinator {
     while (Date.now() < deadline) {
       try { return exclusiveActivity(); } catch { await new Promise(resolve => setTimeout(resolve, this.timing.poll)); }
     }
-    return exclusiveActivity();
+    try { return exclusiveActivity(); }
+    catch { throw new Error('A command is still running against this Home. Try again when it finishes.'); }
   }
 
   async apply() {
@@ -466,7 +469,14 @@ export class UpdateCoordinator {
     // Restoring a checkpoint can await an out-of-process helper. Keep the
     // controller's busy fence held so a concurrent recover/stop/handoff cannot
     // race the database replacement or release ownership while it runs.
-    return this.exclusive(() => this.recoverExclusive(retry));
+    return this.exclusive(async () => {
+      const recovered = await this.recoverExclusive(retry);
+      // A crash while offline leaves the gate behind, and a server can't open
+      // the database under it. This controller owns the Home and nothing is
+      // under way, so it's stale.
+      clearMaintenance();
+      return recovered;
+    });
   }
   private async recoverExclusive(retry: boolean) {
     // Update now is a choice about the chats running when it was asked. A later

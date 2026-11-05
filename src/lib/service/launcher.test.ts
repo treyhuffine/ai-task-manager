@@ -131,3 +131,18 @@ it('force-stops a new release that ignores its stop, instead of waiting on it fo
   expect(runs()).toEqual(['frozen', 'frozen', 'previous']);
   expect(installedRuntime()?.id).toBe(previous);
 }, 20_000);
+
+it('does not mistake a handover for a failed try, however many switches one launcher sees', async () => {
+  // Each started as a candidate, clears its record and works, then updates to
+  // the next. The launcher lives through all of them, as under the OS.
+  const hand = (next: string) => `${startWork}; mkdir -p "$RI_TEST_HOME/activation"; printf '%s\\n' ${next} > "$RI_TEST_HOME/activation/candidate"; printf '%s\\n' $(cat "$RI_TEST_HOME/active-release") > "$RI_TEST_HOME/activation/previous"; printf '%s\\n' ${next} > "$RI_TEST_HOME/active-release"; exit 75`;
+  const last = controller('last', `${startWork}; exit 0`);
+  const third = controller('third', hand(last));
+  const second = controller('second', hand(third));
+  const one = controller('one', hand(second));
+  first(one);
+  expect(await launch().exit).toBe(0);
+  expect(runs()).toEqual(['one', 'second', 'third', 'last']);
+  expect(readActivation().restore).toBe(false);
+  expect(installedRuntime()?.id).toBe(last);
+});
